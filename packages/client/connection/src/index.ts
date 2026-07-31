@@ -34,9 +34,37 @@ export const Config: z<ConnectionConfig> = z.object({
 })
 
 /**
+ * Methods gated to loopback even on a trusted-host deployment. Native dialogs
+ * act on the host machine; the settings and credential domains mutate the
+ * user's configuration and secret store, and READING them is equally
+ * privileged — `settings.describe` returns every exposed namespace's
+ * configuration and `credentials.describe` reports whether an arbitrary
+ * environment-variable name is configured and where from, which is
+ * reconnaissance no anonymous caller should have. `trustedHosts` is a
+ * DNS-rebinding fence, explicitly not authentication, so the whole
+ * configuration plane stays loopback-same-origin until a real authentication
+ * layer exists. The model catalog (`llm.providers`, `llm.models`) is
+ * deliberately NOT here: it carries provider ids, display names, and model
+ * lists — no endpoints, keys, or key state — and a LAN client's model picker
+ * legitimately needs it.
+ */
+const PRIVILEGED_METHODS = new Set([
+  'host.pickDirectory',
+  'host.openPath',
+  'settings.describe',
+  'settings.update',
+  'settings.replace',
+  'credentials.describe',
+  'credentials.set',
+  'credentials.unset',
+])
+
+/**
  * Mounts the API gateway under the browser transport prefix. Every request on
  * the prefix passes the browser-trust fence first (DNS-rebinding and
- * cross-site defense — [api-request-trust](./api-request-trust.ts)).
+ * cross-site defense — [api-request-trust](./api-request-trust.ts));
+ * privileged methods additionally pass it with an empty trust list, which
+ * pins them to loopback.
  * @param ctx - Host plugin context.
  * @param config - resolved plugin config (schema defaults applied).
  */
@@ -51,7 +79,14 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
     kind: 'prefix',
     path: API_PATH,
     handler: async (req, res) => {
-      if (!isTrustedApiRequest(req, trustedHosts)) {
+      const pathname = new URL(req.url ?? '/', 'http://dsh.internal').pathname
+      const method = pathname.startsWith(`${API_PATH}/`)
+        ? pathname.slice(API_PATH.length + 1)
+        : undefined
+      const allowed = method !== undefined && PRIVILEGED_METHODS.has(method)
+        ? isTrustedApiRequest(req, [])
+        : isTrustedApiRequest(req, trustedHosts)
+      if (!allowed) {
         res.writeHead(403)
         res.end('forbidden')
         return

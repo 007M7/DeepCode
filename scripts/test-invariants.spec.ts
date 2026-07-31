@@ -32,6 +32,23 @@ function deferred(): { readonly promise: Promise<void>; readonly resolve: () => 
   return { promise, resolve }
 }
 
+function delayedCompanions(
+  delayedStarted: ReturnType<typeof deferred>,
+  releaseDelayed: ReturnType<typeof deferred>,
+): (_path: string, index: number) => () => Promise<TestInvariantCompanion> {
+  return (_path, index) => async () => ({
+    name: `test-invariant-${index}`,
+    inject: ['invariants'],
+    async apply() {
+      if (index === 0) {
+        delayedStarted.resolve()
+        await releaseDelayed.promise
+      }
+      return () => {}
+    },
+  })
+}
+
 async function withFakeCompanions(
   create: (path: string, index: number) => () => Promise<TestInvariantCompanion>,
   run: () => Promise<void>,
@@ -195,17 +212,7 @@ describe('global test invariant host', () => {
     const releaseDelayed = deferred()
 
     await withFakeCompanions(
-      (_path, index) => async () => ({
-        name: `test-invariant-${index}`,
-        inject: ['invariants'],
-        async apply() {
-          if (index === 0) {
-            delayedStarted.resolve()
-            await releaseDelayed.promise
-          }
-          return () => {}
-        },
-      }),
+      delayedCompanions(delayedStarted, releaseDelayed),
       async () => {
         const ctx = new Context()
         const rootApply = vi.fn(function rootApply() {})
@@ -241,17 +248,7 @@ describe('global test invariant host', () => {
     const releaseDelayed = deferred()
 
     await withFakeCompanions(
-      (_path, index) => async () => ({
-        name: `test-invariant-${index}`,
-        inject: ['invariants'],
-        async apply() {
-          if (index === 0) {
-            delayedStarted.resolve()
-            await releaseDelayed.promise
-          }
-          return () => {}
-        },
-      }),
+      delayedCompanions(delayedStarted, releaseDelayed),
       async () => {
         const ctx = new Context()
         const targetApply = vi.fn(function targetApply() {})
@@ -316,17 +313,7 @@ describe('global test invariant host', () => {
     const releaseDelayed = deferred()
 
     await withFakeCompanions(
-      (_path, index) => async () => ({
-        name: `test-invariant-${index}`,
-        inject: ['invariants'],
-        async apply() {
-          if (index === 0) {
-            delayedStarted.resolve()
-            await releaseDelayed.promise
-          }
-          return () => {}
-        },
-      }),
+      delayedCompanions(delayedStarted, releaseDelayed),
       async () => {
         const ctx = new Context()
         const targetApply = vi.fn(function targetApply() {})

@@ -3,6 +3,7 @@ import type {
   AssistantMessage,
   CallId,
   LlmCallConfig,
+  LlmCallConfigAdapterDefaults,
   LlmFailure,
   MessageSource,
   StreamChunk,
@@ -163,6 +164,8 @@ export interface TodoItem {
 export interface EpochHeader {
   /** The conversation's call configuration (provider, model, reasoning effort, and sampling scalars). */
   config: LlmCallConfig
+  /** Effective config fields materialized from the exact adapter rather than proposed by a caller. */
+  adapterDefaults?: LlmCallConfigAdapterDefaults
   /** Rendered system prompt text; absent for a system-less request. */
   system?: string
   /** Assembled tool schemas; absent for a tool-less request. */

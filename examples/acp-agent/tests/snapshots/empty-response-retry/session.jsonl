@@ -1,22 +1,22 @@
 {"type":"session","version":0,"id":"{{sessionId}}","createdAt":0,"cwd":"{{cwd}}","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":0,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
-{"type":"user/message","seq":1,"time":0,"data":{"content":[{"type":"text","text":"This prompt first receives an empty completion, then a retried reply."}],"source":{"kind":"user"},"role":"user","id":"cdc1196e-fd55-453e-8d08-d7117627c500"},"surfaceOp":"append"}
+{"type":"user/message","seq":1,"time":0,"data":{"content":[{"type":"text","text":"This prompt first receives an empty completion, then a retried reply."}],"source":{"kind":"user"},"role":"user","id":"b4a06b38-1efb-4ff4-be29-e7640176ee38"},"surfaceOp":"append"}
 {"type":"session/title","seq":2,"time":0,"data":{"title":"This prompt first receives an","messageSeqs":[1],"source":{"kind":"fallback"}}}
 {"type":"step/start","seq":3,"time":0,"data":{"turn":1,"step":1}}
-{"type":"request/header","seq":4,"time":0,"data":{"header":{"config":{"provider":"deepseek","model":"deepseek-v4-flash"},"system":"{{system}}","tools":"{{tools}}"},"reason":"initial"}}
-{"type":"request/context","seq":5,"time":1785406826558,"data":{"provider":"deepseek","model":"deepseek-v4-flash"}}
+{"type":"request/header","seq":4,"time":0,"data":{"header":{"config":{"provider":"deepseek-official","model":"deepseek-v4-flash"},"system":"{{system}}","tools":"{{tools}}"},"reason":"initial"}}
+{"type":"request/context","seq":5,"time":1785460630586,"data":{"provider":"deepseek-official","model":"deepseek-v4-flash"}}
 {"type":"assistant/chunk","seq":6,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":0,"outputTokens":0}}}}
-{"type":"assistant/chunk","seq":7,"time":1785406826565,"data":{"turn":1,"step":1,"chunk":{"type":"finish","reason":{"kind":"error","failure":{"message":"model returned a completed response with no content","code":"EMPTY_RESPONSE"}}}}}
-{"type":"step/end","seq":8,"time":1785406826565,"data":{"turn":1,"step":1}}
-{"type":"llm/retry","seq":9,"time":1785406826566,"data":{"turn":1,"step":1,"provider":"deepseek","mode":"normal","policyKey":"[\"normal\",2,[\"EMPTY_RESPONSE\",\"RATE_LIMIT\",\"SERVER\",\"TIMEOUT\",\"TRANSPORT\"],1,1,0]","retry":1,"maxRetries":2,"delayMs":1,"failure":{"message":"model returned a completed response with no content","code":"EMPTY_RESPONSE"}}}
-{"type":"turn/end","seq":10,"time":1785406826568,"data":{"turn":1,"reason":{"kind":"error","step":1,"failure":{"message":"model returned a completed response with no content","code":"EMPTY_RESPONSE"}}}}
-{"type":"turn/start","seq":11,"time":1785406826572,"data":{"turn":2,"trigger":{"kind":"retry"}}}
-{"type":"step/start","seq":12,"time":1785406826576,"data":{"turn":2,"step":1}}
+{"type":"assistant/chunk","seq":7,"time":1785460630595,"data":{"turn":1,"step":1,"chunk":{"type":"finish","reason":{"kind":"error","failure":{"message":"model returned a completed response with no content","code":"EMPTY_RESPONSE"}}}}}
+{"type":"step/end","seq":8,"time":1785460630595,"data":{"turn":1,"step":1}}
+{"type":"llm/retry","seq":9,"time":1785460630595,"data":{"turn":1,"step":1,"provider":"deepseek-official","mode":"normal","policyKey":"[\"normal\",2,[\"EMPTY_RESPONSE\",\"RATE_LIMIT\",\"SERVER\",\"TIMEOUT\",\"TRANSPORT\"],1,1,0]","retry":1,"maxRetries":2,"delayMs":1,"failure":{"message":"model returned a completed response with no content","code":"EMPTY_RESPONSE"}}}
+{"type":"turn/end","seq":10,"time":1785460630597,"data":{"turn":1,"reason":{"kind":"error","step":1,"failure":{"message":"model returned a completed response with no content","code":"EMPTY_RESPONSE"}}}}
+{"type":"turn/start","seq":11,"time":1785460630602,"data":{"turn":2,"trigger":{"kind":"retry"}}}
+{"type":"step/start","seq":12,"time":1785460630606,"data":{"turn":2,"step":1}}
 {"type":"assistant/chunk","seq":13,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"block-start","index":0,"blockType":"text"}}}
 {"type":"assistant/chunk","seq":14,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"text-delta","index":0,"text":"Recovered."}}}
 {"type":"assistant/chunk","seq":15,"time":1785047244294,"data":{"turn":2,"step":1,"chunk":{"type":"block-end","index":0,"block":{"type":"text","text":"Recovered."}}}}
 {"type":"assistant/chunk","seq":16,"time":1785047244294,"data":{"turn":2,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":12,"outputTokens":3}}}}
-{"type":"assistant/chunk","seq":17,"time":1785406826580,"data":{"turn":2,"step":1,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
-{"type":"assistant/message","seq":18,"time":1785406826580,"data":{"turn":2,"step":1,"message":{"role":"assistant","content":[{"type":"text","text":"Recovered."}],"source":{"kind":"model","provider":"deepseek","model":"deepseek-v4-flash"},"id":"abec8b18-306d-4f2d-a5ce-b2a2474b4636"},"usage":{"inputTokens":12,"outputTokens":3}},"sourceEventSeqs":[13,14,15,16,17],"surfaceOp":"append"}
-{"type":"step/end","seq":19,"time":1785406826581,"data":{"turn":2,"step":1}}
-{"type":"turn/end","seq":20,"time":1785406826581,"data":{"turn":2,"reason":{"kind":"completed"}}}
+{"type":"assistant/chunk","seq":17,"time":1785460630611,"data":{"turn":2,"step":1,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
+{"type":"assistant/message","seq":18,"time":1785460630611,"data":{"turn":2,"step":1,"message":{"role":"assistant","content":[{"type":"text","text":"Recovered."}],"source":{"kind":"model","provider":"deepseek-official","model":"deepseek-v4-flash"},"id":"5a00a2de-4f5f-4e37-a94c-3b4ba9130807"},"usage":{"inputTokens":12,"outputTokens":3}},"sourceEventSeqs":[13,14,15,16,17],"surfaceOp":"append"}
+{"type":"step/end","seq":19,"time":1785460630611,"data":{"turn":2,"step":1}}
+{"type":"turn/end","seq":20,"time":1785460630611,"data":{"turn":2,"reason":{"kind":"completed"}}}

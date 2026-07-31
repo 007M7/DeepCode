@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { createElement, type ComponentProps, type FC, type ReactNode } from 'react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
+import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
@@ -22,15 +23,23 @@ import type {
 import type { ConvViewProps, ViewTab } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { ConversationSession, type ConversationSessionProps } from '@deepseek-ai/dsh-client-ui-conversation/src/client/skeleton/ConversationSession.tsx'
 import { createChatStore } from '@deepseek-ai/dsh-client-ui-conversation/src/client/stores.ts'
+import { zh as conversationZh } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-trajectory/client'
 import { apply as nodeApply } from '@deepseek-ai/dsh-client-ui-trajectory'
 import type { TrajectoryTurnModel } from '../src/client/layout.ts'
+import { TrajectoryTimeline } from '../src/client/TrajectoryTimeline.tsx'
 import {
   TrajectoryView, type TrajectoryViewInjected,
 } from '../src/client/TrajectoryView.tsx'
 import { deriveTrajectoryTimeline } from '../src/client/timeline.ts'
 
 const SID = 's1' as SessionId
+
+// Stub of the conversation package's standard locale seat (this spec mounts
+// its ConversationSession chrome); answers from the zh dictionary and falls
+// back to the key like the real chain.
+const tConversation: ConversationSessionProps['t'] =
+  key => (conversationZh as Record<string, string>)[key] ?? key
 afterEach(cleanup)
 // The chat store persists under its declared key; clear so one case's active
 // view cannot rehydrate into the next.
@@ -155,7 +164,7 @@ async function bench(snapshot = historySnapshot(NODES)) {
 /** Tab projection twin of apply's viewTabs (the render-side consumption path). */
 function tabsOf(slots: SlotsService): ViewTab[] {
   return slots.entries('conversation.view')
-    .map(e => ({ id: e.options.id!, label: e.options.label ?? e.options.id! }))
+    .map(e => ({ id: e.options.id!, label: resolveSlotLabel(e.options.label) ?? e.options.id! }))
 }
 
 /** Mount the strict session content over the ring ledger with an outlet-faithful renderSlot. */
@@ -198,6 +207,7 @@ function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES
   return render(
     <ConversationSession
       sessionId={SID}
+      t={tConversation}
       SessionProvider={({ children }) => children(SID)}
       useSession={useSession}
       useSessions={emptySessions()}
@@ -309,6 +319,44 @@ describe('tab switching in ConversationRoot', () => {
       .toBeNull()
   })
 
+  it('clicking a timeline block clears the range, selects the record, and opens its inspector', async () => {
+    const b = await bench()
+    const view = mount(b.slots)
+    fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
+    const plot = screen.getByLabelText('Timeline overview; drag horizontally to focus events')
+    vi.spyOn(plot, 'getBoundingClientRect').mockReturnValue({
+      x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 72, width: 100, height: 72,
+      toJSON: () => ({}),
+    })
+    const toolSpan = view.container.querySelector<HTMLElement>(
+      '[data-timeline-span="tool"]',
+    )
+    expect(toolSpan).not.toBeNull()
+    const recordIndex = toolSpan?.dataset.timelineRecordIndex
+    expect(recordIndex).toBeTruthy()
+
+    fireEvent.pointerMove(toolSpan as HTMLElement, { clientX: 50, pointerId: 1 })
+    expect(view.container.querySelector('[data-timeline-hover-line]')).toBeNull()
+    expect(toolSpan?.getAttribute('data-hovered')).toBe('true')
+
+    fireEvent.pointerDown(plot, { button: 0, clientX: 5, pointerId: 1 })
+    fireEvent.pointerMove(plot, { clientX: 95, pointerId: 1 })
+    fireEvent.pointerUp(plot, { clientX: 95, pointerId: 1 })
+    expect(view.container.querySelector('tr[data-timeline-focus]')).toBeTruthy()
+
+    fireEvent.pointerDown(toolSpan as HTMLElement, {
+      button: 0, clientX: 50, pointerId: 2,
+    })
+    fireEvent.pointerUp(toolSpan as HTMLElement, { clientX: 50, pointerId: 2 })
+
+    const selectedRow = view.container.querySelector<HTMLElement>(
+      `tr[data-record-index="${recordIndex}"]`,
+    )
+    expect(selectedRow?.getAttribute('aria-selected')).toBe('true')
+    expect(view.container.querySelector('tr[data-timeline-focus]')).toBeNull()
+    expect(screen.getByRole('complementary', { name: 'Event details' })).toBeTruthy()
+  })
+
   it('empty window keeps the toolbar and reports no timing data', async () => {
     const b = await bench(historySnapshot([]))
     mount(b.slots)
@@ -332,6 +380,97 @@ describe('timeline projection', () => {
       ],
     }],
   }] satisfies readonly TrajectoryTurnModel[]
+  const longTurns = [{
+    turn: 1,
+    groups: [{
+      title: 'Step 1',
+      cells: Array.from({ length: 10 }, (_, index) => ({
+        index,
+        kind: 'message' as const,
+        text: `record ${index}`,
+        timeSeconds: 1,
+      })),
+    }],
+  }] satisfies readonly TrajectoryTurnModel[]
+
+  it('pans the zoomed viewport only far enough to reveal a newly selected record', async () => {
+    const onRangeChange = vi.fn()
+    const view = render(
+      <TrajectoryTimeline
+        turns={longTurns}
+        mode="sequence"
+        range={null}
+        onRangeChange={onRangeChange}
+      />,
+    )
+    const plot = screen.getByLabelText('Timeline overview; drag horizontally to focus events')
+    vi.spyOn(plot, 'getBoundingClientRect').mockReturnValue({
+      x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 72, width: 100, height: 72,
+      toJSON: () => ({}),
+    })
+    fireEvent.wheel(plot, { clientX: 50, deltaY: -1_000 })
+
+    view.rerender(
+      <TrajectoryTimeline
+        turns={longTurns}
+        mode="sequence"
+        range={null}
+        selectedIndex={1}
+        onRangeChange={onRangeChange}
+      />,
+    )
+    await vi.waitFor(() => {
+      const domain = view.container.querySelector<HTMLElement>(
+        '[data-timeline-domain]',
+      )
+      expect(domain?.style.getPropertyValue('--trajectory-domain-left')).toBe('-25%')
+    })
+
+    view.rerender(
+      <TrajectoryTimeline
+        turns={longTurns}
+        mode="sequence"
+        range={null}
+        selectedIndex={8}
+        onRangeChange={onRangeChange}
+      />,
+    )
+    await vi.waitFor(() => {
+      const domain = view.container.querySelector<HTMLElement>(
+        '[data-timeline-domain]',
+      )
+      expect(domain?.style.getPropertyValue('--trajectory-domain-left')).toBe('-125%')
+    })
+  })
+
+  it('auto-pans a zoomed viewport while a range drag pushes against an edge', () => {
+    const onRangeChange = vi.fn()
+    render(
+      <TrajectoryTimeline
+        turns={longTurns}
+        mode="sequence"
+        range={null}
+        onRangeChange={onRangeChange}
+      />,
+    )
+    const plot = screen.getByLabelText('Timeline overview; drag horizontally to focus events')
+    vi.spyOn(plot, 'getBoundingClientRect').mockReturnValue({
+      x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 72, width: 100, height: 72,
+      toJSON: () => ({}),
+    })
+    fireEvent.wheel(plot, { clientX: 50, deltaY: -1_000 })
+    fireEvent.pointerDown(plot, { button: 0, clientX: 50, pointerId: 1 })
+    for (let index = 0; index < 24; index++) {
+      fireEvent.pointerMove(plot, { clientX: 99, pointerId: 1 })
+    }
+    fireEvent.pointerUp(plot, { clientX: 99, pointerId: 1 })
+
+    const selectedRange = onRangeChange.mock.calls.at(-1)?.[0] as
+      | { start: number; end: number }
+      | undefined
+    expect(selectedRange).toBeDefined()
+    expect((selectedRange?.end ?? 0) - (selectedRange?.start ?? 0)).toBeGreaterThan(4)
+  })
 
   it('uses equal-width operation slots and stable semantic lanes', () => {
     expect(deriveTrajectoryTimeline(turns)).toEqual({
@@ -339,13 +478,48 @@ describe('timeline projection', () => {
       end: 3,
       spans: [
         {
-          index: 1, kind: 'message', label: 'assistant', lane: 1, start: 0, end: 1,
+          index: 1, isError: false, kind: 'message', label: 'assistant',
+          lane: 1, start: 0, end: 1,
         },
-        { index: 2, kind: 'tool', label: 'bash', lane: 2, start: 1, end: 2 },
-        { index: 3, kind: 'user', label: 'unknown', lane: 0, start: 2, end: 3 },
+        {
+          index: 2, isError: false, kind: 'tool', label: 'bash',
+          lane: 2, start: 1, end: 2,
+        },
+        {
+          index: 3, isError: false, kind: 'user', label: 'unknown',
+          lane: 0, start: 2, end: 3,
+        },
       ],
       turnBoundaries: [{ turn: 1, time: 0 }],
     })
+  })
+
+  it('marks error records directly on timeline spans', () => {
+    const errorTurns = [{
+      turn: 1,
+      groups: [{
+        title: 'Step 1',
+        cells: [{
+          index: 1,
+          kind: 'tool' as const,
+          text: 'failed tool',
+          timeSeconds: 0.1,
+          isError: true,
+        }],
+      }],
+    }] satisfies readonly TrajectoryTurnModel[]
+    const view = render(
+      <TrajectoryTimeline
+        turns={errorTurns}
+        mode="sequence"
+        range={null}
+        onRangeChange={() => {}}
+      />,
+    )
+
+    expect(view.container.querySelector(
+      '[data-timeline-span="tool"][data-error="true"]',
+    )).toBeTruthy()
   })
 
   it('ignores durations and idle gaps while retaining turn boundaries', () => {

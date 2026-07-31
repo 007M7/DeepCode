@@ -10,6 +10,9 @@ import type { WorkspaceApi } from './workspace.ts'
 import type { CommandsApi } from './commands.ts'
 import type { SkillsApi } from './skills.ts'
 import type { GoalsApi } from './goals.ts'
+import type { SettingsApi } from './settings.ts'
+import type { CredentialsApi } from './credentials.ts'
+import type { LlmApi } from './llm.ts'
 import type { RpcResponse } from './rpc.ts'
 
 /**
@@ -24,6 +27,7 @@ export interface RpcMethodMap {
   'session.models': SessionsApi['models']
   'session.selectModel': SessionsApi['selectModel']
   'session.rename': SessionsApi['rename']
+  'session.fork': SessionsApi['fork']
   'session.prompt': SessionsApi['prompt']
   'session.updateQueue': SessionsApi['updateQueue']
   'session.cancel': SessionsApi['cancel']
@@ -46,6 +50,15 @@ export interface RpcMethodMap {
   'goal.resume': GoalsApi['resume']
   'goal.complete': GoalsApi['complete']
   'goal.clear': GoalsApi['clear']
+  'settings.describe': SettingsApi['describe']
+  'settings.update': SettingsApi['update']
+  'settings.replace': SettingsApi['replace']
+  'settings.mutate': SettingsApi['mutate']
+  'credentials.describe': CredentialsApi['describe']
+  'credentials.set': CredentialsApi['set']
+  'credentials.unset': CredentialsApi['unset']
+  'llm.providers': LlmApi['providers']
+  'llm.models': LlmApi['models']
 }
 
 /** Business request payload of method K (reaches through the RpcRequest narrow form to payload). */

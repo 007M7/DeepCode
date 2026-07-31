@@ -43,12 +43,11 @@ async function harness(): Promise<Context> {
   contexts.push(ctx)
   await ctx.plugin(LlmService)
   await ctx.plugin(LlmPiAi, {
-    providers: providerCases.map(profile => ({
-      provider: profile.provider,
+    providers: Object.fromEntries(providerCases.map(profile => [profile.provider, {
       ...profile.apiKey === undefined ? {} : { apiKey: profile.apiKey },
       ...profile.baseURL === undefined ? {} : { baseURL: profile.baseURL },
       ...profile.headers === undefined ? {} : { headers: profile.headers },
-    })),
+    }])),
   })
   return ctx
 }

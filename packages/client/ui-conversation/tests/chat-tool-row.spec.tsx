@@ -4,11 +4,16 @@ import { cleanup, fireEvent, render } from '@testing-library/react'
 
 afterEach(cleanup)
 import type { RunningToolCall, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { classifyTool, resolveToolPath, toolRowModel } from '../src/client/contract/tool-call-model.ts'
 import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
 import { ToolRow } from '../src/client/chat/ToolRow.tsx'
-import { GenericToolCard } from '../src/client/chat/GenericToolCard.tsx'
-import type { ToolRowOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { GenericToolCard, type GenericToolCardProps } from '../src/client/chat/GenericToolCard.tsx'
+import { zh } from '../src/client/locales.ts'
+
+// Mirrors the real lookup chain (conversation namespace, then common).
+const t: GenericToolCardProps['t'] = makeTranslate(zh, commonZh)
 
 const running = (over?: Partial<RunningToolCall>): RunningToolCall => ({
   callId: 'c1', name: 'bash', argsRaw: '{"command":"ls -la","description":"List files"}',
@@ -132,6 +137,7 @@ describe('tool-call-model', () => {
 
 describe('ToolRow', () => {
   const rowProps = {
+    t,
     variant: 'bash' as const, icon: <i data-testid="tool-icon" />, title: 'Bash',
     summary: 'List files', body: '{\n  "a": 1\n}', state: 'ok' as const,
   }
@@ -221,6 +227,7 @@ describe('ThinkRow', () => {
   it('expands from either Think or the reasoning summary', () => {
     const view = render(
       <AssistantMarkdown
+        t={t}
         blocks={[{ kind: 'reasoning', text: 'Inspect the session\nCheck persistence' }]}
         streaming={false}
       />,
@@ -237,8 +244,8 @@ describe('ThinkRow', () => {
 })
 
 describe('GenericToolCard', () => {
-  const props = (toolName: string, block: RunningToolCall | ToolResultNode): ToolRowOwnerProps => ({
-    callId: 'c1', toolName, block, openFile: vi.fn(),
+  const props = (toolName: string, block: RunningToolCall | ToolResultNode): GenericToolCardProps => ({
+    callId: 'c1', toolName, block, openFile: vi.fn(), t,
   })
 
   it('renders the classified variant row from the frozen slice', () => {
