@@ -14,7 +14,7 @@ export type ConversationRootProps = ConversationSlotProps
 
 export function ConversationRoot({
   sessionId, useSession, useSessions, useWorkspaces, useInput,
-  renderSlot, renderSlotChain, selectWorkspace,
+  renderSlot, renderSlotChain, selectWorkspace, t,
 }: ConversationRootProps) {
   const openState = useSession(s => s.openState)
   const composerPhase = useSession(s => s.composerPhase)
@@ -94,6 +94,7 @@ export function ConversationRoot({
         label={chipTitle}
         menuOpen={pickerOpen}
         onClick={() => { setPickerOpen(open => !open) }}
+        t={t}
       />
       {renderSlot('conversation.hero.workspace', {
         open: pickerOpen,
@@ -120,8 +121,8 @@ export function ConversationRoot({
   const inputBar = renderSlot('conversation.composer.bar', {
     variant: hero ? 'hero' : 'composer',
     ...(inert
-      ? { disabled: true, placeholder: 'Choose a workspace to start' }
-      : hero ? { placeholder: 'Describe what you want to build' } : {}),
+      ? { disabled: true, placeholder: t('placeholder.workspace') }
+      : hero ? { placeholder: t('placeholder.hero') } : {}),
     overlay: renderSlot('conversation.input.overlay', {}),
     leftItems: zone === undefined ? null : renderSlot('conversation.input.left', zone),
     rightItems: zone === undefined ? null : renderSlot('conversation.input.right', zone),
@@ -133,7 +134,7 @@ export function ConversationRoot({
   const composerBar = (
     <div className={clsx(css.composerStack, hero && css.composerHero)}>
       {hero && <HeroGlow className={css.heroGlow} />}
-      {hero && <HeroShell />}
+      {hero && <HeroShell t={t} />}
       {hero && heroWorkspaceRow}
       {!hero && zone !== undefined && renderSlot('conversation.input.dock', zone)}
       {inputBar}

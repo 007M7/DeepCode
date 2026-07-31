@@ -64,7 +64,7 @@ Providers stream token-sized deltas, so a raw log stores hundreds of `assistant/
 
 ### Request-header reconstruction (`request-header.ts`)
 
-`request/header` records a full canonical snapshot of the non-history request envelope with reason `initial`, `resume`, or `change`. `foldRequestHeader()` selects the latest snapshot; legacy delta events and the removed `fallback` reason are rejected. See the [reconstructable-requests Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md).
+`request/header` records a full canonical snapshot of the non-history request envelope with reason `initial`, `resume`, or `change`. Its optional `adapterDefaults` map marks effective `reasoningEffort` or `maxTokens` values materialized by exact-model resolution, allowing the next request proposal to distinguish them from explicit conversation settings. `foldRequestHeader()` selects the latest snapshot; legacy delta events and the removed `fallback` reason are rejected. See the [reconstructable-requests Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md).
 
 A `user/message` stores the complete `UserMessage` directly, including the identity created before routing or prompt admission. It renders its `content` verbatim whether it is a direct human prompt, a synthetic injection, or an admitted goal round; its typed `source` is the only channel that tells them apart and carries any domain-specific durable facts. `assistant/message`, `tool/result`, and `steering/message` likewise store complete message values. Turn execution remains enclosed by `turn/start` and `turn/end`, while an idle injection may append and flush a `user/message` between turns without running the model.
 

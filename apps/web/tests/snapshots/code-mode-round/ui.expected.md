@@ -5,31 +5,33 @@
     - tab "Chat" [selected]
     - tab "Trajectory"
 - text: "Using ONE run_code program: run bash `echo CODE_ROUND_OK`, then read the file missing.txt catching its error in the program. Return an object with both outcomes. Then reply DONE and stop. {{clock}}"
-- button "复制":
+- button "Copy":
   - img
-- button "在新对话中分支":
+- button "Branch into a new conversation":
   - img
-- button "编辑":
+- button "Edit":
   - img
 - 'button "Think The user wants me to write a single `run_code` program that:"':
   - img
   - img
   - text: "Think The user wants me to write a single `run_code` program that:"
-- button:
+- button "Code Run bash echo and catch missing file read":
   - img
   - img
-- text: Code Run bash echo and catch missing file read
+  - text: Code Run bash echo and catch missing file read
 - img
-- text: Bash Echo CODE_ROUND_OK Read
-- button "missing.txt"
+- text: Bash Echo CODE_ROUND_OK
+- 'button "Read Error: cannot read \"{{cwd}}/workspace/missing.txt\": not found"':
+  - img
+  - text: "Read Error: cannot read \"{{cwd}}/workspace/missing.txt\": not found"
 - button "Think The program ran successfully. Let me now reply DONE as instructed.":
   - img
   - img
   - text: Think The program ran successfully. Let me now reply DONE as instructed.
 - paragraph: DONE
-- button "复制":
+- button "Copy":
   - img
-- button "在新对话中分支":
+- button "Branch into a new conversation":
   - img
 - text: {{clock}}
 - textbox "Message the agent"

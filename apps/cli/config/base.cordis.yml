@@ -56,16 +56,30 @@
 - id: llm-retry
   name: '@deepseek-ai/dsh-llm-retry'
 
+# User-settings document (`$DSH_HOME/settings.yaml`, hot-reloaded): a
+# `llm-deepseek:` or `llm-pi-ai:` section there overrides the adapter entries
+# below without a restart, and is what the web Models page writes.
+- id: settings
+  name: '@deepseek-ai/dsh-settings-local'
+
+# Credential store: the live process environment over `$DSH_HOME/.env`
+# (owner-only file, hot-reloaded). Adapters resolve their key references
+# through it at each request, so no key is inlined in this file. The web
+# Models page's key inputs write it through `credentials.set`; nothing hoists
+# the document into the process environment, which would make every stored key
+# read as an unrotatable ambient override.
+- id: credentials
+  name: '@deepseek-ai/dsh-credentials-local'
+
+# The pi-ai multi-provider twin, mounted dormant: zero routes (and no extra
+# models in the picker) until a `llm-pi-ai:` settings section supplies provider
+# profiles — then those routes register live, keys resolving per request
+# through their apiKeyEnv references, and drop again when the section empties.
+# Supplying those profiles is exactly what the web Models page does. Which
+# adapters exist is composition; which providers run is the user's settings
+# document.
 - id: llm-pi-ai
   name: '@deepseek-ai/dsh-llm-pi-ai'
-  config:
-    providers:
-      - provider: openai
-        apiKey: !!js process.env.OPENAI_API_KEY
-        baseURL: !!js process.env.OPENAI_BASE_URL
-      - provider: anthropic
-        apiKey: !!js process.env.ANTHROPIC_API_KEY
-        baseURL: !!js process.env.ANTHROPIC_BASE_URL
 
 - id: session-persistence-jsonl
   name: '@deepseek-ai/dsh-session-persistence-jsonl'
@@ -74,11 +88,44 @@
       (() => { const path = process.getBuiltinModule('node:path'); const home = process.getBuiltinModule('node:os').homedir(); const configured = process.env.DSH_HOME; const selected = configured !== undefined && configured.trim().length > 0 ? configured : path.join(home, '.dsh'); const expanded = selected === '~' ? home : selected.startsWith('~/') || selected.startsWith('~\\') ? path.join(home, selected.slice(2)) : selected; return path.join(path.resolve(expanded), 'sessions') })()
 
 # TUI consumes this shared session capability. Its launcher supplies a unique
-# process-local path; non-TUI surfaces disable the row in their overlay.
+# process-local path; other surfaces repoint or disable the row in their
+# overlay (web patches it to an ephemeral in-memory index).
 - id: session-query-sqlite
   name: '@deepseek-ai/dsh-session-query-sqlite'
   config:
     path: !!js launcherSessionQueryPath ?? './.sessions/session-query.db'
+
+# Session telemetry, on for every dsh surface: mirrors every session-log
+# event (assistant/chunk projected to first-of-step) plus ops markers onto
+# OTLP/HTTP log records, streaming on the batch processor's cadence
+# (10s/batch here) — not at exit; a crash loses at most the last unexported
+# interval. No telemetry/record redaction rule is mounted yet, so exports
+# are the raw captured copy; the deployment stance, env seams, and
+# follow-ups are pinned in the web-telemetry-default-mount Agent Note.
+# DSH_TELEMETRY_OTLP_URL overrides the production endpoint, and a non-empty
+# DSH_TELEMETRY_DISABLED — any value, including '0'/'false' — opts the
+# process out (the launchers patch the row disabled; config cannot disable
+# a row). The exporter/processor values bound the shutdown drain to ~1s
+# against an unreachable collector: exporter.timeoutMillis is both the
+# per-attempt socket timeout and the retry deadline (1s effectively
+# disables the SDK's 5-try backoff), maxExportBatchSize == maxQueueSize
+# (both explicit) makes the drain a single batch, and exportTimeoutMillis
+# is the processor's own cap on that one export cycle — the second bound
+# when the exporter's clock alone does not fire. Every surface's exit path
+# drains it: web/headless dispose on SIGINT/SIGTERM, and the TUI's normal
+# exit and /resume handoff both dispose the root.
+- id: telemetry-otel
+  name: '@deepseek-ai/dsh-session-telemetry-otel'
+  config:
+    exporter:
+      url: !!js process.env.DSH_TELEMETRY_OTLP_URL ?? 'https://harness-telemetry.deepseeksvc.com/v1/logs'
+      compression: gzip
+      timeoutMillis: 1000
+    processor:
+      scheduledDelayMillis: 10000
+      maxQueueSize: 2048
+      maxExportBatchSize: 2048
+      exportTimeoutMillis: 1500
 
 - id: subprocess
   name: '@deepseek-ai/dsh-subprocess-local'
@@ -102,6 +149,8 @@
 
 - id: tool-fs-search
   name: '@deepseek-ai/dsh-tool-fs-search'
+  config:
+    sampleOverCapGlobResults: false
 
 - id: workspace-context
   name: '@deepseek-ai/dsh-workspace-context'
@@ -221,10 +270,9 @@
 - id: fs-local
   name: '@deepseek-ai/dsh-fs-local'
 
-# The native DeepSeek adapter; reads the key/base-url the boot's layered .env
-# loading left in the environment. Thinking defaults are a surface choice.
+# The native DeepSeek adapter. No key or endpoint is inlined: both resolve per
+# request from the `llm-deepseek:` settings section over this entry, with the
+# key coming from the credential store below. Thinking defaults are a surface
+# choice.
 - id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek'
-  config:
-    apiKey: !!js process.env.DEEPSEEK_API_KEY
-    baseURL: !!js process.env.DEEPSEEK_BASE_URL

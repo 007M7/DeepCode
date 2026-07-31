@@ -29,7 +29,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-system-prompt'
-import type {} from '@deepseek-ai/dsh-user-interaction'
+import { UserInteractionError } from '@deepseek-ai/dsh-user-interaction'
 // Type-only edge: resolves `ctx.commands` for the optional command child.
 import type {} from '@deepseek-ai/dsh-commands'
 // Type-only: resolves ctx.sessionProjections for the optional unit child.
@@ -69,6 +69,9 @@ export interface PlanModeConfig {
   /** Guidance rendered as the `plan:policy` prompt section while plan mode is active. */
   section: string
 }
+
+/** The review question's id, echoed in the answer this tool reads. */
+const REVIEW_ID = 'plan-review'
 
 /** The review question's approve option label. */
 const APPROVE_LABEL = 'Approve'
@@ -317,7 +320,7 @@ export class PlanModeService extends Service {
         }
         const answer = await interaction.ask({
           questions: [{
-            id: 'plan-review',
+            id: REVIEW_ID,
             header: 'Plan review',
             question: 'Approve this plan and leave plan mode?',
             detail: args.plan,
@@ -325,16 +328,31 @@ export class PlanModeService extends Service {
               { label: APPROVE_LABEL, description: 'Leave plan mode; the plan is carried out from the next step.' },
               { label: KEEP_PLANNING_LABEL, description: 'Stay in plan mode; feedback goes back to the model.' },
             ],
+            // Presentation only: a capable UI renders the plan as a review
+            // decision instead of a generic question, and answers with one of
+            // the labels above either way.
+            intent: { kind: 'plan-review', approve: APPROVE_LABEL },
           }],
           agent,
           signal: exec.signal,
+        }).catch((cause: unknown) => {
+          // A dismissed review is not a failed one: the user took the turn back
+          // to say something the two options do not cover. Say so, because the
+          // generic channel message names ask_user_question, which the model
+          // never called. An abort (turn cancel, provider teardown) keeps its
+          // own message — there is no user to wait for.
+          if (cause instanceof UserInteractionError && cause.code === 'ASK_CANCELLED') {
+            throw new Error('The user dismissed the plan review to speak instead; '
+              + 'stay in plan mode, stop here, and wait for their message.')
+          }
+          throw cause
         })
         // A review may outlive this plugin fiber. Without boundary listeners,
         // an approved result could never land, so fail and keep planning.
         if (disposed) {
           throw new Error('the plan-mode service was reloaded while the plan was under review; present the plan again')
         }
-        const reviewItems = answer.answers.filter(entry => entry.id === 'plan-review')
+        const reviewItems = answer.answers.filter(entry => entry.id === REVIEW_ID)
         const item = reviewItems.length === 1 ? reviewItems[0] : undefined
         if (item?.selected.length !== 1 || item.selected[0] !== APPROVE_LABEL || item.custom !== undefined) {
           const feedback = item?.custom ?? ''

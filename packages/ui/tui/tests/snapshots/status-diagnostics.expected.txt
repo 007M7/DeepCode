@@ -21,68 +21,68 @@ buffer
   style 0-2 fg=bright-magenta bold underline
 9| "inspect this session                                                                        "
 10| <blank>
-11| "╭─ Session status ───────────────────────────────────────────────────────────────╮"
+11| "╭─ Session status ────────────────────────────────────────────────────────────────────────╮"
   style 0-2 dim
   style 3-16 fg=bright-magenta bold
-  style 17-81 dim
-12| "│  Session:    main-session                                                      │"
+  style 17-90 dim
+12| "│  Session:    main-session                                                               │"
   style 0-0 dim
   style 3-12 dim
-  style 81-81 dim
-13| "│  Title:      Inspect session diagnostics                                       │"
+  style 90-90 dim
+13| "│  Title:      Inspect session diagnostics                                                │"
   style 0-0 dim
   style 3-12 dim
-  style 81-81 dim
-14| "│  Directory:  /workspace/project                                                │"
+  style 90-90 dim
+14| "│  Directory:  /workspace/project                                                         │"
   style 0-0 dim
   style 3-12 dim
-  style 81-81 dim
-15| "│  Model:      deepseek/deepseek-v4-pro (effort default; reasoning blocks shown) │"
+  style 90-90 dim
+15| "│  Model:      deepseek-official/deepseek-v4-pro (effort default; reasoning blocks shown) │"
   style 0-0 dim
   style 3-12 dim
-  style 40-79 dim
-  style 81-81 dim
-16| "│                                                                                │"
+  style 49-88 dim
+  style 90-90 dim
+16| "│                                                                                         │"
   style 0-0 dim
-  style 81-81 dim
-17| "│  Agent:      idle · 8 events · 1 turn · 1 step · 1 tool call                   │"
-  style 0-0 dim
-  style 3-12 dim
-  style 81-81 dim
-18| "│                                                                                │"
-  style 0-0 dim
-  style 81-81 dim
-19| "│  Tokens:     1,250 input + 340 output                                          │"
+  style 90-90 dim
+17| "│  Agent:      idle · 8 events · 1 turn · 1 step · 1 tool call                            │"
   style 0-0 dim
   style 3-12 dim
-  style 81-81 dim
-20| "│  KV cache:   [███████████░░░░░] 67% hit (3,000 read + 250 write)               │"
+  style 90-90 dim
+18| "│                                                                                         │"
+  style 0-0 dim
+  style 90-90 dim
+19| "│  Tokens:     1,250 input + 340 output                                                   │"
+  style 0-0 dim
+  style 3-12 dim
+  style 90-90 dim
+20| "│  KV cache:   [███████████░░░░░] 67% hit (3,000 read + 250 write)                        │"
   style 0-0 dim
   style 3-12 dim
   style 15-15 dim
   style 16-26 fg=bright-magenta
   style 27-32 dim
-  style 81-81 dim
-21| "│  Context:    [█████░░░░░░░░░░░] 33% used (42,000 / 128,000)                    │"
+  style 90-90 dim
+21| "│  Context:    [█████░░░░░░░░░░░] 33% used (42,000 / 128,000)                             │"
   style 0-0 dim
   style 3-12 dim
   style 15-15 dim
   style 16-20 fg=bright-magenta
   style 21-32 dim
-  style 81-81 dim
-22| "│                                                                                │"
+  style 90-90 dim
+22| "│                                                                                         │"
   style 0-0 dim
-  style 81-81 dim
-23| "│  Created:    2026-07-22 09:10:11 UTC                                           │"
-  style 0-0 dim
-  style 3-12 dim
-  style 81-81 dim
-24| "│  Active:     2026-07-22 09:10:11 UTC                                           │"
+  style 90-90 dim
+23| "│  Created:    2026-07-22 09:10:11 UTC                                                    │"
   style 0-0 dim
   style 3-12 dim
-  style 81-81 dim
-25| "╰────────────────────────────────────────────────────────────────────────────────╯"
-  style 0-81 dim
+  style 90-90 dim
+24| "│  Active:     2026-07-22 09:10:11 UTC                                                    │"
+  style 0-0 dim
+  style 3-12 dim
+  style 90-90 dim
+25| "╰─────────────────────────────────────────────────────────────────────────────────────────╯"
+  style 0-90 dim
 26| <blank>
 27| "System prompt                                                                               "
   style 0-12 fg=bright-magenta bold

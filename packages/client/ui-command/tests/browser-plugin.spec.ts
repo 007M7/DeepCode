@@ -13,6 +13,7 @@ import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SlashSource } from '@deepseek-ai/dsh-client-ui-slash/client'
 import type { CommandServiceContract } from '../src/client/contract.ts'
 import type { PopupSelectInjected } from '../src/client/PopupSelectView.tsx'
+import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, CommandService, inject } from '../src/client/index.ts'
 
 const sid = (k: string): SessionId => k as SessionId
@@ -41,6 +42,7 @@ async function bench() {
     },
   })
   ctx.provide('conversation', {})
+  ctx.provide('locale', new LocaleService(ctx))
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
   const mint = (key: string) => {
@@ -53,7 +55,7 @@ async function bench() {
 
 describe('apply', () => {
   it('declares the services it binds', () => {
-    expect(inject).toEqual(['slash', 'sessions', 'connection'])
+    expect(inject).toEqual(['slash', 'sessions', 'connection', 'locale'])
   })
 
   it('mounts ctx.command, registers the source and the overlay entry, and folds up on disposal', async () => {

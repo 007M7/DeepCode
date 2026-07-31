@@ -217,6 +217,26 @@
   scrollbar-gutter: stable;
 }
 
+.list > [role='treeitem'] + [role='treeitem'] {
+  margin-top: 4px;
+}
+
+.searchTree > [role='treeitem'] + [role='treeitem'] {
+  margin-top: 4px;
+}
+
+.searchStatus,
+.searchWarning {
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.searchWarning {
+  color: var(--dsw-alias-label-secondary);
+}
+
 /* One workspace section: header row + expanded session run. Rows inside
    keep the former flat-list 4px gap as sibling margins; the inter-group
    breathing room (figma 133:7661 batch separator, 20px after an expanded
