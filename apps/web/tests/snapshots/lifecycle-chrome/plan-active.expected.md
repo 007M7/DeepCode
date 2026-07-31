@@ -28,7 +28,7 @@
 - textbox "Describe what you want to build"
 - button "Commands":
   - img
-- 'button "Access mode, current: Danger Full Access"': Danger Full Access
+- 'button "Access mode, current: Full access"': Full access
 - button "Plan mode on, press to turn off": Plan
 - button "Select model, current deepseek-v4-flash":
   - text: deepseek-v4-flash
