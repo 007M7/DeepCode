@@ -72,6 +72,7 @@ export function conversationSnapshot(sessionId: SessionId): ConversationSnapshot
 export function workspaceListState(): WorkspaceListState {
   return {
     items: [],
+    archivedSessionIds: [],
     state: 'idle',
     phase: 'ready',
     error: null,

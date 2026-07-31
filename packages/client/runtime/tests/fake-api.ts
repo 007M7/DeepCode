@@ -140,7 +140,10 @@ export class FakeApiClient implements IApiClient {
     openPath: (payload: unknown) => this.record('host.openPath', payload, this.onOpenPath(payload)),
   }
 
-  onWorkspaceList: (payload: unknown) => Promise<RpcResponse<{ items: never[] }>> = () => Promise.resolve(ok({ items: [] }))
+  // The archive-set field defaults at the binding below so list stubs keep
+  // the pre-archive `{ items }` shape; a stub carrying the field wins.
+  onWorkspaceList: (payload: unknown) => Promise<RpcResponse<{ items: never[]; archivedSessionIds?: never[] }>> =
+    () => Promise.resolve(ok({ items: [] }))
   onWorkspaceCreate: (payload: unknown) => Promise<RpcResponse<{ workspace: WorkspaceView; created: boolean }>> =
     () => Promise.resolve(ok({ workspace: fakeWorkspace('fk-ws'), created: true }))
 
@@ -153,13 +156,22 @@ export class FakeApiClient implements IApiClient {
   onWorkspaceInsertSessionBefore: (payload: unknown) => Promise<RpcResponse<{ workspace: WorkspaceView }>> =
     () => Promise.resolve(ok({ workspace: fakeWorkspace('fk-ws') }))
 
+  onWorkspaceArchiveSession: (payload: unknown) => Promise<RpcResponse<{ archivedSessionIds: SessionId[] }>> =
+    payload => Promise.resolve(ok({ archivedSessionIds: [(payload as { sessionId: SessionId }).sessionId] }))
+
   readonly workspace: IApiClient['workspace'] = {
-    list: (payload: unknown) => this.record('workspace.list', payload, this.onWorkspaceList(payload)),
+    list: (payload: unknown) => this.record('workspace.list', payload, this.onWorkspaceList(payload).then(response => (
+      response.result.ok
+        ? { ...response, result: { ok: true as const, value: { archivedSessionIds: [] as never[], ...response.result.value } } }
+        : response
+    )) as ReturnType<IApiClient['workspace']['list']>),
     create: (payload: unknown) => this.record('workspace.create', payload, this.onWorkspaceCreate(payload)),
     rename: (payload: unknown) => this.record('workspace.rename', payload, this.onWorkspaceRename(payload)),
     delete: (payload: unknown) => this.record('workspace.delete', payload, this.onWorkspaceDelete(payload)),
     insertSessionBefore: (payload: unknown) =>
       this.record('workspace.insertSessionBefore', payload, this.onWorkspaceInsertSessionBefore(payload)),
+    archiveSession: (payload: unknown) =>
+      this.record('workspace.archiveSession', payload, this.onWorkspaceArchiveSession(payload)),
   }
 
   // Payloads stay `unknown` (lint-lane note above); response rows are the real
