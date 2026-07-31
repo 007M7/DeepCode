@@ -19,12 +19,10 @@ const keylessTail = fileURLToPath(new URL('./fixtures/composition-keyless-tail.c
  * The catalog the shipped `dsh` TUI puts in front of the model, as the loop
  * logged it, minus the ripgrep-dependent pair below.
  * The absences are the composition's security decisions, not incidental gaps:
- * `workflow` and the `cordis_*` toolset both execute model-written JavaScript
- * that no sandbox row confines, `web_fetch` chooses its own request target, and
- * `mcp_*` servers spawn outside `ctx.bash`. `ralph` proves the narrower
- * alternative survives: it runs a script this repository fixed at build time,
- * so the engine stays mounted without a model-code tool on top of it. The composition Agent Note owns
- * the rationale and its sources.
+ * the `cordis_*` toolset executes model-written JavaScript that no sandbox row
+ * confines, `web_fetch` chooses its own request target, and `mcp_*` servers
+ * spawn outside `ctx.bash`. The composition Agent Note owns the rationale and
+ * its sources.
  */
 const EXPECTED_TUI_TOOLS = [
   'ask_user_question',

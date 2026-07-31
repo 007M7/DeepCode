@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-那些并非 surface 专属的行移入 [`base.cordis.yml`](../../../../apps/cli/config/base.cordis.yml),另有三行加入:`tool-session-query`、`tool-str-replace-editor` 和 `repeat-tool-guard`。Web 搜索也一并移入,这正是把它做成 Web 默认的那次改动明确推迟的 TUI 决定。两个 surface 现在组装出同样的二十七个工具。
+那些并非 surface 专属的行移入 [`base.cordis.yml`](../../../../apps/cli/config/base.cordis.yml),另有三行加入:`tool-session-query`、`tool-str-replace-editor` 和 `repeat-tool-guard`。Web 搜索也一并移入；其[部署决策](2026-07-31-web-default-search.md)负责安全边界，共享 base 则负责与 surface 无关的挂载。两个 surface 现在组装同一份清单：每台宿主上都有二十五个工具，ripgrep 可用时再加上 `glob` 和 `grep`。
 
 有两行仍是 surface 专属。`tmux-context` 只在 TUI,因为浏览器 surface 没有终端复用器可描述。`session-reference` 只在 TUI,因为它以 launcher 的进程本地路径驱动共享的 session-query 索引,而浏览器侧边栏会在自己的首次搜索里重建该索引。
 
@@ -54,7 +54,7 @@ Status: implemented
 
 **把共享的行复制进两份 overlay,而不是提升到 base。** 基于「一处归属」原则否决:新增行里有三行会存在两份,而这些副本没有任何理由发生分歧,下一次改工具清单还得记着改两处。
 
-**在同一次改动里给 TUI 加沙箱。** TUI 挂的是不受限执行器,这确实是个真实缺口,本次改动的早先一版曾把受限栈移入 base 来堵上它。作为一个不属于工具清单改动的独立决定被否决:它改变的是一个既有 surface 的行为而非它提供的东西,而且需要它自己的证据——尤其因为 TUI 没有 `approval/request` 的应答方,升级请求在那里是 fail-closed 而不是弹出提示。
+**在同一次改动里给 TUI 加沙箱。** 不予采纳，因为这是一个不属于工具清单改动的独立决定：TUI 挂的是不受限执行器，替换它们会改变一个既有 surface 做什么，而非它提供什么。这个决定需要自己的证据——尤其因为 TUI 没有 `approval/request` 的应答方，升级请求在那里会 fail-closed，而不是弹出提示。
 
 **开启 Code Mode。** 它的信任立场按设计与 bash 同级,工具调用要过与 bash 相同的 `tools/pre-execute` 闸门,所以它与上面那些模型写码工具不是同一个判断。在这里仍被否决:`both` 会改变两个 surface 上每一个模型可见请求,而 `code` 是把线路替换而非加一个——两者都是呈现方式的决定,不是工具清单的决定。
 
@@ -62,7 +62,7 @@ Status: implemented
 
 ## 后果
 
-同一个模型在两个 surface 上拿到同样的工具,那处没有记录理由的差异消失了。二十七个名字,两侧精确且一致地断言,因此日后只给一个 surface 加工具、或从任一侧丢掉工具,都会让检查失败而不是悄悄发出去。
+同一个模型在两个 surface 上拿到同样的工具,那处没有记录理由的差异消失了。测试会精确断言二十五个无条件提供的名称，并要求依赖 ripgrep 的一对工具在两侧要么同时存在、要么同时缺席，因此日后只改一个 surface 都会让检查失败而不是悄悄发出去。
 
 `apps/cli` 增加五个 workspace 依赖:四个是交付树现在挂载的,外加 `dsh-mcp-client`——它并不被挂载,存在的意义是让已安装的 `dsh` 能挂。
 

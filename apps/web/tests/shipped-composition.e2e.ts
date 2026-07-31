@@ -14,13 +14,10 @@ import { launchWebScaffold, type WebScaffold } from './scaffold.ts'
 
 /**
  * The catalog the shipped Web composition puts in front of the model, minus the
- * ripgrep-dependent pair below. The absences are
- * deliberate, not incidental gaps: `workflow` and the
- * `cordis_*` toolset both execute model-written JavaScript that no sandbox row
- * confines, `web_fetch` chooses its own request target, and `mcp_*` servers
- * spawn outside `ctx.bash`. `ralph` and `web_search` prove the narrower
- * alternatives survive: Ralph runs a harness-fixed script, and `web_search`
- * reaches one pinned provider endpoint. The composition Agent Note owns the
+ * ripgrep-dependent pair below. The absences are deliberate, not incidental
+ * gaps: the `cordis_*` toolset executes model-written JavaScript that no
+ * sandbox row confines, `web_fetch` chooses its own request target, and
+ * `mcp_*` servers spawn outside `ctx.bash`. The composition Agent Note owns the
  * rationale and its sources.
  */
 const EXPECTED_TOOLS = [

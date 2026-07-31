@@ -12,7 +12,7 @@ The result was a user-visible difference nobody had decided: the same model, ask
 
 ## Decision
 
-The rows that are not surface-specific move into [`base.cordis.yml`](../../../../apps/cli/config/base.cordis.yml), and three more join them: `tool-session-query`, `tool-str-replace-editor`, and `repeat-tool-guard`. Web search moves there too, which is the TUI decision that the change making it a Web default explicitly deferred. Both surfaces now assemble the same twenty-seven tools.
+The rows that are not surface-specific move into [`base.cordis.yml`](../../../../apps/cli/config/base.cordis.yml), and three more join them: `tool-session-query`, `tool-str-replace-editor`, and `repeat-tool-guard`. Web search moves there too; its [deployment decision](2026-07-31-web-default-search.md) owns the security boundary while the shared base owns its surface-neutral mount. Both surfaces now assemble the same roster: twenty-five tools on every host, plus `glob` and `grep` when ripgrep is available.
 
 Two rows stay surface-specific. `tmux-context` is TUI-only because a browser surface has no terminal multiplexer to describe. `session-reference` is TUI-only because it drives the shared session-query index from the launcher's process-local path, and the browser sidebar reconciles that index on its own first search.
 
@@ -54,7 +54,7 @@ Beyond the committed tests, both surfaces were driven against a real key from th
 
 **Duplicate the shared rows into both overlays instead of promoting them.** Rejected on the one-home rule: three of the new rows would exist twice with no reason for the copies to diverge, and the next roster change would have to remember both.
 
-**Sandbox the TUI in the same change.** The TUI mounts unrestricted executors, which is a real gap, and an earlier revision of this change closed it by moving the confined stack into the base. Rejected as a separate decision that does not belong in a roster change: it alters what an existing surface does rather than what it offers, and it needs its own evidence — not least because the TUI has no `approval/request` answerer, so an escalation there fails closed instead of prompting.
+**Sandbox the TUI in the same change.** Rejected as a separate decision that does not belong in a roster change: the TUI mounts unrestricted executors, and replacing them alters what an existing surface does rather than what it offers. That decision needs its own evidence — not least because the TUI has no `approval/request` answerer, so an escalation there fails closed instead of prompting.
 
 **Enable Code Mode.** Its trust posture is bash-equivalent by design and its tool calls pass the same `tools/pre-execute` gate as bash, so it is not the same call as the model-code tools above. Rejected here anyway: `both` changes every model-visible request on both surfaces, and `code` replaces the wire rather than adding to it — either is a presentation decision, not a roster one.
 
@@ -62,7 +62,7 @@ Beyond the committed tests, both surfaces were driven against a real key from th
 
 ## Consequences
 
-The same model gets the same tools on both surfaces, and the difference that existed for no recorded reason is gone. Twenty-seven names, asserted exactly and identically on both sides, so a later change that adds a tool to one surface only — or drops one from either — fails a check instead of shipping quietly.
+The same model gets the same tools on both surfaces, and the difference that existed for no recorded reason is gone. The tests assert the twenty-five unconditional names exactly and require the ripgrep-dependent pair to be either present together or absent together on both sides, so a later change that alters only one surface fails a check instead of shipping quietly.
 
 `apps/cli` gains five workspace dependencies: four the shipped tree now mounts, plus `dsh-mcp-client`, which it does not mount and which exists so an installed `dsh` can.
 
