@@ -257,4 +257,50 @@ describe('TrajectoryTable', () => {
     expect(screen.getByRole('row', { name: /ASSISTANT/ })).toBeTruthy()
     expect(screen.getByRole('row', { name: /Collapsed turn summary/ })).toBeTruthy()
   })
+
+  const CALL_TURNS: readonly TrajectoryTurnModel[] = [{
+    turn: 1,
+    groups: [{
+      title: 'Step 1',
+      cells: [{
+        index: 1,
+        kind: 'tool',
+        text: 'bash · {"command":"pwd"}',
+        inputDetail: '{"command":"pwd"}',
+        callId: 'call-1',
+        timeSeconds: 0.1,
+      }],
+    }],
+  }]
+
+  it('an inspect target opens the matching record and acknowledges once', () => {
+    const onInspectApplied = vi.fn()
+    render(
+      <TrajectoryTable
+        turns={CALL_TURNS}
+        {...FOLD_PROPS}
+        inspectCallId="call-1"
+        onInspectApplied={onInspectApplied}
+      />,
+    )
+
+    expect(screen.getByRole('row', { name: /TOOL/ }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByRole('complementary', { name: 'Event details' })).toBeTruthy()
+    expect(onInspectApplied).toHaveBeenCalledOnce()
+  })
+
+  it('an unmatched inspect target stays pending without acknowledgement', () => {
+    const onInspectApplied = vi.fn()
+    render(
+      <TrajectoryTable
+        turns={CALL_TURNS}
+        {...FOLD_PROPS}
+        inspectCallId="call-missing"
+        onInspectApplied={onInspectApplied}
+      />,
+    )
+
+    expect(screen.getByRole('row', { name: /TOOL/ }).getAttribute('aria-selected')).toBe('false')
+    expect(onInspectApplied).not.toHaveBeenCalled()
+  })
 })
