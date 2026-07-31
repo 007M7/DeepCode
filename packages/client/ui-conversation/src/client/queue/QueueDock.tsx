@@ -73,7 +73,7 @@ export function QueueDock({ useSession, updateQueue, notify, t }: QueueDockProps
   }
 
   return (
-    <div className={css.dock}>
+    <div className={css.dock} data-queue-dock="">
       <div className={css.panel}>
         {queue.length > 1 && (
           <button

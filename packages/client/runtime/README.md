@@ -10,7 +10,11 @@ Workspace and Session lists have independent monotone `pending` → `ready` base
 
 `WorkspacesService.delete(workspaceId)` removes the registration from the client projection after the successful unary response; the matching `host/workspace-removed` frame is idempotent and synchronizes other tabs. Session state and the current Session selection are independent, so accounted Sessions immediately project under Ungrouped after their Workspace disappears.
 
+`WorkspaceListState.archivedSessionIds` mirrors the Host's registry-global archive set (a `readonly SessionId[]` in Host order, replaced only when membership changes; consumers needing O(1) lookups build a transient Set). It is full-snapshot state: the `workspace.list` baseline, the `archiveSession` unary echo, and the `host/archived-sessions-changed` frame each install the complete set. `WorkspacesService.archiveSession(sessionId)` archives over the wire; the projection sweep clears the current selection into the New Session view state whenever it lands in the archive set — one rule covering the local echo, another tab's frame, and a reconnect baseline restoring a selection archived while this client was away. A set installed while a `workspace.list` request is in flight also supersedes that stale baseline's set. Grouping surfaces hide members everywhere while the session rows stay in the list store.
+
 SlotsService gives the renderer separate bare observables for `useSessions` and `useWorkspaces`; web-react creates the hooks. Workspace business state does not enter `SessionListState` or an entry store.
+
+`SessionsService.search(query, signal)` is a stateless one-shot action over the `session.search` RPC. It returns ranked session/snippet pairs without putting query, loading, or error state into the shared Session list, so each UI owner controls debounce, cancellation, stale-response suppression, and fallback presentation. `searchResultLimit` re-exposes `SESSION_SEARCH_RESULT_LIMIT` — the bound the response schema itself enforces — as injected presentation data, so client plugins do not duplicate it. It is a protocol constant rather than per-connection state, so the connection handle does not carry it.
 
 ## New Session and the blank mirror
 
@@ -27,6 +31,10 @@ SlotsService gives the renderer separate bare observables for `useSessions` and 
 ## Session title projection
 
 `SessionManager` retains the latest validated `session/title` control snapshot independently of list and session-instance arrival. Newer event seqs replace older snapshots, title timestamps contribute to list recency, and a subscription baseline discards any retained title beyond its `lastSeq` before the optional folded title arrives. Explicit session removal also clears the retained title. The client-facing `SessionSummary.title` is therefore only the actual durable title; `displayTitle` is always present and falls back through the cwd basename and session id. A cold persisted session keeps that fallback until opening or resuming it causes the host to fold and project its log-backed title. `ISession.rename` settles the `title` projection cell directly from the unary response's `{title, seq}` under the same higher-seq-wins rule — the list row and every `useProjection('title')` reader update ahead of the push frame, whose later replay of the same seq is a no-op.
+
+## Model retry projection
+
+The Session object validates plugin-owned, provider-routed `llm/retry` payloads at the event wire boundary against the producer's complete field contract, including timer, integer, status, provider-delay, and non-empty diagnostic bounds. A valid event removes the matching failed step's streaming partial and inserts a durable retry notice at the event's sequence position. The notice is `scheduled` until a following retry turn starts; an aborted or disposed source turn marks it `cancelled`, while the retry turn marks it `started`. Normal-mode notices carry their finite maximum; always-mode notices remain explicitly unbounded. Window rebuild and history replay apply the same projection, so logged chunks from the discarded attempt never reappear as an interrupted reply after refresh. A terminal turn without `llm/retry` retains the existing behavior: visible unfinalized output is frozen as an interrupted assistant node.
 
 ## Session forking
 

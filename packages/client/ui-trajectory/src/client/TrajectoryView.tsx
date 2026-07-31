@@ -134,7 +134,7 @@ function searchMatches(
 }
 
 export function TrajectoryView({
-  useHistory, loadAllHistory,
+  useHistory, loadAllHistory, inspect, onInspectDone,
 }: ConvViewProps & InjectFace<TrajectoryViewInjected>) {
   const [collapsedTurns, setCollapsedTurns] = useState<ReadonlySet<number>>(EMPTY_IDS)
   const [collapsedAssistants, setCollapsedAssistants] =
@@ -519,6 +519,8 @@ export function TrajectoryView({
           onToggleTurn={toggleTurn}
           collapsedAssistants={collapsedAssistants}
           onToggleAssistant={toggleAssistant}
+          inspectCallId={inspect?.callId ?? null}
+          onInspectApplied={onInspectDone}
         />
       </div>
     </div>

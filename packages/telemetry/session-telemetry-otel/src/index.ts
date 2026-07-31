@@ -17,6 +17,7 @@ import z from 'schemastery'
 import type { Context } from 'cordis'
 import { Telemetry, TelemetryCoordinator, type TelemetryRecord, type TelemetrySeverity } from '@deepseek-ai/dsh-session-telemetry'
 import { APP_IDENTITY } from '@deepseek-ai/dsh-llm'
+import { getOrCreateAnonymousUserId } from './user-id.ts'
 import {
   BatchLogRecordProcessor,
   LoggerProvider,
@@ -118,6 +119,10 @@ export class TelemetryOtel extends Telemetry {
       resource: resourceFromAttributes({
         'service.name': APP_IDENTITY.product,
         'service.version': APP_IDENTITY.version,
+        // OTel semconv's standard user attribute, carried once per export
+        // batch on the Resource rather than per record: the collector
+        // aggregates by Resource, and the id is process-stable anyway.
+        'user.id': getOrCreateAnonymousUserId(),
       }),
       processors: [
         new BatchLogRecordProcessor({

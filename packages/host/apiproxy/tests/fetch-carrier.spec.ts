@@ -22,6 +22,26 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
         if (overrides.crashOn === 'session.list') throw new Error('impl crashed')
         return { rpcId: request.rpcId, result: { ok: true, value: { items: [] } } }
       },
+      async search(request, signal) {
+        if (request.payload.query === 'hang') {
+          if (!signal.aborted) {
+            await new Promise<void>((resolve) => {
+              signal.addEventListener('abort', () => { resolve() }, { once: true })
+            })
+          }
+          return {
+            rpcId: request.rpcId,
+            result: { ok: false, error: { code: 'cancelled', message: 'aborted', details: {} } },
+          }
+        }
+        return {
+          rpcId: request.rpcId,
+          result: {
+            ok: true,
+            value: { items: [{ sessionId: 's1' as never, snippet: 'fixture match' }], hasMore: false },
+          },
+        }
+      },
       async create(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { sessionId: 's-new' as never } } }
       },
@@ -102,7 +122,7 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
     },
     workspace: {
       async list(request) {
-        return { rpcId: request.rpcId, result: { ok: true, value: { items: [] } } }
+        return { rpcId: request.rpcId, result: { ok: true, value: { items: [], archivedSessionIds: [] } } }
       },
       async create(request) {
         return {
@@ -124,6 +144,9 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
           rpcId: request.rpcId,
           result: { ok: true, value: { workspace: { workspaceId: 'w1' as never, path: '/w', title: 'w', sessionIds: [], createdAt: 't', updatedAt: 't' } } },
         }
+      },
+      async archiveSession(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { archivedSessionIds: [request.payload.sessionId] } } }
       },
     },
     commands: {
@@ -248,6 +271,10 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
 
   it('covers create/prompt/updateQueue/cancel/describe passthrough', async () => {
     const c = client()
+    expect((await c.sessions.search({ query: 'fixture' })).result).toEqual({
+      ok: true,
+      value: { items: [{ sessionId: 's1', snippet: 'fixture match' }], hasMore: false },
+    })
     expect((await c.sessions.create({})).result.ok).toBe(true)
     expect((await c.sessions.models({ sessionId: 's' as never })).result.ok).toBe(true)
     const selected = await c.sessions.selectModel({
@@ -325,6 +352,68 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     expect(skills.result).toEqual({ ok: true, value: { skills: [{ name: 'commit-helper', description: 'Git commits' }] } })
   })
 
+  it('lets command.execute finish after the 30-second default unary deadline', async () => {
+    vi.useFakeTimers()
+    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockImplementation((milliseconds) => {
+      const controller = new AbortController()
+      setTimeout(() => {
+        controller.abort(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))
+      }, milliseconds)
+      return controller.signal
+    })
+    try {
+      const api = fakeApi()
+      api.commands.execute = async (request) => {
+        await new Promise(resolve => setTimeout(resolve, 30_001))
+        return {
+          rpcId: request.rpcId,
+          result: { ok: true, value: { matched: true, commandId: CommandId('cmd-slow') } },
+        }
+      }
+      const execution = client(api).commands.execute({ sessionId: 's' as never, line: '/slow' })
+      const assertion = expect(execution).resolves.toMatchObject({
+        result: { ok: true, value: { matched: true, commandId: 'cmd-slow' } },
+      })
+
+      await Promise.all([
+        vi.advanceTimersByTimeAsync(30_001),
+        assertion,
+      ])
+      expect(timeoutSpy).not.toHaveBeenCalled()
+    } finally {
+      timeoutSpy.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps caller and connection aborts on command.execute', async () => {
+    const api = fakeApi()
+    const started = Promise.withResolvers<AbortSignal>()
+    api.commands.execute = async (request, signal) => {
+      started.resolve(signal)
+      if (!signal.aborted) {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener('abort', () => { resolve() }, { once: true })
+        })
+      }
+      return {
+        rpcId: request.rpcId,
+        result: { ok: false, error: { code: 'cancelled', message: 'aborted', details: {} } },
+      }
+    }
+    const controller = new AbortController()
+    const execution = client(api).commands.execute(
+      { sessionId: 's' as never, line: '/hang' },
+      controller.signal,
+    )
+    const handlerSignal = await started.promise
+
+    controller.abort(new Error('connection closed'))
+
+    await expect(execution).rejects.toThrow('connection closed')
+    expect(handlerSignal.aborted).toBe(true)
+  })
+
   it('propagates the carrier Request signal into command.execute', async () => {
     const handler = toFetchHandler(fakeApi())
     const controller = new AbortController()
@@ -336,6 +425,29 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     const response = await pending
     const parsed = await response.json() as { rpcId: string; result: { ok: boolean; error?: { code: string } } }
     expect(parsed.rpcId).toBe('r-sig')
+    expect(parsed.result.error?.code).toBe('cancelled')
+  })
+
+  it('propagates the carrier Request signal into session.search', async () => {
+    const handler = toFetchHandler(fakeApi())
+    const controller = new AbortController()
+    const body = JSON.stringify({
+      type: 'client-request',
+      rpcId: 'r-search-sig',
+      method: 'session.search',
+      payload: { query: 'hang' },
+    })
+    const pending = handler.fetch(new Request(
+      'http://x/api/session.search',
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body, signal: controller.signal },
+    ))
+    controller.abort()
+    const response = await pending
+    const parsed = await response.json() as {
+      rpcId: string
+      result: { error?: { code: string } }
+    }
+    expect(parsed.rpcId).toBe('r-search-sig')
     expect(parsed.result.error?.code).toBe('cancelled')
   })
 

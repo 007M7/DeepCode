@@ -44,9 +44,7 @@ afterEach(cleanup)
 // The chat store persists under its declared key; clear so one case's active
 // view cannot rehydrate into the next.
 beforeEach(() => {
-  // Node 22+ exposes an experimental localStorage global that is undefined
-  // without --localstorage-file; only clear when a real Storage is present.
-  if (typeof localStorage !== 'undefined') localStorage.clear()
+  localStorage.clear()
 })
 
 /** Node fixture: user prologue, two turns, one tool result inside turn 1. */
@@ -115,7 +113,7 @@ function emptySessions() {
 
 function emptyWorkspaces() {
   const store = createSnapshotStore<WorkspaceListState>({
-    items: [], state: 'idle', phase: 'ready', error: null, baselinesReady: true,
+    items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null, baselinesReady: true,
     recentWorkspaceId: undefined,
   })
   return bindSnapshotSelector(store)

@@ -20,6 +20,8 @@ import { InputBar } from './skeleton/InputBar.tsx'
 import { ChatView } from './chat/ChatView.tsx'
 import { StatsLine } from './chat/StatsLine.tsx'
 import { bashToolviewSample } from './toolviews/bash-sample.tsx'
+import { fileMutationToolview } from './toolviews/file-mutation-row.tsx'
+import { webToolview } from './toolviews/web-row.tsx'
 import { ApprovalPanel } from './skeleton/ApprovalPanel.tsx'
 import { todoToolview } from './toolviews/todo-row.tsx'
 import { askQuestionToolview } from './toolviews/ask-question-row.tsx'
@@ -50,6 +52,10 @@ const ABSENT_NOTICES = {
 const EMPTY_LEXICON: ReadonlyMap<'/' | '@', readonly string[]> = new Map()
 const ABSENT_LEXICON = {
   getSnapshot: () => EMPTY_LEXICON,
+  subscribe: () => () => {},
+}
+const ABSENT_MENU_LAUNCHER = {
+  getSnapshot: (): string | null => null,
   subscribe: () => () => {},
 }
 
@@ -85,6 +91,11 @@ export function apply(ctx: Context): void {
 
   // Apply-time construction keeps store identity bound to this fiber.
   const chatStore = createChatStore()
+
+  // Chat scroll offsets by session, surviving view switches (the chat view
+  // unmounts under the tab ring). Deliberately not persisted: a fresh page
+  // load should keep the open-jump-to-bottom default.
+  const chatScrollTops = new Map<SessionId, number>()
 
   const viewTabs = (): ViewTab[] => {
     const tabs: ViewTab[] = []
@@ -187,14 +198,28 @@ export function apply(ctx: Context): void {
       if (sessionId === undefined) {
         return {
           keyboard: undefined,
+          toggleCommandMenu: undefined,
           stop: undefined,
           command: undefined,
-          hooks: { notices: ABSENT_NOTICES, lexicon: ABSENT_LEXICON },
+          hooks: { notices: ABSENT_NOTICES, lexicon: ABSENT_LEXICON, menuLauncher: ABSENT_MENU_LAUNCHER },
         }
       }
       const shell = inputHub.shell(sessionId)
+      const slash = inputHub.slash(sessionId)
       return {
         keyboard: shell,
+        toggleCommandMenu: slash === undefined
+          ? undefined
+          : (selection) => {
+            shell.dismissPopup()
+            const snapshot = shell.snapshot
+            slash.toggleSource('command', {
+              trigger: '/',
+              query: '',
+              position: snapshot.draft.slice(0, selection.start).trim() === '' ? 'leading' : 'inline',
+              span: { ...selection, draftRev: snapshot.draftRev },
+            })
+          },
         stop: () => {
           scopedConversation(sessions, sessionId).cancel().catch(() => {
             // Stop failure surfaces via snapshot.promptError; nothing to restore.
@@ -206,7 +231,11 @@ export function apply(ctx: Context): void {
           const result = await session.command(line)
           return result.ok && result.value.matched
         },
-        hooks: { notices: shell.notices, lexicon: shell.lexicon },
+        hooks: {
+          notices: shell.notices,
+          lexicon: shell.lexicon,
+          menuLauncher: slash?.launcher ?? ABSENT_MENU_LAUNCHER,
+        },
       }
     },
   }, InputBar)
@@ -252,6 +281,19 @@ export function apply(ctx: Context): void {
           })
         },
         loadOlder: () => { void scoped.loadOlder() },
+        // Unregistered 'trajectory' id is safe: the tab ring falls back to
+        // the first view, and the untouched inspect target stays inert.
+        inspectCall: (callId) => {
+          actions.setInspect({ callId })
+          actions.setView('trajectory')
+        },
+        chatScroll: {
+          save: (top) => {
+            if (top === null) chatScrollTops.delete(sessionId)
+            else chatScrollTops.set(sessionId, top)
+          },
+          read: () => chatScrollTops.get(sessionId) ?? null,
+        },
         forkAt: (seq) => {
           sessions.fork({ sessionId, atSeq: seq, increaseTitle: true })
             .then((childId) => { sessions.open(childId) })
@@ -277,6 +319,15 @@ export function apply(ctx: Context): void {
   // The bash sample rides that exact seam, in third-party posture
   // (ToolRow-matching Bash · {description} chrome; scoped badge in child sessions).
   ctx.plugin(bashToolviewSample)
+
+  // The write/edit rows ride the same seam: a file-mutation call declares the
+  // diff render intent, so these rows stack the applied diff card under their
+  // path-link summary (the terminal card's posture, applied to diffs).
+  ctx.plugin(fileMutationToolview)
+  // The web rows ride the same seam: one WebRow registered under both
+  // web_search and web_fetch, rendering the completed retrieval's web card
+  // resident under the summary (a product registration, not a sample).
+  ctx.plugin(webToolview)
 
   // The todo_write row rides the same seam (a product registration, not a sample).
   ctx.plugin(todoToolview)

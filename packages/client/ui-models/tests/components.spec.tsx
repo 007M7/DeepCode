@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /** Section, setup-card, and hand-written editor behavior over a scripted wire face. */
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import Schema from 'schemastery'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
@@ -152,10 +152,9 @@ describe('ModelsSection', () => {
     // DeepSeek has no configured credential and no stored apiKey → setup card.
     expect(screen.getByText('DeepSeek')).toBeTruthy()
     expect(screen.getByLabelText(en.keyInput)).toBeTruthy()
-    // Configured pi-ai profiles render as rows with liveness badges only.
     expect(screen.getByText('openai')).toBeTruthy()
-    expect(screen.getAllByText(en.active)).toHaveLength(1)
-    expect(screen.getByText(en.dormant)).toBeTruthy()
+    expect(screen.queryByText('Active')).toBeNull()
+    expect(screen.queryByText('Inactive')).toBeNull()
     expect(screen.getByText(`+ ${en.add}`)).toBeTruthy()
   })
 
@@ -471,15 +470,55 @@ describe('ModelsSection', () => {
     await waitFor(() => { expect(set).toHaveBeenCalledTimes(1) })
   })
 
-  it('removes a user-added provider by unsetting its path', async () => {
+  it('requires confirmation before removing a user-added provider', async () => {
     const { replace, mutate } = await mountSection()
     fireEvent.click(screen.getAllByText(en.remove)[0] as HTMLElement)
+    const dialog = screen.getByRole('dialog', { name: en.deleteTitle })
+    expect(dialog.textContent).toContain(en.deleteDescription)
+    expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: en.cancel }))
+    expect(mutate).not.toHaveBeenCalled()
+    fireEvent.click(within(dialog).getByRole('button', { name: en.cancel }))
+    expect(screen.queryByRole('dialog', { name: en.deleteTitle })).toBeNull()
+    expect(mutate).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getAllByText(en.remove)[0] as HTMLElement)
+    fireEvent.click(within(screen.getByRole('dialog', { name: en.deleteTitle }))
+      .getByRole('button', { name: en.close }))
+    expect(screen.queryByRole('dialog', { name: en.deleteTitle })).toBeNull()
+    expect(mutate).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getAllByText(en.remove)[0] as HTMLElement)
+    fireEvent.click(within(screen.getByRole('dialog', { name: en.deleteTitle }))
+      .getByRole('button', { name: en.deleteConfirm }))
     await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
+    expect(screen.queryByRole('dialog', { name: en.deleteTitle })).toBeNull()
     expect(replace).not.toHaveBeenCalled()
     expect(mutate.mock.calls[0]?.[0]).toEqual({
       ns: 'llm-pi-ai',
       ops: [{ op: 'unset', path: ['providers', 'openai'] }],
     })
+  })
+
+  it('blocks duplicate deletion while the confirmed removal is pending', async () => {
+    let resolveRemoval!: (response: RpcResponse<SettingsNamespaceView>) => void
+    const mutate = vi.fn(() => new Promise<RpcResponse<SettingsNamespaceView>>((resolve) => {
+      resolveRemoval = resolve
+    }))
+    await mountSection({ mutate })
+    fireEvent.click(screen.getAllByText(en.remove)[0] as HTMLElement)
+    const dialog = screen.getByRole('dialog', { name: en.deleteTitle })
+    const confirm = within(dialog).getByRole<HTMLButtonElement>('button', { name: en.deleteConfirm })
+    fireEvent.click(confirm)
+    fireEvent.click(confirm)
+    expect(mutate).toHaveBeenCalledOnce()
+    expect(confirm.disabled).toBe(true)
+    expect(within(dialog).getByRole<HTMLButtonElement>('button', { name: en.cancel }).disabled).toBe(true)
+    expect(within(dialog).getByRole('button', { name: en.deleting })).toBe(confirm)
+    fireEvent.click(within(dialog).getByRole('button', { name: en.close }))
+    expect(screen.getByRole('dialog', { name: en.deleteTitle })).toBe(dialog)
+    expect(mutate).toHaveBeenCalledOnce()
+    await act(async () => { resolveRemoval(ok(wireNamespaces()[2]!)) })
+    await waitFor(() => { expect(screen.queryByRole('dialog', { name: en.deleteTitle })).toBeNull() })
   })
 
   it('renders the load failure with a retry control', async () => {
@@ -589,6 +628,8 @@ describe('ModelsSection', () => {
     // would appear — rather than the row silently staying put.
     await mountSection({ mutate: vi.fn(() => Promise.reject(new Error('the host refused'))) })
     fireEvent.click(screen.getAllByText(en.remove)[0] as HTMLElement)
+    fireEvent.click(within(screen.getByRole('dialog', { name: en.deleteTitle }))
+      .getByRole('button', { name: en.deleteConfirm }))
     await screen.findByText(`${en.loadFailed}: the host refused`)
   })
 

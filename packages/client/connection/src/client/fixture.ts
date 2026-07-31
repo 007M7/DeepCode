@@ -26,13 +26,14 @@ import type {
 // Type-only: the brand constructor is host-side; the fixture casts at its
 // wire-fabrication boundary (the schema layer's one-cast-point posture).
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
+import { foldSurface } from '@deepseek-ai/dsh-session/surface'
 import type {
   ApiProxy, ClientRequest, ClientResponse, HistoryEntry, HostFrame, MuxFrame, RpcReceipt,
   ModelProviderGroup, ModelTarget, RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
   ToolCallView, ToolEventView, ToolResultView, WorkspaceId, WorkspaceView,
 } from './api.ts'
 import type { RequestPayload, ResponseValue, RpcMethodMap } from '@deepseek-ai/dsh-host-apiproxy/api'
-import { AbstractApiClient, RpcId } from './api.ts'
+import { AbstractApiClient, RpcId, SESSION_SEARCH_RESULT_LIMIT } from './api.ts'
 
 /** The fake carrier mints like a real one (business code never mints). */
 function rpcRequest<P>(payload: P): RpcRequest<P> {
@@ -134,6 +135,44 @@ const TERMINAL_OUTPUT_FIXTURE = [
  */
 const TERMINAL_EXIT_STATUS: Record<string, { exitCode: number } | { signal: string }> = {
   [TERMINAL_OUTPUT_FIXTURE]: { exitCode: 1 },
+}
+
+/**
+ * The structured `web_search` result view for fixture turn 66, authored inline
+ * because this client-side fixture cannot import the web tool that projects it.
+ * The sources exercise the citation list's features: a titled source with a
+ * snippet and a date, a source with no title (its hostname labels the link) and
+ * a snippet but no date, and a source with a title and a date but no snippet.
+ * `truncated` marks the capped indicator. The shape is the contract's own
+ * search view minus its wire discriminants.
+ */
+const WEB_SEARCH_RESULT: Omit<Extract<ToolResultView, { card: 'web'; kind: 'search' }>, 'card' | 'kind'> = {
+  answer: 'DeepSeek Harness is a plugin-based agent harness on vendored Cordis where **every capability is a plugin**.',
+  sources: [
+    {
+      url: 'https://github.com/deepseek-ai/deepseek-harness',
+      title: 'DeepSeek Harness — plugin-based agent harness',
+      snippet: 'Everything is a plugin: session, tools, agent-loop, and LLM adapters all mount on the same Cordis context.',
+      publishedAt: '2026-07-01',
+    },
+    {
+      url: 'https://www.deepseek.com/blog/harness-architecture',
+      snippet: 'The capability-seam pattern splits each capability into interface, implementation, and consumer packages.',
+    },
+    {
+      url: 'https://docs.deepseek.com/harness/plugins',
+      title: 'Writing a harness plugin',
+      publishedAt: '2026-06-15',
+    },
+  ],
+  truncated: true,
+}
+
+/** The `web_fetch` result view for fixture turn 67, authored inline for the same reason. */
+const WEB_FETCH_RESULT: Omit<Extract<ToolResultView, { card: 'web'; kind: 'fetch' }>, 'card' | 'kind'> = {
+  url: 'https://www.deepseek.com/blog/harness-architecture',
+  statusCode: 200,
+  truncated: false,
 }
 
 const DEEPSEEK_REASONING = {
@@ -261,6 +300,13 @@ function buildAlphaLog(): SessionEvent[] {
   toolTurn(61, 'fx-write', '{"path":"notes/demo.txt","content":"hello fixture\\n"}', 'wrote notes/demo.txt')
   toolTurn(62, 'edit', '{"file_path":"notes/demo.txt","old_string":"hello","new_string":"hello fixture"}', '已编辑')
   toolTurn(63, 'write', '{"file_path":"notes/new-demo.txt","content":"hello fixture\\n"}', '已写入')
+  // Turn 67: a multi-hunk edit — two scattered replacements in one file. Named
+  // `edit` so it lands on the keyed FileMutationRow (the resident diff card the
+  // single-hunk turn 62 also uses), and file_path `src/config.ts` is the marker
+  // the presenter reads to emit the two-hunk sample: the card draws one path
+  // header, the first hunk, a `⋯` gap, then the second (the same-file
+  // second-hunk arm turns 62/63 cannot reach).
+  toolTurn(67, 'edit', '{"file_path":"src/config.ts","old_string":"const timeout = 30","new_string":"const timeout = 60"}', '已编辑')
   // Turn 64: one run_code turn with three logged sub-dispatches — the Code
   // Mode acceptance surface (parent code row + nested native-identical rows,
   // including an isError sub-call and a bash sub-call that must hit the same
@@ -325,8 +371,20 @@ function buildAlphaLog(): SessionEvent[] {
   // strip empty and take the todo surfaces' own coverage with it.
   toolTurn(65, 'bash', '{"command":"pnpm run check","cwd":"/tmp/fixture/deep/nested"}', TERMINAL_OUTPUT_FIXTURE)
 
+  // Turns 66-67: the web render intent — a web_search whose result view carries
+  // structured sources plus an answer (the citation list, one source lacking a
+  // title so its hostname labels the link, the capped indicator on), and a
+  // web_fetch whose result view carries the fetched URL and its HTTP status.
+  // Both keep a generic pending call view and add the `web` card only at
+  // result time, which is the contract's result-only web shape. Named after
+  // the real tools so they hit the keyed WebRow registration. Ordered BEFORE
+  // the todo turn for the same reason turn 65 is: the standing plan retires at
+  // the next turn/start, so a turn after it would empty the dock's plan strip.
+  toolTurn(66, 'web_search', '{"query":"deepseek harness architecture"}', 'Search results for deepseek harness architecture.')
+  toolTurn(67, 'web_fetch', '{"url":"https://www.deepseek.com/blog/harness-architecture"}', '# Harness architecture\n\nEverything is a plugin.')
+
   const todoArgs = JSON.stringify({ todos: fixtureTodos })
-  toolTurn(66, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
+  toolTurn(68, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
   // The real tool appends the snapshot mid-execution — between tool/call and
   // tool/result — so the fixture reproduces that exact ordering (the last
   // toolTurn events run ... tool/call, tool/result, step/end, turn/end).
@@ -362,9 +420,33 @@ function presentCall(name: string, argsRaw: string): ToolCallView | undefined {
         diffs: [{ path: str(args.path), oldText: null, newText: str(args.content) }],
       }
     case 'edit':
-      return { card: 'generic', title: `Edit ${str(args.file_path)}`, kind: 'edit', rawInput: args }
+      // The multi-hunk sample (turn 67) is keyed on its file_path, so the two
+      // scattered hunks share one path header and the card draws the `⋯` gap.
+      if (str(args.file_path) === 'src/config.ts') {
+        return {
+          card: 'diff', title: `Edit ${str(args.file_path)}`,
+          diffs: [
+            { path: str(args.file_path), oldText: 'const timeout = 30', newText: 'const timeout = 60' },
+            { path: str(args.file_path), oldText: 'retries: 1', newText: 'retries: 3' },
+          ],
+        }
+      }
+      return {
+        card: 'diff', title: `Edit ${str(args.file_path)}`,
+        diffs: [{ path: str(args.file_path), oldText: str(args.old_string), newText: str(args.new_string) }],
+      }
     case 'write':
-      return { card: 'generic', title: `Write ${str(args.file_path)}`, kind: 'edit', rawInput: args }
+      return {
+        card: 'diff', title: `Write ${str(args.file_path)}`,
+        diffs: [{ path: str(args.file_path), oldText: null, newText: str(args.content) }],
+      }
+    // The web tools keep a GENERIC pending card and add the `web` result card
+    // only at result time (the contract's result-only web shape); their pending
+    // kind matches the result kind so a call and its result read as one category.
+    case 'web_search':
+      return { card: 'generic', title: `Search ${str(args.query)}`, kind: 'search', rawInput: args }
+    case 'web_fetch':
+      return { card: 'generic', title: `Fetch ${str(args.url)}`, kind: 'fetch', rawInput: args }
     default:
       return undefined // echo et al: the documented no-view fallback path
   }
@@ -373,6 +455,17 @@ function presentCall(name: string, argsRaw: string): ToolCallView | undefined {
 function presentResult(name: string, argsRaw: string, resultText: string): ToolResultView | undefined {
   const call = presentCall(name, argsRaw)
   if (call === undefined) return undefined
+  // The web tools keep a generic pending card, so their result card is chosen
+  // by tool name rather than by the pending card tag: the structured `web` card
+  // the frontend consumes. The view carries no `content` copy (per the contract
+  // and the web-result-card note); a capability-less UI falls back to the raw
+  // `tool/result` content, which this fixture emits from `resultText`.
+  if (name === 'web_search') {
+    return { card: 'web', kind: 'search', ...WEB_SEARCH_RESULT }
+  }
+  if (name === 'web_fetch') {
+    return { card: 'web', kind: 'fetch', ...WEB_FETCH_RESULT }
+  }
   switch (call.card) {
     case 'terminal':
       // The sample's own exit status, authored beside it: re-parsing the
@@ -575,6 +668,144 @@ function pageOf(
   return { events, hasMore: start > 0 }
 }
 
+/** Fixture mirror of first-party message extraction used by session-query. */
+function searchBlockText(block: ContentBlock): string[] {
+  switch (block.type) {
+    case 'text':
+      return [block.text]
+    case 'reasoning':
+      return []
+    case 'tool-call':
+      return [block.name, block.arguments]
+    case 'tool-result':
+      return block.content.flatMap(searchBlockText)
+    default:
+      return []
+  }
+}
+
+/** One current-surface user/assistant/steering document, if searchable. */
+function searchEventText(event: SessionEvent): string {
+  const content = event.type === 'user/message'
+    ? event.data.content
+    : event.type === 'assistant/message' || event.type === 'steering/message'
+      ? event.data.message.content
+      : undefined
+  if (content === undefined) return ''
+  return content.flatMap(searchBlockText).map(part => part.trim()).filter(Boolean).join('\n')
+}
+
+interface FixtureSearchToken {
+  value: string
+  /** Inclusive code-point offset in the whitespace-normalized display text. */
+  start: number
+  /** Exclusive code-point offset in the whitespace-normalized display text. */
+  end: number
+}
+
+/**
+ * Browser-safe approximation of SQLite FTS5 unicode61 token boundaries.
+ * Keeping phrase matching token-based prevents the development fixture from
+ * promising arbitrary within-token substring behavior that production lacks.
+ */
+function searchTokenSpans(value: string): { text: string; tokens: FixtureSearchToken[] } {
+  const text = value.replace(/\s+/gu, ' ').trim()
+  const characters = Array.from(text)
+  const tokens: FixtureSearchToken[] = []
+  let start: number | undefined
+  let raw = ''
+  const flush = (end: number): void => {
+    if (start !== undefined) {
+      const folded = raw.normalize('NFD').replace(/\p{M}+/gu, '').toLowerCase()
+      if (folded !== '') tokens.push({ value: folded, start, end })
+    }
+    start = undefined
+    raw = ''
+  }
+  for (let index = 0; index < characters.length; index++) {
+    const character = characters[index] as string
+    const tokenBase = character.normalize('NFD').replace(/\p{M}+/gu, '')
+    if (tokenBase === '') {
+      if (start !== undefined) raw += character
+      continue
+    }
+    if (/^[\p{L}\p{N}\p{Co}]+$/u.test(tokenBase)) {
+      start ??= index
+      raw += character
+    } else {
+      flush(index)
+    }
+  }
+  flush(characters.length)
+  return { text, tokens }
+}
+
+interface FixturePhraseMatch {
+  count: number
+  start: number
+  end: number
+}
+
+/** Count exact contiguous token-phrase occurrences and retain the first display span. */
+function phraseMatch(document: readonly FixtureSearchToken[], phrase: readonly string[]): FixturePhraseMatch {
+  if (phrase.length === 0 || phrase.length > document.length) return { count: 0, start: 0, end: 0 }
+  let count = 0
+  let firstStart = 0
+  let firstEnd = 0
+  for (let start = 0; start <= document.length - phrase.length; start++) {
+    if (!phrase.every((token, offset) => document[start + offset]?.value === token)) continue
+    count++
+    if (count === 1) {
+      firstStart = document[start]?.start ?? 0
+      firstEnd = document[start + phrase.length - 1]?.end ?? firstStart
+    }
+  }
+  return { count, start: firstStart, end: firstEnd }
+}
+
+/** Match-centered fixture excerpt, bounded by Unicode code points for the sidebar. */
+function searchSnippet(value: string, matchStart: number, matchEnd: number): string {
+  const characters = Array.from(value)
+  if (characters.length <= 120) return value
+  const boundedStart = Math.min(Math.max(0, matchStart), characters.length - 1)
+  const boundedEnd = Math.min(
+    characters.length,
+    Math.max(boundedStart + 1, matchEnd),
+  )
+  const center = Math.floor((boundedStart + boundedEnd) / 2)
+  let start = Math.min(
+    characters.length - 118,
+    Math.max(0, center - Math.floor(118 / 2)),
+  )
+  let end = start + 118
+  if (start === 0) {
+    end = 119
+  } else if (end === characters.length) {
+    start = characters.length - 119
+  }
+  return `${start > 0 ? '…' : ''}${characters.slice(start, end).join('')}${end < characters.length ? '…' : ''}`
+}
+
+interface FixtureSearchCandidate {
+  sessionId: SessionId
+  seq: number
+  time: number
+  text: string
+  matchCount: number
+  matchStart: number
+  matchEnd: number
+  documentLength: number
+}
+
+/** Mirrors `packages/session-query/session-query-sqlite/src/index.ts`; update both together. */
+function compareSearchCandidates(a: FixtureSearchCandidate, b: FixtureSearchCandidate): number {
+  if (a.matchCount !== b.matchCount) return b.matchCount - a.matchCount
+  if (a.documentLength !== b.documentLength) return a.documentLength - b.documentLength
+  if (a.time !== b.time) return b.time - a.time
+  if (a.sessionId !== b.sessionId) return a.sessionId < b.sessionId ? -1 : 1
+  return b.seq - a.seq
+}
+
 /**
  * Current plan projection over the full log (host parallel: latest todo/write
  * with no later turn/start; a new turn retires the previous plan).
@@ -738,6 +969,9 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     updatedAt: fixtureEpoch,
   }]
   let nextWorkspace = 1
+  // Registry-global archive set mirroring the host: archived sessions keep
+  // their workspace accounting slot and only grouping surfaces hide them.
+  const archivedSessionIds: SessionId[] = []
 
   // In-memory browse tree behind the fixture's `browse` picker capability —
   // deterministic content mirroring the design mock so assembled Web tests
@@ -919,6 +1153,8 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
   let failNextHistory = false
   /** Force-enders for currently open stream generators (timing hook: simulated connection loss). */
   const streamBreakers = new Set<() => void>()
+  /** Retry scenarios opened by timing hooks and completed in a later browser assertion phase. */
+  const retryScenarios = new Map<SessionId, { turn: number; stepStarted: boolean }>()
 
   // Timing-acceptance hooks (browser test backdoor): the in-memory fixture is ideally timed, which
   // is exactly what masked the open-window and reconnect-gap bugs (audit S1/S3). These let
@@ -941,6 +1177,89 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       const log = logOf(sid(id))
       const messageSeqs = log.filter(event => event.type === 'user/message').map(event => event.seq)
       append(sid(id), { type: 'session/title', data: { title, messageSeqs, source: { kind: 'provider', provider: 'fixture' } } })
+    },
+    /** Open one failed model step whose partial remains visible until llm/retry arrives. */
+    beginModelRetry(id: string): void {
+      const sessionId = sid(id)
+      const turn = nextTurn.get(sessionId) ?? 0
+      nextTurn.set(sessionId, turn + 1)
+      retryScenarios.set(sessionId, { turn, stepStarted: true })
+      setRunning(sessionId, true)
+      append(sessionId, { type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
+      append(sessionId, { type: 'user/message', surfaceOp: 'append', data: { content: text('请重试这个请求'), source: { kind: 'user' } } })
+      append(sessionId, { type: 'step/start', data: { turn, step: 1 } })
+      append(sessionId, { type: 'assistant/chunk', data: { turn, step: 1, chunk: { type: 'block-start', index: 0, blockType: 'text' } } })
+      append(sessionId, { type: 'assistant/chunk', data: { turn, step: 1, chunk: { type: 'text-delta', index: 0, text: '应撤回的半截回复' } } })
+      append(sessionId, { type: 'step/end', data: { turn, step: 1 } })
+    },
+    /** Record one retry decision, then open the next retry turn. */
+    scheduleModelRetry(id: string, retry = 1, delayMs = 450): void {
+      const sessionId = sid(id)
+      const scenario = retryScenarios.get(sessionId)
+      if (scenario === undefined) throw new Error(`fixture: no model retry scenario for ${id}`)
+      if (!scenario.stepStarted) {
+        append(sessionId, { type: 'step/start', data: { turn: scenario.turn, step: 1 } })
+        append(sessionId, { type: 'assistant/chunk', data: { turn: scenario.turn, step: 1, chunk: { type: 'block-start', index: 0, blockType: 'text' } } })
+        append(sessionId, { type: 'assistant/chunk', data: { turn: scenario.turn, step: 1, chunk: { type: 'text-delta', index: 0, text: `第 ${String(retry)} 次应撤回的回复` } } })
+        append(sessionId, { type: 'step/end', data: { turn: scenario.turn, step: 1 } })
+        scenario.stepStarted = true
+      }
+      const failure = { code: 'TRANSPORT', message: '连接被重置' }
+      append(sessionId, {
+        type: 'llm/retry',
+        data: {
+          turn: scenario.turn, step: 1,
+          provider: 'fixture', mode: 'normal', policyKey: 'fixture-normal',
+          retry, maxRetries: 2, delayMs, failure,
+        },
+      })
+      append(sessionId, {
+        type: 'turn/end',
+        data: { turn: scenario.turn, reason: { kind: 'error', step: 1, failure } },
+      })
+      const next = nextTurn.get(sessionId) ?? scenario.turn + 1
+      nextTurn.set(sessionId, next + 1)
+      append(sessionId, { type: 'turn/start', data: { turn: next, trigger: { kind: 'retry' } } })
+      scenario.turn = next
+      scenario.stepStarted = false
+    },
+    /** Record one retry decision, then cancel its source turn before the retry starts. */
+    cancelModelRetryDuringBackoff(id: string, delayMs = 450): void {
+      const sessionId = sid(id)
+      const scenario = retryScenarios.get(sessionId)
+      if (scenario === undefined) throw new Error(`fixture: no model retry scenario for ${id}`)
+      const failure = { code: 'TRANSPORT', message: '连接被重置' }
+      append(sessionId, {
+        type: 'llm/retry',
+        data: {
+          turn: scenario.turn, step: 1,
+          provider: 'fixture', mode: 'normal', policyKey: 'fixture-normal',
+          retry: 1, maxRetries: 2, delayMs, failure,
+        },
+      })
+      append(sessionId, { type: 'turn/end', data: { turn: scenario.turn, reason: { kind: 'aborted' } } })
+      retryScenarios.delete(sessionId)
+      setRunning(sessionId, false)
+    },
+    /** Finish the timing-hook retry with a finalized response in the open retry turn. */
+    completeModelRetry(id: string): void {
+      const sessionId = sid(id)
+      const scenario = retryScenarios.get(sessionId)
+      if (scenario === undefined) throw new Error(`fixture: no model retry scenario for ${id}`)
+      retryScenarios.delete(sessionId)
+      append(sessionId, { type: 'step/start', data: { turn: scenario.turn, step: 1 } })
+      append(sessionId, {
+        type: 'assistant/message',
+        surfaceOp: 'append',
+        data: {
+          turn: scenario.turn,
+          step: 1,
+          message: assistantMessage(text('重试后的完整回复')),
+        },
+      })
+      append(sessionId, { type: 'step/end', data: { turn: scenario.turn, step: 1 } })
+      append(sessionId, { type: 'turn/end', data: { turn: scenario.turn, reason: { kind: 'completed' } } })
+      setRunning(sessionId, false)
     },
     /** Log append WITHOUT the mux emit: a frame lost in transit — history still serves it, the client must repull. */
     appendSilent(id: string, msg: string): void {
@@ -987,6 +1306,45 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
   return {
     sessions: {
       list: request => ok(request, { items: [...sessions].sort((a, b) => b.updatedAt - a.updatedAt) }),
+      search: (request, signal) => {
+        if (signal.aborted) {
+          return err(request, {
+            code: 'cancelled',
+            message: 'fixture session search was aborted',
+            details: {},
+          })
+        }
+        const query = searchTokenSpans(request.payload.query).tokens.map(token => token.value)
+        const matches = sessions.flatMap((summary) => {
+          const log = logs.get(summary.sessionId) ?? []
+          const current = new Set(foldSurface(log).nodes)
+          const best = log.flatMap((event): FixtureSearchCandidate[] => {
+            if (!current.has(event.seq)) return []
+            const eventText = searchEventText(event)
+            const document = searchTokenSpans(eventText)
+            const match = phraseMatch(document.tokens, query)
+            if (match.count === 0) return []
+            return [{
+              sessionId: summary.sessionId,
+              seq: event.seq,
+              time: event.time,
+              text: document.text,
+              matchCount: match.count,
+              matchStart: match.start,
+              matchEnd: match.end,
+              documentLength: Array.from(eventText).length,
+            }]
+          }).sort(compareSearchCandidates)[0]
+          return best === undefined ? [] : [best]
+        }).sort(compareSearchCandidates)
+        return ok(request, {
+          items: matches.slice(0, SESSION_SEARCH_RESULT_LIMIT).map(match => ({
+            sessionId: match.sessionId,
+            snippet: searchSnippet(match.text, match.matchStart, match.matchEnd),
+          })),
+          hasMore: matches.length > SESSION_SEARCH_RESULT_LIMIT,
+        })
+      },
       create: async (request) => {
         const workspace = request.payload.workspaceId === undefined
           ? undefined
@@ -1268,7 +1626,10 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       openPath: request => ok(request, { opened: true as const }),
     },
     workspace: {
-      list: request => ok(request, { items: workspaces.map(w => ({ ...w })) }),
+      list: request => ok(request, {
+        items: workspaces.map(w => ({ ...w })),
+        archivedSessionIds: [...archivedSessionIds],
+      }),
       create: (request) => {
         const { path, name } = request.payload
         const target = path ?? `/tmp/fixture-workspaces/${name ?? ''}`
@@ -1353,6 +1714,16 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           emitHost({ type: 'host/workspace-changed', workspace: { ...workspace } })
         }
         return ok(request, { workspace: { ...workspace } })
+      },
+      archiveSession: (request) => {
+        const missing = requireSession(request)
+        if (missing !== undefined) return missing
+        const { sessionId } = request.payload
+        if (!archivedSessionIds.includes(sessionId)) {
+          archivedSessionIds.push(sessionId)
+          emitHost({ type: 'host/archived-sessions-changed', archivedSessionIds: [...archivedSessionIds] })
+        }
+        return ok(request, { archivedSessionIds: [...archivedSessionIds] })
       },
     },
     commands: {
@@ -1691,20 +2062,30 @@ export class FixtureApiClient extends AbstractApiClient {
   protected override async callUnary<K extends keyof RpcMethodMap>(
     method: K,
     payload: RequestPayload<K>,
+    signal?: AbortSignal,
   ): Promise<RpcResponse<ResponseValue<K>>> {
     const request = rpcRequest(payload)
     const full: ClientRequest = { type: 'client-request', rpcId: request.rpcId, method, payload }
     this.onEnvelope(full)
-    const response = await this.dispatch(method, request as RpcRequest<never>) as RpcResponse<ResponseValue<K>>
+    const response = await this.dispatch(
+      method,
+      request as RpcRequest<never>,
+      signal ?? new AbortController().signal,
+    ) as RpcResponse<ResponseValue<K>>
     const fullResponse: ServerResponse = { type: 'server-response', rpcId: response.rpcId, result: response.result }
     this.onEnvelope(fullResponse)
     return response
   }
 
   /** Method-key dispatch into the in-memory contract impl (a real carrier routes by URL path instead). */
-  private dispatch(method: keyof RpcMethodMap, request: RpcRequest<never>): Promise<RpcResponse<unknown>> {
+  private dispatch(
+    method: keyof RpcMethodMap,
+    request: RpcRequest<never>,
+    signal: AbortSignal,
+  ): Promise<RpcResponse<unknown>> {
     switch (method) {
       case 'session.list': return this.api.sessions.list(request)
+      case 'session.search': return this.api.sessions.search(request, signal)
       case 'session.create': return this.api.sessions.create(request)
       case 'session.history': return this.api.sessions.history(request)
       case 'session.models': return this.api.sessions.models(request)
@@ -1724,9 +2105,9 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'workspace.rename': return this.api.workspace.rename(request)
       case 'workspace.delete': return this.api.workspace.delete(request)
       case 'workspace.insertSessionBefore': return this.api.workspace.insertSessionBefore(request)
+      case 'workspace.archiveSession': return this.api.workspace.archiveSession(request)
       case 'command.list': return this.api.commands.list(request)
-      // The in-memory execute never blocks, so a never-aborting signal is faithful here.
-      case 'command.execute': return this.api.commands.execute(request, new AbortController().signal)
+      case 'command.execute': return this.api.commands.execute(request, signal)
       case 'skill.list': return this.api.skills.list(request)
       case 'goal.create': return this.api.goals.create(request)
       case 'goal.edit': return this.api.goals.edit(request)

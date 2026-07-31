@@ -46,6 +46,8 @@ function scrollerOf(from: HTMLElement): HTMLElement {
 
 type OpenFile = (path: string) => void
 
+type InspectCall = (callId: string) => void
+
 /** The declared toolview hole's render share (stable framework binding, passed through memoized rows). */
 type RenderToolRow = ChatViewSlotProps['renderSlot']
 
@@ -53,23 +55,36 @@ type RenderToolRow = ChatViewSlotProps['renderSlot']
  *  chat view narrows once to the runtime snapshot the binding actually feeds. */
 type UseConversation = SnapshotSelectorHook<ConversationSnapshot>
 
+function activeRetrySeq(nodes: readonly ConversationNode[], running: boolean): number | null {
+  if (!running) return null
+  for (let index = nodes.length - 1; index >= 0; index -= 1) {
+    const node = nodes[index]
+    if (node === undefined) continue
+    if (node.kind === 'model-retry') return node.retryState === 'cancelled' ? null : node.seq
+    if (node.kind === 'assistant' || node.kind === 'user') return null
+  }
+  return null
+}
+
 /** One `run_code` sub-dispatch row: the identical keyed-slot dispatch as a
  *  top-level call (same registrations, same fallback), nested by the parent.
  *  A started-but-unsettled sub-call arrives as the RunningToolCall shape and
  *  renders the running state exactly as a native in-flight row. */
-const SubCallRow = memo(function SubCallRow({ renderSlot, node, openFile, selected, cwd, t }: {
+const SubCallRow = memo(function SubCallRow({ renderSlot, node, openFile, selected, cwd, inspectCall, t }: {
   renderSlot: RenderToolRow
   node: CodeSubCall
   openFile: OpenFile
   selected: boolean
   cwd: string | undefined
+  inspectCall: InspectCall
   t: ChatViewSlotProps['t']
 }) {
   const settled = 'kind' in node
   const toolName = settled ? node.call?.name ?? '' : node.name
   const owner = useMemo(() => ({
     callId: node.callId, toolName, block: node, openFile, cwd,
-  }), [node, toolName, openFile, cwd])
+    inspect: () => { inspectCall(node.callId) },
+  }), [node, toolName, openFile, cwd, inspectCall])
   return (
     <div className={css.callRow} data-selected={selected || undefined}>
       {renderSlot('conversation.chat.toolview', owner, {
@@ -86,7 +101,7 @@ const SubCallRow = memo(function SubCallRow({ renderSlot, node, openFile, select
  *  renders its logged sub-dispatches as always-visible indented rows —
  *  each one the same keyed-slot dispatch as a native top-level call. */
 const CallRow = memo(function CallRow({
-  renderSlot, callId, toolName, block, openFile, selected, subCalls, selectedCallId, cwd, t,
+  renderSlot, callId, toolName, block, openFile, selected, subCalls, selectedCallId, cwd, inspectCall, t,
 }: {
   renderSlot: RenderToolRow
   callId: string
@@ -101,11 +116,13 @@ const CallRow = memo(function CallRow({
   selectedCallId?: string | undefined
   /** Session workspace root for path-relative summaries. */
   cwd: string | undefined
+  inspectCall: InspectCall
   t: ChatViewSlotProps['t']
 }) {
   const owner = useMemo(() => ({
     callId, toolName, block, openFile, cwd,
-  }), [callId, toolName, block, openFile, cwd])
+    inspect: () => { inspectCall(callId) },
+  }), [callId, toolName, block, openFile, cwd, inspectCall])
   return (
     <div className={css.callRow} data-selected={selected || undefined}>
       {renderSlot('conversation.chat.toolview', owner, {
@@ -122,6 +139,7 @@ const CallRow = memo(function CallRow({
               openFile={openFile}
               selected={node.callId === selectedCallId}
               cwd={cwd}
+              inspectCall={inspectCall}
               t={t}
             />
           ))}
@@ -132,7 +150,7 @@ const CallRow = memo(function CallRow({
 })
 
 /** Consecutive tool results as one step-run group (uniform 16px rhythm). */
-const ToolGroup = memo(function ToolGroup({ renderSlot, results, openFile, selectedCallId, codeDispatches, cwd, t }: {
+const ToolGroup = memo(function ToolGroup({ renderSlot, results, openFile, selectedCallId, codeDispatches, cwd, inspectCall, t }: {
   renderSlot: RenderToolRow
   results: readonly ToolResultNode[]
   openFile: OpenFile
@@ -142,6 +160,7 @@ const ToolGroup = memo(function ToolGroup({ renderSlot, results, openFile, selec
   codeDispatches: ReadonlyMap<string, readonly CodeSubCall[]>
   /** Session workspace root for path-relative summaries. */
   cwd: string | undefined
+  inspectCall: InspectCall
   t: ChatViewSlotProps['t']
 }) {
   return (
@@ -158,6 +177,7 @@ const ToolGroup = memo(function ToolGroup({ renderSlot, results, openFile, selec
           subCalls={codeDispatches.get(node.callId)}
           selectedCallId={selectedCallId}
           cwd={cwd}
+          inspectCall={inspectCall}
           t={t}
         />
       ))}
@@ -184,36 +204,11 @@ const CommandRow = memo(function CommandRow({ renderSlot, node, t }: {
   )
 })
 
-/** Turn loader: one row of four 2.5px pixels (half a notch above the StateDot
- *  2px cell, same blue) chasing left to right with a stepped trail — flat
- *  keyframe holds, no tweening, no rotation. Phase offsets come from
- *  per-rect animation-delay. */
-const LOADER_CELLS = [0, 5, 10, 15] as const
-
-function TurnDots() {
+/** Turn-level model activity label retained across first-token, tool, and streaming phases. */
+function TurnStatus() {
   return (
-    /* The wrapper is a 26px line box (message line height) so the loader
-       occupies one text line and centers the dots inside it. */
-    <div className={css.turnDots} aria-hidden="true">
-      <svg
-        width="17.5"
-        height="2.5"
-        viewBox="0 0 17.5 2.5"
-        shapeRendering="crispEdges"
-      >
-        {LOADER_CELLS.map((x, index) => (
-          <rect
-            key={x}
-            className={css.turnDotCell}
-            x={x}
-            y="0"
-            width="2.5"
-            height="2.5"
-            /* Negative delay phases the chase so every cell animates from mount. */
-            style={{ animationDelay: `${(index - LOADER_CELLS.length) * 250}ms` }}
-          />
-        ))}
-      </svg>
+    <div className={css.turnStatus} role="status" aria-live="polite">
+      Deep diving...
     </div>
   )
 }
@@ -237,7 +232,9 @@ function StreamingTail({ useSession, onGrow, t }: {
  * The chat view slot entry: pure component over the composed props (tool rows
  * render through the declared keyed hole's renderSlot share).
  */
-export function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, forkAt, t }: ChatViewSlotProps) {
+export function ChatView({
+  useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, inspectCall, chatScroll, forkAt, t,
+}: ChatViewSlotProps) {
   const nodes = useSession(s => s.nodes)
   // Workspace root off the session list row: path summaries display relative to it.
   const cwd = useSessions(s => s.byId[sessionId]?.cwd)
@@ -251,6 +248,7 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
   const selectedCallId = useStore(s => s.selection?.callId)
 
   const items = useMemo(() => deriveChatFlow(nodes), [nodes])
+  const activeRetry = useMemo(() => activeRetrySeq(nodes, running), [nodes, running])
   // Only the last content assistant of each turn owns IconActions; mid-turn
   // text (before tools) omits `time` so AssistantMarkdown stays chrome-free.
   const actionSeqs = useMemo(() => assistantActionsSeqs(nodes), [nodes])
@@ -284,10 +282,20 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
     /* v8 ignore next -- ref-null guard: React attaches the ref before layout effects run. */
     if (local === null) return
     const el = scrollerOf(local)
-    // Open completed: jump to the bottom once.
+    // Open completed: jump to the bottom once — unless a scroll position
+    // survives from a previous mount (view-tab switch away and back), which
+    // is restored instead of snapping the reader back to the floor.
     if (openState === 'open' && !openedRef.current) {
       openedRef.current = true
-      toBottom(el)
+      const saved = chatScroll.read()
+      if (saved === null) {
+        toBottom(el)
+      } else {
+        el.scrollTop = saved
+        const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= FOLLOW_THRESHOLD + 1
+        atBottomRef.current = isAtBottom
+        setAtBottom(isAtBottom)
+      }
       firstSeqRef.current = firstSeq
       lastKeyRef.current = lastKey
       followSigRef.current = followSig
@@ -325,6 +333,9 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
     const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= FOLLOW_THRESHOLD + 1
     atBottomRef.current = isAtBottom
     setAtBottom(isAtBottom)
+    // Continuous save (unmount happens after ref detach, so saving there is
+    // too late); pinned-to-bottom clears so a remount keeps following.
+    chatScroll.save(isAtBottom ? null : el.scrollTop)
   }
 
   // Bind scroll to the resolved scrollport (host or local) once per mount.
@@ -375,6 +386,7 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
           selectedCallId={inGroup ? selectedCallId : undefined}
           codeDispatches={codeDispatches}
           cwd={cwd}
+          inspectCall={inspectCall}
           t={t}
         />
       )
@@ -399,7 +411,15 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
     }
     /* v8 ignore next -- tool-result never reaches here: deriveChatFlow folds them into groups. */
     if (node.kind === 'tool-result') return null
-    return <MessageItem key={item.key} node={node} onFork={forkAt} t={t} />
+    return (
+      <MessageItem
+        key={item.key}
+        node={node}
+        retryActive={node.kind === 'model-retry' && node.seq === activeRetry}
+        onFork={forkAt}
+        t={t}
+      />
+    )
   }
 
   return (
@@ -435,6 +455,7 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
                   subCalls={codeDispatches.get(call.callId)}
                   selectedCallId={selectedCallId}
                   cwd={cwd}
+                  inspectCall={inspectCall}
                   t={t}
                 />
               ))}
@@ -445,7 +466,7 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
               double-render the same wait. */}
           {/* Turn-level loading signal: rides the whole running turn (first-token
               wait, tool execution, streaming) so it never flickers per step. */}
-          {running && <TurnDots />}
+          {running && <TurnStatus />}
         </div>
         {!atBottom && (
           <div className={css.toBottomSlot}>

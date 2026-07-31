@@ -4,7 +4,7 @@
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type {
   ClientResponse, CommandDescriptor, HostFrame, IApiClient, ModelTarget, MuxFrame,
-  RpcError, RpcReceipt, RpcRequest, RpcResponse, SessionId, SessionModels, SkillEntry,
+  RpcError, RpcReceipt, RpcRequest, RpcResponse, SessionId, SessionModels, SessionSearchItem, SkillEntry,
   WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
@@ -61,6 +61,8 @@ export class FakeApiClient implements IApiClient {
 
   // Programmable slots (defaults answer OK-empty); reassign per case.
   onList: (payload: unknown) => Promise<RpcResponse<{ items: never[] }>> = () => Promise.resolve(ok({ items: [] }))
+  onSearch: (payload: unknown) => Promise<RpcResponse<{ items: SessionSearchItem[]; hasMore: boolean }>> =
+    () => Promise.resolve(ok({ items: [], hasMore: false }))
   onCreate: (payload: unknown) => Promise<RpcResponse<{ sessionId: SessionId }>> = () => Promise.resolve(ok({ sessionId: 'fk-new' as SessionId }))
   readonly defaultModel: ModelTarget = { provider: 'deepseek-official', model: 'deepseek-v4-flash' }
   onRename: (payload: unknown) => Promise<RpcResponse<{ title: string; seq: number }>> = () => Promise.resolve(ok({ title: 'fk-renamed', seq: 0 }))
@@ -106,12 +108,17 @@ export class FakeApiClient implements IApiClient {
 
   private readonly muxConns: StreamConn<MuxFrame>[] = []
   private readonly hostConns: StreamConn<HostFrame>[] = []
+  lastSearchSignal: AbortSignal | undefined
 
   // Parameters carry local structural annotations: the CI lint lane runs
   // without built lib/, so IApiClient's indexed-access types collapse to any
   // and inferred parameters would trip no-unsafe-argument.
   readonly sessions: IApiClient['sessions'] = {
     list: (payload: unknown) => this.record('session.list', payload, this.onList(payload)),
+    search: (payload: unknown, signal?: AbortSignal) => {
+      this.lastSearchSignal = signal
+      return this.record('session.search', payload, this.onSearch(payload))
+    },
     create: (payload: unknown) => this.record('session.create', payload, this.onCreate(payload)),
     history: (payload: { sessionId: SessionId; beforeSeq?: number; maxMessages?: number }) =>
       this.record('session.history', payload, this.onHistory(payload)),
@@ -133,7 +140,10 @@ export class FakeApiClient implements IApiClient {
     openPath: (payload: unknown) => this.record('host.openPath', payload, this.onOpenPath(payload)),
   }
 
-  onWorkspaceList: (payload: unknown) => Promise<RpcResponse<{ items: never[] }>> = () => Promise.resolve(ok({ items: [] }))
+  // The archive-set field defaults at the binding below so list stubs keep
+  // the pre-archive `{ items }` shape; a stub carrying the field wins.
+  onWorkspaceList: (payload: unknown) => Promise<RpcResponse<{ items: never[]; archivedSessionIds?: never[] }>> =
+    () => Promise.resolve(ok({ items: [] }))
   onWorkspaceCreate: (payload: unknown) => Promise<RpcResponse<{ workspace: WorkspaceView; created: boolean }>> =
     () => Promise.resolve(ok({ workspace: fakeWorkspace('fk-ws'), created: true }))
 
@@ -146,13 +156,22 @@ export class FakeApiClient implements IApiClient {
   onWorkspaceInsertSessionBefore: (payload: unknown) => Promise<RpcResponse<{ workspace: WorkspaceView }>> =
     () => Promise.resolve(ok({ workspace: fakeWorkspace('fk-ws') }))
 
+  onWorkspaceArchiveSession: (payload: unknown) => Promise<RpcResponse<{ archivedSessionIds: SessionId[] }>> =
+    payload => Promise.resolve(ok({ archivedSessionIds: [(payload as { sessionId: SessionId }).sessionId] }))
+
   readonly workspace: IApiClient['workspace'] = {
-    list: (payload: unknown) => this.record('workspace.list', payload, this.onWorkspaceList(payload)),
+    list: (payload: unknown) => this.record('workspace.list', payload, this.onWorkspaceList(payload).then(response => (
+      response.result.ok
+        ? { ...response, result: { ok: true as const, value: { archivedSessionIds: [] as never[], ...response.result.value } } }
+        : response
+    )) as ReturnType<IApiClient['workspace']['list']>),
     create: (payload: unknown) => this.record('workspace.create', payload, this.onWorkspaceCreate(payload)),
     rename: (payload: unknown) => this.record('workspace.rename', payload, this.onWorkspaceRename(payload)),
     delete: (payload: unknown) => this.record('workspace.delete', payload, this.onWorkspaceDelete(payload)),
     insertSessionBefore: (payload: unknown) =>
       this.record('workspace.insertSessionBefore', payload, this.onWorkspaceInsertSessionBefore(payload)),
+    archiveSession: (payload: unknown) =>
+      this.record('workspace.archiveSession', payload, this.onWorkspaceArchiveSession(payload)),
   }
 
   // Payloads stay `unknown` (lint-lane note above); response rows are the real

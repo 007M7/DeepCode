@@ -22,6 +22,7 @@ import type { RpcResponse } from './rpc.ts'
  */
 export interface RpcMethodMap {
   'session.list': SessionsApi['list']
+  'session.search': SessionsApi['search']
   'session.create': SessionsApi['create']
   'session.history': SessionsApi['history']
   'session.models': SessionsApi['models']
@@ -41,6 +42,7 @@ export interface RpcMethodMap {
   'workspace.rename': WorkspaceApi['rename']
   'workspace.delete': WorkspaceApi['delete']
   'workspace.insertSessionBefore': WorkspaceApi['insertSessionBefore']
+  'workspace.archiveSession': WorkspaceApi['archiveSession']
   'command.list': CommandsApi['list']
   'command.execute': CommandsApi['execute']
   'skill.list': SkillsApi['list']

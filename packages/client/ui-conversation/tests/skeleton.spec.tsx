@@ -62,7 +62,7 @@ function workspace(id = 'w1'): WorkspaceView {
 }
 
 const workspaceState = (items: readonly WorkspaceView[]): WorkspaceListState => ({
-  items, state: 'idle', phase: 'ready', error: null,
+  items, archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
   baselinesReady: true, recentWorkspaceId: undefined,
 })
 
@@ -152,8 +152,10 @@ function mount(
           useInput={useInput}
           inputActions={inputActions}
           keyboard={wiring}
+          toggleCommandMenu={vi.fn()}
           useNotices={bindSnapshotSelector(wiring.notices)}
           useLexicon={bindSnapshotSelector(wiring.lexicon)}
+          useMenuLauncher={bindSnapshotSelector(createSnapshotStore<string | null>(null))}
           stop={stop}
           command={() => Promise.resolve(true)}
           t={t}

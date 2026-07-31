@@ -25,6 +25,8 @@ import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './suppor
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/lifecycle-chrome', import.meta.url))
 const FIXTURE = join(SNAPSHOT_DIR, 'session.jsonl')
 const HERO_EXPECTED = join(SNAPSHOT_DIR, 'hero.expected.md')
+const COMMAND_MENU_EXPECTED = join(SNAPSHOT_DIR, 'command-menu.expected.md')
+const PLAN_ACTIVE_EXPECTED = join(SNAPSHOT_DIR, 'plan-active.expected.md')
 // Post-reload golden: the same settled conversation rebuilt purely from
 // persistence + history — byte-equal rendering is exactly the recovery claim.
 const RELOADED_EXPECTED = join(SNAPSHOT_DIR, 'reloaded.expected.md')
@@ -54,6 +56,88 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
   afterAll(async () => {
     await browser?.close()
     await scaffold?.close()
+  })
+
+  it.skipIf(MODE === 'record')('opens the shared slash menu from plus with only Command candidates', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-command-menu-launcher'))
+    const launcher = page.getByRole('button', { name: 'Commands' })
+    await launcher.click()
+    const menu = page.getByRole('listbox', { name: 'Trigger suggestions' })
+    await menu.waitFor({ timeout: 10_000 })
+    const snapshot = await captureStableAria(page, '[role="listbox"]', scaffold.workspaceCwd)
+    await compareOrRefreshGolden(COMMAND_MENU_EXPECTED, snapshot, MODE)
+    expect(snapshot).toContain('text: Commands')
+    expect(snapshot).not.toContain('text: Skills')
+    expect(snapshot).not.toContain('text: Subagents')
+    const launchedBox = await menu.boundingBox()
+    await page.locator('textarea').first().press('Escape')
+    await expect.poll(() => menu.count()).toBe(0)
+    const input = page.locator('textarea').first()
+    await input.fill('/')
+    await menu.waitFor({ timeout: 10_000 })
+    const typedBox = await menu.boundingBox()
+    expect(launchedBox).not.toBeNull()
+    expect(typedBox).not.toBeNull()
+    expect(Math.abs(launchedBox!.x - typedBox!.x)).toBeLessThan(1)
+    expect(Math.abs(
+      launchedBox!.y + launchedBox!.height - typedBox!.y - typedBox!.height,
+    )).toBeLessThan(1)
+    await input.fill('')
+    await expect.poll(() => menu.count()).toBe(0)
+  })
+
+  it.skipIf(MODE === 'record')('shows active Plan as the warn-state status action', async () => {
+    const activeScaffold = await launchWebScaffold()
+    const activePage = await newEnglishPage(browser)
+    const activeTripwire = watchConsole(activePage)
+    try {
+      await activePage.goto(activeScaffold.baseUrl, { waitUntil: 'load' })
+      await activePage.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+      await connectFreshWorkspace(activePage)
+      const input = activePage.locator('textarea').first()
+      await activePage.getByRole('button', { name: 'Commands' }).click()
+      const menu = activePage.getByRole('listbox', { name: 'Trigger suggestions' })
+      await menu.waitFor({ timeout: 10_000 })
+      await menu.getByRole('option', { name: 'plan Enter or leave plan mode' }).click()
+      await expect.poll(() => input.inputValue()).toBe('/plan ')
+      await input.press('Enter')
+      const planButton = activePage.getByRole('button', { name: 'Plan mode on, press to turn off' })
+      await planButton.waitFor({ timeout: 10_000 })
+      const planSnapshot = await captureStableAria(activePage, '[class*="frame"]', activeScaffold.workspaceCwd)
+      await compareOrRefreshGolden(PLAN_ACTIVE_EXPECTED, planSnapshot, MODE)
+      const planStyle = await planButton.evaluate((element) => {
+        const probe = document.createElement('span')
+        probe.style.color = 'var(--dsw-alias-state-warn-label)'
+        probe.style.backgroundColor = 'var(--dsw-alias-state-warn-tertiary)'
+        document.body.append(probe)
+        const actual = getComputedStyle(element)
+        const reference = getComputedStyle(probe)
+        const result = {
+          color: actual.color,
+          backgroundColor: actual.backgroundColor,
+          borderRadius: actual.borderRadius,
+          fontSize: actual.fontSize,
+          referenceColor: reference.color,
+          referenceBackgroundColor: reference.backgroundColor,
+        }
+        probe.remove()
+        return result
+      })
+      expect(planStyle.color).toBe(planStyle.referenceColor)
+      expect(planStyle.backgroundColor).toBe(planStyle.referenceBackgroundColor)
+      expect(planStyle.borderRadius).toBe('999px')
+      expect(planStyle.fontSize).toBe('13px')
+      await planButton.click()
+      await expect.poll(() => planButton.count()).toBe(0)
+      expect(activeTripwire.pageErrors).toEqual([])
+      expect(activeTripwire.warnings).toEqual([])
+    } catch (error) {
+      await saveFailureShot(activePage, 'web-e2e-plan-active').catch(() => undefined)
+      throw error
+    } finally {
+      await activePage.close()
+      await activeScaffold.close()
+    }
   })
 
   it('sends the first prompt from the empty-state hero (all modes)', async () => {
@@ -152,6 +236,8 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
 
   it.skipIf(MODE === 'record')('keeps the fixture inventory closed', async () => {
     expect(tripwire.warnings).toEqual([])
-    await assertFixtureInventory(SNAPSHOT_DIR, ['session.jsonl', 'hero.expected.md', 'reloaded.expected.md'])
+    await assertFixtureInventory(SNAPSHOT_DIR, [
+      'session.jsonl', 'command-menu.expected.md', 'hero.expected.md', 'plan-active.expected.md', 'reloaded.expected.md',
+    ])
   })
 })
