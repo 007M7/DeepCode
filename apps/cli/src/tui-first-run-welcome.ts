@@ -12,16 +12,14 @@ import { lstat, mkdir, open, rename, rm } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import type { Context } from 'cordis'
 import {
-  Key,
-  matchesKey,
-  truncateToWidth,
-  visibleWidth,
-  wrapTextWithAnsi,
-} from '@earendil-works/pi-tui'
-import type {
-  TuiComponent,
-  TuiFocusable,
-  TuiOverlayHost,
+  matchesTuiKey,
+  truncateTuiText,
+  TuiKey,
+  tuiVisibleWidth,
+  wrapTuiText,
+  type TuiComponent,
+  type TuiFocusable,
+  type TuiOverlayHost,
 } from '@deepseek-ai/dsh-tui'
 import {
   TUI_FIRST_RUN_WELCOME_NOTICE_COPY,
@@ -149,14 +147,14 @@ async function syncDirectory(path: string): Promise<void> {
 
 /** Render one visible-width-padded line inside the notice frame. */
 function framed(content: string, innerWidth: number, host: TuiOverlayHost): string {
-  const clipped = truncateToWidth(content, innerWidth, '')
-  return `${host.theme.dim('│')} ${clipped}${' '.repeat(Math.max(0, innerWidth - visibleWidth(clipped)))} ${host.theme.dim('│')}`
+  const clipped = truncateTuiText(content, innerWidth)
+  return `${host.theme.dim('│')} ${clipped}${' '.repeat(Math.max(0, innerWidth - tuiVisibleWidth(clipped)))} ${host.theme.dim('│')}`
 }
 
 /** Center one line by terminal column width. */
 function centered(content: string, width: number): string {
-  const clipped = truncateToWidth(content, width, '')
-  const remaining = Math.max(0, width - visibleWidth(clipped))
+  const clipped = truncateTuiText(content, width)
+  const remaining = Math.max(0, width - tuiVisibleWidth(clipped))
   return `${' '.repeat(Math.floor(remaining / 2))}${clipped}`
 }
 
@@ -189,11 +187,11 @@ function proseLines(
     if (quoteEnd > 0) {
       const quote = paragraph.slice(0, quoteEnd + 1)
       const remainder = paragraph.slice(quoteEnd + 1).trimStart()
-      lines.push(...wrapTextWithAnsi(host.theme.bold(host.theme.text(host.display(quote))), width))
+      lines.push(...wrapTuiText(host.theme.bold(host.theme.text(host.display(quote))), width))
       lines.push('')
-      if (remainder !== '') lines.push(...wrapTextWithAnsi(host.theme.text(host.display(remainder)), width))
+      if (remainder !== '') lines.push(...wrapTuiText(host.theme.text(host.display(remainder)), width))
     } else {
-      lines.push(...wrapTextWithAnsi(host.theme.text(host.display(paragraph)), width))
+      lines.push(...wrapTuiText(host.theme.text(host.display(paragraph)), width))
     }
   }
   return lines
@@ -278,7 +276,7 @@ export class TuiFirstRunWelcomeComponent implements TuiComponent, TuiFocusable {
       : Array.from({ length: Math.max(fullArt.length, visibleBody.length) }, (_, index) => {
         const art = fullArt[index] ?? ''
         const line = visibleBody[index] ?? ''
-        const left = `${art}${' '.repeat(Math.max(0, fullArtWidth - visibleWidth(art)))}`
+        const left = `${art}${' '.repeat(Math.max(0, fullArtWidth - tuiVisibleWidth(art)))}`
         return `${left}   ${line}`
       })
 
@@ -293,17 +291,17 @@ export class TuiFirstRunWelcomeComponent implements TuiComponent, TuiFocusable {
   }
 
   handleInput(data: string): void {
-    if (matchesKey(data, Key.enter)) {
+    if (matchesTuiKey(data, TuiKey.enter)) {
       if (!this.saving) void this.commit()
       return
     }
-    if (this.saving || matchesKey(data, Key.escape)) return
-    if (matchesKey(data, Key.up)) this.scrollBy(-1)
-    else if (matchesKey(data, Key.down)) this.scrollBy(1)
-    else if (matchesKey(data, Key.pageUp)) this.scrollBy(-this.bodyCapacity)
-    else if (matchesKey(data, Key.pageDown)) this.scrollBy(this.bodyCapacity)
-    else if (matchesKey(data, Key.home)) this.scrollTo(0)
-    else if (matchesKey(data, Key.end)) this.scrollTo(this.maxScrollOffset)
+    if (this.saving || matchesTuiKey(data, TuiKey.escape)) return
+    if (matchesTuiKey(data, TuiKey.up)) this.scrollBy(-1)
+    else if (matchesTuiKey(data, TuiKey.down)) this.scrollBy(1)
+    else if (matchesTuiKey(data, TuiKey.pageUp)) this.scrollBy(-this.bodyCapacity)
+    else if (matchesTuiKey(data, TuiKey.pageDown)) this.scrollBy(this.bodyCapacity)
+    else if (matchesTuiKey(data, TuiKey.home)) this.scrollTo(0)
+    else if (matchesTuiKey(data, TuiKey.end)) this.scrollTo(this.maxScrollOffset)
   }
 
   private scrollBy(delta: number): void {

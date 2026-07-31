@@ -4,8 +4,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Context } from 'cordis'
-import { visibleWidth } from '@earendil-works/pi-tui'
-import type { TuiOverlayHost, TuiOverlayRequest, TuiTheme } from '@deepseek-ai/dsh-tui'
+import {
+  tuiVisibleWidth,
+  type TuiOverlayHost,
+  type TuiOverlayRequest,
+  type TuiTheme,
+} from '@deepseek-ai/dsh-tui'
 import {
   acknowledgeTuiFirstRunWelcome,
   apply,
@@ -135,7 +139,7 @@ describe('TUI first-run welcome composition', () => {
     const lines = component.render(renderWidth)
 
     expect(tuiFirstRunWelcomeArtTier(inner, rows)).toBe(tier)
-    expect(lines.every(line => visibleWidth(line) <= renderWidth)).toBe(true)
+    expect(lines.every(line => tuiVisibleWidth(line) <= renderWidth)).toBe(true)
     expect(lines.join('\n')).toContain(TUI_FIRST_RUN_WELCOME_WHALE[tier].unicode[0]!.trim())
     expect(lines.join('\n')).toContain(`Enter  ${copy.continueLabel}`)
     expect(lines.length).toBeLessThanOrEqual(Math.floor(rows * 0.9))
@@ -166,7 +170,7 @@ describe('TUI first-run welcome composition', () => {
     const quoteOnly = { ...copy, paragraphs: ['“如切如磋，如琢如磨。”'] }
     const component = new TuiFirstRunWelcomeComponent(fixture.host, quoteOnly, async () => {})
     const lines = component.render(2)
-    expect(lines.every(line => visibleWidth(line) <= 6)).toBe(true)
+    expect(lines.every(line => tuiVisibleWidth(line) <= 6)).toBe(true)
   })
 
   it('renders the bit-equivalent ASCII icon fallback for an explicitly non-Unicode terminal', () => {

@@ -141,6 +141,13 @@ import { WorkspaceFileSearch } from './chat/file-autocomplete.ts'
 
 export { TuiPromptService } from './prompt.ts'
 export { renderSkillInvocation } from './chat/skill-invocation.ts'
+export {
+  matchesTuiKey,
+  truncateTuiText,
+  TuiKey,
+  tuiVisibleWidth,
+  wrapTuiText,
+} from './extension/primitives.ts'
 export type { TuiResumeHost, TuiRuntime } from './runtime.ts'
 export {
   resolveTuiConfig,
