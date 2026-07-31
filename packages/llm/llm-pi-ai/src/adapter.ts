@@ -30,15 +30,22 @@ import type {
   StreamChunk,
 } from '@deepseek-ai/dsh-llm'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
-import { resolveProfiles } from './config.ts'
-import type { PiAiProviderProfile, ResolvedPiAiProviderProfile } from './config.ts'
+import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { toPiContext } from './context.ts'
 import { toStreamChunks } from './stream.ts'
 
-/** Constructor options for {@link PiAiAdapter}. */
+/** Constructor options for {@link PiAiAdapter}: the two resolution seams the plugin owns. */
 export interface PiAiAdapterOptions {
-  /** Validated provider profiles this adapter instance owns. */
-  profiles: readonly PiAiProviderProfile[]
+  /** Current validated profiles by provider route; called once per operation. */
+  profiles: () => ReadonlyMap<string, ResolvedPiAiProviderProfile>
+  /**
+   * Resolve the credential for one already-resolved profile; called once per
+   * stream call and frozen for that call. `undefined` defers to pi-ai's
+   * provider-native ambient discovery, which the plugin allows only for a
+   * profile naming no credential at all; a named reference that misses throws
+   * `LlmError` `MISSING_CREDENTIAL` rather than falling back.
+   */
+  resolveApiKey: (provider: string, profile: ResolvedPiAiProviderProfile) => Promise<string | undefined>
 }
 
 /**
@@ -46,7 +53,7 @@ export interface PiAiAdapterOptions {
  * override, preserving the catalog's API/capability/compatibility metadata.
  */
 function resolvePiModel(
-  profile: Omit<PiAiProviderProfile, 'retryPolicy'>,
+  profile: ResolvedPiAiProviderProfile,
   modelId: string,
 ): Model<Api> {
   const model = getBuiltinModels(profile.provider as BuiltinProvider).find(candidate => candidate.id === modelId) as Model<Api> | undefined
@@ -58,12 +65,13 @@ function resolvePiModel(
 
 /** Copy profile stream knobs into pi-ai's common option vocabulary. */
 function profileOptions(
-  profile: Omit<PiAiProviderProfile, 'retryPolicy'>,
+  profile: ResolvedPiAiProviderProfile,
   reasoning: ModelThinkingLevel | undefined,
+  apiKey: string | undefined,
 ): SimpleStreamOptions {
   const enabledReasoning: ThinkingLevel | undefined = reasoning === 'off' ? undefined : reasoning
   return {
-    ...profile.apiKey === undefined ? {} : { apiKey: profile.apiKey },
+    ...apiKey === undefined ? {} : { apiKey },
     ...enabledReasoning === undefined ? {} : { reasoning: enabledReasoning },
     ...profile.thinkingBudgets === undefined ? {} : { thinkingBudgets: profile.thinkingBudgets },
     ...profile.cacheRetention === undefined ? {} : { cacheRetention: profile.cacheRetention },
@@ -104,19 +112,16 @@ function requestHeaders(headers: Readonly<Record<string, string>> | undefined): 
  * request, so models need not be registered during the Cordis lifecycle.
  */
 export class PiAiAdapter extends LlmAdapter {
-  private readonly profiles: ReadonlyMap<string, ResolvedPiAiProviderProfile>
-
-  constructor(options: PiAiAdapterOptions) {
+  constructor(private readonly config: PiAiAdapterOptions) {
     super()
-    this.profiles = new Map(resolveProfiles(options.profiles).map(profile => [profile.provider, profile]))
   }
 
   override providerRetryPolicy(provider: string): ResolvedRetryPolicy | undefined {
-    return this.profiles.get(provider)?.retryPolicy
+    return this.config.profiles().get(provider)?.retryPolicy
   }
 
   override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
-    const profile = this.profiles.get(provider)
+    const profile = this.config.profiles().get(provider)
     if (profile === undefined) {
       return Promise.reject(new LlmError(`pi-ai adapter does not own provider "${provider}"`, 'NO_ADAPTER'))
     }
@@ -132,7 +137,7 @@ export class PiAiAdapter extends LlmAdapter {
     model: string,
     _signal?: AbortSignal,
   ): Promise<LlmResolvedModelInfo> {
-    const profile = this.profiles.get(provider)
+    const profile = this.config.profiles().get(provider)
     if (profile === undefined) {
       return Promise.reject(new LlmError(
         `pi-ai adapter does not own provider "${provider}"`,
@@ -165,7 +170,10 @@ export class PiAiAdapter extends LlmAdapter {
     if (options.stop !== undefined) {
       throw new LlmError('llm-pi-ai does not support GenerateOptions.stop', 'UNSUPPORTED_OPTION')
     }
-    const profile = this.profiles.get(options.provider)
+    // One resolution per stream call: the profile snapshot and the credential
+    // freeze here and hold for this whole request, so an in-flight stream
+    // never observes a configuration change and the next call re-resolves.
+    const profile = this.config.profiles().get(options.provider)
     if (profile === undefined) {
       throw new LlmError(`pi-ai adapter does not own provider "${options.provider}"`, 'NO_ADAPTER')
     }
@@ -174,6 +182,7 @@ export class PiAiAdapter extends LlmAdapter {
       model,
       options.reasoningEffort ?? profile.reasoning,
     )
+    const apiKey = await this.config.resolveApiKey(options.provider, profile)
 
     const consumer = new AbortController()
     const upstream = options.signal === undefined
@@ -184,7 +193,7 @@ export class PiAiAdapter extends LlmAdapter {
 
     try {
       const events = streamSimple(model, toPiContext(options), {
-        ...profileOptions(profile, reasoning),
+        ...profileOptions(profile, reasoning, apiKey),
         ...options.temperature === undefined ? {} : { temperature: options.temperature },
         ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
         ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },

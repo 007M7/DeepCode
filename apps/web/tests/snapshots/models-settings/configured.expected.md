@@ -1,0 +1,20 @@
+- dialog "设置":
+  - navigation:
+    - text: 设置
+    - button "通用设置":
+      - img
+      - text: 通用设置
+    - button "模型":
+      - img
+      - text: 模型
+  - button "关闭":
+    - img
+    - text: 关闭
+  - heading "模型" [level=2]
+  - paragraph: 填入各提供方的 API 密钥即可使用其模型。
+  - list:
+    - listitem:
+      - text: minimax-cn 已启用
+      - button "编辑"
+      - button "删除"
+  - button "+ 添加提供方"

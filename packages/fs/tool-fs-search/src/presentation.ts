@@ -35,6 +35,15 @@ import type { RetainedItems } from '@deepseek-ai/dsh-retention'
 import type { GrepMatch } from './search-core.ts'
 
 /**
+ * The retention fields a meta projection reads: the retained page, whether the
+ * complete result was capped, and the pre-cap total. Both a full
+ * {@link RetainedItems} (from `retainGrepMatches`) and `glob`'s sampled page
+ * satisfy this structural subset, so a projection consumes either without a fake
+ * `kept`/`omitted`.
+ */
+type RetainedPage<T> = Pick<RetainedItems<T>, 'items' | 'truncated' | 'seen'>
+
+/**
  * The `grep`/`glob` tools' private `tool/result` `meta` payload: the capped,
  * structured search result. Attached opaquely (as `JsonValue`) on the tool result
  * and persisted with the session log, so `presentResult` reproduces the search
@@ -118,7 +127,7 @@ function capMetaBytes(meta: SearchMeta, maxMetaBytes: number): SearchMeta {
  * @param maxMetaBytes - the serialized-meta byte budget.
  * @returns the `matches`-shaped search metadata.
  */
-export function grepSearchMeta(retained: RetainedItems<GrepMatch>, maxMetaBytes: number): SearchMeta {
+export function grepSearchMeta(retained: RetainedPage<GrepMatch>, maxMetaBytes: number): SearchMeta {
   const meta: SearchMeta = {
     shape: 'matches',
     files: groupMatchesByFile(retained.items),
@@ -138,7 +147,7 @@ export function grepSearchMeta(retained: RetainedItems<GrepMatch>, maxMetaBytes:
  * @param maxMetaBytes - the serialized-meta byte budget.
  * @returns the `paths`-shaped search metadata.
  */
-export function globSearchMeta(retained: RetainedItems<string>, maxMetaBytes: number): SearchMeta {
+export function globSearchMeta(retained: RetainedPage<string>, maxMetaBytes: number): SearchMeta {
   const meta: SearchMeta = {
     shape: 'paths',
     paths: retained.items,

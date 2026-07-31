@@ -1,6 +1,6 @@
 /** Registers the conversation components, shared store, and service callbacks. */
 import type { Context } from 'cordis'
-import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
+import { resolveSlotLabel, type BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
@@ -28,6 +28,14 @@ import { queueDockEntry } from './queue/QueueDock.tsx'
 import { ConversationRoot } from './skeleton/ConversationRoot.tsx'
 import { ConversationSession } from './skeleton/ConversationSession.tsx'
 import { DetailsPanel } from './skeleton/DetailsPanel.tsx'
+import { en, NS, zh, type ConversationKey } from './locales.ts'
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** The conversation surfaces' copy (skeleton, chat view, toolviews, docks). */
+    conversation: ConversationKey
+  }
+}
 
 /** Services required by the conversation plugin. */
 export const inject = ['slots', 'layout', 'sessions', 'workspaces', 'locale']
@@ -42,6 +50,10 @@ const ABSENT_NOTICES = {
 const EMPTY_LEXICON: ReadonlyMap<'/' | '@', readonly string[]> = new Map()
 const ABSENT_LEXICON = {
   getSnapshot: () => EMPTY_LEXICON,
+  subscribe: () => () => {},
+}
+const ABSENT_MENU_LAUNCHER = {
+  getSnapshot: (): string | null => null,
   subscribe: () => () => {},
 }
 
@@ -68,42 +80,27 @@ export function apply(ctx: Context): void {
   const layout = ctx.layout
   const slots = ctx.slots
 
-  // Command hint locale: friendly placeholder text for claimed commands. The
-  // claimed /plan hint and the plan-mode textarea placeholder share one
-  // string: both describe the same next action.
-  const HINT_NS = 'command.hint'
-  const PLAN_HINT_ZH = '描述你的任务以生成计划'
-  const PLAN_HINT_EN = 'describe your task to generate plan'
-  ctx.effect(() => {
-    const disposers = [
-      ctx.locale.register(HINT_NS, 'zh', {
-        plan: PLAN_HINT_ZH,
-        goal: '输入目标，智能体将持续执行',
-        'goal.active': '当前目标进行中。可输入 edit 修改 / pause 暂停 / resume 继续 / clear 清除',
-        'placeholder.plan': PLAN_HINT_ZH,
-        'placeholder.default': '给智能体发消息',
-      }),
-      ctx.locale.register(HINT_NS, 'en', {
-        plan: PLAN_HINT_EN,
-        goal: 'describe the objective for a long-running task',
-        'goal.active': 'goal active — edit / pause / resume / clear',
-        'placeholder.plan': PLAN_HINT_EN,
-        'placeholder.default': 'Message the agent',
-      }),
-    ]
-    return () => { for (const dispose of disposers) dispose() }
-  }, 'ui-conversation: command hint dictionaries')
-  const translateHint = ctx.locale.bind(HINT_NS)
+  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-conversation: dictionaries')
+
+  // Registration-time text (the view tab label) reads through the bound
+  // translate as a thunk, so it follows the active locale without
+  // re-registration; components read the standard `t` seat instead.
+  const t = ctx.locale.bind(NS)
 
   // Apply-time construction keeps store identity bound to this fiber.
   const chatStore = createChatStore()
+
+  // Chat scroll offsets by session, surviving view switches (the chat view
+  // unmounts under the tab ring). Deliberately not persisted: a fresh page
+  // load should keep the open-jump-to-bottom default.
+  const chatScrollTops = new Map<SessionId, number>()
 
   const viewTabs = (): ViewTab[] => {
     const tabs: ViewTab[] = []
     for (const entry of slots.entries('conversation.view')) {
       /* v8 ignore next -- unreachable: list registration validates id at load. */
       if (entry.options.id === undefined) continue
-      tabs.push({ id: entry.options.id, label: entry.options.label ?? entry.options.id })
+      tabs.push({ id: entry.options.id, label: resolveSlotLabel(entry.options.label) ?? entry.options.id })
     }
     return tabs
   }
@@ -132,6 +129,7 @@ export function apply(ctx: Context): void {
   // frame while strict session slots fill only their session-bound regions.
   slots.register({
     name: 'conversation',
+    locale: NS,
     children: {
       'conversation.session': { kind: 'single', scope: 'session' },
       'conversation.composer': { kind: 'chain', scope: 'session' },
@@ -163,6 +161,7 @@ export function apply(ctx: Context): void {
   // the resident parent keeps Hero and composer layout identity stable.
   slots.register({
     name: 'conversation.session',
+    locale: NS,
     children: { 'conversation.view': { kind: 'list', scope: 'session' } },
     store: chatStore,
     inject: (sessionId: SessionId, _actions: BoundActions<typeof chatStore>): ConversationSessionInjected => ({
@@ -185,6 +184,7 @@ export function apply(ctx: Context): void {
   // observableHook caching and hook order stay stable across transitions).
   slots.register({
     name: 'conversation.composer.bar',
+    locale: NS,
     // The two named control seats in the bar's tool row (plan beside the
     // access control, model right); empty until their owning plugins
     // register (B ruling).
@@ -196,15 +196,28 @@ export function apply(ctx: Context): void {
       if (sessionId === undefined) {
         return {
           keyboard: undefined,
+          toggleCommandMenu: undefined,
           stop: undefined,
           command: undefined,
-          translateHint,
-          hooks: { notices: ABSENT_NOTICES, lexicon: ABSENT_LEXICON },
+          hooks: { notices: ABSENT_NOTICES, lexicon: ABSENT_LEXICON, menuLauncher: ABSENT_MENU_LAUNCHER },
         }
       }
       const shell = inputHub.shell(sessionId)
+      const slash = inputHub.slash(sessionId)
       return {
         keyboard: shell,
+        toggleCommandMenu: slash === undefined
+          ? undefined
+          : (selection) => {
+            shell.dismissPopup()
+            const snapshot = shell.snapshot
+            slash.toggleSource('command', {
+              trigger: '/',
+              query: '',
+              position: snapshot.draft.slice(0, selection.start).trim() === '' ? 'leading' : 'inline',
+              span: { ...selection, draftRev: snapshot.draftRev },
+            })
+          },
         stop: () => {
           scopedConversation(sessions, sessionId).cancel().catch(() => {
             // Stop failure surfaces via snapshot.promptError; nothing to restore.
@@ -216,8 +229,11 @@ export function apply(ctx: Context): void {
           const result = await session.command(line)
           return result.ok && result.value.matched
         },
-        translateHint,
-        hooks: { notices: shell.notices, lexicon: shell.lexicon },
+        hooks: {
+          notices: shell.notices,
+          lexicon: shell.lexicon,
+          menuLauncher: slash?.launcher ?? ABSENT_MENU_LAUNCHER,
+        },
       }
     },
   }, InputBar)
@@ -230,7 +246,7 @@ export function apply(ctx: Context): void {
   // pending — a question is a conversation the model is waiting on, while an
   // approval only blocks one tool call; answering the question first cannot
   // strand the approval (it re-elects the moment the question resolves).
-  slots.register({ name: 'conversation.composer', select: selectApproval, priority: 1 }, ApprovalPanel)
+  slots.register({ name: 'conversation.composer', select: selectApproval, priority: 1, locale: NS }, ApprovalPanel)
 
   // The chat view: first entry of the ring this package just declared.
   // Declaring the keyed toolview hole here is claiming it: ChatView is the
@@ -241,7 +257,8 @@ export function apply(ctx: Context): void {
     name: 'conversation.view',
     id: 'chat',
     order: 0,
-    label: 'Chat',
+    label: () => t('view.chat'),
+    locale: NS,
     children: {
       'conversation.chat.toolview': { kind: 'keyed', scope: 'session' },
       'conversation.chat.commandview': { kind: 'keyed', scope: 'session' },
@@ -262,6 +279,26 @@ export function apply(ctx: Context): void {
           })
         },
         loadOlder: () => { void scoped.loadOlder() },
+        // Unregistered 'trajectory' id is safe: the tab ring falls back to
+        // the first view, and the untouched inspect target stays inert.
+        inspectCall: (callId) => {
+          actions.setInspect({ callId })
+          actions.setView('trajectory')
+        },
+        chatScroll: {
+          save: (top) => {
+            if (top === null) chatScrollTops.delete(sessionId)
+            else chatScrollTops.set(sessionId, top)
+          },
+          read: () => chatScrollTops.get(sessionId) ?? null,
+        },
+        forkAt: (seq) => {
+          sessions.fork({ sessionId, atSeq: seq, increaseTitle: true })
+            .then((childId) => { sessions.open(childId) })
+            .catch(() => {
+              // Fork or child-rename failure keeps the source view untouched.
+            })
+        },
       }
     },
   }, ChatView)
@@ -296,6 +333,7 @@ export function apply(ctx: Context): void {
 
   slots.register({
     name: 'details',
+    locale: NS,
     store: chatStore,
     inject: (): DetailsInjected => ({
       closeDetails: () => { layout.closeDetails() },

@@ -209,7 +209,9 @@
 .mirror {
   visibility: hidden;
   pointer-events: none;
-  max-height: 336px;
+  /* 14-line cap, shared with the composer takeovers (declared on
+     ConversationRoot .composerSeat). */
+  max-height: var(--dsh-composer-text-max-height);
   overflow: hidden;
 }
 

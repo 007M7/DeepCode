@@ -16,8 +16,8 @@ buffer
 5| "Model wait 0.0s                                                                             "
   style 0-14 dim
 6| <blank>
-7| "Model selected: deepseek/deepseek-v4-pro. New steps will use it.                            "
-  style 0-63 dim
+7| "Model selected: deepseek-official/deepseek-v4-pro. New steps will use it.                   "
+  style 0-72 dim
 8| <blank>
 9| "/workspace/project (tui-staging)  deepseek-v4-pro  ↑0 ↓0  0% context"
   style 0-17 fg=bright-magenta bold

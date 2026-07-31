@@ -39,7 +39,7 @@
     "@deepseek-ai/dsh-helper": "workspace:^",
     "@deepseek-ai/dsh-telemetry": "workspace:^",
     "commander": "^15.0.0",
-    "node-addon-require-builtin": "^0.1.0"
+    "node-addon-require-builtin": "^0.1.3"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-app-boot": "workspace:^",

@@ -12,7 +12,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { createUserMessage, CallId  } from '@deepseek-ai/dsh-llm'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { TOOL_ABORTED_BEFORE_DISPATCH, type ToolExecutionToken } from '@deepseek-ai/dsh-tools'
@@ -31,6 +31,7 @@ import {
   presentGrepCall,
   presentGrepResult,
   previewLine,
+  sampleAcrossTopLevel,
   toWorkdirRelative,
 } from '@deepseek-ai/dsh-tool-fs-search'
 
@@ -112,11 +113,13 @@ class FakeSpill extends SpillStore {
 }
 
 interface SetupOptions {
-  config?: ToolFsSearch.Config
+  config?: Partial<ToolFsSearch.Config>
   spill?: boolean
   probeError?: Error
   probeResult?: BashRunResult
 }
+
+const DEFAULT_CONFIG = { sampleOverCapGlobResults: true } satisfies ToolFsSearch.Config
 
 async function setup(options: SetupOptions = {}) {
   const ctx = new Context()
@@ -129,7 +132,7 @@ async function setup(options: SetupOptions = {}) {
   if (options.probeResult) bash.probeResult = options.probeResult
   if (options.probeError) bash.probeError = options.probeError
   if (options.spill === true) await ctx.plugin(FakeSpill)
-  const fiber = await ctx.plugin(ToolFsSearch, options.config)
+  const fiber = await ctx.plugin(ToolFsSearch, { ...DEFAULT_CONFIG, ...options.config })
   const spill = options.spill === true ? ctx.get('spillStore') as FakeSpill : undefined
   return { ctx, bash, spill, fiber, warnings }
 }
@@ -186,6 +189,10 @@ describe('registration', () => {
     const prompt = renderPrompt(await ctx.systemPrompt.assemble())
     expect(prompt).toContain('Use the glob tool')
     expect(prompt).toContain('Use the grep tool')
+    expect(prompt).toContain('sampled across top-level entries')
+    expect(prompt).not.toContain('sampled across top-level directories')
+    const glob = ctx.tools.schemas().find(schema => schema.name === 'glob')
+    expect(glob?.description).toContain('sampled across top-level entries')
   })
 
   it('does not register glob or grep when the bash executor cannot find rg', async () => {
@@ -213,7 +220,7 @@ describe('registration', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
-    await ctx.plugin(ToolFsSearch) // no bash executor
+    await ctx.plugin(ToolFsSearch, DEFAULT_CONFIG) // no bash executor
     expect(ctx.tools.schemas()).toHaveLength(0)
   })
 
@@ -238,9 +245,27 @@ describe('registration', () => {
     expect(ctx.tools.get('glob')?.timeoutMs).toBe(30_000)
     expect(ctx.tools.get('grep')?.timeoutMs).toBe(30_000)
   })
+
+  it('describes the modification-time head when over-cap sampling is disabled', async () => {
+    const { ctx } = await setup({ config: { sampleOverCapGlobResults: false } })
+    const prompt = renderPrompt(await ctx.systemPrompt.assemble())
+    expect(prompt).toContain('a larger one keeps the modification-time-ordered head')
+    expect(prompt).not.toContain('sampled across top-level entries')
+    const glob = ctx.tools.schemas().find(schema => schema.name === 'glob')
+    expect(glob?.description).toContain('a larger result returns the first 100 paths in modification-time order')
+    expect(glob?.description).not.toContain('sampled across top-level entries')
+  })
 })
 
 describe('config validation', () => {
+  it('requires an explicit over-cap glob sampling choice', () => {
+    expect(() => new ToolFsSearch.Config()).toThrow(/sampleOverCapGlobResults/)
+    expect(new ToolFsSearch.Config({ sampleOverCapGlobResults: false })).toMatchObject({
+      sampleOverCapGlobResults: false,
+      globMaxResults: 100,
+    })
+  })
+
   it.each([
     ['globMaxResults', { globMaxResults: 0 }],
     ['grepMaxMatches', { grepMaxMatches: -1 }],
@@ -252,7 +277,7 @@ describe('config validation', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(FakeBash)
-    await expect(ctx.plugin(ToolFsSearch, config)).rejects.toThrow(new RegExp(`tool-fs-search: ${name} must be a positive integer`))
+    await expect(ctx.plugin(ToolFsSearch, { ...DEFAULT_CONFIG, ...config })).rejects.toThrow(new RegExp(`tool-fs-search: ${name} must be a positive integer`))
   })
 })
 
@@ -500,13 +525,100 @@ describe('raw output acquisition', () => {
   })
 })
 
+describe('cross-directory sampling', () => {
+  it('gives every top-level entry a slot before any entry gets a second', () => {
+    const paths = ['v/a', 'v/b', 'v/c', 'v/d', 'src/e', 'guide/f']
+    // The head of 3 would be all `v/`; the sample reaches all three entries.
+    expect(sampleAcrossTopLevel(paths, 3)).toEqual({ items: ['v/a', 'src/e', 'guide/f'], shown: 3, total: 3 })
+    // Extra slots go round again — to the only entry with paths left — and the
+    // page stays grouped by entry rather than interleaved.
+    expect(sampleAcrossTopLevel(paths, 5)).toEqual({ items: ['v/a', 'v/b', 'v/c', 'src/e', 'guide/f'], shown: 3, total: 3 })
+  })
+
+  it('hands an exhausted entry the remaining slots go to entries that still have paths', () => {
+    const paths = ['solo/a', 'many/b', 'many/c', 'many/d']
+    expect(sampleAcrossTopLevel(paths, 3)).toEqual({ items: ['solo/a', 'many/b', 'many/c'], shown: 2, total: 2 })
+  })
+
+  it('does not rescan exhausted entries while filling a skewed page', () => {
+    const singletonCount = 12_500
+    const paths = [
+      ...Array.from({ length: singletonCount }, (_, index) => `group-${index}/only`),
+      ...Array.from({ length: singletonCount }, (_, index) => `late/${index}`),
+    ]
+    expect(sampleAcrossTopLevel(paths, paths.length - 1)).toMatchObject({
+      shown: singletonCount + 1,
+      total: singletonCount + 1,
+      items: { length: paths.length - 1 },
+    })
+  }, 500)
+
+  it('reports the entries it could not reach when the page is smaller than the top level', () => {
+    const paths = ['a/1', 'b/1', 'c/1', 'd/1']
+    expect(sampleAcrossTopLevel(paths, 2)).toEqual({ items: ['a/1', 'b/1'], shown: 2, total: 4 })
+  })
+
+  it('groups an absolute path by its first real name, not by its empty root segment', () => {
+    // Paths outside the workdir stay absolute; without stripping the leading
+    // separator every one of them would collapse into a single empty group.
+    expect(sampleAcrossTopLevel(['/out/a', '/out/b', '/away/c', '/away/d'], 2))
+      .toEqual({ items: ['/out/a', '/away/c'], shown: 2, total: 2 })
+  })
+
+  it('reproduces the modification-time-ordered head for a flat result', () => {
+    expect(sampleAcrossTopLevel(['a.ts', 'b.ts', 'c.ts'], 2)).toEqual({ items: ['a.ts', 'b.ts'], shown: 2, total: 3 })
+  })
+
+  it('groups paths relative to an explicit search root', () => {
+    expect(sampleAcrossTopLevel([
+      'workspace/vendor/a.ts',
+      'workspace/vendor/b.ts',
+      'workspace/source/c.ts',
+      'workspace/guides/d.md',
+    ], 3, 'workspace')).toEqual({
+      items: ['workspace/vendor/a.ts', 'workspace/source/c.ts', 'workspace/guides/d.md'],
+      shown: 3,
+      total: 3,
+    })
+    expect(sampleAcrossTopLevel(['./vendor/a.ts', './src/b.ts'], 2, '.'))
+      .toEqual({ items: ['./vendor/a.ts', './src/b.ts'], shown: 2, total: 2 })
+    expect(sampleAcrossTopLevel(['/vendor/a.ts', '/src/b.ts'], 2, '/'))
+      .toEqual({ items: ['/vendor/a.ts', '/src/b.ts'], shown: 2, total: 2 })
+    const rooted = [
+      ['root', 'a', 'one'].join(sep),
+      ['root', 'a', 'two'].join(sep),
+      ['root', 'b', 'three'].join(sep),
+    ]
+    expect(sampleAcrossTopLevel(rooted, 2, 'root'))
+      .toEqual({ items: [rooted[0], rooted[2]], shown: 2, total: 2 })
+    expect(sampleAcrossTopLevel(['other/a.ts'], 1, 'src'))
+      .toEqual({ items: ['other/a.ts'], shown: 1, total: 1 })
+    expect(sampleAcrossTopLevel(['src'], 1, 'src'))
+      .toEqual({ items: ['src'], shown: 1, total: 1 })
+  })
+
+  it.skipIf(process.platform === 'win32')('treats POSIX backslashes as filename characters', () => {
+    const paths = ['old\\one', 'old\\two', 'src/a']
+    expect(sampleAcrossTopLevel(paths, 2)).toEqual({
+      items: ['old\\one', 'old\\two'],
+      shown: 2,
+      total: 3,
+    })
+  })
+
+  it('handles more top-level groups than the JavaScript argument limit', () => {
+    const paths = Array.from({ length: 125_000 }, (_, index) => `dir-${index}/file.txt`)
+    expect(sampleAcrossTopLevel(paths, 100)).toMatchObject({ shown: 100, total: 125_000 })
+  })
+})
+
 describe('glob results', () => {
   it('lists workdir-relative paths (absolute output under the workdir is relativized)', async () => {
     const { ctx, bash } = await setup()
     bash.handler = () => runResult('/sessions/s1/src/a.ts\n/elsewhere/b.ts\nrel/c.ts\n')
     const result = await call(ctx, 'glob', { pattern: '*' }, { agent: agent('/sessions/s1') })
     if (result.isError) throw new Error('expected glob success')
-    expect(result.value).toEqual({ paths: [join('src', 'a.ts'), '/elsewhere/b.ts', 'rel/c.ts'] })
+    expect(result.value).toEqual({ root: '.', paths: [join('src', 'a.ts'), '/elsewhere/b.ts', 'rel/c.ts'] })
     expect(text(result)).toBe(`${join('src', 'a.ts')}\n/elsewhere/b.ts\nrel/c.ts`)
   })
 
@@ -536,7 +648,7 @@ describe('glob results', () => {
     const result = await call(ctx, 'glob', { pattern: '*.ts' }, { agent: agent('/w') })
     expect(result.isError).toBe(false)
     if (result.isError) throw new Error('expected glob success')
-    expect(result.value).toEqual({ paths: ['a.ts', 'b.ts', 'c.ts', 'd.ts'] })
+    expect(result.value).toEqual({ root: '.', paths: ['a.ts', 'b.ts', 'c.ts', 'd.ts'] })
     expect(text(result)).toBe('a.ts\nb.ts\n\n(Showing 2 of 4 paths. Full sorted result stored at: /spill/glob-results.txt. Use the fake retrieval hint.)')
     expect(spill?.saves).toHaveLength(1)
     expect(spill?.saves[0]).toMatchObject({
@@ -547,6 +659,79 @@ describe('glob results', () => {
     })
     expect(spill?.saves[0]?.source.callId).toBeDefined()
     expect(result.additionalContexts?.[0]?.content).toEqual([{ type: 'text', text: 'glob context' }])
+  })
+
+  it('samples an over-cap result across top-level entries instead of taking its head', async () => {
+    // The shipped failure: `*` matches the whole tree, mtime order puts one
+    // freshly-unpacked subtree first, and a head-of-3 reads like the entire
+    // workspace. The sample reaches every top-level entry instead.
+    const { ctx, bash } = await setup({ config: { globMaxResults: 3 } })
+    bash.handler = () => runResult(['vendor/a.ts', 'vendor/b.ts', 'vendor/c.ts', 'src/d.ts', 'guide/e.md', 'top.txt'].join('\n'))
+    const result = await call(ctx, 'glob', { pattern: '*' }, { agent: agent('/w') })
+    expect(text(result)).toBe('vendor/a.ts\nsrc/d.ts\nguide/e.md\n\n'
+      + '(Showing 3 of 6 paths, sampled across 3 of the 4 top-level entries this pattern matched '
+      + 'instead of taken in modification-time order. Narrow path to inspect a specific subtree. '
+      + 'The complete result could not be saved; narrow pattern or path to see more.)')
+  })
+
+  it('keeps the modification-time head when over-cap sampling is disabled', async () => {
+    const { ctx, bash } = await setup({
+      config: { globMaxResults: 3, sampleOverCapGlobResults: false },
+    })
+    bash.handler = () => runResult(['vendor/a.ts', 'vendor/b.ts', 'vendor/c.ts', 'src/d.ts', 'guide/e.md'].join('\n'))
+    expect(text(await call(ctx, 'glob', { pattern: '*' }, { agent: agent('/w') })))
+      .toBe('vendor/a.ts\nvendor/b.ts\nvendor/c.ts\n\n'
+        + '(Showing 3 of 5 paths. The complete result could not be saved; narrow pattern or path to see more.)')
+  })
+
+  it('samples relative to the explicit search root instead of its workdir prefix', async () => {
+    const { ctx, bash } = await setup({ config: { globMaxResults: 3 } })
+    bash.handler = () => runResult([
+      'workspace/vendor/a.ts',
+      'workspace/vendor/b.ts',
+      'workspace/source/c.ts',
+      'workspace/guides/d.md',
+    ].join('\n'))
+    const result = await call(ctx, 'glob', { pattern: '*', path: 'workspace' }, { agent: agent('/w') })
+    expect(text(result)).toContain('workspace/vendor/a.ts\nworkspace/source/c.ts\nworkspace/guides/d.md')
+    expect(text(result)).toContain('sampled across 3 of the 3 top-level entries')
+  })
+
+  it('samples relative to an absolute search root after workdir display conversion', async () => {
+    const { ctx, bash } = await setup({ config: { globMaxResults: 3 } })
+    bash.handler = () => runResult([
+      '/w/workspace/vendor/a.ts',
+      '/w/workspace/vendor/b.ts',
+      '/w/workspace/source/c.ts',
+      '/w/workspace/guides/d.md',
+    ].join('\n'))
+    const result = await call(ctx, 'glob', { pattern: '*', path: '/w/workspace' }, { agent: agent('/w') })
+    expect(text(result)).toContain('workspace/vendor/a.ts\nworkspace/source/c.ts\nworkspace/guides/d.md')
+    expect(text(result)).toContain('sampled across 3 of the 3 top-level entries')
+  })
+
+  it('drops the narrowing hint when the sample reaches every top-level entry', async () => {
+    const { ctx, bash } = await setup({ config: { globMaxResults: 3 } })
+    bash.handler = () => runResult(['vendor/a.ts', 'vendor/b.ts', 'vendor/c.ts', 'src/d.ts'].join('\n'))
+    expect(text(await call(ctx, 'glob', { pattern: '*' }, { agent: agent('/w') })))
+      .toBe('vendor/a.ts\nvendor/b.ts\nsrc/d.ts\n\n'
+        + '(Showing 3 of 4 paths, sampled across 2 of the 2 top-level entries this pattern matched '
+        + 'instead of taken in modification-time order. '
+        + 'The complete result could not be saved; narrow pattern or path to see more.)')
+  })
+
+  it('keeps modification-time order untouched when the whole result fits', async () => {
+    const { ctx, bash } = await setup({ config: { globMaxResults: 4 } })
+    bash.handler = () => runResult('vendor/a.ts\nvendor/b.ts\nsrc/c.ts\n')
+    expect(text(await call(ctx, 'glob', { pattern: '*' }, { agent: agent('/w') })))
+      .toBe('vendor/a.ts\nvendor/b.ts\nsrc/c.ts')
+  })
+
+  it('keeps the plain footer for a flat result, where the sample is the modification-time head', async () => {
+    const { ctx, bash } = await setup({ config: { globMaxResults: 2 } })
+    bash.handler = () => runResult('a.ts\nb.ts\nc.ts\n')
+    expect(text(await call(ctx, 'glob', { pattern: '*' }, { agent: agent('/w') })))
+      .toBe('a.ts\nb.ts\n\n(Showing 2 of 3 paths. The complete result could not be saved; narrow pattern or path to see more.)')
   })
 
   it('does not create a spill file when the result fits inline', async () => {
@@ -561,14 +746,14 @@ describe('glob results', () => {
     const { ctx, bash, spill } = await setup({ config: { globMaxResults: 1 }, spill: true })
     ctx.on('tools/post-execute', async () => ({
       kind: 'accept' as const,
-      value: { paths: ['replacement-a.ts', 'replacement-b.ts'] },
+      value: { root: '.', paths: ['replacement-a.ts', 'replacement-b.ts'] },
     }))
     bash.handler = () => runResult('old-a.ts\nold-b.ts\n')
 
     const result = await call(ctx, 'glob', { pattern: '*.ts' }, { agent: agent('/w') })
 
     if (result.isError) throw new Error('expected glob replacement success')
-    expect(result.value).toEqual({ paths: ['replacement-a.ts', 'replacement-b.ts'] })
+    expect(result.value).toEqual({ root: '.', paths: ['replacement-a.ts', 'replacement-b.ts'] })
     expect(text(result)).toContain('replacement-a.ts')
     expect(text(result)).not.toContain('old-a.ts')
     expect(spill?.saves).toHaveLength(0)
@@ -582,7 +767,7 @@ describe('glob results', () => {
       parent: Symbol('run_code') as ToolExecutionToken,
     })
     if (result.isError) throw new Error('expected glob success')
-    expect(result.value).toEqual({ paths: ['a.ts', 'b.ts', 'c.ts', 'd.ts'] })
+    expect(result.value).toEqual({ root: '.', paths: ['a.ts', 'b.ts', 'c.ts', 'd.ts'] })
     expect(text(result)).toBe('a.ts\nb.ts\n\n(Showing 2 of 4 paths. The complete result could not be saved; narrow pattern or path to see more.)')
     expect(spill?.saves).toHaveLength(0)
   })

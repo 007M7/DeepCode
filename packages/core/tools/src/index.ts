@@ -87,6 +87,10 @@ export type {
   SearchPathsResultView,
   SearchFileMatches,
   SearchLineMatch,
+  WebResultView,
+  WebSearchResultView,
+  WebFetchResultView,
+  WebSource,
 } from './presentation.ts'
 
 declare module 'cordis' {
