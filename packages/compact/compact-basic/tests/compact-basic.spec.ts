@@ -22,7 +22,7 @@ import type {
   StreamChunk,
   TokenUsage,
 } from '@deepseek-ai/dsh-llm'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
 import { agentEvents, type Agent, type RequestErrorAction } from '@deepseek-ai/dsh-agent'
 import ToolResultPruneService from '@deepseek-ai/dsh-compact-tool-result-prune'
@@ -1832,6 +1832,7 @@ describe('automatic listener and loader composition', () => {
   it('loads and disposes the real zero-config service stack', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
     const meterFiber = await ctx.plugin(TokenMeterService)
     const compactFiber = await ctx.plugin(BasicCompactService, { auto: false })
 

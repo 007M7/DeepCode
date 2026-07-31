@@ -185,6 +185,7 @@ function stubAgent(cwd?: string, seed: SessionEvent[] = []): Agent {
     },
     send: () => {},
     updateInbox: () => 'not-found',
+    reserveTurnAdmission: () => undefined,
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }

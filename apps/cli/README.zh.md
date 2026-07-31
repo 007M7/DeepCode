@@ -12,6 +12,7 @@ TUI 界面：
 - 将 **调用目录** 视为 workspace：会话、相对路径和 workspace 指令都从 cwd 解析（`dsh meta` 是唯一例外，见下文）；
 - 告知 agent 自身源码所在位置：启动后添加一个命名此 harness checkout 的提示词段。该路径从启动器的真实路径解析，因此在 PATH 符号链接和任意 cwd 下仍然有效，使自指的 `cordis` 工具集可以读取并修改它；
 - 应用 `~/.dsh` 中的个人覆盖（参见 [app-boot 的个人配置](../../packages/ui/app-boot/README.md#personal-config)）：`config.yaml` 修补已启动的树，而那里的 `.env` 是凭据 provider 自己的存储（绝不会被提升进环境，因此密钥始终可轮换）。环境优先级为环境中已有的值 > 项目 `.env`。
+- 注册裸 `/compact`：agent 空闲时，即使未达到自动压力，也会摘要有效的较早历史；该命令拒绝参数，并只在独立替换标记对持久化后报告成功。压缩（compaction）期间提交的提示词保留其队列身份，并在该检查点之后启动；注入的上下文仍保持可见。
 
 `dsh meta` 是以本 harness checkout 为 workspace 的同一个 TUI，因此开发 dsh 自身无需 `cd`。它在环境确定之后才 chdir 到 checkout 根目录（从启动器的真实路径解析，与源码路径提示词段所指的根目录相同），因此环境优先级不变，而会话 cwd 与 HMR 监视根目录会一并移动。Meta 始终创建新会话，不接受默认界面的任何选项；恢复已持久化会话应使用普通的 `dsh --resume <id>`。
 
@@ -23,9 +24,9 @@ Web 和无头界面启动 `base.cordis.yml` 与 `web.cordis.yml`，随后应用 
 
 已交付的 TUI 和 Web 组合会注册原生 DeepSeek 适配器，以及 pi-ai 的 OpenAI 和 Anthropic 提供方配置。凭据和端点覆盖来自启动分层环境中的提供方标准变量对：`DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL`、`OPENAI_API_KEY` / `OPENAI_BASE_URL` 和 `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL`。
 
-Web／无头组合还只会注册 `web_search`。搜索使用 DeepSeek 的 Anthropic 兼容 Messages 端点，每次调用都会解析同一个 `DEEPSEEK_API_KEY` 凭据引用，并接受独立的 `DEEPSEEK_SEARCH_BASE_URL` 端点覆盖；每次搜索都是一次辅助模型请求，会产生独立的延迟与 token 成本。`web_fetch` 仍处于禁用状态，组合也未挂载默认抓取提供方；需要任意页面抓取能力的部署必须通过覆盖层选择启用。TUI 组合默认不挂载 Web 工具。部署决策及其安全边界见[默认 Web 搜索 Agent Note](../../.agents/notes/implemented/feature/2026-07-31-web-default-search.md)。
+每个界面也都只注册 `web_search` 这一个 Web 工具。搜索使用 DeepSeek 的 Anthropic 兼容 Messages 端点，每次调用都会解析同一个 `DEEPSEEK_API_KEY` 凭据引用，并接受独立的 `DEEPSEEK_SEARCH_BASE_URL` 端点覆盖；每次搜索都是一次辅助模型请求，会产生独立的延迟与 token 成本。`web_fetch` 仍处于禁用状态，组合也未挂载默认抓取提供方；需要任意页面抓取能力的部署必须通过覆盖层选择启用。部署决策及其安全边界见[默认 Web 搜索 Agent Note](../../.agents/notes/implemented/feature/2026-07-31-web-default-search.md)。
 
-`DSH_TOOLS_MODE` 为整个 Web／无头进程选择工具呈现模式：可选值为 `native`（未设置时的 schema 默认值）、`code`（仅含 `run_code` 的 Code Mode 协议接口）或 `both`；任何其他值都会经由 `dsh-tools` 配置 schema 在启动时明确报错。它是一个临时 seam：Loader 组合是静态的，因此该设置作用于整个进程；待 Web UI 负责逐会话工具模式选择后便会移除。TUI 界面会忽略该变量（其配置树固定了自身模式）。
+`DSH_TOOLS_MODE` 为整个 Web／无头进程选择工具呈现模式：`native`（未设置时的 schema 默认值）、`code`（仅含 `run_code` 的 Code Mode 线路）或 `both`；任何其他值都会经由 `dsh-tools` 配置 schema 在启动时明确报错。它是一个临时 seam——Loader 组合是静态的，因此该设置作用于整个进程——待 Web UI 负责逐会话工具模式选择后便会移除；TUI 界面会忽略该变量并固定为 `native`。
 
 [`core-web.cordis.yml`](config/core-web.cordis.yml) 是一个可选启用的 `dsh web --config` 覆盖层：它保留已交付的 Web 宿主、浏览器、Workspace、持久化与权限组合，同时将默认的原生模型界面精简为以所有者为作用域的持久 `bash` 以及 `str_replace_editor`。PTY 后端和编辑器分别消费现有的 Web 沙箱与文件系统提供方。持久 shell 处于打开状态时，会阻止所属会话更改权限模式；因此，在较宽权限下创建的 shell 无法在降权后继续存活。`DSH_TOOLS_MODE` 仍控制由此得到的双工具注册表采用原生／Code Mode 呈现。
 
@@ -36,6 +37,23 @@ pnpm run dsh web --config apps/cli/config/core-web.cordis.yml
 ```
 
 每个 `dsh` 界面——TUI、Web 与无头——都默认上报会话遥测（该行位于共享的 `base.cordis.yml`）：每条会话日志事件以 OTLP/HTTP 日志记录的形式、按 10 秒批处理节奏流向 `https://harness-telemetry.deepseeksvc.com/v1/logs`。`DSH_TELEMETRY_OTLP_URL` 可将 exporter 指向其他 collector；将 `DSH_TELEMETRY_DISABLED` 设为**任意非空值**——包括 `0` 或 `false`——都会在该行加载前将其关停（隐私开关取「宁可误关、不可误开」）。该组合当前未挂载任何脱敏规则：导出记录即原始捕获副本，包含消息正文、工具参数与结果、以及会话工作目录路径。部署口径见 [web-telemetry-default-mount Agent Note](../../.agents/notes/implemented/feature/2026-07-31-web-telemetry-default-mount.md)。
+
+MCP 服务器不是交付默认值,因为默认值必须点名一台:`@deepseek-ai/dsh-mcp-client` 每一行只挂载一台服务器,并把它作为子进程 spawn,该进程不经 `ctx.bash`,因此也不受沙箱策略约束。该包是本 CLI 的运行时依赖,所以已安装的 `dsh` 无需源码检出即可从 `$DSH_HOME/config.yaml` 或 `--config` 覆盖层挂载你自己的服务器:
+
+```yaml
+- insert:
+    - id: mcp-github
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: github
+        transport: stdio
+        command: npx
+        args: ['-y', '@modelcontextprotocol/server-github']
+        env:
+          GITHUB_TOKEN: !!js process.env.GITHUB_TOKEN
+```
+
+模型随后会看到 `mcp__github__*`。Streamable HTTP 传输与完整字段表见 [mcp-client README](../../packages/mcp/mcp-client/README.md)。
 
 ## 安装（开发机）
 
