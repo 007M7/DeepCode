@@ -1,5 +1,6 @@
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { defineConfig } from 'vitest/config'
+import { vitestExecArgv } from './vitest.shared.ts'
 
 // Real-API suite, separate because it spends tokens. Each test self-skips without
 // its provider credential for keyless CI; credentialed workflows preflight the
@@ -37,6 +38,7 @@ export default defineConfig({
   // entirely.
   plugins: [tsconfigPaths({ projects: ['./tsconfig.base.json'] })],
   test: {
+    execArgv: vitestExecArgv,
     setupFiles: ['./scripts/test-invariants.ts'],
     // apps/cli only, not apps/*: apps/web/tests/*.e2e.ts needs the built
     // frontend dist and runs under vitest.web.config.ts (the test:web job).

@@ -83,7 +83,7 @@ export interface TerminalBlockProps {
   signal?: string | undefined
   /** The command is still running: the block shows the prompt line alone. */
   running?: boolean | undefined
-  /** Height cap in output lines before the middle collapses (default {@link DEFAULT_TERMINAL_MAX_LINES}). */
+  /** Height cap in output lines before the middle collapses (default {@link DEFAULT_TERMINAL_MAX_LINES}); Infinity disables the cap. */
   maxLines?: number | undefined
   /** Extra class merged onto the wrapper (callers position; this component draws). */
   className?: string | undefined

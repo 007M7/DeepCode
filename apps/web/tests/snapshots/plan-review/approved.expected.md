@@ -20,10 +20,10 @@
   - text: Since the user has explicitly asked me not to read or write any files and to go straight to planning, I'll proceed with
   - code: exit_plan_mode
   - text: .
-- button:
+- 'button "Tool call exit_plan_mode · # Add `--greeting` flag to CLI"':
   - img
   - img
-- text: "Tool call exit_plan_mode · # Add `--greeting` flag to CLI"
+  - text: "Tool call exit_plan_mode · # Add `--greeting` flag to CLI"
 - 'button "Think The plan was approved. The user''s last instruction says: \"Once the plan is approved, reply with the single word DONE and stop.\" So I should just reply with DONE and stop."':
   - img
   - img
