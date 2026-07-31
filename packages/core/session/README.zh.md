@@ -66,6 +66,8 @@
 
 `request/header` 记录非历史请求封装的完整规范快照，其原因为 `initial`、`resume` 或 `change`。其可选 `adapterDefaults` 映射会标记由精确模型解析填入的生效 `reasoningEffort` 或 `maxTokens` 值，使下一次请求提议能够将它们与显式对话设置区分开。`foldRequestHeader()` 选择最新快照；旧版增量事件和已移除的 `fallback` 原因会被拒绝。详见[可重建请求 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)。
 
+`request/context` 记录请求所解析到的路由的、绑定注册项的元数据，在其所属步骤内紧随 `request/header` 追加，且仅在提供方、模型或容量与上一条记录不同时追加。`session.requestContext()` 以增量方式归并最新一条，与 `requestHeader()` 保持一致。容量刻意不进入 `EpochHeader`：它是描述路由的适配器元数据，不是构建该请求所依据的输入，因此绝不可进入请求重建或请求头相等性判断：容量变化不构成请求头 `change`。适配器不公布容量的路由仍会被记录，但 `contextWindow` 字段缺失，从而清除较早的已知容量。
+
 `user/message` 会直接存储完整的 `UserMessage`，其中包括路由或提示词准入前创建的标识。无论它是直接人类提示词、合成注入，还是已准入的 Goal Round，都会原样呈现其 `content`；带类型的 `source` 是区分三者的唯一通道，并携带各领域专有的持久事实。`assistant/message`、`tool/result` 和 steering（中途引导）对应的 `steering/message` 也会存储完整的消息值。轮次执行仍由 `turn/start` 与 `turn/end` 包围，而空闲注入可以在轮次之间追加并刷新一条 `user/message`，无需运行模型。
 
 `tool/result` 持久保存一条带标识、user-role 的工具结果消息，以及可选内部失败标识和可选呈现元数据。工具成功时的规范 `value` 和便于人类阅读的规范失败消息只存在于执行本地；渲染后的错误内容是回放权威消息。

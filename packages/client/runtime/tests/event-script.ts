@@ -87,6 +87,27 @@ export const ev = {
     at(seq, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } }),
   commandDone: (seq: number, commandId: string, kind: 'success' | 'error' = 'success', text?: string): SessionEvent =>
     at(seq, { type: 'command/done', data: { commandId, kind, ...text === undefined ? {} : { text } } }),
+  /** A compaction's log-only `compact/summary` provenance record. */
+  compactSummary: (seq: number, summary: string, start: number, end: number): SessionEvent =>
+    at(seq, { type: 'compact/summary', data: {
+      summary: text(summary),
+      shadowedRange: { start, end },
+      shadowedSeqs: [start, end],
+      shadowedTokenCount: 100,
+      provider: 'fake',
+      model: 'compact-1',
+    } }),
+  /** The replacement user message a compaction backend lands (the checkpoint). */
+  compactCheckpoint: (seq: number, summarySeq: number, start: number, end: number): SessionEvent =>
+    at(seq, {
+      type: 'user/message',
+      surfaceOp: { op: 'replace', start, end },
+      sourceEventSeqs: [summarySeq, start, end],
+      data: createUserMessage({
+        content: text('<context_checkpoint>model only</context_checkpoint>'),
+        source: { kind: 'plugin', plugin: 'compact' },
+      }),
+    }),
 }
 
 /** One complete plain turn (turn/start → user → step → assistant → turn/end), 6 events from startSeq. */

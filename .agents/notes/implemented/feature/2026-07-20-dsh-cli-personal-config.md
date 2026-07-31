@@ -39,9 +39,9 @@ Hot-reload interplay: the include re-applies its `patches` on every config re-re
 ## Consequences
 
 - `dsh` from any directory (and `pnpm run demo:tui`) boots the personal provider/model with zero repo changes; verified end-to-end against a personal Anthropic proxy with Opus 4.8, including a bash tool round trip.
-- Because an id-targeted patch replaces the whole `config`, a personal override restates the base fields it keeps and can drift when the base entry changes shape; the loader's entry-not-found/name-mismatch warnings are the only diagnostics.
+- Because an id-targeted patch replaces the whole `config`, a personal override restates the base fields it keeps and can drift when the base entry changes shape; the loader's entry-not-found/name-mismatch warnings and [`dsh --dump-config`](2026-07-30-dsh-dump-config.md) (which prints the composed tree those patches produce) are the diagnostics.
 - Personal patches resolve ids against the booted file's own tree, so nested-include overlays (Code Mode) are not personalized; live-run parity for those leaves is deferred.
-- `dsh-app-boot` depends on `js-yaml` (plus a load-only copy of the include's `!!js` YAML type) and, like `apps/cli`, on `@deepseek-ai/dsh-paths` for `resolveDshHome`.
+- `dsh-app-boot` depends on `js-yaml` and imports the include's `!!js` YAML dialect (`entryListSchema`) directly, and, like `apps/cli`, depends on `@deepseek-ai/dsh-paths` for `resolveDshHome`.
 - When PR #443 lands, `apps/cli/src/bin.ts`'s dispatch chain and `apps/cli/package.json`'s dependency list conflict textually; both resolve as unions (their `web`/`-p` branches plus our default-TUI branch).
 
 ## Testing

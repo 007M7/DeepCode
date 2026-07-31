@@ -13,10 +13,11 @@
 {"type":"session/title","seq":11,"time":0,"data":{"title":"Perform one side-effecting remote mutati","messageSeqs":[1],"source":{"kind":"fallback"}}}
 {"type":"step/start","seq":12,"time":0,"data":{"turn":2,"step":1}}
 {"type":"request/header","seq":13,"time":0,"data":{"header":{"config":{"provider":"deepseek-official","model":"deepseek-v4-flash"},"system":"{{system}}","tools":"{{tools}}"},"reason":"initial"}}
-{"type":"assistant/chunk","seq":14,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"block-start","index":0,"blockType":"text"}}}
-{"type":"assistant/chunk","seq":15,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"text-delta","index":0,"text":"I will verify the external state before deciding whether to retry the side-effecting operation."}}}
-{"type":"assistant/chunk","seq":16,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"block-end","index":0,"block":{"type":"text","text":"I will verify the external state before deciding whether to retry the side-effecting operation."}}}}
-{"type":"assistant/chunk","seq":17,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
-{"type":"assistant/message","seq":18,"time":0,"data":{"turn":2,"step":1,"message":{"role":"assistant","content":[{"type":"text","text":"I will verify the external state before deciding whether to retry the side-effecting operation."}],"source":{"kind":"model","provider":"deepseek-official","model":"deepseek-v4-flash"},"id":"{{sessionId}}"}},"sourceEventSeqs":[14,15,16,17],"surfaceOp":"append"}
-{"type":"step/end","seq":19,"time":0,"data":{"turn":2,"step":1}}
-{"type":"turn/end","seq":20,"time":0,"data":{"turn":2,"reason":{"kind":"completed"}}}
+{"type":"request/context","seq":14,"time":0,"data":{"provider":"deepseek-official","model":"deepseek-v4-flash"}}
+{"type":"assistant/chunk","seq":15,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"block-start","index":0,"blockType":"text"}}}
+{"type":"assistant/chunk","seq":16,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"text-delta","index":0,"text":"I will verify the external state before deciding whether to retry the side-effecting operation."}}}
+{"type":"assistant/chunk","seq":17,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"block-end","index":0,"block":{"type":"text","text":"I will verify the external state before deciding whether to retry the side-effecting operation."}}}}
+{"type":"assistant/chunk","seq":18,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
+{"type":"assistant/message","seq":19,"time":0,"data":{"turn":2,"step":1,"message":{"role":"assistant","content":[{"type":"text","text":"I will verify the external state before deciding whether to retry the side-effecting operation."}],"source":{"kind":"model","provider":"deepseek-official","model":"deepseek-v4-flash"},"id":"{{sessionId}}"}},"sourceEventSeqs":[15,16,17,18],"surfaceOp":"append"}
+{"type":"step/end","seq":20,"time":0,"data":{"turn":2,"step":1}}
+{"type":"turn/end","seq":21,"time":0,"data":{"turn":2,"reason":{"kind":"completed"}}}

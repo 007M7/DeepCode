@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { createUserMessage, LlmError, ReasoningEffortId  } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions, LlmModelReasoningInfo, LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmModelReasoningInfo, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, foldRequestHeader } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
@@ -612,5 +612,97 @@ describe('request stability across the loop', () => {
       expect(request.maxTokens).toBe(header.config.maxTokens)
       expect(request.stop).toEqual(header.config.stop)
     })
+  })
+})
+
+describe('request/context capacity records', () => {
+  /** Adapter advertising a per-model capacity, keyed by model id. */
+  function capacityAdapter(windows: Record<string, number>, script: StreamChunk[][]): MockAdapter {
+    return new class extends MockAdapter {
+      override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+        const contextWindow = windows[model]
+        return Promise.resolve({
+          provider,
+          id: model,
+          name: model,
+          ...contextWindow === undefined ? {} : { context: { contextWindow } },
+        })
+      }
+    }(script)
+  }
+
+  it('records capacity once and skips it while the route is unchanged', async () => {
+    const adapter = capacityAdapter({ mock: 128_000 }, [textResponse('a'), textResponse('b')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('capacity-dedup'), { provider: 'mock', model: 'mock' })
+
+    send(agent, 'first')
+    await waitForIdle(ctx, agent)
+    send(agent, 'second')
+    await waitForIdle(ctx, agent)
+
+    const records = agent.session.events.filter(event => event.type === 'request/context')
+    expect(records).toHaveLength(1)
+    expect(records[0]?.data).toEqual({ provider: 'mock', model: 'mock', contextWindow: 128_000 })
+    // Log-only: not a SurfaceEventType, so it can never reach a model request
+    // (the type system rejects a surfaceOp here; the session invariant also
+    // requires the record to sit inside its open turn).
+    expect(agent.session.surface.nodes).not.toContain(records[0]?.seq)
+  })
+
+  it('records a second capacity when the route changes mid-session', async () => {
+    const adapter = capacityAdapter(
+      { small: 64_000, large: 256_000 },
+      [textResponse('a'), textResponse('b')],
+    )
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('capacity-switch'), { provider: 'mock', model: 'small' })
+
+    send(agent, 'first')
+    await waitForIdle(ctx, agent)
+    ctx.on('agent/request', (subject, _turn, _step, _signal, next) => subject === agent
+      ? Promise.resolve({ provider: 'mock', model: 'large' })
+      : next())
+    send(agent, 'second')
+    await waitForIdle(ctx, agent)
+
+    expect(agent.session.events
+      .filter(event => event.type === 'request/context')
+      .map(event => event.data.contextWindow)).toEqual([64_000, 256_000])
+  })
+
+  it('records and deduplicates a route whose adapter advertises no capacity', async () => {
+    const ctx = await harness(new MockAdapter([textResponse('a'), textResponse('b')]))
+    const agent = ctx.agentLoop.create(SessionId('capacity-absent'), { provider: 'mock', model: 'mock' })
+    send(agent, 'first')
+    await waitForIdle(ctx, agent)
+    send(agent, 'second')
+    await waitForIdle(ctx, agent)
+    expect(agent.session.events
+      .filter(event => event.type === 'request/context')
+      .map(event => event.data)).toEqual([{ provider: 'mock', model: 'mock' }])
+  })
+
+  it('clears a previous capacity when the next route advertises none', async () => {
+    const adapter = capacityAdapter({ known: 64_000 }, [textResponse('a'), textResponse('b')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('capacity-clear'), { provider: 'mock', model: 'known' })
+    let model = 'known'
+    ctx.on('agent/request', (subject, _turn, _step, _signal, next) => subject === agent
+      ? Promise.resolve({ provider: 'mock', model })
+      : next())
+
+    send(agent, 'first')
+    await waitForIdle(ctx, agent)
+    model = 'unknown'
+    send(agent, 'second')
+    await waitForIdle(ctx, agent)
+
+    expect(agent.session.events
+      .filter(event => event.type === 'request/context')
+      .map(event => event.data)).toEqual([
+      { provider: 'mock', model: 'known', contextWindow: 64_000 },
+      { provider: 'mock', model: 'unknown' },
+    ])
   })
 })

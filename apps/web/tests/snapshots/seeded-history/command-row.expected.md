@@ -9,8 +9,6 @@
   - img
 - button "Branch into a new conversation":
   - img
-- button "Edit":
-  - img
 - button "Think The user wants me to read a.txt and b.txt, then reply with \"DONE\". Let me do both reads in parallel.":
   - img
   - img
@@ -35,6 +33,9 @@
 - button "Branch into a new conversation":
   - img
 - text: 7/25 {{clock}}
+- button "Context compacted View compaction summary":
+  - img
+  - text: Context compacted View compaction summary
 - button "Context injection":
   - img
   - img

@@ -3,13 +3,17 @@
  * deployment's sandbox fallbacks plus per-session resolution: the file-effect
  * {@link SandboxMode}, the `workspace-write` root, and the override kit (the
  * `sandbox/mode` event, its fold, and its write path, from `./session-mode.ts`).
+ * Before each agent request, the owner also contributes the resolved policy to
+ * the cache-safe runtime-context snapshot. The agent loop logs that snapshot as
+ * model history, so replay reconstructs the same mode and root the enforcing
+ * consumers resolve without rewriting the stable system prompt.
  *
- * Both enforcing capability families read the SAME policy here: the sandboxed
- * bash executor (`@deepseek-ai/dsh-bash-sandbox`) and the sandboxed filesystem
- * provider (`@deepseek-ai/dsh-fs-sandbox`) consume the SAME resolved per-call
- * policy, so bash and fs can never confine to different roots — the split
- * world the sandbox RFC warns about. The service reads session state once at
- * the tool boundary; executors and providers remain session-free.
+ * Enforcing filesystem, one-shot bash, and terminal backends read the SAME
+ * resolved policy here. The context describes that policy without inventorying
+ * capabilities, while each backend retains its own enforcement dialect and each
+ * tool owns its operation-specific denial and escalation guidance. The service
+ * reads session state once at each operation boundary; executors and providers
+ * remain session-free.
  *
  * @module @deepseek-ai/dsh-sandbox-policy
  */
@@ -17,8 +21,10 @@
 import { resolve as resolvePath } from 'node:path'
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
+import type {} from '@deepseek-ai/dsh-agent'
 import { canonicalPath, type SandboxExecutionPolicy, type SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type { Session } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-system-prompt'
 import { effectiveSandboxMode } from './session-mode.ts'
 
 export { SANDBOX_MODES, effectiveSandboxMode, setSandboxMode } from './session-mode.ts'
@@ -26,6 +32,23 @@ export { SANDBOX_MODES, effectiveSandboxMode, setSandboxMode } from './session-m
 /** Resolve filesystem identity before lexical normalization can erase symlink-sensitive components. */
 function resolveWorkspaceRoot(path: string): string {
   return resolvePath(canonicalPath(path))
+}
+
+/** Render the policy without claiming which capabilities are mounted. */
+function renderPolicyContext(policy: SandboxExecutionPolicy): string {
+  switch (policy.mode) {
+    case 'read-only':
+      return 'Current DSH file policy: read-only. Any available operation enforced by the DSH file sandbox cannot modify files in the standing mode. Do not refuse a required modification from this policy alone: try an available tool normally and follow any denial and escalation guidance it returns.'
+    case 'workspace-write':
+      return `Current DSH file policy: workspace-write. Any available operation enforced by the DSH file sandbox may modify files under the session workspace: ${JSON.stringify(policy.workspaceRoot)}. Some platform temporary areas may also be writable.`
+    case 'danger-full-access':
+      return 'Current DSH file policy: danger-full-access. The DSH file sandbox does not restrict file modifications by available operations.'
+    /* v8 ignore next 4 -- SandboxMode is a typed same-process closed union; this branch is only the static exhaustiveness guard. */
+    default: {
+      const mode: never = policy.mode
+      throw new Error(`unreachable sandbox mode: ${String(mode)}`)
+    }
+  }
 }
 
 declare module 'cordis' {
@@ -61,9 +84,9 @@ export interface SandboxPolicyRequest {
 
 /**
  * The sandbox-policy service (`ctx.sandboxPolicy`). Owns the deployment
- * default mode and fallback workspace root. Tool layers call {@link resolve}
- * for each execution so a session's mode log and immutable cwd travel together
- * to every enforcing capability.
+ * default mode, fallback workspace root, and current request-time policy
+ * section. Tool layers call {@link resolve} for each execution so a session's
+ * mode log and immutable cwd travel together to every enforcing capability.
  */
 export class SandboxPolicyService extends Service {
   // Inline schema call: the config catalog walks `static Config` statically.
@@ -78,7 +101,6 @@ export class SandboxPolicyService extends Service {
   readonly defaultMode: SandboxMode
   /** The absolute `workspace-write` fallback root for calls without a session cwd. */
   readonly workspaceRoot: string
-
   constructor(ctx: Context, config: Config) {
     super(ctx, 'sandboxPolicy')
     // schemastery (static Config) already filled `mode`; the cast records that
@@ -86,6 +108,19 @@ export class SandboxPolicyService extends Service {
     // the process cwd is real branching, resolved absolute either way.
     this.defaultMode = config.mode as SandboxMode
     this.workspaceRoot = resolveWorkspaceRoot(config.workspaceRoot ?? process.cwd())
+
+    ctx.inject(['systemPrompt'], (scope: Context) => {
+      scope.systemPrompt.context({
+        name: 'sandbox:policy',
+        order: 110,
+        text: (context) => {
+          const session = context.agent?.session
+          return session === undefined
+            ? ''
+            : renderPolicyContext(this.resolve({ session }))
+        },
+      })
+    })
   }
 
   /**
