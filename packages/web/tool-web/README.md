@@ -4,7 +4,7 @@ English | [中文](README.zh.md)
 
 The model-facing web tool suite — `web_search` and `web_fetch` — over the [web capability seam](../web/README.md) (`ctx.web`). It owns model-facing concerns only: tool names, JSON schemas, snake_case argument names, prompt sections, the result-count bound, result formatting, HTML→markdown presentation, and the UI presentation projection — `presentCall`, `presentResult` (a `card: 'web'` result card discriminated by `kind: 'search' | 'fetch'`), and the `output.presentationMeta` that carries the structured search sources or the fetch summary the lossy render text cannot (see the [web-result-card Agent Note](../../../.agents/notes/implemented/feature/2026-07-30-web-result-card.md)). All web access goes through `ctx.web`; this package never imports a concrete provider. Neither tool exposes a model-facing timeout — each tool's cooperative tool-call budget is declared here via config (`fetchTimeoutMs`/`searchTimeoutMs`, attached as `ToolDefinition.timeoutMs`) and enforced by [`@deepseek-ai/dsh-timeout-policy`](../../timeout/timeout-policy/README.md) (a `tools/execute` wrapper); each tool just forwards `exec.signal` to the seam.
 
-Each tool is registered independently; a product that wants only one disables the other via config (`{ search: false }` / `{ fetch: false }`).
+Each tool is registered independently; a product that wants only one disables the other via config (`{ search: false }` / `{ fetch: false }`). Search guidance mentions `web_fetch` only when fetch is also config-enabled; a search-only composition instead tells the model to use returned snippets and cite their URLs.
 
 ## Tools
 
@@ -47,12 +47,18 @@ The tool never calls a provider's `available()` and never enumerates providers �
 
 #### What the model sees
 
-Search and fetch contribute the web-search and web-fetch guidance below. A scoped tool restriction does not remove these independently registered sections.
+Search and fetch contribute the web-search and web-fetch guidance below. Search chooses its fetch-enabled or search-only text from config at registration time. A scoped tool restriction does not remove these independently registered sections.
 
-##### Web search guidance
+##### Web search guidance with fetch enabled
 
 ```markdown
 Use the web_search tool to discover current information on the web. It returns an optional answer plus a list of source URLs. Follow up with web_fetch when you need the full content of a specific result, and cite the relevant URLs as markdown links.
+```
+
+##### Web search-only guidance
+
+```markdown
+Use the web_search tool to discover current information on the web. It returns an optional answer plus a list of source URLs. Use the returned source snippets when available, and cite the relevant URLs as markdown links.
 ```
 
 ##### Web fetch guidance
@@ -63,11 +69,11 @@ Use the web_fetch tool to retrieve the content of a specific HTTP(S) URL (for ex
 
 #### Token effect
 
-Fixed guidance cost per request for each config-enabled tool, even when a restriction hides its schema.
+Fixed guidance cost per request for each config-enabled tool, even when a restriction hides its schema. Toggling fetch changes the search guidance as well as registering or removing the fetch section.
 
 #### KV Cache effect
 
-Prefix-stable while enabled tools, scope, and guidance text are unchanged. Config enablement or plugin lifecycle may invalidate reuse from the first changed prompt section; scoped schema restrictions do not remove it.
+Prefix-stable while enabled tools, scope, and guidance text are unchanged. Config enablement—including toggling fetch's search-guidance branch—or plugin lifecycle may invalidate reuse from the first changed prompt section; scoped schema restrictions do not remove it.
 
 ### Tool schemas
 

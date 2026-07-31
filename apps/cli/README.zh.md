@@ -3,7 +3,7 @@
 [English](README.md) | 中文
 
 
-Argv 只会通过 [Commander](https://github.com/tj/commander.js) 适配器（[`src/args.ts`](src/args.ts)）解析一次：同一个程序的默认形式（无子命令）是 TUI／无头界面（`--config`、`-p`/`--prompt`、`--resume`），`meta` 子命令是以本 checkout 为 workspace 的同一个 TUI，`upgrade` 子命令是无选项的引导会话入口，`web` 子命令则是浏览器 UI。`src/bin.ts` 按解析后的 mode 分支，仅动态导入该 mode 的模块。`dsh --help` 列出所有 mode，`dsh web --help` 渲染 Web 用法，`dsh --version` 打印此应用的版本；未知选项或拼错的 `--resume` 会明确报错（stderr，退出码 1），而不会被错路由。凡与默认界面不共享任何选项的子命令（`upgrade`、`web`、`meta`）都会拒绝泄漏进来的 `--config`/`-p`/`--resume`，而不会照常运行并丢弃它。`dsh web` 的 `--host`/`--port` 是未验证的直通覆盖：`dsh-host-webserver` schema 是默认值（标志缺失时使用已交付的 Web 覆盖层值）和有效性的唯一真源，并在启动时拒绝错误值。`--trusted-host` 为 /api 浏览器信任栅栏追加具名权威；全接口绑定还会自行推导本机的 LAN IP 字面量（[`src/app-cli-entry.ts`](src/app-cli-entry.ts)），因此打印出的 LAN URL 无需任何标志即可使用。
+Argv 只会通过 [Commander](https://github.com/tj/commander.js) 适配器（[`src/args.ts`](src/args.ts)）解析一次：同一个程序的默认形式（无子命令）是 TUI／无头界面（`--config`、`-p`/`--prompt`、`--resume`、`--dump-config`、`--dump-default-config`），`meta` 子命令是以本 checkout 为 workspace 的同一个 TUI，`upgrade` 子命令是无选项的引导会话入口，`web` 子命令则是浏览器 UI。`src/bin.ts` 按解析后的 mode 分支，仅动态导入该 mode 的模块。`dsh --help` 列出所有 mode，`dsh web --help` 渲染 Web 用法，`dsh --version` 打印此应用的版本；未知选项或拼错的 `--resume` 会明确报错（stderr，退出码 1），而不会被错路由。凡与默认界面不共享任何选项的子命令（`upgrade`、`web`、`meta`）都会拒绝泄漏进来的 `--config`/`-p`/`--resume`/dump 标志，而不会照常运行并丢弃它。`dsh web` 的 `--host`/`--port` 是未验证的直通覆盖：`dsh-host-webserver` schema 是默认值（标志缺失时使用已交付的 Web 覆盖层值）和有效性的唯一真源，并在启动时拒绝错误值。`--trusted-host` 为 /api 浏览器信任栅栏追加具名权威；全接口绑定还会自行推导本机的 LAN IP 字面量（[`src/app-cli-entry.ts`](src/app-cli-entry.ts)），因此打印出的 LAN URL 无需任何标志即可使用。
 
 TUI 界面：
 
@@ -17,9 +17,13 @@ TUI 界面：
 
 `dsh upgrade` 是默认 TUI 界面之上的引导式全新会话入口：它在调用目录中创建一个全新会话，并以内置 `dsh-upgrade` skill 播种其首轮，效果等同于用户手动键入 `/skill:<name>`。启动器将 skill 名称提供到启动上下文（[`INITIAL_SKILL_KEY`](../../packages/ui/tui/README.md)），TUI 在聊天就绪后自动调用它。两者都不接受任何选项——`--config`、`-p`、`--resume` 都会明确报错——且仅在首次启动时播种，因此之后 `dsh --resume <id>` 恢复该会话时是普通 TUI 会话，不会重复注入。
 
+`dsh --dump-config` 和 `dsh web --dump-config` 把合成后的配置树——已交付的基础配置、界面覆盖层，以及 `--config` 或个人覆盖层，恰好是该界面启动时组装的那些层——以 YAML 打印到 stdout 后退出，不启动任何东西；`--dump-default-config` 止步于界面覆盖层，因此对两份输出做 diff 就能精确看出用户层改了什么。每段连续的行之前都有一条 `# ==` 注释，标明该段来自哪个文件以及被哪些层修补过（例如 `# == base.cordis.yml, patched by tui.cordis.yml`），因此输出既展示来源，又仍是一份可加载的文档。合成通过 include 自己的补丁算法和 YAML 方言（`@cordisjs/plugin-include` 的 `applyEntryPatches`/`entryListSchema`）完成，因此 dump 不可能与实际启动漂移；`!!js` 表达式原样打印、不求值，目标行不存在的补丁会连同其所在层报到 stderr，与 Loader 启动时的警告一致。由启动器持有的启动上下文值（会话身份、CLI 标志补丁）是每次调用的事实，位于配置树之外，不会出现。dump 标志会拒绝仅用于启动的标志（`-p`、`--resume`、`--config-replace`）而不是静默忽略它们，`--dump-default-config` 不接受 `--config`。
+
 Web 和无头界面启动 `base.cordis.yml` 与 `web.cordis.yml`，随后应用 `$DSH_HOME/config.yaml`；显式的 `--config <path>` 会替代该个人覆盖。除此之外，两者共享同一套组合：两者都将调用目录视为默认项目和 Workspace 根目录，除非通过 `--workspace-root <path>` 覆盖，否则会在该根目录下创建具名 Workspace；它们会把适用的 `AGENTS.md`/`CLAUDE.md` 指令加载到每个 agent-loop 请求前缀中，渲染预算为 65,536 字节，选用首条消息模型标题，采用与 TUI 相同的有界暂时性模型请求重试策略，并挂载一个可丢弃的内存 SQLite 内容索引服务。该服务在启动时处于 ACTIVE 状态，但其 `node:sqlite` 模块与数据库句柄分别要到首次内容搜索才会导入和打开。这样可使 Node 22 在尚未使用搜索时的启动输出不出现 SQLite 实验性警告；首次实际搜索仍可能发出运行时警告。每个服务实例独占自己的数据库，因此并行调用既不会共享不受支持的 SQLite 状态，也不会留下派生索引文件，首次搜索还会惰性对账实时日志与持久化日志。无头界面唯一的差异是监听操作系统分配的端口（并行 `dsh -p` 运行绝不冲突；stderr 打印的 URL 会在浏览器中打开实时会话）。两者都需要先构建前端 dist 和客户端 bundle（`pnpm run build && pnpm run build:web`）。
 
 已交付的 TUI 和 Web 组合会注册原生 DeepSeek 适配器，以及 pi-ai 的 OpenAI 和 Anthropic 提供方配置。凭据和端点覆盖来自启动分层环境中的提供方标准变量对：`DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL`、`OPENAI_API_KEY` / `OPENAI_BASE_URL` 和 `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL`。
+
+Web／无头组合还只会注册 `web_search`。搜索使用 DeepSeek 的 Anthropic 兼容 Messages 端点，每次调用都会解析同一个 `DEEPSEEK_API_KEY` 凭据引用，并接受独立的 `DEEPSEEK_SEARCH_BASE_URL` 端点覆盖；每次搜索都是一次辅助模型请求，会产生独立的延迟与 token 成本。`web_fetch` 仍处于禁用状态，组合也未挂载默认抓取提供方；需要任意页面抓取能力的部署必须通过覆盖层选择启用。TUI 组合默认不挂载 Web 工具。部署决策及其安全边界见[默认 Web 搜索 Agent Note](../../.agents/notes/implemented/feature/2026-07-31-web-default-search.md)。
 
 `DSH_TOOLS_MODE` 为整个 Web／无头进程选择工具呈现模式：可选值为 `native`（未设置时的 schema 默认值）、`code`（仅含 `run_code` 的 Code Mode 协议接口）或 `both`；任何其他值都会经由 `dsh-tools` 配置 schema 在启动时明确报错。它是一个临时 seam：Loader 组合是静态的，因此该设置作用于整个进程；待 Web UI 负责逐会话工具模式选择后便会移除。TUI 界面会忽略该变量（其配置树固定了自身模式）。
 

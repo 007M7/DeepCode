@@ -1,0 +1,11 @@
+kind=matches
+summary=显示 9 / 共 42 处匹配 · 3 个文件
+file=packages/client/ui-primitives/src/SearchBlock.tsx3
+file=packages/client/ui-conversation/src/client/toolviews/search-row.tsx4
+line=16: export const DEFAULT_SEARCH_MAX_LINES = 16
+line=138: export function SearchBlock(props: SearchBlockProps) {
+line=141:   const [collapsed, setCollapsed] = useState<ReadonlySet<number>>(() => new Set())
+line=73:   const search = searchCardModel(block)
+line=90:         <SearchBlock {...search.card} maxLines={CHAT_SEARCH_MAX_LINES} className={css.search} />
+line=113:     ctx.slots.register({ name: 'conversation.chat.toolview', key: 'grep' }, SearchRow)
+expand=… 其余 4 行

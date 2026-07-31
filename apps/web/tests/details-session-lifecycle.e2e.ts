@@ -80,7 +80,7 @@ describe.skipIf(MODE === 'record')('web e2e: details panel follows the current S
     tripwire = watchConsole(page)
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await appFrame(page).waitFor({ timeout: 30_000 })
-    await connectFreshWorkspace(page)
+    await connectFreshWorkspace(page, scaffold.workspaceCwd)
   }, 120_000)
 
   afterAll(async () => {

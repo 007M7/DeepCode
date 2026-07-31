@@ -31,6 +31,24 @@ describe('highlightToHtml', () => {
     expect(highlightToHtml('x', 'cobol')).toBeUndefined()
     expect(highlightToHtml('x', undefined)).toBeUndefined()
   })
+
+  // Every read-tool language hint whose grammar loads lazily (the boot set —
+  // ts/js/bash/sh/json — is covered above). Touching each one drives its own
+  // dynamic import thunk, so the whole LAZY_GRAMMARS table is exercised.
+  const LAZY_ALIASES = [
+    'py', 'rb', 'go', 'rs', 'java', 'c', 'cpp', 'cs', 'kotlin', 'swift', 'php',
+    'yaml', 'toml', 'ini', 'md', 'mdx', 'html', 'css', 'scss', 'less', 'sql',
+    'xml', 'lua',
+  ]
+
+  it('lazily loads every read-card grammar: plain first, highlighted after load', async () => {
+    // First touch returns the plain fallback (undefined) and starts the import.
+    for (const alias of LAZY_ALIASES) expect(highlightToHtml('x', alias)).toBeUndefined()
+    // Once every grammar has registered, the same call highlights.
+    await vi.waitFor(() => {
+      for (const alias of LAZY_ALIASES) expect(highlightToHtml('x', alias)).toContain('shiki')
+    })
+  })
 })
 
 describe('CodeBlock', () => {

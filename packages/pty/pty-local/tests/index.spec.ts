@@ -38,10 +38,13 @@ function config(): ResolvedConfig {
   }
 }
 
-function agent(ctx: Context): Agent {
+function agent(ctx: Context, cwd?: string): Agent {
   const id = SessionId('agent')
   return {
-    id, options: {}, session: new Session(id), status: 'idle', acceptsNextStep: false, ctx,
+    id,
+    options: {},
+    session: new Session(id, undefined, { version: 0, id, createdAt: 0, ...cwd === undefined ? {} : { cwd } }),
+    status: 'idle', acceptsNextStep: false, ctx,
     followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, updateInbox: () => 'not-found', cancel() {}, whenIdle: () => Promise.resolve(),
   }
 }
@@ -125,10 +128,10 @@ describe('LocalPtyBackend startup rollback', () => {
     } satisfies Partial<PtyBackendCleanupError>))
   })
 
-  it('wraps confined argv, scrubs the environment, and returns initialized sessions', async () => {
+  it('resolves session mode and root together before wrapping the shell', async () => {
     const ctx = new Context()
     await ctx.plugin(RecordingSandbox)
-    await ctx.plugin(SandboxPolicyService, { mode: 'workspace-write', workspaceRoot: '/workspace' })
+    await ctx.plugin(SandboxPolicyService, { mode: 'read-only', workspaceRoot: '/deployment-fallback' })
     const terminal = {} as IPty
     let spawned: { file: string; args: string[]; options: IPtyForkOptions } | undefined
     const spawnTerminal = ((file: string, args: string[], options: IPtyForkOptions) => {
@@ -146,8 +149,10 @@ describe('LocalPtyBackend startup rollback', () => {
     )
     const previous = process.env.PTY_TEST_SECRET
     process.env.PTY_TEST_SECRET = 'must-not-leak'
+    const owner = agent(ctx, '/session-workspace')
+    setSandboxMode(owner.session, 'workspace-write')
     try {
-      expect(await backend.spawn({ ...spec(agent(ctx)), cwd: '/work' })).toBe(session)
+      expect(await backend.spawn(spec(owner))).toBe(session)
     } finally {
       if (previous === undefined) delete process.env.PTY_TEST_SECRET
       else process.env.PTY_TEST_SECRET = previous
@@ -157,7 +162,7 @@ describe('LocalPtyBackend startup rollback', () => {
       file: '/sandbox',
       args: ['--', '/bin/bash', '-i'],
       options: {
-        name: 'dumb', cols: 80, rows: 24, cwd: '/work',
+        name: 'dumb', cols: 80, rows: 24, cwd: '/session-workspace',
         env: {
           TERM: 'dumb', PAGER: 'cat', GIT_PAGER: 'cat', PS1: 'dsh> ', BASH_SILENCE_DEPRECATION_WARNING: '1',
           DSH_SHELL: '1', DSH_SESSION_ID: 'agent', DSH_PTY_SESSION_ID: 'pty-1',
@@ -166,6 +171,10 @@ describe('LocalPtyBackend startup rollback', () => {
     })
     expect(spawned?.options.env?.PTY_TEST_SECRET).toBeUndefined()
     expect(initialized).toHaveBeenCalledWith(undefined)
+    expect((ctx.sandbox as RecordingSandbox).calls).toEqual([{
+      argv: ['/bin/bash', '-i'],
+      policy: { mode: 'workspace-write', workspaceRoot: '/session-workspace' },
+    }])
   })
 
   it('composes the default local session around a spawned terminal', async () => {

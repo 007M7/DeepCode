@@ -68,7 +68,7 @@ describe('web e2e: queue row actions', () => {
     const tripwire = watchConsole(page)
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
-    await connectFreshWorkspace(page)
+    await connectFreshWorkspace(page, scaffold.workspaceCwd)
     onTestFailed(() => saveFailureShot(page, 'web-e2e-queue-actions'))
 
     const input = page.locator('textarea').first()
@@ -131,7 +131,7 @@ describe('web e2e: queue row actions', () => {
 
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
-    expect(sessionEvents.filter(event => event.type === 'user/message')).toHaveLength(1)
+    expect(sessionEvents.filter(event => event.type === 'user/message' && event.data.source.kind === 'user')).toHaveLength(1)
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
 

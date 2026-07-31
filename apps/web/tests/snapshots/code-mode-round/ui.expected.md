@@ -9,8 +9,10 @@
   - img
 - button "Branch into a new conversation":
   - img
-- button "Edit":
+- button "Context injection":
   - img
+  - img
+  - text: Context injection
 - 'button "Think The user wants me to write a single `run_code` program that:"':
   - img
   - img
@@ -20,10 +22,8 @@
   - img
   - text: Code Run bash echo and catch missing file read
 - img
-- text: Bash Echo CODE_ROUND_OK
-- 'button "Read Error: cannot read \"{{cwd}}/workspace/missing.txt\": not found"':
-  - img
-  - text: "Read Error: cannot read \"{{cwd}}/workspace/missing.txt\": not found"
+- text: Bash Echo CODE_ROUND_OK 失败 Read
+- button "missing.txt"
 - button "Think The program ran successfully. Let me now reply DONE as instructed.":
   - img
   - img
@@ -42,4 +42,4 @@
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
-- text: 1 turns · 2 steps Tool call {{duration}} Cache hit 52% Input 17.2K tok · Output 252 tok
+- text: 1 turns · 2 steps Tool call {{duration}} Context 7% of 128K Cache hit 52% Input 17.2K tok · Output 252 tok
