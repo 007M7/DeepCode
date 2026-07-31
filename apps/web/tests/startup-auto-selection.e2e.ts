@@ -57,7 +57,7 @@ describe('web e2e: startup auto-selection', () => {
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     // A registered workspace is the precondition for auto-selection: the first
     // load has nothing to select, so the reload below is the path under test.
-    await connectFreshWorkspace(page, 'startup-auto-selection')
+    await connectFreshWorkspace(page, scaffold.workspaceCwd, 'startup-auto-selection')
   }, 180_000)
 
   afterAll(async () => {
