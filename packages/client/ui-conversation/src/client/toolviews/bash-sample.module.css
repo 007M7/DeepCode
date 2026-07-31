@@ -99,17 +99,6 @@
   opacity: 1;
 }
 
-.scopeBadge {
-  flex: none;
-  margin-right: 8px;
-  padding: 0 6px;
-  border-radius: 6px;
-  font-size: 11px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-primary-foreground);
-  background: var(--dsw-alias-state-business-primary);
-}
-
 .title {
   flex: none;
   font-size: 14px;

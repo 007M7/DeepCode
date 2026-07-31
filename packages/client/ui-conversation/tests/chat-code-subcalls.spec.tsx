@@ -181,7 +181,7 @@ describe('run_code sub-calls through the real chat machinery', () => {
     // sub-tool fell back to GenericToolCard at the same render site.
     const nest = view.container.querySelector('[data-subcalls]')
     expect(nest).not.toBeNull()
-    expect(nest!.querySelector('[data-sample="bash-global"]')).not.toBeNull()
+    expect(nest!.querySelector('[data-sample="bash"]')).not.toBeNull()
     expect(view.getByText('Bash')).toBeTruthy()
     expect(view.getByText('List notes')).toBeTruthy()
     expect(view.getByText('Tool call')).toBeTruthy()
@@ -264,7 +264,7 @@ describe('run_code sub-calls through the real chat machinery', () => {
     expect(running).not.toBeNull()
     const nest = view.container.querySelector('[data-subcalls]')
     expect(nest).not.toBeNull()
-    expect(nest!.querySelector('[data-sample="bash-global"]')).not.toBeNull()
+    expect(nest!.querySelector('[data-sample="bash"]')).not.toBeNull()
   })
 
   it('a started-but-unsettled sub-call renders the running state exactly like a native in-flight row', async () => {
