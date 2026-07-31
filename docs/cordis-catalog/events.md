@@ -588,7 +588,7 @@ The provider topology changed: an adapter registered or unregistered routes, or 
 'llm/adapters-updated'(): void
 ```
 
-Source: [`packages/llm/llm/src/index.ts:70`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:71`](../../packages/llm/llm/src/index.ts)
 
 ### `llm/stream` — waterfall
 
@@ -612,7 +612,7 @@ Waterfall around every streaming model call (retry, replay, routing). Bound to t
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [LlmService](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:59`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:60`](../../packages/llm/llm/src/index.ts)
 
 ## `session/*`
 
@@ -855,11 +855,11 @@ Source: [`packages/subagent/subagent/src/index.ts:131`](../../packages/subagent/
 
 ### `system-prompt/assemble` — waterfall
 
-Expert waterfall over the assembled sections, tools, and variables. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): scoped listeners receive only that scope's assemblies. The returned value is authoritative. A supplied signal controls only this explicit assembly request and must not be retained to control later turns.
+Expert waterfall over the assembled sections, contexts, tools, and variables. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): scoped listeners receive only that scope's assemblies. The returned value is authoritative. A supplied signal controls only this explicit assembly request and must not be retained to control later turns.
 
 ```ts cordis-catalog
 /**
- * Expert waterfall over the assembled sections, tools, and variables.
+ * Expert waterfall over the assembled sections, contexts, tools, and variables.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): scoped listeners
  * receive only that scope's assemblies. The returned value is authoritative.
  * A supplied signal controls only this explicit assembly request and must not

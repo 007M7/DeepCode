@@ -141,6 +141,14 @@ describe('createFixtureApi', () => {
         },
         plan: { active: false, pending: false },
         goal: null,
+        tokenUsage: {
+          uncachedInputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+        },
+        // No request ran, so neither pressure nor capacity is known yet.
+        contextPressure: {},
       } },
     })
   })
@@ -275,6 +283,17 @@ describe('createFixtureApi', () => {
     expect(types).toContain('assistant/chunk')
     expect(types).toContain('assistant/message')
     expect(types.at(-1)).toBe('turn/end')
+    // Capacity is durable log state, not a transient frame: the prompt path
+    // records request/context and the projection carries it to the client.
+    expect(types).toContain('request/context')
+    expect(frames.some(frame =>
+      frame.type === 'session/projection'
+      && frame.key === 'tokenUsage'
+      && (frame.value as { outputTokens?: number }).outputTokens === 8)).toBe(true)
+    expect(frames.some(frame =>
+      frame.type === 'session/projection'
+      && frame.key === 'contextPressure'
+      && (frame.value as { contextWindow?: number }).contextWindow === 128_000)).toBe(true)
     const finalize = frames.find((f): f is Extract<MuxFrame, { type: 'session/event' }> => f.type === 'session/event' && f.event.type === 'assistant/message')
     expect(JSON.stringify(finalize?.event.data)).toContain('（已中断）')
     // Idle cancel: no replay in flight, must not explode; running flips false.
@@ -306,7 +325,7 @@ describe('createFixtureApi', () => {
       const envelopes: RpcRequest<MuxFrame>[] = []
       for await (const envelope of api.events.mux(req({}), abort.signal)) {
         envelopes.push(envelope)
-        if (envelopes.length >= 8) abort.abort()
+        if (envelopes.length >= 10) abort.abort()
       }
       return envelopes
     }
@@ -314,16 +333,18 @@ describe('createFixtureApi', () => {
     const second = await openOnce()
     expect(first[0]?.payload).toMatchObject({ type: 'session/subscribed', sessionId: 'fx-alpha' })
     expect((first[0]?.payload as { lastSeq: number }).lastSeq).toBeGreaterThan(0)
-    // Projection baseline frames follow the subscribed frame (title + todos + permissions + plan + goal units).
+    // Projection baseline frames follow subscribed (domain units + token usage).
     expect(first[1]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'title', value: 'Fixture 历史会话' })
     expect(first[2]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'todos' })
     expect(first[3]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'permissions' })
     expect(first[4]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'plan', value: { active: false, pending: false } })
     expect(first[5]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'goal', value: null })
-    expect(first[6]?.payload).toMatchObject({ type: 'approval/requested', toolName: 'dangerous_tool' })
-    expect(second[6]?.rpcId).toBe(first[6]?.rpcId) // stable rpcId across replays (host replay semantics)
-    expect(first[7]?.payload).toMatchObject({ type: 'question/requested', sessionId: 'fx-alpha' })
-    expect(second[7]?.rpcId).toBe(first[7]?.rpcId)
+    expect(first[6]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'tokenUsage' })
+    expect(first[7]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'contextPressure' })
+    expect(first[8]?.payload).toMatchObject({ type: 'approval/requested', toolName: 'dangerous_tool' })
+    expect(second[8]?.rpcId).toBe(first[8]?.rpcId) // stable rpcId across replays (host replay semantics)
+    expect(first[9]?.payload).toMatchObject({ type: 'question/requested', sessionId: 'fx-alpha' })
+    expect(second[9]?.rpcId).toBe(first[9]?.rpcId)
   })
 
   it('steer with no replay in flight falls through to a fresh queued turn; non-text blocks stringify empty', async () => {

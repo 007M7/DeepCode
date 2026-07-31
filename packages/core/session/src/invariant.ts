@@ -149,6 +149,7 @@ function validateEvent(
       break
     case 'steering/message':
     case 'todo/write':
+    case 'request/context':
     case 'request/header': {
       if (trace.openTurn === null) {
         fail(`${event.type} appended outside any open turn (core execution events must be turn-enclosed)`)

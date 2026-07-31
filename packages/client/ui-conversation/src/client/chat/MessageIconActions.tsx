@@ -1,10 +1,9 @@
 // Shared IconActions chrome for user and assistant messages: copy live,
-// branch wired through onBranch, date-aware clock,
-// optional edit stub.
+// branch wired through onBranch, date-aware clock.
 
 import { useCallback } from 'react'
 import {
-  IconBranchOutline16, IconCopyOutline16, IconEditOutline16, Tooltip,
+  IconBranchOutline16, IconCopyOutline16, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
 import { formatMessageClock, writeClipboard } from './message-chrome.ts'
@@ -18,8 +17,6 @@ export interface MessageIconActionsProps {
   time: number
   /** Clock before icons (user) or after (assistant). */
   clock: 'start' | 'end'
-  /** When true, append the stub edit control (user bubble). */
-  edit?: boolean | undefined
   /** Fork the session at this message. */
   onBranch?: (() => void) | undefined
   /** Parent layout class composed onto the actions row. */
@@ -30,11 +27,11 @@ export interface MessageIconActionsProps {
 
 /**
  * Copy / branch (/ clock) IconActions row shared by user and assistant chrome.
- * @param props - Copy text, event time, clock side, optional edit, branch callback, className.
+ * @param props - Copy text, event time, clock side, branch callback, className.
  * @returns The actions row element.
  */
 export function MessageIconActions({
-  text, time, clock, edit, onBranch, className, t,
+  text, time, clock, onBranch, className, t,
 }: MessageIconActionsProps) {
   const day = useCalendarDay()
   const onCopy = useCallback(() => {
@@ -58,13 +55,6 @@ export function MessageIconActions({
           <IconBranchOutline16 />
         </button>
       </Tooltip>
-      {edit === true && (
-        <Tooltip label={t('edit')} side="bottom">
-          <button type="button" className={css.action} aria-label={t('edit')}>
-            <IconEditOutline16 />
-          </button>
-        </Tooltip>
-      )}
       {clock === 'end' ? clockEl : null}
     </div>
   )

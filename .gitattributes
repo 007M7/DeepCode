@@ -6,4 +6,4 @@
 # in-repo form stays LF; CRLF becomes checkout-time presentation only.
 * text=auto eol=lf
 
-*.pdf -text
+*.pdf binary

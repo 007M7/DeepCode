@@ -108,11 +108,10 @@ jobs:
           || 'dsh-ubuntu-24-04-16core' }}
     name: node 24 / coverage
     env:
-      # Failover shrinks the worker bound: the hosted 32-core runner is
-      # exclusive to one job, but the failover pool shares one 64-core VM
-      # across six always-on runner instances, and the timing-sensitive
-      # process suites have documented aggregate-contention failures.
-      # 8 × 6 instances = 48 workers worst case on 64 cores.
+      # The hosted 16-core runner uses six coverage workers. The failover pool
+      # shares one 64-core VM across six always-on runner instances, so each
+      # instance may use eight while keeping the worst case at 8 × 6 = 48
+      # workers; process-bound suites remain isolated in forks.
       DSH_COVERAGE_MAX_WORKERS: ${{ vars.DSH_CI_FAILOVER == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]' && '8' || '6' }}
       DSH_GATE_CONCURRENCY: '3'
     steps:

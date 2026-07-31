@@ -7,9 +7,11 @@
 import type { ReactNode } from 'react'
 import {
   IconApiOutline14, IconBrowseOutline16, IconCodeOutline16, IconEditOutline16, IconSearchOutline16, IconSparkle16,
-  IconThinkOutline14, WebBlock,
+  IconThinkOutline14, ReadBlock, WebBlock,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps, ToolRowOwnerProps } from '../contract/slots.ts'
+import { searchCardModel } from '../contract/search-card-model.ts'
+import { CHAT_READ_MAX_LINES, readCardModel } from '../contract/read-card-model.ts'
 import { diffCardModel } from '../contract/diff-card-model.ts'
 import { terminalCardModel, terminalFailed } from '../contract/terminal-card-model.ts'
 import { CHAT_WEB_MAX_SOURCES, webCardModel } from '../contract/web-card-model.ts'
@@ -37,6 +39,8 @@ export interface GenericToolCardProps extends ToolRowOwnerProps {
 export function GenericToolCard({ toolName, block, cwd, openFile, inspect, t }: GenericToolCardProps) {
   const model = toolRowModel(toolName, block, cwd)
   const terminal = terminalCardModel(block, cwd)
+  const search = searchCardModel(block)
+  const read = readCardModel(block, cwd)
   const diff = diffCardModel(block)
   const web = webCardModel(block)
   // A failing exit status is the terminal card's own error signal (the call
@@ -53,8 +57,9 @@ export function GenericToolCard({ toolName, block, cwd, openFile, inspect, t }: 
       icon={VARIANT_ICONS[model.variant]}
       title={model.title}
       // A terminal presenter's description is the contract's above-card text, so
-      // it outranks the args-derived summary here exactly as it does in BashRow.
-      summary={terminal?.description ?? model.summary}
+      // it outranks the args-derived summary here exactly as it does in BashRow;
+      // a search result view's replacement title outranks it the same way.
+      summary={terminal?.description ?? search?.title ?? model.summary}
       // Single-file tools never expose an args body — the path link is the only
       // args interaction. A diff card is not an args body: a write/edit row is
       // single-file AND carries a diff, so the card expands under the path link.
@@ -62,6 +67,7 @@ export function GenericToolCard({ toolName, block, cwd, openFile, inspect, t }: 
       output={model.output}
       errorSummary={model.errorSummary}
       terminal={terminal}
+      search={search}
       diff={diff}
       state={state}
       filePath={model.filePath}
@@ -69,6 +75,18 @@ export function GenericToolCard({ toolName, block, cwd, openFile, inspect, t }: 
       inspect={inspect}
     />
   )
+  // A read-declaring tool without its own keyed row lands here (e.g. web_fetch),
+  // so the file's read card is resident below the summary row exactly as the
+  // keyed ReadRow draws it. Only wrap when a card is present, so every other
+  // tool keeps the bare ToolRow.
+  if (read !== null) {
+    return (
+      <div className={css.card}>
+        {row}
+        <ReadBlock {...read} maxLines={CHAT_READ_MAX_LINES} className={css.read} />
+      </div>
+    )
+  }
   // A web-declaring tool without its own keyed row lands here; its card is
   // resident under the summary, mirroring WebRow (and BashRow's terminal card).
   if (web === null) return row
