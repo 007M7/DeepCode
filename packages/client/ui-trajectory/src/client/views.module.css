@@ -14,9 +14,11 @@
 }
 
 /* Trajectory keeps the ledger and details panel inside the remaining
- * conversation height. Only the ledger pane scrolls; the composer remains
- * the fixed flex sibling below this view. */
+ * conversation height; only the internal panes scroll. The composer floats
+ * over the ledger like chat's sticky seat — absolute, not sticky, because
+ * this host does not scroll. */
 :global([data-conversation-scroll]):has(.root) {
+  position: relative;
   overflow: hidden;
 }
 
@@ -24,6 +26,15 @@
   flex: 1 1 0;
   min-height: 0;
   overflow: hidden;
+}
+
+/* div qualifier outranks ConversationRoot's active-phase sticky rule (equal
+ * specificity otherwise, and cross-module source order is bundler-defined). */
+:global([data-conversation-scroll]):has(.root) > :global(div[data-composer-seat]) {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
 }
 
 .ledger {
@@ -35,4 +46,9 @@
   min-height: 0;
   min-width: 0;
   overflow: hidden;
+
+  /* Internal panes reserve the floating composer's live height plus a 16px
+   * breathing gap so end rows and detail bodies can scroll clear of the
+   * overlay. */
+  --dsh-trajectory-bottom-clearance: calc(var(--dsh-composer-height, 152px) + 16px);
 }
