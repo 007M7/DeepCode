@@ -59,6 +59,15 @@ const DRAFT = Array.from({ length: DRAFT_LINES }, (_unused, index) => {
   return `draft line ${String(index + 1).padStart(2, '0')}`
 }).join('\n')
 
+/**
+ * A draft ending in a newline: the shape whose layer extents diverge without
+ * the backdrop's trailing-line sentinel. A textarea reserves a line box for the
+ * caret after a final newline; `white-space: pre-wrap` collapses a text node's
+ * trailing newline and generates none, so the backdrop would come out exactly
+ * one line shorter and the mirrored offset would clamp a line above the caret.
+ */
+const DRAFT_TRAILING_NEWLINE = `${DRAFT}\n`
+
 /** The composer's two text layers as the browser lays them out. */
 interface ComposerMetrics {
   /** True when the draft is taller than the capped box — the situation under test. */
@@ -82,6 +91,10 @@ interface ComposerMetrics {
   lastLineOffset: number
   /** Top of the FIRST draft line relative to the visible box's top: negative once it has scrolled out. */
   firstLineOffset: number
+  /** Furthest the textarea can scroll. */
+  inputMax: number
+  /** Furthest the backdrop can scroll — equal to `inputMax`, or the mirror clamps below the caret. */
+  backdropMax: number
 }
 
 /**
@@ -109,7 +122,20 @@ function measureComposer(page: Page): Promise<ComposerMetrics> {
       return range.getBoundingClientRect().top - box.top
     }
     const lineHeight = Number.parseFloat(getComputedStyle(input).lineHeight)
+    // Each layer's own maximum, probed by asking for an impossible offset and
+    // reading back what it clamped to, then restored. Reading scrollHeight -
+    // clientHeight instead would compute the maximum rather than observe it.
+    const restore = input.scrollTop
+    const restoreBackdrop = backdrop.scrollTop
+    input.scrollTop = 1e7
+    backdrop.scrollTop = 1e7
+    const inputMax = input.scrollTop
+    const backdropMax = backdrop.scrollTop
+    input.scrollTop = restore
+    backdrop.scrollTop = restoreBackdrop
     return {
+      inputMax,
+      backdropMax,
       overflows: input.scrollHeight > input.clientHeight,
       clientHeight: input.clientHeight,
       visibleLines: Math.floor(input.clientHeight / lineHeight),
@@ -135,7 +161,7 @@ function measureComposer(page: Page): Promise<ComposerMetrics> {
  * @param bottom - metrics with the draft scrolled to its end.
  * @returns the golden body, without a trailing newline.
  */
-function renderGeometry(top: ComposerMetrics, bottom: ComposerMetrics): string {
+function renderGeometry(top: ComposerMetrics, bottom: ComposerMetrics, trailingNewline: ComposerMetrics): string {
   return [
     '# Composer draft scrolling (14-line cap, two text layers)',
     '',
@@ -143,6 +169,7 @@ function renderGeometry(top: ComposerMetrics, bottom: ComposerMetrics): string {
     '',
     `- draft overflows the capped box: ${String(top.overflows)}`,
     `- visible lines: ${String(top.visibleLines)}`,
+    `- both layers share one scroll extent: ${String(top.inputMax === top.backdropMax)}`,
     `- textarea scroll offset: ${String(top.inputScrollTop)}px`,
     `- glyph layer tracks it: ${String(top.layersAgree)}`,
     `- first draft line is on screen: ${String(top.firstLineOffset >= 0 && top.firstLineOffset < top.clientHeight)}`,
@@ -154,6 +181,12 @@ function renderGeometry(top: ComposerMetrics, bottom: ComposerMetrics): string {
     `- glyph layer tracks it: ${String(bottom.layersAgree)}`,
     `- first draft line has scrolled out above: ${String(bottom.firstLineOffset < 0)}`,
     `- last draft line is on screen: ${String(bottom.lastLineOffset >= 0 && bottom.lastLineOffset < bottom.clientHeight)}`,
+    '',
+    '## Draft ending in a newline, scrolled to the end',
+    '',
+    `- both layers share one scroll extent: ${String(trailingNewline.inputMax === trailingNewline.backdropMax)}`,
+    `- glyph layer tracks the caret: ${String(trailingNewline.layersAgree)}`,
+    `- last draft line is on screen: ${String(trailingNewline.lastLineOffset >= 0 && trailingNewline.lastLineOffset < trailingNewline.clientHeight)}`,
   ].join('\n').trimEnd()
 }
 
@@ -246,6 +279,31 @@ describe('web e2e: composer draft scrolling', () => {
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 
+  it('a draft ending in a newline scrolls to its true end, not a line above it', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-composer-draft-scroll-trailing-newline'))
+    // The layers reserve a final line box on different terms, so this shape is
+    // the one that separates equal extents from a mirror that clamps early.
+    const input = page.locator('textarea:enabled').first()
+    await input.fill(DRAFT_TRAILING_NEWLINE)
+    await expect.poll(async () => (await measureComposer(page)).overflows, { timeout: 10_000 }).toBe(true)
+    const extents = await measureComposer(page)
+    // The invariant the sentinel exists for. Without it the textarea measured
+    // 652 against the backdrop's 628 — one 24px line apart.
+    expect(extents.backdropMax).toBe(extents.inputMax)
+    await input.hover()
+    await page.mouse.wheel(0, 4000)
+    await expect.poll(async () => {
+      const m = await measureComposer(page)
+      return m.inputScrollTop === m.inputMax
+    }, { timeout: 10_000 }).toBe(true)
+    const bottom = await measureComposer(page)
+    // At the very bottom the glyphs are level with the caret, not a line behind.
+    expect(bottom.layersAgree).toBe(true)
+    expect(bottom.lastLineOffset).toBeGreaterThanOrEqual(0)
+    expect(bottom.lastLineOffset).toBeLessThan(bottom.clientHeight)
+    expect(tripwire.pageErrors).toEqual([])
+  }, 60_000)
+
   it('matches the committed composer scroll geometry golden', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-composer-draft-scroll-golden'))
     const input = page.locator('textarea:enabled').first()
@@ -261,7 +319,15 @@ describe('web e2e: composer draft scrolling', () => {
     await expect.poll(async () => (await measureComposer(page)).inputScrollTop, { timeout: 10_000 })
       .toBeGreaterThan(0)
     const bottom = await measureComposer(page)
-    await compareOrRefreshGolden(GEOMETRY_EXPECTED, renderGeometry(top, bottom), MODE)
+    await input.fill(DRAFT_TRAILING_NEWLINE)
+    await input.hover()
+    await page.mouse.wheel(0, 4000)
+    await expect.poll(async () => {
+      const m = await measureComposer(page)
+      return m.inputScrollTop === m.inputMax
+    }, { timeout: 10_000 }).toBe(true)
+    const trailingNewline = await measureComposer(page)
+    await compareOrRefreshGolden(GEOMETRY_EXPECTED, renderGeometry(top, bottom, trailingNewline), MODE)
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 

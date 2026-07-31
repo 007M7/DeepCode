@@ -375,6 +375,15 @@ export function InputBar({
       const displayHint = translated !== hintKey ? translated : deco.hint
       backdrop.push(<span key="hint" className={css.hint} data-decoration="hint">{displayHint}</span>)
     }
+    // Trailing-line sentinel, the same one the mirror div carries and for the
+    // same reason: a textarea reserves a line box for the caret after a final
+    // newline, while `white-space: pre-wrap` collapses a text node's trailing
+    // newline and generates none. Without it a draft ending in a newline makes
+    // the backdrop exactly one line SHORTER than the textarea, so mirroring the
+    // offset at the very bottom clamps and the glyphs sit a line behind the
+    // caret. The extra newline is absorbed by that same collapse when the draft
+    // does not end in one, so it costs no height in the ordinary case.
+    backdrop.push('\n')
   }
 
   return (

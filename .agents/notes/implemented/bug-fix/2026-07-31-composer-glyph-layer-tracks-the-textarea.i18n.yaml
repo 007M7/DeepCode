@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-07-31-composer-glyph-layer-tracks-the-textarea.md
-2026-07-31-composer-glyph-layer-tracks-the-textarea.md: ca5bc407f85199970854ec4853acc0843addae79
-2026-07-31-composer-glyph-layer-tracks-the-textarea.zh.md: b662cb35563770a1cab5df006ccc33a27e2ef4de
+2026-07-31-composer-glyph-layer-tracks-the-textarea.md: bcbf88be58dd57ab7643f4c16886874355d2d9d4
+2026-07-31-composer-glyph-layer-tracks-the-textarea.zh.md: 7547e0de310f83dc4ccdda122ae435e923895a25

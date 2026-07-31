@@ -4,6 +4,7 @@
 
 - draft overflows the capped box: true
 - visible lines: 14
+- both layers share one scroll extent: true
 - textarea scroll offset: 0px
 - glyph layer tracks it: true
 - first draft line is on screen: true
@@ -14,4 +15,10 @@
 - textarea moved: true
 - glyph layer tracks it: true
 - first draft line has scrolled out above: true
+- last draft line is on screen: true
+
+## Draft ending in a newline, scrolled to the end
+
+- both layers share one scroll extent: true
+- glyph layer tracks the caret: true
 - last draft line is on screen: true
