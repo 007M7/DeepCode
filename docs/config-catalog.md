@@ -2034,10 +2034,10 @@ export interface TuiConfig {
   questionDialogMaxHeight?: number
   /** Model-selector width in terminal columns. */
   modelDialogWidth?: number
-  /** Transcript-details selector width in terminal columns. */
-  detailsDialogWidth?: number
   /** Model-selector maximum height in terminal rows. */
   modelDialogMaxHeight?: number
+  /** Transcript-details selector width in terminal columns. */
+  detailsDialogWidth?: number
   /** Maximum fuzzy file candidates displayed for one `@` query. */
   fileSearchMaxResults?: number
   /** Maximum paths retained in one `@` workspace index. */

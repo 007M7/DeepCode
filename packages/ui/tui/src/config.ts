@@ -46,10 +46,10 @@ export interface TuiConfig {
   questionDialogMaxHeight?: number
   /** Model-selector width in terminal columns. */
   modelDialogWidth?: number
-  /** Transcript-details selector width in terminal columns. */
-  detailsDialogWidth?: number
   /** Model-selector maximum height in terminal rows. */
   modelDialogMaxHeight?: number
+  /** Transcript-details selector width in terminal columns. */
+  detailsDialogWidth?: number
   /** Maximum fuzzy file candidates displayed for one `@` query. */
   fileSearchMaxResults?: number
   /** Maximum paths retained in one `@` workspace index. */
@@ -72,8 +72,8 @@ const maxResumeOptionsSchema = z.number().step(1).min(1).default(8)
 const questionDialogWidthSchema = z.number().step(1).min(20).default(200)
 const questionDialogMaxHeightSchema = z.number().step(1).min(6).default(20)
 const modelDialogWidthSchema = z.number().step(1).min(20).default(76)
-const detailsDialogWidthSchema = z.number().step(1).min(20).default(72)
 const modelDialogMaxHeightSchema = z.number().step(1).min(6).default(20)
+const detailsDialogWidthSchema = z.number().step(1).min(20).default(72)
 const fileSearchMaxResultsSchema = z.number().step(1).min(1).default(DEFAULT_FILE_SEARCH_MAX_RESULTS)
 const fileSearchMaxEntriesSchema = z.number().step(1).min(1).default(DEFAULT_FILE_SEARCH_MAX_ENTRIES)
 const fileSearchExcludedDirectoriesSchema = z.array(z.string()).default([...DEFAULT_FILE_SEARCH_EXCLUDED_DIRECTORIES])
