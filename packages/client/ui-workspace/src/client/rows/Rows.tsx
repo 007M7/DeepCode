@@ -350,7 +350,7 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
       anchor={ownRow}
       content={<SessionHoverContent node={node} now={now} t={t} />}
       disabled={menuOpen || drag?.active === true}
-      copyText={title}
+      copyText={row.blank ? undefined : row.title}
       copyLabel={t('copy')}
       copiedLabel={t('hover.copied')}
     />

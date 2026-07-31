@@ -31,8 +31,13 @@
   outline-offset: 2px;
 }
 
+.feedback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .copied {
-  display: block;
   color: #FFFFFF;
   font-size: 14px;
   line-height: 20px;

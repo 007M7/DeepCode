@@ -28,6 +28,10 @@ const SEED = fileURLToPath(new URL('./snapshots/seeded-history/seed.jsonl', impo
 const MODE = webSnapshotMode()
 const BROWSER_EXPECTED = join(SNAPSHOT_DIR, 'directory-browser.expected.md')
 const SEED_ID = 'workspace-management-web-e2e'
+// Both waits exceed ui-primitives' 200ms POINTER_GRACE_MS. Keep them coupled
+// to that contract if the shared grace tuning changes.
+const POINTER_TRANSIT_MS = 300
+const POINTER_HOLD_MS = 600
 
 describe('web e2e: workspace management (create / rename / flat view / hover affordances)', () => {
   let scaffold: WebScaffold
@@ -423,16 +427,21 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
     // The card is REACHABLE: it sits 8px off the row, so getting to it means
     // crossing ground that belongs to neither. Hovering it must not dismiss
     // it — the regression this scenario guards.
-    const card = page.getByRole('button', { name: 'Copy' })
+    const card = page.getByRole('button', { name: `Copy: ${rowTitle}` })
     await card.hover()
-    await page.waitForTimeout(600)
+    await page.waitForTimeout(POINTER_HOLD_MS)
     expect(await page.getByText('Idle', { exact: true }).count()).toBeGreaterThanOrEqual(1)
     // The full title is the card's primary value: activating anywhere on the
     // card writes it through the browser clipboard and localizes the success
     // feedback through the English locale seat.
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+    const cardHeight = (await card.boundingBox())?.height
     await card.click()
-    await page.getByRole('button', { name: 'Copied' }).waitFor({ timeout: 5_000 })
+    const copied = page.getByRole('status').getByText('Copied', { exact: true })
+    await copied.waitFor({ timeout: 5_000 })
+    await page.waitForTimeout(POINTER_HOLD_MS)
+    expect((await card.boundingBox())?.height).toBe(cardHeight)
+    expect(await copied.isVisible()).toBe(true)
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(rowTitle)
     // Leaving anchor and card together closes it after the grace.
     await page.getByRole('button', { name: 'Settings' }).hover()
@@ -455,13 +464,13 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
     // the pointer ON the trigger, so entering the list has to come first for
     // the return to be a real departure.
     await item.hover()
-    await page.waitForTimeout(300)
+    await page.waitForTimeout(POINTER_TRANSIT_MS)
     await trigger.hover()
-    await page.waitForTimeout(600)
+    await page.waitForTimeout(POINTER_HOLD_MS)
     expect(await page.getByRole('menuitem', { name: 'Rename' }).count()).toBe(1)
     // ...and back down into the list, which must still be there to enter.
     await item.hover()
-    await page.waitForTimeout(600)
+    await page.waitForTimeout(POINTER_HOLD_MS)
     expect(await page.getByRole('menuitem', { name: 'Rename' }).count()).toBe(1)
     // Pointer-leave dismissal still applies once the pointer genuinely leaves.
     await page.getByRole('button', { name: 'Settings' }).hover()

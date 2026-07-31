@@ -8,7 +8,7 @@
 // traversal already treats it as inside — one pair of wrapper handlers covers
 // anchor and card alike.
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { writeClipboard } from './clipboard.ts'
@@ -22,8 +22,9 @@ import css from './HoverCard.module.css'
  * readable and selectable, but it carries no dismissal affordance of its own.
  * @param props.openDelayMs - hover dwell before the card shows (default 500).
  * @param props.disabled - suppress opening; turning true closes an open card.
- * @param props.copyText - optional primary value copied by activating the card.
- * @param props.copyLabel - accessible activation label (default "复制").
+ * @param props.copyText - optional primary value copied by activation and
+ * included in the card's accessible name.
+ * @param props.copyLabel - accessible activation-label prefix (default "复制").
  * @param props.copiedLabel - visible success label (default "复制成功").
  * @returns anchor wrapper with the conditional portaled card.
  */
@@ -43,13 +44,30 @@ export function HoverCard({
   const cardRef = useRef<HTMLDivElement>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const copyHeightRef = useRef<number | null>(null)
+  const copyEpochRef = useRef(0)
   const copyingRef = useRef(false)
   const mountedRef = useRef(true)
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
   const [copied, setCopied] = useState(false)
 
-  const { arm: armClose, cancel: cancelClose } = usePointerGrace(() => { setOpen(false) })
+  const clearCopied = useCallback(() => {
+    if (copyTimerRef.current !== null) {
+      clearTimeout(copyTimerRef.current)
+      copyTimerRef.current = null
+    }
+    copyHeightRef.current = null
+    setCopied(false)
+  }, [])
+
+  const close = useCallback(() => {
+    copyEpochRef.current += 1
+    clearCopied()
+    setOpen(false)
+  }, [clearCopied])
+
+  const { arm: armClose, cancel: cancelClose } = usePointerGrace(close)
 
   const clearTimer = () => {
     if (timerRef.current !== null) {
@@ -63,15 +81,19 @@ export function HoverCard({
     if (!disabled) return
     clearTimer()
     cancelClose()
-    setOpen(false)
-  }, [disabled, cancelClose])
+    close()
+  }, [disabled, cancelClose, close])
 
   useEffect(() => {
     mountedRef.current = true
     return () => {
       mountedRef.current = false
+      copyEpochRef.current += 1
       clearTimer()
-      if (copyTimerRef.current !== null) clearTimeout(copyTimerRef.current)
+      if (copyTimerRef.current !== null) {
+        clearTimeout(copyTimerRef.current)
+        copyTimerRef.current = null
+      }
     }
   }, [])
 
@@ -112,31 +134,39 @@ export function HoverCard({
   const copy = async (text: string): Promise<void> => {
     if (copied || copyingRef.current) return
     copyingRef.current = true
+    const copyEpoch = copyEpochRef.current
     const accepted = await writeClipboard(text)
     copyingRef.current = false
-    if (!accepted || !mountedRef.current) return
+    const card = cardRef.current
+    if (!accepted || !mountedRef.current || copyEpoch !== copyEpochRef.current || card === null) return
+    const height = card.offsetHeight
+    copyHeightRef.current = height > 0 ? height : null
     setCopied(true)
-    copyTimerRef.current = setTimeout(() => {
-      copyTimerRef.current = null
-      setCopied(false)
-    }, 1000)
+    copyTimerRef.current = setTimeout(clearCopied, 1000)
   }
 
   const copyable = copyText !== undefined
   const card = open && pos !== null && (
     <div
       ref={cardRef}
-      className={`${css.card}${copyable ? ` ${css.copyable}` : ''}`}
-      style={pos}
+      className={`${css.card}${copyable ? ` ${css.copyable}` : ''}${copied ? ` ${css.feedback}` : ''}`}
+      style={{ ...pos, minHeight: copied && copyHeightRef.current !== null ? copyHeightRef.current : undefined }}
       role={copyable ? 'button' : undefined}
       tabIndex={copyable ? 0 : undefined}
-      aria-label={copyable ? (copied ? copiedLabel : copyLabel) : undefined}
-      onClick={copyable ? () => { void copy(copyText) } : undefined}
+      aria-label={copyable ? `${copyLabel}: ${copyText}` : undefined}
+      onClick={copyable
+        ? (e) => {
+          const selection = window.getSelection()
+          if (selection !== null && !selection.isCollapsed && selection.rangeCount > 0
+            && selection.getRangeAt(0).intersectsNode(e.currentTarget)) return
+          void copy(copyText)
+        }
+        : undefined}
       onKeyDown={copyable
         ? (e) => {
           if (e.key !== 'Enter' && e.key !== ' ') return
           e.preventDefault()
-          e.currentTarget.click()
+          void copy(copyText)
         }
         : undefined}
     >
@@ -172,7 +202,7 @@ export function HoverCard({
         if (cardRef.current?.contains(e.target as Node)) return
         clearTimer()
         cancelClose()
-        setOpen(false)
+        close()
       }}
     >
       {anchor}

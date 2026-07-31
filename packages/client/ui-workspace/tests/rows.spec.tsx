@@ -158,7 +158,7 @@ describe('workspace browser rows', () => {
       expect(screen.getAllByText('Project')).toHaveLength(2)
       expect(screen.getByText('/projects/project')).toBeTruthy()
       expect(screen.getByText(/^创建于 \d+年\d+月\d+日 /)).toBeTruthy()
-      await act(async () => { fireEvent.click(screen.getByRole('button', { name: '复制' })) })
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: '复制: /projects/project' })) })
       expect(writeText).toHaveBeenCalledWith('/projects/project')
       expect(screen.getByText('已复制')).toBeTruthy()
     } finally {
@@ -194,6 +194,7 @@ describe('workspace browser rows', () => {
       expect(screen.getAllByText('新会话').length).toBeGreaterThanOrEqual(2)
       expect(screen.getByText('空闲')).toBeTruthy()
       expect(screen.queryByText('刚刚')).toBeNull()
+      expect(screen.getByText('空闲').closest('[role="button"]')).toBeNull()
     } finally {
       vi.useRealTimers()
     }

@@ -140,6 +140,38 @@ describe('HoverCard', () => {
     expect(screen.getByText('card body')).toBeTruthy()
   })
 
+  it('keeps a completed card selection instead of treating its click as copy', async () => {
+    const writeText = vi.fn(async () => {})
+    const restoreClipboard = installClipboard(writeText)
+    const selection = window.getSelection()
+    if (selection === null) throw new Error('jsdom selection API unavailable')
+    try {
+      const { wrapper } = mount({ copyText: 'card body', copyLabel: 'Copy' })
+      fireEvent.pointerEnter(wrapper)
+      act(() => { vi.advanceTimersByTime(500) })
+      const card = screen.getByRole('button', { name: 'Copy: card body' })
+      const selectedText = screen.getByText('card body')
+      const cardRange = document.createRange()
+      cardRange.selectNodeContents(selectedText)
+      selection.addRange(cardRange)
+      await act(async () => { fireEvent.click(card) })
+      expect(writeText).not.toHaveBeenCalled()
+      expect(selection.toString()).toBe('card body')
+      expect(screen.getByText('card body')).toBeTruthy()
+
+      // A non-collapsed selection elsewhere does not block this card.
+      selection.removeAllRanges()
+      const anchorRange = document.createRange()
+      anchorRange.selectNodeContents(screen.getByText('row'))
+      selection.addRange(anchorRange)
+      await act(async () => { fireEvent.click(card) })
+      expect(writeText).toHaveBeenCalledWith('card body')
+    } finally {
+      selection.removeAllRanges()
+      restoreClipboard()
+    }
+  })
+
   it('a press while closed leaves the card closed', () => {
     mount()
     fireEvent.pointerDown(screen.getByText('row'))
@@ -158,11 +190,13 @@ describe('HoverCard', () => {
       })
       fireEvent.pointerEnter(wrapper)
       act(() => { vi.advanceTimersByTime(500) })
-      const card = screen.getByRole('button', { name: 'Copy path' })
+      const card = screen.getByRole('button', { name: 'Copy path: /full/path' })
+      Object.defineProperty(card, 'offsetHeight', { configurable: true, value: 96 })
       await act(async () => { fireEvent.click(card) })
       expect(writeText).toHaveBeenCalledWith('/full/path')
       expect(screen.getByRole('status').textContent).toBe('Copied')
-      expect(screen.getByRole('button', { name: 'Copied' })).toBe(card)
+      expect(screen.getByRole('button', { name: 'Copy path: /full/path' })).toBe(card)
+      expect(card.style.minHeight).toBe('96px')
       // Repeated activation while feedback is visible neither rewrites nor
       // extends the one-second success window.
       await act(async () => { fireEvent.click(card) })
@@ -170,7 +204,8 @@ describe('HoverCard', () => {
       act(() => { vi.advanceTimersByTime(999) })
       expect(screen.getByText('Copied')).toBeTruthy()
       act(() => { vi.advanceTimersByTime(1) })
-      expect(screen.getByRole('button', { name: 'Copy path' })).toBe(card)
+      expect(screen.getByRole('button', { name: 'Copy path: /full/path' })).toBe(card)
+      expect(card.style.minHeight).toBe('')
       expect(screen.getByText('card body')).toBeTruthy()
     } finally {
       restoreClipboard()
@@ -228,6 +263,26 @@ describe('HoverCard', () => {
     }
   })
 
+  it('clears copied feedback when the card closes', async () => {
+    const writeText = vi.fn(async () => {})
+    const restoreClipboard = installClipboard(writeText)
+    try {
+      const { wrapper } = mount({ copyText: 'value', copiedLabel: 'Copied' })
+      fireEvent.pointerEnter(wrapper)
+      act(() => { vi.advanceTimersByTime(500) })
+      await act(async () => { fireEvent.click(screen.getByRole('button')) })
+      expect(screen.getByText('Copied')).toBeTruthy()
+      fireEvent.pointerLeave(wrapper)
+      act(() => { vi.advanceTimersByTime(POINTER_GRACE_MS) })
+      expect(screen.queryByText('Copied')).toBeNull()
+      fireEvent.pointerEnter(wrapper)
+      act(() => { vi.advanceTimersByTime(500) })
+      expect(screen.getByText('card body')).toBeTruthy()
+    } finally {
+      restoreClipboard()
+    }
+  })
+
   it('does not create copied feedback after an in-flight write unmounts', async () => {
     let acceptWrite: (() => void) | undefined
     const writeText = vi.fn(() => new Promise<void>((resolve) => { acceptWrite = resolve }))
@@ -241,6 +296,27 @@ describe('HoverCard', () => {
       view.unmount()
       await act(async () => { acceptWrite?.() })
       expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      restoreClipboard()
+    }
+  })
+
+  it('does not restore copied feedback after an in-flight card closes', async () => {
+    let acceptWrite: (() => void) | undefined
+    const writeText = vi.fn(() => new Promise<void>((resolve) => { acceptWrite = resolve }))
+    const restoreClipboard = installClipboard(writeText)
+    try {
+      const { wrapper } = mount({ copyText: 'value', copiedLabel: 'Copied' })
+      fireEvent.pointerEnter(wrapper)
+      act(() => { vi.advanceTimersByTime(500) })
+      fireEvent.click(screen.getByRole('button'))
+      fireEvent.pointerLeave(wrapper)
+      act(() => { vi.advanceTimersByTime(POINTER_GRACE_MS) })
+      fireEvent.pointerEnter(wrapper)
+      act(() => { vi.advanceTimersByTime(500) })
+      await act(async () => { acceptWrite?.() })
+      expect(vi.getTimerCount()).toBe(0)
+      expect(screen.getByText('card body')).toBeTruthy()
     } finally {
       restoreClipboard()
     }
