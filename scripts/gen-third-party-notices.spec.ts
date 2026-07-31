@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { isPermissive, type Manifest, manifestPatterns, parsePyprojectRequirements, parseVendoredRows, render, tierExternalDeps } from './gen-third-party-notices.ts'
+import { collectPythonDependencies, isPermissive, type Manifest, manifestPatterns, parsePyprojectRequirements, parseVendoredRows, render, tierExternalDeps } from './gen-third-party-notices.ts'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -154,6 +154,18 @@ describe('parsePyprojectRequirements', () => {
       .toEqual(['pytest'])
     expect(() => parsePyprojectRequirements('[project]\ndependencies = "pytest"\n')).toThrow(/must be an array/)
     expect(() => parsePyprojectRequirements('[dependency-groups]\ntest = [{ unknown = "pytest" }]\n')).toThrow(/unsupported requirement entry/)
+  })
+})
+
+describe('collectPythonDependencies', () => {
+  it('excludes normalized local project names without exempting a third-party prefix', () => {
+    const pyprojects = [
+      '[project]\nname = "deepseek-harness-runtime-bin"\ndependencies = ["pydantic"]\n',
+      '[project]\nname = "deepseek-harness"\ndependencies = ["DeepSeek.Harness_Runtime-Bin", "deepseek-unrelated"]\n',
+    ]
+    expect(() => collectPythonDependencies(pyprojects)).toThrow(
+      'python dependency deepseek-unrelated is missing from PYTHON_METADATA',
+    )
   })
 })
 

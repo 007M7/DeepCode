@@ -75,6 +75,8 @@ const PYTHON_METADATA: Record<string, { license: string; repo: string; role: str
   pytest: { license: 'MIT', repo: 'https://github.com/pytest-dev/pytest', role: 'test-only' },
 }
 
+type PythonMetadata = typeof PYTHON_METADATA
+
 /** Tools fetched by scripts at build time, keyed by the pin the script owns. */
 const BUILD_TIME_TOOLS = [
   {
@@ -332,19 +334,24 @@ function optionalTomlTable(value: TomlValueWithoutBigInt | undefined, location: 
 }
 
 /**
- * Every requirement name a `pyproject.toml` declares: `requires` under
+ * Parse a `pyproject.toml` project identity and every requirement it declares:
+ * `requires` under
  * `[build-system]`, `dependencies` under `[project]`, and every key under
  * `[project.optional-dependencies]` and `[dependency-groups]`. A TOML parser
  * owns comments, quoted keys, escapes, and array boundaries; unsupported
  * requirement shapes fail instead of disappearing from the notices.
  * @param text - the complete `pyproject.toml` contents.
- * @returns each declared requirement's distribution name, in file order.
+ * @returns the local project name and declared requirement names.
  */
-export function parsePyprojectRequirements(text: string): string[] {
+function parsePyproject(text: string): { projectName?: string; requirements: string[] } {
   const names: string[] = []
   const document = parseToml(text, { integersAsBigInt: false })
   const buildSystem = optionalTomlTable(document['build-system'], '[build-system]')
   const project = optionalTomlTable(document.project, '[project]')
+  const projectName = project?.name
+  if (projectName !== undefined && typeof projectName !== 'string') {
+    throw new Error('gen-third-party-notices: [project].name must be a string.')
+  }
   collectPythonRequirementArray(names, buildSystem?.requires, '[build-system].requires')
   collectPythonRequirementArray(names, project?.dependencies, '[project].dependencies')
 
@@ -357,25 +364,54 @@ export function parsePyprojectRequirements(text: string): string[] {
   for (const [group, requirements] of Object.entries(groups ?? {})) {
     collectPythonRequirementArray(names, requirements, `[dependency-groups].${group}`, true)
   }
-  return names
+  return projectName === undefined
+    ? { requirements: names }
+    : { projectName, requirements: names }
+}
+
+/**
+ * Read every requirement name declared by one `pyproject.toml`.
+ * @param text - the complete `pyproject.toml` contents.
+ * @returns each declared requirement's distribution name, in file order.
+ */
+export function parsePyprojectRequirements(text: string): string[] {
+  return parsePyproject(text).requirements
+}
+
+/** Normalize a Python distribution name according to the packaging name rule. */
+function normalizePythonDistributionName(name: string): string {
+  return name.toLowerCase().replace(/[-_.]+/g, '-')
+}
+
+/**
+ * Resolve external Python dependencies after excluding local project names.
+ * @param pyprojects - complete local `pyproject.toml` contents.
+ * @param metadata - disclosure metadata for every external dependency.
+ * @returns disclosed dependencies in normalized name order.
+ */
+export function collectPythonDependencies(
+  pyprojects: string[],
+  metadata: PythonMetadata = PYTHON_METADATA,
+): { name: string; license: string; repo: string; role: string }[] {
+  const parsed = pyprojects.map(parsePyproject)
+  const firstParty = new Set(parsed.flatMap(({ projectName }) => (
+    projectName === undefined ? [] : [normalizePythonDistributionName(projectName)]
+  )))
+  const found = new Set(parsed
+    .flatMap(({ requirements }) => requirements.map(normalizePythonDistributionName))
+    .filter(name => !firstParty.has(name)))
+  return [...found].sort((a, b) => a.localeCompare(b)).map((name) => {
+    const entry = metadata[name]
+    if (entry === undefined) throw new Error(`gen-third-party-notices: python dependency ${name} is missing from PYTHON_METADATA.`)
+    return { name, ...entry }
+  })
 }
 
 /** Direct Python dependencies named by the `pyproject.toml` manifests under `python/`. */
 function collectPython(): { name: string; license: string; repo: string; role: string }[] {
-  const found = new Set<string>()
   const manifests = globSync('python/*/pyproject.toml', { cwd: root })
   if (manifests.length === 0) throw new Error('gen-third-party-notices: no python/*/pyproject.toml found; the Python tree moved.')
-  for (const path of manifests) {
-    for (const name of parsePyprojectRequirements(readFileSync(resolve(root, path), 'utf8'))) {
-      if (name.startsWith('deepseek')) continue
-      found.add(name)
-    }
-  }
-  return [...found].sort((a, b) => a.localeCompare(b)).map((name) => {
-    const metadata = PYTHON_METADATA[name]
-    if (metadata === undefined) throw new Error(`gen-third-party-notices: python dependency ${name} is missing from PYTHON_METADATA.`)
-    return { name, ...metadata }
-  })
+  return collectPythonDependencies(manifests.map(path => readFileSync(resolve(root, path), 'utf8')))
 }
 
 /** pnpm-patched external packages, from `pnpm-workspace.yaml`. */
