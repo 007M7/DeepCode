@@ -80,15 +80,19 @@ function mount(
   snapshot: ConversationSnapshot,
   workspaceRows: WorkspaceView[] = [{ ...workspace('one'), sessionIds: [SID] }],
   retargetWorkspace = vi.fn(async (_workspaceId: WorkspaceId) => {}),
-  /** When true, mimic overlay:true chain siblings (hidden fallback + takeover). */
-  overlayTakeover = false,
+  options: {
+    /** When true, mimic overlay:true chain siblings (hidden fallback + takeover). */
+    overlayTakeover?: boolean
+    /** The session list summary's `blank` flag — independent of the snapshot's. */
+    summaryBlank?: boolean
+  } = {},
 ) {
   const root = sid('root')
   const sessions = createSnapshotStore<SessionListState>({
     ids: [root, SID],
     byId: {
       [root]: { id: root, displayTitle: 'Root', running: false, waitingApproval: false, blank: false, updatedAt: 1 },
-      [SID]: { id: SID, displayTitle: 'Child', parentId: root, cwd: '/projects/one', running: false, waitingApproval: false, blank: false, updatedAt: 2 },
+      [SID]: { id: SID, displayTitle: 'Child', parentId: root, cwd: '/projects/one', running: false, waitingApproval: false, blank: options.summaryBlank ?? false, updatedAt: 2 },
     },
     current: SID,
     phase: 'ready',
@@ -167,7 +171,7 @@ function mount(
     return <div data-testid={`view-${opts?.only ?? key}`} />
   }) as ConversationRootProps['renderSlot']
   const renderSlotChain = ((_key, _owner, opts) => (
-    overlayTakeover
+    options.overlayTakeover === true
       ? (
         <>
           <div data-chain-overlay-fallback="conversation.composer" style={{ display: 'none' }}>
@@ -229,7 +233,7 @@ describe('ConversationRoot resident composer', () => {
   })
 
   it('sticky composer seat wraps the whole overlay chain, not only the fallback stack', () => {
-    const b = mount(conversationSnapshot(), undefined, undefined, true)
+    const b = mount(conversationSnapshot(), undefined, undefined, { overlayTakeover: true })
     const seat = b.view.container.querySelector('[data-composer-seat]')
     const takeover = b.view.getByTestId('composer-takeover')
     const fallback = b.view.container.querySelector('[data-chain-overlay-fallback="conversation.composer"]')
@@ -268,6 +272,28 @@ describe('ConversationRoot resident composer', () => {
     act(() => { owner.onPick(wid('second')) })
     expect(b.retargetWorkspace).toHaveBeenCalledWith(wid('second'))
     expect(b.view.getByText('Selected Folder')).toBeTruthy()
+  })
+
+  it('settling phase: a blank session with no list summary hides the composer while it opens', () => {
+    const b = mount(conversationSnapshot({ composerPhase: 'blank', blank: true, openState: 'loading' }))
+    const root = b.view.container.querySelector('[data-phase]')
+    expect(root?.getAttribute('data-phase')).toBe('settling')
+    expect(b.view.queryByText('开始构建吧')).toBeNull()
+  })
+
+  it('startup auto-selection: a summary-proven blank session opens straight into the hero', () => {
+    const b = mount(
+      conversationSnapshot({ composerPhase: 'blank', blank: true, openState: 'loading' }),
+      undefined,
+      undefined,
+      { summaryBlank: true },
+    )
+    // The summary already proves the outcome, so the settling hide would only
+    // blank the column for the history round-trip.
+    const root = b.view.container.querySelector('[data-phase]')
+    expect(root?.getAttribute('data-phase')).toBe('hero')
+    expect(b.view.getByText('开始构建吧')).toBeTruthy()
+    expect(b.view.getByRole('textbox')).toBeTruthy()
   })
 
   it('same textarea DOM node survives the hero → active flip into the sticky scrollport', () => {
