@@ -1,5 +1,5 @@
 # Opt-in reference for Engram 1.20.0. Install the pinned `engram` executable
-# first; project selection remains Engram's cwd/ENGRAM_PROJECT contract.
+# first; storage and project selection remain Engram-owned.
 - insert:
     - id: memory-engram
       name: '@deepseek-ai/dsh-mcp-client'
@@ -9,7 +9,3 @@
         command: engram
         args: [mcp]
         cwd: !!js process.cwd()
-        env:
-          ENGRAM_PROJECT: !!js process.env.ENGRAM_PROJECT ?? ''
-          ENGRAM_DATA_DIR: !!js >-
-            process.env.ENGRAM_DATA_DIR ?? (() => { const path = process.getBuiltinModule('node:path'); const os = process.getBuiltinModule('node:os'); const crypto = process.getBuiltinModule('node:crypto'); const configured = process.env.DSH_HOME; const root = configured !== undefined && configured.trim().length > 0 ? configured : path.join(os.homedir(), '.dsh'); const user = process.env.DSH_MEMORY_USER_ID?.trim() || 'default'; const scope = crypto.createHash('sha256').update(user).digest('hex').slice(0, 16); return path.join(path.resolve(root), 'mcp-memory', 'engram', scope) })()

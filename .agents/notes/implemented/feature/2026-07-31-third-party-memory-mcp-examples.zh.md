@@ -27,9 +27,9 @@ Status: implemented
 | 账户、认证、模型、embedding、存储初始化 | 否 | 是 |
 | 提供方数据迁移、重试、崩溃恢复 | 否 | 是 |
 
-通用 stdio 传输会清除环境中名称类似凭据的变量和 `DSH_*` 变量。基线示例仅显式映射自己需要的变量；可选的提供方密钥必须添加到 `config.env`，或配置在提供方自己的文件中。
+通用 stdio 传输会清除环境中名称类似凭据的变量和 `DSH_*` 变量，同时继承其他环境变量。基线示例仅添加必需的覆盖项；可选的提供方密钥必须添加到 `config.env`，或配置在提供方自己的文件中。
 
-## 版本固定与身份
+## 版本固定、存储与身份
 
 | 提供方 | 已测试契约 |
 |---|---|
@@ -37,7 +37,7 @@ Status: implemented
 | MCP Reference Memory | npm `2026.7.4`，package commit `6dd0a683e198783e30feabf7abaf42f925bd18b1` |
 | Engram | tag `v1.20.0`，commit `ba9e46ced152c37a7cb9e576153c41995873e2fc` |
 
-`DSH_MEMORY_USER_ID` 是稳定的用户分区，不是 DSH 会话 id。每份示例都将其映射到 `$DSH_HOME` 下相互独立的提供方数据路径。
+存储仍由提供方负责。Memorix 默认使用 `~/.memorix/data`，Engram 默认使用 `~/.engram`。Reference Memory 示例设置稳定的 `$HOME/.dsh-mcp-reference-memory.jsonl` 路径，而不是写入已安装的 npm 包（package）目录。每个提供方自己的环境变量都可以在 DSH 启动前覆盖这些位置。
 
 项目身份仍由提供方负责：Memorix 和 Engram 使用 DSH 工作目录中的 Git 项目，其中 Engram 还可以选择接受 `ENGRAM_PROJECT`。
 
@@ -56,7 +56,7 @@ Status: implemented
 合并前，每个固定版本的提供方都必须分别提供以下人工证据：
 
 1. DSH 会话 A 调用写入工具，为一个唯一值写入记忆，并收到成功结果。
-2. 新的 DSH 会话 B 在相同提供方／用户范围下调用搜索或召回，不借助会话 A 的 transcript（文本记录）便可返回该值。
+2. 新的 DSH 会话 B 在相同的提供方存储范围下调用搜索或召回，不借助会话 A 的 transcript（文本记录）便可返回该值。
 3. 会话 B 在后续回答中使用该召回值。
 
 「新会话」是指同一个 Host 中新建的 DSH 会话，不需要重启 Host。通用 MCP 客户端以异步方式发现工具，子进程或 HTTP 传输关闭后不会自动重连；验证会在第一轮之前等待工具出现，并且只在崩溃后使用 HMR 或重启 Host。

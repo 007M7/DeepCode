@@ -10,7 +10,7 @@
 
 DSH 解析选中的 Cordis overlay，启动已配置的 stdio 命令或连接已配置的 Streamable HTTP URL，发现 MCP 工具，并以 `mcp__<serverName>__<tool>` 的形式公开这些工具。DSH **不负责** 下载服务器、初始化其数据库、选择模型或 embedding 提供方、创建云端账户、迁移提供方数据，也不监管独立的 HTTP 服务。对于 stdio，通用客户端会随 DSH 插件生命周期启动和停止子进程；对于 HTTP，上游服务必须已经运行。
 
-stdio 桥接器在启动子进程前会主动移除环境中名称类似凭据的变量和 `DSH_*` 变量。每份示例仅显式转发其基线运行所需的变量。如果某个可选的上游功能还需要其他密钥，请将该变量添加到配置项的 `config.env`，不要把密钥直接写进 YAML。
+stdio 桥接器在启动子进程前会主动移除环境中名称类似凭据的变量和 `DSH_*` 变量；其余环境变量仍会继承。每份示例仅添加其基线所需的覆盖项。如果某个可选的上游功能还需要其他密钥，请将该变量添加到配置项的 `config.env`，不要把密钥直接写进 YAML。
 
 ## 选择一个
 
@@ -28,7 +28,7 @@ stdio 桥接器在启动子进程前会主动移除环境中名称类似凭据�
 dsh --config "$PWD/examples/mcp-memory/memorix.cordis.yml"
 ```
 
-请将文件名替换为 `mcp-reference-memory.cordis.yml` 或 `engram.cordis.yml`。另外两份示例也接受 `DSH_MEMORY_USER_ID`，用于稳定的逐用户存储。该路径可以指向磁盘任意位置的一份复制文件。交付组合不包含任何记忆服务器，因此不传 `--config` 就会让这三项全部保持关闭。
+请将文件名替换为 `mcp-reference-memory.cordis.yml` 或 `engram.cordis.yml`。该路径可以指向磁盘任意位置的一份复制文件。交付组合不包含任何记忆服务器，因此不传 `--config` 就会让这三项全部保持关闭。
 
 如果本地没有仓库 checkout，可直接下载所选 overlay：
 
@@ -59,11 +59,10 @@ Memorix 无需 LLM（大语言模型）或 embedding 服务，即可在本地启
 
 ```sh
 npm install --global @modelcontextprotocol/server-memory@2026.7.4
-export DSH_MEMORY_USER_ID=alice
 dsh --config "$PWD/examples/mcp-memory/mcp-reference-memory.cordis.yml"
 ```
 
-该参考服务器存储本地知识图谱，并公开实体、关系、观察、读取、搜索和打开工具。它不需要模型或 embedding 服务。该示例将 `DSH_MEMORY_USER_ID` 映射到隔离的 `MEMORY_FILE_PATH`。
+该参考服务器存储本地知识图谱，并公开实体、关系、观察、读取、搜索和打开工具。它不需要模型或 embedding 服务。该示例将 JSONL 存储在 `$HOME/.dsh-mcp-reference-memory.jsonl`，而不是已安装的 npm 包（package）目录中。若要覆盖该路径，请在启动 DSH 前设置 `MEMORY_FILE_PATH`。
 
 搜索只对实体名称、类型和 observation 进行不区分大小写的子字符串匹配，不是语义检索。该服务器不提供 embedding、自动摘要、冲突消解或遗忘策略。
 
@@ -71,11 +70,10 @@ dsh --config "$PWD/examples/mcp-memory/mcp-reference-memory.cordis.yml"
 
 ```sh
 go install github.com/Gentleman-Programming/engram/cmd/engram@v1.20.0
-export DSH_MEMORY_USER_ID=alice
 dsh --config "$PWD/examples/mcp-memory/engram.cordis.yml"
 ```
 
-该示例将用户 id 映射到隔离的 `ENGRAM_DATA_DIR`。Engram 仍负责选择项目：它从 DSH 工作目录检测 Git 项目，也接受 `ENGRAM_PROJECT` 作为显式覆盖。
+Engram 负责存储和项目选择：它默认使用 `~/.engram`，从 DSH 工作目录检测 Git 项目，并接受 `ENGRAM_DATA_DIR` 或 `ENGRAM_PROJECT` 作为环境覆盖项。
 
 ## 可选的共用模型指令
 
@@ -93,7 +91,7 @@ dsh --config "$PWD/examples/mcp-memory/engram.cordis.yml"
 2. 在同一个仍在运行的 Host 中创建 DSH 会话 B。不要复制会话 A 的对话。提出：`What is my validation drink? Check memory.`。确认模型调用了提供方的搜索或召回工具，并返回该值。
 3. 继续在会话 B 中提出：`Use that preference to suggest one drink for the meeting.`。确认回答使用了召回的值。
 
-必须新建 DSH 会话，但不需要重启 Host。只有 MCP 子进程崩溃后才需要重启或执行 HMR（热模块替换），因为当前的通用客户端会在连接断开时注销工具，且不会自动重连。初始发现过程是异步的，因此发送第一条验证提示词前，请等待提供方的 `mcp__...` 工具出现。
+必须新建 DSH 会话，但不需要重启 Host。只有 MCP 子进程崩溃后才需要重启或执行 HMR（热模块替换），因为当前的通用客户端不会自动重连；其工具注册会一直保留到插件完成资源释放或成功重新同步，针对已关闭传输的调用可能失败。初始发现过程是异步的，因此发送第一条验证提示词前，请等待提供方的 `mcp__...` 工具出现。
 
 ## 接入其他 MCP 服务器
 

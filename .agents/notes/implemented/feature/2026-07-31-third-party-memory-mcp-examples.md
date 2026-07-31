@@ -27,9 +27,9 @@ These third-party configurations are provided as interoperability examples only.
 | Account, auth, model, embedding, storage initialization | No | Yes |
 | Vendor data migration, retry, crash recovery | No | Yes |
 
-The generic stdio transport scrubs ambient credential-shaped and `DSH_*` variables. Baseline examples explicitly map only the variables they require; optional provider secrets must be added to `config.env` or configured in the provider's own files.
+The generic stdio transport scrubs ambient credential-shaped and `DSH_*` variables while inheriting other ambient variables. Baseline examples add only required overrides; optional provider secrets must be added to `config.env` or configured in the provider's own files.
 
-## Pins and identity
+## Pins, storage, and identity
 
 | Provider | Tested contract |
 |---|---|
@@ -37,7 +37,7 @@ The generic stdio transport scrubs ambient credential-shaped and `DSH_*` variabl
 | MCP Reference Memory | npm `2026.7.4`, package commit `6dd0a683e198783e30feabf7abaf42f925bd18b1` |
 | Engram | tag `v1.20.0`, commit `ba9e46ced152c37a7cb9e576153c41995873e2fc` |
 
-`DSH_MEMORY_USER_ID` is a stable user partition, not a DSH session id. Each example maps it to a separate provider data path under `$DSH_HOME`.
+Storage remains provider-owned. Memorix uses `~/.memorix/data` and Engram uses `~/.engram` by default. The Reference Memory example sets a stable `$HOME/.dsh-mcp-reference-memory.jsonl` path instead of writing into the installed npm package directory. Each provider's own environment variable can override these locations before DSH starts.
 
 Project identity remains provider-owned: Memorix and Engram use the DSH working directory's Git project, with Engram optionally accepting `ENGRAM_PROJECT`.
 
@@ -56,7 +56,7 @@ Remote CI never contacts third-party services or consumes secrets. The keyless s
 Before merge, manual evidence for every pinned provider must separately show:
 
 1. DSH session A calls a write tool and receives success for a unique value.
-2. Fresh DSH session B, under the same provider/user scope, calls search or recall and returns that value without session A's transcript.
+2. Fresh DSH session B, under the same provider storage scope, calls search or recall and returns that value without session A's transcript.
 3. Session B uses the recalled value in a subsequent answer.
 
 "Fresh session" means a new DSH session in the same Host. No Host restart is required. The generic MCP client discovers asynchronously and has no automatic reconnect after a child or HTTP transport closes; validation waits for tools before the first turn and uses HMR or a Host restart only after a crash.

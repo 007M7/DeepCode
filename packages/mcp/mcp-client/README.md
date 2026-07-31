@@ -61,7 +61,7 @@ Every MCP tool has two names: the raw MCP name (sent on the wire in `tools/call`
 - Tool execute: `client.callTool({ name: rawName, arguments }, { signal })` with timeout + abort support—the public name is never sent to the server.
 - Canonical success is `{ content: JsonValue[], structuredContent? }`; complete JSON MCP blocks survive for programmatic callers. A supported advertised `outputSchema` validates `structuredContent`; unsupported schema vocabulary falls back to unconstrained `JsonValue`.
 - Native/model rendering keeps the existing text projection: text blocks join with newlines while image, audio, resource, and unsupported blocks become placeholders.
-- On disconnect/crash: all tools are unregistered; no auto-reconnect.
+- On disconnect/crash: no auto-reconnect. Registered tools remain until plugin disposal or a successful re-sync, and calls can fail against the closed transport; reload with HMR or restart the Host to reconnect.
 
 ## Services consumed
 

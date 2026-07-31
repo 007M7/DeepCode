@@ -90,7 +90,7 @@ describe('third-party memory MCP example overlays', () => {
     expect(row.name).toBe('@deepseek-ai/dsh-mcp-client')
     expect(row.config?.serverName).toBe(contract.serverName)
     expect(row.config?.transport).toBe(contract.transport)
-    expect(source).toContain(contract.pin)
+    expect(source.split('\n', 1)[0]).toContain(contract.pin)
     expect(source).not.toMatch(/\bsk-[A-Za-z0-9_-]{8,}\b/)
     expect(source).not.toContain('DEEPSEEK_API_KEY')
   })
@@ -121,12 +121,12 @@ describe('third-party memory MCP example overlays', () => {
       baseConfig,
       [...patches, fixturePatch],
       (ctx) => {
+        liveContexts.add(ctx)
         ctx.loader.builtins['memory-test-system-prompt'] = SystemPrompt
         ctx.loader.builtins['memory-test-tools'] = ToolRegistry
         ctx.loader.builtins['memory-test-mcp-client'] = McpClient
       },
     )
-    liveContexts.add(ctx)
     await waitForTool(ctx, `mcp__${contract.serverName}__greet`)
   }, 15_000)
 })
