@@ -94,7 +94,9 @@ interface SessionEventMap {
   /**
    * Marks the end of a constructor seed. Events before it have smaller seq
    * values and came from the seed (resume, fork, or replay); this lifecycle
-   * produced none of them. This log-only event is the durable projection of
+   * produced none of them. An explicitly supplied empty seed puts the marker
+   * at seq 0, distinguishing an empty resumed session from a fresh session.
+   * This log-only event is the durable projection of
    * {@link Session.firstLiveSeq}. Its payload is empty — position and `time`
    * carry the meaning.
    *
@@ -354,7 +356,9 @@ declare class Session {
    * start here. Distinct from `header.seedLength`, the DURABLE fork-lineage
    * boundary: a resumed session's constructor seed is its full stored log,
    * while its header keeps the original fork value — this field is the
-   * in-process construction fact.
+   * in-process construction fact. An explicitly supplied empty seed has the
+   * same value as no seed (0); its `session/end-seed` event preserves the
+   * lifecycle distinction.
    *
    * Not persisted itself: a seeded session projects it into the log as the
    * `session/end-seed` event, which is what a consumer reading STORED history
@@ -552,7 +556,7 @@ interface TurnEndReasonMap {
 
 带种子的会话（恢复、fork 或回放）紧接构造种子之后追加这个仅日志事件，作为自己的第一次实时写入。在它之前的事件具有更小的 seq，且来自种子。它是 `firstLiveSeq` 的持久投影：该字段为持有对象的消费方回答本生命周期的写入从哪里开始，该事件则为只持有存储字节的消费方回答同一问题。payload 为空，因此位置与 `time` 承载全部含义，且不产生任何消息。`Session` 的构造函数是唯一合法的写入方。
 
-空种子不写入任何内容；种子本身已以 `session/end-seed` 结尾时不会重复标记，因此重新打开一个未被改动的会话不会每次拾起都增长日志。应定位存储历史中的最后一条 `session/end-seed`，而不是假定 `firstLiveSeq` 处一定有一条：在一次没有产生工作的拾起之后，该事件的 seq 会小于下一个生命周期的 `firstLiveSeq`。
+显式传入的空种子会在 seq 0 写入 `session/end-seed`，从而把从空日志恢复的会话与全新会话区分开来。种子本身已以 `session/end-seed` 结尾时不会重复标记，因此重新打开一个未被改动的会话不会每次拾起都增长日志。应定位存储历史中的最后一条 `session/end-seed`，而不是假定 `firstLiveSeq` 处一定有一条：在一次没有产生工作的拾起之后，该事件的 seq 会小于下一个生命周期的 `firstLiveSeq`。
 
 它之所以必要，是因为种子历史与实时工作在字节层面完全相同，这会让任何拥有独立开／闭括号的插件失效：一个未配对的 `compact/start`，无论写入方是在压缩中途崩溃、还是此刻正在压缩，读起来都一样。在 `session/end-seed` 之前的开启标记来自构造种子，并且属于一个已结束的生命周期，无论结束原因为何（崩溃、进程接替，或从仍在运行的父会话 fork 出来），因此其所有方可以视之为已死。这只覆盖*本*会话继承的括号：另一个并发存活的会话可能在同一段历史上持有开放括号，而它自己的边界在别处，因此容忍并发写入方还需要日志之外的存活信号。核心写入该边界但不从中读取任何内容——括号的词汇表仍归其所属插件，这也正是崩溃修复只关闭轮次／步骤／工具边界而从不处理 `compact/*` 的原因。
 

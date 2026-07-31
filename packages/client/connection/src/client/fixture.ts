@@ -327,6 +327,13 @@ function buildAlphaLog(): SessionEvent[] {
   toolTurn(61, 'fx-write', '{"path":"notes/demo.txt","content":"hello fixture\\n"}', 'wrote notes/demo.txt')
   toolTurn(62, 'edit', '{"file_path":"notes/demo.txt","old_string":"hello","new_string":"hello fixture"}', '已编辑')
   toolTurn(63, 'write', '{"file_path":"notes/new-demo.txt","content":"hello fixture\\n"}', '已写入')
+  // Turn 67: a multi-hunk edit — two scattered replacements in one file. Named
+  // `edit` so it lands on the keyed FileMutationRow (the resident diff card the
+  // single-hunk turn 62 also uses), and file_path `src/config.ts` is the marker
+  // the presenter reads to emit the two-hunk sample: the card draws one path
+  // header, the first hunk, a `⋯` gap, then the second (the same-file
+  // second-hunk arm turns 62/63 cannot reach).
+  toolTurn(67, 'edit', '{"file_path":"src/config.ts","old_string":"const timeout = 30","new_string":"const timeout = 60"}', '已编辑')
   // Turn 64: one run_code turn with three logged sub-dispatches — the Code
   // Mode acceptance surface (parent code row + nested native-identical rows,
   // including an isError sub-call and a bash sub-call that must hit the same
@@ -459,9 +466,26 @@ function presentCall(name: string, argsRaw: string): ToolCallView | undefined {
     case 'read':
       return { card: 'generic', title: `Read ${str(args.file_path)}`, kind: 'read', locations: [{ path: str(args.file_path) }] }
     case 'edit':
-      return { card: 'generic', title: `Edit ${str(args.file_path)}`, kind: 'edit', rawInput: args }
+      // The multi-hunk sample (turn 67) is keyed on its file_path, so the two
+      // scattered hunks share one path header and the card draws the `⋯` gap.
+      if (str(args.file_path) === 'src/config.ts') {
+        return {
+          card: 'diff', title: `Edit ${str(args.file_path)}`,
+          diffs: [
+            { path: str(args.file_path), oldText: 'const timeout = 30', newText: 'const timeout = 60' },
+            { path: str(args.file_path), oldText: 'retries: 1', newText: 'retries: 3' },
+          ],
+        }
+      }
+      return {
+        card: 'diff', title: `Edit ${str(args.file_path)}`,
+        diffs: [{ path: str(args.file_path), oldText: str(args.old_string), newText: str(args.new_string) }],
+      }
     case 'write':
-      return { card: 'generic', title: `Write ${str(args.file_path)}`, kind: 'edit', rawInput: args }
+      return {
+        card: 'diff', title: `Write ${str(args.file_path)}`,
+        diffs: [{ path: str(args.file_path), oldText: null, newText: str(args.content) }],
+      }
     // The web tools keep a GENERIC pending card and add the `web` result card
     // only at result time (the contract's result-only web shape); their pending
     // kind matches the result kind so a call and its result read as one category.
@@ -1001,6 +1025,9 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     updatedAt: fixtureEpoch,
   }]
   let nextWorkspace = 1
+  // Registry-global archive set mirroring the host: archived sessions keep
+  // their workspace accounting slot and only grouping surfaces hide them.
+  const archivedSessionIds: SessionId[] = []
 
   // In-memory browse tree behind the fixture's `browse` picker capability —
   // deterministic content mirroring the design mock so assembled Web tests
@@ -1655,7 +1682,10 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       openPath: request => ok(request, { opened: true as const }),
     },
     workspace: {
-      list: request => ok(request, { items: workspaces.map(w => ({ ...w })) }),
+      list: request => ok(request, {
+        items: workspaces.map(w => ({ ...w })),
+        archivedSessionIds: [...archivedSessionIds],
+      }),
       create: (request) => {
         const { path, name } = request.payload
         const target = path ?? `/tmp/fixture-workspaces/${name ?? ''}`
@@ -1740,6 +1770,16 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           emitHost({ type: 'host/workspace-changed', workspace: { ...workspace } })
         }
         return ok(request, { workspace: { ...workspace } })
+      },
+      archiveSession: (request) => {
+        const missing = requireSession(request)
+        if (missing !== undefined) return missing
+        const { sessionId } = request.payload
+        if (!archivedSessionIds.includes(sessionId)) {
+          archivedSessionIds.push(sessionId)
+          emitHost({ type: 'host/archived-sessions-changed', archivedSessionIds: [...archivedSessionIds] })
+        }
+        return ok(request, { archivedSessionIds: [...archivedSessionIds] })
       },
     },
     commands: {
@@ -2121,6 +2161,7 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'workspace.rename': return this.api.workspace.rename(request)
       case 'workspace.delete': return this.api.workspace.delete(request)
       case 'workspace.insertSessionBefore': return this.api.workspace.insertSessionBefore(request)
+      case 'workspace.archiveSession': return this.api.workspace.archiveSession(request)
       case 'command.list': return this.api.commands.list(request)
       case 'command.execute': return this.api.commands.execute(request, signal)
       case 'skill.list': return this.api.skills.list(request)
