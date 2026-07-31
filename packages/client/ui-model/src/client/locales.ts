@@ -1,4 +1,12 @@
-/** `model` namespace dictionaries. */
+/**
+ * `model` namespace dictionaries.
+ *
+ * `trigger.selectAria` reads identically to `trigger.fallback` today and is
+ * still a separate key: the visible fallback label and the accessible name of
+ * an unset trigger are free to diverge per locale, and folding it into
+ * `trigger.aria` would announce the degenerate "Select model, current Select
+ * model".
+ */
 
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
