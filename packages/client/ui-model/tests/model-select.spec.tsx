@@ -31,9 +31,9 @@ const reasoning = {
 
 function state(overrides: Partial<ModelDirectoryState> = {}): ModelDirectoryState {
   return {
-    current: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+    current: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
     groups: [{
-      id: 'deepseek',
+      id: 'deepseek-official',
       name: 'DeepSeek',
       models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', reasoning }],
     }],
@@ -72,7 +72,7 @@ describe('ModelSelect reasoning effort', () => {
     fireEvent.click(screen.getByRole('menuitemradio', { name: /Max/ }))
     await waitFor(() => {
       expect(select).toHaveBeenCalledWith({
-        provider: 'deepseek',
+        provider: 'deepseek-official',
         model: 'deepseek-v4-flash',
         reasoningEffort: 'max',
       })

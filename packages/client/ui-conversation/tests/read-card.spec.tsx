@@ -10,20 +10,26 @@ import { cleanup, fireEvent, render } from '@testing-library/react'
 import { Context } from 'cordis'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type {
   ConversationSnapshot, RunningToolCall, SessionId, SessionListState, ToolResultNode, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
-import type { SelectionTarget, ToolRowOwnerProps, ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { SelectionTarget, ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { CHAT_READ_MAX_LINES, readCardModel } from '../src/client/contract/read-card-model.ts'
 import { createChatStore } from '../src/client/stores.ts'
-import { GenericToolCard } from '../src/client/chat/GenericToolCard.tsx'
+import { GenericToolCard, type GenericToolCardProps } from '../src/client/chat/GenericToolCard.tsx'
+import { zh } from '../src/client/locales.ts'
 import { DetailsPanel } from '../src/client/skeleton/DetailsPanel.tsx'
 import { ReadRow, readToolview } from '../src/client/toolviews/read-row.tsx'
 
 afterEach(cleanup)
 
 const SID = 's1' as SessionId
+
+/** The chat-view locale seat: this package's namespace over the common fallback. */
+const t: GenericToolCardProps['t'] = makeTranslate(zh, commonZh)
 
 // The read tool's real schema key is `file_path`; the top-level read samples
 // use it so the row exercises a production-shaped call. `web_fetch` (below) has
@@ -118,8 +124,8 @@ describe('readCardModel', () => {
 })
 
 describe('GenericToolCard read body', () => {
-  const ownerProps = (block: RunningToolCall | ToolResultNode): ToolRowOwnerProps => ({
-    callId: 'c1', toolName: 'web_fetch', block, openFile: vi.fn(),
+  const ownerProps = (block: RunningToolCall | ToolResultNode): GenericToolCardProps => ({
+    callId: 'c1', toolName: 'web_fetch', block, openFile: vi.fn(), t,
   })
 
   it('renders the read card resident under the summary, capped tighter than the panel', () => {
@@ -137,7 +143,7 @@ describe('GenericToolCard read body', () => {
     const view = render(<GenericToolCard {...({
       callId: 'c1', toolName: 'echo', block: settled({
         call: { name: 'echo', argsRaw: '{"text":"x"}' }, callView: null, resultView: null,
-      }), openFile: vi.fn(),
+      }), openFile: vi.fn(), t,
     })} />)
     expect(view.container.querySelector('[data-read]')).toBeNull()
   })
@@ -231,6 +237,7 @@ describe('DetailsPanel Output section (read)', () => {
     return render(
       <DetailsPanel
         sessionId={SID}
+        t={t}
         useSession={bindSnapshotSelector({ getSnapshot: () => snapshot, subscribe: () => () => {} })}
         useSessions={bindSnapshotSelector(sessions)}
         useWorkspaces={bindSnapshotSelector(workspaces)}
@@ -275,7 +282,7 @@ describe('DetailsPanel Output section (read)', () => {
       })],
     }), target)
     expect(view.container.querySelector('[data-read]')).toBeNull()
-    expect(view.getByText('Output').closest('section')?.querySelector('pre')?.textContent).toBe('plain result')
+    expect(view.getByText('输出').closest('section')?.querySelector('pre')?.textContent).toBe('plain result')
   })
 
   it('a running read keeps the 运行中… placeholder (no result view)', () => {

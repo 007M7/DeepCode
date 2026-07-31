@@ -389,16 +389,26 @@ export class ToolCardComponent implements Component {
     const glyph = this.result === undefined ? '○' : '●'
     const rawBody = this.renderBody()
     const view = this.resultView ?? this.callView
-    // A generic card carries its UI content on the view; a read card is the same
-    // for the TUI, which has no dedicated read rendering — its `content`
-    // fallback (the envelope-stripped file text) takes the generic dim-Markdown
-    // body, so read output is unchanged from before the read card existed.
-    const genericContent = view.card === 'generic' || view.card === 'read'
+    // A generic card's own content, or a read card's `content` fallback (the
+    // envelope-stripped file text — the TUI has no dedicated read rendering, so a
+    // read renders exactly as before the read card existed), or a web card's
+    // fallback to the raw result content (the `web` view carries no `content`
+    // copy), all render as one dim Markdown block below, so links/lists/headings
+    // keep the unified dim styling rather than reading as bare text. Terminal and
+    // diff cards own their body styling, so they are excluded (mirrors
+    // renderBody's post-terminal/diff fallback).
+    const markdownContent = view.card === 'generic' || view.card === 'read'
       ? view.content ?? this.result?.content
-      : undefined
-    const unknownXml = this.definition === undefined && genericContent !== undefined
+      : view.card === 'web'
+        // A web resultView is only assigned alongside this.result (the result
+        // handler sets both) and the pending callView is never a web card, so
+        // the optional-chain undefined side is unreachable here.
+        /* v8 ignore next */
+        ? this.result?.content
+        : undefined
+    const unknownXml = this.definition === undefined && markdownContent !== undefined
       ? renderUnknownXml(
-        displayText(contentText(genericContent)),
+        displayText(contentText(markdownContent)),
         this.maxOutputLines,
         this.visibility === 'expanded',
         displayText,
@@ -411,7 +421,7 @@ export class ToolCardComponent implements Component {
     // A generic card renders title and result as one Markdown document, so the
     // document's own block spacing is preserved, then dims every row — the whole
     // card body reads as one dim block under the status-colored header.
-    const body = unknownXml ?? (genericContent !== undefined && rawBody.lines.length > 0
+    const body = unknownXml ?? (markdownContent !== undefined && rawBody.lines.length > 0
       ? this.dimBody(rawBody, width)
       : [...rawBody.prelude, ...rawBody.lines])
     const visibleBody = unknownXml !== undefined || this.visibility === 'expanded'
@@ -508,7 +518,12 @@ export class ToolCardComponent implements Component {
       // rather than under the dim result-output color.
       return { prelude: [...hunks, footer], lines: [] }
     }
-    const content = view.content ?? this.result?.content
+    // A generic or read card carries its own envelope-stripped `content`; a `web`
+    // card carries no `content` copy and falls back to the raw result content
+    // here. (Mirrors the `markdownContent` selection in render(); a read card has
+    // no dedicated TUI rendering, so its `content` takes the same body path,
+    // keeping read output as it was before the read card existed.)
+    const content = (view.card === 'generic' || view.card === 'read' ? view.content : undefined) ?? this.result?.content
     const prelude: string[] = []
     const lines: string[] = []
     // The presenter title headlines the body now that the header is a fixed

@@ -8,6 +8,8 @@ Lazy CJS model (web2): executing a plugin bundle only REGISTERS its factory (`wi
 
 Resolution branch order (`import(specifier)`): platform seed word → shell instance; memoized record → surface; shell-own static registry (`registerStatic`, app-shell) → module; registered factory → materialize; graph row (`window.__DSH_BOOT__`) → fetch + execute + materialize; anything else throws — the runtime mirror of the build-time bundle purity gate. The synchronous `require` handed to factories walks the same order minus the fetch branch and records observed edges into the module record. `prefetch` is the stage-one arrival hook (fetch + execute, registration only; concurrent calls share one in-flight task); `invalidate` drops the factory and the materialized record so the next prefetch/import refetches (the HMR hook).
 
+The Node half scans enabled Loader entries for web `dshClient` packages, resolves each `exports["./client"]`, hashes the built bundle into the boot graph, and serves it under `/plugins`. Source launch maps host imports to TypeScript source but still consumes this built client export; missing files share one build instruction followed by a package/path list, while unrelated filesystem errors remain separate failures.
+
 ## Model Experience
 
 None, as the module loader is browser-side kernel machinery; nothing here reaches a model request.

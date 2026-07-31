@@ -206,6 +206,49 @@ describe('list lifecycle', () => {
   })
 })
 
+describe('search', () => {
+  it('returns bounded Host results and forwards the caller signal', async () => {
+    const api = new FakeApiClient()
+    api.onSearch = () => Promise.resolve(ok({
+      items: [{ sessionId: S1, snippet: 'matching excerpt' }],
+      hasMore: true,
+    }))
+    const manager = new SessionManager(api)
+    const signal = new AbortController().signal
+
+    await expect(manager.search('exact phrase', signal)).resolves.toEqual({
+      ok: true,
+      value: {
+        items: [{ sessionId: S1, snippet: 'matching excerpt' }],
+        hasMore: true,
+      },
+    })
+    expect(api.callsOf('session.search')).toEqual([{ query: 'exact phrase' }])
+    expect(api.lastSearchSignal).toBe(signal)
+  })
+
+  it('preserves business errors and folds transport failures', async () => {
+    const api = new FakeApiClient()
+    const manager = new SessionManager(api)
+    api.onSearch = () => Promise.resolve(err({
+      code: 'internal',
+      message: 'index unavailable',
+      details: {},
+    }))
+    const signal = new AbortController().signal
+    await expect(manager.search('first', signal)).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'internal', message: 'index unavailable' },
+    })
+
+    api.onSearch = () => Promise.reject(new Error('wire down'))
+    await expect(manager.search('second', signal)).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'internal', message: 'wire down' },
+    })
+  })
+})
+
 describe('host frame routing', () => {
   it('adds/removes/flips sessions from host frames and keeps removed instances resident', async () => {
     const api = new FakeApiClient()
@@ -275,6 +318,23 @@ describe('remaining branches', () => {
     expect(result).toMatchObject({ ok: false, error: { code: 'workspace-attach-failed' } })
     expect(manager.getListSnapshot().items).toEqual([expect.objectContaining({ sessionId: S1 })])
     expect(manager.getListSnapshot().items[0]).not.toHaveProperty('cwd')
+  })
+
+  it('reconciles a fork child published before workspace attachment fails', async () => {
+    const api = new FakeApiClient()
+    api.onFork = () => Promise.resolve(err({
+      code: 'workspace-attach-failed',
+      message: 'forked but unattached',
+      details: { sessionId: S2, workspaceId: 'w1' },
+    } as never))
+    const manager = new SessionManager(api)
+    const result = await manager.fork({ sessionId: S1 })
+    expect(result).toMatchObject({ ok: false, error: { code: 'workspace-attach-failed' } })
+    expect(manager.getListSnapshot().items).toEqual([expect.objectContaining({
+      sessionId: S2,
+      parentSessionId: S1,
+      blank: false,
+    })])
   })
 
   it('reconciles a preallocated id after an ordinary transport failure', async () => {
@@ -361,7 +421,7 @@ describe('connected generation', () => {
     api.onHistory = () => Promise.resolve(ok({
       events: entries(plainTurn(0, 0, 'a', 'b')) as never[],
       hasMore: false,
-      modelTarget: { provider: 'deepseek', model: 'deepseek-chat' },
+      modelTarget: { provider: 'deepseek-official', model: 'deepseek-chat' },
     }))
     const manager = new SessionManager(api)
     const openedSession = manager.get(S1)

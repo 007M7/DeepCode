@@ -74,7 +74,32 @@ describe('runLoaderSmoke', () => {
       libBinScript: fixture('fail'),
       configPath,
       tsconfigPath,
-    })).rejects.toThrow('failure fixture exited 7. stdout:\n\nstderr:\nfixture failed')
+    })).rejects.toThrow('failure fixture exited 7 (expected 0). stdout:\n\nstderr:\nfixture failed')
+  })
+
+  it('accepts a declared expected failure exit and rejects any other outcome', async () => {
+    // A scenario pinning a designed failure surface declares its exit code…
+    const declared = await runLoaderSmoke({
+      label: 'declared failure fixture',
+      tempDirPrefix: 'loader-smoke-declared-fail-',
+      binScript: fixture('fail'),
+      libBinScript: fixture('fail'),
+      configPath,
+      tsconfigPath,
+      expectedExitCode: 7,
+    })
+    expect(declared.stderr).toBe('fixture failed\n')
+
+    // …and a run that succeeds instead still fails the smoke.
+    await expect(runLoaderSmoke({
+      label: 'unexpectedly clean fixture',
+      tempDirPrefix: 'loader-smoke-clean-',
+      binScript: fixture('success'),
+      libBinScript: fixture('success'),
+      configPath,
+      tsconfigPath,
+      expectedExitCode: 7,
+    })).rejects.toThrow(/exited 0 \(expected 7\)/)
   })
 
   it('kills a process at its deadline and reports captured output', async () => {

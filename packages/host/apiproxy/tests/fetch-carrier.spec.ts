@@ -22,6 +22,26 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
         if (overrides.crashOn === 'session.list') throw new Error('impl crashed')
         return { rpcId: request.rpcId, result: { ok: true, value: { items: [] } } }
       },
+      async search(request, signal) {
+        if (request.payload.query === 'hang') {
+          if (!signal.aborted) {
+            await new Promise<void>((resolve) => {
+              signal.addEventListener('abort', () => { resolve() }, { once: true })
+            })
+          }
+          return {
+            rpcId: request.rpcId,
+            result: { ok: false, error: { code: 'cancelled', message: 'aborted', details: {} } },
+          }
+        }
+        return {
+          rpcId: request.rpcId,
+          result: {
+            ok: true,
+            value: { items: [{ sessionId: 's1' as never, snippet: 'fixture match' }], hasMore: false },
+          },
+        }
+      },
       async create(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { sessionId: 's-new' as never } } }
       },
@@ -43,7 +63,7 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
           result: {
             ok: true,
             value: {
-              current: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+              current: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
               groups: [],
               failures: [],
             },
@@ -69,6 +89,9 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
       },
       async rename(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { title: request.payload.title, seq: 0 } } }
+      },
+      async fork(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { sessionId: 's-fork' as never } } }
       },
       async prompt(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { accepted: true as const } } }
@@ -167,6 +190,39 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
         return { rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'stub', details: {} } } }
       },
     },
+    settings: {
+      async describe(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { writable: true, namespaces: [] } } }
+      },
+      async update(request) {
+        return { rpcId: request.rpcId, result: { ok: false, error: { code: 'settings-rejected', message: 'stub', details: { ns: request.payload.ns } } } }
+      },
+      async replace(request) {
+        return { rpcId: request.rpcId, result: { ok: false, error: { code: 'settings-rejected', message: 'stub', details: { ns: request.payload.ns } } } }
+      },
+      async mutate(request) {
+        return { rpcId: request.rpcId, result: { ok: false, error: { code: 'settings-rejected', message: 'stub', details: { ns: request.payload.ns } } } }
+      },
+    },
+    credentials: {
+      async describe(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { credentials: {} } } }
+      },
+      async set(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: {} } }
+      },
+      async unset(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: {} } }
+      },
+    },
+    llm: {
+      async providers(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { providers: [] } } }
+      },
+      async models(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { groups: [], failures: [] } } }
+      },
+    },
     events: {
       mux: (_request, signal) => stream(muxFrames, signal),
       host: (_request, signal) => stream(hostFrames, signal),
@@ -212,11 +268,15 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
 
   it('covers create/prompt/updateQueue/cancel/describe passthrough', async () => {
     const c = client()
+    expect((await c.sessions.search({ query: 'fixture' })).result).toEqual({
+      ok: true,
+      value: { items: [{ sessionId: 's1', snippet: 'fixture match' }], hasMore: false },
+    })
     expect((await c.sessions.create({})).result.ok).toBe(true)
     expect((await c.sessions.models({ sessionId: 's' as never })).result.ok).toBe(true)
     const selected = await c.sessions.selectModel({
       sessionId: 's' as never,
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'deepseek-v4-flash',
       reasoningEffort: 'max',
     })
@@ -224,7 +284,7 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
       ok: true,
       value: {
         selected: {
-          provider: 'deepseek',
+          provider: 'deepseek-official',
           model: 'deepseek-v4-flash',
           reasoningEffort: 'max',
         },
@@ -300,6 +360,29 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     const response = await pending
     const parsed = await response.json() as { rpcId: string; result: { ok: boolean; error?: { code: string } } }
     expect(parsed.rpcId).toBe('r-sig')
+    expect(parsed.result.error?.code).toBe('cancelled')
+  })
+
+  it('propagates the carrier Request signal into session.search', async () => {
+    const handler = toFetchHandler(fakeApi())
+    const controller = new AbortController()
+    const body = JSON.stringify({
+      type: 'client-request',
+      rpcId: 'r-search-sig',
+      method: 'session.search',
+      payload: { query: 'hang' },
+    })
+    const pending = handler.fetch(new Request(
+      'http://x/api/session.search',
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body, signal: controller.signal },
+    ))
+    controller.abort()
+    const response = await pending
+    const parsed = await response.json() as {
+      rpcId: string
+      result: { error?: { code: string } }
+    }
+    expect(parsed.rpcId).toBe('r-search-sig')
     expect(parsed.result.error?.code).toBe('cancelled')
   })
 

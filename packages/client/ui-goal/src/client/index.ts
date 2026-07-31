@@ -13,16 +13,30 @@ import type { RpcResult } from '@deepseek-ai/dsh-client-connection/client'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls the ui-conversation SlotMap merge (the input.dock entry).
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+// Type-only: pulls the locale plugin's Context merge (ctx.locale).
+import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: the `goal` SessionProjectionMap key merge (single source, the domain's pure outlet).
 import type { GoalProjection } from '@deepseek-ai/dsh-goal/client'
 import type { GoalActionResult, GoalBarActions } from './slots.ts'
 import { GoalDock } from './GoalBar.tsx'
+import { en, zh, type GoalKey } from './locales.ts'
 
 export { GoalBar, GoalDock } from './GoalBar.tsx'
 export type { GoalActionResult, GoalBarActions } from './slots.ts'
+export type { GoalKey } from './locales.ts'
 
-/** Required services: slots for the dock entry, sessions for the projected ref, connection for the wire verbs. */
-export const inject = ['slots', 'sessions', 'connection']
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** The goal strip's copy. */
+    goal: GoalKey
+  }
+}
+
+/** Dictionary namespace owned by this plugin. */
+const NS = 'goal'
+
+/** Required services: slots for the dock entry, sessions for the projected ref, connection for the wire verbs, locale for the copy. */
+export const inject = ['slots', 'sessions', 'connection', 'locale']
 
 /** Map one settled RPC result onto the strip's inline-render shape. */
 function settle<T>(result: RpcResult<T>): GoalActionResult {
@@ -35,6 +49,8 @@ function settle<T>(result: RpcResult<T>): GoalActionResult {
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
+  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-goal: dictionaries')
+
   const { goals } = (ctx.get('connection') as ConnectionHandle).api
 
   // Conditional mount: 'conversation.input.dock' is declared by the
@@ -60,6 +76,7 @@ export function apply(ctx: ClientContext): void {
       name: 'conversation.input.dock',
       id: 'goal',
       order: 0,
+      locale: NS,
       inject: (sessionId): GoalBarActions => ({
         onEdit: async (objective) => {
           const ref = refOf(sessionId)

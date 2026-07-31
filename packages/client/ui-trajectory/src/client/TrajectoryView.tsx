@@ -134,7 +134,7 @@ function searchMatches(
 }
 
 export function TrajectoryView({
-  useHistory, loadAllHistory,
+  useHistory, loadAllHistory, inspect, onInspectDone,
 }: ConvViewProps & InjectFace<TrajectoryViewInjected>) {
   const [collapsedTurns, setCollapsedTurns] = useState<ReadonlySet<number>>(EMPTY_IDS)
   const [collapsedAssistants, setCollapsedAssistants] =
@@ -147,6 +147,9 @@ export function TrajectoryView({
   const [actualTime, setActualTime] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedTimelineIndex, setSelectedTimelineIndex] = useState<number | null>(null)
+  const [timelineRecordSelection, setTimelineRecordSelection] = useState<{
+    readonly index: number
+  } | null>(null)
   const ledgerRef = useRef<HTMLDivElement>(null)
   const inspection = useHistory(snapshot => snapshot.inspection)
   const nodes = inspection.eventNodes
@@ -478,7 +481,20 @@ export function TrajectoryView({
         selectedIndex={selectedTimelineIndex}
         searchMatchIndexes={searchMatchIndexes}
         onRangeChange={(range) => {
-          setTimelineSelection(range === null ? null : { branchId: currentBranch.id, range })
+          setTimelineSelection(range === null ? null : {
+            branchId: currentBranch.id,
+            range,
+          })
+        }}
+        onRecordSelect={(index) => {
+          setTimelineSelection(null)
+          setTimelineRecordSelection({ index })
+          setSelectedTimelineIndex(index)
+          const row = ledgerRef.current
+            ?.querySelector<HTMLElement>(`tr[data-record-index="${index}"]`)
+          if (row !== undefined && row !== null && typeof row.scrollIntoView === 'function') {
+            row.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          }
         }}
         onRecordFocus={(index) => {
           const row = ledgerRef.current
@@ -497,11 +513,14 @@ export function TrajectoryView({
           searchMatchIndexes={searchMatchIndexes}
           onSelectedIndexChange={setSelectedTimelineIndex}
           onRecordSelect={handleRecordSelect}
+          recordSelection={timelineRecordSelection}
           onClearSelection={() => { setTimelineSelection(null) }}
           collapsedTurns={collapsedTurns}
           onToggleTurn={toggleTurn}
           collapsedAssistants={collapsedAssistants}
           onToggleAssistant={toggleAssistant}
+          inspectCallId={inspect?.callId ?? null}
+          onInspectApplied={onInspectDone}
         />
       </div>
     </div>
