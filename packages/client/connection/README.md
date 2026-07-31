@@ -10,7 +10,7 @@ The node half guards every request under `/api` before bridging (`src/api-reques
 
 ## Keyless fixture
 
-Any `fixture` query parameter selects the in-memory carrier. `fixture=empty` starts with no Workspace or Session; `fixturePrompt=reject` rejects prompts before acceptance; `fixtureAttach=fail` publishes a Session but rejects its Workspace attachment; `fixtureSessionCreate=drop-response` publishes and frames a Session before dropping the create response; and `fixtureFrames=workspace-first` reverses the default session-first create-frame order. Workspace creation by name/path and caller-preallocated SessionIds remain deterministic enough for assembled Web tests to reconcile list and frame arrival.
+Any `fixture` query parameter selects the in-memory carrier. `fixture=empty` starts with no Workspace or Session; `fixturePrompt=reject` rejects prompts before acceptance; `fixtureAttach=fail` publishes a Session but rejects its Workspace attachment; `fixtureSessionCreate=drop-response` publishes and frames a Session before dropping the create response; and `fixtureFrames=workspace-first` reverses the default session-first create-frame order. Workspace creation by name/path and caller-preallocated SessionIds remain deterministic enough for assembled Web tests to reconcile list and frame arrival. Fixture content search preserves the production-facing `unicode61`-style case, diacritic, and token-phrase behavior and returns a match-centered snippet of at most 120 Unicode code points.
 
 ## Model Experience
 

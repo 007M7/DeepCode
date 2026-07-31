@@ -34,7 +34,7 @@ export function GenericCommandCard({ node, t }: GenericCommandCardProps) {
     <ToolRow
       t={t}
       variant="others"
-      icon={<IconApiOutline14 size={16} />}
+      icon={<IconApiOutline14 size={14} />}
       title={title}
       summary={summary}
       // Expandable only when the outcome text overflows a one-line summary.
