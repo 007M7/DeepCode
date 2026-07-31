@@ -46,7 +46,10 @@ async function composed(): Promise<Context> {
   return ctx
 }
 
-function liveAgent(ctx: Context, id: string, turns: number, openTail = false): Session {
+/** Tail turn appended after the completed ones: left open, or closed as aborted (a stopped turn). */
+type Tail = 'none' | 'open' | 'aborted'
+
+function liveAgent(ctx: Context, id: string, turns: number, tail: Tail = 'none'): Session {
   const session = ctx.sessions.create(sid(id), { meta: { cwd: '/proj' } })
   for (let turn = 1; turn <= turns; turn++) {
     session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -56,12 +59,13 @@ function liveAgent(ctx: Context, id: string, turns: number, openTail = false): S
     }), { surfaceOp: 'append' })
     session.append('turn/end', { turn, reason: { kind: 'completed' } })
   }
-  if (openTail) {
+  if (tail !== 'none') {
     session.append('turn/start', { turn: turns + 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'open prompt' }],
       source: { kind: 'user' },
     }), { surfaceOp: 'append' })
+    if (tail === 'aborted') session.append('turn/end', { turn: turns + 1, reason: { kind: 'aborted' } })
   }
   ctx.agents.register({ id: session.id, session, status: 'idle', ctx } as Agent)
   return session
@@ -92,7 +96,7 @@ describe('sessions.fork', () => {
 
   it('uses the last completed turn only for omitted and past-end anchors', async () => {
     const ctx = await composed()
-    const source = liveAgent(ctx, 'session-tail', 2, true)
+    const source = liveAgent(ctx, 'session-tail', 2, 'open')
     const proxy = api(ctx)
     const expectedTypes = [
       'turn/start', 'user/message', 'turn/end',
@@ -114,9 +118,26 @@ describe('sessions.fork', () => {
     await ctx.fiber.dispose()
   })
 
+  it('cuts through an aborted turn: stopped is closed, not open', async () => {
+    const ctx = await composed()
+    const source = liveAgent(ctx, 'session-aborted', 1, 'aborted')
+    // What a stopped message's fork button anchors on: the frozen node sits
+    // one event before its turn/end, floored client-side to that event's seq.
+    const anchor = (source.events.at(-1)?.seq ?? 0) - 1
+    const response = await api(ctx).sessions.fork(request({ sessionId: source.id, atSeq: anchor }))
+    expect(response.result.ok).toBe(true)
+    if (!response.result.ok) return
+    expect(ctx.sessions.get(response.result.value.sessionId)?.events.map(event => event.type)).toEqual([
+      'turn/start', 'user/message', 'turn/end',
+      'turn/start', 'user/message', 'turn/end',
+      'session/end-seed',
+    ])
+    await ctx.fiber.dispose()
+  })
+
   it('rejects an in-log anchor whose turn is still open', async () => {
     const ctx = await composed()
-    const source = liveAgent(ctx, 'session-open', 1, true)
+    const source = liveAgent(ctx, 'session-open', 1, 'open')
     const anchor = source.events.at(-1)?.seq ?? 0
     const response = await api(ctx).sessions.fork(request({ sessionId: source.id, atSeq: anchor }))
     expect(response.result).toMatchObject({
