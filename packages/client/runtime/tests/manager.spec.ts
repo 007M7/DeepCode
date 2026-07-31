@@ -378,7 +378,7 @@ describe('connected generation', () => {
     api.onHistory = () => Promise.resolve(ok({
       events: entries(plainTurn(0, 0, 'a', 'b')) as never[],
       hasMore: false,
-      modelTarget: { provider: 'deepseek', model: 'deepseek-chat' },
+      modelTarget: { provider: 'deepseek-official', model: 'deepseek-chat' },
     }))
     const manager = new SessionManager(api)
     const openedSession = manager.get(S1)

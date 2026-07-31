@@ -1,10 +1,12 @@
 /**
  * AppCLIEntry — the pre-cordis boot glue the config-tree dsh surfaces share
  * for the Web/headless surface.
- * Everything here is what must exist before the Loader runs: layered env,
- * the patch composition over the shipped base and surface overlay (profile json + CLI
- * flags + the resolved frontend dist), and the fail-loud triple after the
- * tree settles.
+ * Everything here is what must exist before the Loader runs: the patch
+ * composition over the shipped base and surface overlay (profile json + CLI
+ * flags + the resolved frontend dist), and the fail-loud triple after the tree
+ * settles. The environment is what the bin already loaded (ambient plus the
+ * invoking directory's `.env`); `$DSH_HOME/.env` belongs to the credential
+ * provider and is never hoisted here.
  */
 
 import { readFileSync } from 'node:fs'
@@ -14,14 +16,16 @@ import { join, resolve } from 'node:path'
 import { Context } from 'cordis'
 import type { PatchOptions } from '@cordisjs/plugin-include'
 import yaml from 'js-yaml'
-import { boot, installFailLoud, loadEnv, loadOverlayPatches, loadPersonalPatches } from '@deepseek-ai/dsh-app-boot'
-import { resolveDshHome } from '@deepseek-ai/dsh-paths'
+import { boot, installFailLoud, loadOverlayPatches, loadPersonalPatches } from '@deepseek-ai/dsh-app-boot'
 // Empty type import carries the httpServer Context merge for the port read below.
 import type {} from '@deepseek-ai/dsh-host-webserver'
 
 /** Profile file under the invoking directory (read-only this round; never created — see the design's profile ruling). */
 const PROFILE_DIR = '.dsh-tmp-profile'
 const PROFILE_FILE = 'config.json'
+
+/** The session-telemetry row id the DSH_TELEMETRY_DISABLED switch targets (mounted in web.cordis.yml). */
+const TELEMETRY_ROW_ID = 'telemetry-otel'
 
 /** The webserver schema's all-interfaces bind literal: gates LAN-authority derivation here and the printed LAN URL in web.ts. */
 const ALL_INTERFACES_HOST = '0.0.0.0'
@@ -56,6 +60,38 @@ export function resolveLanTrust(
 ): { lanAddresses: string[]; trustedHosts: string[] } {
   const lanAddresses = bindHost === ALL_INTERFACES_HOST ? lanIPv4Addresses() : []
   return { lanAddresses, trustedHosts: [...lanAddresses, ...extra] }
+}
+
+/**
+ * Resolve the telemetry opt-out switch into its boot patch. ANY non-empty
+ * value (including `'0'`/`'false'`) disables: a privacy switch prefers
+ * off-by-mistake over on-by-mistake. Throws when the switch is set but the
+ * row is absent — a silently no-op "disabled" privacy switch would keep
+ * exporting while the user believes it is off.
+ * @param disabledEnv - the raw `DSH_TELEMETRY_DISABLED` value (`undefined` when unset).
+ * @param hasRow - whether the composition carries the {@link TELEMETRY_ROW_ID} row.
+ * @returns the disable patch, or `undefined` when telemetry stays enabled.
+ */
+export function resolveTelemetryPatch(disabledEnv: string | undefined, hasRow: boolean): PatchOptions | undefined {
+  if ((disabledEnv ?? '') === '') return undefined
+  if (!hasRow) {
+    throw new Error(`dsh: DSH_TELEMETRY_DISABLED is set but row "${TELEMETRY_ROW_ID}" is not in this composition`)
+  }
+  return { id: TELEMETRY_ROW_ID, disabled: true }
+}
+
+/**
+ * Whether a config file carries the telemetry row, parsed under the same
+ * `!!js`-tolerant dialect the boot uses — the `hasRow` input for launchers
+ * that compose their patch lists outside {@link AppCLIEntry} (the TUI).
+ * @param file - absolute path of the config or overlay file.
+ * @returns true when a top-level (or inserted) row has the telemetry id.
+ */
+export function configHasTelemetryRow(file: string): boolean {
+  const doc = yaml.load(readFileSync(file, 'utf8'), { schema: includeYamlSchema })
+  if (!Array.isArray(doc)) throw new Error(`dsh: ${file} is not a top-level entry list`)
+  return (doc as { id?: string; insert?: { id?: string }[] }[]).some(row =>
+    row.id === TELEMETRY_ROW_ID || (row.insert ?? []).some(inserted => inserted.id === TELEMETRY_ROW_ID))
 }
 
 /** One profile-json key mapped onto a yml row's config field. */
@@ -144,12 +180,11 @@ export class AppCLIEntry {
   constructor(private readonly options: AppCLIEntryOptions) {}
 
   /**
-   * Run the boot chain: layered env → patch composition → Loader include
-   * boot (dev row before await) → fail-loud triple.
+   * Run the boot chain: patch composition → Loader include boot (dev row
+   * before await) → fail-loud triple.
    * @returns the settled root context and the listening port.
    */
   async run(): Promise<{ ctx: Context; port: number }> {
-    this.loadEnvLayers()
     this.composePatches()
     await this.bootTree()
     this.assertBoot()
@@ -157,11 +192,6 @@ export class AppCLIEntry {
     /* v8 ignore next -- the sweep above guarantees an ACTIVE webserver row */
     if (port === undefined) throw new Error('dsh: httpServer service missing after settled boot')
     return { ctx: this.ctx, port }
-  }
-
-  /** Layered .env: ambient > cwd (bin already loaded) > $DSH_HOME (loadEnvFile never overrides). */
-  private loadEnvLayers(): void {
-    loadEnv('dsh', resolveDshHome())
   }
 
   /**
@@ -208,6 +238,12 @@ export class AppCLIEntry {
       if (yml === undefined) throw new Error(`dsh: patch target row "${id}" not found in ${this.options.configPath}`)
       return { id, config: { ...(yml.config ?? {}) as Record<string, unknown>, ...bag } }
     })
+
+    // Telemetry opt-out: a row can only be turned off at the patch layer
+    // (config cannot disable an entry), and the switch must hold BEFORE the
+    // plugin constructs — its exporter.url validation is load-time fail-loud.
+    const telemetryPatch = resolveTelemetryPatch(process.env.DSH_TELEMETRY_DISABLED, rows.has(TELEMETRY_ROW_ID))
+    if (telemetryPatch !== undefined) this.patches.push(telemetryPatch)
   }
 
   /** Shared Loader boot; the dev HMR row mounts before await so the fail-loud sweep covers it. */

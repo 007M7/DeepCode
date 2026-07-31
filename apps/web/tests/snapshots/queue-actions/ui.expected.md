@@ -5,23 +5,23 @@
     - tab "Chat" [selected]
     - tab "Trajectory"
 - text: Reply with a one-sentence description of event sourcing, then stop. {{clock}}
-- button "复制":
+- button "Copy":
   - img
-- button "在新对话中分支":
+- button "Branch into a new conversation":
   - img
-- button "编辑":
+- button "Edit":
   - img
-- button "上下文注入":
+- button "Context injection":
   - img
   - img
-  - text: 上下文注入
+  - text: Context injection
 - paragraph: partial
 - list:
   - listitem:
     - text: Edited queue item
-    - button "编辑排队消息":
+    - button "Edit queued message":
       - img
-    - button "删除排队消息":
+    - button "Remove queued message":
       - img
 - textbox "Message the agent"
 - button "Add attachment":

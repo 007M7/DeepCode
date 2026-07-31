@@ -554,7 +554,7 @@ describe('TUI terminal-state snapshots', () => {
           description: 'Audit terminal states from independent angles',
           phases: [
             { title: 'Inspect', detail: 'Map renderer branches' },
-            { title: 'Verify', detail: 'Challenge missing states', provider: 'deepseek', model: 'deepseek-v4-flash' },
+            { title: 'Verify', detail: 'Challenge missing states', provider: 'deepseek-official', model: 'deepseek-v4-flash' },
           ],
         },
         args: { packages: ['ui/tui', 'workflow/tool-workflow'] },
@@ -866,13 +866,13 @@ describe('TUI terminal-state snapshots', () => {
         { type: 'turn/start', seq: 0, time: Date.parse(`${day}T00:00:01Z`), data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
         { type: 'user/message', seq: 1, time: Date.parse(`${day}T00:00:02Z`), data: createUserMessage({ content: [{ type: 'text', text: 'restore the selector' }], source: { kind: 'user' } }), surfaceOp: 'append' },
         { type: 'step/start', seq: 2, time: Date.parse(`${day}T00:00:03Z`), data: { turn: 1, step: 1 } },
-        { type: 'request/header', seq: 3, time: Date.parse(`${day}T00:00:04Z`), data: { header: { config: { provider: 'deepseek', model: 'deepseek-v4-pro' } }, reason: 'initial' } },
+        { type: 'request/header', seq: 3, time: Date.parse(`${day}T00:00:04Z`), data: { header: { config: { provider: 'deepseek-official', model: 'deepseek-v4-pro' } }, reason: 'initial' } },
         { type: 'assistant/message', seq: 4, time: Date.parse(`${day}T00:00:05Z`), data: {
           turn: 1, step: 1,
           message: createMessage({
             role: 'assistant',
             content: [{ type: 'text', text: 'ready' }],
-            source: { kind: 'model', provider: 'deepseek', model: 'deepseek-v4-pro' },
+            source: { kind: 'model', provider: 'deepseek-official', model: 'deepseek-v4-pro' },
           }),
         }, surfaceOp: 'append' },
         { type: 'step/end', seq: 5, time: Date.parse(`${day}T00:00:06Z`), data: { turn: 1, step: 1 } },
@@ -913,7 +913,7 @@ describe('TUI terminal-state snapshots', () => {
     const harness = await setupSnapshot({
       contextWindow: 128_000,
       contextTokens: 42_000,
-      agentOptions: { provider: 'deepseek', model: 'deepseek-v4-pro' },
+      agentOptions: { provider: 'deepseek-official', model: 'deepseek-v4-pro' },
       tools: {
         read: {
           name: 'read',

@@ -5,24 +5,24 @@
     - tab "Chat" [selected]
     - tab "Trajectory"
 - text: Reply with the single word LIGHTHOUSE and stop. {{clock}}
-- button "复制":
+- button "Copy":
   - img
-- button "在新对话中分支":
+- button "Branch into a new conversation":
   - img
-- button "编辑":
+- button "Edit":
   - img
-- button "上下文注入":
+- button "Context injection":
   - img
   - img
-  - text: 上下文注入
+  - text: Context injection
 - button "Think The user wants me to reply with a single word. Let me comply.":
   - img
   - img
   - text: Think The user wants me to reply with a single word. Let me comply.
 - paragraph: LIGHTHOUSE
-- button "复制":
+- button "Copy":
   - img
-- button "在新对话中分支":
+- button "Branch into a new conversation":
   - img
 - text: {{clock}}
 - textbox "Message the agent"

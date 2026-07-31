@@ -45,7 +45,7 @@ import {
 } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmCallConfig, LlmFailure, Message, PreparedLlmCall, ResolvedRetryPolicy } from '@deepseek-ai/dsh-llm'
 import { canonicalHeader, headerEquals } from '@deepseek-ai/dsh-session'
-import type { AssistantMessage, Session, SessionId, TurnEndReason, TurnTrigger, UserMessage } from '@deepseek-ai/dsh-session'
+import type { AssistantMessage, EpochHeader, Session, SessionId, TurnEndReason, TurnTrigger, UserMessage } from '@deepseek-ai/dsh-session'
 import { renderContextSnapshot, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import { executeToolCalls } from './tool-calls.ts'
@@ -81,6 +81,15 @@ function materializeRuntimeContext(session: Session, current: string): void {
     content: [{ type: 'text', text: snapshot }],
     source: { kind: 'plugin', plugin: RUNTIME_CONTEXT_SOURCE },
   }), { surfaceOp: 'append' })
+}
+
+/** Remove adapter-derived values before plugins propose the next request config. */
+function requestProposal(header: EpochHeader): LlmCallConfig {
+  if (header.adapterDefaults === undefined) return header.config
+  const proposal = { ...header.config }
+  if (header.adapterDefaults.reasoningEffort === true) delete proposal.reasoningEffort
+  if (header.adapterDefaults.maxTokens === true) delete proposal.maxTokens
+  return proposal
 }
 
 /**
@@ -647,19 +656,21 @@ export class ReactLoopAgent implements Agent {
   ): Promise<{ request: GenerateOptions; preparedCall?: PreparedLlmCall }> {
     const { session } = this
 
-    // A loop instance starts from its declared route, restoring only an opaque
-    // effort owned by that exact model. Later steps fold the config it logged.
-    const persistedConfig = session.requestHeader()?.config
+    // A loop instance starts from its declared route, restoring only an explicit
+    // effort owned by that exact model. Later steps re-resolve marked defaults.
+    const persistedHeader = session.requestHeader()
+    const persistedConfig = persistedHeader?.config
     const route = { provider: this.options.provider ?? '', model: this.options.model ?? '' }
     const reasoningEffort = persistedConfig?.provider === route.provider
       && persistedConfig.model === route.model
+      && persistedHeader?.adapterDefaults?.reasoningEffort !== true
       ? persistedConfig.reasoningEffort
       : undefined
     const maxTokens = this.options.maxTokens
     const seedConfig = deepFreeze(structuredClone(
       this.requestHeaderLogged
         // oxlint-disable-next-line typescript/no-non-null-assertion -- the instance logged the header it now folds
-        ? persistedConfig!
+        ? requestProposal(persistedHeader!)
         : {
           ...route,
           ...reasoningEffort === undefined ? {} : { reasoningEffort },
@@ -689,6 +700,7 @@ export class ReactLoopAgent implements Agent {
 
     const header = canonicalHeader({
       config,
+      ...preparedCall === undefined ? {} : { adapterDefaults: preparedCall.adapterDefaults },
       ...system ? { system } : {},
       ...tools.length > 0 ? { tools } : {},
     })
