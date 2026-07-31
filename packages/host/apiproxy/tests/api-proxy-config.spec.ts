@@ -160,8 +160,8 @@ async function harness(options?: {
   await ctx.plugin(LlmService)
   if (options?.settings !== false) await ctx.plugin(MemorySettings, options?.settings)
   if (options?.credentials !== false) await ctx.plugin(MemoryCredentials, options?.credentials)
-  // The proxy serves only namespaces a configurable provider addresses, which
-  // is what the real LLM plugins declare at load; the tests mirror that.
+  // Model-provider namespaces and the explicit Web preference allowlist are
+  // the proxy's complete settings surface.
   if (options?.configurableProviders !== false) {
     ctx.llm.registerConfigurableProviders([
       { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [] },
@@ -222,19 +222,29 @@ describe('settings domain', () => {
     expect(JSON.stringify(value)).not.toContain('user-secret')
   })
 
-  it('serves only namespaces a registered model provider addresses', async () => {
+  it('serves model-provider and explicitly allowlisted Web namespaces only', async () => {
     // The settings seam is general: any plugin may register a namespace for
-    // its own configuration. The Web configuration plane is not — it is the
-    // model-provider surface, and a namespace nothing in the provider
-    // directory addresses must be invisible and unwritable here, so a future
-    // plugin cannot become remotely configurable just by registering.
+    // its own configuration. The Web configuration plane remains opt-in, so a
+    // future internal plugin cannot become remotely configurable just by
+    // registering; permission is the one non-model namespace intentionally
+    // admitted by this surface.
     const ctx = await harness()
     ctx.settings.register(NS, AdapterConfig)
     ctx.settings.register(settingsNamespace('some-other-plugin'), z.object({ secretPath: z.string() }))
+    ctx.settings.register(settingsNamespace('permission'), z.object({
+      defaultPreset: z.union(['read-only', 'workspace-write']).required(),
+    }), {
+      base: { defaultPreset: 'read-only' },
+    })
     const api = createApiProxy(ctx, DEFAULTS)
 
     const value = expectOk(await api.settings.describe(request({})))
-    expect(value.namespaces.map(view => view.ns)).toEqual(['llm-deepseek'])
+    expect(value.namespaces.map(view => view.ns)).toEqual(['llm-deepseek', 'permission'])
+    const permission = expectOk(await api.settings.mutate(request({
+      ns: 'permission',
+      ops: [{ op: 'set', path: ['defaultPreset'], value: 'workspace-write' }],
+    })))
+    expect(permission.value).toEqual({ defaultPreset: 'workspace-write' })
 
     for (const response of [
       await api.settings.update(request({ ns: 'some-other-plugin', patch: { secretPath: '/etc/shadow' } })),
@@ -275,6 +285,20 @@ describe('settings domain', () => {
     // The resolved value never moved: base already said https://base.
     expect(expectOk(await api.settings.describe(request({}))).namespaces[0]!.value)
       .toEqual({ apiKeyEnv: 'DEEPSEEK_API_KEY', baseURL: 'https://base' })
+  })
+
+  it('broadcasts a permission change without invalidating the model catalog', async () => {
+    const ctx = await harness()
+    const permission = ctx.settings.register(settingsNamespace('permission'), z.object({
+      defaultPreset: z.union(['read-only', 'workspace-write']).required(),
+    }), {
+      base: { defaultPreset: 'read-only' },
+    })
+    const api = createApiProxy(ctx, DEFAULTS)
+    const frames = await collectHost(api, ['host/settings-changed', 'host/models-changed'], 1, async () => {
+      await permission.update({ defaultPreset: 'workspace-write' })
+    })
+    expect(frames).toEqual([{ type: 'host/settings-changed', ns: 'permission' }])
   })
 
   it('maps a stale expectedRevision to settings-conflict carrying both revisions', async () => {

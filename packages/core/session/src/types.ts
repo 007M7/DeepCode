@@ -256,7 +256,9 @@ export interface SessionEventMap {
   /**
    * Marks the end of a constructor seed. Events before it have smaller seq
    * values and came from the seed (resume, fork, or replay); this lifecycle
-   * produced none of them. This log-only event is the durable projection of
+   * produced none of them. An explicitly supplied empty seed puts the marker
+   * at seq 0, distinguishing an empty resumed session from a fresh session.
+   * This log-only event is the durable projection of
    * {@link Session.firstLiveSeq}. Its payload is empty — position and `time`
    * carry the meaning.
    *

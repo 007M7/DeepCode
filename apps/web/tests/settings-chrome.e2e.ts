@@ -2,15 +2,18 @@
 // section switching, both close paths), the Appearance preference row (the
 // real theme gesture — click 深色 and the whole cascade runs: ThemeService preference -> localStorage dsh.theme
 // -> theme/change -> ui-layout's presenter -> body attribute -> alias token)
-// and the Language row (settings-scoped localization + persisted dsh.locale).
+// and the Language row (settings-scoped localization + persisted dsh.locale),
+// plus Permission as the persisted default for subsequently created sessions.
 // Zero model calls: everything is pure client + persistence state on a blank
 // frame, so there is no fixture and a stray stream would fail loud on the
 // open llm seam.
+import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { join } from 'node:path'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import {
   acknowledgeReloadConnectionLoss, assertFixtureInventory, captureStableAria, compareOrRefreshGolden,
   launchWebScaffold, watchConsole, webSnapshotMode, type WebScaffold,
@@ -21,7 +24,7 @@ const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/settings-chrome', import
 const DIALOG_EXPECTED = join(SNAPSHOT_DIR, 'dialog.expected.md')
 const MODE = webSnapshotMode()
 
-describe('web e2e: settings modal, appearance gesture, language switch', () => {
+describe('web e2e: settings modal and General preferences', () => {
   let scaffold: WebScaffold
   let browser: Browser
   let page: Page
@@ -50,9 +53,9 @@ describe('web e2e: settings modal, appearance gesture, language switch', () => {
     const dialog = page.getByRole('dialog', { name: '设置' })
     await dialog.waitFor({ timeout: 10_000 })
     expect(await trigger.getAttribute('aria-expanded')).toBe('true')
-    // General is the active section by default; its skeleton rows plus the
-    // functional Language and Appearance rows render.
+    // General is active by default; Permission, Language and Appearance are functional.
     expect(await dialog.getByRole('button', { name: '通用设置' }).getAttribute('aria-current')).toBe('true')
+    await dialog.getByRole('button', { name: 'Full access' }).waitFor({ timeout: 10_000 })
     await expect.poll(() => dialog.getByText('语言', { exact: true }).count(), { timeout: 5_000 }).toBe(1)
     await expect.poll(() => dialog.getByText('外观', { exact: true }).count(), { timeout: 5_000 }).toBe(1)
     // Golden of the freshly opened dialog (default zh, General active).
@@ -70,6 +73,55 @@ describe('web e2e: settings modal, appearance gesture, language switch', () => {
     await trigger.click()
     await page.getByRole('dialog', { name: '设置' }).getByRole('button', { name: '关闭' }).click()
     await expect.poll(() => page.getByRole('dialog', { name: '设置' }).count(), { timeout: 5_000 }).toBe(0)
+    expect(tripwire.pageErrors).toEqual([])
+  }, 60_000)
+
+  it('stores Permission as the default for future sessions without changing an existing session', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-settings-permission'))
+    const existing = scaffold.ctx.sessions.create(SessionId('settings-permission-before'))
+    expect(existing.events.find(event => event.type === 'permission/preset')?.data)
+      .toEqual({ preset: 'danger-full-access' })
+
+    await page.getByRole('button', { name: '设置', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: '设置' })
+    await dialog.waitFor({ timeout: 10_000 })
+    const selector = dialog.getByRole('button', { name: 'Full access' })
+    await selector.waitFor({ timeout: 10_000 })
+    await expect.poll(() => selector.isEnabled(), { timeout: 5_000 }).toBe(true)
+    await selector.click()
+    await page.getByRole('menuitem', { name: 'Read Only' }).click()
+    await dialog.getByRole('button', { name: 'Read Only' }).waitFor({ timeout: 10_000 })
+
+    const document = await readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8')
+    expect(document).toContain('permission:')
+    expect(document).toContain('defaultPreset: read-only')
+    expect(existing.events.find(event => event.type === 'permission/preset')?.data)
+      .toEqual({ preset: 'danger-full-access' })
+
+    const created = scaffold.ctx.sessions.create(SessionId('settings-permission-after'))
+    expect(created.events.map(event => [event.type, event.data])).toEqual([
+      ['permission/preset', { preset: 'read-only' }],
+      ['sandbox/mode', { mode: 'read-only' }],
+      ['approval/policy', { policy: 'ask' }],
+    ])
+
+    await dialog.getByRole('button', { name: 'Read Only' }).click()
+    await page.getByRole('menuitem', { name: 'Full access' }).click()
+    const confirmation = page.getByRole('dialog', { name: '确认启用 Full access？' })
+    const enable = confirmation.getByRole('button', { name: '启用 Full access' })
+    expect(await enable.isDisabled()).toBe(true)
+    await confirmation.getByRole('checkbox').click()
+    await enable.click()
+    await dialog.getByRole('button', { name: 'Full access' }).waitFor({ timeout: 10_000 })
+    const confirmedDocument = await readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8')
+    expect(confirmedDocument).toContain('defaultPreset: danger-full-access')
+    const confirmed = scaffold.ctx.sessions.create(SessionId('settings-permission-confirmed'))
+    expect(confirmed.events.map(event => [event.type, event.data])).toEqual([
+      ['permission/preset', { preset: 'danger-full-access' }],
+      ['sandbox/mode', { mode: 'danger-full-access' }],
+      ['approval/policy', { policy: 'never' }],
+    ])
+    await page.keyboard.press('Escape')
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 
