@@ -404,6 +404,45 @@ describe('live event path', () => {
     })
   })
 
+  it('keeps compacted history and adds one marker, live and on replay alike', async () => {
+    // A landed compaction must not erase conversation the reader already saw:
+    // the shadowed messages stay at their own log positions and the checkpoint
+    // contributes one marker after them.
+    const { session } = await opened()
+    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
+    feed(ev.compactSummary(6, '压缩摘要', 1, 3))
+    feed(ev.compactCheckpoint(7, 6, 1, 3))
+    const live = session.getSnapshot().nodes
+    expect(live.map(n => [n.kind, n.seq])).toEqual([['user', 1], ['assistant', 3], ['compaction', 7]])
+    expect(live.at(-1)).toMatchObject({ kind: 'compaction', summary: '压缩摘要' })
+
+    const replayed = await opened([
+      ...plainTurn(0, 0, 'a', 'b'),
+      ev.compactSummary(6, '压缩摘要', 1, 3),
+      ev.compactCheckpoint(7, 6, 1, 3),
+    ])
+    expect(replayed.session.getSnapshot().nodes).toEqual(live)
+  })
+
+  it('merges an interrupted frozen node by seq into the log-ordered transcript', async () => {
+    // The transcript array is seq-monotonic, so the frozen node's fractional
+    // seq lands it exactly where it happened — including after a compaction
+    // checkpoint whose own seq is higher than the range it shadowed.
+    const { session } = await opened()
+    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
+    feed(ev.compactSummary(6, '压缩摘要', 1, 3))
+    feed(ev.compactCheckpoint(7, 6, 1, 3))
+    feed(ev.turnStart(8, 1))
+    feed(ev.user(9, '压缩后的提问'))
+    feed(ev.chunkStart(10, 1))
+    feed(ev.chunkText(11, 1, '说到一半'))
+    feed(ev.turnEnd(12, 1, 'aborted'))
+    expect(session.getSnapshot().nodes.map(n => n.kind)).toEqual([
+      'user', 'assistant', 'compaction', 'user', 'assistant',
+    ])
+    expect(session.getSnapshot().nodes.at(-1)).toMatchObject({ interrupted: true })
+  })
+
   it('repairs a seq gap by repulling the tail page instead of appending a hole', async () => {
     const { api, session } = await opened(plainTurn(0, 0, 'a', 'b')) // tail seq = 5
     const repaired = [...plainTurn(0, 0, 'a', 'b'), ...plainTurn(6, 1, 'c', 'd')]
@@ -433,6 +472,30 @@ describe('paging', () => {
     expect(api.callsOf('session.history')).toMatchObject([{}, { beforeSeq: 6 }].map(p => ({ sessionId: SID, ...p })))
     expect(snapshot.hasMore).toBe(false)
     expect(snapshot.nodes.map(n => n.seq)).toEqual([1, 3, 7, 9])
+  })
+
+  it('renders a page whose checkpoint shadows seqs below the window head, logging nothing', async () => {
+    // Pagination no longer spends maxMessages quota on replacement copies, so a
+    // page can carry a compaction checkpoint whose surfaceOp.start lies outside
+    // the window. The old surface fold rejected that range and degraded with a
+    // console error; the log-ordered transcript has no range to resolve.
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse([
+      ev.compactSummary(80, '窗外范围的摘要', 3, 40),
+      ev.compactCheckpoint(81, 80, 3, 40),
+      ev.user(82, '压缩后的新问题'),
+    ], true)
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      await session.open()
+      const snapshot = session.getSnapshot()
+      expect(snapshot.openState).toBe('open')
+      expect(snapshot.nodes.map(n => [n.kind, n.seq])).toEqual([['compaction', 81], ['user', 82]])
+      expect(snapshot.nodes[0]).toMatchObject({ summary: '窗外范围的摘要' })
+      expect(errorSpy).not.toHaveBeenCalled()
+    } finally {
+      errorSpy.mockRestore()
+    }
   })
 
   it('drops a discontinuous older page fail-soft (window unchanged, hasMore cleared)', async () => {

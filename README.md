@@ -8,13 +8,11 @@ It uses an architecture where **everything is a plugin**.
 
 ## Internal testing notice
 
-Thank you for taking the time to try DeepSeek Harness.
+感谢您愿意拨冗试用 DeepSeek Harness。当前版本仍处于内部测试阶段，功能仍待完善，体验难免有些粗糙。
 
-This version is still in internal testing. Its functionality still needs improvement, and the experience may feel a little rough.
+“如切如磋，如琢如磨。” 产品的成长，离不开一次次真实的碰撞与坦诚的反馈。您在真实使用中发现的问题，也可能促使我们重新审视，甚至推翻已有的设计。
 
-“As one cuts and files, as one chisels and polishes.” A product grows through real encounters and candid feedback. Problems you discover in real use may prompt us to reconsider—or even overturn—our existing designs.
-
-We especially want to hear about failures, confusion, and friction. If you have any feedback or suggestions, please leave us a message in our <a href="https://wj.qq.com/s2/27234598/03eb/">WeCom group</a>. Every piece of feedback helps us refine it.
+为了帮助我们更准确地还原您真实使用中的问题，内测版本默认会上传所有 Session Log；如需关闭，可以设置环境变量 `DSH_TELEMETRY_DISABLED=1`。另外，如果您有任何反馈与建议，请在企业微信群中留言告诉我们。每一条反馈，都会帮助我们把它打磨得更好。
 
 ## Install
 

@@ -12,7 +12,7 @@ import {
   acknowledgeReloadConnectionLoss, assertFixtureInventory, captureStableAria, compareOrRefreshGolden,
   launchWebScaffold, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
-import { saveFailureShot } from './support.ts'
+import { ZH_BROWSER_LOCALE, saveFailureShot } from './support.ts'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import {
   WELCOME_NOTICE_ACK_FIELD, WELCOME_NOTICE_COPY, WELCOME_NOTICE_SETTINGS_NAMESPACE,
@@ -34,7 +34,8 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
   beforeAll(async () => {
     scaffold = await launchWebScaffold({ deepSeekMissingCredential: true, welcomeNoticePending: true })
     browser = await chromium.launch()
-    page = await browser.newPage({ viewport: { width: 1440, height: 960 } })
+    // The scenario asserts the shipped Chinese copy, so the browser asks for it.
+    page = await browser.newPage({ viewport: { width: 1440, height: 960 }, locale: ZH_BROWSER_LOCALE })
     tripwire = watchConsole(page)
     page.on('console', message => browserConsole.push(message.text()))
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })

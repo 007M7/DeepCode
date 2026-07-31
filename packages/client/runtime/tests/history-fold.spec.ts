@@ -1,0 +1,94 @@
+import { createMessage } from '@deepseek-ai/dsh-llm'
+import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
+import { describe, expect, it } from 'vitest'
+import { projectConversationHistory } from '../src/client/session-history/history-fold.ts'
+import { ev } from './event-script.ts'
+
+const at = (seq: number, event: Record<string, unknown>): SessionEvent =>
+  ({ seq, time: 1_700_000_000_000 + seq, ...event }) as unknown as SessionEvent
+
+describe('projectConversationHistory', () => {
+  it('projects frozen surface generations without widening the core live surface', () => {
+    const events = [
+      ev.user(0, 'a'),
+      ev.user(1, 'b'),
+      at(2, {
+        type: 'assistant/message',
+        surfaceOp: { op: 'replace', start: 0, end: 0 },
+        sourceEventSeqs: [0],
+        data: {
+          turn: 1,
+          step: 1,
+          message: createMessage({
+            role: 'assistant',
+            content: [{ type: 'text', text: 'summary' }],
+            source: { kind: 'model', provider: 'fake', model: 'fake' },
+          }),
+        },
+      }),
+      at(3, {
+        type: 'assistant/message',
+        surfaceOp: { op: 'replace', start: 2, end: 1 },
+        sourceEventSeqs: [2, 1],
+        data: {
+          turn: 1,
+          step: 2,
+          message: createMessage({
+            role: 'assistant',
+            content: [{ type: 'text', text: 'summary 2' }],
+            source: { kind: 'model', provider: 'fake', model: 'fake' },
+          }),
+        },
+      }),
+    ]
+
+    expect(projectConversationHistory(events.map(event => ({ event }))).contexts.map(context => ({
+      id: context.id,
+      parentId: context.parentId,
+      originSeq: context.originSeq,
+      nodes: context.nodes.map(node => node.seq),
+    }))).toEqual([
+      { id: 0, parentId: undefined, originSeq: undefined, nodes: [0, 1] },
+      { id: 1, parentId: 0, originSeq: 2, nodes: [2, 1] },
+      { id: 2, parentId: 1, originSeq: 3, nodes: [3] },
+    ])
+  })
+
+  it('projects assistant timing and the active request header from history', () => {
+    const projection = projectConversationHistory([
+      ev.stepStart(0, 1, 2),
+      at(1, { type: 'request/header', data: {
+        reason: 'initial',
+        header: {
+          config: { provider: 'fake', model: 'first' },
+          tools: [],
+        },
+      } }),
+      ev.chunkStart(2, 1, 2),
+      ev.chunkText(3, 1, 'token', 2),
+      ev.assistant(4, 1, 'done', 2),
+      ev.stepStart(5, 2, 1),
+      ev.chunkText(6, 2, 'next', 1),
+      ev.assistant(7, 2, 'next done', 1),
+    ].map(event => ({ event })))
+
+    expect(projection.eventNodes[0]).toMatchObject({
+      kind: 'assistant',
+      timing: {
+        stepStartTime: 1_700_000_000_000,
+        firstTokenTime: 1_700_000_000_003,
+        completedTime: 1_700_000_000_004,
+      },
+      requestConfig: { provider: 'fake', model: 'first' },
+    })
+
+    expect(projection.eventNodes.at(-1)).toMatchObject({
+      timing: {
+        stepStartTime: 1_700_000_000_005,
+        firstTokenTime: 1_700_000_000_006,
+        completedTime: 1_700_000_000_007,
+      },
+      requestConfig: { provider: 'fake', model: 'first' },
+    })
+  })
+})
