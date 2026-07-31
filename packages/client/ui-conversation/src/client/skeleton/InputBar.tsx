@@ -15,10 +15,15 @@ import { IconPlusOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-plan-mode/client'
 // Type-only: the `goal` projection key merge (hint disambiguation).
 import type {} from '@deepseek-ai/dsh-goal/client'
+import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ComposerBarProps } from '../contract/slots.ts'
 import { deriveDecorations } from '../input/decorations.ts'
+import type { DraftDecorations } from '../input/decorations.ts'
 import { PermissionSelect } from './PermissionSelect.tsx'
 import css from './InputBar.module.css'
+
+/** Decoration product of the no-session state (no machine, empty draft). */
+const INERT_DECORATIONS: DraftDecorations = { token: null, chips: [], textRefs: [], hint: null }
 
 /** Prompt failure surface (derived from promptError). */
 export interface InputBarError {
@@ -29,15 +34,17 @@ export interface InputBarError {
 export type InputBarProps = ComposerBarProps
 
 export function InputBar({
-  useSession, useInput, inputActions, keyboard, stop, command, translateHint, renderSlot, useNotices, useLexicon, useProjection,
-  variant, placeholder, accessory, overlay, leftItems, rightItems, footer, onAdd, addLabel = 'Add attachment',
+  useSession, useInput, inputActions, keyboard, toggleCommandMenu, stop, command, t,
+  renderSlot, useNotices, useLexicon, useMenuLauncher,
+  useProjection, sessionId, variant, disabled: inert = false, placeholder, accessory, overlay, leftItems, rightItems, footer,
 }: InputBarProps) {
   const input = useInput(s => s)
   const notice = useNotices(s => s)
   const lexicon = useLexicon(s => s)
-  const promptError = useSession(s => s.promptError)
-  const running = useSession(s => s.running)
-  const disabled = useSession(s => s.removed)
+  const commandMenuOpen = useMenuLauncher(source => source === 'command')
+  const promptError = useSession(s => s.promptError) ?? null
+  const running = useSession(s => s.running) ?? false
+  const removed = useSession(s => s.removed) ?? false
   // Plan mode swaps the textarea placeholder (the projection is the folded
   // host value; owner-prop placeholders — hero, session-unavailable — win).
   const planActive = useProjection('plan', plan => plan !== undefined && (plan.pending ? !plan.active : plan.active))
@@ -49,9 +56,13 @@ export function InputBar({
   const error: InputBarError | null = promptError === null
     ? null
     : { op: promptError.op, message: `${promptError.error.message} (${promptError.error.code})` }
-  const draft = input.draft
+  // Session-maybe: the machine faces are absent together while no session is
+  // current; the bar renders the same DOM inert instead of a parallel tree.
+  const live = input !== undefined && keyboard !== undefined && inputActions !== undefined
+  const draft = input?.draft ?? ''
   const empty = draft.trim() === ''
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
+  const backdropRef = useRef<HTMLDivElement | null>(null)
   // IME guard: composition Enter picks a candidate, it must not send. The ref outlives renders;
   // clearing is deferred one tick because Safari delivers the closing keydown AFTER compositionend.
   const composingRef = useRef(false)
@@ -68,22 +79,35 @@ export function InputBar({
   // (undefined = capability absent → the chip renders nothing).
   const permissions = useProjection('permissions')
 
-  // Queue cut 1: running input stays free; locked = session disabled only.
-  // The transient machine locks (adjudicating pending / submitting) render
+  // Queue cut 1: running input stays free; locked = session removed, the
+  // inert no-workspace state, or the machine faces absent (no session). The
+  // transient machine locks (adjudicating pending / submitting) render
   // read-only — the draft stays visible and focused, keystrokes drop.
+  const disabled = removed || inert || !live
   const locked = disabled
-  const machineBusy = input.phase === 'adjudicating' || input.phase === 'submitting'
+  const machineBusy = input?.phase === 'adjudicating' || input?.phase === 'submitting'
 
   // Unlock (mount / session switch) returns focus to the box.
   useEffect(() => {
     if (!locked) inputRef.current?.focus()
-  }, [locked])
+  }, [locked, sessionId])
 
-  // Active conversation scrollport: chain the wheel. While the textarea (capped
-  // at 14 lines with overflow-y:auto) can still move in this direction, keep
-  // the native scroll; only at its own edge forward delta to the host so a
-  // short draft never traps the gesture and a long draft stays scrollable.
-  // Hero mounts have no host and keep native wheel scrolling.
+  // Two DOM listeners on the textarea, one lifetime (it is never unmounted —
+  // the inert state renders the same element disabled).
+  //
+  // wheel — active conversation scrollport: chain the gesture. While the
+  // textarea (capped at 14 lines with overflow-y:auto) can still move in this
+  // direction, keep the native scroll; only at its own edge forward delta to
+  // the host so a short draft never traps the gesture and a long draft stays
+  // scrollable. Hero mounts have no host and keep native wheel scrolling.
+  //
+  // scroll — the backdrop paints every visible glyph (the textarea's own text
+  // is transparent) but is clipped, not scrolled, so it does not follow the
+  // textarea on its own: without this mirror a draft past the cap moves the
+  // caret while the words stay frozen in place. Every way the box moves ends
+  // in a `scroll` event, edits included (the caret is scrolled into view), and
+  // the layers share an extent, so a draft that shrinks past the offset clamps
+  // both to the same maximum — one listener covers the coupling.
   useEffect(() => {
     const el = inputRef.current
     if (el === null) return
@@ -96,11 +120,22 @@ export function InputBar({
       e.preventDefault()
       host.scrollTop += e.deltaY
     }
+    const onScroll = (): void => {
+      const backdropEl = backdropRef.current
+      if (backdropEl !== null) backdropEl.scrollTop = el.scrollTop
+    }
     el.addEventListener('wheel', onWheel, { passive: false })
-    return () => { el.removeEventListener('wheel', onWheel) }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      el.removeEventListener('wheel', onWheel)
+      el.removeEventListener('scroll', onScroll)
+    }
   }, [])
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
+    // Absent machine (no session): the textarea is disabled so events cannot
+    // fire; the guard narrows the faces for the paths below.
+    if (keyboard === undefined || inputActions === undefined) return
     // Shift+Enter is the native newline UNCONDITIONALLY — decided before the
     // IME guard so a composition-closing Shift+Enter still breaks the line.
     if (e.key === 'Enter' && e.shiftKey) return
@@ -158,10 +193,11 @@ export function InputBar({
     e.preventDefault()
     if (e.repeat) return // held-down Enter must not machine-gun sends
     if (locked || machineBusy) return
-    inputActions.submit('queue')
+    inputActions.submit()
   }
 
   const onChange = (e: ChangeEvent<HTMLTextAreaElement>): void => {
+    if (keyboard === undefined) return // absent machine: disabled textarea, no events
     if (machineBusy) return // submitting is the read-only span; adjudicating holds the pending lock
     const next = e.target.value
     keyboard.setDraft(next)
@@ -187,6 +223,7 @@ export function InputBar({
   /* oxlint-enable typescript/no-unnecessary-condition */
 
   const onCopyOrCut = (e: React.ClipboardEvent<HTMLTextAreaElement>, cut: boolean): void => {
+    if (input === undefined || keyboard === undefined) return // absent machine: disabled textarea, no events
     const el = e.currentTarget
     const { start, end } = selectionOf(el)
     if (start === end) return
@@ -211,6 +248,7 @@ export function InputBar({
   }
 
   const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>): void => {
+    if (keyboard === undefined) return // absent machine: disabled textarea, no events
     if (machineBusy || locked) return
     const text = e.clipboardData.getData('text/plain')
     if (text === '') return
@@ -230,7 +268,7 @@ export function InputBar({
   const onSelect = (e: React.SyntheticEvent<HTMLTextAreaElement>): void => {
     // Any caret/selection gesture ends a live paste attempt (the machine
     // cannot observe DOM selection). Cheap no-op when none is live.
-    if (keyboard.snapshot.paste !== undefined) keyboard.invalidatePaste()
+    if (keyboard !== undefined && keyboard.snapshot.paste !== undefined) keyboard.invalidatePaste()
     void e
   }
 
@@ -240,27 +278,34 @@ export function InputBar({
     inputRef.current?.focus()
   }
 
-  const primaryLabel = running ? 'Stop generating' : 'Send message'
+  const onToggleCommandMenu = (): void => {
+    const el = inputRef.current
+    if (el !== null) toggleCommandMenu?.(selectionOf(el))
+  }
+
+  const primaryLabel = running ? t('input.stop') : t('input.send')
   const onPrimary = (): void => {
+    if (inputActions === undefined || stop === undefined) return // absent machine: the button is disabled
     if (running) {
       stop()
       return
     }
     /* v8 ignore next -- defensive: the primary button is disabled while empty||disabled, so a click cannot reach the false arm. */
-    if (!empty && !disabled && !machineBusy) inputActions.submit('queue')
+    if (!empty && !disabled && !machineBusy) inputActions.submit()
   }
 
   // The Access seat: the projection-fed permission chip (renders nothing
-  // while the permissions key is absent — permission-less host or Draft).
-  const accessSelect: ReactNode = (
-    <PermissionSelect value={permissions} locked={locked} command={command} />
-  )
+  // while the permissions key is absent — permission-less host or Draft —
+  // or while the command face is absent with the session).
+  const accessSelect: ReactNode = command === undefined
+    ? null
+    : <PermissionSelect key={sessionId} value={permissions} locked={locked} command={command} t={t} />
 
   // Mirror-layer decorations: a visible backdrop with transparent text. The
   // claim token highlights through behind the textarea glyphs; each U+FFFC
   // placeholder renders as a chip (the textarea's own glyph is invisible, the
   // backdrop chip supplies the visual); the claim hint is ghost text.
-  const deco = deriveDecorations(input, lexicon)
+  const deco = input === undefined ? INERT_DECORATIONS : deriveDecorations(input, lexicon)
   const backdrop: ReactNode[] = []
   {
     // Segment boundaries: the token range end, every chip offset, and every
@@ -322,12 +367,30 @@ export function InputBar({
     pushPlain(draft.length)
     if (deco.hint !== null) {
       // Claim tokens are shaped `/name ` (trailing space); trim to the bare name.
-      const commandName = input.claim?.token.slice(1).trim() ?? ''
-      const hintKey = commandName === 'goal' && hasGoal ? 'goal.active' : commandName
-      const translated = translateHint(hintKey)
+      const commandName = input?.claim?.token.slice(1).trim() ?? ''
+      const hintKey = `hint.${commandName === 'goal' && hasGoal ? 'goal.active' : commandName}`
+      // Dynamic lookup by claimed command name: unknown commands miss the
+      // dictionary and keep the machine's own hint, so the call is wide.
+      const translated = (t as Translate)(hintKey)
       const displayHint = translated !== hintKey ? translated : deco.hint
       backdrop.push(<span key="hint" className={css.hint} data-decoration="hint">{displayHint}</span>)
     }
+    // Trailing-line sentinel, the same one the mirror div carries and for the
+    // same reason: a textarea reserves a line box for the caret after a final
+    // newline, while `white-space: pre-wrap` collapses a text node's trailing
+    // newline and generates none. Without it a draft ending in a newline makes
+    // the backdrop exactly one line SHORTER than the textarea, so mirroring the
+    // offset at the very bottom clamps and the glyphs sit a line behind the
+    // caret. The extra newline is absorbed by that same collapse when the draft
+    // does not end in one, so it costs no height in the ordinary case.
+    //
+    // The mirror only fails one way — a backdrop SHORTER than the textarea
+    // clamps the assignment, while a taller one takes every offset exactly and
+    // hides the surplus below the clip. That is why the ghost hint needs no
+    // handling of its own: it can only add content after the draft and before
+    // this sentinel, never remove a line box, so it moves the pair to equal or
+    // to the safe side.
+    backdrop.push('\n')
   }
 
   return (
@@ -349,17 +412,17 @@ export function InputBar({
             (min/max capped in CSS); the absolutely-positioned textarea rides its height. Counting
             rows by '\n' cannot see soft wraps. */}
         <div className={css.grow}>
-          <div aria-hidden className={css.backdrop} data-input-backdrop>{backdrop}</div>
+          <div ref={backdropRef} aria-hidden className={css.backdrop} data-input-backdrop>{backdrop}</div>
           <textarea
             ref={inputRef}
             className={css.input}
             value={draft}
             disabled={locked}
             readOnly={machineBusy}
-            data-phase={input.phase}
+            data-phase={input?.phase ?? 'inert'}
             placeholder={placeholder ?? (disabled
-              ? 'Session unavailable'
-              : planActive ? translateHint('placeholder.plan') : translateHint('placeholder.default'))}
+              ? t('placeholder.unavailable')
+              : planActive ? t('placeholder.plan') : t('placeholder.default'))}
             rows={2}
             onChange={onChange}
             onKeyDown={onKeyDown}
@@ -377,11 +440,13 @@ export function InputBar({
             <button
               type="button"
               className={css.add}
-              aria-label={addLabel}
-              title={addLabel}
-              disabled={locked}
+              aria-label={t('input.commands')}
+              title={t('input.commands')}
+              aria-haspopup="listbox"
+              aria-expanded={commandMenuOpen}
+              disabled={locked || toggleCommandMenu === undefined}
               onMouseDown={keepFocus}
-              onClick={onAdd}
+              onClick={onToggleCommandMenu}
             >
               <IconPlusOutline16 size={14} />
             </button>

@@ -5,9 +5,14 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import type { DirectoryListing } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
+import { usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import type { DirectoryFlowOwnerProps } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { apply, inject } from '../src/client/index.ts'
 import { BrowseDirectoryFlow } from '../src/client/flow.ts'
+
+// The service reads its initial locale from the browser; these specs assert
+// the shipped Chinese copy, so they state the browser they assume.
+usePinnedBrowserLanguages('zh-CN')
 
 afterEach(cleanup)
 
@@ -162,6 +167,7 @@ describe('directory-picker-browse client half', () => {
     // zh is the shipped default locale.
     expect(injected.t('browser.title')).toBe('选择工作区目录')
     expect(injected.t('browser.newFolder')).toBe('新建文件夹')
+    expect(injected.t('browser.showHidden')).toBe('显示隐藏文件')
   })
 
   it('drives the injected browse calls through the hole entry', async () => {

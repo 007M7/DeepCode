@@ -186,4 +186,21 @@ export class TestWorkspaces implements IWorkspaces {
     if (stub !== undefined) return await (stub(workspaceId, sessionId, beforeSessionId) as Promise<WorkspaceView>)
     return { workspaceId, title: '', path: '', sessionIds: [sessionId] } as unknown as WorkspaceView
   }
+
+  /**
+   * Archive a session (recorded). The default mirrors the production face's
+   * observable effect: the id joins the list state's archive set.
+   * @param sessionId - session to archive.
+   */
+  async archiveSession(sessionId: SessionId): Promise<void> {
+    this.calls.push({ method: 'archiveSession', args: [sessionId] })
+    const stub = this.stubs.get('archiveSession')
+    if (stub !== undefined) {
+      await (stub(sessionId) as Promise<void>)
+      return
+    }
+    await this.update((draft) => {
+      draft.archivedSessionIds = [...draft.archivedSessionIds, sessionId]
+    })
+  }
 }

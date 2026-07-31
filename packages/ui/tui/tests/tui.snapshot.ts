@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import type { Context } from 'cordis'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
+import { COMPACT_CHECKPOINT_SOURCE } from '@deepseek-ai/dsh-compact'
 import { createUserMessage, CallId, type ContentBlock , createMessage, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import { SessionId, type JsonValue, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
@@ -50,6 +51,7 @@ const CHECKPOINTS = [
   'surface-before-compaction',
   'surface-after-compaction-narrow',
   'surface-after-compaction-wide',
+  'surface-replayed-compaction',
   'model-selector',
   'model-selector-filtered',
   'model-switching',
@@ -179,6 +181,67 @@ function appendToolResult(
     }),
     ...options.meta === undefined ? {} : { meta: options.meta },
   }, { surfaceOp: 'append' })
+}
+
+/** Frozen clock for the compaction fixtures; see the live scenario for why. */
+const COMPACTION_FIXTURE_TIME = new Date(2026, 6, 21, 14, 40, 0).getTime()
+
+/** The surface range a compaction checkpoint replaces, with its provenance. */
+interface CompactionRange {
+  start: number
+  end: number
+  sources: number[]
+}
+
+/**
+ * Append one prompt / tool-call / tool-result step, the history a compaction
+ * shadows on the model surface and the transcript must keep showing. The prompt
+ * text is rendered verbatim; the tool card's body comes from `bash`'s static
+ * presenter, so the fixtures pin that the shadowed step's card survives rather
+ * than the result content below.
+ */
+function appendPreCompactionLog(session: Session): CompactionRange {
+  const user = session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: 'Old prompt with a long line that exercises wrapping and stays visible after compaction.' }],
+    source: { kind: 'user' },
+  }), { surfaceOp: 'append' })
+  const assistant = session.append('assistant/message', {
+    turn: 1,
+    step: 1,
+    message: createMessage({
+      role: 'assistant',
+      content: [{ type: 'tool-call', id: CallId('old-tool'), name: 'bash', arguments: '{}' }],
+      source: {
+        kind: 'model',
+        ...{ provider: 'mock', model: 'deepseek-v4-flash' },
+      },
+    }),
+  }, { surfaceOp: 'append' })
+  session.append('tool/call', { turn: 1, step: 1, callId: CallId('old-tool'), name: 'bash', arguments: '{}' })
+  const result = session.append('tool/result', {
+    turn: 1,
+    step: 1,
+    message: createToolResultMessage({
+      callId: CallId('old-tool'),
+      content: [{ type: 'text', text: 'shadowed step tool output' }],
+      isError: false,
+    }),
+  }, { surfaceOp: 'append' })
+  return { start: user.seq, end: result.seq, sources: [user.seq, assistant.seq, result.seq] }
+}
+
+/** Land a compaction: replace the range with the framed model-only checkpoint. */
+function appendCompactionCheckpoint(session: Session, range: CompactionRange): void {
+  session.append('user/message', createUserMessage({
+    content: [{
+      type: 'text',
+      text: '<context_checkpoint>\nModel-only summary payload that must never reach the transcript.\n</context_checkpoint>',
+    }],
+    source: COMPACT_CHECKPOINT_SOURCE,
+  }), {
+    surfaceOp: { op: 'replace', start: range.start, end: range.end },
+    sourceEventSeqs: range.sources,
+  })
 }
 
 function visualTool(
@@ -491,7 +554,7 @@ describe('TUI terminal-state snapshots', () => {
           description: 'Audit terminal states from independent angles',
           phases: [
             { title: 'Inspect', detail: 'Map renderer branches' },
-            { title: 'Verify', detail: 'Challenge missing states', provider: 'deepseek', model: 'deepseek-v4-flash' },
+            { title: 'Verify', detail: 'Challenge missing states', provider: 'deepseek-official', model: 'deepseek-v4-flash' },
           ],
         },
         args: { packages: ['ui/tui', 'workflow/tool-workflow'] },
@@ -684,67 +747,45 @@ describe('TUI terminal-state snapshots', () => {
     await disposeSnapshot(harness)
   })
 
-  it('pins compaction surface replacement and narrow-to-wide reflow', async () => {
+  it('pins preserved history, the compaction marker, and narrow-to-wide reflow', async () => {
     // Freeze the clock: the timing header hides zero-duration buckets, so a
     // real-clock millisecond tick between the fixture appends and the render
     // would flip `Tools 0.0s` in and out of the pinned header.
-    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(new Date(2026, 6, 21, 14, 40, 0).getTime())
-    let replacementStart = 0
-    let replacementEnd = 0
-    let replacementSources: number[] = []
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(COMPACTION_FIXTURE_TIME)
+    // The awaited setup always invokes beforeMount, so the range the checkpoint
+    // replaces is assigned by the time the appends below need it.
+    let compacted!: CompactionRange
     const harness = await setupSnapshot({
       tools: ADVANCED_CARD_TOOLS,
-      beforeMount(session) {
-        const user = session.append('user/message', createUserMessage({
-          content: [{ type: 'text', text: 'Old prompt with a long line that exercises wrapping before compaction.' }],
-          source: { kind: 'user' },
-        }), { surfaceOp: 'append' })
-        const assistant = session.append('assistant/message', {
-          turn: 1,
-          step: 1,
-          message: createMessage({
-            role: 'assistant',
-            content: [{ type: 'tool-call', id: CallId('old-tool'), name: 'bash', arguments: '{}' }],
-            source: {
-              kind: 'model',
-              ...{ provider: 'mock', model: 'deepseek-v4-flash' },
-            },
-          }),
-        }, { surfaceOp: 'append' })
-        session.append('tool/call', { turn: 1, step: 1, callId: CallId('old-tool'), name: 'bash', arguments: '{}' })
-        const result = session.append('tool/result', {
-          turn: 1,
-          step: 1,
-          message: createToolResultMessage({
-            callId: CallId('old-tool'),
-            content: [{ type: 'text', text: 'obsolete output that must disappear' }],
-            isError: false,
-          }),
-        }, { surfaceOp: 'append' })
-        replacementStart = user.seq
-        replacementEnd = result.seq
-        replacementSources = [user.seq, assistant.seq, result.seq]
-      },
+      beforeMount(session) { compacted = appendPreCompactionLog(session) },
     }, { columns: 80, rows: 24 })
     await checkpoint('surface-before-compaction', harness.terminal, { includeScrollback: true })
 
     await renderAfter(harness, () => {
-      harness.session.append('user/message', createUserMessage({
-        content: [{
-          type: 'text',
-          text: '<system-reminder>\nAdditional instructions from: nested/AGENTS.md\n\nRender workspace context XML clearly.\n</system-reminder>',
-        }],
-        source: { kind: 'plugin', plugin: 'workspace-context' },
-      }), {
-        surfaceOp: { op: 'replace', start: replacementStart, end: replacementEnd },
-        sourceEventSeqs: replacementSources,
-      })
+      appendCompactionCheckpoint(harness.session, compacted)
       harness.terminal.resize(44, 18)
     })
     await checkpoint('surface-after-compaction-narrow', harness.terminal, { includeScrollback: true })
 
     await renderAfter(harness, () => { harness.terminal.resize(104, 30) })
     await checkpoint('surface-after-compaction-wide', harness.terminal, { includeScrollback: true })
+    await disposeSnapshot(harness)
+    nowSpy.mockRestore()
+  })
+
+  // The resume path, which is what regressed for real users: the replacement is
+  // already stored when the terminal mounts, so the transcript comes from replay
+  // rather than from live appends. Pinned against the same log the live scenario
+  // ends on, at its wide size, so the two fixtures are directly comparable.
+  it('pins a stored compaction replayed at mount', async () => {
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(COMPACTION_FIXTURE_TIME)
+    const harness = await setupSnapshot({
+      tools: ADVANCED_CARD_TOOLS,
+      beforeMount(session) {
+        appendCompactionCheckpoint(session, appendPreCompactionLog(session))
+      },
+    }, { columns: 104, rows: 30 })
+    await checkpoint('surface-replayed-compaction', harness.terminal, { includeScrollback: true })
     await disposeSnapshot(harness)
     nowSpy.mockRestore()
   })
@@ -825,18 +866,21 @@ describe('TUI terminal-state snapshots', () => {
         { type: 'turn/start', seq: 0, time: Date.parse(`${day}T00:00:01Z`), data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
         { type: 'user/message', seq: 1, time: Date.parse(`${day}T00:00:02Z`), data: createUserMessage({ content: [{ type: 'text', text: 'restore the selector' }], source: { kind: 'user' } }), surfaceOp: 'append' },
         { type: 'step/start', seq: 2, time: Date.parse(`${day}T00:00:03Z`), data: { turn: 1, step: 1 } },
-        { type: 'request/header', seq: 3, time: Date.parse(`${day}T00:00:04Z`), data: { header: { config: { provider: 'deepseek', model: 'deepseek-v4-pro' } }, reason: 'initial' } },
+        { type: 'request/header', seq: 3, time: Date.parse(`${day}T00:00:04Z`), data: { header: { config: { provider: 'deepseek-official', model: 'deepseek-v4-pro' } }, reason: 'initial' } },
         { type: 'assistant/message', seq: 4, time: Date.parse(`${day}T00:00:05Z`), data: {
           turn: 1, step: 1,
           message: createMessage({
             role: 'assistant',
             content: [{ type: 'text', text: 'ready' }],
-            source: { kind: 'model', provider: 'deepseek', model: 'deepseek-v4-pro' },
+            source: { kind: 'model', provider: 'deepseek-official', model: 'deepseek-v4-pro' },
           }),
         }, surfaceOp: 'append' },
         { type: 'step/end', seq: 5, time: Date.parse(`${day}T00:00:06Z`), data: { turn: 1, step: 1 } },
         { type: 'turn/end', seq: 6, time: Date.parse(`${day}T00:00:07Z`), data: { turn: 1, reason: { kind: 'completed' } } },
         { type: 'session/title', seq: 7, time: Date.parse(`${day}T00:00:08Z`), data: { title, messageSeqs: [1], source: { kind: 'fallback' } } },
+        // A prior pickup, dated well after the work: the picker must still
+        // show the work's date, not the pickup's.
+        { type: 'session/end-seed', seq: 8, time: Date.parse('2026-07-23T07:59:00.000Z'), data: {} },
       ],
     })
     const harness = await setupSnapshot({
@@ -869,7 +913,7 @@ describe('TUI terminal-state snapshots', () => {
     const harness = await setupSnapshot({
       contextWindow: 128_000,
       contextTokens: 42_000,
-      agentOptions: { provider: 'deepseek', model: 'deepseek-v4-pro' },
+      agentOptions: { provider: 'deepseek-official', model: 'deepseek-v4-pro' },
       tools: {
         read: {
           name: 'read',
@@ -906,6 +950,12 @@ describe('TUI terminal-state snapshots', () => {
           messageSeqs: [1],
           source: { kind: 'fallback' },
         })
+        // Renders over a boundary-bearing log. It cannot pin the exclusion:
+        // `/status` appends its own `command/run` first, so the boundary is
+        // never the tail here. The other two call sites pin it.
+        dateNow.mockReturnValue(Date.parse('2026-07-22T10:10:11.000Z'))
+        session.append('session/end-seed', {})
+        dateNow.mockReturnValue(Date.parse('2026-07-22T09:10:11.000Z'))
       },
     }, { columns: 92, rows: 32 })
     await renderAfter(harness, () => {

@@ -1,40 +1,41 @@
 - banner:
-  - navigation "Session hierarchy":
-    - button "Use the ask_user_question tool to" [disabled]
+  - heading "Use the ask_user_question tool to" [level=1]
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
 - text: "Use the ask_user_question tool to ask me exactly one question with id \"color\", question \"Which color do you prefer?\", header \"Pick one\", and two options: label \"Blue\" with description \"A cool recessive hue that reads as calm and trustworthy in long reading sessions and dense dashboards.\", and label \"Green\" with description \"A restful mid-spectrum hue with the highest perceived brightness, easiest on the eye over long sessions.\" After I answer, reply with the single word DONE and stop. {{clock}}"
-- button "复制":
+- button "Copy":
   - img
-- button "在新对话中分支":
+- button "Branch into a new conversation":
   - img
-- button "编辑":
+- button "Context injection":
   - img
+  - img
+  - text: Context injection
 - button "Think The user wants me to use the ask_user_question tool with specific parameters. Let me do exactly that.":
   - img
   - img
   - text: Think The user wants me to use the ask_user_question tool with specific parameters. Let me do exactly that.
-- button:
+- button "Ask question 1/1 answered":
   - img
   - img
-- text: "Tool call ask_user_question · {\"questions\": [{\"id\": \"color\", \"question\": \"Which color do you prefer?\", \"header\": \"Pick one\", \"options\": [{\"label\": \"Blue\", \"description\": \"A cool recessive hue that reads as calm and trustworthy in long reading sessions and dense dashboards.\"}, {\"label\": \"Green\", \"description\": \"A restful mid-spectrum hue with the highest perceived brightness, easiest on the eye over long sessions.\"}]}]}"
+  - text: Ask question 1/1 answered
 - button "Think The user answered \"Blue\". I should now reply with the single word DONE and stop.":
   - img
   - img
   - text: Think The user answered "Blue". I should now reply with the single word DONE and stop.
 - paragraph: DONE
-- button "复制":
+- button "Copy":
   - img
-- button "在新对话中分支":
+- button "Branch into a new conversation":
   - img
 - text: {{clock}}
 - textbox "Message the agent"
-- button "Add attachment":
+- button "Commands":
   - img
-- 'button "Access mode, current: Danger Full Access"': Danger Full Access
+- 'button "Access mode, current: Full access"': Full access
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
-- text: 1 turns · 2 steps Tool call {{duration}} Cache hit 95% Input 8.6K tok · Output 180 tok
+- text: 1 turns · 2 steps Tool call {{duration}} Context 3% of 128K Cache hit 95% Input 8.6K tok · Output 180 tok

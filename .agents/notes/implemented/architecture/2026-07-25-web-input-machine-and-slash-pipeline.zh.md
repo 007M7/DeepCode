@@ -63,16 +63,16 @@ occurrence 表与 chip 三投影：
 对"命令"零知识的触发/菜单/pick 管线：
 
 - service 只有 source 注册表（`SlashSource{trigger: '/'|'@', name, order?, candidates, onPick, matchSpace?, matchEnter?}`；(trigger,name) 唯一；可选 `order` 对 roster 排序——越小越靠前、默认 0、同值保持注册序——排序后的 roster 同时是组序与轮询序）与 `sessionOf(sctx)`。实现 match 钩子即参与空格/回车裁决的声明；管线按 roster 序轮询，首个非 undefined 应答胜出，无人认领落 default sink。matchSpace 同步（空格在击键中触发，只许热缓存）；matchEnter 异步（可 await 源自身预热，预热失败即 reject）。
-- controller 持有唯一权威 hit（含 span；菜单关闭后为 Space 保留）、per-session menu store、候选 fetch generation、键盘仲裁（combobox 模式：焦点始终在 textarea，↑↓/Enter/Escape 拦截且全程过 IME composition 守卫，唯一例外 Shift+Enter 无条件先行）、pick 编排（outcome → 自派 bail 事件）；`dismiss()` 动词支撑 MenuView 注入的 `onDismiss`（指针落在菜单与所在 composer 卡片之外即关闭菜单；MenuView 还经 `slash.menu` locale 命名空间本地化组标题，并经 ui-primitives 的 `useAnchoredMaxHeight` 把高度收敛到 composer 上方的视口空间）；每个 session scope 出生时对 source roster 做一次 `warm(projection)`，projection 在该 scope 内只有稳定的 sessionId，无 published/能力跃迁；scope disposer 拆除 controller。
+- controller 持有唯一权威 hit（含 span；菜单关闭后为 Space 保留）、per-session menu store、候选 fetch generation、键盘仲裁（combobox 模式：焦点始终在 textarea，↑↓/Enter/Escape 拦截且全程过 IME composition 守卫，唯一例外 Shift+Enter 无条件先行），以及 pick 编排（outcome → 自派 bail 事件）。`toggleSource(name, syntheticHit)` 是 chrome launcher 路径：它基于调用方的 textarea selection，只 seed 对应的已注册 source，并发布 `launcher = name` 直至关闭；普通的键入式 tracking 会清除 launcher 并恢复完整的 trigger roster。两条路径渲染同一个 MenuView，并执行同一条 `onPick` 链。`dismiss()` 动词支撑 MenuView 注入的 `onDismiss`（指针落在菜单与所在 composer 卡片之外即关闭菜单；MenuView 还经 `slash.menu` locale 命名空间本地化组标题，并经 ui-primitives 的 `useAnchoredMaxHeight` 把高度收敛到 composer 上方的视口空间）；每个 session scope 出生时对 source roster 做一次 `warm(projection)`，projection 在该 scope 内只有稳定的 sessionId，无 published/能力跃迁；scope disposer 拆除 controller。
 - 触发检测词边界（`user@host`、URL `/` 永不触发）、守卫分档（plain：`/` 到处 + `@` 行内 / claimed：`/` 抑制、`@` 活 / frozen：全无）为冻结纯核。
 
 ### hub / facade：常驻外壳与严格 session 输入体
 
 - hub（trigger/decoration 注册表 + 发送编排）对 slash/command 服务是可选 `ctx.get()` 依赖：无 ui-slash/命令面时输入正常收发，优雅降级。
 - 每个实体 Session 只有一个 `SessionInputShell`（facade），随 session scope 创建和拆除；无 session 时不造 input machine。`ConversationRoot` 自身是 `session-maybe` 常驻外壳，持有 HeroShell、Workspace picker、composer stack 与 chain fallback 外框。
-- 无 session 时外壳渲染纯展示的 `DisabledInputBar`；`connectWorkspace` 返回 blank session 后，仅输入体换成严格 session 的 InputBar。这里允许 textarea 重建，`ConversationRoot`、Hero 与布局骨架保持；blank → engaging/active 仍是同一 session-bound InputBar，textarea 不因 phase 翻转而重建。
+- composer bar 是一个无条件渲染的 `session-maybe` slot entry：无 session 时同一个 InputBar 以惰性态渲染（machine face 缺席、`disabled` owner prop），`connectWorkspace` 返回 blank session 后同一实例转为 live——textarea DOM 在无 session → blank 切换及其后每次 phase 翻转中都不重建；`ConversationRoot`、Hero 与布局骨架全程保持。
 - ConversationRoot 的 Hero 判据是 `sessionId === undefined || (composerPhase === 'blank' && (openState === 'open' || openState === 'loading'))`。首次 submit 同步进入 engaging，失败也保留 composer 与错误上下文，不退回 blank Hero；sidebar 的 blank 位只在 prompt 成功受理后翻 false。
-- 发送统一在 hub defaultSink：乐观清稿后只走 `session.prompt {mode:'queue'|'steer'}`；失败且 live draft 仍为空才回填，用户已经继续输入则不覆盖。不存在 Draft materialize 或 attach 事务。
+- 发送统一在 hub defaultSink：乐观清稿后只走 `session.prompt` 且固定 `mode:'queue'`（Web UI 无 steer 入口；host 线缆上的 `mode:'steer'` 不经此 machine）；失败且 live draft 仍为空才回填，用户已经继续输入则不覆盖。不存在 Draft materialize 或 attach 事务。
 - blank Hero 改选 Workspace 时，外壳调用 `connectWorkspace`；目标 session 不同时把非空 draft 从当前 shell 搬到目标 shell，再 open 新 id，旧 blank session 留存但不再 current。
 - Notifier 双位契约：`dirty`（快照新鲜度，`ensureFresh` 拉取可清）与 `notifyPending`（通知欠账，只有 flush 清）各自独立——拉取不得吞推送，对象层推订阅者（watchTransaction）依赖这一保证。
 
@@ -101,7 +101,7 @@ skill/@subagent 引用不走占位符 + occurrence 身份链——pick 直接把
 - `conversation.input.dock`——输入上方堆叠条（QueueDock 的队列只读列表落此），order 定序。
 - `conversation.composer.dock`——composer 上沿统计带。
 - `conversation.input.left` / `conversation.input.right`——工具行左右区。
-- `conversation.input.plan` / `conversation.input.model`（single）——工具行两具名控制位；bar 只传 `locked`（owner props），空到 owning 插件注册为止，无占位 fallback。
+- `conversation.input.plan` / `conversation.input.model`（single）——工具行两具名控制位；bar 只传 `locked`（owner props），空到 owning 插件注册为止，无占位 fallback。plan seat 未激活时保持为空，因为入口归共享 Command source 所有；有效 plan 目标会渲染 warn 状态的 `Plan ×` 状态按钮，其唯一动作是 `/plan off`。
 - `conversation.hero.workspace`（root scope）——无 session / blank Hero 共用的 Workspace picker；pick 经 `connectWorkspace` 复用或创建目标 blank session，必要时搬运 draft 后切 current。
 
 ### 测试纪律
@@ -122,6 +122,8 @@ skill/@subagent 引用不走占位符 + occurrence 身份链——pick 直接把
 | 空格裁决也认领即执行型命令 | 误触发防线：空格后整行是普通 prompt；不可逆副作用只留显式入口 |
 | 通用 tokenPattern 装饰机制 | 结构化 occurrence 记录取代模式扫描 |
 | 占位 select 常驻工具行 | 具名坑位空到注册为止；占位件与真实现冲突时是双真相源 |
+| 始终可见的 Plan 开／关切换 | 入口已归共享 Command source 所有；第二个入口会把状态 seat 变成冗余的 mode chrome |
+| 第二套加号菜单组件／controller，或在 Command 上方增加 Add/File 分组 | 这会重复异步候选、键盘高亮、焦点保留与 pick 状态；加号控件只是既有 MenuView 按 source 过滤的 launcher，且此 scope 没有文件能力 |
 | 引用一律走 U+FFFC chip（决策 21 前旧线） | 纯文本 + 派生装饰零身份状态；原文即模型投影，undo/剪贴板免特判；chip 链保留给需要不可分原子性的场景 |
 
 ## 后果

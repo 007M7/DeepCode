@@ -14,13 +14,27 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, waitFor, within } from '@testing-library/react'
 import type { ISession, SessionId, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
-import { SlotTestRuntime } from '@deepseek-ai/dsh-client-test-runtime'
+import { SlotTestRuntime, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
+import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-workspace/client'
+
+// The service reads its initial locale from the browser; these specs assert
+// the shipped Chinese copy, so they state the browser they assume.
+usePinnedBrowserLanguages('zh-CN')
 
 const SID = 's1' as SessionId
 
 afterEach(cleanup)
 beforeEach(() => { localStorage.clear() })
+
+/** Runtime with the locale face installed (the browser entry declares `locale:` — zh default backs the t seat). */
+async function createRuntime(): Promise<SlotTestRuntime> {
+  const runtime = await SlotTestRuntime.create()
+  const locale = new LocaleService(runtime.ctx)
+  runtime.provide('locale', locale)
+  runtime.slots.installLocale(locale)
+  return runtime
+}
 
 /** Test-owned sidebar shell role: declares and renders the browsing region. */
 type FrameProps = PropsRenderSlots<'sidebar.workspaces'>
@@ -30,7 +44,7 @@ function SidebarFrame({ renderSlot }: FrameProps) {
 
 describe('session rename through the assembled browser', () => {
   it('renames via the row menu: binding.session.rename fires, the dialog closes, the row re-labels from the list', async () => {
-    const runtime = await SlotTestRuntime.create()
+    const runtime = await createRuntime()
     const rename = vi.fn<ISession['rename']>(async title => ({
       ok: true, value: { title: title.trim().replace(/\s+/g, ' '), seq: 7 },
     }))
@@ -54,20 +68,20 @@ describe('session rename through the assembled browser', () => {
 
     // The current session's group auto-expands; open the row's action menu.
     const row = (await view.findByText('旧标题')).closest('[role="treeitem"]')!
-    fireEvent.click(within(row as HTMLElement).getByLabelText('Session actions for 旧标题'))
-    fireEvent.click(view.getByRole('menuitem', { name: 'Rename', hidden: true }))
+    fireEvent.click(within(row as HTMLElement).getByLabelText('会话“旧标题”的操作'))
+    fireEvent.click(view.getByRole('menuitem', { name: '重命名', hidden: true }))
 
     // The dialog seeds from the current title; submit a padded value.
-    const input = await view.findByLabelText('Session name') as HTMLInputElement
+    const input = await view.findByLabelText('会话名称') as HTMLInputElement
     expect(input.value).toBe('旧标题')
     fireEvent.change(input, { target: { value: '  分叉  实验记录  ' } })
-    fireEvent.click(view.getByRole('button', { name: 'Rename' }))
+    fireEvent.click(view.getByRole('button', { name: '重命名' }))
 
     // The injected hop reached the session face with the edge-trimmed draft
     // (the dialog trims edges; interior normalization is host-side).
     await waitFor(() => { expect(rename).toHaveBeenCalledWith('分叉  实验记录') })
     // Acceptance closes the dialog without any push-frame wait.
-    await waitFor(() => { expect(view.queryByLabelText('Session name')).toBeNull() })
+    await waitFor(() => { expect(view.queryByLabelText('会话名称')).toBeNull() })
     // The manager lands the unary echo in the list store (its own package
     // tests own that hop); the row re-labels from list state alone.
     await runtime.sessions.updateSummary(SID, { displayTitle: '分叉 实验记录', title: '分叉 实验记录' })
@@ -77,7 +91,7 @@ describe('session rename through the assembled browser', () => {
   })
 
   it('a rejected rename keeps the dialog open with the error surfaced', async () => {
-    const runtime = await SlotTestRuntime.create()
+    const runtime = await createRuntime()
     const rename = vi.fn<ISession['rename']>(async () => ({
       ok: false, error: { code: 'internal', message: 'title write failed', details: {} },
     }))
@@ -101,17 +115,17 @@ describe('session rename through the assembled browser', () => {
     await runtime.flush()
 
     const row = (await view.findByText('旧标题')).closest('[role="treeitem"]')!
-    fireEvent.click(within(row as HTMLElement).getByLabelText('Session actions for 旧标题'))
-    fireEvent.click(view.getByRole('menuitem', { name: 'Rename', hidden: true }))
-    const input = await view.findByLabelText('Session name')
+    fireEvent.click(within(row as HTMLElement).getByLabelText('会话“旧标题”的操作'))
+    fireEvent.click(view.getByRole('menuitem', { name: '重命名', hidden: true }))
+    const input = await view.findByLabelText('会话名称')
     fireEvent.change(input, { target: { value: '新名' } })
-    fireEvent.click(view.getByRole('button', { name: 'Rename' }))
+    fireEvent.click(view.getByRole('button', { name: '重命名' }))
 
     // Failure: the injected hop rethrows the business error; the dialog
     // stays open with the alert and the row keeps its title.
     const alert = await view.findByRole('alert')
     expect(alert.textContent).toContain('title write failed')
-    expect(view.getByLabelText('Session name')).toBeTruthy()
+    expect(view.getByLabelText('会话名称')).toBeTruthy()
     expect(view.getByText('旧标题')).toBeTruthy()
     await runtime.dispose()
   })

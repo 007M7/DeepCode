@@ -16,7 +16,12 @@
  * survives frozen (read-only view) until the stage moves on.
  */
 import type { Context, Fiber } from 'cordis'
-import type { IApiClient, RpcError, SessionId, WorkspaceId } from '@deepseek-ai/dsh-client-connection/client'
+import type {
+  IApiClient, RpcError, RpcResult, SessionId, WorkspaceId,
+} from '@deepseek-ai/dsh-client-connection/client'
+// Value import from the inline-safe wire layer (not the connection plugin):
+// plugin-to-plugin value imports are a bundle purity error.
+import { SESSION_SEARCH_RESULT_LIMIT } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type {
   HostObservable, SessionMaybeProvideInfo, SessionProvideInfo,
 } from '@deepseek-ai/dsh-client-ui-slots'
@@ -26,7 +31,7 @@ import type { SessionFace } from '../contract/session.ts'
 import type { ISessions } from '../contract/sessions.ts'
 import { createScope, scopeOf as scopeTagOf } from '../agents/scope.ts'
 import { SessionManager } from './manager.ts'
-import type { SessionListPhase } from './manager.ts'
+import type { SessionListPhase, SessionSearchResultItem } from './manager.ts'
 import { SessionProvideChannel } from './provide.ts'
 import type { Session } from './session.ts'
 
@@ -81,6 +86,22 @@ export class SessionCreateError extends Error {
   }
 }
 
+/** Structured session-fork failure. */
+export class SessionForkError extends Error {
+  override readonly name = 'SessionForkError'
+
+  /**
+   * @param rpcError - Host business or folded transport error.
+   * @param sourceSessionId - the session the fork was cut from.
+   */
+  constructor(
+    readonly rpcError: RpcError,
+    readonly sourceSessionId: SessionId,
+  ) {
+    super(`session fork failed: ${rpcError.code}: ${rpcError.message}`)
+  }
+}
+
 /** Session assembly handle for SessionProvider/inject factories (identity-stable per session). */
 export interface SessionBinding {
   readonly sessionId: SessionId
@@ -121,6 +142,24 @@ function displayTitleOf(title: string | undefined, cwd: string | undefined, id: 
   return id
 }
 
+/**
+ * Increment a trailing fork number while preserving its half-width or
+ * full-width parentheses; an unnumbered title starts with ` (1)`.
+ * @param title - source session's durable title.
+ * @returns the title assigned to the fork child.
+ */
+function increasedForkTitle(title: string): string {
+  const ascii = /^(.*?)\((\d+)\)$/u.exec(title)
+  if (ascii?.[1] !== undefined && ascii[2] !== undefined) {
+    return `${ascii[1]}(${BigInt(ascii[2]) + 1n})`
+  }
+  const fullWidth = /^(.*?)（(\d+)）$/u.exec(title)
+  if (fullWidth?.[1] !== undefined && fullWidth[2] !== undefined) {
+    return `${fullWidth[1]}（${BigInt(fullWidth[2]) + 1n}）`
+  }
+  return `${title} (1)`
+}
+
 interface ScopeRecord {
   fiber: Fiber
   ctx: Context
@@ -155,6 +194,13 @@ export interface SessionProvideDescriptor {
 
 /** Root sessions service: list store, current selection, object-layer manager, scope tree, bindings, ancestry. */
 export class SessionsService implements ISessions {
+  /**
+   * The wire schema's own result bound, re-exposed for presentation plugins as
+   * injected data. Not per-connection state: the `session.search` response
+   * schema caps `items` at this constant, so every transport (fixture included)
+   * reports the same number.
+   */
+  readonly searchResultLimit = SESSION_SEARCH_RESULT_LIMIT
   /** List snapshot store (list RPC + host stream increments; re-pulled on reconnect) — the useSessions standard feed, current included. */
   readonly list: SnapshotStore<SessionListState>
   /** The object-layer instance cluster and frame dispatch entry. */
@@ -194,7 +240,10 @@ export class SessionsService implements ISessions {
    * @param ctx - client root context (scope fibers mount under it).
    * @param api - wire client shared with every Session.
    */
-  constructor(private readonly rootCtx: Context, api: IApiClient) {
+  constructor(
+    private readonly rootCtx: Context,
+    api: IApiClient,
+  ) {
     this.selection = createSnapshotStore<{ sessionId?: SessionId }>(
       {},
       { persist: { name: 'dsh.sessions.current' } })
@@ -274,6 +323,20 @@ export class SessionsService implements ISessions {
   }
 
   /**
+   * Search the Host's visible message-content index. Results stay
+   * request-local; the list snapshot remains the metadata authority.
+   * @param query - non-blank literal phrase.
+   * @param signal - cancellation for a superseded search.
+   * @returns bounded results or a business/transport error.
+   */
+  search(
+    query: string,
+    signal: AbortSignal,
+  ): Promise<RpcResult<{ items: SessionSearchResultItem[]; hasMore: boolean }>> {
+    return this.manager.search(query, signal)
+  }
+
+  /**
    * Route a mux stream envelope into the Session object layer.
    * @param envelope - validated mux stream envelope.
    */
@@ -315,6 +378,42 @@ export class SessionsService implements ISessions {
     if (!result.ok) throw new SessionCreateError(result.error, opts.sessionId)
     this.projectList()
     return result.value.sessionId
+  }
+
+  /**
+   * Fork a session from a completed-turn prefix of the source (same
+   * synchronous-addressability guarantee as {@link SessionsService.create}:
+   * on resolution the child is in the list store and open() can target it).
+   * @param opts - source session id, the optional event seq anchoring the
+   *   cut (the boundary is the first turn/end at or after it; an in-log
+   *   anchor in an open turn is unavailable rather than clipped backward),
+   *   and whether to increment an inherited durable title before resolving.
+   * @returns the child session id.
+   * @throws {SessionForkError} with the source id.
+   * @throws {Error} when a requested child-title rename fails after creation.
+   */
+  async fork(opts: {
+    sessionId: SessionId
+    atSeq?: number
+    increaseTitle?: boolean
+  }): Promise<SessionId> {
+    const sourceTitle = opts.increaseTitle
+      ? this.list.getSnapshot().byId[opts.sessionId]?.title
+      : undefined
+    const result = await this.manager.fork({
+      sessionId: opts.sessionId,
+      ...(opts.atSeq === undefined ? {} : { atSeq: opts.atSeq }),
+    })
+    if (!result.ok) throw new SessionForkError(result.error, opts.sessionId)
+    this.projectList()
+    const childId = result.value.sessionId
+    if (sourceTitle !== undefined) {
+      const child = this.binding(childId)?.session
+      if (child === undefined) throw new Error(`fork child "${childId}" is not locally addressable`)
+      const renamed = await child.rename(increasedForkTitle(sourceTitle))
+      if (!renamed.ok) throw new Error(`fork child rename failed: ${renamed.error.code}: ${renamed.error.message}`)
+    }
+    return childId
   }
 
   /**

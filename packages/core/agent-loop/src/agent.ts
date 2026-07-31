@@ -2,7 +2,8 @@
  * Concrete Agent loop over two pending-input lists: queued prompts each open a
  * turn that logs its admitted input after `turn/start` commits, while steering
  * and injected context enter through the outbox at step boundaries. Every
- * request is derived from the session log.
+ * request is derived from the session log. An idle turn-admission reservation
+ * can withhold the driver from the queue without touching its contents.
  *
  * @module dsh-agent-loop/agent
  */
@@ -34,6 +35,7 @@ import {
   LlmError,
   assertNever,
   createAssistantMessage,
+  createUserMessage,
   deepFreeze,
   errorChain,
   freezeMessage,
@@ -44,8 +46,8 @@ import {
 } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmCallConfig, LlmFailure, Message, PreparedLlmCall, ResolvedRetryPolicy } from '@deepseek-ai/dsh-llm'
 import { canonicalHeader, headerEquals } from '@deepseek-ai/dsh-session'
-import type { AssistantMessage, Session, SessionId, TurnEndReason, TurnTrigger, UserMessage } from '@deepseek-ai/dsh-session'
-import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
+import type { AssistantMessage, EpochHeader, RequestContext, Session, SessionId, TurnEndReason, TurnTrigger, UserMessage } from '@deepseek-ai/dsh-session'
+import { renderContextSnapshot, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import { executeToolCalls } from './tool-calls.ts'
 
@@ -53,6 +55,56 @@ import { executeToolCalls } from './tool-calls.ts'
 type StepOutcome =
   | { kind: 'completed'; continueTurn: boolean; concluded: boolean; maxTokens: boolean }
   | { kind: 'request-failed'; error: RequestError; failure: LlmFailure; retryPolicy: ResolvedRetryPolicy | undefined }
+
+const RUNTIME_CONTEXT_SOURCE = '@deepseek-ai/dsh-system-prompt'
+/** Clearing marker kept distinct from every prefixed {@link renderContextSnapshot} result. */
+const CLEARED_RUNTIME_CONTEXT = 'Current runtime context: none. Earlier runtime-context snapshots no longer apply.'
+
+/** Whether one user message is owned by runtime-context materialization. */
+function isRuntimeContextMessage(message: UserMessage): boolean {
+  return message.source.kind === 'plugin' && message.source.plugin === RUNTIME_CONTEXT_SOURCE
+}
+
+/** Latest retained runtime-context snapshot; `found` distinguishes malformed content from absence. */
+function retainedRuntimeContext(session: Session): { found: boolean; text: string | undefined } {
+  const events = session.events
+  const nodes = session.surface.nodes
+  for (let index = nodes.length - 1; index >= 0; index -= 1) {
+    const event = events[nodes[index] as number]
+    if (event?.type !== 'user/message' || !isRuntimeContextMessage(event.data)) continue
+    const [block] = event.data.content
+    return {
+      found: true,
+      text: event.data.content.length === 1 && block?.type === 'text' ? block.text : undefined,
+    }
+  }
+  return { found: false, text: undefined }
+}
+
+/** Append a full current snapshot only when it changed or compaction removed it. */
+function materializeRuntimeContext(session: Session, current: string): void {
+  const previous = retainedRuntimeContext(session)
+  if (!previous.found && current.length === 0) {
+    const compactedPriorSnapshot = session.surface.replaceGeneration > 0
+      && session.events.some(event => event.type === 'user/message' && isRuntimeContextMessage(event.data))
+    if (!compactedPriorSnapshot) return
+  }
+  const snapshot = current.length === 0 ? CLEARED_RUNTIME_CONTEXT : current
+  if (previous.text === snapshot) return
+  session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: snapshot }],
+    source: { kind: 'plugin', plugin: RUNTIME_CONTEXT_SOURCE },
+  }), { surfaceOp: 'append' })
+}
+
+/** Remove adapter-derived values before plugins propose the next request config. */
+function requestProposal(header: EpochHeader): LlmCallConfig {
+  if (header.adapterDefaults === undefined) return header.config
+  const proposal = { ...header.config }
+  if (header.adapterDefaults.reasoningEffort === true) delete proposal.reasoningEffort
+  if (header.adapterDefaults.maxTokens === true) delete proposal.maxTokens
+  return proposal
+}
 
 /**
  * The concrete {@link Agent}: each `run()` owns one turn and repeats model
@@ -68,6 +120,12 @@ export class ReactLoopAgent implements Agent {
   private busy = false
   /** Whether an idle waking send has deferred driver admission. */
   private wakeScheduled = false
+  /**
+   * The live idle turn-admission reservation, holding the driver out of the
+   * queue until its owner releases. It settles idle waiters instead of
+   * {@link done} so lifecycle teardown never awaits the reserving operation.
+   */
+  private admission: { readonly settled: Promise<void>; readonly settle: () => void } | undefined
   /** Whether next-step input belongs to the current admission or open turn. */
   acceptsNextStep = false
   /** Abort owner for the current admission or turn. */
@@ -193,6 +251,32 @@ export class ReactLoopAgent implements Agent {
   }
 
   /**
+   * Hold the idle admission boundary so no queued prompt can open a turn until
+   * the returned release runs. Later sends keep their ordinary placement and
+   * `wakeup` facts; only the driver's claim waits.
+   * @returns the idempotent release, or `undefined` when the driver is active or already committed to waking work.
+   */
+  reserveTurnAdmission(): (() => void) | undefined {
+    // `busy` covers every abort owner: kick() and run() mark the interval
+    // running before they install one. `wakeScheduled` is the same-tick state
+    // of an accepted waking prompt whose claim is still a pending microtask.
+    if (this.busy || this.wakeScheduled || this.admission !== undefined
+      || this.queued.some(item => item.wakeup)) return undefined
+    const pending = Promise.withResolvers<void>()
+    const reservation = { settled: pending.promise, settle: pending.resolve }
+    this.admission = reservation
+    return () => {
+      // Idempotent, and inert once a later reservation owns the boundary.
+      if (this.admission !== reservation) return
+      this.admission = undefined
+      // Re-arm the ordinary path first, so an idle waiter released below
+      // re-reads live admission activity instead of settled state.
+      if (this.queued.some(item => item.wakeup)) this.scheduleKick()
+      reservation.settle()
+    }
+  }
+
+  /**
    * Clear all pending work and abort the active turn; the first cause wins.
    * The cause is signal payload for observers and the durable turn/end
    * classification — it selects no machine behavior. Teardown is just
@@ -225,19 +309,34 @@ export class ReactLoopAgent implements Agent {
 
   /** Resolve at idle quiescence: no run driving and no waking prompt waiting. */
   async whenIdle(): Promise<void> {
-    // `done` is replaced per activity, so re-reading it follows chained turns.
-    // Every driver failure today is contained before it can reject `done`,
-    // but the waiter must not gamble quiescence on that: a future escape
-    // still counts as settled activity.
-    /* v8 ignore next 3 -- the catch arm backstops rejection paths that are all currently contained */
-    while (this.busy || this.wakeScheduled || this.abort !== undefined || this.queued.some(item => item.wakeup)) {
-      await this.done.catch(() => undefined)
+    while (true) {
+      // `done` is replaced per activity, so re-reading it follows chained turns.
+      // Every driver failure today is contained before it can reject `done`,
+      // but the waiter must not gamble quiescence on that: a future escape
+      // still counts as settled activity.
+      /* v8 ignore next 3 -- the catch arm backstops rejection paths that are all currently contained */
+      while (this.busy || this.wakeScheduled || this.abort !== undefined || this.runnableWakingQueued) {
+        await this.done.catch(() => undefined)
+      }
+      // A reservation is unfinished activity even with an empty queue, and a
+      // prompt it withholds is not quiescent — but `done` never owns it, so
+      // waiting on the queue alone would spin on an already-settled promise.
+      const reservation = this.admission
+      if (reservation === undefined) return
+      await reservation.settled
     }
+  }
+
+  /** Whether a queued waking prompt may claim the driver now. */
+  private get runnableWakingQueued(): boolean {
+    return this.admission === undefined && this.queued.some(item => item.wakeup)
   }
 
   /** Defer idle admission while keeping {@link done} as its quiescence owner. */
   private scheduleKick(): void {
-    if (this.abort !== undefined || this.wakeScheduled) return
+    // A held reservation keeps the item queued with no scheduled claim; its
+    // release re-arms this path for whatever is queued by then.
+    if (this.abort !== undefined || this.wakeScheduled || this.admission !== undefined) return
     this.wakeScheduled = true
     const pending = Promise.withResolvers<void>()
     const scheduled = pending.promise
@@ -259,7 +358,7 @@ export class ReactLoopAgent implements Agent {
 
   /** Claim and admit the next queued prompt, then start its turn. */
   private kick(): void {
-    if (this.abort !== undefined || !this.queued.some(item => item.wakeup)) return
+    if (this.abort !== undefined || !this.runnableWakingQueued) return
     // The some() guard above proves the queue is non-empty; the non-null
     // assertion expresses that invariant.
     // oxlint-disable-next-line typescript/no-non-null-assertion
@@ -511,10 +610,13 @@ export class ReactLoopAgent implements Agent {
     // this request together.
     this.drainOutbox(turn)
 
-    // Assemble the system prompt fresh each step (it may depend on log state).
+    // Assemble request-owned prompt inputs fresh each step. Dynamic context is
+    // committed at the tail before deriving history once, preserving the stable
+    // system/history cache prefix while keeping every model-visible byte logged.
     const assembly = await this.loopCtx.systemPrompt.assemble(assembleContextFor(this, signal))
     signal.throwIfAborted()
     const system = renderPrompt(assembly)
+    materializeRuntimeContext(session, renderContextSnapshot(assembly))
 
     // Snapshot the exact log prefix: the reconstruction boundary. Appends
     // after this synchronous snapshot join the next request.
@@ -615,19 +717,21 @@ export class ReactLoopAgent implements Agent {
   ): Promise<{ request: GenerateOptions; preparedCall?: PreparedLlmCall }> {
     const { session } = this
 
-    // A loop instance starts from its declared route, restoring only an opaque
-    // effort owned by that exact model. Later steps fold the config it logged.
-    const persistedConfig = session.requestHeader()?.config
+    // A loop instance starts from its declared route, restoring only an explicit
+    // effort owned by that exact model. Later steps re-resolve marked defaults.
+    const persistedHeader = session.requestHeader()
+    const persistedConfig = persistedHeader?.config
     const route = { provider: this.options.provider ?? '', model: this.options.model ?? '' }
     const reasoningEffort = persistedConfig?.provider === route.provider
       && persistedConfig.model === route.model
+      && persistedHeader?.adapterDefaults?.reasoningEffort !== true
       ? persistedConfig.reasoningEffort
       : undefined
     const maxTokens = this.options.maxTokens
     const seedConfig = deepFreeze(structuredClone(
       this.requestHeaderLogged
         // oxlint-disable-next-line typescript/no-non-null-assertion -- the instance logged the header it now folds
-        ? persistedConfig!
+        ? requestProposal(persistedHeader!)
         : {
           ...route,
           ...reasoningEffort === undefined ? {} : { reasoningEffort },
@@ -657,6 +761,7 @@ export class ReactLoopAgent implements Agent {
 
     const header = canonicalHeader({
       config,
+      ...preparedCall === undefined ? {} : { adapterDefaults: preparedCall.adapterDefaults },
       ...system ? { system } : {},
       ...tools.length > 0 ? { tools } : {},
     })
@@ -666,6 +771,24 @@ export class ReactLoopAgent implements Agent {
       this.requestHeaderLogged = true
     } else if (baseline === undefined || !headerEquals(baseline, header)) {
       session.append('request/header', { header, reason: 'change' })
+    }
+
+    // TODO: This looks like code smell.
+    // Context metadata for the route this request resolved to, recorded from the same
+    // registration-bound lookup that prepared the call (no second resolve).
+    // A route with unknown capacity is still recorded so it clears any older
+    // denominator; an unchanged route logs nothing.
+    const contextWindow = preparedCall?.context?.contextWindow
+    const requestContext: RequestContext = {
+      provider: config.provider,
+      model: config.model,
+      ...contextWindow === undefined ? {} : { contextWindow },
+    }
+    const previous = session.requestContext()
+    if (previous?.provider !== requestContext.provider
+      || previous.model !== requestContext.model
+      || previous.contextWindow !== requestContext.contextWindow) {
+      session.append('request/context', requestContext)
     }
 
     const request = markAgentLoopRequest(deepFreeze({
@@ -762,7 +885,7 @@ export class ReactLoopAgent implements Agent {
 
   /** Continue with a waking prompt, or publish the idle status. */
   private continueOrIdle(): void {
-    if (this.queued.some(item => item.wakeup)) {
+    if (this.runnableWakingQueued) {
       this.kick()
     } else {
       // Every caller sits inside an admission or run whose install marked the

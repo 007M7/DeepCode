@@ -56,7 +56,7 @@ export class InputHub implements InputService {
       slash: () => this.controller(actx),
       popup: () => this.popup(actx),
       queue: queueReadFaceOf(session),
-      defaultSink: (text, mode) => { this.sink(session, text, mode) },
+      defaultSink: (text) => { this.sink(session, text) },
     })
     this.shells.set(id, shell)
     // The one teardown axis: listeners, shell, and map entries all ride the
@@ -107,17 +107,28 @@ export class InputHub implements InputService {
   }
 
   /**
+   * Resolve the optional slash controller for composer chrome that launches
+   * the shared candidate menu without typing a trigger.
+   * @param id - session id.
+   * @returns the resident controller, or undefined when ui-slash is absent.
+   */
+  slash(id: SessionId): SlashController | undefined {
+    const actx = this.sessions().scope(id)
+    return actx === undefined ? undefined : this.controller(actx)
+  }
+
+  /**
    * Default sink: optimistic clear + prompt. The session is always a real
    * host entity (materialized when its workspace was picked), so there is
    * exactly one path; a failed first prompt is an ordinary prompt failure
    * (error strip via promptError, draft restored only while untouched).
    */
-  private sink(session: SessionFace, text: string, mode: 'queue' | 'steer'): void {
+  private sink(session: SessionFace, text: string): void {
     if (text === '') return
     const shell = this.shells.get(session.sessionId)
     // Commit, not an editable clear: undo must not resurrect sent content.
     shell?.commitSend()
-    void session.prompt([{ type: 'text', text }], mode).then(
+    void session.prompt([{ type: 'text', text }], 'queue').then(
       (result) => {
         if (!result.ok && shell?.snapshot.draft === '') shell.setDraft(text)
       },

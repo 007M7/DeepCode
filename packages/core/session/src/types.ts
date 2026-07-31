@@ -3,6 +3,7 @@ import type {
   AssistantMessage,
   CallId,
   LlmCallConfig,
+  LlmCallConfigAdapterDefaults,
   LlmFailure,
   MessageSource,
   StreamChunk,
@@ -163,10 +164,26 @@ export interface TodoItem {
 export interface EpochHeader {
   /** The conversation's call configuration (provider, model, reasoning effort, and sampling scalars). */
   config: LlmCallConfig
+  /** Effective config fields materialized from the exact adapter rather than proposed by a caller. */
+  adapterDefaults?: LlmCallConfigAdapterDefaults
   /** Rendered system prompt text; absent for a system-less request. */
   system?: string
   /** Assembled tool schemas; absent for a tool-less request. */
   tools?: ToolSchema[]
+}
+
+/**
+ * Registration-bound context metadata of one resolved model route. Adapter
+ * metadata about a route rather than a request input, which is why it lives
+ * outside {@link EpochHeader}.
+ */
+export interface RequestContext {
+  /** Registered provider route the metadata was resolved through. */
+  provider: string
+  /** Provider-owned model id the metadata belongs to. */
+  model: string
+  /** Maximum combined request and response context in tokens; absent when the adapter advertises none. */
+  contextWindow?: number
 }
 
 /**
@@ -250,6 +267,41 @@ export interface SessionEventMap {
    * It is log-only; the latest snapshot reconstructs the request header.
    */
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
+  /**
+   * Registration-bound context metadata for the route a request resolved to,
+   * appended inside its step beside `request/header` and only when the route
+   * or capacity differs from the last record. It is log-only and deliberately
+   * NOT part of {@link EpochHeader}: capacity is adapter metadata about a
+   * route, not an input the request was built from, so it must not participate
+   * in request reconstruction or header equality. `contextWindow` is absent
+   * when the route's adapter advertises no capacity.
+   */
+  'request/context': RequestContext
+  /**
+   * Marks the end of a constructor seed. Events before it have smaller seq
+   * values and came from the seed (resume, fork, or replay); this lifecycle
+   * produced none of them. An explicitly supplied empty seed puts the marker
+   * at seq 0, distinguishing an empty resumed session from a fresh session.
+   * This log-only event is the durable projection of
+   * {@link Session.firstLiveSeq}. Its payload is empty — position and `time`
+   * carry the meaning.
+   *
+   * Locate the LAST one in stored history. A seed already ending in one is not
+   * re-marked, so reopening an untouched session does not grow its log per
+   * pickup and the event need not be at the current `firstLiveSeq`.
+   *
+   * `Session`'s constructor is the only legitimate writer. The invariant
+   * companion deliberately constrains nothing here, so a plugin appending one
+   * would silently classify every live bracket before it as seed history.
+   *
+   * An owner of a standalone open/close bracket (`compact/start` …
+   * `compact/end`) reads it because seed history and live work are otherwise
+   * byte-identical: an unmatched opening marker before this event belongs to
+   * an ended lifecycle, whatever ended it. NOT a liveness signal about other
+   * writers — a concurrently live session holds its own boundary elsewhere,
+   * so tolerating concurrent writers needs a signal beyond the log.
+   */
+  'session/end-seed': Record<string, never>
 }
 
 /** The appendable event-type keys of {@link SessionEventMap}, plugin-merged extensions included. */

@@ -1,4 +1,4 @@
-/* Conversation column skeleton: header (breadcrumb row + tabs) over the view
+/* Conversation column skeleton: header (session title + tabs) over the view
    area, composer InputBar at the bottom. Column width/squeeze is layout's;
    this fills its cell. Figma: Header 39:27730 (83px two-row), tabs 13px with
    a 3px active bar. */
@@ -23,59 +23,24 @@
   display: none;
 }
 
-.crumbRow {
+.titleRow {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   min-height: 32px;
 }
 
-.crumbs {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+.sessionTitle {
   min-width: 0;
+  max-width: 100%;
   overflow: hidden;
-  white-space: nowrap;
-}
-
-.crumbSeg {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-}
-
-.crumbSep {
-  /* figma: "/" separators are 14px caption gray (75:7903), one tint lighter than crumb text. */
-  color: var(--dsw-alias-label-caption);
-  font-size: 14px;
-  line-height: 20px;
-}
-
-.crumb {
-  max-width: 220px;
-  overflow: hidden;
+  margin: 0;
   padding: 4px 8px;
-  border: none;
-  border-radius: 12px;
-  background: transparent;
   font-size: 14px;
   line-height: 20px;
-  color: var(--dsw-alias-label-tertiary);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.crumb:hover:not(:disabled) {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-
-.crumbCurrent {
   font-weight: 500;
   color: var(--dsw-alias-label-primary);
-  cursor: default;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* figma Tab_Group 34:11441: 35px strip, gap 36, pad-left 8, tabs bottom-aligned. */
@@ -127,14 +92,21 @@
   min-height: 0;
 }
 
-/* Composer stack: dock strips above the input card (design §6 MIX order).
-   The stack owns the vertical rhythm: one gap here, entries carry no outer
-   margins — an entry that renders null costs nothing, so spacing stays
-   correct for any dock combination. */
+/* Composer context stack (Figma 9:937): standalone dock cards share one
+   rhythm; the terminal queue strip additionally tucks under the input card. */
 .composerStack {
+  --dsh-composer-stack-gap: 6px;
+  --dsh-queue-composer-overlap: 5px;
+
+  /* InputBar and dock registrants derive their horizontal geometry from the
+     same card width, outer clearance, and dock inset. */
+  --dsh-composer-card-max-width: 800px;
+  --dsh-composer-side-clearance: 32px;
+  --dsh-composer-dock-inset: 12px;
+
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--dsh-composer-stack-gap);
 }
 
 /* Common seat for the composer chain (fallback + elected overlay siblings). */
@@ -142,6 +114,14 @@
   display: flex;
   flex: none;
   flex-direction: column;
+  /* One cap for every scrolling text region a composer seat can hold: the
+     InputBar draft (figma Input 75:8208 max 14 lines × 24px line) and the
+     takeover panels' bodies top out at the same height, so electing a
+     takeover never grows the footer past the card it replaces. Declared on
+     the seat because it is the chain's only shared ancestor — fallback and
+     elected overlay are siblings — and custom properties inherit down to
+     whichever entry is mounted. */
+  --dsh-composer-text-max-height: 336px;
 }
 
 /* Active phase: header is ordinary column chrome above the scrollport (not

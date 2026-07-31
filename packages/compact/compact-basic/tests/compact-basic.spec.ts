@@ -21,7 +21,7 @@ import type {
   StreamChunk,
   TokenUsage,
 } from '@deepseek-ai/dsh-llm'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
 import { agentEvents, type Agent, type RequestErrorAction } from '@deepseek-ai/dsh-agent'
 import ToolResultPruneService from '@deepseek-ai/dsh-compact-tool-result-prune'
@@ -1224,7 +1224,8 @@ describe('default one-shot summarizer', () => {
     expect(messages[0]).toEqual(prefix)
     const last = messages.at(-1)?.content[0]
     const lastText = last?.type === 'text' ? last.text : ''
-    expect(lastText).toContain('Condense the conversation ABOVE')
+    expect(lastText).toContain('Write concise English engineering prose.')
+    expect(lastText).toContain('numeric values, function signatures, and syntax fragments.')
     expect(lastText).toContain('## Primary Request and Intent')
   })
 
@@ -1781,6 +1782,7 @@ describe('automatic listener and loader composition', () => {
   it('loads and disposes the real zero-config service stack', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
     const meterFiber = await ctx.plugin(TokenMeterService)
     const compactFiber = await ctx.plugin(BasicCompactService, { auto: false })
 

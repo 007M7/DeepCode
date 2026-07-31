@@ -46,6 +46,8 @@ export type AttributeRole = <T extends string>(text: T) => T
  */
 export interface Palette {
   accent: ColorRole
+  /** DeepSeek brand ink; exact gradient callers may override it on truecolor terminals. */
+  brand: ColorRole
   /** The terminal's own default foreground; still a color, so it does not stack. */
   text: ColorRole
   /** The one recessed tone, below `text`: tool-card bodies, chrome, reasoning, footers. */
@@ -63,7 +65,7 @@ export interface Palette {
 }
 
 /** Names of the palette's color roles, in the order `/palette` prints them. */
-export const COLOR_ROLES = ['text', 'dim', 'accent', 'code', 'success', 'warning', 'error'] as const
+export const COLOR_ROLES = ['text', 'dim', 'accent', 'brand', 'code', 'success', 'warning', 'error'] as const
 
 /** Names of the palette's attribute roles, in the order `/palette` prints them. */
 export const ATTRIBUTE_ROLES = ['bold', 'italic', 'underline', 'strike', 'selected'] as const
@@ -86,8 +88,9 @@ export interface RoleSpec {
  *
  * Only the standard 16-color set and SGR attributes appear here. Terminals remap
  * those to the user's active theme, so the TUI stays legible on any background;
- * a fixed 24-bit color would not. The brand gradient is the one deliberate
- * exception ({@link gradientText}).
+ * a fixed 24-bit color would not. The startup gradient and exact official mark
+ * color are the two deliberate brand exceptions ({@link gradientText},
+ * {@link brandText}).
  *
  * @param scheme - Active terminal color scheme; only `code` differs between them.
  * @returns The SGR spec for every color and attribute role.
@@ -109,6 +112,7 @@ export function paletteSpec(scheme: TerminalColorScheme): {
       // prominent text on screen.
       dim: { open: '2;39', close: '22;39', purpose: 'The one recessed tone: tool bodies, chrome, footers' },
       accent: { open: '95', close: '39', purpose: 'The one emphasis color: role headers, prompt, borders' },
+      brand: { open: '34', close: '39', purpose: 'DeepSeek brand art when truecolor is unavailable' },
       // ANSI 36 (cyan) is difficult to read on a light background — use ANSI 34
       // (blue) which is legible on both light and dark schemes.
       code: scheme === 'light'
@@ -168,6 +172,19 @@ const BRAND_GRADIENT = [
   [36, 152, 255], // #2498FF
 ] as const
 
+/** Official DeepSeek icon ink from the shipped 24x24 SVG. */
+const DEEPSEEK_BRAND_RGB = BRAND_GRADIENT[0]
+
+/**
+ * Paint trusted static DeepSeek brand art with the official `#4D6BFE` ink.
+ * @param text - Static brand text or raster cells.
+ * @returns text wrapped in the official truecolor foreground and a foreground reset.
+ */
+export function brandText(text: string): string {
+  const [r, g, b] = DEEPSEEK_BRAND_RGB
+  return `\x1b[38;2;${r};${g};${b}m${text}\x1b[39m`
+}
+
 /**
  * Sample {@link BRAND_GRADIENT} at fraction `t` via piecewise-linear
  * interpolation across its stops.
@@ -199,13 +216,12 @@ function brandColorAt(t: number): readonly [number, number, number] {
  * @returns `text` wrapped in truecolor SGR foreground codes.
  */
 export function gradientText(text: string): string {
-  // The sole caller passes the ASCII product name, so UTF-16 unit iteration
-  // samples exactly one color per visible letter.
-  const last = Math.max(1, text.length - 1)
+  const glyphs = Array.from(text)
+  const last = Math.max(1, glyphs.length - 1)
   let painted = ''
-  for (let index = 0; index < text.length; index += 1) {
+  for (let index = 0; index < glyphs.length; index += 1) {
     const [r, g, b] = brandColorAt(index / last)
-    painted += `\x1b[38;2;${r};${g};${b}m${text.charAt(index)}`
+    painted += `\x1b[38;2;${r};${g};${b}m${glyphs[index]}`
   }
   return `${painted}\x1b[39m`
 }

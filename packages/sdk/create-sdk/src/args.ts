@@ -11,7 +11,7 @@ import type { PackageManagerName, RunInterface } from '@deepseek-ai/dsh-helper'
 export interface CreateArgs {
   directory?: string
   description?: string
-  provider?: 'deepseek' | 'custom'
+  provider?: 'deepseek-official' | 'custom'
   baseURL?: string
   apiKey?: string
   model?: string
@@ -27,7 +27,7 @@ export interface CreateArgs {
 
 interface CommanderCreateOptions {
   description?: string
-  provider?: 'deepseek' | 'custom'
+  provider?: 'deepseek-official' | 'custom'
   baseUrl?: string
   apiKey?: string
   model?: string
@@ -57,7 +57,7 @@ function createProgram(): Command {
     .argument('[directory]')
     .option('-h, --help')
     .option('--description <text>')
-    .addOption(new Option('--provider <name>').choices(['deepseek', 'custom']))
+    .addOption(new Option('--provider <name>').choices(['deepseek-official', 'custom']))
     .option('--base-url <url>')
     .option('--api-key <key>')
     .option('--model <name>')

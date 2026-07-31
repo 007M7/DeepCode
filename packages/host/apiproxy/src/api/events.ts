@@ -101,7 +101,9 @@ export type MuxFrame =
  * workspace mutation (create/attach/order change — the client upserts, while
  * `workspace.list` provides the reconnect baseline); workspace-removed is the
  * committed registration-deletion increment and never implies directory or
- * session-log deletion.
+ * session-log deletion; archived-sessions-changed pushes the full registry
+ * archive set after every durable change (same full-snapshot posture as
+ * workspace-changed — `workspace.list` re-baselines it on reconnect).
  */
 export type HostFrame =
   | { type: 'host/session-added'; sessionId: SessionId; blank: boolean; parentSessionId?: SessionId; cwd?: string }
@@ -110,10 +112,30 @@ export type HostFrame =
   | { type: 'host/agent-error'; sessionId: SessionId; message: string }
   | { type: 'host/workspace-changed'; workspace: WorkspaceView }
   | { type: 'host/workspace-removed'; workspaceId: WorkspaceView['workspaceId'] }
+  | { type: 'host/archived-sessions-changed'; archivedSessionIds: SessionId[] }
   /**
    * The command registry changed (`commands/change` passthrough). Pure
    * invalidation signal, no payload: clients refetch `command.list` in the
    * background rather than diffing.
    */
   | { type: 'host/commands-changed' }
+  /**
+   * One settings namespace's resolved value changed (`settings/updated`
+   * passthrough) — an RPC write, an external `settings.yaml` edit, or a
+   * provider reload all converge here. Clients refetch `settings.describe`;
+   * values never ride the frame (they would need redaction and can go stale).
+   */
+  | { type: 'host/settings-changed'; ns: string }
+  /**
+   * One credential reference's state changed (`credentials/updated`
+   * passthrough): a set/unset over this wire or an external `.env` edit.
+   * The ref is an environment-variable NAME — never a value.
+   */
+  | { type: 'host/credentials-changed'; ref: string }
+  /**
+   * The provider topology changed (`llm/adapters-updated` passthrough):
+   * routes registered or dropped, or the configurable directory moved. Pure
+   * invalidation: clients refetch `llm.providers`/`llm.models`/`session.models`.
+   */
+  | { type: 'host/models-changed' }
   | { type: 'stream/error'; error: RpcError }

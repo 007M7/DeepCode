@@ -1,21 +1,29 @@
-import { useMemo, useState, type KeyboardEvent } from 'react'
+import { useMemo, useState, type ChangeEvent, type KeyboardEvent } from 'react'
 import clsx from 'clsx'
 import {
-  Button, IconCheckOutline16, IconChevronLeftOutline14, IconChevronRightOutline14,
+  Button, IconCheckOutline14, IconChevronLeftOutline14, IconChevronRightOutline14,
   IconCloseOutline16, IconEditOutline16, MarkdownText,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
-  PendingQuestion,
+  PendingQuestion, planReviewOf,
   type QuestionAnswer, type QuestionComposerProps,
 } from './contract/slots.ts'
+import { PlanReviewPanel } from './PlanReviewPanel.tsx'
 import css from './QuestionComposer.module.css'
 
 interface DraftAnswer {
   selected: string[]
   custom: string
-  customOpen: boolean
   skipped: boolean
 }
+
+/**
+ * Displayed feedback: validation feedback is stored as a dictionary KEY and
+ * translated at render, so already-shown feedback follows a locale switch;
+ * runtime failure messages (finished strings from the wire) pass through
+ * verbatim.
+ */
+type Feedback = { key: 'error.incomplete' | 'error.unanswered' } | { text: string }
 
 /**
  * Split the conventional recommendation suffix without changing the answer value.
@@ -29,17 +37,8 @@ export function parseRecommendedLabel(label: string): { label: string; recommend
     : { label, recommended: false }
 }
 
-/**
- * Remove a conventional multi-select suffix so the hint can be styled separately.
- * @param title - Question title supplied by the interaction request.
- * @returns Question title without a trailing multi-select marker.
- */
-export function parseQuestionTitle(title: string): string {
-  return title.replace(/\s*[（(]可多选[）)]\s*$/, '')
-}
-
-/** Return whether a textarea key event belongs to an active IME composition. */
-function isComposing(event: KeyboardEvent<HTMLTextAreaElement>): boolean {
+/** Return whether a text-field key event belongs to an active IME composition. */
+function isComposing(event: KeyboardEvent<HTMLTextAreaElement | HTMLInputElement>): boolean {
   // keyCode 229 is the legacy IME-composition signal engines emit without isComposing.
   // oxlint-disable-next-line typescript/no-deprecated
   return event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229
@@ -48,27 +47,34 @@ function isComposing(event: KeyboardEvent<HTMLTextAreaElement>): boolean {
 /**
  * Composer takeover boundary; the carrier key keys local drafts, so a
  * same-request replay (same key, new carrier object) preserves them.
+ *
+ * One takeover, two shapes: a request that declares a presentation intent this
+ * package renders takes that shape (a plan review is one decision over one
+ * plan, not a question set), and every other request takes the generic flow.
+ * The routing lives here, at the one entry that owns the composer seat, so
+ * neither shape can claim a request the other is already rendering.
+ *
  * @param props - the selector-matched pending question carrier plus the framework standard kit.
- * @returns The question flow for this request.
+ * @returns The question flow, or the intent's own surface, for this request.
  */
 export function QuestionComposer(props: QuestionComposerProps) {
   // Domain-face mint rides the carrier's stable identity (never minted in a
   // select/render dispatch — per-dispatch minting would churn memo identity).
   const question = useMemo(() => new PendingQuestion(props.matched), [props.matched])
-  return <QuestionFlow key={question.key} pending={question} t={props.t} />
+  const review = useMemo(() => planReviewOf(question.questions), [question])
+  return review === undefined
+    ? <QuestionFlow key={question.key} pending={question} t={props.t} />
+    : <PlanReviewPanel key={question.key} pending={question} review={review} t={props.t} />
 }
 
 function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<QuestionComposerProps, 't'>) {
   const questions = pending.questions
   const [index, setIndex] = useState(0)
-  const [drafts, setDrafts] = useState<DraftAnswer[]>(() => questions.map(question => ({
-    selected: [], custom: '', customOpen: (question.options?.length ?? 0) === 0, skipped: false,
+  const [drafts, setDrafts] = useState<DraftAnswer[]>(() => questions.map(() => ({
+    selected: [], custom: '', skipped: false,
   })))
   const [busy, setBusy] = useState<'answer' | 'cancel' | null>(null)
-  // Validation feedback is stored as a dictionary KEY and translated at
-  // render, so already-shown feedback follows a locale switch; runtime
-  // failure messages (finished strings from the wire) pass through verbatim.
-  const [error, setError] = useState<{ key: 'error.incomplete' | 'error.unanswered' } | { text: string } | null>(null)
+  const [error, setError] = useState<Feedback | null>(null)
   // index stays in bounds (every setIndex site clamps) and drafts mirrors questions 1:1.
   // oxlint-disable-next-line typescript/no-non-null-assertion
   const question = questions[index]!
@@ -97,15 +103,11 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
           ? current.selected.filter(item => item !== label)
           : [...current.selected, label]
         : [label]
-      return { selected, custom: '', customOpen: false, skipped: false }
+      return { selected, custom: '', skipped: false }
     })
     if (question.multiSelect !== true && index < questions.length - 1) {
       setIndex(current => current + 1)
     }
-  }
-
-  const openCustom = (): void => {
-    updateDraft(current => ({ ...current, selected: [], customOpen: true, skipped: false }))
   }
 
   const answered = (item: DraftAnswer): boolean =>
@@ -153,13 +155,26 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
     submitDrafts(drafts)
   }
 
+  // Shared by the inline custom input and the optionless textarea: typing a
+  // custom draft clears any selection, and Enter continues the flow
+  // (Shift+Enter stays a newline in the textarea; on the single-line input it
+  // is inert either way).
+  const draftCustom = (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>): void => {
+    const value = event.target.value
+    updateDraft(current => ({
+      ...current, selected: [], custom: value, skipped: false,
+    }))
+  }
+
+  const continueFromCustom = (event: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>): void => {
+    if (event.key !== 'Enter' || event.shiftKey || isComposing(event)) return
+    event.preventDefault()
+    continueFlow()
+  }
+
   const skipQuestion = (): void => {
     const nextDrafts = drafts.map((item, itemIndex) => itemIndex === index
-      ? {
-        selected: [], custom: '',
-        customOpen: (question.options?.length ?? 0) === 0,
-        skipped: true,
-      }
+      ? { selected: [], custom: '', skipped: true }
       : item)
     setDrafts(nextDrafts)
     setError(null)
@@ -177,38 +192,16 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
           <div className={css.headingBlock}>
             {question.header !== undefined && <div className={css.eyebrow}>{question.header}</div>}
             <h2 className={css.title} id={`question-${pending.key}-${String(index)}`}>
-              <span>{question.multiSelect === true
-                ? parseQuestionTitle(question.question)
-                : question.question}</span>
-              {question.multiSelect === true && (
-                <span className={css.multiSelectHint}>{t('title.multi')}</span>
-              )}
+              {question.question}
             </h2>
           </div>
-          <div className={css.headerActions}>
-            <span className={css.progress}>{index + 1} / {questions.length}</span>
-            <button
-              type="button" className={css.iconButton} aria-label={t('nav.prev')}
-              disabled={index === 0 || busy !== null}
-              onClick={() => { setIndex(index - 1); setError(null) }}
-            >
-              <IconChevronLeftOutline14 />
-            </button>
-            <button
-              type="button" className={css.iconButton} aria-label={t('nav.next')}
-              disabled={index === questions.length - 1 || busy !== null}
-              onClick={() => { setIndex(index + 1); setError(null) }}
-            >
-              <IconChevronRightOutline14 />
-            </button>
-            <button
-              type="button" className={css.iconButton} aria-label={t('nav.cancel')}
-              title={t('nav.cancel')}
-              disabled={busy !== null} onClick={cancelFlow}
-            >
-              <IconCloseOutline16 />
-            </button>
-          </div>
+          <button
+            type="button" className={css.iconButton} aria-label={t('nav.cancel')}
+            title={t('nav.cancel')}
+            disabled={busy !== null} onClick={cancelFlow}
+          >
+            <IconCloseOutline16 />
+          </button>
         </header>
 
         <div className={css.body} data-question-scroll>
@@ -222,7 +215,7 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
               return (
                 <button
                   type="button" key={`${option.label}-${String(optionIndex)}`}
-                  className={clsx(css.option, selected && css.optionSelected)}
+                  className={clsx(css.option, selected && question.multiSelect !== true && css.optionSelected)}
                   role={question.multiSelect === true ? 'checkbox' : 'radio'}
                   aria-checked={selected}
                   aria-label={display.label}
@@ -234,7 +227,13 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
                     submitDrafts(drafts)
                   }}
                 >
-                  <span className={css.number}>{optionIndex + 1}</span>
+                  {question.multiSelect === true
+                    ? (
+                      <span className={clsx(css.checkbox, selected && css.checkboxChecked)} aria-hidden="true">
+                        {selected && <IconCheckOutline14 size={12} />}
+                      </span>
+                    )
+                    : <span className={css.number}>{optionIndex + 1}</span>}
                   <span className={css.optionCopy}>
                     <span className={css.optionLine}>
                       <span className={css.optionLabel}>{display.label}</span>
@@ -246,62 +245,80 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
                       )}
                     </span>
                   </span>
-                  <span className={css.choiceIcon}>
-                    {selected ? <IconCheckOutline16 /> : <IconChevronRightOutline14 />}
-                  </span>
                 </button>
               )
             })}
 
-            <div className={clsx(
-              css.custom,
-              draft.customOpen && css.customOpen,
-              !hasOptions && css.customOptionless,
-            )}>
-              {hasOptions && (
-                <button
-                  type="button" className={css.customTrigger}
-                  disabled={busy !== null} onClick={openCustom}
-                  aria-expanded={draft.customOpen}
-                >
-                  <span className={css.number}><IconEditOutline16 /></span>
-                  <span>{t('option.custom')}</span>
-                </button>
-              )}
-              {draft.customOpen && (
+            {hasOptions
+              ? (
+                <div className={clsx(css.customRow, draft.custom !== '' && css.customRowActive)}>
+                  {question.multiSelect === true
+                    ? (
+                      <span
+                        className={clsx(css.checkbox, draft.custom !== '' && css.checkboxChecked)}
+                        aria-hidden="true"
+                      >
+                        {draft.custom !== '' && <IconCheckOutline14 size={12} />}
+                      </span>
+                    )
+                    : (
+                      <span className={css.number} aria-hidden="true">
+                        <IconEditOutline16 size={12} />
+                      </span>
+                    )}
+                  <input
+                    type="text"
+                    className={css.customInput}
+                    value={draft.custom}
+                    disabled={busy !== null}
+                    placeholder={t('custom.placeholder')}
+                    onChange={draftCustom}
+                    onKeyDown={continueFromCustom}
+                  />
+                </div>
+              )
+              : (
                 <textarea
                   autoFocus
-                  className={css.customInput}
+                  className={css.customTextarea}
                   value={draft.custom}
                   disabled={busy !== null}
                   rows={2}
                   placeholder={t('custom.placeholder')}
-                  onChange={(event) => {
-                    const value = event.target.value
-                    updateDraft(current => ({
-                      ...current, selected: [], custom: value, customOpen: true, skipped: false,
-                    }))
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' && !event.shiftKey && !isComposing(event)) {
-                      event.preventDefault()
-                      continueFlow()
-                    }
-                  }}
+                  onChange={draftCustom}
+                  onKeyDown={continueFromCustom}
                 />
               )}
-            </div>
           </div>
         </div>
 
         <footer className={css.footer}>
-          <div className={css.feedback} role="status">{error === null ? null : 'key' in error ? t(error.key) : error.text}</div>
+          <div className={css.pager}>
+            <button
+              type="button" className={css.iconButton} aria-label={t('nav.prev')}
+              disabled={index === 0 || busy !== null}
+              onClick={() => { setIndex(index - 1); setError(null) }}
+            >
+              <IconChevronLeftOutline14 />
+            </button>
+            <span className={css.progress}>{index + 1} / {questions.length}</span>
+            <button
+              type="button" className={css.iconButton} aria-label={t('nav.next')}
+              disabled={index === questions.length - 1 || busy !== null}
+              onClick={() => { setIndex(index + 1); setError(null) }}
+            >
+              <IconChevronRightOutline14 />
+            </button>
+          </div>
+          <div className={css.feedback} role="status">
+            {error === null ? null : 'key' in error ? t(error.key) : error.text}
+          </div>
           <div className={css.footerActions}>
-            <Button variant="ghost" size="sm" disabled={busy !== null} onClick={skipQuestion}>
+            <Button variant="outline" disabled={busy !== null} onClick={skipQuestion}>
               {t('action.skip')}
             </Button>
             <Button
-              variant="primary" size="sm"
+              variant="primary"
               disabled={busy !== null || !answered(draft)} onClick={continueFlow}
             >
               {busy === 'answer'

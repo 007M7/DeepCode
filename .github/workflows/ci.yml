@@ -24,12 +24,18 @@ permissions:
 
 env:
   PRIMARY_NODE_VERSION: '24'
+  # CI runs must never report to the production telemetry endpoint baked
+  # into apps/cli/cordis.yml (AppCLIEntry disables the row when set).
+  DSH_TELEMETRY_DISABLED: '1'
 
 jobs:
 
+  # FIXME: Re-enable the three hosted serial reference jobs before cutting a release.
+  # The self-hosted standby remains active on every master push.
+
   # Three enterprise jobs isolate coverage, static analysis, and the
-  # build-backed consumer tail. The static job publishes its exact build so
-  # consumers do not repeat the longest part of their critical path.
+  # build-backed consumer tail. The consumer job owns the only Linux build so
+  # all three jobs enter runner allocation independently.
   #
   # FAILOVER: each Linux enterprise job resolves its pool through the
   # DSH_CI_FAILOVER repository variable. Unset (normal), the expressions
@@ -47,7 +53,7 @@ jobs:
       ${{ vars.DSH_CI_FAILOVER == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
-          || 'dsh-enterprise-ubuntu-latest-32core-test' }}
+          || 'dsh-ubuntu-24-04-16core' }}
     name: node 24 / static
     env:
       DSH_GATE_CONCURRENCY: '8'
@@ -93,35 +99,21 @@ jobs:
           DSH_ARCHIVE_BASE_REF: ${{ github.event.pull_request.base.sha }}
         run: pnpm run check:ci:static
 
-      - name: Pack built tree
-        run: >-
-          tar -czf "$RUNNER_TEMP/node-24-built-tree.tar.gz"
-          apps/*/lib apps/web/dist packages/*/*/lib vendor/*/lib
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: node-24-built-tree
-          path: ${{ runner.temp }}/node-24-built-tree.tar.gz
-          if-no-files-found: error
-          retention-days: 1
-          compression-level: 0
-
   node-24-coverage:
     if: github.event_name == 'pull_request'
     runs-on: >-
       ${{ vars.DSH_CI_FAILOVER == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
-          || 'dsh-enterprise-ubuntu-24-04-32core-test' }}
+          || 'dsh-ubuntu-24-04-16core' }}
     name: node 24 / coverage
     env:
-      # Failover shrinks the worker bound: the hosted 32-core runner is
-      # exclusive to one job, but the failover pool shares one 64-core VM
-      # across six always-on runner instances, and the timing-sensitive
-      # process suites have documented aggregate-contention failures.
-      # 8 × 6 instances = 48 workers worst case on 64 cores.
-      DSH_COVERAGE_MAX_WORKERS: ${{ vars.DSH_CI_FAILOVER == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]' && '8' || '24' }}
-      DSH_GATE_CONCURRENCY: '8'
+      # The hosted 16-core runner uses six coverage workers. The failover pool
+      # shares one 64-core VM across six always-on runner instances, so each
+      # instance may use eight while keeping the worst case at 8 × 6 = 48
+      # workers; process-bound suites remain isolated in forks.
+      DSH_COVERAGE_MAX_WORKERS: ${{ vars.DSH_CI_FAILOVER == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]' && '8' || '6' }}
+      DSH_GATE_CONCURRENCY: '3'
     steps:
       - uses: actions/checkout@v6
         with:
@@ -171,13 +163,12 @@ jobs:
         run: pnpm run check:ci:coverage
 
   node-24-consumers:
-    needs: node-24
     if: github.event_name == 'pull_request'
     runs-on: >-
       ${{ vars.DSH_CI_FAILOVER == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
-          || 'dsh-enterprise-ubuntu-latest-32core-test' }}
+          || 'dsh-ubuntu-24-04-16core' }}
     name: node 24 / snapshots and artifacts
     env:
       DSH_GATE_CONCURRENCY: '8'
@@ -190,14 +181,6 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-
-      - uses: actions/download-artifact@v8
-        with:
-          name: node-24-built-tree
-          path: ${{ runner.temp }}
-
-      - name: Restore built tree
-        run: tar -xzf "$RUNNER_TEMP/node-24-built-tree.tar.gz"
 
       - uses: pnpm/action-setup@v4
         with:
@@ -224,8 +207,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
 
-      # Pull requests restore the cache produced by serial-linux on master;
-      # they do not pay compression and upload on the required path.
+      # Pull requests restore the cache normally produced by serial-linux on
+      # master; they do not pay compression and upload on the required path.
       - uses: actions/cache/restore@v4
         if: vars.DSH_CI_FAILOVER != 'selfhosted' || github.event.pull_request.user.login == 'dependabot[bot]'
         with:
@@ -320,8 +303,9 @@ jobs:
   # The required pull-request Windows signal: the two blocking win32 surfaces
   # (workspace build, production site) execute with real, checksum-verified
   # Windows Node under Wine on standard hosted Linux. The master
-  # serial-windows job below keeps the complete native-kernel inventory —
-  # including the observational portability gates this lane does not run —
+  # serial-windows job below normally keeps the complete native-kernel
+  # inventory — including the observational portability gates this lane does
+  # not run —
   # on real windows-2025. This job only provisions runner state (caches,
   # apt); scripts/wine-windows-gates.sh owns the gate logic and is the same
   # script the optional local gate `pnpm run check:windows-wine` runs.
@@ -426,12 +410,12 @@ jobs:
           cp /var/cache/apt/archives/*.deb "$HOME/wine-debs/"
           du -sh "$HOME/wine-debs"
 
-  # Master pushes run only the serial reference jobs below.
-  # Each host executes the complete, unsharded primary Node aggregate with one
-  # gate worker, giving reviewers a simple cross-platform oracle for completeness
-  # and timing.
+  # The hosted reference jobs below are temporarily disabled; the self-hosted
+  # standby remains active. Each enabled host executes the complete, unsharded
+  # primary Node aggregate with one gate worker, giving reviewers a simple
+  # cross-platform oracle for completeness and timing.
   serial-linux:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    if: false
     name: serial / linux
     runs-on: ubuntu-latest
     steps:
@@ -556,7 +540,7 @@ jobs:
         run: pnpm run check:ci:linux-primary
 
   serial-macos:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    if: false
     name: serial / macos
     runs-on: macos-latest
     steps:
@@ -583,7 +567,7 @@ jobs:
         run: pnpm run check:ci
 
   serial-windows:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    if: false
     name: serial / windows
     runs-on: windows-2025
     steps:

@@ -1,40 +1,41 @@
 - banner:
-  - navigation "Session hierarchy":
-    - button "Use the bash tool to" [disabled]
+  - heading "Use the bash tool to" [level=1]
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
 - text: "Use the bash tool to run exactly: echo WEB_E2E_OK. Then reply with the single word DONE and stop. {{clock}}"
-- button "复制":
+- button "Copy":
   - img
-- button "在新对话中分支":
+- button "Branch into a new conversation":
   - img
-- button "编辑":
+- button "Context injection":
   - img
+  - img
+  - text: Context injection
 - button "Think The user wants me to run a simple bash command and reply with \"DONE\".":
   - img
   - img
   - text: Think The user wants me to run a simple bash command and reply with "DONE".
-- img
-- text: Bash Echo the test string 已完成 workspace echo WEB_E2E_OK
-- button "复制"
-- text: WEB_E2E_OK
+- button "Bash Echo the test string":
+  - img
+  - img
+  - text: Bash Echo the test string
 - button "Think The command executed successfully and output \"WEB_E2E_OK\". I just need to reply with \"DONE\".":
   - img
   - img
   - text: Think The command executed successfully and output "WEB_E2E_OK". I just need to reply with "DONE".
 - paragraph: DONE
-- button "复制":
+- button "Copy":
   - img
-- button "在新对话中分支":
+- button "Branch into a new conversation":
   - img
 - text: {{clock}}
 - textbox "Message the agent"
-- button "Add attachment":
+- button "Commands":
   - img
-- 'button "Access mode, current: Danger Full Access"': Danger Full Access
+- 'button "Access mode, current: Full access"': Full access
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
-- text: 1 turns · 2 steps Tool call {{duration}} Cache hit 99% Input 15.7K tok · Output 111 tok
+- text: 1 turns · 2 steps Tool call {{duration}} Context 6% of 128K Cache hit 99% Input 15.7K tok · Output 111 tok

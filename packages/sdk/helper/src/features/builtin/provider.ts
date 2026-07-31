@@ -20,7 +20,7 @@ const DEFAULT_MODEL = 'deepseek-v4-flash'
 const API_KEY_COMMENT = 'Required before start; an empty value makes provider startup fail.'
 
 class DeepSeekOption extends FeatureOption {
-  override readonly id = 'deepseek'
+  override readonly id = 'deepseek-official'
   override readonly label = 'DeepSeek'
   override readonly secrets = [{
     id: 'apiKey',
@@ -76,7 +76,7 @@ export class ProviderFeature extends ExclusiveOptionFeature {
 
   /** Prefer the direct-fetch adapter and its public endpoint defaults. */
   override defaultOptions(): readonly string[] {
-    return ['deepseek']
+    return ['deepseek-official']
   }
 
   /** Recover literal endpoint overrides from either provider entry. */

@@ -13,7 +13,7 @@ import { scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { Message } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
-import type { CreateSessionOptions, EpochHeader, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
+import type { CreateSessionOptions, EpochHeader, RequestContext, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
 import { snapshotJsonValue } from './json.ts'
 import { SurfaceManager } from './surface.ts'
 import type { SessionSurface } from './surface.ts'
@@ -23,11 +23,11 @@ export * from './types.ts'
 export type { AssistantMessage, ToolResultMessage, UserMessage } from '@deepseek-ai/dsh-llm'
 export { isJsonValue, snapshotJsonValue } from './json.ts'
 export type { JsonValue } from './json.ts'
-export { interruptedTurnClosers, TOOL_NOT_STARTED, TOOL_OUTCOME_UNKNOWN } from './repair.ts'
+export { interruptedTurnClosers, lastActivityTime, TOOL_NOT_STARTED, TOOL_OUTCOME_UNKNOWN } from './repair.ts'
 export { decodeStorageRecord, packChunkRuns } from './chunk-rows.ts'
 export type { ChunkRow, StorageRecord } from './chunk-rows.ts'
 export type { SessionSurface, SurfaceFoldReplacement, SurfaceFoldResult } from './surface.ts'
-export { foldSurface, isSurfaceEvent, isSurfaceEligibleType } from './surface.ts'
+export { foldSurface, isAppendSurfaceEvent, isReplacementSurfaceEvent, isSurfaceEvent, isSurfaceEligibleType } from './surface.ts'
 export { canonicalHeader, foldRequestHeader, headerEquals } from './request-header.ts'
 
 /**
@@ -201,18 +201,43 @@ function assertCurrentLlmShape(event: Record<string, unknown>, index: number): v
     : undefined
   if (event['type'] === 'request/header') {
     const header = record?.['header']
-    const config = typeof header === 'object' && header !== null ? (header as Record<string, unknown>)['config'] : undefined
+    const headerRecord = typeof header === 'object' && header !== null && !Array.isArray(header)
+      ? header as Record<string, unknown>
+      : undefined
+    const config = headerRecord?.['config']
     if (!hasProviderModel(config)) throw new Error(`seed request/header at index ${index} lacks provider/model`)
-    const reasoningEffort = (config as Record<string, unknown>)['reasoningEffort']
+    const configRecord = config as Record<string, unknown>
+    const reasoningEffort = configRecord['reasoningEffort']
     if (reasoningEffort !== undefined
       && (typeof reasoningEffort !== 'string' || reasoningEffort.length === 0)) {
       throw new Error(`seed request/header at index ${index} has an invalid reasoningEffort`)
     }
+    assertAdapterDefaults(headerRecord?.['adapterDefaults'], configRecord, index)
   }
   const type = event['type']
   if (type !== 'user/message' && type !== 'assistant/message'
     && type !== 'tool/result' && type !== 'steering/message') return
   assertMessageEventShape(event, `seed ${type} at index ${index}`)
+}
+
+/** Validate adapter-default provenance imported from a durable request header. */
+function assertAdapterDefaults(
+  value: unknown,
+  config: Record<string, unknown>,
+  index: number,
+): void {
+  if (value === undefined) return
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`seed request/header at index ${index} has invalid adapterDefaults`)
+  }
+  const defaults = value as Record<string, unknown>
+  const allowed = new Set(['reasoningEffort', 'maxTokens'])
+  if (Object.keys(defaults).some(key => !allowed.has(key))
+    || Object.values(defaults).some(marker => marker !== true)
+    || defaults['reasoningEffort'] === true && config['reasoningEffort'] === undefined
+    || defaults['maxTokens'] === true && config['maxTokens'] === undefined) {
+    throw new Error(`seed request/header at index ${index} has invalid adapterDefaults`)
+  }
 }
 
 /** Validate only the event-specific invariants needed to safely replay a message. */
@@ -382,19 +407,32 @@ export class Session {
 
   /**
    * The first seq appended IN THIS PROCESS: the length of the constructor
-   * seed (0 without one). Events below it entered through construction —
-   * replay, fork, or resume — and were never published on the `session/event`
-   * firehose (constructor seeds do not emit), so consumers that replay the
-   * log as a publication substitute (telemetry adoption) start here. Distinct
-   * from `header.seedLength`, the DURABLE fork-lineage boundary: a resumed
-   * session's constructor seed is its full stored log, while its header keeps
-   * the original fork value — this field is the in-process construction fact
-   * and is deliberately not persisted.
+   * seed (0 without one). Events with smaller seq values entered through
+   * construction — replay, fork, or resume — and were never published on the
+   * `session/event` firehose (constructor seeds do not emit), so consumers
+   * that replay the log as a publication substitute (telemetry adoption)
+   * start here. Distinct from `header.seedLength`, the DURABLE fork-lineage
+   * boundary: a resumed session's constructor seed is its full stored log,
+   * while its header keeps the original fork value — this field is the
+   * in-process construction fact. An explicitly supplied empty seed has the
+   * same value as no seed (0); its `session/end-seed` event preserves the
+   * lifecycle distinction.
+   *
+   * Not persisted itself: a seeded session projects it into the log as the
+   * `session/end-seed` event, which is what a consumer reading STORED history
+   * reads. Locate the LAST such event, not necessarily one at this seq — a
+   * seed already ending in one is not re-marked, so reopening an untouched
+   * session leaves that event at a smaller seq than `firstLiveSeq`. Prefer
+   * this field in-process: it is exact before the marker reaches storage.
+   *
+   * When this lifecycle appends the marker, it occupies this seq before the
+   * store attaches and therefore does not publish either. Otherwise this seq
+   * holds an ordinary published write.
    */
   readonly firstLiveSeq: number
 
   constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader) {
-    if (seed) {
+    if (seed !== undefined) {
       // Validate the seed to the SAME invariants `append` enforces, so a
       // replay/fork (`ctx.sessions.create(id, { seed })`) cannot construct a
       // live log that no persistence backend could store: each event's `data`
@@ -427,6 +465,13 @@ export class Session {
     }
     this.firstLiveSeq = this.log.length
     this.header = snapshotSessionHeader(id, header)
+    // Appended here so the marker is already in `events` when a backend
+    // captures the creation seed: no load-time write. Re-marking is skipped
+    // because a cold session is resumed on first touch, so repeatedly opening
+    // one must not grow its log per open.
+    if (seed !== undefined && this.log.at(-1)?.type !== 'session/end-seed') {
+      this.append('session/end-seed', {})
+    }
   }
 
   /** Cached immutable public snapshot of the private append-only log. */
@@ -462,7 +507,8 @@ export class Session {
    *   the ordered surface; `sourceEventSeqs` records provenance (the seq
    *   numbers of events this one derives from). REQUIRED for
    *   {@link SurfaceEventType} events (every message-producing event must
-   *   declare how it joins the surface, the sole source of derived history) and
+   *   declare how it joins the surface, the sole source of derived model
+   *   history) and
    *   rejected by the compiler for non-surface types like `turn/start` or
    *   `assistant/chunk`.
    * @returns the logged event — its assigned `seq`/`time` plus the SNAPSHOT of
@@ -558,6 +604,30 @@ export class Session {
       this.headerFoldSeq = this.log.length
     }
     return this.headerFold
+  }
+
+  /** Cached fold of the request-context events — see {@link requestContext}. */
+  private contextFold: RequestContext | undefined
+  /** Log position (events consumed) the context fold has reached. */
+  private contextFoldSeq = 0
+
+  /**
+   * The route metadata in force after the log's last `request/context` event —
+   * what the NEXT request deduplicates against — or undefined before any such
+   * record. Maintained incrementally like {@link requestHeader}, so a per-step
+   * read costs O(new events).
+   * @returns the folded context record, or undefined when none exists yet.
+   */
+  requestContext(): RequestContext | undefined {
+    if (this.contextFoldSeq < this.log.length) {
+      for (const event of this.log.slice(this.contextFoldSeq)) {
+        // Frozen for the same reason as the header fold: it is session state
+        // exposed by reference and every later dedup compares against it.
+        if (event.type === 'request/context') this.contextFold = deepFreeze({ ...event.data })
+      }
+      this.contextFoldSeq = this.log.length
+    }
+    return this.contextFold
   }
 
   /** The derived-message cache: frozen projections, extended per unseen node. */

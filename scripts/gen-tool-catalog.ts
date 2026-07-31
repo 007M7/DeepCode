@@ -33,9 +33,11 @@ import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
 import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
 import * as ToolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
+import * as ToolBashPersistent from '@deepseek-ai/dsh-tool-bash-persistent'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolFsSearch from '@deepseek-ai/dsh-tool-fs-search'
+import * as ToolStrReplaceEditor from '@deepseek-ai/dsh-tool-str-replace-editor'
 import PtyService from '@deepseek-ai/dsh-pty'
 import * as ToolPty from '@deepseek-ai/dsh-tool-pty'
 import * as ToolGoal from '@deepseek-ai/dsh-tool-goal'
@@ -215,7 +217,33 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolCordis)
     },
     note:
-      'Ships in examples/cordis-agent only (a deliberate opt-in — temporary Plugin code reaches the real runtime, see .agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). Plugins created by cordis_mount may register ADDITIONAL model-visible tools until unmounted or DSH restarts; a full changed request header logs those tool-set changes.',
+      'Not in any shipped tree (a deliberate opt-in — temporary Plugin code reaches the real runtime, see .agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). Plugins created by cordis_mount may register ADDITIONAL model-visible tools until unmounted or DSH restarts; a full changed request header logs those tool-set changes.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-bash-persistent',
+    dir: 'tool-bash-persistent',
+    source: 'packages/pty/tool-bash-persistent/src/index.ts',
+    requires: ['ctx.tools', 'ctx.pty', 'an owning Agent at execution time'],
+    writes: ['tool/call', 'PTY shell state', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(PtyService)
+      await ctx.plugin(ToolBashPersistent)
+    },
+    note:
+      'One owner-isolated persistent bash tool; deployment composition supplies the PTY backend and may override the model-facing environment description.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-str-replace-editor',
+    dir: 'tool-str-replace-editor',
+    source: 'packages/fs/tool-str-replace-editor/src/index.ts',
+    requires: ['ctx.tools', 'ctx.fs'],
+    writes: ['tool/call', 'fs/observed after successful file operations', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(LocalFileSystem)
+      await ctx.plugin(ToolStrReplaceEditor)
+    },
+    note:
+      'Standalone view/create/unique literal replace/line insert tool over the filesystem seam; it composes with any shell or terminal surface.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-fs',
@@ -245,10 +273,10 @@ const TOOL_PACKAGES: ToolPackage[] = [
       // never depends on the host PATH. `ctx.spillStore` is optional (read via
       // ctx.get) and does not affect the schemas, so no spill backend is mounted.
       await ctx.plugin(CatalogSearchBashExecutor)
-      await ctx.plugin(ToolFsSearch)
+      await ctx.plugin(ToolFsSearch, { sampleOverCapGlobResults: true })
     },
     note:
-      'glob and grep are conditional bash-backed discovery tools: they register only when ctx.bash can find `rg`, then run fixed ripgrep commands through ctx.bash as ordinary foreground calls (never background tasks). Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments.',
+      'glob and grep are conditional bash-backed discovery tools: they register only when ctx.bash can find `rg`, then run fixed ripgrep commands through ctx.bash as ordinary foreground calls (never background tasks). The catalog uses `sampleOverCapGlobResults: true`; deployments must choose that behavior explicitly. Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-pty',
@@ -349,7 +377,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolSubagent, { provider: 'mock' })
     },
     note:
-      'The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped example agents load this package once per subagent backend, so the model additionally sees `subagent_fork` (bound to the fork backend) with an identical schema — see `examples/tui-agent/cordis.yml` and `examples/acp-agent/cordis.yml`.',
+      'The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped example agents load this package once per subagent backend, so the model additionally sees `subagent_fork` (bound to the fork backend) with an identical schema — see `apps/cli/config/base.cordis.yml` and `examples/acp-agent/cordis.yml`.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-tasks',

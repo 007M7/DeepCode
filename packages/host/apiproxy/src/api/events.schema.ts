@@ -23,6 +23,11 @@ export const askUserQuestionItemSchema = z.object({
   detail: z.string().optional(),
   options: z.array(z.object({ label: z.string(), description: z.string().optional() })).optional(),
   multiSelect: z.boolean().optional(),
+  // Presentation intent: a tagged union on the wire, so an unknown tag is a
+  // rejected frame rather than a silently generic render.
+  intent: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('plan-review'), approve: z.string() }),
+  ]).optional(),
 }) satisfies z.ZodType<Wire<AskUserQuestionItem>>
 
 /** Unified message envelope carried by transient queue frames. */
@@ -66,6 +71,10 @@ export const hostFrameSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('host/agent-error'), sessionId: sessionIdSchema, message: z.string() }),
   z.object({ type: z.literal('host/workspace-changed'), workspace: workspaceViewSchema }),
   z.object({ type: z.literal('host/workspace-removed'), workspaceId: workspaceIdSchema }),
+  z.object({ type: z.literal('host/archived-sessions-changed'), archivedSessionIds: z.array(sessionIdSchema) }),
   z.object({ type: z.literal('host/commands-changed') }),
+  z.object({ type: z.literal('host/settings-changed'), ns: z.string() }),
+  z.object({ type: z.literal('host/credentials-changed'), ref: z.string() }),
+  z.object({ type: z.literal('host/models-changed') }),
   z.object({ type: z.literal('stream/error'), error: rpcErrorSchema }),
 ]) as unknown as z.ZodType<HostFrame>

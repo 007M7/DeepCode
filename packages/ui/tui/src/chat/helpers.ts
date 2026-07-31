@@ -1,6 +1,6 @@
 /**
  * Zero-state helpers for the interactive chat channel: prompt-directory and
- * Git-branch formatting, surface/tool-call derivations over the session log,
+ * Git-branch formatting, transcript/tool-call derivations over the session log,
  * session-reference context cards, the placeholder editor, and banner-reveal
  * timing constants. None of these close over channel state.
  * @module @deepseek-ai/dsh-tui/chat/helpers
@@ -15,7 +15,9 @@ import {
   truncateToWidth,
   visibleWidth,
 } from '@earendil-works/pi-tui'
-import type { Session } from '@deepseek-ai/dsh-session'
+import { isCompactCheckpointSource } from '@deepseek-ai/dsh-compact'
+import { isAppendSurfaceEvent, isReplacementSurfaceEvent } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 
 /** Editor that shows a placeholder without making it editable content. */
@@ -81,29 +83,41 @@ export function gitBranch(cwd: string): string | undefined {
 }
 
 /**
- * Sequence numbers currently visible on the session surface.
- * @param session - session whose surface nodes to read.
- * @returns the set of visible event sequence numbers.
- */
-export function activeSurfaceSeqs(session: Session): Set<number> {
-  return new Set(session.surface.nodes)
-}
-
-/**
- * Tool-call ids whose owning assistant message is on the active surface.
+ * Tool-call ids whose owning assistant message is append-origin, so its tool
+ * cards stay paired in the transcript after a replacement shadowed the message
+ * on the model surface.
  * @param session - session whose events to scan.
- * @param active - sequence numbers currently on the surface.
- * @returns the set of active tool-call ids.
+ * @returns the set of transcript tool-call ids.
  */
-export function activeToolCallIds(session: Session, active: ReadonlySet<number>): Set<string> {
+export function transcriptToolCallIds(session: Session): Set<string> {
   const ids = new Set<string>()
   for (const event of session.events) {
-    if (event.type !== 'assistant/message' || !active.has(event.seq)) continue
+    if (event.type !== 'assistant/message' || !isAppendSurfaceEvent(event)) continue
     for (const block of event.data.message.content) {
       if (block.type === 'tool-call') ids.add(block.id)
     }
   }
   return ids
+}
+
+/**
+ * Whether an event is a landed compaction checkpoint. Recognition goes through
+ * {@link isCompactCheckpointSource} — the compaction seam's backend-independent
+ * contract for the source every backend stamps on its replacement user message —
+ * rather than the shape of the replacement. Other replacements (a pruned
+ * `tool/result`, a regenerated `assistant/message`) rewrite one node for the
+ * model and mark no boundary in the conversation.
+ *
+ * Both current call sites already test the replacement themselves. The check
+ * keeps the exported predicate true to its name for a third caller, rather than
+ * making that caller repeat it.
+ * @param event - event to test.
+ * @returns true when the event compacted a surface range.
+ */
+export function isCompactCheckpoint(event: SessionEvent): boolean {
+  return event.type === 'user/message'
+    && isCompactCheckpointSource(event.data.source)
+    && isReplacementSurfaceEvent(event)
 }
 
 /**

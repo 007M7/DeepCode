@@ -1,13 +1,12 @@
-// Resident conversation skeleton. Hero chrome, composer positioning, and the
-// chain stay mounted across no-session/session transitions. Only the inert
-// input body swaps for the strict session InputBar.
+// Resident conversation skeleton. Hero chrome, composer positioning, the
+// chain, AND the composer bar (session-maybe slot) stay mounted across
+// no-session/session transitions — the bar renders inert via owner props.
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import type { WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConversationSlotProps, InputZone } from '../contract/slots.ts'
 import { HeroGlow, HeroShell, WorkspaceChip, workspaceLabel } from './EmptyHero.tsx'
-import { DisabledInputBar } from './DisabledInputBar.tsx'
 import css from './ConversationRoot.module.css'
 
 /** Full props composed from the slot contract. */
@@ -15,7 +14,7 @@ export type ConversationRootProps = ConversationSlotProps
 
 export function ConversationRoot({
   sessionId, useSession, useSessions, useWorkspaces, useInput,
-  renderSlot, renderSlotChain, selectWorkspace,
+  renderSlot, renderSlotChain, selectWorkspace, t,
 }: ConversationRootProps) {
   const openState = useSession(s => s.openState)
   const composerPhase = useSession(s => s.composerPhase)
@@ -23,6 +22,7 @@ export function ConversationRoot({
   const session = useSession(s => s)
   const inputState = useInput(s => s)
   const cwd = useSessions(s => sessionId === undefined ? undefined : s.byId[sessionId]?.cwd)
+  const summaryBlank = useSessions(s => sessionId === undefined ? undefined : s.byId[sessionId]?.blank)
   const workspaces = useWorkspaces(s => s)
 
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -66,8 +66,16 @@ export function ConversationRoot({
   // While a session is still replaying (loading + blank) the hero/docked
   // choice is unknowable — render the composer hidden instead of flashing
   // the centered hero and snapping to the docked bar (or vice versa).
+  // Exemption: a session the list summary already proves blank can only
+  // land on the hero, so hiding would blank the column for the whole
+  // history round-trip (the startup auto-selection flash) for nothing.
+  // The exemption is deliberately open-state-wide, not loading-only: a
+  // summary-blank session is the hero before its open starts (`cold`) and
+  // after one fails (`error`) for the same reason — there is no history.
   const settling = sessionId !== undefined && composerPhase === 'blank' && openState === 'loading'
-  const hero = sessionId === undefined || (composerPhase === 'blank' && openState === 'open')
+    && summaryBlank !== true
+  const hero = sessionId === undefined
+    || (composerPhase === 'blank' && (openState === 'open' || summaryBlank === true))
   const zone: InputZone | undefined =
     session === undefined || inputState === undefined ? undefined : { session, input: inputState }
 
@@ -95,6 +103,7 @@ export function ConversationRoot({
         label={chipTitle}
         menuOpen={pickerOpen}
         onClick={() => { setPickerOpen(open => !open) }}
+        t={t}
       />
       {renderSlot('conversation.hero.workspace', {
         open: pickerOpen,
@@ -113,25 +122,28 @@ export function ConversationRoot({
   )
 
   // The placeholder chip ("Choose workspace") and the inert input travel
-  // together: a blank session whose workspace vanished (deleted from the
-  // sidebar) reverts to the same disabled bar as the initial no-session state.
-  const inputBar = sessionId === undefined || (hero && chipTitle === undefined)
-    ? <DisabledInputBar />
-    : renderSlot('conversation.composer.bar', {
-      variant: hero ? 'hero' : 'composer',
-      ...(hero ? { placeholder: 'Describe what you want to build' } : {}),
-      overlay: renderSlot('conversation.input.overlay', {}),
-      leftItems: zone === undefined ? null : renderSlot('conversation.input.left', zone),
-      rightItems: zone === undefined ? null : renderSlot('conversation.input.right', zone),
-      // Stats band under the card, inside the bar's width column so both
-      // share one constraint (composer.dock = stats-line family).
-      footer: !hero && zone !== undefined ? renderSlot('conversation.composer.dock', zone) : null,
-    })
+  // together: no workspace picked yet (cold start, no session at all), or a
+  // blank session whose workspace vanished (deleted from the sidebar). The
+  // bar is ONE session-maybe slot rendered unconditionally — inert is a prop,
+  // not a different tree, so the textarea DOM survives the transition.
+  const inert = sessionId === undefined || (hero && chipTitle === undefined)
+  const inputBar = renderSlot('conversation.composer.bar', {
+    variant: hero ? 'hero' : 'composer',
+    ...(inert
+      ? { disabled: true, placeholder: t('placeholder.workspace') }
+      : hero ? { placeholder: t('placeholder.hero') } : {}),
+    overlay: renderSlot('conversation.input.overlay', {}),
+    leftItems: zone === undefined ? null : renderSlot('conversation.input.left', zone),
+    rightItems: zone === undefined ? null : renderSlot('conversation.input.right', zone),
+    // Stats band under the card, inside the bar's width column so both
+    // share one constraint (composer.dock = stats-line family).
+    footer: !hero && zone !== undefined ? renderSlot('conversation.composer.dock', zone) : null,
+  })
 
   const composerBar = (
     <div className={clsx(css.composerStack, hero && css.composerHero)}>
       {hero && <HeroGlow className={css.heroGlow} />}
-      {hero && <HeroShell />}
+      {hero && <HeroShell t={t} />}
       {hero && heroWorkspaceRow}
       {!hero && zone !== undefined && renderSlot('conversation.input.dock', zone)}
       {inputBar}
@@ -176,7 +188,7 @@ export function ConversationRoot({
         'conversation.session',
         { wrapActiveBody },
       )}
-      {sessionId === undefined ? composerSeat : null}
+      {sessionId === undefined ? wrapActiveBody(null) : null}
     </div>
   )
 }

@@ -14,7 +14,7 @@ Agent 接口、注册表、进程本地发起方作用域，以及 `agent/*` 事
 
 带作用域的注册接口：`Agent.ctx` 是 agent 的作用域上下文（`dsh-scope`，键 = 该 agent）。通过它注册工具／段／变量／监听器，只对该 agent 生效，并在 dispose（资源释放）时全部撤销。`agentEvents(ctx, agent)` 是普通 agent 主体操作的融合分发器（一次完成载体 + 注入主体）；其通知 mode 会调用每个监听器，并同时收容同步抛出和返回 Promise 的拒绝。注册表生命周期对复用一个稳定路由载体。`assembleContextFor(agent)` 构建按 agent 的组装上下文（同时包含 `agent` + `scope`）。`installAgentLlmTarget(agentCtx, target)` 在提示词组装期间快照可变的提供方／模型／推理（reasoning）强度选择，将路由应用到提示词变量，并将完整目标应用到一个步骤的请求路由；如果没有选定推理强度，则会清除继承的推理强度，使该目标使用适配器／提供方默认值。`CreateAgentOptions.setup(agentCtx)` 和 `ResumeAgentOptions.setup(agentCtx)` 在新建或恢复的 agent 尚未发布时，组合其带作用域的世界。Setup 是受信任、仅用于组合的同进程代码：只有创建完成后才能驱动 agent。
 
-`AgentOptions` 提供初始的提供方／模型路由，以及可选的正数 `maxTokens` 输出上限。实体循环会把该上限记录到请求 header，并应用到每次对话模型请求；调用方省略时由提供方默认值控制。
+`AgentOptions` 提供初始的提供方／模型路由，以及可选的正数 `maxTokens` 输出上限。实体循环会解析确切模型的适配器默认值，把生效上限记录到请求 header，并应用到每次对话模型请求；显式 Agent 选项优先，省略时由适配器或提供方路由默认值控制。
 
 - `ctx.agents.register(agent: Agent): () => void`：记录一个 **已经构造完成** 的 agent。随调用 fiber dispose。
 - 高级有序生命周期：`enter(agent, owner): () => void` 强制 `agent.id === agent.session.id`，执行权威 ID 冲突检查，并在不通知的情况下插入；`owner` 显式记录实时创建方 agent 关系（根 agent 为 `undefined`），与持久会话谱系无关。`announce(agent)` 恰好发出一次 `agent/created`。创建监听器同步请求的 detach 会延后到该次分发结束；每次 detach 都会检查捕获的条目对象，因此陈旧能力无法删除后续使用同一 ID 的替代项。异步工厂使用这一拆分；普通插件使用 `register()`。
@@ -61,6 +61,7 @@ Agent *创建* 由实现 `AgentFactory` 的插件（`dsh-agent-loop`）提供，
 每个插件面向的 handle：
 
 - `agent.send(message, options)`：覆盖（`target` × `wakeup`）矩阵的唯一投递原语。`message` 是已有标识且已冻结的 `UserMessage`；调用方通常会在开始路由前使用 `createUserMessage()` 创建它。`SendOptions` 只持有 `target` 与 `wakeup` 策略。每次获准进入 FIFO 的项都会获得独立的 `InboxItemId`，即使调用方复用了同一个 `MessageId`；`agent/inbox/enqueue`／`update` 及终态 `dequeue` 或 `discard` 都会携带这一完整 `InboxItem`。`target: 'next-turn'` 排队一条独立 FIFO 项，获准后成为其轮次中唯一的普通提示词。`target: 'next-step'` 且 `wakeup: true` 提交 steering（中途引导），而 `target: 'next-step'` 且 `wakeup: false` 注入持久上下文，不运行模型。轮次原理由 [one-send-one-turn Agent Note](../../../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)拥有。
+- `agent.reserveTurnAdmission()`：在任何已排队唤醒提示词认领其轮次之前，同步预留空闲边界。已获接纳的提示词拥有优先权，包括同一 tick 内仍在等待唤醒的项，此时预留返回 `undefined`。预留期间，之后发送的项保留其普通 ID、FIFO 位置与唤醒信息；`acceptsNextStep` 保持 false，`inject()` 不受阻塞，`whenIdle()` 将该预留计为活动，返回的释放函数可幂等调用。这项范围有限的协调能力使手动压缩（compaction）等独立持久操作能够在排队提示词从会话派生内容前完成并 flush。
 - `agent.updateInbox(itemId, action)`：同步编辑或移除一个仍处于待处理状态的 queued 入队项。编辑会替换已冻结的内容，同时保留其 `MessageId`、`InboxItemId`、来源与 FIFO 位置；移除会发出该项的终态 discard。steering 项和已被认领的项会返回 `not-found`。
 - `agent.followup(input)`：`send()` 的 `next-turn`／wakeup 预设：排队一个普通后续轮次并唤醒驱动器。
 - `agent.steer(input)`：`next-step`／wakeup 预设：提示词接纳期间或轮次打开时，为下一个安全边界暂存 steering，且不分发 `agent/prompt-submit`；该接收窗口之外则委托给会唤醒的后续轮次。接纳失败会保留暂存的 steering，以供重试或之后获准的提示词使用，而取消或 dispose 可能丢弃它。

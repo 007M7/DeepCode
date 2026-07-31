@@ -8,10 +8,15 @@
 import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
+import { usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { createScope, scopeOf, SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { apply, inject, SlashService } from '@deepseek-ai/dsh-client-ui-slash/client'
 import type { MenuViewInjected } from '@deepseek-ai/dsh-client-ui-slash/client'
+
+// The service reads its initial locale from the browser; these specs assert
+// the shipped Chinese copy, so they state the browser they assume.
+usePinnedBrowserLanguages('zh-CN')
 
 const sid = (k: string): SessionId => k as SessionId
 
@@ -69,6 +74,8 @@ describe('apply', () => {
     await vi.waitFor(() => { expect(slots.entries('conversation.input.overlay')).toHaveLength(1) })
     const entries = slots.entries('conversation.input.overlay')
     expect(entries[0]!.options.id).toBe('slash-menu')
+    // Copy rides the standard locale seat, not the business face.
+    expect(entries[0]!.locale).toBe('slash.menu')
 
     const slash = ctx.get('slash') as SlashService
     // StoredEntry.inject is declaration-typed ((...args: never[]) shape);
@@ -79,8 +86,6 @@ describe('apply', () => {
       (ctx.get('sessions') as { scope(id: SessionId): Context }).scope(sid('a')),
     )
     expect(injected.menu).toBe(controller.menu)
-    // The injected translator is the menu-namespace binding.
-    expect(injected.t('command')).toBe('命令')
     // The pick face routes into the controller pipeline (closed menu → no-op).
     injected.onPick('command', 0)
     expect(controller.menu.getSnapshot().open).toBe(false)

@@ -12,7 +12,7 @@ tmux exposes this without a daemon: `$TMUX_PANE` names the process's pane, and `
 
 ## Decision
 
-`@deepseek-ai/dsh-tmux-context` is an opt-in function plugin in `packages/context/tmux-context/`, alongside the other bounded request-context enrichments that define neither a tool nor a service. Shipped examples do not mount it because tmux-location disclosure and its token cost are deployment policy.
+`@deepseek-ai/dsh-tmux-context` is an opt-in function plugin in `packages/context/tmux-context/`, alongside the other bounded request-context enrichments that define neither a tool nor a service. The shipped TUI mounts it because terminal-multiplexer context is specific to that surface; `dsh-agent-spine-demo` and the Web/headless surfaces stay silent.
 
 **Pull on the first step of each turn, not a tmux push.** The plugin prepends an `agent/step` listener and acts only when `step === 1`. A pull model needs no background process, no hook installation in the user's tmux, and no teardown; it re-reads current state each turn so a moved, renamed, or re-laid-out pane is picked up naturally. Gating on the first step makes the reading per-turn: a location is stable within a turn, and re-querying every step would add cost without new information. A pane moved mid-turn is reflected on the next turn, which is the accepted tradeoff for the simpler design.
 
@@ -42,7 +42,7 @@ The published `./invariant` companion registers no runtime check: a reading is a
 
 ## Consequences
 
-An agent booted inside tmux now receives its own session/window/pane location and window layout as durable, source-attributed context, updated per turn when the location changes. Deployments opt in through cordis.yml; the default spine and shipped examples stay silent. Outside a real tmux pane — including a terminal that merely inherited `$TMUX`/`$TMUX_PANE` — or without a `ctx.bash` executor, the plugin is inert with no error, so composing it is safe everywhere. Because the reading is one durable `user/message`, it survives compaction as ordinary history, contributes nothing to system-prompt assembly or request headers, and costs at most one two-line message per changed turn. The pull model adds one `tmux display-message` subprocess (through the sandboxed bash seam) on the first step of each turn that is due. The optional interval floor is checked before the query and so suppresses both; an unchanged location is detected only by comparing the returned state, so it suppresses the injection while still paying for the query.
+An agent booted inside tmux now receives its own session/window/pane location and window layout as durable, source-attributed context, updated per turn when the location changes. The shipped TUI opts in; custom deployments may compose the plugin directly. Outside a real tmux pane — including a terminal that merely inherited `$TMUX`/`$TMUX_PANE` — or without a `ctx.bash` executor, the plugin is inert with no error, so composing it is safe everywhere. Because the reading is one durable `user/message`, it survives compaction as ordinary history, contributes nothing to system-prompt assembly or request headers, and costs at most one two-line message per changed turn. The pull model adds one `tmux display-message` subprocess (through the sandboxed bash seam) on the first step of each turn that is due. The optional interval floor is checked before the query and so suppresses both; an unchanged location is detected only by comparing the returned state, so it suppresses the injection while still paying for the query.
 
 ## Testing
 

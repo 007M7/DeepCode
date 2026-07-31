@@ -91,6 +91,41 @@ interface SessionEventMap {
    * It is log-only; the latest snapshot reconstructs the request header.
    */
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
+  /**
+   * Registration-bound context metadata for the route a request resolved to,
+   * appended inside its step beside `request/header` and only when the route
+   * or capacity differs from the last record. It is log-only and deliberately
+   * NOT part of {@link EpochHeader}: capacity is adapter metadata about a
+   * route, not an input the request was built from, so it must not participate
+   * in request reconstruction or header equality. `contextWindow` is absent
+   * when the route's adapter advertises no capacity.
+   */
+  'request/context': RequestContext
+  /**
+   * Marks the end of a constructor seed. Events before it have smaller seq
+   * values and came from the seed (resume, fork, or replay); this lifecycle
+   * produced none of them. An explicitly supplied empty seed puts the marker
+   * at seq 0, distinguishing an empty resumed session from a fresh session.
+   * This log-only event is the durable projection of
+   * {@link Session.firstLiveSeq}. Its payload is empty — position and `time`
+   * carry the meaning.
+   *
+   * Locate the LAST one in stored history. A seed already ending in one is not
+   * re-marked, so reopening an untouched session does not grow its log per
+   * pickup and the event need not be at the current `firstLiveSeq`.
+   *
+   * `Session`'s constructor is the only legitimate writer. The invariant
+   * companion deliberately constrains nothing here, so a plugin appending one
+   * would silently classify every live bracket before it as seed history.
+   *
+   * An owner of a standalone open/close bracket (`compact/start` …
+   * `compact/end`) reads it because seed history and live work are otherwise
+   * byte-identical: an unmatched opening marker before this event belongs to
+   * an ended lifecycle, whatever ended it. NOT a liveness signal about other
+   * writers — a concurrently live session holds its own boundary elsewhere,
+   * so tolerating concurrent writers needs a signal beyond the log.
+   */
+  'session/end-seed': Record<string, never>
 }
 ```
 
@@ -121,7 +156,7 @@ interface TodoItem {
 
 ### The request header event: `request/header`
 
-The request envelope — the `EpochHeader` (call config + rendered system prompt + assembled tool schemas) — is logged session state, so every conversation request is a pure function of the log (the reconstructability Agent Note). A full `request/header` snapshot with reason `'initial'` or `'resume'` records each loop-instance boundary; a later changed request records another full snapshot with reason `'change'`. `foldRequestHeader(events)` reconstructs the header by selecting the latest snapshot. The event is not a `SurfaceEventType`: it produces no LLM message.
+The request envelope — the `EpochHeader` (call config + adapter-default provenance + rendered system prompt + assembled tool schemas) — is logged session state, so every conversation request is a pure function of the log (the reconstructability Agent Note). A full `request/header` snapshot with reason `'initial'` or `'resume'` records each loop-instance boundary; a later changed request records another full snapshot with reason `'change'`. `foldRequestHeader(events)` reconstructs the header by selecting the latest snapshot. The event is not a `SurfaceEventType`: it produces no LLM message.
 
 ```ts type-equiv
 /**
@@ -132,6 +167,8 @@ The request envelope — the `EpochHeader` (call config + rendered system prompt
 interface EpochHeader {
   /** The conversation's call configuration (provider, model, reasoning effort, and sampling scalars). */
   config: LlmCallConfig
+  /** Effective config fields materialized from the exact adapter rather than proposed by a caller. */
+  adapterDefaults?: LlmCallConfigAdapterDefaults
   /** Rendered system prompt text; absent for a system-less request. */
   system?: string
   /** Assembled tool schemas; absent for a tool-less request. */
@@ -140,6 +177,26 @@ interface EpochHeader {
 ```
 
 Canonical form represents an empty system prompt or tool list as an absent field, matching how requests are built. Legacy v0 logs containing the removed `request/header-delta` event or its full-snapshot `fallback` reason are rejected at seed, append, and persistence-load boundaries rather than replayed incompletely.
+
+### The route capacity event: `request/context`
+
+The context metadata of the route a request resolved to is separate logged state, appended beside `request/header` inside the same step and only when the provider, model, or capacity differs from the previous record. It stays outside `EpochHeader` because that type is the reconstruction contract compared field-wise by `headerEquals`: capacity describes a route, not a request input, so folding it in would let a capacity change register as a request-envelope `change` and would pull adapter metadata into the loop's reconstruction invariant. Like `request/header`, it is not a `SurfaceEventType` and produces no LLM message. `session.requestContext()` folds the latest record incrementally. A route whose adapter advertises no capacity is recorded with `contextWindow` absent, so the new record clears an older route's capacity.
+
+```ts type-equiv
+/**
+ * Registration-bound context metadata of one resolved model route. Adapter
+ * metadata about a route rather than a request input, which is why it lives
+ * outside {@link EpochHeader}.
+ */
+interface RequestContext {
+  /** Registered provider route the metadata was resolved through. */
+  provider: string
+  /** Provider-owned model id the metadata belongs to. */
+  model: string
+  /** Maximum combined request and response context in tokens; absent when the adapter advertises none. */
+  contextWindow?: number
+}
+```
 
 ## `SessionEvent<T>` — one log entry
 
@@ -246,7 +303,7 @@ interface SurfaceIntent {
 }
 ```
 
-Required for `SurfaceEventType` events — every message-producing event must declare how it joins the surface, the sole source of derived history. Non-surface types reject it at compile time.
+Required for `SurfaceEventType` events — every message-producing event must declare how it joins the surface, the sole source of derived model history. A human-facing transcript is the other projection and reads the log's append-origin events instead, because the surface deliberately shadows the ranges a replacement summarizes (`isAppendSurfaceEvent` in [dsh-session](../../packages/core/session/README.md)). Non-surface types reject it at compile time.
 
 The same provenance distinction applies here: only `assistant/message` may carry a present empty `sourceEventSeqs`; omission does not assert that its source stream was empty.
 
@@ -320,14 +377,27 @@ declare class Session {
   get id(): SessionId;
   /**
    * The first seq appended IN THIS PROCESS: the length of the constructor
-   * seed (0 without one). Events below it entered through construction —
-   * replay, fork, or resume — and were never published on the `session/event`
-   * firehose (constructor seeds do not emit), so consumers that replay the
-   * log as a publication substitute (telemetry adoption) start here. Distinct
-   * from `header.seedLength`, the DURABLE fork-lineage boundary: a resumed
-   * session's constructor seed is its full stored log, while its header keeps
-   * the original fork value — this field is the in-process construction fact
-   * and is deliberately not persisted.
+   * seed (0 without one). Events with smaller seq values entered through
+   * construction — replay, fork, or resume — and were never published on the
+   * `session/event` firehose (constructor seeds do not emit), so consumers
+   * that replay the log as a publication substitute (telemetry adoption)
+   * start here. Distinct from `header.seedLength`, the DURABLE fork-lineage
+   * boundary: a resumed session's constructor seed is its full stored log,
+   * while its header keeps the original fork value — this field is the
+   * in-process construction fact. An explicitly supplied empty seed has the
+   * same value as no seed (0); its `session/end-seed` event preserves the
+   * lifecycle distinction.
+   *
+   * Not persisted itself: a seeded session projects it into the log as the
+   * `session/end-seed` event, which is what a consumer reading STORED history
+   * reads. Locate the LAST such event, not necessarily one at this seq — a
+   * seed already ending in one is not re-marked, so reopening an untouched
+   * session leaves that event at a smaller seq than `firstLiveSeq`. Prefer
+   * this field in-process: it is exact before the marker reaches storage.
+   *
+   * When this lifecycle appends the marker, it occupies this seq before the
+   * store attaches and therefore does not publish either. Otherwise this seq
+   * holds an ordinary published write.
    */
   readonly firstLiveSeq: number;
   constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader);
@@ -354,7 +424,8 @@ declare class Session {
    *   the ordered surface; `sourceEventSeqs` records provenance (the seq
    *   numbers of events this one derives from). REQUIRED for
    *   {@link SurfaceEventType} events (every message-producing event must
-   *   declare how it joins the surface, the sole source of derived history) and
+   *   declare how it joins the surface, the sole source of derived model
+   *   history) and
    *   rejected by the compiler for non-surface types like `turn/start` or
    *   `assistant/chunk`.
    * @returns the logged event — its assigned `seq`/`time` plus the SNAPSHOT of
@@ -388,6 +459,14 @@ declare class Session {
    * @returns the folded header, or undefined when no header event exists yet.
    */
   requestHeader(): EpochHeader | undefined;
+  /**
+   * The route metadata in force after the log's last `request/context` event —
+   * what the NEXT request deduplicates against — or undefined before any such
+   * record. Maintained incrementally like {@link requestHeader}, so a per-step
+   * read costs O(new events).
+   * @returns the folded context record, or undefined when none exists yet.
+   */
+  requestContext(): RequestContext | undefined;
   /**
    * Derive the LLM message history by walking the ordered sequences of
    * message-producing events maintained by `surfaceOp` markers. The
@@ -506,6 +585,16 @@ interface TurnEndReasonMap {
 A turn encloses one model-loop execution, not the whole session log. Idle injected `user/message` events and plugin-owned log-only events may appear between `turn/end` and the next `turn/start`; they consume event seqs without incrementing turn numbers. Persistence eagerly records every contiguous accepted event, while crash repair closes only a genuinely open trailing turn. A producer that needs a durability barrier explicitly awaits `ctx.sessions.flush(session)`.
 
 The optional `dsh-session/invariant` companion enforces the relations owned by core: turn and step numbering, execution-event enclosure, and same-step tool call/result pairing. Merge-extensible event relations belong to the plugin that declares them, so core does not reject an unknown event merely because no turn is open. See [the standalone-event decision](../../.agents/notes/implemented/simplification/2026-07-28-remove-synthetic-log-only-turns.md).
+
+## The end-seed boundary: `session/end-seed`
+
+A seeded session — resume, fork, or replay — appends this log-only event immediately after its constructor seed, as its first live write. Events before it have smaller seq values and came from the seed. It is the durable projection of `firstLiveSeq`: that field answers where this lifecycle's writes start for a consumer holding the object, while the event answers the same question for one holding only stored bytes. The payload is empty, so position and `time` carry the whole meaning, and it produces no message. `Session`'s constructor is the only legitimate writer.
+
+An explicitly supplied empty seed writes `session/end-seed` at seq 0, which distinguishes an empty resumed session from a fresh one. A seed already ending in `session/end-seed` is not re-marked, so reopening an untouched session does not grow its log per pickup. Locate the LAST `session/end-seed` in stored history rather than assuming one exists at `firstLiveSeq`: after a pickup with no work, the event has a smaller seq than the next lifecycle's `firstLiveSeq`.
+
+It exists because seed history and live work are otherwise byte-identical, which defeats any plugin owning a standalone open/close bracket: an unmatched `compact/start` reads the same whether the writer crashed mid-compaction or is compacting right now. An opening marker before `session/end-seed` came from the constructor seed and belongs to an ended lifecycle, whatever ended it (a crash, a succeeding process, or a fork out of a still-running parent), so its owner may treat it as dead. That covers only brackets *this* session inherited: a concurrently live session holding an open bracket over the same history has its own boundary elsewhere, so tolerating concurrent writers needs a liveness signal beyond the log. Core writes the boundary and reads nothing from it — a bracket's vocabulary stays with its owning plugin, which is why crash repair closes turn/step/tool boundaries and never `compact/*`.
+
+Activity ordering excludes the boundary through `lastActivityTime(events)`: picking a session up is not work, and lazy resume means browsing writes one, so a resume picker or session list ordering by log tail would float every opened session to the top.
 
 ## Plugin-contributed log-only events
 

@@ -8,7 +8,8 @@
 import { useCallback, useMemo, useState } from 'react'
 import clsx from 'clsx'
 import { parseAnsiLines, type AnsiLine } from './ansi.ts'
-import { writeClipboard } from './clipboard.ts'
+import { headTailCap } from './head-tail-cap.ts'
+import { useCopyFeedback } from './use-copy-feedback.ts'
 import { Pill } from './Pill.tsx'
 import { StateDot, type StateDotState } from './StateDot.tsx'
 import css from './TerminalBlock.module.css'
@@ -19,6 +20,54 @@ import css from './TerminalBlock.module.css'
  * command's output at the same place.
  */
 export const DEFAULT_TERMINAL_MAX_LINES = 16
+
+/**
+ * Display copy for the terminal surface; the owner passes localized labels
+ * (this package is cordis-free, so copy arrives via props). Every field
+ * defaults to the current built-in value, so existing consumers render
+ * unchanged.
+ */
+export interface TerminalBlockLabels {
+  /** Status pill text for a signal-terminated command. */
+  signal: (signal: string) => string
+  /** Status pill text for a non-zero exit code. */
+  exitCode: (exitCode: number) => string
+  /** Run-state text while the command is still running. */
+  running: string
+  /** Run-state text for a signal or non-zero-exit settle. */
+  failed: string
+  /** Run-state text for a clean settle. */
+  done: string
+  /** Copy-button idle label. */
+  copy: string
+  /** Copy-button label during the post-copy confirmation window. */
+  copied: string
+  /** Placeholder when a settled command produced no visible output. */
+  noOutput: string
+  /** Collapse-toggle aria label while expanded. */
+  collapseAria: string
+  /** Collapse-toggle text while expanded. */
+  collapse: string
+  /** Expand-toggle aria label while capped, given the hidden line count. */
+  expandAria: (hidden: number) => string
+  /** Expand-toggle text while capped, given the hidden line count. */
+  expand: (hidden: number) => string
+}
+
+const DEFAULT_LABELS: TerminalBlockLabels = {
+  signal: signal => `信号 ${signal}`,
+  exitCode: exitCode => `退出码 ${exitCode}`,
+  running: '运行中',
+  failed: '失败',
+  done: '已完成',
+  copy: '复制',
+  copied: '复制成功',
+  noOutput: '无输出',
+  collapseAria: '收起输出',
+  collapse: '收起',
+  expandAria: hidden => `展开其余 ${hidden} 行输出`,
+  expand: hidden => `… 其余 ${hidden} 行`,
+}
 
 export interface TerminalBlockProps {
   /** The command line, rendered verbatim after the prompt label. */
@@ -35,10 +84,12 @@ export interface TerminalBlockProps {
   signal?: string | undefined
   /** The command is still running: the block shows the prompt line alone. */
   running?: boolean | undefined
-  /** Height cap in output lines before the middle collapses (default {@link DEFAULT_TERMINAL_MAX_LINES}). */
+  /** Height cap in output lines before the middle collapses (default {@link DEFAULT_TERMINAL_MAX_LINES}); Infinity disables the cap. */
   maxLines?: number | undefined
   /** Extra class merged onto the wrapper (callers position; this component draws). */
   className?: string | undefined
+  /** Localized display copy; omitted fields keep the built-in defaults. */
+  labels?: Partial<TerminalBlockLabels> | undefined
 }
 
 /**
@@ -63,11 +114,16 @@ function promptLabel(cwd: string, home: string | undefined): string {
  * distinction the bash tool's own exit-status markers draw.
  * @param exitCode - settled exit code, when known.
  * @param signal - settled terminating signal name, when known.
+ * @param labels - display copy for the pill text.
  * @returns the pill text, or undefined for a clean exit.
  */
-function statusText(exitCode: number | undefined, signal: string | undefined): string | undefined {
-  if (signal !== undefined) return `信号 ${signal}`
-  if (exitCode !== undefined && exitCode !== 0) return `退出码 ${exitCode}`
+function statusText(
+  exitCode: number | undefined,
+  signal: string | undefined,
+  labels: TerminalBlockLabels,
+): string | undefined {
+  if (signal !== undefined) return labels.signal(signal)
+  if (exitCode !== undefined && exitCode !== 0) return labels.exitCode(exitCode)
   return undefined
 }
 
@@ -84,16 +140,18 @@ function statusText(exitCode: number | undefined, signal: string | undefined): s
  * @param running - the command has not settled.
  * @param exitCode - settled exit code, when known.
  * @param signal - settled terminating signal name, when known.
+ * @param labels - display copy for the text label.
  * @returns the dot's state and its text label, since the dot is aria-hidden.
  */
 function runState(
   running: boolean,
   exitCode: number | undefined,
   signal: string | undefined,
+  labels: TerminalBlockLabels,
 ): { state: StateDotState; label: string } {
-  if (running) return { state: 'ongoing', label: '运行中' }
-  if (statusText(exitCode, signal) !== undefined) return { state: 'error', label: '失败' }
-  return { state: 'done', label: '已完成' }
+  if (running) return { state: 'ongoing', label: labels.running }
+  if (statusText(exitCode, signal, labels) !== undefined) return { state: 'error', label: labels.failed }
+  return { state: 'done', label: labels.done }
 }
 
 /**
@@ -123,7 +181,12 @@ export function TerminalBlock({
   running = false,
   maxLines = DEFAULT_TERMINAL_MAX_LINES,
   className,
+  labels,
 }: TerminalBlockProps) {
+  const copy = useMemo<TerminalBlockLabels>(
+    () => (labels === undefined ? DEFAULT_LABELS : { ...DEFAULT_LABELS, ...labels }),
+    [labels],
+  )
   const text = output ?? ''
   // A command's output ends with a newline; that terminator is not an extra
   // blank line to draw or to count against the height cap. The check runs on the
@@ -140,23 +203,14 @@ export function TerminalBlock({
     return terminated ? parsed.slice(0, -1) : parsed
   }, [text])
   const [expanded, setExpanded] = useState(false)
-  const [copied, setCopied] = useState(false)
-
-  const onCopy = useCallback(() => {
-    if (copied) return
-    // The raw output, never the rendered tree: the prompt line and the status
-    // pill are chrome the user did not run.
-    void writeClipboard(text).then((ok) => {
-      if (!ok) return
-      setCopied(true)
-      window.setTimeout(() => { setCopied(false) }, 1000)
-    })
-  }, [copied, text])
+  // The raw output, never the rendered tree: the prompt line and the status pill
+  // are chrome the user did not run.
+  const { copied, onCopy } = useCopyFeedback(text)
 
   const onToggle = useCallback(() => { setExpanded(value => !value) }, [])
 
-  const status = statusText(exitCode, signal)
-  const state = runState(running, exitCode, signal)
+  const status = statusText(exitCode, signal, copy)
+  const state = runState(running, exitCode, signal, copy)
   // A multi-line command gets one prompt row per line, so a two-command shell
   // snippet reads as the two commands it is instead of collapsing into one
   // ellipsized row. A trailing newline is a terminator, not an empty command.
@@ -170,12 +224,7 @@ export function TerminalBlock({
   // the raw text drew an output box of blank rows plus a copy control for
   // invisible bytes, and hid the placeholder that belongs there.
   const empty = lines.every(line => line.every(span => span.text.trim() === ''))
-  const hidden = lines.length - maxLines
-  const capped = hidden > 0 && !expanded
-  // Same split arithmetic as the TUI transcript's collapsed tool card, so a
-  // command's head and tail slices agree between the two front ends.
-  const headLines = Math.ceil(maxLines / 2)
-  const tailLines = maxLines - headLines
+  const { hidden, capped, headLines, tailLines } = headTailCap(lines.length, maxLines, expanded)
 
   return (
     <div className={clsx(css.block, className)} data-terminal="" data-running={running ? '' : undefined}>
@@ -205,12 +254,12 @@ export function TerminalBlock({
         {status !== undefined && <Pill className={css.status}>{status}</Pill>}
         {!running && !empty && (
           <button type="button" className={css.copyButton} onClick={onCopy}>
-            {copied ? '复制成功' : '复制'}
+            {copied ? copy.copied : copy.copy}
           </button>
         )}
       </div>
       {!running && (empty
-        ? <div className={css.empty}>无输出</div>
+        ? <div className={css.empty}>{copy.noOutput}</div>
         : (
           <div className={css.output}>
             {(capped ? lines.slice(0, headLines) : lines).map((line, index) => (
@@ -221,10 +270,10 @@ export function TerminalBlock({
                 type="button"
                 className={css.expand}
                 aria-expanded={expanded}
-                aria-label={expanded ? '收起输出' : `展开其余 ${hidden} 行输出`}
+                aria-label={expanded ? copy.collapseAria : copy.expandAria(hidden)}
                 onClick={onToggle}
               >
-                {expanded ? '收起' : `… 其余 ${hidden} 行`}
+                {expanded ? copy.collapse : copy.expand(hidden)}
               </button>
             )}
             {capped && lines.slice(lines.length - tailLines).map((line, index) => (

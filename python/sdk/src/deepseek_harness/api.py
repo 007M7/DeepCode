@@ -18,7 +18,7 @@ class DeepSeekHarnessConfig:
     intentionally override or inject variables for a subprocess.
     """
 
-    provider: str = "deepseek"
+    provider: str = "deepseek-official"
     model: str = "deepseek-v4-flash"
     max_tokens: int | None = None
     cwd: str | None = None
@@ -191,7 +191,9 @@ def final_response(events: list[JsonObject]) -> str:
         data = event.get("data")
         if not isinstance(data, dict):
             continue
-        content = data.get("content")
+        message = data.get("message")
+        content_owner = message if isinstance(message, dict) else data
+        content = content_owner.get("content")
         if not isinstance(content, list):
             continue
         parts: list[str] = []

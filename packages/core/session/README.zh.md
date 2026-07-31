@@ -60,10 +60,13 @@
 - `SessionSurface`：实时只读 `nodes` 和 `replaceGeneration` 投影，由 `session.surface` 暴露；候选校验仍由 `Session` 私有。
 - `foldSurface(events)`：回放规范 surface 契约，得到脱离的当前事件序列与实际替换范围。同一趟处理会拒绝不连续序号、错位或畸形元数据、空或重复溯源信息、来源并非更早事件、无效位置范围，以及没有引用所有已遮蔽 surface 条目的替换。如果一个 `tool/result` 替换修改了当前某个结果的 `content` 之外的任何内容，也会被拒绝；`SurfaceManager` 共享该原子状态转换，但只保留自己的增量序列缓存。
 - `isSurfaceEvent(event)`／`isSurfaceEligibleType(type)`：前者将 `SessionEvent` 收窄为形态完整的 surface 事件；后者在校验种子或已加载日志时，检测缺少标记的可进入 surface 事件。
+- `isAppendSurfaceEvent(event)`／`isReplacementSurfaceEvent(event)`：按标记变体拆分形态完整的 surface 事件。追加来源的事件是人类可读记录（transcript）的持久来源，而该记录并非模型可见的 surface：已落地的替换会遮蔽它所概括的范围，因此从 `session.surface` 投影记录会抹掉读者已经看到的对话。必须准确发送模型所见内容的消费方仍继续读取 `session.surface`。
 
 ### 请求头重建（`request-header.ts`）
 
-`request/header` 记录非历史请求封装的完整规范快照，其原因为 `initial`、`resume` 或 `change`。`foldRequestHeader()` 选择最新快照；旧版增量事件和已移除的 `fallback` 原因会被拒绝。详见[可重建请求 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)。
+`request/header` 记录非历史请求封装的完整规范快照，其原因为 `initial`、`resume` 或 `change`。其可选 `adapterDefaults` 映射会标记由精确模型解析填入的生效 `reasoningEffort` 或 `maxTokens` 值，使下一次请求提议能够将它们与显式对话设置区分开。`foldRequestHeader()` 选择最新快照；旧版增量事件和已移除的 `fallback` 原因会被拒绝。详见[可重建请求 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)。
+
+`request/context` 记录请求所解析到的路由的、绑定注册项的元数据，在其所属步骤内紧随 `request/header` 追加，且仅在提供方、模型或容量与上一条记录不同时追加。`session.requestContext()` 以增量方式归并最新一条，与 `requestHeader()` 保持一致。容量刻意不进入 `EpochHeader`：它是描述路由的适配器元数据，不是构建该请求所依据的输入，因此绝不可进入请求重建或请求头相等性判断：容量变化不构成请求头 `change`。适配器不公布容量的路由仍会被记录，但 `contextWindow` 字段缺失，从而清除较早的已知容量。
 
 `user/message` 会直接存储完整的 `UserMessage`，其中包括路由或提示词准入前创建的标识。无论它是直接人类提示词、合成注入，还是已准入的 Goal Round，都会原样呈现其 `content`；带类型的 `source` 是区分三者的唯一通道，并携带各领域专有的持久事实。`assistant/message`、`tool/result` 和 steering（中途引导）对应的 `steering/message` 也会存储完整的消息值。轮次执行仍由 `turn/start` 与 `turn/end` 包围，而空闲注入可以在轮次之间追加并刷新一条 `user/message`，无需运行模型。
 

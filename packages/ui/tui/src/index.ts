@@ -19,7 +19,7 @@ import {
   type SlashCommand,
   type TerminalColorScheme,
 } from '@earendil-works/pi-tui'
-import { Service, type Context, type Fiber } from 'cordis'
+import { Service, type Context, type Fiber, type FiberState } from 'cordis'
 import {
   assembleContextFor,
   installAgentLlmTarget,
@@ -35,6 +35,8 @@ import type { ContentBlock, MessageId } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import {
+  isReplacementSurfaceEvent,
+  lastActivityTime,
   SessionId,
   type SessionEvent,
   type UserMessage,
@@ -55,6 +57,7 @@ import {
   TuiExtensionServiceImpl,
   TuiOverlayManager,
 } from './extension/overlay-manager.ts'
+
 import {
   parseTuiPromptTemplate,
   renderTuiPromptTemplate,
@@ -66,7 +69,7 @@ import type {
   TuiTheme,
 } from './extension/types.ts'
 import { displayInlineText, displayText } from './components/text.ts'
-import { createPalette, markdownTheme, renderPalette, selectTheme } from './components/theme.ts'
+import { brandText, createPalette, markdownTheme, renderPalette, selectTheme } from './components/theme.ts'
 import { contentText, parseArguments } from './components/content.ts'
 import {
   cacheHitRate,
@@ -77,6 +80,7 @@ import {
 import {
   fadeGlyph,
   formatQueuedStatus,
+  formatStatusDuration,
   openStepPhase,
   openTurn,
   pulseLevel,
@@ -118,14 +122,14 @@ import {
 } from './chat/skill-invocation.ts'
 import { ReferenceAutocompleteProvider } from './chat/autocomplete.ts'
 import {
-  activeSurfaceSeqs,
-  activeToolCallIds,
   BANNER_REVEAL_INTERVAL_MS,
   BANNER_REVEAL_STEPS,
   formatCwd,
   gitBranch,
   HintEditor,
+  isCompactCheckpoint,
   sessionReferenceCard,
+  transcriptToolCallIds,
 } from './chat/helpers.ts'
 import {
   createModelController,
@@ -170,6 +174,9 @@ export type {
   TuiViewport,
 } from './extension/types.ts'
 
+/** First terminal Cordis state: FAILED, DISPOSED, and UNLOADING are unusable. */
+const FIBER_FAILED = 3 as FiberState.FAILED
+
 declare module 'cordis' {
   interface Context {
     /** Terminal-only interaction service, available only while a TUI is mounted. */
@@ -182,8 +189,6 @@ declare module 'cordis' {
     tuiGoodbyeMessage: string | undefined
     /** Skill the launcher wants auto-invoked as the fresh session's first turn; absent leaves it to the user. */
     tuiInitialSkill: string | undefined
-    /** Launcher-owned session-store root the app bundle defaults to; absent keeps the bundle's project-local default. */
-    launcherSessionsRoot: string | undefined
   }
 }
 
@@ -222,21 +227,11 @@ export const TUI_GOODBYE_MESSAGE_KEY = 'tuiGoodbyeMessage'
 /**
  * Context key a launcher sets before any Loader entry mounts
  * (`ctx.provide(INITIAL_SKILL_KEY, name)`) to seed a fresh session's first user
- * turn with `/skill:<name>` — the `dsh migrate`/`dsh upgrade` guided-session
- * entry. The launcher sets it only when minting a fresh session, so it never
- * re-fires on a resumed one. Absent leaves the first turn to the user.
+ * turn with `/skill:<name>` — the `dsh migrate`/`dsh experimental-upgrade`
+ * guided-session entry. The launcher sets it only when minting a fresh session,
+ * so it never re-fires on a resumed one. Absent leaves the first turn to the user.
  */
 export const INITIAL_SKILL_KEY = 'tuiInitialSkill'
-
-/**
- * Context key a launcher sets before any Loader entry mounts
- * (`ctx.provide(SESSIONS_ROOT_KEY, root)`) to supply its session-store root as
- * the app bundle's default persistence root. Shared-store policy (one store
- * across every cwd) belongs to the launcher — the dsh CLI resolves it under the
- * Harness home — never to a plugin; a bundle without this slot keeps its own
- * project-local default, and an explicit `persistenceRoot` config still wins.
- */
-export const SESSIONS_ROOT_KEY = 'launcherSessionsRoot'
 
 /**
  * Optional terminal-local interaction service provided by one mounted TUI.
@@ -267,6 +262,13 @@ export const inject = ['agents', 'sessions', 'commands', 'userInteraction', 'too
 
 /** Model guidance for path-only file references selected through the TUI. */
 export const FILE_REFERENCE_PROMPT = 'Paths prefixed with @ are files explicitly referenced by the user. Use the read tool when their contents are needed; do not claim to have inspected a file before reading it.'
+
+/**
+ * Transcript row standing in for one compacted range. The conversation the
+ * compaction replaced stays rendered above it: the marker reports where the
+ * model stopped seeing that history, not that the history is gone.
+ */
+const COMPACTION_MARKER = '… earlier context was compacted …'
 
 interface RunningStatus {
   turn: number | undefined
@@ -306,7 +308,6 @@ export function createTuiChat(
   const sessionId = SessionId(config.sessionId ?? 'main')
   const agent = ctx.agents.get(sessionId)
   if (agent === undefined) throw new Error(`ui-tui: session "${sessionId}" is not running`)
-  const sessionQuery = ctx.get('sessionQuery')
   const resolved = resolveTuiConfig(config)
   const palette = createPalette(resolved.theme.color)
   const mdTheme = markdownTheme(palette)
@@ -329,6 +330,7 @@ export function createTuiChat(
   })
   editor.hintPrefix = initialInputPrompt
   const todo = new TodoComponent(palette)
+  const compactionStatusLine = new Text('', 0, 0)
   let showReasoning = resolved.showReasoning
   // Ctrl+O cycles collapsed -> expanded -> hidden. Codex-style: hidden drops
   // tool cards entirely, collapsed previews, expanded shows full bodies.
@@ -337,6 +339,14 @@ export function createTuiChat(
   let completedStreaming: StreamingAssistantComponent | undefined
   let runningStatus: RunningStatus | undefined
   let fadingStatus: FadingStatus | undefined
+  /**
+   * Live standalone compaction observed by this process. Never derive this
+   * state from history: a resumed log may contain a stale orphaned start.
+   */
+  let compacting: {
+    startedAt: number
+    timer: ReturnType<typeof setInterval>
+  } | undefined
   // TUI steering submissions that the inbox has not yet claimed or discarded.
   // Correlation ids avoid guessing whether a running-state submission actually
   // joined steering or fell back to the queued-turn FIFO during turn close.
@@ -400,6 +410,7 @@ export function createTuiChat(
     throw new Error('TUI prompt built-ins failed to initialize')
   }
   const updatePromptValues = (): void => {
+    const renderTime = now()
     cwdValue.set(palette.bold(palette.accent(formattedCwd)))
     gitValue.set(branch === undefined ? undefined : palette.dim(` (${displayText(branch)})`))
     const rate = cacheHitRate(tokens)
@@ -413,23 +424,31 @@ export function createTuiChat(
     const queued = runningStatus === undefined ? undefined : formatQueuedStatus(pendingSteering.size)
     queuedValue.set(queued === undefined ? undefined : palette.dim(queued))
     symbolValue.set(palette.bold(palette.accent('dsh')))
+    compactionStatusLine.setText(compacting === undefined
+      ? ''
+      : palette.dim(`Context being compacted ${formatStatusDuration(renderTime - compacting.startedAt)}`))
     // `${indicator}` owns the caret column and its trailing gap before the
-    // cursor. The phase glyph replaces the `>` caret in place — same width
-    // every frame — fading in as a turn starts, throbbing while it runs, and
-    // fading out after it ends before the plain `>` returns. Only the gray
+    // cursor. The active status glyph replaces the `>` caret in place — same
+    // width every frame — fading in when work starts, throbbing while it runs,
+    // and fading out after it ends before the plain `>` returns. Only the gray
     // brightness changes, so the cursor never shifts.
-    const runningGlyph = runningPhaseGlyph(agent.session.events, runningStatus !== undefined)
+    const statusGlyph = runningPhaseGlyph(
+      agent.session.events,
+      runningStatus !== undefined,
+      compacting !== undefined,
+    )
     // Remember the live phase glyph so the fade-out shows it, not the ttft
     // fallback the derivation returns once the closing turn's step has ended.
-    if (runningStatus !== undefined && runningGlyph !== undefined) runningStatus.lastGlyph = runningGlyph
-    // The fade envelope gates appear/disappear; the running throb breathes the
-    // glyph the whole turn. Truecolor opacity is envelope × throb; the
+    if (runningStatus !== undefined && statusGlyph !== undefined) runningStatus.lastGlyph = statusGlyph
+    // The fade envelope gates appear/disappear; the active throb breathes the
+    // glyph throughout the operation. Truecolor opacity is envelope × throb; the
     // non-truecolor fallback keys visibility off the envelope alone, so the
     // throb never blinks it. `envelope` clamps to [0, 1].
-    const envelope = runningStatus !== undefined && runningGlyph !== undefined
-      ? { glyph: runningGlyph, level: Math.min(1, (now() - runningStatus.startedAt) / STATUS_FADE_MS) }
+    const activeSince = runningStatus?.startedAt ?? compacting?.startedAt
+    const envelope = activeSince !== undefined && statusGlyph !== undefined
+      ? { glyph: statusGlyph, level: Math.min(1, (renderTime - activeSince) / STATUS_FADE_MS) }
       : fadingStatus !== undefined
-        ? { glyph: fadingStatus.glyph, level: Math.max(0, 1 - (now() - fadingStatus.endedAt) / STATUS_FADE_MS) }
+        ? { glyph: fadingStatus.glyph, level: Math.max(0, 1 - (renderTime - fadingStatus.endedAt) / STATUS_FADE_MS) }
         : undefined
     const caret = envelope === undefined
       ? palette.dim('>')
@@ -438,7 +457,7 @@ export function createTuiChat(
         palette,
         resolved.theme.color,
         resolved.theme.color && resolved.theme.truecolor,
-        envelope.level * pulseLevel(now()),
+        envelope.level * pulseLevel(renderTime),
         envelope.level >= 0.5,
       )
     indicatorValue.set(`${caret}${palette.dim(' ')}`)
@@ -453,6 +472,7 @@ export function createTuiChat(
   ui.addChild(new Spacer(1))
   todoContainer.addChild(todo)
   ui.addChild(todoContainer)
+  ui.addChild(compactionStatusLine)
   ui.addChild(promptContext)
   ui.addChild(editor)
   ui.setFocus(editor)
@@ -486,6 +506,9 @@ export function createTuiChat(
 
   const extensionTheme: TuiTheme = Object.freeze({
     text: (value: string) => palette.text(value),
+    brand: (value: string) => resolved.theme.color
+      ? resolved.theme.truecolor ? brandText(value) : palette.brand(value)
+      : value,
     dim: (value: string) => palette.dim(value),
     accent: (value: string) => palette.accent(value),
     success: (value: string) => palette.success(value),
@@ -537,8 +560,8 @@ export function createTuiChat(
     requestRender()
   }
 
-  /** Stop the running and fade-out timers and drop both states at once. */
-  const clearStatus = (): void => {
+  /** Stop the turn-phase running and fade-out timers and drop both states. */
+  const clearTurnStatus = (): void => {
     if (runningStatus !== undefined) {
       clearInterval(runningStatus.timer)
       runningStatus = undefined
@@ -547,21 +570,30 @@ export function createTuiChat(
       clearInterval(fadingStatus.timer)
       fadingStatus = undefined
     }
-    runtime.terminal.setProgress(false)
+    runtime.terminal.setProgress(compacting !== undefined)
+  }
+
+  /** Hard clear: drop every indicator, including a live compaction bracket. */
+  const clearStatus = (): void => {
+    if (compacting !== undefined) {
+      clearInterval(compacting.timer)
+      compacting = undefined
+    }
+    clearTurnStatus()
   }
 
   /**
-   * On the running → non-running edge, hand the last rendered glyph to a
-   * fade-out that re-renders until it settles on the `>` caret, then stops its
-   * own timer. A hard clear (teardown) skips this via {@link clearStatus}.
+   * Hand the last active glyph to a fade-out that re-renders until it settles
+   * on the `>` caret, then stops its own timer. A hard clear (teardown) skips
+   * this via {@link clearStatus}.
    */
   const beginFadeOut = (glyph: string): void => {
-    clearStatus()
+    clearTurnStatus()
     const fading: FadingStatus = {
       glyph,
       endedAt: now(),
       timer: setInterval(() => {
-        if (now() - fading.endedAt >= STATUS_FADE_MS) clearStatus()
+        if (now() - fading.endedAt >= STATUS_FADE_MS) clearTurnStatus()
         renderStatus()
       }, STATUS_ANIMATION_INTERVAL_MS),
     }
@@ -571,9 +603,9 @@ export function createTuiChat(
   const setStatus = (status: AgentStatus): void => {
     const priorTurn = runningStatus?.turn
     const fadeOutGlyph = status !== 'running' ? runningStatus?.lastGlyph : undefined
-    if (status === 'running') clearStatus()
+    if (status === 'running') clearTurnStatus()
     else if (fadeOutGlyph !== undefined) beginFadeOut(fadeOutGlyph)
-    else clearStatus()
+    else clearTurnStatus()
     editor.borderColor = status === 'running' ? text => palette.accent(text) : text => palette.dim(text)
     editor.hint = status === 'running' ? palette.dim(displayInlineText(resolved.theme.inputPlaceholder)) : undefined
     if (status === 'running') {
@@ -816,6 +848,23 @@ export function createTuiChat(
     }
   }
 
+  const renderCompactionMarker = (): void => {
+    chat.addChild(new Spacer(1))
+    chat.addChild(new Text(palette.dim(COMPACTION_MARKER), 0, 0))
+  }
+
+  /**
+   * Replay the human transcript from the append-only log. The model-visible
+   * surface shadows compacted ranges, so it is not the source here: every
+   * append-origin message stays rendered, and a replacement contributes at most
+   * the compaction marker at its own log position.
+   *
+   * The `tool/call` pairing check has no live counterpart, because only replay
+   * can meet an orphan: `tool/call` carries no `surfaceOp` of its own, so it
+   * inherits transcript membership from the `assistant/message` that advertised
+   * it, which the live listener has necessarily just rendered. A loaded log is a
+   * replay boundary, so the pairing is re-derived here instead of assumed.
+   */
   const rebuildTranscript = (populateHistory: boolean): void => {
     chat.clear()
     toolCards.clear()
@@ -823,15 +872,13 @@ export function createTuiChat(
     contextCards.clear()
     streaming = undefined
     todo.update([])
-    const active = activeSurfaceSeqs(agent.session)
-    const activeCalls = activeToolCallIds(agent.session, active)
+    const transcriptCalls = transcriptToolCallIds(agent.session)
     for (const event of agent.session.events) {
-      const isSurface = event.type === 'user/message'
-        || event.type === 'assistant/message'
-        || event.type === 'tool/result'
-        || event.type === 'steering/message'
-      if (isSurface && !active.has(event.seq)) continue
-      if (event.type === 'tool/call' && !activeCalls.has(event.data.callId)) continue
+      if (isReplacementSurfaceEvent(event)) {
+        if (isCompactCheckpoint(event)) renderCompactionMarker()
+        continue
+      }
+      if (event.type === 'tool/call' && !transcriptCalls.has(event.data.callId)) continue
       renderEvent(event, { addHistory: populateHistory, renderChunks: false })
     }
     requestRender()
@@ -853,7 +900,14 @@ export function createTuiChat(
     resolved,
     palette,
     overlayManager,
-    sessionQuery,
+    // Optional and independently mounted. Cordis transiently leaves this sibling
+    // non-ACTIVE during command callbacks, so the non-strict read is intentional;
+    // terminal fiber states still exclude failed, closing, and closed providers.
+    sessionQuery: () => {
+      const implementation = ctx.reflect._getImpl('sessionQuery', false)
+      if (implementation === undefined || implementation.fiber.state >= FIBER_FAILED) return undefined
+      return ctx.get('sessionQuery', false)
+    },
     ui,
     editor,
     appendNotice,
@@ -985,7 +1039,7 @@ export function createTuiChat(
     const systemPrompt = displayText(renderPrompt(assembly)) || '(empty)'
     const registeredTools = assembly.tools.map(tool => displayText(tool.name)).join(', ') || '(none)'
     const events = agent.session.events
-    const latestActivity = events.at(-1)?.time ?? agent.session.header.createdAt
+    const latestActivity = lastActivityTime(events) ?? agent.session.header.createdAt
     const usedContext = Math.max(0, Math.round(ctx.tokenMeter.measure(agent.session).totalTokens))
     let context = `${formatDiagnosticNumber(usedContext)} used · capacity unknown`
     const contextWindow = modelController.contextWindow()
@@ -1476,8 +1530,37 @@ export function createTuiChat(
     recordEventUsage(tokens, event)
     if (event.type === 'turn/start' && runningStatus !== undefined) runningStatus.turn = event.data.turn
     if (event.type === 'assistant/message' && streaming?.isSettled()) streaming = undefined
-    if ('surfaceOp' in event && typeof event.surfaceOp === 'object') {
-      rebuildTranscript(false)
+    // Track live standalone compaction state.
+    if (event.type === 'compact/start' && event.data.turn === null) {
+      if (compacting === undefined) {
+        const startedAt = now()
+        compacting = {
+          startedAt,
+          timer: setInterval(renderStatus, STATUS_ANIMATION_INTERVAL_MS),
+        }
+        runtime.terminal.setProgress(true)
+      }
+      requestRender()
+      return
+    }
+    if (event.type === 'compact/end' && event.data.turn === null && compacting !== undefined) {
+      const fadeOutGlyph = runningPhaseGlyph(agent.session.events, false, true)
+      clearInterval(compacting.timer)
+      compacting = undefined
+      if (event.data.error !== undefined) {
+        appendNotice(`Compaction failed: ${event.data.error}`, 'warning')
+      }
+      // A concurrently running turn owns the indicator. Keep its timer and
+      // progress bit instead of letting the compaction fade clear that state.
+      if (runningStatus === undefined && fadeOutGlyph !== undefined) beginFadeOut(fadeOutGlyph)
+      requestRender()
+      return
+    }
+    // A replacement mutates only the model surface, so the rendered transcript
+    // keeps what it already showed; a landed summary checkpoint adds its marker.
+    if (isReplacementSurfaceEvent(event)) {
+      if (isCompactCheckpoint(event)) renderCompactionMarker()
+      requestRender()
       return
     }
     renderEvent(event, { addHistory: false, renderChunks: true })
@@ -1516,6 +1599,9 @@ export function createTuiChat(
     // TUI stays mounted. Retained agents accept deliveries after detachment, so
     // without this a later send would drive a zombie agent/session; mark
     // disposed so dispatchMessage reports it instead.
+    // The hard clear also retires live compaction. A later compact/end is
+    // intentionally presentation-silent: this disposal notice owns the
+    // terminal outcome, and no animation may survive agent detachment.
     clearStatus()
     appendNotice(`Agent "${agent.id}" was disposed.`, 'warning')
     disposed = true
@@ -1538,6 +1624,7 @@ export function createTuiChat(
     disposeAgent()
     disposeSchemeListener()
     disposeTargetListeners()
+    modelController.detach()
   }
 
   // Sweep reveal of the whole banner: the header wipes in left-to-right over
@@ -1603,11 +1690,11 @@ export function createTuiChat(
   })
   startBannerReveal()
 
-  // A launcher-seeded first turn (`dsh migrate`/`dsh upgrade`): invoke the
-  // named skill exactly as a typed `/skill:<name>` would, once the chat is live
-  // and the agent is idle. The launcher sets this only for a fresh session, so
-  // there is no prior turn to collide with; invokeSkill reports an unknown skill
-  // as a notice.
+  // A launcher-seeded first turn (`dsh migrate`/`dsh experimental-upgrade`):
+  // invoke the named skill exactly as a typed `/skill:<name>` would, once the
+  // chat is live and the agent is idle. The launcher sets this only for a fresh
+  // session, so there is no prior turn to collide with; invokeSkill reports an
+  // unknown skill as a notice.
   if (config.initialSkill !== undefined) invokeSkill(config.initialSkill, '')
 
   return {
@@ -1662,9 +1749,35 @@ export function mountTui(ctx: Context, config: Config, runtime: TuiRuntime): voi
   if (existing !== undefined) start(existing)
 }
 
+const ROOT_DISPOSE_TIMEOUT_MS = 5_000
+
+/**
+ * Dispose the whole application before process exit, with a bounded fallback.
+ * @param ctx - The TUI plugin context whose root owns sibling resources.
+ * @param code - Process status to report.
+ * @param exit - Exit boundary, replaceable by tests.
+ */
+export function disposeRootAndExit(
+  ctx: Context,
+  code: number,
+  exit: (status: number) => void = (status) => { process.exit(status) },
+): void {
+  let exited = false
+  const exitOnce = (): void => {
+    if (exited) return
+    exited = true
+    exit(code)
+  }
+  const timeout = setTimeout(exitOnce, ROOT_DISPOSE_TIMEOUT_MS)
+  void ctx.root.fiber.dispose().then(
+    () => { clearTimeout(timeout); exitOnce() },
+    () => { clearTimeout(timeout); exitOnce() },
+  )
+}
+
 /** Cordis entry point using the process terminal; explicit TUI composition requires a TTY pair. */
 /* v8 ignore start -- production process wiring; fake-terminal tests cover mountTui/createTuiChat,
-   and the tui-agent PTY smoke covers the real entry */
+   and apps/cli PTY smokes cover the real entry */
 export function apply(ctx: Context, config: Config): void {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new Error('ui-tui: both stdin and stdout must be TTYs; use the one-shot @deepseek-ai/dsh-cli-demo app for pipes')
@@ -1684,7 +1797,7 @@ export function apply(ctx: Context, config: Config): void {
     initialSkill === undefined ? {} : { initialSkill },
   ), {
     terminal: new ProcessTerminal(),
-    exit: code => process.exit(code),
+    exit: (code) => { disposeRootAndExit(ctx, code) },
     ...resumeHost === undefined ? {} : { handoffResume: (sessionId, cwd) => resumeHost.handoff(sessionId, cwd) },
     ...goodbyeMessage === undefined ? {} : { goodbyeMessage },
   })

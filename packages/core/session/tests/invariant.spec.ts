@@ -144,6 +144,12 @@ describe('session-log invariants', () => {
         source: { kind: 'user' },
       }),
     }, { surfaceOp: 'append' })).toThrow(/outside any open turn/)
+    // Route capacity is core execution state like the header beside it.
+    expect(() => outside.append('request/context', {
+      provider: 'mock',
+      model: 'm',
+      contextWindow: 128_000,
+    })).toThrow(/outside any open turn/)
     // The owning plugin decides whether a merge-extensible event is log-only.
     const appendUnknown = outside.append.bind(outside) as (type: string, data: unknown) => unknown
     expect(() => { appendUnknown('plugin/marker', {}) }).not.toThrow()
@@ -380,6 +386,24 @@ describe('session-log invariants', () => {
     })).not.toThrow()
     expect(() => session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } }))
       .toThrow(/turn 1 is still open/)
+  })
+
+  it('accepts end-seed whether or not a turn is open', async () => {
+    const { ctx } = await setup()
+    // Balanced seed: between turns.
+    expect(() => ctx.sessions.create(SessionId('inherited-between-turns'), { seed: [
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'completed' } } },
+    ] })).not.toThrow()
+    // Unbalanced seed: inside the open turn, which the relation permits.
+    const open = ctx.sessions.create(SessionId('inherited-inside-open-turn'), { seed: [
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+    ] })
+    expect(open.events.map(event => event.type)).toEqual(['turn/start', 'session/end-seed'])
+    // Still open afterwards: the boundary moves no cursor.
+    expect(() => open.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } }))
+      .toThrow(/turn 1 is still open/)
+    expect(() => open.append('turn/end', { turn: 1, reason: { kind: 'completed' } })).not.toThrow()
   })
 
   it('removes all listeners when the companion is disposed', async () => {
