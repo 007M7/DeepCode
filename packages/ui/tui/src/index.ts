@@ -227,9 +227,9 @@ export const TUI_GOODBYE_MESSAGE_KEY = 'tuiGoodbyeMessage'
 /**
  * Context key a launcher sets before any Loader entry mounts
  * (`ctx.provide(INITIAL_SKILL_KEY, name)`) to seed a fresh session's first user
- * turn with `/skill:<name>` — the `dsh migrate`/`dsh upgrade` guided-session
- * entry. The launcher sets it only when minting a fresh session, so it never
- * re-fires on a resumed one. Absent leaves the first turn to the user.
+ * turn with `/skill:<name>` — the `dsh migrate`/`dsh experimental-upgrade`
+ * guided-session entry. The launcher sets it only when minting a fresh session,
+ * so it never re-fires on a resumed one. Absent leaves the first turn to the user.
  */
 export const INITIAL_SKILL_KEY = 'tuiInitialSkill'
 
@@ -1690,11 +1690,11 @@ export function createTuiChat(
   })
   startBannerReveal()
 
-  // A launcher-seeded first turn (`dsh migrate`/`dsh upgrade`): invoke the
-  // named skill exactly as a typed `/skill:<name>` would, once the chat is live
-  // and the agent is idle. The launcher sets this only for a fresh session, so
-  // there is no prior turn to collide with; invokeSkill reports an unknown skill
-  // as a notice.
+  // A launcher-seeded first turn (`dsh migrate`/`dsh experimental-upgrade`):
+  // invoke the named skill exactly as a typed `/skill:<name>` would, once the
+  // chat is live and the agent is idle. The launcher sets this only for a fresh
+  // session, so there is no prior turn to collide with; invokeSkill reports an
+  // unknown skill as a notice.
   if (config.initialSkill !== undefined) invokeSkill(config.initialSkill, '')
 
   return {

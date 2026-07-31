@@ -1906,7 +1906,10 @@ export function TrajectoryTable({
                         <span
                           className={css.kindSlot}
                         >
-                          <Tooltip label={KIND_LABEL[record.cell.kind]} side="bottom">
+                          <Tooltip
+                            label={KIND_LABEL[record.cell.kind]}
+                            side="right"
+                          >
                             <span
                               className={`${css.kindTag} ${
                                 record.cell.kind === 'system'

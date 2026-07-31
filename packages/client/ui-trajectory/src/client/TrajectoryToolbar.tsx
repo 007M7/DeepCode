@@ -8,18 +8,14 @@ export interface TrajectoryToolbarProps {
   actualDuration: boolean
   /** Select recorded-duration or equal-width blocks. */
   onActualDurationChange: (actualDuration: boolean) => void
-  /** Whether recorded timing retains idle gaps between user turns. */
+  /** Whether recorded timing retains idle gaps between operations. */
   actualTime: boolean
   /** Select complete wall-clock timing or idle-compressed timing. */
   onActualTimeChange: (actualTime: boolean) => void
-  /** Number of turns containing more than one row. */
-  collapsibleTurns: number
   /** Whether every collapsible turn is currently folded. */
   allTurnsCollapsed: boolean
   /** Fold or expand every collapsible turn. */
   onToggleAllTurns: () => void
-  /** Number of assistant messages followed by tool calls. */
-  collapsibleAssistants: number
   /** Whether every collapsible assistant's tool calls are currently folded. */
   allAssistantsCollapsed: boolean
   /** Fold or expand tool calls under every collapsible assistant. */
@@ -40,10 +36,8 @@ export function TrajectoryToolbar({
   onActualDurationChange,
   actualTime,
   onActualTimeChange,
-  collapsibleTurns,
   allTurnsCollapsed,
   onToggleAllTurns,
-  collapsibleAssistants,
   allAssistantsCollapsed,
   onToggleAllAssistants,
   searchQuery,
@@ -91,7 +85,6 @@ export function TrajectoryToolbar({
             aria-label={allTurnsCollapsed ? 'Expand turns' : 'Collapse turns'}
             aria-pressed={allTurnsCollapsed}
             title={allTurnsCollapsed ? 'Expand turns' : 'Collapse turns'}
-            disabled={collapsibleTurns === 0}
             onClick={onToggleAllTurns}
           >
             <span className={css.actionIcon} aria-hidden="true">
@@ -105,7 +98,6 @@ export function TrajectoryToolbar({
             aria-label={allAssistantsCollapsed ? 'Expand calls' : 'Collapse calls'}
             aria-pressed={allAssistantsCollapsed}
             title={allAssistantsCollapsed ? 'Expand calls' : 'Collapse calls'}
-            disabled={collapsibleAssistants === 0}
             onClick={onToggleAllAssistants}
           >
             <span className={css.actionIcon} aria-hidden="true">
