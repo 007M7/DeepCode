@@ -16,6 +16,9 @@
 - id: tool-fs-search
   disabled: true
 
+- id: tool-web
+  disabled: true
+
 - id: tool-skill
   disabled: true
 
