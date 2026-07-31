@@ -3,23 +3,25 @@
 // separator dot + FILL-truncated summary, drawn through the shared
 // DisclosureRow chrome with the whole row as the expand toggle (click /
 // Enter / Space, icon→chevron hover preview). The collapsed row is always
-// one line; every row with body, output, or terminal material is expandable;
-// the summary stays inline while open, except Think, whose body opens with
-// the same first line and would repeat it.
+// one line; every row with body, output, terminal, or search material is
+// expandable; the summary stays inline while open, except Think, whose body
+// opens with the same first line and would repeat it.
 // The expanded body — an IN/OUT gutter-labeled card (figma 1249:35657) for
-// text input/output, the run_code program through CodeBlock, or a terminal
-// card's command output through TerminalBlock — lives in a max-height scroll
-// container so a long payload scrolls internally instead of taking over the
-// message flow; Think's prose is the exception and flows uncapped like
-// message text. Expand state is component-local view state. File-tool
-// summaries are path links that open through the host (stopPropagation keeps
-// the two gestures independent); an error row's collapsed summary is the
+// text input/output, the run_code program through CodeBlock, a terminal
+// card's command output through TerminalBlock, or a search card's grouped
+// matches / path list through SearchBlock (capped at CHAT_SEARCH_MAX_LINES) —
+// lives in a max-height scroll container so a long payload scrolls internally
+// instead of taking over the message flow; Think's prose is the exception and
+// flows uncapped like message text. Expand state is component-local view state.
+// File-tool summaries are path links that open through the host (stopPropagation
+// keeps the two gestures independent); an error row's collapsed summary is the
 // failure's first line in the error color.
 
 import { useState, type MouseEvent, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { CodeBlock, DiffBlock, StateDot, TerminalBlock } from '@deepseek-ai/dsh-client-ui-primitives'
+import { CodeBlock, DiffBlock, SearchBlock, StateDot, TerminalBlock } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+import { CHAT_SEARCH_MAX_LINES, type SearchCardModel } from '../contract/search-card-model.ts'
 import { CHAT_DIFF_MAX_LINES, type DiffCardModel } from '../contract/diff-card-model.ts'
 import { terminalBlockLabels, type TerminalCardModel } from '../contract/terminal-card-model.ts'
 import type { ToolRowState, ToolRowVariant } from '../contract/tool-call-model.ts'
@@ -50,9 +52,16 @@ export interface ToolRowProps {
    */
   terminal?: TerminalCardModel | null | undefined
   /**
+   * Search-card material for a call whose render intent is a search card
+   * (derived by `searchCardModel`); it replaces the text body when present.
+   * Null or absent leaves the text body. A call carries at most one card kind,
+   * so `terminal`, `search`, and `diff` are never both present on the same row.
+   */
+  search?: SearchCardModel | null | undefined
+  /**
    * Diff-card material for a call whose render intent is a diff card (derived by
    * `diffCardModel`); it replaces the text body when present, the same way
-   * `terminal` does. A call carries at most one card intent, so the two are
+   * `terminal` does. A call carries at most one card intent, so the cards are
    * never both set.
    */
   diff?: DiffCardModel | null | undefined
@@ -103,6 +112,7 @@ export function ToolRow({
   output,
   errorSummary,
   terminal,
+  search,
   diff,
   state,
   filePath,
@@ -111,9 +121,12 @@ export function ToolRow({
 }: ToolRowProps) {
   const [expanded, setExpanded] = useState(false)
   const terminalBody = terminal ?? null
+  const searchBody = search ?? null
   const diffBody = diff ?? null
   const outputText = output ?? null
-  const expandable = body !== null || outputText !== null || terminalBody !== null || diffBody !== null
+  // A search or diff card replaces the text body; a call carries at most one
+  // card kind, so terminal, search, and diff are never both present on a row.
+  const expandable = body !== null || outputText !== null || terminalBody !== null || searchBody !== null || diffBody !== null
   const open = expanded && expandable
   // An error row's collapsed summary IS the failure: the first error line in
   // the error color outranks both the args summary and a terminal description.
@@ -185,40 +198,51 @@ export function ToolRow({
                 className={css.terminalBody}
               />
             )
-            : diffBody !== null
-              ? <DiffBlock {...diffBody.card} maxLines={CHAT_DIFF_MAX_LINES} className={css.diffBody} />
-              : isThink
-                ? <div className={css.thinkBody}>{body}</div>
-                : (
-                  <>
-                    {variant === 'code' && body !== null && (
-                      <div className={css.bodyScroll}>
-                        <CodeBlock code={body} lang="typescript" copyLabel={t('copy')} copiedLabel={t('copied')} className={css.codeBody} />
-                      </div>
-                    )}
-                    {(cardBody !== null || outputText !== null) && (
-                      <div className={css.ioCard}>
-                        {cardBody !== null && (
-                          <div className={css.ioSection}>
-                            <span className={css.ioLabel}>IN</span>
-                            <span className={css.ioText}>{cardBody}</span>
-                          </div>
-                        )}
-                        {cardBody !== null && outputText !== null && (
-                          <span className={css.ioDivider} aria-hidden />
-                        )}
-                        {outputText !== null && (
-                          <div className={css.ioSection}>
-                            <span className={css.ioLabel}>OUT</span>
-                            <span className={css.ioText} data-error={state === 'error' || undefined}>
-                              {outputText}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </>
-                )}
+            : searchBody !== null
+              ? (
+                <>
+                  <SearchBlock {...searchBody.card} maxLines={CHAT_SEARCH_MAX_LINES} className={css.searchBody} />
+                  {/* A capped search's recovery locator lives only in the result
+                      text; show it below the card so the dropped rows survive. */}
+                  {searchBody.recovery !== undefined && (
+                    <div className={css.searchRecovery}>{searchBody.recovery}</div>
+                  )}
+                </>
+              )
+              : diffBody !== null
+                ? <DiffBlock {...diffBody.card} maxLines={CHAT_DIFF_MAX_LINES} className={css.diffBody} />
+                : isThink
+                  ? <div className={css.thinkBody}>{body}</div>
+                  : (
+                    <>
+                      {variant === 'code' && body !== null && (
+                        <div className={css.bodyScroll}>
+                          <CodeBlock code={body} lang="typescript" copyLabel={t('copy')} copiedLabel={t('copied')} className={css.codeBody} />
+                        </div>
+                      )}
+                      {(cardBody !== null || outputText !== null) && (
+                        <div className={css.ioCard}>
+                          {cardBody !== null && (
+                            <div className={css.ioSection}>
+                              <span className={css.ioLabel}>IN</span>
+                              <span className={css.ioText}>{cardBody}</span>
+                            </div>
+                          )}
+                          {cardBody !== null && outputText !== null && (
+                            <span className={css.ioDivider} aria-hidden />
+                          )}
+                          {outputText !== null && (
+                            <div className={css.ioSection}>
+                              <span className={css.ioLabel}>OUT</span>
+                              <span className={css.ioText} data-error={state === 'error' || undefined}>
+                                {outputText}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
           {inspect !== undefined && (
             <button
               type="button"

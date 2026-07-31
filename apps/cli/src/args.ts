@@ -23,6 +23,22 @@ interface TuiInvocation {
   resume?: string
 }
 
+/**
+ * Print the composed config tree and exit, without booting: `--dump-config`
+ * composes the shipped base, the surface overlay, and the `--config` or
+ * personal overlay — exactly the layers that surface would boot;
+ * `--dump-default-config` stops at the surface overlay (the shipped tree, no
+ * user layer).
+ */
+interface DumpConfigInvocation {
+  mode: 'dump-config'
+  surface: 'tui' | 'web'
+  /** Omit the `--config`/personal layer and print only the shipped composition. */
+  defaultOnly: boolean
+  /** The `--config` overlay to compose instead of the personal one. */
+  config?: string
+}
+
 /** Headless one-shot: `dsh -p "task"`. */
 interface HeadlessInvocation {
   mode: 'headless'
@@ -69,6 +85,7 @@ interface WebInvocation {
 /** The resolved `dsh` invocation: exactly one mode. `--help`/`--version`/errors exit inside {@link parseDshArgs}. */
 export type DshInvocation =
   | TuiInvocation
+  | DumpConfigInvocation
   | HeadlessInvocation
   | MetaInvocation
   | SkillSessionInvocation
@@ -82,6 +99,34 @@ interface WebOptions {
   dev?: boolean
   workspaceRoot?: string
   trustedHost?: string[]
+  dumpConfig?: boolean
+  dumpDefaultConfig?: boolean
+}
+
+/**
+ * Resolve the two dump flags for one surface, or return `undefined` when
+ * neither was passed. Both flags together are contradictory (one includes the
+ * user layer, the other excludes it) and fail loud through `error`.
+ */
+function resolveDump(
+  surface: 'tui' | 'web',
+  options: { config?: string; dumpConfig?: boolean; dumpDefaultConfig?: boolean },
+  error: (message: string) => never,
+): DumpConfigInvocation | undefined {
+  if (options.dumpConfig !== true && options.dumpDefaultConfig !== true) return undefined
+  if (options.dumpConfig === true && options.dumpDefaultConfig === true) {
+    error('error: --dump-config and --dump-default-config are mutually exclusive')
+  }
+  const defaultOnly = options.dumpDefaultConfig === true
+  if (defaultOnly && options.config !== undefined) {
+    error('error: --dump-default-config prints the shipped tree and takes no --config')
+  }
+  return {
+    mode: 'dump-config',
+    surface,
+    defaultOnly,
+    ...options.config !== undefined && { config: options.config },
+  }
 }
 
 /**
@@ -135,7 +180,26 @@ Examples:
     .option('--resume <id>', 'continue a past session by id')
     .option('--config <path>', 'apply this overlay of loader patches instead of the personal one')
     .option('--config-replace <path>', 'boot this file as the entire tree, ignoring the shipped and personal configuration')
-    .action((options: { config?: string; configReplace?: string; prompt?: string; resume?: string }) => {
+    .option('--dump-config', 'print the composed config tree (base + surface + --config/personal overlay) and exit')
+    .option('--dump-default-config', 'print the shipped config tree (base + surface overlay, no user layer) and exit')
+    .action((options: {
+      config?: string
+      configReplace?: string
+      prompt?: string
+      resume?: string
+      dumpConfig?: boolean
+      dumpDefaultConfig?: boolean
+    }) => {
+      const dump = resolveDump('tui', options, message => program.error(message))
+      if (dump !== undefined) {
+        // The dump prints composition; a boot-only flag alongside it would be
+        // silently ignored, so reject the mix loud.
+        if (options.prompt !== undefined || options.resume !== undefined || options.configReplace !== undefined) {
+          program.error('error: --dump-config/--dump-default-config take none of -p/--prompt, --resume, or --config-replace')
+        }
+        resolved = dump
+        return
+      }
       if (options.prompt !== undefined) {
         // A headless prompt owns the invocation; an empty task has nothing to
         // run, and --config/--resume are TUI inputs that must not silently
@@ -168,10 +232,18 @@ Examples:
   // a leaked config/prompt/resume option is a mistyped invocation that must fail
   // loud rather than silently run and drop the input.
   const rejectParentOptions = (command: string): void => {
-    const parent = program.opts<{ config?: string; configReplace?: string; prompt?: string; resume?: string }>()
+    const parent = program.opts<{
+      config?: string
+      configReplace?: string
+      prompt?: string
+      resume?: string
+      dumpConfig?: boolean
+      dumpDefaultConfig?: boolean
+    }>()
     if (parent.config !== undefined || parent.configReplace !== undefined
-      || parent.prompt !== undefined || parent.resume !== undefined) {
-      program.error(`error: ${command} takes none of --config, --config-replace, -p/--prompt, or --resume`)
+      || parent.prompt !== undefined || parent.resume !== undefined
+      || parent.dumpConfig !== undefined || parent.dumpDefaultConfig !== undefined) {
+      program.error(`error: ${command} takes none of --config, --config-replace, -p/--prompt, --resume, --dump-config, or --dump-default-config`)
     }
   }
 
@@ -198,8 +270,15 @@ Examples:
     .option('--dev', 'developer mode: hot-reload the browser client')
     .option('--workspace-root <path>', 'parent directory for workspaces created from the browser UI')
     .option('--trusted-host <authority...>', 'extra authority the /api browser-trust fence accepts (host or host:port; repeatable)')
+    .option('--dump-config', 'print the composed config tree (base + web + --config/personal overlay) and exit')
+    .option('--dump-default-config', 'print the shipped config tree (base + web overlay, no user layer) and exit')
     .action((options: WebOptions) => {
       rejectParentOptions('web')
+      const dump = resolveDump('web', options, message => program.error(message))
+      if (dump !== undefined) {
+        resolved = dump
+        return
+      }
       resolved = resolveWeb(options)
     })
 

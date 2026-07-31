@@ -20,6 +20,7 @@ import { InputBar } from './skeleton/InputBar.tsx'
 import { ChatView } from './chat/ChatView.tsx'
 import { StatsLine } from './chat/StatsLine.tsx'
 import { bashToolviewSample } from './toolviews/bash-sample.tsx'
+import { searchToolview } from './toolviews/search-row.tsx'
 import { readToolview } from './toolviews/read-row.tsx'
 import { fileMutationToolview } from './toolviews/file-mutation-row.tsx'
 import { webToolview } from './toolviews/web-row.tsx'
@@ -320,6 +321,10 @@ export function apply(ctx: Context): void {
   // The bash sample rides that exact seam, in third-party posture
   // (ToolRow-matching Bash · {description} chrome; scoped badge in child sessions).
   ctx.plugin(bashToolviewSample)
+
+  // The grep/glob search row rides the same seam: one component registered
+  // under both tool names, since both declare the same search render intent.
+  ctx.plugin(searchToolview)
 
   // The read row rides the same seam (a product registration, not a sample):
   // Read · {path} chrome with the file's read card resident below it.
