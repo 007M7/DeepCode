@@ -279,7 +279,7 @@ export function InputBar({
   // or while the command face is absent with the session).
   const accessSelect: ReactNode = command === undefined
     ? null
-    : <PermissionSelect value={permissions} locked={locked} command={command} t={t} />
+    : <PermissionSelect key={sessionId} value={permissions} locked={locked} command={command} t={t} />
 
   // Mirror-layer decorations: a visible backdrop with transparent text. The
   // claim token highlights through behind the textarea glyphs; each U+FFFC
