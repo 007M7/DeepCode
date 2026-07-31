@@ -14,9 +14,14 @@
 - id: hmr
   disabled: true
 
-# Session query is a TUI capability; Web owns its own session presentation.
+# Web content search runs on an ephemeral in-memory index. The service
+# activates at boot, while first-search defers the node:sqlite import and
+# in-memory handle so Node 22 startup stays quiet until content search
+# actually uses SQLite. That search then reconciles this boot's sources.
 - id: session-query-sqlite
-  disabled: true
+  config:
+    path: ':memory:'
+    openAt: first-search
 
 - id: tools
   config:

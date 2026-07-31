@@ -13,7 +13,7 @@ import {
   IconTrashOutline16, IconTriangleRightFill14, Menu, StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
-import type { GroupNode, SessionNode } from '../tree.ts'
+import type { GroupNode, SearchResultNode, SessionNode } from '../tree.ts'
 import { relativeTime } from '../tree.ts'
 import css from './Rows.module.css'
 
@@ -200,6 +200,41 @@ export interface RowDragProps {
   hover: (half: 'before' | 'after') => void
   drop: (half: 'before' | 'after') => void
   end: () => void
+}
+
+/**
+ * One flat search result: title, Workspace context, and optional content
+ * excerpt. Search navigation opens the session only; it does not address an
+ * event inside the conversation.
+ * @param props.result - merged local/content search row.
+ * @param props.currentId - selected session id.
+ * @param props.onOpen - open the selected session.
+ * @returns the result button.
+ */
+export function SearchResultItem({ result, currentId, onOpen }: {
+  result: SearchResultNode
+  currentId: string | undefined
+  onOpen: (id: SearchResultNode['id']) => void
+}) {
+  const selected = result.id === currentId
+  return (
+    <button
+      type="button"
+      className={clsx(css.searchResultRow, selected && css.selected)}
+      role="treeitem"
+      aria-selected={selected}
+      onClick={() => { onOpen(result.id) }}
+    >
+      <span className={css.searchResultHeading}>
+        <span className={css.slot}>{result.running && <StateDot state="ongoing" />}</span>
+        <span className={css.searchResultTitle}>{result.title}</span>
+      </span>
+      <span className={css.searchResultWorkspace}>{result.workspace}</span>
+      {result.snippet !== undefined && (
+        <span className={css.searchResultSnippet}>{result.snippet}</span>
+      )}
+    </button>
+  )
 }
 
 /** Pointer-position half of a row (insert line above or below). */

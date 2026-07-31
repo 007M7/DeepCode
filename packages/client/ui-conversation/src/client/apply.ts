@@ -86,6 +86,11 @@ export function apply(ctx: Context): void {
   // Apply-time construction keeps store identity bound to this fiber.
   const chatStore = createChatStore()
 
+  // Chat scroll offsets by session, surviving view switches (the chat view
+  // unmounts under the tab ring). Deliberately not persisted: a fresh page
+  // load should keep the open-jump-to-bottom default.
+  const chatScrollTops = new Map<SessionId, number>()
+
   const viewTabs = (): ViewTab[] => {
     const tabs: ViewTab[] = []
     for (const entry of slots.entries('conversation.view')) {
@@ -252,6 +257,19 @@ export function apply(ctx: Context): void {
           })
         },
         loadOlder: () => { void scoped.loadOlder() },
+        // Unregistered 'trajectory' id is safe: the tab ring falls back to
+        // the first view, and the untouched inspect target stays inert.
+        inspectCall: (callId) => {
+          actions.setInspect({ callId })
+          actions.setView('trajectory')
+        },
+        chatScroll: {
+          save: (top) => {
+            if (top === null) chatScrollTops.delete(sessionId)
+            else chatScrollTops.set(sessionId, top)
+          },
+          read: () => chatScrollTops.get(sessionId) ?? null,
+        },
         forkAt: (seq) => {
           sessions.fork({ sessionId, atSeq: seq, increaseTitle: true })
             .then((childId) => { sessions.open(childId) })

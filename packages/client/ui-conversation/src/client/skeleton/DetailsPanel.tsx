@@ -12,7 +12,7 @@ import { shallowEqual } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConversationSnapshot, RunningToolCall, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import type { DetailsSlotProps } from '../contract/slots.ts'
 import { terminalBlockLabels, terminalCardModel } from '../contract/terminal-card-model.ts'
-import type { ToolCallBlock } from '../contract/tool-call-model.ts'
+import { resultText, type ToolCallBlock } from '../contract/tool-call-model.ts'
 import css from './DetailsPanel.module.css'
 
 /** Full props composed by reference from the contract (automatic shares & injected share). */
@@ -154,20 +154,7 @@ function OutputBody({ material, cwd, t }: { material: CallMaterial; cwd: string 
   const result = material.block
   return (
     <pre className={css.code} data-error={result.isError || undefined}>
-      {renderResult(result)}
+      {resultText(result)}
     </pre>
   )
-}
-
-/** Flatten result content blocks to display text (text blocks verbatim, others as JSON). */
-function renderResult(node: ToolResultNode): string {
-  const parts: string[] = []
-  for (const block of node.content) {
-    if (block.type === 'text') parts.push(block.text)
-    else parts.push(JSON.stringify(block, null, 2))
-  }
-  if (parts.length === 0 && node.error !== undefined) {
-    parts.push(`${node.error.name}: ${node.error.code}`)
-  }
-  return parts.join('\n')
 }
