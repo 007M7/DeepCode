@@ -103,6 +103,6 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 - **Initial discovery is asynchronous** — plugin load does not wait for connection and `listTools()`, so a turn started immediately after boot or HMR can assemble before the MCP tools are registered.
 - **Tools are the only bridged MCP capability** — Resources and Prompts have no harness consumption surface and are deferred.
-- **Crash recovery is manual** — transport closure unregisters the server's tools, but reconnect requires an HMR reload or harness restart.
+- **Crash recovery is manual** — transport closure does not auto-reconnect; registered tools can remain visible but fail against the closed transport until an HMR reload or Host restart.
 - **Native non-text rendering is lossy** — image, audio, and resource payloads become placeholders in model context even though the execution-local canonical value preserves their JSON blocks. Richer Native multimedia projection is deferred.
 - **Unsupported MCP output schemas are not enforced** — `structuredContent` falls back to `JsonValue` when the advertised schema uses vocabulary outside the harness subset.
