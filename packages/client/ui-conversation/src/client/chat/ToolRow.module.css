@@ -257,6 +257,12 @@
   margin: 4px 0 4px 4px;
 }
 
+/* A write/edit diff renders through DiffBlock; like the terminal card it draws
+   its own surface, so only the row indentation is this file's concern. */
+.diffBody {
+  margin: 4px 0 4px 4px;
+}
+
 /* In-row code renders at the smaller code size (12/18) via each primitive's
    rebindable content-font seam; standalone markdown code blocks keep 13/22. */
 .codeBody {
