@@ -20,10 +20,16 @@ import { createChatStore } from '../src/client/stores.ts'
 import { GenericToolCard } from '../src/client/chat/GenericToolCard.tsx'
 import { DetailsPanel } from '../src/client/skeleton/DetailsPanel.tsx'
 import { WebRow, webToolview } from '../src/client/toolviews/web-row.tsx'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
+import { zh } from '../src/client/locales.ts'
 
 afterEach(cleanup)
 
 const SID = 's1' as SessionId
+
+/** Locale seat for the card render sites (GenericToolCard, DetailsPanel), as the sibling suites build it. */
+const t = makeTranslate(zh, commonZh)
 
 const SEARCH_ARGS = '{"query":"deepseek harness"}'
 const FETCH_ARGS = '{"url":"https://example.com/page"}'
@@ -164,7 +170,7 @@ describe('chat row web body', () => {
     // card is resident there too.
     const view = render(<GenericToolCard {...ownerProps(settledSearch({
       call: { name: 'fx-web', argsRaw: SEARCH_ARGS },
-    }), 'fx-web')} />)
+    }), 'fx-web')} t={t} />)
     expect(view.getByText('Titled')).toBeTruthy()
     expect(view.container.querySelector('[data-web="search"]')).not.toBeNull()
   })
@@ -172,7 +178,7 @@ describe('chat row web body', () => {
   it('the GenericToolCard fallback keeps the plain row for a non-web call', () => {
     const view = render(<GenericToolCard {...ownerProps(settledSearch({
       call: { name: 'echo', argsRaw: '{}' }, callView: null, resultView: null,
-    }), 'echo')} />)
+    }), 'echo')} t={t} />)
     expect(view.container.querySelector('[data-web]')).toBeNull()
   })
 })
@@ -199,6 +205,7 @@ describe('DetailsPanel web Output section', () => {
         useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
         closeDetails={vi.fn()}
+        t={t}
       />,
     )
   }
