@@ -547,7 +547,9 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
       clock.mockReturnValue(snapshotTime + 1_000)
       await settleTerminal(terminal)
       await expect.poll(() => terminal.snapshot()).toContain('dsh ⊙')
-      await expect.poll(() => terminal.snapshot()).toContain('Compaction in progress…')
+      await expect.poll(() => terminal.snapshot()).toContain('Context being compacted 1.0s')
+      const liveCompaction = await terminal.snapshot()
+      expect(liveCompaction.indexOf('Context being compacted 1.0s')).toBeLessThan(liveCompaction.indexOf('dsh ⊙'))
       clock.mockReturnValue(snapshotTime)
 
       // Real keystrokes: the prompt keeps its ordinary queue identity while

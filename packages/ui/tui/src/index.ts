@@ -80,6 +80,7 @@ import {
 import {
   fadeGlyph,
   formatQueuedStatus,
+  formatStatusDuration,
   openStepPhase,
   openTurn,
   pulseLevel,
@@ -94,7 +95,6 @@ import {
   type Config,
 } from './config.ts'
 import {
-  CompactionProgressComponent,
   ContextCardComponent,
   type ToolCardVisibility,
   HeaderComponent,
@@ -270,12 +270,6 @@ export const FILE_REFERENCE_PROMPT = 'Paths prefixed with @ are files explicitly
  */
 const COMPACTION_MARKER = '… earlier context was compacted …'
 
-/**
- * Status glyph for a live standalone compaction bracket. Compaction is not a
- * step phase, so the glyph stays local to the TUI indicator.
- */
-const COMPACTING_GLYPH = '⊙'
-
 interface RunningStatus {
   turn: number | undefined
   timer: ReturnType<typeof setInterval>
@@ -336,6 +330,7 @@ export function createTuiChat(
   })
   editor.hintPrefix = initialInputPrompt
   const todo = new TodoComponent(palette)
+  const compactionStatusLine = new Text('', 0, 0)
   let showReasoning = resolved.showReasoning
   // Ctrl+O cycles collapsed -> expanded -> hidden. Codex-style: hidden drops
   // tool cards entirely, collapsed previews, expanded shows full bodies.
@@ -351,7 +346,6 @@ export function createTuiChat(
   let compacting: {
     startedAt: number
     timer: ReturnType<typeof setInterval>
-    progress: CompactionProgressComponent
   } | undefined
   // TUI steering submissions that the inbox has not yet claimed or discarded.
   // Correlation ids avoid guessing whether a running-state submission actually
@@ -416,6 +410,7 @@ export function createTuiChat(
     throw new Error('TUI prompt built-ins failed to initialize')
   }
   const updatePromptValues = (): void => {
+    const renderTime = now()
     cwdValue.set(palette.bold(palette.accent(formattedCwd)))
     gitValue.set(branch === undefined ? undefined : palette.dim(` (${displayText(branch)})`))
     const rate = cacheHitRate(tokens)
@@ -429,25 +424,31 @@ export function createTuiChat(
     const queued = runningStatus === undefined ? undefined : formatQueuedStatus(pendingSteering.size)
     queuedValue.set(queued === undefined ? undefined : palette.dim(queued))
     symbolValue.set(palette.bold(palette.accent('dsh')))
+    compactionStatusLine.setText(compacting === undefined
+      ? ''
+      : palette.dim(`Context being compacted ${formatStatusDuration(renderTime - compacting.startedAt)}`))
     // `${indicator}` owns the caret column and its trailing gap before the
-    // cursor. The phase glyph replaces the `>` caret in place — same width
-    // every frame — fading in as a turn starts, throbbing while it runs, and
-    // fading out after it ends before the plain `>` returns. Only the gray
+    // cursor. The active status glyph replaces the `>` caret in place — same
+    // width every frame — fading in when work starts, throbbing while it runs,
+    // and fading out after it ends before the plain `>` returns. Only the gray
     // brightness changes, so the cursor never shifts.
-    const runningGlyph = runningPhaseGlyph(agent.session.events, runningStatus !== undefined)
-      ?? (compacting === undefined ? undefined : COMPACTING_GLYPH)
+    const statusGlyph = runningPhaseGlyph(
+      agent.session.events,
+      runningStatus !== undefined,
+      compacting !== undefined,
+    )
     // Remember the live phase glyph so the fade-out shows it, not the ttft
     // fallback the derivation returns once the closing turn's step has ended.
-    if (runningStatus !== undefined && runningGlyph !== undefined) runningStatus.lastGlyph = runningGlyph
-    // The fade envelope gates appear/disappear; the running throb breathes the
-    // glyph the whole turn. Truecolor opacity is envelope × throb; the
+    if (runningStatus !== undefined && statusGlyph !== undefined) runningStatus.lastGlyph = statusGlyph
+    // The fade envelope gates appear/disappear; the active throb breathes the
+    // glyph throughout the operation. Truecolor opacity is envelope × throb; the
     // non-truecolor fallback keys visibility off the envelope alone, so the
     // throb never blinks it. `envelope` clamps to [0, 1].
     const activeSince = runningStatus?.startedAt ?? compacting?.startedAt
-    const envelope = activeSince !== undefined && runningGlyph !== undefined
-      ? { glyph: runningGlyph, level: Math.min(1, (now() - activeSince) / STATUS_FADE_MS) }
+    const envelope = activeSince !== undefined && statusGlyph !== undefined
+      ? { glyph: statusGlyph, level: Math.min(1, (renderTime - activeSince) / STATUS_FADE_MS) }
       : fadingStatus !== undefined
-        ? { glyph: fadingStatus.glyph, level: Math.max(0, 1 - (now() - fadingStatus.endedAt) / STATUS_FADE_MS) }
+        ? { glyph: fadingStatus.glyph, level: Math.max(0, 1 - (renderTime - fadingStatus.endedAt) / STATUS_FADE_MS) }
         : undefined
     const caret = envelope === undefined
       ? palette.dim('>')
@@ -456,7 +457,7 @@ export function createTuiChat(
         palette,
         resolved.theme.color,
         resolved.theme.color && resolved.theme.truecolor,
-        envelope.level * pulseLevel(now()),
+        envelope.level * pulseLevel(renderTime),
         envelope.level >= 0.5,
       )
     indicatorValue.set(`${caret}${palette.dim(' ')}`)
@@ -471,6 +472,7 @@ export function createTuiChat(
   ui.addChild(new Spacer(1))
   todoContainer.addChild(todo)
   ui.addChild(todoContainer)
+  ui.addChild(compactionStatusLine)
   ui.addChild(promptContext)
   ui.addChild(editor)
   ui.setFocus(editor)
@@ -483,11 +485,6 @@ export function createTuiChat(
 
   const requestRender = (): void => {
     if (disposed) return
-    if (compacting !== undefined) {
-      compacting.progress.invalidate()
-      chat.removeChild(compacting.progress)
-      chat.addChild(compacting.progress)
-    }
     updatePromptValues()
     const inputPrompt = renderInputPrompt()
     editor.setPrompt({ first: inputPrompt, continuation: ' '.repeat(visibleWidth(inputPrompt)) })
@@ -577,16 +574,15 @@ export function createTuiChat(
   const clearStatus = (): void => {
     if (compacting !== undefined) {
       clearInterval(compacting.timer)
-      chat.removeChild(compacting.progress)
       compacting = undefined
     }
     clearTurnStatus()
   }
 
   /**
-   * On the running → non-running edge, hand the last rendered glyph to a
-   * fade-out that re-renders until it settles on the `>` caret, then stops its
-   * own timer. A hard clear (teardown) skips this via {@link clearStatus}.
+   * Hand the last active glyph to a fade-out that re-renders until it settles
+   * on the `>` caret, then stops its own timer. A hard clear (teardown) skips
+   * this via {@link clearStatus}.
    */
   const beginFadeOut = (glyph: string): void => {
     clearTurnStatus()
@@ -1538,7 +1534,6 @@ export function createTuiChat(
         compacting = {
           startedAt,
           timer: setInterval(renderStatus, STATUS_ANIMATION_INTERVAL_MS),
-          progress: new CompactionProgressComponent(startedAt, now, palette),
         }
         runtime.terminal.setProgress(true)
       }
@@ -1546,15 +1541,15 @@ export function createTuiChat(
       return
     }
     if (event.type === 'compact/end' && event.data.turn === null && compacting !== undefined) {
+      const fadeOutGlyph = runningPhaseGlyph(agent.session.events, false, true)
       clearInterval(compacting.timer)
-      chat.removeChild(compacting.progress)
       compacting = undefined
       if (event.data.error !== undefined) {
         appendNotice(`Compaction failed: ${event.data.error}`, 'warning')
       }
       // A concurrently running turn owns the indicator. Keep its timer and
       // progress bit instead of letting the compaction fade clear that state.
-      if (runningStatus === undefined) beginFadeOut(COMPACTING_GLYPH)
+      if (runningStatus === undefined && fadeOutGlyph !== undefined) beginFadeOut(fadeOutGlyph)
       requestRender()
       return
     }

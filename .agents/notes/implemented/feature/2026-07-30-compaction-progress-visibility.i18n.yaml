@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-30-compaction-progress-visibility.md
-2026-07-30-compaction-progress-visibility.md: e16bc550e9be896b0940f8537178ff4be2ca3220
-2026-07-30-compaction-progress-visibility.zh.md: e8170e8408c7a59e830a8739f0a048f1522b937e
+2026-07-30-compaction-progress-visibility.md: b4d95d4bc645924b96eab6a36ee7b8f36b76a2c6
+2026-07-30-compaction-progress-visibility.zh.md: e444fbdfbf1c865a5bb3b6675a5ff318c5cef9e7
