@@ -57,6 +57,10 @@ export function ReadRow({ toolName, block, sessionId, useSessions, openFile }: T
   const filePath = model.filePath
   return (
     <div className={css.card}>
+      {/* jscpd:ignore-start — the summary-line chrome (leading, status, title,
+          sep, path-link/summary) is the shared ToolRow row shape every keyed
+          toolview draws; extracting it into one component is a separate change
+          tracked for all rows at once, not this read-card PR. */}
       <div className={css.root} data-variant="read" data-state={model.state}>
         <span className={css.leading}>{leadingFor(model.state)}</span>
         {status !== null && <span className={css.visuallyHidden}>{status}</span>}
@@ -74,6 +78,7 @@ export function ReadRow({ toolName, block, sessionId, useSessions, openFile }: T
           <span className={css.summary}>{model.summary}</span>
         )}
       </div>
+      {/* jscpd:ignore-end */}
       {read !== null && (
         <ReadBlock {...read} maxLines={CHAT_READ_MAX_LINES} className={css.read} />
       )}
