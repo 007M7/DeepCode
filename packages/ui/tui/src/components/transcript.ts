@@ -57,6 +57,7 @@ interface RenderedDiff {
   lines: string[]
   added: number
   removed: number
+  approximate: boolean
 }
 
 /** Split one diff change into display rows without counting its trailing line terminator. */
@@ -66,8 +67,12 @@ function diffValueLines(value: string): string[] {
   return (safe.endsWith('\n') ? safe.slice(0, -1) : safe).split('\n')
 }
 
-/** A file diff whose unchanged context stays neutral and does not affect change totals. */
-function renderDiff(diff: FileDiff, palette: Palette): RenderedDiff {
+/**
+ * A file diff whose unchanged context stays neutral and does not affect exact
+ * change totals. Comparisons beyond the edit-distance budget fall back to
+ * whole-side rendering so a model-authored pending edit cannot stall the TUI.
+ */
+function renderDiff(diff: FileDiff, maxDiffEditLength: number, palette: Palette): RenderedDiff {
   // The card header is a fixed `Tool / <name>` frame that never names a file, so
   // each hunk always carries its own path header (no redundancy to suppress).
   const lines = [palette.bold(displayText(diff.path))]
@@ -77,9 +82,20 @@ function renderDiff(diff: FileDiff, palette: Palette): RenderedDiff {
     const newLines = diffValueLines(diff.newText)
     added = newLines.length
     for (const line of newLines) lines.push(palette.success(`+ ${line}`))
-    return { lines, added, removed }
+    return { lines, added, removed, approximate: false }
   }
-  for (const change of compareLines(diff.oldText, diff.newText)) {
+  const changes = compareLines(diff.oldText, diff.newText, { maxEditLength: maxDiffEditLength })
+  if (changes === undefined) {
+    const oldLines = diffValueLines(diff.oldText)
+    const newLines = diffValueLines(diff.newText)
+    lines.push(palette.dim(`[exact line diff omitted: >${maxDiffEditLength} changed lines]`))
+    removed = oldLines.length
+    added = newLines.length
+    for (const line of oldLines) lines.push(palette.error(`- ${line}`))
+    for (const line of newLines) lines.push(palette.success(`+ ${line}`))
+    return { lines, added, removed, approximate: true }
+  }
+  for (const change of changes) {
     const changedLines = diffValueLines(change.value)
     if (change.added) {
       added += changedLines.length
@@ -91,7 +107,7 @@ function renderDiff(diff: FileDiff, palette: Palette): RenderedDiff {
       for (const line of changedLines) lines.push(palette.dim(`  ${line}`))
     }
   }
-  return { lines, added, removed }
+  return { lines, added, removed, approximate: false }
 }
 
 /**
@@ -354,12 +370,14 @@ export class ToolCardComponent implements Component {
   private visibility: ToolCardVisibility = 'collapsed'
   private callView: ToolCallView
   private resultView: ToolResultView | undefined
+  private diffBodyCache: { view: ToolCallView | ToolResultView; body: CardBody } | undefined
 
   constructor(
     private readonly name: string,
     private readonly parsed: ParsedArguments,
     private readonly definition: ToolDefinition | undefined,
     private readonly maxOutputLines: number,
+    private readonly maxDiffEditLength: number,
     private readonly palette: Palette,
     private readonly mdTheme: MarkdownTheme,
   ) {
@@ -530,21 +548,27 @@ export class ToolCardComponent implements Component {
       return { prelude: prelude.filter(Boolean), lines: lines.filter(Boolean) }
     }
     if (view.card === 'diff') {
+      if (this.diffBodyCache?.view === view) return this.diffBodyCache.body
       // The header no longer names the file, so each diff keeps its own path
       // header. A trailing footer summarizes the change (`+A -R · N file(s)`).
-      let added = 0
-      let removed = 0
-      const hunks = view.diffs.flatMap((diff, index) => {
-        const rendered = renderDiff(diff, this.palette)
-        added += rendered.added
-        removed += rendered.removed
+      const renderedDiffs = view.diffs.map(diff =>
+        renderDiff(diff, this.maxDiffEditLength, this.palette),
+      )
+      const added = renderedDiffs.reduce((total, rendered) => total + rendered.added, 0)
+      const removed = renderedDiffs.reduce((total, rendered) => total + rendered.removed, 0)
+      const approximate = renderedDiffs.some(rendered => rendered.approximate)
+      const hunks = renderedDiffs.flatMap((rendered, index) => {
         return [...index > 0 ? [''] : [], ...rendered.lines]
       })
       const files = view.diffs.length
-      const footer = this.palette.dim(`└ +${added} -${removed} · ${files} file${files === 1 ? '' : 's'}`)
+      const footer = this.palette.dim(
+        `└ +${added} -${removed} · ${files} file${files === 1 ? '' : 's'}${approximate ? ' · approximate' : ''}`,
+      )
       // A diff's own `+`/`-` colors carry its meaning, so it renders verbatim
       // rather than under the dim result-output color.
-      return { prelude: [...hunks, footer], lines: [] }
+      const body = { prelude: [...hunks, footer], lines: [] }
+      this.diffBodyCache = { view, body }
+      return body
     }
     // The web card carries no `content` copy, so a `web` result view falls back
     // to the raw result content here (`view.card === 'generic'` narrows the

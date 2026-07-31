@@ -10,7 +10,9 @@ Result-time filesystem diffs carry the applied change with three surrounding con
 
 ## Decision
 
-The TUI compares each non-create `FileDiff.oldText` and `FileDiff.newText` at render time. Added and removed rows retain their green `+` and red `-` markers; equal context rows use the recessed body tone with a neutral two-space prefix. The footer sums only the rows classified as added or removed. A create (`oldText: null`) continues to classify every non-empty new-content row as added.
+The TUI compares each `FileDiff` whose old and new text are both available. Added and removed rows retain their green `+` and red `-` markers; equal context rows use the recessed body tone with a neutral two-space prefix. The footer sums only the rows classified as added or removed. `maxDiffEditLength` bounds the exact comparison by its combined added and removed line count; the default is 1000. Exceeding the bound renders the complete old side as removed and the complete new side as added, marks the footer approximate, and caches that result so redraws do not repeat the comparison.
+
+When `oldText` is `null`, the renderer cannot distinguish a create from a pending overwrite or an argument fallback whose prior text is unavailable. It therefore shows every non-empty new-side row as added, without claiming those rows were absent from an existing file. Empty new content renders no synthetic added row.
 
 This remains a consumer-side interpretation of the existing `FileDiff` contract. Filesystem tools continue to persist contextual before/after snippets, so other consumers keep their placement context and existing session logs replay with corrected TUI presentation. The TUI uses the same maintained `diff` package as `dsh-tool-fs` instead of introducing a second line-diff implementation.
 
@@ -22,8 +24,10 @@ This remains a consumer-side interpretation of the existing `FileDiff` contract.
 
 **Match equal lines by position without a diff algorithm.** Rejected: insertions and deletions shift subsequent context, so positional pairing would misclassify valid hunks.
 
+**Run every comparison to completion.** Rejected: pending tool views can contain unrestricted model-authored old and new strings, and an unbounded Myers comparison can block the synchronous terminal renderer.
+
 ## Consequences
 
-TUI diff cards distinguish evidence-bearing context from the mutation itself, and their `+A -R` footer reports the actual line delta. Replaying an existing contextual diff gains the corrected rendering without a migration. Rendering performs one additional line comparison per non-create hunk; result-time hunks are already context-bounded, while create cards bypass the comparison.
+TUI diff cards distinguish evidence-bearing context from the mutation itself, and an exact `+A -R` footer reports the actual line delta. Replaying an existing contextual diff gains the corrected rendering without a migration. Result-time filesystem hunks are context-bounded; unrestricted pending views either complete within the configured edit-length budget or degrade to an explicitly approximate linear rendering.
 
-The focused TUI test covers neutral context and exact totals. The assembled `advanced-cards` terminal snapshots pin the neutral context style, semantic change colors, and `+1 -1` footer through collapsed and expanded card states.
+The focused TUI tests cover neutral context, exact totals, an empty create, bounded fallback, and cache reuse. The assembled `advanced-cards` terminal snapshots pin the neutral context style, semantic change colors, exact footer, and approximate fallback through collapsed and expanded card states.
