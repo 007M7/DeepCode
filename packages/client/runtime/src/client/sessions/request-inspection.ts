@@ -35,39 +35,54 @@ export interface RequestPromptChange {
   previous?: ConversationPromptSnapshot
 }
 
-/** One provider request reconstructed from durable request lifecycle events. */
-export interface RequestView {
-  /** Request category; compaction is a purpose, not a separate projection. */
-  purpose: 'assistant' | 'compaction'
+/** Lifecycle fields shared by ordinary generation and compaction requests. */
+interface RequestViewBase {
   /** Sequence that opened the operation represented by this request. */
   startSeq: number
-  turn: number
-  /** Agent-loop step, or zero for a direct compaction request. */
-  step: number
   startedAt: number
   completedAt: number | null
   status: 'running' | 'complete' | 'error'
   error?: string
-  /** Effective ordinary request input, inherited until a later header changes it. */
-  prompt?: ConversationPromptSnapshot
-  /** Prompt change logged while preparing this request. */
-  promptChange?: RequestPromptChange
   provenance?: AssistantProvenanceView
   requestConfig?: AssistantRequestConfig
   usage?: unknown
   /** Assistant message or compaction summary sequence produced by this request. */
   resultSeq?: number
+}
+
+/** One ordinary assistant generation reconstructed from durable request events. */
+interface AssistantRequestView extends RequestViewBase {
+  purpose: 'assistant'
+  turn: number
+  /** Agent-loop step that issued this request. */
+  step: number
+  /** Effective ordinary request input, inherited until a later header changes it. */
+  prompt?: ConversationPromptSnapshot
+  /** Prompt change logged while preparing this request. */
+  promptChange?: RequestPromptChange
+  /** Retry ordinal scheduled after a failed ordinary request. */
+  retry?: number
+  maxRetries?: number
+  retryDelayMs?: number
+}
+
+/** One compaction provider request, either turn-owned or standalone between turns. */
+interface CompactionRequestView extends RequestViewBase {
+  purpose: 'compaction'
+  /** Owning turn, or `null` when manual compaction ran between turns. */
+  turn: number | null
+  /** Direct compaction requests do not consume an agent-loop step. */
+  step: 0
   /** Compaction replacement message sequence, when one was committed. */
   replacementSeq?: number
   /** Safe compaction summary projection. */
   summary?: readonly ContentBlock[]
   /** Complete compaction provider output before the safe projection. */
   rawOutput?: readonly ContentBlock[]
-  /** Retry ordinal scheduled after a failed ordinary request. */
-  retry?: number
-  maxRetries?: number
-  retryDelayMs?: number
 }
+
+/** One provider request reconstructed from durable request lifecycle events. */
+export type RequestView = AssistantRequestView | CompactionRequestView
 
 /** Immutable request-centric projection derived from one history window. */
 export interface RequestInspectionSnapshot {
@@ -110,7 +125,7 @@ interface CompactionStartEvent {
   type: 'compact/start'
   seq: number
   time: number
-  data: { turn: number }
+  data: { turn: number | null }
 }
 
 interface CompactionSummaryEvent {
@@ -131,7 +146,7 @@ interface CompactionEndEvent {
   type: 'compact/end'
   seq: number
   time: number
-  data: { turn: number; error?: string }
+  data: { turn: number | null; error?: string }
 }
 
 function requestKey(turn: number, step: number): string {
@@ -228,10 +243,21 @@ function deriveRequests(events: readonly SessionEvent[]): readonly RequestView[]
   let activePrompt: ConversationPromptSnapshot | undefined
   let activeCompaction: number | undefined
 
-  const update = (index: number | undefined, change: Partial<RequestView>): void => {
+  const updateAssistant = (
+    index: number | undefined,
+    change: Partial<Omit<AssistantRequestView, 'purpose'>>,
+  ): void => {
     if (index === undefined) return
     const request = requests[index]
-    if (request !== undefined) requests[index] = { ...request, ...change }
+    if (request?.purpose === 'assistant') requests[index] = { ...request, ...change }
+  }
+  const updateCompaction = (
+    index: number | undefined,
+    change: Partial<Omit<CompactionRequestView, 'purpose'>>,
+  ): void => {
+    if (index === undefined) return
+    const request = requests[index]
+    if (request?.purpose === 'compaction') requests[index] = { ...request, ...change }
   }
 
   for (const sourceEvent of events) {
@@ -263,7 +289,7 @@ function deriveRequests(events: readonly SessionEvent[]): readonly RequestView[]
       }
       const change = promptChange(activePrompt, prompt, sourceEvent)
       activePrompt = prompt
-      update(activeStep === undefined ? undefined : ordinaryByStep.get(activeStep), {
+      updateAssistant(activeStep === undefined ? undefined : ordinaryByStep.get(activeStep), {
         prompt,
         requestConfig: prompt.config,
         ...(change === undefined ? {} : { promptChange: change }),
@@ -278,8 +304,11 @@ function deriveRequests(events: readonly SessionEvent[]): readonly RequestView[]
         requestKey(sourceEvent.data.turn, sourceEvent.data.step),
       )
       const request = index === undefined ? undefined : requests[index]
-      update(index, {
-        usage: addTokenUsage(request?.usage, sourceEvent.data.chunk.usage),
+      updateAssistant(index, {
+        usage: addTokenUsage(
+          request?.purpose === 'assistant' ? request.usage : undefined,
+          sourceEvent.data.chunk.usage,
+        ),
       })
       continue
     }
@@ -288,7 +317,7 @@ function deriveRequests(events: readonly SessionEvent[]): readonly RequestView[]
         requestKey(sourceEvent.data.turn, sourceEvent.data.step),
       )
       const request = index === undefined ? undefined : requests[index]
-      update(index, {
+      updateAssistant(index, {
         completedAt: sourceEvent.time,
         status: 'complete',
         resultSeq: sourceEvent.seq,
@@ -296,7 +325,9 @@ function deriveRequests(events: readonly SessionEvent[]): readonly RequestView[]
           provider: sourceEvent.data.message.source.provider,
           model: sourceEvent.data.message.source.model,
         },
-        ...(request?.usage !== undefined || sourceEvent.data.usage === undefined
+        ...(request?.purpose === 'assistant'
+          && request.usage !== undefined
+          || sourceEvent.data.usage === undefined
           ? {}
           : { usage: sourceEvent.data.usage }),
       })
@@ -306,8 +337,8 @@ function deriveRequests(events: readonly SessionEvent[]): readonly RequestView[]
       const key = requestKey(sourceEvent.data.turn, sourceEvent.data.step)
       const index = ordinaryByStep.get(key)
       const request = index === undefined ? undefined : requests[index]
-      if (request?.status === 'running') {
-        update(index, {
+      if (request?.purpose === 'assistant' && request.status === 'running') {
+        updateAssistant(index, {
           completedAt: sourceEvent.time,
           status: 'error',
         })
@@ -317,7 +348,7 @@ function deriveRequests(events: readonly SessionEvent[]): readonly RequestView[]
     }
     if ((sourceEvent.type as string) === 'llm/retry') {
       const event = sourceEvent as unknown as RetryEvent
-      update(ordinaryByStep.get(requestKey(event.data.turn, event.data.step)), {
+      updateAssistant(ordinaryByStep.get(requestKey(event.data.turn, event.data.step)), {
         status: 'error',
         error: event.data.failure.message,
         retry: event.data.retry,
@@ -328,7 +359,7 @@ function deriveRequests(events: readonly SessionEvent[]): readonly RequestView[]
     }
     if (sourceEvent.type === 'turn/end' && sourceEvent.data.reason.kind === 'error') {
       const reason = sourceEvent.data.reason
-      update(ordinaryByStep.get(requestKey(sourceEvent.data.turn, reason.step)), {
+      updateAssistant(ordinaryByStep.get(requestKey(sourceEvent.data.turn, reason.step)), {
         status: 'error',
         error: 'failure' in reason ? reason.failure.message : reason.message,
       })
@@ -336,6 +367,15 @@ function deriveRequests(events: readonly SessionEvent[]): readonly RequestView[]
     }
 
     const type = sourceEvent.type as string
+    if (type === 'session/end-seed' && activeCompaction !== undefined) {
+      updateCompaction(activeCompaction, {
+        completedAt: sourceEvent.time,
+        status: 'error',
+        error: 'Compaction was interrupted before completion.',
+      })
+      activeCompaction = undefined
+      continue
+    }
     if (type === 'compact/start') {
       const event = sourceEvent as unknown as CompactionStartEvent
       activeCompaction = requests.length
@@ -352,7 +392,7 @@ function deriveRequests(events: readonly SessionEvent[]): readonly RequestView[]
     }
     if (type === 'compact/summary' && activeCompaction !== undefined) {
       const event = sourceEvent as unknown as CompactionSummaryEvent
-      update(activeCompaction, {
+      updateCompaction(activeCompaction, {
         resultSeq: event.seq,
         summary: event.data.summary,
         ...(event.data.rawOutput === undefined ? {} : { rawOutput: event.data.rawOutput }),
@@ -375,12 +415,12 @@ function deriveRequests(events: readonly SessionEvent[]): readonly RequestView[]
       && activeCompaction !== undefined
       && isCompactionSource(sourceEvent.data.source)
     ) {
-      update(activeCompaction, { replacementSeq: sourceEvent.seq })
+      updateCompaction(activeCompaction, { replacementSeq: sourceEvent.seq })
       continue
     }
     if (type !== 'compact/end' || activeCompaction === undefined) continue
     const event = sourceEvent as unknown as CompactionEndEvent
-    update(activeCompaction, {
+    updateCompaction(activeCompaction, {
       completedAt: event.time,
       status: event.data.error === undefined ? 'complete' : 'error',
       ...(event.data.error === undefined ? {} : { error: event.data.error }),

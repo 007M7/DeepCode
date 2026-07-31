@@ -1,6 +1,7 @@
 - listbox "Trigger suggestions":
   - text: Commands
-  - option "goal set or view the goal for a long-running task" [selected]
+  - option "compact Compact older conversation history" [selected]
+  - option "goal set or view the goal for a long-running task"
   - option "permission Switch the permission preset (sandbox mode + approval policy)"
   - option "plan Enter or leave plan mode"
   - option "model Select the model for this conversation"

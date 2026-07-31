@@ -107,6 +107,8 @@ export function trajectoryBranchContainsRequest(
     request.resultSeq !== undefined
     && branch.retainedSurfaceSeqs.has(request.resultSeq)
   ) || (
+    request.purpose === 'compaction'
+    &&
     request.replacementSeq !== undefined
     && branch.retainedSurfaceSeqs.has(request.replacementSeq)
   )
