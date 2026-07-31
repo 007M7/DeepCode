@@ -196,7 +196,7 @@ function runInstaller(
   })
 }
 
-describe('worktree-local Lefthook installer', () => {
+describe('worktree-local Lefthook installer', { timeout: 15_000 }, () => {
   for (const [label, extraEnv] of [
     ['CI', { CI: 'true' }],
     ['GitHub Actions', { GITHUB_ACTIONS: 'true' }],
@@ -305,7 +305,7 @@ describe('worktree-local Lefthook installer', () => {
     expect(readFileSync(mainHookPath, 'utf8')).toBe(initialHook)
     expect(existsSync(join(commonDirectory(fixture), 'dsh-lefthook-install.lock'))).toBe(false)
     expect(existsSync(join(hooksPath(fixture, fixture.main), '.fake-lefthook-running'))).toBe(false)
-  }, 15_000)
+  })
 
   it('waits for a concurrent installer to finish publishing its lock record', async () => {
     const fixture = createFixture()
