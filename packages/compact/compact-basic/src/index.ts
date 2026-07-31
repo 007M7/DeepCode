@@ -6,11 +6,12 @@
 
 import { Context } from 'cordis'
 import z from 'schemastery'
-import { CompactService } from '@deepseek-ai/dsh-compact'
+import { CompactService, ManualCompactionError } from '@deepseek-ai/dsh-compact'
 import type { CompactionResult, CompactionTrigger } from '@deepseek-ai/dsh-compact'
+import type { TokenMeterService } from '@deepseek-ai/dsh-token-meter'
 import type { Session } from '@deepseek-ai/dsh-session'
 import { CONTEXT_WINDOW_EXCEEDED_CODE, assertNever } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, LlmCallConfig } from '@deepseek-ai/dsh-llm'
+import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 // Type-only: makes the optional sibling service available to `ctx.get()`.
 import type {} from '@deepseek-ai/dsh-compact-tool-result-prune'
@@ -20,9 +21,13 @@ import {
   resolveTargetPolicy,
   TargetPressureConfigError,
 } from './config.ts'
-import { compactSurfaceRegion, selectCompactableRange } from './region.ts'
+import {
+  assertNoActiveCompaction,
+  compactSurfaceRegion,
+  selectCompactableRange,
+} from './region.ts'
 import { summarizeWithLlm } from './summarizer.ts'
-import type { SummarizationInput } from './summarizer.ts'
+import type { SummarizationInput, SummaryResult } from './summarizer.ts'
 import type {
   BasicCompactConfig,
   ModelCompactPolicyConfig,
@@ -38,6 +43,9 @@ export type {
   ResolvedRetention,
   ResolvedTargetPolicy,
 } from './types.ts'
+
+/** The region transaction's view of this service's dynamically dispatched summarizer. */
+type RegionSummarize = (input: SummarizationInput, agent: Agent, signal?: AbortSignal) => Promise<SummaryResult>
 
 /** Resolve the exact provider/model durably routed for the latest request. */
 function routedTarget(
@@ -92,7 +100,7 @@ const modelPolicy: z<ModelCompactPolicyConfig> = z.object({
  * token meter.
  */
 export class BasicCompactService extends CompactService {
-  static inject = ['llm', 'tokenMeter']
+  static inject = ['llm', 'tokenMeter', 'sessions']
 
   static Config: z<BasicCompactConfig> = z.object({
     thresholdRatio: thresholdRatioSchema,
@@ -235,7 +243,7 @@ export class BasicCompactService extends CompactService {
     input: SummarizationInput,
     agent: Agent,
     signal?: AbortSignal,
-  ): Promise<{ summary: ContentBlock[]; provider: string; model: string; maxTokens?: number }> {
+  ): Promise<SummaryResult> {
     const target = conversationTarget(agent)
     const config = target === undefined
       ? this.config
@@ -289,6 +297,7 @@ export class BasicCompactService extends CompactService {
     }
 
     const context = (await this.ctx.llm.resolveModelInfo(target.provider, target.model, signal)).context
+    assertNoActiveCompaction(agent.session, 'automatic pressure compaction')
     const targetKey = `${target.provider}/${target.model}`
     if (context === undefined) {
       throw new TargetPressureConfigError(
@@ -343,11 +352,67 @@ export class BasicCompactService extends CompactService {
     agent: Agent,
     signal?: AbortSignal,
   ): Promise<CompactionResult> {
-    const session = agent.session
-    return compactSurfaceRegion({
+    return compactSurfaceRegion(
+      this.regionDependencies(),
+      agent.session,
+      start,
+      end,
+      agent,
+      { owner: 'current-turn', stability: 'whole-surface' },
+      signal,
+    )
+  }
+
+  /**
+   * Force one useful idle-session compaction below the pressure threshold, and
+   * resolve only after its standalone marker pair is durably checkpointed.
+   * @param agent - idle agent whose next-turn admission this call reserves.
+   * @param signal - command-owned cancellation forwarded to summarization.
+   * @returns the committed result, or `null` when no safe useful range exists.
+   */
+  override async compactNow(
+    agent: Agent,
+    signal: AbortSignal,
+  ): Promise<CompactionResult | null> {
+    signal.throwIfAborted()
+    const releaseTurnAdmission = agent.reserveTurnAdmission()
+    if (releaseTurnAdmission === undefined) {
+      throw new ManualCompactionError(
+        'busy',
+        'manual compaction requires an idle agent with no waking queued work',
+      )
+    }
+    try {
+      const range = selectCompactableRange(
+        agent.session,
+        this.ctx.tokenMeter.measure(agent.session),
+        0,
+      )
+      if (range === null) return null
+      return await compactSurfaceRegion(
+        this.regionDependencies(),
+        agent.session,
+        range.start,
+        range.end,
+        agent,
+        {
+          owner: null,
+          stability: 'selected-span',
+          flush: () => this.ctx.sessions.flush(agent.session),
+        },
+        signal,
+      )
+    } finally {
+      releaseTurnAdmission()
+    }
+  }
+
+  /** Bind the effective token meter and dynamically dispatched summarizer hook. */
+  private regionDependencies(): { meter: TokenMeterService; summarize: RegionSummarize } {
+    return {
       meter: this.ctx.tokenMeter,
       summarize: (input, owner, abort) => this.summarize(input, owner, abort),
-    }, session, start, end, agent, signal)
+    }
   }
 }
 

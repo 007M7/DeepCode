@@ -25,12 +25,11 @@ export interface IConversation {
   /** The per-session input machine registry (InputService face). */
   readonly input: InputService
   /**
-   * Send a prompt into the caller scope's session.
+   * Send a prompt into the caller scope's session (queued turn).
    * @param text - prompt text, sent verbatim as one text block.
-   * @param mode - queue after the current turn, or steer into it.
    * @returns completion; business failures reject (and land in promptError).
    */
-  send(text: string, mode: 'queue' | 'steer'): Promise<void>
+  send(text: string): Promise<void>
   /**
    * Apply one operation to a pending queue occurrence.
    * @param itemId - agent-owned inbox occurrence identity.
@@ -39,7 +38,7 @@ export interface IConversation {
    */
   updateQueue(itemId: QueueItemId, action: QueueAction): Promise<void>
   /**
-   * Cancel the scoped session's in-flight turn.
+   * Cancel the scoped session's in-flight turn while preserving its pending Queue.
    * @returns completion; failures reject as in send.
    */
   cancel(): Promise<void>
@@ -71,11 +70,10 @@ export class ConversationService extends Service implements IConversation {
    * session snapshot's promptError (object-layer surface); the rejection here
    * exists for caller choreography (the composer restores the draft on it).
    * @param text - prompt text, sent verbatim as one text block.
-   * @param mode - queue after the current turn, or steer into it.
    */
-  async send(text: string, mode: 'queue' | 'steer'): Promise<void> {
+  async send(text: string): Promise<void> {
     const session = this.scopedSession('send')
-    const result = await session.prompt([{ type: 'text', text }], mode)
+    const result = await session.prompt([{ type: 'text', text }], 'queue')
     if (!result.ok) throw new Error(`conversation.send failed: ${result.error.code}: ${result.error.message}`)
   }
 
@@ -88,7 +86,7 @@ export class ConversationService extends Service implements IConversation {
     }
   }
 
-  /** Cancel the scoped session's in-flight turn (failures land in promptError and reject, as in send). */
+  /** Cancel the scoped session's in-flight turn while preserving Queue (failures land in promptError and reject, as in send). */
   async cancel(): Promise<void> {
     const session = this.scopedSession('cancel')
     const result = await session.cancel()

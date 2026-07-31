@@ -45,6 +45,7 @@ function liveAgent(ctx: Context, session: Session): Agent {
     inject(input: UserMessage) {
       session.append('user/message', input, { surfaceOp: 'append' })
     },
+    reserveTurnAdmission: () => undefined,
     cancel() {},
     whenIdle() { return Promise.resolve() },
   }

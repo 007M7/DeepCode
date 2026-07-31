@@ -1,6 +1,5 @@
 - banner:
-  - navigation "Session hierarchy":
-    - button "Reply with a one-sentence description" [disabled]
+  - heading "Reply with a one-sentence description" [level=1]
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
@@ -13,6 +12,9 @@
   - img
   - img
   - text: Context injection
+- status:
+  - text: This turn failedAPI key is invalid
+  - code: AUTH
 - textbox "Message the agent"
 - button "Commands":
   - img

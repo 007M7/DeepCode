@@ -464,6 +464,26 @@ Abstract compaction service. Implementations own trigger policy, retention, and 
 abstract compactIfNeeded( agent: CompactAgentContext, trigger: CompactionTrigger, signal: AbortSignal, ): Promise<CompactionResult | null>
 
 /**
+ * Explicitly compact useful history even below automatic pressure thresholds.
+ * Implementations reserve idle turn admission synchronously before any
+ * asynchronous work, select a useful range without writing on a no-op, then
+ * append a standalone `compact/start` before summarization. That durable
+ * marker is the compaction lock until one `compact/end` attempt. Later waking
+ * prompts remain accepted in FIFO order and start only after the optional
+ * durability checkpoint and admission release. Context injected while the
+ * summary runs may sit between the marker pair; only the selected span must
+ * remain stable.
+ *
+ * @param agent - idle agent whose durable history should be compacted.
+ * @param signal - command-owned cancellation forwarded to summarization.
+ * @returns the compaction result, or `null` when no safe useful range exists.
+ * @throws {@link ManualCompactionError} for expected busy, changed-span,
+ * summarization/shrink, commit-stage, or persistence failures, and the exact
+ * abort reason when cancelled. Failed attempts remain visible in the log.
+ */
+abstract compactNow( agent: ManualCompactAgentContext, signal: AbortSignal, ): Promise<CompactionResult | null>
+
+/**
  * Forcibly compact a range of surface nodes into a single summary node.
  * `start` and `end` name an inclusive span by surface position, not numeric seq
  * order; replacements can make visible seqs non-monotonic. Both edges must be
@@ -486,7 +506,7 @@ abstract compactRegion( start: number, end: number, agent: CompactAgentContext, 
 
 Types: [CompactionResult](../core-data-structures/compaction.md) · [CompactionTrigger](../core-data-structures/compaction.md)
 
-Source: [`packages/compact/compact/src/index.ts:45`](../../packages/compact/compact/src/index.ts)
+Source: [`packages/compact/compact/src/index.ts:80`](../../packages/compact/compact/src/index.ts)
 
 ## `ctx.credentials` — `Credentials` (abstract seam)
 
@@ -2363,7 +2383,7 @@ The concrete provider retains pi-tui, focus, and terminal lifecycle state. Plugi
 abstract openOverlay(request: TuiOverlayRequest): TuiOverlaySession
 ```
 
-Source: [`packages/ui/tui/src/index.ts:241`](../../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/index.ts:242`](../../packages/ui/tui/src/index.ts)
 
 ## `ctx.typert` — `TypertRegistry`
 
@@ -2539,7 +2559,7 @@ Durable workspace registry. Startup waits for `sessionPersistence`, builds one c
  * original error and a non-directory rejects. Repeated calls for the same
  * canonical path return the existing entity without changing its title.
  * A newly created workspace is prepended to the durable registry order.
- * A different canonical path cannot create a duplicate display title.
+ * Different canonical paths may share a display title.
  * @param path - Existing directory to own, in any path spelling.
  * @param title - Display title used only when a new record is created.
  * @returns the existing or newly durable workspace.
@@ -2592,7 +2612,7 @@ async resolveByPath(path: string): Promise<Workspace | undefined>
 
 Types: [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/workspace/workspace/src/index.ts:92`](../../packages/workspace/workspace/src/index.ts)
+Source: [`packages/workspace/workspace/src/index.ts:81`](../../packages/workspace/workspace/src/index.ts)
 
 ## Inherited `ctx` members (cordis core + loader/hmr/timer)
 

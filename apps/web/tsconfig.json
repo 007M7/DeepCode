@@ -48,7 +48,9 @@
     "tests/queue-actions.e2e.ts",
     "tests/skill-invocation-policy.e2e.ts",
     "tests/permission-policy-context.e2e.ts",
-    "tests/access-confirmation.e2e.ts"
+    "tests/access-confirmation.e2e.ts",
+    "tests/shipped-composition.e2e.ts",
+    "tests/startup-auto-selection.e2e.ts"
   ],
   "references": [
     {

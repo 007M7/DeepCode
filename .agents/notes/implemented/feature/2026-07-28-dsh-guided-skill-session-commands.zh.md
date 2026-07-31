@@ -1,4 +1,4 @@
-# Agent Note：`dsh migrate`/`dsh upgrade` 以 skill 播种首轮
+# Agent Note：`dsh migrate`/`dsh experimental-upgrade` 以 skill 播种首轮
 
 Status: implemented
 
@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-`dsh migrate` 与 `dsh upgrade` 以全新会话启动普通 TUI，其首轮自动调用一个内置 skill（`dsh-migrate`、`dsh-upgrade`），效果等同于用户键入 `/skill:<name>` 并回车。
+`dsh migrate` 与 `dsh experimental-upgrade` 以全新会话启动普通 TUI，其首轮自动调用一个内置 skill（`dsh-migrate`、`dsh-upgrade`），效果等同于用户键入 `/skill:<name>` 并回车。
 
 播种复用现有的 TUI skill 路径，而非新增一条。`createTuiChat` 已有 `invokeSkill(name, instructions)`——即键入 `/skill:<name>` 所走的代码，包含“未知 skill”通知。启动器通过一个新的启动上下文槽 `INITIAL_SKILL_KEY`（`tuiInitialSkill`）把 skill 名称传给 TUI，与 `CONFIGURED_AGENT_IDENTITIES_KEY`/`TUI_GOODBYE_MESSAGE_KEY` 一致：`ctx.provide` 是从启动器 argv 进入 Loader 挂载插件的唯一通道。TUI 的 `apply()` 读取该槽并折叠进 `config.initialSkill`；`ui.start()` 成功后，`createTuiChat` 在其被设置时调用一次 `invokeSkill(config.initialSkill, '')`。
 
@@ -26,7 +26,7 @@ Status: implemented
 
 `packages/ui/tui/tests/tui.spec.ts` 在既有 skill describe 块中新增两个伪终端用例：设置 `config.initialSkill` 时无需用户输入即把渲染后的 skill 正文作为首轮投递；未知的初始 skill 以通知形式报告且不发送。`runSkillSession` 本身是模块 `v8 ignore` 块内的组装，与 `runTui`/`runMeta` 相同。
 
-无 keyless PTY 快照：依据维护者对本次改动的范围裁定，单元覆盖加交互式验证已足够，且播种走的是已有快照的 `/skill:` 渲染路径。两个命令均已在 tmux 中从临时 cwd 交互式验证：`dsh migrate` 加载 `dsh-migrate` 并询问源 agent；`dsh upgrade` 加载 `dsh-upgrade`，后者引入 `dsh-customize` 并开始 checkout 发现。
+无 keyless PTY 快照：依据维护者对本次改动的范围裁定，单元覆盖加交互式验证已足够，且播种走的是已有快照的 `/skill:` 渲染路径。两个命令均已在 tmux 中从临时 cwd 交互式验证：`dsh migrate` 加载 `dsh-migrate` 并询问源 agent；`dsh experimental-upgrade` 加载 `dsh-upgrade`，后者引入 `dsh-customize` 并开始 checkout 发现。
 
 ## 考虑过的替代方案
 

@@ -2,8 +2,9 @@
  * Commander adapter for the `dsh` command-line entry: the one place argv is
  * parsed and routed to a mode. `bin.ts` switches on the returned discriminant
  * and dynamic-imports that mode's module. One program: the default (no
- * subcommand) is the TUI/headless surface with option-only flags; `meta` and
- * `web` are real subcommands. Commander owns `--help`/`--version` and parse
+ * subcommand) is the TUI/headless surface with option-only flags;
+ * `experimental-meta` and `web` are real subcommands. Commander owns
+ * `--help`/`--version` and parse
  * errors — it prints and exits at the point of failure (a domain failure routes through
  * `command.error`), so this returns only a resolved mode.
  * @module @deepseek-ai/dsh/args
@@ -51,8 +52,8 @@ interface MetaInvocation {
 }
 
 /**
- * Guided fresh-session entry: `dsh upgrade` seeds the first turn with the
- * `dsh-upgrade` skill. It always mints a
+ * Guided fresh-session entry: `dsh experimental-upgrade` seeds the first turn
+ * with the `dsh-upgrade` skill. It always mints a
  * fresh session in the invoking directory and takes no options — `--resume`,
  * `--config`, and `-p` are rejected as mistyped, so there is nothing to carry.
  */
@@ -248,14 +249,15 @@ Examples:
   }
 
   // Registration order is the rendered help order, so daily use comes first
-  // and the harness-development surfaces (`web --dev`, `meta`) come last.
-  // `upgrade` is a guided fresh-session entry: it takes no options and always
-  // mints a fresh session, so nothing is left to carry.
+  // and the harness-development surfaces (`web --dev`, `experimental-meta`)
+  // come last. `experimental-upgrade` is a guided fresh-session entry: it
+  // takes no options and always mints a fresh session, so nothing is left to
+  // carry.
   program
-    .command('upgrade')
+    .command('experimental-upgrade')
     .description('update this dsh installation to the latest version')
     .action(() => {
-      rejectParentOptions('upgrade')
+      rejectParentOptions('experimental-upgrade')
       resolved = { mode: 'upgrade' }
     })
 
@@ -283,10 +285,10 @@ Examples:
     })
 
   program
-    .command('meta')
+    .command('experimental-meta')
     .description('work on the dsh source that runs this command, from any directory')
     .action(() => {
-      rejectParentOptions('meta')
+      rejectParentOptions('experimental-meta')
       resolved = { mode: 'meta' }
     })
 

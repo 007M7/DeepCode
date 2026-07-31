@@ -1,6 +1,5 @@
 - banner:
-  - navigation "Session hierarchy":
-    - button "Use the ask_user_question tool to" [disabled]
+  - heading "Use the ask_user_question tool to" [level=1]
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
@@ -21,7 +20,7 @@
   - img
   - img
   - text: Ask question 1/1 answered
-- text: "Interjection Interjection: include the word BANANA in your final reply."
+- text: "Interjection: include the word BANANA in your final reply."
 - button "Think The user selected \"Yes\" and wants me to include the word \"BANANA\" in my final reply. Let me acknowledge their answer.":
   - img
   - img
