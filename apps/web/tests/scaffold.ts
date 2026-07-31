@@ -21,7 +21,7 @@
 // (the plugin-row path discards the ReplayHandle; the direct install keeps
 // assertConsumed for the teardown fixture-consumption check).
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, readdir, realpath, rm, utimes, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, realpath, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -35,6 +35,7 @@ import { assertEntriesLoaded, loadOverlayPatches } from '@deepseek-ai/dsh-app-bo
 import {
   WELCOME_NOTICE_ACK_FIELD, WELCOME_NOTICE_SETTINGS_NAMESPACE, WELCOME_NOTICE_VERSION,
 } from '@deepseek-ai/dsh-client-ui-settings-general'
+import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type { ReplayHandle } from '@deepseek-ai/dsh-llm-replay'
 import { installLlmReplay, parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
 import SessionStore, {
@@ -138,7 +139,7 @@ export interface LaunchOptions {
    * keyless first-run configuration lane; the default disables the adapter.
    */
   deepSeekMissingCredential?: boolean
-  /** Leave the current welcome notice unacknowledged; ordinary scenarios preseed it as complete. */
+  /** Leave the current welcome notice unacknowledged; ordinary scenarios publish it as complete before browser boot. */
   welcomeNoticePending?: boolean
 }
 
@@ -186,20 +187,6 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   // paths at load, and an in-process boot must NEVER touch the developer's
   // real ~/.dsh document or credential file.
   const harnessHome = join(workspaceCwd, '.dsh-home')
-  try {
-    if (options.welcomeNoticePending !== true) {
-      await mkdir(harnessHome, { recursive: true })
-      await writeFile(
-        join(harnessHome, 'settings.yaml'),
-        `${WELCOME_NOTICE_SETTINGS_NAMESPACE}:\n  ${WELCOME_NOTICE_ACK_FIELD}: ${WELCOME_NOTICE_VERSION}\n`,
-      )
-    }
-  } catch (error) {
-    const failures: unknown[] = [error]
-    await rm(workspaceCwd, { recursive: true, force: true }).catch((cleanupError: unknown) => failures.push(cleanupError))
-    if (failures.length > 1) throw new AggregateError(failures, 'web scaffold welcome preseed failed')
-    throw error
-  }
   let persistenceRoot: string
   try {
     persistenceRoot = await mkdtemp(join(tmpdir(), 'dsh-web-e2e-sessions-'))
@@ -285,6 +272,11 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     })
     await ctx.loader.await()
     assertEntriesLoaded(ctx, 'web e2e scaffold')
+    if (options.welcomeNoticePending !== true) {
+      await ctx.settings.mutate(settingsNamespace(WELCOME_NOTICE_SETTINGS_NAMESPACE), [{
+        op: 'set', path: [WELCOME_NOTICE_ACK_FIELD], value: WELCOME_NOTICE_VERSION,
+      }])
+    }
     const boundPort = ctx.get('httpServer')?.port
     if (boundPort === undefined) {
       throw new Error('web e2e scaffold: httpServer service missing after settled boot')
