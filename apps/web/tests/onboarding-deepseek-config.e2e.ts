@@ -162,7 +162,15 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
 
   it('configures arbitrary DeepSeek models and prompts after the selected model is removed', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-onboarding-deepseek-models'))
+    // Opened here rather than inherited: the credential test reloads the page
+    // to exercise the welcome step, so nothing carries an open dialog across.
+    await page.getByRole('button', { name: '设置', exact: true }).click()
     const settings = page.getByRole('dialog', { name: '设置' })
+    await settings.waitFor({ timeout: 10_000 })
+    await settings.getByRole('button', { name: '模型' }).click()
+    const deepSeek = settings.getByText('DeepSeek', { exact: true }).first()
+    await deepSeek.waitFor({ timeout: 10_000 })
+    await deepSeek.locator('xpath=ancestor::li').getByRole('button', { name: '编辑' }).click()
     await settings.getByText('自定义设置').click()
     await settings.getByRole('button', { name: '删除模型' }).first().click()
     await settings.getByRole('button', { name: '添加模型' }).click()
