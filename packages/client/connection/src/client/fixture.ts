@@ -1126,6 +1126,8 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
   let failNextHistory = false
   /** Force-enders for currently open stream generators (timing hook: simulated connection loss). */
   const streamBreakers = new Set<() => void>()
+  /** Retry scenarios opened by timing hooks and completed in a later browser assertion phase. */
+  const retryScenarios = new Map<SessionId, { turn: number; stepStarted: boolean }>()
 
   // Timing-acceptance hooks (browser test backdoor): the in-memory fixture is ideally timed, which
   // is exactly what masked the open-window and reconnect-gap bugs (audit S1/S3). These let
@@ -1148,6 +1150,89 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       const log = logOf(sid(id))
       const messageSeqs = log.filter(event => event.type === 'user/message').map(event => event.seq)
       append(sid(id), { type: 'session/title', data: { title, messageSeqs, source: { kind: 'provider', provider: 'fixture' } } })
+    },
+    /** Open one failed model step whose partial remains visible until llm/retry arrives. */
+    beginModelRetry(id: string): void {
+      const sessionId = sid(id)
+      const turn = nextTurn.get(sessionId) ?? 0
+      nextTurn.set(sessionId, turn + 1)
+      retryScenarios.set(sessionId, { turn, stepStarted: true })
+      setRunning(sessionId, true)
+      append(sessionId, { type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
+      append(sessionId, { type: 'user/message', surfaceOp: 'append', data: { content: text('请重试这个请求'), source: { kind: 'user' } } })
+      append(sessionId, { type: 'step/start', data: { turn, step: 1 } })
+      append(sessionId, { type: 'assistant/chunk', data: { turn, step: 1, chunk: { type: 'block-start', index: 0, blockType: 'text' } } })
+      append(sessionId, { type: 'assistant/chunk', data: { turn, step: 1, chunk: { type: 'text-delta', index: 0, text: '应撤回的半截回复' } } })
+      append(sessionId, { type: 'step/end', data: { turn, step: 1 } })
+    },
+    /** Record one retry decision, then open the next retry turn. */
+    scheduleModelRetry(id: string, retry = 1, delayMs = 450): void {
+      const sessionId = sid(id)
+      const scenario = retryScenarios.get(sessionId)
+      if (scenario === undefined) throw new Error(`fixture: no model retry scenario for ${id}`)
+      if (!scenario.stepStarted) {
+        append(sessionId, { type: 'step/start', data: { turn: scenario.turn, step: 1 } })
+        append(sessionId, { type: 'assistant/chunk', data: { turn: scenario.turn, step: 1, chunk: { type: 'block-start', index: 0, blockType: 'text' } } })
+        append(sessionId, { type: 'assistant/chunk', data: { turn: scenario.turn, step: 1, chunk: { type: 'text-delta', index: 0, text: `第 ${String(retry)} 次应撤回的回复` } } })
+        append(sessionId, { type: 'step/end', data: { turn: scenario.turn, step: 1 } })
+        scenario.stepStarted = true
+      }
+      const failure = { code: 'TRANSPORT', message: '连接被重置' }
+      append(sessionId, {
+        type: 'llm/retry',
+        data: {
+          turn: scenario.turn, step: 1,
+          provider: 'fixture', mode: 'normal', policyKey: 'fixture-normal',
+          retry, maxRetries: 2, delayMs, failure,
+        },
+      })
+      append(sessionId, {
+        type: 'turn/end',
+        data: { turn: scenario.turn, reason: { kind: 'error', step: 1, failure } },
+      })
+      const next = nextTurn.get(sessionId) ?? scenario.turn + 1
+      nextTurn.set(sessionId, next + 1)
+      append(sessionId, { type: 'turn/start', data: { turn: next, trigger: { kind: 'retry' } } })
+      scenario.turn = next
+      scenario.stepStarted = false
+    },
+    /** Record one retry decision, then cancel its source turn before the retry starts. */
+    cancelModelRetryDuringBackoff(id: string, delayMs = 450): void {
+      const sessionId = sid(id)
+      const scenario = retryScenarios.get(sessionId)
+      if (scenario === undefined) throw new Error(`fixture: no model retry scenario for ${id}`)
+      const failure = { code: 'TRANSPORT', message: '连接被重置' }
+      append(sessionId, {
+        type: 'llm/retry',
+        data: {
+          turn: scenario.turn, step: 1,
+          provider: 'fixture', mode: 'normal', policyKey: 'fixture-normal',
+          retry: 1, maxRetries: 2, delayMs, failure,
+        },
+      })
+      append(sessionId, { type: 'turn/end', data: { turn: scenario.turn, reason: { kind: 'aborted' } } })
+      retryScenarios.delete(sessionId)
+      setRunning(sessionId, false)
+    },
+    /** Finish the timing-hook retry with a finalized response in the open retry turn. */
+    completeModelRetry(id: string): void {
+      const sessionId = sid(id)
+      const scenario = retryScenarios.get(sessionId)
+      if (scenario === undefined) throw new Error(`fixture: no model retry scenario for ${id}`)
+      retryScenarios.delete(sessionId)
+      append(sessionId, { type: 'step/start', data: { turn: scenario.turn, step: 1 } })
+      append(sessionId, {
+        type: 'assistant/message',
+        surfaceOp: 'append',
+        data: {
+          turn: scenario.turn,
+          step: 1,
+          message: assistantMessage(text('重试后的完整回复')),
+        },
+      })
+      append(sessionId, { type: 'step/end', data: { turn: scenario.turn, step: 1 } })
+      append(sessionId, { type: 'turn/end', data: { turn: scenario.turn, reason: { kind: 'completed' } } })
+      setRunning(sessionId, false)
     },
     /** Log append WITHOUT the mux emit: a frame lost in transit — history still serves it, the client must repull. */
     appendSilent(id: string, msg: string): void {
