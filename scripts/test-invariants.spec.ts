@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import { Context, FiberState, Service } from 'cordis'
+import { Context, FiberState, Service, ValidationError } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
+import z from 'schemastery'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 import { packageInvariantOwners } from './package-invariants.ts'
@@ -32,21 +33,38 @@ function deferred(): { readonly promise: Promise<void>; readonly resolve: () => 
   return { promise, resolve }
 }
 
-function delayedCompanions(
-  delayedStarted: ReturnType<typeof deferred>,
-  releaseDelayed: ReturnType<typeof deferred>,
-): (_path: string, index: number) => () => Promise<TestInvariantCompanion> {
-  return (_path, index) => async () => ({
-    name: `test-invariant-${index}`,
-    inject: ['invariants'],
-    async apply() {
-      if (index === 0) {
-        delayedStarted.resolve()
-        await releaseDelayed.promise
-      }
-      return () => {}
-    },
+function requiredConfig() {
+  return z.object({
+    requiredValue: z.string().required(),
   })
+}
+
+function queuedReadinessConfig(
+  ctx: Context,
+  onPublished: (dispose: () => void) => void,
+) {
+  return z.transform(z.any(), () => {
+    queueMicrotask(() => {
+      onPublished(ctx.provide(TEST_INVARIANT_READY_SERVICE, true))
+    })
+    return {}
+  }, true)
+}
+
+function invalidConfigApply(): never {
+  throw new Error('invalid plugin apply executed')
+}
+
+async function rejectionOf(fiber: ReturnType<Context['plugin']>): Promise<unknown> {
+  return fiber.then(
+    () => undefined,
+    (error: unknown) => error,
+  )
+}
+
+function expectRequiredConfigValidation(error: unknown): void {
+  expect(error).toBeInstanceOf(ValidationError)
+  expect(error).toHaveProperty('message', expect.stringMatching(/requiredValue/))
 }
 
 async function withFakeCompanions(
@@ -65,6 +83,27 @@ async function withFakeCompanions(
       mutable[path] = load
     }
   }
+}
+
+async function withDelayedFirstCompanion(
+  run: (control: { readonly started: Promise<void>; readonly release: () => void }) => Promise<void>,
+): Promise<void> {
+  const started = deferred()
+  const release = deferred()
+  await withFakeCompanions(
+    (_path, index) => async () => ({
+      name: `test-invariant-${index}`,
+      inject: ['invariants'],
+      async apply() {
+        if (index === 0) {
+          started.resolve()
+          await release.promise
+        }
+        return () => {}
+      },
+    }),
+    () => run({ started: started.promise, release: release.resolve }),
+  )
 }
 
 describe('global test invariant host', () => {
@@ -130,6 +169,106 @@ describe('global test invariant host', () => {
     expect(usesManualInvariantTree('C:\\repo\\packages\\support\\invariants\\tests\\service.spec.ts')).toBe(true)
     expect(usesManualInvariantTree('/repo/packages/examples/agent-spine-demo/tests/agent-core.spec.ts')).toBe(true)
     expect(usesManualInvariantTree('/repo/packages/core/session/tests/session.spec.ts')).toBe(false)
+  })
+
+  it('preserves config validation failures without starting the rejected plugin', async () => {
+    const ctx = new Context()
+    const apply = vi.fn(invalidConfigApply)
+    const plugin = {
+      apply,
+      Config: requiredConfig(),
+    }
+
+    const fiber = ctx.plugin(plugin, {})
+    const firstError = await rejectionOf(fiber)
+    expectRequiredConfigValidation(firstError)
+    await ctx.plugin(TestInvariantProbe)
+    const secondError = await rejectionOf(fiber)
+    expect(secondError).toBe(firstError)
+    expect(fiber.state).toBe(FiberState.DISPOSED)
+    expect(apply).not.toHaveBeenCalled()
+  })
+
+  it('disposes invalid config when readiness refresh wins the rejection-handler race', async () => {
+    await withDelayedFirstCompanion(
+      async ({ started, release }) => {
+        const ctx = new Context()
+        const apply = vi.fn(invalidConfigApply)
+        let disposeQueuedReadiness: (() => void) | undefined
+        const plugin = {
+          apply,
+          Config: z.intersect([
+            queuedReadinessConfig(ctx, (dispose) => {
+              disposeQueuedReadiness = dispose
+            }),
+            requiredConfig(),
+          ]),
+        }
+
+        const fiber = ctx.plugin(plugin, {})
+        const firstError = await rejectionOf(fiber)
+        expectRequiredConfigValidation(firstError)
+        expect(fiber.state).toBe(FiberState.DISPOSED)
+        expect(apply).not.toHaveBeenCalled()
+
+        await started
+        if (disposeQueuedReadiness === undefined) throw new Error('queued readiness was not published')
+        disposeQueuedReadiness()
+        release()
+        await ctx.plugin(TestInvariantProbe)
+
+        const secondError = await rejectionOf(fiber)
+        expect(secondError).toBe(firstError)
+        expect(fiber.state).toBe(FiberState.DISPOSED)
+        expect(apply).not.toHaveBeenCalled()
+      },
+    )
+  })
+
+  it('retains a valid plugin failure when readiness wins the initial-probe race', async () => {
+    await withDelayedFirstCompanion(
+      async ({ started, release }) => {
+        const ctx = new Context()
+        const failure = new Error('valid plugin apply failed')
+        const applied = deferred()
+        const apply = vi.fn(function validConfigApply() {
+          applied.resolve()
+          throw failure
+        })
+        let disposeQueuedReadiness: (() => void) | undefined
+        const plugin = {
+          apply,
+          Config: queuedReadinessConfig(ctx, (dispose) => {
+            disposeQueuedReadiness = dispose
+          }),
+        }
+
+        const fiber = ctx.plugin(plugin, {})
+        const returnedError = rejectionOf(fiber)
+        try {
+          await Promise.all([started, applied.promise])
+          expect(fiber.state).toBe(FiberState.FAILED)
+          expect(apply).toHaveBeenCalledOnce()
+          expect(ctx.registry.has(plugin)).toBe(true)
+          expect(ctx.registry.get(plugin)?.fibers).toHaveLength(1)
+
+          if (disposeQueuedReadiness === undefined) throw new Error('queued readiness was not published')
+          Reflect.deleteProperty(fiber.inject, TEST_INVARIANT_READY_SERVICE)
+          disposeQueuedReadiness()
+          release()
+
+          expect(await returnedError).toBe(failure)
+          expect(fiber.state).toBe(FiberState.FAILED)
+          expect(apply).toHaveBeenCalledOnce()
+          expect(ctx.registry.has(plugin)).toBe(true)
+          expect(ctx.registry.get(plugin)?.fibers).toHaveLength(1)
+        } finally {
+          Reflect.deleteProperty(fiber.inject, TEST_INVARIANT_READY_SERVICE)
+          disposeQueuedReadiness?.()
+          release()
+        }
+      },
+    )
   })
 
   it('holds a root plugin until every lazy companion is active, then permits nested startup', async () => {
@@ -208,12 +347,8 @@ describe('global test invariant host', () => {
   })
 
   it('holds plugins registered on a root-derived context until companion readiness', async () => {
-    const delayedStarted = deferred()
-    const releaseDelayed = deferred()
-
-    await withFakeCompanions(
-      delayedCompanions(delayedStarted, releaseDelayed),
-      async () => {
+    await withDelayedFirstCompanion(
+      async ({ started, release }) => {
         const ctx = new Context()
         const rootApply = vi.fn(function rootApply() {})
         const derivedApply = vi.fn(function derivedApply() {})
@@ -224,7 +359,7 @@ describe('global test invariant host', () => {
         const rootFiber = ctx.plugin(rootApply)
         const derivedFiber = derived.plugin(derivedApply)
 
-        await delayedStarted.promise
+        await started
         await Promise.resolve()
         await Promise.resolve()
         expect(rootApply).not.toHaveBeenCalled()
@@ -233,7 +368,7 @@ describe('global test invariant host', () => {
           [TEST_INVARIANT_READY_SERVICE]: null,
         })
 
-        releaseDelayed.resolve()
+        release()
         await Promise.all([rootFiber, derivedFiber])
         expect(rootFiber.state).toBe(FiberState.ACTIVE)
         expect(derivedFiber.state).toBe(FiberState.ACTIVE)
@@ -244,12 +379,8 @@ describe('global test invariant host', () => {
   })
 
   it('holds a child registered externally on a pending target context', async () => {
-    const delayedStarted = deferred()
-    const releaseDelayed = deferred()
-
-    await withFakeCompanions(
-      delayedCompanions(delayedStarted, releaseDelayed),
-      async () => {
+    await withDelayedFirstCompanion(
+      async ({ started, release }) => {
         const ctx = new Context()
         const targetApply = vi.fn(function targetApply() {})
         const childApply = vi.fn(function childApply() {})
@@ -257,7 +388,7 @@ describe('global test invariant host', () => {
         const targetFiber = ctx.plugin(targetApply)
         const childFiber = targetFiber.ctx.plugin(childApply)
 
-        await delayedStarted.promise
+        await started
         await Promise.resolve()
         await Promise.resolve()
         expect(targetFiber.state).toBe(FiberState.PENDING)
@@ -268,7 +399,7 @@ describe('global test invariant host', () => {
           [TEST_INVARIANT_READY_SERVICE]: null,
         })
 
-        releaseDelayed.resolve()
+        release()
         await Promise.all([targetFiber, childFiber])
         expect(targetFiber.state).toBe(FiberState.ACTIVE)
         expect(childFiber.state).toBe(FiberState.ACTIVE)
@@ -309,22 +440,18 @@ describe('global test invariant host', () => {
   )
 
   it('disposes a pending target without waiting for companion readiness', async () => {
-    const delayedStarted = deferred()
-    const releaseDelayed = deferred()
-
-    await withFakeCompanions(
-      delayedCompanions(delayedStarted, releaseDelayed),
-      async () => {
+    await withDelayedFirstCompanion(
+      async ({ started, release }) => {
         const ctx = new Context()
         const targetApply = vi.fn(function targetApply() {})
         const targetFiber = ctx.plugin(targetApply)
 
-        await delayedStarted.promise
+        await started
         await expect(targetFiber.dispose()).resolves.toBeUndefined()
         expect(targetFiber.state).toBe(FiberState.DISPOSED)
         expect(targetApply).not.toHaveBeenCalled()
 
-        releaseDelayed.resolve()
+        release()
         await targetFiber
         expect(targetApply).not.toHaveBeenCalled()
       },
