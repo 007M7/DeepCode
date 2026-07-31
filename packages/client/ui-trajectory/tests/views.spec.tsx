@@ -31,6 +31,7 @@ import { TrajectoryTimeline } from '../src/client/TrajectoryTimeline.tsx'
 import {
   TrajectoryView, type TrajectoryViewInjected,
 } from '../src/client/TrajectoryView.tsx'
+import { createTrajectoryDurationStore } from '../src/client/duration-store.ts'
 import { deriveTrajectoryTimeline } from '../src/client/timeline.ts'
 
 const SID = 's1' as SessionId
@@ -93,6 +94,16 @@ function standaloneHistory(
   return {
     useHistory: bindSnapshotSelector(store),
     loadAllHistory: () => Promise.resolve(),
+  }
+}
+
+function standaloneDuration(): Pick<
+  ComponentProps<typeof TrajectoryView>, 'useDuration' | 'setActualDuration'
+> {
+  const duration = createSnapshotStore(false)
+  return {
+    useDuration: bindSnapshotSelector(duration),
+    setActualDuration: (value) => { duration.set(value) },
   }
 }
 
@@ -187,12 +198,15 @@ function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES
       ? {}
       : injectEntry(SID)
     const injectedProps = 'hooks' in injected
-      ? {
-        loadAllHistory: (injected as TrajectoryViewInjected).loadAllHistory,
-        useHistory: bindSnapshotSelector(
-          (injected as TrajectoryViewInjected).hooks.history,
-        ),
-      }
+      ? (() => {
+        const trajectory = injected as TrajectoryViewInjected
+        return {
+          loadAllHistory: trajectory.loadAllHistory,
+          setActualDuration: trajectory.setActualDuration,
+          useHistory: bindSnapshotSelector(trajectory.hooks.history),
+          useDuration: bindSnapshotSelector(trajectory.hooks.duration),
+        }
+      })()
       : injected
     return (
       <View
@@ -240,6 +254,24 @@ describe('plugin registration', () => {
     const b = await bench()
     await b.fiber.dispose()
     expect(tabsOf(b.slots).map(v => v.id)).toEqual(['chat'])
+  })
+
+  it('shares one browser-wide duration preference across session injections', async () => {
+    const b = await bench()
+    const entry = b.slots.entries('conversation.view')
+      .find(candidate => candidate.options.id === 'trajectory')
+    expect(entry).toBeDefined()
+    const injectEntry = entry!.inject as unknown as (
+      sessionId: SessionId,
+    ) => TrajectoryViewInjected
+    const first = injectEntry(SID)
+    const second = injectEntry('s2' as SessionId)
+
+    expect(second.hooks.duration).toBe(first.hooks.duration)
+    first.setActualDuration(true)
+    expect(second.hooks.duration.getSnapshot()).toBe(true)
+    expect(localStorage.getItem('dsh.trajectory.duration')).toBe('true')
+    expect(localStorage.getItem(`dsh.trajectory.duration.${SID}`)).toBeNull()
   })
 })
 
@@ -653,6 +685,7 @@ describe('timeline projection', () => {
       {
         ...standaloneProps([]),
         ...standaloneHistory(historySnapshot([])),
+        ...standaloneDuration(),
       },
     ))
     expect(screen.getByRole('toolbar', { name: 'Trajectory toolbar' })).toBeTruthy()
@@ -661,12 +694,19 @@ describe('timeline projection', () => {
 })
 
 describe('TrajectoryView branches', () => {
-  it('persists the duration preference across trajectory view mounts', () => {
-    const props = {
+  it('persists the duration preference through the runtime snapshot-store seam', () => {
+    const firstDuration = createTrajectoryDurationStore()
+    const commonProps = {
       ...standaloneProps(NODES),
       ...standaloneHistory(historySnapshot(NODES)),
     }
-    const first = render(<TrajectoryView {...props} />)
+    const first = render(
+      <TrajectoryView
+        {...commonProps}
+        useDuration={bindSnapshotSelector(firstDuration)}
+        setActualDuration={(value) => { firstDuration.set(value) }}
+      />,
+    )
     const duration = screen.getByRole('button', { name: 'Use actual duration' })
 
     expect(duration.getAttribute('aria-pressed')).toBe('false')
@@ -674,7 +714,14 @@ describe('TrajectoryView branches', () => {
     expect(localStorage.getItem('dsh.trajectory.duration')).toBe('true')
     first.unmount()
 
-    render(<TrajectoryView {...props} />)
+    const restoredDuration = createTrajectoryDurationStore()
+    render(
+      <TrajectoryView
+        {...commonProps}
+        useDuration={bindSnapshotSelector(restoredDuration)}
+        setActualDuration={(value) => { restoredDuration.set(value) }}
+      />,
+    )
     expect(screen.getByRole('button', { name: 'Use actual duration' }).getAttribute('aria-pressed'))
       .toBe('true')
   })
@@ -734,6 +781,7 @@ describe('TrajectoryView branches', () => {
     const view = render(
       <TrajectoryView
         {...standaloneProps([])}
+        {...standaloneDuration()}
         useHistory={bindSnapshotSelector(store)}
         loadAllHistory={vi.fn(() => Promise.resolve())}
       />,
@@ -776,6 +824,7 @@ describe('TrajectoryView branches', () => {
     render(
       <TrajectoryView
         {...standaloneProps([])}
+        {...standaloneDuration()}
         useHistory={bindSnapshotSelector(store)}
         loadAllHistory={vi.fn(() => Promise.resolve())}
       />,

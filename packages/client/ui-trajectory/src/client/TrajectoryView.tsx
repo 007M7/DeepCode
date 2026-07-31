@@ -5,7 +5,7 @@ import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/clie
 import type { InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
   AssistantMessageNode, ConversationContext,
-  SessionHistoryFace,
+  SessionHistoryFace, SnapshotStore,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import {
   deriveTrajectoryContextBranches, trajectoryBranchContainsRequest,
@@ -26,34 +26,15 @@ import {
 import css from './views.module.css'
 
 const EMPTY_IDS: ReadonlySet<number> = new Set()
-const DURATION_STORAGE_KEY = 'dsh.trajectory.duration'
-
-/** Restore the browser-wide duration preference; absent or unreadable storage defaults off. */
-function restoreActualDuration(): boolean {
-  if (typeof localStorage === 'undefined') return false
-  try {
-    return localStorage.getItem(DURATION_STORAGE_KEY) === 'true'
-  } catch {
-    // Storage access can throw in privacy mode; the default remains usable.
-    return false
-  }
-}
-
-/** Persist the browser-wide duration preference without making storage availability fatal. */
-function persistActualDuration(actualDuration: boolean): void {
-  if (typeof localStorage === 'undefined') return
-  try {
-    localStorage.setItem(DURATION_STORAGE_KEY, String(actualDuration))
-  } catch {
-    // Storage access can throw in privacy mode or at quota; this mount still
-    // keeps the selected preference in React state.
-  }
-}
 
 /** Session-history paging needed by the event-complete trajectory view. */
 export interface TrajectoryViewInjected {
-  hooks: { history: SessionHistoryFace }
+  hooks: {
+    history: SessionHistoryFace
+    duration: SnapshotStore<boolean>
+  }
   loadAllHistory: (signal: AbortSignal) => Promise<void>
+  setActualDuration: (actualDuration: boolean) => void
 }
 
 interface UsageLike {
@@ -157,7 +138,7 @@ function searchMatches(
 }
 
 export function TrajectoryView({
-  useHistory, loadAllHistory, inspect, onInspectDone,
+  useHistory, useDuration, loadAllHistory, setActualDuration, inspect, onInspectDone,
 }: ConvViewProps & InjectFace<TrajectoryViewInjected>) {
   const [collapsedTurns, setCollapsedTurns] = useState<ReadonlySet<number>>(EMPTY_IDS)
   const [collapsedAssistants, setCollapsedAssistants] =
@@ -166,7 +147,7 @@ export function TrajectoryView({
     branchId: number
     range: TrajectoryTimeRange
   } | null>(null)
-  const [actualDuration, setActualDuration] = useState(restoreActualDuration)
+  const actualDuration = useDuration(value => value)
   const [actualTime, setActualTime] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedTimelineIndex, setSelectedTimelineIndex] = useState<number | null>(null)
@@ -480,7 +461,6 @@ export function TrajectoryView({
       <TrajectoryToolbar
         actualDuration={actualDuration}
         onActualDurationChange={(nextActualDuration) => {
-          persistActualDuration(nextActualDuration)
           setActualDuration(nextActualDuration)
           setTimelineSelection(null)
         }}
