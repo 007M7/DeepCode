@@ -25,9 +25,9 @@
   "dshClient": {
     "inject": [
       "@deepseek-ai/dsh-client-connection",
+      "@deepseek-ai/dsh-client-locale",
       "@deepseek-ai/dsh-client-runtime",
-      "@deepseek-ai/dsh-client-ui-command",
-      "@deepseek-ai/dsh-client-locale"
+      "@deepseek-ai/dsh-client-ui-command"
     ],
     "platform": "web"
   },
@@ -45,7 +45,6 @@
     "@deepseek-ai/dsh-client-ui-primitives": "^0.0.1",
     "@deepseek-ai/dsh-client-ui-slash": "^0.0.1",
     "@deepseek-ai/dsh-client-ui-slots": "^0.0.1",
-    "@deepseek-ai/dsh-client-web-react": "^0.0.1",
     "@deepseek-ai/dsh-invariants": "^0.0.1",
     "@deepseek-ai/dsh-permission": "^0.0.1",
     "cordis": "^4.0.0-rc.7",

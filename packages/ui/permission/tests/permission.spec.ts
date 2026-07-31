@@ -31,6 +31,7 @@ async function mounted(options: {
   approvalDefault?: ApprovalPolicy | undefined
 } = {}): Promise<Context> {
   const ctx = new Context()
+  await ctx.plugin(SessionStore)
   ctx.provide('bash', {
     sandboxMode: 'bashDefault' in options ? options.bashDefault : 'workspace-write',
     resolve() { throw new Error('permission tests do not execute bash') },
@@ -226,6 +227,38 @@ describe('new-session default', () => {
     expect(resumed.events.slice(-3).map(event => event.type)).toEqual([
       'permission/preset', 'sandbox/mode', 'approval/policy',
     ])
+  })
+
+  it('preserves composition defaults when an empty stored session resumes', async () => {
+    const ctx = await mountedStore()
+    await ctx.settings.update(PERMISSION_SETTINGS_NAMESPACE, {
+      defaultPreset: 'danger-full-access',
+    })
+    const resumed = ctx.sessions.create(SessionId('empty-resumed'), { seed: [] })
+    expect(ctx.permission.current(resumed.events)).toBe('workspace-write')
+    expect(resumed.events.map(event => event.type)).toEqual([
+      'session/end-seed', 'permission/preset', 'sandbox/mode', 'approval/policy',
+    ])
+  })
+
+  it('pins sessions that already exist when the service remounts', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    ctx.provide('bash', {
+      sandboxMode: 'workspace-write',
+      resolve() { throw new Error('permission tests do not execute bash') },
+      run() { throw new Error('permission tests do not execute bash') },
+      start() { throw new Error('permission tests do not execute bash') },
+    })
+    ctx.provide('approval', { config: { policy: 'ask' } })
+    const existing = ctx.sessions.create(SessionId('existing-before-permission'))
+    expect(existing.events).toEqual([])
+
+    await ctx.plugin(PermissionService, {})
+    expect(existing.events.map(event => event.type)).toEqual([
+      'permission/preset', 'sandbox/mode', 'approval/policy',
+    ])
+    expect(ctx.permission.current(existing.events)).toBe('workspace-write')
   })
 
   it('fills only missing legacy facts and preserves an unmatched seeded combination', async () => {

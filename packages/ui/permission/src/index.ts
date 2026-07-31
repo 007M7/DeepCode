@@ -177,7 +177,7 @@ export class PermissionService extends Service {
     defaultPreset: z.string(),
   })
 
-  static inject = ['bash', 'approval']
+  static inject = ['bash', 'approval', 'sessions']
 
   private readonly presets: Record<string, PresetSpec>
   private defaultSettings: () => PermissionSettings
@@ -220,6 +220,9 @@ export class PermissionService extends Service {
     ctx.on('session/created', (session) => {
       this.pinInitialPermission(session)
     })
+    for (const session of ctx.sessions.list()) {
+      this.pinInitialPermission(session)
+    }
 
     // The permissions projection unit: fold the three whole-value knob
     // events; view derives the select over the composition defaults this

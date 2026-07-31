@@ -14,8 +14,11 @@ import { SlotsService, type SessionId } from '@deepseek-ai/dsh-client-runtime/cl
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import type { CommandDecoration } from '@deepseek-ai/dsh-client-ui-command/client'
 import type { PermissionSelect } from '@deepseek-ai/dsh-permission/client'
-import { PermissionRow } from '../src/client/PermissionRow.tsx'
+import {
+  PermissionRow, type PermissionRowInjected,
+} from '../src/client/PermissionRow.tsx'
 import { apply, inject } from '../src/client/index.ts'
+import { accessEn } from '../src/client/locales.ts'
 
 const sid = (k: string): SessionId => k as SessionId
 
@@ -32,6 +35,7 @@ async function bench() {
   const ctx = new Context()
   await ctx.plugin(SlotsService)
   const locale = new LocaleService(ctx)
+  locale.setLocale('en')
   ctx.provide('locale', locale)
   ctx.slots.register({
     name: 'root',
@@ -96,9 +100,10 @@ describe('ui-permission browser plugin', () => {
     expect(c.ui.kind).toBe('popupSelect')
     const row = b.permissionRow()!
     expect(row.options).toEqual({ id: 'permission', order: -20 })
-    const injected = row.inject?.()
-    expect(injected?.controller).toBeDefined()
-    expect(typeof injected?.useSnapshot).toBe('function')
+    const injected = row.inject?.() as PermissionRowInjected | undefined
+    expect(injected?.hooks.permission).toBeDefined()
+    expect(typeof injected?.load).toBe('function')
+    expect(typeof injected?.select).toBe('function')
   })
 
   it('availability follows the projection key; options mark the current value active and exclude custom', async () => {
@@ -116,7 +121,14 @@ describe('ui-permission browser plugin', () => {
     expect(again.find(option => option.id === 'workspace-write')?.active).toBe(true)
     expect(again.find(option => option.id === 'read-only')?.detail).toBe('Reads only.')
     // Kebab-case names title-case; non-kebab host-configured names pass through.
-    expect(again.map(option => option.label)).toEqual(['Read Only', 'Workspace Write', 'Danger Full Access'])
+    expect(again.map(option => option.label)).toEqual(['Read Only', 'Workspace Write', 'Full access'])
+    expect(again.find(option => option.id === 'danger-full-access')?.confirmation).toEqual({
+      title: 'Enable Full access?',
+      description: accessEn['confirm.description'],
+      acknowledgeLabel: 'I understand the risks and want to continue',
+      cancelLabel: 'Cancel',
+      confirmLabel: 'Enable Full access',
+    })
     b.values.set(sid('s1'), { ...SELECT, options: [{ value: 'plain', name: 'Ask Every Time' }] })
     const passthrough = await c.ui.options(proj, new AbortController().signal)
     expect(passthrough[0]?.label).toBe('Ask Every Time')

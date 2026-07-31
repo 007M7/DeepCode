@@ -130,6 +130,7 @@ export default defineConfig({
         'packages/client/ui-primitives/src/markdown/plain-text.ts',
         'packages/client/ui-question/src/client/QuestionComposer.tsx',
         'packages/client/ui-primitives/src/Menu.tsx',
+        'packages/client/ui-primitives/src/RiskConfirmation.tsx',
         'packages/client/ui-workspace/src/client/WorkspaceBrowser.tsx',
         'packages/client/ui-workspace/src/client/WorkspacePicker.tsx',
         'packages/client/web-react/src/*',

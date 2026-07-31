@@ -13,7 +13,7 @@ import {
 import {
   nodeAtPath, rehydrateSchema, type SchemaNode,
 } from '@deepseek-ai/dsh-client-schema-form'
-import { displayPresetName } from './presentation.ts'
+import { displayPermissionPreset } from './presentation.ts'
 
 /** Permission's settings namespace on the host wire. */
 export const PERMISSION_SETTINGS_NS = 'permission'
@@ -65,8 +65,8 @@ export function permissionDefaultOf(view: SettingsNamespaceView): {
     return [{
       id: choice.value,
       label: typeof described === 'string' && described.length > 0
-        ? displayPresetName(described)
-        : displayPresetName(choice.value),
+        ? displayPermissionPreset(choice.value, described)
+        : displayPermissionPreset(choice.value, choice.value),
     }]
   })
   if (options.length === 0 || !options.some(option => option.id === value)) {

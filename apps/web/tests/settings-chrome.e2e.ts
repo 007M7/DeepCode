@@ -55,7 +55,7 @@ describe('web e2e: settings modal and General preferences', () => {
     expect(await trigger.getAttribute('aria-expanded')).toBe('true')
     // General is active by default; Permission, Language and Appearance are functional.
     expect(await dialog.getByRole('button', { name: '通用设置' }).getAttribute('aria-current')).toBe('true')
-    await dialog.getByRole('button', { name: 'Danger Full Access' }).waitFor({ timeout: 10_000 })
+    await dialog.getByRole('button', { name: 'Full access' }).waitFor({ timeout: 10_000 })
     await expect.poll(() => dialog.getByText('语言', { exact: true }).count(), { timeout: 5_000 }).toBe(1)
     await expect.poll(() => dialog.getByText('外观', { exact: true }).count(), { timeout: 5_000 }).toBe(1)
     // Golden of the freshly opened dialog (default zh, General active).
@@ -85,7 +85,7 @@ describe('web e2e: settings modal and General preferences', () => {
     await page.getByRole('button', { name: '设置', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '设置' })
     await dialog.waitFor({ timeout: 10_000 })
-    const selector = dialog.getByRole('button', { name: 'Danger Full Access' })
+    const selector = dialog.getByRole('button', { name: 'Full access' })
     await selector.waitFor({ timeout: 10_000 })
     await expect.poll(() => selector.isEnabled(), { timeout: 5_000 }).toBe(true)
     await selector.click()
@@ -103,6 +103,23 @@ describe('web e2e: settings modal and General preferences', () => {
       ['permission/preset', { preset: 'read-only' }],
       ['sandbox/mode', { mode: 'read-only' }],
       ['approval/policy', { policy: 'ask' }],
+    ])
+
+    await dialog.getByRole('button', { name: 'Read Only' }).click()
+    await page.getByRole('menuitem', { name: 'Full access' }).click()
+    const confirmation = page.getByRole('dialog', { name: '确认启用 Full access？' })
+    const enable = confirmation.getByRole('button', { name: '启用 Full access' })
+    expect(await enable.isDisabled()).toBe(true)
+    await confirmation.getByRole('checkbox').click()
+    await enable.click()
+    await dialog.getByRole('button', { name: 'Full access' }).waitFor({ timeout: 10_000 })
+    const confirmedDocument = await readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8')
+    expect(confirmedDocument).toContain('defaultPreset: danger-full-access')
+    const confirmed = scaffold.ctx.sessions.create(SessionId('settings-permission-confirmed'))
+    expect(confirmed.events.map(event => [event.type, event.data])).toEqual([
+      ['permission/preset', { preset: 'danger-full-access' }],
+      ['sandbox/mode', { mode: 'danger-full-access' }],
+      ['approval/policy', { policy: 'never' }],
     ])
     await page.keyboard.press('Escape')
     expect(tripwire.pageErrors).toEqual([])

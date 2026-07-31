@@ -11,8 +11,8 @@
     - img
     - text: 关闭
   - text: 权限 选择新会话的默认权限模式
-  - button "Danger Full Access":
-    - text: Danger Full Access
+  - button "Full access":
+    - text: Full access
     - img
   - text: 语言
   - button "中文":

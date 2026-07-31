@@ -10,12 +10,13 @@ import { PermissionSettingsController } from '../src/client/settings-store.ts'
 afterEach(cleanup)
 
 const SCHEMA = {
-  uid: 4,
+  uid: 5,
   refs: {
     1: { type: 'const', value: 'read-only' },
     2: { type: 'const', value: 'workspace-write' },
-    3: { type: 'union', list: [1, 2] },
-    4: { type: 'object', dict: { defaultPreset: 3 } },
+    3: { type: 'const', value: 'danger-full-access' },
+    4: { type: 'union', list: [1, 2, 3] },
+    5: { type: 'object', dict: { defaultPreset: 4 } },
   },
 }
 
@@ -46,8 +47,9 @@ function mount(controller: PermissionSettingsController) {
   return render(
     <PermissionRow
       {...runtime}
-      controller={controller}
-      useSnapshot={bindSnapshotSelector(controller.store)}
+      load={() => controller.load()}
+      select={preset => controller.select(preset)}
+      usePermission={bindSnapshotSelector(controller.store)}
       t={t}
     />,
   )
@@ -76,6 +78,27 @@ describe('PermissionRow', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Workspace Write' }))
     await screen.findByRole('button', { name: 'Workspace Write' })
     expect(mutate).toHaveBeenCalledOnce()
+  })
+
+  it('requires explicit acknowledgement before saving Full access', async () => {
+    const mutate = vi.fn(() => Promise.resolve(ok(view('danger-full-access', 1))))
+    const controller = new PermissionSettingsController({
+      settings: {
+        describe: () => Promise.resolve(ok({ writable: true, namespaces: [view('read-only')] })),
+        mutate,
+      } as never,
+    })
+    mount(controller)
+    fireEvent.click(await screen.findByRole('button', { name: 'Read Only' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Full access' }))
+    expect(mutate).not.toHaveBeenCalled()
+    const dialog = screen.getByRole('dialog', { name: 'Enable Full access?' })
+    const enable = screen.getByRole('button', { name: 'Enable Full access' })
+    expect((enable as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(enable)
+    await waitFor(() => { expect(mutate).toHaveBeenCalledOnce() })
+    expect(dialog.isConnected).toBe(false)
   })
 
   it('hides an unavailable namespace and disables a read-only provider', async () => {

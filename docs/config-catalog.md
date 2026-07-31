@@ -871,7 +871,7 @@ Source: [`packages/mcp/mcp-client/src/index.ts:93`](../packages/mcp/mcp-client/s
 
 ## `@deepseek-ai/dsh-permission`
 
-Requires: `bash` · `approval`
+Requires: `bash` · `approval` · `sessions`
 
 ```ts config-catalog
 /** The {@link PermissionService} config: preset table and composition default. */
