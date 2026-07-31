@@ -56,7 +56,6 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  background: var(--dsw-alias-bg-layer-3);
 }
 
 .rowHead {
