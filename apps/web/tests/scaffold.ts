@@ -21,7 +21,7 @@
 // (the plugin-row path discards the ReplayHandle; the direct install keeps
 // assertConsumed for the teardown fixture-consumption check).
 import { existsSync } from 'node:fs'
-import { mkdtemp, readFile, readdir, realpath, rm, utimes, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -32,6 +32,9 @@ import Loader from '@cordisjs/plugin-loader'
 import Include, { type PatchOptions } from '@cordisjs/plugin-include'
 import { scrubRequestHeaders } from '@deepseek-ai/dsh-acp-snapshot'
 import { assertEntriesLoaded, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
+import {
+  WELCOME_NOTICE_ACK_FIELD, WELCOME_NOTICE_SETTINGS_NAMESPACE, WELCOME_NOTICE_VERSION,
+} from '@deepseek-ai/dsh-client-ui-settings-general'
 import type { ReplayHandle } from '@deepseek-ai/dsh-llm-replay'
 import { installLlmReplay, parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
 import SessionStore, {
@@ -135,6 +138,8 @@ export interface LaunchOptions {
    * keyless first-run configuration lane; the default disables the adapter.
    */
   deepSeekMissingCredential?: boolean
+  /** Leave the current welcome notice unacknowledged; ordinary scenarios preseed it as complete. */
+  welcomeNoticePending?: boolean
 }
 
 /** Dispose the booted tree and remove both owned temp roots, reporting every independent cleanup failure. */
@@ -181,6 +186,20 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   // paths at load, and an in-process boot must NEVER touch the developer's
   // real ~/.dsh document or credential file.
   const harnessHome = join(workspaceCwd, '.dsh-home')
+  try {
+    if (options.welcomeNoticePending !== true) {
+      await mkdir(harnessHome, { recursive: true })
+      await writeFile(
+        join(harnessHome, 'settings.yaml'),
+        `${WELCOME_NOTICE_SETTINGS_NAMESPACE}:\n  ${WELCOME_NOTICE_ACK_FIELD}: ${WELCOME_NOTICE_VERSION}\n`,
+      )
+    }
+  } catch (error) {
+    const failures: unknown[] = [error]
+    await rm(workspaceCwd, { recursive: true, force: true }).catch((cleanupError: unknown) => failures.push(cleanupError))
+    if (failures.length > 1) throw new AggregateError(failures, 'web scaffold welcome preseed failed')
+    throw error
+  }
   let persistenceRoot: string
   try {
     persistenceRoot = await mkdtemp(join(tmpdir(), 'dsh-web-e2e-sessions-'))

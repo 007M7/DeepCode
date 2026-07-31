@@ -32,7 +32,7 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
   const browserConsole: string[] = []
 
   beforeAll(async () => {
-    scaffold = await launchWebScaffold({ deepSeekMissingCredential: true })
+    scaffold = await launchWebScaffold({ deepSeekMissingCredential: true, welcomeNoticePending: true })
     browser = await chromium.launch()
     page = await browser.newPage({ viewport: { width: 1440, height: 960 } })
     tripwire = watchConsole(page)
