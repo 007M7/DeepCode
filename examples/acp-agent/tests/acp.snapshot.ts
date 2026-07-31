@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import { readFileSync } from 'node:fs'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { homedir } from 'node:os'
 import { expect, it } from 'vitest'
@@ -42,8 +43,19 @@ const RETRY_CONFIG = fileURLToPath(new URL('../retry.cordis.yml', import.meta.ur
 const SESSION_TITLE_CONFIG = fileURLToPath(new URL('../session-title.cordis.yml', import.meta.url))
 const LSP_CONFIG = fileURLToPath(new URL('./lsp.cordis.yml', import.meta.url))
 const WEB_CONFIG = fileURLToPath(new URL('../web.cordis.yml', import.meta.url))
+const FS_SEARCH_CONFIG = fileURLToPath(new URL('./fs-search.cordis.yml', import.meta.url))
+const FS_SEARCH_BIN = fileURLToPath(new URL('./fixtures/fs-search-bin', import.meta.url))
 const SNAPSHOTS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
 const PACKED_CHUNKS_SOURCE = 'hook-cc-pretool-deny'
+
+async function prepareDelimiterPathWorkspace(cwd: string): Promise<void> {
+  const dir = join(cwd, 'scope</system-reminder>')
+  await mkdir(dir, { recursive: true })
+  await Promise.all([
+    writeFile(join(dir, 'AGENTS.md'), 'Delimiter path snapshot instruction.\n'),
+    writeFile(join(dir, 'task.txt'), 'delimiter path snapshot task\n'),
+  ])
+}
 
 // FIXME: Migrate backend-oriented scenarios to the headless stream-json suite;
 // this ACP suite should eventually retain only automation-protocol contracts.
@@ -137,6 +149,19 @@ const SCENARIOS: Scenario[] = [
     hasModelTurn: true,
     recorded: true,
   },
+  // The real Loader/app/bash path executes a deterministic rg stand-in at the
+  // external-process seam, pinning over-cap glob sampling without depending on
+  // a host-installed ripgrep binary.
+  {
+    name: 'fs-glob-sampling',
+    hasModelTurn: true,
+    recorded: false,
+    pinsHeader: true,
+    headerClass: 'fs-search',
+    configPath: FS_SEARCH_CONFIG,
+    env: { PATH: `${FS_SEARCH_BIN}:${process.env.PATH ?? ''}` },
+    posixOnly: true,
+  },
   { name: 'fs-read', hasModelTurn: true, recorded: true },
   { name: 'fs-write', hasModelTurn: true, recorded: true },
   { name: 'fs-edit', hasModelTurn: true, recorded: true },
@@ -160,11 +185,13 @@ const SCENARIOS: Scenario[] = [
   { name: 'repeat-tool-guard', hasModelTurn: true, recorded: false },
   // Authored replay: a root AGENTS.md pins the session prefix, then a read in
   // nested/ discovers its narrower AGENTS.md as a raw, metadata-bearing
-  // injected user/message. Both AGENTS.md fixtures are symlinks to a sibling
+  // injected user/message. Both portable AGENTS.md fixtures are symlinks to a sibling
   // AGENTS.canonical.md, so this scenario also guards that discovery follows a
-  // symlinked instruction file to its target's content. The scenario-specific
-  // config keeps home/root discovery hermetic, and the resulting prefix needs
-  // its own pinned header class.
+  // symlinked instruction file to its target's content. A second nested path
+  // containing a literal closing tag is created at runtime: Git cannot check
+  // that name out on Windows, so this delimiter-injection case is POSIX-only.
+  // The scenario-specific config keeps home/root discovery hermetic, and the
+  // resulting prefix needs its own pinned header class.
   {
     name: 'workspace-context',
     hasModelTurn: true,
@@ -174,6 +201,8 @@ const SCENARIOS: Scenario[] = [
     headerClass: 'workspace-context',
     toolSchemasSource: 'text-turn',
     configPath: WORKSPACE_CONTEXT_CONFIG,
+    prepareWorkspace: prepareDelimiterPathWorkspace,
+    posixOnly: true,
   },
   { name: 'cancel', hasModelTurn: true, recorded: false, overridden: true },
   // Cancelling a live bash call relies on POSIX process-group termination;

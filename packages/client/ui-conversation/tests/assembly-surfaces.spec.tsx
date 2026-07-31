@@ -29,9 +29,20 @@ import { apply, inject } from '@deepseek-ai/dsh-client-ui-conversation/client'
 
 const SID = 's1' as SessionId
 
-afterEach(cleanup)
+/** jsdom has no ResizeObserver; the composer seat publishes its height through one. */
+class ResizeObserverStub {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 beforeEach(() => {
   localStorage.clear()
+  vi.stubGlobal('ResizeObserver', ResizeObserverStub)
 })
 
 const TODOS: TodoItem[] = [
@@ -71,7 +82,9 @@ const LAYOUT_CHILDREN = {
 async function bench(nodes: ToolResultNode[], opts?: { blank?: boolean }) {
   const runtime = await SlotTestRuntime.create()
   runtime.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
-  runtime.provide('locale', new LocaleService(runtime.ctx))
+  const locale = new LocaleService(runtime.ctx)
+  runtime.provide('locale', locale)
+  runtime.slots.installLocale(locale)
   await runtime.sessions.add({
     id: SID,
     summary: { title: 'S', displayTitle: 'S', cwd: '/proj' },
@@ -97,7 +110,7 @@ describe('todo_write assembly (product registrations, no outlet twins)', () => {
     const view = runtime.renderRoot()
 
     // Keyed toolview registration took the row (summary derived from args).
-    const row = view.container.querySelector('[data-sample="todo-row"]')
+    const row = view.container.querySelector('[data-tool="todo_write"]')
     expect(row).not.toBeNull()
     expect(row!.textContent).toContain('1/3 已完成 · 实现 fixture 样本')
 
@@ -105,7 +118,7 @@ describe('todo_write assembly (product registrations, no outlet twins)', () => {
     // (default-collapsed: the header summary shows; rows appear on expand).
     const panel = view.container.querySelector('[data-testid="todo-panel"]')
     expect(panel).not.toBeNull()
-    expect(panel!.textContent).toContain('1/3 tasks · 1 in progress')
+    expect(panel!.textContent).toContain('1/3 项任务 · 1 项进行中')
     fireEvent.click(panel!.querySelector('button')!)
     expect([...panel!.querySelectorAll('li')].map(li => li.getAttribute('data-status')))
       .toEqual(['completed', 'in_progress', 'pending'])
@@ -117,13 +130,13 @@ describe('todo_write assembly (product registrations, no outlet twins)', () => {
     await waitFor(() => {
       expect(view.container.querySelector('[data-testid="todo-panel"]')).toBeNull()
     })
-    expect(view.container.querySelector('[data-sample="todo-row"]')).not.toBeNull()
+    expect(view.container.querySelector('[data-tool="todo_write"]')).not.toBeNull()
     await runtime.dispose()
   })
 })
 
 describe('terminal card assembly', () => {
-  it('the keyed bash row carries a resident terminal card; the fallback row reaches one through expand', async () => {
+  it('both the keyed bash row and the fallback row reach the terminal card through the whole-row expand', async () => {
     const runtime = await bench([
       bashResult(3, 'c-keyed'),
       // An unregistered tool with terminal views: GenericToolCard fallback.
@@ -131,15 +144,20 @@ describe('terminal card assembly', () => {
     ])
     const view = runtime.renderRoot()
 
-    // Keyed BashRow renders the card residently (no expand gesture).
-    const keyed = view.container.querySelector('[data-sample="bash-global"]')?.parentElement
-    expect(keyed?.querySelector('[data-terminal]')).not.toBeNull()
+    // Keyed BashRow: collapsed by default, the whole summary row is the toggle.
+    const keyedRow = view.container.querySelector('[data-sample="bash-global"]')
+    const keyed = keyedRow?.parentElement
+    expect(keyed?.querySelector('[data-terminal]')).toBeNull()
+    fireEvent.click(keyedRow!)
+    await waitFor(() => {
+      expect(keyed!.querySelector('[data-terminal]')).not.toBeNull()
+    })
 
-    // Fallback row: card appears only after its expand control.
+    // Fallback row: same unified expand interaction.
     const fallback = view.container.querySelector('[data-tool="fx-bash"]')
     expect(fallback).not.toBeNull()
     expect(fallback!.querySelector('[data-terminal]')).toBeNull()
-    fireEvent.click(fallback!.querySelector('button[aria-expanded]')!)
+    fireEvent.click(fallback!.querySelector('[data-expandable]')!)
     await waitFor(() => {
       expect(fallback!.querySelector('[data-terminal]')).not.toBeNull()
     })
@@ -151,7 +169,9 @@ describe('resident composer', () => {
   it('renders the locked view state while no session exists at all', async () => {
     const runtime = await SlotTestRuntime.create()
     runtime.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
-    runtime.provide('locale', new LocaleService(runtime.ctx))
+    const locale = new LocaleService(runtime.ctx)
+    runtime.provide('locale', locale)
+    runtime.slots.installLocale(locale)
     await runtime.root.declare(LAYOUT_CHILDREN, AppRoot)
     await runtime.mount({ inject: [...inject], apply })
     const view = runtime.renderRoot()
@@ -160,7 +180,7 @@ describe('resident composer', () => {
     const textarea = view.container.querySelector('textarea')
     expect(textarea).not.toBeNull()
     expect(textarea!.disabled).toBe(true)
-    expect(view.getByRole('button', { name: 'Choose workspace' })).toBeTruthy()
+    expect(view.getByRole('button', { name: '选择工作区' })).toBeTruthy()
     await runtime.dispose()
   })
 
@@ -193,7 +213,9 @@ describe('prompt rejection through the assembled composer', () => {
   it('renders the promptError alert strip and keeps the draft in the machine', async () => {
     const runtime = await SlotTestRuntime.create()
     runtime.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
-    runtime.provide('locale', new LocaleService(runtime.ctx))
+    const locale = new LocaleService(runtime.ctx)
+    runtime.provide('locale', locale)
+    runtime.slots.installLocale(locale)
     const prompt = vi.fn<ISession['prompt']>(async () => ({
       ok: false, error: { code: 'agent-busy', message: 'prompt rejected before acceptance', details: { reason: 'busy' } },
     }))
@@ -234,7 +256,7 @@ describe('title projection across assembled surfaces', () => {
     const runtime = await bench([])
     const view = runtime.renderRoot()
     // The strict session header breadcrumb reads useSessions ancestry.
-    const crumb = within(view.container.querySelector('[aria-label="Session hierarchy"]') as HTMLElement)
+    const crumb = within(view.container.querySelector('[aria-label="会话层级"]') as HTMLElement)
     expect(crumb.getByText('S')).toBeTruthy()
 
     await runtime.sessions.updateSummary(SID, { displayTitle: '修订标题', title: '修订标题' })

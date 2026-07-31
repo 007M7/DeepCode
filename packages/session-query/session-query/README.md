@@ -23,7 +23,7 @@ Persistence is optional and may mount or unmount dynamically. Cross-corpus listi
 
 `SessionResultFilter` covers id, nullable cwd, created-at range, nullable parent, and source availability. `SessionEventResultFilter` covers seq/time ranges, event type, surface, and semantic text. Filter arrays are ANDed; values within one list clause are ORed. Empty list values match nothing, ranges are inclusive, and malformed ranges or closed-union values fail with `SESSION_QUERY_INVALID_FILTER`.
 
-The text clause is deliberately independent of FTS providers: caller text is escaped into a Unicode, case-insensitive regular expression, and each whitespace run matches one or more whitespace characters. It is a literal semantic-text scan, not a full-text query. `extractSessionEventText()` and `buildSessionEventSearchDocuments()` define the shared first-party document projection; structural boundaries, stream chunks, request headers, and unknown declaration-merged variants produce no document.
+The text clause is deliberately independent of FTS providers: caller text is escaped into a Unicode, case-insensitive regular expression, and each whitespace run matches one or more whitespace characters. It is a literal semantic-text scan, not a full-text query. `extractSessionEventText()` and `buildSessionEventSearchDocuments()` define the shared first-party document projection; reasoning blocks, structural boundaries, stream chunks, request headers, and unknown declaration-merged variants produce no document.
 
 ## Full-text methods
 

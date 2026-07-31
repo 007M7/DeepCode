@@ -8,6 +8,10 @@
 - id: telemetry-redact-rule
   name: './telemetry-redact-rule.ts'
 
+# Managed child-process groups required by the bash executor.
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-local'
+
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'
 

@@ -24,7 +24,7 @@ function deriveAncestry(list: SessionListState, id: SessionId): readonly Session
 
 export function ConversationSession({
   sessionId, useSession, useSessions, useInput, inputActions, useStore, actions,
-  renderSlot, views, bindDraftMirror, open, wrapActiveBody,
+  renderSlot, views, bindDraftMirror, open, wrapActiveBody, t,
 }: ConversationSessionProps) {
   useSyncExternalStore(views.subscribe, views.version)
   const tabs = views.list()
@@ -35,6 +35,8 @@ export function ConversationSession({
   const blank = useSession(s => s.blank)
   const inputState = useInput(s => s)
   const storedDraft = useStore(s => s.draft)
+  // `?? null`: persisted snapshots from before the inspect field rehydrate without it.
+  const inspect = useStore(s => s.inspect ?? null)
 
   useEffect(() => {
     if (inputState.draft === '' && storedDraft !== '') inputActions.setDraft(storedDraft)
@@ -52,7 +54,10 @@ export function ConversationSession({
 
   const view: ReactNode = hideChrome ? null : (
     <div className={css.viewArea}>
-      {active !== undefined && renderSlot('conversation.view', {}, { only: active.id })}
+      {active !== undefined && renderSlot('conversation.view', {
+        inspect,
+        onInspectDone: () => { actions.setInspect(null) },
+      }, { only: active.id })}
     </div>
   )
 
@@ -65,7 +70,7 @@ export function ConversationSession({
         {!hideChrome && (
           <>
             <div className={css.crumbRow}>
-              <nav className={css.crumbs} aria-label="Session hierarchy">
+              <nav className={css.crumbs} aria-label={t('session.hierarchy')}>
                 {ancestry.map((summary, index) => {
                   const last = index === ancestry.length - 1
                   return (

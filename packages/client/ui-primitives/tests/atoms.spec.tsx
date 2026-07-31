@@ -324,10 +324,11 @@ describe('Modal', () => {
       <Modal open={false} onClose={onClose} title="Create new workspace">body</Modal>)
     expect(screen.queryByRole('dialog')).toBeNull()
     rerender(
-      <Modal open onClose={onClose} title="Create new workspace" description="Name it." footer={<button type="button">Create</button>}>
+      <Modal open onClose={onClose} title="Create new workspace" closeLabel="Configure later" description="Name it." footer={<button type="button">Create</button>}>
         <input aria-label="name" />
       </Modal>)
     expect(screen.getByRole('dialog', { name: 'Create new workspace' })).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Configure later' })).toBeDefined()
     expect(screen.getByText('Name it.')).toBeDefined()
     fireEvent.keyDown(document, { key: 'a' })
     expect(onClose).not.toHaveBeenCalled()

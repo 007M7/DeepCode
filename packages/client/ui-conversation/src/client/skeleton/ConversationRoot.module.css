@@ -127,15 +127,21 @@
   min-height: 0;
 }
 
-/* Composer stack: dock strips above the input card (design §6 MIX order). */
+/* Composer context stack (Figma 9:937): standalone dock cards share one
+   rhythm; the terminal queue strip additionally tucks under the input card. */
 .composerStack {
-  display: flex;
-  flex-direction: column;
+  --dsh-composer-stack-gap: 6px;
+  --dsh-queue-composer-overlap: 5px;
+
   /* InputBar and dock registrants derive their horizontal geometry from the
      same card width, outer clearance, and dock inset. */
   --dsh-composer-card-max-width: 800px;
   --dsh-composer-side-clearance: 32px;
   --dsh-composer-dock-inset: 12px;
+
+  display: flex;
+  flex-direction: column;
+  gap: var(--dsh-composer-stack-gap);
 }
 
 /* Common seat for the composer chain (fallback + elected overlay siblings). */
@@ -143,6 +149,14 @@
   display: flex;
   flex: none;
   flex-direction: column;
+  /* One cap for every scrolling text region a composer seat can hold: the
+     InputBar draft (figma Input 75:8208 max 14 lines × 24px line) and the
+     takeover panels' bodies top out at the same height, so electing a
+     takeover never grows the footer past the card it replaces. Declared on
+     the seat because it is the chain's only shared ancestor — fallback and
+     elected overlay are siblings — and custom properties inherit down to
+     whichever entry is mounted. */
+  --dsh-composer-text-max-height: 336px;
 }
 
 /* Active phase: header is ordinary column chrome above the scrollport (not
@@ -175,7 +189,17 @@
   /* Above markdown CodeBlock sticky banners (z-index 6) so the footer never
      paints under a sticking code header while scrolling. */
   z-index: 7;
-  background: var(--dsw-alias-bg-base);
+  /* Input mask (figma 1205:27463): transcript fades out under a FIXED 36px
+     band at the seat's top (the figma 24% of the resting ~150px composer),
+     solid below — px stops, not %, so a growing draft only widens the solid
+     region and the fade band never stretches. The 0px stop is bg-base at
+     zero alpha (not white, which the figma export hardcodes) so both themes
+     fade from their own base. */
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--dsw-alias-bg-base) 0%, transparent) 0px,
+    var(--dsw-alias-bg-base) 36px
+  );
 }
 
 /* Hero phase: the composer stack (hero chrome + workspace row + card) is

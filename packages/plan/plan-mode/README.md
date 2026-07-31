@@ -14,6 +14,8 @@ Logged, per-agent plan collaboration state with deployment-owned guidance, direc
 
 While active, `plan:policy` renders the configured `section`. The plugin always registers `exit_plan_mode`, keeping tool schemas stable across the transition; its execute path accepts only active plan mode and leaves it only after an exact user approval through `ctx.userInteraction`.
 
+The review question declares the `plan-review` presentation intent, naming `Approve` as the label that approves it, so a capable UI presents the plan as a decision instead of a generic question; the answer the tool reads is the same either way. A dismissed review — the user closing the request to speak instead — is reported to the model as such, telling it to stay in plan mode and wait for the message; every other review failure keeps the seam's own message.
+
 When `ctx.commands` is composed, the package registers `/plan [message]` and reserves the exact argument `off` for direct exit. Bare `/plan` selects plan mode; any other non-empty argument selects it first and is then submitted through `agent.steer()`, so it becomes the next step's ordinary logged user message under plan guidance. `/plan off` selects inactive without sending model input; it also cancels a pending entry before plan mode reaches a request.
 
 The TUI consumes the plugin-owned `/plan` command; other front doors may drive the same service directly without defining a second mode vocabulary.
@@ -77,7 +79,7 @@ The user block is append-only conversation growth. Entering or leaving plan mode
 
 #### What the model sees
 
-The [`exit_plan_mode` schema](../../../docs/tool-catalog.md#deepseek-aidsh-plan-mode) remains available in both states; execution outside plan mode fails, while an approved in-mode review returns the canonical `{ approved: true }` value and renders the existing confirmation text. Rejection remains a failed call carrying review feedback.
+The [`exit_plan_mode` schema](../../../docs/tool-catalog.md#deepseek-aidsh-plan-mode) remains available in both states; execution outside plan mode fails, while an approved in-mode review returns the canonical `{ approved: true }` value and renders the existing confirmation text. Rejection remains a failed call carrying review feedback, and a dismissed review a failed call naming the user's takeover.
 
 #### Token effect
 
@@ -92,4 +94,5 @@ Mode transitions do not change the tool catalog; plan arguments and review resul
 - Plan mode guides rather than enforces; deployments needing a hard boundary must combine independent sandbox and approval controls.
 - A pending selection made while idle is lost if the process exits before the next boundary, so the UI must reapply it.
 - Forked agents inherit logged plan state, while newly spawned agents begin inactive; there is no creation-time plan option.
-- The `exit_plan_mode` review arc (submit → human review → approved flip or rejected feedback) is covered by package tests only; its assembled-application snapshot left with the retired ACP UI scenarios ([automation-only ACP](../../../.agents/notes/implemented/simplification/2026-07-23-acp-automation-only-protocol.md)) and the TUI keyless scenarios exercise only `/plan` entry and `/plan off` exit.
+- The `exit_plan_mode` review arc has one assembled-application snapshot, the Web `plan-review` e2e lane (submit → decision card → approved flip). The rejected-feedback and dismissed branches are covered by package tests only, and the TUI keyless scenarios exercise only `/plan` entry and `/plan off` exit.
+- Only the Web UI renders the `plan-review` intent; the TUI presents the review through its generic question flow, which is answerable but does not read as a plan gate.

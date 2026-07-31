@@ -5,43 +5,37 @@
     - tab "Chat" [selected]
     - tab "Trajectory"
 - text: "Use the bash tool to run exactly: echo WEB_E2E_OK. Then reply with the single word DONE and stop. {{clock}}"
-- button "复制":
+- button "Copy":
   - img
-- button "在新对话中分支":
+- button "Branch into a new conversation":
   - img
-- button "编辑":
+- button "Edit":
   - img
-- button "▸ 上下文注入"
 - button "Think The user wants me to run a simple bash command and reply with \"DONE\".":
   - img
   - img
   - text: Think The user wants me to run a simple bash command and reply with "DONE".
-- button "复制":
+- button "Bash Echo the test string":
   - img
-- button "在新对话中分支":
   - img
-- text: {{clock}}
-- img
-- text: Bash Echo the test string
+  - text: Bash Echo the test string
 - button "Think The command executed successfully and output \"WEB_E2E_OK\". I just need to reply with \"DONE\".":
   - img
   - img
   - text: Think The command executed successfully and output "WEB_E2E_OK". I just need to reply with "DONE".
 - paragraph: DONE
-- button "复制":
+- button "Copy":
   - img
-- button "在新对话中分支":
+- button "Branch into a new conversation":
   - img
-- text: {{clock}} cache hit 99% · 15,818 tokens · 1 turns · 2 steps
+- text: {{clock}}
 - textbox "Message the agent"
 - button "Add attachment":
   - img
-- text: Danger Full Access
-- combobox "Access mode":
-  - option "Read Only"
-  - option "Workspace Write"
-  - option "Danger Full Access" [selected]
-- button "选择模型，当前 DeepSeek-V4-Flash":
+- 'button "Access mode, current: Danger Full Access"': Danger Full Access
+- button "Plan mode off, press to turn on": Plan off
+- button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
+- text: 1 turns · 2 steps Tool call {{duration}} Cache hit 99% Input 15.7K tok · Output 111 tok

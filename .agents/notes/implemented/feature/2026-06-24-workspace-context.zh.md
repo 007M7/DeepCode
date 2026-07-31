@@ -34,7 +34,7 @@ Status: implemented
 
 恢复 agent 会创建新的循环实例，并在其第一次请求前注入由当前文件组合的基线。这样，恢复时可以使用当前基线内容，而无需修改先前的历史事件。恢复与插件热重挂都会面对日志中可能已存在基线的情况；二者通过 `agent/session-start` 区分：启动或恢复会在第一步前发出该事件，而热重挂附着到一个已存活的会话、永远不会看到它。只有当基线的类型化事件仍在当前可见表层中时，热重挂才保留既有基线，同时仍会根据当前文件重建 scope 与提供方版本跟踪。如果压缩（compaction）已遮蔽该事件，热重挂会注入当前基线。恢复则始终重新组合。
 
-基线是一条 user 角色的 `<system-reminder>`，包含 `Instructions from: <path>` 章节，以及明确的权威性与优先级说明。这种熟悉的模型可见框架避免引入 harness 专用的 XML 词汇。项目路径相对于根目录；使用默认 home 时，用户全局路径为 `~/.dsh/AGENTS.md`，使用已配置 home 时则为 `$DSH_HOME/AGENTS.md`。文件内容中的字面量 `</system-reminder>` 会被转义。包 README 负责规定当前准确的[提示词形态](../../../../packages/context/workspace-context/README.md#prompt-shape)。
+基线是一条 user 角色的 `<system-reminder>`，包含 `Instructions from: <path>` 章节，以及明确的权威性与优先级说明。这种熟悉的模型可见框架避免引入 harness 专用的 XML 词汇。项目路径相对于根目录；使用默认 home 时，用户全局路径为 `~/.dsh/AGENTS.md`，使用已配置 home 时则为 `$DSH_HOME/AGENTS.md`。最终渲染边界会在完成字节核算前，转义指令内容或模型可见的路径、scope 与预算元数据中出现的字面量 `</system-reminder>`。包 README 负责规定当前准确的[提示词形态](../../../../packages/context/workspace-context/README.md#prompt-shape)。
 
 ### 动态发现与刷新
 
