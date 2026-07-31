@@ -6,7 +6,9 @@
 
 `set(session, name)` 会先在仅写日志的 `permission/preset` 事件中记录已变更的选择，再仅对实际值发生变化的调节项调用 setter。选择事件先于调节项事件，并在多个 preset 共享同一组取值时保留用户意图；净变化为零的选择不会追加任何内容。`current(events)` 优先返回仍与当前调节项匹配的已记录选择，其次返回表中第一个匹配项，否则返回 `custom`。客户端可以把 `custom` 显示为当前值，但不能选择它。
 
-该服务要求存在具有约束能力的 `ctx.bash` 执行器和 `ctx.approval`。表中名为 `custom` 的条目会在加载时抛出异常；如果组合在表外指定默认值，则零事件会话会推导出 `custom`。详见[沙箱切换设计](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md)。
+该服务拥有 `permission` Settings namespace。其 `defaultPreset` 是未来会话的默认值：组合项使用 `Config.defaultPreset`；省略时，则推断与组合后的沙箱和审批默认值匹配的 preset。已提交的 Settings 变更会在下一个会话创建时读取；创建过程将 `permission/preset`、`sandbox/mode` 和 `approval/policy` 固定到该会话中，因此后续变更绝不会改变现有会话。恢复的 seed 会保留其有效权限，只补齐缺失的持久事实，而不会采用最新的用户默认值。
+
+该服务要求存在具有约束能力的 `ctx.bash` 执行器和 `ctx.approval`。表中名为 `custom` 的条目会在加载时抛出异常。当组合默认值与任何 preset 都不匹配时，插件要求显式配置 `defaultPreset`；独立构造的零事件会话仍可能推导出 `custom`。详见[沙箱切换设计](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md)。
 
 两个可选子件在同一服务之上交付产品界面：`permissions` 会话投影单元（`src/types.ts` 声明该 key；单元折叠三个全量值旋钮事件，在组合默认值之上视图出 select——表内选项加仅作当前值的 `custom`）与 `/permission` 命令（裸调用报告当前预设与表；预设参数经 `set` 切换）。每个子件仅在其注册表（`ctx.sessionProjections` / `ctx.commands`）被组合时激活。
 

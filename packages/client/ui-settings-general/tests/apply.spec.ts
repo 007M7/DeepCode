@@ -1,12 +1,12 @@
 /** Ownerless-copy registrations: the four seats, the dictionaries, thunked labels, and HMR recovery. */
 import { Context } from 'cordis'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-settings-general/client'
 import { CloseLabel, HeaderContent, TriggerContent } from '../src/client/chrome.tsx'
-import { GeneralSection } from '../src/client/GeneralSection.tsx'
+import { GeneralSection, ToolCallSkeleton } from '../src/client/GeneralSection.tsx'
 
 /** The four seats this plugin fills (slot name → expected component). */
 const SEATS = [
@@ -61,10 +61,16 @@ describe('ui-settings-general apply', () => {
     // The nav label is a locale-following thunk; owners resolve at read time.
     expect(resolveSlotLabel(entry.options.label)).toBe('通用设置')
     expect(before.slots.spec('settings.general.item')).toEqual({ kind: 'list', scope: 'root' })
+    const toolEntry = before.slots.entries('settings.general.item')[0]!
+    expect(toolEntry).toMatchObject({
+      component: ToolCallSkeleton,
+      options: { id: 'tool-call', order: -10 },
+    })
     // Copy rides the standard locale seat: every seat declares the namespace.
     for (const [name] of SEATS) {
       expect(before.slots.entries(name)[0]!.locale).toBe('settings')
     }
+    expect(toolEntry.locale).toBe('settings')
 
     const after = await bench()
     await after.ctx.plugin({ inject: [...inject], apply }).await()
@@ -76,6 +82,9 @@ describe('ui-settings-general apply', () => {
       // The self-inflicted ledger notifications hit the duplicate guard.
       expect(after.slots.entries(name)).toHaveLength(1)
     }
+    await vi.waitFor(() => {
+      expect(after.slots.entries('settings.general.item')[0]!.component).toBe(ToolCallSkeleton)
+    })
   })
 
   it('registers the zh/en settings dictionaries and frees the seats on teardown', async () => {
@@ -124,6 +133,7 @@ describe('ui-settings-general apply', () => {
     for (const [name, component] of SEATS) {
       expect(b.slots.entries(name)[0]!.component).toBe(component)
     }
+    expect(b.slots.entries('settings.general.item')[0]!.component).toBe(ToolCallSkeleton)
     expect(b.slots.spec('settings.general.item')).toEqual({ kind: 'list', scope: 'root' })
     // The recovered registrations still ride the locale path.
     b.locale.setLocale('en')

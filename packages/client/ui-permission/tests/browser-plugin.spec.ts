@@ -5,13 +5,16 @@
  * the current value active and `custom` excluded; availability follows the
  * projection key's presence; a pick submits the /permission line through
  * Session.command and surfaces rejection/unmatched as thrown errors; fiber
- * disposal removes the contribution (HMR safety).
+ * disposal removes the contribution (HMR safety). The same plugin registers
+ * its Settings row and invalidates that row on host settings changes.
  */
 import { Context } from 'cordis'
 import { describe, expect, it } from 'vitest'
-import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import { SlotsService, type SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import type { CommandDecoration } from '@deepseek-ai/dsh-client-ui-command/client'
 import type { PermissionSelect } from '@deepseek-ai/dsh-permission/client'
+import { PermissionRow } from '../src/client/PermissionRow.tsx'
 import { apply, inject } from '../src/client/index.ts'
 
 const sid = (k: string): SessionId => k as SessionId
@@ -27,6 +30,26 @@ const SELECT: PermissionSelect = {
 
 async function bench() {
   const ctx = new Context()
+  await ctx.plugin(SlotsService)
+  const locale = new LocaleService(ctx)
+  ctx.provide('locale', locale)
+  ctx.slots.register({
+    name: 'root',
+    children: {
+      'settings.general.item': { kind: 'list', scope: 'root' },
+    },
+  } as never, () => null)
+  ctx.provide('connection', {
+    api: {
+      settings: {
+        describe: () => Promise.resolve({
+          rpcId: 'describe',
+          result: { ok: true as const, value: { writable: true, namespaces: [] } },
+        }),
+        mutate: () => Promise.reject(new Error('settings mutation is not exercised')),
+      },
+    },
+  } as never)
   let decoration: CommandDecoration | undefined
   ctx.provide('command', {
     decorate(c: CommandDecoration) {
@@ -60,6 +83,8 @@ async function bench() {
     ctx, fiber, values, commands,
     setResult: (r: { ok: boolean; matched?: boolean }) => { commandResult = r },
     decoration: () => decoration,
+    permissionRow: () => ctx.slots.entries('settings.general.item')
+      .find(entry => entry.component === PermissionRow),
   }
 }
 
@@ -69,6 +94,11 @@ describe('ui-permission browser plugin', () => {
     const c = b.decoration()!
     expect(c.name).toBe('permission')
     expect(c.ui.kind).toBe('popupSelect')
+    const row = b.permissionRow()!
+    expect(row.options).toEqual({ id: 'permission', order: -20 })
+    const injected = row.inject?.()
+    expect(injected?.controller).toBeDefined()
+    expect(typeof injected?.useSnapshot).toBe('function')
   })
 
   it('availability follows the projection key; options mark the current value active and exclude custom', async () => {
@@ -114,7 +144,11 @@ describe('ui-permission browser plugin', () => {
   it('disposal removes the decoration (HMR safety)', async () => {
     const b = await bench()
     expect(b.decoration()).toBeDefined()
+    b.ctx.emit('settings/changed', 'another')
+    b.ctx.emit('settings/changed', 'permission')
+    b.ctx.emit('connection/reset')
     await b.fiber.dispose()
     expect(b.decoration()).toBeUndefined()
+    expect(b.permissionRow()).toBeUndefined()
   })
 })

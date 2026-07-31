@@ -1,37 +1,37 @@
 /**
- * Permission preset plugin, browser half — a popupSelect DECORATION hung on
- * the host `/permission` command: one flat list of presets, current value
- * marked active, a pick executes the switch. The decoration owns only the
- * bare invocation; the host command keeps its catalog row, the argued path
- * (`/permission <preset>` still switches directly), and the lifecycle
- * logging. Options and the active mark read the session's `permissions`
- * projection (the same host-computed select the composer chip renders); a
- * pick submits the `/permission <preset>` command line, so both surfaces
- * write through one path and the pushed projection frame is the one
- * confirmation.
+ * Permission plugin, browser half. The General-settings row writes the
+ * default preset for subsequently created sessions through Settings; the
+ * `/permission` popup decoration switches the current session through the
+ * host command and its `permissions` projection.
  */
 import type { ClientContext, SessionFace } from '@deepseek-ai/dsh-client-runtime/client'
 import type { CommandServiceContract, SelectOption } from '@deepseek-ai/dsh-client-ui-command/client'
 import type { ClientSessionContext } from '@deepseek-ai/dsh-client-ui-slash/client'
 import type { PermissionSelect } from '@deepseek-ai/dsh-permission/client'
+import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
+import { deferRegistration } from '@deepseek-ai/dsh-client-ui-slots'
+import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
+// Type-only: pulls the General item slot and locale service contracts.
+import type {} from '@deepseek-ai/dsh-client-locale/client'
+import { PermissionRow } from './PermissionRow.tsx'
+import type { PermissionRowInjected } from './PermissionRow.tsx'
+import { en, zh } from './locales.ts'
+import { displayPresetName } from './presentation.ts'
+import {
+  PERMISSION_SETTINGS_NS, PermissionSettingsController, refreshPermissionIfLoaded,
+} from './settings-store.ts'
+
+export type { PermissionRowInjected, PermissionRowProps } from './PermissionRow.tsx'
+export type {
+  PermissionDefaultOption, PermissionSettingsState,
+} from './settings-store.ts'
 
 /** Required services (cordis fiber inject). */
-export const inject = ['command', 'sessions']
+export const inject = ['command', 'sessions', 'slots', 'locale', 'connection']
 
 /** Read one session's current permissions projection value (undefined = capability absent). */
 function selectOf(session: SessionFace | undefined): PermissionSelect | undefined {
   return session?.projections.faceOf('permissions').getSnapshot() as PermissionSelect | undefined
-}
-
-/**
- * Display transform twin of the composer chip's (ui-conversation
- * PermissionSelect): kebab-case machine names render as title-case labels
- * (`workspace-write` → `Workspace Write`) so both permission surfaces show
- * the same text; non-kebab host-configured names pass through.
- */
-function displayName(name: string): string {
-  if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name)) return name
-  return name.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
 }
 
 /** Flatten the projection select into popup rows; `custom` is display state, never a target. */
@@ -40,7 +40,7 @@ function optionsOf(value: PermissionSelect): SelectOption[] {
     .filter(option => option.value !== 'custom')
     .map(option => ({
       id: option.value,
-      label: displayName(option.name),
+      label: displayPresetName(option.name),
       ...(option.description !== undefined ? { detail: option.description } : {}),
       ...(option.value === value.currentValue ? { active: true } : {}),
     }))
@@ -56,6 +56,41 @@ export function apply(ctx: ClientContext): void {
   const sessions = ctx.sessions
   const sessionFor = (session: ClientSessionContext): SessionFace | undefined =>
     sessions.binding(session.sessionId)?.session
+
+  ctx.effect(() => ctx.locale.register('settings.permission', { zh, en }), 'ui-permission: settings row dictionaries')
+
+  const connection = ctx.get('connection') as ConnectionHandle
+  const controller = new PermissionSettingsController(connection.api)
+  const useSnapshot = bindSnapshotSelector(controller.store)
+  const injected = (): PermissionRowInjected => ({ controller, useSnapshot })
+
+  ctx.effect(() => {
+    const refresh = (ns?: string): void => {
+      if (ns !== undefined && ns !== PERMISSION_SETTINGS_NS) return
+      refreshPermissionIfLoaded(controller)
+    }
+    const disposers = [
+      ctx.on('settings/changed', refresh),
+      ctx.on('connection/reset', () => { refresh() }),
+    ]
+    return () => {
+      controller.dispose()
+      for (const dispose of disposers) dispose()
+    }
+  }, 'ui-permission: settings invalidations')
+
+  ctx.effect(() => {
+    const row = deferRegistration(ctx.slots, 'settings.general.item', PermissionRow, () =>
+      ctx.slots.register({
+        name: 'settings.general.item',
+        id: 'permission',
+        order: -20,
+        locale: 'settings.permission',
+        inject: injected,
+      }, PermissionRow))
+    return () => { row.dispose() }
+  }, 'ui-permission: General settings row')
+
   ctx.effect(() => command.decorate({
     name: 'permission',
     // The picker exists exactly while the projection does: a permission-less

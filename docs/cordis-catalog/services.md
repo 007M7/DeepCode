@@ -934,7 +934,7 @@ set(session: Session, name: string): void
 
 Types: [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/ui/permission/src/index.ts:144`](../../packages/ui/permission/src/index.ts)
+Source: [`packages/ui/permission/src/index.ts:159`](../../packages/ui/permission/src/index.ts)
 
 ## `ctx.planMode` — `PlanModeService`
 
