@@ -9,6 +9,10 @@
   - img
 - button "Branch into a new conversation":
   - img
+- button "Context injection":
+  - img
+  - img
+  - text: Context injection
 - button "Think The user wants me to:":
   - img
   - img

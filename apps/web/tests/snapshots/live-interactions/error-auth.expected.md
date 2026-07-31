@@ -9,6 +9,10 @@
   - img
 - button "Branch into a new conversation":
   - img
+- button "Context injection":
+  - img
+  - img
+  - text: Context injection
 - textbox "Message the agent"
 - button "Commands":
   - img

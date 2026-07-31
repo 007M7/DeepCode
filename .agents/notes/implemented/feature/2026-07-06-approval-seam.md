@@ -25,7 +25,7 @@ One `cordis.yml` entry mounts the seam. Not loading it is the fail-closed opt-ou
   #   policy: never   # deployment default for sessions without an override; 'ask' when omitted
 ```
 
-The entry alone provides mechanism, not a channel: with no answerer composed, every ask resolves `unavailable` and the asking tool call denies — fail-closed needs no configuration. Composing the ACP app (`@deepseek-ai/dsh-acp-demo`, as in [the acp-agent example's default tree](../../../../examples/acp-agent/README.md)) completes the loop: its [automation-only bridge](../simplification/2026-07-23-acp-automation-only-protocol.md) registers an answerer that sends `session/request_permission` to the owning client with the exact tool-call id and one-shot allow/reject options. `policy: never` is the unattended stance — every ask auto-rejects deterministically and is stated in the system prompt. `policy` is validated against the closed list at plugin load; anything else throws.
+The entry alone provides mechanism, not a channel: with no answerer composed, every ask resolves `unavailable` and the asking tool call denies — fail-closed needs no configuration. Composing the ACP app (`@deepseek-ai/dsh-acp-demo`, as in [the acp-agent example's default tree](../../../../examples/acp-agent/README.md)) completes the loop: its [automation-only bridge](../simplification/2026-07-23-acp-automation-only-protocol.md) registers an answerer that sends `session/request_permission` to the owning client with the exact tool-call id and one-shot allow/reject options. `policy: never` is the unattended stance — every ask auto-rejects deterministically, and the current value joins the runtime-context snapshot. `policy` is validated against the closed list at plugin load; anything else throws.
 
 What a composed deployment observes: `allowed-once` lets exactly that call proceed; rejection, dismissal, and channel absence deny with three distinct reasons the model can tell apart; a successful in-turn request lands a durable `approval/asked`/`approval/decided` pair on the asking agent's session log; nothing about a grant persists past the call that asked. An idle request or audit append failure rejects instead of returning an unaudited decision.
 
@@ -63,7 +63,7 @@ Answerers are `approval/request` waterfall listeners. Zero listeners fall throug
 
 #### The per-session policy tier
 
-The seam also owns the session-scoped `'ask' | 'never'` policy described by [the sandbox Agent Note](2026-07-06-sandbox.md). Effective policy is folded from logged switches over the deployment default. `'never'` resolves to `rejected` inside `request()` before any answerer can run; `'ask'` dispatches and otherwise falls through to `unavailable`. The prompt states only deterministic `'never'`, switch narration is coalesced, and every request still records the audit pair.
+The seam also owns the session-scoped `'ask' | 'never'` policy described by [the sandbox Agent Note](2026-07-06-sandbox.md). Effective policy is folded from logged switches over the deployment default. `'never'` resolves to `rejected` inside `request()` before any answerer can run; `'ask'` dispatches and otherwise falls through to `unavailable`. Both current values join the atomic runtime-context snapshot before each model request, so a policy switch needs no separate narration; every approval request still records the audit pair.
 
 #### The ACP answerer
 
@@ -83,7 +83,7 @@ The answerer routes through the bridge's exact-agent ownership check described b
 
 Unit tests pin outcomes, first-wins delegation, containment, cancellation, scoped routing, audit pairing, the unbypassable `'never'` policy, tool deny reasons, and ACP ownership/outcome mapping through a real scripted bridge.
 
-Snapshots record allowed and rejected sandbox escalation through `session/request_permission`, plus the `'never'` prompt and policy-switch notice. Unscripted permission prompts cancel and fail closed.
+Snapshots record allowed and rejected sandbox escalation through `session/request_permission`, plus the complete `'ask'` and `'never'` runtime-context contributions. Unscripted permission prompts cancel and fail closed.
 
 ## Deferred
 
@@ -124,7 +124,7 @@ Costs and accepted limits:
 - **What happens when the user dismisses the prompt, or the turn aborts mid-ask?** Dismissal maps to `cancelled` with its own deny text. An already-aborted signal settles `cancelled` without dispatching; an abort during the ask discards the late answer. When both audit appends commit, either path records one pair, never two.
 - **What if the client answers with an option the harness never offered?** Any selection other than the offered `allow_once` maps to `rejected` — an unknown optionId from a non-conforming client can never grant.
 - **How do subagents' approvals route?** An agent no answerer owns delegates through the whole waterfall and fails closed — in-process subagents are deliberately unanswerable. A `'never'` parent seeds that override into each in-process child's log ([decision](2026-07-25-subagent-policy-inheritance.md)), so the child is told up front instead of asking into the empty waterfall. `subagent-acp`'s child-side auto-answer is separate; routing a child's asks to the parent controller is deferred (§ Deferred).
-- **What does `policy: 'never'` actually change at runtime?** The service resolves every ask for that session to `rejected` before dispatching any answerer (in-service, so no registration order can bypass it); the system prompt states the policy; switches are narrated at boundaries; each successful auto-rejection records the audit pair.
+- **What does `policy: 'never'` actually change at runtime?** The service resolves every ask for that session to `rejected` before dispatching any answerer (in-service, so no registration order can bypass it); the next atomic runtime-context snapshot states the policy; each successful auto-rejection records the audit pair.
 - **What happens across a hot reload, or when an answerer unloads mid-session?** Answerers dispose with their owning fiber, so the next ask degrades to `unavailable` instead of hanging on a dead channel; remounting re-registers the answerer with no catch-up state.
 - **Where does a client get approval context?** The request carries the exact `callId` and the asker's human-readable `reason`; channel adapters may correlate richer tool-call state without duplicating arguments in the approval seam.
 
