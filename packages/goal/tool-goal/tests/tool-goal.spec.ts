@@ -32,6 +32,7 @@ function stubAgent(rawId: string, supplied?: Session): StubAgent {
     inbox: new Inbox(session),
     get status() { return status },
     ctx: new Context(),
+    send: () => {},
     followup: () => {},
     steer: () => {},
     inject(input) {

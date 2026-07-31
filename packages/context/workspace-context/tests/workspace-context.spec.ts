@@ -178,6 +178,7 @@ function stubAgent(cwd?: string, seed: SessionEvent[] = []): Agent {
     session,
     inbox: new Inbox(session),
     status: 'idle',
+    send: () => {},
     followup: () => {},
     steer: () => {},
     inject: () => { throw new Error('workspace-context must append directly to the open step') },

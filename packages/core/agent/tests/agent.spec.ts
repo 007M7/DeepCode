@@ -24,6 +24,7 @@ function stubAgent(rawId: string, overrides: Partial<Agent> = {}): Agent {
     inbox: new Inbox(session),
     status: 'idle',
     ctx: new Context(),
+    send: () => {},
     followup: () => {},
     steer: () => {},
     inject: () => {},

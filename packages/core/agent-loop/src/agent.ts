@@ -81,7 +81,7 @@ export class ReactLoopAgent implements Agent {
     }
   }
 
-  private send(message: UserMessage, target: InboxTarget, wakeup: boolean): void {
+  send(message: UserMessage, target: InboxTarget, wakeup: boolean): void {
     // Waking input cannot join an aborted admission or turn, so it starts the next turn.
     const wakingAfterAbort = wakeup && this.phase.kind !== 'idle' && this.phase.abort.signal.aborted
     const resolvedTarget = wakingAfterAbort ? 'next-turn' : target
@@ -180,7 +180,7 @@ export class ReactLoopAgent implements Agent {
       if (admission.kind !== 'admitted') return false
       signal.throwIfAborted()
     } catch (error: unknown) {
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- cancel may abort while admission awaits
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- cancel may abort while admission awaits
       if (signal.aborted) return this.inbox.hasPending
       throw error
     }
@@ -216,11 +216,11 @@ export class ReactLoopAgent implements Agent {
         if (admission.kind === 'empty' && turnEnds) break
       }
     } catch (error: unknown) {
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- cancel may abort during any awaited turn operation
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- cancel may abort during any awaited turn operation
       if (signal.aborted) turnEnds = { kind: 'aborted', reason: signal.reason as AgentCancelCause }
       else turnEnds = { kind: 'error', error: errorChain(error) }
     } finally {
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- the turn is always ended in this block
+      // oxlint-disable-next-line typescript/no-non-null-assertion -- the turn is always ended in this block
       this.session.append('turn/end', { turn, reason: turnEnds! })
     }
     return this.inbox.hasPending
@@ -317,7 +317,7 @@ export class ReactLoopAgent implements Agent {
       : undefined
     const maxTokens = this.options.maxTokens
     const seedConfig = this.requestHeaderLogged
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- the instance logged the frozen header it now folds
+      // oxlint-disable-next-line typescript/no-non-null-assertion -- the instance logged the frozen header it now folds
       ? persistedConfig!
       : deepFreeze({
         ...route,

@@ -202,6 +202,7 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
     injected,
     injectedOptions,
     cancelled,
+    send() {},
     followup(input) {
       sent.push(input.content)
       sentMessages.push(input)

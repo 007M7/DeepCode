@@ -47,6 +47,7 @@ function stubAgent(session: Session): Agent {
     inbox: new Inbox(session),
     status: 'idle',
     ctx: new Context(),
+    send: () => {},
     followup: () => {},
     steer: () => {},
     inject: () => {},

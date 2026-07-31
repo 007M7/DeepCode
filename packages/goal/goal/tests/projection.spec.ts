@@ -38,6 +38,7 @@ function liveAgent(ctx: Context, session: Session): Agent {
     inbox: new Inbox(session),
     ctx,
     get status() { return status },
+    send: () => {},
     followup: () => {},
     steer: () => {},
     inject(input: UserMessage) {

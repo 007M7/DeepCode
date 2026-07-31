@@ -449,7 +449,7 @@ type AgentCancelCause =
   | { readonly kind: 'disposed' }
 ```
 
-`Agent` 是覆盖公开活跃 agent 契约的接口。具体驱动器实现 `followup`、`steer` 和 `inject`；路由策略仍为驱动器私有。
+`Agent` 是覆盖公开活跃 agent 契约的接口。它的统一 `send` 方法直接公开目标与唤醒路由；`followup`、`steer` 和 `inject` 是固定预设别名。
 
 ```ts type-equiv
 /** Public live-agent handle. */
@@ -483,6 +483,15 @@ interface Agent {
    * @returns fulfillment after no scheduled or active driver remains.
    */
   whenIdle(): Promise<void>
+
+  /**
+   * Route identified input to an inbox boundary and optionally wake the driver.
+   * Waking input submitted after active cancellation is queued for the next turn.
+   * @param message - identified content and its producer provenance.
+   * @param target - the preferred next-turn or next-step inbox boundary.
+   * @param wakeup - whether delivery may wake the driver.
+   */
+  send(message: UserMessage, target: InboxTarget, wakeup: boolean): void
 
   /**
    * Queue an ordinary follow-up turn and wake the driver. The item becomes the

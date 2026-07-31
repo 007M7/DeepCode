@@ -441,7 +441,7 @@ type AgentCancelCause =
   | { readonly kind: 'disposed' }
 ```
 
-`Agent` is an interface over the public live-agent contract. Concrete drivers implement `followup`, `steer`, and `inject`; routing policy remains private to the driver.
+`Agent` is an interface over the public live-agent contract. Its unified `send` method exposes target and wakeup routing directly; `followup`, `steer`, and `inject` are fixed-preset aliases.
 
 ```ts type-equiv
 /** Public live-agent handle. */
@@ -475,6 +475,15 @@ interface Agent {
    * @returns fulfillment after no scheduled or active driver remains.
    */
   whenIdle(): Promise<void>
+
+  /**
+   * Route identified input to an inbox boundary and optionally wake the driver.
+   * Waking input submitted after active cancellation is queued for the next turn.
+   * @param message - identified content and its producer provenance.
+   * @param target - the preferred next-turn or next-step inbox boundary.
+   * @param wakeup - whether delivery may wake the driver.
+   */
+  send(message: UserMessage, target: InboxTarget, wakeup: boolean): void
 
   /**
    * Queue an ordinary follow-up turn and wake the driver. The item becomes the

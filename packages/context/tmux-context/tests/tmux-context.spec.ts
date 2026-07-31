@@ -99,6 +99,7 @@ function sessionAgent(session: Session, id = 'agent'): Agent {
     inbox: new Inbox(session),
     status: 'running',
     ctx: new Context(),
+    send: () => {},
     followup: () => {},
     steer: () => {},
     inject: () => { throw new Error('tmux-context must append directly to the open step') },

@@ -41,7 +41,7 @@ function agent(ctx: Context): Agent {
   const session = new Session(id)
   const value: Agent = {
     id, options: {}, session, inbox: new Inbox(session), status: 'idle', ctx: scope.ctx,
-    followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
+    send: () => {}, followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
   }
   ctx.agents.register(value)
   return value

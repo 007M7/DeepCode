@@ -43,7 +43,7 @@ function agent(ctx: Context): Agent {
   const session = new Session(id)
   return {
     id, options: {}, session, inbox: new Inbox(session), status: 'idle', ctx,
-    followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
+    send: () => {}, followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
   }
 }
 
@@ -250,7 +250,7 @@ describe('pty-local plugin shape', () => {
     const ownerFiber = await ctx.plugin(() => {})
     const owner: Agent = {
       id: session.id, options: {}, session, inbox: new Inbox(session), status: 'idle', ctx: ownerFiber.ctx,
-      followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      send: () => {}, followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     }
     ctx.agents.register(owner)
     const providerFiber = await registerStubLocalBackend(ctx, () => stubLocalSession())
@@ -293,7 +293,7 @@ describe('pty-local plugin shape', () => {
     const ownerFiber = await ctx.plugin(() => {})
     const owner: Agent = {
       id: session.id, options: {}, session, inbox: new Inbox(session), status: 'idle', ctx: ownerFiber.ctx,
-      followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      send: () => {}, followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     }
     ctx.agents.register(owner)
     const gate = Promise.withResolvers<undefined>()

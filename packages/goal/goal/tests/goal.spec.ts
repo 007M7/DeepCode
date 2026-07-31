@@ -47,6 +47,7 @@ function stubAgentForSession(session: Session): StubAgent {
     inbox: new Inbox(session),
     ctx: new Context(),
     get status() { return status },
+    send: () => {},
     followup: () => {},
     steer: () => {},
     inject(input) {

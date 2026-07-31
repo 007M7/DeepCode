@@ -110,6 +110,15 @@ export interface Agent {
   whenIdle(): Promise<void>
 
   /**
+   * Route identified input to an inbox boundary and optionally wake the driver.
+   * Waking input submitted after active cancellation is queued for the next turn.
+   * @param message - identified content and its producer provenance.
+   * @param target - the preferred next-turn or next-step inbox boundary.
+   * @param wakeup - whether delivery may wake the driver.
+   */
+  send(message: UserMessage, target: InboxTarget, wakeup: boolean): void
+
+  /**
    * Queue an ordinary follow-up turn and wake the driver. The item becomes the
    * sole ordinary message of its own turn.
    * @param message - identified prompt content and its producer provenance.

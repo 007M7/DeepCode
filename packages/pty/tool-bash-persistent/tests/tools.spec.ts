@@ -42,6 +42,7 @@ function agent(ctx: Context, cwd: string | undefined): Agent {
     inbox: new Inbox(session),
     status: 'idle',
     ctx: scope.ctx,
+    send: () => {},
     followup: () => {},
     steer: () => {},
     inject: () => {},
