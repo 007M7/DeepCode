@@ -371,6 +371,17 @@ describe('running and lock semantics (queue cut 1)', () => {
     fireEvent.paste(textarea, { clipboardData: { getData: () => 'again' } })
     await settle()
     expect(scroll.scrollTop).toBe(48) // 88 - (100 - 60)
+    // A caret straight after a newline has nothing on its line to measure, so
+    // the newline it just left is measured instead and one line is added.
+    // chromium reports no client rects at all for the collapsed position.
+    mirror.style.lineHeight = '24px'
+    caretAt(500)
+    fireEvent.paste(textarea, { clipboardData: { getData: () => 'block\n' } })
+    await settle()
+    // The three pastes accumulate at the draft's head, so the caret is at the
+    // end of what they inserted — and the measured index is the newline before it.
+    expect(measured!.offset).toBe('pastedmoreagainblock\n'.length - 1)
+    expect(scroll.scrollTop).toBe(48 + 112) // from 48, by (524 + 24) - 436
   })
 
   it('a session switch refocuses without moving the transcript, and reveals the new draft caret', () => {
@@ -387,13 +398,27 @@ describe('running and lock semantics (queue cut 1)', () => {
     Object.defineProperty(scroll, 'scrollHeight', { value: 964, configurable: true })
     Object.defineProperty(scroll, 'scrollTop', { value: 0, writable: true, configurable: true })
     Range.prototype.getBoundingClientRect = () => ({ top: 500, bottom: 524 }) as DOMRect
+    // The draft ends in a newline, so the reveal takes the after-newline path
+    // and needs a resolvable line-height (jsdom computes `normal`).
+    mirror.style.lineHeight = '24px'
+    // Which index the effect reveals at, not merely that it scrolled: a
+    // revealCaret(0) would land the same offset without this.
+    onTestFinished(() => { Range.prototype.setStart = NATIVE_SET_START })
+    let measured: { node: Node; offset: number } | null = null
+    Range.prototype.setStart = function setStart(node: Node, offset: number): void {
+      measured = { node, offset }
+      NATIVE_SET_START.call(this, node, offset)
+    }
     const focused: (boolean | undefined)[] = []
     textarea.focus = (options?: FocusOptions) => { focused.push(options?.preventScroll) }
     textarea.setSelectionRange(textarea.value.length, textarea.value.length)
     act(() => { view.rerender(<InputBar {...props} sessionId={'s2' as SessionId} />) })
     expect(focused).toEqual([true])
-    expect(scroll.scrollTop).toBe(88) // 524 - 436
-    expect(mirror.firstChild).toBeInstanceOf(Text)
+    expect(scroll.scrollTop).toBe(112) // (524 + 24) - 436
+    // The draft ends in a newline, so the rule measures that newline: the
+    // caret's own index is the mirror text's length minus its sentinel.
+    expect(measured!.node).toBe(mirror.firstChild)
+    expect(measured!.offset).toBe(textarea.value.length - 1)
   })
 
   it('disabled state shows the unavailable placeholder; custom placeholder wins', () => {

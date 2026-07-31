@@ -98,18 +98,29 @@ export function InputBar({
   // where the caret is without a caret API.
   const revealCaret = (caret: number): void => {
     const scrollEl = scrollRef.current
-    const text = mirrorRef.current?.firstChild
-    if (scrollEl === null || !(text instanceof Text)) return
+    const mirrorEl = mirrorRef.current
+    const text = mirrorEl?.firstChild
+    if (scrollEl === null || mirrorEl === null || !(text instanceof Text)) return
     // A box that cannot scroll has nothing to reveal: the draft fits, so every
     // caret is already in view and the assignment below would clamp to itself.
     if (scrollEl.scrollHeight <= scrollEl.clientHeight) return
+    const at = Math.min(caret, text.data.length)
+    // A caret straight after a newline sits on a line with nothing on it to
+    // measure — the shape a trailing-newline draft ends in — and the engines
+    // disagree there: chromium returns NO client rects at all (an all-zero box,
+    // which would scroll the wrong way), firefox reports the line above, WebKit
+    // the right one. Measure the newline itself instead, which is the line the
+    // caret just left, and step one line down; that they all agree on.
+    const afterNewline = at > 0 && text.data[at - 1] === '\n'
     const range = document.createRange()
-    range.setStart(text, Math.min(caret, text.data.length))
-    range.collapse(true)
-    const at = range.getBoundingClientRect()
+    range.setStart(text, afterNewline ? at - 1 : at)
+    if (afterNewline) range.setEnd(text, at)
+    else range.collapse(true)
+    const line = afterNewline ? Number.parseFloat(getComputedStyle(mirrorEl).lineHeight) : 0
+    const rect = range.getBoundingClientRect()
     const box = scrollEl.getBoundingClientRect()
-    if (at.bottom > box.bottom) scrollEl.scrollTop += at.bottom - box.bottom
-    else if (at.top < box.top) scrollEl.scrollTop -= box.top - at.top
+    if (rect.bottom + line > box.bottom) scrollEl.scrollTop += rect.bottom + line - box.bottom
+    else if (rect.top + line < box.top) scrollEl.scrollTop -= box.top - rect.top - line
   }
 
   // Unlock (mount / session switch) returns focus to the box, and owns the
