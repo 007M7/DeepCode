@@ -137,6 +137,44 @@ const TERMINAL_EXIT_STATUS: Record<string, { exitCode: number } | { signal: stri
   [TERMINAL_OUTPUT_FIXTURE]: { exitCode: 1 },
 }
 
+/**
+ * The structured `web_search` result view for fixture turn 66, authored inline
+ * because this client-side fixture cannot import the web tool that projects it.
+ * The sources exercise the citation list's features: a titled source with a
+ * snippet and a date, a source with no title (its hostname labels the link) and
+ * a snippet but no date, and a source with a title and a date but no snippet.
+ * `truncated` marks the capped indicator. The shape is the contract's own
+ * search view minus its wire discriminants.
+ */
+const WEB_SEARCH_RESULT: Omit<Extract<ToolResultView, { card: 'web'; kind: 'search' }>, 'card' | 'kind'> = {
+  answer: 'DeepSeek Harness is a plugin-based agent harness on vendored Cordis where **every capability is a plugin**.',
+  sources: [
+    {
+      url: 'https://github.com/deepseek-ai/deepseek-harness',
+      title: 'DeepSeek Harness — plugin-based agent harness',
+      snippet: 'Everything is a plugin: session, tools, agent-loop, and LLM adapters all mount on the same Cordis context.',
+      publishedAt: '2026-07-01',
+    },
+    {
+      url: 'https://www.deepseek.com/blog/harness-architecture',
+      snippet: 'The capability-seam pattern splits each capability into interface, implementation, and consumer packages.',
+    },
+    {
+      url: 'https://docs.deepseek.com/harness/plugins',
+      title: 'Writing a harness plugin',
+      publishedAt: '2026-06-15',
+    },
+  ],
+  truncated: true,
+}
+
+/** The `web_fetch` result view for fixture turn 67, authored inline for the same reason. */
+const WEB_FETCH_RESULT: Omit<Extract<ToolResultView, { card: 'web'; kind: 'fetch' }>, 'card' | 'kind'> = {
+  url: 'https://www.deepseek.com/blog/harness-architecture',
+  statusCode: 200,
+  truncated: false,
+}
+
 const DEEPSEEK_REASONING = {
   efforts: [
     { id: 'off', name: 'Off' },
@@ -326,8 +364,20 @@ function buildAlphaLog(): SessionEvent[] {
   // strip empty and take the todo surfaces' own coverage with it.
   toolTurn(65, 'bash', '{"command":"pnpm run check","cwd":"/tmp/fixture/deep/nested"}', TERMINAL_OUTPUT_FIXTURE)
 
+  // Turns 66-67: the web render intent — a web_search whose result view carries
+  // structured sources plus an answer (the citation list, one source lacking a
+  // title so its hostname labels the link, the capped indicator on), and a
+  // web_fetch whose result view carries the fetched URL and its HTTP status.
+  // Both keep a generic pending call view and add the `web` card only at
+  // result time, which is the contract's result-only web shape. Named after
+  // the real tools so they hit the keyed WebRow registration. Ordered BEFORE
+  // the todo turn for the same reason turn 65 is: the standing plan retires at
+  // the next turn/start, so a turn after it would empty the dock's plan strip.
+  toolTurn(66, 'web_search', '{"query":"deepseek harness architecture"}', 'Search results for deepseek harness architecture.')
+  toolTurn(67, 'web_fetch', '{"url":"https://www.deepseek.com/blog/harness-architecture"}', '# Harness architecture\n\nEverything is a plugin.')
+
   const todoArgs = JSON.stringify({ todos: fixtureTodos })
-  toolTurn(66, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
+  toolTurn(68, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
   // The real tool appends the snapshot mid-execution — between tool/call and
   // tool/result — so the fixture reproduces that exact ordering (the last
   // toolTurn events run ... tool/call, tool/result, step/end, turn/end).
@@ -366,6 +416,13 @@ function presentCall(name: string, argsRaw: string): ToolCallView | undefined {
       return { card: 'generic', title: `Edit ${str(args.file_path)}`, kind: 'edit', rawInput: args }
     case 'write':
       return { card: 'generic', title: `Write ${str(args.file_path)}`, kind: 'edit', rawInput: args }
+    // The web tools keep a GENERIC pending card and add the `web` result card
+    // only at result time (the contract's result-only web shape); their pending
+    // kind matches the result kind so a call and its result read as one category.
+    case 'web_search':
+      return { card: 'generic', title: `Search ${str(args.query)}`, kind: 'search', rawInput: args }
+    case 'web_fetch':
+      return { card: 'generic', title: `Fetch ${str(args.url)}`, kind: 'fetch', rawInput: args }
     default:
       return undefined // echo et al: the documented no-view fallback path
   }
@@ -374,6 +431,17 @@ function presentCall(name: string, argsRaw: string): ToolCallView | undefined {
 function presentResult(name: string, argsRaw: string, resultText: string): ToolResultView | undefined {
   const call = presentCall(name, argsRaw)
   if (call === undefined) return undefined
+  // The web tools keep a generic pending card, so their result card is chosen
+  // by tool name rather than by the pending card tag: the structured `web` card
+  // the frontend consumes. The view carries no `content` copy (per the contract
+  // and the web-result-card note); a capability-less UI falls back to the raw
+  // `tool/result` content, which this fixture emits from `resultText`.
+  if (name === 'web_search') {
+    return { card: 'web', kind: 'search', ...WEB_SEARCH_RESULT }
+  }
+  if (name === 'web_fetch') {
+    return { card: 'web', kind: 'fetch', ...WEB_FETCH_RESULT }
+  }
   switch (call.card) {
     case 'terminal':
       // The sample's own exit status, authored beside it: re-parsing the
