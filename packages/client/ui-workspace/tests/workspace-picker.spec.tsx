@@ -5,11 +5,18 @@ import type {
   SessionListState, WorkspaceId, WorkspaceListState, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { WorkspaceCreateError } from '@deepseek-ai/dsh-client-runtime/client'
-import type { DirectoryFlowOwnerProps } from '../src/client/contract/slots.ts'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
+import type { DirectoryFlowOwnerProps, WorkspacePickerProps } from '../src/client/contract/slots.ts'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { WorkspacePicker } from '../src/client/WorkspacePicker.tsx'
+import { zh } from '../src/client/locales.ts'
 
 afterEach(cleanup)
+
+// The seat's key domain is workspace ∪ common; the stub mirrors the real
+// lookup chain (namespace, then common vocabulary, then the key).
+const t: WorkspacePickerProps['t'] = makeTranslate(zh, commonZh)
 
 const wid = (id: string) => id as WorkspaceId
 function workspace(id: string, title = id): WorkspaceView {
@@ -91,6 +98,7 @@ function mount(
       createWorkspace={createWorkspace}
       useDirectoryFlow={occupancy.useDirectoryFlow}
       renderSlot={renderSlot}
+      t={t}
     />
   )
   const view = render(
@@ -102,7 +110,7 @@ function mount(
   }
 }
 
-function chooseItem(name: 'Open local folder…' | 'Create a new workspace'): void {
+function chooseItem(name: '打开本地文件夹…' | '新建工作区'): void {
   fireEvent.click(screen.getByRole('menuitem', { name }))
 }
 
@@ -117,10 +125,10 @@ describe('WorkspacePicker', () => {
     const created = workspace('new', 'New')
     const createWorkspace = vi.fn(async () => created)
     const b = mount([], createWorkspace)
-    chooseItem('Create a new workspace')
-    const input = screen.getByLabelText('New workspace name')
+    chooseItem('新建工作区')
+    const input = screen.getByLabelText('新工作区名称')
     fireEvent.change(input, { target: { value: 'project-one' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }))
+    fireEvent.click(screen.getByRole('button', { name: '创建工作区' }))
     expect(createWorkspace).toHaveBeenCalledWith({ name: 'project-one' })
     await waitFor(() => { expect(b.onPick).toHaveBeenCalledWith(created.workspaceId) })
   })
@@ -130,7 +138,7 @@ describe('WorkspacePicker', () => {
     const createWorkspace = vi.fn(async () => created)
     const b = mount([], createWorkspace)
     expect(screen.queryByTestId('directory-flow')).toBeNull()
-    chooseItem('Open local folder…')
+    chooseItem('打开本地文件夹…')
     expect(b.onClose).toHaveBeenCalled()
     expect(screen.getByTestId('directory-flow')).toBeTruthy()
     await act(async () => { b.probe.owner!.onPicked('/tmp/project') })
@@ -142,7 +150,7 @@ describe('WorkspacePicker', () => {
 
   it('treats flow cancellation as a silent no-op', () => {
     const b = mount([])
-    chooseItem('Open local folder…')
+    chooseItem('打开本地文件夹…')
     act(() => { b.probe.owner!.onCancel() })
     expect(screen.queryByTestId('directory-flow')).toBeNull()
     expect(b.createWorkspace).not.toHaveBeenCalled()
@@ -157,15 +165,15 @@ describe('WorkspacePicker', () => {
       })
     })
     const b = mount([], createWorkspace)
-    chooseItem('Open local folder…')
+    chooseItem('打开本地文件夹…')
     await act(async () => { b.probe.owner!.onPicked('/one/project') })
     await waitFor(() => {
-      expect(screen.getByRole('dialog', { name: 'A workspace with this name already exists' })).toBeTruthy()
+      expect(screen.getByRole('dialog', { name: '已存在同名工作区' })).toBeTruthy()
     })
-    expect(screen.getByRole('alert').textContent).toBe('Choose a folder with a different name.')
+    expect(screen.getByRole('alert').textContent).toBe('请选择其他名称的文件夹。')
     // The failed adoption withdrew the flow; Choose again reopens it.
     expect(b.probe.owner!.open).toBe(false)
-    fireEvent.click(screen.getByRole('button', { name: 'Choose again' }))
+    fireEvent.click(screen.getByRole('button', { name: '重新选择' }))
     expect(b.probe.owner!.open).toBe(true)
     expect(b.onPick).not.toHaveBeenCalled()
   })
@@ -175,22 +183,22 @@ describe('WorkspacePicker', () => {
     const pending = new Promise<WorkspaceView>((settle) => { resolve = settle })
     const created = workspace('adopted')
     const b = mount([workspace('alpha', 'Alpha')], vi.fn(() => pending))
-    chooseItem('Open local folder…')
+    chooseItem('打开本地文件夹…')
     // The flow is open but nothing is picked yet: a chooser pending on the
     // host display must already block concurrent workspace actions.
     expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: 'Alpha' }).disabled).toBe(true)
-    expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: 'Create a new workspace' }).disabled).toBe(true)
+    expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: '新建工作区' }).disabled).toBe(true)
     act(() => { b.probe.owner!.onPicked('/tmp/project') })
     expect(b.probe.owner!.busy).toBe(true)
-    expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: 'Open local folder…' }).disabled).toBe(true)
-    expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: 'Create a new workspace' }).disabled).toBe(true)
+    expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: '打开本地文件夹…' }).disabled).toBe(true)
+    expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: '新建工作区' }).disabled).toBe(true)
     await act(async () => { resolve(created); await pending })
     expect(b.probe.owner!.busy).toBe(false)
   })
 
   it('shows the flow-reported failure in the folder-error surface', () => {
     const b = mount([])
-    chooseItem('Open local folder…')
+    chooseItem('打开本地文件夹…')
     act(() => { b.probe.owner!.onError('no chooser installed') })
     expect(screen.getByRole('alert').textContent).toBe('no chooser installed')
     expect(screen.queryByTestId('directory-flow')).toBeNull()
@@ -199,18 +207,18 @@ describe('WorkspacePicker', () => {
 
   it('closes a creation modal when the user cancels', () => {
     mount([])
-    chooseItem('Create a new workspace')
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    chooseItem('新建工作区')
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
   it('blocks a create-new name already present in the Workspace list', () => {
     const b = mount([workspace('alpha', 'Alpha')])
-    chooseItem('Create a new workspace')
-    fireEvent.change(screen.getByLabelText('New workspace name'), { target: { value: ' Alpha ' } })
-    expect(screen.getByRole('alert').textContent).toBe('A workspace named “Alpha” already exists.')
-    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Create workspace' }).disabled).toBe(true)
-    fireEvent.keyDown(screen.getByLabelText('New workspace name'), { key: 'Enter' })
+    chooseItem('新建工作区')
+    fireEvent.change(screen.getByLabelText('新工作区名称'), { target: { value: ' Alpha ' } })
+    expect(screen.getByRole('alert').textContent).toBe('已存在名为“Alpha”的工作区。')
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '创建工作区' }).disabled).toBe(true)
+    fireEvent.keyDown(screen.getByLabelText('新工作区名称'), { key: 'Enter' })
     expect(b.createWorkspace).not.toHaveBeenCalled()
   })
 
@@ -219,12 +227,12 @@ describe('WorkspacePicker', () => {
     const pending = new Promise<WorkspaceView>((settle) => { resolve = settle })
     const created = workspace('fresh', 'same-name')
     const b = mount([], vi.fn(() => pending))
-    chooseItem('Create a new workspace')
-    fireEvent.change(screen.getByLabelText('New workspace name'), { target: { value: 'same-name' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }))
+    chooseItem('新建工作区')
+    fireEvent.change(screen.getByLabelText('新工作区名称'), { target: { value: 'same-name' } })
+    fireEvent.click(screen.getByRole('button', { name: '创建工作区' }))
 
     b.rerenderItems([created])
-    expect(screen.getByRole('status').textContent).toBe('Creating workspace…')
+    expect(screen.getByRole('status').textContent).toBe('正在创建工作区…')
     expect(screen.queryByRole('alert')).toBeNull()
     await act(async () => { resolve(created); await pending })
     expect(b.onPick).toHaveBeenCalledWith(created.workspaceId)
@@ -235,12 +243,12 @@ describe('WorkspacePicker', () => {
     const pending = new Promise<WorkspaceView>((_resolve, rejectPromise) => { reject = rejectPromise })
     const createWorkspace = vi.fn(() => pending)
     const b = mount([], createWorkspace)
-    chooseItem('Create a new workspace')
-    const input = screen.getByLabelText('New workspace name')
+    chooseItem('新建工作区')
+    const input = screen.getByLabelText('新工作区名称')
     fireEvent.keyDown(input, { key: 'ArrowRight' })
     fireEvent.change(input, { target: { value: 'broken' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }))
-    expect(screen.getByRole('status').textContent).toBe('Creating workspace…')
+    fireEvent.click(screen.getByRole('button', { name: '创建工作区' }))
+    expect(screen.getByRole('status').textContent).toBe('正在创建工作区…')
     fireEvent.keyDown(input, { key: 'Enter' })
     expect(createWorkspace).toHaveBeenCalledTimes(1)
     fireEvent.keyDown(document, { key: 'Escape' })
@@ -252,10 +260,10 @@ describe('WorkspacePicker', () => {
 
   it('reports non-Error creation failures', async () => {
     const b = mount([], vi.fn(async () => { throw 'permission denied' }))
-    chooseItem('Create a new workspace')
+    chooseItem('新建工作区')
     // The name field starts empty (no prefill); a name is required to submit.
-    fireEvent.change(screen.getByLabelText('New workspace name'), { target: { value: 'broken' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }))
+    fireEvent.change(screen.getByLabelText('新工作区名称'), { target: { value: 'broken' } })
+    fireEvent.click(screen.getByRole('button', { name: '创建工作区' }))
     await waitFor(() => {
       expect(screen.getByRole('alert').textContent).toBe('Workspace creation failed: permission denied')
     })
@@ -268,7 +276,7 @@ describe('WorkspacePicker', () => {
       <WorkspacePicker
         open useSessions={hook(sessions)} useWorkspaces={hook(workspaceState([]))}
         onPick={vi.fn()} onClose={vi.fn()} createWorkspace={vi.fn()}
-        useDirectoryFlow={occupancySource().useDirectoryFlow} renderSlot={renderSlot}
+        useDirectoryFlow={occupancySource().useDirectoryFlow} renderSlot={renderSlot} t={t}
       />,
     )
     expect(screen.queryByRole('menu')).toBeNull()
@@ -283,49 +291,49 @@ describe('WorkspacePicker', () => {
       <WorkspacePicker
         open anchorRef={anchor()} useSessions={hook(sessions)} useWorkspaces={hook(state)}
         onPick={vi.fn()} onClose={vi.fn()} createWorkspace={vi.fn()}
-        useDirectoryFlow={occupancySource().useDirectoryFlow} renderSlot={renderSlot}
+        useDirectoryFlow={occupancySource().useDirectoryFlow} renderSlot={renderSlot} t={t}
       />,
     )
-    expect(screen.getByRole('status').textContent).toBe('Loading workspaces…')
+    expect(screen.getByRole('status').textContent).toBe('正在加载工作区…')
   })
 
   it('hides the folder entry while the directory-flow hole is empty', () => {
     mount([], vi.fn(), occupancySource(false))
-    expect(screen.getByRole('menuitem', { name: 'Create a new workspace' })).toBeTruthy()
-    expect(screen.queryByRole('menuitem', { name: 'Open local folder…' })).toBeNull()
+    expect(screen.getByRole('menuitem', { name: '新建工作区' })).toBeTruthy()
+    expect(screen.queryByRole('menuitem', { name: '打开本地文件夹…' })).toBeNull()
   })
 
   it('shows the folder entry when a flow package activates after the first paint', () => {
     const b = mount([], vi.fn(), occupancySource(false))
-    expect(screen.queryByRole('menuitem', { name: 'Open local folder…' })).toBeNull()
+    expect(screen.queryByRole('menuitem', { name: '打开本地文件夹…' })).toBeNull()
     // Registration changes flow through the subscription, no re-render needed.
     act(() => { b.occupancy.flip(true) })
-    expect(screen.getByRole('menuitem', { name: 'Open local folder…' })).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: '打开本地文件夹…' })).toBeTruthy()
   })
 
   it('keeps Choose again inert while the flow occupant is gone, and snaps back a flow opened over an empty hole', async () => {
     const b = mount([], vi.fn(async () => { throw new Error('adoption failed') }))
-    chooseItem('Open local folder…')
+    chooseItem('打开本地文件夹…')
     await act(async () => { b.probe.owner!.onPicked('/one/project') })
-    await waitFor(() => { expect(screen.getByRole('dialog', { name: 'Couldn’t open folder' })).toBeTruthy() })
+    await waitFor(() => { expect(screen.getByRole('dialog', { name: '无法打开文件夹' })).toBeTruthy() })
     // The occupant unloads while the error dialog is up: retrying would open
     // a flow nobody can serve or cancel, so the button goes inert.
     act(() => { b.occupancy.flip(false) })
-    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Choose again' }).disabled).toBe(true)
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '重新选择' }).disabled).toBe(true)
     // Cancel stays the way out, and the menu actions are usable again.
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
-    expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: 'Create a new workspace' }).disabled).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: '新建工作区' }).disabled).toBe(false)
   })
 
   it('withdraws an open flow when its occupant unloads, re-enabling the menu actions', () => {
     const b = mount([])
-    chooseItem('Open local folder…')
+    chooseItem('打开本地文件夹…')
     expect(screen.getByTestId('directory-flow')).toBeTruthy()
     // The flow plugin unloads mid-interaction (HMR): nobody is left to
     // cancel, so the owner withdraws and the actions come back.
     act(() => { b.occupancy.flip(false) })
     expect(b.probe.owner!.open).toBe(false)
-    expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: 'Create a new workspace' }).disabled).toBe(false)
-    expect(screen.queryByRole('menuitem', { name: 'Open local folder…' })).toBeNull()
+    expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: '新建工作区' }).disabled).toBe(false)
+    expect(screen.queryByRole('menuitem', { name: '打开本地文件夹…' })).toBeNull()
   })
 })

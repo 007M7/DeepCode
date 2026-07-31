@@ -73,7 +73,7 @@ interface SettingsScope<T> {
 
 ## 描述符
 
-`describe()` 为配置界面序列化每个已注册 namespace：schemastery 的 `toJSON()` 信封驱动 schema 渲染的表单，解析值填充表单。
+`describe()` 为配置界面序列化每个已注册 namespace：schemastery 的 `toJSON()` 信封驱动 schema 渲染的表单，解析值填充表单，分离出的 `base`/`user` 层让表单按字段是否出现在 user 层标注「用户已覆盖」。`describe({ redactSecrets: true })`——每个 wire 面都必须传入——从三层剥离 `role('secret')` 字段并枚举其 `{path, set}` 槽位，页面因此能渲染只写输入框而永远收不到机密值。
 
 ```ts type-equiv
 /** One registered namespace as surfaced to configuration UIs. */
@@ -84,8 +84,49 @@ interface SettingsDescriptor {
   schema: unknown
   /** Current resolved value. */
   value: unknown
+  /**
+   * Monotonic revision of the raw user section this descriptor was read at.
+   * Send it back as `expectedRevision` on a write to refuse a stale one.
+   */
+  revision: number
+  /** Registrant's composition `base` layer (detached), when one was declared. */
+  base?: unknown
+  /**
+   * Raw user section from the stored document (detached), when one exists and
+   * is well-formed; a field's presence here is what marks it user-overridden.
+   */
+  user?: unknown
   /** Owner's declared effect timing. */
   applies: SettingsApplies
+  /** Schema-declared secret positions; present only under `redactSecrets`. */
+  secrets?: RedactedSecret[]
+}
+```
+
+只持有脱敏 descriptor 的调用方无法安全地重建分节，因此删除改以路径 op 传递。每个 descriptor 还携带针对原始分节的 `revision`；写入可以把它作为 `expectedRevision` 送回，不再匹配的写入会被拒绝，而不是覆盖在先落地的那个写方之上。
+```ts type-equiv
+/**
+ * One path-addressed edit to a namespace's user section. Path mutation exists
+ * for a caller holding an INCOMPLETE view of the section — a configuration UI
+ * reads the redacted descriptor, which by construction never received the
+ * `role('secret')` fields. Such a caller can name the field it means without
+ * restating the section: a wholesale `replace` rebuilt from a redacted
+ * document silently deletes every secret the wire never returned.
+ */
+type SettingsPathOp =
+  | { op: 'set'; path: readonly string[]; value: unknown }
+  | { op: 'unset'; path: readonly string[] }
+```
+
+```ts type-equiv
+/** Options for {@link Settings.describe}. */
+interface SettingsDescribeOptions {
+  /**
+   * Strip `role('secret')` fields from `value`/`base`/`user` and enumerate
+   * them in each descriptor's `secrets`. Every wire surface MUST pass this;
+   * the verbatim default exists for same-process configuration UIs only.
+   */
+  redactSecrets?: boolean
 }
 ```
 

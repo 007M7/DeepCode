@@ -7,18 +7,21 @@
 
 import { useId, useState } from 'react'
 import type { Context } from 'cordis'
-import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // The domain's client-namespace pure-type outlet: one import edge delivers
 // the `todos` projection-key merge (single source, no consumer-side restated
 // declare) and the payload type. Type-only by construction — the outlet is
 // free of host value imports, so no host Context merge enters this program.
 import type { TodoItem } from '@deepseek-ai/dsh-tool-todo/client'
 import { IconChevronDownOutline14, IconChevronUpOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { NS } from '../locales.ts'
 import css from './TodoPanel.module.css'
 
 export interface TodoPanelProps {
   /** The session's current plan (empty renders nothing) — selected by the dock adapter. */
   todos: readonly TodoItem[]
+  /** The dock entry's locale seat, passed down as a plain prop. */
+  t: TodoDockProps['t']
 }
 
 /** Local exhaustiveness helper — client packages do not depend on `dsh-llm`. */
@@ -76,18 +79,18 @@ function StatusGlyph({ status }: { status: TodoItem['status'] }) {
 }
 
 /** Header summary: "<done>/<total> tasks · <n> in progress". */
-function progressLabel(todos: readonly TodoItem[]): string {
-  const done = todos.filter(t => t.status === 'completed').length
-  const active = todos.filter(t => t.status === 'in_progress').length
-  return `${done}/${todos.length} tasks · ${active} in progress`
+function progressLabel(todos: readonly TodoItem[], t: TodoPanelProps['t']): string {
+  const done = todos.filter(item => item.status === 'completed').length
+  const active = todos.filter(item => item.status === 'in_progress').length
+  return t('todo.progress', { done, total: todos.length, active })
 }
 
-export function TodoPanel({ todos }: TodoPanelProps) {
+export function TodoPanel({ todos, t }: TodoPanelProps) {
   const [collapsed, setCollapsed] = useState(true)
   if (todos.length === 0) return null
 
   return (
-    <section className={css.root} data-testid="todo-panel" aria-label="To-dos">
+    <section className={css.root} data-testid="todo-panel" aria-label={t('todo.title')}>
       <div className={css.body}>
         <button
           type="button"
@@ -95,8 +98,8 @@ export function TodoPanel({ todos }: TodoPanelProps) {
           aria-expanded={!collapsed}
           onClick={() => { setCollapsed(v => !v) }}
         >
-          <span className={css.title}>To-dos</span>
-          <span className={css.progress}>{progressLabel(todos)}</span>
+          <span className={css.title}>{t('todo.title')}</span>
+          <span className={css.progress}>{progressLabel(todos, t)}</span>
           <span className={css.chevron} aria-hidden>
             {collapsed ? <IconChevronUpOutline14 /> : <IconChevronDownOutline14 />}
           </span>
@@ -116,13 +119,13 @@ export function TodoPanel({ todos }: TodoPanelProps) {
   )
 }
 
-/** Full props of a dock entry: InputZone owner share + session standard kit + global seat. */
-export type TodoDockProps = PropsRuntime<'conversation.input.dock'>
+/** Full props of a dock entry: InputZone owner share + session standard kit + global seat + the locale seat. */
+export type TodoDockProps = PropsRuntime<'conversation.input.dock'> & PropsLocale<'conversation'>
 
 /** Dock adapter: reads the host-computed 'todos' projection (whole list; absent or null renders nothing). */
-export function TodoDock({ useProjection }: TodoDockProps) {
+export function TodoDock({ useProjection, t }: TodoDockProps) {
   const todos = useProjection('todos')
-  return <TodoPanel todos={todos ?? []} />
+  return <TodoPanel todos={todos ?? []} t={t} />
 }
 
 /**
@@ -139,6 +142,6 @@ export const todoDockEntry = {
    * @param ctx - registrant context (disposal rides ctx.effect inside slots.register).
    */
   apply(ctx: Context): void {
-    ctx.slots.register({ name: 'conversation.input.dock', id: 'todo', order: 10 }, TodoDock)
+    ctx.slots.register({ name: 'conversation.input.dock', id: 'todo', order: 10, locale: NS }, TodoDock)
   },
 }

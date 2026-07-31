@@ -64,7 +64,7 @@
 
 ### 请求头重建（`request-header.ts`）
 
-`request/header` 记录非历史请求封装的完整规范快照，其原因为 `initial`、`resume` 或 `change`。`foldRequestHeader()` 选择最新快照；旧版增量事件和已移除的 `fallback` 原因会被拒绝。详见[可重建请求 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)。
+`request/header` 记录非历史请求封装的完整规范快照，其原因为 `initial`、`resume` 或 `change`。其可选 `adapterDefaults` 映射会标记由精确模型解析填入的生效 `reasoningEffort` 或 `maxTokens` 值，使下一次请求提议能够将它们与显式对话设置区分开。`foldRequestHeader()` 选择最新快照；旧版增量事件和已移除的 `fallback` 原因会被拒绝。详见[可重建请求 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)。
 
 `user/message` 会直接存储完整的 `UserMessage`，其中包括路由或提示词准入前创建的标识。无论它是直接人类提示词、合成注入，还是已准入的 Goal Round，都会原样呈现其 `content`；带类型的 `source` 是区分三者的唯一通道，并携带各领域专有的持久事实。`assistant/message`、`tool/result` 和 steering（中途引导）对应的 `steering/message` 也会存储完整的消息值。轮次执行仍由 `turn/start` 与 `turn/end` 包围，而空闲注入可以在轮次之间追加并刷新一条 `user/message`，无需运行模型。
 

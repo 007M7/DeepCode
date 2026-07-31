@@ -20,7 +20,7 @@ Harness implements every capability an AI agent needs—including LLM calls, too
   config:
     agents:
       - id: main
-        provider: deepseek
+        provider: deepseek-official
         model: deepseek-v4-flash
 
 # Select the interactive front door

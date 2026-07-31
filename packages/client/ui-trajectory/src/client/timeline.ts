@@ -15,6 +15,7 @@ export interface TrajectoryTimeRange {
 /** One ledger record projected into the active timeline domain. */
 export interface TrajectoryTimelineSpan extends TrajectoryTimeRange {
   index: number
+  isError: boolean
   kind: TrajectoryCellKind
   label: string
   lane: number
@@ -96,6 +97,7 @@ export function deriveTrajectoryTimeline(
       start: spans.length + offset,
       end: spans.length + offset + 1,
       index: cell.index,
+      isError: cell.isError === true,
       kind: cell.kind,
       label: cell.text,
       lane: laneFor(cell.kind),
@@ -131,6 +133,7 @@ function deriveTimedTimeline(
           : [{
             ...range,
             index: cell.index,
+            isError: cell.isError === true,
             kind: cell.kind,
             label: cell.text,
             lane: laneFor(cell.kind),

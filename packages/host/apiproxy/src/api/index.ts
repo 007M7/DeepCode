@@ -11,6 +11,9 @@ import type { CommandsApi } from './commands.ts'
 import type { SkillsApi } from './skills.ts'
 import type { EventsApi } from './events.ts'
 import type { GoalsApi } from './goals.ts'
+import type { SettingsApi } from './settings.ts'
+import type { CredentialsApi } from './credentials.ts'
+import type { LlmApi } from './llm.ts'
 import type { ClientResponse, RpcReceipt } from './rpc.ts'
 
 /** Root interface of the unified API surface. New client-request domain = one new file pair + one field here + one map row. */
@@ -22,6 +25,9 @@ export interface ApiProxy {
   skills: SkillsApi
   events: EventsApi
   goals: GoalsApi
+  settings: SettingsApi
+  credentials: CredentialsApi
+  llm: LlmApi
   /** Response entry for server-requests (client-response, echoing their rpcId); not a domain method (four-quadrant model). */
   respond(message: ClientResponse): Promise<RpcReceipt>
 }
@@ -37,6 +43,9 @@ export type { CommandsApi, CommandDescriptor } from './commands.ts'
 export type { SkillsApi, SkillEntry } from './skills.ts'
 export type { EventsApi, MuxFrame, HostFrame, QueuedInboxItem, ToolCallView, ToolEventView, ToolResultView } from './events.ts'
 export type { GoalsApi, GoalId, GoalRef } from './goals.ts'
+export type { SettingsApi, SettingsNamespaceView, SettingsPathOpView, SettingsSecretView } from './settings.ts'
+export type { CredentialsApi, CredentialView } from './credentials.ts'
+export type { ConfigurableProviderView, LlmApi } from './llm.ts'
 export type { ApprovalResponsePayload } from './approvals.ts'
 export type { QuestionResponsePayload } from './questions.ts'
 

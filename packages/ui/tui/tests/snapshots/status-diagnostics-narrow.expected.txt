@@ -1,7 +1,7 @@
-terminal 56x36 buffer=normal length=44 base=8 viewport=8
+terminal 56x36 buffer=normal length=45 base=9 viewport=9
 lifecycle started=1 stopped=0 progress=inactive
 title "Inspect session diagnostics — DSH snapshot"
-cursor hidden column=7 viewportRow=35 bufferRow=43
+cursor hidden column=7 viewportRow=35 bufferRow=44
 buffer
 0| " DEEPSEEK HARNESS"
   style 1-8 fg=bright-magenta bold
@@ -37,84 +37,87 @@ buffer
   style 0-0 dim
   style 3-12 dim
   style 55-55 dim
-15| "│  Model:      deepseek/deepseek-v4-pro (effort        │"
-  style 0-0 dim
-  style 3-12 dim
-  style 40-55 dim
-16| "│              default; reasoning blocks shown)        │"
-  style 0-0 dim
-  style 15-46 dim
-  style 55-55 dim
-17| "│                                                      │"
-  style 0-0 dim
-  style 55-55 dim
-18| "│  Agent:      idle · 8 events · 1 turn · 1 step · 1   │"
+15| "│  Model:      deepseek-official/deepseek-v4-pro       │"
   style 0-0 dim
   style 3-12 dim
   style 55-55 dim
-19| "│              tool call                               │"
+16| "│              (effort default; reasoning blocks       │"
+  style 0-0 dim
+  style 15-55 dim
+17| "│              shown)                                  │"
+  style 0-0 dim
+  style 15-20 dim
+  style 55-55 dim
+18| "│                                                      │"
   style 0-0 dim
   style 55-55 dim
-20| "│                                                      │"
-  style 0-0 dim
-  style 55-55 dim
-21| "│  Tokens:     1,250 input + 340 output                │"
+19| "│  Agent:      idle · 8 events · 1 turn · 1 step · 1   │"
   style 0-0 dim
   style 3-12 dim
   style 55-55 dim
-22| "│  KV cache:   [███████████░░░░░] 67% hit (3,000 read  │"
+20| "│              tool call                               │"
+  style 0-0 dim
+  style 55-55 dim
+21| "│                                                      │"
+  style 0-0 dim
+  style 55-55 dim
+22| "│  Tokens:     1,250 input + 340 output                │"
+  style 0-0 dim
+  style 3-12 dim
+  style 55-55 dim
+23| "│  KV cache:   [███████████░░░░░] 67% hit (3,000 read  │"
   style 0-0 dim
   style 3-12 dim
   style 15-15 dim
   style 16-26 fg=bright-magenta
   style 27-32 dim
   style 55-55 dim
-23| "│              + 250 write)                            │"
+24| "│              + 250 write)                            │"
   style 0-0 dim
   style 55-55 dim
-24| "│  Context:    [█████░░░░░░░░░░░] 33% used (42,000 /   │"
+25| "│  Context:    [█████░░░░░░░░░░░] 33% used (42,000 /   │"
   style 0-0 dim
   style 3-12 dim
   style 15-15 dim
   style 16-20 fg=bright-magenta
   style 21-32 dim
   style 55-55 dim
-25| "│              128,000)                                │"
+26| "│              128,000)                                │"
   style 0-0 dim
   style 55-55 dim
-26| "│                                                      │"
+27| "│                                                      │"
   style 0-0 dim
   style 55-55 dim
-27| "│  Created:    2026-07-22 09:10:11 UTC                 │"
-  style 0-0 dim
-  style 3-12 dim
-  style 55-55 dim
-28| "│  Active:     2026-07-22 09:10:11 UTC                 │"
+28| "│  Created:    2026-07-22 09:10:11 UTC                 │"
   style 0-0 dim
   style 3-12 dim
   style 55-55 dim
-29| "╰──────────────────────────────────────────────────────╯"
+29| "│  Active:     2026-07-22 09:10:11 UTC                 │"
+  style 0-0 dim
+  style 3-12 dim
+  style 55-55 dim
+30| "╰──────────────────────────────────────────────────────╯"
   style 0-55 dim
-30| <blank>
-31| "System prompt                                           "
+31| <blank>
+32| "System prompt                                           "
   style 0-12 fg=bright-magenta bold
-32| "You are an AI agent powered by the DeepSeek Harness SDK."
-33| "                                                        "
-34| "Paths prefixed with @ are files explicitly referenced by"
-35| "the user. Use the read tool when their contents are     "
-36| "needed; do not claim to have inspected a file before    "
-37| "reading it.                                             "
-38| <blank>
-39| "Registered tools                                        "
+33| "You are an AI agent powered by the DeepSeek Harness SDK."
+34| "                                                        "
+35| "Paths prefixed with @ are files explicitly referenced by"
+36| "the user. Use the read tool when their contents are     "
+37| "needed; do not claim to have inspected a file before    "
+38| "reading it.                                             "
+39| <blank>
+40| "Registered tools                                        "
   style 0-15 fg=bright-magenta bold
-40| "read, write                                             "
-41| <blank>
-42| "/workspace/project (tui-staging)  deepseek-v4-pro  ↑1.3k"
+41| "read, write                                             "
+42| <blank>
+43| "/workspace/project (tui-staging)  deepseek-v4-pro  ↑1.3k"
   style 0-17 fg=bright-magenta bold
   style 18-31 dim
   style 34-48 dim
   style 51-55 dim
-43| " dsh >                                                  "
+44| " dsh >                                                  "
   style 1-3 fg=bright-magenta bold
   style 5-6 dim
   style 7-7 inverse

@@ -2,8 +2,11 @@
 // the REAL persistence API renders purely from the log — the surface nothing
 // else covers: sidebar cold listing, the implicit resume/attach inside the
 // history RPC, history-page tool views, and the client's log-ordered transcript
-// of historical events — with ZERO model calls in replay (no replay fixture; a stray stream
-// fails loud on the open llm seam). The seed is a recorded fixture under the
+// events — with ZERO model calls in replay (no replay fixture; a stray stream
+// fails loud on the open llm seam). The cold session also carries the one
+// keyless command-row surface: an Access-chip pick runs `/permission` on the
+// host, so the settled row's copy has a golden here. The seed is a recorded
+// fixture under the
 // same record discipline as every other: DSH_SNAPSHOT=record drives the turn
 // live through the composer (real read tool against seeded workspace files)
 // and harvests seed.jsonl; replay/refresh seed it cold and only render.
@@ -24,6 +27,9 @@ import { newEnglishPage, saveFailureShot } from './support.ts'
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/seeded-history', import.meta.url))
 const SEED = fileURLToPath(new URL('./snapshots/seeded-history/seed.jsonl', import.meta.url))
 const UI_EXPECTED = fileURLToPath(new URL('./snapshots/seeded-history/ui.expected.md', import.meta.url))
+// The command-row golden: the same conversation after one /permission switch,
+// which is the only surface that shows a settled command row's copy.
+const COMMAND_ROW_EXPECTED = fileURLToPath(new URL('./snapshots/seeded-history/command-row.expected.md', import.meta.url))
 const MODE = webSnapshotMode()
 const SEED_ID = 'seeded-history-web-e2e'
 
@@ -198,7 +204,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
     await sessionRow.click()
     // Settled barrier for history: the recorded final assistant text renders.
     await expect.poll(() => page.getByText('DONE', { exact: true }).count(), { timeout: 15_000 }).toBe(1)
-    await expect.poll(() => page.getByText('上下文已压缩', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
+    await expect.poll(() => page.getByText('Context compacted', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
     // Tool cards render from logged tool/call + tool/result alone (views are
     // host-recomputed per page; the generic card is the documented default).
     const toolRows = page.locator('[data-variant], [data-sample]')
@@ -230,7 +236,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
         }],
       },
     }))
-    await page.getByRole('button', { name: '上下文注入' }).waitFor({ timeout: 10_000 })
+    await page.getByRole('button', { name: 'Context injection' }).waitFor({ timeout: 10_000 })
   }, 60_000)
 
   it.skipIf(MODE === 'record')('matches the historical conversation aria golden', async () => {
@@ -248,7 +254,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
 
   it.skipIf(MODE === 'record')('matches the Figma context disclosure geometry', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-context-injection'))
-    const disclosure = page.getByRole('button', { name: '上下文注入' })
+    const disclosure = page.getByRole('button', { name: 'Context injection' })
     expect(await disclosure.getAttribute('aria-expanded')).toBe('false')
     const collapsedIcon = disclosure.locator('svg').first()
     const collapsedIconBox = await collapsedIcon.boundingBox()
@@ -315,7 +321,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
 
   it.skipIf(MODE === 'record')('expands the cold-resumed compact summary', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-seeded-compaction'))
-    const marker = page.getByRole('button', { name: /上下文已压缩/ })
+    const marker = page.getByRole('button', { name: /Context compacted/ })
     await marker.waitFor({ timeout: 10_000 })
     expect(await marker.getAttribute('aria-expanded')).toBe('false')
     await marker.click()
@@ -329,11 +335,33 @@ describe('web e2e: seeded history renders through cold resume', () => {
     await expect.poll(() => marker.getAttribute('aria-expanded'), { timeout: 5_000 }).toBe('false')
   })
 
+  it.skipIf(MODE === 'record')('an Access-chip switch lands one command row: bare name, non-repeating settlement text', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-seeded-command-row'))
+    // The Access chip submits `/permission <preset>` — a host command with no
+    // model call, so the settled row renders keylessly over this cold history.
+    // The row copy is the assertion: `permission · preset workspace-write`,
+    // where neither half repeats the other (the dispatched `/` and its
+    // argument stay out of the title, and the settlement text never restates
+    // the command's own name).
+    await page.getByRole('button', { name: 'Access mode, current: Danger Full Access' }).click()
+    await page.getByRole('menuitem', { name: 'Workspace Write' }).click()
+    await page.getByRole('button', { name: 'Access mode, current: Workspace Write' }).waitFor({ timeout: 10_000 })
+    // Scoped to the row itself, so unrelated page text that happens to read
+    // `permission` (a future resident slash menu) cannot satisfy or break it.
+    const row = page.locator('[data-variant="others"]').filter({ hasText: 'preset workspace-write' })
+    await expect.poll(() => row.count(), { timeout: 10_000 }).toBe(1)
+    expect(await row.getByText('permission', { exact: true }).count()).toBe(1)
+    expect(await row.getByText('/permission workspace-write', { exact: true }).count()).toBe(0)
+    const snapshot = (await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd))
+      .split(SEED_ID).join('{{seededId}}')
+    await compareOrRefreshGolden(COMMAND_ROW_EXPECTED, snapshot, MODE)
+  }, 60_000)
+
   it.skipIf(MODE === 'record')('issued zero model calls and stayed clean', async () => {
     // No replay fixture was installed and the llm seam is open — any stray
     // stream would have failed the turn loudly. Cleanliness pins the wire.
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
-    await assertFixtureInventory(SNAPSHOT_DIR, ['seed.jsonl', 'ui.expected.md'])
+    await assertFixtureInventory(SNAPSHOT_DIR, ['command-row.expected.md', 'seed.jsonl', 'ui.expected.md'])
   })
 })

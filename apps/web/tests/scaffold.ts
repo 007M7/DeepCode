@@ -4,9 +4,11 @@
 // the vendored Loader (the same include boot AppCLIEntry drives), patched the
 // snapshot way — so a real chromium exercises the real HTTP/SSE wire, the
 // api-gateway, agent loop, tools, and persistence. Modes ride $DSH_SNAPSHOT:
-// replay (default, keyless: llm-deepseek row disabled, dsh-llm-replay row
-// inserted in providers mode), record (real adapter + key, harvests fixtures
-// from live session memory), refresh (keyless replay that rewrites goldens).
+// replay (default, keyless: normally disables the llm-deepseek row and
+// inserts dsh-llm-replay in providers mode), record (real adapter + key,
+// harvests fixtures from live session memory), refresh (keyless replay that
+// rewrites goldens). A first-run option keeps the real adapter mounted while
+// masking its credential, without making a model call.
 //
 // Composition divergences from `dsh web`, all deliberate, all via include
 // patches after the shipped surface overlay, over the SAME tree (never a
@@ -15,8 +17,8 @@
 // disabled (recorded fixtures must not embed this repo's AGENTS.md);
 // session-title-llm disabled (its fire-and-forget title call would race the
 // loop for the session's replay cursor); webserver pinned to port 0 with the
-// built dist; keyless modes disable llm-deepseek and fill the open llm seam
-// post-boot with installLlmReplay on the settled root ctx
+// built dist; ordinary keyless modes disable llm-deepseek and fill the open
+// llm seam post-boot with installLlmReplay on the settled root ctx
 // (the plugin-row path discards the ReplayHandle; the direct install keeps
 // assertConsumed for the teardown fixture-consumption check).
 import { existsSync } from 'node:fs'
@@ -72,7 +74,7 @@ const WEB_OVERLAY_PATH = join(REPO_ROOT, 'apps/cli/config/web.cordis.yml')
 // post-step pressure check would warn every step). The published
 // contextWindow keeps that pressure path provably inert for small fixtures.
 const REPLAY_PROVIDERS = [{
-  id: 'deepseek',
+  id: 'deepseek-official',
   name: 'DeepSeek',
   models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', contextWindow: 128_000 }],
 }]
@@ -89,6 +91,8 @@ export interface WebScaffold {
   workspaceCwd: string
   /** Temp persistence root (seeded sessions land here through the real API). */
   persistenceRoot: string
+  /** Isolated harness home the settings/credentials rows write ($DSH_HOME double). */
+  harnessHome: string
   /** Await a settled turn end: in-process turn/end, then the agent's idle flip (which follows the persistence flush). */
   whenTurnSettled(timeoutMs?: number): Promise<SessionId>
   /** Tear everything down; asserts the replay fixture was fully consumed first (replay/refresh). */
@@ -126,6 +130,12 @@ export interface LaunchOptions {
    * remain reconstructable without making the tools a product default.
    */
   cordisTools?: boolean
+  /**
+   * Keep the shipped DeepSeek adapter mounted while masking the process
+   * environment's DEEPSEEK_API_KEY for this scaffold lifetime. This is the
+   * keyless first-run configuration lane; the default disables the adapter.
+   */
+  deepSeekMissingCredential?: boolean
 }
 
 /** Dispose the booted tree and remove both owned temp roots, reporting every independent cleanup failure. */
@@ -152,7 +162,26 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
       throw new Error('web e2e record mode needs DEEPSEEK_API_KEY (env or repo-root .env)')
     }
   }
+  if (mode === 'record' && options.deepSeekMissingCredential === true) {
+    throw new Error('deepSeekMissingCredential is a keyless replay/refresh option')
+  }
+  const maskDeepSeekCredential = mode !== 'record' && options.deepSeekMissingCredential === true
+  const originalDeepSeekCredential = process.env.DEEPSEEK_API_KEY
+  let credentialEnvironmentRestored = false
+  const restoreCredentialEnvironment = (): void => {
+    if (credentialEnvironmentRestored || !maskDeepSeekCredential) return
+    credentialEnvironmentRestored = true
+    if (originalDeepSeekCredential === undefined) {
+      Reflect.deleteProperty(process.env, 'DEEPSEEK_API_KEY')
+    } else {
+      process.env.DEEPSEEK_API_KEY = originalDeepSeekCredential
+    }
+  }
   const workspaceCwd = await realpath(await mkdtemp(join(tmpdir(), 'dsh-web-e2e-ws-')))
+  // Isolated harness home: the settings/credentials rows resolve $DSH_HOME
+  // paths at load, and an in-process boot must NEVER touch the developer's
+  // real ~/.dsh document or credential file.
+  const harnessHome = join(workspaceCwd, '.dsh-home')
   let persistenceRoot: string
   try {
     persistenceRoot = await mkdtemp(join(tmpdir(), 'dsh-web-e2e-sessions-'))
@@ -162,6 +191,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     if (failures.length > 1) throw new AggregateError(failures, 'web scaffold temp-root setup failed')
     throw error
   }
+  if (maskDeepSeekCredential) Reflect.deleteProperty(process.env, 'DEEPSEEK_API_KEY')
 
   // The include patch set — the same mechanism AppCLIEntry and the ACP
   // snapshot overlay use, applied over the SAME shipped tree (a patch id that
@@ -192,7 +222,13 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     // workspace, keeping the composition untouched.
     { id: 'workspace-context', disabled: true },
     { id: 'session-title-llm', disabled: true },
+    // Fixture sessions must never leave the process: the shipped row defaults
+    // to the production OTLP endpoint (or whatever DSH_TELEMETRY_OTLP_URL
+    // names in the ambient environment).
+    { id: 'telemetry-otel', disabled: true },
     { id: 'webserver', config: { host: '127.0.0.1', port: 0, distIndex: DIST_INDEX } },
+    { id: 'settings', config: { dshHome: harnessHome } },
+    { id: 'credentials', config: { dshHome: harnessHome } },
     // The shipped directory-picker row is the -auto chooser, which resolves
     // the interaction from the RUNNING host (display, SSH launch, bind). The
     // lane's goldens are interaction-specific (workspace-management drives
@@ -205,7 +241,9 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     ...options.cordisTools === true
       ? [{ insert: [{ id: 'tool-cordis', name: 'cordis:tool-cordis' }] }]
       : [],
-    ...mode === 'record' ? [] : [{ id: 'llm-deepseek', disabled: true }],
+    ...mode === 'record' || options.deepSeekMissingCredential === true
+      ? []
+      : [{ id: 'llm-deepseek', disabled: true }],
   ]
 
   // Sessions inherit the gateway's process.cwd() default; run the boot from
@@ -234,10 +272,10 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     }
     port = boundPort
 
-    // Fill the open llm seam on the settled root ctx (llm-deepseek is disabled
-    // in keyless modes; a scenario with no fixture leaves the seam empty so a
-    // stray stream fails loud with NO_ADAPTER). The direct install, unlike the
-    // plugin row, returns the ReplayHandle for the teardown consumption check.
+    // Fill the open llm seam on the settled root ctx. Ordinary keyless modes
+    // disable llm-deepseek; the first-run lane keeps it mounted but has no
+    // replay fixture and never streams. The direct install, unlike the plugin
+    // row, returns the ReplayHandle for the teardown consumption check.
     if (mode !== 'record' && options.replayFixture !== undefined) {
       replayHandle = installLlmReplay(ctx, {
         file: options.replayFixture,
@@ -249,6 +287,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   } catch (error) {
     if (process.cwd() !== originalCwd) process.chdir(originalCwd)
     const cleanupFailures = await cleanupScaffoldWorld(ctx, workspaceCwd, persistenceRoot)
+    restoreCredentialEnvironment()
     if (cleanupFailures.length > 0) {
       throw new AggregateError([error, ...cleanupFailures], 'web scaffold setup failed and cleanup was incomplete')
     }
@@ -258,6 +297,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   }
 
   return {
+    harnessHome,
     mode,
     baseUrl: `http://127.0.0.1:${port}`,
     ctx,
@@ -296,7 +336,11 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
       } catch (error) {
         failures.push(error)
       }
-      failures.push(...await cleanupScaffoldWorld(ctx, workspaceCwd, persistenceRoot))
+      try {
+        failures.push(...await cleanupScaffoldWorld(ctx, workspaceCwd, persistenceRoot))
+      } finally {
+        restoreCredentialEnvironment()
+      }
       if (failures.length > 0) throw new AggregateError(failures, 'web scaffold teardown failed')
     },
   }

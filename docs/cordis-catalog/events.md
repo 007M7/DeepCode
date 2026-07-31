@@ -439,6 +439,32 @@ A command was registered or unregistered. This is an unfiltered registry notific
 
 Source: [`packages/ui/commands/src/index.ts:154`](../../packages/ui/commands/src/index.ts)
 
+## `credentials/*`
+
+### `credentials/updated` — emit
+
+Committed change to a provider-managed credential source: a `set`, an `unset`, or an external edit observed in storage. Ambient process-environment changes are not observable and never emit. Listener failures are contained and logged — a sync throw and an async rejection alike — without changing the committed operation's outcome, except `INVARIANT`-coded failures, which rethrow after every listener ran; that rethrow reaches the emitter only from synchronous listeners, so invariant checks on this event must not be async functions.
+
+```ts cordis-catalog
+/**
+ * Committed change to a provider-managed credential source: a `set`, an
+ * `unset`, or an external edit observed in storage. Ambient
+ * process-environment changes are not observable and never emit. Listener
+ * failures are contained and logged — a sync throw and an async rejection
+ * alike — without changing the committed operation's outcome, except
+ * `INVARIANT`-coded failures, which rethrow after every listener ran;
+ * that rethrow reaches the emitter only from synchronous listeners, so
+ * invariant checks on this event must not be async functions.
+ * @param ref - the reference whose stored value changed.
+ * @mode emit
+ */
+'credentials/updated'(ref: CredentialRef): void
+```
+
+Types: [CredentialRef](../core-data-structures/credentials.md)
+
+Source: [`packages/credentials/credentials/src/index.ts:67`](../../packages/credentials/credentials/src/index.ts)
+
 ## `domain/*`
 
 ### `domain/changed` — emit
@@ -545,6 +571,25 @@ Source: [`packages/goal/goal/src/domain.ts:135`](../../packages/goal/goal/src/do
 
 ## `llm/*`
 
+### `llm/adapters-updated` — emit
+
+The provider topology changed: an adapter registered or unregistered routes, or the configurable-provider directory gained or lost entries. This is a payload-free registry notification fired at each commit point (including registration disposal); consumers re-read `listProviders()`, `listModels()`, or `listConfigurableProviders()` for the new state. Observer failures are contained and cannot veto the registry mutation.
+
+```ts cordis-catalog
+/**
+ * The provider topology changed: an adapter registered or unregistered
+ * routes, or the configurable-provider directory gained or lost entries.
+ * This is a payload-free registry notification fired at each commit point
+ * (including registration disposal); consumers re-read `listProviders()`,
+ * `listModels()`, or `listConfigurableProviders()` for the new state.
+ * Observer failures are contained and cannot veto the registry mutation.
+ * @mode emit
+ */
+'llm/adapters-updated'(): void
+```
+
+Source: [`packages/llm/llm/src/index.ts:70`](../../packages/llm/llm/src/index.ts)
+
 ### `llm/stream` — waterfall
 
 Waterfall around every streaming model call (retry, replay, routing). Bound to the LlmService; call `next()` to reach the resolved adapter's stream, or yield your own chunks to short-circuit.
@@ -567,7 +612,7 @@ Waterfall around every streaming model call (retry, replay, routing). Bound to t
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [LlmService](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:58`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:59`](../../packages/llm/llm/src/index.ts)
 
 ## `session/*`
 
@@ -661,6 +706,29 @@ Source: [`packages/core/session/src/index.ts:103`](../../packages/core/session/s
 
 ## `settings/*`
 
+### `settings/document-updated` — emit
+
+One registered namespace's RAW user section changed, whether or not the resolved value did. `settings/updated` is the consumer-facing event and stays deep-equal-gated; this one exists for configuration surfaces, which must learn that a field went from inherited to overridden (same resolved value, different meaning) and that their held revision is stale. Listener containment matches `settings/updated`.
+
+```ts cordis-catalog
+/**
+ * One registered namespace's RAW user section changed, whether or not the
+ * resolved value did. `settings/updated` is the consumer-facing event and
+ * stays deep-equal-gated; this one exists for configuration surfaces,
+ * which must learn that a field went from inherited to overridden (same
+ * resolved value, different meaning) and that their held revision is
+ * stale. Listener containment matches `settings/updated`.
+ * @param ns - the namespace whose stored section changed.
+ * @param revision - the namespace's new revision.
+ * @mode emit
+ */
+'settings/document-updated'(ns: SettingsNamespace, revision: number): void
+```
+
+Types: [SettingsNamespace](../core-data-structures/settings.md)
+
+Source: [`packages/settings/settings/src/index.ts:150`](../../packages/settings/settings/src/index.ts)
+
 ### `settings/updated` — emit
 
 Committed change to one registered namespace's resolved value. Emitted after the provider persisted (for `update`) or published (`provider`) the change; never emitted when the resolved value is deep-equal. Listener failures are contained and logged — a sync throw and an async rejection alike — except `INVARIANT`-coded failures, which rethrow after every listener ran; that rethrow reaches the emitter only from synchronous listeners, so invariant checks on this event must not be async functions.
@@ -686,7 +754,7 @@ Committed change to one registered namespace's resolved value. Emitted after the
 
 Types: [SettingsNamespace](../core-data-structures/settings.md) · [SettingsUpdateSource](../core-data-structures/settings.md)
 
-Source: [`packages/settings/settings/src/index.ts:108`](../../packages/settings/settings/src/index.ts)
+Source: [`packages/settings/settings/src/index.ts:137`](../../packages/settings/settings/src/index.ts)
 
 ## `skills/*`
 
@@ -870,7 +938,7 @@ A tool was registered or unregistered, or a scoped restriction changed (the avai
 'tools/change'(): void
 ```
 
-Source: [`packages/core/tools/src/index.ts:156`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:160`](../../packages/core/tools/src/index.ts)
 
 ### `tools/code-dispatch-log` — waterfall
 
@@ -894,7 +962,7 @@ Shape the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before the bri
 
 Types: [CodeDispatchLog](../core-data-structures/tools.md) · [ContentBlock](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [ToolRegistry](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:138`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:142`](../../packages/core/tools/src/index.ts)
 
 ### `tools/execute` — waterfall
 
@@ -916,7 +984,7 @@ Around-dispatch waterfall for timeout, retry, or metrics. `next()` returns a nor
 
 Types: [Scoped](../core-data-structures/scope.md) · [ToolDispatchExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:113`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:117`](../../packages/core/tools/src/index.ts)
 
 ### `tools/post-execute` — waterfall
 
@@ -939,7 +1007,7 @@ Accept, replace, enrich, or block a normalized dispatch result. `next()` accepts
 
 Types: [PostToolDecision](../core-data-structures/tools.md) · [Scoped](../core-data-structures/scope.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:125`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:129`](../../packages/core/tools/src/index.ts)
 
 ### `tools/pre-execute` — waterfall
 
@@ -960,7 +1028,7 @@ Allow, deny, or ask before dispatch. `next()` delegates to allow; missing approv
 
 Types: [PreToolDecision](../core-data-structures/tools.md) · [Scoped](../core-data-structures/scope.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:102`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:106`](../../packages/core/tools/src/index.ts)
 
 ### `tools/result` — emit
 
@@ -979,7 +1047,7 @@ Observe the frozen, lossless-JSON final outcome. Listener failures are contained
 
 Types: [Scoped](../core-data-structures/scope.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:146`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:150`](../../packages/core/tools/src/index.ts)
 
 ## `workflow/*`
 

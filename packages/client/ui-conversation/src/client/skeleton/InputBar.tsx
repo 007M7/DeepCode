@@ -15,6 +15,7 @@ import { IconPlusOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-plan-mode/client'
 // Type-only: the `goal` projection key merge (hint disambiguation).
 import type {} from '@deepseek-ai/dsh-goal/client'
+import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ComposerBarProps } from '../contract/slots.ts'
 import { deriveDecorations } from '../input/decorations.ts'
 import type { DraftDecorations } from '../input/decorations.ts'
@@ -33,9 +34,9 @@ export interface InputBarError {
 export type InputBarProps = ComposerBarProps
 
 export function InputBar({
-  useSession, useInput, inputActions, keyboard, stop, command, translateHint, renderSlot, useNotices, useLexicon,
+  useSession, useInput, inputActions, keyboard, stop, command, t, renderSlot, useNotices, useLexicon,
   useProjection, sessionId, variant, disabled: inert = false, placeholder, accessory, overlay, leftItems, rightItems, footer,
-  onAdd, addLabel = 'Add attachment',
+  onAdd, addLabel,
 }: InputBarProps) {
   const input = useInput(s => s)
   const notice = useNotices(s => s)
@@ -256,7 +257,8 @@ export function InputBar({
     inputRef.current?.focus()
   }
 
-  const primaryLabel = running ? 'Stop generating' : 'Send message'
+  const addText = addLabel ?? t('input.addAttachment')
+  const primaryLabel = running ? t('input.stop') : t('input.send')
   const onPrimary = (): void => {
     if (inputActions === undefined || stop === undefined) return // absent machine: the button is disabled
     if (running) {
@@ -272,7 +274,7 @@ export function InputBar({
   // or while the command face is absent with the session).
   const accessSelect: ReactNode = command === undefined
     ? null
-    : <PermissionSelect value={permissions} locked={locked} command={command} />
+    : <PermissionSelect value={permissions} locked={locked} command={command} t={t} />
 
   // Mirror-layer decorations: a visible backdrop with transparent text. The
   // claim token highlights through behind the textarea glyphs; each U+FFFC
@@ -341,8 +343,10 @@ export function InputBar({
     if (deco.hint !== null) {
       // Claim tokens are shaped `/name ` (trailing space); trim to the bare name.
       const commandName = input?.claim?.token.slice(1).trim() ?? ''
-      const hintKey = commandName === 'goal' && hasGoal ? 'goal.active' : commandName
-      const translated = translateHint(hintKey)
+      const hintKey = `hint.${commandName === 'goal' && hasGoal ? 'goal.active' : commandName}`
+      // Dynamic lookup by claimed command name: unknown commands miss the
+      // dictionary and keep the machine's own hint, so the call is wide.
+      const translated = (t as Translate)(hintKey)
       const displayHint = translated !== hintKey ? translated : deco.hint
       backdrop.push(<span key="hint" className={css.hint} data-decoration="hint">{displayHint}</span>)
     }
@@ -376,8 +380,8 @@ export function InputBar({
             readOnly={machineBusy}
             data-phase={input?.phase ?? 'inert'}
             placeholder={placeholder ?? (disabled
-              ? 'Session unavailable'
-              : planActive ? translateHint('placeholder.plan') : translateHint('placeholder.default'))}
+              ? t('placeholder.unavailable')
+              : planActive ? t('placeholder.plan') : t('placeholder.default'))}
             rows={2}
             onChange={onChange}
             onKeyDown={onKeyDown}
@@ -395,8 +399,8 @@ export function InputBar({
             <button
               type="button"
               className={css.add}
-              aria-label={addLabel}
-              title={addLabel}
+              aria-label={addText}
+              title={addText}
               disabled={locked}
               onMouseDown={keepFocus}
               onClick={onAdd}

@@ -32,6 +32,7 @@ packages/    @deepseek-ai/dsh-<pkg> workspaces at packages/<group>/<pkg>/
   hooks/       Claude Code/Codex hook bridges + shared wire-protocol library
   session-persistence/  persistence seam + JSONL/SQLite backends
   settings/    user-settings seam + file-backed provider
+  credentials/ credential-reference seam + env-over-.env provider
   acp/         automation-only Agent Client Protocol server
   ui/          TUI/JSON-RPC bridges; boot, approval, interaction plugins
   examples/    demo bundles (agent-spine + TUI/CLI/ACP/JSON-RPC bins) leaves load

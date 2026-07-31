@@ -105,10 +105,10 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   await ctx.plugin(UserInteractionService)
   await ctx.plugin(TuiPromptService)
   const catalog = options.catalog ?? {
-    providers: [{ id: 'deepseek', name: 'DeepSeek' }],
+    providers: [{ id: 'deepseek-official', name: 'DeepSeek' }],
     models: [
-      { provider: 'deepseek', id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash' },
-      { provider: 'deepseek', id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
+      { provider: 'deepseek-official', id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash' },
+      { provider: 'deepseek-official', id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
     ],
   }
   ctx.provide('tokenMeter', {
@@ -194,7 +194,7 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   const cancelled: AgentCancelCause[] = []
   const agent: FakeAgent = {
     id: sessionId,
-    options: options.agentOptions ?? { provider: 'deepseek', model: 'deepseek-v4-flash' },
+    options: options.agentOptions ?? { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
     session,
     status: options.status ?? 'idle',
     get acceptsNextStep() {

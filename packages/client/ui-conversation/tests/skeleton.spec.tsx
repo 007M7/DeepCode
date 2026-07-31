@@ -11,8 +11,11 @@ import type {
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConversationRootProps } from '../src/client/skeleton/ConversationRoot.tsx'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { createChatStore } from '../src/client/stores.ts'
 import { SessionInputShell } from '../src/client/input/facade.ts'
+import { zh } from '../src/client/locales.ts'
 import { ConversationRoot } from '../src/client/skeleton/ConversationRoot.tsx'
 import { ConversationSession } from '../src/client/skeleton/ConversationSession.tsx'
 import { InputBar } from '../src/client/skeleton/InputBar.tsx'
@@ -43,6 +46,9 @@ beforeEach(() => {
   localStorage.clear()
   vi.stubGlobal('ResizeObserver', ResizeObserverStub)
 })
+
+// Mirrors the real lookup chain (conversation namespace, then common).
+const t: ConversationRootProps['t'] = makeTranslate(zh, commonZh)
 
 const sid = (id: string) => id as SessionId
 const wid = (id: string) => id as WorkspaceId
@@ -126,6 +132,7 @@ function mount(
           }}
           bindDraftMirror={write => wiring.bindMirror(write)}
           open={open}
+          t={t}
           {...owner}
         />
       )
@@ -149,7 +156,7 @@ function mount(
           useLexicon={bindSnapshotSelector(wiring.lexicon)}
           stop={stop}
           command={() => Promise.resolve(true)}
-          translateHint={(key: string) => key}
+          t={t}
           renderSlot={(() => null) as InputBarProps['renderSlot']}
           {...bar}
         />
@@ -181,6 +188,7 @@ function mount(
     renderSlot,
     renderSlotChain,
     selectWorkspace: retargetWorkspace,
+    t,
   }
   const view = render(<ConversationRoot {...props} />)
   return {
@@ -241,7 +249,7 @@ describe('ConversationRoot resident composer', () => {
     const header = b.view.container.querySelector('header')
     expect(host).not.toBeNull()
     expect(header?.getAttribute('aria-hidden')).toBe('true')
-    expect(b.view.getByText("Let's start building")).toBeTruthy()
+    expect(b.view.getByText('开始构建吧')).toBeTruthy()
     expect(b.view.queryByTestId('view-chat')).toBeNull()
     // The same machine-backed textarea is live in the hero, and the
     // persistence mirror stays bound (ConversationSession mounts chrome-hidden
@@ -252,7 +260,7 @@ describe('ConversationRoot resident composer', () => {
     expect(b.chat.store.getSnapshot().draft).toBe('draft in hero')
     // Picker: open through the chip; a pick switches to the other
     // workspace's blank session (draft carry is apply-layer wiring).
-    fireEvent.click(b.view.getByRole('button', { name: 'Choose workspace' }))
+    fireEvent.click(b.view.getByRole('button', { name: '选择工作区' }))
     const owner = b.pickerOwner() as { open: boolean; onPick(id: WorkspaceId): void }
     expect(owner.open).toBe(true)
     act(() => { owner.onPick(wid('second')) })
@@ -274,7 +282,7 @@ describe('ConversationRoot resident composer', () => {
     expect(after.value).toBe('kept across flip')
     expect(b.chat.store.getSnapshot().draft).toBe('kept across flip')
     expect(b.view.container.querySelector('[data-conversation-scroll]')?.contains(after)).toBe(true)
-    expect(b.view.queryByText("Let's start building")).toBeNull()
+    expect(b.view.queryByText('开始构建吧')).toBeNull()
     expect(b.view.getByTestId('view-chat')).toBeTruthy()
   })
 
@@ -295,7 +303,7 @@ describe('ConversationRoot resident composer', () => {
       ],
       selectWorkspace,
     )
-    fireEvent.click(b.view.getByRole('button', { name: 'Choose workspace' }))
+    fireEvent.click(b.view.getByRole('button', { name: '选择工作区' }))
     const owner = b.pickerOwner() as { onPick(id: WorkspaceId): void }
     await act(async () => { owner.onPick(wid('second')); await Promise.resolve() })
     expect(selectWorkspace).toHaveBeenCalledWith(wid('second'))
@@ -305,7 +313,7 @@ describe('ConversationRoot resident composer', () => {
 
   it('blank session keeps the interactive picker chip (workspace switchable until the first message)', () => {
     const b = mount(conversationSnapshot({ composerPhase: 'blank', blank: true }))
-    const chip = b.view.getByRole('button', { name: 'Choose workspace' })
+    const chip = b.view.getByRole('button', { name: '选择工作区' })
     expect((chip as HTMLButtonElement).disabled).toBe(false)
     expect(b.slotCalls).toContain('conversation.hero.workspace')
   })

@@ -7,10 +7,16 @@ import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
 import type { ConversationSnapshot, SessionId, SessionListState, WorkspaceListState } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SelectionTarget } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { createChatStore } from '../src/client/stores.ts'
-import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
+import { AssistantMarkdown, type AssistantMarkdownProps } from '../src/client/chat/AssistantMarkdown.tsx'
 import { StatsLine } from '../src/client/chat/StatsLine.tsx'
 import { DetailsPanel } from '../src/client/skeleton/DetailsPanel.tsx'
+import { zh } from '../src/client/locales.ts'
+
+// Mirrors the real lookup chain (conversation namespace, then common).
+const t: AssistantMarkdownProps['t'] = makeTranslate(zh, commonZh)
 
 afterEach(cleanup)
 
@@ -28,6 +34,7 @@ describe('render branch tails', () => {
   it('AssistantMarkdown reasoning row is ok-state when not the streaming tail', () => {
     const view = render(
       <AssistantMarkdown
+        t={t}
         blocks={[{ kind: 'reasoning', text: 'done thinking' }, { kind: 'text', text: 'answer' }]}
         streaming
       />,
@@ -54,7 +61,7 @@ describe('render branch tails', () => {
 
   it('AssistantMarkdown reasoning as the streaming tail renders the running ring', () => {
     const view = render(
-      <AssistantMarkdown blocks={[{ kind: 'reasoning', text: 'still thinking' }]} streaming />,
+      <AssistantMarkdown t={t} blocks={[{ kind: 'reasoning', text: 'still thinking' }]} streaming />,
     )
     expect(view.container.querySelector('[data-state="running"]')).not.toBeNull()
   })
@@ -82,6 +89,7 @@ describe('render branch tails', () => {
         useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
         closeDetails={vi.fn()}
+        t={t}
       />,
     )
     expect(view.getByText('详情')).toBeTruthy()
@@ -118,6 +126,7 @@ describe('render branch tails', () => {
         useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
         closeDetails={vi.fn()}
+        t={t}
       />,
     )
     // Sub-call material: the sub-tool name titles the panel, args pretty-print,

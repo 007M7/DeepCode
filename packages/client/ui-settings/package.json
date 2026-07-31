@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-settings",
-  "description": "Settings shell plugin: sidebar trigger + modal panel occupying sidebar.settings; declares the settings.section list slot",
+  "description": "Settings shell plugin: sidebar trigger, modal panel, feature sections, and root-scoped onboarding overlays",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -46,6 +46,7 @@
     "react": "^18.2.0"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-client-locale": "workspace:^",
     "@deepseek-ai/dsh-client-runtime": "workspace:^",
     "@deepseek-ai/dsh-client-ui-primitives": "workspace:^",
     "@deepseek-ai/dsh-client-ui-sidebar": "workspace:^",
