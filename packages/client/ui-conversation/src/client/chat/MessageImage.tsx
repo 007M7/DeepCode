@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { ChatViewSlotProps } from '../contract/slots.ts'
 import { ImageLightbox } from '../skeleton/ImageLightbox.tsx'
 import css from './MessageImage.module.css'
 
@@ -7,9 +8,10 @@ import css from './MessageImage.module.css'
 export type ImageLoader = (attachment: ImageAttachmentRef) => Promise<string>
 
 /** Compact history renderer with retryable loading and double-click original preview. */
-export function MessageImage({ attachment, load }: {
+export function MessageImage({ attachment, load, t }: {
   attachment: ImageAttachmentRef
   load: ImageLoader
+  t: ChatViewSlotProps['t']
 }) {
   const [src, setSrc] = useState<string | null>(null)
   const [error, setError] = useState(false)
@@ -33,36 +35,37 @@ export function MessageImage({ attachment, load }: {
     return () => { live = false }
   }, [attachment, load])
 
-  const label = attachment.name ?? '图片'
-  if (error) return <button type="button" className={css.error} onClick={request}>图片加载失败，点击重试</button>
+  const label = attachment.name ?? t('image.label')
+  if (error) return <button type="button" className={css.error} onClick={request}>{t('image.loadFailed')}</button>
   return (
     <>
       <button
         type="button"
         className={css.frame}
         style={size}
-        title="双击查看原图"
-        aria-label={`${label}，双击查看原图`}
+        title={t('image.openOriginal')}
+        aria-label={t('image.openOriginalLabel', { label })}
         onDoubleClick={() => { if (src !== null) setOpen(true) }}
       >
-        {src === null ? <span className={css.loading}>图片加载中…</span> : <img src={src} alt={label} />}
+        {src === null ? <span className={css.loading}>{t('image.loading')}</span> : <img src={src} alt={label} />}
       </button>
-      {open && src !== null && <ImageLightbox src={src} alt={label} onClose={close} />}
+      {open && src !== null && <ImageLightbox src={src} alt={label} onClose={close} t={t} />}
     </>
   )
 }
 
 /** Wrapping image group shared by user and assistant history. */
-export function ImageGallery({ images, load, align }: {
+export function ImageGallery({ images, load, align, t }: {
   images: readonly { attachment: ImageAttachmentRef }[]
   load: ImageLoader
   align: 'start' | 'end'
+  t: ChatViewSlotProps['t']
 }) {
   if (images.length === 0) return null
   return (
     <div className={css.gallery} data-align={align}>
       {images.map((image, index) => (
-        <MessageImage key={`${image.attachment.attachmentId}:${index}`} {...image} load={load} />
+        <MessageImage key={`${image.attachment.attachmentId}:${index}`} {...image} load={load} t={t} />
       ))}
     </div>
   )

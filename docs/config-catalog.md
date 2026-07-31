@@ -313,10 +313,16 @@ export interface ConnectionConfig {
    * that is not a bare, canonical authority fails the plugin load.
    */
   trustedHosts?: string[]
+  /**
+   * Maximum buffered JSON body for every `/api` request. This carrier policy
+   * is independent of image limits but must be large enough for the configured
+   * aggregate image bytes after base64 and envelope expansion.
+   */
+  maxRequestBodyBytes?: number
 }
 ```
 
-Source: [`packages/client/connection/src/index.ts:24`](../packages/client/connection/src/index.ts)
+Source: [`packages/client/connection/src/index.ts:26`](../packages/client/connection/src/index.ts)
 
 ## `@deepseek-ai/dsh-client-hmr`
 

@@ -23,6 +23,7 @@ import { apply, inject } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {
   ChatViewInjected, ComposerBarInjected, ConversationInjected, ConversationSessionInjected, DetailsInjected,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { DraftAttachmentId } from '../src/client/input/contract.ts'
 import type { createChatStore } from '../src/client/stores.ts'
 
 const ROOT = 'root-1' as SessionId
@@ -96,11 +97,12 @@ async function bench() {
   const inputSurface = (id: SessionId) => {
     const info = runtime.sessions.provideInfo(id)!
     const state = info.hooks['input'] as {
-      getSnapshot: () => { draft: string }
+      getSnapshot: () => { draft: string; imageIds: readonly DraftAttachmentId[] }
       subscribe: (fn: () => void) => () => void
     }
     const actions = info.props['inputActions'] as {
       setDraft: (text: string) => void
+      addImages: (ids: readonly DraftAttachmentId[]) => boolean
       submit: (mode?: 'queue' | 'steer') => void
     }
     return { state, actions }
@@ -108,7 +110,7 @@ async function bench() {
   return {
     runtime, feature, slots: runtime.slots, entryOf,
     conversationSurface, residentSurface, composerSurface, chatViewSurface, inputSurface,
-    sessionFake, layoutFake,
+    sessionFake, layoutFake, locale,
   }
 }
 
@@ -285,6 +287,41 @@ describe('conversation slot inject surface', () => {
     b.runtime.workspaces.stub('connectWorkspace', () => Promise.reject(new Error('offline')))
     await expect(resident.selectWorkspace('workspace-4' as never)).rejects.toThrow('offline')
     expect(b.runtime.sessions.calls.filter(c => c.method === 'open')).toHaveLength(opens)
+    await b.runtime.dispose()
+  })
+
+  it('keeps a mixed draft together when the destination refuses its images', async () => {
+    const b = await bench()
+    const OTHER = 'mixed-target' as SessionId
+    await b.runtime.sessions.add({ id: OTHER }, { current: false })
+    const source = b.inputSurface(ROOT)
+    const destination = b.inputSurface(OTHER)
+    const imageId = 'draft-mixed' as DraftAttachmentId
+    source.actions.setDraft('carry together')
+    source.actions.addImages([imageId])
+    const destinationShell = b.composerSurface(OTHER).keyboard as unknown as {
+      addImages: (ids: readonly DraftAttachmentId[]) => boolean
+    }
+    vi.spyOn(destinationShell, 'addImages').mockReturnValue(false)
+    b.runtime.workspaces.stub('connectWorkspace', () => Promise.resolve(OTHER))
+
+    await b.residentSurface(ROOT).selectWorkspace('workspace-mixed' as never)
+
+    expect(source.state.getSnapshot()).toMatchObject({
+      draft: 'carry together',
+      imageIds: [imageId],
+    })
+    expect(destination.state.getSnapshot()).toMatchObject({ draft: '', imageIds: [] })
+    await b.runtime.dispose()
+  })
+
+  it('localizes browser image-type rejection through the active conversation locale', async () => {
+    const b = await bench()
+    b.locale.setLocale('en')
+    const error = b.composerSurface(ROOT).addImages?.([
+      new File([Uint8Array.of(1)], 'vector.svg', { type: 'image/svg+xml' }),
+    ])
+    expect(error).toBe('Unsupported image format: image/svg+xml')
     await b.runtime.dispose()
   })
 

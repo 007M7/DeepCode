@@ -63,6 +63,19 @@ interface ImageUrlEntry {
   readonly pending: Promise<string>
 }
 
+/** Unsupported browser-declared image type, localized by the UI boundary. */
+export class UnsupportedImageMediaTypeError extends Error {
+  /** Browser-declared MIME value, possibly empty. */
+  readonly mediaType: string
+
+  /** @param mediaType - Browser-declared MIME value, possibly empty. */
+  constructor(mediaType: string) {
+    super(`unsupported image media type: ${mediaType || '(empty)'}`)
+    this.name = 'UnsupportedImageMediaTypeError'
+    this.mediaType = mediaType
+  }
+}
+
 /** Scope-addressed conversation service (root singleton, provided as `conversation`). */
 export class ConversationService extends Service implements IConversation {
   /** The per-session input machine registry (InputService face, design §5.2). */
@@ -310,7 +323,7 @@ function imageMediaType(value: string): ImageMediaType {
     case 'image/gif':
       return value
     default:
-      throw new Error(`不支持的图片格式：${value || '未知格式'}`)
+      throw new UnsupportedImageMediaTypeError(value)
   }
 }
 

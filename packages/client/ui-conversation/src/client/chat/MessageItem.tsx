@@ -152,8 +152,9 @@ function projectUserText(text: string): ReactNode {
 }
 
 export const MessageItem = memo(function MessageItem({
-  node, loadImage = unavailableImage, retryActive = false, onFork, t,
+  node, loadImage, retryActive = false, onFork, t,
 }: MessageItemProps) {
+  const imageLoader = loadImage ?? (() => Promise.reject(new Error(t('image.serviceUnavailable'))))
   const truncated = (total: number): string => t('json.truncated', { total })
   switch (node.kind) {
     case 'user': {
@@ -161,7 +162,7 @@ export const MessageItem = memo(function MessageItem({
       return (
         <div className={css.userRow}>
           <div className={css.userStack}>
-            <ImageGallery images={images} load={loadImage} align="end" />
+            <ImageGallery images={images} load={imageLoader} align="end" t={t} />
             {(text !== '' || rest.length > 0) && <div className={css.bubble}>
               {projectUserText(text)}
               {rest.map((block, i) => (
@@ -186,7 +187,7 @@ export const MessageItem = memo(function MessageItem({
       return (
         <div className={css.userRow}>
           <div className={css.userStack}>
-            <ImageGallery images={images} load={loadImage} align="end" />
+            <ImageGallery images={images} load={imageLoader} align="end" t={t} />
             <div className={css.bubble}>
               <span className={css.badge}>{t('message.steering')}</span>
               {projectUserText(text)}
@@ -212,7 +213,3 @@ export const MessageItem = memo(function MessageItem({
       )
   }
 })
-
-function unavailableImage(): Promise<string> {
-  return Promise.reject(new Error('图片读取服务不可用'))
-}

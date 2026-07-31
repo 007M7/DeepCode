@@ -51,7 +51,10 @@ function fakeResponse(): { response: ServerResponse; state: { status?: number; b
   return { response, state }
 }
 
-async function mounted(config?: { trustedHosts?: string[] }): Promise<{ routes: WebRoute[]; dispose: () => Promise<void> }> {
+async function mounted(config?: {
+  trustedHosts?: string[]
+  maxRequestBodyBytes?: number
+}): Promise<{ routes: WebRoute[]; dispose: () => Promise<void> }> {
   const ctx = new Context()
   const routes: WebRoute[] = []
   ctx.provide('httpServer', fakeHttpServer(routes) as HttpServerService)
@@ -93,6 +96,17 @@ describe('connection node half', () => {
     expect(routes).toHaveLength(1)
     expect(routes[0]).toMatchObject({ kind: 'prefix', path: API_PATH })
     await dispose()
+    expect(routes).toHaveLength(0)
+  })
+
+  it('fails loud when the independent carrier cap cannot hold the configured image batch', () => {
+    const ctx = new Context()
+    const routes: WebRoute[] = []
+    ctx.provide('httpServer', fakeHttpServer(routes) as HttpServerService)
+    ctx.provide('apiProxy', {} as unknown as ApiProxy)
+    ctx.provide('attachments', fakeAttachments())
+    expect(() => { apply(ctx, { maxRequestBodyBytes: 1024 }) })
+      .toThrow(/must be at least .* aggregate image limit/)
     expect(routes).toHaveLength(0)
   })
 

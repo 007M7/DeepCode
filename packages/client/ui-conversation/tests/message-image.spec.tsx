@@ -7,11 +7,12 @@ import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { MessageImage } from '../src/client/chat/MessageImage.tsx'
 import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
-import { zh } from '../src/client/locales.ts'
+import { en, zh } from '../src/client/locales.ts'
 
 afterEach(cleanup)
 
 const t = makeTranslate(zh, commonZh)
+const enT = makeTranslate(en, commonZh)
 
 const attachment = {
   attachmentId: AttachmentId(`sha256:${'a'.repeat(64)}`),
@@ -25,7 +26,7 @@ const attachment = {
 describe('MessageImage', () => {
   it('loads a session-authorized URL, bounds the thumbnail, and double-clicks into the original', async () => {
     const load = vi.fn().mockResolvedValue('blob:history')
-    const view = render(<MessageImage attachment={attachment} load={load} />)
+    const view = render(<MessageImage attachment={attachment} load={load} t={t} />)
     const frame = view.getByRole('button', { name: 'history.png，双击查看原图' })
     expect(frame.getAttribute('style')).toContain('width: 240px')
     expect(frame.getAttribute('style')).toContain('height: 120px')
@@ -41,11 +42,21 @@ describe('MessageImage', () => {
     const load = vi.fn()
       .mockRejectedValueOnce(new Error('offline'))
       .mockResolvedValueOnce('blob:retry')
-    const view = render(<MessageImage attachment={attachment} load={load} />)
+    const view = render(<MessageImage attachment={attachment} load={load} t={t} />)
     const retry = await view.findByRole('button', { name: '图片加载失败，点击重试' })
     fireEvent.click(retry)
     await waitFor(() => { expect(view.getByAltText('history.png')).toBeTruthy() })
     expect(load).toHaveBeenCalledTimes(2)
+  })
+
+  it('renders image controls from the active English dictionary', async () => {
+    const load = vi.fn().mockResolvedValue('blob:history')
+    const view = render(<MessageImage attachment={attachment} load={load} t={enT} />)
+    const frame = view.getByRole('button', { name: 'history.png, double-click to view original' })
+    await waitFor(() => { expect(view.getByAltText('history.png')).toBeTruthy() })
+    fireEvent.doubleClick(frame)
+    expect(view.getByRole('dialog', { name: 'Original image preview' })).toBeTruthy()
+    expect(view.getByRole('button', { name: 'Close original image preview' })).toBeTruthy()
   })
 
   it('keeps assistant images at their original position between text blocks', async () => {

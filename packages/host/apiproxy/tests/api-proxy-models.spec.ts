@@ -404,6 +404,11 @@ describe('Web session model selection', () => {
     ctx.emit('agent/inbox/dequeue', agent, steeringItem)
     expect((await api.sessions.selectModel(request({ sessionId, provider: 'text-only', model: 'plain' }))).result.ok).toBe(false)
 
+    // A failed turn returns idle while leaving steering staged in the outbox;
+    // only publication or discard may retire this carrier.
+    ctx.emit('agent/status', agent, 'idle')
+    expect((await api.sessions.selectModel(request({ sessionId, provider: 'text-only', model: 'plain' }))).result.ok).toBe(false)
+
     // Publication hands the gate over to the durable surface.
     agent.session.append('steering/message', { turn: 1, message: steering }, { surfaceOp: 'append' })
     expect((await api.sessions.selectModel(request({ sessionId, provider: 'text-only', model: 'plain' }))).result.ok).toBe(false)

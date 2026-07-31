@@ -478,25 +478,25 @@ export function InputBar({
         onDragLeave={onDragLeave}
         onDrop={onDrop}
       >
-        {dragActive && <div className={css.dropHint} role="status">松开以添加图片</div>}
+        {dragActive && <div className={css.dropHint} role="status">{t('image.dropHint')}</div>}
         {overlay !== undefined && <div className={css.overlayAnchor}>{overlay}</div>}
         {accessory !== undefined && <div className={css.accessory}>{accessory}</div>}
         {attachments.length > 0 && (
-          <div className={css.attachments} role="group" aria-label="待发送图片">
+          <div className={css.attachments} role="group" aria-label={t('image.pending')}>
             {attachments.map(attachment => (
               <div key={attachment.id} className={css.attachment}>
                 <button
                   type="button"
                   className={css.thumbnail}
-                  title="双击查看原图"
+                  title={t('image.openOriginal')}
                   onDoubleClick={() => { setPreview(attachment) }}
                 >
-                  <img src={attachment.previewUrl} alt={attachment.file.name || '待发送图片'} />
+                  <img src={attachment.previewUrl} alt={attachment.file.name || t('image.pending')} />
                 </button>
                 <button
                   type="button"
                   className={css.remove}
-                  aria-label={`移除图片 ${attachment.file.name || ''}`}
+                  aria-label={t('image.remove', { name: attachment.file.name })}
                   onClick={() => {
                     setDropError(null)
                     removeImage?.(attachment.id)
@@ -583,7 +583,14 @@ export function InputBar({
           </div>
         </div>
       </div>
-      {preview !== null && <ImageLightbox src={preview.previewUrl} alt={preview.file.name || '原图'} onClose={closePreview} />}
+      {preview !== null && (
+        <ImageLightbox
+          src={preview.previewUrl}
+          alt={preview.file.name || t('image.original')}
+          onClose={closePreview}
+          t={t}
+        />
+      )}
       {footer}
     </div>
   )

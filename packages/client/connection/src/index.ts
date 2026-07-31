@@ -16,6 +16,8 @@ export const name = 'client-connection'
 
 /** Headroom for RPC JSON fields around the aggregate base64 image payload. */
 const REQUEST_ENVELOPE_HEADROOM_BYTES = 1024 * 1024
+/** Independent default carrier cap; deployments may raise it for larger valid non-image RPCs. */
+const DEFAULT_MAX_REQUEST_BODY_BYTES = 32 * 1024 * 1024
 
 /** Services required before mounting the route. */
 export const inject = ['httpServer', 'apiProxy', 'attachments']
@@ -31,10 +33,17 @@ export interface ConnectionConfig {
    * that is not a bare, canonical authority fails the plugin load.
    */
   trustedHosts?: string[]
+  /**
+   * Maximum buffered JSON body for every `/api` request. This carrier policy
+   * is independent of image limits but must be large enough for the configured
+   * aggregate image bytes after base64 and envelope expansion.
+   */
+  maxRequestBodyBytes?: number
 }
 
 export const Config: z<ConnectionConfig> = z.object({
   trustedHosts: z.array(String).default([]),
+  maxRequestBodyBytes: z.natural().min(1).default(DEFAULT_MAX_REQUEST_BODY_BYTES),
 })
 
 /**
@@ -80,9 +89,16 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
   // silently authorizing its hostname prefix at request time.
   for (const entry of trustedHosts) assertTrustedAuthority(entry)
   const apiHandler = toFetchHandler(ctx.apiProxy)
-  const maxRequestBodyBytes = Math.ceil(
+  const requiredImageBodyBytes = Math.ceil(
     ctx.attachments.imageLimits.maxMessageImageBytes * 4 / 3,
   ) + REQUEST_ENVELOPE_HEADROOM_BYTES
+  const maxRequestBodyBytes = config?.maxRequestBodyBytes ?? DEFAULT_MAX_REQUEST_BODY_BYTES
+  if (maxRequestBodyBytes < requiredImageBodyBytes) {
+    throw new Error(
+      `client-connection maxRequestBodyBytes (${String(maxRequestBodyBytes)}) must be at least `
+      + `${String(requiredImageBodyBytes)} for the configured aggregate image limit`,
+    )
+  }
   const route: WebRoute = {
     kind: 'prefix',
     path: API_PATH,

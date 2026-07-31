@@ -2,8 +2,8 @@
 
 import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
-import { chmod, link, mkdir, open, readFile, stat, unlink } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
+import { chmod, link, mkdir, open, readFile, unlink } from 'node:fs/promises'
+import { dirname, join, parse, resolve } from 'node:path'
 import {
   AttachmentError,
   AttachmentId,
@@ -17,6 +17,7 @@ import type {
 import { detectImage, probeImage } from './image.ts'
 
 const ID_PATTERN = /^sha256:([a-f0-9]{64})$/
+const durableHomes = new Set<string>()
 
 function digest(data: Uint8Array): string {
   return createHash('sha256').update(data).digest('hex')
@@ -84,31 +85,6 @@ async function syncDirectory(path: string): Promise<void> {
 }
 
 /**
- * Walk up from a preferred boundary to the deepest ancestor that already
- * exists. A first save may create DSH_HOME itself (recursive mkdir), and a
- * directory this process creates is not durable until its parent entry syncs
- * — so only a pre-existing directory may be vouched as the durable stop.
- * @param path - preferred absolute boundary.
- * @returns `path` when it exists, else its closest existing ancestor.
- */
-async function existingBoundary(path: string): Promise<string> {
-  let level = resolve(path)
-  while (true) {
-    try {
-      await stat(level)
-      return level
-    } catch {
-      // Swallows only the stat probe's failure: a missing (or unreadable)
-      // level simply moves the boundary up; mkdir later surfaces real errors.
-    }
-    const parent = dirname(level)
-    /* v8 ignore next -- filesystem-root guard: the root directory always exists, so stat returns first. */
-    if (parent === level) return level
-    level = parent
-  }
-}
-
-/**
  * Create one private directory tree and persist every ancestor entry up to a
  * caller-vouched durable boundary. The walk deliberately ignores what mkdir
  * reports as newly created: a concurrent first save can create a level this
@@ -135,6 +111,20 @@ async function ensureDurableDirectory(path: string, boundary: string): Promise<v
 }
 
 /**
+ * Establish this process's proof that one DSH_HOME entry and every ancestor
+ * below the filesystem root are durable. Mere existence is insufficient: a
+ * concurrent process may have created the directory but not synced its parent.
+ */
+async function ensureDurableHome(path: string): Promise<string> {
+  const home = resolve(path)
+  if (!durableHomes.has(home)) {
+    await ensureDurableDirectory(home, parse(home).root)
+    durableHomes.add(home)
+  }
+  return home
+}
+
+/**
  * Save and verify immutable image bytes below a versioned attachment root.
  * @param root - absolute `DSH_HOME/attachments/v1` root.
  * @param input - encoded bytes and declared metadata.
@@ -147,12 +137,10 @@ export async function saveImageFile(root: string, input: SaveImageAttachment, li
   const sha256 = digest(input.data)
   const bucket = join(root, 'objects', sha256.slice(0, 2))
   const staging = join(root, 'tmp')
-  // The preferred boundary is the root's grandparent (DSH_HOME for the
-  // documented `DSH_HOME/attachments/v1` layout): `attachments`/`v1` may be
-  // first-created by a concurrent save, so their entries sync on every path.
-  // When DSH_HOME itself does not exist yet, the boundary retreats to its
-  // closest existing ancestor so the first save syncs the new home entry too.
-  const boundary = await existingBoundary(dirname(dirname(resolve(root))))
+  // Establish DSH_HOME itself against the filesystem root once per process.
+  // Every process performs that proof independently, so observing a directory
+  // another process created can never be mistaken for durable publication.
+  const boundary = await ensureDurableHome(dirname(dirname(resolve(root))))
   await ensureDurableDirectory(bucket, boundary)
   await ensureDurableDirectory(staging, boundary)
   const temporary = join(staging, randomUUID())

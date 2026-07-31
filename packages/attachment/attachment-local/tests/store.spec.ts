@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { constants } from 'node:fs'
 import { chmod, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join, parse, resolve } from 'node:path'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import sharp from 'sharp'
@@ -43,6 +43,17 @@ async function root(): Promise<string> {
   return join(value, 'attachments', 'v1')
 }
 
+function parentChainToRoot(path: string): string[] {
+  const parents: string[] = []
+  let level = resolve(path)
+  const root = parse(level).root
+  while (level !== root) {
+    level = dirname(level)
+    parents.push(level)
+  }
+  return parents
+}
+
 afterEach(async () => {
   await Promise.all(roots.splice(0).map(path => rm(path, { recursive: true, force: true })))
 })
@@ -58,10 +69,11 @@ describe('local attachment store', () => {
 
     await saveImageFile(storageRoot, { data: PNG, mediaType: 'image/png' }, LIMITS)
 
-    // Every level between each created directory and the vouched boundary
-    // syncs unconditionally — "already existed" is not "already durable"
-    // when a concurrent first save may have created but not yet synced it.
+    // Each process first proves DSH_HOME durable all the way to the filesystem
+    // root; existence alone cannot vouch for a concurrent creator's fsync.
+    // Later directory creation can then stop at that process-proven boundary.
     expect(fsControl.syncedDirectories).toEqual([
+      ...parentChainToRoot(base),
       // bucket chain: every parent entry between the bucket and the boundary.
       objects,
       storageRoot,
@@ -77,7 +89,7 @@ describe('local attachment store', () => {
     ])
   })
 
-  it('retreats the durable boundary to the closest existing ancestor when the home directory does not exist yet', async () => {
+  it('creates and persists a missing nested home directory against the filesystem root', async () => {
     const storageRoot = join(await root(), 'home', 'attachments', 'v1')
 
     const ref = await saveImageFile(storageRoot, { data: PNG, mediaType: 'image/png' }, LIMITS)

@@ -9,7 +9,7 @@ import { SlotTestRuntime } from '@deepseek-ai/dsh-client-test-runtime'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import type { SessionFace } from '@deepseek-ai/dsh-client-runtime/client'
 import { InputHub } from '../src/client/input/hub.ts'
-import { ConversationService } from '../src/client/service.ts'
+import { ConversationService, UnsupportedImageMediaTypeError } from '../src/client/service.ts'
 
 async function bench(readAttachment?: SessionFace['readAttachment']) {
   const runtime = await SlotTestRuntime.create()
@@ -86,12 +86,11 @@ describe('ConversationService', () => {
       expect(created).toHaveBeenCalledTimes(11)
 
       const beforeRejectedBatch = created.mock.calls.length
-      expect(() => {
-        b.root.createDraftImages([
-          new File([Uint8Array.of(1)], 'valid.png', { type: 'image/png' }),
-          new File([Uint8Array.of(2)], 'invalid.svg', { type: 'image/svg+xml' }),
-        ])
-      }).toThrow('不支持的图片格式：image/svg+xml')
+      expect(() => b.root.createDraftImages([
+        new File([Uint8Array.of(1)], 'valid.png', { type: 'image/png' }),
+        new File([Uint8Array.of(2)], 'invalid.svg', { type: 'image/svg+xml' }),
+      ]))
+        .toThrow(UnsupportedImageMediaTypeError)
       expect(created).toHaveBeenCalledTimes(beforeRejectedBatch)
     } finally {
       created.mockRestore()
@@ -124,6 +123,33 @@ describe('ConversationService', () => {
       created.mockRestore()
       revoked.mockRestore()
     }
+    await b.runtime.dispose()
+  })
+
+  it('restores failed-send images before images added while the request was in flight', async () => {
+    const b = await bench()
+    const first = b.root.createDraftImages([
+      new File([Uint8Array.of(1)], 'first.png', { type: 'image/png' }),
+    ])[0]
+    const second = b.root.createDraftImages([
+      new File([Uint8Array.of(2)], 'second.png', { type: 'image/png' }),
+    ])[0]
+    if (first === undefined || second === undefined) throw new Error('draft attachment missing')
+    const shell = b.hub.shell(b.runtime.sessions.behavior('s1').sessionId)
+    const request = Promise.withResolvers<{ ok: true; value: { accepted: true } }>()
+    b.prompt.mockReturnValueOnce(request.promise)
+
+    shell.addImages([first.id])
+    shell.setDraft('describe')
+    shell.submit('queue')
+    expect(shell.addImages([second.id])).toBe(true)
+    expect(shell.snapshot.imageIds).toEqual([second.id])
+
+    request.reject(new Error('transport died'))
+    await vi.waitFor(() => {
+      expect(shell.snapshot.imageIds).toEqual([first.id, second.id])
+    })
+    expect(b.root.draftImages(shell.snapshot.imageIds)).toEqual([first, second])
     await b.runtime.dispose()
   })
 

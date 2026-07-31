@@ -71,8 +71,9 @@ function ThinkRow({ text, running, t }: { text: string; running: boolean; t: Ass
 }
 
 export const AssistantMarkdown = memo(function AssistantMarkdown({
-  blocks, streaming, interrupted, loadImage = unavailableImage, time, seq, onFork, t,
+  blocks, streaming, interrupted, loadImage, time, seq, onFork, t,
 }: AssistantMarkdownProps) {
+  const imageLoader = loadImage ?? (() => Promise.reject(new Error(t('image.serviceUnavailable'))))
   // Stable per locale revision (t identity changes on switch): a fresh object
   // per render would rebuild MarkdownText's component table every chunk.
   const codeLabels = useMemo(() => ({ copyLabel: t('copy'), copiedLabel: t('copied') }), [t])
@@ -95,7 +96,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
               <MarkdownText key={i} text={block.text} streaming={streaming} codeLabels={codeLabels} />
             )
             case 'reasoning': return <ThinkRow key={i} text={block.text} running={streaming && i === last} t={t} />
-            case 'image': return <ImageGallery key={i} images={[block]} load={loadImage} align="start" />
+            case 'image': return <ImageGallery key={i} images={[block]} load={imageLoader} align="start" t={t} />
             // Grouped into tool rows by ChatView; hasVisible above skips an empty shell.
             case 'tool-call': return null
             default: return (
@@ -123,7 +124,3 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
     </div>
   )
 })
-
-function unavailableImage(): Promise<string> {
-  return Promise.reject(new Error('图片读取服务不可用'))
-}

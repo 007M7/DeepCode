@@ -13,7 +13,7 @@ import type {
 import type { InputNotice } from './input/contract.ts'
 import { resolveToolPath } from './contract/tool-call-model.ts'
 import { createChatStore } from './stores.ts'
-import { ConversationService } from './service.ts'
+import { ConversationService, UnsupportedImageMediaTypeError } from './service.ts'
 import type { IConversation } from './service.ts'
 import { InputHub } from './input/hub.ts'
 import { InputBar } from './skeleton/InputBar.tsx'
@@ -158,15 +158,17 @@ export function apply(ctx: Context): void {
           const draft = from.snapshot.draft
           const imageIds = from.snapshot.imageIds
           const next = inputHub.shell(nextId)
-          if (draft !== '') {
-            next.setDraft(draft)
-            from.setDraft('')
-          }
           // Transfer only on acceptance: a destination shell mid-submission
-          // refuses, and the drafts must stay owned (and releasable) by the
-          // source shell instead of silently leaking their object URLs.
-          if (imageIds.length > 0 && next.addImages(imageIds)) {
-            for (const id of imageIds) from.removeImage(id)
+          // refuses the whole mixed draft, which remains owned (and releasable)
+          // by the source shell instead of splitting text from its images.
+          if (imageIds.length === 0 || next.addImages(imageIds)) {
+            if (draft !== '') {
+              next.setDraft(draft)
+              from.setDraft('')
+            }
+            if (imageIds.length > 0) {
+              for (const id of imageIds) from.removeImage(id)
+            }
           }
         }
         sessions.open(nextId)
@@ -242,6 +244,11 @@ export function apply(ctx: Context): void {
             }
             return null
           } catch (error: unknown) {
+            if (error instanceof UnsupportedImageMediaTypeError) {
+              return t('image.unsupportedType', {
+                type: error.mediaType || t('image.unknownType'),
+              })
+            }
             return error instanceof Error ? error.message : String(error)
           }
         },

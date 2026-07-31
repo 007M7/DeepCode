@@ -877,9 +877,15 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         if (changed) publishQueue(agent.id)
       }),
       ctx.on('agent/status', (agent: Agent, status: AgentStatus) => {
-        // Idle proves every claimed admission either published (retired by its
-        // session event) or ended without one; drop the stale gate carriers.
-        if (status === 'idle') pendingPublication.delete(agent.id)
+        if (status !== 'idle') return
+        const pending = pendingPublication.get(agent.id)
+        if (pending === undefined) return
+        // A claimed queued prompt disappears when admission ends without
+        // publication. Steering instead remains staged in the agent outbox
+        // across a failed turn, so retain it until steering/message or discard.
+        const kept = pending.filter(item => item.placement === 'steering')
+        if (kept.length === 0) pendingPublication.delete(agent.id)
+        else pendingPublication.set(agent.id, kept)
       }),
       ctx.on('session/disposed', (session: Session) => {
         queuedMirror.delete(session.id)
