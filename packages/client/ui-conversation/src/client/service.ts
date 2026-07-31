@@ -27,12 +27,11 @@ export interface IConversation {
   /** The per-session input machine registry (InputService face). */
   readonly input: InputService
   /**
-   * Send a prompt into the caller scope's session.
+   * Send a prompt into the caller scope's session (queued turn).
    * @param text - prompt text, sent verbatim as one text block.
-   * @param mode - queue after the current turn, or steer into it.
    * @returns completion; business failures reject (and land in promptError).
    */
-  send(text: string, mode: 'queue' | 'steer'): Promise<void>
+  send(text: string): Promise<void>
   /**
    * Apply one operation to a pending queue occurrence.
    * @param itemId - agent-owned inbox occurrence identity.
@@ -110,11 +109,10 @@ export class ConversationService extends Service implements IConversation {
    * session snapshot's promptError (object-layer surface); the rejection here
    * exists for caller choreography (the composer restores the draft on it).
    * @param text - prompt text, sent verbatim as one text block when non-empty.
-   * @param mode - queue after the current turn, or steer into it.
    */
-  async send(text: string, mode: 'queue' | 'steer'): Promise<void> {
+  async send(text: string): Promise<void> {
     const session = this.scopedSession('send')
-    await this.sendFiles(session, text, mode, [])
+    await this.sendFiles(session, text, [])
   }
 
   /**
@@ -123,32 +121,29 @@ export class ConversationService extends Service implements IConversation {
    * persisted or stale id.
    * @param session - target session.
    * @param text - serialized prompt text.
-   * @param mode - queue or steer.
    * @param imageIds - ordered draft-local attachment ids.
    */
   async sendSession(
     session: SessionFace,
     text: string,
-    mode: 'queue' | 'steer',
     imageIds: readonly DraftAttachmentId[],
   ): Promise<void> {
     const attachments = this.draftImages(imageIds)
     if (attachments.length !== imageIds.length) {
       throw new Error('conversation.sendSession: one or more draft images are no longer available')
     }
-    await this.sendFiles(session, text, mode, attachments.map(attachment => attachment.file))
+    await this.sendFiles(session, text, attachments.map(attachment => attachment.file))
     this.releaseDraftImages(attachments)
   }
 
   private async sendFiles(
     session: SessionFace,
     text: string,
-    mode: 'queue' | 'steer',
     images: readonly File[],
   ): Promise<void> {
     const uploaded = await this.serializeImages(images)
     const content = [...uploaded, ...(text === '' ? [] : [{ type: 'text' as const, text }])]
-    const result = await session.prompt(content, mode)
+    const result = await session.prompt(content, 'queue')
     if (!result.ok) throw new Error(`conversation.send failed: ${result.error.code}: ${result.error.message}`)
   }
 

@@ -25,7 +25,6 @@ interface ConversationAttachmentFace {
   sendSession(
     session: SessionFace,
     text: string,
-    mode: 'queue' | 'steer',
     imageIds: readonly DraftAttachmentId[],
   ): Promise<void>
   releaseDraftImage(id: DraftAttachmentId): void
@@ -67,7 +66,7 @@ export class InputHub implements InputService {
       slash: () => this.controller(actx),
       popup: () => this.popup(actx),
       queue: queueReadFaceOf(session),
-      defaultSink: (text, mode, imageIds) => { this.sink(session, text, mode, imageIds) },
+      defaultSink: (text, imageIds) => { this.sink(session, text, imageIds) },
     })
     this.shells.set(id, shell)
     // The one teardown axis: listeners, shell, and map entries all ride the
@@ -148,14 +147,13 @@ export class InputHub implements InputService {
   private sink(
     session: SessionFace,
     text: string,
-    mode: 'queue' | 'steer',
     imageIds: readonly DraftAttachmentId[],
   ): void {
     if (text === '' && imageIds.length === 0) return
     const shell = this.shells.get(session.sessionId)
     // Commit, not an editable clear: undo must not resurrect sent content.
     shell?.commitSend(imageIds)
-    void this.conversation().sendSession(session, text, mode, imageIds).catch(() => {
+    void this.conversation().sendSession(session, text, imageIds).catch(() => {
       // Restore only into the shell that still owns the session: if the scope
       // died while the send was in flight, `commitSend` already removed the
       // ids from the (now disposed) shell, so the teardown release could not

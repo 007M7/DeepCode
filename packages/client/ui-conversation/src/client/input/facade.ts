@@ -39,7 +39,7 @@ export interface SessionInputDeps {
   /** Queue read face; overlaid onto InputState.queue (absent = empty). */
   queue?: ObservableSnapshot<readonly QueuedMessage[]> | undefined
   /** The plain-message sink (send choreography / materialize fork — the hub owns it). */
-  defaultSink(text: string, mode: 'queue' | 'steer', imageIds: readonly DraftAttachmentId[]): void
+  defaultSink(text: string, imageIds: readonly DraftAttachmentId[]): void
 }
 
 /** Guard tier from the machine phase. */
@@ -71,7 +71,7 @@ export class SessionInputShell implements SessionInput {
     addImages: ids => this.addImages(ids),
     removeImage: (id) => { this.removeImage(id) },
     pruneImages: (ids) => { this.pruneImages(ids) },
-    submit: (mode) => { this.submit(mode) },
+    submit: () => { this.submit() },
   }
 
   // Real wall clock: the typing-run merge window must actually expire in
@@ -200,14 +200,13 @@ export class SessionInputShell implements SessionInput {
    * from the machine; this method only feeds the event. Lock entry
    * (adjudicating/submitting) force-closes the transient layers: the popup
    * dismisses and the menu tracks frozen.
-   * @param mode - default-sink mode (queue appends; steer interrupts).
    */
-  submit(mode: 'queue' | 'steer' = 'queue'): void {
+  submit(): void {
     if (this.snapshot.draft.trim() === '' && this.imageIds.length > 0) {
-      if (this.snapshot.phase === 'plain') this.deps.defaultSink('', mode, [...this.imageIds])
+      if (this.snapshot.phase === 'plain') this.deps.defaultSink('', [...this.imageIds])
       return
     }
-    this.run(this.core.dispatch({ type: 'enter', mode }))
+    this.run(this.core.dispatch({ type: 'enter' }))
     const phase = this.snapshot.phase
     if (phase === 'adjudicating' || phase === 'submitting') {
       this.deps.popup?.()?.dismiss()
@@ -392,7 +391,7 @@ export class SessionInputShell implements SessionInput {
         return
       }
       case 'default-sink': {
-        this.sinkSerialized(fx.draft, fx.mode)
+        this.sinkSerialized(fx.draft)
         return
       }
       default:
@@ -407,11 +406,11 @@ export class SessionInputShell implements SessionInput {
    * send — notice + draft and chips retained, never a silent downgrade to
    * the clipboard text. Chip-free drafts skip the async detour.
    */
-  private sinkSerialized(draft: string, mode: 'queue' | 'steer'): void {
+  private sinkSerialized(draft: string): void {
     const imageIds = [...this.imageIds]
     const occurrences = this.core.state.occurrences
     if (occurrences.length === 0) {
-      this.deps.defaultSink(draft.trim(), mode, imageIds)
+      this.deps.defaultSink(draft.trim(), imageIds)
       return
     }
     const slash = this.deps.slash?.()
@@ -431,7 +430,7 @@ export class SessionInputShell implements SessionInput {
           cursor = part.offset + 1
         }
         out += draft.slice(cursor)
-        this.deps.defaultSink(out.trim(), mode, imageIds)
+        this.deps.defaultSink(out.trim(), imageIds)
       },
       (error: unknown) => {
         controller.abort()

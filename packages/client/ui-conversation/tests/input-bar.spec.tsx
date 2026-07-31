@@ -147,7 +147,7 @@ describe('Enter semantics', () => {
   it('plain Enter submits queue mode through the machine; repeat and empty are suppressed', () => {
     const { textarea, sink } = bench({ draft: 'hello' })
     fireEvent.keyDown(textarea, { key: 'Enter' })
-    expect(sink).toHaveBeenCalledWith('hello', 'queue', [])
+    expect(sink).toHaveBeenCalledWith('hello', [])
     fireEvent.keyDown(textarea, { key: 'Enter', repeat: true })
     expect(sink).toHaveBeenCalledTimes(1)
     const empty = bench({ draft: '   ' })
@@ -215,7 +215,7 @@ describe('running and lock semantics (queue cut 1)', () => {
     expect(textarea.disabled).toBe(false) // running no longer locks
     fireEvent.change(textarea, { target: { value: '排队消息2' } })
     fireEvent.keyDown(textarea, { key: 'Enter' })
-    expect(sink).toHaveBeenCalledWith('排队消息2', 'queue', [])
+    expect(sink).toHaveBeenCalledWith('排队消息2', [])
     expect(button.getAttribute('aria-label')).toBe('停止生成')
     fireEvent.click(button)
     expect(stop).toHaveBeenCalledTimes(1)
@@ -231,7 +231,7 @@ describe('running and lock semantics (queue cut 1)', () => {
   it('idle primary sends and disables on empty draft', () => {
     const { button, sink } = bench({ draft: 'go' })
     fireEvent.click(button)
-    expect(sink).toHaveBeenCalledWith('go', 'queue', [])
+    expect(sink).toHaveBeenCalledWith('go', [])
     const empty = bench()
     expect(empty.button.disabled).toBe(true)
   })
@@ -371,7 +371,7 @@ describe('machine pending lock', () => {
         },
         { start: 0, end: 6, draftRev: shell.snapshot.draftRev },
       )
-      shell.submit('queue')
+      shell.submit()
     })
     expect(shell.snapshot.phase).toBe('submitting')
     const textarea = view.container.querySelector('textarea')!
@@ -390,7 +390,7 @@ describe('machine pending lock', () => {
         },
         { start: 0, end: 6, draftRev: shell.snapshot.draftRev },
       )
-      shell.submit('queue')
+      shell.submit()
     })
     expect(shell.snapshot.phase).toBe('submitting')
     // A refused batch must be observable (the workspace-switch transfer keeps
@@ -588,7 +588,7 @@ describe('image draft rail', () => {
     const send = view.getByRole('button', { name: '发送消息' }) as HTMLButtonElement
     expect(send.disabled).toBe(false)
     fireEvent.keyDown(textarea, { key: 'Enter' })
-    expect(sink).toHaveBeenCalledWith('', 'queue', ['draft-1'])
+    expect(sink).toHaveBeenCalledWith('', ['draft-1'])
 
     fireEvent.click(view.getByRole('button', { name: '移除图片 pixel.png' }))
     expect(removeImage).toHaveBeenCalledWith('draft-1')

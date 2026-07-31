@@ -1,6 +1,7 @@
 // MessageItem: simple chat nodes — user bubble (right-aligned, with
-// clock + copy / branch IconActions), steering (badged bubble), context
-// injection, compaction marker, retry disclosure, and unknown-surface JSON rows.
+// clock + copy / branch IconActions), steering (same bubble, no actions),
+// context injection, compaction marker, retry disclosure, and
+// unknown-surface JSON rows.
 
 import { memo, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -178,25 +179,31 @@ function projectUserText(text: string): ReactNode {
   return <>{parts}</>
 }
 
-function UserContentStack({ parts, imageLoader, steering = false, t, truncated }: {
-  parts: ReturnType<typeof contentParts>
+/** Right-aligned bubble shared by user and steering rows (steering has no actions). */
+function UserStyleBubble({
+  content, imageLoader, actions, t,
+}: {
+  content: readonly unknown[]
   imageLoader: ImageLoader
-  steering?: boolean
+  /** Optional IconActions (or similar) below the bubble; receives the joined text. */
+  actions?: (text: string) => ReactNode
   t: ChatViewSlotProps['t']
-  truncated: (total: number) => string
-}) {
-  const { text, images, rest } = parts
-  const showBubble = steering || text !== '' || rest.length > 0
+}): ReactNode {
+  const { text, images, rest } = contentParts(content)
+  const truncated = (total: number): string => t('json.truncated', { total })
+  const showBubble = text !== '' || rest.length > 0
   return (
-    <div className={css.userStack}>
-      <ImageGallery images={images} load={imageLoader} align="end" t={t} />
-      {showBubble && <div className={css.bubble}>
-        {steering && <span className={css.badge}>{t('message.steering')}</span>}
-        {projectUserText(text)}
-        {rest.map((block, i) => (
-          <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />
-        ))}
-      </div>}
+    <div className={css.userRow}>
+      <div className={css.userStack}>
+        <ImageGallery images={images} load={imageLoader} align="end" t={t} />
+        {showBubble && <div className={css.bubble}>
+          {projectUserText(text)}
+          {rest.map((block, i) => (
+            <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />
+          ))}
+        </div>}
+      </div>
+      {actions?.(text)}
     </div>
   )
 }
@@ -207,30 +214,26 @@ export const MessageItem = memo(function MessageItem({
   const imageLoader = loadImage ?? (() => Promise.reject(new Error(t('image.serviceUnavailable'))))
   const truncated = (total: number): string => t('json.truncated', { total })
   switch (node.kind) {
-    case 'user': {
-      const parts = contentParts(node.content)
+    case 'user':
       return (
-        <div className={css.userRow}>
-          <UserContentStack parts={parts} imageLoader={imageLoader} t={t} truncated={truncated} />
-          <MessageIconActions
-            text={parts.text}
-            time={node.time}
-            clock="start"
-            onBranch={onFork === undefined ? undefined : () => { onFork(node.seq) }}
-            className={css.actions}
-            t={t}
-          />
-        </div>
+        <UserStyleBubble
+          content={node.content}
+          imageLoader={imageLoader}
+          t={t}
+          actions={text => (
+            <MessageIconActions
+              text={text}
+              time={node.time}
+              clock="start"
+              onBranch={onFork === undefined ? undefined : () => { onFork(node.seq) }}
+              className={css.actions}
+              t={t}
+            />
+          )}
+        />
       )
-    }
-    case 'steering': {
-      const parts = contentParts(node.content)
-      return (
-        <div className={css.userRow}>
-          <UserContentStack parts={parts} imageLoader={imageLoader} steering t={t} truncated={truncated} />
-        </div>
-      )
-    }
+    case 'steering':
+      return <UserStyleBubble content={node.content} imageLoader={imageLoader} t={t} />
     case 'context':
       return (
         <ContextInjectionRow content={node.content} source={node.source} t={t} />
