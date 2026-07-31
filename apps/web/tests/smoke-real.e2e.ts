@@ -264,7 +264,6 @@ describe('dsh web keyless CLI smoke', () => {
         .filter(name => name === 'web_search' || name === 'web_fetch'))
         .toMatchInlineSnapshot(`
           [
-            "web_fetch",
             "web_search",
           ]
         `)
