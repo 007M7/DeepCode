@@ -221,6 +221,33 @@ describe('inspectRequests', () => {
     })
   })
 
+  it('keeps provider credential fragments out of projected request errors', () => {
+    const snapshot = inspectRequests(entriesOf([
+      at(0, 'step/start', { turn: 1, step: 1 }),
+      at(1, 'turn/end', {
+        turn: 1,
+        reason: {
+          kind: 'error',
+          step: 1,
+          failure: {
+            code: 'AUTH',
+            message: 'Authentication Fails, Your api key: sk-preview-secret is invalid',
+          },
+        },
+      }),
+      at(2, 'step/start', { turn: 2, step: 1 }),
+      at(3, 'turn/end', {
+        turn: 2,
+        reason: { kind: 'error', step: 1, message: 'plugin exploded' },
+      }),
+    ]))
+
+    expect(snapshot.requests).toMatchObject([
+      { status: 'error', error: 'API key is invalid' },
+      { status: 'error', error: 'plugin exploded' },
+    ])
+  })
+
   it('treats a scrubbed durable-fixture tool catalog as unavailable', () => {
     const snapshot = inspectRequests(entriesOf([
       at(0, 'step/start', { turn: 1, step: 1 }),

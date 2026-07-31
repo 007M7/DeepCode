@@ -28,14 +28,14 @@ import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './suppor
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/live-interactions', import.meta.url))
 const FIXTURE = join(SNAPSHOT_DIR, 'session.jsonl')
 // One golden pins the stable mid-turn loading state; the other three capture
-// what the user is left looking at after cancel, after a non-retryable failure
-// (pins the FIXME(web-error-surface) gap as a reviewable artifact: NO error
-// copy in the tree), and after retry recovery.
+// what the user is left looking at after cancel, after a non-retryable failure,
+// and after retry recovery.
 const CANCEL_EXPECTED = join(SNAPSHOT_DIR, 'cancel.expected.md')
 const LOADING_EXPECTED = join(SNAPSHOT_DIR, 'loading.expected.md')
 const ERROR_EXPECTED = join(SNAPSHOT_DIR, 'error-auth.expected.md')
 const RETRY_EXPECTED = join(SNAPSHOT_DIR, 'retry.expected.md')
 const MODE = webSnapshotMode()
+const AUTH_PROVIDER_MESSAGE = 'Authentication Fails, Your api key: sk-preview-secret is invalid'
 
 // The recorded base: one text-only turn whose derived script the sidecars
 // patch. Kept deliberately tool-free so the derived script is exactly one
@@ -158,7 +158,7 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
 
   it.skipIf(MODE === 'record')('surfaces a non-retryable AUTH failure without retrying', async () => {
     await launch(() => ({
-      patches: [{ at: 0, entry: { kind: 'throw', chunks: [], message: 'invalid api key', code: 'AUTH' } }],
+      patches: [{ at: 0, entry: { kind: 'throw', chunks: [], message: AUTH_PROVIDER_MESSAGE, code: 'AUTH' } }],
     }))
     onTestFailed(() => saveFailureShot(page, 'web-e2e-error-auth'))
     const { settled } = await sendPrompt()
@@ -166,28 +166,28 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
     expect(turnEndReasons(sessionEvents).at(-1)).toBe('error')
     // AUTH is outside llm-retry's retryable set: no retry record.
     expect(sessionEvents.filter(e => e.type === 'llm/retry').length).toBe(0)
-    // Product gap found by this lane, pinned as-is: the client consumes no
-    // agent/error frames and a pre-chunk failure freezes no partial, so THIS
-    // failure renders no error copy anywhere — the user sees the send simply
-    // stop. FIXME(web-error-surface): assert visible error text here once the
-    // web UI grows an error rendering; until then the pinned contract is
-    // "no crash, composer recovers, turn logged as error".
     await expect.poll(() => page.locator('textarea').first().isEnabled(), { timeout: 10_000 }).toBe(true)
     expect(await page.locator('[data-streaming="true"]').count()).toBe(0)
-    // The blank workspace also has an enabled composer. Wait for the driven
-    // session's only visible message before capturing its no-error-copy state.
-    await expect.poll(() => page.getByText(PROMPT, { exact: true }).first().isVisible(), { timeout: 10_000 }).toBe(true)
-    // Golden of the same gap: the prompt bubble alone, no error copy in the
-    // tree — the diff that changes when web-error-surface lands.
+    const errorStatus = page.getByRole('status').filter({ hasText: 'This turn failed' })
+    await errorStatus.waitFor({ timeout: 10_000 })
+    expect(await errorStatus.textContent()).toContain('API key is invalid')
+    expect(await errorStatus.textContent()).toContain('AUTH')
+    expect(await page.locator('body').textContent()).not.toContain('sk-preview-secret')
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
     await compareOrRefreshGolden(ERROR_EXPECTED, snapshot, MODE)
+    await page.getByRole('tab', { name: 'Trajectory' }).click()
+    const requestMarker = page.locator('tr[data-request-only="true"]').last()
+      .getByRole('button', { name: /Request #/ })
+    await requestMarker.click()
+    await page.getByText('API key is invalid', { exact: true }).waitFor({ timeout: 10_000 })
+    expect(await page.locator('body').textContent()).not.toContain('sk-preview-secret')
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
   }, 120_000)
 
   it.skipIf(MODE === 'record')('keeps a terminal request marker inside the trajectory table', async () => {
     await launch(() => ({
-      patches: [{ at: 0, entry: { kind: 'throw', chunks: [], message: 'invalid api key', code: 'AUTH' } }],
+      patches: [{ at: 0, entry: { kind: 'throw', chunks: [], message: AUTH_PROVIDER_MESSAGE, code: 'AUTH' } }],
     }))
     const { settled } = await sendPrompt()
     await settled
