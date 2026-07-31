@@ -153,6 +153,29 @@ function projectUserText(text: string): ReactNode {
   return <>{parts}</>
 }
 
+function UserContentStack({ parts, imageLoader, steering = false, t, truncated }: {
+  parts: ReturnType<typeof contentParts>
+  imageLoader: ImageLoader
+  steering?: boolean
+  t: ChatViewSlotProps['t']
+  truncated: (total: number) => string
+}) {
+  const { text, images, rest } = parts
+  const showBubble = steering || text !== '' || rest.length > 0
+  return (
+    <div className={css.userStack}>
+      <ImageGallery images={images} load={imageLoader} align="end" t={t} />
+      {showBubble && <div className={css.bubble}>
+        {steering && <span className={css.badge}>{t('message.steering')}</span>}
+        {projectUserText(text)}
+        {rest.map((block, i) => (
+          <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />
+        ))}
+      </div>}
+    </div>
+  )
+}
+
 export const MessageItem = memo(function MessageItem({
   node, loadImage, retryActive = false, onFork, t,
 }: MessageItemProps) {
@@ -160,20 +183,12 @@ export const MessageItem = memo(function MessageItem({
   const truncated = (total: number): string => t('json.truncated', { total })
   switch (node.kind) {
     case 'user': {
-      const { text, images, rest } = contentParts(node.content)
+      const parts = contentParts(node.content)
       return (
         <div className={css.userRow}>
-          <div className={css.userStack}>
-            <ImageGallery images={images} load={imageLoader} align="end" t={t} />
-            {(text !== '' || rest.length > 0) && <div className={css.bubble}>
-              {projectUserText(text)}
-              {rest.map((block, i) => (
-                <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />
-              ))}
-            </div>}
-          </div>
+          <UserContentStack parts={parts} imageLoader={imageLoader} t={t} truncated={truncated} />
           <MessageIconActions
-            text={text}
+            text={parts.text}
             time={node.time}
             clock="start"
             onBranch={onFork === undefined ? undefined : () => { onFork(node.seq) }}
@@ -184,19 +199,10 @@ export const MessageItem = memo(function MessageItem({
       )
     }
     case 'steering': {
-      const { text, images, rest } = contentParts(node.content)
+      const parts = contentParts(node.content)
       return (
         <div className={css.userRow}>
-          <div className={css.userStack}>
-            <ImageGallery images={images} load={imageLoader} align="end" t={t} />
-            <div className={css.bubble}>
-              <span className={css.badge}>{t('message.steering')}</span>
-              {projectUserText(text)}
-              {rest.map((block, i) => (
-                <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />
-              ))}
-            </div>
-          </div>
+          <UserContentStack parts={parts} imageLoader={imageLoader} steering t={t} truncated={truncated} />
         </div>
       )
     }
