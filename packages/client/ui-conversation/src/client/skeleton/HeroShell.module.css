@@ -11,7 +11,7 @@
   padding: 0 24px;
 }
 
-/* Cap matches InputBar card width (800). Glow may paint past the sides. */
+/* Cap matches the InputBar card. Glow may paint past the sides. */
 .stack {
   display: flex;
   flex-direction: column;
@@ -19,7 +19,7 @@
   /* figma 75:8208: 12 between title block / workspace / card. */
   gap: 12px;
   width: 100%;
-  max-width: 800px;
+  max-width: var(--dsh-composer-card-max-width);
   overflow: visible;
 }
 

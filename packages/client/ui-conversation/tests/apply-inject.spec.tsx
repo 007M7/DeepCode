@@ -188,9 +188,11 @@ describe('conversation slot inject surface', () => {
     // hooks compartment still present so the render side's hook order holds.
     const absent = injectFn(undefined)
     expect(absent.keyboard).toBeUndefined()
+    expect(absent.toggleCommandMenu).toBeUndefined()
     expect(absent.stop).toBeUndefined()
     expect(absent.hooks.notices.getSnapshot()).toBeNull()
     expect(absent.hooks.lexicon.getSnapshot().size).toBe(0)
+    expect(absent.hooks.menuLauncher.getSnapshot()).toBeNull()
     // A scope whose service tree lost 'conversation' (the feature fiber
     // unloaded while a retained inject closure re-runs): fails loud too.
     const stop = injectFn(ROOT).stop!

@@ -198,10 +198,6 @@ export class SettingsLocal extends Settings {
       // 0600: a document that may hold personal values is never world-readable.
       await writeFileAtomic(this.spec.filename, output, { mode: 0o600, dirMode: 0o700 })
       this.text = output
-    }, {
-      onStaleBreak: (lockPath) => {
-        this.ctx.logger.warn('settings-local: breaking a stale writer lock at %s', lockPath)
-      },
     })
   }
 

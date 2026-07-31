@@ -847,18 +847,7 @@ describe('workspace context request injection', () => {
   it('mounts without requiring a filesystem provider', async () => {
     const ctx = new Context()
     try {
-      const outcome = await Promise.race([
-        ctx.plugin(workspaceContext, { maxBytes: 65536 }).then(() => {
-          return 'settled' as const
-        }),
-        new Promise<'pending'>((resolve) => {
-          setTimeout(() => {
-            resolve('pending')
-          }, 50)
-        }),
-      ])
-
-      expect(outcome).toBe('settled')
+      await ctx.plugin(workspaceContext, { maxBytes: 65536 })
     } finally {
       await ctx.fiber.dispose()
     }
