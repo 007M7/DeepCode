@@ -59,9 +59,10 @@ import { llmModelsValueSchema, llmProvidersValueSchema } from '../api/llm.schema
  * Client consumption face of the contract (shape a): same domain tree as ApiProxy, but unary
  * methods take the business payload directly — the carrier mints the rpcId and wraps the
  * envelope. Business code needing the call's rpcId reads it from the RpcResponse echo.
- * Unary methods and respond accept an optional external AbortSignal as the last parameter
- * (merged with the instance timeout via AbortSignal.any; same "signal rides beside the
- * request, never on the wire" discipline as the stream signatures).
+ * Unary methods and respond accept an optional external AbortSignal as the last parameter.
+ * Bounded calls merge it with the instance timeout via AbortSignal.any; user-paced calls
+ * carry only that external signal. In both cases the signal rides beside the request, never
+ * on the wire, like the stream signatures.
  * Stream methods accept an optional onOpen callback: it fires once the SSE transport is
  * readable (response headers received, before any frame) — the "stream established" signal
  * connection controllers need for the readiness handshake. Generators are lazy, so the
@@ -182,8 +183,11 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'llm.models': llmModelsValueSchema,
 }
 
-/** Default unary timeout (rpc-compare 2026-07-19: a hung host must not leave callers pending forever). */
+/** Default timeout for bounded unary calls (rpc-compare 2026-07-19: a hung host must not leave callers pending forever). */
 const DEFAULT_TIMEOUT_MS = 30_000
+
+/** Whether a unary call uses the transport health deadline or only caller/connection cancellation. */
+type UnaryTimeoutPolicy = 'default' | 'caller-signal-only'
 
 /** URL base for in-process handler injection (fake authority, opencode precedent). */
 const INTERNAL_BASE = 'http://dsh.internal'
@@ -202,7 +206,7 @@ export abstract class AbstractApiClient implements IApiClient {
   private flushScheduled = false
   private readonly envelopeListeners = new Set<(batch: readonly RpcMessage[]) => void>()
 
-  /** @param timeoutMs - unary timeout; streams never time out (long-lived by nature). */
+  /** @param timeoutMs - timeout for bounded unary calls; user-paced calls and streams do not use it. */
   constructor(protected readonly timeoutMs: number = DEFAULT_TIMEOUT_MS) {}
 
   /** Transport aspect: browser fetch, injected handler.fetch, IPC bridge, ... */
@@ -257,15 +261,15 @@ export abstract class AbstractApiClient implements IApiClient {
 
   /**
    * Shared POST leg of both C→S carriers (callUnary/respond): JSON body,
-   * timeout merged with the caller's optional external signal, non-2xx → transport throw.
+   * optional default timeout merged with the caller's external signal, non-2xx → transport throw.
    */
   private async postJson(
     path: string,
     body: ClientRequest | ClientResponse,
     signal: AbortSignal | undefined,
-    useDefaultTimeout = true,
+    timeoutPolicy: UnaryTimeoutPolicy = 'default',
   ): Promise<Response> {
-    const requestSignal = useDefaultTimeout
+    const requestSignal = timeoutPolicy === 'default'
       ? signal === undefined
         ? AbortSignal.timeout(this.timeoutMs)
         : AbortSignal.any([AbortSignal.timeout(this.timeoutMs), signal])
@@ -289,11 +293,11 @@ export abstract class AbstractApiClient implements IApiClient {
     method: K,
     payload: RequestPayload<K>,
     signal?: AbortSignal,
-    useDefaultTimeout = true,
+    timeoutPolicy: UnaryTimeoutPolicy = 'default',
   ): Promise<RpcResponse<ResponseValue<K>>> {
     const message: ClientRequest = { type: 'client-request', rpcId: this.mintRpcId(), method, payload }
     this.onEnvelope(message)
-    const response = await this.postJson(`/api/${method}`, message, signal, useDefaultTimeout)
+    const response = await this.postJson(`/api/${method}`, message, signal, timeoutPolicy)
     const full = serverResponseSchema.parse(await response.json())
     this.onEnvelope(full)
     if (full.rpcId !== message.rpcId) throw new Error(`rpcId mismatch for ${method}: sent ${message.rpcId}, got ${full.rpcId}`)
@@ -382,7 +386,9 @@ export abstract class AbstractApiClient implements IApiClient {
     describe: (payload, signal) => this.callUnary('host.describe', payload, signal),
     // A native system dialog is user-paced and may legitimately stay open
     // longer than the normal unary deadline. Caller/connection aborts remain.
-    pickDirectory: (payload, signal) => this.callUnary('host.pickDirectory', payload, signal, false),
+    pickDirectory: (payload, signal) => this.callUnary(
+      'host.pickDirectory', payload, signal, 'caller-signal-only',
+    ),
     listDirectory: (payload, signal) => this.callUnary('host.listDirectory', payload, signal),
     createDirectory: (payload, signal) => this.callUnary('host.createDirectory', payload, signal),
     openPath: (payload, signal) => this.callUnary('host.openPath', payload, signal),
@@ -398,7 +404,11 @@ export abstract class AbstractApiClient implements IApiClient {
 
   readonly commands: IApiClient['commands'] = {
     list: (payload, signal) => this.callUnary('command.list', payload, signal),
-    execute: (payload, signal) => this.callUnary('command.execute', payload, signal),
+    // Command handlers are user-driven operations and may legitimately exceed
+    // the transport health deadline. Caller/connection aborts remain.
+    execute: (payload, signal) => this.callUnary(
+      'command.execute', payload, signal, 'caller-signal-only',
+    ),
   }
 
   readonly skills: IApiClient['skills'] = {
