@@ -33,6 +33,7 @@ import Loader from '@cordisjs/plugin-loader'
 import Include, { type PatchOptions } from '@cordisjs/plugin-include'
 import { scrubRequestHeaders } from '@deepseek-ai/dsh-acp-snapshot'
 import { assertEntriesLoaded, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
+import { dshHomePath } from '@deepseek-ai/dsh-paths'
 import {
   WELCOME_NOTICE_ACK_FIELD, WELCOME_NOTICE_SETTINGS_NAMESPACE, WELCOME_NOTICE_VERSION,
 } from '@deepseek-ai/dsh-client-ui-settings-general'
@@ -282,6 +283,8 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   try {
     process.chdir(workspaceCwd)
     ctx.baseUrl = pathToFileURL(join(resolve(CONFIG_PATH), '..')).href + '/'
+    // This direct Loader harness supplies the same root-path capability as app-boot.
+    ctx.provide('dshHomePath', dshHomePath)
     await ctx.plugin(Loader)
     ctx.loader.builtins.include = Include
     // The shipped CLI deliberately has no dependency on this opt-in package.
