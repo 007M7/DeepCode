@@ -325,6 +325,34 @@ describe('boot', () => {
     }
   })
 
+  it('exposes dshHomePath to Loader config expressions', async () => {
+    const dir = tmp()
+    const dshHome = join(dir, 'home')
+    vi.stubEnv('DSH_HOME', dshHome)
+    writeFileSync(join(dir, 'capture.mjs'), [
+      'export const name = "capture"',
+      'export function apply(ctx, config) {',
+      '  ctx.provide("capturedPath", config.path)',
+      '}',
+      '',
+    ].join('\n'))
+    writeFileSync(join(dir, 'cordis.yml'), [
+      '- id: capture',
+      '  name: ./capture.mjs',
+      '  config:',
+      "    path: !!js dshHomePath('sessions')",
+      '',
+    ].join('\n'))
+    let ctx: Context | undefined
+    try {
+      ctx = await boot(NAME, join(dir, 'cordis.yml'))
+      expect(ctx.get('capturedPath')).toBe(join(dshHome, 'sessions'))
+    } finally {
+      await ctx?.fiber.dispose()
+      vi.unstubAllEnvs()
+    }
+  })
+
   it('returns instead of asserting over a tree a surface disposed mid-startup', async () => {
     // What a TUI `/exit` does (ui-tui's disposeRootAndExit): dispose the root
     // fiber, which lands while boot() is still awaiting the Loader whenever the
