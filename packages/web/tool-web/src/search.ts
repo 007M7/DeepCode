@@ -8,7 +8,7 @@
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, JsonValue, ToolResult, WebSearchResultView, WebSource } from '@deepseek-ai/dsh-tools'
-import type { WebSearchResult } from '@deepseek-ai/dsh-web'
+import type { WebSearchResult, WebSearchSource } from '@deepseek-ai/dsh-web'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 
 /**
@@ -102,6 +102,28 @@ export interface WebSearchMeta {
 }
 
 /**
+ * Project one seam source into a plain object that omits every absent optional
+ * field. Shared by the canonical `execute` result and its replayable
+ * presentation meta so both carry byte-identical source shapes.
+ *
+ * @param source - one source from the `ctx.web` search outcome.
+ * @returns `{ url }` plus each present optional field.
+ */
+function projectSource(source: WebSearchSource): {
+  url: string
+  title?: string
+  snippet?: string
+  publishedAt?: string
+} {
+  return {
+    url: source.url,
+    ...source.title !== undefined ? { title: source.title } : {},
+    ...source.snippet !== undefined ? { snippet: source.snippet } : {},
+    ...source.publishedAt !== undefined ? { publishedAt: source.publishedAt } : {},
+  }
+}
+
+/**
  * Project a validated `web_search` output value into its replayable
  * presentation meta ({@link WebSearchMeta} as opaque JSON).
  *
@@ -110,12 +132,7 @@ export interface WebSearchMeta {
  */
 export function searchMetaFromValue(value: WebSearchResult): JsonValue {
   return {
-    sources: value.sources.map(source => ({
-      url: source.url,
-      ...source.title !== undefined ? { title: source.title } : {},
-      ...source.snippet !== undefined ? { snippet: source.snippet } : {},
-      ...source.publishedAt !== undefined ? { publishedAt: source.publishedAt } : {},
-    })),
+    sources: value.sources.map(projectSource),
     truncated: value.truncated,
     ...value.content !== undefined ? { answer: value.content } : {},
   }
@@ -238,12 +255,7 @@ export function applyWebSearchTool(ctx: Context, maxResults: number, timeoutMs: 
       )
       return {
         ...result.content !== undefined ? { content: result.content } : {},
-        sources: result.sources.map(source => ({
-          url: source.url,
-          ...source.title !== undefined ? { title: source.title } : {},
-          ...source.snippet !== undefined ? { snippet: source.snippet } : {},
-          ...source.publishedAt !== undefined ? { publishedAt: source.publishedAt } : {},
-        })),
+        sources: result.sources.map(projectSource),
         truncated: result.truncated,
       }
     },

@@ -33,8 +33,8 @@ import { GLOB_MAX_RESULTS, applyGlobTool } from './glob.ts'
 import { GREP_MAX_LINE_BYTES, GREP_MAX_MATCHES, applyGrepTool } from './grep.ts'
 import { RAW_OUTPUT_MAX_BYTES, SEARCH_TIMEOUT_MS } from './search-core.ts'
 
-export { GLOB_MAX_RESULTS, GLOB_VCS_EXCLUDES, applyGlobTool, buildGlobCommand, formatGlobOutput, parseGlobArgs, presentGlobCall } from './glob.ts'
-export type { GlobInput, GlobToolCaps } from './glob.ts'
+export { GLOB_MAX_RESULTS, GLOB_VCS_EXCLUDES, applyGlobTool, buildGlobCommand, formatGlobOutput, parseGlobArgs, presentGlobCall, sampleAcrossTopLevel } from './glob.ts'
+export type { GlobInput, GlobSample, GlobToolCaps } from './glob.ts'
 export {
   GREP_MAX_LINE_BYTES,
   GREP_MAX_MATCHES,
@@ -58,8 +58,10 @@ export const name = 'tool-fs-search'
 /** Services required by the search tool suite (`spillStore` is optional, read via `ctx.get()`). */
 export const inject = ['tools', 'systemPrompt', 'bash']
 
-/** Plugin config (all optional — `Config` supplies the defaults). */
+/** Plugin config; over-cap glob sampling is an explicit deployment choice and the remaining fields have defaults. */
 export interface Config {
+  /** Whether an over-cap `glob` page is sampled across top-level entries instead of taking the modification-time head. */
+  sampleOverCapGlobResults: boolean
   /** Max paths one `glob` call retains inline; later paths go to the formatted spill file. */
   globMaxResults?: number
   /** Max flat matches one `grep` call retains inline; later matches go to the formatted spill file. */
@@ -73,6 +75,7 @@ export interface Config {
 }
 
 export const Config: z<Config> = z.object({
+  sampleOverCapGlobResults: z.boolean().required(),
   globMaxResults: z.number().default(GLOB_MAX_RESULTS),
   grepMaxMatches: z.number().default(GREP_MAX_MATCHES),
   grepMaxLineBytes: z.number().default(GREP_MAX_LINE_BYTES),
@@ -137,6 +140,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     return
   }
   applyGlobTool(ctx, {
+    sampleOverCapGlobResults: resolved.sampleOverCapGlobResults,
     maxResults: resolved.globMaxResults,
     rawOutputMaxBytes: resolved.rawOutputMaxBytes,
     timeoutMs: resolved.timeoutMs,

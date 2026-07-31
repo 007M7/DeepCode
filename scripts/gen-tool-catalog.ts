@@ -273,10 +273,10 @@ const TOOL_PACKAGES: ToolPackage[] = [
       // never depends on the host PATH. `ctx.spillStore` is optional (read via
       // ctx.get) and does not affect the schemas, so no spill backend is mounted.
       await ctx.plugin(CatalogSearchBashExecutor)
-      await ctx.plugin(ToolFsSearch)
+      await ctx.plugin(ToolFsSearch, { sampleOverCapGlobResults: true })
     },
     note:
-      'glob and grep are conditional bash-backed discovery tools: they register only when ctx.bash can find `rg`, then run fixed ripgrep commands through ctx.bash as ordinary foreground calls (never background tasks). Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments.',
+      'glob and grep are conditional bash-backed discovery tools: they register only when ctx.bash can find `rg`, then run fixed ripgrep commands through ctx.bash as ordinary foreground calls (never background tasks). The catalog uses `sampleOverCapGlobResults: true`; deployments must choose that behavior explicitly. Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-pty',

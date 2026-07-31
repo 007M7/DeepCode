@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * QueueDock rendering and operations: authoritative rows, inline editing,
- * removal, failure notices, and live retirement.
+ * collapse state, removal, failure notices, and live retirement.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
@@ -78,16 +78,109 @@ describe('QueueDock', () => {
     expect(container.innerHTML).toBe('')
   })
 
+  it('renders one row directly and defaults multiple rows to a collapsible count header', () => {
+    const single = snapshotWith([row('i-1', 'one')])
+    const source = liveSession(single)
+    const view = render(<QueueDock {...kitFor(single)} useSession={source.useSession} />)
+    expect(view.queryByRole('button', { name: '1 条排队消息' })).toBeNull()
+    expect(view.getByText('one')).toBeTruthy()
+
+    act(() => { source.push(snapshotWith([row('i-1', 'one'), row('i-2', 'two')])) })
+    const header = view.getByRole('button', { name: '2 条排队消息' })
+    expect(header.getAttribute('aria-expanded')).toBe('false')
+    expect(document.getElementById(header.getAttribute('aria-controls')!)).toBeTruthy()
+    expect(view.queryByText('one')).toBeNull()
+    expect(view.queryByText('two')).toBeNull()
+
+    fireEvent.click(header)
+    expect(header.getAttribute('aria-expanded')).toBe('true')
+    expect(view.getByText('one')).toBeTruthy()
+    expect(view.getByText('two')).toBeTruthy()
+
+    fireEvent.click(header)
+    expect(header.getAttribute('aria-expanded')).toBe('false')
+    expect(view.queryByText('one')).toBeNull()
+  })
+
+  it('keeps an active single-row editor visible when another item arrives', () => {
+    const single = snapshotWith([row('i-edit', 'before')])
+    const source = liveSession(single)
+    const view = render(<QueueDock {...kitFor(single)} useSession={source.useSession} />)
+
+    fireEvent.click(view.getByLabelText('编辑排队消息'))
+    fireEvent.change(view.getByLabelText('编辑排队消息'), { target: { value: 'draft' } })
+    act(() => {
+      source.push(snapshotWith([row('i-edit', 'before'), row('i-2', 'second')]))
+    })
+
+    const header = view.getByRole('button', { name: '2 条排队消息' })
+    expect(header).toHaveProperty('disabled', true)
+    expect(header.getAttribute('aria-expanded')).toBe('true')
+    expect(view.getByRole('textbox', { name: '编辑排队消息' })).toHaveProperty('value', 'draft')
+    expect(view.getByText('second')).toBeTruthy()
+
+    fireEvent.click(view.getByLabelText('取消编辑'))
+    expect(header).toHaveProperty('disabled', false)
+    expect(header.getAttribute('aria-expanded')).toBe('false')
+    expect(view.queryByText('second')).toBeNull()
+  })
+
+  it('keeps an in-flight row action visible when another item arrives', async () => {
+    const single = snapshotWith([row('i-remove', 'remove me')])
+    const source = liveSession(single)
+    let finishUpdate: (() => void) | undefined
+    const updateQueue = vi.fn(() => new Promise<void>((resolve) => { finishUpdate = resolve }))
+    const view = render(
+      <QueueDock {...kitFor(single, { updateQueue })} useSession={source.useSession} />,
+    )
+
+    fireEvent.click(view.getByLabelText('删除排队消息'))
+    act(() => {
+      source.push(snapshotWith([row('i-remove', 'remove me'), row('i-2', 'second')]))
+    })
+
+    const header = view.getByRole('button', { name: '2 条排队消息' })
+    expect(header).toHaveProperty('disabled', true)
+    expect(header.getAttribute('aria-expanded')).toBe('true')
+    expect(view.getByText('remove me')).toBeTruthy()
+    expect(view.getByText('second')).toBeTruthy()
+
+    act(() => { finishUpdate?.() })
+    await waitFor(() => {
+      expect(header).toHaveProperty('disabled', false)
+      expect(header.getAttribute('aria-expanded')).toBe('false')
+    })
+  })
+
+  it('defaults a new multi-row queue to collapsed after the prior queue empties', () => {
+    const first = snapshotWith([row('i-1', 'one'), row('i-2', 'two')])
+    const source = liveSession(first)
+    const view = render(<QueueDock {...kitFor(first)} useSession={source.useSession} />)
+    fireEvent.click(view.getByRole('button', { name: '2 条排队消息' }))
+    expect(view.getByText('one')).toBeTruthy()
+
+    act(() => { source.push(snapshotWith([])) })
+    expect(view.container.innerHTML).toBe('')
+    act(() => {
+      source.push(snapshotWith([row('i-3', 'three'), row('i-4', 'four')]))
+    })
+
+    const header = view.getByRole('button', { name: '2 条排队消息' })
+    expect(header.getAttribute('aria-expanded')).toBe('false')
+    expect(view.queryByText('three')).toBeNull()
+  })
+
   it('renders active actions and disables editing for mixed-content rows', () => {
     const snap = snapshotWith([
       row('i-1', '第一条排队消息'),
       row('i-2', null, 'image [image]'),
     ])
     const source = liveSession(snap)
-    const { container } = render(<QueueDock {...kitFor(snap)} useSession={source.useSession} />)
+    const { container, getByRole } = render(<QueueDock {...kitFor(snap)} useSession={source.useSession} />)
+    fireEvent.click(getByRole('button', { name: '2 条排队消息' }))
     expect([...container.querySelectorAll('li')].map(item => item.textContent))
       .toEqual(['第一条排队消息', 'image [image]'])
-    expect(container.querySelectorAll('button')).toHaveLength(4)
+    expect(container.querySelectorAll('button')).toHaveLength(5)
     expect(container.querySelectorAll('[aria-label="编辑排队消息"]')).toHaveLength(2)
     expect(container.querySelectorAll('[aria-label="删除排队消息"]')).toHaveLength(2)
     expect(container.querySelectorAll('[aria-label="立即发送排队消息"]')).toHaveLength(0)
@@ -162,10 +255,11 @@ describe('QueueDock', () => {
     const snap = snapshotWith([row('i-1', 'one'), row('i-2', 'two')])
     const source = liveSession(snap)
     const updateQueue = vi.fn(() => Promise.resolve())
-    const { getAllByLabelText } = render(
+    const { getAllByLabelText, getByRole } = render(
       <QueueDock {...kitFor(snap, { updateQueue })} useSession={source.useSession} />,
     )
 
+    fireEvent.click(getByRole('button', { name: '2 条排队消息' }))
     fireEvent.click(getAllByLabelText('删除排队消息')[0]!)
     await waitFor(() => {
       expect(updateQueue).toHaveBeenCalledWith(iid('i-1'), { kind: 'remove' })
