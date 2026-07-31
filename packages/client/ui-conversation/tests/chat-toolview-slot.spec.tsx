@@ -114,7 +114,7 @@ describe('keyed toolview hole through the real machinery', () => {
     expect(view.container.querySelector('[data-tool="cordis_unmount"]')?.textContent)
       .toContain('Unmount temporary Plugindyn-2')
 
-    fireEvent.click(mounted!.querySelector('button[aria-expanded]')!)
+    fireEvent.click(mounted!.querySelector('[data-expandable]')!)
     expect(mounted!.querySelector('pre.shiki')?.textContent).toBe(code)
     await b.runtime.dispose()
   })

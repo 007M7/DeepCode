@@ -15,10 +15,10 @@
   - img
   - img
   - text: Think The user wants me to use the ask_user_question tool with specific parameters. Let me do exactly that.
-- button:
+- button "Ask question 1/1 answered":
   - img
   - img
-- text: Ask question 1/1 answered
+  - text: Ask question 1/1 answered
 - button "Think The user answered \"Blue\". I should now reply with the single word DONE and stop.":
   - img
   - img
