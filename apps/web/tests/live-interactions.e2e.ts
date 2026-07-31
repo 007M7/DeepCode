@@ -221,8 +221,8 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
     // only on change, so attempt count is invisible there).
     expect(sessionEvents.filter(e => e.type === 'llm/retry').length).toBeGreaterThanOrEqual(1)
     await expect.poll(() => page.getByText('event sourcing', { exact: false }).count(), { timeout: 10_000 }).toBeGreaterThan(0)
-    // Golden of the recovered end-state: indistinguishable from a clean
-    // completion — retries are deliberately invisible in the transcript.
+    // Golden of the recovered end-state: the discarded partial stays absent,
+    // while the settled retry row remains as durable recovery context.
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
     await compareOrRefreshGolden(RETRY_EXPECTED, snapshot, MODE)
     expect(tripwire.pageErrors).toEqual([])

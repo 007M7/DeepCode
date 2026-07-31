@@ -18,7 +18,10 @@ import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
 import { StatsLine, type StatsLineProps } from '../src/client/chat/StatsLine.tsx'
 import { zh } from '../src/client/locales.ts'
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.useRealTimers()
+})
 
 // Mirrors the real lookup chain (conversation namespace, then common).
 const t: MessageItemProps['t'] = makeTranslate(zh, commonZh)
@@ -159,6 +162,157 @@ describe('MessageItem arms', () => {
       <MessageItem t={t} node={{ kind: 'unknown', seq: 4, type: 'surface/next', data: { x: 1 } } as never} />,
     )
     expect(unknownView.getByText(/未知 surface 事件：surface\/next/)).toBeTruthy()
+  })
+
+  it('collapses retry details behind the durable model retry status', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(10_000)
+    const view = render(
+      <MessageItem
+        t={t}
+        retryActive
+        node={{
+          kind: 'model-retry',
+          seq: 5,
+          time: 10_000,
+          retryState: 'scheduled',
+          turn: 1,
+          step: 0,
+          provider: 'mock',
+          mode: 'normal',
+          policyKey: 'mock-normal',
+          retry: 1,
+          maxRetries: 2,
+          delayMs: 2_500.4,
+          failure: { code: 'TRANSPORT', message: '连接被重置' },
+        }}
+      />,
+    )
+    const details = view.container.querySelector('details')
+    const summary = view.container.querySelector('summary')
+    expect(details?.open).toBe(false)
+    expect(details?.dataset.active).toBe('true')
+    expect(view.getByRole('status').textContent).toBe('正在重试模型请求（1/2） · 3s')
+    expect(view.getByText('重试延迟：').parentElement?.textContent).toBe('重试延迟：2500ms')
+    expect(view.getByText('失败原因：').parentElement?.textContent).toBe('失败原因：连接被重置')
+
+    act(() => { vi.advanceTimersByTime(1_100) })
+    expect(view.getByRole('status').textContent).toBe('正在重试模型请求（1/2） · 2s')
+    act(() => { vi.advanceTimersByTime(1_000) })
+    expect(view.getByRole('status').textContent).toBe('正在重试模型请求（1/2） · 1s')
+
+    view.rerender(
+      <MessageItem
+        t={t}
+        retryActive
+        node={{
+          kind: 'model-retry',
+          seq: 6,
+          time: 12_100,
+          retryState: 'scheduled',
+          turn: 2,
+          step: 0,
+          provider: 'mock',
+          mode: 'normal',
+          policyKey: 'mock-normal',
+          retry: 2,
+          maxRetries: 2,
+          delayMs: 3_500.4,
+          failure: { code: 'TRANSPORT', message: '再次断开' },
+        }}
+      />,
+    )
+    expect(view.getByRole('status').textContent).toBe('正在重试模型请求（2/2） · 4s')
+
+    if (summary === null) throw new Error('retry summary missing')
+    fireEvent.click(summary)
+    expect(details?.open).toBe(true)
+
+    view.rerender(
+      <MessageItem t={t} node={{
+        kind: 'model-retry',
+        seq: 6,
+        time: 12_100,
+        retryState: 'started',
+        turn: 2,
+        step: 0,
+        provider: 'mock',
+        mode: 'normal',
+        policyKey: 'mock-normal',
+        retry: 2,
+        maxRetries: 2,
+        delayMs: 3_500.4,
+        failure: { code: 'TRANSPORT', message: '再次断开' },
+      }}
+      />,
+    )
+    expect(details?.dataset.active).toBeUndefined()
+    expect(view.getByRole('status').textContent).toBe('已重试模型请求（2/2） · 4s')
+
+    view.rerender(
+      <MessageItem t={t} node={{
+        kind: 'model-retry',
+        seq: 7,
+        time: 12_100,
+        retryState: 'started',
+        turn: 3,
+        step: 0,
+        provider: 'mock',
+        mode: 'always',
+        policyKey: 'mock-always',
+        retry: 3,
+        delayMs: 3_500.4,
+        failure: { code: 'TRANSPORT', message: '继续重试' },
+      }}
+      />,
+    )
+    expect(view.getByRole('status').textContent).toBe('已重试模型请求（3/∞） · 4s')
+
+    view.rerender(
+      <MessageItem t={t} node={{
+        kind: 'model-retry',
+        seq: 8,
+        time: 12_100,
+        retryState: 'cancelled',
+        turn: 4,
+        step: 0,
+        provider: 'mock',
+        mode: 'normal',
+        policyKey: 'mock-normal',
+        retry: 1,
+        maxRetries: 2,
+        delayMs: 3_500.4,
+        failure: { code: 'TRANSPORT', message: '用户取消' },
+      }}
+      />,
+    )
+    expect(view.getByRole('status').textContent).toBe('模型请求重试已取消（1/2） · 4s')
+  })
+
+  it('synchronizes the countdown when an inactive retry becomes active at the one-second floor', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(10_000)
+    const node = {
+      kind: 'model-retry',
+      seq: 5,
+      time: 10_000,
+      retryState: 'scheduled',
+      turn: 1,
+      step: 0,
+      provider: 'mock',
+      mode: 'normal',
+      policyKey: 'mock-normal',
+      retry: 1,
+      maxRetries: 2,
+      delayMs: 5_000,
+      failure: { code: 'TRANSPORT', message: '连接被重置' },
+    } as const
+    const view = render(<MessageItem t={t} node={node} />)
+    expect(view.getByRole('status').textContent).toBe('等待重试模型请求（1/2） · 5s')
+
+    act(() => { vi.advanceTimersByTime(4_200) })
+    view.rerender(<MessageItem t={t} node={node} retryActive />)
+    expect(view.getByRole('status').textContent).toBe('正在重试模型请求（1/2） · 1s')
   })
 })
 
