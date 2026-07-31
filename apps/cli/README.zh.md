@@ -3,21 +3,21 @@
 [English](README.md) | 中文
 
 
-Argv 只会通过 [Commander](https://github.com/tj/commander.js) 适配器（[`src/args.ts`](src/args.ts)）解析一次：同一个程序的默认形式（无子命令）是 TUI／无头界面（`--config`、`-p`/`--prompt`、`--resume`、`--dump-config`、`--dump-default-config`），`meta` 子命令是以本 checkout 为 workspace 的同一个 TUI，`upgrade` 子命令是无选项的引导会话入口，`web` 子命令则是浏览器 UI。`src/bin.ts` 按解析后的 mode 分支，仅动态导入该 mode 的模块。`dsh --help` 列出所有 mode，`dsh web --help` 渲染 Web 用法，`dsh --version` 打印此应用的版本；未知选项或拼错的 `--resume` 会明确报错（stderr，退出码 1），而不会被错路由。凡与默认界面不共享任何选项的子命令（`upgrade`、`web`、`meta`）都会拒绝泄漏进来的 `--config`/`-p`/`--resume`/dump 标志，而不会照常运行并丢弃它。`dsh web` 的 `--host`/`--port` 是未验证的直通覆盖：`dsh-host-webserver` schema 是默认值（标志缺失时使用已交付的 Web 覆盖层值）和有效性的唯一真源，并在启动时拒绝错误值。`--trusted-host` 为 /api 浏览器信任栅栏追加具名权威；全接口绑定还会自行推导本机的 LAN IP 字面量（[`src/app-cli-entry.ts`](src/app-cli-entry.ts)），因此打印出的 LAN URL 无需任何标志即可使用。
+Argv 只会通过 [Commander](https://github.com/tj/commander.js) 适配器（[`src/args.ts`](src/args.ts)）解析一次：同一个程序的默认形式（无子命令）是 TUI／无头界面（`--config`、`-p`/`--prompt`、`--resume`、`--dump-config`、`--dump-default-config`），`experimental-meta` 子命令是以本 checkout 为 workspace 的同一个 TUI，`experimental-upgrade` 子命令是无选项的引导会话入口，`web` 子命令则是浏览器 UI。`src/bin.ts` 按解析后的 mode 分支，仅动态导入该 mode 的模块。`dsh --help` 列出所有 mode，`dsh web --help` 渲染 Web 用法，`dsh --version` 打印此应用的版本；未知选项或拼错的 `--resume` 会明确报错（stderr，退出码 1），而不会被错路由。凡与默认界面不共享任何选项的子命令（`experimental-upgrade`、`web`、`experimental-meta`）都会拒绝泄漏进来的 `--config`/`-p`/`--resume`/dump 标志，而不会照常运行并丢弃它。`dsh web` 的 `--host`/`--port` 是未验证的直通覆盖：`dsh-host-webserver` schema 是默认值（标志缺失时使用已交付的 Web 覆盖层值）和有效性的唯一真源，并在启动时拒绝错误值。`--trusted-host` 为 /api 浏览器信任栅栏追加具名权威；全接口绑定还会自行推导本机的 LAN IP 字面量（[`src/app-cli-entry.ts`](src/app-cli-entry.ts)），因此打印出的 LAN URL 无需任何标志即可使用。
 
 TUI 界面：
 
 - 通过 [`dsh-app-boot`](../../packages/ui/app-boot/README.md) 启动 `base.cordis.yml` 与 `tui.cordis.yml`；`--config <path>` 应用一个补丁列表覆盖并替代个人覆盖，而 `--config-replace <path>` 将指定文件作为完整配置树启动；
 - 使用 `dsh --resume <session-id>` 恢复已持久化会话。当 Node 宿主公开 `process.execve` 时，还会提供 TUI 的原地移交宿主：选择器预检并刷新当前会话后，宿主会释放应用，并以规范化的恢复调用替换进程；不支持进程替换的运行时会让会话继续运行并给出提示。会话身份与退出行由本 CLI 拥有，而非由配置指定：它创建或选定 `main` 会话 id，并把该 id 以及可复现本次调用的确切命令一起提供到启动上下文（[`MAIN_SESSION_ID_KEY`](../../packages/ui/tui/README.md) 与 `TUI_GOODBYE_MESSAGE_KEY`）。任何 `cordis.yml` 键都无法移除恢复能力；缺失或无法读取的 id 会明确报错，而不会创建新会话；
-- 将 **调用目录** 视为 workspace：会话、相对路径和 workspace 指令都从 cwd 解析（`dsh meta` 是唯一例外，见下文）；
+- 将 **调用目录** 视为 workspace：会话、相对路径和 workspace 指令都从 cwd 解析（`dsh experimental-meta` 是唯一例外，见下文）；
 - 告知 agent 自身源码所在位置：启动后添加一个命名此 harness checkout 的提示词段。该路径从启动器的真实路径解析，因此在 PATH 符号链接和任意 cwd 下仍然有效，使自指的 `cordis` 工具集可以读取并修改它；
 - 应用 `~/.dsh` 中的个人覆盖（参见 [app-boot 的个人配置](../../packages/ui/app-boot/README.md#personal-config)）：`config.yaml` 修补已启动的树，而那里的 `.env` 是凭据 provider 自己的存储（绝不会被提升进环境，因此密钥始终可轮换）。环境优先级为环境中已有的值 > 项目 `.env`。
 - 当 `DSH_HOME` 下不存在不可变确认标记时，通过已挂载的 TUI overlay 服务呈现[版本化首次运行欢迎页](../../.agents/notes/implemented/feature/2026-07-30-versioned-tui-first-run-welcome.md)；只有 Enter 会创建该版本的标记，Escape、资源释放或进程退出仍保留展示资格。官方 DeepSeek 图标、响应式终端栅格图、所有 locale 共用的中文文案和通知版本均由静态本地文件持有；overlay 不会写入会话事件或模型上下文。
 - 注册裸 `/compact`：agent 空闲时，即使未达到自动压力，也会摘要有效的较早历史；该命令拒绝参数，并只在独立替换标记对持久化后报告成功。压缩（compaction）期间提交的提示词保留其队列身份，并在该检查点之后启动；注入的上下文仍保持可见。
 
-`dsh meta` 是以本 harness checkout 为 workspace 的同一个 TUI，因此开发 dsh 自身无需 `cd`。它在环境确定之后才 chdir 到 checkout 根目录（从启动器的真实路径解析，与源码路径提示词段所指的根目录相同），因此环境优先级不变，而会话 cwd 与 HMR 监视根目录会一并移动。Meta 始终创建新会话，不接受默认界面的任何选项；恢复已持久化会话应使用普通的 `dsh --resume <id>`。
+`dsh experimental-meta` 是以本 harness checkout 为 workspace 的同一个 TUI，因此开发 dsh 自身无需 `cd`。它在环境确定之后才 chdir 到 checkout 根目录（从启动器的真实路径解析，与源码路径提示词段所指的根目录相同），因此环境优先级不变，而会话 cwd 与 HMR 监视根目录会一并移动。Experimental meta 始终创建新会话，不接受默认界面的任何选项；恢复已持久化会话应使用普通的 `dsh --resume <id>`。
 
-`dsh upgrade` 是默认 TUI 界面之上的引导式全新会话入口：它在调用目录中创建一个全新会话，并以内置 `dsh-upgrade` skill 播种其首轮，效果等同于用户手动键入 `/skill:<name>`。启动器将 skill 名称提供到启动上下文（[`INITIAL_SKILL_KEY`](../../packages/ui/tui/README.md)），TUI 在聊天就绪后自动调用它。两者都不接受任何选项——`--config`、`-p`、`--resume` 都会明确报错——且仅在首次启动时播种，因此之后 `dsh --resume <id>` 恢复该会话时是普通 TUI 会话，不会重复注入。
+`dsh experimental-upgrade` 是默认 TUI 界面之上的引导式全新会话入口：它在调用目录中创建一个全新会话，并以内置 `dsh-upgrade` skill 播种其首轮，效果等同于用户手动键入 `/skill:<name>`。启动器将 skill 名称提供到启动上下文（[`INITIAL_SKILL_KEY`](../../packages/ui/tui/README.md)），TUI 在聊天就绪后自动调用它。该命令不接受任何选项——`--config`、`-p`、`--resume` 都会明确报错——且仅在首次启动时播种，因此之后 `dsh --resume <id>` 恢复该会话时是普通 TUI 会话，不会重复注入。
 
 `dsh --dump-config` 和 `dsh web --dump-config` 把合成后的配置树——已交付的基础配置、界面覆盖层，以及 `--config` 或个人覆盖层，恰好是该界面启动时组装的那些层——以 YAML 打印到 stdout 后退出，不启动任何东西；`--dump-default-config` 止步于界面覆盖层，因此对两份输出做 diff 就能精确看出用户层改了什么。每段连续的行之前都有一条 `# ==` 注释，标明该段来自哪个文件以及被哪些层修补过（例如 `# == base.cordis.yml, patched by tui.cordis.yml`），因此输出既展示来源，又仍是一份可加载的文档。合成通过 include 自己的补丁算法和 YAML 方言（`@cordisjs/plugin-include` 的 `applyEntryPatches`/`entryListSchema`）完成，因此 dump 不可能与实际启动漂移；`!!js` 表达式原样打印、不求值，目标行不存在的补丁会连同其所在层报到 stderr，与 Loader 启动时的警告一致。由启动器持有的启动上下文值（会话身份、CLI 标志补丁）是每次调用的事实，位于配置树之外，不会出现。dump 标志会拒绝仅用于启动的标志（`-p`、`--resume`、`--config-replace`）而不是静默忽略它们，`--dump-default-config` 不接受 `--config`。
 
