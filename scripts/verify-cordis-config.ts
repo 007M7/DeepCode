@@ -31,7 +31,10 @@ interface PluginReference {
 const root = resolve(import.meta.dirname, '..')
 // These example files are overlays consumed by the built dsh app, so their bare
 // specifiers resolve from apps/cli rather than the examples workspace.
-const appOverlayFiles = new Set(['examples/web-cordis/cordis.yml'])
+const appOverlayFiles = new Set([
+  'examples/web-cordis/cordis.yml',
+  ...globSync('examples/mcp-memory/*.cordis.yml', { cwd: root }),
+])
 const metadataFields = ['id', 'name', 'group', 'disabled', 'inject', 'intercept', 'isolate'] as const
 
 /** The adaptive directory-picker chooser package (mounts a backend row at boot). */
