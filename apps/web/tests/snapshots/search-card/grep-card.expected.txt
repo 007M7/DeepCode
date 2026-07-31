@@ -5,9 +5,9 @@ file=packages/client/ui-conversation/src/client/toolviews/search-row.tsx4
 line=16: export const DEFAULT_SEARCH_MAX_LINES = 16
 line=138: export function SearchBlock(props: SearchBlockProps) {
 line=141:   const [collapsed, setCollapsed] = useState<ReadonlySet<number>>(() => new Set())
-line=73:   const search = searchCardModel(block)
-line=90:         <SearchBlock {...search.card} maxLines={CHAT_SEARCH_MAX_LINES} className={css.search} />
-line=113:     ctx.slots.register({ name: 'conversation.chat.toolview', key: 'grep' }, SearchRow)
+line=35:   const search = searchCardModel(block)
+line=52:       search={search}
+line=73:     ctx.slots.register({ name: 'conversation.chat.toolview', key: 'grep', locale: NS }, SearchRow)
 expand=… 其余 4 行
 recovery=Found 9 of 42 matches
 
@@ -19,9 +19,9 @@ packages/client/ui-conversation/src/client/contract/search-card-model.ts
 Line 24: export const CHAT_SEARCH_MAX_LINES = 8
 Line 60: export function searchCardModel(block: ToolCallBlock): SearchCardModel | null {
 packages/client/ui-conversation/src/client/toolviews/search-row.tsx
-Line 71: export function SearchRow({ toolName, block }: ToolRowProps) {
-Line 73:   const search = searchCardModel(block)
-Line 90:         <SearchBlock {...search.card} maxLines={CHAT_SEARCH_MAX_LINES} className={css.search} />
-Line 113:     ctx.slots.register({ name: 'conversation.chat.toolview', key: 'grep' }, SearchRow)
+Line 33: export function SearchRow({ toolName, block, inspect, t }: SearchRowProps) {
+Line 35:   const search = searchCardModel(block)
+Line 52:       search={search}
+Line 73:     ctx.slots.register({ name: 'conversation.chat.toolview', key: 'grep', locale: NS }, SearchRow)
 
 (Full grep result stored at: fixture://spill/grep-68. Read it to see every match.)

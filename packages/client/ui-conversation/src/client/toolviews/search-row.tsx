@@ -48,7 +48,10 @@ export function SearchRow({ toolName, block, inspect, t }: SearchRowProps) {
       // A settled call with no search card (errored search, nested run_code
       // sub-dispatch, legacy generic result) has its text nowhere else to go;
       // ToolRow's Output section carries it, and errorSummary its first line.
-      output={search === null ? model.output : null}
+      // When a card is present ToolRow renders it instead of the output, so
+      // passing model.output unconditionally is safe and keeps the four card
+      // rows symmetric.
+      output={model.output}
       errorSummary={model.errorSummary}
       search={search}
       state={model.state}

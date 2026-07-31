@@ -19,7 +19,7 @@
 // independent); an error row's collapsed summary is the failure's first line in
 // the error color.
 
-import { useState, type MouseEvent, type ReactNode } from 'react'
+import { useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import clsx from 'clsx'
 import {
   CodeBlock, DiffBlock, ReadBlock, SearchBlock, StateDot, TerminalBlock, WebBlock,
@@ -118,6 +118,19 @@ function leadingFor(state: ToolRowState, icon: ReactNode): ReactNode {
   }
 }
 
+/** Visually hidden run-state label: the StateDot and the CSS sweep are both
+ *  aria-hidden / colour-only, so assistive technology needs this text to know a
+ *  row is running, failed, or interrupted. null in the ok state (the icon and
+ *  summary already describe a settled row). */
+function stateStatus(state: ToolRowState, t: TranslateNS<'conversation'>): string | null {
+  switch (state) {
+    case 'running': return t('row.running')
+    case 'error': return t('row.failed')
+    case 'stopped': return t('row.stopped')
+    default: return null
+  }
+}
+
 export function ToolRow({
   t,
   variant,
@@ -151,6 +164,9 @@ export function ToolRow({
   const card = terminalBody ?? diffBody ?? readBody ?? searchBody ?? webBody
   const expandable = body !== null || outputText !== null || card !== null
   const open = expanded && expandable
+  // The run-state label AT needs: the StateDot and the running sweep are both
+  // aria-hidden / colour-only, so a stopped or running row is otherwise silent.
+  const status = stateStatus(state, t)
   // An error row's collapsed summary IS the failure: the first error line in
   // the error color outranks both the args summary and a terminal description.
   const failureLine = state === 'error' ? errorSummary ?? null : null
@@ -164,6 +180,13 @@ export function ToolRow({
     event.stopPropagation()
     if (filePath !== undefined) onOpenFile?.(filePath)
   }
+  // Keep Enter/Space on the focused path link from bubbling to the row's
+  // keydown handler, which would preventDefault() the key and toggle expand
+  // instead of activating the link — the keyboard analogue of openFile's
+  // stopPropagation. The native button still fires its own onClick from the key.
+  const fileLinkKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') event.stopPropagation()
+  }
   // Think reasoning is prose, not an input payload: expanded, it renders as
   // plain indented text (no IN/OUT card) and the inline summary — the body's
   // own first line — yields to avoid repeating itself.
@@ -176,6 +199,7 @@ export function ToolRow({
   // of losing it with the icon.
   return (
     <div className={css.root} data-variant={variant} data-tool={toolName} data-state={state}>
+      {status !== null && <span className={css.visuallyHidden}>{status}</span>}
       <DisclosureRow
         rowClassName={css.row}
         leadingClassName={css.leading}
@@ -198,6 +222,7 @@ export function ToolRow({
                 type="button"
                 className={css.fileLink}
                 onClick={openFile}
+                onKeyDown={fileLinkKeyDown}
               >
                 {summaryText}
               </button>

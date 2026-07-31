@@ -346,16 +346,18 @@ describe('SearchRow keyed card', () => {
   })
 
   it('registers the one row component under both grep and glob keys', () => {
-    const registered: { key: unknown; component: unknown }[] = []
+    const registered: { key: unknown; locale: unknown; component: unknown }[] = []
     const ctx = {
       slots: {
-        register: (options: { name: string; key: string }, component: unknown) => {
-          registered.push({ key: options.key, component })
+        register: (options: { name: string; key: string; locale?: string }, component: unknown) => {
+          registered.push({ key: options.key, locale: options.locale, component })
         },
       },
     } as never
     searchToolview.apply(ctx)
     expect(registered.map(r => r.key)).toEqual(['grep', 'glob'])
+    // Both keys claim the conversation locale seat ToolRow's body copy needs.
+    expect(registered.map(r => r.locale)).toEqual(['conversation', 'conversation'])
     // One component, two keys.
     expect(registered[0]!.component).toBe(SearchRow)
     expect(registered[1]!.component).toBe(SearchRow)

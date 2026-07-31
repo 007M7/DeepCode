@@ -253,6 +253,9 @@ describe('FileMutationRow diff card', () => {
       error: { name: 'ToolError', code: 'interrupted' },
     }))} />)
     expect(view.container.querySelector('[data-state="stopped"]')).not.toBeNull()
+    // The amber StateDot is aria-hidden, so ToolRow carries the state to AT as
+    // visually-hidden text; without it a stopped row is a colour-only signal.
+    expect(view.getByText('已停止')).toBeTruthy()
   })
 
   it('renders a plain summary span when the call carries no file path', () => {
@@ -267,12 +270,12 @@ describe('FileMutationRow diff card', () => {
 
 describe('fileMutationToolview registration', () => {
   it('registers one component under both edit and write, and each disposes', () => {
-    const registered: { key: string; disposed: boolean }[] = []
+    const registered: { key: string; locale: unknown; disposed: boolean }[] = []
     const disposers: (() => void)[] = []
     const ctx = {
       slots: {
-        register: ({ key }: { name: string; key: string }) => {
-          const entry = { key, disposed: false }
+        register: ({ key, locale }: { name: string; key: string; locale?: string }) => {
+          const entry = { key, locale, disposed: false }
           registered.push(entry)
           const dispose = () => { entry.disposed = true }
           disposers.push(dispose)
@@ -282,6 +285,8 @@ describe('fileMutationToolview registration', () => {
     }
     fileMutationToolview.apply(ctx as never)
     expect(registered.map(r => r.key).sort()).toEqual(['edit', 'write'])
+    // Both keys claim the conversation locale seat ToolRow's body copy needs.
+    expect(registered.map(r => r.locale)).toEqual(['conversation', 'conversation'])
     // The registrant's inject seam is the load-order contract the row relies on.
     expect(fileMutationToolview.inject).toEqual(['slots', 'conversation'])
     // Disposal removes each contribution (packages/AGENTS.md registry contract).

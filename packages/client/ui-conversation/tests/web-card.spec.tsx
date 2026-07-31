@@ -267,17 +267,19 @@ describe('DetailsPanel web Output section', () => {
 
 describe('web toolview registration', () => {
   it('registers one WebRow under both web_search and web_fetch', () => {
-    const registered: { key: string; component: unknown }[] = []
+    const registered: { key: string; locale: unknown; component: unknown }[] = []
     const ctx = {
       slots: {
-        register: (options: { name: string; key: string }, component: unknown) => {
-          registered.push({ key: options.key, component })
+        register: (options: { name: string; key: string; locale?: string }, component: unknown) => {
+          registered.push({ key: options.key, locale: options.locale, component })
           return () => {}
         },
       },
     } as unknown as import('cordis').Context
     webToolview.apply(ctx)
     expect(registered.map(r => r.key)).toEqual(['web_search', 'web_fetch'])
+    // Both keys claim the conversation locale seat ToolRow's body copy needs.
+    expect(registered.map(r => r.locale)).toEqual(['conversation', 'conversation'])
     // One component under both keys, not two thin rows.
     expect(registered[0]?.component).toBe(WebRow)
     expect(registered[1]?.component).toBe(WebRow)
