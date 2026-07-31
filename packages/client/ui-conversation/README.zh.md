@@ -4,9 +4,11 @@
 
 会话领域：骨架（标题栏／标签页／编辑器／空状态）、聊天视图（分组步骤摘要流、流式尾部隔离、带从左到右动态渐变的 `Deep diving...` 轮次状态、逐工具行 slot 及一个 bash 示例注册方与 todo 行）、编辑器 dock（与输入区一同 sticky 的会话统计行）、输入区 dock（带发丝分界线的队列行加 todo 计划条）、最小详情面板、按 scope 寻址的 ConversationService。契约：api-contracts v3 §7 加 slot 终端设计（store seat／props share）。
 
+压缩（compaction）在检查点自身的消息流位置渲染为一行折叠标记，不替换其上方的 transcript（文本记录）。展开内容来自检查点溯源的 `compact/summary`；该事件位于已加载窗口之外时，标记仍然可见但不可展开。面向模型的带框检查点载荷绝不渲染。
+
 常驻会话壳会跨无会话与会话状态切换而保留。没有当前会话时，它会渲染禁用输入栏；其根作用域的 `conversation.hero.workspace` slot 承载 Workspace 选择器。选择 Workspace 会连接或复用由 Host 拥有的空白会话，并在不替换会话壳的情况下打开该会话。空白会话与活跃会话渲染相同的输入区主体；InputHub 则在 Workspace 切换间携带草稿，并将草稿镜像到会话 store。活跃阶段会话标题栏以普通列 chrome 占据顶部；其下滚动容器（`data-conversation-scroll`）承载流动排版的各视图与 sticky 编辑器栈（统计 dock＋输入区 dock＋输入栏）。textarea 上的滚轮会链式处理：限高草稿先在本地滚动，到达边缘后再转交给该宿主。
 
-视图环本身就是 slot：会话注册声明 `'conversation.view'` 列表 slot（Session scope），并将其列在 `children` 表中；ConversationRoot 通过 renderSlot share 渲染活跃配置项（`only: <active id>`）；视图标签页从环账本的注册选项（`id`／`order`／`label`）投影而来。聊天视图是该包自身的环配置项；其他插件（ui-trajectory）通过普通的 `ctx.slots.register` 贡献标签页。先前包内的视图注册表（`registerView`／`ViewEntry`／`ConversationViewMap` 及 chrome 附加表）已退役，逐视图 chrome 则被拆入视图组件自身。
+视图环本身就是 slot：会话注册声明 `'conversation.view'` 列表 slot（Session scope），并将其列在 `children` 表中；ConversationRoot 通过 renderSlot share 渲染活跃配置项（`only: <active id>`）；视图标签页从环账本的注册选项（`id`／`order`／`label`）投影而来。聊天视图是该包（package）自身的环配置项；其他插件（ui-trajectory）通过普通的 `ctx.slots.register` 贡献标签页。先前包内的视图注册表（`registerView`／`ViewEntry`／`ConversationViewMap` 及 chrome 附加表）已退役，逐视图 chrome 则被拆入视图组件自身。
 
 已记录的非用户消息渲染为默认折叠的 `上下文注入` 展开项。它通过包内部的 `DisclosureRow` 与 `ToolRow` 共享 Tool calls 标题栏的几何与交互，同时保留上下文语义：展开后的 141px 滚动区会以内联 JSON 的形式有界展示 `content` 和 `source`，且不会合成工具状态、摘要或键控 toolview 分发（[决策](../../../.agents/notes/implemented/feature/2026-07-30-web-context-injection-disclosure.md)）。
 
@@ -22,9 +24,9 @@
 
 声明 `search` 渲染意图的 `grep`／`glob` 调用，会在同样的渲染点上通过 ui-primitives 的 `SearchBlock` 内联渲染其结果——grep 的匹配按文件分组（每个是一个可折叠的头，下辖 `lineNumber: line` 行），glob 是扁平路径列表。`contract/search-card-model.ts` 是从快照的 `resultView` 推导的唯一位置；与终端卡片不同，它不读 `callView`，因为搜索在 `execute` 前没有匹配或路径，所以运行中的搜索只显示摘要。对任何非搜索的结果视图、当前客户端版本无法编译的 `card` 或 `kind`、以及（因为这些都与不可信的 wire 帧同行）一个 `files`／`paths` 格式错误的已知 kind，它都返回 null，落回通用路径。键控的 `SearchRow` 因推导出的 `kind` 决定形态而同时注册在 `grep` 与 `glob` 下，把卡片常驻在摘要行下方；渲染点兜底行则把它保持在展开控件之后。两者上限都是 `CHAT_SEARCH_MAX_LINES`（8），面板为 16。被截断的搜索会从卡片里丢掉一些行，但通往其余部分的定位符——grep/glob 的 `Full … stored at …` 脚注——只存在于结果文本里，因此推导在（且仅在）结果被截断时把它作为恢复脚注画在卡片下方；一个完全没有卡片的已结算调用（出错的搜索、嵌套 `run_code` 子派发、旧日志的 generic 结果）则回退到其压平后的结果文本，从而不让任何内容丢失在一个光秃秃的摘要之后（[决策](../../../.agents/notes/implemented/feature/2026-07-30-web-search-card.md)）。
 
-工具行同样是 slot：独立工具环（`ToolViewRegistry`／`ctx.toolviews`／outlet）已经退役。聊天配置项声明键控的 `'conversation.chat.toolview'` 空位（Session scope；key 空间在运行时开放）；其渲染点逐行通过 `entryKey: toolName` 分发，并以 `GenericToolCard` 作为调用点 `fallback`。owner 载荷是统一的 `ToolRowOwnerProps`（`callId`／`toolName`／`block`／`openFile`），`ToolRowProps` 则预先将其与 Session 标准工具包组合。注册方只是普通插件：`ctx.slots.register({ name: 'conversation.chat.toolview', key: '<tool>', inject? }, Row)`，以 `inject: ['slots', 'conversation']` 作为加载顺序 seam（apply 在聊天注册后挂载 ConversationService，因此服务存在即可保证 slot 已声明）；Session 区分在组件内部完成（`useSessions` 读取 `parentId`，bash 示例是第三方姿态的范例）。Trajectory/waterfall 工具视图 slot 共享此形状，并随各自的渲染点落地（RendersCheck 会拒绝没有任何渲染方的声明）。
+工具行同样是 slot：独立工具环（`ToolViewRegistry`／`ctx.toolviews`／outlet）已经退役。聊天配置项声明键控的 `'conversation.chat.toolview'` 空位（Session scope；key 空间在运行时开放）；其渲染点逐行通过 `entryKey: toolName` 分发，并以 `GenericToolCard` 作为调用点 `fallback`。owner 载荷是统一的 `ToolRowOwnerProps`（`callId`／`toolName`／`block`／`openFile`），`ToolRowProps` 则预先将其与 Session 标准工具包组合。注册方只是普通插件：`ctx.slots.register({ name: 'conversation.chat.toolview', key: '<tool>', inject? }, Row)`，以 `inject: ['slots', 'conversation']` 作为加载顺序 seam（apply 在聊天注册后挂载 ConversationService，因此服务存在即可保证 slot 已声明）；Session 区分在组件内部完成（`useSessions` 读取 `parentId`，bash 示例是第三方姿态的范例）。Trajectory/waterfall（瀑布式事件）工具视图 slot 共享此形状，并随各自的渲染点落地（RendersCheck 会拒绝没有任何渲染方的声明）。
 
-审批经由本包声明的链接管编辑器：`ApprovalPanel` 注册为按选择器路由的 `'conversation.composer'` 配置项（ui-question 模式），在审批等待未决期间取代 InputBar 占据编辑器（琥珀色条、理由标题、来自运行中调用参数的配对命令行、一次性的拒绝／允许）。`contract/slots.ts` 中的 `PendingApproval` 领域面在运行时 `PendingWait` 载体之上拥有 wire 编码——带审计关联的 `ApprovalResponsePayload` 值；广播的 `approval/resolved` 帧使等待落定并恢复编辑器。侧边栏通过 manager 跟踪的 `waitingApproval` 列表位（未实例化会话同样点亮）镜像该阻塞状态，其优先级高于运行中圆环，直至问题解决。未决等待完全离开消息流：问题（ui-question）与审批（ApprovalPanel）都经编辑器接管作答，不再保留只读占位卡。编辑器底行的 Access 席位挂载 `PermissionSelect`，由 host 计算的 `permissions` 投影经标准工具包 `useProjection` 供数（key 缺席即隐藏 chip）；chip 打开 Menu 原语下拉，普通安全预设会立即经输入栏注入的 `command` 回调提交 `/permission <preset>`，而 `danger-full-access` 在界面中显示为 `Full access`，选择后先打开页面内的 Modal 风险确认。用户勾选确认项前启用按钮始终不可用；取消、Escape、关闭按钮与点击遮罩都不会提交命令。
+审批经由本包声明的链接管编辑器：`ApprovalPanel` 注册为按选择器路由的 `'conversation.composer'` 配置项（ui-question 模式），在审批等待未决期间取代 InputBar 占据编辑器（琥珀色条、理由标题、来自运行中调用参数的配对命令行、一次性的拒绝／允许）。`contract/slots.ts` 中的 `PendingApproval` 领域面在运行时 `PendingWait` 载体之上拥有 wire 编码——带审计关联的 `ApprovalResponsePayload` 值；广播的 `approval/resolved` 帧使等待落定并恢复编辑器。侧边栏通过 manager 跟踪的 `waitingApproval` 列表位（未实例化会话同样点亮）镜像该阻塞状态，其优先级高于运行中圆环，直至问题解决。未决等待完全离开消息流：问题（ui-question）与审批（ApprovalPanel）都经编辑器接管作答，不再保留只读占位卡。编辑器底行的 Access 席位挂载 `PermissionSelect`，由 host 计算的 `permissions` 投影经标准工具包 `useProjection` 供数（key 缺席即隐藏 chip）；chip 打开 Menu 原语下拉，其中 kebab-case 预设名渲染为 Title Case 标签；普通安全预设会立即经输入栏注入的 `command` 回调提交 `/permission <preset>`，而 `danger-full-access` 在界面中显示为 `Full access`，选择后先打开页面内的 Modal 风险确认。用户勾选确认项前启用按钮始终不可用；取消、Escape、关闭按钮与点击遮罩都不会提交命令。
 
 todo 两个面就是在该形状上的两个注册项，都是普通注册方插件，`inject: ['slots', 'conversation']`。`TodoRow` 占用 `'conversation.chat.toolview'` 的 `todo_write` key，摘要该次调用「试图写入」的内容（从其 args 解析出 `<已完成>/<总数> 已完成 · <进行中条目>`；模型 JSON 残缺或形状不对时回落到通用摘要；非 ok 执行状态保留通用状态点，使被取消的调用绝不读成一次已完成的更新）。`TodoDock` 以 `order: -1` 占用 `'conversation.input.dock'` 列表 slot（位于队列行之上），是计划条：它经 `useProjection` 读取 host 计算的 `todos` 投影（站立计划：其后没有更晚 `turn/start` 的最近一次 `todo/write`）并渲染 `TodoPanel`，后者接收纯列表，在列表为空时自我隐藏；列表非空时面板初始折叠，表头显示标题加 `"<已完成>/<总数> tasks · <n> in progress"`（状态图标为 figma 的勾选／进行中／虚线未开始一组）。选取由 dock 适配器负责，因此面板保持为其 props 的纯函数；站立列表放在此处而非行内，行才能保持单行。输入区 composer 链隐藏的一切（例如 ui-question 对 `conversation.composer` 的接管）也会隐藏整个 dock，包括这条计划条。
 
@@ -48,6 +50,7 @@ todo 两个面就是在该形状上的两个注册项，都是普通注册方插
 
 ## 已知限制与暂缓事项
 
+- **压缩标记不显示规模**：该行尚不报告检查点替换了多少条消息或哪段范围。
 - **统计行的耗时只覆盖窗口内消息流**：LLM 与工具墙钟时间由快照的 assistant `timing` 与工具 call/result 配对折算，落在已加载事件窗口之外的节点（更早的历史）不计入。
 - **详情面板是最小形态，且当前没有入口**：以原始形式显示已选择调用的参数／结果；Input/Output/Metadata 切换、Prev/Next 步进与 See-in-trajectory 深链接暂缓实现。工具行已不再是详情面板的点击目标，且没有任何手势接替它，因此 `ChatViewInjected.openDetails` 虽已实现却无人调用，该面板（含其终端卡片）在组装后的应用中不可达；其渲染仍由直接以选中态挂载它来覆盖。
 - **assistant 逐消息分页是预留 slot**：设计中已有图稿，尚未实现。已定稿的内容 IconActions 行（复制／分支／时钟）只挂在每个轮次中最后一条带 text 内容的 assistant 下；轮次中间的叙述与纯 Think 节点不带 chrome。分支会 fork 到包含该消息的轮次末尾，在 client 端递增继承标题后打开子会话，而 fork 或改名失败时源会话保持选中。
@@ -56,4 +59,4 @@ todo 两个面就是在该形状上的两个注册项，都是普通注册方插
 - **审批面板的「始终允许此类」暂缓**：持久授权需要授权存储设计；今天只能回答允许一次／拒绝。
 - **TodoPanel 将过长条目截成单行省略号**：figma 条没有换行或展开入口，完整文本无法在行内读完。
 - **Queue 编辑仅支持文本**：包含非文本块的行仍显示扁平化预览，但由于内联编辑器无法保留这些块，其编辑控件会被禁用。文本行进入编辑模式后，删除会替换为保存和取消；Enter 保存，Escape 取消。QueueDock 不提供立即发送控件。
-- **Web 仅暴露待处理 Queue**：在 steering（中途引导）拥有专用交互之前，Host 不会把待处理 steering 纳入 Queue 快照。已消费的 `steering/message` 仍会渲染到持久 transcript（文本记录）中，因此从外部提交的 steering 在回放时仍能如实呈现。
+- **Web 仅暴露待处理 Queue**：在 steering（中途引导）拥有专用交互之前，Host 不会把待处理 steering 纳入 Queue 快照。已消费的 `steering/message` 仍会渲染到持久 transcript 中，因此从外部提交的 steering 在回放时仍能如实呈现。

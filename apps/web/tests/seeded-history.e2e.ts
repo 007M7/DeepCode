@@ -1,11 +1,12 @@
 // Web e2e scenario: seeded history. A recorded session seeded cold through
 // the REAL persistence API renders purely from the log — the surface nothing
 // else covers: sidebar cold listing, the implicit resume/attach inside the
-// history RPC, history-page tool views, and the client fold of historical
+// history RPC, history-page tool views, and the client's log-ordered transcript
 // events — with ZERO model calls in replay (no replay fixture; a stray stream
 // fails loud on the open llm seam). The cold session also carries the one
 // keyless command-row surface: an Access-chip pick runs `/permission` on the
-// host, so the settled row's copy has a golden here. The seed is a recorded fixture under the
+// host, so the settled row's copy has a golden here. The seed is a recorded
+// fixture under the
 // same record discipline as every other: DSH_SNAPSHOT=record drives the turn
 // live through the composer (real read tool against seeded workspace files)
 // and harvests seed.jsonl; replay/refresh seed it cold and only render.
@@ -34,6 +35,90 @@ const SEED_ID = 'seeded-history-web-e2e'
 
 const PROMPT = 'Use the read tool twice in one assistant message: read a.txt and b.txt. Then reply with the single word DONE and stop.'
 
+/**
+ * Append a complete, valid compaction transaction over the recorded turn's own
+ * surface. The recording stays model-authentic and reusable; replay adds this
+ * deterministic condition before seeding it cold, so the scenario pins the bug
+ * this change fixes — a landed compaction must not erase history the reader
+ * already saw — through the real host and the real browser.
+ * @param raw - the committed seed fixture text.
+ * @returns the fixture with a compacted turn appended.
+ */
+function withCompaction(raw: string): string {
+  const lines = raw.trimEnd().split('\n')
+  const events = lines.slice(1).map(line => JSON.parse(line) as {
+    type: string
+    seq: number
+    time: number
+    surfaceOp?: unknown
+    data?: { turn?: unknown }
+  })
+  const surfaceSeqs = events
+    .filter(event => event.surfaceOp === 'append'
+      && (event.type === 'user/message'
+        || event.type === 'assistant/message'
+        || event.type === 'tool/result'
+        || event.type === 'steering/message'))
+    .map(event => event.seq)
+  const first = surfaceSeqs[0]
+  const last = surfaceSeqs.at(-1)
+  const tail = events.at(-1)
+  if (first === undefined || last === undefined || tail === undefined) {
+    throw new Error('seeded-history compaction requires a non-empty closed surface')
+  }
+  // The transaction opens the turn after the recording's last closed one; read
+  // it from the fixture so a re-recording with a different turn count stays
+  // valid instead of appending a duplicate turn number.
+  const lastTurn = events.filter(event => event.type === 'turn/end').at(-1)?.data?.turn
+  if (typeof lastTurn !== 'number') {
+    throw new Error('seeded-history compaction requires a recording ending on a closed turn')
+  }
+  const turn = lastTurn + 1
+  let seq = tail.seq + 1
+  let time = tail.time + 1
+  /**
+   * Append one event at the next seq/time.
+   * @param event - the event body, without seq/time.
+   * @returns the seq it took, so provenance cites the push instead of arithmetic over the push order below.
+   */
+  const at = (event: Record<string, unknown>): number => {
+    const taken = seq++
+    lines.push(JSON.stringify({ ...event, seq: taken, time: time++ }))
+    return taken
+  }
+  at({ type: 'turn/start', data: { turn, trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'compact' } } } })
+  const startSeq = at({ type: 'compact/start', data: { turn } })
+  const summarySeq = at({
+    type: 'compact/summary',
+    data: {
+      summary: [{
+        type: 'text',
+        text: '## Cold resume compact summary\n\n- The exact summary remains available.',
+      }],
+      shadowedRange: { start: first, end: last },
+      shadowedSeqs: surfaceSeqs,
+      shadowedTokenCount: 10_000,
+      provider: 'snapshot',
+      model: 'snapshot-compactor',
+    },
+  })
+  at({
+    type: 'user/message',
+    data: {
+      content: [{
+        type: 'text',
+        text: '<context_checkpoint>Model-only compact checkpoint.</context_checkpoint>',
+      }],
+      source: { kind: 'plugin', plugin: 'compact' },
+    },
+    surfaceOp: { op: 'replace', start: first, end: last },
+    sourceEventSeqs: [startSeq, summarySeq, ...surfaceSeqs],
+  })
+  at({ type: 'compact/end', data: { turn } })
+  at({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
+  return `${lines.join('\n')}\n`
+}
+
 describe('web e2e: seeded history renders through cold resume', () => {
   let scaffold: WebScaffold
   let browser: Browser
@@ -53,7 +138,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
     if (MODE !== 'record') {
       const raw = await readFile(SEED, 'utf8')
       expect(fixtureUserPrompts(raw), 'seed fixture must carry exactly the drive prompt').toEqual([PROMPT])
-      await seedSession(scaffold, raw, SEED_ID)
+      await seedSession(scaffold, withCompaction(raw), SEED_ID)
     }
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
@@ -119,11 +204,15 @@ describe('web e2e: seeded history renders through cold resume', () => {
     await sessionRow.click()
     // Settled barrier for history: the recorded final assistant text renders.
     await expect.poll(() => page.getByText('DONE', { exact: true }).count(), { timeout: 15_000 }).toBe(1)
+    await expect.poll(() => page.getByText('Context compacted', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
     // Tool cards render from logged tool/call + tool/result alone (views are
     // host-recomputed per page; the generic card is the documented default).
     const toolRows = page.locator('[data-variant], [data-sample]')
     await expect.poll(() => toolRows.count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(2)
     expect(await page.getByText('a.txt', { exact: false }).count()).toBeGreaterThan(0)
+    // The bug this fixes: the compaction shadowed the whole recorded surface on
+    // the model side, and the prompt and full tool output are still on screen.
+    expect(await page.getByText(PROMPT, { exact: true }).count()).toBe(1)
 
     const agent = scaffold.ctx.agents.get(SessionId(SEED_ID))
     if (agent === undefined) throw new Error('seeded session did not attach an agent')
@@ -228,6 +317,22 @@ describe('web e2e: seeded history renders through cold resume', () => {
     await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).toBe('true')
     // Path label survives from the recorded args (a.txt).
     await expect.poll(() => page.getByText('a.txt', { exact: false }).count(), { timeout: 5_000 }).toBeGreaterThan(0)
+  })
+
+  it.skipIf(MODE === 'record')('expands the cold-resumed compact summary', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-seeded-compaction'))
+    const marker = page.getByRole('button', { name: /Context compacted/ })
+    await marker.waitFor({ timeout: 10_000 })
+    expect(await marker.getAttribute('aria-expanded')).toBe('false')
+    await marker.click()
+    await expect.poll(() => marker.getAttribute('aria-expanded'), { timeout: 5_000 }).toBe('true')
+    await expect.poll(() => page.getByRole('heading', { name: 'Cold resume compact summary' }).count(), {
+      timeout: 5_000,
+    }).toBe(1)
+    expect(await page.getByText('The exact summary remains available.', { exact: false }).count()).toBeGreaterThan(0)
+    // Restore the shared page state for any later case.
+    await marker.click()
+    await expect.poll(() => marker.getAttribute('aria-expanded'), { timeout: 5_000 }).toBe('false')
   })
 
   it.skipIf(MODE === 'record')('an Access-chip switch lands one command row: bare name, non-repeating settlement text', async () => {
