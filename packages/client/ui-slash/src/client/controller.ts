@@ -41,6 +41,12 @@ export class SlashController {
   /** Menu state store (per-session; survives session switches, dies with the scope). */
   readonly menu: SnapshotStore<MenuState> = createSnapshotStore<MenuState>(MENU_CLOSED)
   /**
+   * Name of the source opened through the programmatic launcher, or null for
+   * trigger-detected/closed menus. Composer chrome subscribes to this store
+   * for the launcher's expanded state without owning a second menu model.
+   */
+  readonly launcher: SnapshotStore<string | null> = createSnapshotStore<string | null>(null)
+  /**
    * Aggregated hot reference lexicon, grouped by trigger (decision 21):
    * sources implementing the lexicon hook are polled with the session
    * projection; undefined answers (roll not hot yet) are skipped; multiple
@@ -81,6 +87,8 @@ export class SlashController {
    */
   track(draft: string, caret: number, guard: TriggerGuard, draftRev: number): void {
     if (this.disposed) return
+    const launched = this.launcher.getSnapshot() !== null
+    this.clearLauncher()
     const raw = detectTrigger(draft, caret, guard)
     if (raw === null) {
       this.hit = null
@@ -90,7 +98,7 @@ export class SlashController {
     }
     const hit: TriggerHit = { ...raw, span: { ...raw.span, draftRev } }
     const prev = this.menu.getSnapshot()
-    const same = prev.open && prev.hit !== null
+    const same = !launched && prev.open && prev.hit !== null
       && prev.hit.trigger === hit.trigger && prev.hit.query === hit.query
       && prev.hit.span.start === hit.span.start && prev.hit.span.end === hit.span.end
     this.hit = hit
@@ -101,11 +109,38 @@ export class SlashController {
       this.reduce({ type: 'close' })
       return
     }
-    if (!prev.open || prev.hit === null || prev.hit.trigger !== hit.trigger) {
+    if (launched || !prev.open || prev.hit === null || prev.hit.trigger !== hit.trigger) {
       this.menu.set(seedGroups(this.menu.getSnapshot(), roster.map(s => s.name)))
     }
     this.reduce({ type: 'hit', hit })
     this.fetchCandidates(hit, roster)
+  }
+
+  /**
+   * Toggle a menu containing exactly one registered source. The supplied hit
+   * is a synthetic selection span rather than a typed trigger token, but
+   * picks deliberately reuse the ordinary source callback and scoped input
+   * mutation pipeline.
+   * @param source - registered source name under `hit.trigger`.
+   * @param hit - synthetic hit carrying position and pick-time draft CAS.
+   */
+  toggleSource(source: string, hit: TriggerHit): void {
+    if (this.disposed) return
+    if (this.launcher.getSnapshot() === source && this.menu.getSnapshot().open) {
+      this.dismiss()
+      return
+    }
+    const match = this.deps.roster.sources(hit.trigger).find(item => item.name === source)
+    if (match === undefined) {
+      this.dismiss()
+      return
+    }
+    this.stopFetch()
+    this.hit = hit
+    this.launcher.set(source)
+    this.menu.set(seedGroups(this.menu.getSnapshot(), [source]))
+    this.reduce({ type: 'hit', hit })
+    this.fetchCandidates(hit, [match])
   }
 
   /**
@@ -349,9 +384,14 @@ export class SlashController {
     this.fetch = null
   }
 
+  private clearLauncher(): void {
+    if (this.launcher.getSnapshot() !== null) this.launcher.set(null)
+  }
+
   private reduce(ev: MenuEvent): void {
     const cur = this.menu.getSnapshot()
     const next = menuReduce(cur, ev)
     if (next !== cur) this.menu.set(next)
+    if (!next.open) this.clearLauncher()
   }
 }

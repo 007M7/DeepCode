@@ -15,27 +15,30 @@
   - img
   - img
   - text: "Think The user wants me to:"
-- button:
+- button "Inspect temporary":
   - img
   - img
-- text: Inspect temporary
+  - text: Inspect temporary
 - 'button "Think Good, no temporary plugins running. Now step 2: call cordis_mount with the exact code."':
   - img
   - img
   - text: "Think Good, no temporary plugins running. Now step 2: call cordis_mount with the exact code."
-- button [expanded]:
+- 'button "Mount temporary Plugin return { name: \"snapshot-noop\", apply(ctx) {} }" [expanded]':
   - img
-- text: Mount temporary Plugin typescript
+  - text: "Mount temporary Plugin return { name: \"snapshot-noop\", apply(ctx) {} }"
+- text: typescript
 - button "Copy"
 - code: "return { name: \"snapshot-noop\", apply(ctx) {} }"
+- text: OUT Temporary Plugin dyn-1 is running (plugin "snapshot-noop"; available until unmounted or DSH restarts).
+- button "Inspect"
 - 'button "Think The id is \"dyn-1\". Now step 3: call cordis_unmount with that id."':
   - img
   - img
   - text: "Think The id is \"dyn-1\". Now step 3: call cordis_unmount with that id."
-- button:
+- button "Unmount temporary Plugin dyn-1":
   - img
   - img
-- text: Unmount temporary Plugin dyn-1
+  - text: Unmount temporary Plugin dyn-1
 - button "Think All three calls succeeded. I should now reply exactly \"CORDIS_UI_DONE\" and stop.":
   - img
   - img
@@ -47,10 +50,9 @@
   - img
 - text: {{clock}}
 - textbox "Message the agent"
-- button "Add attachment":
+- button "Commands":
   - img
-- 'button "Access mode, current: Danger Full Access"': Danger Full Access
-- button "Plan mode off, press to turn on": Plan off
+- 'button "Access mode, current: Full access"': Full access
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img

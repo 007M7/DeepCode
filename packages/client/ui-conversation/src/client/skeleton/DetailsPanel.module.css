@@ -101,8 +101,15 @@
   font: var(--dsw-font-xs-13);
 }
 
-/* The terminal card sits directly under its section label, so it drops the
-   primitive's standalone vertical margin; the section owns the spacing. */
-.terminal {
+/* A card body (terminal or diff) sits directly under its section label, so it
+   drops the primitive's standalone vertical margin; the section owns the
+   spacing. Card-neutral: no terminal- or diff-specific value. */
+.cardBody {
+  margin: 0;
+}
+
+/* Same rule for the web card: it sits under the section label, so the section
+   owns the spacing rather than the primitive's own vertical margin. */
+.web {
   margin: 0;
 }

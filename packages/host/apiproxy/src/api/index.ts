@@ -35,7 +35,8 @@ export interface ApiProxy {
 // ---- Domain interfaces and payload entities ----
 export type {
   HistoryEntry, ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
-  ModelReasoningEffort, ModelTarget, QueueAction, SessionModels, SessionProjectionsBlock, SessionsApi, SessionSummary,
+  ModelReasoningEffort, ModelTarget, QueueAction, SessionModels, SessionProjectionsBlock, SessionSearchItem,
+  SessionsApi, SessionSummary,
 } from './sessions.ts'
 export type { DirectoryEntry, DirectoryListing, HostApi } from './host.ts'
 export type { WorkspaceApi, WorkspaceId, WorkspaceView } from './workspace.ts'
@@ -66,6 +67,12 @@ export type {
 export { RpcId, transportError } from './rpc.ts'
 export type { RpcError, RpcErrorCode, RpcErrorDetailsMap, RpcResult } from './rpc.ts'
 export type { InboxItemId } from '@deepseek-ai/dsh-agent/brand'
+
+// ---- Fixed session-search product bounds ----
+export {
+  SESSION_SEARCH_RESULT_LIMIT,
+  SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS,
+} from './session-search.ts'
 
 // ---- Method registry and derived generics ----
 export type { RequestPayload, ResponseValue, RpcMethodMap } from './rpc-map.ts'

@@ -135,6 +135,23 @@ describe('Oxlint gate', () => {
   })
 })
 
+describe('Node compatibility graph', () => {
+  it('runs the jsdom environment smoke on every advertised Node line', () => {
+    const subject = withPnpmEntrypoint(() => gatesForMode('node-compat'))
+
+    expect(subject.find(item => item.id === 'vitest-jsdom-smoke')).toMatchObject({
+      label: 'Vitest jsdom smoke',
+      args: [
+        '/private/pnpm.cjs',
+        'exec',
+        'vitest',
+        'run',
+        'scripts/vitest-environment.compat.spec.ts',
+      ],
+    })
+  })
+})
+
 describe('Node 24 lane ownership', () => {
   it('keeps the static lane source-only', () => {
     const subject = withPnpmEntrypoint(() => gatesForMode('ci-static'))

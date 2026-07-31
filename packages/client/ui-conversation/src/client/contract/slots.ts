@@ -5,7 +5,7 @@ import type {
 } from '@deepseek-ai/dsh-client-ui-slots'
 import type { CommandNode, ConversationSnapshot, ObservableSnapshot, PendingInteraction, PendingWait, SessionId, ToolCallBlock, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { ComposerKeyboard, InputActions, InputNotice, InputState } from '../input/contract.ts'
+import type { ComposerKeyboard, EditSelection, InputActions, InputNotice, InputState } from '../input/contract.ts'
 import type { createChatStore } from '../stores.ts'
 import type { CallId, SelectionTarget, ViewTab } from './views.ts'
 
@@ -147,13 +147,17 @@ export interface InputZone {
 }
 
 /**
- * View-slot owner share: deliberately empty — ConversationRoot supplies
- * nothing at its renderSlot site (sessionId and the snapshot hook arrive as
+ * View-slot owner share: the cross-view inspect handoff (otherwise views need
+ * nothing from the render site — sessionId and the snapshot hook arrive as
  * framework-standard props; tool rows go through each view's own declared
- * toolview hole). Kept as the named owner seat so a future cross-view
- * payload has a home.
+ * toolview hole).
  */
-export interface ConvViewOwnerProps {}
+export interface ConvViewOwnerProps {
+  /** One-shot inspect request from another view (chat's Inspect button); null when idle. */
+  inspect?: { callId: CallId } | null
+  /** Acknowledge the inspect request once applied (clears the store field). */
+  onInspectDone?: () => void
+}
 
 /**
  * Owner share of a per-view toolview slot: the call material the rendering
@@ -176,6 +180,11 @@ export interface ToolRowOwnerProps {
    * The chat view resolves relative paths against the session cwd.
    */
   openFile: (path: string) => void
+  /**
+   * Jump to this call's record in the trajectory view (the expanded row's
+   * hover Inspect affordance). Undefined when no trajectory jump is wired.
+   */
+  inspect?: (() => void) | undefined
 }
 
 /**
@@ -265,14 +274,14 @@ export interface ComposerBarOwnerProps {
   rightItems?: ReactNode
   /** composer.dock entries (stats line), rendered under the card inside the bar's width column. */
   footer?: ReactNode
-  onAdd?: () => void
-  addLabel?: string
 }
 
 /** Injected share of the composer-bar entry (package-internal faces). */
 export interface ComposerBarInjected {
   /** The InputBar-exclusive keyboard/DOM command face (decision 20 private plane); absent with the session. */
   keyboard: ComposerKeyboard | undefined
+  /** Toggle the shared slash menu with only its command source; absent without ui-slash or a session. */
+  toggleCommandMenu: ((selection: EditSelection) => void) | undefined
   /** Cancel the in-flight turn; absent with the session. */
   stop: (() => void) | undefined
   /**
@@ -292,6 +301,8 @@ export interface ComposerBarInjected {
     notices: ObservableSnapshot<InputNotice | null>
     /** Hot plain-text reference lexicon for the decoration scan (decision 21). */
     lexicon: ObservableSnapshot<ReadonlyMap<'/' | '@', readonly string[]>>
+    /** Source name opened by the programmatic menu launcher, or null. */
+    menuLauncher: ObservableSnapshot<string | null>
   }
 }
 
@@ -423,6 +434,19 @@ export interface ChatViewInjected {
    */
   openFile: (path: string) => void
   loadOlder: () => void
+  /** Hand a call off to the trajectory view: write the one-shot inspect target and switch tabs. */
+  inspectCall: (callId: CallId) => void
+  /**
+   * Per-session scroll memory surviving view switches (in-memory, never
+   * persisted): the view saves on every scroll and restores on remount; a
+   * fresh page load starts empty and keeps the open-jump-to-bottom default.
+   */
+  chatScroll: {
+    /** Record the scroll offset; null clears it (pinned to bottom). */
+    save: (top: number | null) => void
+    /** Last recorded offset, or null when pinned or never recorded. */
+    read: () => number | null
+  }
   /** Fork the session through the turn containing the message at `seq`, then open the child. */
   forkAt: (seq: number) => void
 }

@@ -19,6 +19,17 @@ const OPTIONS: SelectOption[] = [
   { id: 'light', label: 'Light', active: true },
   { id: 'sepia', label: 'Sepia', detail: 'warm' },
 ]
+const GATED: SelectOption = {
+  id: 'full',
+  label: 'Full access',
+  confirmation: {
+    title: 'Enable Full access?',
+    description: 'Sensitive operations.',
+    acknowledgeLabel: 'I understand',
+    cancelLabel: 'Cancel',
+    confirmLabel: 'Enable Full access',
+  },
+}
 
 const SEGMENT: TokenSegment = { via: 'enter', token: '/theme' }
 
@@ -200,6 +211,38 @@ describe('search / move / highlight over the filtered list', () => {
 })
 
 describe('select', () => {
+  it('gates a confirmed option until acknowledgement, then settles through the original binding', async () => {
+    const onSelect = vi.fn()
+    const deps = makeDeps()
+    const { popup } = await readyPopup({ options: () => Promise.resolve([GATED]), onSelect }, deps)
+    await popup.select(0)
+    expect(popup.state.getSnapshot()).toMatchObject({
+      open: true, confirming: GATED, acknowledged: false, submitting: false,
+    })
+    expect(onSelect).not.toHaveBeenCalled()
+    await popup.confirm()
+    expect(onSelect).not.toHaveBeenCalled()
+    popup.acknowledge(true)
+    await popup.confirm()
+    expect(onSelect).toHaveBeenCalledExactlyOnceWith(GATED, CTX_A)
+    expect(deps.consume).toHaveBeenCalledExactlyOnceWith(SEGMENT)
+    expect(popup.state.getSnapshot().open).toBe(false)
+  })
+
+  it('cancels a confirmation back to the picker without selecting or consuming', async () => {
+    const onSelect = vi.fn()
+    const deps = makeDeps()
+    const { popup } = await readyPopup({ options: () => Promise.resolve([GATED]), onSelect }, deps)
+    await popup.select(0)
+    popup.acknowledge(true)
+    popup.cancelConfirmation()
+    expect(popup.state.getSnapshot()).toMatchObject({
+      open: true, confirming: null, acknowledged: false, submitting: false,
+    })
+    expect(onSelect).not.toHaveBeenCalled()
+    expect(deps.consume).not.toHaveBeenCalled()
+  })
+
   it('runs onSelect with the filtered option and the open-time context, consumes, closes, refocuses', async () => {
     const seen: Array<{ option: SelectOption; context: Ctx }> = []
     const deps = makeDeps()

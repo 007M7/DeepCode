@@ -23,6 +23,7 @@ import {
   sessionModelsRequestSchema,
   sessionPromptRequestSchema,
   sessionRenameRequestSchema,
+  sessionSearchRequestSchema,
   sessionSelectModelRequestSchema,
   sessionUpdateQueueRequestSchema,
 } from '../api/sessions.schema.ts'
@@ -63,7 +64,8 @@ import { llmModelsRequestSchema, llmProvidersRequestSchema } from '../api/llm.sc
  * Schemas anchor to the Wire<> widening (the repo-wide exactOptionalPropertyTypes accommodation
  * documented on Wire); the dispatch point carries the one Wire→exact cast.
  * Every invoke receives the carrier Request's signal; methods whose contract
- * declares a signal parameter (command.execute) forward it, the rest ignore it.
+ * declares a signal parameter (session.search and command.execute) forward it,
+ * the rest ignore it.
  */
 type UnaryRoutes = {
   [K in keyof RpcMethodMap]: {
@@ -74,6 +76,7 @@ type UnaryRoutes = {
 
 const UNARY_ROUTES: UnaryRoutes = {
   'session.list': { schema: sessionListRequestSchema, invoke: (api, r) => api.sessions.list(r) },
+  'session.search': { schema: sessionSearchRequestSchema, invoke: (api, r, signal) => api.sessions.search(r, signal) },
   'session.create': { schema: sessionCreateRequestSchema, invoke: (api, r) => api.sessions.create(r) },
   'session.history': { schema: sessionHistoryRequestSchema, invoke: (api, r) => api.sessions.history(r) },
   'session.models': { schema: sessionModelsRequestSchema, invoke: (api, r) => api.sessions.models(r) },

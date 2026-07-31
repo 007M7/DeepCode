@@ -14,6 +14,8 @@ export interface DisclosureRowProps {
   expandOnRowClick?: boolean | undefined
   /** Replaces the collapsed icon with a chevron while the row is hovered. */
   previewChevron?: boolean | undefined
+  /** Keeps `collapsedContent` inline while open (ToolRow's summary stays readable next to the expanded card). */
+  keepContentWhenOpen?: boolean | undefined
   collapsedContent?: ReactNode
   children?: ReactNode
   className?: string | undefined
@@ -36,6 +38,7 @@ export function DisclosureRow({
   onToggle,
   expandOnRowClick = false,
   previewChevron = expandable,
+  keepContentWhenOpen = false,
   collapsedContent,
   children,
   className,
@@ -93,7 +96,7 @@ export function DisclosureRow({
           </span>
         )}
         <span className={clsx(css.title, titleClassName)}>{title}</span>
-        {!open && collapsedContent}
+        {(keepContentWhenOpen || !open) && collapsedContent}
       </div>
       {open && children}
     </div>

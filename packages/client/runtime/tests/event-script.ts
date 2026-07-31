@@ -63,7 +63,25 @@ export const ev = {
     }),
   stepEnd: (seq: number, turn: number, step = 0): SessionEvent =>
     at(seq, { type: 'step/end', data: { turn, step } }),
-  turnEnd: (seq: number, turn: number, reason: 'completed' | 'cancelled' = 'completed'): SessionEvent =>
+  retry: (
+    seq: number,
+    turn: number,
+    step = 0,
+    retry = 1,
+    maxRetries = 2,
+    delayMs = 500,
+    message = 'temporary transport failure',
+  ): SessionEvent =>
+    at(seq, {
+      type: 'llm/retry',
+      data: {
+        turn, step,
+        provider: 'fake', mode: 'normal', policyKey: 'fake-normal',
+        retry, maxRetries, delayMs,
+        failure: { code: 'TRANSPORT', message },
+      },
+    }),
+  turnEnd: (seq: number, turn: number, reason: 'completed' | 'aborted' | 'disposed' = 'completed'): SessionEvent =>
     at(seq, { type: 'turn/end', data: { turn, reason: { kind: reason } } }),
   commandRun: (seq: number, commandId: string, name: string, args = ''): SessionEvent =>
     at(seq, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } }),
