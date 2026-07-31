@@ -147,14 +147,21 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     await expect.poll(() => page.locator('tr[data-turn-start="true"]').count(), { timeout: 15_000 }).toBe(2)
     await expect.poll(() => page.getByRole('columnheader').count(), { timeout: 10_000 }).toBe(0)
     await page.locator('tr[data-kind="tool"]').first().click()
-    await expect.poll(() => page.getByRole('complementary', { name: 'Event details' }).count(), { timeout: 10_000 }).toBe(1)
+    const details = page.getByRole('complementary', { name: 'Event details' })
+    await expect.poll(() => details.count(), { timeout: 10_000 }).toBe(1)
+    await page.evaluate(() => { document.body.setAttribute('data-ds-dark-theme', '') })
+    const darkSummarySurfaces = await details.getByRole('heading', { name: 'Payload' }).evaluate(heading => ({
+      heading: getComputedStyle(heading).backgroundColor,
+      panel: getComputedStyle(heading.closest('[aria-label="Event details"]')!).backgroundColor,
+    }))
+    expect(darkSummarySurfaces.heading).toBe(darkSummarySurfaces.panel)
+    await page.evaluate(() => { document.body.removeAttribute('data-ds-dark-theme') })
     await page.getByRole('tab', { name: 'Result' }).click()
     await expect.poll(() => page.getByText('NAVIGATION_OK', { exact: false }).count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(1)
     const snapshot = (await captureStableAria(page, '[class*="viewArea"]', scaffold.workspaceCwd))
       .split(SEED_ID).join('{{seededId}}')
     await compareOrRefreshGolden(TRAJECTORY_EXPECTED, snapshot, MODE)
-    await page.getByRole('complementary', { name: 'Event details' })
-      .getByRole('button', { name: 'Close details' }).click()
+    await details.getByRole('button', { name: 'Close details' }).click()
   }, 60_000)
 
   it.skipIf(MODE === 'record')('focuses the ledger by dragging an overview interval', async () => {
