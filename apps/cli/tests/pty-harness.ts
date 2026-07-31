@@ -57,7 +57,7 @@ while time.monotonic() < deadline:
             os.write(fd, action["send"].encode())
             if "signalAfterMs" in action:
                 time.sleep(action["signalAfterMs"] / 1000)
-                os.kill(pid, signal.SIGTERM)
+                os.kill(pid, getattr(signal, action.get("signalAfter", "SIGTERM")))
         action_index += 1
     waited, candidate = os.waitpid(pid, os.WNOHANG)
     if waited == pid:
@@ -86,6 +86,8 @@ type TuiPtyAction =
     readonly delayMs?: number
     /** Terminate the process this many milliseconds after sending input. */
     readonly signalAfterMs?: number
+    /** Signal used by {@link signalAfterMs}; defaults to `SIGTERM`. */
+    readonly signalAfter?: 'SIGTERM' | 'SIGKILL'
   }
   | { readonly waitFor: string; readonly occurrence?: number; readonly signal: 'SIGTERM'; readonly delayMs?: number }
   | {
@@ -218,7 +220,7 @@ async function runWindowsPtySmoke(
           const send = (): void => {
             terminal.write(action.send)
             if (action.signalAfterMs !== undefined) {
-              setTimeout(() => { terminal.kill('SIGTERM') }, action.signalAfterMs)
+              setTimeout(() => { terminal.kill(action.signalAfter ?? 'SIGTERM') }, action.signalAfterMs)
             }
           }
           if (action.delayMs === undefined) send()

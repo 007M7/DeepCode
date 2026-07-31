@@ -223,11 +223,16 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
       tempDirPrefix: `dsh-tui-welcome-${String(columns)}-`,
       configPath: scriptedConfigPath,
       showFirstRunWelcome: true,
-      expectedExitCode: process.platform === 'win32' ? 0 : -15,
+      expectedExitCode: process.platform === 'win32' ? 0 : -9,
       columns,
       rows: 30,
       actions: [
-        { waitFor: `Enter  ${firstRunCopy.continueLabel}`, send: '\r', signalAfterMs: 2_000 },
+        {
+          waitFor: `Enter  ${firstRunCopy.continueLabel}`,
+          send: '\r',
+          signalAfterMs: 2_000,
+          signalAfter: 'SIGKILL',
+        },
       ],
       inspect: async (cwd) => {
         expect(await hasTuiFirstRunWelcomeAcknowledgement(join(cwd, '.dsh'))).toBe(true)
