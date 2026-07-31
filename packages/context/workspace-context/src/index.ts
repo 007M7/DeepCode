@@ -2,9 +2,9 @@
  * Workspace instruction loader for AGENTS.md-compatible files.
  *
  * Baseline instructions enter durable context before the first request; successful fs
- * tool touches mark nested, changed, and removed instructions for reconciliation
- * at the next pre-step. Plugin lifecycle reads use
- * the optional `ctx.fs` provider, so providerless products mount it as a no-op.
+ * tool touches project nested, changed, and removed instructions into the inbox.
+ * Plugin lifecycle reads use the optional `ctx.fs` provider, so providerless products
+ * mount it as a no-op.
  *
  * @module @deepseek-ai/dsh-workspace-context
  */
@@ -14,7 +14,7 @@ import { isDeepStrictEqual } from 'node:util'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
-import type { ToolExecution, ToolExecutionResult, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
+import type { ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import { Config, resolveConfig, type ResolvedConfig } from './config.ts'
 import { loadBaselineInstructionSet } from './files.ts'
 import {
@@ -70,8 +70,9 @@ function filePathFromExecution(exec: ToolExecution): string | undefined {
 export function apply(ctx: Context, config: Config): void {
   const resolved: ResolvedConfig = resolveConfig(config)
   const instructionVersions: InstructionVersionCache = new WeakMap()
-  const pendingTouches = new Map<ToolExecutionToken, { agent: Agent; paths: Set<string> }>()
-  const touchedPaths = new WeakMap<Agent, Set<string>>()
+  // Emit listeners are not awaited, so each projection must compose against the
+  // inbox produced by earlier file results for the same agent.
+  const projectionTails = new WeakMap<Agent, Promise<void>>()
 
   const compose = async (
     agent: Agent,
@@ -79,19 +80,14 @@ export function apply(ctx: Context, config: Config): void {
     claimed: readonly UserMessage[],
     pending: readonly UserMessage[],
     touchedPaths: readonly string[] = [],
-  ): Promise<{
-    desired?: UserMessage
-    versions: Map<string, import('./state.ts').InstructionVersionState>
-  }> => {
+  ): Promise<UserMessage | undefined> => {
     signal.throwIfAborted()
-    const candidateVersions: InstructionVersionCache = new WeakMap()
-    const candidateVersionStates = new Map(instructionVersions.get(agent.session) ?? [])
-    candidateVersions.set(agent.session, candidateVersionStates)
     if (resolved.maxBytes <= 0 || !Number.isFinite(resolved.maxBytes)) {
-      return { versions: new Map() }
+      return undefined
     }
     const fileSystem = ctx.get('fs')
-    if (fileSystem === undefined) return { versions: new Map() }
+    if (fileSystem === undefined) return undefined
+    if (touchedPaths.length === 0 && pending.length > 0) return pending[0]
     const content: UserMessage['content'][number][] = []
     const changes: WorkspaceInstructionChange[] = []
     let desiredBaseline = false
@@ -112,7 +108,12 @@ export function apply(ctx: Context, config: Config): void {
         signal,
       }, fileSystem)
       const baseline = baselineInstructionState(instructions?.included ?? [])
-      for (const [scope, state] of baseline.versions) candidateVersionStates.set(scope, state)
+      let versionStates = instructionVersions.get(agent.session)
+      if (versionStates === undefined && baseline.versions.size > 0) {
+        versionStates = new Map()
+        instructionVersions.set(agent.session, versionStates)
+      }
+      for (const [scope, state] of baseline.versions) versionStates?.set(scope, state)
       if (instructions !== undefined && instructions.rendered.text.length > 0) {
         content.push(...workspaceContextMessage(instructions.rendered.text).content)
         changes.push(...baseline.changes.values())
@@ -122,7 +123,7 @@ export function apply(ctx: Context, config: Config): void {
     const update = await reconcileInstructionContext(
       agent,
       resolved,
-      candidateVersions,
+      instructionVersions,
       fileSystem,
       { authorityMessages, scopeMessages: pending, includeBaselineScopes: baselinePresent, touchedPaths, signal },
     )
@@ -132,22 +133,17 @@ export function apply(ctx: Context, config: Config): void {
       if (update.context.source.kind === 'workspace-instructions') {
         changes.push(...update.context.source.changes)
       }
-      applyInstructionVersionUpdates(agent.session, update.versionUpdates, candidateVersions)
+      applyInstructionVersionUpdates(agent.session, update.versionUpdates, instructionVersions)
     }
-    const versions = new Map(candidateVersions.get(agent.session) ?? [])
-    return content.length === 0
-      ? { versions }
-      : {
-        desired: createUserMessage({
-          content,
-          source: {
-            kind: 'workspace-instructions',
-            ...desiredBaseline ? { baseline: true } : {},
-            changes,
-          },
-        }),
-        versions,
-      }
+    if (content.length === 0) return undefined
+    return createUserMessage({
+      content,
+      source: {
+        kind: 'workspace-instructions',
+        ...desiredBaseline ? { baseline: true } : {},
+        changes,
+      },
+    })
   }
 
   const syncInbox = (agent: Agent, claimed: readonly UserMessage[], desired: UserMessage | undefined): void => {
@@ -176,22 +172,41 @@ export function apply(ctx: Context, config: Config): void {
     for (const message of pending.slice(1)) agent.inbox.remove('next-step', message.id)
   }
 
-  const commitSync = (
+  const composeAndSync = async (
     agent: Agent,
+    signal: AbortSignal,
     claimed: readonly UserMessage[],
-    desired: UserMessage | undefined,
-    versions: Map<string, import('./state.ts').InstructionVersionState>,
-  ): void => {
+    touchedPaths: readonly string[] = [],
+  ): Promise<void> => {
+    const pending = agent.inbox.nextStep.filter(isWorkspaceContext)
+    const desired = await compose(agent, signal, claimed, pending, touchedPaths)
+    signal.throwIfAborted()
     syncInbox(agent, claimed, desired)
-    if (versions.size === 0) instructionVersions.delete(agent.session)
-    else instructionVersions.set(agent.session, versions)
   }
 
-  const restoreTouchedPaths = (agent: Agent, paths: Set<string> | undefined): void => {
-    if (paths === undefined || paths.size === 0) return
-    const current = touchedPaths.get(agent)
-    if (current === undefined) touchedPaths.set(agent, paths)
-    else for (const path of paths) current.add(path)
+  const queueProjection = (
+    agent: Agent,
+    signal: AbortSignal,
+    touchedPath: string,
+  ): void => {
+    const previous = projectionTails.get(agent) ?? Promise.resolve()
+    const current = previous.then(() => composeAndSync(agent, signal, [], [touchedPath]))
+      .catch((error: unknown) => {
+        if (!signal.aborted) ctx.logger.warn('workspace instruction refresh failed: %o', error)
+      })
+    projectionTails.set(agent, current)
+    void current.then(() => {
+      if (projectionTails.get(agent) === current) projectionTails.delete(agent)
+    })
+  }
+
+  const waitForProjections = async (agent: Agent): Promise<void> => {
+    while (true) {
+      const projection = projectionTails.get(agent)
+      if (projection === undefined) return
+      await projection
+      if (projectionTails.get(agent) === projection) return
+    }
   }
 
   ctx.on('agent/pre-step', async (
@@ -201,45 +216,15 @@ export function apply(ctx: Context, config: Config): void {
     next,
   ): Promise<PreStepDecision> => {
     const decision = await next()
-    const pending = agent.inbox.nextStep.filter(isWorkspaceContext)
-    const paths = touchedPaths.get(agent)
-    touchedPaths.delete(agent)
-    try {
-      const composed = await compose(agent, signal, messages, pending, [...paths ?? []])
-      /* v8 ignore next 4 -- every awaited filesystem operation checks this signal before settling. */
-      if (signal.aborted) {
-        restoreTouchedPaths(agent, paths)
-        return decision
-      }
-      commitSync(agent, messages, composed.desired, composed.versions)
-      return decision
-    } catch (error: unknown) {
-      restoreTouchedPaths(agent, paths)
-      throw error
-    }
+    await waitForProjections(agent)
+    await composeAndSync(agent, signal, messages)
+    return decision
   })
 
   ctx.on('tools/result', (exec: ToolExecution, result: ToolExecutionResult) => {
-    const staged = pendingTouches.get(exec.token)
-    pendingTouches.delete(exec.token)
-    if (exec.parent !== undefined) {
-      const paths = new Set(staged?.paths ?? [])
-      const ownPath = result.isError ? undefined : filePathFromExecution(exec)
-      if (ownPath !== undefined) paths.add(ownPath)
-      if (!result.isError && exec.agent !== undefined && paths.size > 0) {
-        const parent = pendingTouches.get(exec.parent)
-        if (parent === undefined) pendingTouches.set(exec.parent, { agent: exec.agent, paths })
-        else for (const path of paths) parent.paths.add(path)
-      }
-      return
-    }
-    if (result.isError || exec.agent === undefined) return
-    const paths = new Set(staged?.paths ?? [])
+    if (result.isError || exec.agent === undefined || exec.signal.aborted) return
     const ownPath = filePathFromExecution(exec)
-    if (ownPath !== undefined) paths.add(ownPath)
-    if (paths.size === 0) return
-    const pending = touchedPaths.get(exec.agent)
-    if (pending === undefined) touchedPaths.set(exec.agent, paths)
-    else for (const path of paths) pending.add(path)
+    if (ownPath === undefined) return
+    queueProjection(exec.agent, exec.signal, ownPath)
   })
 }

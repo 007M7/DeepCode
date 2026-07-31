@@ -177,13 +177,10 @@ function stubAgent(cwd?: string, seed: SessionEvent[] = []): Agent {
     session,
     inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
     status: 'idle',
-    acceptsNextStep: false,
     send: () => {},
     followup: () => {},
     steer: () => {},
     inject: () => { throw new Error('workspace-context must append directly to the open step') },
-    updateInbox: () => 'not-found',
-    reserveTurnAdmission: () => undefined,
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }
@@ -227,16 +224,6 @@ function baselineEvents(agent: Agent): SessionEvent[] {
     event.type === 'user/message'
     && event.data.source.kind === 'workspace-instructions'
     && event.data.source.baseline === true)
-}
-
-function workspaceChangeContext(scope: string, digest: string): UserMessage {
-  return createUserMessage({
-    content: [{ type: 'text', text: `instructions for ${scope}` }],
-    source: {
-      kind: 'workspace-instructions',
-      changes: [{ action: 'set', scope, path: `${scope}/AGENTS.md`, digest }],
-    },
-  })
 }
 
 async function appendAdditionalContexts(ctx: Context, agent: Agent): Promise<number | undefined> {
@@ -2052,7 +2039,7 @@ describe('workspace context request injection', () => {
 })
 
 describe('dynamic nested workspace context injection', () => {
-  it('commits a buffered instruction change before a later tool abort closes the step', async () => {
+  it('projects a successful file result even when a later sibling aborts the step', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     const ctx = new Context()
@@ -2105,7 +2092,7 @@ describe('dynamic nested workspace context injection', () => {
       // Cancellation discards the aborted step's pending context. The next
       // successful read discovers and durably injects it once.
       expect(contexts).toHaveLength(1)
-      expect(adapter.requests).toHaveLength(3)
+      expect(adapter.requests).toHaveLength(4)
       expect(adapter.requests.at(-1)?.messages.map(blocks => blocksText(blocks.content)).join('\n'))
         .toContain('nested rule survives an aborted tool batch')
     } finally {
@@ -3353,6 +3340,7 @@ describe('dynamic nested workspace context injection', () => {
       await write(join(root, 'pkg/deep/file.txt'), 'hello')
       const ctx = new Context()
       await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
+      const agent = stubAgent(root)
       ctx.on('tools/post-execute', async () => ({
         kind: 'block' as const,
         feedback: [{ type: 'text' as const, text: 'blocked downstream' }],
@@ -3363,7 +3351,7 @@ describe('dynamic nested workspace context injection', () => {
         callId: CallId('read-blocked-downstream'),
         name: 'read',
         arguments: { file_path: join('pkg', 'deep', 'file.txt') },
-        agent: stubAgent(root),
+        agent,
       })
 
       // The pipeline rejected this touch, so no workspace instructions from it
@@ -3371,13 +3359,15 @@ describe('dynamic nested workspace context injection', () => {
       expect(result.isError).toBe(true)
       expect(blocksText(result.content)).toBe('blocked downstream')
       expect(result.additionalContexts).toBeUndefined()
+      await syncWorkspaceContext(ctx, agent)
+      expect(agent.inbox.nextStep).toEqual([])
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
     }
   })
 
-  it('does not commit pending state when an outer post-execute listener blocks the final result', async () => {
+  it('does not project a file touch when an outer post-execute listener blocks the final result', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     const ctx = new Context()
@@ -3406,6 +3396,9 @@ describe('dynamic nested workspace context injection', () => {
         arguments: { file_path: join('pkg', 'deep', 'file.txt') },
         agent,
       })
+      await syncWorkspaceContext(ctx, agent)
+      expect(agent.inbox.nextStep).toEqual([])
+
       shouldBlock = false
       const accepted = await ctx.tools.execute({
         signal: testToolSignal,
@@ -3426,7 +3419,7 @@ describe('dynamic nested workspace context injection', () => {
     }
   })
 
-  it('rolls back parent-token pending state when a composite result is blocked', async () => {
+  it('projects a successful nested file result independently of a blocked composite result', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     const ctx = new Context()
@@ -3456,10 +3449,9 @@ describe('dynamic nested workspace context injection', () => {
           return nested.content
         },
       }))
-      let shouldBlock = true
       ctx.on('tools/post-execute', async (exec, _result, next) => {
         const downstream = await next()
-        return exec.name === 'composite-read' && shouldBlock
+        return exec.name === 'composite-read'
           ? { kind: 'block' as const, feedback: [{ type: 'text' as const, text: 'outer composite block' }] }
           : downstream
       })
@@ -3470,15 +3462,9 @@ describe('dynamic nested workspace context injection', () => {
         signal: testToolSignal,
         callId: CallId('composite-first'), name: 'composite-read', arguments: {}, agent,
       })
-      shouldBlock = false
-      const accepted = await ctx.tools.execute({
-        signal: testToolSignal,
-        callId: CallId('composite-retry'), name: 'composite-read', arguments: {}, agent,
-      })
 
       expect(blocked.isError).toBe(true)
       expect(blocked.additionalContexts).toBeUndefined()
-      expect(accepted.isError).toBe(false)
       expect(blocksText(((await syncedWorkspaceContext(ctx, agent))).content)).toContain('nested package rule')
     } finally {
       await ctx.fiber.dispose()
@@ -3487,40 +3473,26 @@ describe('dynamic nested workspace context injection', () => {
     }
   })
 
-  it('handles defensive tools/result observer branches without retaining staged state', async () => {
+  it('ignores failed, aborted, agentless, and non-file final results', async () => {
     const ctx = new Context()
     try {
+      await ctx.plugin(RecordingFileSystem)
       await ctx.plugin(workspaceContext, { maxBytes: 65536 })
+      const fs = ctx.fs as RecordingFileSystem
       const agent = stubAgent('/')
-      const parent = Symbol('parent') as ToolExecutionToken
       const plainResult = { callId: CallId('plain'), content: [], isError: false as const, value: null }
+      const aborted = new AbortController()
+      aborted.abort(new Error('cancelled'))
 
       ctx.emit('tools/result', stubToolExecution({
-        signal: testToolSignal,
-        callId: CallId('agentless-child'), name: 'read', arguments: {}, parent,
+        signal: testToolSignal, callId: CallId('agentless'), name: 'read', arguments: { file_path: 'file.txt' },
       }), plainResult)
       ctx.emit('tools/result', stubToolExecution({
-        signal: testToolSignal,
-        callId: CallId('contextless-child'), name: 'read', arguments: {}, agent, parent,
-      }), { ...plainResult, additionalContexts: [createUserMessage({
-        content: [], source: { kind: 'plugin', plugin: 'workspace-context' },
-      })] })
-      ctx.emit('tools/result', stubToolExecution({
-        signal: testToolSignal,
-        callId: CallId('failed-child'), name: 'read', arguments: { file_path: 'failed/file.txt' }, agent, parent,
+        signal: testToolSignal, callId: CallId('failed'), name: 'read', arguments: { file_path: 'failed/file.txt' }, agent,
       }), { content: [], isError: true, error: { message: 'failed' } })
       ctx.emit('tools/result', stubToolExecution({
-        signal: testToolSignal,
-        callId: CallId('first-child'), name: 'read', arguments: { file_path: 'first/file.txt' }, agent, parent,
-      }), { ...plainResult, additionalContexts: [workspaceChangeContext('first', 'one')] })
-      ctx.emit('tools/result', stubToolExecution({
-        signal: testToolSignal,
-        callId: CallId('second-child'), name: 'read', arguments: { file_path: 'second/file.txt' }, agent, parent,
-      }), { ...plainResult, additionalContexts: [workspaceChangeContext('second', 'two')] })
-      ctx.emit('tools/result', {
-        ...stubToolExecution({ signal: testToolSignal, callId: CallId('agentless-parent'), name: 'composite', arguments: {} }),
-        token: parent,
-      }, plainResult)
+        signal: aborted.signal, callId: CallId('aborted'), name: 'read', arguments: { file_path: 'aborted/file.txt' }, agent,
+      }), plainResult)
       ctx.emit('tools/result', stubToolExecution({
         signal: testToolSignal,
         callId: CallId('null-arguments'), name: 'read', arguments: null, agent,
@@ -3534,50 +3506,11 @@ describe('dynamic nested workspace context injection', () => {
         callId: CallId('non-fs'), name: 'composite', arguments: {}, agent,
       }), plainResult)
 
-      expect(agent.session.deriveMessages()).toEqual([])
+      await Promise.resolve()
+      expect(fs.signals).toEqual([])
+      expect(agent.inbox.nextStep).toEqual([])
     } finally {
       await ctx.fiber.dispose()
-    }
-  })
-
-  it('ignores post-execute events that are not successful structured file touches', async () => {
-    const root = await tempRepo()
-    const home = await tempRepo()
-    try {
-      await mkdir(join(root, '.git'), { recursive: true })
-      await write(join(root, 'pkg/AGENTS.md'), 'nested package rule')
-      await write(join(root, 'pkg/deep/file.txt'), 'hello')
-      const ctx = new Context()
-      await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
-      const result = {
-        callId: CallId('manual'),
-        content: [{ type: 'text' as const, text: 'manual result' }],
-        isError: false as const,
-        value: null,
-      }
-      const cases = [
-        { name: 'read', arguments: { file_path: join('pkg', 'deep', 'file.txt') }, agent: undefined },
-        { name: 'bash', arguments: { file_path: join('pkg', 'deep', 'file.txt') }, agent },
-        { name: 'read', arguments: null, agent },
-        { name: 'read', arguments: {}, agent },
-        { name: 'read', arguments: { file_path: 1 }, agent },
-        { name: 'read', arguments: { file_path: '   ' }, agent },
-      ]
-
-      for (const item of cases) {
-        const decision = await ctx.waterfall('tools/post-execute', stubToolExecution({
-          signal: testToolSignal,
-          callId: CallId(`manual-${item.name}-${cases.indexOf(item)}`),
-          name: item.name,
-          arguments: item.arguments,
-          ...item.agent === undefined ? {} : { agent: item.agent },
-        }), result, async () => ({ kind: 'accept' as const }))
-        expect(decision).toEqual({ kind: 'accept' })
-      }
-    } finally {
-      await rm(root, { recursive: true, force: true })
-      await rm(home, { recursive: true, force: true })
     }
   })
 
@@ -3632,7 +3565,7 @@ describe('dynamic nested workspace context injection', () => {
     }
   })
 
-  it('cleans up its tools/post-execute listener when the plugin fiber is disposed', async () => {
+  it('cleans up its tools/result listener when the plugin fiber is disposed', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {
@@ -3642,17 +3575,20 @@ describe('dynamic nested workspace context injection', () => {
       const ctx = new Context()
       const fiber = await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
       await fiber.dispose()
+      const agent = stubAgent(root)
 
       const result = await ctx.tools.execute({
         signal: testToolSignal,
         callId: CallId('read-after-dispose'),
         name: 'read',
         arguments: { file_path: join('pkg', 'deep', 'file.txt') },
-        agent: stubAgent(root),
+        agent,
       })
 
       expect(result.isError).toBe(false)
       expect(result.additionalContexts).toBeUndefined()
+      await Promise.resolve()
+      expect(agent.inbox.nextStep).toEqual([])
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -3757,7 +3693,7 @@ describe('workspace context inbox synchronization', () => {
     }
   })
 
-  it('restores drained dirty paths when pre-step reconciliation aborts', async () => {
+  it('keeps a completed tool projection when a later pre-step aborts', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     const ctx = new Context()
@@ -3769,65 +3705,28 @@ describe('workspace context inbox synchronization', () => {
       fs.entries.set(join(root, 'b/AGENTS.md'), { type: 'file', content: 'restored B' })
       await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
       const agent = stubAgent(root)
-      const dirtyA = stubToolExecution({
+      const first = stubToolExecution({
         signal: testToolSignal,
-        callId: CallId('dirty-before-abort'), name: 'read', arguments: { file_path: join('a', 'file.txt') }, agent,
+        callId: CallId('projected-before-abort'), name: 'read', arguments: { file_path: join('a', 'file.txt') }, agent,
       })
-      ctx.emit('tools/result', dirtyA, acceptedResult)
+      ctx.emit('tools/result', first, acceptedResult)
       const controller = new AbortController()
-      controller.abort(new Error('abort dirty reconciliation'))
+      controller.abort(new Error('abort pre-step reconciliation'))
 
       await expect(agentEvents(ctx, agent).waterfall(
         'agent/pre-step', [],
         { turn: 1, step: 1, signal: controller.signal },
         async () => ({ kind: 'enter' as const, messages: [] }),
-      )).rejects.toThrow('abort dirty reconciliation')
+      )).rejects.toThrow('abort pre-step reconciliation')
 
       ctx.emit('tools/result', stubToolExecution({
         signal: testToolSignal,
-        callId: CallId('dirty-after-abort'), name: 'read', arguments: { file_path: join('b', 'file.txt') }, agent,
+        callId: CallId('projected-after-abort'), name: 'read', arguments: { file_path: join('b', 'file.txt') }, agent,
       }), acceptedResult)
       await syncWorkspaceContext(ctx, agent)
       const text = blocksText(agent.inbox.nextStep[0]?.content)
       expect(text).toContain('restored A')
       expect(text).toContain('restored B')
-    } finally {
-      await ctx.fiber.dispose()
-      await rm(root, { recursive: true, force: true })
-      await rm(home, { recursive: true, force: true })
-    }
-  })
-
-  it('merges a final tool touch back into dirty paths while a pre-step aborts', async () => {
-    const root = await tempRepo()
-    const home = await tempRepo()
-    const ctx = new Context()
-    try {
-      await ctx.plugin(BlockingReadFileSystem)
-      const fs = ctx.fs as BlockingReadFileSystem
-      fs.entries.set(join(root, '.git'), { type: 'directory' })
-      fs.entries.set(join(root, 'a/AGENTS.md'), { type: 'file', content: 'blocked A' })
-      await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
-      ctx.emit('tools/result', stubToolExecution({
-        signal: testToolSignal,
-        callId: CallId('dirty-blocked-a'), name: 'read', arguments: { file_path: join('a', 'file.txt') }, agent,
-      }), acceptedResult)
-      const controller = new AbortController()
-      const preparing = agentEvents(ctx, agent).waterfall(
-        'agent/pre-step', [],
-        { turn: 1, step: 1, signal: controller.signal },
-        async () => ({ kind: 'enter' as const, messages: [] }),
-      )
-      await fs.started.promise
-      ctx.emit('tools/result', stubToolExecution({
-        signal: testToolSignal,
-        callId: CallId('dirty-concurrent-b'), name: 'read', arguments: { file_path: join('b', 'file.txt') }, agent,
-      }), acceptedResult)
-      controller.abort(new Error('abort blocked reconciliation'))
-
-      await expect(preparing).rejects.toThrow('abort blocked reconciliation')
-      expect(agent.inbox.nextStep).toEqual([])
     } finally {
       await ctx.fiber.dispose()
       await rm(root, { recursive: true, force: true })

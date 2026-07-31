@@ -62,13 +62,13 @@ export interface InstructionVersionState {
 /** Session-isolated fast-path state keyed by logical instruction scope. */
 export type InstructionVersionCache = WeakMap<Session, Map<string, InstructionVersionState>>
 
-/** A cache transition coupled to the model-visible change that authorizes it. */
+/** A metadata-cache transition associated with one rendered instruction change. */
 export interface InstructionVersionUpdate {
   change: WorkspaceInstructionChange
   state?: InstructionVersionState
 }
 
-/** Rendered reconciliation plus cache transitions awaiting final policy. */
+/** Rendered reconciliation plus its metadata-cache transitions. */
 export interface ReconciledInstructionContext {
   context: UserMessage
   versionUpdates: InstructionVersionUpdate[]
@@ -193,20 +193,20 @@ function versionStatesFor(session: Session, cache: InstructionVersionCache): Map
 }
 
 /**
- * Keep only cache updates whose model-visible changes survived final policy.
+ * Keep only cache updates represented by rendered changes.
  * @param updates - proposed updates from one or more reconciliations.
- * @param committedChanges - transitions retained on the authoritative result.
- * @returns updates authorized by an exact retained transition.
+ * @param renderedChanges - transitions retained by the renderer.
+ * @returns updates represented by an exact retained transition.
  */
 export function retainedInstructionVersionUpdates(
   updates: readonly InstructionVersionUpdate[],
-  committedChanges: readonly WorkspaceInstructionChange[],
+  renderedChanges: readonly WorkspaceInstructionChange[],
 ): InstructionVersionUpdate[] {
-  return updates.filter(update => committedChanges.some(change => sameInstructionChange(update.change, change)))
+  return updates.filter(update => renderedChanges.some(change => sameInstructionChange(update.change, change)))
 }
 
 /**
- * Apply authorized metadata-cache transitions without retaining instruction prose.
+ * Apply metadata-cache transitions without retaining instruction prose.
  * @param session - owning session.
  * @param updates - ordered set/delete transitions.
  * @param cache - session-isolated metadata cache.
