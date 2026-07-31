@@ -275,6 +275,15 @@ export function apply(ctx: Context): void {
         },
         openFile: (path) => {
           const cwd = sessions.list.getSnapshot().byId[sessionId]?.cwd
+          // A file inside the workspace opens in a new tab, so a browser that
+          // is not on the Host machine can still see what the agent produced.
+          // Anything outside it has no served URL and falls back to the Host's
+          // own opener, which is loopback-only by the /api trust fence.
+          const url = workspaces.fileUrl(sessionId, cwd, path)
+          if (url !== undefined) {
+            window.open(url, '_blank', 'noopener,noreferrer')
+            return
+          }
           void workspaces.openPath(resolveToolPath(cwd, path)).catch(() => {
             // Host/OS open failures stay silent in the chat row; the native
             // app surfaces its own error dialog when the path is unusable.

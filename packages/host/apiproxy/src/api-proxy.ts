@@ -2290,5 +2290,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       pending.resolve(payload.answer)
       return Promise.resolve({ accepted: true })
     },
+
+    async workspaceRootOf(sessionId: SessionId): Promise<string | undefined> {
+      // A live agent answers from its own header; otherwise the store answers,
+      // deliberately without resuming — reading a session's directory must not
+      // pull an agent up the way the cold RPC path does.
+      const live = ctx.agents.get(sessionId)
+      if (live !== undefined) return live.session.header.cwd
+      const persistence = ctx.get('sessionPersistence')
+      if (persistence === undefined) return undefined
+      return (await persistence.list()).find(meta => meta.id === sessionId)?.cwd
+    },
   }
 }

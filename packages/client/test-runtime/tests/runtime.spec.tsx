@@ -549,6 +549,10 @@ describe('workspaces action face', () => {
     expect(renamed.title).toBe('Renamed')
     await ws.delete('w1' as WorkspaceId)
     await ws.openPath('/proj/file.ts')
+    // fileUrl runs the production derivation, so a feature test sees the same
+    // inside/outside-workspace split the browser half decides on.
+    expect(ws.fileUrl('s1' as SessionId, '/proj', 'out/a.html')).toBe('/f/s1/out/a.html')
+    expect(ws.fileUrl('s1' as SessionId, '/proj', '/etc/hosts')).toBeUndefined()
     const moved = await ws.insertSessionBefore('w1' as WorkspaceId, 's1' as SessionId, 's2' as SessionId)
     expect(moved.sessionIds).toEqual(['s1'])
     // Default archive mirrors the production effect: the id joins the list
@@ -556,13 +560,15 @@ describe('workspaces action face', () => {
     await ws.archiveSession('s1' as SessionId)
     expect(ws.list.getSnapshot().archivedSessionIds).toEqual(['s1'])
     expect(ws.calls.map(c => c.method)).toEqual(
-      ['create', 'create', 'pickDirectory', 'rename', 'delete', 'openPath', 'insertSessionBefore', 'archiveSession'])
+      ['create', 'create', 'pickDirectory', 'rename', 'delete', 'openPath', 'fileUrl', 'fileUrl',
+        'insertSessionBefore', 'archiveSession'])
 
     ws.stub('create', () => Promise.resolve({ workspaceId: 'ws-x', title: 'X', path: '/x', sessionIds: [] } as never))
     ws.stub('pickDirectory', () => Promise.resolve('/picked'))
     ws.stub('rename', () => Promise.resolve({ workspaceId: 'w1', title: 'S', path: '/s', sessionIds: [] } as never))
     ws.stub('delete', () => Promise.resolve())
     ws.stub('openPath', () => Promise.resolve())
+    ws.stub('fileUrl', () => '/f/forced/a.html')
     ws.stub('insertSessionBefore', () => Promise.resolve({ workspaceId: 'w1', title: '', path: '', sessionIds: [] } as never))
     ws.stub('archiveSession', () => Promise.resolve())
     expect((await ws.create({ name: 'y' })).title).toBe('X')
@@ -570,6 +576,7 @@ describe('workspaces action face', () => {
     expect((await ws.rename('w1' as WorkspaceId, 'z')).title).toBe('S')
     await ws.delete('w1' as WorkspaceId)
     await ws.openPath('/other')
+    expect(ws.fileUrl('s1' as SessionId, '/proj', '/etc/hosts')).toBe('/f/forced/a.html')
     expect((await ws.insertSessionBefore('w1' as WorkspaceId, 's1' as SessionId)).sessionIds).toEqual([])
     // The stub replaces the default set mutation: the set stays as-is.
     await ws.archiveSession('s2' as SessionId)

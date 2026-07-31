@@ -64,6 +64,7 @@ export class ApiProxyService extends Service implements ApiProxy {
   readonly llm: ApiProxy['llm']
   readonly events: ApiProxy['events']
   readonly respond: ApiProxy['respond']
+  readonly workspaceRootOf: ApiProxy['workspaceRootOf']
 
   constructor(ctx: Context, config: Config) {
     super(ctx, 'apiProxy')
@@ -87,6 +88,7 @@ export class ApiProxyService extends Service implements ApiProxy {
     // createApiProxy returns closures (no `this` capture); bind only satisfies
     // the unbound-method lint without changing behavior.
     this.respond = api.respond.bind(api)
+    this.workspaceRootOf = api.workspaceRootOf.bind(api)
   }
 }
 

@@ -62,7 +62,11 @@ function stubAgent(session: Session): Agent {
 async function harness(
   workspaceRoot = realpathSync(mkdtempSync(join(tmpdir(), 'dsh-apiproxy-workspace-'))),
   picker: DirectoryPickerCapability = { kind: 'native', pick: async () => null },
-  extras: { openPath?: (path: string, signal: AbortSignal) => Promise<void> } = {},
+  extras: {
+    openPath?: (path: string, signal: AbortSignal) => Promise<void>
+    /** Store contents behind the gateway, or 'absent' for a composition with no persistence at all. */
+    persisted?: { id: SessionId; cwd?: string }[] | 'absent'
+  } = {},
 ) {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
@@ -73,7 +77,10 @@ async function harness(
   const storageDomain = new DomainFacility(ctx, { backend: 'memory', routes: {} })
   ctx.storage.mount('domain', storageDomain)
   ctx.provide('storageDomain', storageDomain)
-  ctx.provide('sessionPersistence', { list: () => Promise.resolve([]) } as never)
+  if (extras.persisted !== 'absent') {
+    const persisted = extras.persisted ?? []
+    ctx.provide('sessionPersistence', { list: () => Promise.resolve(persisted) } as never)
+  }
   await ctx.plugin(WorkspaceRegistry)
 
   const factory: AgentFactory = {
@@ -241,6 +248,27 @@ describe('host.openPath', () => {
     const pending = api.host.openPath(request({ path: '/tmp/a.txt' }), abort.signal)
     abort.abort()
     expect((await pending).result).toMatchObject({ ok: false, error: { code: 'cancelled' } })
+  })
+})
+
+describe('workspaceRootOf', () => {
+  it('answers from the live agent, then the store, and names nothing for an unknown session', async () => {
+    const { api, workspaceRoot } = await harness(undefined, undefined, {
+      persisted: [{ id: 's-cold' as SessionId, cwd: '/w/cold' }],
+    })
+    const created = await api.sessions.create(request({ cwd: workspaceRoot }))
+    const sessionId = (created.result as { ok: true; value: { sessionId: SessionId } }).value.sessionId
+    // Live: the agent's own header, no store read involved.
+    await expect(api.workspaceRootOf(sessionId)).resolves.toBe(workspaceRoot)
+    // Not live: the store answers, and the lookup never resumes an agent —
+    // this harness's factory throws on resume, so a resuming lookup would fail.
+    await expect(api.workspaceRootOf('s-cold' as SessionId)).resolves.toBe('/w/cold')
+    await expect(api.workspaceRootOf('s-absent' as SessionId)).resolves.toBeUndefined()
+  })
+
+  it('names nothing at all when the host keeps no session store', async () => {
+    const { api } = await harness(undefined, undefined, { persisted: 'absent' })
+    await expect(api.workspaceRootOf('s-any' as SessionId)).resolves.toBeUndefined()
   })
 })
 

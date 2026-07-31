@@ -134,6 +134,7 @@ async function bench(snapshot: ConversationSnapshot) {
     startSession: vi.fn(),
     sendSession: vi.fn(),
     openPath: vi.fn(async () => {}),
+    fileUrl: vi.fn((_sessionId: unknown, _cwd: string | undefined, path: string) => `/f/s-1/${path}`),
   }
   ctx.provide('workspaces', workspaces)
   ctx.provide('layout', layout)
@@ -243,12 +244,14 @@ describe('run_code sub-calls through the real chat machinery', () => {
       subCall(12, parent, 2, 'bash', { command: 'ls notes', description: 'List notes' }, 'demo.txt'),
     ]]])
     const b = await bench(snapshotWith([codeResult(10, parent)], dispatches))
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
     const view = mountApp(b.slots)
     view.getByText('notes/demo.txt').click()
     expect(b.layout.openDetails).not.toHaveBeenCalled()
     await vi.waitFor(() => {
-      expect(b.workspaces.openPath).toHaveBeenCalledWith('notes/demo.txt')
+      expect(open).toHaveBeenCalledWith('/f/s-1/notes/demo.txt', '_blank', 'noopener,noreferrer')
     })
+    open.mockRestore()
     view.getByText('List notes').click()
     expect(b.layout.openDetails).not.toHaveBeenCalled()
   })

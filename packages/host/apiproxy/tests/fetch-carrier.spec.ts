@@ -233,6 +233,8 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
     async respond(message: ClientResponse): Promise<RpcReceipt> {
       return message.rpcId === 'known' ? { accepted: true } : { accepted: false, reason: 'not-pending' }
     },
+    // No wire face, so the carrier never reaches it.
+    workspaceRootOf: () => Promise.resolve(undefined),
   }
 }
 

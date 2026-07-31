@@ -1,11 +1,17 @@
-/** Host HTTP bridge for browser-client RPC. */
+/** Host HTTP bridge for browser-client RPC and workspace-file reads. */
 import type { Context } from 'cordis'
 import z from 'schemastery'
 // Activates the httpServer Context merge used below.
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
+import { FILES_PATH } from '@deepseek-ai/dsh-host-apiproxy/api'
+// The merge-free types subpath: pulling the session package's root into this
+// client-registered program would merge the host `sessions` service over the
+// browser runtime's own.
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { API_PATH } from './api-path.ts'
 import { bridge } from './http-bridge.ts'
+import { handleWorkspaceFile } from './workspace-files.ts'
 import { assertTrustedAuthority, isTrustedApiRequest } from './api-request-trust.ts'
 
 export { API_PATH } from './api-path.ts'
@@ -13,7 +19,7 @@ export { API_PATH } from './api-path.ts'
 /** Stable Cordis plugin name. */
 export const name = 'client-connection'
 
-/** Services required before mounting the route. */
+/** Services required before mounting the routes. */
 export const inject = ['httpServer', 'apiProxy']
 
 /** Plugin config: the deployment's non-loopback serving authorities. */
@@ -61,11 +67,11 @@ const PRIVILEGED_METHODS = new Set([
 ])
 
 /**
- * Mounts the API gateway under the browser transport prefix. Every request on
- * the prefix passes the browser-trust fence first (DNS-rebinding and
- * cross-site defense — [api-request-trust](./api-request-trust.ts));
- * privileged methods additionally pass it with an empty trust list, which
- * pins them to loopback.
+ * Mounts the API gateway and the workspace-file reads under the browser
+ * transport prefixes. Every request on either prefix passes the browser-trust
+ * fence first (DNS-rebinding and cross-site defense —
+ * [api-request-trust](./api-request-trust.ts)); privileged methods
+ * additionally pass it with an empty trust list, which pins them to loopback.
  * @param ctx - Host plugin context.
  * @param config - resolved plugin config (schema defaults applied).
  */
@@ -96,4 +102,28 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
     },
   }
   ctx.effect(() => ctx.httpServer.register(route), 'client-connection: /api route')
+
+  // The gateway is the host's session authority: it answers where a Session's
+  // files live without this package reaching into the core services, which
+  // would merge their host-side Context declarations into the browser lane.
+  const cwdFor = (sessionId: string): Promise<string | undefined> =>
+    ctx.apiProxy.workspaceRootOf(sessionId as SessionId)
+  const filesRoute: WebRoute = {
+    kind: 'prefix',
+    path: FILES_PATH,
+    handler: async (req, res) => {
+      if (!isTrustedApiRequest(req, trustedHosts)) {
+        res.writeHead(403)
+        res.end('forbidden')
+        return
+      }
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        res.writeHead(405)
+        res.end()
+        return
+      }
+      await handleWorkspaceFile(req, res, { cwdFor })
+    },
+  }
+  ctx.effect(() => ctx.httpServer.register(filesRoute), 'client-connection: /f route')
 }

@@ -1,5 +1,6 @@
 /** Test-owned workspaces face: the renderer standard-kit observable plus recorded actions. */
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import { workspaceFileSegments, workspaceFileUrl } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type {
   DirectoryListing, IWorkspaces, SessionId, SnapshotStore, WorkspaceId, WorkspaceListState, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
@@ -96,6 +97,22 @@ export class TestWorkspaces implements IWorkspaces {
   async openPath(path: string): Promise<void> {
     this.calls.push({ method: 'openPath', args: [path] })
     await (this.stubs.get('openPath')?.(path) as Promise<void> | undefined)
+  }
+
+  /**
+   * Workspace-file URL (recorded). Runs the production path derivation so a
+   * feature test sees the real in/outside-workspace split; stub to force either.
+   * @param sessionId - the session whose cwd anchors the path.
+   * @param cwd - that session's working directory.
+   * @param path - the path a tool reported.
+   * @returns the origin-relative URL, or undefined outside the workspace.
+   */
+  fileUrl(sessionId: SessionId, cwd: string | undefined, path: string): string | undefined {
+    this.calls.push({ method: 'fileUrl', args: [sessionId, cwd, path] })
+    const stub = this.stubs.get('fileUrl')
+    if (stub !== undefined) return stub(sessionId, cwd, path) as string | undefined
+    const segments = workspaceFileSegments(cwd, path)
+    return segments === undefined ? undefined : workspaceFileUrl(sessionId, segments)
   }
 
   /**

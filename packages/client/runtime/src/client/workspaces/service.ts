@@ -5,6 +5,7 @@ import type {
   DirectoryListing, IApiClient, RpcError,
   SessionId, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-connection/client'
+import { workspaceFileSegments, workspaceFileUrl } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { SnapshotStore } from '../contract/store.ts'
 import { createSnapshotStore } from '../contract/store.ts'
 import type { SessionsPort, SessionsPortList } from '../contract/sessions-port.ts'
@@ -237,6 +238,19 @@ export class WorkspacesService implements IWorkspaces {
     if (!response.result.ok) {
       throw new Error(`path open failed: ${response.result.error.message}`)
     }
+  }
+
+  /**
+   * URL serving one file out of a session's workspace.
+   * @param sessionId - the session whose cwd anchors the path.
+   * @param cwd - that session's working directory, or `undefined` when unknown.
+   * @param path - the path a tool reported (absolute, or relative to `cwd`).
+   * @returns the origin-relative URL, or `undefined` for a path outside the workspace.
+   */
+  fileUrl(sessionId: SessionId, cwd: string | undefined, path: string): string | undefined {
+    const segments = workspaceFileSegments(cwd, path)
+    if (segments === undefined) return undefined
+    return workspaceFileUrl(sessionId, segments)
   }
 
   /**

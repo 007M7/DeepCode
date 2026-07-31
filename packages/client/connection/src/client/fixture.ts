@@ -2362,6 +2362,11 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       })
       return Promise.resolve({ accepted: true })
     },
+
+    // The fixture has no filesystem behind its Sessions, so it names no
+    // directory for any of them; the /f route belongs to the node half, which
+    // a fixture page never reaches.
+    workspaceRootOf: () => Promise.resolve(undefined),
   }
 }
 

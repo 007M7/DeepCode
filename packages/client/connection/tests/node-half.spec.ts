@@ -1,6 +1,9 @@
-/** Node half: registers the /api prefix route bridging to the api gateway. */
+/** Node half: registers the /api and /f prefix routes over the api gateway and the session workspaces. */
 import { EventEmitter } from 'node:events'
 import { createServer, request as httpRequest } from 'node:http'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { Context } from 'cordis'
 import { describe, expect, it } from 'vitest'
@@ -8,6 +11,7 @@ import type { AddressInfo } from 'node:net'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { ApiProxy } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { HttpServerService, WebRoute } from '@deepseek-ai/dsh-host-webserver'
+import { FILES_PATH } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { API_PATH, apply, inject } from '../src/index.ts'
 
 /** Structural httpServer fake: the plugin only touches register(). */
@@ -45,14 +49,29 @@ function fakeResponse(): { response: ServerResponse; state: { status?: number; b
   return { response, state }
 }
 
-async function mounted(config?: { trustedHosts?: string[] }): Promise<{ routes: WebRoute[]; dispose: () => Promise<void> }> {
+/** The gateway stub: only the session-directory authority the /f route reads. */
+function fakeApiProxy(workspaces: Record<string, string> = {}): ApiProxy {
+  return { workspaceRootOf: async (id: string) => workspaces[id] } as unknown as ApiProxy
+}
+
+async function mounted(
+  config?: { trustedHosts?: string[] },
+  workspaces: Record<string, string> = {},
+): Promise<{ routes: WebRoute[]; dispose: () => Promise<void> }> {
   const ctx = new Context()
   const routes: WebRoute[] = []
   ctx.provide('httpServer', fakeHttpServer(routes) as HttpServerService)
-  ctx.provide('apiProxy', {} as unknown as ApiProxy)
+  ctx.provide('apiProxy', fakeApiProxy(workspaces))
   const fiber = ctx.plugin({ inject: [...inject], apply }, config)
   await fiber.await()
   return { routes, dispose: () => fiber.dispose() }
+}
+
+/** The /f route is registered after /api; both are prefix routes on the same server. */
+function filesRoute(routes: WebRoute[]): WebRoute {
+  const route = routes.find(candidate => candidate.path === FILES_PATH)
+  if (route === undefined) throw new Error('the /f route was not registered')
+  return route
 }
 
 describe('connection node half', () => {
@@ -60,16 +79,15 @@ describe('connection node half', () => {
     const routes: WebRoute[] = []
     const ctx = new Context()
     ctx.provide('httpServer', fakeHttpServer(routes) as HttpServerService)
-    ctx.provide('apiProxy', {} as unknown as ApiProxy)
+    ctx.provide('apiProxy', fakeApiProxy())
     const fiber = ctx.plugin({ inject: [...inject], apply }, { trustedHosts: ['harness.internal/path'] })
     await expect(fiber).rejects.toThrow(/not a bare host\[:port\] authority/)
     expect(routes).toHaveLength(0)
   })
 
-  it('registers the /api prefix route and removes it with the fiber', async () => {
+  it('registers both transport prefix routes and removes them with the fiber', async () => {
     const { routes, dispose } = await mounted()
-    expect(routes).toHaveLength(1)
-    expect(routes[0]).toMatchObject({ kind: 'prefix', path: API_PATH })
+    expect(routes).toMatchObject([{ kind: 'prefix', path: API_PATH }, { kind: 'prefix', path: FILES_PATH }])
     await dispose()
     expect(routes).toHaveLength(0)
   })
@@ -129,6 +147,52 @@ describe('connection node half', () => {
     }), declared.response)
     expect(declared.state.status).toBe(404)
     await dispose()
+  })
+})
+
+describe('connection node half: the /f workspace-file route', () => {
+  /** A workspace holding one file, torn down with the returned disposer. */
+  async function workspace(): Promise<{ cwd: string; remove: () => Promise<void> }> {
+    const cwd = await mkdtemp(join(tmpdir(), 'dsh-node-half-'))
+    await writeFile(join(cwd, 'index.html'), '<h1>ok</h1>')
+    return { cwd, remove: () => rm(cwd, { recursive: true, force: true }) }
+  }
+
+  /** HEAD keeps the assertion on the route's decision, not on the byte stream. */
+  function head(url: string, headers: Record<string, string> = { host: '127.0.0.1:3080' }): IncomingMessage {
+    const request = fakeRequest(headers, url)
+    Object.assign(request, { method: 'HEAD' })
+    return request
+  }
+
+  it('applies the same browser-trust fence as /api, and refuses writes', async () => {
+    const { routes, dispose } = await mounted()
+    const untrusted = fakeResponse()
+    await filesRoute(routes).handler(head(`${FILES_PATH}/s-1/index.html`, { host: 'harness.example' }), untrusted.response)
+    expect(untrusted.state.status).toBe(403)
+    expect(untrusted.state.body).toBe('forbidden')
+
+    const written = fakeResponse()
+    const post = fakeRequest({ host: '127.0.0.1:3080' }, `${FILES_PATH}/s-1/index.html`)
+    Object.assign(post, { method: 'POST' })
+    await filesRoute(routes).handler(post, written.response)
+    expect(written.state.status).toBe(405)
+    await dispose()
+  })
+
+  it('confines reads to the directory the gateway names for that session', async () => {
+    const { cwd, remove } = await workspace()
+    const { routes, dispose } = await mounted(undefined, { 's-1': cwd })
+    const served = fakeResponse()
+    await filesRoute(routes).handler(head(`${FILES_PATH}/s-1/index.html`), served.response)
+    expect(served.state.status).toBe(200)
+    // A session the gateway names no directory for has no workspace to confine
+    // against, so there is nothing to serve.
+    const unknown = fakeResponse()
+    await filesRoute(routes).handler(head(`${FILES_PATH}/s-absent/index.html`), unknown.response)
+    expect(unknown.state.status).toBe(404)
+    await dispose()
+    await remove()
   })
 })
 

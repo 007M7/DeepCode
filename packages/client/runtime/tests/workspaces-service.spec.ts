@@ -276,6 +276,21 @@ describe('WorkspacesService', () => {
     await expect(workspaces.openPath('/missing')).rejects.toThrow(/path open failed/)
   })
 
+  it('addresses a workspace file by URL, and only inside the workspace', async () => {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const sessions = new SessionsService(ctx, api)
+    const workspaces = new WorkspacesService(ctx, api, sessions)
+    const session = 's-1' as SessionId
+    // The URL is derived, not fetched: no wire call answers a link.
+    expect(workspaces.fileUrl(session, '/w/alpha', '/w/alpha/out/a b.html')).toBe('/f/s-1/out/a%20b.html')
+    expect(workspaces.fileUrl(session, '/w/alpha', 'out/index.html')).toBe('/f/s-1/out/index.html')
+    // Outside the workspace there is nothing this transport may serve, which
+    // is the signal a caller falls back to openPath on.
+    expect(workspaces.fileUrl(session, '/w/alpha', '/etc/hosts')).toBeUndefined()
+    expect(api.calls).toHaveLength(0)
+  })
+
   it('deletes a Workspace or preserves it when the Host rejects deletion', async () => {
     const ctx = new Context()
     const api = new FakeApiClient()

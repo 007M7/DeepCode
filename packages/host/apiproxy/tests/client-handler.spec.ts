@@ -108,6 +108,8 @@ function scriptedApi(overrides: {
     },
     events: { mux: () => empty<MuxFrame>(), host: () => empty<HostFrame>(), ...overrides.events },
     respond: overrides.respond ?? (() => Promise.resolve({ accepted: false as const, reason: 'not-pending' as const })),
+    // No wire face, so the handler map never reaches it.
+    workspaceRootOf: () => Promise.resolve(undefined),
   }
 }
 
