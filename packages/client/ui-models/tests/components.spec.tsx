@@ -9,7 +9,7 @@ import { ModelsSection, needsSetup, removeProviderProfile } from '../src/client/
 import type { ModelsSectionInjected, ModelsSectionProps } from '../src/client/ModelsSection.tsx'
 import { pathOps } from '../src/client/ProviderEditor.tsx'
 import {
-  DeepSeekModelsEditor, modelDrafts, validateDeepSeekModels,
+  DeepSeekModelsEditor, formatContextWindow, modelDrafts, parseContextWindow, validateDeepSeekModels,
 } from '../src/client/DeepSeekModelsEditor.tsx'
 import { deriveKeyRef, ModelsSettingsStore } from '../src/client/store.ts'
 import type { ProviderRow } from '../src/client/store.ts'
@@ -330,6 +330,94 @@ describe('ModelsSection', () => {
     expect(validateDeepSeekModels([{ id: 'model', contextWindow: 0 }]))
       .toEqual({ index: 0, key: 'modelContextInvalid' })
     expect(validateDeepSeekModels([{ id: 'model', contextWindow: 1 }])).toBeUndefined()
+  })
+
+  it('reads context windows written as counts, thousands, or millions', () => {
+    expect(parseContextWindow('')).toBeUndefined()
+    expect(parseContextWindow('   ')).toBeUndefined()
+    expect(parseContextWindow('131072')).toBe(131_072)
+    expect(parseContextWindow(' 256K ')).toBe(256_000)
+    expect(parseContextWindow('256k')).toBe(256_000)
+    expect(parseContextWindow('1M')).toBe(1_000_000)
+    expect(parseContextWindow('1m')).toBe(1_000_000)
+    // 1M is 1000K, not 1024K: capacities are quoted in decimal.
+    expect(parseContextWindow('1M')).toBe(parseContextWindow('1000K'))
+    // 2.3 * 1e6 is a few ULPs high in binary floating point; an integral
+    // intent must not become a fractional count the validator rejects.
+    expect(parseContextWindow('2.3M')).toBe(2_300_000)
+    expect(Number.isInteger(parseContextWindow('1.5M'))).toBe(true)
+    // A genuinely fractional count survives as one, for the validator to reject.
+    expect(parseContextWindow('0.0001K')).toBeCloseTo(0.1)
+    expect(parseContextWindow('abc')).toBeNaN()
+    expect(parseContextWindow('1G')).toBeNaN()
+    expect(parseContextWindow('1M1')).toBeNaN()
+  })
+
+  it('spells a stored count in the shortest form that round-trips', () => {
+    expect(formatContextWindow(1_000_000)).toBe('1M')
+    expect(formatContextWindow(256_000)).toBe('256K')
+    expect(formatContextWindow(1_500_000)).toBe('1500K')
+    expect(formatContextWindow(131_072)).toBe('131072')
+    // Values the validator will reject are shown as-is rather than dressed up.
+    expect(formatContextWindow(Number.NaN)).toBe('NaN')
+    expect(formatContextWindow(0)).toBe('0')
+    for (const text of ['1M', '256K', '131072', '1500K']) {
+      expect(formatContextWindow(parseContextWindow(text) as number)).toBe(text)
+    }
+  })
+
+  it('accepts a suffixed context window and stores the plain count', async () => {
+    const { mutate } = await mountSection({
+      mutate: vi.fn(() => Promise.resolve(ok(wireNamespaces()[0]))),
+    })
+    fireEvent.click(screen.getByText(en.customized))
+    const windows = screen.getAllByLabelText<HTMLInputElement>(new RegExp(en.contextWindow))
+    // The inherited 1000000 reads back short.
+    expect((windows[0] as HTMLInputElement).value).toBe('1M')
+
+    // Keystrokes stay verbatim while the row has focus, so typing `1000` does
+    // not rewrite itself to `1K` mid-word.
+    fireEvent.change(windows[0] as HTMLInputElement, { target: { value: '1000' } })
+    expect((windows[0] as HTMLInputElement).value).toBe('1000')
+    fireEvent.change(windows[0] as HTMLInputElement, { target: { value: '1000K' } })
+    expect((windows[0] as HTMLInputElement).value).toBe('1000K')
+    // Blur settles the row to the canonical spelling of the same count.
+    fireEvent.blur(windows[0] as HTMLInputElement)
+    expect((windows[0] as HTMLInputElement).value).toBe('1M')
+
+    fireEvent.change(windows[1] as HTMLInputElement, { target: { value: '256K' } })
+    fireEvent.blur(windows[1] as HTMLInputElement)
+    fireEvent.click(screen.getByText(en.apply))
+
+    await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
+    expect(mutate.mock.calls[0]?.[0]).toEqual({
+      ns: 'llm-deepseek',
+      ops: [{
+        op: 'set',
+        path: ['models'],
+        value: [
+          { ...DEFAULT_DEEPSEEK_MODELS[0], contextWindow: 1_000_000 },
+          { ...DEFAULT_DEEPSEEK_MODELS[1], contextWindow: 256_000 },
+        ],
+      }],
+      expectedRevision: 0,
+    })
+  })
+
+  it('keeps unreadable context-window text on screen and refuses the write', async () => {
+    const { mutate } = await mountSection()
+    fireEvent.click(screen.getByText(en.customized))
+    const windows = screen.getAllByLabelText<HTMLInputElement>(new RegExp(en.contextWindow))
+    fireEvent.change(windows[0] as HTMLInputElement, { target: { value: '1 gazillion' } })
+    // Blurring a row that is not the edited one leaves the buffer alone.
+    fireEvent.blur(windows[1] as HTMLInputElement)
+    fireEvent.blur(windows[0] as HTMLInputElement)
+    // The text the user typed is still there to correct.
+    expect((windows[0] as HTMLInputElement).value).toBe('1 gazillion')
+
+    fireEvent.click(screen.getByText(en.apply))
+    await screen.findByText(`Model 1: ${en.modelContextInvalid}`)
+    expect(mutate).not.toHaveBeenCalled()
   })
 
   it('renders malformed draft fallbacks without inventing catalog values', () => {

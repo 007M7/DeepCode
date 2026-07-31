@@ -5,6 +5,7 @@
  * override; reset removes that override instead of copying defaults into it.
  */
 
+import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { IconPlusOutline16, IconTrashOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { en } from './locales.ts'
@@ -12,6 +13,47 @@ import styles from './ModelsSection.module.css'
 
 /** One catalog entry kept structurally open so hidden or future fields survive an edit. */
 export type DeepSeekModelDraft = Record<string, unknown>
+
+/** Accepted context-window spellings: a decimal count with an optional K/M suffix. */
+const CONTEXT_WINDOW_PATTERN = /^(\d+(?:\.\d+)?)([km])?$/i
+
+/** Decimal suffix scales — `1M` is 1000K, matching how model capacities are quoted. */
+const CONTEXT_WINDOW_SCALE = { k: 1_000, m: 1_000_000 } as const
+
+/**
+ * Read a typed context window, so a user can write `256K` or `1M` instead of
+ * counting zeroes. The stored value stays a plain token count.
+ * @param text - raw field text.
+ * @returns the count; `undefined` when blank (inherit), `NaN` when unreadable
+ * (rejected by {@link validateDeepSeekModels} before any write).
+ */
+export function parseContextWindow(text: string): number | undefined {
+  const trimmed = text.trim()
+  if (trimmed.length === 0) return undefined
+  const match = CONTEXT_WINDOW_PATTERN.exec(trimmed)
+  if (match === null) return Number.NaN
+  const suffix = match[2]?.toLowerCase()
+  const scale = suffix === 'k' || suffix === 'm' ? CONTEXT_WINDOW_SCALE[suffix] : 1
+  const scaled = Number(match[1]) * scale
+  // A decimal multiple is exact in intent but not in binary floating point
+  // (2.3 * 1e6 lands a few ULPs high), so an integral intent snaps back.
+  const rounded = Math.round(scaled)
+  return Math.abs(scaled - rounded) < 1e-6 ? rounded : scaled
+}
+
+/**
+ * Spell a stored count back in the shortest form that survives a round trip
+ * through {@link parseContextWindow}; a count that is not a whole number of
+ * thousands stays written out.
+ * @param value - stored context window.
+ * @returns the field text.
+ */
+export function formatContextWindow(value: number): string {
+  if (!Number.isInteger(value) || value <= 0) return String(value)
+  if (value % CONTEXT_WINDOW_SCALE.m === 0) return `${String(value / CONTEXT_WINDOW_SCALE.m)}M`
+  if (value % CONTEXT_WINDOW_SCALE.k === 0) return `${String(value / CONTEXT_WINDOW_SCALE.k)}K`
+  return String(value)
+}
 
 /** A localized validation failure for one user-owned model array. */
 export interface DeepSeekModelsValidationFailure {
@@ -81,6 +123,11 @@ export interface DeepSeekModelsEditorProps {
  * @returns the catalog editor.
  */
 export function DeepSeekModelsEditor(props: DeepSeekModelsEditorProps): ReactNode {
+  // The context-window field is edited as text, so the keystrokes are held
+  // here while one row has focus: re-deriving the text from the parsed count
+  // on every change would rewrite `1000` to `1K` mid-word.
+  const [editing, setEditing] = useState<{ index: number; text: string } | undefined>(undefined)
+
   const update = (index: number, key: 'id' | 'name' | 'contextWindow', value: unknown): void => {
     const next = props.models.map((model, at) => {
       const copy = { ...model }
@@ -93,7 +140,25 @@ export function DeepSeekModelsEditor(props: DeepSeekModelsEditorProps): ReactNod
   }
 
   const remove = (index: number): void => {
+    setEditing(undefined)
     props.onChange(props.models.filter((_model, at) => at !== index).map(model => ({ ...model })))
+  }
+
+  /** The row's field text: the live keystrokes, else the stored count spelled short. */
+  const contextText = (model: DeepSeekModelDraft, index: number): string => {
+    if (editing?.index === index) return editing.text
+    const value = model['contextWindow']
+    return typeof value === 'number' ? formatContextWindow(value) : ''
+  }
+
+  const settleContext = (index: number): void => {
+    setEditing((current) => {
+      if (current?.index !== index) return current
+      // Unreadable text stays on screen: the save-time rejection names a row
+      // the user can still see and correct.
+      const parsed = parseContextWindow(current.text)
+      return parsed !== undefined && Number.isNaN(parsed) ? current : undefined
+    })
   }
 
   return (
@@ -152,22 +217,18 @@ export function DeepSeekModelsEditor(props: DeepSeekModelsEditorProps): ReactNod
                 />
                 <input
                   className={styles['input']}
-                  type="number"
-                  min={1}
-                  step={1}
-                  value={typeof model['contextWindow'] === 'number' ? model['contextWindow'] : ''}
+                  type="text"
+                  value={contextText(model, index)}
                   placeholder={props.defaultContextWindow === undefined
                     ? props.t('contextWindowPlaceholder')
-                    : String(props.defaultContextWindow)}
+                    : formatContextWindow(props.defaultContextWindow)}
                   aria-label={`${props.t('contextWindow')} ${String(index + 1)}`}
                   disabled={props.disabled}
                   onChange={(event) => {
-                    update(
-                      index,
-                      'contextWindow',
-                      event.target.value === '' ? undefined : Number(event.target.value),
-                    )
+                    setEditing({ index, text: event.target.value })
+                    update(index, 'contextWindow', parseContextWindow(event.target.value))
                   }}
+                  onBlur={() => { settleContext(index) }}
                 />
                 <button
                   type="button"

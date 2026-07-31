@@ -14,7 +14,7 @@
   - paragraph: 填入各提供方的 API 密钥即可使用其模型。
   - list:
     - listitem:
-      - text: DeepSeek 已启用
+      - text: DeepSeek
       - button "编辑"
       - text: DeepSeek deepseek-official API 密钥
       - textbox "API 密钥":
@@ -36,7 +36,9 @@
           - textbox "显示名称 1":
             - /placeholder: 留空时使用模型 ID
             - text: DeepSeek-V4-Pro
-          - spinbutton "上下文窗口 1": "1000000"
+          - textbox "上下文窗口 1":
+            - /placeholder: 1M
+            - text: 1M
           - button "删除模型":
             - img
             - text: 删除模型
@@ -44,7 +46,9 @@
           - textbox "显示名称 2":
             - /placeholder: 留空时使用模型 ID
             - text: Private Preview
-          - spinbutton "上下文窗口 2": "131072"
+          - textbox "上下文窗口 2":
+            - /placeholder: 1M
+            - text: "131072"
           - button "删除模型":
             - img
             - text: 删除模型
