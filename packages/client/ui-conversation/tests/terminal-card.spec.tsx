@@ -429,7 +429,7 @@ describe('DetailsPanel Output section', () => {
         phase: 'ready',
       })
     const workspaces = createSnapshotStore<WorkspaceListState>({
-      items: [], state: 'idle', phase: 'ready', error: null,
+      items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     })
     return render(
@@ -607,7 +607,7 @@ describe('DetailsPanel Output section', () => {
         useSessions={bindSnapshotSelector(createSnapshotStore<SessionListState>(
           { ids: [], byId: {}, current: undefined, phase: 'ready' }))}
         useWorkspaces={bindSnapshotSelector(createSnapshotStore<WorkspaceListState>({
-          items: [], state: 'idle', phase: 'ready', error: null,
+          items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
           baselinesReady: true, recentWorkspaceId: undefined,
         }))}
         useInput={(() => { throw new Error('unused') })}

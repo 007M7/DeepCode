@@ -60,11 +60,15 @@ interface RenderedDiff {
   approximate: boolean
 }
 
-/** Split one diff change into display rows without counting its trailing line terminator. */
-function diffValueLines(value: string): string[] {
-  if (value === '') return []
-  const safe = displayText(value)
-  return (safe.endsWith('\n') ? safe.slice(0, -1) : safe).split('\n')
+/**
+ * A side's content lines under the terminator rule the Web DiffBlock also
+ * applies: empty text is zero lines, a trailing newline terminates the last
+ * line, and an interior blank line survives.
+ */
+function diffContentLines(text: string): string[] {
+  if (text === '') return []
+  const body = text.endsWith('\n') ? text.slice(0, -1) : text
+  return body.split('\n')
 }
 
 /**
@@ -79,15 +83,15 @@ function renderDiff(diff: FileDiff, maxDiffEditLength: number, palette: Palette)
   let added = 0
   let removed = 0
   if (diff.oldText === null) {
-    const newLines = diffValueLines(diff.newText)
+    const newLines = diffContentLines(displayText(diff.newText))
     added = newLines.length
     for (const line of newLines) lines.push(palette.success(`+ ${line}`))
     return { lines, added, removed, approximate: false }
   }
   const changes = compareLines(diff.oldText, diff.newText, { maxEditLength: maxDiffEditLength })
   if (changes === undefined) {
-    const oldLines = diffValueLines(diff.oldText)
-    const newLines = diffValueLines(diff.newText)
+    const oldLines = diffContentLines(displayText(diff.oldText))
+    const newLines = diffContentLines(displayText(diff.newText))
     lines.push(palette.dim(`[exact line diff omitted: >${maxDiffEditLength} changed lines]`))
     removed = oldLines.length
     added = newLines.length
@@ -96,7 +100,7 @@ function renderDiff(diff: FileDiff, maxDiffEditLength: number, palette: Palette)
     return { lines, added, removed, approximate: true }
   }
   for (const change of changes) {
-    const changedLines = diffValueLines(change.value)
+    const changedLines = diffContentLines(displayText(change.value))
     if (change.added) {
       added += changedLines.length
       for (const line of changedLines) lines.push(palette.success(`+ ${line}`))
@@ -437,12 +441,15 @@ export class ToolCardComponent implements Component {
     const glyph = this.result === undefined ? '○' : '●'
     const rawBody = this.renderBody()
     const view = this.resultView ?? this.callView
-    // A generic card's own content, or a web card's fallback to the raw result
-    // content (the `web` view carries no `content` copy), both render as one dim
-    // Markdown block below, so links/lists/headings keep the unified dim styling
-    // rather than reading as bare text. Terminal and diff cards own their body
-    // styling, so they are excluded (mirrors renderBody's post-terminal/diff fallback).
-    const markdownContent = view.card === 'generic'
+    // A generic card's own content, or a read card's `content` fallback (the
+    // envelope-stripped file text — the TUI has no dedicated read rendering, so a
+    // read renders exactly as before the read card existed), or a web card's
+    // fallback to the raw result content (the `web` view carries no `content`
+    // copy), all render as one dim Markdown block below, so links/lists/headings
+    // keep the unified dim styling rather than reading as bare text. Terminal and
+    // diff cards own their body styling, so they are excluded (mirrors
+    // renderBody's post-terminal/diff fallback).
+    const markdownContent = view.card === 'generic' || view.card === 'read'
       ? view.content ?? this.result?.content
       : view.card === 'web'
         // A web resultView is only assigned alongside this.result (the result
@@ -550,7 +557,8 @@ export class ToolCardComponent implements Component {
     if (view.card === 'diff') {
       if (this.diffBodyCache?.view === view) return this.diffBodyCache.body
       // The header no longer names the file, so each diff keeps its own path
-      // header. A trailing footer summarizes the change (`+A -R · N file(s)`).
+      // header. A trailing footer summarizes the exact changed rows when the
+      // bounded comparison succeeds (`+A -R · N file(s)`).
       const renderedDiffs = view.diffs.map(diff =>
         renderDiff(diff, this.maxDiffEditLength, this.palette),
       )
@@ -560,7 +568,7 @@ export class ToolCardComponent implements Component {
       const hunks = renderedDiffs.flatMap((rendered, index) => {
         return [...index > 0 ? [''] : [], ...rendered.lines]
       })
-      const files = view.diffs.length
+      const files = new Set(view.diffs.map(diff => diff.path)).size
       const footer = this.palette.dim(
         `└ +${added} -${removed} · ${files} file${files === 1 ? '' : 's'}${approximate ? ' · approximate' : ''}`,
       )
@@ -570,11 +578,12 @@ export class ToolCardComponent implements Component {
       this.diffBodyCache = { view, body }
       return body
     }
-    // The web card carries no `content` copy, so a `web` result view falls back
-    // to the raw result content here (`view.card === 'generic'` narrows the
-    // generic union arm; a `web` card takes the same fallback, mirroring the
-    // `markdownContent` selection in render()).
-    const content = (view.card === 'generic' ? view.content : undefined) ?? this.result?.content
+    // A generic or read card carries its own envelope-stripped `content`; a `web`
+    // card carries no `content` copy and falls back to the raw result content
+    // here. (Mirrors the `markdownContent` selection in render(); a read card has
+    // no dedicated TUI rendering, so its `content` takes the same body path,
+    // keeping read output as it was before the read card existed.)
+    const content = (view.card === 'generic' || view.card === 'read' ? view.content : undefined) ?? this.result?.content
     const prelude: string[] = []
     const lines: string[] = []
     // The presenter title headlines the body now that the header is a fixed

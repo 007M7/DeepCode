@@ -16,7 +16,7 @@
   - treeitem "workspace 1 session" [expanded]:
     - img
     - text: workspace 1 session
-  - treeitem "New Session now" [selected]
+  - treeitem "New Session" [selected]
 - button "Settings":
   - img
   - text: Settings
@@ -28,7 +28,7 @@
 - textbox "Describe what you want to build"
 - button "Commands":
   - img
-- 'button "Access mode, current: Danger Full Access"': Danger Full Access
+- 'button "Access mode, current: Full access"': Full access
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
