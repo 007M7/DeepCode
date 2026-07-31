@@ -24,6 +24,19 @@ import type { JsonSchemaNode } from './json-schema.ts'
 import { createRunCodeTool, RUN_CODE_NAME, SDK_SECTION_ORDER } from './code-mode.ts'
 import { renderToolsSdk } from './ts-types.ts'
 import type { ToolSdkSchema } from './ts-types.ts'
+import { renderToolsSdkPy } from './py-types.ts'
+
+/**
+ * Language → SDK-section renderer. The registry looks up the loaded
+ * `ctx.codeRuntime.language` in this table when assembling the `tools:sdk`
+ * section under a non-native mode; a runtime whose language is not a key
+ * fails the assembly loudly (same idiom as `toolOrder` violations). Adding a
+ * new backend language is a table entry plus its renderer, nothing else.
+ */
+const SDK_RENDERERS: Record<string, (schemas: ToolSdkSchema[]) => string> = {
+  typescript: renderToolsSdk,
+  python: renderToolsSdkPy,
+}
 
 export {
   defineTool,
@@ -65,6 +78,7 @@ export type { JsonValue } from '@deepseek-ai/dsh-session'
 
 export { CodeRunFailedError, RUN_CODE_NAME } from './code-mode.ts'
 export { jsonSchemaToTs, renderToolsSdk } from './ts-types.ts'
+export { jsonSchemaToPy, renderToolsSdkPy } from './py-types.ts'
 export { defineContentToolFixture, type ContentToolFixtureOptions } from './testing.ts'
 
 // The render-intent vocabulary a tool declares via `presentCall`/`presentResult`
@@ -762,10 +776,21 @@ export class ToolRegistry extends Service {
       ctx.systemPrompt.section({
         name: 'tools:sdk',
         order: SDK_SECTION_ORDER,
-        // Regenerate from the calling scope's visible tools in stable order.
+        // Regenerate from the calling scope's visible tools in stable order,
+        // picking the renderer that matches the loaded runtime's language.
+        // `requireCodeRuntime` already validated the language is in the
+        // table, so the fallback here is defense-in-depth against a caller
+        // that bypassed the guard (impossible under normal composition).
         text: (context) => {
-          this.requireCodeRuntime()
-          return renderToolsSdk(this.sdkSchemas(context.scope))
+          const runtime = this.requireCodeRuntime()
+          // Own-property read: a language like `toString`/`constructor` would
+          // otherwise resolve an inherited Object.prototype member as a renderer.
+          const render = SDK_RENDERERS[runtime.language]
+          /* v8 ignore next 3 -- requireCodeRuntime rejects an unknown language before this ever runs. */
+          if (!Object.hasOwn(SDK_RENDERERS, runtime.language) || render === undefined) {
+            throw new Error(`dsh-tools: no SDK renderer registered for runtime language "${runtime.language}"`)
+          }
+          return render(this.sdkSchemas(context.scope))
         },
       })
     }
@@ -804,8 +829,9 @@ export class ToolRegistry extends Service {
     if (!runtime) {
       throw new Error(`dsh-tools: mode "${this.mode}" requires a code runtime — load a ctx.codeRuntime implementation (e.g. @deepseek-ai/dsh-code-runtime-worker) or set tools mode to "native"`)
     }
-    if (runtime.language !== 'typescript') {
-      throw new Error(`dsh-tools: mode "${this.mode}" generates a TypeScript SDK, but the loaded code runtime's language is "${runtime.language}"`)
+    if (!Object.hasOwn(SDK_RENDERERS, runtime.language)) {
+      const known = Object.keys(SDK_RENDERERS).map(name => JSON.stringify(name)).join(', ')
+      throw new Error(`dsh-tools: no SDK renderer registered for runtime language ${JSON.stringify(runtime.language)} (known: ${known})`)
     }
     return runtime
   }

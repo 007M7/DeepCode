@@ -335,9 +335,51 @@ describe('mode-aware wire contribution', () => {
     await expect(systemPrompt.assemble()).rejects.toThrow(/requires a code runtime/)
   })
 
-  it("rejects every assembly when the runtime's language is not typescript", async () => {
-    const { systemPrompt } = await setup({ mode: 'code', runtime: { language: 'python' } })
-    await expect(systemPrompt.assemble()).rejects.toThrow(/language is "python"/)
+  it('rejects every assembly when the runtime language has no registered SDK renderer', async () => {
+    const { systemPrompt } = await setup({ mode: 'code', runtime: { language: 'ruby' } })
+    await expect(systemPrompt.assemble()).rejects.toThrow(/no SDK renderer registered for runtime language "ruby"/)
+  })
+
+  it('assembles under a python runtime by picking the Python SDK renderer', async () => {
+    const { ctx, systemPrompt } = await setup({ mode: 'code', runtime: { language: 'python' } })
+    registerEcho(ctx)
+    const assembly = await systemPrompt.assemble()
+    const sdk = assembly.sections.find(section => section.name === 'tools:sdk')
+    expect(sdk?.text).toContain('class Tools(Protocol):')
+    expect(sdk?.text).toContain('async def echo(self, args:')
+    expect(sdk?.text).toContain('top-level `await`')
+  })
+
+  it('emits a TypeScript-flavored run_code schema under a typescript runtime', async () => {
+    const { ctx, systemPrompt } = await setup({ mode: 'code', runtime: { language: 'typescript' } })
+    registerEcho(ctx)
+    const assembly = await systemPrompt.assemble()
+    const runCodeSchema = assembly.tools.find(tool => tool.name === RUN_CODE_NAME)
+    expect(runCodeSchema?.description).toContain('Execute a TypeScript program')
+    expect(runCodeSchema?.description).toContain('BODY of an')
+    const codeParam = (runCodeSchema?.parameters as { properties: { code: { description: string } } }).properties.code
+    expect(codeParam.description).toBe('The program: the body of an async TypeScript function.')
+  })
+
+  it('emits a Python-flavored run_code schema under a python runtime (matches the SDK language)', async () => {
+    const { ctx, systemPrompt } = await setup({ mode: 'code', runtime: { language: 'python' } })
+    registerEcho(ctx)
+    const assembly = await systemPrompt.assemble()
+    const runCodeSchema = assembly.tools.find(tool => tool.name === RUN_CODE_NAME)
+    expect(runCodeSchema?.description).toContain('Execute a Python program')
+    expect(runCodeSchema?.description).toContain('`return <value>`')
+    expect(runCodeSchema?.description).not.toContain('TypeScript')
+    const codeParam = (runCodeSchema?.parameters as { properties: { code: { description: string } } }).properties.code
+    expect(codeParam.description).toBe('The program: the body of an async Python function.')
+  })
+
+  it('fails loud when the runtime language has no run_code schema flavor', async () => {
+    // A language with an SDK renderer registered but (hypothetically) no schema
+    // flavor would fail here; a language with neither fails earlier at
+    // requireCodeRuntime. Both guards keep the two tables coupled.
+    const { ctx, systemPrompt } = await setup({ mode: 'code', runtime: { language: 'ruby' } })
+    registerEcho(ctx)
+    await expect(systemPrompt.assemble()).rejects.toThrow(/no SDK renderer registered for runtime language "ruby"/)
   })
 
   it("rejects the assembly when toolOrder names a native tool that mode 'code' no longer contributes", async () => {

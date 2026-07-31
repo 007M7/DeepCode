@@ -1,0 +1,32 @@
+# Agent Note: Code Mode 语言分发与 Python SDK 渲染器
+
+Status: implemented
+
+[English](2026-07-31-code-mode-language-dispatch.md) | 中文
+
+## 问题
+
+Code Mode 只生成一种 SDK 形态：TypeScript。`ToolRegistry` 为 `tools:sdk` 段硬编码了 `renderToolsSdk`，且 `requireCodeRuntime` 会拒绝任何 `ctx.codeRuntime.language !== 'typescript'`。引入 CPython 后端后，程序的源语言不再固定：同一个可见工具注册表在加载 Python 运行时时必须投射出 Python SDK，而面向模型的 `run_code` schema 字符串（"Execute a Python program …"）也必须与 SDK 段的语言一致，模型才不会在 Python 运行时下看到 TypeScript 指令。
+
+这是多语言 Code Mode 拆分中面向工具的那一半；[代码运行时 seam](../../../../packages/code-runtime/code-runtime/README.md) 已经携带 `CodeRuntime.language`。本 Note 只负责 `dsh-tools` 如何在该字段上分发。实现 `language: 'python'` 的后端由它自己的 Note 负责，单独交付。
+
+## 决策
+
+语言选择就是对 `ctx.codeRuntime.language` 的查表，在 prompt 装配时惰性解析，查 `dsh-tools` 里两张平行的表：
+
+- `SDK_RENDERERS`（index.ts）把语言映射到它的 `tools:sdk` 渲染器——`typescript → renderToolsSdk`、`python → renderToolsSdkPy`。`tools:sdk` 段读取所加载运行时的语言并选出渲染器；`requireCodeRuntime` 拒绝其语言不在表中的 `mode: code`/`both` 运行时，并列出已知语言。
+- `RUN_CODE_FLAVORS`（code-mode.ts）把语言映射到它那两条面向模型的 `run_code` 字符串（工具 `description` 与 `code` 参数描述），使一种语言的 SDK 段与它的传输 schema 始终一致。
+
+两张表在使用前都以 `Object.hasOwn` 读取，这样名为 `toString`/`constructor` 的语言不会把继承自 `Object.prototype` 的成员解析成渲染器；一个两张表都没有、却仍走到读取处的语言会 fail loud（对绕过守卫的调用方的纵深防御）。新增一门后端语言就是两条表项加它的渲染器——不动 `agent-loop`，也不动注册表结构。
+
+`code-mode.ts` 只依赖运行时 seam（`@deepseek-ai/dsh-code-runtime`），绝不依赖具体后端；分发在运行时按 `runtime.language` 进行。因此工具层独立于协议和后端 PR 落地——它只需要 seam 的 `language` 字段，而该字段已在 master 上。
+
+### Python SDK 渲染器
+
+`py-types.ts` 渲染 `jsonSchemaToTs` 所覆盖的同一套统一工具 schema 词汇，目标为 Python：`jsonSchemaToPy` 为每个 JSON-schema 节点发出一个类型表达式，`renderToolsSdkPy` 为每个可见工具的参数与规范输出装配具名 `TypedDict`，再加一个带用法说明的 `tools` 对象，与 TypeScript 形态等价。不支持的原始构造在装配时降级而非抛错，与 TypeScript 渲染器的契约一致。输出是确定性的——工具按字典序排列，工具集不变时文本逐字节相同——因此 prompt 保持 prefix-cache 友好。
+
+## 被否决的备选方案
+
+- **在 `ToolRegistry` 上加一个 `language` 配置字段。** 那样部署方就会有两处命名语言（所加载的运行时与 tools 配置）且可能相互矛盾；所加载的运行时是唯一真相来源，故注册表读取它而不复制它。
+- **把 Python 后端 import 进 `code-mode.ts` 来检测它。** 那会把工具层耦合到具体后端，并迫使协议/后端 PR 先落地。按 `language` 运行时分发使该层保持后端无关、可独立发布。
+- **为未知语言提供默认渲染器。** 静默回退会在比如 Ruby 运行时上发出 TypeScript SDK——模型会看到错误语言的指令。在装配处 fail loud 是本仓库对错误配置的立场。
