@@ -16,10 +16,12 @@ DeepSeek Harness（`dsh`）是一款基于 DeepSeek Harness SDK 构建的开源 
 
 ## 安装
 
-使用一条命令安装 `dsh`：
+克隆仓库，然后运行安装器：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/deepseek-harness/deepseek-harness/master/scripts/install.sh | sh
+git clone <repo-url>
+cd deepseek-harness
+scripts/install.sh
 ```
 
 安装器要求系统已安装 `git` 和 Node `^22.19 || >=24`，缺少 `pnpm` 时可代为安装，并会提示输入 DeepSeek API 密钥。
