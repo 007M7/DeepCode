@@ -12,6 +12,7 @@ import { existsSync, globSync, readdirSync, readFileSync, writeFileSync } from '
 import { resolve } from 'node:path'
 import * as yaml from 'js-yaml'
 import { parse as parseToml, type TomlTableWithoutBigInt, type TomlValueWithoutBigInt } from 'smol-toml'
+import parseSpdx from 'spdx-expression-parse'
 
 const root = resolve(import.meta.dirname, '..')
 const OUT = 'THIRD_PARTY_NOTICES.md'
@@ -433,6 +434,18 @@ function verifyBuildTimePins(): void {
 /** SPDX identifiers this project may ship without further review. */
 const PERMISSIVE_LICENSES = new Set(['MIT', 'ISC', 'BSD-2-Clause', 'BSD-3-Clause', 'Apache-2.0', '0BSD', 'Unlicense', 'CC0-1.0', 'BlueOak-1.0.0', 'Python-2.0'])
 
+/** Evaluate a parsed SPDX expression under the repository's license policy. */
+function isPermissiveSpdx(expression: ReturnType<typeof parseSpdx>): boolean {
+  if ('conjunction' in expression) {
+    return expression.conjunction === 'and'
+      ? isPermissiveSpdx(expression.left) && isPermissiveSpdx(expression.right)
+      : isPermissiveSpdx(expression.left) || isPermissiveSpdx(expression.right)
+  }
+  return expression.plus !== true
+    && expression.exception === undefined
+    && PERMISSIVE_LICENSES.has(expression.license)
+}
+
 /**
  * Whether an SPDX expression grants terms this project may ship under.
  * `OR` needs one permissive alternative, because the consumer chooses; `AND`
@@ -444,15 +457,13 @@ const PERMISSIVE_LICENSES = new Set(['MIT', 'ISC', 'BSD-2-Clause', 'BSD-3-Clause
  * @returns true when the expression's obligations are all permissive.
  */
 export function isPermissive(license: string): boolean {
-  // npm's legacy dual-license notation predates SPDX `OR`.
-  const normalized = license.replace(/\s*\/\s*/g, ' OR ').replace(/[()]/g, ' ').trim()
-  if (normalized.includes(' AND ')) {
-    return normalized.split(' AND ').every(operand => isPermissive(operand))
+  // Some npm manifests use a slash for a choice despite SPDX requiring `OR`.
+  const normalized = license.replace(/\s*\/\s*/g, ' OR ').trim()
+  try {
+    return isPermissiveSpdx(parseSpdx(normalized))
+  } catch {
+    return false
   }
-  if (normalized.includes(' OR ')) {
-    return normalized.split(' OR ').some(operand => isPermissive(operand))
-  }
-  return PERMISSIVE_LICENSES.has(normalized.trim())
 }
 
 /**

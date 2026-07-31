@@ -181,6 +181,17 @@ describe('isPermissive', () => {
     // An exception clause is not a recognized identifier, so it fails closed.
     expect(isPermissive('GPL-2.0-only WITH Classpath-exception-2.0')).toBe(false)
   })
+
+  it('honors grouping and SPDX precedence', () => {
+    expect(isPermissive('MIT OR (GPL-3.0-only AND GPL-2.0-only)')).toBe(true)
+    expect(isPermissive('(MIT OR Apache-2.0) AND ISC')).toBe(true)
+  })
+
+  it('fails closed for malformed expressions, additions, and exceptions', () => {
+    expect(['MIT)', '((MIT', '(MIT OR GPL-3.0-only', 'MIT OR OR GPL-3.0-only'].some(isPermissive)).toBe(false)
+    expect(isPermissive('MIT+')).toBe(false)
+    expect(isPermissive('GPL-2.0-only WITH Classpath-exception-2.0')).toBe(false)
+  })
 })
 
 describe('manifestPatterns', () => {
