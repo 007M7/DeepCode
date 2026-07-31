@@ -1,13 +1,20 @@
 // @vitest-environment jsdom
 import { Context } from 'cordis'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import type { DirectoryListing } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
+import { pinBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import type { DirectoryFlowOwnerProps } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { apply, inject } from '../src/client/index.ts'
 import { BrowseDirectoryFlow } from '../src/client/flow.ts'
+
+// The service reads its initial locale from the browser; these specs assert
+// the shipped Chinese copy, so they state the browser they assume.
+let restoreLanguages: () => void
+beforeEach(() => { restoreLanguages = pinBrowserLanguages('zh-CN') })
+afterEach(() => { restoreLanguages() })
 
 afterEach(cleanup)
 

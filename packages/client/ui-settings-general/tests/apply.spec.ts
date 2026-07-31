@@ -1,12 +1,19 @@
 /** Ownerless-copy registrations: the four seats, the dictionaries, thunked labels, and HMR recovery. */
 import { Context } from 'cordis'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
+import { pinBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-settings-general/client'
 import { CloseLabel, HeaderContent, TriggerContent } from '../src/client/chrome.tsx'
 import { GeneralSection } from '../src/client/GeneralSection.tsx'
+
+// The service reads its initial locale from the browser; these specs assert
+// the shipped Chinese copy, so they state the browser they assume.
+let restoreLanguages: () => void
+beforeEach(() => { restoreLanguages = pinBrowserLanguages('zh-CN') })
+afterEach(() => { restoreLanguages() })
 
 /** The four seats this plugin fills (slot name → expected component). */
 const SEATS = [

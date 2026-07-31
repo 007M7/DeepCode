@@ -24,8 +24,14 @@ import { cleanup, fireEvent, waitFor, within } from '@testing-library/react'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import type { ISession, SessionId, TodoItem, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
-import { SlotTestRuntime } from '@deepseek-ai/dsh-client-test-runtime'
+import { SlotTestRuntime, pinBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-conversation/client'
+
+// The service reads its initial locale from the browser; these specs assert
+// the shipped Chinese copy, so they state the browser they assume.
+let restoreLanguages: () => void
+beforeEach(() => { restoreLanguages = pinBrowserLanguages('zh-CN') })
+afterEach(() => { restoreLanguages() })
 
 const SID = 's1' as SessionId
 

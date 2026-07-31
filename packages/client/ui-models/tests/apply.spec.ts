@@ -1,12 +1,19 @@
 /** Models section registration: declaration-aware deferral, the locale-following label thunk, and HMR recovery. */
 import { Context } from 'cordis'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
+import { pinBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply, inject, refreshIfLoaded } from '@deepseek-ai/dsh-client-ui-models/client'
 import { ModelsSection } from '../src/client/ModelsSection.tsx'
 import { DeepSeekOnboardingDialog } from '../src/client/DeepSeekOnboardingDialog.tsx'
+
+// The service reads its initial locale from the browser; these specs assert
+// the shipped Chinese copy, so they state the browser they assume.
+let restoreLanguages: () => void
+beforeEach(() => { restoreLanguages = pinBrowserLanguages('zh-CN') })
+afterEach(() => { restoreLanguages() })
 
 async function bench() {
   const ctx = new Context()

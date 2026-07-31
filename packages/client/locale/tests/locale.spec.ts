@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { LocaleSnapshot } from '@deepseek-ai/dsh-client-locale/client'
 import { LocaleService, STORAGE_KEY } from '@deepseek-ai/dsh-client-locale/client'
@@ -11,9 +11,20 @@ const make = (): { ctx: Context; svc: LocaleService; events: LocaleSnapshot[] } 
   return { ctx, svc: new LocaleService(ctx), events }
 }
 
+/** Pin the browser environment a fresh service reads its initial locale from. */
+const stubLanguages = (...tags: string[]): void => {
+  vi.stubGlobal('navigator', { languages: tags, language: tags[0] ?? '' })
+}
+
 describe('LocaleService', () => {
   beforeEach(() => {
     localStorage.clear()
+    // A Chinese browser is the baseline these specs assert their zh state on.
+    stubLanguages('zh-CN')
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
   })
 
   it('translates through the active-locale -> zh -> key chain', () => {
@@ -132,23 +143,45 @@ describe('LocaleService', () => {
     expect(() => { svc.setLocale('fr') }).toThrow('not registered')
   })
 
-  it('restores a persisted locale and falls back to zh on garbage', () => {
+  it('restores a persisted locale over the browser language, and garbage reads as no preference', () => {
     localStorage.setItem(STORAGE_KEY, 'en')
     expect(make().svc.getLocale().active).toBe('en')
     localStorage.setItem(STORAGE_KEY, 'fr')
     expect(make().svc.getLocale().active).toBe('zh')
   })
 
-  it('runs without localStorage (node boots): defaults on read, no-op on write', () => {
+  it('opens in the browser language when nothing is persisted, matching regional variants on their primary subtag', () => {
+    stubLanguages('en-GB', 'zh-CN')
+    expect(make().svc.getLocale().active).toBe('en')
+    stubLanguages('zh-Hant-TW')
+    expect(make().svc.getLocale().active).toBe('zh')
+    // An unshipped language walks the list to the first one this app ships.
+    stubLanguages('fr-FR', 'en-US')
+    expect(make().svc.getLocale().active).toBe('en')
+    // Only `language` populated (browsers that expose no ordered list).
+    vi.stubGlobal('navigator', { languages: [], language: 'en-US' })
+    expect(make().svc.getLocale().active).toBe('en')
+    // No shipped language anywhere in the browser's preferences: zh remains
+    // the product default rather than an arbitrary near-match.
+    stubLanguages('fr-FR', 'de')
+    expect(make().svc.getLocale().active).toBe('zh')
+  })
+
+  it('runs without localStorage or navigator (node boots): defaults on read, no-op on write', () => {
     vi.stubGlobal('localStorage', undefined)
-    try {
-      const { svc } = make()
-      expect(svc.getLocale().active).toBe('zh')
-      svc.setLocale('en')
-      expect(svc.getLocale().active).toBe('en')
-    } finally {
-      vi.unstubAllGlobals()
-    }
+    vi.stubGlobal('navigator', undefined)
+    const { svc } = make()
+    expect(svc.getLocale().active).toBe('zh')
+    svc.setLocale('en')
+    expect(svc.getLocale().active).toBe('en')
+  })
+
+  it('keeps the browser language out of the way once a preference exists', () => {
+    stubLanguages('en-US')
+    const { svc } = make()
+    svc.setLocale('zh')
+    expect(localStorage.getItem(STORAGE_KEY)).toBe('zh')
+    expect(make().svc.getLocale().active).toBe('zh')
   })
 
   it('exposes the two shipped locales with self-described labels', () => {
