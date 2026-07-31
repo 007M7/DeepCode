@@ -373,13 +373,27 @@ describe('mode-aware wire contribution', () => {
     expect(codeParam.description).toBe('The program: the body of an async Python function.')
   })
 
-  it('fails loud when the runtime language has no run_code schema flavor', async () => {
-    // A language with an SDK renderer registered but (hypothetically) no schema
-    // flavor would fail here; a language with neither fails earlier at
-    // requireCodeRuntime. Both guards keep the two tables coupled.
-    const { ctx, systemPrompt } = await setup({ mode: 'code', runtime: { language: 'ruby' } })
-    registerEcho(ctx)
-    await expect(systemPrompt.assemble()).rejects.toThrow(/no SDK renderer registered for runtime language "ruby"/)
+  it('resolves the run_code schema flavor lazily and fails loud on a language absent from the flavor table', async () => {
+    // The flavor getter reads the runtime directly (peekRuntime), so it — not
+    // requireCodeRuntime — owns the flavor-table guard. A language with no
+    // flavor entry throws when the schema is projected, keeping
+    // RUN_CODE_FLAVORS coupled to SDK_RENDERERS. Assembly's requireCodeRuntime
+    // rejects such a language earlier; this reaches the guard on its own.
+    const { ctx } = await setup({ mode: 'code', runtime: { language: 'ruby' } })
+    const definition = ctx.tools.get(RUN_CODE_NAME)
+    expect(() => definition?.description).toThrow(/no run_code schema flavor registered for runtime language "ruby"/)
+  })
+
+  it('degrades the run_code flavor to TypeScript when no runtime is mounted (doc-catalog schema harvest)', async () => {
+    // The tool-catalog generator boots the registry under `mode: code` and
+    // reads run_code's schema WITHOUT a runtime; peekRuntime returns undefined
+    // there, so the flavor getter degrades to the TS default rather than
+    // throwing (that harvest never feeds a model).
+    const { ctx } = await setup({ mode: 'code', runtime: false })
+    const definition = ctx.tools.get(RUN_CODE_NAME)
+    expect(definition?.description).toContain('Execute a TypeScript program')
+    const params = definition?.parameters as { properties: { code: { description: string } } }
+    expect(params.properties.code.description).toBe('The program: the body of an async TypeScript function.')
   })
 
   it("rejects the assembly when toolOrder names a native tool that mode 'code' no longer contributes", async () => {

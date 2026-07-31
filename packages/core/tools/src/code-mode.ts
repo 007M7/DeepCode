@@ -120,29 +120,23 @@ const RUN_CODE_DESCRIPTION_PARAM_DESCRIPTION
 /**
  * Resolve the {@link RunCodeFlavor} for the loaded runtime's language, read at
  * schema-emission time so the model-visible `run_code` schema always matches
- * the SDK section's language. When no runtime is mounted, or one whose language
- * has no renderer is, the schema harvest degrades to {@link TYPESCRIPT_FLAVOR}
- * (a doc-only path — a real assembly always mounts a valid runtime, and
- * `requireCodeRuntime` rejects an invalid language there first). A mounted
- * runtime whose language passes that guard but is absent from this table fails
- * loud, keeping this table coupled to `SDK_RENDERERS`.
+ * the SDK section's language. `peekRuntime` returns `undefined` only when no
+ * runtime is mounted — the static schema harvest (doc catalog), which never
+ * reaches a model — so that path degrades to {@link TYPESCRIPT_FLAVOR}. A
+ * mounted runtime whose language has no flavor entry fails loud, exactly as
+ * `requireCodeRuntime` rejects it at assembly: this keeps the table coupled to
+ * `SDK_RENDERERS` and never emits a wrong-language schema for a real runtime.
  */
-function resolveFlavor(requireRuntime: () => CodeRuntime): RunCodeFlavor {
-  let runtime: CodeRuntime
-  try {
-    runtime = requireRuntime()
-  } catch {
-    // Reached only by the static schema harvest (doc catalog), which never
-    // feeds a model: either no runtime is mounted, or requireRuntime rejected
-    // a language with no renderer. Both degrade to the TS default here; a real
-    // assembly hits requireCodeRuntime's loud rejection before this runs.
+function resolveFlavor(peekRuntime: () => CodeRuntime | undefined): RunCodeFlavor {
+  const runtime = peekRuntime()
+  if (runtime === undefined) {
+    // No runtime mounted: reached only by the doc-catalog schema harvest,
+    // which never feeds a model. Degrade to the TS default.
     return TYPESCRIPT_FLAVOR
   }
   // Own-property read: a language like `toString`/`constructor` would otherwise
   // resolve an inherited Object.prototype member as a flavor.
   const flavor = RUN_CODE_FLAVORS[runtime.language]
-  /* v8 ignore next 3 -- requireRuntime rejects a language absent from SDK_RENDERERS, whose keys
-     mirror RUN_CODE_FLAVORS; the guard is defense-in-depth against the two tables drifting. */
   if (!Object.hasOwn(RUN_CODE_FLAVORS, runtime.language) || flavor === undefined) {
     throw new Error(`dsh-tools: no run_code schema flavor registered for runtime language ${JSON.stringify(runtime.language)}`)
   }
@@ -287,6 +281,12 @@ type RunCodeOutput = { logs: string[]; result?: JsonValue }
 export interface RunCodeBridgeOptions {
   /** Resolves `ctx.codeRuntime` or throws the loud misconfiguration error (shared with the registry's assembly-time checks). */
   requireRuntime: () => CodeRuntime
+  /**
+   * Reads `ctx.codeRuntime` without throwing: `undefined` when none is
+   * mounted. Lets schema emission tell "no runtime" (the doc-catalog harvest,
+   * degrade to TS) apart from "unknown language" (fail loud).
+   */
+  peekRuntime: () => CodeRuntime | undefined
   /** The run's overlap cap for parallel-classified sub-calls (the registry passes its validated `maxParallelSubCalls`). */
   maxParallel: number
   /** Runs the contained `tools/code-dispatch-log` waterfall over one settled sub-dispatch (the registry's private invoker). */
@@ -305,7 +305,7 @@ export interface RunCodeBridgeOptions {
  * @returns the registry-ready definition.
  */
 export function createRunCodeTool(registry: ToolRegistry, options: RunCodeBridgeOptions): ToolDefinition {
-  const { requireRuntime, maxParallel, shapeDispatchLog } = options
+  const { requireRuntime, peekRuntime, maxParallel, shapeDispatchLog } = options
   const definition = defineTool({
     name: RUN_CODE_NAME,
     // The description and `code` parameter description are placeholders here:
@@ -668,14 +668,14 @@ export function createRunCodeTool(registry: ToolRegistry, options: RunCodeBridge
   // is the least invasive point that still emits the loaded runtime's language.
   Object.defineProperty(definition, 'description', {
     enumerable: true,
-    get: () => resolveFlavor(requireRuntime).description,
+    get: () => resolveFlavor(peekRuntime).description,
   })
   Object.defineProperty(definition, 'parameters', {
     enumerable: true,
     // Recompile through the same spec→schema projection defineTool used, so
     // the emitted shape can never drift from the validated one.
     get: () => parameterSchemaSpecToJsonSchema({
-      code: { type: 'string', required: true, description: resolveFlavor(requireRuntime).codeDescription },
+      code: { type: 'string', required: true, description: resolveFlavor(peekRuntime).codeDescription },
       description: { type: 'string', required: true, description: RUN_CODE_DESCRIPTION_PARAM_DESCRIPTION },
     }) as unknown as Record<string, unknown>,
   })

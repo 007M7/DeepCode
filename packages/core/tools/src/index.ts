@@ -768,6 +768,7 @@ export class ToolRegistry extends Service {
       ? undefined
       : createRunCodeTool(this, {
         requireRuntime: () => this.requireCodeRuntime(),
+        peekRuntime: () => this.ctx.get('codeRuntime'),
         maxParallel: resolveMaxParallelSubCalls(config.maxParallelSubCalls),
         shapeDispatchLog: dispatch => this.shapeDispatchLog(dispatch),
       })
@@ -778,9 +779,9 @@ export class ToolRegistry extends Service {
         order: SDK_SECTION_ORDER,
         // Regenerate from the calling scope's visible tools in stable order,
         // picking the renderer that matches the loaded runtime's language.
-        // `requireCodeRuntime` already validated the language is in the
-        // table, so the fallback here is defense-in-depth against a caller
-        // that bypassed the guard (impossible under normal composition).
+        // `requireCodeRuntime` already validated the language is in the table,
+        // so the guard below is defense-in-depth against a caller that bypassed
+        // it (impossible under normal composition).
         text: (context) => {
           const runtime = this.requireCodeRuntime()
           // Own-property read: a language like `toString`/`constructor` would
@@ -802,15 +803,17 @@ export class ToolRegistry extends Service {
    */
   private wireSchemas(scope?: ScopeKey): ToolProviderResult {
     const view = this.view(scope)
-    const schemas = [...view.visible.values()].map(definition => this.schemaOf(definition, false))
     if (this.mode === 'native') {
+      const schemas = [...view.visible.values()].map(definition => this.schemaOf(definition, false))
       return { schemas, knownNames: [...view.knownNames] }
     }
-    // Redundant with the per-getter resolveFlavor path (schemaOf's run_code
-    // description/parameters getters call requireCodeRuntime again): kept as a
-    // single explicit gate so a mode collapse rejects here regardless of
-    // whether any getter runs. The call is idempotent (ctx.get + Object.hasOwn).
+    // Validate the runtime language BEFORE projecting schemas: schemaOf reads
+    // run_code's language-aware description/parameters getters, whose own
+    // flavor-table guard would otherwise surface first. This keeps the
+    // renderer-table rejection the canonical assembly-time error for a
+    // language with no SDK renderer.
     this.requireCodeRuntime()
+    const schemas = [...view.visible.values()].map(definition => this.schemaOf(definition, false))
     if (this.mode === 'code') {
       return {
         schemas: schemas.filter(schema => schema.name === RUN_CODE_NAME),

@@ -260,6 +260,59 @@ describe('renderToolsSdkPy', () => {
     expect(text).not.toContain('WeirdFieldsArgs')
   })
 
+  it('keeps soft-keyword field names as TypedDict fields (match/case/type are only special in statement position)', () => {
+    const tool: ToolSdkSchema = {
+      name: 'search',
+      description: 'Soft keywords as fields.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          match: { type: 'string' },
+          case: { type: 'boolean' },
+          type: { type: 'string' },
+        },
+        required: ['match'],
+      },
+      output: { type: 'string' },
+    }
+    const text = renderToolsSdkPy([tool])
+    // The object keeps its shape rather than degrading to dict[str, Any].
+    expect(text).toContain('class SearchArgs(TypedDict):')
+    expect(text).toContain('match: str')
+    expect(text).toContain('case: NotRequired[bool]')
+    expect(text).toContain('type: NotRequired[str]')
+    expect(text).not.toContain('dict[str, Any]')
+  })
+
+  it('declares a closed empty object with omitted properties as an empty TypedDict, not dict[str, Any]', () => {
+    // `{ type: 'object', additionalProperties: false }` with no `properties`
+    // is a closed empty object — no key accepted — exactly as the validator
+    // and the TS renderer read it. It must not degrade to a permissive dict.
+    const tool: ToolSdkSchema = {
+      name: 'closed',
+      description: 'Closed empty object with omitted properties.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: { inner: { type: 'object', additionalProperties: false } },
+        required: ['inner'],
+      },
+      output: { type: 'string' },
+    }
+    const text = renderToolsSdkPy([tool])
+    expect(text).toMatch(/class ClosedArgsInner\(TypedDict\):\n    pass/)
+    expect(text).toContain('inner: ClosedArgsInner')
+    expect(text).not.toContain('dict[str, Any]')
+  })
+
+  it('degrades an open object with omitted properties to dict[str, Any]', () => {
+    // An OPEN empty object (default additionalProperties) is any dict.
+    const type = jsonSchemaToPy({ type: 'object', properties: {} })
+    expect(type).toBe('dict[str, Any]')
+    expect(jsonSchemaToPy({ type: 'object' })).toBe('dict[str, Any]')
+  })
+
   it('renders docstrings for descriptions and orders emissions lexicographically', () => {
     const text = renderToolsSdkPy([bash, exotic])
     expect(text).toContain('"""Run a shell command."""')

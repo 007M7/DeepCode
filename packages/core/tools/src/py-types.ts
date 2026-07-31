@@ -21,22 +21,24 @@ import type { ToolSdkSchema } from './ts-types.ts'
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 /**
- * Python 3.x soft-keyword-inclusive reserved set. A tool named ``class`` or
- * ``lambda`` is legal on the wire but not as an attribute (``tools.class``
- * would be a SyntaxError in the model program), so we render it under
- * subscript access — the model still reaches every tool without collisions.
- * Underscore-leading names (``_x``, ``__class__``) are also subscript-only:
- * dunders resolve on ``object`` before the proxy's fallback hook, and the
- * subscript path is the one guaranteed bridge route for them.
- * The same set rejects an argument field whose name would be an illegal
- * class-syntax `TypedDict` attribute, degrading that object to
- * ``dict[str, Any]``.
+ * Python hard keywords: reserved everywhere, so a tool or field named
+ * ``class`` or ``lambda`` is legal on the wire but not as an attribute
+ * (``tools.class`` would be a SyntaxError in the model program) and not as a
+ * class-syntax `TypedDict` field. Such a tool renders under subscript access
+ * and such an object degrades to ``dict[str, Any]`` — the model still reaches
+ * every tool and field without collisions.
+ * Soft keywords (``match``, ``case``, ``type``, ``_``) are deliberately
+ * ABSENT: they are only special in statement position, so ``match: str`` as a
+ * field and ``async def match(...)`` as a method are both legal, and including
+ * them would needlessly degrade common search/regex tool fields to
+ * ``dict[str, Any]``. Underscore-leading names are handled separately (dunders
+ * name-mangle or resolve on ``object`` before the proxy hook), not here.
  */
 const RESERVED = new Set([
   'False', 'None', 'True', 'and', 'as', 'assert', 'async', 'await', 'break', 'class',
   'continue', 'def', 'del', 'elif', 'else', 'except', 'finally', 'for', 'from', 'global',
   'if', 'import', 'in', 'is', 'lambda', 'nonlocal', 'not', 'or', 'pass', 'raise',
-  'return', 'try', 'while', 'with', 'yield', 'match', 'case',
+  'return', 'try', 'while', 'with', 'yield',
   // Not a keyword, but CPython refuses to ASSIGN it at compile time
   // (`SyntaxError: cannot assign to __debug__`), which is what a TypedDict
   // field, a parameter name, and a keyword argument all are.
@@ -310,13 +312,14 @@ function renderType(schema: unknown, className: string, state: RenderState): str
         break
       }
       case 'object': {
-        const properties = node.properties
-        if (typeof properties !== 'object' || properties === null) {
-          state.typing.add('Any')
-          finish('dict[str, Any]')
-          break
-        }
-        const entries = Object.entries(properties as Record<string, unknown>)
+        // A missing `properties` is an empty property map, exactly as the
+        // unified validator and the TS renderer read it — NOT an unknown
+        // shape. assertSupportedJsonSchema already rejected a non-object
+        // `properties` (degraded to `Any` above), so the only non-map case
+        // left is omission. The openness of the resulting empty object is
+        // decided below, so a closed empty object still declares an empty
+        // TypedDict rather than a permissive `dict[str, Any]`.
+        const entries = Object.entries((node.properties ?? {}) as Record<string, unknown>)
         // An empty `className` marks the context-free `jsonSchemaToPy` entry:
         // there is no naming context to declare into, so degrade. A field
         // name that is not a legal Python attribute is inexpressible as a
