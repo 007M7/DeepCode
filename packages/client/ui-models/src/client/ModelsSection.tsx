@@ -4,13 +4,15 @@
  * card at a time. A whole-section provider without a configured key (the
  * unconfigured DeepSeek posture) renders as its open setup card instead of a
  * row; the add flow is a card carrying the dormant-provider select. Every
- * mutation writes through the wire; the page re-renders from the pushed
- * invalidations or the post-apply reload.
+ * mutation writes through the wire, while a provider removal first requires
+ * confirmation; the page re-renders from pushed invalidations or the
+ * post-apply reload.
  */
 
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import type { IApiClient } from '@deepseek-ai/dsh-client-connection/client'
+import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-web-react'
 import { messageOf } from './store.ts'
 import type { ModelsSettingsState, ModelsSettingsStore, ProviderRow } from './store.ts'
@@ -114,11 +116,33 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
   const state = injected.useSnapshot(snapshot => snapshot)
   const [editing, setEditing] = useState<EditorTarget | undefined>(undefined)
   const [adding, setAdding] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<EditorTarget | undefined>(undefined)
+  const [deleting, setDeleting] = useState(false)
 
   const closeEditor = (changed: boolean): void => {
     setEditing(undefined)
     setAdding(false)
     if (changed) void controller.load()
+  }
+
+  const closeDelete = (): void => {
+    if (deleting) return
+    setDeleteTarget(undefined)
+  }
+
+  const confirmDelete = (): void => {
+    /* v8 ignore next -- the action only renders with a target and is disabled while a deletion is pending */
+    if (deleteTarget === undefined || deleting) return
+    setDeleting(true)
+    void removeProviderProfile(api, controller, deleteTarget)
+      .then((failure) => {
+        if (failure !== undefined) {
+          controller.fail(failure)
+          return
+        }
+        setDeleteTarget(undefined)
+      })
+      .finally(() => { setDeleting(false) })
   }
 
   if (state.status === 'idle') void controller.load()
@@ -174,11 +198,6 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
             <li key={row.entry.provider} className={styles['rowCard']}>
               <div className={styles['rowHead']}>
                 <span className={styles['rowName']}>{row.entry.displayName}</span>
-                <span className={styles['badges']}>
-                  {row.entry.active
-                    ? <span className={styles['badgeOk']}>{t('active')}</span>
-                    : <span className={styles['badgeMuted']}>{t('dormant')}</span>}
-                </span>
                 <span className={styles['rowActions']}>
                   <button
                     type="button"
@@ -193,11 +212,7 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
                         type="button"
                         className={styles['dangerButton']}
                         disabled={!state.writable}
-                        onClick={() => {
-                          void removeProviderProfile(api, controller, target).then((failure) => {
-                            if (failure !== undefined) controller.fail(failure)
-                          })
-                        }}
+                        onClick={() => { setDeleteTarget(target) }}
                       >
                         {t('remove')}
                       </button>
@@ -276,6 +291,29 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
             </button>
           )}
       </div>
+      <Modal
+        open={deleteTarget !== undefined}
+        onClose={closeDelete}
+        title={t('deleteTitle')}
+        closeLabel={t('close')}
+        description={t('deleteDescription')}
+        className={styles['deleteDialog'] as string}
+        footer={(
+          <>
+            <Button variant="outline" autoFocus disabled={deleting} onClick={closeDelete}>
+              {t('cancel')}
+            </Button>
+            <Button
+              variant="outline"
+              className={styles['deleteConfirm']}
+              disabled={deleting}
+              onClick={confirmDelete}
+            >
+              {deleting ? t('deleting') : t('deleteConfirm')}
+            </Button>
+          </>
+        )}
+      />
     </div>
   )
 }
