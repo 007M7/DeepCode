@@ -48,6 +48,59 @@ describe('createFixtureApi', () => {
     expect(response.result.value.items[1]?.parentSessionId).toBe('fx-alpha') // lineage material
   })
 
+  it('searches current message text with literal unicode61-style token phrases', async () => {
+    const api = createFixtureApi()
+    const signal = new AbortController().signal
+    const phrase = await api.sessions.search(req({ query: 'FIXTURE 历史消息' }), signal)
+    expect(phrase.result).toMatchObject({
+      ok: true,
+      value: {
+        items: [{ sessionId: 'fx-alpha' }],
+        hasMore: false,
+      },
+    })
+    if (!phrase.result.ok) throw new Error('search failed')
+    expect(phrase.result.value.items[0]?.snippet).toContain('fixture 历史消息')
+
+    timing().appendUser(
+      'fx-alpha',
+      `${'leading context '.repeat(20)}late café token${' trailing context'.repeat(20)}`,
+    )
+    const late = await api.sessions.search(req({ query: 'LATE CAFE TOKEN' }), signal)
+    if (!late.result.ok) throw new Error('late search failed')
+    const lateSnippet = late.result.value.items[0]?.snippet ?? ''
+    expect(lateSnippet).toContain('late café token')
+    expect(lateSnippet.startsWith('…')).toBe(true)
+    expect(lateSnippet.endsWith('…')).toBe(true)
+    expect(Array.from(lateSnippet).length).toBeLessThanOrEqual(120)
+
+    timing().appendUser('fx-alpha', 'Greek final sigma: ος')
+    const finalSigma = await api.sessions.search(req({ query: 'ΟΣ' }), signal)
+    if (!finalSigma.result.ok) throw new Error('final sigma search failed')
+    expect(finalSigma.result.value.items[0]?.snippet).toContain('ος')
+
+    const substring = await api.sessions.search(req({ query: 'ixtur' }), signal)
+    expect(substring.result).toEqual({
+      ok: true,
+      value: { items: [], hasMore: false },
+    })
+    const punctuationOnly = await api.sessions.search(req({ query: '*' }), signal)
+    expect(punctuationOnly.result).toEqual({
+      ok: true,
+      value: { items: [], hasMore: false },
+    })
+    const reasoningOnly = await api.sessions.search(req({ query: '思考过程' }), signal)
+    expect(reasoningOnly.result).toEqual({
+      ok: true,
+      value: { items: [], hasMore: false },
+    })
+
+    const aborted = new AbortController()
+    aborted.abort()
+    await expect(api.sessions.search(req({ query: 'fixture' }), aborted.signal))
+      .resolves.toMatchObject({ result: { ok: false, error: { code: 'cancelled' } } })
+  })
+
   it('pages history backwards on message-boundary cuts with seq-contiguous stitching', async () => {
     const api = createFixtureApi()
     const tail = await api.sessions.history(req({ sessionId: sid('fx-alpha'), maxMessages: 10 }))
@@ -819,6 +872,10 @@ describe('FixtureApiClient (protocol-level fake carrier)', () => {
 
   it('covers the whole unary dispatch table', async () => {
     const client = new FixtureApiClient()
+    expect((await client.sessions.search(
+      { query: 'fixture' },
+      new AbortController().signal,
+    )).result.ok).toBe(true)
     const created = await client.sessions.create({})
     if (!created.result.ok) throw new Error('create failed')
     const id = created.result.value.sessionId

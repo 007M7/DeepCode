@@ -4,7 +4,7 @@
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type {
   CommandDescriptor, HostFrame, IApiClient, ModelTarget, MuxFrame,
-  RpcRequest, RpcResponse, SessionId, SessionModels, SkillEntry,
+  RpcRequest, RpcResponse, SessionId, SessionModels, SessionSearchItem, SkillEntry,
 } from '../src/client/api.ts'
 import { RpcId } from '../src/client/api.ts'
 
@@ -44,6 +44,8 @@ export class FakeApiClient implements IApiClient {
 
   // Programmable slots (defaults answer OK-empty); reassign per case.
   onList: (payload: unknown) => Promise<RpcResponse<{ items: never[] }>> = () => Promise.resolve(ok({ items: [] }))
+  onSearch: (payload: unknown) => Promise<RpcResponse<{ items: SessionSearchItem[]; hasMore: boolean }>> =
+    () => Promise.resolve(ok({ items: [], hasMore: false }))
   onCreate: (payload: unknown) => Promise<RpcResponse<{ sessionId: SessionId }>> = () => Promise.resolve(ok({ sessionId: 'fk-new' as SessionId }))
   onRename: (payload: unknown) => Promise<RpcResponse<{ title: string; seq: number }>> = () => Promise.resolve(ok({ title: 'fk-renamed', seq: 0 }))
   onFork: (payload: unknown) => Promise<RpcResponse<{ sessionId: SessionId }>> = () => Promise.resolve(ok({ sessionId: 'fk-fork' as SessionId }))
@@ -87,12 +89,17 @@ export class FakeApiClient implements IApiClient {
 
   private readonly muxConns: StreamConn<MuxFrame>[] = []
   private readonly hostConns: StreamConn<HostFrame>[] = []
+  lastSearchSignal: AbortSignal | undefined
 
   // Parameter annotations below are local structural types on purpose: the CI
   // lint lane runs without built artifacts, where IApiClient's wire types
   // (apiproxy subpath) resolve to any and inferred params trip no-unsafe-argument.
   readonly sessions: IApiClient['sessions'] = {
     list: (payload: unknown) => this.record('session.list', payload, this.onList(payload)),
+    search: (payload: unknown, signal?: AbortSignal) => {
+      this.lastSearchSignal = signal
+      return this.record('session.search', payload, this.onSearch(payload))
+    },
     create: (payload: unknown) => this.record('session.create', payload, this.onCreate(payload)),
     history: (payload: { sessionId: SessionId; beforeSeq?: number; maxMessages?: number }) =>
       this.record('session.history', payload, this.onHistory(payload)),
