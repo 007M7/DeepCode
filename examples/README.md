@@ -4,6 +4,10 @@ English | [中文](README.zh.md)
 
 Runnable demos (not workspaces) that showcase how the harness is wired. Each example is a **thin leaf**: either a `cordis.yml` tree that picks swappable backends and loads one app package, or an **overlay** — a patch list `dsh --config` applies over the shipped composition ([`apps/cli/config/base.cordis.yml`](../apps/cli/config/base.cordis.yml) plus a surface overlay). Bundled compositions live in [`@deepseek-ai/dsh-cli-demo`](../packages/examples/cli-demo), [`@deepseek-ai/dsh-acp-demo`](../packages/examples/acp-demo), and their shared [`@deepseek-ai/dsh-agent-spine-demo`](../packages/examples/agent-spine-demo) bundle; the `dsh` surfaces use flat config trees instead. There is no `start.ts`; the terminal `demo:*` scripts boot through the [`dsh`](../apps/cli/README.md) CLI, and the headless/ACP scripts invoke the `cli-demo`/`acp-demo` bins.
 
+## mcp-memory
+
+Three default-off reference overlays connect a memory MCP server through the generic MCP client. Pick one file and pass it to `dsh --config`; DSH does not install or configure the upstream memory system. See [mcp-memory/README.md](mcp-memory/README.md) for pinned prerequisites, identity mapping, the shared optional prompt, and the write → fresh-session recall → use verification recipe.
+
 ## headless-agent
 
 A non-interactive agent demo that accepts one positional task, runs one complete model/tool turn on the `@deepseek-ai/dsh-cli-demo` app, persists a fresh session, prints `text`, `json`, or `stream-json`, and exits.

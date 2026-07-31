@@ -107,6 +107,12 @@ export interface WebScaffold {
 /** Options for {@link launchWebScaffold}. */
 export interface LaunchOptions {
   /**
+   * Optional product overlay applied after the shipped Web surface and before
+   * the scaffold's hermetic test patches, matching AppCLIEntry's `--config`
+   * ordering.
+   */
+  extraOverlayPath?: string
+  /**
    * Replay fixture (session.jsonl) served by the inserted dsh-llm-replay row
    * in replay/refresh modes; ignored in record mode (the real adapter
    * answers). Omit for scenarios issuing no model calls — a stray stream then
@@ -215,8 +221,12 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   // snapshot overlay use, applied over the SAME shipped tree (a patch id that
   // stops matching a row fails the boot sweep loudly instead of drifting).
   const surfacePatches = loadOverlayPatches('web e2e scaffold', WEB_OVERLAY_PATH)
+  const extraOverlayPatches = options.extraOverlayPath === undefined
+    ? []
+    : loadOverlayPatches('web e2e scaffold', options.extraOverlayPath)
   const patches: PatchOptions[] = [
     ...surfacePatches,
+    ...extraOverlayPatches,
     { id: 'session-persistence-jsonl', config: { root: persistenceRoot } },
     { id: 'session-query-sqlite', config: { path: ':memory:', openAt: 'first-search' } },
     // storage-json's yml root is anchored to the real $DSH_HOME; pin the row
