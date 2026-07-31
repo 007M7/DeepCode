@@ -7,7 +7,7 @@
 - text: Workspaces
 - button "Group by":
   - img
-- button "Create workspace":
+- button "Add workspace":
   - img
 - button "Search sessions":
   - img
@@ -16,7 +16,7 @@
   - treeitem "workspace 1 session" [expanded]:
     - img
     - text: workspace 1 session
-  - treeitem "New Session now" [selected]
+  - treeitem "New Session" [selected]
 - button "Settings":
   - img
   - text: Settings

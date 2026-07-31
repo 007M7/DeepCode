@@ -87,10 +87,12 @@ export function deriveTrajectoryTimeline(
       group.cells.filter(cell => cell.requestOnly !== true),
     )
     if (cells.length === 0) continue
-    turnBoundaries.push({
-      turn: turn.turn,
-      time: spans.length,
-    })
+    if (turn.turn !== null) {
+      turnBoundaries.push({
+        turn: turn.turn,
+        time: spans.length,
+      })
+    }
     spans.push(...cells.map((cell, offset): TrajectoryTimelineSpan => ({
       start: spans.length + offset,
       end: spans.length + offset + 1,
@@ -162,10 +164,12 @@ function deriveTimedTimeline(
       }
     })
     spans.push(...projected)
-    turnBoundaries.push({
-      turn: turn.turn,
-      time: Math.min(...projected.map(span => span.start)),
-    })
+    if (turn.turn !== null) {
+      turnBoundaries.push({
+        turn: turn.turn,
+        time: Math.min(...projected.map(span => span.start)),
+      })
+    }
   }
 
   return {

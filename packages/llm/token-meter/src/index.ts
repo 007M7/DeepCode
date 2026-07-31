@@ -10,12 +10,15 @@ import { BlockAssembler, deepFreeze } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, Message, TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { EpochHeader, Session, SessionEvent, SurfaceEvent } from '@deepseek-ai/dsh-session'
 import { canonicalHeader, headerEquals, isSurfaceEvent } from '@deepseek-ai/dsh-session'
+// Type-only: resolves the optional projection registry Context seam.
+import type {} from '@deepseek-ai/dsh-session-projection'
 import type {
   TokenMeasurement,
   TokenMeasurementBaseline,
   TokenMeterConfig,
   TokenSurfaceNode,
 } from './types.ts'
+import { contextPressureProjectionDefinition, tokenUsageProjectionDefinition } from './usage-projection.ts'
 
 export type * from './types.ts'
 
@@ -89,6 +92,13 @@ export class TokenMeterService extends Service {
   constructor(ctx: Context, config: TokenMeterConfig = {}) {
     super(ctx, 'tokenMeter')
     validateConfigKeys(config)
+
+    // Projection registration is an optional child: headless and TUI
+    // compositions without the generic registry keep the meter's old shape.
+    ctx.inject(['sessionProjections'], (projectionCtx) => {
+      projectionCtx.sessionProjections.register(tokenUsageProjectionDefinition)
+      projectionCtx.sessionProjections.register(contextPressureProjectionDefinition)
+    })
 
     // Readers catch up independently, while eager observation bounds ordinary
     // read latency without creating state for sessions no consumer has read.

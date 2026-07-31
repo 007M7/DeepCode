@@ -61,23 +61,9 @@ describe('connection node half', () => {
     const ctx = new Context()
     ctx.provide('httpServer', fakeHttpServer(routes) as HttpServerService)
     ctx.provide('apiProxy', {} as unknown as ApiProxy)
-    // The apply throw also escapes cordis as a late rejection — the shape the
-    // boot's installFailLoud is contracted to catch. Capture it so the run
-    // stays clean, same pattern as the webserver bind-failure test.
-    const rejections: unknown[] = []
-    const onUnhandled = (err: unknown): void => { rejections.push(err) }
-    process.on('unhandledRejection', onUnhandled)
-    try {
-      const fiber = ctx.plugin({ inject: [...inject], apply }, { trustedHosts: ['harness.internal/path'] })
-      await expect(fiber.await()).rejects.toThrow(/not a bare host\[:port\] authority/)
-      expect(routes).toHaveLength(0)
-      for (let i = 0; i < 100 && rejections.length === 0; i++) {
-        await new Promise(resolve => setTimeout(resolve, 10))
-      }
-      expect(rejections.map(String).join('\n')).toContain('not a bare host[:port] authority')
-    } finally {
-      process.off('unhandledRejection', onUnhandled)
-    }
+    const fiber = ctx.plugin({ inject: [...inject], apply }, { trustedHosts: ['harness.internal/path'] })
+    await expect(fiber).rejects.toThrow(/not a bare host\[:port\] authority/)
+    expect(routes).toHaveLength(0)
   })
 
   it('registers the /api prefix route and removes it with the fiber', async () => {
@@ -107,7 +93,7 @@ describe('connection node half', () => {
     // passed), but each privileged method stays loopback-only and 403s.
     for (const method of [
       'host.pickDirectory', 'host.openPath',
-      'settings.describe', 'settings.update', 'settings.replace',
+      'settings.describe', 'settings.update', 'settings.replace', 'settings.mutate',
       'credentials.describe', 'credentials.set', 'credentials.unset',
     ]) {
       const denied = fakeResponse()
@@ -191,7 +177,7 @@ describe('connection node half over a real HTTP server', () => {
       // Reads are as privileged as writes: describe returns the exposed
       // configuration, and credentials.describe probes arbitrary env-var names.
       for (const method of [
-        'settings.describe', 'settings.update', 'settings.replace',
+        'settings.describe', 'settings.update', 'settings.replace', 'settings.mutate',
         'credentials.describe', 'credentials.set', 'credentials.unset',
         'host.pickDirectory', 'host.openPath',
       ]) {

@@ -1,20 +1,29 @@
 // MessageItem: simple chat nodes — user bubble (right-aligned, with
-// clock + copy / branch / edit IconActions), steering (badged bubble), context
-// injection, retry disclosure, and unknown-surface JSON rows.
+// clock + copy / branch IconActions), steering (badged bubble), context
+// injection, compaction marker, retry disclosure, and unknown-surface JSON rows.
 
 import { memo, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import type {
-  ContextMessageNode, ModelRetryNode, SteeringMessageNode, UnknownSurfaceNode, UserMessageNode,
+  CompactionSummaryNode, ContextMessageNode, ModelRetryNode, SteeringMessageNode,
+  TurnErrorNode, UnknownSurfaceNode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import { JsonBlock, MessageText } from '@deepseek-ai/dsh-client-ui-primitives'
+import { JsonBlock, MessageText, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
+import { CompactionItem } from './CompactionItem.tsx'
 import { ContextInjectionRow } from './ContextInjectionRow.tsx'
 import { MessageIconActions } from './MessageIconActions.tsx'
 import css from './MessageItem.module.css'
 
 export interface MessageItemProps {
-  node: UserMessageNode | SteeringMessageNode | ContextMessageNode | ModelRetryNode | UnknownSurfaceNode
+  node:
+    | UserMessageNode
+    | SteeringMessageNode
+    | ContextMessageNode
+    | CompactionSummaryNode
+    | ModelRetryNode
+    | TurnErrorNode
+    | UnknownSurfaceNode
   retryActive?: boolean
   /** Fork the session through the turn containing this message (user-bubble branch action). */
   onFork?: (seq: number) => void
@@ -107,6 +116,24 @@ function ModelRetryItem({ node, active, t }: {
     </details>
   )
 }
+
+/** Persistent, turn-positioned feedback for a terminal failure. */
+function TurnErrorItem({ node, t }: {
+  node: TurnErrorNode
+  t: ChatViewSlotProps['t']
+}) {
+  return (
+    <div className={css.turnErrorRow} role="status">
+      <StateDot state="error" className={css.turnErrorDot} />
+      <div className={css.turnErrorCopy}>
+        <span className={css.turnErrorTitle}>{t('message.turnError')}</span>
+        <span className={css.turnErrorMessage}>{node.message}</span>
+      </div>
+      {node.code !== undefined && <code className={css.turnErrorCode}>{node.code}</code>}
+    </div>
+  )
+}
+
 /**
  * Display projection of reference forms in a user bubble (free geometry — no
  * textarea alignment constraint here); everything else stays plain text. The
@@ -156,7 +183,6 @@ export const MessageItem = memo(function MessageItem({
             text={text}
             time={node.time}
             clock="start"
-            edit
             onBranch={onFork === undefined ? undefined : () => { onFork(node.seq) }}
             className={css.actions}
             t={t}
@@ -180,8 +206,12 @@ export const MessageItem = memo(function MessageItem({
       return (
         <ContextInjectionRow content={node.content} source={node.source} t={t} />
       )
+    case 'compaction':
+      return <CompactionItem node={node} t={t} />
     case 'model-retry':
       return <ModelRetryItem node={node} active={retryActive} t={t} />
+    case 'turn-error':
+      return <TurnErrorItem node={node} t={t} />
     default:
       return (
         <div className={css.contextRow}>

@@ -43,7 +43,7 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
 
   beforeAll(async () => {
     scaffold = await launchWebScaffold({})
-    // The workspace-aware flow runs sessions in <workspaceRoot>/workspace;
+    // The workspace-aware flow runs sessions in <workspaceCwd>/workspace;
     // the read targets must live in that session cwd (pre-creation is safe:
     // create-by-name adopts an existing directory).
     const sessionCwd = join(scaffold.workspaceCwd, 'workspace')

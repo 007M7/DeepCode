@@ -49,8 +49,8 @@ export function assistantActionsSeqs(nodes: readonly ConversationNode[]): Readon
 
 /**
  * Group finalized nodes into the step-summary flow.
- * @param nodes - snapshot nodes (surface order).
- * @returns flow items; consecutive tool results and retry notices reuse their first key.
+ * @param nodes - snapshot nodes in human-transcript and durable-notice order.
+ * @returns flow items; consecutive tool results group and retry notices reuse their first key.
  */
 export function deriveChatFlow(nodes: readonly ConversationNode[]): ChatFlowItem[] {
   const items: ChatFlowItem[] = []

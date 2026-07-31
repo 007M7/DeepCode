@@ -38,17 +38,22 @@ function request(
   resultSeq?: number,
   replacementSeq?: number,
 ): RequestView {
-  return {
-    purpose,
+  const base = {
     startSeq,
-    turn: 1,
-    step: purpose === 'assistant' ? 1 : 0,
     startedAt: startSeq,
     completedAt: startSeq + 1,
-    status: 'complete',
+    status: 'complete' as const,
     ...(resultSeq === undefined ? {} : { resultSeq }),
-    ...(replacementSeq === undefined ? {} : { replacementSeq }),
   }
+  return purpose === 'assistant'
+    ? { ...base, purpose, turn: 1, step: 1 }
+    : {
+      ...base,
+      purpose,
+      turn: 1,
+      step: 0,
+      ...(replacementSeq === undefined ? {} : { replacementSeq }),
+    }
 }
 
 describe('trajectory context branches', () => {

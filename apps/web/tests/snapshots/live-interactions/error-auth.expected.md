@@ -9,8 +9,13 @@
   - img
 - button "Branch into a new conversation":
   - img
-- button "Edit":
+- button "Context injection":
   - img
+  - img
+  - text: Context injection
+- status:
+  - text: This turn failedAPI key is invalid
+  - code: AUTH
 - textbox "Message the agent"
 - button "Commands":
   - img

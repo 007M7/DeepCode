@@ -44,9 +44,10 @@ export type {
 } from './contract/store.ts'
 export type {
   AssistantBlock, AssistantMessageNode, AssistantProvenanceView, AssistantRequestConfig,
-  AssistantTiming, CodeSubCall, CommandNode, ComposerPhase, ContextMessageNode, ConversationNode,
-  ConversationSnapshot, ModelRetryNode, QueuedMessage, RunningToolCall,
-  SteeringMessageNode, TodoItem, ToolResultNode, UnknownSurfaceNode, UserMessageNode,
+  AssistantTiming, CodeSubCall, CommandNode, CompactionSummaryNode, ComposerPhase,
+  ContextMessageNode, ConversationNode, ConversationSnapshot, ModelRetryNode, QueuedMessage,
+  RunningToolCall,
+  SteeringMessageNode, TodoItem, ToolResultNode, TurnErrorNode, UnknownSurfaceNode, UserMessageNode,
 } from './sessions/conversation.ts'
 export type {
   ConversationContext, ConversationContextOriginKind,

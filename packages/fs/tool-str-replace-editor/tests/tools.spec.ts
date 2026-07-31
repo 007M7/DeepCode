@@ -40,6 +40,7 @@ function agent(ctx: Context, cwd: string): Agent {
     inject: () => {},
     send: () => {},
     updateInbox: () => 'not-found',
+    reserveTurnAdmission: () => undefined,
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }

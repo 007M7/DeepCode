@@ -235,6 +235,7 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
       injectedOptions.push(input)
       return input.id
     },
+    reserveTurnAdmission: () => undefined,
     cancel(cause) {
       cancelled.push(cause)
     },

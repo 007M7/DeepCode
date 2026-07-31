@@ -259,6 +259,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Consider automatic compaction for one explicit trigger. Pressure policy\n * uses the latest durable routed request, while context-overflow policy may\n * force a useful balanced reduction even below the normal threshold. Return\n * `null` when no safe range can be compacted. A single oversized retained\n * unit or request envelope cannot be repaired through surface compaction.\n *\n * @param agent - agent context owning the session surface and routing options.\n * @param trigger - normal pressure or provider-confirmed context overflow.\n * @param signal - cancellation signal; model-backed implementations must forward it.\n * @returns the compaction result, or `null` if no compaction was needed.\n */',
       },
       {
+        signature: 'abstract compactNow( agent: ManualCompactAgentContext, signal: AbortSignal, ): Promise<CompactionResult | null>',
+        jsDoc: '/**\n * Explicitly compact useful history even below automatic pressure thresholds.\n * Implementations reserve idle turn admission synchronously before any\n * asynchronous work, select a useful range without writing on a no-op, then\n * append a standalone `compact/start` before summarization. That durable\n * marker is the compaction lock until one `compact/end` attempt. Later waking\n * prompts remain accepted in FIFO order and start only after the optional\n * durability checkpoint and admission release. Context injected while the\n * summary runs may sit between the marker pair; only the selected span must\n * remain stable.\n *\n * @param agent - idle agent whose durable history should be compacted.\n * @param signal - command-owned cancellation forwarded to summarization.\n * @returns the compaction result, or `null` when no safe useful range exists.\n * @throws {@link ManualCompactionError} for expected busy, changed-span,\n * summarization/shrink, commit-stage, or persistence failures, and the exact\n * abort reason when cancelled. Failed attempts remain visible in the log.\n */',
+      },
+      {
         signature: 'abstract compactRegion( start: number, end: number, agent: CompactAgentContext, signal?: AbortSignal, ): Promise<CompactionResult>',
         jsDoc: '/**\n * Forcibly compact a range of surface nodes into a single summary node.\n * `start` and `end` name an inclusive span by surface position, not numeric seq\n * order; replacements can make visible seqs non-monotonic. Both edges must be\n * balanced so assistant tool calls remain paired with their results. A model-\n * backed implementation forwards cancellation and rejects active, missing,\n * reversed, or unbalanced ranges. The target session is `agent.session`.\n * Its replacement user message must use {@link COMPACT_CHECKPOINT_SOURCE}.\n * Use {@link toolPairingBalancedBefore} and {@link toolPairingBalancedAfter}\n * for the edge checks.\n *\n * @param start - first surface seq, inclusive.\n * @param end - last surface seq, inclusive.\n * @param agent - context whose session is mutated and whose routing options guide summarization.\n * @param signal - optional cancellation; model-backed implementations must forward it.\n * @throws when compaction is active or the range is missing, reversed, or unbalanced.\n * @returns the appended event seqs, summary, replaced range, and token accounting.\n */',
       },
@@ -917,6 +921,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Register an ordered prompt section in the calling context\'s scope. A scoped\n * section shadows a global section with the same name; duplicates within one\n * layer and non-finite orders throw. Registration and disposal emit\n * `system-prompt/change`.\n * @param section - the section to register.\n * @returns the exact Cordis effect disposer.\n */',
       },
       {
+        signature: 'context(context: PromptContext): () => void',
+        jsDoc: '/**\n * Register ordered cache-safe dynamic context in the calling context\'s scope.\n * A scoped context shadows a global context with the same name; duplicates\n * within one layer and non-finite orders throw. Registration and disposal\n * emit `system-prompt/change`.\n * @param context - the context contribution to register.\n * @returns the exact Cordis effect disposer.\n */',
+      },
+      {
         signature: 'tools(provider: (context: AssembleContext) => ToolProviderResult): () => void',
         jsDoc: '/**\n * Register a tool-schema provider in the calling context\'s scope. Global and\n * matching scoped providers both contribute; returning the reserved\n * {@link TOOL_ORDER_REST} name makes assembly fail.\n * @param provider - evaluated for each assembly with its context.\n * @returns the exact Cordis effect disposer.\n */',
       },
@@ -1148,7 +1156,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'async create(path: string, title?: string): Promise<Workspace>',
-        jsDoc: '/**\n * Create or reuse a workspace for an existing directory. The path is\n * canonicalized through `fs.realpath`; a nonexistent path rejects with the\n * original error and a non-directory rejects. Repeated calls for the same\n * canonical path return the existing entity without changing its title.\n * A newly created workspace is prepended to the durable registry order.\n * A different canonical path cannot create a duplicate display title.\n * @param path - Existing directory to own, in any path spelling.\n * @param title - Display title used only when a new record is created.\n * @returns the existing or newly durable workspace.\n */',
+        jsDoc: '/**\n * Create or reuse a workspace for an existing directory. The path is\n * canonicalized through `fs.realpath`; a nonexistent path rejects with the\n * original error and a non-directory rejects. Repeated calls for the same\n * canonical path return the existing entity without changing its title.\n * A newly created workspace is prepended to the durable registry order.\n * Different canonical paths may share a display title.\n * @param path - Existing directory to own, in any path spelling.\n * @param title - Display title used only when a new record is created.\n * @returns the existing or newly durable workspace.\n */',
       },
       {
         signature: 'get(id: WorkspaceId): Workspace | undefined',
@@ -1161,6 +1169,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'delete(id: WorkspaceId): Promise<boolean>',
         jsDoc: '/**\n * Delete one workspace registration while retaining its directory and every\n * session log. The durable order is updated before the table deletion; a\n * failed table write restores the prior order and keeps the entity\n * published. Unknown ids are an idempotent no-op for domain callers.\n * @param id - Workspace registration to remove.\n * @returns `true` when a record was deleted, `false` when it was unknown.\n */',
+      },
+      {
+        signature: 'archiveSession(sessionId: SessionId): Promise<void>',
+        jsDoc: '/**\n * Archive one session durably. The session must exist (live or in session\n * persistence); its workspace accounting — or lack of one — is irrelevant.\n * An already archived id resolves without writing.\n * @param sessionId - The session to archive.\n * @returns resolution after durability.\n */',
       },
       {
         signature: 'async resolveByPath(path: string): Promise<Workspace | undefined>',
@@ -1442,8 +1454,8 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'system-prompt/assemble',
     mode: 'waterfall',
     signature: '\'system-prompt/assemble\'(this: Scoped<SystemPrompt>, assembly: PromptAssembly, context: AssembleContext, next: () => Promise<PromptAssembly>): Promise<PromptAssembly>',
-    jsDoc: '/**\n * Expert waterfall over the assembled sections, tools, and variables.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): scoped listeners\n * receive only that scope\'s assemblies. The returned value is authoritative.\n * A supplied signal controls only this explicit assembly request and must not\n * be retained to control later turns.\n * @param assembly - the mutable assembly built from registered providers.\n * @param context - the caller\'s per-assembly context.\n * @mode waterfall\n */',
-    summary: 'Expert waterfall over the assembled sections, tools, and variables.',
+    jsDoc: '/**\n * Expert waterfall over the assembled sections, contexts, tools, and variables.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): scoped listeners\n * receive only that scope\'s assemblies. The returned value is authoritative.\n * A supplied signal controls only this explicit assembly request and must not\n * be retained to control later turns.\n * @param assembly - the mutable assembly built from registered providers.\n * @param context - the caller\'s per-assembly context.\n * @mode waterfall\n */',
+    summary: 'Expert waterfall over the assembled sections, contexts, tools, and variables.',
   },
   {
     name: 'system-prompt/change',
@@ -1553,7 +1565,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'Agent',
-    declaration: 'export interface Agent {\n    readonly id: SessionId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly acceptsNextStep: boolean;\n    readonly ctx: Context;\n    send(message: UserMessage, options: SendOptions): void;\n    updateInbox(id: InboxItemId, action: InboxAction): InboxActionResult;\n    cancel(cause: AgentCancelCause, options?: CancelOptions): void;\n    whenIdle(): Promise<void>;\n    followup(message: UserMessage): void;\n    steer(message: UserMessage): void;\n    inject(message: UserMessage): void;\n}',
+    declaration: 'export interface Agent {\n    readonly id: SessionId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly acceptsNextStep: boolean;\n    readonly ctx: Context;\n    send(message: UserMessage, options: SendOptions): void;\n    reserveTurnAdmission(): (() => void) | undefined;\n    updateInbox(id: InboxItemId, action: InboxAction): InboxActionResult;\n    cancel(cause: AgentCancelCause, options?: CancelOptions): void;\n    whenIdle(): Promise<void>;\n    followup(message: UserMessage): void;\n    steer(message: UserMessage): void;\n    inject(message: UserMessage): void;\n}',
   },
   {
     name: 'AgentCancelCause',
@@ -1614,6 +1626,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AssembleContext',
     declaration: 'export interface AssembleContext {\n    scope?: ScopeKey;\n    signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'AssembledContext',
+    declaration: 'export interface AssembledContext {\n    name: string;\n    text: string;\n}',
   },
   {
     name: 'AssembledSection',
@@ -2052,6 +2068,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface LlmResolvedModelInfo extends LlmModelInfo {\n    context?: LlmModelContext;\n    defaultMaxTokens?: number;\n    reasoning?: LlmModelReasoningInfo;\n}',
   },
   {
+    name: 'ManualCompactAgentContext',
+    declaration: 'export interface ManualCompactAgentContext extends CompactAgentContext {\n    reserveTurnAdmission(): (() => void) | undefined;\n}',
+  },
+  {
     name: 'Message',
     declaration: 'export interface Message {\n    readonly id: MessageId;\n    readonly role: \'system\' | \'user\' | \'assistant\';\n    readonly content: ContentBlock[];\n    readonly source: MessageSource;\n}',
   },
@@ -2081,7 +2101,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PreparedLlmCall',
-    declaration: 'export interface PreparedLlmCall {\n    readonly config: LlmCallConfig;\n    readonly adapterDefaults: LlmCallConfigAdapterDefaults;\n    stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
+    declaration: 'export interface PreparedLlmCall {\n    readonly config: LlmCallConfig;\n    readonly context?: LlmModelContext;\n    readonly adapterDefaults: LlmCallConfigAdapterDefaults;\n    stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
   },
   {
     name: 'PreparedReferencedMessage',
@@ -2117,7 +2137,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PromptAssembly',
-    declaration: 'export interface PromptAssembly {\n    sections: AssembledSection[];\n    tools: ToolSchema[];\n    variables: Record<string, string | undefined>;\n}',
+    declaration: 'export interface PromptAssembly {\n    sections: AssembledSection[];\n    contexts: AssembledContext[];\n    tools: ToolSchema[];\n    variables: Record<string, string | undefined>;\n}',
+  },
+  {
+    name: 'PromptContext',
+    declaration: 'export interface PromptContext {\n    readonly name: string;\n    readonly order: number;\n    readonly text: string | ((context: AssembleContext) => string);\n}',
   },
   {
     name: 'PromptSection',
@@ -2208,6 +2232,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type PtyWaitReason = \'stdin_read\' | \'inferred_idle\' | \'timeout\' | \'session_exit\';',
   },
   {
+    name: 'ReadFileLine',
+    declaration: 'export interface ReadFileLine {\n    number: number;\n    text: string;\n}',
+  },
+  {
+    name: 'ReadResultView',
+    declaration: 'export interface ReadResultView {\n    card: \'read\';\n    title?: string;\n    path: string;\n    offset: number;\n    lines: ReadFileLine[];\n    totalLines: number;\n    lang?: string;\n    content?: ContentBlock[];\n}',
+  },
+  {
     name: 'ReasoningBlock',
     declaration: 'export interface ReasoningBlock {\n    type: \'reasoning\';\n    text: string;\n}',
   },
@@ -2218,6 +2250,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'RedactedSecret',
     declaration: 'export interface RedactedSecret {\n    path: string[];\n    set: boolean;\n}',
+  },
+  {
+    name: 'RequestContext',
+    declaration: 'export interface RequestContext {\n    provider: string;\n    model: string;\n    contextWindow?: number;\n}',
   },
   {
     name: 'RequestHeaderReason',
@@ -2276,6 +2312,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ScopeKey = object;',
   },
   {
+    name: 'SearchFileMatches',
+    declaration: 'export interface SearchFileMatches {\n    path: string;\n    matches: SearchLineMatch[];\n}',
+  },
+  {
+    name: 'SearchLineMatch',
+    declaration: 'export interface SearchLineMatch {\n    lineNumber: number;\n    line: string;\n}',
+  },
+  {
+    name: 'SearchMatchesResultView',
+    declaration: 'export interface SearchMatchesResultView {\n    card: \'search\';\n    shape: \'matches\';\n    title?: string;\n    files: SearchFileMatches[];\n    truncated: boolean;\n    total: number;\n}',
+  },
+  {
+    name: 'SearchPathsResultView',
+    declaration: 'export interface SearchPathsResultView {\n    card: \'search\';\n    shape: \'paths\';\n    title?: string;\n    paths: string[];\n    truncated: boolean;\n    total: number;\n}',
+  },
+  {
+    name: 'SearchResultView',
+    declaration: 'export type SearchResultView = SearchMatchesResultView | SearchPathsResultView;',
+  },
+  {
     name: 'SendOptions',
     declaration: 'export interface SendOptions {\n    target: SendTarget;\n    wakeup: boolean;\n}',
   },
@@ -2285,7 +2341,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'Session',
-    declaration: 'export class Session {\n    get surface(): SessionSurface;\n    readonly header: SessionHeader;\n    get id(): SessionId;\n    readonly firstLiveSeq: number;\n    constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader);\n    get events(): readonly SessionEvent[];\n    get seq(): number;\n    append<T extends SessionEventType>(type: T, data: SessionEventMap[T], ...opts: T extends SurfaceEventType ? [\n        opts: SurfaceIntent\n    ] : [\n    ]): SessionEvent<T>;\n    requestHeader(): EpochHeader | undefined;\n    deriveMessages(): Message[];\n    deriveEventMessage(event: SessionEvent): Message | null;\n}',
+    declaration: 'export class Session {\n    get surface(): SessionSurface;\n    readonly header: SessionHeader;\n    get id(): SessionId;\n    readonly firstLiveSeq: number;\n    constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader);\n    get events(): readonly SessionEvent[];\n    get seq(): number;\n    append<T extends SessionEventType>(type: T, data: SessionEventMap[T], ...opts: T extends SurfaceEventType ? [\n        opts: SurfaceIntent\n    ] : [\n    ]): SessionEvent<T>;\n    requestHeader(): EpochHeader | undefined;\n    requestContext(): RequestContext | undefined;\n    deriveMessages(): Message[];\n    deriveEventMessage(event: SessionEvent): Message | null;\n}',
   },
   {
     name: 'SessionAvailability',
@@ -2297,7 +2353,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionEventMap',
-    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n        trigger: TurnTrigger;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': UserMessage;\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        message: AssistantMessage;\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        message: ToolResultMessage;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: JsonValue;\n    };\n    \'steering/message\': {\n        turn: number;\n        message: UserMessage;\n    };\n    \'todo/write\': {\n        todos: TodoItem[];\n    };\n    \'request/header\': {\n        header: EpochHeader;\n        reason: RequestHeaderReason;\n    };\n    \'session/end-seed\': Record<string, never>;\n}',
+    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n        trigger: TurnTrigger;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': UserMessage;\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        message: AssistantMessage;\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        message: ToolResultMessage;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: JsonValue;\n    };\n    \'steering/message\': {\n        turn: number;\n        message: UserMessage;\n    };\n    \'todo/write\': {\n        todos: TodoItem[];\n    };\n    \'request/header\': {\n        header: EpochHeader;\n        reason: RequestHeaderReason;\n    };\n    \'request/context\': RequestContext;\n    \'session/end-seed\': Record<string, never>;\n}',
   },
   {
     name: 'SessionEventMetadataFilter',
@@ -2845,7 +2901,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolResultView',
-    declaration: 'export type ToolResultView = GenericResultView | TerminalResultView | DiffResultView | WebResultView;',
+    declaration: 'export type ToolResultView = GenericResultView | TerminalResultView | DiffResultView | SearchResultView | ReadResultView | WebResultView;',
   },
   {
     name: 'ToolRunContext',

@@ -35,8 +35,8 @@ const workspace = (id: string, sessionIds: string[], title = id): WorkspaceView 
   workspaceId: wid(id), path: `/projects/${id}`, title,
   sessionIds: sessionIds.map(sid), createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
 })
-const workspaceState = (items: readonly WorkspaceView[]): WorkspaceListState => ({
-  items, state: 'idle', phase: 'ready', error: null, baselinesReady: true,
+const workspaceState = (items: readonly WorkspaceView[], archivedSessionIds: readonly SessionId[] = []): WorkspaceListState => ({
+  items, archivedSessionIds, state: 'idle', phase: 'ready', error: null, baselinesReady: true,
   recentWorkspaceId: items[0]?.workspaceId,
 })
 function hook<T>(snapshot: T) {
@@ -68,6 +68,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     forkSession: vi.fn(),
     renameWorkspace: vi.fn(async () => {}),
     deleteWorkspace: vi.fn(async () => {}),
+    archiveSession: vi.fn(async () => {}),
     insertSessionBefore: vi.fn(async () => {}),
     createWorkspace: vi.fn(async () => workspace('created', [])),
     useDirectoryFlow: bindSnapshotSelector({ getSnapshot: () => true, subscribe: () => () => {} }),
@@ -133,6 +134,50 @@ describe('WorkspaceBrowser', () => {
     // Collapse hides the row again.
     fireEvent.click(screen.getByText('alpha'))
     expect(screen.queryByText('alpha-s')).toBeNull()
+  })
+
+  it('archives a session from the row menu and hides archived rows in both modes', async () => {
+    const archiveSession = vi.fn(async () => {})
+    const b = mount({
+      useSessions: hook(sessionState([summary('kept-s', 2), summary('gone-s', 1)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['kept-s', 'gone-s'])])),
+      archiveSession,
+    })
+    fireEvent.click(screen.getByText('alpha'))
+    fireEvent.click(screen.getByRole('button', { name: '会话“gone-s”的操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '归档会话' }))
+    expect(archiveSession).toHaveBeenCalledWith(sid('gone-s'))
+
+    // The archive-set echo hides the row in grouped mode (count included) and flat mode.
+    rerender(b, { useWorkspaces: hook(workspaceState([workspace('alpha', ['kept-s', 'gone-s'])], [sid('gone-s')])) })
+    expect(screen.queryByText('gone-s')).toBeNull()
+    expect(screen.getByText('1 个会话')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '分组方式' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '单列表' }))
+    expect(screen.getByText('kept-s')).toBeTruthy()
+    expect(screen.queryByText('gone-s')).toBeNull()
+  })
+
+  it('logs and keeps the tree when the archive call rejects', async () => {
+    const rejection = new Error('archive exploded')
+    const archiveSession = vi.fn(async () => { throw rejection })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      mount({
+        useSessions: hook(sessionState([summary('alpha-s', 1)])),
+        useWorkspaces: hook(workspaceState([workspace('alpha', ['alpha-s'])])),
+        archiveSession,
+      })
+      fireEvent.click(screen.getByText('alpha'))
+      fireEvent.click(screen.getByRole('button', { name: '会话“alpha-s”的操作' }))
+      fireEvent.click(screen.getByRole('menuitem', { name: '归档会话' }))
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(warn).toHaveBeenCalledWith('session archive rejected:', rejection)
+      expect(screen.getByText('alpha-s')).toBeTruthy()
+    } finally {
+      warn.mockRestore()
+    }
   })
 
   it('renders a fork child as a top-level row without a session twist', () => {
@@ -455,23 +500,26 @@ describe('WorkspaceBrowser', () => {
     }
   })
 
-  it('rail create-workspace toggles the create-only picker in place, without expanding', () => {
+  it('rail add-workspace raises the directory flow in place, with no menu and no expansion', () => {
     const expandSidebar = vi.fn()
     mount({ wide: false, expandSidebar, useWorkspaces: hook(workspaceState([workspace('alpha', [])])) })
-    fireEvent.click(screen.getByRole('button', { name: '创建工作区' }))
+    fireEvent.click(screen.getByRole('button', { name: '添加工作区' }))
     expect(expandSidebar).not.toHaveBeenCalled()
-    // createOnly: existing workspaces are not listed, only the create actions.
+    // Adding is the header's only action, so the gesture IS that action: no
+    // one-row popover, and existing workspaces stay in the tree below.
+    expect(screen.queryByRole('menu')).toBeNull()
     expect(screen.queryByRole('menuitem', { name: 'alpha' })).toBeNull()
-    expect(screen.getByRole('menuitem', { name: '打开本地文件夹…' })).toBeTruthy()
-    // Toggle: open and close in place.
-    fireEvent.click(screen.getByRole('button', { name: '创建工作区' }))
-    expect(screen.queryByRole('menu')).toBeNull()
+    expect(screen.getByTestId('directory-flow')).toBeTruthy()
+  })
 
-    // Escape closes the picker through its own onClose.
-    fireEvent.click(screen.getByRole('button', { name: '创建工作区' }))
-    expect(screen.getByRole('menu')).toBeTruthy()
-    fireEvent.keyDown(document, { key: 'Escape' })
-    expect(screen.queryByRole('menu')).toBeNull()
+  it('hides the add button when no directory-flow occupant is composed', () => {
+    mount({
+      useWorkspaces: hook(workspaceState([workspace('alpha', [])])),
+      useDirectoryFlow: bindSnapshotSelector({ getSnapshot: () => false, subscribe: () => () => {} }),
+    })
+    // Nothing to add with, so the header offers no dead button.
+    expect(screen.queryByRole('button', { name: '添加工作区' })).toBeNull()
+    expect(screen.getByText('alpha')).toBeTruthy()
   })
 
   it('drag reorder reports the anchor to insertSessionBefore and skips no-op drops', () => {
@@ -677,7 +725,7 @@ describe('WorkspaceBrowser', () => {
     await act(async () => { resolveDelete() })
     // RPC success alone does not close: the component waits until its
     // useWorkspaces projection has committed the removal, preventing a stale
-    // duplicate-name frame from leaking into the next create gesture.
+    // Workspace frame from leaking into the next gesture.
     expect(screen.getByRole('dialog', { name: '删除工作区' })).toBeTruthy()
     rerender(browser, { useWorkspaces: hook(workspaceState([])) })
     expect(screen.queryByRole('dialog', { name: '删除工作区' })).toBeNull()

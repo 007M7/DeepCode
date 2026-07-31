@@ -84,8 +84,7 @@
 - id: session-persistence-jsonl
   name: '@deepseek-ai/dsh-session-persistence-jsonl'
   config:
-    root: !!js >-
-      (() => { const path = process.getBuiltinModule('node:path'); const home = process.getBuiltinModule('node:os').homedir(); const configured = process.env.DSH_HOME; const selected = configured !== undefined && configured.trim().length > 0 ? configured : path.join(home, '.dsh'); const expanded = selected === '~' ? home : selected.startsWith('~/') || selected.startsWith('~\\') ? path.join(home, selected.slice(2)) : selected; return path.join(path.resolve(expanded), 'sessions') })()
+    root: !!js dshHomePath('sessions')
 
 # TUI consumes this shared session capability. Its launcher supplies a unique
 # process-local path; other surfaces repoint or disable the row in their
@@ -105,7 +104,9 @@
 # DSH_TELEMETRY_OTLP_URL overrides the production endpoint, and a non-empty
 # DSH_TELEMETRY_DISABLED — any value, including '0'/'false' — opts the
 # process out (the launchers patch the row disabled; config cannot disable
-# a row). The exporter/processor values bound the shutdown drain to ~1s
+# a row). Exports carry the harness home's anonymous user id ($DSH_HOME/.userid,
+# random UUID; delete the file to reset the identity) as the Resource's
+# user.id. The exporter/processor values bound the shutdown drain to ~1s
 # against an unreachable collector: exporter.timeoutMillis is both the
 # per-attempt socket timeout and the retry deadline (1s effectively
 # disables the SDK's 5-try backoff), maxExportBatchSize == maxQueueSize
@@ -200,6 +201,11 @@
 - id: compact-basic
   name: '@deepseek-ai/dsh-compact-basic'
 
+# Human `/compact`: one useful reduction below the automatic threshold. Backend
+# independent, so it follows whichever compaction service this leaf mounts.
+- id: command-compact
+  name: '@deepseek-ai/dsh-command-compact'
+
 - id: subagent
   name: '@deepseek-ai/dsh-subagent'
 
@@ -243,6 +249,74 @@
   name: '@deepseek-ai/dsh-spill-policy'
   config:
     maxInlineBytes: 50000
+
+# Durability checkpoints before each model request and top-level dispatch.
+- id: session-checkpoint-policy
+  name: '@deepseek-ai/dsh-session-checkpoint-policy'
+
+# Compacts oversized tool results before the broader conversation compactor
+# runs, preserving the model-visible result within the configured budget.
+- id: tool-result-prune
+  name: '@deepseek-ai/dsh-compact-tool-result-prune'
+  config:
+    thresholdChars: 8192
+    headChars: 4096
+    tailChars: 1024
+
+- id: tool-todo
+  name: '@deepseek-ai/dsh-tool-todo'
+
+# Persisted same-session goals reach the model and the slash menu here; the
+# domain, driver, and `/goal` command are above.
+- id: tool-goal
+  name: '@deepseek-ai/dsh-tool-goal'
+
+# Fresh-agent Ralph iteration over a build-time-fixed script.
+- id: tool-ralph
+  name: '@deepseek-ai/dsh-tool-ralph'
+  config:
+    subagentProvider: spawn
+    maxRounds: 64
+
+- id: tool-session-query
+  name: '@deepseek-ai/dsh-tool-session-query'
+  config:
+    maxSearchResults: 100
+    searchTimeoutMs: 30000
+
+- id: tool-str-replace-editor
+  name: '@deepseek-ai/dsh-tool-str-replace-editor'
+  config:
+    maxOutputChars: 16000
+
+# Consecutive-repeat reminders on the tool chain.
+- id: repeat-tool-guard
+  name: '@deepseek-ai/dsh-repeat-tool-guard'
+  config:
+    thresholds: [3, 5, 8]
+    argumentsPreviewChars: 500
+
+# Every surface enables the stable web_search model surface. DeepSeek search
+# resolves the same DEEPSEEK_API_KEY credential the Models page manages for
+# chat, at each search; its Messages endpoint is separate from the
+# chat-completions endpoint, so it takes its own base-URL override. Fetch stays
+# disabled and no fetch provider is mounted: that provider defers SSRF
+# protection and the model would choose the request target.
+- id: web
+  name: '@deepseek-ai/dsh-web'
+  config:
+    searchProvider: deepseek-official
+
+- id: web-search-deepseek
+  name: '@deepseek-ai/dsh-web-search-deepseek'
+  config:
+    apiKeyEnv: DEEPSEEK_API_KEY
+    baseURL: !!js process.env.DEEPSEEK_SEARCH_BASE_URL
+
+- id: tool-web
+  name: '@deepseek-ai/dsh-tool-web'
+  config:
+    fetch: false
 
 # ── rows every surface mounts, whose values each overlay states ──────────────
 

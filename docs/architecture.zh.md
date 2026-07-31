@@ -16,7 +16,7 @@
 |---|---|---|
 | — | [`dsh-scope`](../packages/core/scope/README.md) | 作用域上下文注册项与共享层存储（库） |
 | `ctx.sessions` | `dsh-session` | 内存中的事件溯源会话 |
-| `ctx.systemPrompt` | `dsh-system-prompt` | 有序提示词片段、工具 schema 和变量 |
+| `ctx.systemPrompt` | `dsh-system-prompt` | 有序的稳定系统提示词片段、缓存安全的动态上下文、工具 schema 和变量 |
 | `ctx.tools` | `dsh-tools` | 工具注册表和[执行流水线](tool-execution-pipeline.md) |
 | `ctx.agents` | `dsh-agent` | 活跃 agent、委托创建、`agent/*` 事件、进程内发起方作用域 |
 | `ctx.agentLoop` | `dsh-agent-loop` | 实体 `Agent` 驱动器 |
@@ -93,10 +93,11 @@ forever:
     STEP loop:
       agent/step
       drain injected context and steering (steering bypasses prompt-submit)
-      assemble system prompt and tool schemas
+      assemble system prompt and tools
+      materialize changed runtime context as sourced 'user/message'
       snapshot the derived messages (the reconstruction boundary)
       'step/start'
-      agent/request (config only) -> prepare adapter defaults/provenance under turn signal -> log request/header -> llm/stream (frozen, registration-bound)
+      agent/request (config only) -> prepare adapter defaults/provenance + context capacity under turn signal -> log request/header (+ request/context on route change) -> llm/stream (frozen, registration-bound)
       'assistant/chunk'
       'assistant/message'
       schedule tool calls by ctx.tools.executionMode:
@@ -117,7 +118,7 @@ idle inject:
   do not open a turn or run the model
 ```
 
-每个步骤都会组装有序提示词片段、工具 schema 和变量；未知引用会使该轮次失败。`dsh-system-prompt` 负责身份和角色设定；循环提供 `provider`、`model` 和 `cwd`（[提示词归属](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)）。
+每个步骤都会组装有序的稳定系统提示词片段、缓存安全的动态上下文、工具 schema 和变量；未知引用会使该轮次失败。`dsh-system-prompt` 负责身份和角色设定；循环提供 `provider`、`model` 和 `cwd`（[提示词归属](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)）。
 
 接纳期间和活跃轮次内的 `inject()` 会为下一步骤暂存；工具执行后的 `additionalContexts` 会在结果记录完毕后落定。steering 与其共用这一暂存边界，并请求再执行一个步骤。空闲状态下的 `inject()` 会立即追加，且不改变轮次编号；持久化层会尽快排空。
 
@@ -129,11 +130,11 @@ idle inject:
 
 其他故障使用 `agent/error`。取消和资源释放优先于恢复。在提交请求头之前，轮次信号会取消异步模型能力准备；尚未分派的工具会得到合成的 `tool/call`/`ABORTED_BEFORE_DISPATCH` 对。实际生效的 `cancel(cause)` 在清空队列和中止前发出原因；观察方不能否决；空闲调用不发事件。持久化层将用户或父级取消记录为 `aborted`，拆卸记录为 `disposed`；拆卸会等待完全停稳。原因只影响报告方式，不影响延迟完成的结果上下文处理（[决策](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)）。
 
-轮次和步骤事件均位于轮次边界内；空闲时注入的 `user/message` 可以位于两个轮次之间。重新加载会用合成的轮次结束事件闭合中断尾部。关闭后仅由 `agent/error` 报告故障。每个轮次有一个 [TurnEndReason](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap)。
+轮次和步骤事件均位于轮次边界内。空闲 `user/message` 与独立的 `compact/* { turn: null }` 不占用轮次；其锁定时刻标记可以与注入交错。重新加载会为中断的轮次合成结束事件；`session/end-seed` 区分陈旧的压缩遗留项与活跃锁。关闭后仅由 `agent/error` 报告故障。每个轮次有一个 [TurnEndReason](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap)。
 
 ### Agent 句柄
 
-`ctx.agents` 拥有活跃 agent，并返回 `AgentHandle { agent, dispose() }`。插件使用全部 `send()` 选项，或 `followup()`、`steer()` 和 `inject()` 预设；`cancel()` 与 `whenIdle()` 控制生命周期。一个需等待完成的 disposer 协调拆卸归属。
+`ctx.agents` 拥有 agent，返回 `AgentHandle { agent, dispose() }`。插件使用 `send()`，或使用 `followup()`、`steer()` 和 `inject()` 预设；[`reserveTurnAdmission()`](../packages/core/agent/README.md#agent-interface-typests) 为持久工作同步预留空闲状态，同时不改变排队提示词身份。`cancel()` 与 `whenIdle()` 控制生命周期。需等待完成的资源释放负责拆卸。
 
 ### Agent 作用域
 
@@ -145,11 +146,11 @@ idle inject:
 
 会话日志是权威依据。`deriveMessages()` 投影出模型历史；原始 `assistant/chunk` 事件保证回放和 UI 保真。fork、恢复、transcript（文本记录）渲染、遥测和持久化均派生自该事件流。
 
-**模型可见 ⟺ 已记录**：`step/start` 时的消息与折叠后的 `request/header` 可以重建每个请求；该 header 还会标记适配器填入的默认值，使下一次提议可以丢弃这些值并解析所选路由，同时不丢失显式对话设置。该包的 `dsh-agent-loop/invariant` 可通过 `ctx.invariants` 断言可重建性（[可重建性](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)）。
+**模型可见 ⟺ 已记录**：在 `step/start` 之前，循环会将完整的当前运行时上下文快照作为一条带来源的 `user/message` 追加，随后对派生消息制作快照。这些消息与折叠后的 `request/header` 可以重建每个请求。该 header 会标记适配器默认值，使后续提议丢弃这些值并重新解析路由，同时不丢失显式设置。`dsh-agent-loop/invariant` 通过 `ctx.invariants` 断言这一点（[可重建性](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)）。
 
 持久性由插件负责。后端会尽快排空同步的 `session/event` 通知。`session/flush` 屏障位于每次请求与顶层工具分发之前，并在 `turn/end` 之后、处理另一个已排队轮次或观察到空闲状态之前执行。`SessionPersistence` 直接存储 `SessionEvent`，并将元数据存入 `SessionHeader`；JSONL 默认采用带校验和的 Zstandard，SQLite 遵循同一契约（[决策](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md)）。
 
-纯日志事件可以位于轮次之间。事件所有方通过 `Session` 追加，仅为持久性而刷写。`session/title` 依赖尽快持久化与生命周期排空。最新标题按后写覆盖并携带来源信息；回退与提供方工作绝不会延迟响应。这类记录可作为 fork 边界，因此 fork 会继承标题（[决策](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)）。
+在轮次之间，事件所有方通过 `Session` 追加纯日志事件，仅为持久性而刷写。`session/title` 需要尽快持久化与生命周期排空；手动压缩会在释放轮次接纳预留前 flush 其标记对。标题工作绝不延迟响应；最新标题按后写覆盖并携带来源信息。标题记录是可继承的 fork 边界（[决策](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)）。
 
 ### 模型内容
 

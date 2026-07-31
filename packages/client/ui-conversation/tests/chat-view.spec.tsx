@@ -5,10 +5,10 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Profiler } from 'react'
-import { act, cleanup, fireEvent, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
 import type {
   AssistantMessageNode, CommandNode, ConversationNode, ConversationSnapshot,
-  ModelRetryNode, RunningToolCall, SessionId, SessionListState, ToolResultNode,
+  ModelRetryNode, RunningToolCall, SessionId, SessionListState, ToolResultNode, TurnErrorNode,
   UserMessageNode, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
@@ -33,7 +33,7 @@ const SID = 's1' as SessionId
 
 function snapshotBase(): ConversationSnapshot {
   return {
-    sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
+    sessionId: SID, nodes: [], partial: null, runningCalls: [], codeDispatches: new Map(),
     pending: [], queue: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
     hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
   }
@@ -75,6 +75,11 @@ const retry = (seq: number): ModelRetryNode => ({
   retry: 1, maxRetries: 2, delayMs: 450,
   failure: { code: 'TRANSPORT', message: '连接被重置' },
 })
+const turnError = (seq: number, code?: string): TurnErrorNode => ({
+  kind: 'turn-error', seq, time: seq * 1_000, turn: 1, step: 0,
+  message: seq === 2 ? 'API key is invalid' : 'plugin exploded',
+  ...(code === undefined ? {} : { code }),
+})
 const toolResult = (seq: number, callId: string, name = 'bash'): ToolResultNode => ({
   kind: 'tool-result', seq, time: seq * 1_000, callId,
   call: { name, argsRaw: `{"command":"cmd-${callId}","description":"run ${callId}"}` },
@@ -94,7 +99,7 @@ function emptySessions() {
 
 function emptyWorkspaces() {
   const store = createSnapshotStore<WorkspaceListState>({
-    items: [], state: 'idle', phase: 'ready', error: null,
+    items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
     baselinesReady: true, recentWorkspaceId: undefined,
   })
   return bindSnapshotSelector(store)
@@ -254,16 +259,16 @@ describe('ChatView', () => {
     } as const satisfies ConversationNode
     const h = makeHarness({ nodes: [user(1, 'try'), retryNode], running: true })
     const view = render(<h.ChatView {...h.props} />)
-    const disclosure = view.container.querySelector('details')
-    expect(disclosure?.dataset.active).toBe('true')
-    expect(view.getByRole('status').textContent).toBe('正在重试模型请求（1/2） · 1s')
+    const disclosure = view.container.querySelector('details') as HTMLDetailsElement
+    expect(disclosure.dataset.active).toBe('true')
+    expect(within(disclosure).getByRole('status').textContent).toBe('正在重试模型请求（1/2） · 1s')
 
     act(() => {
       h.set({ nodes: [user(1, 'try'), retryNode, nextRetry] })
     })
-    expect(view.getAllByRole('status')).toHaveLength(1)
+    expect(within(disclosure).getAllByRole('status')).toHaveLength(1)
     expect(view.container.querySelector('details')).toBe(disclosure)
-    expect(view.getByRole('status').textContent).toBe('正在重试模型请求（2/2） · 1s')
+    expect(within(disclosure).getByRole('status').textContent).toBe('正在重试模型请求（2/2） · 1s')
 
     act(() => {
       h.set({
@@ -277,14 +282,25 @@ describe('ChatView', () => {
         running: false,
       })
     })
-    expect(disclosure?.dataset.active).toBeUndefined()
-    expect(view.getByRole('status').textContent).toBe('已重试模型请求（2/2） · 1s')
+    expect(disclosure.dataset.active).toBeUndefined()
+    expect(within(disclosure).getByRole('status').textContent).toBe('已重试模型请求（2/2） · 1s')
 
     act(() => {
       h.set({ nodes: [user(1, 'try'), { ...retry(6), retryState: 'cancelled' }], running: true })
     })
-    expect(disclosure?.dataset.active).toBeUndefined()
-    expect(view.getByRole('status').textContent).toContain('重试已取消')
+    const cancelledDisclosure = view.container.querySelector('details') as HTMLDetailsElement
+    expect(cancelledDisclosure.dataset.active).toBeUndefined()
+    expect(within(cancelledDisclosure).getByRole('status').textContent).toContain('重试已取消')
+  })
+
+  it('renders terminal turn failures inline with their durable message and optional code', () => {
+    const h = makeHarness({ nodes: [user(1, 'try'), turnError(2, 'AUTH'), turnError(3)] })
+    const view = render(<h.ChatView {...h.props} />)
+    const statuses = view.getAllByRole('status')
+    expect(statuses.map(status => status.textContent)).toEqual([
+      '本轮运行失败API key is invalidAUTH',
+      '本轮运行失败plugin exploded',
+    ])
   })
 
   it('the expanded row Inspect pill hands the call id to inspectCall', () => {
@@ -448,6 +464,7 @@ describe('ChatView', () => {
     const view = render(<h.ChatView {...h.props} />)
     expect(view.container.querySelector('[data-state="running"]')).not.toBeNull()
     expect(view.getByText('cmd-r1')).toBeTruthy()
+    expect(view.getByRole('status').textContent).toBe('Deep diving...')
   })
 
   it('dispatches each tool row through the keyed slot with the tool name as entryKey', () => {

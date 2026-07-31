@@ -446,9 +446,9 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
             style={projectedDomainStyle}
           >
             {model.turnBoundaries
-              .slice(1)
               .filter(boundary =>
-                boundary.time >= domainStart
+                boundary.time > model.start
+                && boundary.time >= domainStart
                 && boundary.time <= domainStart + domainDuration)
               .map(boundary => (
                 <span

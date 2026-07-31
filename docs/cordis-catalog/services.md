@@ -220,7 +220,7 @@ Source: [`packages/core/agent/src/index.ts:216`](../../packages/core/agent/src/i
 
 ## `ctx.approval` — `ApprovalService`
 
-Approval service that applies session policy before answerers and logs every ask/outcome pair to the requesting session. It exposes deterministic policy changes to the model through prompt and pre-step notices.
+Approval service that applies session policy before answerers and logs every ask/outcome pair to the requesting session. It exposes deterministic policy changes to the model through the cache-safe runtime-context snapshot.
 
 ```ts cordis-catalog
 /**
@@ -253,7 +253,7 @@ overrideOf(session: Session): ApprovalPolicy | undefined
 
 Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalPolicy](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/ui/user-approval/src/index.ts:217`](../../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:193`](../../packages/ui/user-approval/src/index.ts)
 
 ## `ctx.bash` — `BashExecutor` (abstract seam)
 
@@ -464,6 +464,26 @@ Abstract compaction service. Implementations own trigger policy, retention, and 
 abstract compactIfNeeded( agent: CompactAgentContext, trigger: CompactionTrigger, signal: AbortSignal, ): Promise<CompactionResult | null>
 
 /**
+ * Explicitly compact useful history even below automatic pressure thresholds.
+ * Implementations reserve idle turn admission synchronously before any
+ * asynchronous work, select a useful range without writing on a no-op, then
+ * append a standalone `compact/start` before summarization. That durable
+ * marker is the compaction lock until one `compact/end` attempt. Later waking
+ * prompts remain accepted in FIFO order and start only after the optional
+ * durability checkpoint and admission release. Context injected while the
+ * summary runs may sit between the marker pair; only the selected span must
+ * remain stable.
+ *
+ * @param agent - idle agent whose durable history should be compacted.
+ * @param signal - command-owned cancellation forwarded to summarization.
+ * @returns the compaction result, or `null` when no safe useful range exists.
+ * @throws {@link ManualCompactionError} for expected busy, changed-span,
+ * summarization/shrink, commit-stage, or persistence failures, and the exact
+ * abort reason when cancelled. Failed attempts remain visible in the log.
+ */
+abstract compactNow( agent: ManualCompactAgentContext, signal: AbortSignal, ): Promise<CompactionResult | null>
+
+/**
  * Forcibly compact a range of surface nodes into a single summary node.
  * `start` and `end` name an inclusive span by surface position, not numeric seq
  * order; replacements can make visible seqs non-monotonic. Both edges must be
@@ -486,7 +506,7 @@ abstract compactRegion( start: number, end: number, agent: CompactAgentContext, 
 
 Types: [CompactionResult](../core-data-structures/compaction.md) · [CompactionTrigger](../core-data-structures/compaction.md)
 
-Source: [`packages/compact/compact/src/index.ts:54`](../../packages/compact/compact/src/index.ts)
+Source: [`packages/compact/compact/src/index.ts:80`](../../packages/compact/compact/src/index.ts)
 
 ## `ctx.credentials` — `Credentials` (abstract seam)
 
@@ -882,7 +902,7 @@ stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 
 Types: [AdapterRegistrationHandle](../core-data-structures/core.md) · [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmConfigurableProvider](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:229`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:232`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 
@@ -1079,7 +1099,7 @@ Source: [`packages/sandbox/sandbox/src/index.ts:131`](../../packages/sandbox/san
 
 ## `ctx.sandboxPolicy` — `SandboxPolicyService`
 
-The sandbox-policy service (`ctx.sandboxPolicy`). Owns the deployment default mode and fallback workspace root. Tool layers call resolve for each execution so a session's mode log and immutable cwd travel together to every enforcing capability.
+The sandbox-policy service (`ctx.sandboxPolicy`). Owns the deployment default mode, fallback workspace root, and current request-time policy section. Tool layers call resolve for each execution so a session's mode log and immutable cwd travel together to every enforcing capability.
 
 ```ts cordis-catalog
 /**
@@ -1103,7 +1123,7 @@ overrideOf(session: Session): SandboxMode | undefined
 
 Types: [SandboxExecutionPolicy](../core-data-structures/sandbox.md) · [SandboxMode](../core-data-structures/sandbox.md) · [SandboxPolicyRequest](../core-data-structures/sandbox.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/sandbox/sandbox-policy/src/index.ts:68`](../../packages/sandbox/sandbox-policy/src/index.ts)
+Source: [`packages/sandbox/sandbox-policy/src/index.ts:91`](../../packages/sandbox/sandbox-policy/src/index.ts)
 
 ## `ctx.sessionPersistence` — `SessionPersistence` (abstract seam)
 
@@ -1652,7 +1672,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:741`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:765`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 
@@ -2010,6 +2030,16 @@ Registry service for the prompt inputs assembled before each model step.
 section(section: PromptSection): () => void
 
 /**
+ * Register ordered cache-safe dynamic context in the calling context's scope.
+ * A scoped context shadows a global context with the same name; duplicates
+ * within one layer and non-finite orders throw. Registration and disposal
+ * emit `system-prompt/change`.
+ * @param context - the context contribution to register.
+ * @returns the exact Cordis effect disposer.
+ */
+context(context: PromptContext): () => void
+
+/**
  * Register a tool-schema provider in the calling context's scope. Global and
  * matching scoped providers both contribute; returning the reserved
  * {@link TOOL_ORDER_REST} name makes assembly fail.
@@ -2038,9 +2068,9 @@ variable(name: string, provider: (context: AssembleContext) => string | undefine
 async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 ```
 
-Types: [AssembleContext](../core-data-structures/system-prompt.md) · [PromptSection](../core-data-structures/system-prompt.md) · [ToolProviderResult](../core-data-structures/system-prompt.md)
+Types: [AssembleContext](../core-data-structures/system-prompt.md) · [PromptContext](../core-data-structures/system-prompt.md) · [PromptSection](../core-data-structures/system-prompt.md) · [ToolProviderResult](../core-data-structures/system-prompt.md)
 
-Source: [`packages/core/system-prompt/src/index.ts:248`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:298`](../../packages/core/system-prompt/src/index.ts)
 
 ## `ctx.tasks` — `TaskService` (abstract seam)
 
@@ -2193,7 +2223,7 @@ estimateMessage(message: Message): number
 
 Types: [EpochHeader](../core-data-structures/session.md) · [Message](../core-data-structures/core.md) · [Session](../core-data-structures/session.md) · [TokenMeasurement](../core-data-structures/token-meter.md)
 
-Source: [`packages/llm/token-meter/src/index.ts:82`](../../packages/llm/token-meter/src/index.ts)
+Source: [`packages/llm/token-meter/src/index.ts:85`](../../packages/llm/token-meter/src/index.ts)
 
 ## `ctx.toolResultPrune` — `ToolResultPruneService`
 
@@ -2313,7 +2343,7 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ScopeKey](../core-data-structures/scope.md) · [ToolDefinition](../core-data-structures/tools.md) · [ToolExecutionInput](../core-data-structures/tools.md) · [ToolExecutionMode](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolGuard](../core-data-structures/tools.md) · [ToolRestriction](../core-data-structures/tools.md) · [ToolSchema](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:704`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:711`](../../packages/core/tools/src/index.ts)
 
 ## `ctx.tui` — `TuiExtensionService` (abstract seam)
 
@@ -2336,7 +2366,7 @@ The concrete provider retains pi-tui, focus, and terminal lifecycle state. Plugi
 abstract openOverlay(request: TuiOverlayRequest): TuiOverlaySession
 ```
 
-Source: [`packages/ui/tui/src/index.ts:241`](../../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/index.ts:242`](../../packages/ui/tui/src/index.ts)
 
 ## `ctx.typert` — `TypertRegistry`
 
@@ -2512,7 +2542,7 @@ Durable workspace registry. Startup waits for `sessionPersistence`, builds one c
  * original error and a non-directory rejects. Repeated calls for the same
  * canonical path return the existing entity without changing its title.
  * A newly created workspace is prepended to the durable registry order.
- * A different canonical path cannot create a duplicate display title.
+ * Different canonical paths may share a display title.
  * @param path - Existing directory to own, in any path spelling.
  * @param title - Display title used only when a new record is created.
  * @returns the existing or newly durable workspace.
@@ -2545,6 +2575,15 @@ list(): Workspace[]
 delete(id: WorkspaceId): Promise<boolean>
 
 /**
+ * Archive one session durably. The session must exist (live or in session
+ * persistence); its workspace accounting — or lack of one — is irrelevant.
+ * An already archived id resolves without writing.
+ * @param sessionId - The session to archive.
+ * @returns resolution after durability.
+ */
+archiveSession(sessionId: SessionId): Promise<void>
+
+/**
  * Resolve by canonical directory path without creating or mutating a
  * workspace. A missing path rejects during `realpath`; an existing unowned
  * directory returns `undefined`.
@@ -2554,7 +2593,9 @@ delete(id: WorkspaceId): Promise<boolean>
 async resolveByPath(path: string): Promise<Workspace | undefined>
 ```
 
-Source: [`packages/workspace/workspace/src/index.ts:78`](../../packages/workspace/workspace/src/index.ts)
+Types: [SessionId](../core-data-structures/core.md)
+
+Source: [`packages/workspace/workspace/src/index.ts:81`](../../packages/workspace/workspace/src/index.ts)
 
 ## Inherited `ctx` members (cordis core + loader/hmr/timer)
 
