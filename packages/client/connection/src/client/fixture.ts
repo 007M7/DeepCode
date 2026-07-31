@@ -138,6 +138,79 @@ const TERMINAL_EXIT_STATUS: Record<string, { exitCode: number } | { signal: stri
 }
 
 /**
+ * Structured grep result for the search sample (turn 66): matches grouped by
+ * file, authored inline because the client-side fixture cannot import the tool
+ * that produces the canonical value. `truncated` with a larger `total` than the
+ * retained match count exercises the search card's capped indicator; the file
+ * with more than CHAT_SEARCH_MAX_LINES rows exercises its head/tail height cap.
+ */
+const SEARCH_MATCHES_FIXTURE: { path: string; matches: { lineNumber: number; line: string }[] }[] = [
+  {
+    path: 'packages/client/ui-primitives/src/SearchBlock.tsx',
+    matches: [
+      { lineNumber: 16, line: 'export const DEFAULT_SEARCH_MAX_LINES = 16' },
+      { lineNumber: 138, line: 'export function SearchBlock(props: SearchBlockProps) {' },
+      { lineNumber: 141, line: '  const [collapsed, setCollapsed] = useState<ReadonlySet<number>>(() => new Set())' },
+    ],
+  },
+  {
+    path: 'packages/client/ui-conversation/src/client/contract/search-card-model.ts',
+    matches: [
+      { lineNumber: 24, line: 'export const CHAT_SEARCH_MAX_LINES = 8' },
+      { lineNumber: 60, line: 'export function searchCardModel(block: ToolCallBlock): SearchCardModel | null {' },
+    ],
+  },
+  {
+    path: 'packages/client/ui-conversation/src/client/toolviews/search-row.tsx',
+    matches: [
+      { lineNumber: 71, line: 'export function SearchRow({ toolName, block }: ToolRowProps) {' },
+      { lineNumber: 73, line: '  const search = searchCardModel(block)' },
+      { lineNumber: 90, line: '        <SearchBlock {...search.card} maxLines={CHAT_SEARCH_MAX_LINES} className={css.search} />' },
+      { lineNumber: 113, line: "    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'grep' }, SearchRow)" },
+    ],
+  },
+]
+
+/**
+ * The model-facing grep render text for the sample — what a UI without a search
+ * card shows, attached as the view's `content`. Mirrors the real grep
+ * presenter's shape (see formatGrepOutput in dsh-tool-fs-search): a
+ * `Found X of Y matches` header, the matches grouped under file headers with
+ * `Line N:` rows, then a spill-recovery footer.
+ */
+const SEARCH_MATCHES_TEXT = [
+  'Found 9 of 42 matches',
+  '',
+  ...SEARCH_MATCHES_FIXTURE.map(file =>
+    [file.path, ...file.matches.map(m => `Line ${m.lineNumber}: ${m.line}`)].join('\n')),
+  '',
+  '(Full grep result stored at: fixture://spill/grep-66. Read it to see every match.)',
+].join('\n')
+
+/**
+ * Structured glob result for the search sample (turn 67): a flat path list,
+ * truncated with a larger `total` so the path card shows its capped indicator.
+ */
+const SEARCH_PATHS_FIXTURE = [
+  'packages/client/ui-primitives/src/SearchBlock.tsx',
+  'packages/client/ui-primitives/src/SearchBlock.module.css',
+  'packages/client/ui-conversation/src/client/contract/search-card-model.ts',
+  'packages/client/ui-conversation/src/client/toolviews/search-row.tsx',
+  'packages/client/ui-conversation/src/client/toolviews/search-row.module.css',
+]
+
+/**
+ * The model-facing glob render text — the newline-joined path list plus a
+ * spill-recovery footer, mirroring the real glob presenter's shape (see
+ * formatGlobOutput in dsh-tool-fs-search).
+ */
+const SEARCH_PATHS_TEXT = [
+  ...SEARCH_PATHS_FIXTURE,
+  '',
+  '(Showing 5 of 23 paths. Full sorted result stored at: fixture://spill/glob-67. Read it to see every path.)',
+].join('\n')
+
+/**
  * Read-card sample for the read turn: a WINDOW past an offset, so the line
  * numbers start above 1 (the card's gutter keeps the file's own numbering) and
  * `totalLines` exceeds the window (the card shows a "showing N of M" note). The
@@ -165,7 +238,7 @@ const READ_SAMPLE_TOTAL = 180
 const READ_SAMPLE_TEXT = READ_SAMPLE_SOURCE.map((text, index) => `${READ_SAMPLE_FIRST_LINE + index}: ${text}`).join('\n')
 
 /**
- * The structured `web_search` result view for fixture turn 67, authored inline
+ * The structured `web_search` result view for the web-search turn, authored inline
  * because this client-side fixture cannot import the web tool that projects it.
  * The sources exercise the citation list's features: a titled source with a
  * snippet and a date, a source with no title (its hostname labels the link) and
@@ -195,7 +268,7 @@ const WEB_SEARCH_RESULT: Omit<Extract<ToolResultView, { card: 'web'; kind: 'sear
   truncated: true,
 }
 
-/** The `web_fetch` result view for fixture turn 68, authored inline for the same reason. */
+/** The `web_fetch` result view for the web-fetch turn, authored inline for the same reason. */
 const WEB_FETCH_RESULT: Omit<Extract<ToolResultView, { card: 'web'; kind: 'fetch' }>, 'card' | 'kind'> = {
   url: 'https://www.deepseek.com/blog/harness-architecture',
   statusCode: 200,
@@ -398,7 +471,17 @@ function buildAlphaLog(): SessionEvent[] {
   // strip empty and take the todo surfaces' own coverage with it.
   toolTurn(65, 'bash', '{"command":"pnpm run check","cwd":"/tmp/fixture/deep/nested"}', TERMINAL_OUTPUT_FIXTURE)
 
-  // Turn 66: the read sample — a WINDOW past an offset so the card draws file
+  // Turns 66-67: the search card's two shapes. `grep` emits a `card: 'search'`
+  // `shape: 'matches'` result view (grouped-by-file matches, truncated with a
+  // larger `total`), `glob` emits `shape: 'paths'` (a flat path list, likewise
+  // truncated). Both ride the keyed SearchRow registration under their own
+  // names; the render-site fallback row is covered by the model derivation
+  // tests, since every fixture search tool has a keyed row. Ordered before the
+  // todo turn for the same standing-plan reason the bash turn is.
+  toolTurn(66, 'grep', '{"pattern":"SEARCH_MAX_LINES","path":"packages/client"}', SEARCH_MATCHES_TEXT)
+  toolTurn(67, 'glob', '{"pattern":"**/SearchBlock*","path":"packages/client"}', SEARCH_PATHS_TEXT)
+
+  // Turn 68: the read sample — a WINDOW past an offset so the card draws file
   // line numbers starting above 1 and a "showing N of M" note (the window is
   // shorter than READ_SAMPLE_TOTAL), with a `ts` language hint the shiki path
   // highlights. Named `read`, so it exercises the keyed ReadRow registration.
@@ -409,9 +492,9 @@ function buildAlphaLog(): SessionEvent[] {
   // this fixture. The read render intent is result-side only, so its pending
   // call stays a generic `kind: 'read'` card; presentResult carries the
   // structured window.
-  toolTurn(66, 'read', `{"file_path":${JSON.stringify(READ_SAMPLE_PATH)},"offset":${READ_SAMPLE_FIRST_LINE}}`, READ_SAMPLE_TEXT)
+  toolTurn(68, 'read', `{"file_path":${JSON.stringify(READ_SAMPLE_PATH)},"offset":${READ_SAMPLE_FIRST_LINE}}`, READ_SAMPLE_TEXT)
 
-  // Turns 67-68: the web render intent — a web_search whose result view carries
+  // Turns 69-70: the web render intent — a web_search whose result view carries
   // structured sources plus an answer (the citation list, one source lacking a
   // title so its hostname labels the link, the capped indicator on), and a
   // web_fetch whose result view carries the fetched URL and its HTTP status.
@@ -420,11 +503,11 @@ function buildAlphaLog(): SessionEvent[] {
   // the real tools so they hit the keyed WebRow registration. Ordered BEFORE
   // the todo turn for the same reason turn 65 is: the standing plan retires at
   // the next turn/start, so a turn after it would empty the dock's plan strip.
-  toolTurn(67, 'web_search', '{"query":"deepseek harness architecture"}', 'Search results for deepseek harness architecture.')
-  toolTurn(68, 'web_fetch', '{"url":"https://www.deepseek.com/blog/harness-architecture"}', '# Harness architecture\n\nEverything is a plugin.')
+  toolTurn(69, 'web_search', '{"query":"deepseek harness architecture"}', 'Search results for deepseek harness architecture.')
+  toolTurn(70, 'web_fetch', '{"url":"https://www.deepseek.com/blog/harness-architecture"}', '# Harness architecture\n\nEverything is a plugin.')
 
   const todoArgs = JSON.stringify({ todos: fixtureTodos })
-  toolTurn(69, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
+  toolTurn(71, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
   // The real tool appends the snapshot mid-execution — between tool/call and
   // tool/result — so the fixture reproduces that exact ordering (the last
   // toolTurn events run ... tool/call, tool/result, step/end, turn/end).
@@ -486,6 +569,13 @@ function presentCall(name: string, argsRaw: string): ToolCallView | undefined {
         card: 'diff', title: `Write ${str(args.file_path)}`,
         diffs: [{ path: str(args.file_path), oldText: null, newText: str(args.content) }],
       }
+    // A search call stays a generic card (kind: 'search'): the structured
+    // matches/paths exist only after execute, so the search card is result-time
+    // only (presentResult builds it). This mirrors the real grep/glob presenters.
+    case 'grep':
+      return { card: 'generic', title: `Grep ${str(args.pattern)}`, kind: 'search', rawInput: args }
+    case 'glob':
+      return { card: 'generic', title: `Glob ${str(args.pattern)}`, kind: 'search', rawInput: args }
     // The web tools keep a GENERIC pending card and add the `web` result card
     // only at result time (the contract's result-only web shape); their pending
     // kind matches the result kind so a call and its result read as one category.
@@ -501,6 +591,18 @@ function presentCall(name: string, argsRaw: string): ToolCallView | undefined {
 function presentResult(name: string, argsRaw: string, resultText: string): ToolResultView | undefined {
   const call = presentCall(name, argsRaw)
   if (call === undefined) return undefined
+  // Search is result-time only: the call stays a generic search card, and the
+  // result view carries the structured shape the card renders. The view holds no
+  // result text — a UI without a search card falls back to the raw tool/result
+  // content — so the truncation recovery footer rides that raw content (the
+  // `toolTurn` message text), not the view. `total` exceeds the retained count so
+  // the card shows its capped indicator.
+  if (name === 'grep') {
+    return { card: 'search', shape: 'matches', files: SEARCH_MATCHES_FIXTURE, truncated: true, total: 42 }
+  }
+  if (name === 'glob') {
+    return { card: 'search', shape: 'paths', paths: SEARCH_PATHS_FIXTURE, truncated: true, total: 23 }
+  }
   // The read result is the structured window the tool projects through
   // `presentationMeta`; the fixture authors it inline (it cannot import the
   // tool). Keyed on the name because the read pending call is a generic card,
