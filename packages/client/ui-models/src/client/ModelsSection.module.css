@@ -3,6 +3,7 @@
   flex-direction: column;
   gap: 12px;
   max-width: 720px;
+  color: var(--dsw-alias-label-primary);
 }
 
 .title {
@@ -14,13 +15,13 @@
 .intro {
   margin: 0;
   font-size: 13px;
-  color: var(--text-tertiary, #888);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .notice {
   margin: 0;
   font-size: 12px;
-  color: var(--text-warning, #a15c00);
+  color: var(--dsw-alias-state-warn-label);
 }
 
 .rows {
@@ -33,13 +34,13 @@
 }
 
 .rowCard {
-  border: 1px solid var(--border, #e2e2e2);
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 12px;
   padding: 12px 14px;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  background: var(--surface, #fff);
+  background: var(--dsw-alias-bg-layer-3);
 }
 
 .rowHead {
@@ -53,58 +54,27 @@
   font-weight: 600;
 }
 
-.badges {
-  display: inline-flex;
-  gap: 6px;
-  flex: 1;
-}
-
-.badgeOk {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--text-success, #0a7d33);
-  font-size: 12px;
-}
-
-.badgeOk::before {
-  content: '';
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: currentcolor;
-}
-
-.badgeMuted {
-  color: var(--text-tertiary, #999);
-  font-size: 12px;
-}
-
-.badgeWarn {
-  color: var(--text-warning, #a15c00);
-  font-size: 12px;
-}
-
 .rowActions {
   display: inline-flex;
   gap: 8px;
+  margin-left: auto;
 }
 
 .primaryButton {
   border: none;
   border-radius: 999px;
   padding: 8px 18px;
-  background: var(--accent-strong, #111);
-  color: var(--text-inverse, #fff);
+  background: var(--dsw-alias-button-primary-fill);
+  color: var(--dsw-alias-label-primary-foreground);
   font: inherit;
   cursor: pointer;
 }
 
 .secondaryButton {
-  border: 1px solid var(--border, #d9d9d9);
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 999px;
   padding: 6px 14px;
-  background: var(--surface, #fff);
+  background: var(--dsw-alias-bg-layer-3);
   color: inherit;
   font: inherit;
   cursor: pointer;
@@ -113,7 +83,7 @@
 .dangerButton {
   border: none;
   background: none;
-  color: var(--text-danger, #c0392b);
+  color: var(--dsw-alias-state-error-primary);
   font: inherit;
   cursor: pointer;
 }
@@ -126,9 +96,9 @@
 }
 
 .editor {
-  border: 1px solid var(--border, #e6e6e6);
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 12px;
-  background: var(--surface-secondary, #f7f7f8);
+  background: var(--dsw-alias-bg-layer-2);
   padding: 14px 16px;
   display: flex;
   flex-direction: column;
@@ -148,7 +118,7 @@
 
 .editorRoute {
   font-size: 12px;
-  color: var(--text-tertiary, #999);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .field {
@@ -163,14 +133,14 @@
   gap: 10px;
   font-size: 12px;
   font-weight: 500;
-  color: var(--text-secondary, #555);
+  color: var(--dsw-alias-label-secondary);
 }
 
 .linkButton {
   border: none;
   background: none;
   padding: 0;
-  color: var(--text-tertiary, #888);
+  color: var(--dsw-alias-label-tertiary);
   font: inherit;
   font-size: 12px;
   text-decoration: underline;
@@ -185,7 +155,7 @@
 .advancedHint {
   margin: 0;
   font-size: 12px;
-  color: var(--text-tertiary, #999);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .editorActions {
@@ -202,12 +172,12 @@
 
 .addButton {
   align-self: flex-start;
-  border: 1px solid var(--border, #d9d9d9);
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 999px;
   padding: 8px 16px;
   font: inherit;
   font-size: 13px;
-  background: var(--surface, #fff);
+  background: var(--dsw-alias-bg-layer-3);
   color: inherit;
   cursor: pointer;
 }
@@ -219,9 +189,9 @@
 
 .addCard,
 .setupCard {
-  border: 1px solid var(--border, #e6e6e6);
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 12px;
-  background: var(--surface-secondary, #f7f7f8);
+  background: var(--dsw-alias-bg-layer-3);
   padding: 14px 16px;
   display: flex;
   flex-direction: column;
@@ -237,7 +207,7 @@
 }
 
 .customized {
-  border-top: 1px solid var(--border, #ececec);
+  border-top: 1px solid var(--dsw-alias-border-l2);
   padding-top: 10px;
 }
 
@@ -245,7 +215,7 @@
   cursor: pointer;
   font-size: 12px;
   font-weight: 500;
-  color: var(--text-secondary, #555);
+  color: var(--dsw-alias-label-secondary);
   list-style: revert;
 }
 
@@ -259,25 +229,38 @@
 .input {
   box-sizing: border-box;
   padding: 9px 12px;
-  border: 1px solid var(--border, #d9d9d9);
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 10px;
   font: inherit;
   font-size: 13px;
-  background: var(--surface, #fff);
-  color: inherit;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
 }
 
 .input:focus {
   outline: none;
-  border-color: var(--accent-strong, #111);
+  border-color: var(--dsw-alias-brand-primary);
 }
 
 .input::placeholder {
-  color: var(--text-tertiary, #aaa);
+  color: var(--dsw-alias-label-dimmed);
 }
 
 .error {
   margin: 0;
   font-size: 12px;
-  color: var(--text-danger, #c0392b);
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.deleteDialog {
+  width: min(480px, 100%);
+}
+
+.deleteConfirm:not(:disabled) {
+  border-color: var(--dsw-alias-state-error-primary);
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.deleteConfirm:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover-danger);
 }
