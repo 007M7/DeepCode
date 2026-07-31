@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-会话领域：骨架（标题栏／标签页／编辑器／空状态）、聊天视图（分组步骤摘要流、流式尾部隔离、逐工具行 slot 及一个 bash 示例注册方与 todo 行）、编辑器 dock（与输入区一同 sticky 的会话统计行）、输入区 dock（队列行加 todo 计划条）、最小详情面板、按 scope 寻址的 ConversationService。契约：api-contracts v3 §7 加 slot 终端设计（store seat／props share）。
+会话领域：骨架（标题栏／标签页／编辑器／空状态）、聊天视图（分组步骤摘要流、流式尾部隔离、带从左到右动态渐变的 `Deep diving...` 轮次状态、逐工具行 slot 及一个 bash 示例注册方与 todo 行）、编辑器 dock（与输入区一同 sticky 的会话统计行）、输入区 dock（带发丝分界线的队列行加 todo 计划条）、最小详情面板、按 scope 寻址的 ConversationService。契约：api-contracts v3 §7 加 slot 终端设计（store seat／props share）。
 
 常驻会话壳会跨无会话与会话状态切换而保留。没有当前会话时，它会渲染禁用输入栏；其根作用域的 `conversation.hero.workspace` slot 承载 Workspace 选择器。选择 Workspace 会连接或复用由 Host 拥有的空白会话，并在不替换会话壳的情况下打开该会话。空白会话与活跃会话渲染相同的输入区主体；InputHub 则在 Workspace 切换间携带草稿，并将草稿镜像到会话 store。活跃阶段会话标题栏以普通列 chrome 占据顶部；其下滚动容器（`data-conversation-scroll`）承载流动排版的各视图与 sticky 编辑器栈（统计 dock＋输入区 dock＋输入栏）。textarea 上的滚轮会链式处理：限高草稿先在本地滚动，到达边缘后再转交给该宿主。
 
@@ -15,6 +15,8 @@
 声明 `terminal` 渲染意图的工具调用，会在两个对话渲染点上都通过 ui-primitives 的 `TerminalBlock` 内联渲染其命令输出。`contract/terminal-card-model.ts` 是从快照的 `callView`／`resultView` 对推导的唯一位置，因此两个渲染点不可能在命令、cwd 或退出状态上产生分歧；对任何其他 card 标签——包括当前客户端版本不认识的标签——它返回 null，落回通用路径。因此两个渲染点也都显示卡片的运行状态点，它与工具行行首图标承载同一套 `StateDot` 语义，所以一行与其自身的卡片对同一条命令的状态总是一致。多行命令的每一行各占一个提示行，状态点只在第一行为整次调用标记一次——退出状态属于整次调用，因此每行一枚就会声称一个 bash 并不报告的逐行结果。键控的 `BashRow` 把卡片常驻在摘要行下方；由于工具行已不再是详情面板的点击目标，卡片的复制与展开控件就是该行唯一的交互。渲染点兜底行则保持其既有的展开控件。行的上限是 `CHAT_TERMINAL_MAX_LINES`（8），面板为 16，正是这一点让摘要面保持有界——面板仍是单次调用的阅读面。内联输出按渲染意图开放——终端卡片与 web 卡片，各有自己的上限；通用工具的内容仍然只在面板中呈现（[决策](../../../.agents/notes/implemented/feature/2026-07-28-web-terminal-card.md)）。
 
 声明 `web` 渲染意图的工具调用，会在两个对话渲染点上都通过 ui-primitives 的 `WebBlock` 内联渲染其 web 检索。`contract/web-card-model.ts` 是从快照的 `resultView` 推导的唯一位置，镜像终端卡片，因此两个渲染点不可能对一次 web 调用的显示产生分歧；对运行中的调用、非 web 的 result view、generic result view、本客户端版本不认识的 `card` 标签，或本客户端版本不认识 `kind` 的 web 卡片（更新的 host 发来的值，wire 上不可信其为 `search` 或 `fetch`），它返回 null，落回通用路径。键控的 `WebRow` 把一个组件注册在 `web_search` 与 `web_fetch` 两个键下，仅根据工具名判别以选取图标与标题；没有自己键控行的 web 声明工具落到 `GenericToolCard` 兜底，它长出同一张常驻卡片，详情面板则以原语的完整 source 额度渲染它，并在卡片下方渲染摊平的模型可见结果内容——fetch 正文只在此处可读，因为其卡片只携带 URL 和状态。行的上限是 `CHAT_WEB_MAX_SOURCES`（8），面板为 16，与终端卡片所画的摘要面对阅读面的同一划分（[决策](../../../.agents/notes/implemented/feature/2026-07-30-web-result-card-frontend.md)）。
+
+声明 `diff` 渲染意图的工具调用（`write`／`edit` 工具），通过 ui-primitives 的 `DiffBlock` 内联渲染其已应用的改动，采用同一套四层结构。`contract/diff-card-model.ts` 是从 `callView`／`resultView` 对推导的唯一位置；已结算 result 的 hunk 替换 call 时 diff，对任何其他 card 标签或 generic result view（write/edit 的执行错误）它返回 null，落回通用路径。键控的 `FileMutationRow`（在 `write` 与 `edit` 下都注册）把卡片常驻在摘要之下，其路径链接仍经 host 打开文件；渲染点兜底行与详情面板同样感知 diff。行的上限是 `CHAT_DIFF_MAX_LINES`（8），面板为 16（[决策](../../../.agents/notes/implemented/feature/2026-07-30-web-diff-card.md)）。
 
 聊天流会将跨重试轮次连续出现的模型重试节点投影为一个稳定的弱化状态行，并用最新一次尝试更新该行；每个重试事件仍保留在运行时快照与会话日志中。前端倒计时以客户端收到事件的时刻为计划延迟的起点，避免 Host 与浏览器的时钟偏差；剩余时间向上取整到秒，且下限为 1 秒。最近一次尚未完成的重试会显示从左到右的文字渐变动画。后续轮次事实用于区分已开始的尝试与在退避期间取消的尝试，Host 的 running 位只控制实时动画；随后该行会显示静态的已完成或已取消标签。normal 策略行显示有限重试上限；always 策略行显示 `∞`。激活该行会显示最近一次重试的精确延迟和失败消息。客户端运行时会在相应重试节点到达前移除每个失败步骤的流式输出尾部；后续某次尝试成功后，该状态仍保持可见。
 

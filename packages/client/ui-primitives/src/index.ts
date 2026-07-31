@@ -28,6 +28,8 @@ export { SearchBlock, DEFAULT_SEARCH_MAX_LINES } from './SearchBlock.tsx'
 export type {
   SearchBlockProps, SearchMatchesBlockProps, SearchPathsBlockProps, SearchFileGroup, SearchBlockLineMatch,
 } from './SearchBlock.tsx'
+export { DiffBlock, DEFAULT_DIFF_MAX_LINES } from './DiffBlock.tsx'
+export type { DiffBlockProps, DiffHunk } from './DiffBlock.tsx'
 export { WebBlock, DEFAULT_WEB_MAX_SOURCES } from './WebBlock.tsx'
 export type { WebBlockProps, WebSearchBlockProps, WebFetchBlockProps, WebSourceView } from './WebBlock.tsx'
 export { CodeBlock } from './markdown/CodeBlock.tsx'

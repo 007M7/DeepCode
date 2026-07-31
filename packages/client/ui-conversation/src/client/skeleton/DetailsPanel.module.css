@@ -101,10 +101,10 @@
   font: var(--dsw-font-xs-13);
 }
 
-/* A render-intent card (terminal or search) sits directly under its section
+/* A card body (terminal, search, or diff) sits directly under its section
    label, so it drops the primitive's standalone vertical margin; the section
-   owns the spacing. */
-.terminal {
+   owns the spacing. Card-neutral: no card-specific value. */
+.cardBody {
   margin: 0;
 }
 

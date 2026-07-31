@@ -11,6 +11,7 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps, ToolRowOwnerProps } from '../contract/slots.ts'
 import { searchCardModel } from '../contract/search-card-model.ts'
+import { diffCardModel } from '../contract/diff-card-model.ts'
 import { terminalCardModel, terminalFailed } from '../contract/terminal-card-model.ts'
 import { CHAT_WEB_MAX_SOURCES, webCardModel } from '../contract/web-card-model.ts'
 import { toolRowModel, type ToolRowVariant } from '../contract/tool-call-model.ts'
@@ -38,6 +39,7 @@ export function GenericToolCard({ toolName, block, cwd, openFile, inspect, t }: 
   const model = toolRowModel(toolName, block, cwd)
   const terminal = terminalCardModel(block, cwd)
   const search = searchCardModel(block)
+  const diff = diffCardModel(block)
   const web = webCardModel(block)
   // A failing exit status is the terminal card's own error signal (the call
   // itself settles isError:false), surfaced as the row's red state dot.
@@ -56,11 +58,15 @@ export function GenericToolCard({ toolName, block, cwd, openFile, inspect, t }: 
       // it outranks the args-derived summary here exactly as it does in BashRow;
       // a search result view's replacement title outranks it the same way.
       summary={terminal?.description ?? search?.title ?? model.summary}
-      body={model.body}
+      // Single-file tools never expose an args body — the path link is the only
+      // args interaction. A diff card is not an args body: a write/edit row is
+      // single-file AND carries a diff, so the card expands under the path link.
+      body={singleFile ? null : model.body}
       output={model.output}
       errorSummary={model.errorSummary}
       terminal={terminal}
       search={search}
+      diff={diff}
       state={state}
       filePath={model.filePath}
       onOpenFile={singleFile ? openFile : undefined}
