@@ -725,7 +725,7 @@ describe('WorkspaceBrowser', () => {
     await act(async () => { resolveDelete() })
     // RPC success alone does not close: the component waits until its
     // useWorkspaces projection has committed the removal, preventing a stale
-    // duplicate-name frame from leaking into the next create gesture.
+    // Workspace frame from leaking into the next gesture.
     expect(screen.getByRole('dialog', { name: '删除工作区' })).toBeTruthy()
     rerender(browser, { useWorkspaces: hook(workspaceState([])) })
     expect(screen.queryByRole('dialog', { name: '删除工作区' })).toBeNull()
