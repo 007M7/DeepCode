@@ -128,8 +128,11 @@ describe('assistant replay provenance', () => {
 })
 
 describe('abort during tool execution ends the turn', () => {
-  it('records context finalized after a tool-step abort in the next turn', async () => {
-    const adapter = new MockAdapter([toolCallResponse('c1', 'aborter', {})])
+  it('parks context finalized after a tool-step abort until another wakeup', async () => {
+    const adapter = new MockAdapter([
+      toolCallResponse('c1', 'aborter', {}),
+      textResponse('after wake'),
+    ])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a-abort-injection'), { provider: 'mock', model: 'mock' })
     ctx.tools.register(defineContentToolFixture({
@@ -153,14 +156,20 @@ describe('abort during tool execution ends the turn', () => {
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    const events = [...agent.session.events]
-    expect(events
+    expect(agent.session.events
       .filter(event => event.type === 'tool/result'
         || (event.type === 'user/message' && event.data.source.kind === 'plugin')
         || event.type === 'step/end' || event.type === 'turn/end')
       .map(event => event.type))
-      .toEqual(['tool/result', 'step/end', 'turn/end', 'user/message', 'step/end', 'turn/end'])
-    expect(events
+      .toEqual(['tool/result', 'step/end', 'turn/end'])
+    expect(agent.inbox.nextStep.map(inboxText))
+      .toEqual(['accepted result context after abort'])
+
+    const idle = waitForIdle(ctx, agent)
+    send(agent, 'wake')
+    await idle
+
+    expect(agent.session.events
       .flatMap(event => event.type === 'user/message' && event.data.source.kind === 'plugin'
         ? [event.data.content]
         : []))
@@ -224,7 +233,7 @@ describe('abort during tool execution ends the turn', () => {
       .toBeUndefined()
   })
 
-  it('records result context finalized after disposal cancellation', async () => {
+  it('parks result context finalized after disposal cancellation without opening another turn', async () => {
     const adapter = new MockAdapter([toolCallResponse('c1', 'waiter', {})])
     const ctx = await harness(adapter)
     const started = Promise.withResolvers<undefined>()
@@ -264,9 +273,11 @@ describe('abort during tool execution ends the turn', () => {
       .flatMap(event => event.type === 'user/message' && event.data.source.kind === 'plugin'
         ? [event.data.content]
         : []))
-      .toEqual([
-        [{ type: 'text', text: 'accepted result context during disposal' }],
-      ])
+      .toEqual([])
+    expect(agent.inbox.nextStep.map(inboxText))
+      .toEqual(['accepted result context during disposal'])
+    expect(agent.session.events.filter(event => event.type === 'turn/start'))
+      .toHaveLength(1)
     expect(agent.session.events.find(event => event.type === 'turn/end')?.data.reason)
       .toEqual({ kind: 'aborted', reason: { kind: 'disposed' } })
   })

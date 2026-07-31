@@ -150,7 +150,7 @@ export class ReactLoopAgent implements Agent {
     try {
       while (await this.turn()) {}
     } catch (_error) {
-      // Admission and turn boundaries report before rethrowing; the driver only contains the rejection.
+      // Reported failures and cancellation are contained at the driver boundary.
     } finally {
       if (this.phase.kind === 'running') {
         this.setPhase({ kind: 'idle', lastTurn: this.phase.turn })
@@ -190,15 +190,14 @@ export class ReactLoopAgent implements Agent {
     const lastTurn = this.phase.kind === 'collecting' ? this.phase.lastTurn : this.phase.turn
     const phase = { kind: 'running' as const, abort, turn: lastTurn, step: 0 }
     this.setPhase(phase)
-    if (signal.aborted) return this.inbox.hasPending
+    signal.throwIfAborted()
     let admission: Admission
     try {
       admission = await this.admit(true)
       if (admission.kind !== 'admitted') return false
       signal.throwIfAborted()
     } catch (error: unknown) {
-      // oxlint-disable-next-line typescript/no-unnecessary-condition -- cancel may abort while admission awaits
-      if (signal.aborted) return this.inbox.hasPending
+      if (signal.aborted) throw error
       this.throwError(error)
     }
     const turn = ++phase.turn
@@ -237,16 +236,15 @@ export class ReactLoopAgent implements Agent {
         if (admission.kind === 'empty' && turnEnds) break
       }
     } catch (error: unknown) {
-      // oxlint-disable-next-line typescript/no-unnecessary-condition -- cancel may abort during any awaited turn operation
       if (signal.aborted) {
         turnEnds = { kind: 'aborted', reason: signal.reason as AgentCancelCause }
-      } else {
-        turnEnds = {
-          kind: 'error',
-          error: error instanceof LlmError ? error.failure : errorChain(error),
-        }
-        this.throwError(error)
+        throw error
       }
+      turnEnds = {
+        kind: 'error',
+        error: error instanceof LlmError ? error.failure : errorChain(error),
+      }
+      this.throwError(error)
     } finally {
       try {
         // oxlint-disable-next-line typescript/no-non-null-assertion -- every exit assigns a turn ending

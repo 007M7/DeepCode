@@ -518,10 +518,10 @@ describe('tool-call scheduler: abort handling', () => {
     ])
   })
 
-  it('stops replenishing after abort, commits started results, and drains accepted additional contexts', async () => {
+  it('stops replenishing after abort, commits started results, and parks accepted additional contexts', async () => {
     const adapter = new MockAdapter([
       multiCall([1, 2, 3, 4].map(n => ({ id: `c${n}`, name: 'p', args: { id: String(n) } }))),
-      textResponse('should never be requested'),
+      textResponse('after wake'),
     ])
     const ctx = await harness(adapter, 2)
     const gated = gatedParallelTool('p')
@@ -566,9 +566,23 @@ describe('tool-call scheduler: abort handling', () => {
     const settled = events(agent).filter(e => e.type === 'tool/result'
       || (e.type === 'user/message' && e.data.source.kind === 'plugin'))
     expect(settled.map(e => e.type))
-      .toEqual(['tool/result', 'tool/result', 'tool/result', 'tool/result', 'user/message', 'user/message'])
-    expect(settled.filter(e => e.type === 'user/message')
-      .map(e => (e.data.content[0] as { text: string }).text))
+      .toEqual(['tool/result', 'tool/result', 'tool/result', 'tool/result'])
+    expect(agent.inbox.nextStep.map(message => message.content[0]))
+      .toEqual([
+        { type: 'text', text: 'ctx-c1' },
+        { type: 'text', text: 'ctx-c2' },
+      ])
+
+    const idle = waitForIdle(ctx, agent)
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'wake' }], source: { kind: 'user' } }))
+    await idle
+
+    expect(events(agent).flatMap(e =>
+      e.type === 'user/message'
+        && e.data.source.kind === 'plugin'
+        && e.data.content[0]?.type === 'text'
+        ? [e.data.content[0].text]
+        : []))
       .toEqual(['ctx-c1', 'ctx-c2'])
   })
 
