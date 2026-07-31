@@ -1,74 +1,54 @@
-// File-mutation toolview registrant: third-party posture over the keyed
-// toolview hole (ctx.slots.register + ToolRowProps only — never imports the
-// chat domain), registered under both `edit` and `write`. Product chrome
-// matches ToolRow (figma: {Edit,Write} · {path}).
-//
-// A write/edit call declares the diff render intent, so this row renders the
-// applied change through DiffBlock resident below its summary line — the same
-// posture BashRow gives a terminal card. The row has no expand control and is
-// not a details-panel target (tool rows stopped being one), so the diff body
-// is resident rather than expand-gated, and the card's own copy and expand
-// controls are the row's only interactions. CHAT_DIFF_MAX_LINES caps the body
-// against the message flow; the details panel keeps the block's full default.
-// The summary stays a path link (the file-tool interaction) that opens through
-// the host.
+// File-mutation toolview registrant: the keyed toolview hole for the `edit`
+// and `write` tools. The row composes the shared ToolRow (chrome, running
+// sweep, whole-row expand) and feeds it the applied diff as ToolRow's `diff`
+// card material, so the change renders through DiffBlock in the collapsed-by-
+// default expanded body — the same unified interaction every other card row
+// has. The summary stays a path link (the file-tool interaction) that opens
+// through the host; an errored mutation (write/edit return no diff on
+// `result.isError`) keeps the model-facing error text on ToolRow's Output
+// section, its first line in the collapsed summary.
 
 import type { Context } from 'cordis'
-import { DiffBlock, IconEditOutline16, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconEditOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ToolRowProps } from '../contract/slots.ts'
-import { CHAT_DIFF_MAX_LINES, diffCardModel } from '../contract/diff-card-model.ts'
-import { toolRowModel, type ToolRowState } from '../contract/tool-call-model.ts'
-import { rowResultText, rowStateStatus } from '../contract/toolview-status.ts'
-import css from './file-mutation-row.module.css'
+import { diffCardModel } from '../contract/diff-card-model.ts'
+import { toolRowModel } from '../contract/tool-call-model.ts'
+import { ToolRow } from '../chat/ToolRow.tsx'
+import { NS } from '../locales.ts'
 
-function leadingFor(state: ToolRowState) {
-  switch (state) {
-    case 'error': return <StateDot state="error" />
-    case 'stopped': return <StateDot state="warning" />
-    // Running keeps the icon — the row sweep carries the in-flight signal.
-    default: return <IconEditOutline16 size={14} />
-  }
-}
+/** Full row props: the toolview runtime share plus the standard locale seat. */
+type FileMutationRowProps = ToolRowProps & PropsLocale<'conversation'>
 
 /**
  * File-mutation row: icon + {Edit,Write} · {path} in the shared ToolRow chrome,
- * with the applied diff resident below it. The summary is a path link (a file
- * tool's interaction); the host's `openFile` resolves it against the session
- * cwd, so this passes the tool's own path verbatim. The card's copy and expand
- * controls are the row's only other actions.
+ * with the applied diff as the row's collapsed-by-default card body. The
+ * summary is a path link (a file tool's interaction); the host's `openFile`
+ * resolves it against the session cwd, so this passes the tool's own path
+ * verbatim. An errored mutation has no diff card, so ToolRow surfaces the
+ * model-facing error text through its Output section and its first line in the
+ * collapsed summary instead.
  */
-export function FileMutationRow({ toolName, block, cwd, openFile }: ToolRowProps) {
+export function FileMutationRow({ toolName, block, cwd, openFile, inspect, t }: FileMutationRowProps) {
   const model = toolRowModel(toolName, block, cwd)
   const diff = diffCardModel(block)
-  const status = rowStateStatus(model.state)
-  const filePath = model.filePath
-  // An errored mutation has no diff card (presentResult returns undefined on
-  // isError); surface its result text so the failure is more than a red dot.
-  const failure = diff === null && model.state === 'error' ? rowResultText(block) : null
   return (
-    <div className={css.card}>
-      <div className={css.root} data-variant={model.variant} data-state={model.state}>
-        <span className={css.leading}>{leadingFor(model.state)}</span>
-        {status !== null && <span className={css.visuallyHidden}>{status}</span>}
-        <span className={css.title}>{model.title}</span>
-        <span className={css.sep} aria-hidden />
-        {filePath !== undefined ? (
-          <button
-            type="button"
-            className={css.fileLink}
-            onClick={() => { openFile(filePath) }}
-          >
-            {model.summary}
-          </button>
-        ) : (
-          <span className={css.summary}>{model.summary}</span>
-        )}
-      </div>
-      {diff !== null && (
-        <DiffBlock {...diff.card} maxLines={CHAT_DIFF_MAX_LINES} className={css.diff} />
-      )}
-      {failure !== null && <div className={css.failure}>{failure}</div>}
-    </div>
+    <ToolRow
+      t={t}
+      variant={model.variant}
+      toolName={toolName}
+      icon={<IconEditOutline16 size={14} />}
+      title={model.title}
+      summary={model.summary}
+      body={null}
+      output={model.output}
+      errorSummary={model.errorSummary}
+      diff={diff}
+      state={model.state}
+      filePath={model.filePath}
+      onOpenFile={openFile}
+      inspect={inspect}
+    />
   )
 }
 
@@ -87,7 +67,7 @@ export const fileMutationToolview = {
    * @param ctx - registrant context (disposal rides ctx.effect inside slots.register).
    */
   apply(ctx: Context): void {
-    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'edit' }, FileMutationRow)
-    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'write' }, FileMutationRow)
+    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'edit', locale: NS }, FileMutationRow)
+    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'write', locale: NS }, FileMutationRow)
   },
 }

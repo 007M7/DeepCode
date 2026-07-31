@@ -24,9 +24,15 @@ SlotsService 分别为 renderer 提供 `useSessions` 与 `useWorkspaces` 的裸 
 
 `ConversationSnapshot.queue` 是 Host 提供的权威瞬态 Queue 快照；待处理 steering（中途引导）不进入此投影。每行都携带其 `InboxItemId`、所有内容块均为文本时的完整可编辑文本，以及扁平化预览。`session/queue` 会整体替换该投影；重连缓冲只保留最新快照，持久轮次事件和 running 状态变化都不会猜测某个项已被认领。`Session.updateQueue()` 发送编辑／移除操作，不进行乐观更新，因此下一份 Host 快照是唯一可见的提交结果，认领竞态则会返回 `queue-item-not-found`。
 
+## 面向人的 transcript（文本记录）
+
+`ConversationSnapshot.nodes` 是面向人的 transcript，不是模型 surface。`TranscriptAdapter` 按日志顺序投影原始窗口——每个 append 来源的 surface 事件（`isAppendSurfaceEvent`）落在它自己的日志位置上，外加每次落地的压缩（compaction）检查点贡献一个 `CompactionSummaryNode` 标记——且从不查询 surface 顺序。于是一次落地的压缩会保留它在模型侧遮蔽掉的对话：标记报告模型从哪里开始看不见那段历史，而不是把它抹掉。仅模型可见的 replacement 副本不进入记录：被裁剪的 `tool/result` 和重新生成的 `assistant/message` 只为模型重写一个节点，不标记任何边界。检查点是携带压缩 seam 插件来源、且**替换**了一段 surface 范围的 `user/message`；一条 append 的插件来源 `user/message` 是注入上下文，不是压缩。适配器的插件字面量通过对无 cordis 的 [`dsh-compact/checkpoint`](../../compact/compact/README.md) 叶子做仅类型导入，钉在压缩 seam 自己的声明上：在那里改名会让此处 `tsc` 失败；而对该包（package）做**值**导入会被客户端纯度门禁拒绝，包的**根**即便作为类型也无法到达（它会到达 `dsh-session` 的根，其 `Context` 合并会让 host 的 `sessions` 与本程序的冲突）。`tests/compact-checkpoint-pin.spec.ts` 从行为侧覆盖同一漂移。
+
+由于投影按日志顺序，节点数组天然按 seq 单调：仅日志的 `command/run` / `command/done` 节点按 seq 插入，`Session` 按分数 seq 归并被打断的冻结节点，而检查点所引范围落在窗口之外的窗口会渲染出标记且不打印任何日志。标记的摘要文本来自检查点的 `compact/summary` 溯源；窗口切分把溯源留在窗口外时该行不可展开而非空白，后续补上溯源的分页会解析出文本。性能契约：一次追加最多物化一个节点，并且仅在加入该节点时复制投影；不改变任何节点的事件保持上一次的数组引用（分片风暴零成本），未变化的节点保持其对象标识。
+
 ## Code Mode 子调用索引
 
-`ConversationSnapshot.codeDispatches` 按父调用的 callId 和启动顺序，用原生调用块形状组织一个 `run_code` 调用的子调用：`tool/code-dispatch-start` 事件落成 `RunningToolCall` 形状（行组件从该形状推导运行中的转圈状态），其 `tool/code-dispatch` 完结事件原位替换为 `ToolResultNode` 形状，`callTime` 携带成对 start 事件的时间。start 落在回放窗口之外的完结事件则直接追加，`callTime: null`（耗时未知——绝不伪造零耗时）。live mux 帧与历史回放构建相同的索引；子调用永不进入 surface `nodes` 流；无关快照交换不会改变每个父调用对应的数组引用和映射引用，两者均保持 memo 稳定。
+`ConversationSnapshot.codeDispatches` 按父调用的 callId 和启动顺序，用原生调用块形状组织一个 `run_code` 调用的子调用：`tool/code-dispatch-start` 事件落成 `RunningToolCall` 形状（行组件从该形状推导运行中的转圈状态），其 `tool/code-dispatch` 完结事件原位替换为 `ToolResultNode` 形状，`callTime` 携带成对 start 事件的时间。start 落在回放窗口之外的完结事件则直接追加，`callTime: null`（耗时未知——绝不伪造零耗时）。live mux 帧与历史回放构建相同的索引；子调用永不进入 transcript 的 `nodes` 流；无关快照交换不会改变每个父调用对应的数组引用和映射引用，两者均保持 memo 稳定。
 
 ## Session 标题投影
 
@@ -34,7 +40,7 @@ SlotsService 分别为 renderer 提供 `useSessions` 与 `useWorkspaces` 的裸 
 
 ## 模型重试投影
 
-Session 对象会在事件 wire 边界依据生产方的完整字段契约，验证由插件负责、按提供方路由的 `llm/retry` 载荷，包括计时器、整数、状态、提供方延迟和非空诊断字段的边界。有效事件会移除对应失败步骤的流式输出片段，并在该事件的序列位置插入一条持久的重试提示。该提示在后续重试轮次开始前为 `scheduled`；源轮次中止或释放会将其标记为 `cancelled`，重试轮次则会将其标记为 `started`。normal mode 提示携带其有限上限；always mode 提示则保持显式无界。窗口重建与历史回放应用相同的投影，因此刷新后，来自已丢弃尝试的日志分片绝不会重新显示为中断回复。没有 `llm/retry` 的终止轮次保留现有行为：可见但尚未定稿的输出会冻结为中断的 assistant 节点。
+Session 对象会在事件 wire 边界依据生产方的完整字段契约，验证由插件负责、按提供方路由的 `llm/retry` 载荷，包括计时器、整数、状态、提供方延迟和非空诊断字段的边界。有效事件会移除对应失败步骤的流式输出片段，并在该事件的序列位置插入一条持久的重试提示。该提示在后续重试轮次开始前为 `scheduled`；源轮次中止或被 dispose（资源释放）时，会将该提示标记为 `cancelled`，重试轮次则会将其标记为 `started`。normal mode 提示携带其有限上限；always mode 提示则保持显式无界。窗口重建与历史回放应用相同的投影，因此刷新后，来自已丢弃尝试的日志分片绝不会重新显示为中断回复。没有 `llm/retry` 的终止轮次保留现有行为：可见但尚未定稿的输出会冻结为中断的 assistant 节点。
 
 ## 会话 fork
 
@@ -50,10 +56,10 @@ Session 对象会在事件 wire 边界依据生产方的完整字段契约，验
 
 #### KV Cache 影响
 
-更改目标可能改变提供方侧的缓存复用，或使其失效；该包（package）本身不会改变提示词前缀。
+更改目标可能改变提供方侧的缓存复用，或使其失效；该包本身不会改变提示词前缀。
 
 ## 已知限制与暂缓事项
 
-- **`loader.unload` 是 stub（抛出 not-implemented）**：完整链路（fiber dispose（资源释放） → 注册级联 → 样式移除）随 HMR（热模块替换）项目落地。
+- **`loader.unload` 是 stub（抛出 not-implemented）**：完整链路（fiber dispose → 注册级联 → 样式移除）随 HMR（热模块替换）项目落地。
 - **scope 拆卸由阶段驱动，目前只能有一个占用者**：已 staged 的会话精确跟随 `list.current`（staging 就是打开信号：事件窗口打开 ⟺ 会话位于 stage）；在 staged 状态下被移除的会话，其 scope 会冻结保留，直到 stage 转向其他会话，而非直到真实观察者数量降为零。解析（`binding()`／`scope()`）只是纯寻址，可安全用于渲染；渲染层经 `currentProvideInfo` observable 读取当前 bundle。并发 pane 落地时，staged 状态可以扩展为多 pane 列表。
 - **插件组合包从该包导入值时必须使用 `/client` 子路径**：裸包名不在 loader externals 表中，会内联第二个模块实例；其私有 scope-tag Symbol 永远无法匹配。这是空状态 P0 的事故复盘（postmortem）所记录的问题。

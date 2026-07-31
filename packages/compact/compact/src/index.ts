@@ -8,24 +8,15 @@
  */
 
 import { Context, Service } from 'cordis'
-import type { MessageSource } from '@deepseek-ai/dsh-llm'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { CompactionResult } from './types.ts'
 
 export type { CompactionResult } from './types.ts'
 export { toolPairingBalancedAfter, toolPairingBalancedBefore } from './tool-pairing.ts'
-
-/** Canonical source for the replacement user message produced by every compaction backend. */
-export const COMPACT_CHECKPOINT_SOURCE = Object.freeze({ kind: 'plugin', plugin: 'compact' } as const)
-
-/**
- * Test whether a persisted message source identifies a compaction checkpoint.
- * @param source - source restored from a surface user message.
- * @returns whether the source carries the backend-independent checkpoint marker.
- */
-export function isCompactCheckpointSource(source: MessageSource): boolean {
-  return source.kind === 'plugin' && source.plugin === COMPACT_CHECKPOINT_SOURCE.plugin
-}
+// The checkpoint source and its predicate are declared on the cordis-free
+// `./checkpoint` leaf so client and wire programs can name them without this
+// root's Context merge; the root stays the host-side entry point for both.
+export { COMPACT_CHECKPOINT_SOURCE, isCompactCheckpointSource } from './checkpoint.ts'
 
 /** Why automatic policy is asking a backend to consider compaction. */
 export type CompactionTrigger = 'pressure' | 'context-overflow'

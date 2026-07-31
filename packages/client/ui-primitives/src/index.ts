@@ -24,14 +24,14 @@ export { JsonTree } from './JsonTree.tsx'
 export type { JsonTreeProps, JsonTreeLabels } from './JsonTree.tsx'
 export { TerminalBlock, DEFAULT_TERMINAL_MAX_LINES } from './TerminalBlock.tsx'
 export type { TerminalBlockProps, TerminalBlockLabels } from './TerminalBlock.tsx'
-export { SearchBlock, DEFAULT_SEARCH_MAX_LINES } from './SearchBlock.tsx'
-export type {
-  SearchBlockProps, SearchMatchesBlockProps, SearchPathsBlockProps, SearchFileGroup, SearchBlockLineMatch,
-} from './SearchBlock.tsx'
 export { ReadBlock, DEFAULT_READ_MAX_LINES } from './ReadBlock.tsx'
 export type { ReadBlockProps, ReadBlockLine } from './ReadBlock.tsx'
 export { DiffBlock, DEFAULT_DIFF_MAX_LINES } from './DiffBlock.tsx'
 export type { DiffBlockProps, DiffHunk } from './DiffBlock.tsx'
+export { SearchBlock, DEFAULT_SEARCH_MAX_LINES } from './SearchBlock.tsx'
+export type {
+  SearchBlockProps, SearchMatchesBlockProps, SearchPathsBlockProps, SearchFileGroup, SearchBlockLineMatch,
+} from './SearchBlock.tsx'
 export { WebBlock, DEFAULT_WEB_MAX_SOURCES } from './WebBlock.tsx'
 export type { WebBlockProps, WebSearchBlockProps, WebFetchBlockProps, WebSourceView } from './WebBlock.tsx'
 export { CodeBlock } from './markdown/CodeBlock.tsx'

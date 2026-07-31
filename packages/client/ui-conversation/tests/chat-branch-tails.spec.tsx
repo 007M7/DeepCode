@@ -164,6 +164,34 @@ describe('MessageItem arms', () => {
     expect(unknownView.getByText(/未知 surface 事件：surface\/next/)).toBeTruthy()
   })
 
+  it('a compaction marker discloses its summary and never shows the framed checkpoint', () => {
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'compaction', seq: 5, time: 1_000,
+        summary: '## 摘要标题\n\n保留的事实。',
+      }}
+      />,
+    )
+    const row = view.getByRole('button', { name: /上下文已压缩/ })
+    expect(row.getAttribute('aria-expanded')).toBe('false')
+    expect(view.queryByText(/保留的事实/)).toBeNull()
+    fireEvent.click(row)
+    expect(row.getAttribute('aria-expanded')).toBe('true')
+    expect(view.getByRole('heading', { name: '摘要标题' })).toBeTruthy()
+    fireEvent.click(row)
+    expect(row.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('a marker whose provenance fell outside the window is not expandable', () => {
+    const view = render(<MessageItem t={t} node={{ kind: 'compaction', seq: 6, time: 1_000, summary: null }} />)
+    const row = view.getByRole('button', { name: /上下文已压缩/ })
+    expect(row).toHaveProperty('disabled', true)
+    expect(row.getAttribute('aria-expanded')).toBeNull()
+    expect(view.getByText('压缩摘要不可用')).toBeTruthy()
+    fireEvent.click(row) // a disabled control stays collapsed
+    expect(row.getAttribute('aria-expanded')).toBeNull()
+  })
+
   it('collapses retry details behind the durable model retry status', () => {
     vi.useFakeTimers()
     vi.setSystemTime(10_000)

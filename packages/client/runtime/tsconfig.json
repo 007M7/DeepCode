@@ -30,6 +30,9 @@
       "path": "../../ui/commands"
     },
     {
+      "path": "../../compact/compact"
+    },
+    {
       "path": "../../session-projection/session-projection"
     },
     {

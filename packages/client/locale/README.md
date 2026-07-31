@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Locale plugin: LocaleService — the browser locale preference (`zh`/`en`, persisted under `dsh.locale`; `locale/change` fires on switches only) plus the ns×locale dictionary registry (typed `register(ns, {zh, en})` checked against `LocaleNamespaceMap`, `bind(ns)`→`TranslateNS<ns>`; lookup chain ns → common → zh → key). The service implements the slot system's `LocaleFace` and installs itself through `ctx.slots.installLocale`, backing the framework-injected `t` standard seat (`Translate`/`TranslateNS` are ui-slots types; import them from there — this package only re-exports for dictionary owners' convenience).
+Locale plugin: LocaleService — the browser locale preference (`zh`/`en`, persisted under `dsh.locale`; with nothing persisted a fresh browser opens in the language `navigator` asks for — matched on the primary subtag, `zh` when it asks for none this app ships; `locale/change` fires on switches only) plus the ns×locale dictionary registry (typed `register(ns, {zh, en})` checked against `LocaleNamespaceMap`, `bind(ns)`→`TranslateNS<ns>`; lookup chain ns → common → zh → key). The service implements the slot system's `LocaleFace` and installs itself through `ctx.slots.installLocale`, backing the framework-injected `t` standard seat (`Translate`/`TranslateNS` are ui-slots types; import them from there — this package only re-exports for dictionary owners' convenience).
 
 ## Model Experience
 

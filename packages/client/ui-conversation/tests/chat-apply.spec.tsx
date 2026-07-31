@@ -9,11 +9,15 @@
 // stops at the assembly surface.
 
 import { describe, expect, it, vi } from 'vitest'
-import { SlotTestRuntime } from '@deepseek-ai/dsh-client-test-runtime'
+import { SlotTestRuntime, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-conversation/client'
+
+// The service reads its initial locale from the browser; these specs assert
+// the shipped Chinese copy, so they state the browser they assume.
+usePinnedBrowserLanguages('zh-CN')
 
 const ROOT = 'root-1' as SessionId
 const CHILD = 'child-1' as SessionId
@@ -84,15 +88,15 @@ describe('apply wiring', () => {
     await b.runtime.dispose()
   })
 
-  it('mounts the bash sample, the search rows, the read row, the file-mutation rows, the web rows, and the product rows as keyed entries through the load-order seam', async () => {
+  it('mounts the bash sample, the read row, the file-mutation rows, the search rows (grep + glob), the web rows, and the product rows as keyed entries through the load-order seam', async () => {
     const b = await bench()
     // Every registrant plugin's inject: ['slots', 'conversation'] resolved — the
     // service being present implies the chat entry declared the hole first. The
-    // one search row registers under both grep and glob; the file-mutation
-    // registrant claims both write and edit for the diff card; the web rows
-    // register one component under both web tool names.
+    // file-mutation registrant claims both write and edit for the diff card; the
+    // one search row registers under both grep and glob; the web rows register
+    // one component under both web tool names.
     const entries = b.slots.entries('conversation.chat.toolview')
-    expect(entries.map(e => e.options.key)).toEqual(['bash', 'grep', 'glob', 'read', 'edit', 'write', 'web_search', 'web_fetch', 'todo_write', 'ask_user_question'])
+    expect(entries.map(e => e.options.key)).toEqual(['bash', 'read', 'edit', 'write', 'grep', 'glob', 'web_search', 'web_fetch', 'todo_write', 'ask_user_question'])
     // Stats stick with the composer (not inside ChatView).
     expect(b.slots.entries('conversation.composer.dock').map(e => e.options.id)).toEqual(['stats'])
     await b.runtime.dispose()

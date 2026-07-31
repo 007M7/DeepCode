@@ -11,13 +11,14 @@
 // masking its credential, without making a model call.
 //
 // Composition divergences from `dsh web`, all deliberate, all via include
-// patches after the shipped surface overlay: temp persistenceRoot; local skill
-// roots confined to the temp workspace; workspace-context disabled (recorded
-// fixtures must not embed this repo's AGENTS.md); session-title-llm disabled
-// (its fire-and-forget title call would race the loop for the session's replay
-// cursor); webserver pinned to port 0 with the built dist; ordinary keyless
-// modes disable llm-deepseek and fill the open llm seam post-boot with
-// installLlmReplay on the settled root ctx
+// patches after the shipped surface overlay, over the SAME tree (never a
+// second yml): temp persistenceRoot; host-level skill roots confined to the
+// temp workspace while project skill discovery remains real; workspace-context
+// disabled (recorded fixtures must not embed this repo's AGENTS.md);
+// session-title-llm disabled (its fire-and-forget title call would race the
+// loop for the session's replay cursor); webserver pinned to port 0 with the
+// built dist; ordinary keyless modes disable llm-deepseek and fill the open
+// llm seam post-boot with installLlmReplay on the settled root ctx
 // (the plugin-row path discards the ReplayHandle; the direct install keeps
 // assertConsumed for the teardown fixture-consumption check).
 import { existsSync } from 'node:fs'
@@ -32,6 +33,7 @@ import Loader from '@cordisjs/plugin-loader'
 import Include, { type PatchOptions } from '@cordisjs/plugin-include'
 import { scrubRequestHeaders } from '@deepseek-ai/dsh-acp-snapshot'
 import { assertEntriesLoaded, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
+import { dshHomePath } from '@deepseek-ai/dsh-paths'
 import {
   WELCOME_NOTICE_ACK_FIELD, WELCOME_NOTICE_SETTINGS_NAMESPACE, WELCOME_NOTICE_VERSION,
 } from '@deepseek-ai/dsh-client-ui-settings-general'
@@ -281,6 +283,8 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   try {
     process.chdir(workspaceCwd)
     ctx.baseUrl = pathToFileURL(join(resolve(CONFIG_PATH), '..')).href + '/'
+    // This direct Loader harness supplies the same root-path capability as app-boot.
+    ctx.provide('dshHomePath', dshHomePath)
     await ctx.plugin(Loader)
     ctx.loader.builtins.include = Include
     // The shipped CLI deliberately has no dependency on this opt-in package.

@@ -8,12 +8,10 @@
  * from it, so `dsh` acts on whatever project it is launched in. Session storage
  * is the exception — it lives under the Harness home so `/resume` reaches every
  * workspace, and an in-place resume enters the selected session's own directory.
- * `dsh meta`
- * ({@link runMeta}) is the one exception — it makes this harness checkout the
- * workspace. `dsh upgrade` ({@link runSkillSession}) is a fresh
- * session whose first turn auto-invokes a bundled skill. After boot, the
- * agent's system prompt is told the path to this harness checkout so it can
- * find its own source.
+ * `dsh meta` is the one exception — it makes this harness checkout the
+ * workspace. `dsh upgrade` is a fresh session whose first turn auto-invokes a
+ * bundled skill. After boot, the agent's system prompt is told the path to this
+ * harness checkout so it can find its own source.
  * @module @deepseek-ai/dsh/tui
  */
 
@@ -61,30 +59,11 @@ const SESSION_QUERY_DB = `session-query-${String(process.pid)}-${randomUUID()}.d
 // The harness checkout root: three hops up from apps/cli/{src,lib}, resolved
 // from this bin's location so it holds however `dsh` is launched (a PATH
 // symlink, an arbitrary cwd). The agent is told where its own source lives.
-const SOURCE_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
+/** The harness checkout used as the `dsh meta` workspace and source prompt path. */
+export const SOURCE_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 
 /* v8 ignore start -- composition over the unit-tested dsh-app-boot helpers;
    the CLI PTY smoke drives this path end to end, personal overlay included */
-/**
- * Run the interactive TUI with this harness checkout as the workspace
- * (`dsh meta`), whatever directory it was launched from.
- */
-export async function runMeta(): Promise<void> {
-  return runTui(undefined, undefined, SOURCE_ROOT)
-}
-
-/**
- * Run the interactive TUI as a guided fresh session whose first turn invokes a
- * bundled skill (`dsh upgrade` → `dsh-upgrade`).
- * Always mints a fresh session in the invoking directory; the skill is seeded
- * only on this first launch, so a later `--resume` of the session is an ordinary
- * TUI session with no re-injection.
- * @param skill - the bundled skill name to auto-invoke as the first turn.
- */
-export async function runSkillSession(skill: string): Promise<void> {
-  return runTui(undefined, undefined, undefined, skill)
-}
-
 /**
  * Run the interactive TUI from the invoking directory.
  * @param config - an overlay patch list applied over the shared base and the
@@ -99,9 +78,8 @@ export async function runSkillSession(skill: string): Promise<void> {
  * @param workspace - a directory to make the workspace instead of the invoking
  * one, or `undefined` to keep the cwd. Only `dsh meta` passes it.
  * @param initialSkill - a bundled skill to auto-invoke as a fresh session's
- * first turn, or `undefined`. Set only by {@link runSkillSession} and ignored
- * on a resume, so it never re-fires; reaches the app through
- * {@link INITIAL_SKILL_KEY}.
+ * first turn, or `undefined`. Set only by `dsh upgrade` and ignored on a resume,
+ * so it never re-fires; reaches the app through {@link INITIAL_SKILL_KEY}.
  * @param configReplace - a config path to boot as the ENTIRE tree, bypassing the
  * shared base, the TUI overlay, and the personal overlay alike, or `undefined`
  * to compose them; already parsed from `--config-replace`.

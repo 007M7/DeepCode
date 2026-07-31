@@ -110,8 +110,8 @@ function mount(
   }
 }
 
-function chooseItem(name: '打开本地文件夹…' | '新建工作区'): void {
-  fireEvent.click(screen.getByRole('menuitem', { name }))
+function chooseAdd(): void {
+  fireEvent.click(screen.getByRole('menuitem', { name: '添加工作区…' }))
 }
 
 describe('WorkspacePicker', () => {
@@ -121,24 +121,12 @@ describe('WorkspacePicker', () => {
     expect(b.onPick).toHaveBeenCalledWith(wid('alpha'))
   })
 
-  it('creates a real Workspace from a name and focuses its frontend Session target', async () => {
-    const created = workspace('new', 'New')
-    const createWorkspace = vi.fn(async () => created)
-    const b = mount([], createWorkspace)
-    chooseItem('新建工作区')
-    const input = screen.getByLabelText('新工作区名称')
-    fireEvent.change(input, { target: { value: 'project-one' } })
-    fireEvent.click(screen.getByRole('button', { name: '创建工作区' }))
-    expect(createWorkspace).toHaveBeenCalledWith({ name: 'project-one' })
-    await waitFor(() => { expect(b.onPick).toHaveBeenCalledWith(created.workspaceId) })
-  })
-
   it('opens the composed directory flow, adopts its picked path, and selects the returned Workspace', async () => {
     const created = { ...workspace('adopted'), path: '/tmp/project', title: 'project' }
     const createWorkspace = vi.fn(async () => created)
-    const b = mount([], createWorkspace)
+    const b = mount([workspace('alpha', 'Alpha')], createWorkspace)
     expect(screen.queryByTestId('directory-flow')).toBeNull()
-    chooseItem('打开本地文件夹…')
+    chooseAdd()
     expect(b.onClose).toHaveBeenCalled()
     expect(screen.getByTestId('directory-flow')).toBeTruthy()
     await act(async () => { b.probe.owner!.onPicked('/tmp/project') })
@@ -148,9 +136,19 @@ describe('WorkspacePicker', () => {
     expect(screen.queryByTestId('directory-flow')).toBeNull()
   })
 
-  it('treats flow cancellation as a silent no-op', () => {
+  it('raises the flow straight from the anchor gesture when adding is the only entry', () => {
+    // Nothing to list and one action left: a one-row menu would offer no
+    // choice, so the owner's open request lands in the flow itself.
     const b = mount([])
-    chooseItem('打开本地文件夹…')
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(screen.queryByRole('menuitem', { name: '添加工作区…' })).toBeNull()
+    expect(b.onClose).toHaveBeenCalled()
+    expect(screen.getByTestId('directory-flow')).toBeTruthy()
+  })
+
+  it('treats flow cancellation as a silent no-op', () => {
+    const b = mount([workspace('alpha', 'Alpha')])
+    chooseAdd()
     act(() => { b.probe.owner!.onCancel() })
     expect(screen.queryByTestId('directory-flow')).toBeNull()
     expect(b.createWorkspace).not.toHaveBeenCalled()
@@ -164,8 +162,8 @@ describe('WorkspacePicker', () => {
         code: 'workspace-name-conflict', message: 'project already exists', details: { name: 'project' },
       })
     })
-    const b = mount([], createWorkspace)
-    chooseItem('打开本地文件夹…')
+    const b = mount([workspace('alpha', 'Alpha')], createWorkspace)
+    chooseAdd()
     await act(async () => { b.probe.owner!.onPicked('/one/project') })
     await waitFor(() => {
       expect(screen.getByRole('dialog', { name: '已存在同名工作区' })).toBeTruthy()
@@ -178,103 +176,57 @@ describe('WorkspacePicker', () => {
     expect(b.onPick).not.toHaveBeenCalled()
   })
 
+  it('reports a non-Error adoption failure in the folder-error surface', async () => {
+    const b = mount([workspace('alpha', 'Alpha')], vi.fn(async () => { throw 'permission denied' }))
+    chooseAdd()
+    await act(async () => { b.probe.owner!.onPicked('/one/project') })
+    await waitFor(() => {
+      expect(screen.getByRole('dialog', { name: '无法打开文件夹' })).toBeTruthy()
+    })
+    expect(screen.getByRole('alert').textContent).toBe('permission denied')
+    expect(b.onPick).not.toHaveBeenCalled()
+  })
+
   it('disables every menu action from flow open through adoption, and reports busy to the flow', async () => {
     let resolve!: (workspace: WorkspaceView) => void
     const pending = new Promise<WorkspaceView>((settle) => { resolve = settle })
     const created = workspace('adopted')
     const b = mount([workspace('alpha', 'Alpha')], vi.fn(() => pending))
-    chooseItem('打开本地文件夹…')
+    chooseAdd()
     // The flow is open but nothing is picked yet: a chooser pending on the
     // host display must already block concurrent workspace actions.
     expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: 'Alpha' }).disabled).toBe(true)
-    expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: '新建工作区' }).disabled).toBe(true)
+    expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: '添加工作区…' }).disabled).toBe(true)
     act(() => { b.probe.owner!.onPicked('/tmp/project') })
     expect(b.probe.owner!.busy).toBe(true)
-    expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: '打开本地文件夹…' }).disabled).toBe(true)
-    expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: '新建工作区' }).disabled).toBe(true)
+    expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: 'Alpha' }).disabled).toBe(true)
+    expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: '添加工作区…' }).disabled).toBe(true)
     await act(async () => { resolve(created); await pending })
     expect(b.probe.owner!.busy).toBe(false)
   })
 
   it('shows the flow-reported failure in the folder-error surface', () => {
-    const b = mount([])
-    chooseItem('打开本地文件夹…')
+    const b = mount([workspace('alpha', 'Alpha')])
+    chooseAdd()
     act(() => { b.probe.owner!.onError('no chooser installed') })
     expect(screen.getByRole('alert').textContent).toBe('no chooser installed')
     expect(screen.queryByTestId('directory-flow')).toBeNull()
     expect(b.createWorkspace).not.toHaveBeenCalled()
   })
 
-  it('closes a creation modal when the user cancels', () => {
-    mount([])
-    chooseItem('新建工作区')
+  it('closes the folder-error surface when the user cancels', () => {
+    const b = mount([workspace('alpha', 'Alpha')])
+    chooseAdd()
+    act(() => { b.probe.owner!.onError('no chooser installed') })
     fireEvent.click(screen.getByRole('button', { name: '取消' }))
     expect(screen.queryByRole('dialog')).toBeNull()
-  })
-
-  it('blocks a create-new name already present in the Workspace list', () => {
-    const b = mount([workspace('alpha', 'Alpha')])
-    chooseItem('新建工作区')
-    fireEvent.change(screen.getByLabelText('新工作区名称'), { target: { value: ' Alpha ' } })
-    expect(screen.getByRole('alert').textContent).toBe('已存在名为“Alpha”的工作区。')
-    expect(screen.getByRole<HTMLButtonElement>('button', { name: '创建工作区' }).disabled).toBe(true)
-    fireEvent.keyDown(screen.getByLabelText('新工作区名称'), { key: 'Enter' })
-    expect(b.createWorkspace).not.toHaveBeenCalled()
-  })
-
-  it('does not flash a duplicate alert when the successful create frame arrives before its unary response', async () => {
-    let resolve!: (workspace: WorkspaceView) => void
-    const pending = new Promise<WorkspaceView>((settle) => { resolve = settle })
-    const created = workspace('fresh', 'same-name')
-    const b = mount([], vi.fn(() => pending))
-    chooseItem('新建工作区')
-    fireEvent.change(screen.getByLabelText('新工作区名称'), { target: { value: 'same-name' } })
-    fireEvent.click(screen.getByRole('button', { name: '创建工作区' }))
-
-    b.rerenderItems([created])
-    expect(screen.getByRole('status').textContent).toBe('正在创建工作区…')
-    expect(screen.queryByRole('alert')).toBeNull()
-    await act(async () => { resolve(created); await pending })
-    expect(b.onPick).toHaveBeenCalledWith(created.workspaceId)
-  })
-
-  it('exposes creation phase and error text while retaining the modal for retry', async () => {
-    let reject!: (reason: unknown) => void
-    const pending = new Promise<WorkspaceView>((_resolve, rejectPromise) => { reject = rejectPromise })
-    const createWorkspace = vi.fn(() => pending)
-    const b = mount([], createWorkspace)
-    chooseItem('新建工作区')
-    const input = screen.getByLabelText('新工作区名称')
-    fireEvent.keyDown(input, { key: 'ArrowRight' })
-    fireEvent.change(input, { target: { value: 'broken' } })
-    fireEvent.click(screen.getByRole('button', { name: '创建工作区' }))
-    expect(screen.getByRole('status').textContent).toBe('正在创建工作区…')
-    fireEvent.keyDown(input, { key: 'Enter' })
-    expect(createWorkspace).toHaveBeenCalledTimes(1)
-    fireEvent.keyDown(document, { key: 'Escape' })
-    expect(screen.getByRole('dialog')).toBeTruthy()
-    await act(async () => { reject(new Error('disk unavailable')); await pending.catch(() => {}) })
-    expect(screen.getByRole('alert').textContent).toBe('Workspace creation failed: disk unavailable')
-    expect(b.view.getByRole('dialog')).toBeTruthy()
-  })
-
-  it('reports non-Error creation failures', async () => {
-    const b = mount([], vi.fn(async () => { throw 'permission denied' }))
-    chooseItem('新建工作区')
-    // The name field starts empty (no prefill); a name is required to submit.
-    fireEvent.change(screen.getByLabelText('新工作区名称'), { target: { value: 'broken' } })
-    fireEvent.click(screen.getByRole('button', { name: '创建工作区' }))
-    await waitFor(() => {
-      expect(screen.getByRole('alert').textContent).toBe('Workspace creation failed: permission denied')
-    })
-    expect(b.onPick).not.toHaveBeenCalled()
   })
 
   it('waits to show its menu until an optional anchor is available', () => {
     const { renderSlot } = flowProbe()
     render(
       <WorkspacePicker
-        open useSessions={hook(sessions)} useWorkspaces={hook(workspaceState([]))}
+        open useSessions={hook(sessions)} useWorkspaces={hook(workspaceState([workspace('alpha', 'Alpha')]))}
         onPick={vi.fn()} onClose={vi.fn()} createWorkspace={vi.fn()}
         useDirectoryFlow={occupancySource().useDirectoryFlow} renderSlot={renderSlot} t={t}
       />,
@@ -282,7 +234,7 @@ describe('WorkspacePicker', () => {
     expect(screen.queryByRole('menu')).toBeNull()
   })
 
-  it('shows list loading through a stable status surface', () => {
+  it('keeps the menu up while the list baseline is still in flight', () => {
     const state: WorkspaceListState = {
       ...workspaceState([]), phase: 'pending', state: 'loading', baselinesReady: false,
     }
@@ -294,26 +246,58 @@ describe('WorkspacePicker', () => {
         useDirectoryFlow={occupancySource().useDirectoryFlow} renderSlot={renderSlot} t={t}
       />,
     )
+    // An empty list is not final yet: jumping into the directory flow here
+    // would pre-empt the workspaces about to arrive.
     expect(screen.getByRole('status').textContent).toBe('正在加载工作区…')
+    expect(screen.queryByTestId('directory-flow')).toBeNull()
+    expect(screen.getByRole('menuitem', { name: '添加工作区…' })).toBeTruthy()
   })
 
-  it('hides the folder entry while the directory-flow hole is empty', () => {
-    mount([], vi.fn(), occupancySource(false))
-    expect(screen.getByRole('menuitem', { name: '新建工作区' })).toBeTruthy()
-    expect(screen.queryByRole('menuitem', { name: '打开本地文件夹…' })).toBeNull()
-  })
-
-  it('shows the folder entry when a flow package activates after the first paint', () => {
+  it('shows no popover at all when nothing is listed and nothing can be added', () => {
+    // A composition mounting this package without any directory-picker: the
+    // hero anchor has neither a Workspace to pick nor a way to add one, so it
+    // must not claim a choice with an empty menu.
     const b = mount([], vi.fn(), occupancySource(false))
-    expect(screen.queryByRole('menuitem', { name: '打开本地文件夹…' })).toBeNull()
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(screen.queryByTestId('directory-flow')).toBeNull()
+    expect(b.createWorkspace).not.toHaveBeenCalled()
+  })
+
+  it('holds the anchor gesture while an adoption is still settling', async () => {
+    // The auto-open path obeys the same busy rule as the disabled menu entry:
+    // an occupant that re-registers mid-adoption must not raise a second flow.
+    let resolve!: (workspace: WorkspaceView) => void
+    const pending = new Promise<WorkspaceView>((settle) => { resolve = settle })
+    const created = workspace('adopted')
+    const b = mount([workspace('alpha', 'Alpha')], vi.fn(() => pending))
+    chooseAdd()
+    act(() => { b.probe.owner!.onPicked('/tmp/project') })
+    expect(b.probe.owner!.busy).toBe(true)
+    // The list empties under the still-settling adoption (the workspace was
+    // deleted elsewhere), which would otherwise make add the only entry.
+    act(() => { b.rerenderItems([]) })
+    expect(b.createWorkspace).toHaveBeenCalledTimes(1)
+    await act(async () => { resolve(created); await pending })
+    expect(b.probe.owner!.busy).toBe(false)
+  })
+
+  it('hides the add entry while the directory-flow hole is empty', () => {
+    mount([workspace('alpha', 'Alpha')], vi.fn(), occupancySource(false))
+    expect(screen.getByRole('menuitem', { name: 'Alpha' })).toBeTruthy()
+    expect(screen.queryByRole('menuitem', { name: '添加工作区…' })).toBeNull()
+  })
+
+  it('shows the add entry when a flow package activates after the first paint', () => {
+    const b = mount([workspace('alpha', 'Alpha')], vi.fn(), occupancySource(false))
+    expect(screen.queryByRole('menuitem', { name: '添加工作区…' })).toBeNull()
     // Registration changes flow through the subscription, no re-render needed.
     act(() => { b.occupancy.flip(true) })
-    expect(screen.getByRole('menuitem', { name: '打开本地文件夹…' })).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: '添加工作区…' })).toBeTruthy()
   })
 
   it('keeps Choose again inert while the flow occupant is gone, and snaps back a flow opened over an empty hole', async () => {
-    const b = mount([], vi.fn(async () => { throw new Error('adoption failed') }))
-    chooseItem('打开本地文件夹…')
+    const b = mount([workspace('alpha', 'Alpha')], vi.fn(async () => { throw new Error('adoption failed') }))
+    chooseAdd()
     await act(async () => { b.probe.owner!.onPicked('/one/project') })
     await waitFor(() => { expect(screen.getByRole('dialog', { name: '无法打开文件夹' })).toBeTruthy() })
     // The occupant unloads while the error dialog is up: retrying would open
@@ -322,18 +306,18 @@ describe('WorkspacePicker', () => {
     expect(screen.getByRole<HTMLButtonElement>('button', { name: '重新选择' }).disabled).toBe(true)
     // Cancel stays the way out, and the menu actions are usable again.
     fireEvent.click(screen.getByRole('button', { name: '取消' }))
-    expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: '新建工作区' }).disabled).toBe(false)
+    expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: 'Alpha' }).disabled).toBe(false)
   })
 
   it('withdraws an open flow when its occupant unloads, re-enabling the menu actions', () => {
-    const b = mount([])
-    chooseItem('打开本地文件夹…')
+    const b = mount([workspace('alpha', 'Alpha')])
+    chooseAdd()
     expect(screen.getByTestId('directory-flow')).toBeTruthy()
     // The flow plugin unloads mid-interaction (HMR): nobody is left to
     // cancel, so the owner withdraws and the actions come back.
     act(() => { b.occupancy.flip(false) })
     expect(b.probe.owner!.open).toBe(false)
-    expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: '新建工作区' }).disabled).toBe(false)
-    expect(screen.queryByRole('menuitem', { name: '打开本地文件夹…' })).toBeNull()
+    expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: 'Alpha' }).disabled).toBe(false)
+    expect(screen.queryByRole('menuitem', { name: '添加工作区…' })).toBeNull()
   })
 })
