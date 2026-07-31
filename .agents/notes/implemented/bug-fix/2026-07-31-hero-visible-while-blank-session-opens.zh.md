@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-`ConversationRoot` 在读取会话快照的同时读取会话列表摘要的 `blank` 标志，并让"摘要已证明为空白"的会话豁免 settling：`settling` 额外要求 `summaryBlank !== true`，而 `hero` 在摘要证明会话为空白时，接受 `openState === 'loading'` 期间处于 blank 的 composer。列表已报告为空白的会话只可能落到 hero，因此隐藏毫无收益，只换来一次可见闪烁。当摘要行缺失时——会话尚未出现在列表中——`summaryBlank` 为 `undefined`，保守的 settling 隐藏行为保持不变。
+`ConversationRoot` 在读取会话快照的同时读取会话列表摘要的 `blank` 标志，并让"摘要已证明为空白"的会话豁免 settling：`settling` 额外要求 `summaryBlank !== true`，而 `hero` 在摘要证明会话为空白时接受处于 blank 的 composer——覆盖全部 open state，而非仅 `loading`。列表已报告为空白的会话只可能落到 hero，因此隐藏毫无收益，只换来一次可见闪烁；同一份证明在打开开始之前（`cold`）与打开失败之后（`error`）同样成立，而此前的条件会在这两种状态下落到 active 阶段，在 `ConversationSession` 为空白会话隐藏的外壳之下渲染出一条停靠的裸 composer。只要摘要没有证明会话为空白——无论是报告 `blank: false` 的行，还是列表尚未跟上因而根本没有该行——`summaryBlank` 都不为 `true`，保守的 settling 隐藏行为保持不变。
 
 摘要标志与快照自身的 `blank` 是两个不同来源：快照描述正在打开的这个会话，摘要则是在打开操作完成之前就已存在的列表行。只有后者足够早，可用于决定阶段。
 
@@ -30,4 +30,6 @@ Status: implemented
 
 ## 影响
 
-启动自动选择会立即渲染 hero，并在整个历史往返期间保持 composer 座位与 header 可见，因此启动进入最近工作区不再像页面重载。没有列表摘要的会话保持原有的 settling 行为，这道防护仍覆盖它当初针对的场景。骨架测试固定了两条分支：未列出的空白会话进入 settling；摘要已证明为空白的会话在 `loading` 期间渲染 hero 外壳与可用的文本框。
+启动自动选择会立即渲染 hero，并在整个历史往返期间保持 composer 座位与 header 可见，因此启动进入最近工作区不再像页面重载。摘要未证明为空白的会话保持原有的 settling 行为，这道防护仍覆盖它当初针对的场景。骨架测试固定了摘要的三种形态：报告 `blank: false` 的行进入 settling；根本没有该行同样进入 settling；摘要已证明为空白的会话在 `loading` 期间渲染 hero 外壳与可用的文本框。
+
+组装级覆盖是 `apps/web/tests/startup-auto-selection.e2e.ts`（无密钥的 Web 浏览器泳道）：它注册一个工作区，在浏览器网络边界上扣住 `session.history` 的响应，并在自动选择的打开仍在飞行途中断言可见画面——hero 阶段、hero 标题、已绘制的 composer——外加整次加载记录到的阶段时间线恰好为 `['hero']`。扣住这次往返正是它成为回归测试而非竞态的原因：对着回环主机，打开会快到无从采样；而一旦回退这条豁免，被扣住的这段窗口恰恰就是根节点报告 `settling` 的时刻。

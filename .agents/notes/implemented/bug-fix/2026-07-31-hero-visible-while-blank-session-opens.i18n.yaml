@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-07-31-hero-visible-while-blank-session-opens.md
-2026-07-31-hero-visible-while-blank-session-opens.md: 10339c5e6540daa84e691c01edf335aaa2fdf8aa
-2026-07-31-hero-visible-while-blank-session-opens.zh.md: 571962804489112dcccd66d18317835bab45e30e
+2026-07-31-hero-visible-while-blank-session-opens.md: b39963beffa403ef6fa44735aa88395a99139751
+2026-07-31-hero-visible-while-blank-session-opens.zh.md: b451d7c00ec7eb8d736134e738d72e5e07fd1b04
