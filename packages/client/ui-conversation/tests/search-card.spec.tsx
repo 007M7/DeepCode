@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 // The search render intent on the web side: the pure searchCardModel derivation
 // over resultView, and the conversation render sites that consume it — the chat
-// tool row (GenericToolCard's expand-gated body and SearchRow's resident card)
-// and the details panel's Output section. The keyed registration under both grep
-// and glob is pinned here too.
+// tool row (GenericToolCard's fallback body and SearchRow, both composing the
+// shared ToolRow with the search card collapsed by default) and the details
+// panel's Output section (resident, full height). The keyed registration under
+// both grep and glob is pinned here too.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
@@ -13,7 +14,7 @@ import type {
   ConversationSnapshot, RunningToolCall, SessionId, SessionListState, ToolResultNode, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
-import type { SelectionTarget, ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { SelectionTarget } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { CHAT_SEARCH_MAX_LINES, searchCardModel } from '../src/client/contract/search-card-model.ts'
@@ -22,6 +23,9 @@ import { createChatStore } from '../src/client/stores.ts'
 import { GenericToolCard, type GenericToolCardProps } from '../src/client/chat/GenericToolCard.tsx'
 import { DetailsPanel } from '../src/client/skeleton/DetailsPanel.tsx'
 import { SearchRow, searchToolview } from '../src/client/toolviews/search-row.tsx'
+
+/** SearchRow now composes ToolRow, so its props include the locale `t` seat. */
+type SearchRowProps = Parameters<typeof SearchRow>[0]
 
 afterEach(cleanup)
 
@@ -228,21 +232,32 @@ describe('chat row search body (GenericToolCard fallback)', () => {
 })
 
 describe('SearchRow keyed card', () => {
-  const rowProps = (block: RunningToolCall | ToolResultNode, toolName: string): ToolRowProps => ({
-    callId: 'c1', toolName, block, openFile: vi.fn(), sessionId: SID,
-  } as unknown as ToolRowProps)
+  const rowProps = (block: RunningToolCall | ToolResultNode, toolName: string): SearchRowProps => ({
+    callId: 'c1', toolName, block, openFile: vi.fn(), sessionId: SID, t,
+  } as unknown as SearchRowProps)
 
-  it('renders the grep card resident under the summary row, without an expand gesture', () => {
+  /** The whole summary row is the expand toggle (ToolRow's unified interaction). */
+  const toggleRow = (view: { container: HTMLElement }) => {
+    fireEvent.click(view.container.querySelector('[data-expandable]')!)
+  }
+
+  it('collapses to the summary row; expanding reveals the grep card', () => {
     const view = render(<SearchRow {...rowProps(settledGrep(), 'grep')} />)
     expect(view.getByText('Search')).toBeTruthy()
+    // Collapsed: the card is not in the DOM until the row is expanded.
+    expect(searchKindOf(view.container)).toBeNull()
+    expect(view.queryByText(/const foo = 1/)).toBeNull()
+    toggleRow(view)
     expect(searchRows(view.container)).toContain('12: const foo = 1')
     expect(searchKindOf(view.container)).toBe('matches')
-    // The card's controls are the row's only interactions.
+    // The card's copy control lives inside the expanded body.
     expect(view.getByText('复制')).toBeTruthy()
   })
 
-  it('renders the glob path card resident', () => {
+  it('expands to the glob path card', () => {
     const view = render(<SearchRow {...rowProps(settledGlob(), 'glob')} />)
+    expect(searchKindOf(view.container)).toBeNull()
+    toggleRow(view)
     expect(view.getByText('src/a.ts')).toBeTruthy()
     expect(searchKindOf(view.container)).toBe('paths')
   })
@@ -250,7 +265,7 @@ describe('SearchRow keyed card', () => {
   it('agrees with the summary row about the run state', () => {
     const runningView = render(<SearchRow {...rowProps(runningGrep(), 'grep')} />)
     expect(runningView.container.querySelector('[data-variant="search"]')?.getAttribute('data-state')).toBe('running')
-    // No result view yet, so no resident card.
+    // No result view yet, so no card even once material could expand.
     expect(searchKindOf(runningView.container)).toBeNull()
     cleanup()
     const errorView = render(<SearchRow {...rowProps(settledGrep({
@@ -259,28 +274,35 @@ describe('SearchRow keyed card', () => {
     expect(errorView.container.querySelector('[data-variant="search"]')?.getAttribute('data-state')).toBe('error')
   })
 
-  it('surfaces the result text when an errored search has no card', () => {
+  it('surfaces the result text through the Output section when an errored search has no card', () => {
     // grep/glob return no presentResult on error → no card; the row shows the
-    // model-facing error text instead of a bare red dot.
+    // first error line as the collapsed summary and the full text once expanded.
     const view = render(<SearchRow {...rowProps(settledGrep({
       isError: true, resultView: null,
       content: [{ type: 'text', text: 'grep: invalid regular expression' }],
     }), 'grep')} />)
     expect(searchKindOf(view.container)).toBeNull()
+    // Error state: the first line is the collapsed summary.
     expect(view.getByText('grep: invalid regular expression')).toBeTruthy()
+    toggleRow(view)
+    // Now in ToolRow's Output section too (the kept summary makes it appear twice).
+    expect(view.container.querySelector('[data-error]')?.textContent).toBe('grep: invalid regular expression')
   })
 
-  it('surfaces the result text for a settled non-error call with no card', () => {
+  it('surfaces the result text for a settled non-error call with no card once expanded', () => {
     // A successful nested run_code sub-dispatch (backend computes no
     // presentationMeta, so resultView is null) or a legacy generic result settles
     // with search === null and state ok. The keyed SearchRow owns the slot, so
-    // without the widened arm the content would be lost behind a bare summary.
+    // ToolRow's Output section carries the text; it is only visible expanded.
     const view = render(<SearchRow {...rowProps(settledGrep({
       isError: false, resultView: null,
       content: [{ type: 'text', text: 'nested run_code output line' }],
     }), 'grep')} />)
     expect(view.container.querySelector('[data-variant="search"]')?.getAttribute('data-state')).toBe('ok')
     expect(searchKindOf(view.container)).toBeNull()
+    // Collapsed: the ok row shows its args summary, not the output text.
+    expect(view.queryByText('nested run_code output line')).toBeNull()
+    toggleRow(view)
     expect(view.getByText('nested run_code output line')).toBeTruthy()
   })
 
@@ -290,12 +312,15 @@ describe('SearchRow keyed card', () => {
       content: [{ type: 'text', text: recovery }],
       resultView: resultMatches({ truncated: true, total: 42 }),
     }), 'grep')} />)
+    toggleRow(view)
     expect(searchKindOf(view.container)).toBe('matches')
     expect(view.getByText(/Full grep result stored at: spill:\/\/grep-1/)).toBeTruthy()
   })
 
   it('shows no recovery footer for an uncapped search', () => {
     const view = render(<SearchRow {...rowProps(settledGrep(), 'grep')} />)
+    toggleRow(view)
+    expect(searchKindOf(view.container)).toBe('matches')
     expect(view.container.textContent).not.toMatch(/stored at/)
   })
 
@@ -304,6 +329,7 @@ describe('SearchRow keyed card', () => {
       isError: true, resultView: null, content: [],
       error: { name: 'ToolError', code: 'timeout' },
     }), 'grep')} />)
+    // Error state: the derived name/code line is the collapsed summary.
     expect(view.getByText('ToolError: timeout')).toBeTruthy()
   })
 
@@ -320,16 +346,18 @@ describe('SearchRow keyed card', () => {
   })
 
   it('registers the one row component under both grep and glob keys', () => {
-    const registered: { key: unknown; component: unknown }[] = []
+    const registered: { key: unknown; locale: unknown; component: unknown }[] = []
     const ctx = {
       slots: {
-        register: (options: { name: string; key: string }, component: unknown) => {
-          registered.push({ key: options.key, component })
+        register: (options: { name: string; key: string; locale?: string }, component: unknown) => {
+          registered.push({ key: options.key, locale: options.locale, component })
         },
       },
     } as never
     searchToolview.apply(ctx)
     expect(registered.map(r => r.key)).toEqual(['grep', 'glob'])
+    // Both keys claim the conversation locale seat ToolRow's body copy needs.
+    expect(registered.map(r => r.locale)).toEqual(['conversation', 'conversation'])
     // One component, two keys.
     expect(registered[0]!.component).toBe(SearchRow)
     expect(registered[1]!.component).toBe(SearchRow)

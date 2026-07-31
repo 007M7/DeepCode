@@ -107,8 +107,8 @@ describe('ui-workspace apply', () => {
     expect(b.rename).toHaveBeenCalledWith('ws', 'renamed')
     await browser.insertSessionBefore('ws' as never, 's1' as never, 's2' as never)
     expect(b.insertSessionBefore).toHaveBeenCalledWith('ws', 's1', 's2')
-    await browser.createWorkspace({ name: 'project' })
-    expect(b.create).toHaveBeenCalledWith({ name: 'project' })
+    await browser.createWorkspace({ path: '/tmp/browser-project' })
+    expect(b.create).toHaveBeenCalledWith({ path: '/tmp/browser-project' })
 
     const picker = (b.slots.entries('conversation.hero.workspace')[0]!.inject as () => WorkspacePickerInjected)()
     await picker.createWorkspace({ path: '/tmp/project' })

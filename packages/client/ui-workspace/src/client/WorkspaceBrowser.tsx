@@ -1,11 +1,13 @@
 /**
  * The workspace/session browsing region filling the sidebar shell's
- * `sidebar.workspaces` hole: section header (title + group-by + new
+ * `sidebar.workspaces` hole: section header (title + group-by + add
  * workspace), search, the grouped tree or flat list, and the workspace
  * dialogs. Wide state renders the full browser; rail state renders the two
- * region icons (search / new workspace), each requesting shell expansion
- * through the owner share. The picker menu and create dialogs live in
- * WorkspacePicker (same package — direct composition, no slot between them).
+ * region icons (search / add workspace), each requesting shell expansion
+ * through the owner share. Adding is the header button's one action, so it
+ * raises the directory flow with no menu in between; the flow and its error
+ * dialog live in WorkspacePicker (same package — direct composition, no slot
+ * between them).
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
@@ -20,7 +22,7 @@ import type { WorkspaceBrowserProps } from './contract/slots.ts'
 import type { SessionNode } from './tree.ts'
 import { deriveFlat, deriveGroups, deriveSearchResults, UNGROUPED_KEY } from './tree.ts'
 import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './rows/Rows.tsx'
-import { WorkspaceCreateFlow } from './WorkspacePicker.tsx'
+import { WorkspacePickFlow } from './WorkspacePicker.tsx'
 import css from './WorkspaceBrowser.module.css'
 
 /**
@@ -358,6 +360,9 @@ export function WorkspaceBrowser({
 }: WorkspaceBrowserProps) {
   const workspaces = useWorkspaces(state => state.items)
   const archivedSessionIds = useWorkspaces(state => state.archivedSessionIds)
+  // Live occupancy of this surface's directory-flow hole (the same source the
+  // flow reads): a composition without a picking affordance can add nothing.
+  const directoryFlowAvailable = useDirectoryFlow(occupied => occupied)
   const groupBy = useStore(s => s.groupBy)
   // The query outlives the tree and the input (both wide-only) so collapsing
   // does not silently drop an in-progress filter.
@@ -541,21 +546,26 @@ export function WorkspaceBrowser({
           </span>
         )}
         {wide && <GroupByMenu groupBy={groupBy} onPick={(mode) => { actions.setGroupBy(mode) }} t={t} />}
-        <Tooltip label={t('workspace.new')} disabled={wide}>
-          <button
-            ref={wsPlusRef}
-            type="button"
-            className={css.iconButton}
-            aria-label={t('create.confirm')}
-            onClick={() => {
-              setWsPickerOpen(v => !v)
-            }}
-          >
-            <IconProjectAddOutline16 size={wide ? 16 : 18} />
-          </button>
-        </Tooltip>
-        {/* Picker menu + create dialogs (same package — direct composition). */}
-        <WorkspaceCreateFlow
+        {/* Adding is the button's one action, so a composition with no
+            picking affordance has nothing to offer here: the region hides the
+            button rather than leaving a dead one in the header. */}
+        {directoryFlowAvailable && (
+          <Tooltip label={t('workspace.add')} disabled={wide}>
+            <button
+              ref={wsPlusRef}
+              type="button"
+              className={css.iconButton}
+              aria-label={t('workspace.add')}
+              onClick={() => {
+                setWsPickerOpen(v => !v)
+              }}
+            >
+              <IconProjectAddOutline16 size={wide ? 16 : 18} />
+            </button>
+          </Tooltip>
+        )}
+        {/* Add flow + its error dialog (same package — direct composition). */}
+        <WorkspacePickFlow
           t={t}
           open={wsPickerOpen}
           anchorRef={wsPlusRef}
@@ -563,7 +573,7 @@ export function WorkspaceBrowser({
           createWorkspace={createWorkspace}
           useDirectoryFlow={useDirectoryFlow}
           renderDirectoryFlow={owner => renderSlot('sidebar.workspaces.directoryFlow', owner)}
-          createOnly
+          addOnly
           side="right"
           onPick={(workspaceId) => {
             setWsPickerOpen(false)

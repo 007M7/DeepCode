@@ -22,8 +22,10 @@
   - img
   - text: Code Run bash echo and catch missing file read
 - img
-- text: Bash Echo CODE_ROUND_OK 失败 Read
-- button "missing.txt"
+- text: Bash Echo CODE_ROUND_OK Failed
+- 'button "Read Error: cannot read \"{{cwd}}/workspace/missing.txt\": not found"':
+  - img
+  - text: "Read Error: cannot read \"{{cwd}}/workspace/missing.txt\": not found"
 - button "Think The program ran successfully. Let me now reply DONE as instructed.":
   - img
   - img

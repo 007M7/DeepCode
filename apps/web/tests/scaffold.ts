@@ -33,6 +33,7 @@ import Loader from '@cordisjs/plugin-loader'
 import Include, { type PatchOptions } from '@cordisjs/plugin-include'
 import { scrubRequestHeaders } from '@deepseek-ai/dsh-acp-snapshot'
 import { assertEntriesLoaded, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
+import { dshHomePath } from '@deepseek-ai/dsh-paths'
 import {
   WELCOME_NOTICE_ACK_FIELD, WELCOME_NOTICE_SETTINGS_NAMESPACE, WELCOME_NOTICE_VERSION,
 } from '@deepseek-ai/dsh-client-ui-settings-general'
@@ -105,6 +106,12 @@ export interface WebScaffold {
 
 /** Options for {@link launchWebScaffold}. */
 export interface LaunchOptions {
+  /**
+   * Optional product overlay applied after the shipped Web surface and before
+   * the scaffold's hermetic test patches, matching AppCLIEntry's `--config`
+   * ordering.
+   */
+  extraOverlayPath?: string
   /**
    * Replay fixture (session.jsonl) served by the inserted dsh-llm-replay row
    * in replay/refresh modes; ignored in record mode (the real adapter
@@ -214,8 +221,12 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   // snapshot overlay use, applied over the SAME shipped tree (a patch id that
   // stops matching a row fails the boot sweep loudly instead of drifting).
   const surfacePatches = loadOverlayPatches('web e2e scaffold', WEB_OVERLAY_PATH)
+  const extraOverlayPatches = options.extraOverlayPath === undefined
+    ? []
+    : loadOverlayPatches('web e2e scaffold', options.extraOverlayPath)
   const patches: PatchOptions[] = [
     ...surfacePatches,
+    ...extraOverlayPatches,
     { id: 'session-persistence-jsonl', config: { root: persistenceRoot } },
     { id: 'session-query-sqlite', config: { path: ':memory:', openAt: 'first-search' } },
     // storage-json's yml root is anchored to the real $DSH_HOME; pin the row
@@ -282,6 +293,8 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   try {
     process.chdir(workspaceCwd)
     ctx.baseUrl = pathToFileURL(join(resolve(CONFIG_PATH), '..')).href + '/'
+    // This direct Loader harness supplies the same root-path capability as app-boot.
+    ctx.provide('dshHomePath', dshHomePath)
     await ctx.plugin(Loader)
     ctx.loader.builtins.include = Include
     // The shipped CLI deliberately has no dependency on this opt-in package.
