@@ -402,23 +402,26 @@ export class ToolCardComponent implements Component {
     const glyph = this.result === undefined ? '○' : '●'
     const rawBody = this.renderBody()
     const view = this.resultView ?? this.callView
-    // A generic card's own content, or a read card's `content` fallback (the
+    // A generic card's own content, a read card's `content` fallback (the
     // envelope-stripped file text — the TUI has no dedicated read rendering, so a
-    // read renders exactly as before the read card existed), or a web card's
-    // fallback to the raw result content (the `web` view carries no `content`
-    // copy), all render as one dim Markdown block below, so links/lists/headings
-    // keep the unified dim styling rather than reading as bare text. Terminal and
-    // diff cards own their body styling, so they are excluded (mirrors
-    // renderBody's post-terminal/diff fallback).
+    // read renders exactly as before the read card existed), or a search/web
+    // card's fallback to the raw result content (neither the `search` nor the
+    // `web` view carries a `content` copy), all render as one dim Markdown block
+    // below, so links/lists/headings keep the unified dim styling rather than
+    // reading as bare text. A search card thus stays byte-identical to the
+    // pre-search-card generic fallback. Terminal and diff cards own their body
+    // styling, so they are excluded (mirrors renderBody's post-terminal/diff fallback).
     const markdownContent = view.card === 'generic' || view.card === 'read'
       ? view.content ?? this.result?.content
-      : view.card === 'web'
-        // A web resultView is only assigned alongside this.result (the result
-        // handler sets both) and the pending callView is never a web card, so
-        // the optional-chain undefined side is unreachable here.
-        /* v8 ignore next */
+      : view.card === 'search'
         ? this.result?.content
-        : undefined
+        : view.card === 'web'
+          // A web resultView is only assigned alongside this.result (the result
+          // handler sets both) and the pending callView is never a web card, so
+          // the optional-chain undefined side is unreachable here.
+          /* v8 ignore next */
+          ? this.result?.content
+          : undefined
     const unknownXml = this.definition === undefined && markdownContent !== undefined
       ? renderUnknownXml(
         displayText(contentText(markdownContent)),
@@ -535,11 +538,12 @@ export class ToolCardComponent implements Component {
       // rather than under the dim result-output color.
       return { prelude: [...hunks, footer], lines: [] }
     }
-    // A generic or read card carries its own envelope-stripped `content`; a `web`
-    // card carries no `content` copy and falls back to the raw result content
-    // here. (Mirrors the `markdownContent` selection in render(); a read card has
-    // no dedicated TUI rendering, so its `content` takes the same body path,
-    // keeping read output as it was before the read card existed.)
+    // A generic or read card carries its own envelope-stripped `content`; a
+    // search or web card carries no `content` copy and falls back to the raw
+    // result content here. (Mirrors the `markdownContent` selection in render();
+    // a read card has no dedicated TUI rendering, so its `content` takes the same
+    // body path, keeping read output as it was before the read card existed, and
+    // a search card stays byte-identical to the pre-search-card fallback.)
     const content = (view.card === 'generic' || view.card === 'read' ? view.content : undefined) ?? this.result?.content
     const prelude: string[] = []
     const lines: string[] = []
