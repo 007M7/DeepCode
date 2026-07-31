@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { isPermissive, type Manifest, manifestPatterns, parsePyprojectRequirements, parsePythonRequirements, parseVendoredRows, render, tierExternalDeps } from './gen-third-party-notices.ts'
+import { isPermissive, type Manifest, manifestPatterns, parsePyprojectRequirements, parseVendoredRows, render, tierExternalDeps } from './gen-third-party-notices.ts'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -87,13 +87,6 @@ describe('parseVendoredRows', () => {
   })
 })
 
-describe('parsePythonRequirements', () => {
-  it('reads names whether or not the requirement carries a version, extras, or a marker', () => {
-    expect(parsePythonRequirements('"pydantic>=2.12", "requests", "httpx[http2]", "tomli ; python_version < \'3.11\'", "hatchling >= 1.24.0"'))
-      .toEqual(['pydantic', 'requests', 'httpx', 'tomli', 'hatchling'])
-  })
-})
-
 describe('parsePyprojectRequirements', () => {
   it('reads the committed manifests', () => {
     expect(parsePyprojectRequirements(readFileSync(resolve(root, 'python/sdk/pyproject.toml'), 'utf8'))).toContain('pydantic')
@@ -127,6 +120,11 @@ describe('parsePyprojectRequirements', () => {
       .toEqual(['httpx', 'requests'])
   })
 
+  it('reads names whether or not requirements carry versions, extras, or markers', () => {
+    expect(parsePyprojectRequirements("[project]\ndependencies = [\"pydantic>=2.12\", \"requests\", \"httpx[http2]\", \"tomli ; python_version < '3.11'\", \"hatchling >= 1.24.0\"]\n"))
+      .toEqual(['pydantic', 'requests', 'httpx', 'tomli', 'hatchling'])
+  })
+
   it('reads single-quoted TOML literals and rejects an unreadable requirement', () => {
     expect(parsePyprojectRequirements("[project]\ndependencies = ['requests', \"pydantic>=2\"]\n")).toEqual(['requests', 'pydantic'])
     expect(() => parsePyprojectRequirements('[project]\ndependencies = ["!!broken"]\n')).toThrow(/cannot read a distribution name/)
@@ -135,6 +133,27 @@ describe('parsePyprojectRequirements', () => {
   it('reads a multi-line array', () => {
     expect(parsePyprojectRequirements('[project]\ndependencies = [\n  "pydantic>=2.12",\n  "typing-extensions",\n]\n'))
       .toEqual(['pydantic', 'typing-extensions'])
+  })
+
+  it('obeys TOML comments, quoted keys, and escaped strings', () => {
+    expect(parsePyprojectRequirements([
+      '[project] # a legal header comment',
+      'dependencies = [',
+      '  "pydantic", # ] does not close the array',
+      '  # "old-package" is not a dependency',
+      '  "tomli; python_version < \'3.11\'",',
+      ']',
+      '',
+      '[dependency-groups]',
+      '"test.docs" = ["pytest"]',
+    ].join('\n'))).toEqual(['pydantic', 'tomli', 'pytest'])
+  })
+
+  it('accepts dependency-group includes and rejects unsupported requirement shapes', () => {
+    expect(parsePyprojectRequirements('[dependency-groups]\nbase = ["pytest"]\nall = [{ include-group = "base" }]\n'))
+      .toEqual(['pytest'])
+    expect(() => parsePyprojectRequirements('[project]\ndependencies = "pytest"\n')).toThrow(/must be an array/)
+    expect(() => parsePyprojectRequirements('[dependency-groups]\ntest = [{ unknown = "pytest" }]\n')).toThrow(/unsupported requirement entry/)
   })
 })
 

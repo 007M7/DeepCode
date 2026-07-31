@@ -11,6 +11,7 @@
 import { existsSync, globSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import * as yaml from 'js-yaml'
+import { parse as parseToml, type TomlTableWithoutBigInt, type TomlValueWithoutBigInt } from 'smol-toml'
 
 const root = resolve(import.meta.dirname, '..')
 const OUT = 'THIRD_PARTY_NOTICES.md'
@@ -287,83 +288,74 @@ function collectVendored(): VendoredRow[] {
   return rows
 }
 
-/**
- * Extract the distribution names from one `pyproject.toml` requirement array.
- * PEP 508 makes every part after the name optional, so a bare `"requests"` and
- * a marker-only `"requests; python_version < '3.11'"` must both be found.
- * @param block - the bracketed array text of a requirement list.
- * @returns each requirement's distribution name, in file order.
- */
-export function parsePythonRequirements(block: string): string[] {
-  const names: string[] = []
-  // TOML strings are single- or double-quoted; every item must yield a name, so
-  // an unrecognized requirement fails loud instead of dropping a package.
-  for (const item of block.matchAll(/"([^"]*)"|'([^']*)'/g)) {
-    const requirement = item[1] ?? item[2] ?? ''
-    const name = /^\s*([a-zA-Z][a-zA-Z0-9._-]*)\s*(?:\[[^\]]*\])?\s*(?:[<>=!~;@].*)?$/.exec(requirement)?.[1]
-    if (name === undefined) {
-      throw new Error(`gen-third-party-notices: cannot read a distribution name from the requirement ${JSON.stringify(requirement)}.`)
-    }
-    names.push(name)
+/** Whether a parsed TOML value is a table rather than an array or scalar. */
+function isTomlTable(value: TomlValueWithoutBigInt | undefined): value is TomlTableWithoutBigInt {
+  return value !== undefined && typeof value === 'object' && !Array.isArray(value)
+}
+
+/** Parse one PEP 508 requirement string into its distribution name. */
+function parsePythonRequirement(requirement: string): string {
+  const name = /^\s*([a-zA-Z][a-zA-Z0-9._-]*)\s*(?:\[[^\]]*\])?\s*(?:[<>=!~;@].*)?$/.exec(requirement)?.[1]
+  if (name === undefined) {
+    throw new Error(`gen-third-party-notices: cannot read a distribution name from the requirement ${JSON.stringify(requirement)}.`)
   }
-  return names
+  return name
+}
+
+/** Add the string requirements from one parsed TOML array. */
+function collectPythonRequirementArray(
+  names: string[],
+  value: TomlValueWithoutBigInt | undefined,
+  location: string,
+  allowGroupIncludes = false,
+): void {
+  if (value === undefined) return
+  if (!Array.isArray(value)) {
+    throw new Error(`gen-third-party-notices: ${location} must be an array.`)
+  }
+  for (const item of value) {
+    if (typeof item === 'string') {
+      names.push(parsePythonRequirement(item))
+      continue
+    }
+    if (allowGroupIncludes && isTomlTable(item) && typeof item['include-group'] === 'string' && Object.keys(item).length === 1) {
+      continue
+    }
+    throw new Error(`gen-third-party-notices: ${location} contains an unsupported requirement entry.`)
+  }
+}
+
+/** Read an optional TOML table and reject a present value of another shape. */
+function optionalTomlTable(value: TomlValueWithoutBigInt | undefined, location: string): TomlTableWithoutBigInt | undefined {
+  if (value === undefined || isTomlTable(value)) return value
+  throw new Error(`gen-third-party-notices: ${location} must be a table.`)
 }
 
 /**
- * Every requirement name a `pyproject.toml` declares, located by TOML table
- * rather than by key name: `requires` under `[build-system]`, `dependencies`
- * under `[project]`, and every key under `[project.optional-dependencies]` and
- * `[dependency-groups]`, whose keys are author-chosen group names. Array bodies
- * are scanned with quote awareness, because a requirement may itself contain
- * `]` inside extras (`"httpx[http2]"`).
+ * Every requirement name a `pyproject.toml` declares: `requires` under
+ * `[build-system]`, `dependencies` under `[project]`, and every key under
+ * `[project.optional-dependencies]` and `[dependency-groups]`. A TOML parser
+ * owns comments, quoted keys, escapes, and array boundaries; unsupported
+ * requirement shapes fail instead of disappearing from the notices.
  * @param text - the complete `pyproject.toml` contents.
  * @returns each declared requirement's distribution name, in file order.
  */
 export function parsePyprojectRequirements(text: string): string[] {
   const names: string[] = []
-  let table = ''
-  const lines = text.split('\n')
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index] ?? ''
-    const header = /^\s*\[([^\]]+)]\s*$/.exec(line)
-    if (header?.[1] !== undefined) {
-      table = header[1]
-      continue
-    }
-    const assignment = /^\s*([A-Za-z0-9._-]+)\s*=\s*\[/.exec(line)
-    if (assignment?.[1] === undefined) continue
-    const key = assignment[1]
-    const bearsRequirements = (table === 'build-system' && key === 'requires')
-      || (table === 'project' && key === 'dependencies')
-      || table === 'project.optional-dependencies'
-      || table === 'dependency-groups'
-    if (!bearsRequirements) continue
+  const document = parseToml(text, { integersAsBigInt: false })
+  const buildSystem = optionalTomlTable(document['build-system'], '[build-system]')
+  const project = optionalTomlTable(document.project, '[project]')
+  collectPythonRequirementArray(names, buildSystem?.requires, '[build-system].requires')
+  collectPythonRequirementArray(names, project?.dependencies, '[project].dependencies')
 
-    // Consume the array body from the opening bracket to its match, ignoring
-    // brackets inside quoted requirements.
-    let body = ''
-    let depth = 0
-    let quoted = false
-    let cursor = index
-    let column = line.indexOf('[')
-    scan: for (; cursor < lines.length; cursor += 1) {
-      const current = lines[cursor] ?? ''
-      for (; column < current.length; column += 1) {
-        const character = current[column] ?? ''
-        if (character === '"' || character === "'") quoted = !quoted
-        if (!quoted && character === '[') depth += 1
-        if (!quoted && character === ']') {
-          depth -= 1
-          if (depth === 0) break scan
-        }
-        if (depth > 0) body += character
-      }
-      body += '\n'
-      column = 0
-    }
-    if (depth !== 0) throw new Error(`gen-third-party-notices: unterminated ${key} array in a pyproject.toml table [${table}].`)
-    names.push(...parsePythonRequirements(body))
-    index = cursor
+  const optional = optionalTomlTable(project?.['optional-dependencies'], '[project.optional-dependencies]')
+  for (const [group, requirements] of Object.entries(optional ?? {})) {
+    collectPythonRequirementArray(names, requirements, `[project.optional-dependencies].${group}`)
+  }
+
+  const groups = optionalTomlTable(document['dependency-groups'], '[dependency-groups]')
+  for (const [group, requirements] of Object.entries(groups ?? {})) {
+    collectPythonRequirementArray(names, requirements, `[dependency-groups].${group}`, true)
   }
   return names
 }

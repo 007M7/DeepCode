@@ -130,6 +130,7 @@ External packages **directly declared** only by repository tooling, test infrast
 | [`oxlint-tsgolint`](https://github.com/oxc-project/tsgolint) | MIT |
 | [`playwright`](https://github.com/microsoft/playwright) | Apache-2.0 |
 | [`publint`](https://github.com/publint/publint) | MIT |
+| [`smol-toml`](https://github.com/squirrelchat/smol-toml) | BSD-3-Clause |
 | [`tsdown`](https://github.com/rolldown/tsdown) | MIT |
 | [`typescript-language-server`](https://github.com/typescript-language-server/typescript-language-server) | Apache-2.0 |
 | [`vite`](https://github.com/vitejs/vite) | MIT |

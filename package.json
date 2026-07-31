@@ -141,6 +141,7 @@
     "oxlint": "1.76.0",
     "oxlint-tsgolint": "7.0.2001",
     "publint": "^0.3.21",
+    "smol-toml": "^1.7.1",
     "tsdown": "^0.22.2",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",
