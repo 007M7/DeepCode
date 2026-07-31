@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-纯 React 原子组件（零 cordis）：StateDot、ic_ds_* 图标、Button/Pill/Menu/Modal/Input、markdown 家族（MessageText/MarkdownText/JsonBlock）、只读 JsonTree 检查器、`useAnchoredMaxHeight` hook（把底部锚定的浮层高度收敛到锚点上方的视口空间，并在 resize、scroll 与调用方提供的依赖变化时重新测量）、TerminalBlock，以及 SearchBlock。契约：api-contracts v3 §8。
+纯 React 原子组件（零 cordis）：StateDot、ic_ds_* 图标、Button/Pill/Menu/Modal/Input、markdown 家族（MessageText/MarkdownText/JsonBlock）、只读 JsonTree 检查器、`useAnchoredMaxHeight` hook（把底部锚定的浮层高度收敛到锚点上方的视口空间，并在 resize、scroll 与调用方提供的依赖变化时重新测量）、TerminalBlock、SearchBlock，以及 WebBlock。契约：api-contracts v3 §8。
 
 ## Markdown 渲染
 
@@ -14,6 +14,10 @@
 ## 搜索结果
 
 `SearchBlock` 渲染一次已完成的搜索,一个组件绘制两种 kind(由 `kind` 判别)。`matches`(grep)把每个文件渲染为粗体路径头加其 `lineNumber: line` 行,每个文件组可折叠;`paths`(glob)渲染扁平路径列表。两者都摊平成一个行列表,由高度上限做头/尾切片(默认 16,与 TerminalBlock 相同的切分算法),且都不软换行——长匹配行或路径横向滚动而非折行。当工具截断结果时,banner 摘要把截断前总数折入(grep 为 `显示 X / 共 N 处匹配 · K 个文件`,glob 为 `显示 X / 共 N 个路径`),使卡片绝不把截断结果呈现为完整;复制控件写入完整结构化结果,无论是否触及上限或哪些组被折叠。几何镜像 CodeBlock/TerminalBlock。原理:[Web 搜索卡片笔记](../../../.agents/notes/implemented/feature/2026-07-30-web-search-card.md)。
+
+## Web 检索
+
+`WebBlock` 渲染一次已完成的 web 检索，用一个组件绘制 `web` 渲染意图的两种 kind（由 `kind` 判别）。`search` 在有序引用列表上方显示可选的 provider answer（通过 `MarkdownText`）：每个 source 是一个安全外链，以其标题为标签，或以其主机名为标签，当 URL 无法解析或没有主机名（`file:`/`data:` URL）时回退到原始 URL，因此标签绝不为空；其下渲染 snippet 与发布日期。只有 http(s) URL 会成为锚点（设置 `target`/`rel`）——这是 `MarkdownText` 对不受信任链接所用 allowlist 的 http(s) 子集（该 allowlist 还允许 `mailto:`，此处排除）；任何其他 URL 渲染为纯文本。长列表在 `maxSources`（默认 16，即 TerminalBlock 的切分算术）处折叠为头部/尾部；折叠的尾部通过 `<li value>` 保留每个 source 原始的引用编号，展开控件是无 marker 的 `<li>`，使 `<ol>` 保持为合法 HTML。当一次 search 合法地返回无 answer 且无 source 时，卡片显示一个明确的空状态提示，而不是空的 `<ol>`（chat 行不呈现原始 result content）。`fetch` 显示一个紧凑摘要：带链接的最终 URL 及其 HTTP 状态。两者都会标记一次被截断的检索。原理：[Web result 卡片笔记](../../../.agents/notes/implemented/feature/2026-07-30-web-result-card-frontend.md)。
 
 ## 模型体验
 
@@ -28,5 +32,5 @@
 - **字形级图标是重新绘制的近似版本**：鱼形标志（以及 ui-conversation 持有的闪光图标）来自字体字形，而本地设计数据无法导出其矢量几何；在获得精确导出路径前，使用手工重建版本代替。
 - **Pill 与 Input 没有设计来源**：两个原子组件均自行定义；与其相似的侧边栏搜索字段和视图标签条由消费方组合，不是这些原子组件。
 - **StateDot 的 `Active` 变体是设计中的隐藏占位符**：尚未实现；已交付的四种状态（done/warning/ongoing/error）构成完整的 P-I 表层。
-- **面向用户的文案经 label props 本地化，默认值为原中文字面量**：这些原子组件是 zero-cordis 的，拿不到 `ctx.locale`，因此 `TerminalBlock`（`labels`）、`JsonTree`（`labels`）、`CodeBlock`（`copyLabel`/`copiedLabel`）、`MarkdownText`（`codeLabels`）、`JsonBlock`（`truncatedLabel`）、`ConnectionBanner`（`label`）和 `Modal`（`closeLabel`）都把文案作为可选 props 接收，默认值即此前的硬编码字符串。已本地化的插件用自己的 `t` 席位传入字典驱动的 label；什么都不传的消费者渲染与本地化之前逐字节一致。
+- **面向用户的文案经 label props 本地化，默认值为原中文字面量**：这些原子组件是 zero-cordis 的，拿不到 `ctx.locale`，因此 `TerminalBlock`（`labels`）、`JsonTree`（`labels`）、`CodeBlock`（`copyLabel`/`copiedLabel`）、`MarkdownText`（`codeLabels`）、`JsonBlock`（`truncatedLabel`）、`ConnectionBanner`（`label`）和 `Modal`（`closeLabel`）都把文案作为可选 props 接收，默认值即此前的硬编码字符串。已本地化的插件用自己的 `t` 席位传入字典驱动的 label；什么都不传的消费者渲染与本地化之前逐字节一致。`WebBlock` 尚未跟进这一模式：它的来源展开/收起控件、来源列表与 fetch 截断提示、以及空搜索提示仍是内联中文，待同样的 label-prop 处理。
 - **`TerminalBlock` 不是终端模拟器**：它渲染已结束或仍在运行的命令输出，而不是交互式会话：SGR 颜色与属性会被遵循，进度行所用的行内光标移动同样被遵循——回车、退格、行内擦除、制表位与字符宽度。绝对光标定位、清屏与备用屏幕序列会被剥离。基础 16 色中的洋红与青色没有对应 token，保持字面 rgb。

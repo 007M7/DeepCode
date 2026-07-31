@@ -267,6 +267,98 @@ describe('dsh web keyless CLI smoke', () => {
     }
   })
 
+  it('retries a partial transport failure through the shipped Web composition', async () => {
+    requireDist()
+    const workspace = mkdtempSync(join(tmpdir(), 'dsh-web-retry-'))
+    const promptMarker = 'WEB_RETRY_REQUEST'
+    const recoveredMarker = 'WEB_RETRY_RECOVERED'
+    let mainAttempts = 0
+    const provider = createServer((request, response) => {
+      let body = ''
+      request.setEncoding('utf8')
+      request.on('data', (chunk: string) => { body += chunk })
+      request.on('end', () => {
+        const parsed = JSON.parse(body) as { max_tokens?: number; messages?: unknown[] }
+        const titleRequest = parsed.max_tokens === 64
+        const mainRequest = !titleRequest && body.includes(promptMarker)
+        response.writeHead(200, { 'content-type': 'text/event-stream' })
+        if (!mainRequest) {
+          response.end([
+            'data: {"choices":[{"delta":{"content":"Web retry title"}}]}',
+            'data: {"choices":[{"delta":{"content":""},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}',
+            'data: [DONE]',
+            '',
+          ].join('\n\n'))
+          return
+        }
+        mainAttempts++
+        if (mainAttempts === 1) {
+          response.write('data: {"choices":[{"delta":{"content":"WEB_RETRY_DISCARDED"}}]}\n\n')
+          setTimeout(() => { response.destroy() }, 20)
+          return
+        }
+        response.end([
+          `data: {"choices":[{"delta":{"content":"${recoveredMarker}"}}]}`,
+          'data: {"choices":[{"delta":{"content":""},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}',
+          'data: [DONE]',
+          '',
+        ].join('\n\n'))
+      })
+    })
+    await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', resolve))
+    const address = provider.address()
+    if (address === null || typeof address === 'string') throw new Error('mock provider did not bind a TCP port')
+    const tsxLoader = pathToFileURL(createRequire(join(REPO_ROOT, 'package.json')).resolve('tsx')).href
+    const child = spawn(
+      process.execPath,
+      ['--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web', '--port', '0'],
+      {
+        cwd: workspace,
+        env: {
+          ...process.env,
+          DEEPSEEK_API_KEY: 'keyless-web-retry',
+          DEEPSEEK_BASE_URL: `http://127.0.0.1:${address.port}`,
+          DSH_HOME: join(workspace, '.dsh'),
+          TSX_TSCONFIG_PATH: join(REPO_ROOT, 'tsconfig.json'),
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    )
+    try {
+      const baseUrl = await waitForReadyLine(child)
+      const created = await rpc<{ sessionId: string }>(baseUrl, 'session.create', {})
+      await rpc<{ accepted: true }>(baseUrl, 'session.prompt', {
+        sessionId: created.sessionId,
+        mode: 'queue',
+        content: [{ type: 'text', text: promptMarker }],
+      })
+      let page: HistoryPage | undefined
+      await expect.poll(async () => {
+        page = await history(baseUrl, created.sessionId)
+        return hasAssistantMarker(page, recoveredMarker)
+      }, { timeout: 20_000 }).toBe(true)
+      if (page === undefined) throw new Error('retry history was not observed')
+      const retry = page.events.find(({ event }) => event.type === 'llm/retry')?.event
+      expect(mainAttempts).toBe(2)
+      expect(retry?.data).toMatchObject({
+        turn: 1,
+        step: 1,
+        retry: 1,
+        maxRetries: 2,
+        failure: { code: 'TRANSPORT' },
+      })
+      expect(JSON.stringify(page.events)).toContain('WEB_RETRY_DISCARDED')
+    } finally {
+      const closed = child.exitCode === null
+        ? new Promise<void>((resolveClose) => { child.once('close', () => { resolveClose() }) })
+        : Promise.resolve()
+      if (child.exitCode === null) child.kill('SIGTERM')
+      await closed
+      await new Promise<void>(resolveClose => provider.close(() => { resolveClose() }))
+      rmSync(workspace, { recursive: true, force: true })
+    }
+  }, 30_000)
+
   it('DSH_TOOLS_MODE=code collapses the provider wire tools to run_code with the SDK prompt section', async () => {
     requireDist()
     const workspace = mkdtempSync(join(tmpdir(), 'dsh-web-code-mode-'))

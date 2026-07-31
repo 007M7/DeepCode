@@ -46,6 +46,7 @@ interface BenchOptions {
   variant?: 'hero' | 'composer'
   placeholder?: string
   t?: InputBarProps['t']
+  command?: (line: string) => Promise<boolean>
   accessory?: React.ReactNode
   overlay?: React.ReactNode
   leftItems?: React.ReactNode
@@ -108,7 +109,7 @@ function bench(over?: BenchOptions) {
     useLexicon: bindSnapshotSelector(shell.lexicon),
     useMenuLauncher: bindSnapshotSelector(menuLauncher),
     stop,
-    command: () => Promise.resolve(true),
+    command: over?.command ?? (() => Promise.resolve(true)),
     // Mirrors the real lookup chain (conversation namespace, then common).
     t: over?.t ?? makeTranslate(zh, commonZh),
     renderSlot,
@@ -467,7 +468,35 @@ describe('command launcher chrome and control seats', () => {
     expect(launcher.getAttribute('aria-expanded')).toBe('true')
   })
 
-  it('the Access chip renders the projection value and submits /permission on pick', async () => {
+  it('the Access chip renders the projection value and submits a non-Full-access pick directly', async () => {
+    const command = vi.fn(() => Promise.resolve(true))
+    const permissions = {
+      options: [
+        { value: 'read-only', name: 'read-only' },
+        { value: 'workspace-write', name: 'workspace-write' },
+        { value: 'danger-full-access', name: 'danger-full-access' },
+      ],
+      currentValue: 'read-only',
+    }
+    const { view } = bench({ permissions, command })
+    const trigger = view.getByLabelText(/^访问模式/) as HTMLButtonElement
+    // Title-case display is presentation only; the menu ids stay machine names.
+    expect(trigger.textContent).toBe('Read Only')
+    fireEvent.click(trigger)
+    const items = view.getAllByRole('menuitem')
+    expect(items.map(o => o.textContent)).toEqual(['Read Only', 'Workspace Write', 'Full access'])
+    fireEvent.click(items[1]!)
+    // Optimistic pick + disable until admission resolves (command stub resolves true).
+    const busy = view.getByLabelText(/^访问模式/) as HTMLButtonElement
+    expect(busy.textContent).toBe('Workspace Write')
+    expect(busy.disabled).toBe(true)
+    expect(command).toHaveBeenCalledWith('/permission workspace-write')
+    await act(async () => {})
+    expect((view.getByLabelText(/^访问模式/) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('requires explicit risk acknowledgement before submitting Full access', async () => {
+    const command = vi.fn(() => Promise.resolve(true))
     const permissions = {
       options: [
         { value: 'workspace-write', name: 'workspace-write' },
@@ -475,20 +504,86 @@ describe('command launcher chrome and control seats', () => {
       ],
       currentValue: 'workspace-write',
     }
-    const { view } = bench({ permissions })
-    const trigger = view.getByLabelText(/^访问模式/) as HTMLButtonElement
-    // Title-case display is presentation only; the menu ids stay machine names.
-    expect(trigger.textContent).toBe('Workspace Write')
-    fireEvent.click(trigger)
-    const items = view.getAllByRole('menuitem')
-    expect(items.map(o => o.textContent)).toEqual(['Workspace Write', 'Danger Full Access'])
-    fireEvent.click(items[1]!)
-    // Optimistic pick + disable until admission resolves (command stub resolves true).
-    const busy = view.getByLabelText(/^访问模式/) as HTMLButtonElement
-    expect(busy.textContent).toBe('Danger Full Access')
-    expect(busy.disabled).toBe(true)
+    const { view } = bench({ permissions, command })
+    fireEvent.click(view.getByLabelText(/^访问模式/))
+    fireEvent.click(view.getByRole('menuitem', { name: 'Full access' }))
+
+    expect(command).not.toHaveBeenCalled()
+    expect(view.getByRole('dialog', { name: '确认启用 Full access？' })).toBeTruthy()
+    const enable = view.getByRole('button', { name: '启用 Full access' }) as HTMLButtonElement
+    expect(enable.disabled).toBe(true)
+
+    fireEvent.click(view.getByRole('checkbox', { name: '我已了解风险，并愿意继续' }))
+    expect(enable.disabled).toBe(false)
+    fireEvent.click(enable)
+
+    expect(command).toHaveBeenCalledOnce()
+    expect(command).toHaveBeenCalledWith('/permission danger-full-access')
+    expect(view.queryByRole('dialog')).toBeNull()
+    expect((view.getByLabelText(/^访问模式/) as HTMLButtonElement).textContent).toBe('Full access')
     await act(async () => {})
-    expect((view.getByLabelText(/^访问模式/) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('cancels a Full access selection without changing permission and resets acknowledgement', () => {
+    const command = vi.fn(() => Promise.resolve(true))
+    const permissions = {
+      options: [
+        { value: 'workspace-write', name: 'workspace-write' },
+        { value: 'danger-full-access', name: 'danger-full-access' },
+      ],
+      currentValue: 'workspace-write',
+    }
+    const { view } = bench({ permissions, command })
+    const openConfirmation = () => {
+      fireEvent.click(view.getByLabelText(/^访问模式/))
+      fireEvent.click(view.getByRole('menuitem', { name: 'Full access' }))
+    }
+
+    openConfirmation()
+    fireEvent.click(view.getByRole('checkbox'))
+    fireEvent.click(view.getByRole('button', { name: '取消' }))
+    expect(command).not.toHaveBeenCalled()
+    expect((view.getByLabelText(/^访问模式/) as HTMLButtonElement).textContent).toBe('Workspace Write')
+
+    openConfirmation()
+    expect((view.getByRole('checkbox') as HTMLInputElement).checked).toBe(false)
+    expect((view.getByRole('button', { name: '启用 Full access' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('revokes an open Full access confirmation when the task locks', () => {
+    const command = vi.fn(() => Promise.resolve(true))
+    const permissions = {
+      options: [
+        { value: 'workspace-write', name: 'workspace-write' },
+        { value: 'danger-full-access', name: 'danger-full-access' },
+      ],
+      currentValue: 'workspace-write',
+    }
+    const { view, session } = bench({ permissions, command })
+    fireEvent.click(view.getByLabelText(/^访问模式/))
+    fireEvent.click(view.getByRole('menuitem', { name: 'Full access' }))
+    fireEvent.click(view.getByRole('checkbox'))
+    act(() => { session.set(snapshotOf({ removed: true })) })
+    expect(view.queryByRole('dialog')).toBeNull()
+    expect(command).not.toHaveBeenCalled()
+  })
+
+  it('resets an open Full access confirmation when switching tasks', () => {
+    const command = vi.fn(() => Promise.resolve(true))
+    const permissions = {
+      options: [
+        { value: 'workspace-write', name: 'workspace-write' },
+        { value: 'danger-full-access', name: 'danger-full-access' },
+      ],
+      currentValue: 'workspace-write',
+    }
+    const { view, props } = bench({ permissions, command })
+    fireEvent.click(view.getByLabelText(/^访问模式/))
+    fireEvent.click(view.getByRole('menuitem', { name: 'Full access' }))
+    fireEvent.click(view.getByRole('checkbox'))
+    view.rerender(<InputBar {...props} sessionId={'s2' as SessionId} />)
+    expect(view.queryByRole('dialog')).toBeNull()
+    expect(command).not.toHaveBeenCalled()
   })
 
   it('a registered entry fills its seat and receives the locked owner prop', () => {
