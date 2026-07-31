@@ -293,6 +293,11 @@ function nodeCompatSmokeGates(): Gate[] {
       'run',
       'apps/cli/tests/source-launch.compat.spec.ts',
     ], { label: 'dsh source-launch smoke' }),
+    pnpmExec('vitest-jsdom-smoke', [
+      'vitest',
+      'run',
+      'scripts/vitest-environment.compat.spec.ts',
+    ], { label: 'Vitest jsdom smoke' }),
   ]
 }
 
