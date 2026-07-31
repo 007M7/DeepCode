@@ -259,6 +259,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Consider automatic compaction for one explicit trigger. Pressure policy\n * uses the latest durable routed request, while context-overflow policy may\n * force a useful balanced reduction even below the normal threshold. Return\n * `null` when no safe range can be compacted. A single oversized retained\n * unit or request envelope cannot be repaired through surface compaction.\n *\n * @param agent - agent context owning the session surface and routing options.\n * @param trigger - normal pressure or provider-confirmed context overflow.\n * @param signal - cancellation signal; model-backed implementations must forward it.\n * @returns the compaction result, or `null` if no compaction was needed.\n */',
       },
       {
+        signature: 'abstract compactNow( agent: ManualCompactAgentContext, signal: AbortSignal, ): Promise<CompactionResult | null>',
+        jsDoc: '/**\n * Explicitly compact useful history even below automatic pressure thresholds.\n * Implementations reserve idle turn admission synchronously before any\n * asynchronous work, select a useful range without writing on a no-op, then\n * append a standalone `compact/start` before summarization. That durable\n * marker is the compaction lock until one `compact/end` attempt. Later waking\n * prompts remain accepted in FIFO order and start only after the optional\n * durability checkpoint and admission release. Context injected while the\n * summary runs may sit between the marker pair; only the selected span must\n * remain stable.\n *\n * @param agent - idle agent whose durable history should be compacted.\n * @param signal - command-owned cancellation forwarded to summarization.\n * @returns the compaction result, or `null` when no safe useful range exists.\n * @throws {@link ManualCompactionError} for expected busy, changed-span,\n * summarization/shrink, commit-stage, or persistence failures, and the exact\n * abort reason when cancelled. Failed attempts remain visible in the log.\n */',
+      },
+      {
         signature: 'abstract compactRegion( start: number, end: number, agent: CompactAgentContext, signal?: AbortSignal, ): Promise<CompactionResult>',
         jsDoc: '/**\n * Forcibly compact a range of surface nodes into a single summary node.\n * `start` and `end` name an inclusive span by surface position, not numeric seq\n * order; replacements can make visible seqs non-monotonic. Both edges must be\n * balanced so assistant tool calls remain paired with their results. A model-\n * backed implementation forwards cancellation and rejects active, missing,\n * reversed, or unbalanced ranges. The target session is `agent.session`.\n * Its replacement user message must use {@link COMPACT_CHECKPOINT_SOURCE}.\n * Use {@link toolPairingBalancedBefore} and {@link toolPairingBalancedAfter}\n * for the edge checks.\n *\n * @param start - first surface seq, inclusive.\n * @param end - last surface seq, inclusive.\n * @param agent - context whose session is mutated and whose routing options guide summarization.\n * @param signal - optional cancellation; model-backed implementations must forward it.\n * @throws when compaction is active or the range is missing, reversed, or unbalanced.\n * @returns the appended event seqs, summary, replaced range, and token accounting.\n */',
       },
@@ -1561,7 +1565,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'Agent',
-    declaration: 'export interface Agent {\n    readonly id: SessionId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly acceptsNextStep: boolean;\n    readonly ctx: Context;\n    send(message: UserMessage, options: SendOptions): void;\n    updateInbox(id: InboxItemId, action: InboxAction): InboxActionResult;\n    cancel(cause: AgentCancelCause, options?: CancelOptions): void;\n    whenIdle(): Promise<void>;\n    followup(message: UserMessage): void;\n    steer(message: UserMessage): void;\n    inject(message: UserMessage): void;\n}',
+    declaration: 'export interface Agent {\n    readonly id: SessionId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly acceptsNextStep: boolean;\n    readonly ctx: Context;\n    send(message: UserMessage, options: SendOptions): void;\n    reserveTurnAdmission(): (() => void) | undefined;\n    updateInbox(id: InboxItemId, action: InboxAction): InboxActionResult;\n    cancel(cause: AgentCancelCause, options?: CancelOptions): void;\n    whenIdle(): Promise<void>;\n    followup(message: UserMessage): void;\n    steer(message: UserMessage): void;\n    inject(message: UserMessage): void;\n}',
   },
   {
     name: 'AgentCancelCause',
@@ -2062,6 +2066,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'LlmResolvedModelInfo',
     declaration: 'export interface LlmResolvedModelInfo extends LlmModelInfo {\n    context?: LlmModelContext;\n    defaultMaxTokens?: number;\n    reasoning?: LlmModelReasoningInfo;\n}',
+  },
+  {
+    name: 'ManualCompactAgentContext',
+    declaration: 'export interface ManualCompactAgentContext extends CompactAgentContext {\n    reserveTurnAdmission(): (() => void) | undefined;\n}',
   },
   {
     name: 'Message',

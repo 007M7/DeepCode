@@ -52,6 +52,7 @@ function stubAgent(session: Session): Agent {
     inject: () => {},
     send: () => {},
     updateInbox: () => 'not-found',
+    reserveTurnAdmission: () => undefined,
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }

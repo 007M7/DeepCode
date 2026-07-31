@@ -623,6 +623,20 @@ interface Agent {
   send(message: UserMessage, options: SendOptions): void
 
   /**
+   * Reserve admission of the next ordinary turn while this agent is idle, so an
+   * operation can mutate durable history before any queued prompt derives a
+   * request from it. Already-accepted waking work has right of way, including a
+   * send whose wake is still a pending microtask. Later sends keep their
+   * ordinary placement, FIFO order, and `wakeup` facts, and
+   * {@link acceptsNextStep} stays `false`, so a waking `next-step` send becomes
+   * a queued follow-up rather than steering; cancellation and disposal may
+   * still discard them. {@link inject} is not withheld. {@link whenIdle} treats
+   * a live reservation as activity, while lifecycle teardown does not await it.
+   * @returns the idempotent release, or `undefined` when the agent is running, already reserved, or already committed to waking work.
+   */
+  reserveTurnAdmission(): (() => void) | undefined
+
+  /**
    * Mutate one still-pending queued occurrence synchronously. Editing preserves
    * the message identity and queue position; removal publishes its terminal
    * discard. Steering occurrences and driver-claimed items return `not-found`.
@@ -679,7 +693,7 @@ interface Agent {
 }
 ```
 
-`AgentStatus` 为 `'idle' | 'running'`，`SessionId` 是品牌类型。dispose（资源释放）会把 agent 从注册表移除并发出 `agent/disposed`；它不是一个终态 status 值。`running` 描述整个驱动器的排空区间，可能跨越连续的排队轮次；它不能证明某个轮次仍然打开。对于需要在把输入作为 steering 加入当前提示词准入／轮次，还是提交为一个新的待准入提示词之间做选择的调用方，`acceptsNextStep` 才是更窄且准确的路由判断条件。`AgentOptions` 可合并扩展：core 声明 `provider?`、`model?` 与 `maxTokens?`（在 `agent/request` 后，分发要求 provider 与 model 都存在）。提供 `maxTokens` 时，它必须是正安全整数，并限制每次对话模型请求的输出；省略时，系统会在写入请求 header 前填入确切模型的适配器默认值，否则提供方行为保持不变。Persona 归 `dsh-system-prompt` 所有：agent 作用域的 `deployment:persona` 可以遮蔽全局默认值。
+`AgentStatus` 为 `'idle' | 'running'`，`SessionId` 是品牌类型。dispose（资源释放）会把 agent 从注册表移除并发出 `agent/disposed`；它不是一个终态 status 值。`running` 描述整个驱动器的排空区间，可能跨越连续的排队轮次；它不能证明某个轮次仍然打开。对于需要在把输入作为 steering 加入当前提示词准入／轮次，还是提交为一个新的待准入提示词之间做选择的调用方，`acceptsNextStep` 才是更窄且准确的路由判断条件。活动的轮次接纳预留与完全停稳相关，但不会改变 `status`，也不会把之后的队列项变成 steering；它的唯一权限是将驱动器的下一次认领延迟到释放时。`AgentOptions` 可合并扩展：core 声明 `provider?`、`model?` 与 `maxTokens?`（在 `agent/request` 后，分发要求 provider 与 model 都存在）。提供 `maxTokens` 时，它必须是正安全整数，并限制每次对话模型请求的输出；省略时，系统会在写入请求 header 前填入确切模型的适配器默认值，否则提供方行为保持不变。Persona 归 `dsh-system-prompt` 所有：agent 作用域的 `deployment:persona` 可以遮蔽全局默认值。
 
 cause 是由 TypeScript 强制约束的同进程输入。活跃的 `TurnCancellation` 持有者会把其判别字段复制到仅运行时的 `AbortSignal.reason`，并在发布 `turn/end` 前退役；冻结后的 `AbortSignal.reason` 仍可读取。只有 loop 会在结算时从自己机器私有的 signal 上读回 cause（`user`、`parent` 或仅用于生命周期的 `disposed`）——不存在公开的读取器，signal 也不授予协作监听器任何分类权限。持久 `turn/end` 保留粗粒度 `{ kind: 'aborted' }` 结果；若需记录请求 provenance，应使用单独的持久事件，而不是让终态结果承担额外含义。
 

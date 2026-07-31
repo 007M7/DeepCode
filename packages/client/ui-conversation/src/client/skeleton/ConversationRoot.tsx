@@ -22,6 +22,7 @@ export function ConversationRoot({
   const session = useSession(s => s)
   const inputState = useInput(s => s)
   const cwd = useSessions(s => sessionId === undefined ? undefined : s.byId[sessionId]?.cwd)
+  const summaryBlank = useSessions(s => sessionId === undefined ? undefined : s.byId[sessionId]?.blank)
   const workspaces = useWorkspaces(s => s)
 
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -65,8 +66,16 @@ export function ConversationRoot({
   // While a session is still replaying (loading + blank) the hero/docked
   // choice is unknowable — render the composer hidden instead of flashing
   // the centered hero and snapping to the docked bar (or vice versa).
+  // Exemption: a session the list summary already proves blank can only
+  // land on the hero, so hiding would blank the column for the whole
+  // history round-trip (the startup auto-selection flash) for nothing.
+  // The exemption is deliberately open-state-wide, not loading-only: a
+  // summary-blank session is the hero before its open starts (`cold`) and
+  // after one fails (`error`) for the same reason — there is no history.
   const settling = sessionId !== undefined && composerPhase === 'blank' && openState === 'loading'
-  const hero = sessionId === undefined || (composerPhase === 'blank' && openState === 'open')
+    && summaryBlank !== true
+  const hero = sessionId === undefined
+    || (composerPhase === 'blank' && (openState === 'open' || summaryBlank === true))
   const zone: InputZone | undefined =
     session === undefined || inputState === undefined ? undefined : { session, input: inputState }
 
