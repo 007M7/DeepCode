@@ -26,13 +26,14 @@ import type {
 // Type-only: the brand constructor is host-side; the fixture casts at its
 // wire-fabrication boundary (the schema layer's one-cast-point posture).
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
+import { foldSurface } from '@deepseek-ai/dsh-session/surface'
 import type {
   ApiProxy, ClientRequest, ClientResponse, HistoryEntry, HostFrame, MuxFrame, RpcReceipt,
   ModelProviderGroup, ModelTarget, RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
   ToolCallView, ToolEventView, ToolResultView, WorkspaceId, WorkspaceView,
 } from './api.ts'
 import type { RequestPayload, ResponseValue, RpcMethodMap } from '@deepseek-ai/dsh-host-apiproxy/api'
-import { AbstractApiClient, RpcId } from './api.ts'
+import { AbstractApiClient, RpcId, SESSION_SEARCH_RESULT_LIMIT } from './api.ts'
 
 /** The fake carrier mints like a real one (business code never mints). */
 function rpcRequest<P>(payload: P): RpcRequest<P> {
@@ -575,6 +576,144 @@ function pageOf(
   return { events, hasMore: start > 0 }
 }
 
+/** Fixture mirror of first-party message extraction used by session-query. */
+function searchBlockText(block: ContentBlock): string[] {
+  switch (block.type) {
+    case 'text':
+      return [block.text]
+    case 'reasoning':
+      return []
+    case 'tool-call':
+      return [block.name, block.arguments]
+    case 'tool-result':
+      return block.content.flatMap(searchBlockText)
+    default:
+      return []
+  }
+}
+
+/** One current-surface user/assistant/steering document, if searchable. */
+function searchEventText(event: SessionEvent): string {
+  const content = event.type === 'user/message'
+    ? event.data.content
+    : event.type === 'assistant/message' || event.type === 'steering/message'
+      ? event.data.message.content
+      : undefined
+  if (content === undefined) return ''
+  return content.flatMap(searchBlockText).map(part => part.trim()).filter(Boolean).join('\n')
+}
+
+interface FixtureSearchToken {
+  value: string
+  /** Inclusive code-point offset in the whitespace-normalized display text. */
+  start: number
+  /** Exclusive code-point offset in the whitespace-normalized display text. */
+  end: number
+}
+
+/**
+ * Browser-safe approximation of SQLite FTS5 unicode61 token boundaries.
+ * Keeping phrase matching token-based prevents the development fixture from
+ * promising arbitrary within-token substring behavior that production lacks.
+ */
+function searchTokenSpans(value: string): { text: string; tokens: FixtureSearchToken[] } {
+  const text = value.replace(/\s+/gu, ' ').trim()
+  const characters = Array.from(text)
+  const tokens: FixtureSearchToken[] = []
+  let start: number | undefined
+  let raw = ''
+  const flush = (end: number): void => {
+    if (start !== undefined) {
+      const folded = raw.normalize('NFD').replace(/\p{M}+/gu, '').toLowerCase()
+      if (folded !== '') tokens.push({ value: folded, start, end })
+    }
+    start = undefined
+    raw = ''
+  }
+  for (let index = 0; index < characters.length; index++) {
+    const character = characters[index] as string
+    const tokenBase = character.normalize('NFD').replace(/\p{M}+/gu, '')
+    if (tokenBase === '') {
+      if (start !== undefined) raw += character
+      continue
+    }
+    if (/^[\p{L}\p{N}\p{Co}]+$/u.test(tokenBase)) {
+      start ??= index
+      raw += character
+    } else {
+      flush(index)
+    }
+  }
+  flush(characters.length)
+  return { text, tokens }
+}
+
+interface FixturePhraseMatch {
+  count: number
+  start: number
+  end: number
+}
+
+/** Count exact contiguous token-phrase occurrences and retain the first display span. */
+function phraseMatch(document: readonly FixtureSearchToken[], phrase: readonly string[]): FixturePhraseMatch {
+  if (phrase.length === 0 || phrase.length > document.length) return { count: 0, start: 0, end: 0 }
+  let count = 0
+  let firstStart = 0
+  let firstEnd = 0
+  for (let start = 0; start <= document.length - phrase.length; start++) {
+    if (!phrase.every((token, offset) => document[start + offset]?.value === token)) continue
+    count++
+    if (count === 1) {
+      firstStart = document[start]?.start ?? 0
+      firstEnd = document[start + phrase.length - 1]?.end ?? firstStart
+    }
+  }
+  return { count, start: firstStart, end: firstEnd }
+}
+
+/** Match-centered fixture excerpt, bounded by Unicode code points for the sidebar. */
+function searchSnippet(value: string, matchStart: number, matchEnd: number): string {
+  const characters = Array.from(value)
+  if (characters.length <= 120) return value
+  const boundedStart = Math.min(Math.max(0, matchStart), characters.length - 1)
+  const boundedEnd = Math.min(
+    characters.length,
+    Math.max(boundedStart + 1, matchEnd),
+  )
+  const center = Math.floor((boundedStart + boundedEnd) / 2)
+  let start = Math.min(
+    characters.length - 118,
+    Math.max(0, center - Math.floor(118 / 2)),
+  )
+  let end = start + 118
+  if (start === 0) {
+    end = 119
+  } else if (end === characters.length) {
+    start = characters.length - 119
+  }
+  return `${start > 0 ? '…' : ''}${characters.slice(start, end).join('')}${end < characters.length ? '…' : ''}`
+}
+
+interface FixtureSearchCandidate {
+  sessionId: SessionId
+  seq: number
+  time: number
+  text: string
+  matchCount: number
+  matchStart: number
+  matchEnd: number
+  documentLength: number
+}
+
+/** Mirrors `packages/session-query/session-query-sqlite/src/index.ts`; update both together. */
+function compareSearchCandidates(a: FixtureSearchCandidate, b: FixtureSearchCandidate): number {
+  if (a.matchCount !== b.matchCount) return b.matchCount - a.matchCount
+  if (a.documentLength !== b.documentLength) return a.documentLength - b.documentLength
+  if (a.time !== b.time) return b.time - a.time
+  if (a.sessionId !== b.sessionId) return a.sessionId < b.sessionId ? -1 : 1
+  return b.seq - a.seq
+}
+
 /**
  * Current plan projection over the full log (host parallel: latest todo/write
  * with no later turn/start; a new turn retires the previous plan).
@@ -987,6 +1126,45 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
   return {
     sessions: {
       list: request => ok(request, { items: [...sessions].sort((a, b) => b.updatedAt - a.updatedAt) }),
+      search: (request, signal) => {
+        if (signal.aborted) {
+          return err(request, {
+            code: 'cancelled',
+            message: 'fixture session search was aborted',
+            details: {},
+          })
+        }
+        const query = searchTokenSpans(request.payload.query).tokens.map(token => token.value)
+        const matches = sessions.flatMap((summary) => {
+          const log = logs.get(summary.sessionId) ?? []
+          const current = new Set(foldSurface(log).nodes)
+          const best = log.flatMap((event): FixtureSearchCandidate[] => {
+            if (!current.has(event.seq)) return []
+            const eventText = searchEventText(event)
+            const document = searchTokenSpans(eventText)
+            const match = phraseMatch(document.tokens, query)
+            if (match.count === 0) return []
+            return [{
+              sessionId: summary.sessionId,
+              seq: event.seq,
+              time: event.time,
+              text: document.text,
+              matchCount: match.count,
+              matchStart: match.start,
+              matchEnd: match.end,
+              documentLength: Array.from(eventText).length,
+            }]
+          }).sort(compareSearchCandidates)[0]
+          return best === undefined ? [] : [best]
+        }).sort(compareSearchCandidates)
+        return ok(request, {
+          items: matches.slice(0, SESSION_SEARCH_RESULT_LIMIT).map(match => ({
+            sessionId: match.sessionId,
+            snippet: searchSnippet(match.text, match.matchStart, match.matchEnd),
+          })),
+          hasMore: matches.length > SESSION_SEARCH_RESULT_LIMIT,
+        })
+      },
       create: async (request) => {
         const workspace = request.payload.workspaceId === undefined
           ? undefined
@@ -1691,20 +1869,30 @@ export class FixtureApiClient extends AbstractApiClient {
   protected override async callUnary<K extends keyof RpcMethodMap>(
     method: K,
     payload: RequestPayload<K>,
+    signal?: AbortSignal,
   ): Promise<RpcResponse<ResponseValue<K>>> {
     const request = rpcRequest(payload)
     const full: ClientRequest = { type: 'client-request', rpcId: request.rpcId, method, payload }
     this.onEnvelope(full)
-    const response = await this.dispatch(method, request as RpcRequest<never>) as RpcResponse<ResponseValue<K>>
+    const response = await this.dispatch(
+      method,
+      request as RpcRequest<never>,
+      signal ?? new AbortController().signal,
+    ) as RpcResponse<ResponseValue<K>>
     const fullResponse: ServerResponse = { type: 'server-response', rpcId: response.rpcId, result: response.result }
     this.onEnvelope(fullResponse)
     return response
   }
 
   /** Method-key dispatch into the in-memory contract impl (a real carrier routes by URL path instead). */
-  private dispatch(method: keyof RpcMethodMap, request: RpcRequest<never>): Promise<RpcResponse<unknown>> {
+  private dispatch(
+    method: keyof RpcMethodMap,
+    request: RpcRequest<never>,
+    signal: AbortSignal,
+  ): Promise<RpcResponse<unknown>> {
     switch (method) {
       case 'session.list': return this.api.sessions.list(request)
+      case 'session.search': return this.api.sessions.search(request, signal)
       case 'session.create': return this.api.sessions.create(request)
       case 'session.history': return this.api.sessions.history(request)
       case 'session.models': return this.api.sessions.models(request)
@@ -1725,8 +1913,7 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'workspace.delete': return this.api.workspace.delete(request)
       case 'workspace.insertSessionBefore': return this.api.workspace.insertSessionBefore(request)
       case 'command.list': return this.api.commands.list(request)
-      // The in-memory execute never blocks, so a never-aborting signal is faithful here.
-      case 'command.execute': return this.api.commands.execute(request, new AbortController().signal)
+      case 'command.execute': return this.api.commands.execute(request, signal)
       case 'skill.list': return this.api.skills.list(request)
       case 'goal.create': return this.api.goals.create(request)
       case 'goal.edit': return this.api.goals.edit(request)

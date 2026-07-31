@@ -10,7 +10,8 @@ import {
   sessionCreateValueSchema, sessionEventSchema, sessionHistoryRequestSchema, sessionHistoryValueSchema,
   sessionIdSchema, sessionListRequestSchema, sessionListValueSchema, sessionModelsRequestSchema,
   sessionModelsValueSchema, sessionPromptRequestSchema, sessionPromptValueSchema,
-  sessionSelectModelRequestSchema, sessionSelectModelValueSchema, sessionSummarySchema,
+  sessionSearchRequestSchema, sessionSearchValueSchema, sessionSelectModelRequestSchema,
+  sessionSelectModelValueSchema, sessionSummarySchema,
   sessionUpdateQueueRequestSchema, sessionUpdateQueueValueSchema,
 } from '../src/api/sessions.schema.ts'
 import {
@@ -150,6 +151,36 @@ describe('sessions domain schemas', () => {
     expect(sessionListRequestSchema.parse({})).toEqual({})
     expect(sessionListRequestSchema.parse({ cursor: 'c' }).cursor).toBe('c')
     expect(sessionListValueSchema.parse({ items: [] }).items).toEqual([])
+    expect(sessionSearchRequestSchema.parse({ query: '  exact phrase  ' })).toEqual({ query: 'exact phrase' })
+    expect(() => sessionSearchRequestSchema.parse({ query: '   ' })).toThrow()
+    expect(() => sessionSearchRequestSchema.parse({ query: 'bad\0query' })).toThrow(/NUL/)
+    expect(() => sessionSearchRequestSchema.parse({ query: 'x'.repeat(501) })).toThrow()
+    expect(sessionSearchValueSchema.parse({
+      items: [{ sessionId: 's1', snippet: 'matching text' }],
+      hasMore: true,
+    })).toEqual({
+      items: [{ sessionId: 's1', snippet: 'matching text' }],
+      hasMore: true,
+    })
+    expect(sessionSearchValueSchema.parse({
+      items: [{ sessionId: 's1', snippet: '😀'.repeat(240) }],
+      hasMore: false,
+    }).items[0]?.snippet).toBe('😀'.repeat(240))
+    expect(() => sessionSearchValueSchema.parse({
+      items: [{ sessionId: 's1', snippet: '😀'.repeat(241) }],
+      hasMore: false,
+    })).toThrow(/240 Unicode code points/)
+    expect(() => sessionSearchValueSchema.parse({
+      items: [{ sessionId: '', snippet: 'matching text' }],
+      hasMore: false,
+    })).toThrow()
+    expect(() => sessionSearchValueSchema.parse({
+      items: Array.from(
+        { length: 21 },
+        (_, index) => ({ sessionId: `s${index}`, snippet: 'matching text' }),
+      ),
+      hasMore: true,
+    })).toThrow()
     expect(sessionCreateRequestSchema.parse({ cwd: '/w' }).cwd).toBe('/w')
     // The refine's both-sides branch: workspaceId alone passes, workspaceId+cwd rejects.
     expect(sessionCreateRequestSchema.parse({ workspaceId: 'w1', sessionId: 's1' }).sessionId).toBe('s1')
