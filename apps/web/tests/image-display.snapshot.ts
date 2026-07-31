@@ -165,17 +165,12 @@ it('renders the history image pair through the authorized attachment route and o
 })
 
 it('accepts pasted images into the composer rail in order and removes them', async () => {
-  boot('?fixture=empty')
+  boot()
 
   await screen.findByPlaceholderText('选择一个工作区开始', {}, { timeout: 10_000 })
   fireEvent.click(screen.getAllByRole('button', { name: '选择工作区' })
     .find(el => el.getAttribute('aria-haspopup') === 'menu')!)
-  fireEvent.click(await screen.findByRole('menuitem', { name: '新建工作区' }))
-  const dialog = await screen.findByRole('dialog', { name: '新建工作区' })
-  fireEvent.change(within(dialog).getByRole('textbox', { name: '新工作区名称' }), {
-    target: { value: 'image-input' },
-  })
-  fireEvent.click(within(dialog).getByRole('button', { name: '创建工作区' }))
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'fixture' }))
 
   // Image-only send arming is pinned at package level (input-bar.spec.tsx);
   // this assembled lane pins the intake chain over the built graph.
