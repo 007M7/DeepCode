@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-会话领域：骨架（标题栏／标签页／编辑器／空状态）、聊天视图（分组步骤摘要流、流式尾部隔离、逐工具行 slot 及一个 bash 示例注册方与 todo 行）、编辑器 dock（与输入区一同 sticky 的会话统计行）、输入区 dock（队列行加 todo 计划条）、最小详情面板、按 scope 寻址的 ConversationService。契约：api-contracts v3 §7 加 slot 终端设计（store seat／props share）。
+会话领域：骨架（标题栏／标签页／编辑器／空状态）、聊天视图（分组步骤摘要流、流式尾部隔离、带从左到右动态渐变的 `Deep diving...` 轮次状态、逐工具行 slot 及一个 bash 示例注册方与 todo 行）、编辑器 dock（与输入区一同 sticky 的会话统计行）、输入区 dock（带发丝分界线的队列行加 todo 计划条）、最小详情面板、按 scope 寻址的 ConversationService。契约：api-contracts v3 §7 加 slot 终端设计（store seat／props share）。
 
 压缩（compaction）在检查点自身的消息流位置渲染为一行折叠标记，不替换其上方的 transcript（文本记录）。展开内容来自检查点溯源的 `compact/summary`；该事件位于已加载窗口之外时，标记仍然可见但不可展开。面向模型的带框检查点载荷绝不渲染。
 

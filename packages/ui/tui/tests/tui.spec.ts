@@ -4387,6 +4387,20 @@ describe('tool cards and surface replay', () => {
       presentCall: () => ({ card: 'generic', title: 'Becomes terminal' }),
       presentResult: () => ({ card: 'terminal', output: 'converted terminal' }),
     },
+    // A search card carries no result text of its own; the TUI has no dedicated
+    // search arm and falls back to the raw result content, rendered as the same
+    // dim generic body a pre-search-card grep/glob result showed.
+    search: {
+      name: 'search', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
+      presentCall: () => ({ card: 'generic', title: 'Grep todo', kind: 'search' }),
+      presentResult: () => ({
+        card: 'search',
+        shape: 'matches',
+        files: [{ path: 'a.ts', matches: [{ lineNumber: 1, line: 'todo one' }] }],
+        truncated: false,
+        total: 1,
+      }),
+    },
     symbolic: {
       name: 'symbolic', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => ({ card: 'generic', title: 'Symbol input', rawInput: Symbol('input') }),
@@ -4424,6 +4438,7 @@ describe('tool cards and surface replay', () => {
       ['c12', 'symbolic', '{}'],
       ['c13', 'knownXml', '{}'],
       ['c16', 'webCard', '{}'],
+      ['c17', 'search', '{"pattern":"todo"}'],
     ] as const
     appendAssistant(result.session, [
       { type: 'text', text: 'Calling tools' },
@@ -4526,6 +4541,14 @@ describe('tool cards and surface replay', () => {
       }),
     }, { surfaceOp: 'append' })
     result.session.append('tool/result', {
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'c17' as never,
+        content: [{ type: 'text', text: 'Found 1 match\n\na.ts\nLine 1: todo one' }],
+        isError: false,
+      }),
+    }, { surfaceOp: 'append' })
+    result.session.append('tool/result', {
       turn: 1,
       step: 1,
       message: createToolResultMessage({
@@ -4556,6 +4579,11 @@ describe('tool cards and surface replay', () => {
     expect(output).toContain('$ blank desc command')
     // A card whose title only repeats the name renders header-only (empty body).
     expect(output).toContain('Tool / emptyBody')
+    // A search result view carries no `content` of its own, so the card renders
+    // the raw model-facing result text through the same dim generic body — the
+    // TUI has no dedicated search arm.
+    expect(output).toContain('Tool / search')
+    expect(output).toContain('Line 1: todo one')
     // A diff card drops its title (the paths + change footer carry the meaning).
     // The first file's path is head-visible; the second file and the change
     // footer sit past this card's 4-line budget and appear only when expanded.

@@ -2,11 +2,11 @@
 
 [English](README.md) | 中文
 
-模型设置插件：提供方配置页和 DeepSeek 官方首次使用跳转浮层。它把三个协议领域汇聚为一个共享快照：`llm.providers`（可配置提供方目录，含每条路由的存活／休眠状态）、`settings.describe`（序列化 schema、分层脱敏值、secret 槽位）与 `credentials.describe`（不含值的 configured/source/writable 徽标）；页面据此渲染提供方行，一次只展开一张编辑卡片，且不把路由存活状态呈现为提供方状态。
+模型设置插件：提供方配置页和按条件显示的 DeepSeek 官方首次使用引导步骤。它把三个协议领域汇聚为一个共享快照：`llm.providers`（可配置提供方目录，含每条路由的存活／休眠状态）、`settings.describe`（序列化 schema、分层脱敏值、secret 槽位）与 `credentials.describe`（不含值的 configured/source/writable 徽标）；页面据此渲染提供方行，一次只展开一张编辑卡片，且不把路由存活状态呈现为提供方状态。
 
 行是*已配置*的提供方（其 profile 在所属 namespace 中解析得出）；密钥未在任何地方配置的整分节提供方（DeepSeek 的首次运行姿态）会渲染为其展开的设置卡片而非一行，「新增」流程则是一张承载休眠目录提供方选择框的卡片——裸挂载的 `llm-pi-ai` 在任何路由存在之前就能提供其完整的已安装 catalog。编辑器是每个适配器家族各一张的手写卡片：主字段是单独一个 **API 密钥**输入框——页面从不询问环境变量名；键入的密钥经 `credentials.set` 以**只写**方式存入 profile 的引用之下，profile 没有引用时便派生 `<ROUTE>_API_KEY`，pi-ai profile 会把这次派生记录为 `apiKeyEnv`，因此 `settings.yaml` 从不携带密钥值。收起的「自定义设置」折叠区承载精选的额外字段——两个家族都有 `baseURL`（deepseek 的占位符显示公共端点），另加 `reasoningEffort`（deepseek）或 `reasoning`（pi-ai）；其余每个 profile 字段仍归 `settings.yaml` 所有。只有当某行仅由用户层承载时它才可删除（删除会还原组合 base），而且必须先在本地化对话框中确认，页面才会提交这次破坏性的 unset。
 
-首次使用浮层从同一个联接快照得出 `deepseek-official` 的就绪状态。它通过 `llm-deepseek` 的可配置提供方声明识别官方适配器，因此不会把同一提供方 ID 下没有相应声明的存活路由视为可通过配置修复。若 `apiKey` 字面量对应的 secret 槽位标记为已设置，或凭据引用已配置，浮层就不再显示，其中包括来自启动环境且只读的凭据。只有适配器已挂载、引用可写但尚未配置时，浮层才显示一个操作按钮，用于打开「设置」的 Models 分区；密钥输入和 `credentials.set` 仅由该分区已有的设置卡片负责，浮层绝不持有 secret。适配器缺失、路由未激活、联接失败、部署只读、设置能力不可用或凭据能力不可用时均跳过，以免首次使用引导阻塞产品的其他部分；Models 页仍是诊断界面。
+前序首次使用引导页面完成后，DeepSeek 步骤会从同一个联接快照得出 `deepseek-official` 的就绪状态。它通过 `llm-deepseek` 的可配置提供方声明识别官方适配器，因此同 id 但未声明的存活路由不属于可修复配置。若 `apiKey` 字面量对应的 secret 槽位标记为已设置，或凭据引用已配置，该步骤会直接完成而不渲染，其中包括来自启动环境且只读的凭据。只有已挂载且活跃、引用可写但尚未配置的适配器才会显示前往「设置」Models 分区的页面；密钥输入和 `credentials.set` 仅由该分区已有的设置卡片负责，该步骤绝不持有 secret。适配器缺失、路由不活跃、联接失败、部署只读或设置／凭据能力不可用时，该步骤均不渲染并直接完成，以免首次使用引导阻塞产品；Models 页仍是诊断界面。
 
 每一次编辑都以 `settings.mutate` 的路径 op 落到已存分节上——每个变更字段一条 set、每个清空字段一条 unset、删除整行则是单独一条 unset。页面自始至终只持有**脱敏后**的 descriptor，因此它点名自己看得见的字段，而不是重建分节：一个它从未收到过的已存字面机密不会被任何 op 提及，也就得以留存。每次写入都携带该卡片打开时的 `revision`，因此来自另一个标签页或对 `settings.yaml` 的外部编辑所产生的并发写入会以 `settings-conflict` 被拒绝，卡片会请用户重新打开，而不是把自己的陈旧快照重放上去。页面加载完成后会在推送的失效事件（`settings/changed`、`credentials/changed`、`models/changed` 与 `connection/reset`）上重拉，因此外部的 `settings.yaml` 编辑、第二个标签页或 settings 新生的路由都无需轮询即可收敛。
 
