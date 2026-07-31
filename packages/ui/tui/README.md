@@ -40,7 +40,7 @@ Selection repeats those checks and requires the current agent to be idle before 
 
 The exit line is launcher-owned, not configurable. A launcher provides `TUI_GOODBYE_MESSAGE_KEY` on the boot context — for the shipped `dsh`, the command that resumes this session — and exiting prints it verbatim after the terminal is released; absent, exiting prints nothing. Only the launcher knows how it was invoked, so only it can name a command that works. The TUI escapes terminal controls before rendering and never executes the text. A launcher that also supplies `MAIN_SESSION_ID_KEY` fixes which session the mounted app binds to, so resume survives any config-level patch.
 
-A launcher can seed a fresh session's first turn by providing `INITIAL_SKILL_KEY` (the skill name) on the boot context; the TUI auto-invokes it exactly as a typed `/skill:<name>`, once the chat is live. The shipped `dsh migrate`/`dsh upgrade` set it and only for a fresh session, so a resumed session never re-invokes the skill; an unknown name is reported as a notice.
+A launcher can seed a fresh session's first turn by providing `INITIAL_SKILL_KEY` (the skill name) on the boot context; the TUI auto-invokes it exactly as a typed `/skill:<name>`, once the chat is live. The shipped `dsh migrate`/`dsh experimental-upgrade` set it and only for a fresh session, so a resumed session never re-invokes the skill; an unknown name is reported as a notice.
 
 ## Config
 
