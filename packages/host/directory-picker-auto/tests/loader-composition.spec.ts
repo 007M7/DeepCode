@@ -56,6 +56,7 @@ async function loadComposition(bindHost: '127.0.0.1' | '0.0.0.0'): Promise<{ ctx
     '  config:',
     `    host: '${bindHost}'`,
     '    port: 0',
+    '    portConflict: increment',
     `    distIndex: '${distIndex}'`,
     `- name: '${AUTO}'`,
     '',
