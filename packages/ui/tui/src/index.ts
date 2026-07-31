@@ -1531,9 +1531,7 @@ export function createTuiChat(
     recordEventUsage(tokens, event)
     if (event.type === 'turn/start' && runningStatus !== undefined) runningStatus.turn = event.data.turn
     if (event.type === 'assistant/message' && streaming?.isSettled()) streaming = undefined
-    // Standalone compaction runs while the agent remains idle, so only the
-    // live durable bracket can announce its in-flight state without mistaking
-    // a stale resumed orphan for current work.
+    // Track live standalone compaction state.
     if (event.type === 'compact/start' && event.data.turn === null) {
       if (compacting === undefined) {
         const startedAt = now()
