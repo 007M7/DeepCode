@@ -9,6 +9,7 @@
   },
   "files": [
     "lib/bin.js",
+    "assets",
     "config",
     "src"
   ],
@@ -132,6 +133,7 @@
     "@deepseek-ai/dsh-workflow-workerthread": "workspace:^",
     "@deepseek-ai/dsh-workspace": "workspace:^",
     "@deepseek-ai/dsh-workspace-context": "workspace:^",
+    "@earendil-works/pi-tui": "0.80.7",
     "commander": "^15.0.0",
     "cordis": "^4.0.0-rc.7",
     "js-yaml": "^4.2.0"
