@@ -184,7 +184,9 @@ describe('TrajectoryTable', () => {
     expect(toolTag?.querySelector('[data-role-icon="wrench"]')).toBeTruthy()
 
     fireEvent.mouseEnter(toolTag as HTMLElement)
-    expect(screen.getByRole('tooltip').textContent).toBe('TOOL')
+    const tooltip = screen.getByRole('tooltip')
+    expect(tooltip.textContent).toBe('TOOL')
+    expect(tooltip.getAttribute('data-side')).toBe('right')
     fireEvent.mouseLeave(toolTag as HTMLElement)
     expect(screen.queryByRole('tooltip')).toBeNull()
   })

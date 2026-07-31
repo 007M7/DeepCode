@@ -31,6 +31,7 @@ import { TrajectoryTimeline } from '../src/client/TrajectoryTimeline.tsx'
 import {
   TrajectoryView, type TrajectoryViewInjected,
 } from '../src/client/TrajectoryView.tsx'
+import { createTrajectoryDurationStore } from '../src/client/duration-store.ts'
 import { deriveTrajectoryTimeline } from '../src/client/timeline.ts'
 
 const SID = 's1' as SessionId
@@ -93,6 +94,16 @@ function standaloneHistory(
   return {
     useHistory: bindSnapshotSelector(store),
     loadAllHistory: () => Promise.resolve(),
+  }
+}
+
+function standaloneDuration(): Pick<
+  ComponentProps<typeof TrajectoryView>, 'useDuration' | 'setActualDuration'
+> {
+  const duration = createSnapshotStore(false)
+  return {
+    useDuration: bindSnapshotSelector(duration),
+    setActualDuration: (value) => { duration.set(value) },
   }
 }
 
@@ -187,12 +198,15 @@ function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES
       ? {}
       : injectEntry(SID)
     const injectedProps = 'hooks' in injected
-      ? {
-        loadAllHistory: (injected as TrajectoryViewInjected).loadAllHistory,
-        useHistory: bindSnapshotSelector(
-          (injected as TrajectoryViewInjected).hooks.history,
-        ),
-      }
+      ? (() => {
+        const trajectory = injected as TrajectoryViewInjected
+        return {
+          loadAllHistory: trajectory.loadAllHistory,
+          setActualDuration: trajectory.setActualDuration,
+          useHistory: bindSnapshotSelector(trajectory.hooks.history),
+          useDuration: bindSnapshotSelector(trajectory.hooks.duration),
+        }
+      })()
       : injected
     return (
       <View
@@ -240,6 +254,24 @@ describe('plugin registration', () => {
     const b = await bench()
     await b.fiber.dispose()
     expect(tabsOf(b.slots).map(v => v.id)).toEqual(['chat'])
+  })
+
+  it('shares one browser-wide duration preference across session injections', async () => {
+    const b = await bench()
+    const entry = b.slots.entries('conversation.view')
+      .find(candidate => candidate.options.id === 'trajectory')
+    expect(entry).toBeDefined()
+    const injectEntry = entry!.inject as unknown as (
+      sessionId: SessionId,
+    ) => TrajectoryViewInjected
+    const first = injectEntry(SID)
+    const second = injectEntry('s2' as SessionId)
+
+    expect(second.hooks.duration).toBe(first.hooks.duration)
+    first.setActualDuration(true)
+    expect(second.hooks.duration.getSnapshot()).toBe(true)
+    expect(localStorage.getItem('dsh.trajectory.duration')).toBe('true')
+    expect(localStorage.getItem(`dsh.trajectory.duration.${SID}`)).toBeNull()
   })
 })
 
@@ -460,6 +492,12 @@ describe('tab switching in ConversationRoot', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
     expect(screen.getByRole('toolbar', { name: 'Trajectory toolbar' })).toBeTruthy()
     expect(screen.getByText('No timing data')).toBeTruthy()
+    expect(screen.getByRole<HTMLButtonElement>('button', {
+      name: 'Collapse turns',
+    }).disabled).toBe(false)
+    expect(screen.getByRole<HTMLButtonElement>('button', {
+      name: 'Collapse calls',
+    }).disabled).toBe(false)
     expect(screen.queryByRole('row')).toBeNull()
     expect(screen.queryByText(/turns ·/)).toBeNull()
   })
@@ -489,6 +527,28 @@ describe('timeline projection', () => {
       })),
     }],
   }] satisfies readonly TrajectoryTurnModel[]
+
+  it('cancels native scrolling across the timeline while zooming', () => {
+    render(
+      <TrajectoryTimeline
+        turns={longTurns}
+        mode="sequence"
+        range={null}
+        onRangeChange={vi.fn()}
+      />,
+    )
+    const plot = screen.getByLabelText('Timeline overview; drag horizontally to focus events')
+    vi.spyOn(plot, 'getBoundingClientRect').mockReturnValue({
+      x: 44, y: 0, left: 44, top: 0, right: 144, bottom: 50, width: 100, height: 50,
+      toJSON: () => ({}),
+    })
+
+    expect(fireEvent.wheel(plot, { clientX: 94, deltaY: -100 })).toBe(false)
+    expect(fireEvent.wheel(screen.getByText('Input'), {
+      clientX: 20,
+      deltaY: -100,
+    })).toBe(false)
+  })
 
   it('pans the zoomed viewport only far enough to reveal a newly selected record', async () => {
     const onRangeChange = vi.fn()
@@ -542,7 +602,7 @@ describe('timeline projection', () => {
 
   it('auto-pans a zoomed viewport while a range drag pushes against an edge', () => {
     const onRangeChange = vi.fn()
-    render(
+    const view = render(
       <TrajectoryTimeline
         turns={longTurns}
         mode="sequence"
@@ -560,13 +620,26 @@ describe('timeline projection', () => {
     for (let index = 0; index < 24; index++) {
       fireEvent.pointerMove(plot, { clientX: 99, pointerId: 1 })
     }
+    const draftSelection = view.container.querySelectorAll<HTMLElement>(
+      '[data-dragging="true"]',
+    )
+    expect(draftSelection).toHaveLength(2)
+    for (const overlay of draftSelection) {
+      expect(Number.parseFloat(
+        overlay.style.getPropertyValue('--trajectory-selection-left'),
+      )).toBeLessThan(0)
+    }
     fireEvent.pointerUp(plot, { clientX: 99, pointerId: 1 })
 
     const selectedRange = onRangeChange.mock.calls.at(-1)?.[0] as
       | { start: number; end: number }
       | undefined
+    const fullRange = deriveTrajectoryTimeline(longTurns)
     expect(selectedRange).toBeDefined()
+    expect(fullRange).not.toBeNull()
     expect((selectedRange?.end ?? 0) - (selectedRange?.start ?? 0)).toBeGreaterThan(4)
+    expect(selectedRange?.start).toBeGreaterThanOrEqual(fullRange?.start ?? 0)
+    expect(selectedRange?.end).toBeLessThanOrEqual(fullRange?.end ?? 0)
   })
 
   it('uses equal-width operation slots and stable semantic lanes', () => {
@@ -657,6 +730,53 @@ describe('timeline projection', () => {
     })
   })
 
+  it('compresses every idle gap in duration mode while actual mode retains wall time', () => {
+    const separatedTurns = [
+      {
+        turn: 1,
+        groups: [{
+          title: 'Step 1',
+          cells: [
+            { index: 1, kind: 'message', text: 'first', startedAt: 1_000, timeSeconds: 1 },
+            { index: 2, kind: 'tool', text: 'within-turn gap', startedAt: 4_000, timeSeconds: 1 },
+          ],
+        }],
+      },
+      {
+        turn: 2,
+        groups: [{
+          title: 'Step 1',
+          cells: [
+            { index: 3, kind: 'message', text: 'after user idle', startedAt: 40_000, timeSeconds: 1 },
+          ],
+        }],
+      },
+    ] satisfies readonly TrajectoryTurnModel[]
+
+    expect(deriveTrajectoryTimeline(separatedTurns, 'duration')).toMatchObject({
+      start: 1_000,
+      end: 4_000,
+      spans: [
+        { index: 1, start: 1_000, end: 2_000 },
+        { index: 2, start: 2_000, end: 3_000 },
+        { index: 3, start: 3_000, end: 4_000 },
+      ],
+      turnBoundaries: [
+        { turn: 1, time: 1_000 },
+        { turn: 2, time: 3_000 },
+      ],
+    })
+    expect(deriveTrajectoryTimeline(separatedTurns, 'actual')).toMatchObject({
+      start: 1_000,
+      end: 41_000,
+      spans: [
+        { index: 1, start: 1_000, end: 2_000 },
+        { index: 2, start: 4_000, end: 5_000 },
+        { index: 3, start: 40_000, end: 41_000 },
+      ],
+    })
+  })
+
   it('projects between-turn compaction without inventing a turn boundary', () => {
     const withStandaloneCompaction = [
       {
@@ -702,6 +822,7 @@ describe('timeline projection', () => {
       {
         ...standaloneProps([]),
         ...standaloneHistory(historySnapshot([])),
+        ...standaloneDuration(),
       },
     ))
     expect(screen.getByRole('toolbar', { name: 'Trajectory toolbar' })).toBeTruthy()
@@ -710,6 +831,38 @@ describe('timeline projection', () => {
 })
 
 describe('TrajectoryView branches', () => {
+  it('persists the duration preference through the runtime snapshot-store seam', () => {
+    const firstDuration = createTrajectoryDurationStore()
+    const commonProps = {
+      ...standaloneProps(NODES),
+      ...standaloneHistory(historySnapshot(NODES)),
+    }
+    const first = render(
+      <TrajectoryView
+        {...commonProps}
+        useDuration={bindSnapshotSelector(firstDuration)}
+        setActualDuration={(value) => { firstDuration.set(value) }}
+      />,
+    )
+    const duration = screen.getByRole('button', { name: 'Use actual duration' })
+
+    expect(duration.getAttribute('aria-pressed')).toBe('false')
+    fireEvent.click(duration)
+    expect(localStorage.getItem('dsh.trajectory.duration')).toBe('true')
+    first.unmount()
+
+    const restoredDuration = createTrajectoryDurationStore()
+    render(
+      <TrajectoryView
+        {...commonProps}
+        useDuration={bindSnapshotSelector(restoredDuration)}
+        setActualDuration={(value) => { restoredDuration.set(value) }}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Use actual duration' }).getAttribute('aria-pressed'))
+      .toBe('true')
+  })
+
   it('renders only the selected rewind branch while retaining session-global requests', () => {
     const retained = {
       kind: 'user',
@@ -765,6 +918,7 @@ describe('TrajectoryView branches', () => {
     const view = render(
       <TrajectoryView
         {...standaloneProps([])}
+        {...standaloneDuration()}
         useHistory={bindSnapshotSelector(store)}
         loadAllHistory={vi.fn(() => Promise.resolve())}
       />,
@@ -807,6 +961,7 @@ describe('TrajectoryView branches', () => {
     render(
       <TrajectoryView
         {...standaloneProps([])}
+        {...standaloneDuration()}
         useHistory={bindSnapshotSelector(store)}
         loadAllHistory={vi.fn(() => Promise.resolve())}
       />,

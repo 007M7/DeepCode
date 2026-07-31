@@ -321,6 +321,13 @@
   width: 76px;
 }
 
+.kindSlot :global([role='tooltip']) {
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-2);
+  box-shadow: var(--dsw-shadow-lv2);
+  color: var(--dsw-alias-label-primary);
+}
+
 .content {
   padding-left: 4px !important;
   color: var(--dsw-alias-label-primary);
@@ -828,6 +835,7 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 .detailBodySummary {
@@ -989,7 +997,7 @@
   margin: 0;
   padding: 0 0 3px 14px;
   color: var(--dsw-alias-label-secondary);
-  background: var(--dsw-alias-bg-base);
+  background: var(--dsw-alias-bg-layer-1);
   font: var(--dsw-font-xs-strong-13);
   user-select: none;
 }
