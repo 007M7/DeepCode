@@ -1992,12 +1992,15 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await dispose(result)
   })
 
-  it('shows one compaction glyph cell for a live standalone bracket while idle', async () => {
+  it('shows a dynamic transcript marker and one glyph cell for a live standalone bracket while idle', async () => {
     let clock = 0
     const result = await setup({ omitInitialLifecycle: true, now: () => clock })
     const idleWidth = promptWidth(result.terminal.output)
 
     result.session.append('compact/start', { turn: null })
+    await tick()
+    expect(result.terminal.output).toContain('◐ Compaction in progress…')
+
     clock = 1_000
     result.terminal.output = ''
     await new Promise(resolve => setTimeout(resolve, 75))
@@ -2005,6 +2008,12 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('dsh ⊙ ')
     expect(promptWidth(result.terminal.output)).toBe(idleWidth)
     expect(result.terminal.progress.at(-1)).toBe(true)
+
+    clock = 1_050
+    result.terminal.output = ''
+    await new Promise(resolve => setTimeout(resolve, 75))
+    expect(result.terminal.output).toContain('◓')
+
     await dispose(result)
   })
 
@@ -2015,6 +2024,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
 
     expect(result.terminal.output).toContain('dsh > ')
     expect(result.terminal.output).not.toContain('dsh ⊙ ')
+    expect(result.terminal.output).not.toContain('Compaction in progress…')
     expect(result.terminal.progress.at(-1)).toBe(false)
     await dispose(result)
   })
@@ -2029,12 +2039,14 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await tick()
 
     clock = 2_000
-    result.terminal.output = ''
     await new Promise(resolve => setTimeout(resolve, 120))
+    result.terminal.output = ''
+    result.terminal.resize(result.terminal.columns + 1)
     await tick()
 
     expect(result.terminal.output).toContain('dsh > ')
     expect(result.terminal.output).not.toMatch(/dsh [◍✻●⚙⊙]/u)
+    expect(result.terminal.output).not.toContain('Compaction in progress…')
     expect(result.terminal.progress.at(-1)).toBe(false)
     await dispose(result)
   })
@@ -2047,6 +2059,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await tick()
 
     expect(result.terminal.output).toContain('Compaction failed: summary failed')
+    expect(result.terminal.output).not.toContain('Compaction in progress…')
     expect(result.terminal.progress.at(-1)).toBe(false)
     await dispose(result)
   })
@@ -2058,9 +2071,11 @@ describe('pi-tui chat lifecycle and transcript', () => {
     clock = 1_000
     result.terminal.output = ''
     result.ctx.emit('agent/status', result.agent, 'idle')
+    result.terminal.resize(result.terminal.columns + 1)
     await tick()
 
     expect(result.terminal.output).toContain('dsh ⊙ ')
+    expect(result.terminal.output).toContain('Compaction in progress…')
     expect(result.terminal.progress.at(-1)).toBe(true)
     await dispose(result)
   })
@@ -2075,6 +2090,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
 
     expect(result.terminal.output).toContain('dsh ◍ ')
     expect(result.terminal.output).not.toContain('dsh ⊙ ')
+    expect(result.terminal.output).toContain('Compaction in progress…')
     result.session.append('compact/end', { turn: null })
     await tick()
     result.terminal.output = ''
@@ -2099,12 +2115,12 @@ describe('pi-tui chat lifecycle and transcript', () => {
       clearIntervalSpy.mockClear()
       result.session.append('compact/start', { turn: null })
       clock = 1_000
-      result.terminal.output = ''
       result.session.append('compact/start', { turn: null })
       await tick()
 
       expect(intervalSpy).toHaveBeenCalledOnce()
       expect(result.terminal.output).toContain('dsh ⊙ ')
+      expect(result.terminal.output).toContain('Compaction in progress…')
       expect(result.terminal.progress.at(-1)).toBe(true)
 
       result.session.append('compact/end', { turn: null })
@@ -2132,7 +2148,30 @@ describe('pi-tui chat lifecycle and transcript', () => {
 
     expect(result.terminal.output).toContain('dsh > ')
     expect(result.terminal.output).not.toContain('dsh ⊙ ')
+    expect(result.terminal.output).not.toContain('Compaction in progress…')
     expect(result.terminal.progress.at(-1)).toBe(false)
+    await dispose(result)
+  })
+
+  it('keeps the live compaction marker at the transcript tail across new content and clear', async () => {
+    const result = await setup({ omitInitialLifecycle: true, now: () => 1_000 })
+    result.session.append('compact/start', { turn: null })
+    result.terminal.output = ''
+    appendUser(result.session, 'arrived during compaction')
+    await tick()
+
+    expect(result.terminal.output).toContain('arrived during compaction')
+    expect(result.terminal.output).toContain('Compaction in progress…')
+
+    result.terminal.output = ''
+    result.terminal.send('/clear')
+    result.terminal.send('\r')
+    await tick()
+    result.terminal.resize(result.terminal.columns + 1)
+    await tick()
+
+    expect(result.terminal.output).toContain('Compaction in progress…')
+    result.session.append('compact/end', { turn: null })
     await dispose(result)
   })
 

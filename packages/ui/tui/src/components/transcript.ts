@@ -32,9 +32,13 @@ import { contentText, type ParsedArguments } from './content.ts'
 import {
   formatCompletionTime,
   formatTimingTotals,
+  STATUS_ANIMATION_INTERVAL_MS,
   stepTimingAt,
   type StepPosition,
 } from '../chat/timing.ts'
+
+const COMPACTION_PROGRESS_FRAMES = ['◐', '◓', '◑', '◒'] as const
+const COMPACTION_PROGRESS_LABEL = 'Compaction in progress…'
 
 /** Concatenate the text of every block of one type, separated by blank lines. */
 function textBlocks(content: readonly ContentBlock[], type: 'text' | 'reasoning'): string {
@@ -117,6 +121,29 @@ export class HeaderComponent implements Component {
     if (this.revealWidth === undefined) return lines
     const revealed = this.revealWidth
     return lines.map(line => truncateToWidth(line, revealed, ''))
+  }
+}
+
+/**
+ * Process-local transcript tail announcing a live standalone compaction.
+ * The leading blank belongs to the component so removing it leaves no gap.
+ */
+export class CompactionProgressComponent implements Component {
+  constructor(
+    private readonly startedAt: number,
+    private readonly now: () => number,
+    private readonly palette: Palette,
+  ) {}
+
+  invalidate(): void {}
+
+  render(width: number): string[] {
+    const elapsed = Math.max(0, this.now() - this.startedAt)
+    const frameIndex = Math.floor(elapsed / STATUS_ANIMATION_INTERVAL_MS)
+      % COMPACTION_PROGRESS_FRAMES.length
+    const frame = COMPACTION_PROGRESS_FRAMES[frameIndex] as string
+    const marker = `${this.palette.accent(frame)} ${this.palette.dim(COMPACTION_PROGRESS_LABEL)}`
+    return ['', truncateToWidth(marker, Math.max(1, width), '')]
   }
 }
 

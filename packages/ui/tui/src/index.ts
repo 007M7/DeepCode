@@ -94,6 +94,7 @@ import {
   type Config,
 } from './config.ts'
 import {
+  CompactionProgressComponent,
   ContextCardComponent,
   type ToolCardVisibility,
   HeaderComponent,
@@ -347,7 +348,11 @@ export function createTuiChat(
    * Live standalone compaction observed by this process. Never derive this
    * state from history: a resumed log may contain a stale orphaned start.
    */
-  let compacting: { startedAt: number; timer: ReturnType<typeof setInterval> } | undefined
+  let compacting: {
+    startedAt: number
+    timer: ReturnType<typeof setInterval>
+    progress: CompactionProgressComponent
+  } | undefined
   // TUI steering submissions that the inbox has not yet claimed or discarded.
   // Correlation ids avoid guessing whether a running-state submission actually
   // joined steering or fell back to the queued-turn FIFO during turn close.
@@ -478,6 +483,11 @@ export function createTuiChat(
 
   const requestRender = (): void => {
     if (disposed) return
+    if (compacting !== undefined) {
+      compacting.progress.invalidate()
+      chat.removeChild(compacting.progress)
+      chat.addChild(compacting.progress)
+    }
     updatePromptValues()
     const inputPrompt = renderInputPrompt()
     editor.setPrompt({ first: inputPrompt, continuation: ' '.repeat(visibleWidth(inputPrompt)) })
@@ -567,6 +577,7 @@ export function createTuiChat(
   const clearStatus = (): void => {
     if (compacting !== undefined) {
       clearInterval(compacting.timer)
+      chat.removeChild(compacting.progress)
       compacting = undefined
     }
     clearTurnStatus()
@@ -1525,9 +1536,11 @@ export function createTuiChat(
     // a stale resumed orphan for current work.
     if (event.type === 'compact/start' && event.data.turn === null) {
       if (compacting === undefined) {
+        const startedAt = now()
         compacting = {
-          startedAt: now(),
+          startedAt,
           timer: setInterval(renderStatus, STATUS_ANIMATION_INTERVAL_MS),
+          progress: new CompactionProgressComponent(startedAt, now, palette),
         }
         runtime.terminal.setProgress(true)
       }
@@ -1536,6 +1549,7 @@ export function createTuiChat(
     }
     if (event.type === 'compact/end' && event.data.turn === null && compacting !== undefined) {
       clearInterval(compacting.timer)
+      chat.removeChild(compacting.progress)
       compacting = undefined
       if (event.data.error !== undefined) {
         appendNotice(`Compaction failed: ${event.data.error}`, 'warning')
