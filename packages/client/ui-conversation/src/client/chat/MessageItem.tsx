@@ -1,20 +1,22 @@
 // MessageItem: simple chat nodes — user bubble (right-aligned, with
 // clock + copy / branch IconActions), steering (badged bubble), context
-// injection, retry disclosure, and unknown-surface JSON rows.
+// injection, compaction marker, retry disclosure, and unknown-surface JSON rows.
 
 import { memo, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import type {
-  ContextMessageNode, ModelRetryNode, SteeringMessageNode, UnknownSurfaceNode, UserMessageNode,
+  CompactionSummaryNode, ContextMessageNode, ModelRetryNode, SteeringMessageNode,
+  UnknownSurfaceNode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { JsonBlock, MessageText } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
+import { CompactionItem } from './CompactionItem.tsx'
 import { ContextInjectionRow } from './ContextInjectionRow.tsx'
 import { MessageIconActions } from './MessageIconActions.tsx'
 import css from './MessageItem.module.css'
 
 export interface MessageItemProps {
-  node: UserMessageNode | SteeringMessageNode | ContextMessageNode | ModelRetryNode | UnknownSurfaceNode
+  node: UserMessageNode | SteeringMessageNode | ContextMessageNode | CompactionSummaryNode | ModelRetryNode | UnknownSurfaceNode
   retryActive?: boolean
   /** Fork the session through the turn containing this message (user-bubble branch action). */
   onFork?: (seq: number) => void
@@ -179,6 +181,8 @@ export const MessageItem = memo(function MessageItem({
       return (
         <ContextInjectionRow content={node.content} source={node.source} t={t} />
       )
+    case 'compaction':
+      return <CompactionItem node={node} t={t} />
     case 'model-retry':
       return <ModelRetryItem node={node} active={retryActive} t={t} />
     default:

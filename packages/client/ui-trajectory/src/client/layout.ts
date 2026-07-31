@@ -357,6 +357,12 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
       prevAbsTime = finiteTime(node.time) ?? prevAbsTime
       continue
     }
+    if (node.kind === 'compaction') {
+      // Chat owns the human-facing compaction marker. It contributes no
+      // duplicate trajectory cell, but still advances the duration cursor.
+      prevAbsTime = finiteTime(node.time) ?? prevAbsTime
+      continue
+    }
     if (node.kind === 'tool-result') {
       if (!emittedCallIds.has(node.callId)) {
         const toolName = node.call?.name

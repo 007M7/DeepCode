@@ -11,7 +11,7 @@ import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden,
   launchWebScaffold, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
-import { saveFailureShot } from './support.ts'
+import { ZH_BROWSER_LOCALE, saveFailureShot } from './support.ts'
 
 /**
  * connectFreshWorkspace twin over the product default Chinese locale (the
@@ -49,7 +49,7 @@ describe('web e2e: Full access confirmation', () => {
     browser = await chromium.launch(executablePath === undefined ? {} : { executablePath })
     // Keep the product default Chinese locale: the golden pins the actual
     // registered dictionary rather than a test-local translation callback.
-    page = await browser.newPage({ viewport: { width: 1680, height: 1000 } })
+    page = await browser.newPage({ viewport: { width: 1680, height: 1000 }, locale: ZH_BROWSER_LOCALE })
     tripwire = watchConsole(page)
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
