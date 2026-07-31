@@ -297,6 +297,12 @@ importers:
       '@deepseek-ai/dsh-plan-mode':
         specifier: workspace:^
         version: link:../../packages/plan/plan-mode
+      '@deepseek-ai/dsh-pty':
+        specifier: workspace:^
+        version: link:../../packages/pty/pty
+      '@deepseek-ai/dsh-pty-local':
+        specifier: workspace:^
+        version: link:../../packages/pty/pty-local
       '@deepseek-ai/dsh-sandbox-local':
         specifier: workspace:^
         version: link:../../packages/sandbox/sandbox-local
@@ -393,6 +399,9 @@ importers:
       '@deepseek-ai/dsh-tool-bash':
         specifier: workspace:^
         version: link:../../packages/bash/tool-bash
+      '@deepseek-ai/dsh-tool-bash-persistent':
+        specifier: workspace:^
+        version: link:../../packages/pty/tool-bash-persistent
       '@deepseek-ai/dsh-tool-cordis':
         specifier: workspace:^
         version: link:../../packages/cordis/tool-cordis
@@ -411,6 +420,9 @@ importers:
       '@deepseek-ai/dsh-tool-skill':
         specifier: workspace:^
         version: link:../../packages/skill/tool-skill
+      '@deepseek-ai/dsh-tool-str-replace-editor':
+        specifier: workspace:^
+        version: link:../../packages/fs/tool-str-replace-editor
       '@deepseek-ai/dsh-tool-subagent':
         specifier: workspace:^
         version: link:../../packages/subagent/tool-subagent
