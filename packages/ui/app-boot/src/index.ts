@@ -384,7 +384,9 @@ export function installFailLoud(
       return
     }
     void (async () => {
-      let timer: ReturnType<typeof setTimeout> | undefined
+      // Definitely assigned: the timeout promise's executor runs synchronously
+      // while the race is being constructed, before the first await.
+      let timer!: ReturnType<typeof setTimeout>
       try {
         await Promise.race([
           (async () => release())(),
@@ -396,7 +398,7 @@ export function installFailLoud(
         // The terminal release failed; the fatal exit below is the outcome that
         // matters, and no reporter runs after it.
       }
-      if (timer !== undefined) clearTimeout(timer)
+      clearTimeout(timer)
       proc.exit(1)
     })()
   }
