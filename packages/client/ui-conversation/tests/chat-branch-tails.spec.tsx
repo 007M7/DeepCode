@@ -27,7 +27,7 @@ afterEach(() => {
 const t: MessageItemProps['t'] = makeTranslate(zh, commonZh)
 
 describe('MessageItem arms', () => {
-  it('user bubbles expose clock / copy / branch / edit; copy writes the text', () => {
+  it('user bubbles expose clock / copy / branch and no edit; copy writes the text', () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
@@ -47,7 +47,7 @@ describe('MessageItem arms', () => {
     expect(screen.getByText('14:24')).toBeTruthy()
     expect(screen.getByRole('button', { name: '复制' })).toBeTruthy()
     expect(screen.getByRole('button', { name: '在新对话中分支' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: '编辑' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '编辑' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '复制' }))
     expect(writeText).toHaveBeenCalledWith('hello bubble')
   })

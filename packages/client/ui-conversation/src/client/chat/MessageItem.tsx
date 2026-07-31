@@ -1,5 +1,5 @@
 // MessageItem: simple chat nodes — user bubble (right-aligned, with
-// clock + copy / branch / edit IconActions), steering (badged bubble), context
+// clock + copy / branch IconActions), steering (badged bubble), context
 // injection, compaction marker, retry disclosure, and unknown-surface JSON rows.
 
 import { memo, useEffect, useMemo, useState } from 'react'
@@ -158,7 +158,6 @@ export const MessageItem = memo(function MessageItem({
             text={text}
             time={node.time}
             clock="start"
-            edit
             onBranch={onFork === undefined ? undefined : () => { onFork(node.seq) }}
             className={css.actions}
             t={t}

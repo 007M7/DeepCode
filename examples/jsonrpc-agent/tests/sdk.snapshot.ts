@@ -59,6 +59,8 @@ interface SdkScenario {
   expectedFiles?: Readonly<Record<string, string>>
   /** Assembled model-facing tool names and required argument keys. */
   expectedTools?: Readonly<Record<string, readonly string[]>>
+  /** Stable policy-context clauses the real assembled request must include or omit. */
+  policyContext?: { includes: readonly string[]; excludes: readonly string[] }
 }
 
 const SCENARIOS: SdkScenario[] = [
@@ -88,6 +90,10 @@ const SCENARIOS: SdkScenario[] = [
     configs: { live: persistentToolsLiveConfig, replay: persistentToolsReplayConfig },
     expectedFiles: { 'note.txt': 'target:\n\tnew\n' },
     expectedTools: { bash: ['command'], str_replace_editor: ['command', 'path'] },
+    policyContext: {
+      includes: ['Current DSH file policy: danger-full-access.', 'file modifications by available operations'],
+      excludes: ['write and edit tools', 'terminal sessions', 'one-shot bash commands'],
+    },
   },
 ]
 
@@ -117,7 +123,7 @@ async function persistedLogs(sessionsRoot: string): Promise<PersistedLog[]> {
 
 interface LoggedRequestHeader {
   type?: string
-  data?: { header?: { tools?: Array<{ name: string; parameters: { required?: string[] } }> } }
+  data?: { header?: { system?: unknown; tools?: Array<{ name: string; parameters: { required?: string[] } }> } }
 }
 
 function assembledToolRequirements(log: PersistedLog): Record<string, string[]> {
@@ -127,6 +133,30 @@ function assembledToolRequirements(log: PersistedLog): Record<string, string[]> 
   const tools = event?.data?.header?.tools
   if (tools === undefined) throw new Error('session log has no request/header tools')
   return Object.fromEntries(tools.map(tool => [tool.name, tool.parameters.required ?? []]))
+}
+
+function assembledSystem(log: PersistedLog): string {
+  const event = log.content.trimEnd().split('\n')
+    .map(line => JSON.parse(line) as LoggedRequestHeader)
+    .find(candidate => candidate.type === 'request/header')
+  const system = event?.data?.header?.system
+  if (typeof system !== 'string') throw new Error('session log has no request/header system')
+  return system
+}
+
+function assembledPolicyContext(log: PersistedLog): string {
+  const contexts = log.content.trimEnd().split('\n').flatMap((line) => {
+    const event = JSON.parse(line) as {
+      type?: string
+      data?: { source?: { kind?: string; plugin?: string }; content?: Array<{ type?: string; text?: unknown }> }
+    }
+    if (event.type !== 'user/message'
+      || event.data?.source?.kind !== 'plugin'
+      || event.data.source.plugin !== '@deepseek-ai/dsh-system-prompt') return []
+    return event.data.content?.flatMap(block => block.type === 'text' && typeof block.text === 'string' ? [block.text] : []) ?? []
+  })
+  if (contexts.length !== 1) throw new Error(`session log has ${String(contexts.length)} runtime-context snapshots; expected one`)
+  return contexts[0] as string
 }
 
 function contextOf(logs: readonly { content: string; header: Record<string, unknown> }[], cwd: string): NormalizeContext {
@@ -358,6 +388,15 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
         const parent = ordered[0]
         if (parent === undefined) throw new Error(`${scenario.name} has no parent session log`)
         expect(assembledToolRequirements(parent)).toEqual(scenario.expectedTools)
+      }
+      if (scenario.policyContext !== undefined) {
+        const parent = ordered[0]
+        if (parent === undefined) throw new Error(`${scenario.name} has no parent session log`)
+        const context = assembledPolicyContext(parent)
+        for (const clause of scenario.policyContext.includes) expect(context).toContain(clause)
+        for (const clause of scenario.policyContext.excludes) expect(context).not.toContain(clause)
+        const system = assembledSystem(parent)
+        for (const clause of scenario.policyContext.includes) expect(system).not.toContain(clause)
       }
       if (scenario.children > 0) {
         expect(notifications.some(n => n.method === 'subagent.started')).toBe(true)
