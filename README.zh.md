@@ -26,7 +26,7 @@ curl -fsSL https://raw.githubusercontent.com/deepseek-harness/deepseek-harness/m
 
 安装器会把所有检出都放在 `~/.dsh/source` 下：master 克隆位于 `~/.dsh/source/master`，每次安装的 staging 检出是一个 git worktree `~/.dsh/source/staging-<时间戳>`。稳定符号链接 `~/.dsh/source/current` 指向当前生效的 staging worktree，`~/.local/bin` 中的 `dsh` 链接到 `current/bin/dsh`，因此升级只需重指一个符号链接，PATH 上的 `dsh` 从不移动。再次运行该命令会基于更新后的 master 新增一个 staging worktree，并把 `current` 重指到它。其他安装位置和选项见 [`scripts/install.sh`](scripts/install.sh)。
 
-从现有克隆中运行该脚本（`sh scripts/install.sh`）不会进行任何克隆，也不会修改该工作树。它会询问是否*接管*该克隆：该检出所属的仓库将成为升级基础，以该检出当前的 `HEAD` 为起点创建的 staging worktree 会被放在 `~/.dsh/source` 下，并由 `current` 指向它，因此磁盘上任意位置的克隆都能获得相同的可升级布局。接管只会带入已提交的内容——未提交的更改仍留在克隆中。如果拒绝接管（或设置 `DSH_ADOPT=0`），则会改为将 `dsh` 直接链接到该检出；这种方式无法升级，且检出一旦移动，链接就会失效。
+从现有克隆中运行该脚本（`sh scripts/install.sh`）不会进行任何克隆，也不会修改该工作树。它会*接管*该克隆：该检出所属的仓库将成为升级基础，以该检出当前的 `HEAD` 为起点创建的 staging worktree 会被放在 `~/.dsh/source` 下，并由 `current` 指向它，因此磁盘上任意位置的克隆都能获得相同的可升级布局。接管只会带入已提交的内容——未提交的更改仍留在克隆中。
 
 ## 使用 DeepSeek Harness
 
