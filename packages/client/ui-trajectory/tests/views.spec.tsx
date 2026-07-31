@@ -560,6 +560,53 @@ describe('timeline projection', () => {
     })
   })
 
+  it('compresses every idle gap in duration mode while actual mode retains wall time', () => {
+    const separatedTurns = [
+      {
+        turn: 1,
+        groups: [{
+          title: 'Step 1',
+          cells: [
+            { index: 1, kind: 'message', text: 'first', startedAt: 1_000, timeSeconds: 1 },
+            { index: 2, kind: 'tool', text: 'within-turn gap', startedAt: 4_000, timeSeconds: 1 },
+          ],
+        }],
+      },
+      {
+        turn: 2,
+        groups: [{
+          title: 'Step 1',
+          cells: [
+            { index: 3, kind: 'message', text: 'after user idle', startedAt: 40_000, timeSeconds: 1 },
+          ],
+        }],
+      },
+    ] satisfies readonly TrajectoryTurnModel[]
+
+    expect(deriveTrajectoryTimeline(separatedTurns, 'duration')).toMatchObject({
+      start: 1_000,
+      end: 4_000,
+      spans: [
+        { index: 1, start: 1_000, end: 2_000 },
+        { index: 2, start: 2_000, end: 3_000 },
+        { index: 3, start: 3_000, end: 4_000 },
+      ],
+      turnBoundaries: [
+        { turn: 1, time: 1_000 },
+        { turn: 2, time: 3_000 },
+      ],
+    })
+    expect(deriveTrajectoryTimeline(separatedTurns, 'actual')).toMatchObject({
+      start: 1_000,
+      end: 41_000,
+      spans: [
+        { index: 1, start: 1_000, end: 2_000 },
+        { index: 2, start: 4_000, end: 5_000 },
+        { index: 3, start: 40_000, end: 41_000 },
+      ],
+    })
+  })
+
   it('empty inputs produce no model and the standalone view reports its empty form', () => {
     expect(deriveTrajectoryTimeline([])).toBeNull()
     render(createElement(
@@ -575,6 +622,24 @@ describe('timeline projection', () => {
 })
 
 describe('TrajectoryView branches', () => {
+  it('persists the duration preference across trajectory view mounts', () => {
+    const props = {
+      ...standaloneProps(NODES),
+      ...standaloneHistory(historySnapshot(NODES)),
+    }
+    const first = render(<TrajectoryView {...props} />)
+    const duration = screen.getByRole('button', { name: 'Use actual duration' })
+
+    expect(duration.getAttribute('aria-pressed')).toBe('false')
+    fireEvent.click(duration)
+    expect(localStorage.getItem('dsh.trajectory.duration')).toBe('true')
+    first.unmount()
+
+    render(<TrajectoryView {...props} />)
+    expect(screen.getByRole('button', { name: 'Use actual duration' }).getAttribute('aria-pressed'))
+      .toBe('true')
+  })
+
   it('renders only the selected rewind branch while retaining session-global requests', () => {
     const retained = {
       kind: 'user',

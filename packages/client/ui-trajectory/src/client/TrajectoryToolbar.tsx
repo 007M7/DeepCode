@@ -8,7 +8,7 @@ export interface TrajectoryToolbarProps {
   actualDuration: boolean
   /** Select recorded-duration or equal-width blocks. */
   onActualDurationChange: (actualDuration: boolean) => void
-  /** Whether recorded timing retains idle gaps between user turns. */
+  /** Whether recorded timing retains idle gaps between operations. */
   actualTime: boolean
   /** Select complete wall-clock timing or idle-compressed timing. */
   onActualTimeChange: (actualTime: boolean) => void

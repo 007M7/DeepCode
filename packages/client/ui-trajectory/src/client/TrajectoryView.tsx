@@ -26,6 +26,29 @@ import {
 import css from './views.module.css'
 
 const EMPTY_IDS: ReadonlySet<number> = new Set()
+const DURATION_STORAGE_KEY = 'dsh.trajectory.duration'
+
+/** Restore the browser-wide duration preference; absent or unreadable storage defaults off. */
+function restoreActualDuration(): boolean {
+  if (typeof localStorage === 'undefined') return false
+  try {
+    return localStorage.getItem(DURATION_STORAGE_KEY) === 'true'
+  } catch {
+    // Storage access can throw in privacy mode; the default remains usable.
+    return false
+  }
+}
+
+/** Persist the browser-wide duration preference without making storage availability fatal. */
+function persistActualDuration(actualDuration: boolean): void {
+  if (typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(DURATION_STORAGE_KEY, String(actualDuration))
+  } catch {
+    // Storage access can throw in privacy mode or at quota; this mount still
+    // keeps the selected preference in React state.
+  }
+}
 
 /** Session-history paging needed by the event-complete trajectory view. */
 export interface TrajectoryViewInjected {
@@ -143,7 +166,7 @@ export function TrajectoryView({
     branchId: number
     range: TrajectoryTimeRange
   } | null>(null)
-  const [actualDuration, setActualDuration] = useState(false)
+  const [actualDuration, setActualDuration] = useState(restoreActualDuration)
   const [actualTime, setActualTime] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedTimelineIndex, setSelectedTimelineIndex] = useState<number | null>(null)
@@ -457,6 +480,7 @@ export function TrajectoryView({
       <TrajectoryToolbar
         actualDuration={actualDuration}
         onActualDurationChange={(nextActualDuration) => {
+          persistActualDuration(nextActualDuration)
           setActualDuration(nextActualDuration)
           setTimelineSelection(null)
         }}
