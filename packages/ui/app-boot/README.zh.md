@@ -27,8 +27,8 @@
 
 开发者的机器本地偏好位于所有仓库之外的 Harness home 中（默认 `~/.dsh`，可由 `$DSH_HOME` 覆盖；统一由根级 [`resolveDshHome`](../../util/paths/README.md) 解析），并由官方 `dsh` 界面（[`apps/cli`](../../../apps/cli/README.md)）使用；demo bin 会原样启动仓库中提交的树。这里有两个可选文件：
 
-- **`.env`**：在调用目录的 `.env` 之后加载；`process.loadEnvFile` 从不覆盖已有值，因此优先级为环境中的值 > 项目 `.env` > 个人 `.env`。
-- **`config.yaml`**：在发布的默认配置上应用 Loader overlay patch，语义与交付的 surface overlay 相同：按 id 定位的 patch 会替换对应条目的整个 `config`（未改字段也要重述），`insert` 会添加条目，`!!js` 表达式则在挂载时插值，因此个人 `apiKey` 可以引用个人 `.env`。如果 patch 指定的条目 id 不在已启动树中，则静默不执行任何操作。空文件或仅含注释的文件会抛出异常（其解析结果为空，而不是列表）；如需禁用 overlay，请使用 `[]` 或删除该文件。
+- **`.env`**：[`dsh-credentials-local`](../../credentials/credentials-local/README.md) 的凭据存储，只由该 provider 读取。没有任何表层会把它提升进 `process.env`：那样做会让每个已存密钥在下次运行时看起来都像只读的启动时覆盖，从而阻断从 TUI 与 Web 页面轮换密钥。环境层次由环境中的值与调用目录的 `.env` 构成（由 bin 加载；`process.loadEnvFile` 从不覆盖已有值），没有凭据 provider 的组合仍然只从这两者解析密钥。
+- **`config.yaml`**：在发布的默认配置上应用 Loader overlay patch，语义与交付的 surface overlay 相同：按 id 定位的 patch 会替换对应条目的整个 `config`（未改字段也要重述），`insert` 会添加条目，`!!js` 表达式则在挂载时插值。如果 patch 指定的条目 id 不在已启动树中，则静默不执行任何操作。空文件或仅含注释的文件会抛出异常（其解析结果为空，而不是列表）；如需禁用 overlay，请使用 `[]` 或删除该文件。
 
 子进程测试 launcher 会把 `DSH_HOME` 指向逐测试隔离的目录，确保开发者的个人 overlay 不会泄漏到 fixture（测试前置数据）中。
 

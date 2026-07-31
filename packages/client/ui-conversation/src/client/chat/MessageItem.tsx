@@ -8,6 +8,7 @@ import type {
   ContextMessageNode, ModelRetryNode, SteeringMessageNode, UnknownSurfaceNode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { JsonBlock, MessageText } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { ChatViewSlotProps } from '../contract/slots.ts'
 import { ContextInjectionRow } from './ContextInjectionRow.tsx'
 import { MessageIconActions } from './MessageIconActions.tsx'
 import css from './MessageItem.module.css'
@@ -15,6 +16,10 @@ import css from './MessageItem.module.css'
 export interface MessageItemProps {
   node: UserMessageNode | SteeringMessageNode | ContextMessageNode | ModelRetryNode | UnknownSurfaceNode
   retryActive?: boolean
+  /** Fork the session through the turn containing this message (user-bubble branch action). */
+  onFork?: (seq: number) => void
+  /** The owning view's locale seat, passed down as a plain prop. */
+  t: ChatViewSlotProps['t']
 }
 
 function contentText(content: readonly unknown[]): { text: string; rest: unknown[] } {
@@ -37,7 +42,11 @@ interface RetryCountdown {
   seconds: number
 }
 
-function ModelRetryItem({ node, active }: { node: ModelRetryNode; active: boolean }) {
+function ModelRetryItem({ node, active, t }: {
+  node: ModelRetryNode
+  active: boolean
+  t: ChatViewSlotProps['t']
+}) {
   // Anchor the host-scheduled delay to this browser's first render of the
   // retry node. Host event time and Date.now() may belong to different clocks.
   const deadline = useMemo(() => Date.now() + node.delayMs, [node.delayMs, node.seq])
@@ -70,23 +79,30 @@ function ModelRetryItem({ node, active }: { node: ModelRetryNode; active: boolea
   }, [active, deadline])
 
   const label = active
-    ? '正在重试模型请求'
+    ? t('message.retry.active')
     : node.retryState === 'cancelled'
-      ? '模型请求重试已取消'
+      ? t('message.retry.cancelled')
       : node.retryState === 'started'
-        ? '已重试模型请求'
-        : '等待重试模型请求'
+        ? t('message.retry.started')
+        : t('message.retry.scheduled')
+  const seconds = active ? remainingSeconds : scheduledSeconds
 
   return (
     <details className={css.retryRow} data-active={active || undefined}>
       <summary className={css.retrySummary}>
         <span className={css.retryText} role="status">
-          {label}（{node.retry}/{maximum}） · {active ? remainingSeconds : scheduledSeconds}s
+          {t('message.retry.status', { label, retry: node.retry, maximum, seconds })}
         </span>
       </summary>
       <div className={css.retryDetails}>
-        <div><span className={css.retryDetailLabel}>重试延迟：</span>{Math.round(node.delayMs)}ms</div>
-        <div><span className={css.retryDetailLabel}>失败原因：</span>{node.failure.message}</div>
+        <div>
+          <span className={css.retryDetailLabel}>{t('message.retry.delay')}</span>
+          {Math.round(node.delayMs)}ms
+        </div>
+        <div>
+          <span className={css.retryDetailLabel}>{t('message.retry.failure')}</span>
+          {node.failure.message}
+        </div>
       </div>
     </details>
   )
@@ -123,7 +139,10 @@ function projectUserText(text: string): ReactNode {
   return <>{parts}</>
 }
 
-export const MessageItem = memo(function MessageItem({ node, retryActive = false }: MessageItemProps) {
+export const MessageItem = memo(function MessageItem({
+  node, retryActive = false, onFork, t,
+}: MessageItemProps) {
+  const truncated = (total: number): string => t('json.truncated', { total })
   switch (node.kind) {
     case 'user': {
       const { text, rest } = contentText(node.content)
@@ -131,14 +150,16 @@ export const MessageItem = memo(function MessageItem({ node, retryActive = false
         <div className={css.userRow}>
           <div className={css.bubble}>
             {projectUserText(text)}
-            {rest.map((block, i) => <JsonBlock key={i} label="附加内容块" payload={block} />)}
+            {rest.map((block, i) => <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />)}
           </div>
           <MessageIconActions
             text={text}
             time={node.time}
             clock="start"
             edit
+            onBranch={onFork === undefined ? undefined : () => { onFork(node.seq) }}
             className={css.actions}
+            t={t}
           />
         </div>
       )
@@ -148,23 +169,23 @@ export const MessageItem = memo(function MessageItem({ node, retryActive = false
       return (
         <div className={css.userRow}>
           <div className={css.bubble}>
-            <span className={css.badge}>插话</span>
+            <span className={css.badge}>{t('message.steering')}</span>
             {projectUserText(text)}
-            {rest.map((block, i) => <JsonBlock key={i} label="附加内容块" payload={block} />)}
+            {rest.map((block, i) => <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />)}
           </div>
         </div>
       )
     }
     case 'context':
       return (
-        <ContextInjectionRow content={node.content} source={node.source} />
+        <ContextInjectionRow content={node.content} source={node.source} t={t} />
       )
     case 'model-retry':
-      return <ModelRetryItem node={node} active={retryActive} />
+      return <ModelRetryItem node={node} active={retryActive} t={t} />
     default:
       return (
         <div className={css.contextRow}>
-          <JsonBlock label={`未知 surface 事件：${node.type}`} payload={node.data} />
+          <JsonBlock label={t('message.unknownSurface', { type: node.type })} payload={node.data} truncatedLabel={truncated} />
         </div>
       )
   }
