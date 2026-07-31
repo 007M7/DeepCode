@@ -19,6 +19,7 @@ import type {
 import type { PendingInteraction } from './pending.ts'
 import { PendingWait } from './pending.ts'
 import { TranscriptAdapter } from './transcript-adapter.ts'
+import { displayFailureMessage } from './failure-display.ts'
 import { Notifier } from './notifier.ts'
 import { PartialAccumulator } from './partial.ts'
 import { ProjectionValueStore } from './projection-store.ts'
@@ -748,6 +749,22 @@ export class Session implements SessionFace {
       case 'turn/end': {
         if (event.data.reason.kind === 'aborted' || event.data.reason.kind === 'disposed') {
           this.settleScheduledRetry('cancelled', event.data.turn)
+        }
+        if (
+          event.data.reason.kind === 'error'
+          && !this.derivedNodes.some(node => node.kind === 'model-retry' && node.turn === event.data.turn)
+        ) {
+          const failure = 'failure' in event.data.reason ? event.data.reason.failure : event.data.reason
+          this.derivedNodes.push({
+            kind: 'turn-error',
+            seq: event.seq,
+            time: event.time,
+            turn: event.data.turn,
+            step: event.data.reason.step,
+            message: displayFailureMessage(failure),
+            ...(failure.code === undefined ? {} : { code: failure.code }),
+          })
+          this.derivedRev++
         }
         // Aborted turns never finalize. The accumulated partial is VALUE, not residue: freeze it
         // into an interrupted terminal node (pulse stops, text survives) instead of deleting it.
