@@ -7,11 +7,12 @@
 // share the store seat exists for) and derives the call material from the
 // session snapshot — no data of its own.
 
-import { CodeBlock, TerminalBlock } from '@deepseek-ai/dsh-client-ui-primitives'
+import { CodeBlock, TerminalBlock, WebBlock } from '@deepseek-ai/dsh-client-ui-primitives'
 import { shallowEqual } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConversationSnapshot, RunningToolCall, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import type { DetailsSlotProps } from '../contract/slots.ts'
 import { terminalBlockLabels, terminalCardModel } from '../contract/terminal-card-model.ts'
+import { webCardModel } from '../contract/web-card-model.ts'
 import { resultText, type ToolCallBlock } from '../contract/tool-call-model.ts'
 import css from './DetailsPanel.module.css'
 
@@ -127,8 +128,10 @@ export function DetailsPanel({ useSession, useSessions, sessionId, useStore, clo
  * The Output section's body for the selected call. A terminal-card call — a
  * shell command's call/result views — renders through the shared TerminalBlock
  * at the primitive's own full height allowance, so column-aligned output keeps
- * its alignment and scrolls sideways instead of folding. Every other call, and
- * a running call with no terminal card yet, keeps the flattened text form.
+ * its alignment and scrolls sideways instead of folding. A web-card call — a
+ * `web_search`/`web_fetch` result — renders through WebBlock at its own full
+ * source-list allowance. Every other call, and a running call with no card
+ * yet, keeps the flattened text form.
  * @param props.material - the selected call's material from {@link materialFor}.
  * @param props.cwd - the session workspace root, resolving the terminal view's cwd.
  * @param props.t - the panel's locale seat, passed down as a plain prop.
@@ -145,6 +148,24 @@ function OutputBody({ material, cwd, t }: { material: CallMaterial; cwd: string 
           <div className={css.terminalDescription}>{terminal.description}</div>
         )}
         <TerminalBlock {...terminal.card} labels={terminalBlockLabels(t)} className={css.terminal} />
+      </>
+    )
+  }
+  const web = webCardModel(material.block)
+  // Full source-list allowance here (the panel is the single-call reading
+  // surface); the chat rows cap it at CHAT_WEB_MAX_SOURCES. Below the card the
+  // panel also renders the flattened result content — the model-visible text
+  // the card does not carry verbatim (a web_fetch card shows only the URL and
+  // status, so its fetched body lives only here; a search card's answer and
+  // sources are structured, so the flattened form repeats them as the raw text
+  // the model saw).
+  if (web !== null) {
+    const settled = 'kind' in material.block ? material.block : null
+    const body = settled === null ? '' : resultText(settled)
+    return (
+      <>
+        <WebBlock {...web} className={css.web} />
+        {body !== '' && <pre className={css.code}>{body}</pre>}
       </>
     )
   }

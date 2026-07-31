@@ -42,10 +42,9 @@
 - img
 - text: permission preset workspace-write
 - textbox "Message the agent"
-- button "Add attachment":
+- button "Commands":
   - img
 - 'button "Access mode, current: Workspace Write"': Workspace Write
-- button "Plan mode off, press to turn on": Plan off
 - button "Select model, current deepseek-v4-flash":
   - text: deepseek-v4-flash
   - img

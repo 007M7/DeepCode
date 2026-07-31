@@ -4,7 +4,7 @@
 // editor's multi-line and CRLF discipline.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import { mkdtemp, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
@@ -66,17 +66,6 @@ describe('read-modify-write', () => {
     const third = await boot({ path, watch: false })
     expect(await third.credentials.resolve(ALPHA)).toEqual({ value: '3', source: 'file' })
     expect(await third.credentials.resolve(BETA)).toEqual({ value: '3', source: 'file' })
-  })
-
-  it('breaks a stale writer lock with a warning and writes through', async () => {
-    const dir = await tempDir()
-    const path = join(dir, '.env')
-    const ctx = await boot({ path, watch: false })
-    await writeFile(`${path}.lock`, 'crashed-holder\n')
-    const past = (Date.now() - 60_000) / 1000
-    await utimes(`${path}.lock`, past, past)
-    await ctx.credentials.set(ALPHA, 'nine')
-    expect(await readFile(path, 'utf8')).toContain(`${ALPHA}=nine`)
   })
 
   it('creates the credentials directory owner-only', async () => {

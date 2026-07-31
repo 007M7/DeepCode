@@ -364,10 +364,6 @@ export class CredentialsLocal extends Credentials {
         // After the commit: a broken observer must never make the durable
         // write look failed (an INVARIANT failure still rethrows).
         this.notifyUpdated(ref)
-      }, {
-        onStaleBreak: (lockPath) => {
-          this.ctx.logger.warn('credentials-local: breaking a stale writer lock at %s', lockPath)
-        },
       })
     })
   }
