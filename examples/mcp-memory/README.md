@@ -22,14 +22,25 @@ The stdio bridge deliberately removes ambient credential-shaped and `DSH_*` vari
 
 ## Enable one
 
-Use a stable user id across sessions, then pass one overlay to DSH:
+Pass one overlay to DSH:
 
 ```sh
-export DSH_MEMORY_USER_ID=alice
 dsh --config "$PWD/examples/mcp-memory/memorix.cordis.yml"
 ```
 
-Replace the filename with `mcp-reference-memory.cordis.yml` or `engram.cordis.yml`. The path may point to a copied file anywhere on disk. No memory server is present in the shipped composition, so omitting `--config` keeps all three disabled.
+Replace the filename with `mcp-reference-memory.cordis.yml` or `engram.cordis.yml`. Those two examples also accept `DSH_MEMORY_USER_ID` for stable per-user storage. The path may point to a copied file anywhere on disk. No memory server is present in the shipped composition, so omitting `--config` keeps all three disabled.
+
+Without a repository checkout, download the selected overlay directly:
+
+```sh
+mkdir -p "${DSH_HOME:-$HOME/.dsh}"
+curl --fail --location \
+  --output "${DSH_HOME:-$HOME/.dsh}/memory.cordis.yml" \
+  https://raw.githubusercontent.com/deepseek-harness/deepseek-harness/master/examples/mcp-memory/memorix.cordis.yml
+dsh --config "${DSH_HOME:-$HOME/.dsh}/memory.cordis.yml"
+```
+
+Replace `memorix.cordis.yml` in the URL with either of the other filenames to select it. Review a downloaded overlay before running it: Cordis configuration can contain executable `!!js` expressions.
 
 To keep the selection in personal configuration, merge the chosen file's single `insert` patch into `$DSH_HOME/config.yaml` (normally `~/.dsh/config.yaml`). Do not copy over an existing file: it may already contain unrelated personal patches.
 
@@ -39,11 +50,10 @@ To keep the selection in personal configuration, merge the chosen file's single 
 
 ```sh
 npm install --global memorix@1.3.0
-export DSH_MEMORY_USER_ID=alice
 dsh --config "$PWD/examples/mcp-memory/memorix.cordis.yml"
 ```
 
-Memorix works in local heuristic mode without an LLM or embedding service. Configure optional providers in Memorix's own `~/.memorix/config.toml` or project `memorix.toml`. The example keeps Memorix's Git-project identity from the DSH working directory and maps `DSH_MEMORY_USER_ID` to a private `MEMORIX_DATA_DIR`.
+Memorix works in local heuristic mode without an LLM or embedding service. Configure optional providers in Memorix's own `~/.memorix/config.toml` or project `memorix.toml`. The example keeps Memorix's Git-project identity from the DSH working directory and uses Memorix's own `~/.memorix/data` default. Set `MEMORIX_DATA_DIR` before starting DSH to override it.
 
 ### MCP Reference Memory
 
@@ -77,7 +87,7 @@ This is additive guidance only. The examples do not replace DSH's system-prompt 
 
 ## Verify write, fresh-session recall, and use
 
-Use one unique value, the same provider scope, and the same `DSH_MEMORY_USER_ID` throughout:
+Use one unique value and keep the provider's storage scope unchanged throughout:
 
 1. In DSH session A, ask: `Remember that my validation drink is lapsang-<unique suffix>.` Confirm the model called the provider's write tool and the tool returned success.
 2. Create DSH session B in the same running Host. Do not copy session A's conversation. Ask: `What is my validation drink? Check memory.` Confirm the model called the provider's search or recall tool and returned the value.

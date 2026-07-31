@@ -22,14 +22,25 @@ stdio 桥接器在启动子进程前会主动移除环境中名称类似凭据�
 
 ## 启用一个
 
-在多个会话间使用一个稳定的用户 id，然后将一份 overlay 传给 DSH：
+将一份 overlay 传给 DSH：
 
 ```sh
-export DSH_MEMORY_USER_ID=alice
 dsh --config "$PWD/examples/mcp-memory/memorix.cordis.yml"
 ```
 
-请将文件名替换为 `mcp-reference-memory.cordis.yml` 或 `engram.cordis.yml`。该路径可以指向磁盘任意位置的一份复制文件。交付组合不包含任何记忆服务器，因此不传 `--config` 就会让这三项全部保持关闭。
+请将文件名替换为 `mcp-reference-memory.cordis.yml` 或 `engram.cordis.yml`。另外两份示例也接受 `DSH_MEMORY_USER_ID`，用于稳定的逐用户存储。该路径可以指向磁盘任意位置的一份复制文件。交付组合不包含任何记忆服务器，因此不传 `--config` 就会让这三项全部保持关闭。
+
+如果本地没有仓库 checkout，可直接下载所选 overlay：
+
+```sh
+mkdir -p "${DSH_HOME:-$HOME/.dsh}"
+curl --fail --location \
+  --output "${DSH_HOME:-$HOME/.dsh}/memory.cordis.yml" \
+  https://raw.githubusercontent.com/deepseek-harness/deepseek-harness/master/examples/mcp-memory/memorix.cordis.yml
+dsh --config "${DSH_HOME:-$HOME/.dsh}/memory.cordis.yml"
+```
+
+若要选择另外任一配置，请将 URL 中的 `memorix.cordis.yml` 替换为对应文件名。运行下载的 overlay 前，请先审阅其内容：Cordis 配置可以包含可执行的 `!!js` 表达式。
 
 如果要把所选配置保存在个人配置中，请将对应文件中的单个 `insert` patch 合并到 `$DSH_HOME/config.yaml`（通常是 `~/.dsh/config.yaml`）。不要覆盖已有文件，其中可能已经包含无关的个人 patch。
 
@@ -39,11 +50,10 @@ dsh --config "$PWD/examples/mcp-memory/memorix.cordis.yml"
 
 ```sh
 npm install --global memorix@1.3.0
-export DSH_MEMORY_USER_ID=alice
 dsh --config "$PWD/examples/mcp-memory/memorix.cordis.yml"
 ```
 
-Memorix 无需 LLM（大语言模型）或 embedding 服务，即可在本地启发式模式下运行。请在 Memorix 自己的 `~/.memorix/config.toml` 或项目 `memorix.toml` 中配置可选提供方。该示例沿用 DSH 工作目录中的 Git 项目标识，并将 `DSH_MEMORY_USER_ID` 映射到独立的 `MEMORIX_DATA_DIR`。
+Memorix 无需 LLM（大语言模型）或 embedding 服务，即可在本地启发式模式下运行。请在 Memorix 自己的 `~/.memorix/config.toml` 或项目 `memorix.toml` 中配置可选提供方。该示例沿用 DSH 工作目录中的 Git 项目标识，并使用 Memorix 自身的默认目录 `~/.memorix/data`。若要覆盖该目录，请在启动 DSH 前设置 `MEMORIX_DATA_DIR`。
 
 ### MCP Reference Memory
 
@@ -77,7 +87,7 @@ dsh --config "$PWD/examples/mcp-memory/engram.cordis.yml"
 
 ## 验证写入、新会话召回和使用
 
-请在整个过程中使用一个唯一值、相同的提供方范围和相同的 `DSH_MEMORY_USER_ID`：
+请在整个过程中使用一个唯一值，并保持提供方的存储范围不变：
 
 1. 在 DSH 会话 A 中提出：`Remember that my validation drink is lapsang-<unique suffix>.`。确认模型调用了提供方的写入工具，并且工具返回成功。
 2. 在同一个仍在运行的 Host 中创建 DSH 会话 B。不要复制会话 A 的对话。提出：`What is my validation drink? Check memory.`。确认模型调用了提供方的搜索或召回工具，并返回该值。
