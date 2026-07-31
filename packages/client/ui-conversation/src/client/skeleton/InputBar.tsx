@@ -34,13 +34,14 @@ export interface InputBarError {
 export type InputBarProps = ComposerBarProps
 
 export function InputBar({
-  useSession, useInput, inputActions, keyboard, stop, command, t, renderSlot, useNotices, useLexicon,
+  useSession, useInput, inputActions, keyboard, toggleCommandMenu, stop, command, t,
+  renderSlot, useNotices, useLexicon, useMenuLauncher,
   useProjection, sessionId, variant, disabled: inert = false, placeholder, accessory, overlay, leftItems, rightItems, footer,
-  onAdd, addLabel,
 }: InputBarProps) {
   const input = useInput(s => s)
   const notice = useNotices(s => s)
   const lexicon = useLexicon(s => s)
+  const commandMenuOpen = useMenuLauncher(source => source === 'command')
   const promptError = useSession(s => s.promptError) ?? null
   const running = useSession(s => s.running) ?? false
   const removed = useSession(s => s.removed) ?? false
@@ -257,7 +258,11 @@ export function InputBar({
     inputRef.current?.focus()
   }
 
-  const addText = addLabel ?? t('input.addAttachment')
+  const onToggleCommandMenu = (): void => {
+    const el = inputRef.current
+    if (el !== null) toggleCommandMenu?.(selectionOf(el))
+  }
+
   const primaryLabel = running ? t('input.stop') : t('input.send')
   const onPrimary = (): void => {
     if (inputActions === undefined || stop === undefined) return // absent machine: the button is disabled
@@ -399,11 +404,13 @@ export function InputBar({
             <button
               type="button"
               className={css.add}
-              aria-label={addText}
-              title={addText}
-              disabled={locked}
+              aria-label={t('input.commands')}
+              title={t('input.commands')}
+              aria-haspopup="listbox"
+              aria-expanded={commandMenuOpen}
+              disabled={locked || toggleCommandMenu === undefined}
               onMouseDown={keepFocus}
-              onClick={onAdd}
+              onClick={onToggleCommandMenu}
             >
               <IconPlusOutline16 size={14} />
             </button>
