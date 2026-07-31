@@ -10,6 +10,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { SlotTestRuntime } from '@deepseek-ai/dsh-client-test-runtime'
+import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -23,7 +24,9 @@ async function bench() {
   await runtime.sessions.add(
     { id: CHILD, summary: { title: 'C', displayTitle: 'C', parentId: ROOT } }, { current: false })
   runtime.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
-  runtime.provide('locale', new LocaleService(runtime.ctx))
+  const locale = new LocaleService(runtime.ctx)
+  runtime.provide('locale', locale)
+  runtime.slots.installLocale(locale)
 
   // Declared by ui-layout's root entry in production; the test root declares
   // them here so the contributions land.
@@ -52,7 +55,8 @@ describe('apply wiring', () => {
     const b = await bench()
     const entries = b.slots.entries('conversation.view')
     expect(entries.map(e => e.options.id)).toEqual(['chat'])
-    expect(entries[0]?.options.label).toBe('Chat')
+    // Label is a locale thunk resolving through the zh dictionary.
+    expect(resolveSlotLabel(entries[0]?.options.label)).toBe('对话')
     expect(entries[0]?.options.order).toBe(0)
     // Declaring is claiming: the chat entry's registration put the hole on
     // the ledger with the contract's kind/scope.
@@ -80,12 +84,14 @@ describe('apply wiring', () => {
     await b.runtime.dispose()
   })
 
-  it('mounts the bash sample and the product rows as keyed entries through the load-order seam', async () => {
+  it('mounts the bash sample, the file-mutation rows, the web rows, and the product rows as keyed entries through the load-order seam', async () => {
     const b = await bench()
     // Every registrant plugin's inject: ['slots', 'conversation'] resolved — the
-    // service being present implies the chat entry declared the hole first.
+    // service being present implies the chat entry declared the hole first. The
+    // file-mutation registrant claims both write and edit for the diff card; the
+    // web rows register one component under both web tool names.
     const entries = b.slots.entries('conversation.chat.toolview')
-    expect(entries.map(e => e.options.key)).toEqual(['bash', 'todo_write', 'ask_user_question'])
+    expect(entries.map(e => e.options.key)).toEqual(['bash', 'edit', 'write', 'web_search', 'web_fetch', 'todo_write', 'ask_user_question'])
     // Stats stick with the composer (not inside ChatView).
     expect(b.slots.entries('conversation.composer.dock').map(e => e.options.id)).toEqual(['stats'])
     await b.runtime.dispose()

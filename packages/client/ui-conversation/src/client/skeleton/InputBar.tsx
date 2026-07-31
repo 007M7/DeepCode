@@ -15,6 +15,7 @@ import { IconPlusOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-plan-mode/client'
 // Type-only: the `goal` projection key merge (hint disambiguation).
 import type {} from '@deepseek-ai/dsh-goal/client'
+import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ComposerBarProps } from '../contract/slots.ts'
 import { deriveDecorations } from '../input/decorations.ts'
 import type { DraftDecorations } from '../input/decorations.ts'
@@ -33,13 +34,14 @@ export interface InputBarError {
 export type InputBarProps = ComposerBarProps
 
 export function InputBar({
-  useSession, useInput, inputActions, keyboard, stop, command, translateHint, renderSlot, useNotices, useLexicon,
+  useSession, useInput, inputActions, keyboard, toggleCommandMenu, stop, command, t,
+  renderSlot, useNotices, useLexicon, useMenuLauncher,
   useProjection, sessionId, variant, disabled: inert = false, placeholder, accessory, overlay, leftItems, rightItems, footer,
-  onAdd, addLabel = 'Add attachment',
 }: InputBarProps) {
   const input = useInput(s => s)
   const notice = useNotices(s => s)
   const lexicon = useLexicon(s => s)
+  const commandMenuOpen = useMenuLauncher(source => source === 'command')
   const promptError = useSession(s => s.promptError) ?? null
   const running = useSession(s => s.running) ?? false
   const removed = useSession(s => s.removed) ?? false
@@ -60,6 +62,7 @@ export function InputBar({
   const draft = input?.draft ?? ''
   const empty = draft.trim() === ''
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
+  const backdropRef = useRef<HTMLDivElement | null>(null)
   // IME guard: composition Enter picks a candidate, it must not send. The ref outlives renders;
   // clearing is deferred one tick because Safari delivers the closing keydown AFTER compositionend.
   const composingRef = useRef(false)
@@ -89,11 +92,22 @@ export function InputBar({
     if (!locked) inputRef.current?.focus()
   }, [locked, sessionId])
 
-  // Active conversation scrollport: chain the wheel. While the textarea (capped
-  // at 14 lines with overflow-y:auto) can still move in this direction, keep
-  // the native scroll; only at its own edge forward delta to the host so a
-  // short draft never traps the gesture and a long draft stays scrollable.
-  // Hero mounts have no host and keep native wheel scrolling.
+  // Two DOM listeners on the textarea, one lifetime (it is never unmounted —
+  // the inert state renders the same element disabled).
+  //
+  // wheel — active conversation scrollport: chain the gesture. While the
+  // textarea (capped at 14 lines with overflow-y:auto) can still move in this
+  // direction, keep the native scroll; only at its own edge forward delta to
+  // the host so a short draft never traps the gesture and a long draft stays
+  // scrollable. Hero mounts have no host and keep native wheel scrolling.
+  //
+  // scroll — the backdrop paints every visible glyph (the textarea's own text
+  // is transparent) but is clipped, not scrolled, so it does not follow the
+  // textarea on its own: without this mirror a draft past the cap moves the
+  // caret while the words stay frozen in place. Every way the box moves ends
+  // in a `scroll` event, edits included (the caret is scrolled into view), and
+  // the layers share an extent, so a draft that shrinks past the offset clamps
+  // both to the same maximum — one listener covers the coupling.
   useEffect(() => {
     const el = inputRef.current
     if (el === null) return
@@ -106,8 +120,16 @@ export function InputBar({
       e.preventDefault()
       host.scrollTop += e.deltaY
     }
+    const onScroll = (): void => {
+      const backdropEl = backdropRef.current
+      if (backdropEl !== null) backdropEl.scrollTop = el.scrollTop
+    }
     el.addEventListener('wheel', onWheel, { passive: false })
-    return () => { el.removeEventListener('wheel', onWheel) }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      el.removeEventListener('wheel', onWheel)
+      el.removeEventListener('scroll', onScroll)
+    }
   }, [])
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -256,7 +278,12 @@ export function InputBar({
     inputRef.current?.focus()
   }
 
-  const primaryLabel = running ? 'Stop generating' : 'Send message'
+  const onToggleCommandMenu = (): void => {
+    const el = inputRef.current
+    if (el !== null) toggleCommandMenu?.(selectionOf(el))
+  }
+
+  const primaryLabel = running ? t('input.stop') : t('input.send')
   const onPrimary = (): void => {
     if (inputActions === undefined || stop === undefined) return // absent machine: the button is disabled
     if (running) {
@@ -272,7 +299,7 @@ export function InputBar({
   // or while the command face is absent with the session).
   const accessSelect: ReactNode = command === undefined
     ? null
-    : <PermissionSelect value={permissions} locked={locked} command={command} />
+    : <PermissionSelect key={sessionId} value={permissions} locked={locked} command={command} t={t} />
 
   // Mirror-layer decorations: a visible backdrop with transparent text. The
   // claim token highlights through behind the textarea glyphs; each U+FFFC
@@ -341,11 +368,29 @@ export function InputBar({
     if (deco.hint !== null) {
       // Claim tokens are shaped `/name ` (trailing space); trim to the bare name.
       const commandName = input?.claim?.token.slice(1).trim() ?? ''
-      const hintKey = commandName === 'goal' && hasGoal ? 'goal.active' : commandName
-      const translated = translateHint(hintKey)
+      const hintKey = `hint.${commandName === 'goal' && hasGoal ? 'goal.active' : commandName}`
+      // Dynamic lookup by claimed command name: unknown commands miss the
+      // dictionary and keep the machine's own hint, so the call is wide.
+      const translated = (t as Translate)(hintKey)
       const displayHint = translated !== hintKey ? translated : deco.hint
       backdrop.push(<span key="hint" className={css.hint} data-decoration="hint">{displayHint}</span>)
     }
+    // Trailing-line sentinel, the same one the mirror div carries and for the
+    // same reason: a textarea reserves a line box for the caret after a final
+    // newline, while `white-space: pre-wrap` collapses a text node's trailing
+    // newline and generates none. Without it a draft ending in a newline makes
+    // the backdrop exactly one line SHORTER than the textarea, so mirroring the
+    // offset at the very bottom clamps and the glyphs sit a line behind the
+    // caret. The extra newline is absorbed by that same collapse when the draft
+    // does not end in one, so it costs no height in the ordinary case.
+    //
+    // The mirror only fails one way — a backdrop SHORTER than the textarea
+    // clamps the assignment, while a taller one takes every offset exactly and
+    // hides the surplus below the clip. That is why the ghost hint needs no
+    // handling of its own: it can only add content after the draft and before
+    // this sentinel, never remove a line box, so it moves the pair to equal or
+    // to the safe side.
+    backdrop.push('\n')
   }
 
   return (
@@ -367,7 +412,7 @@ export function InputBar({
             (min/max capped in CSS); the absolutely-positioned textarea rides its height. Counting
             rows by '\n' cannot see soft wraps. */}
         <div className={css.grow}>
-          <div aria-hidden className={css.backdrop} data-input-backdrop>{backdrop}</div>
+          <div ref={backdropRef} aria-hidden className={css.backdrop} data-input-backdrop>{backdrop}</div>
           <textarea
             ref={inputRef}
             className={css.input}
@@ -376,8 +421,8 @@ export function InputBar({
             readOnly={machineBusy}
             data-phase={input?.phase ?? 'inert'}
             placeholder={placeholder ?? (disabled
-              ? 'Session unavailable'
-              : planActive ? translateHint('placeholder.plan') : translateHint('placeholder.default'))}
+              ? t('placeholder.unavailable')
+              : planActive ? t('placeholder.plan') : t('placeholder.default'))}
             rows={2}
             onChange={onChange}
             onKeyDown={onKeyDown}
@@ -395,11 +440,13 @@ export function InputBar({
             <button
               type="button"
               className={css.add}
-              aria-label={addLabel}
-              title={addLabel}
-              disabled={locked}
+              aria-label={t('input.commands')}
+              title={t('input.commands')}
+              aria-haspopup="listbox"
+              aria-expanded={commandMenuOpen}
+              disabled={locked || toggleCommandMenu === undefined}
               onMouseDown={keepFocus}
-              onClick={onAdd}
+              onClick={onToggleCommandMenu}
             >
               <IconPlusOutline16 size={14} />
             </button>

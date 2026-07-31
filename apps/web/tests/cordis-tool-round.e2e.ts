@@ -107,7 +107,8 @@ describe('web e2e: Cordis tools use the generic row variants', () => {
 
     const mountRow = page.locator('[data-tool="cordis_mount"]').filter({ hasText: 'Mount temporary Plugin' }).first()
     await mountRow.waitFor({ timeout: 10_000 })
-    await mountRow.locator('button[aria-expanded]').click()
+    // The whole summary row is the expand toggle (unified tool-row interaction).
+    await mountRow.locator('[aria-expanded]').first().click()
     await expect.poll(() => mountRow.locator('pre.shiki').textContent(), { timeout: 10_000 })
       .toContain(MOUNT_CODE)
 

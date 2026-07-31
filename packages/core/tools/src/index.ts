@@ -74,6 +74,7 @@ export type {
   ToolCallKind,
   FileLocation,
   FileDiff,
+  ReadFileLine,
   ToolCallView,
   GenericCallView,
   TerminalCallView,
@@ -82,6 +83,11 @@ export type {
   GenericResultView,
   TerminalResultView,
   DiffResultView,
+  ReadResultView,
+  WebResultView,
+  WebSearchResultView,
+  WebFetchResultView,
+  WebSource,
 } from './presentation.ts'
 
 declare module 'cordis' {
