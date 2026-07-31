@@ -181,7 +181,10 @@ describe('durable error rendering', () => {
     const turnEnd = agent.session.events.find(e => e.type === 'turn/end')
     expect(turnEnd).toBeDefined()
     if (turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind === 'error') {
-      expect(turnEnd.data.reason.error).toBe('server overloaded')
+      expect(turnEnd.data.reason.error).toEqual({
+        message: 'server overloaded',
+        code: 'RATE_LIMIT',
+      })
     }
   })
 })

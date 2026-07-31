@@ -224,15 +224,15 @@ describe('same-session goal driving', () => {
     ['rate limit', new LlmError('slow down', 'RATE_LIMIT')],
     ['request error', new Error('provider broke')],
     ['max tokens', maxTokensResponse('unfinished')],
-  ] as const)('does not attribute a %s to one goal follow-up', async (_label, response) => {
-    const test = await harness(Array.from({ length: 8 }, () => response))
+  ] as const)('disarms automatic continuation after a %s', async (_label, response) => {
+    const test = await harness([response])
     test.ctx.goals.create(test.agent, { objective: 'stop safely', maxGoalRounds: 8 })
 
-    const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'blocked')
+    const goal = await waitForGoal(test.ctx, test.agent, current =>
+      current?.phase === 'active' && current.activation === 'disarmed')
 
-    expect(goal).toMatchObject({ roundsStarted: 8, activation: 'disarmed' })
-    expect(goal?.blockedReason?.code).toBe('round-limit')
-    expect(test.adapter.requests).toHaveLength(8)
+    expect(goal).toMatchObject({ roundsStarted: 1, activation: 'disarmed' })
+    expect(test.adapter.requests).toHaveLength(1)
   })
 
   it('maps a downstream prompt veto to blocked without admitting the round', async () => {
@@ -827,7 +827,7 @@ describe('same-session goal driving', () => {
     expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('goal-session'))
   })
 
-  it('ignores the failed outcome of a round made stale by human work queued at turn start', async () => {
+  it('keeps terminal agent failure disarmed and defers queued human work until another wakeup', async () => {
     const test = await harness([new Error('round one broke'), textResponse('human answer')])
     let queued = false
     test.ctx.on('session/event', (session, event) => {
@@ -841,13 +841,18 @@ describe('same-session goal driving', () => {
     })
     test.ctx.goals.create(test.agent, { objective: 'survive a stale failure', maxGoalRounds: 1 })
 
-    const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'blocked')
+    await waitForGoal(test.ctx, test.agent, current =>
+      current?.phase === 'active' && current.activation === 'disarmed')
 
-    // The stale round's turn-error never blocks the goal; only the durable
-    // round budget does, after the interleaved human turn ran.
-    expect(goal?.blockedReason?.code).toBe('round-limit')
+    expect(test.adapter.requests).toHaveLength(1)
+    expect(test.agent.inbox.nextTurn).toHaveLength(1)
+
+    test.agent.steer(createUserMessage({ content: [{ type: 'text', text: 'resume after failure' }], source: { kind: 'user' } }))
+    await test.agent.whenIdle()
+
     expect(test.adapter.requests).toHaveLength(2)
     expect(requestText(test.adapter.requests[1]!)).toContain('human interleaved')
+    expect(requestText(test.adapter.requests[1]!)).toContain('resume after failure')
   })
 
   it('waits for work queued by a pause observer before considering the next round', async () => {

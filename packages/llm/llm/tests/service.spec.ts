@@ -145,6 +145,8 @@ describe('LlmService', () => {
 
   it('errorChain survives non-Error values, hostile coercion, and circular causes', () => {
     expect(errorChain('plain string')).toBe('plain string')
+    expect(errorChain({ message: 'structured provider failure', code: 'SERVER' }))
+      .toBe('structured provider failure')
     expect(errorChain({ toString: () => { throw new Error('hostile') } })).toBe('<unrenderable value>')
     const circular = new Error('outer')
     circular.cause = circular

@@ -41,6 +41,8 @@ type Admission =
   | { kind: 'admitted'; messages: UserMessage[] }
   | { kind: 'blocked' }
 
+type StepEndReason = Extract<TurnEndReason, { kind: 'completed' | 'max-tokens' }>
+
 /** Remove adapter-derived values before plugins propose the next request config. */
 function requestProposal(header: EpochHeader): LlmCallConfig {
   if (header.adapterDefaults === undefined) return header.config
@@ -136,15 +138,19 @@ export class ReactLoopAgent implements Agent {
     } while (driver !== this.driverDone)
   }
 
+  /** Report one failure at its live boundary, then preserve it for driver containment. */
+  private throwError(error: unknown): never {
+    const turn = this.phase.kind === 'running' ? this.phase.turn : this.phase.lastTurn
+    const step = this.phase.kind === 'running' ? this.phase.step : 0
+    emitAgentEvent(this.loopCtx, this, 'agent/error', turn, step, error)
+    throw error
+  }
+
   private async kick(): Promise<void> {
     try {
       while (await this.turn()) {}
-    } catch (error: unknown) {
-      if (this.phase.kind !== 'idle') {
-        const turn = this.phase.kind === 'collecting' ? this.phase.lastTurn : this.phase.turn
-        this.setPhase({ kind: 'idle', lastTurn: turn })
-        emitAgentEvent(this.loopCtx, this, 'agent/error', turn, 0, error)
-      }
+    } catch (_error) {
+      // Admission and turn boundaries report before rethrowing; the driver only contains the rejection.
     } finally {
       if (this.phase.kind === 'running') {
         this.setPhase({ kind: 'idle', lastTurn: this.phase.turn })
@@ -176,7 +182,9 @@ export class ReactLoopAgent implements Agent {
 
   /** Admitted input stays unowned until `turn/start` commits. */
   private async turn(): Promise<boolean> {
-    if (this.phase.kind === 'idle') throw new Error(`agent "${this.id}": turn without driver reservation`)
+    if (this.phase.kind === 'idle') {
+      this.throwError(new Error(`agent "${this.id}": turn without driver reservation`))
+    }
     const abort = this.phase.kind === 'collecting' ? this.phase.abort : new AbortController()
     const { signal } = abort
     const lastTurn = this.phase.kind === 'collecting' ? this.phase.lastTurn : this.phase.turn
@@ -191,10 +199,14 @@ export class ReactLoopAgent implements Agent {
     } catch (error: unknown) {
       // oxlint-disable-next-line typescript/no-unnecessary-condition -- cancel may abort while admission awaits
       if (signal.aborted) return this.inbox.hasPending
-      throw error
+      this.throwError(error)
     }
     const turn = ++phase.turn
-    this.session.append('turn/start', { turn })
+    try {
+      this.session.append('turn/start', { turn })
+    } catch (error: unknown) {
+      this.throwError(error)
+    }
     let turnEnds: TurnEndReason | null = null
     try {
       while (true) {
@@ -218,7 +230,7 @@ export class ReactLoopAgent implements Agent {
         }
         admission = await this.admit(false)
         if (admission.kind === 'blocked') {
-          turnEnds = { kind: 'aborted', reason: signal.reason as AgentCancelCause }
+          turnEnds = { kind: 'blocked' }
           return false
         }
         signal.throwIfAborted()
@@ -226,16 +238,27 @@ export class ReactLoopAgent implements Agent {
       }
     } catch (error: unknown) {
       // oxlint-disable-next-line typescript/no-unnecessary-condition -- cancel may abort during any awaited turn operation
-      if (signal.aborted) turnEnds = { kind: 'aborted', reason: signal.reason as AgentCancelCause }
-      else turnEnds = { kind: 'error', error: errorChain(error) }
+      if (signal.aborted) {
+        turnEnds = { kind: 'aborted', reason: signal.reason as AgentCancelCause }
+      } else {
+        turnEnds = {
+          kind: 'error',
+          error: error instanceof LlmError ? error.failure : errorChain(error),
+        }
+        this.throwError(error)
+      }
     } finally {
-      // oxlint-disable-next-line typescript/no-non-null-assertion -- the turn is always ended in this block
-      this.session.append('turn/end', { turn, reason: turnEnds! })
+      try {
+        // oxlint-disable-next-line typescript/no-non-null-assertion -- every exit assigns a turn ending
+        this.session.append('turn/end', { turn, reason: turnEnds! })
+      } catch (error: unknown) {
+        this.throwError(error)
+      }
     }
     return this.inbox.hasPending
   }
 
-  private async step(): Promise<TurnEndReason | null> {
+  private async step(): Promise<StepEndReason | null> {
     if (this.phase.kind !== 'running') throw new Error(`agent "${this.id}": step outside running phase`)
     const { turn, step, abort: { signal } } = this.phase
     signal.throwIfAborted()
@@ -272,7 +295,9 @@ export class ReactLoopAgent implements Agent {
           () => Promise.resolve<RequestErrorAction>(undefined),
         )
         signal.throwIfAborted()
-        if (action?.kind !== 'retry') return { kind: 'error', error: finish.failure }
+        if (action?.kind !== 'retry') {
+          throw new LlmError(finish.failure.message, finish.failure.code, finish.failure)
+        }
         continue
       }
 

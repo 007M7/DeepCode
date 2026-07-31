@@ -100,6 +100,8 @@ export interface TurnEndReasonMap {
   completed: { kind: 'completed' }
   /** A cancellation request interrupted the live turn. */
   aborted: { kind: 'aborted'; reason: AgentCancelCause }
+
+  blocked: { kind: 'blocked' }
   /**
    * The turn failed.
    */

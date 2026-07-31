@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { createUserMessage, freezeMessage, CallId, MessageSource, ProviderRequestId, StreamChunk  } from '@deepseek-ai/dsh-llm'
+import LlmService, { createUserMessage, freezeMessage, CallId, LlmError, MessageSource, ProviderRequestId, StreamChunk  } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionEvent, SessionId, TurnEndReason, type UserMessage } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineContentToolFixture, type PostToolDecision } from '@deepseek-ai/dsh-tools'
@@ -594,12 +594,20 @@ describe('a finish-error stream chunk ends the turn as error, not completed', ()
     const agent = ctx.agentLoop.create(SessionId('a-finish-error'), { provider: 'mock', model: 'mock' })
 
     const reasons: TurnEndReason[] = []
+    const errors: unknown[] = []
+    ctx.on('agent/error', (_agent, turn, step, error) => {
+      expect({ turn, step }).toEqual({ turn: 1, step: 1 })
+      errors.push(error)
+    })
     ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
     expect(reasons).toEqual([{ kind: 'error', error: failure }])
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toBeInstanceOf(LlmError)
+    expect((errors[0] as LlmError).failure).toEqual(failure)
 
     const events = [...agent.session.events]
     const turnEnd = events.find(event => event.type === 'turn/end')
@@ -809,6 +817,7 @@ describe('turn and step boundary recovery', () => {
 
     expect(adapter.requests).toHaveLength(1)
     expect(errors.map(error => error.message)).toEqual([
+      'reject first step-end',
       'invariant violated by "@deepseek-ai/dsh-session": turn/end 1 while step 1 is still open',
     ])
     expect(boundaryCounts(agent)).toMatchObject({
@@ -842,6 +851,7 @@ describe('turn and step boundary recovery', () => {
       kind: 'error',
       error: { message: 'provider 500', code: 'SERVER' },
     })
+    expect(threw).toBe(true)
 
     // loop survives: a second turn runs to completion (invariants oracle would
     // throw on its turn/start if turn 1 had been left open).
@@ -1012,7 +1022,9 @@ describe('turn and step boundary recovery', () => {
     expect(e.some(x => x.type === 'step/end')).toBe(true)
     expect(e.some(x => x.type === 'turn/end')).toBe(true)
     expect(e.at(-1)?.type).toBe('turn/end')
-    expect(errors).toEqual([])
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toBeInstanceOf(LlmError)
+    expect((errors[0] as LlmError).failure).toEqual({ message: 'provider 500', code: 'SERVER' })
 
     // loop survives.
     send(agent, 'again')

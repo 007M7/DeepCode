@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { createUserMessage, CallId, StreamChunk  } from '@deepseek-ai/dsh-llm'
+import LlmService, { createUserMessage, CallId, LlmError, StreamChunk  } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
@@ -200,7 +200,9 @@ describe('agent loop', () => {
     await waitForIdle(ctx, agent)
 
     expect(adapter.requests).toHaveLength(0) // the request was never sent
-    expect(errors).toEqual([])
+    expect(errors.map(error => error.message)).toEqual([
+      'prompt variable "{{cwd}}" has no value for this assembly (section "deployment:persona")',
+    ])
     const turnEnd = agent.session.events.find(e => e.type === 'turn/end')
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind).toBe('error')
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind === 'error'
@@ -346,7 +348,7 @@ describe('agent loop', () => {
     expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('second idle steer')
   })
 
-  it('contains a throwing step observer and carries steering into a replacement turn', async () => {
+  it('stops after a throwing step observer and retains steering until a later wakeup', async () => {
     const adapter = new MockAdapter([textResponse('recovered')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('failed-steering'), { provider: 'mock', model: 'mock' })
@@ -359,6 +361,13 @@ describe('agent loop', () => {
     })
 
     send(agent, 'prompt')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests).toHaveLength(0)
+    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
+    expect(agent.inbox.nextStep).toHaveLength(1)
+
+    send(agent, 'resume')
     await waitForIdle(ctx, agent)
 
     expect(adapter.requests).toHaveLength(1)
@@ -658,7 +667,7 @@ describe('agent loop', () => {
     send(agent, 'first')
     await waitForIdle(ctx, agent)
     // The first turn failed at step 1 before a model call.
-    expect(errors).toEqual([])
+    expect(errors.map(error => error.message)).toEqual(['boom in pre-step'])
     expect(adapter.requests.length).toBe(0)
     const firstTurnEnd = agent.session.events.find(e => e.type === 'turn/end')
     expect(firstTurnEnd?.type === 'turn/end' && firstTurnEnd.data.reason).toMatchObject({ kind: 'error' })
@@ -1085,20 +1094,24 @@ describe('agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    const errors: Error[] = []
+    const errors: unknown[] = []
     const reasons: TurnEndReason[] = []
     ctx.on('agent/error', (_agent, _turn, _step, error) => {
-      if (error instanceof Error) errors.push(error)
+      errors.push(error)
     })
     ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'hi')
     await waitForIdle(ctx, agent)
 
-    expect(errors).toEqual([])
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toBeInstanceOf(LlmError)
+    expect((errors[0] as LlmError).failure).toEqual({
+      message: 'MockAdapter: script exhausted',
+      code: 'UNKNOWN',
+    })
     expect(reasons[0]).toMatchObject({ kind: 'error' })
-    // The durable failure lives entirely on turn/end.reason (with the failing
-    // step), not a standalone error event.
+    // The durable failure and live relay describe the same failed turn.
     const turnEnd = agent.session.events.find(e => e.type === 'turn/end')
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toMatchObject({ kind: 'error' })
   })

@@ -359,7 +359,12 @@ describe('request stability across the loop', () => {
       await waitForIdle(ctx, agent)
 
       expect(agent.session.events.findLast(event => event.type === 'turn/end')).toMatchObject({
-        data: { reason: { kind: 'error', error: failure.message } },
+        data: {
+          reason: {
+            kind: 'error',
+            error: failure instanceof LlmError ? failure.failure : failure.message,
+          },
+        },
       })
       expect(adapter.requests).toHaveLength(0)
     },

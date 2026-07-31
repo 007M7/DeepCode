@@ -3755,7 +3755,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     events.session.append('turn/start', { turn: 6 })
     events.session.append('turn/end', {
       turn: 6,
-      reason: { kind: 'error', error: 'structured provider failure' },
+      reason: { kind: 'error', error: { message: 'structured provider failure', code: 'SERVER' } },
     })
     events.session.append('turn/start', { turn: 8 })
     events.session.append('turn/end', {
@@ -3771,6 +3771,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(events.terminal.output).toContain('durable failure')
     expect(events.terminal.output).toContain('Turn cancelled')
     expect(events.terminal.output).toContain('structured provider failure')
+    expect(events.terminal.output).not.toContain('[object Object]')
     expect(events.terminal.output).toContain('output-token limit')
     expect(events.terminal.output).toContain('previous process ended')
     expect(events.terminal.output).toContain('Turn ended: plugin-policy')
