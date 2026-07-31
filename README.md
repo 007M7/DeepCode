@@ -16,10 +16,12 @@ It uses an architecture where **everything is a plugin**.
 
 ## Install
 
-Install `dsh` with one command:
+Clone the repository, then run the installer:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/deepseek-harness/deepseek-harness/master/scripts/install.sh | sh
+git clone <repo-url>
+cd deepseek-harness
+scripts/install.sh
 ```
 
 The installer requires `git` and Node `^22.19 || >=24`, offers to install `pnpm` when it is missing, and prompts for a DeepSeek API key.
