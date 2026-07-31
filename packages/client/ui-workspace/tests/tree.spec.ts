@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest'
 import type {
   SessionId, SessionListState, SessionSummary, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import { deriveFlat, deriveGroups, projectLabel, relativeTime, UNGROUPED_KEY, UNGROUPED_LABEL } from '../src/client/tree.ts'
+import {
+  deriveFlat, deriveGroups, deriveSearchResults, projectLabel, relativeTime,
+  UNGROUPED_KEY, UNGROUPED_LABEL,
+} from '../src/client/tree.ts'
 import { createWorkspaceViewStore } from '../src/client/stores.ts'
 
 const sid = (id: string) => id as SessionId
@@ -16,12 +19,12 @@ const list = (...items: SessionSummary[]): SessionListState => ({
   current: undefined,
   phase: 'ready',
 })
-const workspace = (id: string, sessionIds: string[]): WorkspaceView => ({
-  workspaceId: wid(id), path: `/projects/${id}`, title: id,
+const workspace = (id: string, sessionIds: string[], title = id): WorkspaceView => ({
+  workspaceId: wid(id), path: `/projects/${id}`, title,
   sessionIds: sessionIds.map(sid), createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
 })
-const view = (expandedProjects: readonly string[] = [], query = '') => ({
-  expandedProjects, query,
+const view = (expandedProjects: readonly string[] = []) => ({
+  expandedProjects,
 })
 
 describe('deriveGroups', () => {
@@ -64,25 +67,6 @@ describe('deriveGroups', () => {
     expect(strayGroups.map(group => group.key)).toEqual(['first'])
   })
 
-  it('excludes blank sessions from search regardless of the query', () => {
-    const currentBlank = { ...summary('opaque-current', 5), blank: true }
-    const staleBlank = { ...summary('new session stale', 4), blank: true }
-    const real = { ...summary('real', 3), displayTitle: 'new session notes' }
-    const sessions = {
-      ...list(currentBlank, staleBlank, real),
-      current: currentBlank.id,
-    }
-    const groups = deriveGroups(
-      sessions,
-      [workspace('first', ['opaque-current', 'new session stale', 'real'])],
-      view([], 'new session'),
-    )
-    // Only the real title hit matches; the current blank's placeholder title
-    // never participates (it displays localized, so matching it would tie
-    // search to one language).
-    expect(groups[0]!.sessions.map(session => session.id)).toEqual([real.id])
-  })
-
   it('ignores fork lineage and sorts every ungrouped session as a top-level row', () => {
     const parent = summary('parent', 1)
     const oldChild = { ...summary('old-child', 10), parentId: parent.id }
@@ -96,7 +80,7 @@ describe('deriveGroups', () => {
     const groups = deriveGroups(
       list(parent, oldChild, newChild, tieB, tieA, self, orphan, cycleA, cycleB),
       [],
-      { expandedProjects: [UNGROUPED_KEY], query: '' },
+      { expandedProjects: [UNGROUPED_KEY] },
     )
 
     expect(groups).toHaveLength(1)
@@ -120,31 +104,6 @@ describe('deriveGroups', () => {
     expect(groups[0]!.sessions.map(node => node.id)).toEqual([sid('present')])
   })
 
-  it('searches rows independently of lineage and keeps label-only hits', () => {
-    const root = { ...summary('root', 1), displayTitle: 'Ancestor' }
-    const match = { ...summary('match', 2), displayTitle: 'Needle child', parentId: root.id }
-    const sibling = { ...summary('sibling', 3), displayTitle: 'Other child', parentId: root.id }
-    const self = { ...summary('self', 4), displayTitle: 'Needle self', parentId: sid('self') }
-    const orphan = { ...summary('orphan', 5), displayTitle: 'Needle orphan', parentId: sid('absent') }
-    const cycleA = { ...summary('cycle-a', 6), displayTitle: 'Needle cycle A', parentId: sid('cycle-b') }
-    const cycleB = { ...summary('cycle-b', 7), displayTitle: 'Needle cycle B', parentId: sid('cycle-a') }
-    const sessions = list(root, match, sibling, self, orphan, cycleA, cycleB)
-    const groups = deriveGroups(sessions, [workspace('project', sessions.ids)], view([], 'needle'))
-
-    expect(groups[0]!.sessions.map(node => node.id)).toEqual([
-      match.id, self.id, orphan.id, cycleA.id, cycleB.id,
-    ])
-
-    const labelOnly = deriveGroups(
-      list(summary('hidden', 1)),
-      [workspace('label-hit', ['hidden']), workspace('other', [])],
-      view([], 'label'),
-    )
-    expect(labelOnly).toEqual([
-      expect.objectContaining({ key: 'label-hit', expanded: false, sessions: [], sessionCount: 1 }),
-    ])
-  })
-
   it('marks selected Workspace and Ungrouped sessions without relying on an Intent', () => {
     const owned = summary('owned', 1)
     const loose = summary('loose', 2)
@@ -162,19 +121,13 @@ describe('deriveFlat', () => {
     const child = { ...summary('child', 30), parentId: parent.id }
     const tieB = summary('tie-b', 20)
     const tieA = summary('tie-a', 20)
-    const rows = deriveFlat(list(parent, child, tieB, tieA), { query: '' })
+    const rows = deriveFlat(list(parent, child, tieB, tieA))
     expect(rows.map(row => row.id)).toEqual([sid('child'), sid('tie-a'), sid('tie-b'), sid('parent')])
-  })
-
-  it('search filters by case-insensitive display-title substring', () => {
-    const hit = { ...summary('hit', 2), displayTitle: 'Needle row' }
-    const miss = { ...summary('miss', 1), displayTitle: 'Other' }
-    expect(deriveFlat(list(hit, miss), { query: ' NEEDLE ' }).map(row => row.id)).toEqual([sid('hit')])
   })
 
   it('tolerates ids whose summary has not landed yet', () => {
     const partial: SessionListState = { ...list(summary('present', 1)), ids: [sid('ghost'), sid('present')] }
-    expect(deriveFlat(partial, { query: '' }).map(row => row.id)).toEqual([sid('present')])
+    expect(deriveFlat(partial).map(row => row.id)).toEqual([sid('present')])
   })
 
   it('shows only the current blank session and excludes blanks from search', () => {
@@ -184,14 +137,120 @@ describe('deriveFlat', () => {
       ...list(summary('real', 1), currentBlank, staleBlank),
       current: currentBlank.id,
     }
-    const rows = deriveFlat(sessions, { query: '' })
+    const rows = deriveFlat(sessions)
     expect(rows.map(row => row.id)).toEqual([currentBlank.id, sid('real')])
     expect(rows.map(row => row.title)).toEqual(['New Session', 'real'])
     expect(rows.map(row => row.blank)).toEqual([true, false])
-    // Blank rows never match a query — not their placeholder title, not their id.
-    expect(deriveFlat(sessions, { query: 'new session' })).toEqual([])
-    expect(deriveFlat(sessions, { query: 'current-blank' })).toEqual([])
-    expect(deriveFlat(sessions, { query: 'stale-blank' })).toEqual([])
+  })
+})
+
+describe('deriveSearchResults', () => {
+  it('merges local title/Workspace matches before ranked content hits and enriches duplicates', () => {
+    const titleHit = summary('title-hit', 30, '/projects/a')
+    titleHit.displayTitle = 'Needle title'
+    const workspaceHit = summary('workspace-hit', 20, '/projects/b')
+    workspaceHit.displayTitle = 'Ordinary title'
+    const contentHit = summary('content-hit', 10, '/projects/c')
+    const sessions = list(titleHit, workspaceHit, contentHit)
+    const result = deriveSearchResults(
+      sessions,
+      [
+        workspace('a', ['title-hit'], 'Alpha'),
+        workspace('b', ['workspace-hit'], 'Needle Workspace'),
+        workspace('duplicate-owner', ['title-hit'], 'Ignored duplicate owner'),
+      ],
+      ' NEEDLE ',
+      {
+        items: [
+          { sessionId: contentHit.id, snippet: 'body needle excerpt' },
+          { sessionId: contentHit.id, snippet: 'ignored duplicate excerpt' },
+          { sessionId: titleHit.id, snippet: 'title session body excerpt' },
+          { sessionId: sid('unknown'), snippet: 'not in session.list' },
+        ],
+        hasMore: false,
+      },
+      10,
+    )
+
+    expect(result).toEqual({
+      items: [
+        {
+          id: titleHit.id,
+          title: 'Needle title',
+          workspace: 'Alpha',
+          running: false,
+          snippet: 'title session body excerpt',
+        },
+        {
+          id: workspaceHit.id,
+          title: 'Ordinary title',
+          workspace: 'Needle Workspace',
+          running: false,
+        },
+        {
+          id: contentHit.id,
+          title: 'content-hit',
+          workspace: 'c',
+          running: false,
+          snippet: 'body needle excerpt',
+        },
+      ],
+      hasMore: false,
+    })
+  })
+
+  it('excludes blank sessions from search regardless of query or content hits', () => {
+    const currentBlank = { ...summary('opaque-current', 5), blank: true }
+    const staleBlank = { ...summary('new session stale', 4), blank: true }
+    const sessions = {
+      ...list(currentBlank, staleBlank),
+      current: currentBlank.id,
+    }
+    // Blank placeholders never match — not their localized-display title, not
+    // their id, and not even a backend content hit naming them.
+    const result = deriveSearchResults(
+      sessions,
+      [workspace('first', ['opaque-current', 'new session stale'])],
+      'new session',
+      {
+        items: [
+          { sessionId: staleBlank.id, snippet: 'stale body' },
+          { sessionId: currentBlank.id, snippet: 'current body' },
+        ],
+        hasMore: false,
+      },
+      10,
+    )
+    expect(result.items).toEqual([])
+  })
+
+  it('uses the supplied cap and preserves either local overflow or backend hasMore', () => {
+    const rows = Array.from({ length: 5 }, (_, index) => {
+      const item = summary(`s-${String(index).padStart(2, '0')}`, index)
+      item.displayTitle = `Needle ${String(index)}`
+      return item
+    })
+    const overflow = deriveSearchResults(
+      list(...rows),
+      [],
+      'needle',
+      { items: [], hasMore: false },
+      3,
+    )
+    expect(overflow.items).toHaveLength(3)
+    expect(overflow.hasMore).toBe(true)
+
+    const backendMore = deriveSearchResults(
+      list(summary('body', 1)),
+      [],
+      'needle',
+      { items: [{ sessionId: sid('body'), snippet: 'needle' }], hasMore: true },
+      3,
+    )
+    expect(backendMore.items).toHaveLength(1)
+    expect(backendMore.hasMore).toBe(true)
+    expect(deriveSearchResults(list(), [], '  ', { items: [], hasMore: true }, 3))
+      .toEqual({ items: [], hasMore: false })
   })
 })
 

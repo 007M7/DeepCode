@@ -15,10 +15,10 @@
   - img
   - img
   - text: Think The user wants me to run a simple bash command and reply with "DONE".
-- img
-- text: Bash Echo the test string Done workspace echo WEB_E2E_OK
-- button "Copy"
-- text: WEB_E2E_OK
+- button "Bash Echo the test string":
+  - img
+  - img
+  - text: Bash Echo the test string
 - button "Think The command executed successfully and output \"WEB_E2E_OK\". I just need to reply with \"DONE\".":
   - img
   - img
@@ -30,10 +30,9 @@
   - img
 - text: {{clock}}
 - textbox "Message the agent"
-- button "Add attachment":
+- button "Commands":
   - img
 - 'button "Access mode, current: Danger Full Access"': Danger Full Access
-- button "Plan mode off, press to turn on": Plan off
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img

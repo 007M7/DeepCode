@@ -97,6 +97,13 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
   const openDetails = vi.fn<(t: SelectionTarget) => void>()
   const openFile = vi.fn<(path: string) => void>()
   const loadOlder = vi.fn()
+  const inspectCall = vi.fn<(callId: string) => void>()
+  // In-memory scroll memory matching the apply.ts per-session map contract.
+  let savedScrollTop: number | null = null
+  const chatScroll = {
+    save: (top: number | null) => { savedScrollTop = top },
+    read: () => savedScrollTop,
+  }
   const forkAt = vi.fn()
   // Selection rides the REAL chat store (same construction path as
   // production; the view reads it through the PropsStore useStore share).
@@ -124,12 +131,14 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
     openDetails,
     openFile,
     loadOlder,
+    inspectCall,
+    chatScroll,
     forkAt,
     // Mirrors the real lookup chain (conversation namespace, then common).
     t: makeTranslate(zh, commonZh),
   }
   const setSelection = (next: SelectionTarget | null): void => { chat.actions.select(next) }
-  return { set, ChatView, props, openDetails, openFile, loadOlder, forkAt, setSelection }
+  return { set, ChatView, props, openDetails, openFile, loadOlder, inspectCall, chatScroll, forkAt, setSelection }
 }
 
 describe('chat-flow derivation', () => {
@@ -216,6 +225,16 @@ describe('ChatView', () => {
     expect(view.getByText('running tools')).toBeTruthy()
     expect(view.getAllByText('Bash')).toHaveLength(2)
     expect(view.getByText('run a')).toBeTruthy()
+  })
+
+  it('the expanded row Inspect pill hands the call id to inspectCall', () => {
+    const h = makeHarness({
+      nodes: [toolResult(3, 'a')],
+    })
+    const view = render(<h.ChatView {...h.props} />)
+    fireEvent.click(view.getByRole('button', { name: /Bash/ }))
+    fireEvent.click(view.getByText('Inspect'))
+    expect(h.inspectCall).toHaveBeenCalledWith('a')
   })
 
   it('shows assistant IconActions only on the last content message of each turn', () => {
@@ -331,11 +350,11 @@ describe('ChatView', () => {
     expect(rowRenders).toBe(afterMount)
   })
 
-  it('tool row expands to the args body via the leading slot toggle', () => {
+  it('tool row expands to the args body via the whole-row toggle', () => {
     const h = makeHarness({ nodes: [toolResult(3, 'a')] })
     const view = render(<h.ChatView {...h.props} />)
     expect(view.queryByText(/"command": "cmd-a"/)).toBeNull()
-    fireEvent.click(view.container.querySelector('button[aria-expanded]')!)
+    fireEvent.click(view.container.querySelector('[data-expandable]')!)
     expect(view.getByText(/"command": "cmd-a"/)).toBeTruthy()
   })
 
@@ -452,6 +471,55 @@ describe('ChatView', () => {
       fireEvent.scroll(host)
       expect(view.getByLabelText('回到底部')).toBeTruthy()
       fireEvent.click(view.getByLabelText('回到底部'))
+      expect(host.scrollTop).toBe(2000)
+    } finally {
+      host.remove()
+    }
+  })
+
+  it('a remount restores the saved scroll position instead of re-jumping to the bottom', () => {
+    const host = document.createElement('div')
+    host.setAttribute('data-conversation-scroll', '')
+    Object.defineProperty(host, 'scrollHeight', { value: 2000, writable: true, configurable: true })
+    Object.defineProperty(host, 'clientHeight', { value: 500, writable: true, configurable: true })
+    Object.defineProperty(host, 'scrollTop', { value: 0, writable: true, configurable: true })
+    document.body.appendChild(host)
+    try {
+      const h = makeHarness({ nodes: [user(1, 'q'), assistant(2, 'a')] })
+      // Fresh open (nothing saved): the bottom jump stands.
+      const view = render(<h.ChatView {...h.props} />, { container: host })
+      expect(host.scrollTop).toBe(2000)
+      // Reader scrolls up; the position is recorded continuously.
+      host.scrollTop = 100
+      fireEvent.scroll(host)
+      // View-tab switch away and back: the view unmounts, then remounts.
+      view.rerender(<div />)
+      host.scrollTop = 0
+      view.rerender(<h.ChatView {...h.props} />)
+      expect(host.scrollTop).toBe(100)
+      // The restored position is above the floor: follow stays disarmed.
+      expect(view.getByLabelText('回到底部')).toBeTruthy()
+    } finally {
+      host.remove()
+    }
+  })
+
+  it('a remount while pinned to the bottom keeps the bottom jump', () => {
+    const host = document.createElement('div')
+    host.setAttribute('data-conversation-scroll', '')
+    Object.defineProperty(host, 'scrollHeight', { value: 2000, writable: true, configurable: true })
+    Object.defineProperty(host, 'clientHeight', { value: 500, writable: true, configurable: true })
+    Object.defineProperty(host, 'scrollTop', { value: 0, writable: true, configurable: true })
+    document.body.appendChild(host)
+    try {
+      const h = makeHarness({ nodes: [user(1, 'q'), assistant(2, 'a')] })
+      const view = render(<h.ChatView {...h.props} />, { container: host })
+      // At the bottom: the scroll event records the pinned state (null).
+      fireEvent.scroll(host)
+      expect(h.chatScroll.read()).toBeNull()
+      view.rerender(<div />)
+      host.scrollTop = 0
+      view.rerender(<h.ChatView {...h.props} />)
       expect(host.scrollTop).toBe(2000)
     } finally {
       host.remove()

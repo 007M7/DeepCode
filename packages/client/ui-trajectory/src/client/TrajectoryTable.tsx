@@ -314,6 +314,10 @@ export interface TrajectoryTableProps {
   collapsedAssistants: ReadonlySet<number>
   /** Toggle tool calls under one assistant record. */
   onToggleAssistant: (index: number) => void
+  /** One-shot cross-view inspect: open and scroll to this call's record. */
+  inspectCallId?: string | null
+  /** Acknowledge a consumed (or unresolvable) inspect request. */
+  onInspectApplied?: (() => void) | undefined
 }
 
 /** One request identity paired with its session-global number. */
@@ -1497,6 +1501,8 @@ export function TrajectoryTable({
   onToggleTurn,
   collapsedAssistants,
   onToggleAssistant,
+  inspectCallId = null,
+  onInspectApplied,
 }: TrajectoryTableProps) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
   const [selectedRequest, setSelectedRequest] = useState<SelectedRequest | null>(null)
@@ -1678,8 +1684,37 @@ export function TrajectoryTable({
     if (target !== undefined) openRecordSummary(target)
   }
 
+  // Cross-view inspect handoff: resolve the requested call to its record,
+  // open its summary, and remember the row to scroll once the un-collapsed
+  // ledger has rendered. Not-found leaves the request pending (`turns` in the
+  // deps retries as history pages in); the ack clears the store field.
+  const rootRef = useRef<HTMLDivElement>(null)
+  const pendingScrollIndex = useRef<number | null>(null)
+  const openRecordSummaryRef = useRef(openRecordSummary)
+  openRecordSummaryRef.current = openRecordSummary
+  useEffect(() => {
+    if (inspectCallId === null) return
+    const target = flattenRecords(turns).find(record => record.cell.callId === inspectCallId)
+    if (target === undefined) return
+    openRecordSummaryRef.current(target)
+    pendingScrollIndex.current = target.cell.index
+    onInspectApplied?.()
+  }, [inspectCallId, turns, onInspectApplied])
+  useEffect(() => {
+    const index = pendingScrollIndex.current
+    if (index === null) return
+    const row = rootRef.current
+      ?.querySelector<HTMLElement>(`tr[data-record-index="${index}"]`)
+    if (row === undefined || row === null) return
+    pendingScrollIndex.current = null
+    /* v8 ignore next -- jsdom lacks scrollIntoView; browsers always have it. */
+    if (typeof row.scrollIntoView === 'function') {
+      row.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  })
+
   return (
-    <div className={css.split} style={splitStyle}>
+    <div ref={rootRef} className={css.split} style={splitStyle}>
       <div
         className={css.tablePane}
         onClick={(event) => {

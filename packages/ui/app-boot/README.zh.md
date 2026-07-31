@@ -10,16 +10,16 @@
 | `loadEnv(binName, dir?, warn?)` | 加载已被 git 忽略的 `.env`（Node `process.loadEnvFile`）；文件不存在不影响启动，文件无法加载时输出一行带标签的警告（默认写入 stderr） |
 | `installFailLoud(binName, proc?)` | 将 `boot()` 之后未处理的 Loader rejection 转换为一行带标签的 stderr 消息并执行 `exit(1)`；返回卸载函数（供测试使用） |
 | `assertEntriesLoaded(ctx, binName)` | 树结算后，如果其中存在已启用但没有 fiber 的条目，则抛出异常，并以 Cordis 启动故障的形式报告每个未解析插件的名称 |
-| `assertEntriesActive(ctx, binName)` | 树结算后，如果已启用的 fiber 未处于 ACTIVE 状态，则抛出异常；对于 PENDING 条目还会列出缺失的注入服务 |
+| `assertEntriesActivated(ctx, binName)` | 先执行 `assertEntriesLoaded` 检查，再在 Loader 结算后等待每个已启用配置项；抛出的错误包含每个失败插件的原始错误堆栈，或每个等待中插件尚未解析的服务 |
 | `loadPersonalPatches(binName, dir?)` | 解析 Harness home 中可选的 `config.yaml`（默认使用 [`resolveDshHome()`](../../util/paths/README.md)：先取 `$DSH_HOME`，否则取 `~/.dsh`）：其顶层是一个 YAML 数组，内容为 include 的 `PatchOptions`（按 id 定位的配置覆盖、`insert` 列表，允许 `!!js`）；文件不存在时返回 `undefined`，文件不可读、不可解析或内容不是数组时抛出异常 |
 | `loadOverlayPatches(binName, file)` | 解析一份必需的 patch 列表文件，其形状与个人配置相同；读取或解析失败时抛出带标签的错误 |
-| `boot(binName, absoluteConfigPath, patches?, prepare?)` | 创建根上下文并安装 Loader，在配置树条目挂载前执行可选的宿主准备操作（`prepare` 可以使用 Loader，也可以提供由启动器拥有的上下文插槽，例如 [`MAIN_SESSION_ID_KEY`](../tui/README.md)），再挂载并等待 include 树结算，断言所有条目均已加载且处于 ACTIVE 状态，最后返回根上下文 |
+| `boot(binName, absoluteConfigPath, patches?, prepare?)` | 创建根上下文并安装 Loader，在配置树条目挂载前执行可选的宿主准备操作（`prepare` 可以使用 Loader，也可以提供由启动器拥有的上下文插槽，例如 [`MAIN_SESSION_ID_KEY`](../tui/README.md)），再挂载并等待 include 树结算，断言所有条目均已加载并激活，最后返回根上下文 |
 | `addHarnessSourceSection(ctx, sourceRoot)` | 添加全局 `harness:source` 提示词段落（顺序紧随 harness 身份、位于 persona 之前），告知 agent（智能体）自身源代码 checkout 的磁盘路径；如果已启动树没有此项服务，则不执行操作并返回 `undefined`。这里的服务是 `systemPrompt`；该段落注册到它的 fiber，因此开发环境 HMR（热模块替换）重新加载系统提示词后，它会消失直至下次启动 |
 | `HARNESS_SOURCE_SECTION` | `'harness:source'` 段落名称，供 `addHarnessSourceSection` 注册使用 |
 
-这些保护处理两类故障。`loader.await()` 会吞掉初始化 rejection（`Promise.allSettled`）；Node 仍会因随后产生的未处理 rejection 以非零状态退出，而 `installFailLoud` 会把冗长转储替换为一行带标签的消息，并确保执行 `exit(1)`。插件导入失败则只会由 Loader 记录日志（否则，即使配置存在拼写错误，进程也会以代码 0 退出），并留下没有 fiber 的条目；`assertEntriesLoaded` 会将其转换为 `boot()` rejection，并在其中列出每个导入失败插件的名称。
+Loader 树结算不会向调用方传播两类故障，因此需要分别保护。插件导入失败会留下没有 fiber 的配置项，`assertEntriesLoaded` 将其转换为 `boot()` rejection，并列出每个未解析插件。插件回调或配置失败则会留下失败的 fiber，因为 `loader.await()` 只结算生命周期任务，不传播该错误；`assertEntriesActivated` 会显式等待该 fiber，并把原始错误堆栈写入启动 rejection。抛出错误前，审计会通过一个进程级检查点标记这些 rejection 的确切原因，从而让 `installFailLoud` 将 Loader 的重复通知合并为一次，而所有无关的未处理 rejection 仍然致命。
 
-配置中的裸插件 specifier（`@deepseek-ai/dsh-*`、npm 包（package））通过 Cordis Loader 的内部模块 loader 解析。仓库 bin 会安装 Loader 的可选 peer `node-addon-require-builtin`；外部调用方必须提供该组件，或者把插件安装到普通 Node import 解析可以找到的位置。相对 specifier 无需原生 helper，并以配置目录为基准解析。`dsh` 源码启动器还会将 manifest（元数据清单）声明的 workspace 包映射到其 TypeScript 源码；其配置门禁要求每个 TUI／Web 裸插件都出现在解析所用 manifest 的 `dependencies` 中。bin 的子进程冒烟测试覆盖内部 loader 路径，而本包的单元测试套件会在进程内使用相对 specifier 配置驱动 `boot()`。
+配置中的裸插件 specifier（`@deepseek-ai/dsh-*`、npm 包（package））通过 Cordis Loader 的内部模块 loader 解析。仓库 bin 会安装 Loader 的可选 peer `node-addon-require-builtin`；外部调用方必须提供该组件，或者把插件安装到普通 Node import 解析可以找到的位置。相对 specifier 无需原生 helper，并以配置目录为基准解析。构建后的 `dsh-app-boot` 产物内嵌静态挂载的 Include 实现，但仍将 Loader 保持为外部依赖，因此 include 树与 host 会绑定到同一个 Loader peer。`dsh` 源码启动器还会将 manifest（元数据清单）声明的 workspace 包映射到其 TypeScript 源码；其配置门禁要求每个 TUI／Web 裸插件都出现在解析所用 manifest 的 `dependencies` 中。bin 的子进程冒烟测试覆盖内部 loader 路径，而本包的单元测试套件会在进程内使用相对 specifier 配置驱动 `boot()`。
 
 此包不包含 loader 钩子，也不提供开发模式接口。[`dsh` 应用](../../../apps/cli/README.md)持有自己的 Node 源码启动钩子，并在启动序列中使用这些 helper；构建后的消费方仍使用普通 Node 包解析。
 

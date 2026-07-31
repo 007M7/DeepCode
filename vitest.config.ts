@@ -1,5 +1,6 @@
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { defineConfig } from 'vitest/config'
+import { vitestExecArgv } from './vitest.shared.ts'
 import { COVERAGE_EXEMPT_ENV, coverageExemptHeavySuites } from './scripts/coverage-exempt.ts'
 
 // Resolution facade shared by every plugin instance below: tsconfig.base.json
@@ -67,13 +68,15 @@ export default defineConfig({
     // .tsx: client component specs (jsdom via per-file @vitest-environment pragma).
     include: testIncludes,
     exclude: windowsUnsupportedPackages.map(path => `${path}/tests/**/*.spec.ts`),
-    // One coverage invocation aggregates both projects. Most suites use threads
-    // for lower startup/IPC overhead; only explicit process-bound suites fork.
+    // One coverage invocation aggregates both projects. Regular suites fork on
+    // POSIX for Node stability and use threads on Windows; process-bound suites
+    // always fork.
     projects: [
       {
         plugins: [pathsPlugin()],
         test: {
           name: 'thread-safe',
+          execArgv: vitestExecArgv,
           // Node 24 has aborted in its CJS lexer (v8::ToLocalChecked Empty
           // MaybeLocal in cjs_lexer::Parse) from worker threads on macOS
           // arm64 and later on Linux. A fork contains that external runtime
@@ -93,6 +96,7 @@ export default defineConfig({
         plugins: [pathsPlugin()],
         test: {
           name: 'process-bound',
+          execArgv: vitestExecArgv,
           pool: 'forks',
           setupFiles: ['./scripts/test-invariants.ts'],
           include: processBoundTests,
