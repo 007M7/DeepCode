@@ -71,7 +71,7 @@ Escalating bash calls resolve `ctx.approval` before execution. `allowed-once` ap
 
 ## Per-session mode switching
 
-For sandboxing executors, each call resolves mode as one-shot escalation, then session override, then executor default. Non-sandboxing and agent-less calls carry no session override. Neither the prompt nor a switch notice announces the standing mode; denial results report the effective mode when the boundary matters. See the [`dsh-bash` fold](../bash/README.md) and [sandbox switching contract](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md).
+For sandboxing executors, each call resolves mode as one-shot escalation, then session override, then executor default. Non-sandboxing and agent-less calls carry no session override. The policy owner contributes the current capability-neutral standing mode; denial results still own the operation-specific effective mode and retry guidance. See the [`dsh-bash` fold](../bash/README.md) and [sandbox switching contract](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md).
 
 ## Model Experience
 
@@ -79,7 +79,7 @@ For sandboxing executors, each call resolves mode as one-shot escalation, then s
 
 #### What the model sees
 
-Every request in this plugin's registration scope contains the bash guidance below. A sandboxing executor adds no mode statement or switch notice. Scoped tool restrictions can hide the schemas without removing this independently registered section.
+Every request in this plugin's registration scope contains the bash guidance below. The policy owner contributes current sandbox state through its cache-safe runtime context rather than changing this section. Scoped tool restrictions can hide the schemas without removing this independently registered section.
 
 ##### Bash guidance
 

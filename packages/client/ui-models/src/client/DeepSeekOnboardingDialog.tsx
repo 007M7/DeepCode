@@ -1,13 +1,13 @@
 /**
- * Official-DeepSeek first-run dialog. Readiness comes from the same
+ * Official-DeepSeek first-run step. Readiness comes from the same
  * provider/settings/credential join as the Models page; the prompt only
  * routes the user to that page's single credential editor.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { BrandWordmark, Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-web-react'
 import type { ModelsSettingsState, ModelsSettingsStore } from './store.ts'
 import { deepSeekReadiness } from './store.ts'
@@ -37,28 +37,34 @@ function assertNever(_value: never): never {
  * Prompt a first-run user to open Models while the official adapter exists
  * and its effective credential is not configured.
  * @param props - settings-shell owner state and Models feature dependencies.
- * @returns the controlled modal or null when onboarding needs no intervention.
+ * @returns the onboarding page or null when onboarding needs no intervention.
  */
 export function DeepSeekOnboardingDialog(props: DeepSeekOnboardingDialogProps): ReactNode {
-  const { active, openSection, controller, useSnapshot, t } = props
+  const { complete, openSection, controller, useSnapshot, t } = props
   const state = useSnapshot(snapshot => snapshot)
   const readiness = deepSeekReadiness(state)
-  const [dismissed, setDismissed] = useState(false)
+  const titleRef = useRef<HTMLHeadingElement | null>(null)
 
   useEffect(() => {
-    if (active && !dismissed && state.status === 'idle') void controller.load()
-  }, [active, controller, dismissed, state.status])
+    if (state.status === 'idle') void controller.load()
+  }, [controller, state.status])
 
-  const close = (): void => {
-    setDismissed(true)
-  }
+  useEffect(() => {
+    if (
+      readiness.kind === 'adapter-absent'
+      || readiness.kind === 'configured'
+      || readiness.kind === 'unavailable'
+    ) complete()
+  }, [complete, readiness.kind])
+
+  useEffect(() => {
+    if (readiness.kind === 'credential-missing') titleRef.current?.focus()
+  }, [readiness.kind])
 
   const openModels = (): void => {
-    close()
+    complete()
     openSection('models')
   }
-
-  if (!active || dismissed) return null
 
   switch (readiness.kind) {
     case 'loading':
@@ -74,23 +80,25 @@ export function DeepSeekOnboardingDialog(props: DeepSeekOnboardingDialogProps): 
   }
 
   return (
-    <Modal
-      open
-      onClose={close}
-      title={t('onboardingTitle')}
-      closeLabel={t('onboardingLater')}
-      description={t('onboardingDescription')}
-      className={styles['dialog'] as string}
-      footer={(
-        <Button
-          variant="primary"
-          className={styles['primary']}
-          autoFocus
-          onClick={openModels}
-        >
+    <section className={styles['page']} role="region" aria-labelledby="deepseek-onboarding-title">
+      <div className={styles['brand']} aria-hidden="true"><BrandWordmark size={24} /></div>
+      <h2
+        ref={titleRef}
+        id="deepseek-onboarding-title"
+        className={styles['title']}
+        tabIndex={-1}
+      >
+        {t('onboardingTitle')}
+      </h2>
+      <p className={styles['description']}>{t('onboardingDescription')}</p>
+      <div className={styles['actions']}>
+        <Button variant="ghost" className={styles['later']} onClick={complete}>
+          {t('onboardingLater')}
+        </Button>
+        <Button variant="primary" className={styles['primary']} onClick={openModels}>
           {t('onboardingGoToSettings')}
         </Button>
-      )}
-    />
+      </div>
+    </section>
   )
 }

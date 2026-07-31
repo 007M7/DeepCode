@@ -2,10 +2,10 @@
  * Settings shell plugin, browser half. A pure composition face: occupies the
  * sidebar-owned `sidebar.settings` hole with the trigger chrome + modal
  * panel, declares its chrome, section, and onboarding slots, and projects the
- * section ledger into panel navigation. The shell ships no copy and reads no
- * locale state — all text arrives from registrants (ui-settings-general owns
- * the chrome and General content; features own their rows, sections, and
- * onboarding overlays). Export discipline: packages/client/AGENTS.md.
+ * section ledger into panel navigation. The shell ships no copy; it reads the
+ * optional locale revision only to resolve registrant-owned nav-label thunks.
+ * ui-settings-general owns the chrome and General content; features own their
+ * rows, sections, and onboarding pages. Export discipline: packages/client/AGENTS.md.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: the ctx.locale Context merge for the optional ctx.get('locale')
@@ -13,12 +13,15 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 // copy of its own and takes no hard locale dependency).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { deferRegistration, resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SettingsRootInjected, SettingsSectionRow } from './contract/slots.ts'
+import type {
+  SettingsOnboardingStep, SettingsRootInjected, SettingsSectionRow,
+} from './contract/slots.ts'
 import { SettingsRoot } from './SettingsRoot.tsx'
 
 export type {
   SettingsHeaderOwnerProps, SettingsRootComponentProps, SettingsRootInjected,
-  SettingsOnboardingOwnerProps, SettingsSectionOwnerProps, SettingsSectionRow, SettingsTriggerOwnerProps,
+  SettingsOnboardingOwnerProps, SettingsOnboardingStep, SettingsSectionOwnerProps,
+  SettingsSectionRow, SettingsTriggerOwnerProps,
 } from './contract/slots.ts'
 
 /**
@@ -42,6 +45,8 @@ export function apply(ctx: ClientContext): void {
   let rowsVersion = -1
   let rowsRevision = -1
   let rows: readonly SettingsSectionRow[] = []
+  let onboardingVersion = -1
+  let onboardingSteps: readonly SettingsOnboardingStep[] = []
   const localeRevision = (): number => ctx.get('locale')?.getSnapshot().revision ?? 0
   const injected = (): SettingsRootInjected => ({
     hooks: {
@@ -71,6 +76,23 @@ export function apply(ctx: ClientContext): void {
             offLocale?.()
           }
         },
+      },
+      onboardingSteps: {
+        getSnapshot: () => {
+          const version = ctx.slots.getVersion('settings.onboarding')
+          if (version !== onboardingVersion) {
+            onboardingVersion = version
+            onboardingSteps = ctx.slots.entries('settings.onboarding')
+              .map(e => ({
+                /* v8 ignore next -- list-slot registration requires id */
+                id: e.options.id ?? '',
+                order: e.options.order ?? 0,
+              }))
+              .sort((a, b) => a.order - b.order)
+          }
+          return onboardingSteps
+        },
+        subscribe: listener => ctx.slots.subscribe('settings.onboarding', listener),
       },
     },
   })

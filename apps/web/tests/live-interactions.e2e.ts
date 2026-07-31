@@ -27,11 +27,12 @@ import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './suppor
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/live-interactions', import.meta.url))
 const FIXTURE = join(SNAPSHOT_DIR, 'session.jsonl')
-// One golden per interactive end-state: what the user is left looking at
-// after cancel, after a non-retryable failure (pins the FIXME(web-error-surface)
-// gap as a reviewable artifact: NO error copy in the tree), and after retry
-// recovery — three genuinely different terminal surfaces of one fixture.
+// One golden pins the stable mid-turn loading state; the other three capture
+// what the user is left looking at after cancel, after a non-retryable failure
+// (pins the FIXME(web-error-surface) gap as a reviewable artifact: NO error
+// copy in the tree), and after retry recovery.
 const CANCEL_EXPECTED = join(SNAPSHOT_DIR, 'cancel.expected.md')
+const LOADING_EXPECTED = join(SNAPSHOT_DIR, 'loading.expected.md')
 const ERROR_EXPECTED = join(SNAPSHOT_DIR, 'error-auth.expected.md')
 const RETRY_EXPECTED = join(SNAPSHOT_DIR, 'retry.expected.md')
 const MODE = webSnapshotMode()
@@ -95,7 +96,7 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     // Fresh world: connect a Workspace so the composer scenarios start live.
-    await connectFreshWorkspace(page)
+    await connectFreshWorkspace(page, scaffold.workspaceCwd)
   }
 
   /**
@@ -133,6 +134,12 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
     // The marker IS the synchronization: the stream is provably parked in the
     // hang (prefix chunks delivered to the loop) before the stop click.
     await expect.poll(() => existsSync(marker), { timeout: 15_000 }).toBe(true)
+    await expect.poll(
+      () => page.getByRole('status').filter({ hasText: 'Deep diving...' }).isVisible(),
+      { timeout: 10_000 },
+    ).toBe(true)
+    const loadingSnapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
+    await compareOrRefreshGolden(LOADING_EXPECTED, loadingSnapshot, MODE)
     await page.getByRole('button', { name: 'Stop generating' }).click()
     await settled
     expect(turnEndReasons(sessionEvents).at(-1)).toBe('aborted')
@@ -221,8 +228,8 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
     // only on change, so attempt count is invisible there).
     expect(sessionEvents.filter(e => e.type === 'llm/retry').length).toBeGreaterThanOrEqual(1)
     await expect.poll(() => page.getByText('event sourcing', { exact: false }).count(), { timeout: 10_000 }).toBeGreaterThan(0)
-    // Golden of the recovered end-state: indistinguishable from a clean
-    // completion — retries are deliberately invisible in the transcript.
+    // Golden of the recovered end-state: the discarded partial stays absent,
+    // while the settled retry row remains as durable recovery context.
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
     await compareOrRefreshGolden(RETRY_EXPECTED, snapshot, MODE)
     expect(tripwire.pageErrors).toEqual([])
@@ -231,7 +238,7 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
 
   it.skipIf(MODE === 'record')('keeps the fixture inventory closed', async () => {
     await assertFixtureInventory(SNAPSHOT_DIR, [
-      'session.jsonl', 'cancel.expected.md', 'error-auth.expected.md', 'retry.expected.md',
+      'session.jsonl', 'cancel.expected.md', 'loading.expected.md', 'error-auth.expected.md', 'retry.expected.md',
     ])
   })
 })

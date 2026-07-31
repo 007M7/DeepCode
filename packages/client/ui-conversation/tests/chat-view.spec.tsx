@@ -5,10 +5,11 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Profiler } from 'react'
-import { act, cleanup, fireEvent, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
 import type {
-  AssistantMessageNode, CommandNode, ConversationNode, ConversationSnapshot, RunningToolCall, SessionId,
-  SessionListState, ToolResultNode, UserMessageNode, WorkspaceListState,
+  AssistantMessageNode, CommandNode, ConversationNode, ConversationSnapshot,
+  ModelRetryNode, RunningToolCall, SessionId, SessionListState, ToolResultNode,
+  UserMessageNode, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore, PendingWait } from '@deepseek-ai/dsh-client-runtime/client'
@@ -32,7 +33,7 @@ const SID = 's1' as SessionId
 
 function snapshotBase(): ConversationSnapshot {
   return {
-    sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
+    sessionId: SID, nodes: [], partial: null, runningCalls: [], codeDispatches: new Map(),
     pending: [], queue: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
     hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
   }
@@ -67,6 +68,13 @@ const user = (seq: number, text: string): UserMessageNode => ({
 const assistant = (seq: number, text: string, turn = 1): AssistantMessageNode => ({
   kind: 'assistant', seq, time: seq * 1_000, turn, step: 1, blocks: [{ kind: 'text', text }],
 })
+const retry = (seq: number): ModelRetryNode => ({
+  kind: 'model-retry', seq, time: seq * 1_000, turn: 1, step: 0,
+  retryState: 'scheduled',
+  provider: 'mock', mode: 'normal', policyKey: 'mock-normal',
+  retry: 1, maxRetries: 2, delayMs: 450,
+  failure: { code: 'TRANSPORT', message: '连接被重置' },
+})
 const toolResult = (seq: number, callId: string, name = 'bash'): ToolResultNode => ({
   kind: 'tool-result', seq, time: seq * 1_000, callId,
   call: { name, argsRaw: `{"command":"cmd-${callId}","description":"run ${callId}"}` },
@@ -86,7 +94,7 @@ function emptySessions() {
 
 function emptyWorkspaces() {
   const store = createSnapshotStore<WorkspaceListState>({
-    items: [], state: 'idle', phase: 'ready', error: null,
+    items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
     baselinesReady: true, recentWorkspaceId: undefined,
   })
   return bindSnapshotSelector(store)
@@ -153,6 +161,17 @@ describe('chat-flow derivation', () => {
     expect(group.kind === 'tool-group' && group.results.map(r => r.callId)).toEqual(['a', 'b'])
     expect(flowKeys(items)).toBe('n1|n2|g3|n5|g6')
     expect(flowKeys(deriveChatFlow([...nodes, toolResult(7, 'd')]))).toBe('n1|n2|g3|n5|g6')
+  })
+
+  it('reuses one stable row for consecutive retry turns', () => {
+    const first = retry(2)
+    const second = { ...retry(3), turn: 2, retry: 2 }
+    const initial = deriveChatFlow([user(1, 'try'), first])
+    const updated = deriveChatFlow([user(1, 'try'), first, second])
+    expect(flowKeys(initial)).toBe('n1|n2')
+    expect(flowKeys(updated)).toBe('n1|n2')
+    expect(updated).toHaveLength(2)
+    expect(updated[1]?.kind === 'node' && updated[1].node).toBe(second)
   })
 
   it('skips render-nothing assistant nodes so tool runs stay one group', () => {
@@ -225,6 +244,48 @@ describe('ChatView', () => {
     expect(view.getByText('running tools')).toBeTruthy()
     expect(view.getAllByText('Bash')).toHaveLength(2)
     expect(view.getByText('run a')).toBeTruthy()
+  })
+
+  it('animates only the latest unresolved model retry', () => {
+    const retryNode = retry(2)
+    const nextRetry = { ...retry(3), turn: 2, retry: 2 }
+    const context = {
+      kind: 'context', seq: 4, time: 4_000, content: [], source: null,
+    } as const satisfies ConversationNode
+    const h = makeHarness({ nodes: [user(1, 'try'), retryNode], running: true })
+    const view = render(<h.ChatView {...h.props} />)
+    const disclosure = view.container.querySelector('details') as HTMLDetailsElement
+    expect(disclosure.dataset.active).toBe('true')
+    expect(within(disclosure).getByRole('status').textContent).toBe('正在重试模型请求（1/2） · 1s')
+
+    act(() => {
+      h.set({ nodes: [user(1, 'try'), retryNode, nextRetry] })
+    })
+    expect(within(disclosure).getAllByRole('status')).toHaveLength(1)
+    expect(view.container.querySelector('details')).toBe(disclosure)
+    expect(within(disclosure).getByRole('status').textContent).toBe('正在重试模型请求（2/2） · 1s')
+
+    act(() => {
+      h.set({
+        nodes: [
+          user(1, 'try'),
+          retryNode,
+          { ...nextRetry, retryState: 'started' },
+          context,
+          assistant(5, 'done'),
+        ],
+        running: false,
+      })
+    })
+    expect(disclosure.dataset.active).toBeUndefined()
+    expect(within(disclosure).getByRole('status').textContent).toBe('已重试模型请求（2/2） · 1s')
+
+    act(() => {
+      h.set({ nodes: [user(1, 'try'), { ...retry(6), retryState: 'cancelled' }], running: true })
+    })
+    const cancelledDisclosure = view.container.querySelector('details') as HTMLDetailsElement
+    expect(cancelledDisclosure.dataset.active).toBeUndefined()
+    expect(within(cancelledDisclosure).getByRole('status').textContent).toContain('重试已取消')
   })
 
   it('the expanded row Inspect pill hands the call id to inspectCall', () => {
@@ -388,6 +449,7 @@ describe('ChatView', () => {
     const view = render(<h.ChatView {...h.props} />)
     expect(view.container.querySelector('[data-state="running"]')).not.toBeNull()
     expect(view.getByText('cmd-r1')).toBeTruthy()
+    expect(view.getByRole('status').textContent).toBe('Deep diving...')
   })
 
   it('dispatches each tool row through the keyed slot with the tool name as entryKey', () => {

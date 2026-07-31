@@ -66,33 +66,45 @@
   border-left: 1px solid var(--dsw-alias-border-l2);
 }
 
-/* Turn loader: one row of four 2.5px pixels (StateDot blue) chasing left to
-   right with a stepped trail — flat keyframe holds, no tweening. Phase
-   offsets come from per-rect animation-delay (index * -250ms) set inline
-   by the component. */
-.turnDots {
+/* Turn activity keeps the former loader's one-line footprint. A pale
+   brand-blue band sweeps from left to right; reduced-motion keeps it static. */
+.turnStatus {
   align-self: flex-start;
   flex: none;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  /* One message line box: the dots center inside the text line height. */
   height: 26px;
-  /* Same pin as StateDot: ongoing blue has no alias token (business-primary
-     is the 500 step, not this 450). */
-  color: var(--dsw-static-deepseek-450);
+  font: var(--dsw-font-s-strong-14);
+  white-space: nowrap;
+  background: linear-gradient(
+    90deg,
+    var(--dsw-static-deepseek-500) 0%,
+    var(--dsw-static-deepseek-500) 40%,
+    var(--dsw-static-deepseek-200) 50%,
+    var(--dsw-static-deepseek-500) 60%,
+    var(--dsw-static-deepseek-500) 100%
+  );
+  background-position: 100% 0;
+  background-size: 250% 100%;
+  background-clip: text;
+  color: transparent;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: dsh-turn-status-shimmer 1.8s linear infinite;
 }
 
-.turnDotCell {
-  fill: currentColor;
-  opacity: 0.15;
-  animation: dsh-turn-dots-chase 1s infinite;
+@keyframes dsh-turn-status-shimmer {
+  to {
+    background-position: 0 0;
+  }
 }
 
-@keyframes dsh-turn-dots-chase {
-  0%, 24.9% { opacity: 1; }
-  25%, 49.9% { opacity: 0.6; }
-  50%, 74.9% { opacity: 0.35; }
-  75%, 100% { opacity: 0.15; }
+@media (prefers-reduced-motion: reduce) {
+  .turnStatus {
+    background-position: 0 0;
+    background-size: 100% 100%;
+    animation: none;
+  }
 }
 
 .hint {

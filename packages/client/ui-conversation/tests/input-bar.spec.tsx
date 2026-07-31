@@ -23,7 +23,7 @@ const SID = 's1' as SessionId
 
 function snapshotOf(overrides: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
   return {
-    sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
+    sessionId: SID, nodes: [], partial: null, runningCalls: [], codeDispatches: new Map(),
     pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
     openState: 'open', openError: null, hasMore: false, loadingOlder: false,
     promptError: null, blank: false, lastAgentError: null,
@@ -46,10 +46,13 @@ interface BenchOptions {
   variant?: 'hero' | 'composer'
   placeholder?: string
   t?: InputBarProps['t']
+  command?: (line: string) => Promise<boolean>
   accessory?: React.ReactNode
   overlay?: React.ReactNode
   leftItems?: React.ReactNode
   rightItems?: React.ReactNode
+  commandMenuOpen?: boolean
+  toggleCommandMenu?: (selection: { start: number; end: number }) => void
 }
 
 /** Real machine behind the bar entry: sink spy, no slash pipeline (plain text goes straight to the sink). */
@@ -77,6 +80,7 @@ function bench(over?: BenchOptions) {
     promptError: over?.promptError ?? null,
   }))
   const stop = vi.fn()
+  const menuLauncher = createSnapshotStore<string | null>(over?.commandMenuOpen === true ? 'command' : null)
   const slotCalls: { key: string; owner: unknown }[] = []
   const renderSlot = ((key: string, owner: object) => {
     slotCalls.push({ key, owner })
@@ -92,7 +96,7 @@ function bench(over?: BenchOptions) {
       ids: [], byId: {}, current: undefined, phase: 'ready',
     })),
     useWorkspaces: bindSnapshotSelector(createSnapshotStore({
-      items: [], state: 'idle', phase: 'ready', error: null,
+      items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     })),
     useProjection: ((key: string, selector?: (v: unknown) => unknown) =>
@@ -100,10 +104,12 @@ function bench(over?: BenchOptions) {
     useInput: bindSnapshotSelector(shell.state),
     inputActions: shell.actions,
     keyboard: shell,
+    toggleCommandMenu: over?.toggleCommandMenu ?? vi.fn(),
     useNotices: bindSnapshotSelector(shell.notices),
     useLexicon: bindSnapshotSelector(shell.lexicon),
+    useMenuLauncher: bindSnapshotSelector(menuLauncher),
     stop,
-    command: () => Promise.resolve(true),
+    command: over?.command ?? (() => Promise.resolve(true)),
     // Mirrors the real lookup chain (conversation namespace, then common).
     t: over?.t ?? makeTranslate(zh, commonZh),
     renderSlot,
@@ -120,7 +126,7 @@ function bench(over?: BenchOptions) {
   const button = view.container.querySelector<HTMLButtonElement>(
     `button[aria-label="${over?.running === true ? '停止生成' : '发送消息'}"]`,
   )!
-  return { view, textarea, button, props, sink, shell, wiring: shell, session, stop, slotCalls }
+  return { view, textarea, button, props, sink, shell, wiring: shell, session, stop, slotCalls, menuLauncher }
 }
 
 describe('Enter semantics', () => {
@@ -205,7 +211,7 @@ describe('running and lock semantics (queue cut 1)', () => {
     const { textarea, view } = bench({ disabled: true })
     expect(textarea.disabled).toBe(true)
     expect(textarea.placeholder).toBe('会话不可用')
-    expect((view.getByLabelText('添加附件') as HTMLButtonElement).disabled).toBe(true)
+    expect((view.getByLabelText('命令') as HTMLButtonElement).disabled).toBe(true)
   })
 
   it('idle primary sends and disables on empty draft', () => {
@@ -281,6 +287,37 @@ describe('running and lock semantics (queue cut 1)', () => {
     } finally {
       host.remove()
     }
+  })
+
+  it('the decoration backdrop tracks the textarea offset (it paints every visible glyph)', () => {
+    const { view, textarea } = bench({ draft: 'line\n'.repeat(40) })
+    const backdrop = view.container.querySelector<HTMLElement>('[data-input-backdrop]')!
+    Object.defineProperty(backdrop, 'scrollTop', { value: 0, writable: true, configurable: true })
+    Object.defineProperty(textarea, 'scrollTop', { value: 0, writable: true, configurable: true })
+    // A scrolled draft: the textarea moves, the clipped backdrop must follow.
+    textarea.scrollTop = 120
+    fireEvent.scroll(textarea)
+    expect(backdrop.scrollTop).toBe(120)
+    // Every later move tracks too, including back to the top — a one-shot
+    // mirror would leave the glyphs parked at the first offset it saw.
+    textarea.scrollTop = 0
+    fireEvent.scroll(textarea)
+    expect(backdrop.scrollTop).toBe(0)
+  })
+
+  it('the backdrop carries the trailing-line sentinel that keeps its extent equal to the textarea', () => {
+    // jsdom has no layout, so the HEIGHTS this protects cannot be asserted here
+    // (the browser scenario owns that); what is checkable is that the backdrop's
+    // text is the draft plus exactly one newline. A textarea reserves a line box
+    // after a final newline and `pre-wrap` collapses one, so without the
+    // sentinel a draft ending in a newline leaves the backdrop a line short and
+    // the mirrored offset clamps.
+    const withNewline = bench({ draft: 'alpha\nbeta\n' })
+    const backdrop = withNewline.view.container.querySelector<HTMLElement>('[data-input-backdrop]')!
+    expect(backdrop.textContent).toBe('alpha\nbeta\n\n')
+    const withoutNewline = bench({ draft: 'alpha\nbeta' })
+    const plain = withoutNewline.view.container.querySelector<HTMLElement>('[data-input-backdrop]')!
+    expect(plain.textContent).toBe('alpha\nbeta\n')
   })
 
   it('disabled state shows the unavailable placeholder; custom placeholder wins', () => {
@@ -438,10 +475,10 @@ describe('strips and variants', () => {
   })
 })
 
-describe('placeholder chrome and control seats', () => {
-  it('renders attach; the Access chip is absent without the permissions projection; plan/model seats render EMPTY without entries (B ruling)', () => {
+describe('command launcher chrome and control seats', () => {
+  it('renders the command launcher; the Access chip is absent without the permissions projection; plan/model seats render EMPTY without entries (B ruling)', () => {
     const { view, slotCalls } = bench()
-    expect(view.getByLabelText('添加附件')).toBeTruthy()
+    expect(view.getByLabelText('命令')).toBeTruthy()
     // Capability absent (no projection value): the chip renders nothing.
     expect(view.queryByLabelText(/^访问模式/)).toBeNull()
     // Both seats dispatched, nothing rendered.
@@ -450,7 +487,47 @@ describe('placeholder chrome and control seats', () => {
     expect(view.queryByLabelText('Model')).toBeNull()
   })
 
-  it('the Access chip renders the projection value and submits /permission on pick', async () => {
+  it('passes the textarea selection to the command menu launcher and reflects its expanded state', () => {
+    const toggleCommandMenu = vi.fn()
+    const { view, textarea, menuLauncher } = bench({ draft: 'draft text', toggleCommandMenu })
+    textarea.setSelectionRange(2, 7)
+    const launcher = view.getByLabelText('命令')
+    expect(launcher.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(launcher)
+    expect(toggleCommandMenu).toHaveBeenCalledExactlyOnceWith({ start: 2, end: 7 })
+    act(() => { menuLauncher.set('command') })
+    expect(launcher.getAttribute('aria-expanded')).toBe('true')
+  })
+
+  it('the Access chip renders the projection value and submits a non-Full-access pick directly', async () => {
+    const command = vi.fn(() => Promise.resolve(true))
+    const permissions = {
+      options: [
+        { value: 'read-only', name: 'read-only' },
+        { value: 'workspace-write', name: 'workspace-write' },
+        { value: 'danger-full-access', name: 'danger-full-access' },
+      ],
+      currentValue: 'read-only',
+    }
+    const { view } = bench({ permissions, command })
+    const trigger = view.getByLabelText(/^访问模式/) as HTMLButtonElement
+    // Title-case display is presentation only; the menu ids stay machine names.
+    expect(trigger.textContent).toBe('Read Only')
+    fireEvent.click(trigger)
+    const items = view.getAllByRole('menuitem')
+    expect(items.map(o => o.textContent)).toEqual(['Read Only', 'Workspace Write', 'Full access'])
+    fireEvent.click(items[1]!)
+    // Optimistic pick + disable until admission resolves (command stub resolves true).
+    const busy = view.getByLabelText(/^访问模式/) as HTMLButtonElement
+    expect(busy.textContent).toBe('Workspace Write')
+    expect(busy.disabled).toBe(true)
+    expect(command).toHaveBeenCalledWith('/permission workspace-write')
+    await act(async () => {})
+    expect((view.getByLabelText(/^访问模式/) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('requires explicit risk acknowledgement before submitting Full access', async () => {
+    const command = vi.fn(() => Promise.resolve(true))
     const permissions = {
       options: [
         { value: 'workspace-write', name: 'workspace-write' },
@@ -458,20 +535,86 @@ describe('placeholder chrome and control seats', () => {
       ],
       currentValue: 'workspace-write',
     }
-    const { view } = bench({ permissions })
-    const trigger = view.getByLabelText(/^访问模式/) as HTMLButtonElement
-    // Title-case display is presentation only; the menu ids stay machine names.
-    expect(trigger.textContent).toBe('Workspace Write')
-    fireEvent.click(trigger)
-    const items = view.getAllByRole('menuitem')
-    expect(items.map(o => o.textContent)).toEqual(['Workspace Write', 'Danger Full Access'])
-    fireEvent.click(items[1]!)
-    // Optimistic pick + disable until admission resolves (command stub resolves true).
-    const busy = view.getByLabelText(/^访问模式/) as HTMLButtonElement
-    expect(busy.textContent).toBe('Danger Full Access')
-    expect(busy.disabled).toBe(true)
+    const { view } = bench({ permissions, command })
+    fireEvent.click(view.getByLabelText(/^访问模式/))
+    fireEvent.click(view.getByRole('menuitem', { name: 'Full access' }))
+
+    expect(command).not.toHaveBeenCalled()
+    expect(view.getByRole('dialog', { name: '确认启用 Full access？' })).toBeTruthy()
+    const enable = view.getByRole('button', { name: '启用 Full access' }) as HTMLButtonElement
+    expect(enable.disabled).toBe(true)
+
+    fireEvent.click(view.getByRole('checkbox', { name: '我已了解风险，并愿意继续' }))
+    expect(enable.disabled).toBe(false)
+    fireEvent.click(enable)
+
+    expect(command).toHaveBeenCalledOnce()
+    expect(command).toHaveBeenCalledWith('/permission danger-full-access')
+    expect(view.queryByRole('dialog')).toBeNull()
+    expect((view.getByLabelText(/^访问模式/) as HTMLButtonElement).textContent).toBe('Full access')
     await act(async () => {})
-    expect((view.getByLabelText(/^访问模式/) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('cancels a Full access selection without changing permission and resets acknowledgement', () => {
+    const command = vi.fn(() => Promise.resolve(true))
+    const permissions = {
+      options: [
+        { value: 'workspace-write', name: 'workspace-write' },
+        { value: 'danger-full-access', name: 'danger-full-access' },
+      ],
+      currentValue: 'workspace-write',
+    }
+    const { view } = bench({ permissions, command })
+    const openConfirmation = () => {
+      fireEvent.click(view.getByLabelText(/^访问模式/))
+      fireEvent.click(view.getByRole('menuitem', { name: 'Full access' }))
+    }
+
+    openConfirmation()
+    fireEvent.click(view.getByRole('checkbox'))
+    fireEvent.click(view.getByRole('button', { name: '取消' }))
+    expect(command).not.toHaveBeenCalled()
+    expect((view.getByLabelText(/^访问模式/) as HTMLButtonElement).textContent).toBe('Workspace Write')
+
+    openConfirmation()
+    expect((view.getByRole('checkbox') as HTMLInputElement).checked).toBe(false)
+    expect((view.getByRole('button', { name: '启用 Full access' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('revokes an open Full access confirmation when the task locks', () => {
+    const command = vi.fn(() => Promise.resolve(true))
+    const permissions = {
+      options: [
+        { value: 'workspace-write', name: 'workspace-write' },
+        { value: 'danger-full-access', name: 'danger-full-access' },
+      ],
+      currentValue: 'workspace-write',
+    }
+    const { view, session } = bench({ permissions, command })
+    fireEvent.click(view.getByLabelText(/^访问模式/))
+    fireEvent.click(view.getByRole('menuitem', { name: 'Full access' }))
+    fireEvent.click(view.getByRole('checkbox'))
+    act(() => { session.set(snapshotOf({ removed: true })) })
+    expect(view.queryByRole('dialog')).toBeNull()
+    expect(command).not.toHaveBeenCalled()
+  })
+
+  it('resets an open Full access confirmation when switching tasks', () => {
+    const command = vi.fn(() => Promise.resolve(true))
+    const permissions = {
+      options: [
+        { value: 'workspace-write', name: 'workspace-write' },
+        { value: 'danger-full-access', name: 'danger-full-access' },
+      ],
+      currentValue: 'workspace-write',
+    }
+    const { view, props } = bench({ permissions, command })
+    fireEvent.click(view.getByLabelText(/^访问模式/))
+    fireEvent.click(view.getByRole('menuitem', { name: 'Full access' }))
+    fireEvent.click(view.getByRole('checkbox'))
+    view.rerender(<InputBar {...props} sessionId={'s2' as SessionId} />)
+    expect(view.queryByRole('dialog')).toBeNull()
+    expect(command).not.toHaveBeenCalled()
   })
 
   it('a registered entry fills its seat and receives the locked owner prop', () => {
@@ -489,10 +632,10 @@ describe('placeholder chrome and control seats', () => {
     expect(live.slotCalls.every(c => !(c.owner as { locked: boolean }).locked)).toBe(true)
   })
 
-  it('disabled locks the Access chip and attach control (running does not)', () => {
+  it('disabled locks the Access chip and command launcher (running does not)', () => {
     const permissions = { options: [{ value: 'workspace-write', name: 'workspace-write' }], currentValue: 'workspace-write' }
     const { view } = bench({ disabled: true, permissions })
-    expect((view.getByLabelText('添加附件') as HTMLButtonElement).disabled).toBe(true)
+    expect((view.getByLabelText('命令') as HTMLButtonElement).disabled).toBe(true)
     expect((view.getByLabelText(/^访问模式/) as HTMLButtonElement).disabled).toBe(true)
     cleanup()
     const live = bench({ running: true, permissions })

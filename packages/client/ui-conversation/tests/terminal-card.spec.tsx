@@ -429,7 +429,7 @@ describe('DetailsPanel Output section', () => {
         phase: 'ready',
       })
     const workspaces = createSnapshotStore<WorkspaceListState>({
-      items: [], state: 'idle', phase: 'ready', error: null,
+      items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     })
     return render(
@@ -451,7 +451,7 @@ describe('DetailsPanel Output section', () => {
 
   function snapshot(over: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
     return {
-      sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
+      sessionId: SID, nodes: [], partial: null, runningCalls: [], codeDispatches: new Map(),
       pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
       openState: 'open', openError: null, hasMore: false, loadingOlder: false,
       promptError: null, blank: false, lastAgentError: null, ...over,
@@ -607,7 +607,7 @@ describe('DetailsPanel Output section', () => {
         useSessions={bindSnapshotSelector(createSnapshotStore<SessionListState>(
           { ids: [], byId: {}, current: undefined, phase: 'ready' }))}
         useWorkspaces={bindSnapshotSelector(createSnapshotStore<WorkspaceListState>({
-          items: [], state: 'idle', phase: 'ready', error: null,
+          items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
           baselinesReady: true, recentWorkspaceId: undefined,
         }))}
         useInput={(() => { throw new Error('unused') })}

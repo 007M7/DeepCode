@@ -2,7 +2,7 @@
  * Language row registration, snapshot projection into the row store, and
  * recovery after an HMR collapse of the declaring entry. */
 import { Context } from 'cordis'
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { apply, inject, SETTINGS_NS } from '@deepseek-ai/dsh-client-locale/client'
 import type { LanguageRowInjected, LocaleService } from '@deepseek-ai/dsh-client-locale/client'
@@ -36,6 +36,16 @@ function faceOf(slots: SlotsService) {
 }
 
 describe('locale apply', () => {
+  // A fresh service opens in the browser's language, so these wiring specs
+  // pin one to keep their zh baseline independent of the test environment.
+  beforeEach(() => {
+    vi.stubGlobal('navigator', { languages: ['zh-CN'], language: 'zh-CN' })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   it('declares the slot service', () => {
     expect(inject).toEqual(['slots'])
   })

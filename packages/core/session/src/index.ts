@@ -13,7 +13,7 @@ import { scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { Message } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
-import type { CreateSessionOptions, EpochHeader, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
+import type { CreateSessionOptions, EpochHeader, RequestContext, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
 import { snapshotJsonValue } from './json.ts'
 import { SurfaceManager } from './surface.ts'
 import type { SessionSurface } from './surface.ts'
@@ -414,7 +414,9 @@ export class Session {
    * start here. Distinct from `header.seedLength`, the DURABLE fork-lineage
    * boundary: a resumed session's constructor seed is its full stored log,
    * while its header keeps the original fork value — this field is the
-   * in-process construction fact.
+   * in-process construction fact. An explicitly supplied empty seed has the
+   * same value as no seed (0); its `session/end-seed` event preserves the
+   * lifecycle distinction.
    *
    * Not persisted itself: a seeded session projects it into the log as the
    * `session/end-seed` event, which is what a consumer reading STORED history
@@ -430,7 +432,7 @@ export class Session {
   readonly firstLiveSeq: number
 
   constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader) {
-    if (seed) {
+    if (seed !== undefined) {
       // Validate the seed to the SAME invariants `append` enforces, so a
       // replay/fork (`ctx.sessions.create(id, { seed })`) cannot construct a
       // live log that no persistence backend could store: each event's `data`
@@ -467,7 +469,7 @@ export class Session {
     // captures the creation seed: no load-time write. Re-marking is skipped
     // because a cold session is resumed on first touch, so repeatedly opening
     // one must not grow its log per open.
-    if (this.firstLiveSeq > 0 && this.log.at(-1)?.type !== 'session/end-seed') {
+    if (seed !== undefined && this.log.at(-1)?.type !== 'session/end-seed') {
       this.append('session/end-seed', {})
     }
   }
@@ -602,6 +604,30 @@ export class Session {
       this.headerFoldSeq = this.log.length
     }
     return this.headerFold
+  }
+
+  /** Cached fold of the request-context events — see {@link requestContext}. */
+  private contextFold: RequestContext | undefined
+  /** Log position (events consumed) the context fold has reached. */
+  private contextFoldSeq = 0
+
+  /**
+   * The route metadata in force after the log's last `request/context` event —
+   * what the NEXT request deduplicates against — or undefined before any such
+   * record. Maintained incrementally like {@link requestHeader}, so a per-step
+   * read costs O(new events).
+   * @returns the folded context record, or undefined when none exists yet.
+   */
+  requestContext(): RequestContext | undefined {
+    if (this.contextFoldSeq < this.log.length) {
+      for (const event of this.log.slice(this.contextFoldSeq)) {
+        // Frozen for the same reason as the header fold: it is session state
+        // exposed by reference and every later dedup compares against it.
+        if (event.type === 'request/context') this.contextFold = deepFreeze({ ...event.data })
+      }
+      this.contextFoldSeq = this.log.length
+    }
+    return this.contextFold
   }
 
   /** The derived-message cache: frozen projections, extended per unseen node. */

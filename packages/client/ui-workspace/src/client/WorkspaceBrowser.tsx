@@ -1,11 +1,13 @@
 /**
  * The workspace/session browsing region filling the sidebar shell's
- * `sidebar.workspaces` hole: section header (title + group-by + new
+ * `sidebar.workspaces` hole: section header (title + group-by + add
  * workspace), search, the grouped tree or flat list, and the workspace
  * dialogs. Wide state renders the full browser; rail state renders the two
- * region icons (search / new workspace), each requesting shell expansion
- * through the owner share. The picker menu and create dialogs live in
- * WorkspacePicker (same package — direct composition, no slot between them).
+ * region icons (search / add workspace), each requesting shell expansion
+ * through the owner share. Adding is the header button's one action, so it
+ * raises the directory flow with no menu in between; the flow and its error
+ * dialog live in WorkspacePicker (same package — direct composition, no slot
+ * between them).
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
@@ -20,7 +22,7 @@ import type { WorkspaceBrowserProps } from './contract/slots.ts'
 import type { SessionNode } from './tree.ts'
 import { deriveFlat, deriveGroups, deriveSearchResults, UNGROUPED_KEY } from './tree.ts'
 import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './rows/Rows.tsx'
-import { WorkspaceCreateFlow } from './WorkspacePicker.tsx'
+import { WorkspacePickFlow } from './WorkspacePicker.tsx'
 import css from './WorkspaceBrowser.module.css'
 
 /**
@@ -102,18 +104,22 @@ type SessionTreeProps = Pick<
   'useSessions' | 'startSession' | 'open' | 'forkSession' | 'insertSessionBefore' | 't'
 > & {
   workspaces: readonly WorkspaceView[]
+  /** Registry-global archive set (hidden rows). */
+  archivedSessionIds: readonly SessionNode['id'][]
   /** Open the browser-owned rename dialog for a real Workspace group. */
   onRenameRequest: (workspaceId: WorkspaceId, currentTitle: string) => void
   /** Open the browser-owned delete-confirmation dialog for a real Workspace group. */
   onDeleteRequest: (workspaceId: WorkspaceId, currentTitle: string) => void
   /** Open the browser-owned session rename dialog. */
   onSessionRename: (sessionId: SessionNode['id'], currentTitle: string) => void
+  /** Archive a session (row menu action; the row disappears on the state echo). */
+  onSessionArchive: (sessionId: SessionNode['id']) => void
 }
 
 /** The scrolling session tree; unmounting at collapse settle drops the sessions subscription and expansion state. */
 function SessionTree({
-  useSessions, startSession, open, forkSession, workspaces,
-  onRenameRequest, onDeleteRequest, onSessionRename, insertSessionBefore, t,
+  useSessions, startSession, open, forkSession, workspaces, archivedSessionIds,
+  onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, insertSessionBefore, t,
 }: SessionTreeProps) {
   const list = useSessions(s => s)
   const current = list.current
@@ -129,8 +135,8 @@ function SessionTree({
     setExpandedProjects(l => (l.includes(currentGroup) ? l : [...l, currentGroup]))
   }, [current, currentGroup])
   const groups = useMemo(
-    () => deriveGroups(list, workspaces, { expandedProjects }),
-    [list, workspaces, expandedProjects],
+    () => deriveGroups(list, workspaces, archivedSessionIds, { expandedProjects }),
+    [list, workspaces, archivedSessionIds, expandedProjects],
   )
   const now = Date.now()
 
@@ -209,6 +215,7 @@ function SessionTree({
                   onOpen={open}
                   onRename={onSessionRename}
                   onFork={forkSession}
+                  onArchive={onSessionArchive}
                   drag={dragProps}
                   t={t}
                 />
@@ -223,9 +230,11 @@ function SessionTree({
 }
 
 /** The flat "In one list" body: every session a top-level row, newest-first. */
-function FlatList({ useSessions, open, forkSession, onSessionRename, t }: Pick<SessionTreeProps, 'useSessions' | 'open' | 'forkSession' | 'onSessionRename' | 't'>) {
+function FlatList({ useSessions, open, forkSession, onSessionRename, onSessionArchive, archivedSessionIds, t }: Pick<
+  SessionTreeProps, 'useSessions' | 'open' | 'forkSession' | 'onSessionRename' | 'onSessionArchive' | 'archivedSessionIds' | 't'
+>) {
   const list = useSessions(s => s)
-  const rows = useMemo(() => deriveFlat(list), [list])
+  const rows = useMemo(() => deriveFlat(list, archivedSessionIds), [list, archivedSessionIds])
   const now = Date.now()
   return (
     <div className={clsx(css.treeBody, css.wide)}>
@@ -242,6 +251,7 @@ function FlatList({ useSessions, open, forkSession, onSessionRename, t }: Pick<S
             onOpen={open}
             onRename={onSessionRename}
             onFork={forkSession}
+            onArchive={onSessionArchive}
             t={t}
           />
         ))}
@@ -263,12 +273,14 @@ function SearchResults({
   useSessions,
   open,
   workspaces,
+  archivedSessionIds,
   query,
   remote,
   resultLimit,
   t,
 }: Pick<SessionTreeProps, 'useSessions' | 'open' | 't'> & {
   workspaces: readonly WorkspaceView[]
+  archivedSessionIds: readonly SessionNode['id'][]
   query: string
   remote: RemoteSearchState
   resultLimit: number
@@ -278,8 +290,8 @@ function SearchResults({
     ? remote
     : { query, status: 'loading' as const, items: [], hasMore: false }
   const results = useMemo(
-    () => deriveSearchResults(list, workspaces, query, currentRemote, resultLimit),
-    [list, workspaces, query, currentRemote, resultLimit],
+    () => deriveSearchResults(list, workspaces, query, archivedSessionIds, currentRemote, resultLimit),
+    [list, workspaces, query, archivedSessionIds, currentRemote, resultLimit],
   )
   const pending = currentRemote.status === 'loading'
   const failed = currentRemote.status === 'error'
@@ -337,6 +349,7 @@ export function WorkspaceBrowser({
   forkSession,
   renameWorkspace,
   deleteWorkspace,
+  archiveSession,
   insertSessionBefore,
   createWorkspace,
   searchSessions,
@@ -346,6 +359,10 @@ export function WorkspaceBrowser({
   t,
 }: WorkspaceBrowserProps) {
   const workspaces = useWorkspaces(state => state.items)
+  const archivedSessionIds = useWorkspaces(state => state.archivedSessionIds)
+  // Live occupancy of this surface's directory-flow hole (the same source the
+  // flow reads): a composition without a picking affordance can add nothing.
+  const directoryFlowAvailable = useDirectoryFlow(occupied => occupied)
   const groupBy = useStore(s => s.groupBy)
   // The query outlives the tree and the input (both wide-only) so collapsing
   // does not silently drop an in-progress filter.
@@ -475,6 +492,16 @@ export function WorkspaceBrowser({
     setSessionRenameError(null)
   }
 
+  // Archive is dialog-free: not destructive (the log and the accounting slot
+  // remain), so the menu action commits directly; the row disappears when the
+  // archive-set echo lands. Failures are non-fatal console diagnostics, the
+  // same posture as reorder rejections.
+  const onSessionArchive = (sessionId: SessionNode['id']) => {
+    archiveSession(sessionId).catch((reason: unknown) => {
+      console.warn('session archive rejected:', reason)
+    })
+  }
+
   // Delete dialog is separate from the row so a successful removal can
   // unmount that row without tearing down the in-flight confirmation state.
   const [deleteTarget, setDeleteTarget] = useState<{ workspaceId: WorkspaceId; title: string } | null>(null)
@@ -519,21 +546,26 @@ export function WorkspaceBrowser({
           </span>
         )}
         {wide && <GroupByMenu groupBy={groupBy} onPick={(mode) => { actions.setGroupBy(mode) }} t={t} />}
-        <Tooltip label={t('workspace.new')} disabled={wide}>
-          <button
-            ref={wsPlusRef}
-            type="button"
-            className={css.iconButton}
-            aria-label={t('create.confirm')}
-            onClick={() => {
-              setWsPickerOpen(v => !v)
-            }}
-          >
-            <IconProjectAddOutline16 size={wide ? 16 : 18} />
-          </button>
-        </Tooltip>
-        {/* Picker menu + create dialogs (same package — direct composition). */}
-        <WorkspaceCreateFlow
+        {/* Adding is the button's one action, so a composition with no
+            picking affordance has nothing to offer here: the region hides the
+            button rather than leaving a dead one in the header. */}
+        {directoryFlowAvailable && (
+          <Tooltip label={t('workspace.add')} disabled={wide}>
+            <button
+              ref={wsPlusRef}
+              type="button"
+              className={css.iconButton}
+              aria-label={t('workspace.add')}
+              onClick={() => {
+                setWsPickerOpen(v => !v)
+              }}
+            >
+              <IconProjectAddOutline16 size={wide ? 16 : 18} />
+            </button>
+          </Tooltip>
+        )}
+        {/* Add flow + its error dialog (same package — direct composition). */}
+        <WorkspacePickFlow
           t={t}
           open={wsPickerOpen}
           anchorRef={wsPlusRef}
@@ -541,7 +573,7 @@ export function WorkspaceBrowser({
           createWorkspace={createWorkspace}
           useDirectoryFlow={useDirectoryFlow}
           renderDirectoryFlow={owner => renderSlot('sidebar.workspaces.directoryFlow', owner)}
-          createOnly
+          addOnly
           side="right"
           onPick={(workspaceId) => {
             setWsPickerOpen(false)
@@ -597,6 +629,7 @@ export function WorkspaceBrowser({
               useSessions={useSessions}
               open={open}
               workspaces={workspaces}
+              archivedSessionIds={archivedSessionIds}
               query={normalizedQuery}
               remote={remoteSearch}
               resultLimit={searchResultLimit}
@@ -607,15 +640,18 @@ export function WorkspaceBrowser({
             ? (
               <FlatList
                 useSessions={useSessions} open={open} forkSession={forkSession}
-                onSessionRename={onSessionRename} t={t}
+                onSessionRename={onSessionRename} onSessionArchive={onSessionArchive}
+                archivedSessionIds={archivedSessionIds} t={t}
               />
             )
             : (
               <SessionTree
                 useSessions={useSessions}
                 onSessionRename={onSessionRename}
+                onSessionArchive={onSessionArchive}
                 forkSession={forkSession}
                 workspaces={workspaces}
+                archivedSessionIds={archivedSessionIds}
                 startSession={startSession}
                 open={open}
                 insertSessionBefore={insertSessionBefore}
