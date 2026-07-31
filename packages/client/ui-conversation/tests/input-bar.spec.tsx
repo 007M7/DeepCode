@@ -25,7 +25,10 @@ afterEach(cleanup)
 const ZERO_RECT = (): DOMRect => ({ top: 0, bottom: 0 }) as DOMRect
 Range.prototype.getBoundingClientRect = ZERO_RECT
 
-const nativeSetStart = Range.prototype.setStart
+// Read through the descriptor so the native method is never referenced unbound;
+// the reveal case below wraps it to record what it was asked to measure.
+const NATIVE_SET_START = Object.getOwnPropertyDescriptor(Range.prototype, 'setStart')!
+  .value as (this: Range, node: Node, offset: number) => void
 
 const SCTX = {} as ClientContext
 const SID = 's1' as SessionId
@@ -333,7 +336,7 @@ describe('running and lock semantics (queue cut 1)', () => {
     Object.defineProperty(scroll, 'scrollTop', { value: 0, writable: true, configurable: true })
     onTestFinished(() => {
       Range.prototype.getBoundingClientRect = ZERO_RECT
-      Range.prototype.setStart = nativeSetStart
+      Range.prototype.setStart = NATIVE_SET_START
     })
     // Which layer the caret is measured against, and at which index: the stub
     // records `setStart` so a helper that measured the backdrop instead, or
@@ -341,7 +344,7 @@ describe('running and lock semantics (queue cut 1)', () => {
     let measured: { node: Node; offset: number } | null = null
     Range.prototype.setStart = function setStart(node: Node, offset: number): void {
       measured = { node, offset }
-      nativeSetStart.call(this, node, offset)
+      NATIVE_SET_START.call(this, node, offset)
     }
     const caretAt = (top: number): void => {
       Range.prototype.getBoundingClientRect = () => ({ top, bottom: top + 24 }) as DOMRect
