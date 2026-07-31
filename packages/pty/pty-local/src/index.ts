@@ -74,6 +74,7 @@ function childEnvironment(spec: PtyBackendSpawnSpec): NodeJS.ProcessEnv {
 function spawnArgv(ctx: Context, config: ResolvedConfig, policy: SandboxExecutionPolicy): string[] {
   const argv = [config.shellPath, ...config.shellArgs]
   if (policy.mode === 'danger-full-access') return argv
+  // Re-state the discriminant because object spread does not preserve its narrowed type.
   return ctx.sandbox.confine(argv, { ...policy, mode: policy.mode }).argv
 }
 

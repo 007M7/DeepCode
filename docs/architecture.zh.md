@@ -16,7 +16,7 @@
 |---|---|---|
 | — | [`dsh-scope`](../packages/core/scope/README.md) | 作用域上下文注册项与共享层存储（库） |
 | `ctx.sessions` | `dsh-session` | 内存中的事件溯源会话 |
-| `ctx.systemPrompt` | `dsh-system-prompt` | 有序提示词片段、工具 schema 和变量 |
+| `ctx.systemPrompt` | `dsh-system-prompt` | 有序的稳定系统提示词片段、缓存安全的动态上下文、工具 schema 和变量 |
 | `ctx.tools` | `dsh-tools` | 工具注册表和[执行流水线](tool-execution-pipeline.md) |
 | `ctx.agents` | `dsh-agent` | 活跃 agent、委托创建、`agent/*` 事件、进程内发起方作用域 |
 | `ctx.agentLoop` | `dsh-agent-loop` | 实体 `Agent` 驱动器 |
@@ -118,7 +118,7 @@ idle inject:
   do not open a turn or run the model
 ```
 
-每个步骤都会组装有序提示词片段、工具 schema 和变量；未知引用会使该轮次失败。`dsh-system-prompt` 负责身份和角色设定；循环提供 `provider`、`model` 和 `cwd`（[提示词归属](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)）。
+每个步骤都会组装有序的稳定系统提示词片段、缓存安全的动态上下文、工具 schema 和变量；未知引用会使该轮次失败。`dsh-system-prompt` 负责身份和角色设定；循环提供 `provider`、`model` 和 `cwd`（[提示词归属](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)）。
 
 接纳期间和活跃轮次内的 `inject()` 会为下一步骤暂存；工具执行后的 `additionalContexts` 会在结果记录完毕后落定。steering 与其共用这一暂存边界，并请求再执行一个步骤。空闲状态下的 `inject()` 会立即追加，且不改变轮次编号；持久化层会尽快排空。
 

@@ -194,7 +194,7 @@ export interface Config {
  */
 export function renderPrompt(assembly: PromptAssembly): string {
   return assembly.sections
-    .map(section => interpolate(section, assembly.variables))
+    .map(section => interpolate(section, assembly.variables, 'section'))
     .filter(text => text.length > 0)
     .join('\n\n')
 }
@@ -209,16 +209,20 @@ export function renderPrompt(assembly: PromptAssembly): string {
  */
 export function renderContextSnapshot(assembly: PromptAssembly): string {
   const body = assembly.contexts
-    .map(context => interpolate(context, assembly.variables))
+    .map(context => interpolate(context, assembly.variables, 'context'))
     .filter(text => text.length > 0)
     .join('\n\n')
   if (body.length === 0) return ''
   return `Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\n\n${body}`
 }
 
-/** Interpolate one section's `{{variable}}` references (see {@link renderPrompt}). */
-function interpolate(section: AssembledSection, variables: Record<string, string | undefined>): string {
-  const text = section.text
+/** Interpolate one section or context and attribute diagnostics to its owning input. */
+function interpolate(
+  input: AssembledSection | AssembledContext,
+  variables: Record<string, string | undefined>,
+  kind: 'section' | 'context',
+): string {
+  const text = input.text
   let result = ''
   let last = 0
   for (let open = text.indexOf('{{'); open >= 0; open = text.indexOf('{{', last)) {
@@ -226,7 +230,7 @@ function interpolate(section: AssembledSection, variables: Record<string, string
     if (group === null) {
       // A later closing brace makes this malformed; otherwise it is literal prose.
       if (text.indexOf('}}', open + 2) >= 0) {
-        throw new Error(`malformed prompt variable reference at "${text.slice(open, open + 16)}…" in section "${section.name}" (references are complete simple {{name}} groups)`)
+        throw new Error(`malformed prompt variable reference at "${text.slice(open, open + 16)}…" in ${kind} "${input.name}" (references are complete simple {{name}} groups)`)
       }
       result += text.slice(last, open + 2)
       last = open + 2
@@ -235,16 +239,16 @@ function interpolate(section: AssembledSection, variables: Record<string, string
     // `{{}}` yields an empty name and follows the malformed-reference path.
     const name = group[0].slice(2, -2)
     if (!VARIABLE_NAME.test(name)) {
-      throw new Error(`malformed prompt variable reference "{{${name}}}" in section "${section.name}" (variable names match ${String(VARIABLE_NAME)})`)
+      throw new Error(`malformed prompt variable reference "{{${name}}}" in ${kind} "${input.name}" (variable names match ${String(VARIABLE_NAME)})`)
     }
     // Do not resolve unregistered names through Object.prototype.
     if (!Object.hasOwn(variables, name)) {
       const known = Object.keys(variables)
-      throw new Error(`unknown prompt variable "{{${name}}}" in section "${section.name}"; registered variables: ${known.length > 0 ? known.join(', ') : '(none)'}`)
+      throw new Error(`unknown prompt variable "{{${name}}}" in ${kind} "${input.name}"; registered variables: ${known.length > 0 ? known.join(', ') : '(none)'}`)
     }
     const value = variables[name]
     if (value === undefined) {
-      throw new Error(`prompt variable "{{${name}}}" has no value for this assembly (section "${section.name}")`)
+      throw new Error(`prompt variable "{{${name}}}" has no value for this assembly (${kind} "${input.name}")`)
     }
     result += text.slice(last, open) + value
     last = open + group[0].length

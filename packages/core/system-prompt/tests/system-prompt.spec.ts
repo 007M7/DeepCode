@@ -309,6 +309,15 @@ describe('SystemPrompt', () => {
       .toBe('Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\n\nMode: read-only.')
   })
 
+  it('attributes context interpolation failures to the contributing context', () => {
+    expect(() => renderContextSnapshot({
+      sections: [],
+      contexts: [{ name: 'policy', text: 'Mode: {{missing}}.' }],
+      tools: [],
+      variables: {},
+    })).toThrow('unknown prompt variable "{{missing}}" in context "policy"; registered variables: (none)')
+  })
+
   it('emits system-prompt/change when a tool provider is registered and disposed', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)

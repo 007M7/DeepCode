@@ -52,7 +52,7 @@ Small fixed schema increment on requests where `bash` is visible, plus the curre
 
 #### KV Cache effect
 
-Prefix-stable while the executor and standing policy are unchanged. Changing the policy updates the owner-rendered section; changing executor capabilities also alters the `bash` schema.
+A standing-policy change appends a complete owner-rendered context snapshot after retained history, preserving the existing system/history prefix byte-for-byte. Changing executor capabilities alters the `bash` schema.
 
 ### Bash tool result, indirectly
 

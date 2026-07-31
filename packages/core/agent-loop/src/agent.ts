@@ -56,6 +56,7 @@ type StepOutcome =
   | { kind: 'request-failed'; error: RequestError; failure: LlmFailure; retryPolicy: ResolvedRetryPolicy | undefined }
 
 const RUNTIME_CONTEXT_SOURCE = '@deepseek-ai/dsh-system-prompt'
+/** Clearing marker kept distinct from every prefixed {@link renderContextSnapshot} result. */
 const CLEARED_RUNTIME_CONTEXT = 'Current runtime context: none. Earlier runtime-context snapshots no longer apply.'
 
 /** Whether one user message is owned by runtime-context materialization. */

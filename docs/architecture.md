@@ -16,7 +16,7 @@ Harnesses are [Cordis](cordis-primer.md) contexts; packages contribute services,
 |---|---|---|
 | — | [`dsh-scope`](../packages/core/scope/README.md) | scoped-context registrations and shared layer storage (library) |
 | `ctx.sessions` | `dsh-session` | in-memory event-sourced sessions |
-| `ctx.systemPrompt` | `dsh-system-prompt` | ordered prompt sections, tool schemas, and variables |
+| `ctx.systemPrompt` | `dsh-system-prompt` | ordered stable system sections, cache-safe dynamic contexts, tool schemas, and variables |
 | `ctx.tools` | `dsh-tools` | tool registry and [execution pipeline](tool-execution-pipeline.md) |
 | `ctx.agents` | `dsh-agent` | live agents, delegated creation, `agent/*` events, process-local initiator scope |
 | `ctx.agentLoop` | `dsh-agent-loop` | concrete `Agent` driver |
@@ -118,7 +118,7 @@ idle inject:
   do not open a turn or run the model
 ```
 
-Each step assembles ordered prompt sections, tool schemas, and variables; unknown references fail the turn. `dsh-system-prompt` owns identity and persona; the loop supplies `provider`, `model`, and `cwd` ([prompt ownership](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)).
+Each step assembles ordered stable system sections, cache-safe dynamic contexts, tool schemas, and variables; unknown references fail the turn. `dsh-system-prompt` owns identity and persona; the loop supplies `provider`, `model`, and `cwd` ([prompt ownership](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)).
 
 Admission-time and active-turn `inject()` stage for the next step; post-tool `additionalContexts` settles after results. Steering shares that staging boundary and requests another step. Idle `inject()` appends immediately without changing turn numbers; persistence drains eagerly.
 
