@@ -13,6 +13,7 @@
   flex-direction: column;
   gap: 12px;
   max-width: 720px;
+  color: var(--dsw-alias-label-primary);
 }
 
 .title {
@@ -70,39 +71,11 @@
   color: var(--dsw-alias-label-primary);
 }
 
-.badges {
-  display: inline-flex;
-  gap: 6px;
-  flex: 1;
-}
-
-.badgeOk {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--dsw-alias-state-success-primary);
-  font-size: 12px;
-  line-height: 18px;
-}
-
-.badgeOk::before {
-  content: '';
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: currentcolor;
-}
-
-.badgeMuted {
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 12px;
-  line-height: 18px;
-}
-
 .rowActions {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  margin-left: auto;
 }
 
 /* `box-sizing` on every control here: the app has no global border-box reset,
@@ -519,6 +492,19 @@ select.input {
   font-size: 12px;
   line-height: 18px;
   color: var(--dsw-alias-state-error-primary);
+}
+
+.deleteDialog {
+  width: min(480px, 100%);
+}
+
+.deleteConfirm:not(:disabled) {
+  border-color: var(--dsw-alias-state-error-primary);
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.deleteConfirm:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover-danger);
 }
 
 /* Icon-button label seat: named for assistive tech and for the tests that

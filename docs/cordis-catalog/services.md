@@ -934,7 +934,7 @@ set(session: Session, name: string): void
 
 Types: [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/ui/permission/src/index.ts:144`](../../packages/ui/permission/src/index.ts)
+Source: [`packages/ui/permission/src/index.ts:159`](../../packages/ui/permission/src/index.ts)
 
 ## `ctx.planMode` — `PlanModeService`
 
@@ -1652,7 +1652,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:739`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:741`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 

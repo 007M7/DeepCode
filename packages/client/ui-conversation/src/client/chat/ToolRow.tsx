@@ -18,8 +18,9 @@
 
 import { useState, type MouseEvent, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { CodeBlock, StateDot, TerminalBlock } from '@deepseek-ai/dsh-client-ui-primitives'
+import { CodeBlock, DiffBlock, StateDot, TerminalBlock } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+import { CHAT_DIFF_MAX_LINES, type DiffCardModel } from '../contract/diff-card-model.ts'
 import { terminalBlockLabels, type TerminalCardModel } from '../contract/terminal-card-model.ts'
 import type { ToolRowState, ToolRowVariant } from '../contract/tool-call-model.ts'
 import { DisclosureRow } from './DisclosureRow.tsx'
@@ -48,6 +49,13 @@ export interface ToolRowProps {
    * expandable.
    */
   terminal?: TerminalCardModel | null | undefined
+  /**
+   * Diff-card material for a call whose render intent is a diff card (derived by
+   * `diffCardModel`); it replaces the text body when present, the same way
+   * `terminal` does. A call carries at most one card intent, so the two are
+   * never both set.
+   */
+  diff?: DiffCardModel | null | undefined
   state: ToolRowState
   /**
    * Filesystem path from tool args; when set with onOpenFile, the summary
@@ -95,6 +103,7 @@ export function ToolRow({
   output,
   errorSummary,
   terminal,
+  diff,
   state,
   filePath,
   onOpenFile,
@@ -102,8 +111,9 @@ export function ToolRow({
 }: ToolRowProps) {
   const [expanded, setExpanded] = useState(false)
   const terminalBody = terminal ?? null
+  const diffBody = diff ?? null
   const outputText = output ?? null
-  const expandable = body !== null || outputText !== null || terminalBody !== null
+  const expandable = body !== null || outputText !== null || terminalBody !== null || diffBody !== null
   const open = expanded && expandable
   // An error row's collapsed summary IS the failure: the first error line in
   // the error color outranks both the args summary and a terminal description.
@@ -175,38 +185,40 @@ export function ToolRow({
                 className={css.terminalBody}
               />
             )
-            : isThink
-              ? <div className={css.thinkBody}>{body}</div>
-              : (
-                <>
-                  {variant === 'code' && body !== null && (
-                    <div className={css.bodyScroll}>
-                      <CodeBlock code={body} lang="typescript" copyLabel={t('copy')} copiedLabel={t('copied')} className={css.codeBody} />
-                    </div>
-                  )}
-                  {(cardBody !== null || outputText !== null) && (
-                    <div className={css.ioCard}>
-                      {cardBody !== null && (
-                        <div className={css.ioSection}>
-                          <span className={css.ioLabel}>IN</span>
-                          <span className={css.ioText}>{cardBody}</span>
-                        </div>
-                      )}
-                      {cardBody !== null && outputText !== null && (
-                        <span className={css.ioDivider} aria-hidden />
-                      )}
-                      {outputText !== null && (
-                        <div className={css.ioSection}>
-                          <span className={css.ioLabel}>OUT</span>
-                          <span className={css.ioText} data-error={state === 'error' || undefined}>
-                            {outputText}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </>
-              )}
+            : diffBody !== null
+              ? <DiffBlock {...diffBody.card} maxLines={CHAT_DIFF_MAX_LINES} className={css.diffBody} />
+              : isThink
+                ? <div className={css.thinkBody}>{body}</div>
+                : (
+                  <>
+                    {variant === 'code' && body !== null && (
+                      <div className={css.bodyScroll}>
+                        <CodeBlock code={body} lang="typescript" copyLabel={t('copy')} copiedLabel={t('copied')} className={css.codeBody} />
+                      </div>
+                    )}
+                    {(cardBody !== null || outputText !== null) && (
+                      <div className={css.ioCard}>
+                        {cardBody !== null && (
+                          <div className={css.ioSection}>
+                            <span className={css.ioLabel}>IN</span>
+                            <span className={css.ioText}>{cardBody}</span>
+                          </div>
+                        )}
+                        {cardBody !== null && outputText !== null && (
+                          <span className={css.ioDivider} aria-hidden />
+                        )}
+                        {outputText !== null && (
+                          <div className={css.ioSection}>
+                            <span className={css.ioLabel}>OUT</span>
+                            <span className={css.ioText} data-error={state === 'error' || undefined}>
+                              {outputText}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
           {inspect !== undefined && (
             <button
               type="button"
