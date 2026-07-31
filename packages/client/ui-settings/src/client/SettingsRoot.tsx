@@ -5,7 +5,9 @@
  * close label, sections) arrives from registrants through slots; accessible
  * names resolve to that content (trigger: its own text; dialog:
  * aria-labelledby the title node; close: visually-hidden slot text). Modal
- * open state and the active section id are component-local viewing state.
+ * open state and the active section id are component-local viewing state;
+ * the onboarding slot receives the sessions-derived empty-Hero fact and a
+ * private callback that opens one registered section.
  */
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import clsx from 'clsx'
@@ -22,6 +24,8 @@ function navIcon(id: string) {
 type PanelProps = {
   rows: readonly SettingsSectionRow[]
   renderSlot: SettingsRootComponentProps['renderSlot']
+  activeId: string | undefined
+  onSelect: (id: string) => void
   onClose: () => void
 }
 
@@ -30,10 +34,9 @@ type PanelProps = {
  * header button, a mask click, and document-level Escape (mounted only while
  * open, so the listener lifetime is the panel's).
  */
-function SettingsPanel({ rows, renderSlot, onClose }: PanelProps) {
-  // Local selection; entries can unmount underneath it, so the render-time
+function SettingsPanel({ rows, renderSlot, activeId, onSelect, onClose }: PanelProps) {
+  // Entries can unmount underneath the requested id, so the render-time
   // projection falls back to the first row when the id is gone.
-  const [activeId, setActiveId] = useState<string | undefined>(undefined)
   const active = rows.find(r => r.id === activeId)?.id ?? rows[0]?.id
   const titleId = useId()
 
@@ -62,7 +65,7 @@ function SettingsPanel({ rows, renderSlot, onClose }: PanelProps) {
                 type="button"
                 className={clsx(css.navCell, row.id === active && css.active)}
                 aria-current={row.id === active ? 'true' : undefined}
-                onClick={() => { setActiveId(row.id) }}
+                onClick={() => { onSelect(row.id) }}
               >
                 {navIcon(row.id)}
                 <span className={css.navLabel}>{row.label}</span>
@@ -92,14 +95,25 @@ function SettingsPanel({ rows, renderSlot, onClose }: PanelProps) {
  * @returns the settings shell element tree.
  */
 export function SettingsRoot(props: SettingsRootComponentProps) {
-  const { wide, useSections, renderSlot } = props
+  const { wide, useSections, useSessions, renderSlot } = props
   const [open, setOpen] = useState(false)
-  const close = useCallback(() => { setOpen(false) }, [])
+  const [activeId, setActiveId] = useState<string | undefined>(undefined)
+  const close = useCallback(() => {
+    setOpen(false)
+    setActiveId(undefined)
+  }, [])
+  const openSection = useCallback((id: string) => {
+    setActiveId(id)
+    setOpen(true)
+  }, [])
 
   // The ledger tick keeps the nav rows fresh: registrants re-register with
   // freshly localized text on locale change, and the trigger/header/close
   // seats re-render through their own outlets' subscriptions.
   const rows = useSections(s => s)
+  const onboardingActive = useSessions(state =>
+    state.phase === 'ready'
+    && (state.current === undefined || state.byId[state.current]?.blank === true))
 
   return (
     <>
@@ -112,7 +126,16 @@ export function SettingsRoot(props: SettingsRootComponentProps) {
       >
         {renderSlot('settings.trigger', { wide })}
       </button>
-      {open && <SettingsPanel rows={rows} renderSlot={renderSlot} onClose={close} />}
+      {open && (
+        <SettingsPanel
+          rows={rows}
+          renderSlot={renderSlot}
+          activeId={activeId}
+          onSelect={setActiveId}
+          onClose={close}
+        />
+      )}
+      {renderSlot('settings.onboarding', { active: onboardingActive, openSection })}
     </>
   )
 }
