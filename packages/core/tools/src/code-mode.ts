@@ -120,18 +120,22 @@ const RUN_CODE_DESCRIPTION_PARAM_DESCRIPTION
 /**
  * Resolve the {@link RunCodeFlavor} for the loaded runtime's language, read at
  * schema-emission time so the model-visible `run_code` schema always matches
- * the SDK section's language. When no runtime is mounted the schema harvest
- * degrades to {@link TYPESCRIPT_FLAVOR} (a doc-only path — an assembly always
- * has one). A mounted runtime whose language has no flavor entry fails loud,
- * keeping this table coupled to `SDK_RENDERERS`.
+ * the SDK section's language. When no runtime is mounted, or one whose language
+ * has no renderer is, the schema harvest degrades to {@link TYPESCRIPT_FLAVOR}
+ * (a doc-only path — a real assembly always mounts a valid runtime, and
+ * `requireCodeRuntime` rejects an invalid language there first). A mounted
+ * runtime whose language passes that guard but is absent from this table fails
+ * loud, keeping this table coupled to `SDK_RENDERERS`.
  */
 function resolveFlavor(requireRuntime: () => CodeRuntime): RunCodeFlavor {
   let runtime: CodeRuntime
   try {
     runtime = requireRuntime()
   } catch {
-    // No runtime mounted: the only reader here is the static schema harvest
-    // (doc catalog), which never reaches a model — degrade to the TS default.
+    // Reached only by the static schema harvest (doc catalog), which never
+    // feeds a model: either no runtime is mounted, or requireRuntime rejected
+    // a language with no renderer. Both degrade to the TS default here; a real
+    // assembly hits requireCodeRuntime's loud rejection before this runs.
     return TYPESCRIPT_FLAVOR
   }
   // Own-property read: a language like `toString`/`constructor` would otherwise

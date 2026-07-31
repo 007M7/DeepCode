@@ -806,6 +806,10 @@ export class ToolRegistry extends Service {
     if (this.mode === 'native') {
       return { schemas, knownNames: [...view.knownNames] }
     }
+    // Redundant with the per-getter resolveFlavor path (schemaOf's run_code
+    // description/parameters getters call requireCodeRuntime again): kept as a
+    // single explicit gate so a mode collapse rejects here regardless of
+    // whether any getter runs. The call is idempotent (ctx.get + Object.hasOwn).
     this.requireCodeRuntime()
     if (this.mode === 'code') {
       return {
