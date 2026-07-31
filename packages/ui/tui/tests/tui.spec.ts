@@ -10,6 +10,7 @@ import AgentRegistry, {
 } from '@deepseek-ai/dsh-agent'
 import { createUserMessage,
   createToolResultMessage,
+  LlmError,
   ReasoningEffortId,
   type LlmCallConfig,
   type LlmModelReasoningInfo,
@@ -3630,6 +3631,96 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await dispose(reasoningFailed)
   })
 
+  it('defers a NO_ADAPTER context resolution until the provider registers instead of surfacing an error', async () => {
+    // Loader activation order is service-driven: the TUI can mount before a
+    // configured adapter plugin activates, so the initial resolveModelInfo
+    // fails with NO_ADAPTER. That transient state must not print an error;
+    // the resolution retries on llm/adapters-updated.
+    const adapters = new Set<string>()
+    const result = await setup({
+      agentOptions: { provider: 'openai-codex', model: 'gpt-x' },
+      contextTokens: 50_000,
+      catalog: {
+        providers: [],
+        models: [],
+        resolveModelInfo: () => adapters.has('openai-codex')
+          ? Promise.resolve({ context: { contextWindow: 100_000 } })
+          : Promise.reject(new LlmError('no adapter registered for provider "openai-codex"', 'NO_ADAPTER')),
+      },
+    })
+    await tick()
+    expect(result.terminal.output).not.toContain('Could not resolve model context')
+
+    // A topology commit that still lacks the route parks the wait again.
+    result.ctx.emit('llm/adapters-updated')
+    await tick()
+    expect(result.terminal.output).not.toContain('% context')
+    expect(result.terminal.output).not.toContain('Could not resolve model context')
+
+    adapters.add('openai-codex')
+    result.ctx.emit('llm/adapters-updated')
+    await vi.waitFor(() => {
+      expect(result.terminal.output).toContain('% context')
+    })
+    expect(result.terminal.output).not.toContain('Could not resolve model context')
+
+    // A commit after satisfaction is a no-op for the resolved value.
+    result.ctx.emit('llm/adapters-updated')
+    await tick()
+    expect(result.terminal.output).not.toContain('Could not resolve model context')
+    await dispose(result)
+  })
+
+  it('stops listening for adapter registrations after channel detach', async () => {
+    // The listener disposer rides detachListeners() through the controller's
+    // detach(): after dispose, a registry commit must not re-enter resolution
+    // at all (the isDisposed() guard is a fallback, not the removal).
+    const calls: string[] = []
+    const result = await setup({
+      agentOptions: { provider: 'openai-codex', model: 'gpt-x' },
+      catalog: {
+        providers: [],
+        models: [],
+        resolveModelInfo: (provider) => {
+          calls.push(provider)
+          return Promise.reject(new LlmError('no adapter registered for provider "openai-codex"', 'NO_ADAPTER'))
+        },
+      },
+    })
+    await tick()
+    const callsAtDetach = calls.length
+    await result.controller.dispose()
+    result.ctx.emit('llm/adapters-updated')
+    await tick()
+    expect(calls.length).toBe(callsAtDetach)
+    await result.ctx.fiber.dispose()
+  })
+
+  it('drops a deferred NO_ADAPTER resolution when the target moved before the adapter registered', async () => {
+    const result = await setup({
+      agentOptions: { provider: 'openai-codex', model: 'gpt-x' },
+      catalog: {
+        providers: [{ id: 'alpha', name: 'Alpha' }],
+        models: [{ provider: 'alpha', id: 'a1', name: 'Alpha One' }],
+        resolveModelInfo: provider => provider === 'alpha'
+          ? Promise.resolve({ context: { contextWindow: 64_000 } })
+          : Promise.reject(new LlmError('no adapter registered for provider "openai-codex"', 'NO_ADAPTER')),
+      },
+    })
+    await tick()
+    // Switching the model re-resolves and clears the deferred wait, so the
+    // stale route's adapter arriving afterwards must be a no-op.
+    result.terminal.send('/model alpha/a1')
+    result.terminal.send('\r')
+    await vi.waitFor(() => {
+      expect(result.terminal.output).toContain('Model selected: alpha/a1')
+    })
+    result.ctx.emit('llm/adapters-updated')
+    await tick()
+    expect(result.terminal.output).not.toContain('Could not resolve model context')
+    await dispose(result)
+  })
+
   it('does not render a model catalog that resolves after TUI disposal', async () => {
     const deferred = Promise.withResolvers<never[]>()
     const result = await setup({
@@ -4318,6 +4409,25 @@ describe('tool cards and surface replay', () => {
         diffs: [{ path: 'src/only.ts', oldText: 'old', newText: 'new' }],
       }),
     },
+    scatteredDiff: {
+      name: 'scatteredDiff', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
+      // Three hunks in ONE file. The first two sides end in the terminator
+      // newline real write/edit content carries; the third removes a line and
+      // leaves an EMPTY added side (a full deletion), so `diffContentLines('')`
+      // returns zero lines. The footer must read `+2 -1 · 1 file`: each trailing
+      // newline terminates its line rather than adding a phantom empty one, the
+      // empty side contributes no `+ ` row, and the three hunks count as the
+      // single distinct path they touch.
+      presentCall: () => ({
+        card: 'diff',
+        title: 'Edit src/scatter.ts',
+        diffs: [
+          { path: 'src/scatter.ts', oldText: null, newText: 'first\n' },
+          { path: 'src/scatter.ts', oldText: null, newText: 'second\n' },
+          { path: 'src/scatter.ts', oldText: 'gone\n', newText: '' },
+        ],
+      }),
+    },
     generic: {
       name: 'generic', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => ({ card: 'generic', title: 'Inspect value', rawInput: { alpha: 1 } }),
@@ -4368,6 +4478,20 @@ describe('tool cards and surface replay', () => {
       presentCall: () => ({ card: 'generic', title: 'Becomes terminal' }),
       presentResult: () => ({ card: 'terminal', output: 'converted terminal' }),
     },
+    // A search card carries no result text of its own; the TUI has no dedicated
+    // search arm and falls back to the raw result content, rendered as the same
+    // dim generic body a pre-search-card grep/glob result showed.
+    search: {
+      name: 'search', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
+      presentCall: () => ({ card: 'generic', title: 'Grep todo', kind: 'search' }),
+      presentResult: () => ({
+        card: 'search',
+        shape: 'matches',
+        files: [{ path: 'a.ts', matches: [{ lineNumber: 1, line: 'todo one' }] }],
+        truncated: false,
+        total: 1,
+      }),
+    },
     symbolic: {
       name: 'symbolic', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => ({ card: 'generic', title: 'Symbol input', rawInput: Symbol('input') }),
@@ -4405,6 +4529,7 @@ describe('tool cards and surface replay', () => {
       ['c12', 'symbolic', '{}'],
       ['c13', 'knownXml', '{}'],
       ['c16', 'webCard', '{}'],
+      ['c17', 'search', '{"pattern":"todo"}'],
     ] as const
     appendAssistant(result.session, [
       { type: 'text', text: 'Calling tools' },
@@ -4507,6 +4632,14 @@ describe('tool cards and surface replay', () => {
       }),
     }, { surfaceOp: 'append' })
     result.session.append('tool/result', {
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'c17' as never,
+        content: [{ type: 'text', text: 'Found 1 match\n\na.ts\nLine 1: todo one' }],
+        isError: false,
+      }),
+    }, { surfaceOp: 'append' })
+    result.session.append('tool/result', {
       turn: 1,
       step: 1,
       message: createToolResultMessage({
@@ -4537,6 +4670,11 @@ describe('tool cards and surface replay', () => {
     expect(output).toContain('$ blank desc command')
     // A card whose title only repeats the name renders header-only (empty body).
     expect(output).toContain('Tool / emptyBody')
+    // A search result view carries no `content` of its own, so the card renders
+    // the raw model-facing result text through the same dim generic body — the
+    // TUI has no dedicated search arm.
+    expect(output).toContain('Tool / search')
+    expect(output).toContain('Line 1: todo one')
     // A diff card drops its title (the paths + change footer carry the meaning).
     // The first file's path is head-visible; the second file and the change
     // footer sit past this card's 4-line budget and appear only when expanded.
@@ -4641,6 +4779,35 @@ describe('tool cards and surface replay', () => {
     expect(output).toContain('- old')
     expect(output).toContain('+ new')
     expect(output).toContain('· 1 file')
+    await dispose(result)
+  })
+
+  it('counts a same-file diff once and terminates its trailing newline', async () => {
+    // A budget past the card's row count so every hunk row stays visible (the
+    // collapse arithmetic is covered elsewhere); this test is about the
+    // terminator rule and the distinct-path footer count.
+    const result = await setup({ tools, config: { maxToolOutputLines: 20 } })
+    appendUser(result.session, 'scatter edits in one file')
+    appendAssistant(result.session, [
+      { type: 'text', text: 'Editing' },
+      { type: 'tool-call', id: 'scatter' as never, name: 'scatteredDiff', arguments: '{}' },
+    ])
+    result.session.append('tool/call', {
+      turn: 1, step: 1, callId: 'scatter' as never, name: 'scatteredDiff', arguments: '{}',
+    })
+    await tick()
+    const output = result.terminal.output
+    // Three hunks, one path: distinct-path count, same as the Web DiffBlock.
+    expect(output).toContain('· 1 file')
+    expect(output).not.toContain('· 3 files')
+    // The `first\n`/`second\n` sides each contribute exactly one added line —
+    // the trailing newline terminates rather than adding a phantom empty `+ `.
+    expect(output).toContain('+ first')
+    expect(output).toContain('+ second')
+    // The third hunk removes `gone` and leaves an empty added side, which
+    // contributes no `+ ` row (diffContentLines('') is zero lines).
+    expect(output).toContain('- gone')
+    expect(output).toContain('+2 -1')
     await dispose(result)
   })
 

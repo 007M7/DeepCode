@@ -12,11 +12,12 @@
 - button "Edit":
   - img
 - paragraph: partial
+- status: Deep diving...
 - button "2 queued messages"
 - textbox "Message the agent"
 - button "Commands":
   - img
-- 'button "Access mode, current: Danger Full Access"': Danger Full Access
+- 'button "Access mode, current: Full access"': Full access
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img

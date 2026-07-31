@@ -6,11 +6,11 @@
 
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { GenericCallView, GenericResultView, ToolResult } from '@deepseek-ai/dsh-tools'
+import type { GenericCallView, ReadResultView, ToolResult } from '@deepseek-ai/dsh-tools'
 import { FsError } from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-system-prompt'
-import { buildWindow, formatReadOutput } from './read-render.ts'
+import { buildWindow, formatReadOutput, langFromPath, readMetaFromMeta } from './read-render.ts'
 import { sessionResolveOptions } from './session-cwd.ts'
 
 /** Default and maximum number of lines returned by one `read` call (the `readLimit` config). */
@@ -118,6 +118,19 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
           }),
         }]
       },
+      // Project the structured window into persisted `meta` so a UI's read card
+      // survives replay: the raw canonical output object is not on the wire, only
+      // the model-facing text, from which the line/lang data cannot be recovered.
+      presentationMeta: (_args, value) => {
+        const lang = langFromPath(value.path)
+        return {
+          path: value.path,
+          offset: value.offset,
+          lines: value.lines.map(({ number, text }) => ({ number, text })),
+          totalLines: value.totalLines,
+          ...lang === undefined ? {} : { lang },
+        }
+      },
     },
     // Observation races fail closed because guarded mutations re-check the version in-lock.
     isConcurrencySafe: () => true,
@@ -154,15 +167,32 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
       ctx.emit('fs/observed', target, info.version, exec)
       return outcome
     },
-    presentResult(_args, result: ToolResult): GenericResultView | undefined {
+    // Result-time display: a `read` card carrying the structured line window a
+    // capable UI renders as a line-numbered, syntax-highlighted view. The
+    // structured data is narrowed from the persisted `meta` (replay-safe); the
+    // envelope-stripped model-facing text rides along as `content` so a UI without
+    // the read capability still shows the file text. A malformed or absent meta,
+    // or a result whose text is not the read envelope, declines to `undefined`
+    // (the generic fallback), never throwing on replay of obsolete logged output.
+    presentResult(_args, result: ToolResult): ReadResultView | undefined {
       if (result.isError) return undefined
+      const meta = readMetaFromMeta(result.meta)
+      if (meta === undefined) return undefined
       const only = result.content.length === 1 ? result.content[0] : undefined
       const text = only?.type === 'text' ? only.text : undefined
       if (text === undefined) return undefined
       // Group 1 always captures (possibly empty) when the envelope matches.
       const body = /^<path>[^\n]*<\/path>\n<type>file<\/type>\n<content>\n([\s\S]*)\n<\/content>$/u.exec(text)?.[1]
       if (body === undefined) return undefined
-      return { card: 'generic', content: [{ type: 'text', text: body }] }
+      return {
+        card: 'read',
+        path: meta.path,
+        offset: meta.offset,
+        lines: meta.lines,
+        totalLines: meta.totalLines,
+        ...meta.lang === undefined ? {} : { lang: meta.lang },
+        content: [{ type: 'text', text: body }],
+      }
     },
     // Pure display: a generic card titled by the file with the read window appended (`Read
     // foo.txt (5 - 8)`), `read` kind (icon), and a follow-along location whose line is the

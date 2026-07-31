@@ -42,7 +42,7 @@
 - textbox "Message the agent"
 - button "Commands":
   - img
-- 'button "Access mode, current: Danger Full Access"': Danger Full Access
+- 'button "Access mode, current: Full access"': Full access
 - button "Select model, current deepseek-v4-flash":
   - text: deepseek-v4-flash
   - img

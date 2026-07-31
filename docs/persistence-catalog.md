@@ -78,7 +78,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-Sources: [`packages/core/session/src/types.ts:306`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:313`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:342`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:374`](../packages/core/session/src/types.ts)
+Sources: [`packages/core/session/src/types.ts:308`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:315`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:344`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:376`](../packages/core/session/src/types.ts)
 
 ## Events
 
@@ -350,7 +350,7 @@ Source: [`packages/llm/llm-retry/src/index.ts:18`](../packages/llm/llm-retry/src
 'permission/preset': { preset: string }
 ```
 
-Source: [`packages/ui/permission/src/index.ts:49`](../packages/ui/permission/src/index.ts)
+Source: [`packages/ui/permission/src/index.ts:50`](../packages/ui/permission/src/index.ts)
 
 ### `plan/*`
 
@@ -427,7 +427,9 @@ Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:33`](../packages/s
 /**
  * Marks the end of a constructor seed. Events before it have smaller seq
  * values and came from the seed (resume, fork, or replay); this lifecycle
- * produced none of them. This log-only event is the durable projection of
+ * produced none of them. An explicitly supplied empty seed puts the marker
+ * at seq 0, distinguishing an empty resumed session from a fresh session.
+ * This log-only event is the durable projection of
  * {@link Session.firstLiveSeq}. Its payload is empty — position and `time`
  * carry the meaning.
  *
@@ -449,7 +451,7 @@ Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:33`](../packages/s
 'session/end-seed': Record<string, never>
 ```
 
-Source: [`packages/core/session/src/types.ts:302`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:304`](../packages/core/session/src/types.ts)
 
 #### `session/title` — log-only
 

@@ -14,7 +14,7 @@
   - paragraph: 填入各提供方的 API 密钥即可使用其模型。
   - list:
     - listitem:
-      - text: minimax-cn 已启用
+      - text: minimax-cn
       - button "编辑"
       - button "删除"
   - button "+ 添加提供方"

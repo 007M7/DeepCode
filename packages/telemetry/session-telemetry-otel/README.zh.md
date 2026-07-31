@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-[遥测（telemetry）seam](../session-telemetry/) 的 OpenTelemetry 后端，也是部署方唯一要加载的条目。它原样组合 OTel JS SDK（`LoggerProvider` → `BatchLogRecordProcessor` → OTLP/HTTP 日志导出器），把 seam 交接过来的每条记录映射到 `logger.emit()`，并使用两个插桩作用域（instrumentation scope）：ledger 记录挂在 `@deepseek-ai/dsh-session-telemetry-otel` 下，运维记录挂在 `@deepseek-ai/dsh-session-telemetry-otel/ops` 下。资源身份（`service.name`/`service.version`）来自 `dsh-llm` 的 `APP_IDENTITY`，与归因标头同源。
+[遥测（telemetry）seam](../session-telemetry/) 的 OpenTelemetry 后端，也是部署方唯一要加载的条目。它原样组合 OTel JS SDK（`LoggerProvider` → `BatchLogRecordProcessor` → OTLP/HTTP 日志导出器），把 seam 交接过来的每条记录映射到 `logger.emit()`，并使用两个插桩作用域（instrumentation scope）：ledger 记录挂在 `@deepseek-ai/dsh-session-telemetry-otel` 下，运维记录挂在 `@deepseek-ai/dsh-session-telemetry-otel/ops` 下。资源身份（`service.name`/`service.version`）来自 `dsh-llm` 的 `APP_IDENTITY`，与归因标头同源；另有 `user.id`——本包自有的 harness home 匿名用户 id（`src/user-id.ts`：`$DSH_HOME/.userid`，首用生成随机 UUID；删除该文件即重置身份），随 Resource 每批导出携带一次而非逐条携带。
 
 ## 配置
 

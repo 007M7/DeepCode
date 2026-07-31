@@ -776,7 +776,7 @@ Requires: `agents`
 export type Config = Readonly<Record<string, never>>
 ```
 
-Source: [`packages/llm/llm-retry/src/index.ts:45`](../packages/llm/llm-retry/src/index.ts)
+Source: [`packages/llm/llm-retry/src/index.ts:47`](../packages/llm/llm-retry/src/index.ts)
 
 ## `@deepseek-ai/dsh-lsp-local`
 
@@ -871,10 +871,10 @@ Source: [`packages/mcp/mcp-client/src/index.ts:93`](../packages/mcp/mcp-client/s
 
 ## `@deepseek-ai/dsh-permission`
 
-Requires: `bash` · `approval`
+Requires: `bash` · `approval` · `sessions`
 
 ```ts config-catalog
-/** The {@link PermissionService} config: the deployment's preset table. */
+/** The {@link PermissionService} config: preset table and composition default. */
 export interface Config {
   /**
    * The preset table: name → knob bundle. Defaults to `workspace-write`
@@ -882,6 +882,11 @@ export interface Config {
    * never). The name `custom` is reserved for the derived not-a-preset state.
    */
   presets?: Record<string, PresetSpec>
+  /**
+   * Default for new sessions. When omitted, the preset matching the composed
+   * sandbox and approval defaults is used.
+   */
+  defaultPreset?: string
 }
 
 /** One preset's sandbox/approval bundle and optional client presentation. */
@@ -899,7 +904,7 @@ export interface PresetSpec {
 
 Depends on: [`ApprovalPolicy`](core-data-structures/approval.md) · [`SandboxMode`](core-data-structures/sandbox.md)
 
-Source: [`packages/ui/permission/src/index.ts:130`](../packages/ui/permission/src/index.ts)
+Source: [`packages/ui/permission/src/index.ts:140`](../packages/ui/permission/src/index.ts)
 
 ## `@deepseek-ai/dsh-plan-mode`
 
@@ -1224,7 +1229,7 @@ export interface Config {
 
 Depends on: `BatchLogRecordProcessorOptions` (`@opentelemetry/sdk-logs`) · `OTLPExporterNodeConfigBase` (`@opentelemetry/otlp-exporter-base`)
 
-Source: [`packages/telemetry/session-telemetry-otel/src/index.ts:40`](../packages/telemetry/session-telemetry-otel/src/index.ts)
+Source: [`packages/telemetry/session-telemetry-otel/src/index.ts:41`](../packages/telemetry/session-telemetry-otel/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-title`
 
@@ -1724,6 +1729,8 @@ export interface Config {
   grepMaxMatches?: number
   /** Max bytes retained for one matched-line preview (the cut preserves UTF-8 boundaries). */
   grepMaxLineBytes?: number
+  /** Max bytes of one search's serialized `presentationMeta`; trailing groups/paths drop past it so the persisted card stays bounded. */
+  searchMetaMaxBytes?: number
   /** Max complete raw `rg` stdout bytes a search will parse; larger raw output fails with `SEARCH_RAW_OUTPUT_OVERFLOW`. */
   rawOutputMaxBytes?: number
   /** Cooperative tool-call timeout budget (ms) on both tools, enforced by `@deepseek-ai/dsh-timeout-policy` through `exec.signal`. */
@@ -1731,7 +1738,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/fs/tool-fs-search/src/index.ts:62`](../packages/fs/tool-fs-search/src/index.ts)
+Source: [`packages/fs/tool-fs-search/src/index.ts:71`](../packages/fs/tool-fs-search/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-goal`
 
@@ -1987,7 +1994,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:582`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:589`](../packages/core/tools/src/index.ts)
 
 ## `@deepseek-ai/dsh-tui`
 
