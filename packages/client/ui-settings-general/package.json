@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-settings-general",
-  "description": "Settings ownerless-copy plugin: the General section (skeleton rows + item slot), the shell trigger/header chrome content, and the settings dictionaries",
+  "description": "Settings ownerless-copy plugin: the General section, shell trigger/header chrome content, and settings dictionaries",
   "version": "0.0.1",
   "private": true,
   "type": "module",
