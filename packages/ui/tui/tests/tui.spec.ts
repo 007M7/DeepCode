@@ -42,7 +42,8 @@ import {
   type TuiRuntime,
 } from '../src/index.ts'
 import { WorkspaceFileSearch } from '../src/chat/file-autocomplete.ts'
-import { ATTRIBUTE_ROLES, COLOR_ROLES, paletteSpec } from '../src/components/theme.ts'
+import { ResumePicker } from '../src/components/dialogs.ts'
+import { ATTRIBUTE_ROLES, COLOR_ROLES, createPalette, paletteSpec } from '../src/components/theme.ts'
 import {
   appendAssistant,
   appendUser,
@@ -649,6 +650,96 @@ describe('goodbye message and /resume', () => {
     listing.resolve([])
     await tick()
     expect(result.terminal.stopped).toBeGreaterThan(0)
+  })
+
+  it('clears the still-loading error the moment scanned rows arrive', () => {
+    const picker = new ResumePicker(
+      undefined,
+      10,
+      '/workspace',
+      () => 30,
+      createPalette(false),
+      () => {},
+      () => {},
+    )
+    picker.focused = true
+    picker.handleInput('\r')
+    expect(picker.render(80).join('\n')).toContain('Sessions are still loading.')
+    picker.setCandidates([])
+    const rendered = picker.render(80).join('\n')
+    expect(rendered).not.toContain('Sessions are still loading.')
+    expect(rendered).toContain('No matching sessions.')
+  })
+
+  it('aborts an in-flight scan when the loading picker is dismissed', async () => {
+    const listing = Promise.withResolvers<SessionRecord[]>()
+    let scanSignal: AbortSignal | undefined
+    let projections = 0
+    const result = await setup({
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        ctx.provide('sessionQuery', {
+          listSessions: (signal?: AbortSignal) => { scanSignal = signal; return listing.promise },
+          projectSessions: async () => { projections += 1; return [] },
+        } as never)
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('Loading sessions…')
+    result.terminal.send('\u001B')
+    await tick()
+    expect(scanSignal?.aborted).toBe(true)
+    // A signal-ignoring backend can still fulfill after dismissal: the stale
+    // scan must neither project nor report.
+    listing.resolve([])
+    await tick()
+    expect(projections).toBe(0)
+    expect(result.terminal.output).not.toContain('Resume session scan failed')
+    await dispose(result)
+  })
+
+  it('drops a projection that settles after the picker was dismissed', async () => {
+    const projecting = Promise.withResolvers<never[]>()
+    const result = await setup({
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        ctx.provide('sessionQuery', {
+          listSessions: async () => [],
+          projectSessions: () => projecting.promise,
+        } as never)
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick()
+    result.terminal.send('\u001B')
+    await tick()
+    projecting.resolve([])
+    await tick()
+    expect(result.terminal.output).not.toContain('(0 of 0)')
+    expect(result.terminal.output).not.toContain('Resume session scan failed')
+    await dispose(result)
+  })
+
+  it('closes the loading picker and reports a scan that fails after listing', async () => {
+    const target = header('projection-explodes', 10, '/workspace')
+    const result = await setup({
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        ctx.provide('sessionQuery', {
+          listSessions: () => Promise.resolve([{ header: target, live: false, persisted: true }]),
+          projectSessions: () => Promise.reject(new Error('projection exploded')),
+        } as never)
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(result.terminal.output).toContain('Resume session scan failed: projection exploded')
+    expect(result.terminal.stopped).toBe(0)
+    await dispose(result)
   })
 
   it('opens a loading picker immediately and swaps in the scanned rows', async () => {

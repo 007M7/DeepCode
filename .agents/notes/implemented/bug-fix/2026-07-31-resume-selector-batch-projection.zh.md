@@ -14,7 +14,7 @@ Status: implemented
 
 `/resume` 选择器通过一次 `projectSessions` 批量调用构建全部候选行；被拒绝的投影会退化为该行的禁用"Unreadable session"回退，与之前 `readSession` 失败时的行为完全一致。`summarizeResumeCandidate` 接受借用的来源，且只保留记录和推导出的标量。移交前的预检仍通过 `readSession` 读取用户选中的单个会话，在进程 re-exec 前保留完整回放验证；其中冗余的实时会话捷径被删除，因为 `readSession` 本身已是实时优先。
 
-选择器 overlay 在 `/resume` 分发时同步打开，早于扫描结算：`undefined` 候选集渲染"Loading sessions…"加载占位符，选择器从第一帧起就拥有终端输入（长扫描期间的按键会进入搜索字段而非编辑器），Enter 提示会话仍在加载，Escape 的取消方式与已加载列表完全相同。扫描完成后通过 `setCandidates` 换入行数据，不替换 overlay；排在正在关闭的前任之后的排队激活会在构造时直接收到已扫描的集合；扫描失败会关闭 overlay 并报告既有的失败通知。
+选择器 overlay 在 `/resume` 分发时同步打开，早于扫描结算：`undefined` 候选集渲染"Loading sessions…"加载占位符，选择器从第一帧起就拥有终端输入（长扫描期间的按键会进入搜索字段而非编辑器），Enter 提示会话仍在加载，Escape 的取消方式与已加载列表完全相同。关闭 overlay 会通过两个服务方法都接受的 `AbortSignal` 中止扫描，因此被关闭的选择器不会继续解压大型存储；忽略信号的后端在中止后的迟到结算则由过期检查丢弃。扫描完成后通过 `setCandidates`（同时清除过期的仍在加载错误）换入行数据，不替换 overlay；排在正在关闭的前任之后的排队激活会在构造时直接收到已扫描的集合；列表查询与投影共用同一个 catch，因此任何扫描失败都会关闭 overlay 并报告既有的失败通知，而不会让加载占位符悬置。
 
 ## Alternatives considered
 

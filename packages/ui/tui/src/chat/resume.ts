@@ -222,21 +222,28 @@ export function createResumeController(deps: ResumeControllerDeps): ResumeContro
         },
       })
       resumeOverlay = session
+      // Closing the picker — Escape, supersession, disposal — aborts the scan:
+      // the borrowed-log pass over a large store must not outlive its overlay.
+      const scanAbort = new AbortController()
       void session.closed.then(() => {
+        scanAbort.abort()
         /* v8 ignore next -- overlay FIFO closes this session before a replacement can become the tracked resume overlay */
         if (resumeOverlay === session) resumeOverlay = undefined
       })
       deps.requestRender()
-      void listQuery.listSessions().then(async (records) => {
-        if (deps.isDisposed() || scan !== resumeScan) return
+      /** Whether this scan's overlay, session generation, or TUI is gone. */
+      const scanStale = (): boolean =>
+        deps.isDisposed() || scan !== resumeScan || scanAbort.signal.aborted
+      const scanCandidates = async (): Promise<void> => {
+        const records = await listQuery.listSessions(scanAbort.signal)
+        if (scanStale()) return
         // Every workspace in the store is summarized; the picker owns the
         // current-workspace/all-workspaces scope split over the whole set.
         const providers = new Set(ctx.llm.listProviders().map(provider => provider.id))
         // One bounded batch projection over borrowed logs: unlike a
         // per-candidate readSession, it lists persistence once and skips
-        // replay validation and log cloning, so opening the selector scales
-        // with session count instead of total log size. A corrupt neighbor
-        // degrades to one disabled row.
+        // replay validation and log cloning, bounding memory by what each
+        // summary retains. A corrupt neighbor degrades to one disabled row.
         const recordById = new Map(records.map(record => [record.header.id, record]))
         const listedRecord = (id: SessionId): SessionRecord => {
           const record = recordById.get(id)
@@ -247,18 +254,23 @@ export function createResumeController(deps: ResumeControllerDeps): ResumeContro
         const results = await listQuery.projectSessions(
           records.map(record => record.header.id),
           source => summarize(listedRecord(source.header.id), source, providers),
+          scanAbort.signal,
         )
         const candidates = results.map(result => result.status === 'fulfilled'
           ? result.value
           : unreadableCandidate(listedRecord(result.sessionId), result.reason))
         candidates.sort((a, b) => b.lastActivityAt - a.lastActivityAt
           || a.record.header.id.localeCompare(b.record.header.id))
-        if (deps.isDisposed() || scan !== resumeScan) return
+        if (scanStale()) return
         scanned = candidates
         picker?.setCandidates(candidates)
         deps.requestRender()
-      }, (error: unknown) => {
-        if (deps.isDisposed() || scan !== resumeScan) return
+      }
+      // One catch covers both stages, so a projection failure cannot strand
+      // the overlay on its loading placeholder; an aborted scan's rejection
+      // stays silent because the user already dismissed the picker.
+      void scanCandidates().catch((error: unknown) => {
+        if (scanStale()) return
         void session.close()
         deps.appendNotice(`Resume session scan failed: ${errorChain(error)}`, 'error')
       })

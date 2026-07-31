@@ -574,6 +574,8 @@ export class ResumePicker implements Component, Focusable {
   setCandidates(candidates: readonly ResumeCandidate[]): void {
     this.candidates = candidates
     this.selectedIndex = 0
+    // A still-loading error is false the moment rows exist.
+    this.error = ''
     this.invalidate()
   }
 
