@@ -10,9 +10,12 @@ import type {
   ConversationSnapshot, QueuedMessage, SessionId, SessionListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { QueueItemId } from '../src/client/contract/queue.ts'
 import type { InputState } from '../src/client/input/contract.ts'
-import { QueueDock, queueDockEntry, type QueueDockInjected } from '../src/client/queue/QueueDock.tsx'
+import { zh } from '../src/client/locales.ts'
+import { QueueDock, queueDockEntry, type QueueDockInjected, type QueueDockProps } from '../src/client/queue/QueueDock.tsx'
 
 afterEach(cleanup)
 
@@ -54,9 +57,13 @@ function liveSession(initial: ConversationSnapshot) {
 
 const INPUT_STATE: InputState = { draft: '', draftRev: 0, phase: 'plain', occurrences: [], queue: [] }
 
+// Standard locale seat stub mirroring the real ns → common → key chain.
+const t: QueueDockProps['t'] = makeTranslate(zh, commonZh)
+
 function kitFor(snapshot: ConversationSnapshot, injected: Partial<QueueDockInjected> = {}) {
   return {
     sessionId: SID,
+    t,
     useSessions: (() => { throw new Error('unused') }) as unknown as SnapshotSelectorHook<SessionListState>,
     useWorkspaces: (() => { throw new Error('unused') }) as never,
     useProjection: (() => undefined) as never,

@@ -116,4 +116,23 @@ export type HostFrame =
    * background rather than diffing.
    */
   | { type: 'host/commands-changed' }
+  /**
+   * One settings namespace's resolved value changed (`settings/updated`
+   * passthrough) — an RPC write, an external `settings.yaml` edit, or a
+   * provider reload all converge here. Clients refetch `settings.describe`;
+   * values never ride the frame (they would need redaction and can go stale).
+   */
+  | { type: 'host/settings-changed'; ns: string }
+  /**
+   * One credential reference's state changed (`credentials/updated`
+   * passthrough): a set/unset over this wire or an external `.env` edit.
+   * The ref is an environment-variable NAME — never a value.
+   */
+  | { type: 'host/credentials-changed'; ref: string }
+  /**
+   * The provider topology changed (`llm/adapters-updated` passthrough):
+   * routes registered or dropped, or the configurable directory moved. Pure
+   * invalidation: clients refetch `llm.providers`/`llm.models`/`session.models`.
+   */
+  | { type: 'host/models-changed' }
   | { type: 'stream/error'; error: RpcError }

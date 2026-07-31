@@ -137,7 +137,9 @@ async function bench(snapshot: ConversationSnapshot) {
   }
   ctx.provide('workspaces', workspaces)
   ctx.provide('layout', layout)
-  ctx.provide('locale', new LocaleService(ctx))
+  const locale = new LocaleService(ctx)
+  ctx.provide('locale', locale)
+  slots.installLocale(locale)
 
   slots.install(createSlotRenderer())
   slots.register({
@@ -203,7 +205,7 @@ describe('run_code sub-calls through the real chat machinery', () => {
     expect(nest.querySelector('[data-tool="cordis_unmount"]')?.textContent)
       .toContain('Unmount temporary Plugindyn-2')
 
-    fireEvent.click(mounted!.querySelector('button[aria-expanded]')!)
+    fireEvent.click(mounted!.querySelector('[data-expandable]')!)
     expect(mounted!.querySelector('pre.shiki')?.textContent).toBe(code)
   })
 
@@ -211,8 +213,8 @@ describe('run_code sub-calls through the real chat machinery', () => {
     const parent = 'call-64'
     const b = await bench(snapshotWith([codeResult(10, parent)], new Map()))
     const view = mountApp(b.slots)
-    // The code row is expandable via its leading control (body = the program).
-    const toggle = view.container.querySelector('[data-variant="code"] button[aria-expanded]')
+    // The code row is expandable via the whole summary row (body = the program).
+    const toggle = view.container.querySelector('[data-variant="code"] [data-expandable]')
     expect(toggle).not.toBeNull()
     fireEvent.click(toggle!)
     // Shiki splits the program into token spans inside one <pre class="shiki">:

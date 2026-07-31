@@ -17,6 +17,7 @@ import type { MessageSource } from '@deepseek-ai/dsh-llm'
 import { isAppendSurfaceEvent, lastActivityTime } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
+import { SessionQueryError, type SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
 import type { Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
 import {
   workspaceDomainState, workspaceRecord, WorkspaceId as brandWorkspaceId,
@@ -25,10 +26,15 @@ import {
 // Type-only: brings the `ctx.tools` Context merge into this program (viewFor reads presenters).
 import type {} from '@deepseek-ai/dsh-tools'
 import type {
-  ApiProxy, GoalRef, HistoryEntry, HostFrame, ModelCatalogFailure, ModelProviderGroup, ModelReasoning,
-  MuxFrame, QuestionResponsePayload, SessionProjectionsBlock, SessionSummary, ToolEventView,
-  WorkspaceId, WorkspaceView,
+  ApiProxy, CredentialView, GoalRef, HistoryEntry, HostFrame, ModelCatalogFailure, ModelProviderGroup,
+  ModelReasoning, MuxFrame, QuestionResponsePayload, SessionProjectionsBlock, SessionSearchItem,
+  SessionSummary, SettingsNamespaceView, ToolEventView, WorkspaceId, WorkspaceView,
 } from './api/index.ts'
+import {
+  SESSION_SEARCH_RESULT_LIMIT,
+  SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS,
+  truncateUnicodeCodePoints,
+} from './api/session-search.ts'
 // Type-only: resolves `ctx.get('sessionProjections')` to the projection registry.
 import type {} from '@deepseek-ai/dsh-session-projection'
 // Type-only: resolves `ctx.get('sessionProjectionCache')` (the cold listing column).
@@ -39,6 +45,12 @@ import type { GoalRef as CoreGoalRef } from '@deepseek-ai/dsh-goal'
 // Type-only edges: resolve `ctx.get('commands')`, the `commands/change` event, and `ctx.get('skills')`.
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-skill'
+// The settings/credentials seams: brand guards run at this wire boundary; the
+// service reads stay optional (`ctx.get`) so a composition without either
+// provider still serves every other domain.
+import { SettingsConflictError, settingsNamespace } from '@deepseek-ai/dsh-settings'
+import type { SettingsDescriptor, SettingsNamespace, SettingsPathOp } from '@deepseek-ai/dsh-settings'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
 // Value edge: the rename impl narrows the title service's validation failure; the import also resolves `ctx.get('sessionTitle')`.
 import { SessionTitleInvalidError } from '@deepseek-ai/dsh-session-title'
 import type { CallId } from '@deepseek-ai/dsh-llm/brand'
@@ -60,8 +72,19 @@ import { openNativePath } from './native-path-opener.ts'
 /** Page size when history is called without maxMessages. */
 const DEFAULT_MAX_MESSAGES = 50
 
+/** Provider work budget: at most 100 calls and 2,000 inspected hits. */
+const SESSION_SEARCH_PROVIDER_CALL_LIMIT = 100
+
+/** Bound cold-log stat fan-out and settle each started batch before cancellation returns. */
+const COLD_SUMMARY_BATCH_SIZE = 16
+
 /** Conversation message event types (the pagination counting unit). */
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message', 'steering/message'])
+
+/** Read live abort state across awaits without treating it as synchronously immutable. */
+function isAborted(signal: AbortSignal): boolean {
+  return signal.aborted
+}
 
 /**
  * Message-boundary pagination: count maxMessages append-origin messages
@@ -99,6 +122,82 @@ function paginate(
 /** Wrap an ok result echoing the request's rpcId. */
 function ok<T>(request: RpcRequest<unknown>, value: T): RpcResponse<T> {
   return { rpcId: request.rpcId, result: { ok: true, value } }
+}
+
+/**
+ * Build the provider/model catalog over every registered route. Shared by the
+ * session-scoped `session.models` (which passes the session's current target
+ * so an unlisted current model still renders selectable) and the host-scoped
+ * `llm.models` (no current). Per-provider failures ride `failures` without
+ * failing the sound groups; groups that advertise nothing are dropped.
+ */
+async function buildModelCatalog(
+  ctx: Context,
+  current?: { provider: string; model: string },
+): Promise<{ groups: ModelProviderGroup[]; failures: ModelCatalogFailure[] }> {
+  const catalog = await Promise.all(ctx.llm.listProviders().map(async (provider) => {
+    try {
+      const advertised = await ctx.llm.listModels(provider.id)
+      const models = [...advertised]
+      if (
+        current !== undefined
+        && provider.id === current.provider
+        && !models.some(model => model.id === current.model)
+      ) {
+        models.push({
+          provider: provider.id,
+          id: current.model,
+          name: current.model,
+        })
+      }
+      const entries = await Promise.all(models.map(async (model) => {
+        const resolved = await ctx.llm.resolveModelInfo(provider.id, model.id)
+        const reasoning: ModelReasoning | undefined = resolved.reasoning === undefined
+          ? undefined
+          : {
+            efforts: resolved.reasoning.efforts.map(effort => ({
+              id: effort.id,
+              name: effort.name,
+              ...effort.description === undefined
+                ? {}
+                : { description: effort.description },
+            })),
+            ...resolved.reasoning.defaultEffort === undefined
+              ? {}
+              : { defaultEffort: resolved.reasoning.defaultEffort },
+          }
+        return {
+          id: model.id,
+          name: model.name,
+          ...model.description === undefined ? {} : { description: model.description },
+          ...current !== undefined
+            && provider.id === current.provider
+            && model.id === current.model
+            && !advertised.some(candidate => candidate.id === current.model)
+            ? { unlisted: true as const }
+            : {},
+          ...reasoning === undefined ? {} : { reasoning },
+        }
+      }))
+      const group: ModelProviderGroup = {
+        id: provider.id,
+        name: provider.name,
+        models: entries,
+      }
+      return { kind: 'group' as const, group }
+    } catch (error: unknown) {
+      const failure: ModelCatalogFailure = {
+        id: provider.id,
+        name: provider.name,
+        message: error instanceof Error ? error.message : String(error),
+      }
+      return { kind: 'failure' as const, failure }
+    }
+  }))
+  return {
+    groups: catalog.flatMap(item => item.kind === 'group' ? [item.group] : []).filter(group => group.models.length > 0),
+    failures: catalog.flatMap(item => item.kind === 'failure' ? [item.failure] : []),
+  }
 }
 
 /** Wrap an error result echoing the request's rpcId. */
@@ -184,15 +283,22 @@ function summarize(session: Session, running: boolean): SessionSummary {
  * updatedAt is the log file's mtime; backends without a per-session file
  * (locate() undefined) fall back to the header's createdAt.
  */
-async function summarizeCold(persistence: SessionPersistence, meta: SessionHeader): Promise<SessionSummary> {
+async function summarizeCold(
+  persistence: SessionPersistence,
+  meta: SessionHeader,
+  signal?: AbortSignal,
+): Promise<SessionSummary> {
+  signal?.throwIfAborted()
   let updatedAt = meta.createdAt
   const location = persistence.locate(meta)
+  signal?.throwIfAborted()
   if (location !== undefined) {
     try {
       updatedAt = (await stat(location.path)).mtimeMs
     } catch {
       // The log vanished between list() and stat() (concurrent cleanup); createdAt stands in.
     }
+    signal?.throwIfAborted()
   }
   return {
     sessionId: meta.id,
@@ -880,6 +986,62 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     return operation
   }
 
+  /**
+   * Build the session.list baseline shared by listing and search visibility.
+   * Attached sessions come from memory; servable cold sessions merge from
+   * persistence, and the final order is newest-first.
+   */
+  async function listVisibleSessionSummaries(signal?: AbortSignal): Promise<SessionSummary[]> {
+    signal?.throwIfAborted()
+    const items = ctx.sessions.list().map((session) => {
+      const agent = ctx.agents.get(session.id)
+      const projections = listProjectionsFor(ctx, session.header, session)
+      return {
+        ...summarize(session, agent?.status === 'running'),
+        ...projections === undefined ? {} : { projections },
+      }
+    })
+    signal?.throwIfAborted()
+    const attached = new Set(items.map(item => item.sessionId))
+    const persistence = ctx.get('sessionPersistence')
+    if (persistence !== undefined) {
+      const cold = (await persistence.list(signal))
+        .filter(meta => !attached.has(meta.id) && meta.cwd !== undefined)
+      signal?.throwIfAborted()
+      for (let offset = 0; offset < cold.length; offset += COLD_SUMMARY_BATCH_SIZE) {
+        signal?.throwIfAborted()
+        const batch = cold.slice(offset, offset + COLD_SUMMARY_BATCH_SIZE)
+        const settled = await Promise.allSettled(
+          batch.map(async (meta) => {
+            // Cold rows read the persisted projection cache only — never a
+            // log load; a session without a cache row simply has no column.
+            const projections = listProjectionsFor(ctx, meta, undefined)
+            return {
+              ...await summarizeCold(persistence, meta, signal),
+              ...projections === undefined ? {} : { projections },
+            }
+          }),
+        )
+        const summaries: SessionSummary[] = []
+        let rejected = false
+        let failure: unknown
+        for (const result of settled) {
+          if (result.status === 'fulfilled') {
+            summaries.push(result.value)
+          } else if (!rejected) {
+            rejected = true
+            failure = result.reason
+          }
+        }
+        if (rejected) throw failure
+        signal?.throwIfAborted()
+        items.push(...summaries)
+      }
+    }
+    items.sort((a, b) => b.updatedAt - a.updatedAt)
+    return items
+  }
+
   /** Resolve the goal service; absent = the deployment did not compose @deepseek-ai/dsh-goal. */
   function goalService(): NonNullable<ReturnType<typeof ctx.get<'goals'>>> | { error: RpcError } {
     const goals = ctx.get('goals')
@@ -912,6 +1074,109 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     }
   }
 
+  /** Missing-service report shared by the settings domain (skills-domain stance). */
+  function settingsAbsent(): RpcError {
+    return { code: 'internal', message: 'settings service is absent: this deployment does not mount a settings provider (e.g. @deepseek-ai/dsh-settings-local) in its composition', details: {} }
+  }
+
+  /** Missing-service report shared by the credentials domain. */
+  function credentialsAbsent(): RpcError {
+    return { code: 'internal', message: 'credentials service is absent: this deployment does not mount a credential provider (e.g. @deepseek-ai/dsh-credentials-local) in its composition', details: {} }
+  }
+
+  /** Map one redacted seam descriptor to its wire view. */
+  function namespaceView(descriptor: SettingsDescriptor): SettingsNamespaceView {
+    return {
+      ns: String(descriptor.ns),
+      schema: descriptor.schema,
+      value: descriptor.value,
+      ...descriptor.base === undefined ? {} : { base: descriptor.base },
+      ...descriptor.user === undefined ? {} : { user: descriptor.user },
+      applies: descriptor.applies,
+      secrets: (descriptor.secrets ?? []).map(secret => ({ path: [...secret.path], set: secret.set })),
+      revision: descriptor.revision,
+    }
+  }
+
+  /**
+   * The settings namespaces this proxy serves: exactly those a registered
+   * configurable provider addresses. The settings seam itself is general —
+   * any plugin may register a namespace for its own configuration — but the
+   * Web configuration plane is scoped to model providers, and that boundary
+   * has to be enforced here rather than assumed from the current plugin set.
+   * Without it, every future `settings.register()` would silently become
+   * remotely readable and writable configuration.
+   */
+  function exposedNamespaces(): Set<string> {
+    return new Set(ctx.llm.listConfigurableProviders().map(entry => entry.settingsNs))
+  }
+
+  /** Refuse a namespace outside the model-provider boundary, naming why. */
+  function notExposed(request: RpcRequest<unknown>, ns: string): RpcResponse<SettingsNamespaceView> {
+    return err(request, {
+      code: 'settings-not-exposed',
+      message: `settings namespace "${ns}" is not exposed to configuration clients; only a namespace a registered model provider addresses is`,
+      details: { ns },
+    })
+  }
+
+  /**
+   * Run one settings write (merge or wholesale replace) and acknowledge with
+   * the namespace's new redacted view. A namespace outside the model-provider
+   * boundary is refused before the seam is touched; every seam refusal —
+   * unknown or invalid namespace, read-only provider, schema validation,
+   * storage — becomes one `settings-rejected` carrying the seam's own message.
+   */
+  async function settingsWrite(
+    request: RpcRequest<unknown>,
+    ns: string,
+    mode: 'update' | 'replace' | 'mutate',
+    section: object,
+    expectedRevision?: number,
+  ): Promise<RpcResponse<SettingsNamespaceView>> {
+    const settings = ctx.get('settings')
+    if (settings === undefined) return err(request, settingsAbsent())
+    const rejected = (error: unknown): RpcResponse<SettingsNamespaceView> => {
+      // A stale writer is its own outcome, not a malformed request: the client
+      // must re-read and re-apply rather than treat the write as invalid.
+      if (error instanceof SettingsConflictError) {
+        return err(request, {
+          code: 'settings-conflict',
+          message: error.message,
+          details: { ns, expected: error.expected, actual: error.actual },
+        })
+      }
+      return err(request, {
+        code: 'settings-rejected',
+        message: error instanceof Error ? error.message : String(error),
+        details: { ns },
+      })
+    }
+    let branded: SettingsNamespace
+    try {
+      branded = settingsNamespace(ns)
+    } catch (error: unknown) {
+      // A malformed name is a client bug, reported as such; it could never be
+      // in the exposed set either, so naming the real fault costs no ground.
+      return rejected(error)
+    }
+    if (!exposedNamespaces().has(ns)) return notExposed(request, ns)
+    try {
+      if (mode === 'update') await settings.update(branded, section, expectedRevision)
+      else if (mode === 'replace') await settings.replace(branded, section, expectedRevision)
+      else await settings.mutate(branded, section as SettingsPathOp[], expectedRevision)
+    } catch (error: unknown) {
+      return rejected(error)
+    }
+    const descriptor = settings.describe({ redactSecrets: true }).find(candidate => candidate.ns === branded)
+    if (descriptor === undefined) {
+      // The write committed but the namespace vanished before this read: only
+      // a concurrent registrant disposal can produce it.
+      return err(request, { code: 'internal', message: `settings namespace "${ns}" was disposed after the ${mode}`, details: {} })
+    }
+    return ok(request, namespaceView(descriptor))
+  }
+
   return {
     sessions: {
       // Attached sessions summarize from memory; persisted-but-unattached (cold)
@@ -919,30 +1184,137 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       // Legacy logs without a cwd (pre-project stance) are not served — every
       // session now records its project at create time.
       async list(request) {
-        const items = ctx.sessions.list().map((session) => {
-          const agent = ctx.agents.get(session.id)
-          const projections = listProjectionsFor(ctx, session.header, session)
-          return {
-            ...summarize(session, agent?.status === 'running'),
-            ...projections === undefined ? {} : { projections },
-          }
+        return ok(request, { items: await listVisibleSessionSummaries() })
+      },
+
+      async search(request, signal) {
+        const cancelled = () => err<{ items: SessionSearchItem[]; hasMore: boolean }>(request, {
+          code: 'cancelled',
+          message: 'session search was aborted',
+          details: {},
         })
-        const attached = new Set(items.map(item => item.sessionId))
-        const persistence = ctx.get('sessionPersistence')
-        if (persistence !== undefined) {
-          const cold = (await persistence.list()).filter(meta => !attached.has(meta.id) && meta.cwd !== undefined)
-          items.push(...await Promise.all(cold.map(async (meta) => {
-            // Cold rows read the persisted projection cache only — never a
-            // log load; a session without a cache row simply has no column.
-            const projections = listProjectionsFor(ctx, meta, undefined)
-            return {
-              ...await summarizeCold(persistence, meta),
-              ...projections === undefined ? {} : { projections },
-            }
-          })))
+        if (isAborted(signal)) return cancelled()
+        const sessionQuery = ctx.get('sessionQuery')
+        if (sessionQuery === undefined) {
+          return err(request, {
+            code: 'internal',
+            message: 'session search is unavailable: this deployment does not mount @deepseek-ai/dsh-session-query',
+            details: {},
+          })
         }
-        items.sort((a, b) => b.updatedAt - a.updatedAt)
-        return ok(request, { items })
+        try {
+          const visible = await listVisibleSessionSummaries(signal)
+          if (isAborted(signal)) return cancelled()
+          if (visible.length === 0) return ok(request, { items: [], hasMore: false })
+          const visibleIds = new Set(visible.map(item => item.sessionId))
+          const authorized: SessionSearchItem[] = []
+          const acceptedIds = new Set<SessionId>()
+          const seenCursors = new Set<SessionSearchCursor>()
+          let cursor: SessionSearchCursor | undefined
+          let providerCallCount = 0
+          let providerPageLimit = SESSION_SEARCH_RESULT_LIMIT
+          while (authorized.length <= SESSION_SEARCH_RESULT_LIMIT) {
+            if (isAborted(signal)) return cancelled()
+            if (providerCallCount >= SESSION_SEARCH_PROVIDER_CALL_LIMIT) {
+              throw new Error(
+                `session search provider exceeded the ${SESSION_SEARCH_PROVIDER_CALL_LIMIT}-call work budget`,
+              )
+            }
+            providerCallCount++
+            const requestedCursor = cursor
+            const requestedPageLimit = providerPageLimit
+            let page
+            try {
+              page = await sessionQuery.searchSessions({
+                query: request.payload.query,
+                eventFilters: [
+                  { kind: 'type', values: ['user/message', 'assistant/message', 'steering/message'] },
+                  { kind: 'surface', values: ['current'] },
+                ],
+                limit: requestedPageLimit,
+                ...requestedCursor === undefined ? {} : { cursor: requestedCursor },
+              }, { signal })
+            } catch (error: unknown) {
+              if (isAborted(signal)) return cancelled()
+              if (
+                requestedCursor === undefined
+                && error instanceof SessionQueryError
+                && error.code === 'SESSION_QUERY_INVALID_LIMIT'
+                && requestedPageLimit > 1
+              ) {
+                providerPageLimit = Math.max(1, Math.floor(requestedPageLimit / 2))
+                continue
+              }
+              if (
+                requestedCursor !== undefined
+                && error instanceof SessionQueryError
+                && error.code === 'SESSION_QUERY_STALE_CURSOR'
+              ) {
+                authorized.length = 0
+                acceptedIds.clear()
+                seenCursors.clear()
+                cursor = undefined
+                continue
+              }
+              throw error
+            }
+            if (isAborted(signal)) return cancelled()
+            const providerItemCount = page.items.length
+            if (providerItemCount > requestedPageLimit) {
+              throw new Error(
+                `session search provider returned ${providerItemCount} items; maximum is ${requestedPageLimit}`,
+              )
+            }
+            // Host visibility is the authorization boundary. Consume the
+            // provider's globally ranked stream rather than binding every
+            // visible id into one SQLite statement, then re-check complete
+            // provenance before emitting any snippet.
+            for (const hit of page.items) {
+              if (authorized.length > SESSION_SEARCH_RESULT_LIMIT) continue
+              if (
+                !visibleIds.has(hit.header.id)
+                || hit.bestMatch.sessionId !== hit.header.id
+                || hit.bestMatch.surface !== 'current'
+                || !MESSAGE_TYPES.has(hit.bestMatch.type)
+                || acceptedIds.has(hit.header.id)
+              ) continue
+              const snippet = truncateUnicodeCodePoints(
+                hit.bestMatch.snippet,
+                SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS,
+              )
+              acceptedIds.add(hit.header.id)
+              authorized.push({
+                sessionId: hit.header.id,
+                snippet,
+              })
+            }
+            const nextCursor = page.nextCursor
+            if (nextCursor !== undefined) {
+              if (seenCursors.has(nextCursor)) {
+                throw new Error('session search provider repeated a continuation cursor')
+              }
+              seenCursors.add(nextCursor)
+            }
+            if (authorized.length > SESSION_SEARCH_RESULT_LIMIT || nextCursor === undefined) break
+            cursor = nextCursor
+          }
+          return ok(request, {
+            items: authorized.slice(0, SESSION_SEARCH_RESULT_LIMIT),
+            hasMore: authorized.length > SESSION_SEARCH_RESULT_LIMIT,
+          })
+        } catch (error: unknown) {
+          if (
+            isAborted(signal)
+            || (error instanceof SessionQueryError && error.code === 'SESSION_QUERY_ABORTED')
+          ) return cancelled()
+          // XXX: Redact provider details before exposing this gateway beyond
+          // its current single-user local deployment.
+          return err(request, {
+            code: 'internal',
+            message: `session search failed: ${String(error)}`,
+            details: {},
+          })
+        }
       },
 
       async create(request) {
@@ -1022,70 +1394,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const found = await agentFor(sessionId)
         if ('error' in found) return err(request, found.error)
         const current = targetFor(found.agent).current
-        const catalog = await Promise.all(ctx.llm.listProviders().map(async (provider) => {
-          try {
-            const advertised = await ctx.llm.listModels(provider.id)
-            const models = [...advertised]
-            if (
-              provider.id === current.provider
-              && !models.some(model => model.id === current.model)
-            ) {
-              models.push({
-                provider: provider.id,
-                id: current.model,
-                name: current.model,
-              })
-            }
-            const entries = await Promise.all(models.map(async (model) => {
-              const resolved = await ctx.llm.resolveModelInfo(provider.id, model.id)
-              const reasoning: ModelReasoning | undefined = resolved.reasoning === undefined
-                ? undefined
-                : {
-                  efforts: resolved.reasoning.efforts.map(effort => ({
-                    id: effort.id,
-                    name: effort.name,
-                    ...effort.description === undefined
-                      ? {}
-                      : { description: effort.description },
-                  })),
-                  ...resolved.reasoning.defaultEffort === undefined
-                    ? {}
-                    : { defaultEffort: resolved.reasoning.defaultEffort },
-                }
-              return {
-                id: model.id,
-                name: model.name,
-                ...model.description === undefined ? {} : { description: model.description },
-                ...provider.id === current.provider
-                  && model.id === current.model
-                  && !advertised.some(candidate => candidate.id === current.model)
-                  ? { unlisted: true as const }
-                  : {},
-                ...reasoning === undefined ? {} : { reasoning },
-              }
-            }))
-            const group: ModelProviderGroup = {
-              id: provider.id,
-              name: provider.name,
-              models: entries,
-            }
-            return { kind: 'group' as const, group }
-          } catch (error: unknown) {
-            const failure: ModelCatalogFailure = {
-              id: provider.id,
-              name: provider.name,
-              message: error instanceof Error ? error.message : String(error),
-            }
-            return { kind: 'failure' as const, failure }
-          }
-        }))
-        const groups = catalog.flatMap(item => item.kind === 'group' ? [item.group] : [])
-        const failures = catalog.flatMap(item => item.kind === 'failure' ? [item.failure] : [])
-        return ok(request, {
-          current: { ...current },
-          groups: groups.filter(group => group.models.length > 0),
-          failures,
-        })
+        const { groups, failures } = await buildModelCatalog(ctx, current)
+        return ok(request, { current: { ...current }, groups, failures })
       },
 
       async selectModel(request) {
@@ -1621,6 +1931,105 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
     },
 
+    settings: {
+      describe(request) {
+        const settings = ctx.get('settings')
+        if (settings === undefined) return Promise.resolve(err(request, settingsAbsent()))
+        const exposed = exposedNamespaces()
+        return Promise.resolve(ok(request, {
+          writable: settings.writable,
+          namespaces: settings.describe({ redactSecrets: true })
+            .filter(descriptor => exposed.has(String(descriptor.ns)))
+            .map(namespaceView),
+        }))
+      },
+      update: request => settingsWrite(request, request.payload.ns, 'update', request.payload.patch, request.payload.expectedRevision),
+      replace: request => settingsWrite(request, request.payload.ns, 'replace', request.payload.section, request.payload.expectedRevision),
+      mutate: request => settingsWrite(request, request.payload.ns, 'mutate', request.payload.ops, request.payload.expectedRevision),
+    },
+
+    credentials: {
+      async describe(request) {
+        const credentials = ctx.get('credentials')
+        if (credentials === undefined) return err(request, credentialsAbsent())
+        const entries = await Promise.all(request.payload.refs.map(async (ref) => {
+          const info = await credentials.describe(credentialRef(ref))
+          const view: CredentialView = {
+            configured: info.configured,
+            ...info.source === undefined ? {} : { source: info.source },
+            writable: info.writable,
+          }
+          return [ref, view] as const
+        }))
+        return ok(request, { credentials: Object.fromEntries(entries) })
+      },
+
+      async set(request) {
+        const credentials = ctx.get('credentials')
+        if (credentials === undefined) return err(request, credentialsAbsent())
+        const { ref, value } = request.payload
+        try {
+          await credentials.set(credentialRef(ref), value)
+        } catch (error: unknown) {
+          return err(request, {
+            code: 'credential-rejected',
+            message: error instanceof Error ? error.message : String(error),
+            details: { ref },
+          })
+        }
+        return ok(request, {})
+      },
+
+      async unset(request) {
+        const credentials = ctx.get('credentials')
+        if (credentials === undefined) return err(request, credentialsAbsent())
+        const { ref } = request.payload
+        try {
+          await credentials.unset(credentialRef(ref))
+        } catch (error: unknown) {
+          return err(request, {
+            code: 'credential-rejected',
+            message: error instanceof Error ? error.message : String(error),
+            details: { ref },
+          })
+        }
+        return ok(request, {})
+      },
+    },
+
+    llm: {
+      providers(request) {
+        const registered = ctx.llm.listProviders()
+        const active = new Set(registered.map(provider => provider.id))
+        const directory = ctx.llm.listConfigurableProviders()
+        const declared = new Set(directory.map(entry => entry.provider))
+        const views = directory.map(entry => ({
+          provider: entry.provider,
+          displayName: entry.displayName,
+          settingsNs: entry.settingsNs,
+          settingsPath: [...entry.settingsPath],
+          active: active.has(entry.provider),
+        }))
+        // Routes registered without a directory declaration still appear —
+        // they exist and serve models — just with no settings address.
+        for (const provider of registered) {
+          if (declared.has(provider.id)) continue
+          views.push({
+            provider: provider.id,
+            displayName: provider.name,
+            settingsNs: '',
+            settingsPath: [],
+            active: true,
+          })
+        }
+        return Promise.resolve(ok(request, { providers: views }))
+      },
+
+      async models(request) {
+        return ok(request, await buildModelCatalog(ctx))
+      },
+    },
+
     events: {
       mux(_request, signal) {
         const queue = new FrameQueue<RpcRequest<MuxFrame>>()
@@ -1750,6 +2159,23 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           }),
           ctx.on('commands/change', () => {
             queue.push(frame({ type: 'host/commands-changed' }))
+          }),
+          ctx.on('settings/document-updated', (ns) => {
+            // The RAW-section event, not the resolved one: a field going from
+            // inherited to overridden leaves the resolved value equal, and a
+            // configuration client still has to re-read (its held revision is
+            // stale, and the field's meaning changed).
+            queue.push(frame({ type: 'host/settings-changed', ns: String(ns) }))
+            // A provider's own settings carry its model catalog and endpoint,
+            // so a change there invalidates the model list even when the route
+            // set is untouched — `llm/adapters-updated` alone misses it.
+            if (exposedNamespaces().has(String(ns))) queue.push(frame({ type: 'host/models-changed' }))
+          }),
+          ctx.on('credentials/updated', (ref) => {
+            queue.push(frame({ type: 'host/credentials-changed', ref: String(ref) }))
+          }),
+          ctx.on('llm/adapters-updated', () => {
+            queue.push(frame({ type: 'host/models-changed' }))
           }),
         ]
         return queue.iterate(signal, () => { for (const dispose of disposers) dispose() })

@@ -12,6 +12,12 @@
       "path": "../../goal/goal"
     },
     {
+      "path": "../../settings/settings"
+    },
+    {
+      "path": "../../credentials/credentials"
+    },
+    {
       "path": "../../../vendor/cordis"
     },
     {
@@ -40,6 +46,9 @@
     },
     {
       "path": "../../session-projection/session-projection-cache"
+    },
+    {
+      "path": "../../session-query/session-query"
     },
     {
       "path": "../../session-title/session-title"
