@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type {
   KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
@@ -14,16 +14,64 @@ import css from './JsonTree.module.css'
 const OBJECT_PREVIEW_LIMIT = 4
 const ARRAY_PREVIEW_LIMIT = 5
 const PREVIEW_DEPTH_LIMIT = 2
-const VALUE_COPY_MENU_ITEMS: readonly MenuEntry[] = [
-  { id: 'value', label: 'Copy value' },
-  { id: 'json', label: 'Copy JSON' },
-  { id: 'path', label: 'Copy property path' },
-]
-const OBJECT_COPY_MENU_ITEMS: readonly MenuEntry[] = [
-  { id: 'prettyJson', label: 'Copy pretty JSON' },
-  { id: 'json', label: 'Copy compact JSON' },
-  { id: 'path', label: 'Copy property path' },
-]
+
+/**
+ * Display copy for the tree's copy affordance; the owner passes localized
+ * labels (this package is cordis-free, so copy arrives via props). Every
+ * field defaults to the current built-in value, so existing consumers render
+ * unchanged.
+ */
+export interface JsonTreeLabels {
+  /** Menu item: copy the raw primitive value. */
+  copyValue: string
+  /** Menu item: copy the value as compact JSON (primitive rows). */
+  copyJson: string
+  /** Menu item: copy the property path. */
+  copyPath: string
+  /** Menu item: copy the value as pretty-printed JSON. */
+  copyPrettyJson: string
+  /** Menu item: copy the value as compact JSON (object rows). */
+  copyCompactJson: string
+  /** Copy-button state label after a successful copy. */
+  copied: string
+  /** Copy-button state label after a failed copy. */
+  copyFailed: string
+  /** Expander aria label while expanded. */
+  collapseNode: string
+  /** Expander aria label while collapsed. */
+  expandNode: string
+  /** Copy-button tooltip, given the current action label. */
+  copyButtonTitle: (action: string) => string
+}
+
+const DEFAULT_LABELS: JsonTreeLabels = {
+  copyValue: 'Copy value',
+  copyJson: 'Copy JSON',
+  copyPath: 'Copy property path',
+  copyPrettyJson: 'Copy pretty JSON',
+  copyCompactJson: 'Copy compact JSON',
+  copied: 'Copied',
+  copyFailed: 'Copy failed',
+  collapseNode: 'Collapse JSON node',
+  expandNode: 'Expand JSON node',
+  copyButtonTitle: action => `${action}; right-click for copy options`,
+}
+
+function valueCopyMenuItems(labels: JsonTreeLabels): readonly MenuEntry[] {
+  return [
+    { id: 'value', label: labels.copyValue },
+    { id: 'json', label: labels.copyJson },
+    { id: 'path', label: labels.copyPath },
+  ]
+}
+
+function objectCopyMenuItems(labels: JsonTreeLabels): readonly MenuEntry[] {
+  return [
+    { id: 'prettyJson', label: labels.copyPrettyJson },
+    { id: 'json', label: labels.copyCompactJson },
+    { id: 'path', label: labels.copyPath },
+  ]
+}
 
 type JsonPath = readonly (number | string)[]
 
@@ -193,6 +241,7 @@ function NodeField({
 interface JsonTreeNodeProps {
   field?: string
   initialExpanded: boolean
+  labels: JsonTreeLabels
   lastElement: boolean
   onClaimTabStop: (id: string) => void
   onRowHover: (row: HTMLElement, target: RowTarget) => void
@@ -204,6 +253,7 @@ interface JsonTreeNodeProps {
 function JsonTreeNode({
   field,
   initialExpanded,
+  labels,
   lastElement,
   onClaimTabStop,
   onRowHover,
@@ -279,7 +329,7 @@ function JsonTreeNode({
         className={clsx(css.expander, expanded ? css.collapseIcon : css.expandIcon)}
         data-json-expander
         role="button"
-        aria-label={expanded ? 'Collapse JSON node' : 'Expand JSON node'}
+        aria-label={expanded ? labels.collapseNode : labels.expandNode}
         aria-expanded={expanded}
         aria-controls={expanded ? contentsId : undefined}
         tabIndex={tabStopId === nodeId ? 0 : -1}
@@ -298,6 +348,7 @@ function JsonTreeNode({
               field={key}
               value={item}
               path={[...path, Array.isArray(value) ? index : key]}
+              labels={labels}
               lastElement={index === entries.length - 1}
               initialExpanded={false}
               tabStopId={tabStopId}
@@ -344,6 +395,8 @@ export interface JsonTreeProps {
   copyable?: boolean
   /** Whether the top-level object or array is always expanded. */
   expandTopLevel?: boolean
+  /** Localized display copy; omitted fields keep the built-in defaults. */
+  labels?: Partial<JsonTreeLabels> | undefined
 }
 
 /**
@@ -357,7 +410,12 @@ export function JsonTree({
   className,
   copyable = true,
   expandTopLevel = true,
+  labels,
 }: JsonTreeProps) {
+  const copyLabels = useMemo<JsonTreeLabels>(
+    () => (labels === undefined ? DEFAULT_LABELS : { ...DEFAULT_LABELS, ...labels }),
+    [labels],
+  )
   const rootEntries = entriesOf(data)
   const firstExpandableIndex = rootEntries.findIndex(([, value]) => (
     isExpandableValue(value) && entriesOf(value).length > 0
@@ -486,10 +544,10 @@ export function JsonTree({
   const copyTargetIsObject = typeof copyTarget?.value === 'object' && copyTarget.value !== null
   const defaultCopyMode = copyTargetIsObject ? 'prettyJson' : 'value'
   const copyTitle = copyState === 'copied'
-    ? 'Copied'
+    ? copyLabels.copied
     : copyState === 'failed'
-      ? 'Copy failed'
-      : copyTargetIsObject ? 'Copy pretty JSON' : 'Copy value'
+      ? copyLabels.copyFailed
+      : copyTargetIsObject ? copyLabels.copyPrettyJson : copyLabels.copyValue
 
   return (
     <div
@@ -525,6 +583,7 @@ export function JsonTree({
                   field={key}
                   value={value}
                   path={[Array.isArray(data) ? index : key]}
+                  labels={copyLabels}
                   lastElement={index === rootEntries.length - 1}
                   initialExpanded={false}
                   tabStopId={tabStopId}
@@ -543,6 +602,7 @@ export function JsonTree({
             <JsonTreeNode
               value={data}
               path={[]}
+              labels={copyLabels}
               lastElement
               initialExpanded
               tabStopId={tabStopId}
@@ -570,7 +630,7 @@ export function JsonTree({
                 data-json-copy-button
                 data-state={copyState}
                 aria-label={copyTitle}
-                title={`${copyTitle}; right-click for copy options`}
+                title={copyLabels.copyButtonTitle(copyTitle)}
                 onClick={() => void copy(defaultCopyMode)}
                 onContextMenu={(event) => {
                   event.preventDefault()
@@ -584,7 +644,7 @@ export function JsonTree({
                   : <IconCopyOutline16 size={12} />}
               </button>
             )}
-            items={copyTargetIsObject ? OBJECT_COPY_MENU_ITEMS : VALUE_COPY_MENU_ITEMS}
+            items={copyTargetIsObject ? objectCopyMenuItems(copyLabels) : valueCopyMenuItems(copyLabels)}
             onSelect={(id) => {
               void copy(id as 'json' | 'path' | 'prettyJson' | 'value')
               copyMenuOpenRef.current = false

@@ -35,6 +35,7 @@ function scriptedApi(overrides: {
   return {
     sessions: {
       list: r => ok(r, { items: [] }),
+      search: r => ok(r, { items: [], hasMore: false }),
       create: r => ok(r, { sessionId: sid('s-new') }),
       history: r => ok(r, {
         events: [],
@@ -139,6 +140,44 @@ describe('unary round trip', () => {
     expect(seen?.rpcId).toBeTruthy()
     expect(response.rpcId).toBe(seen?.rpcId)
     expect(response.result).toEqual({ ok: true, value: { items: [{ sessionId: 's1', updatedAt: 7, running: false, blank: false }] } })
+  })
+
+  it('round-trips a trimmed session search query and its bounded result metadata', async () => {
+    let seen: RpcRequest<{ query: string }> | undefined
+    const api = scriptedApi({
+      sessions: {
+        search: (request) => {
+          seen = request
+          return ok(request, {
+            items: [{ sessionId: sid('s1'), snippet: 'matching message text' }],
+            hasMore: true,
+          })
+        },
+      },
+    })
+    const response = await client(api).sessions.search({ query: '  message text  ' })
+    expect(seen?.payload).toEqual({ query: 'message text' })
+    expect(response.result).toEqual({
+      ok: true,
+      value: {
+        items: [{ sessionId: 's1', snippet: 'matching message text' }],
+        hasMore: true,
+      },
+    })
+  })
+
+  it('rejects an overlong session-search snippet at the client value boundary', async () => {
+    const api = scriptedApi({
+      sessions: {
+        search: request => ok(request, {
+          items: [{ sessionId: sid('s1'), snippet: '😀'.repeat(241) }],
+          hasMore: false,
+        }),
+      },
+    })
+
+    await expect(client(api).sessions.search({ query: 'message' }))
+      .rejects.toThrow(/240 Unicode code points/)
   })
 
   it('routes session fork with its optional cut anchor through the wire', async () => {

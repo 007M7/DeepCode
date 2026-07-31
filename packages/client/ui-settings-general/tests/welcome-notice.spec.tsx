@@ -46,7 +46,7 @@ function mount(version?: string, mutateImpl: () => Promise<unknown> = () => Prom
     useWorkspaces: unusedHook,
     controller,
     useSnapshot: bindSnapshotSelector(controller.store),
-    t: key => zh[key] ?? key,
+    t: key => key in zh ? zh[key as keyof typeof zh] : key,
   }
   return { ...render(<WelcomeNotice {...props} />), complete, controller, mutate }
 }

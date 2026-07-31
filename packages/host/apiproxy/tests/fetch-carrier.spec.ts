@@ -22,6 +22,26 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
         if (overrides.crashOn === 'session.list') throw new Error('impl crashed')
         return { rpcId: request.rpcId, result: { ok: true, value: { items: [] } } }
       },
+      async search(request, signal) {
+        if (request.payload.query === 'hang') {
+          if (!signal.aborted) {
+            await new Promise<void>((resolve) => {
+              signal.addEventListener('abort', () => { resolve() }, { once: true })
+            })
+          }
+          return {
+            rpcId: request.rpcId,
+            result: { ok: false, error: { code: 'cancelled', message: 'aborted', details: {} } },
+          }
+        }
+        return {
+          rpcId: request.rpcId,
+          result: {
+            ok: true,
+            value: { items: [{ sessionId: 's1' as never, snippet: 'fixture match' }], hasMore: false },
+          },
+        }
+      },
       async create(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { sessionId: 's-new' as never } } }
       },
@@ -248,6 +268,10 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
 
   it('covers create/prompt/updateQueue/cancel/describe passthrough', async () => {
     const c = client()
+    expect((await c.sessions.search({ query: 'fixture' })).result).toEqual({
+      ok: true,
+      value: { items: [{ sessionId: 's1', snippet: 'fixture match' }], hasMore: false },
+    })
     expect((await c.sessions.create({})).result.ok).toBe(true)
     expect((await c.sessions.models({ sessionId: 's' as never })).result.ok).toBe(true)
     const selected = await c.sessions.selectModel({
@@ -336,6 +360,29 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     const response = await pending
     const parsed = await response.json() as { rpcId: string; result: { ok: boolean; error?: { code: string } } }
     expect(parsed.rpcId).toBe('r-sig')
+    expect(parsed.result.error?.code).toBe('cancelled')
+  })
+
+  it('propagates the carrier Request signal into session.search', async () => {
+    const handler = toFetchHandler(fakeApi())
+    const controller = new AbortController()
+    const body = JSON.stringify({
+      type: 'client-request',
+      rpcId: 'r-search-sig',
+      method: 'session.search',
+      payload: { query: 'hang' },
+    })
+    const pending = handler.fetch(new Request(
+      'http://x/api/session.search',
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body, signal: controller.signal },
+    ))
+    controller.abort()
+    const response = await pending
+    const parsed = await response.json() as {
+      rpcId: string
+      result: { error?: { code: string } }
+    }
+    expect(parsed.rpcId).toBe('r-search-sig')
     expect(parsed.result.error?.code).toBe('cancelled')
   })
 

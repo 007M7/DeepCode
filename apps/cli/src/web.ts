@@ -57,12 +57,14 @@ export async function runWeb(
     void Promise.resolve(ctx.fiber.dispose()).finally(() => { process.exit(code) })
   }
 
+  // Install shutdown handling before publishing readiness: supervisors may
+  // send a signal as soon as they observe the URL line.
+  process.on('SIGTERM', () => { shutdown(0) })
+  process.on('SIGINT', () => { shutdown(130) })
+
   // The entry's boot-time snapshot, not a fresh sample: the printed LAN URL
   // must name an address the /api trust fence was configured with.
   const lanCandidate = entry.lanAddresses[0]
   const localUrl = `http://${LOOPBACK_HOST}:${boundPort}`
   console.log(`dsh web: ${localUrl}${lanCandidate === undefined ? '' : ` (LAN: http://${lanCandidate}:${boundPort})`}`)
-
-  process.on('SIGTERM', () => { shutdown(0) })
-  process.on('SIGINT', () => { shutdown(130) })
 }

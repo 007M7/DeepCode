@@ -37,6 +37,7 @@ export { FixtureSession, TestSessions } from './sessions.ts'
 export { TestWorkspaces } from './workspaces.ts'
 export { conversationSnapshot, workspaceListState } from './fixtures.ts'
 export type { SessionBehaviorOverrides, SessionFixture, Stabilizer } from './fixtures.ts'
+export { makeTranslate } from './translate.ts'
 
 /** Erased register face for the internal root call (the public declare seam holds the typing). */
 type ErasedRegister = (options: object, component: unknown) => () => void

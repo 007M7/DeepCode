@@ -72,8 +72,9 @@ function contentText(content: readonly SessionContentBlock[]): string {
 function blockText(block: SessionContentBlock): string[] {
   switch (block.type) {
     case 'text':
-    case 'reasoning':
       return [block.text]
+    case 'reasoning':
+      return []
     case 'tool-call':
       return [block.name, block.arguments]
     case 'tool-result':

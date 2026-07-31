@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-将 `engines.node` 设为 `^22.19.0 || >=24.0.0`，并在 keyless CI 兼容性矩阵中测试 `['22.19', 24, 26]`。每条矩阵分支都运行 TypeScript 类型检查加一次 keyless 的源码模式 worker 冒烟测试，因此引擎下限通过完整的源码类型检查和真实的未构建运行时路径两条路径得到验证。真实 API 的 e2e 工作流保持在 Node 24 上，因为它验证的是 API 集成而非运行时下限。
+将 `engines.node` 设为 `^22.19.0 || >=24.0.0`，并在 `['22.19', 24, 26]` 上运行 keyless CI。主要的 Node 24 任务负责整套类型检查和单元测试覆盖率任务；三个版本均运行 source-worker、Zstandard、source-launch 和 [jsdom 存储](../testing/2026-07-30-vitest-jsdom-webstorage-ownership.md) 专项冒烟测试，不重复这套类型检查和覆盖率任务。真实 API 的 e2e 工作流保持在 Node 24 上，因为它验证的是 API 集成而非运行时下限。
 
 两个 Node 特性决定了源码运行时的门槛：
 
@@ -24,7 +24,7 @@ Status: implemented
 ## 后果
 
 - 宣传的 LTS 分支不再低于 Pi 适配器依赖的下限。
-- CI 通过 Node 22.19 直接验证 Node 22 LTS 下限，Node 24 分支保持 `node: 24`，Node 26 用于下一个偶数线；每条分支都对源码图执行类型检查，并实际启动未构建的工作流 worker。
+- CI 通过 Node 22.19 直接验证 Node 22 LTS 下限，将主要覆盖率任务保留在 `node: 24`，并用 Node 26 验证下一个偶数线；三个版本均运行聚焦的兼容性冒烟测试。
 - built-bin 冒烟测试无需版本条件标志：在 22.19 上类型剥离已是默认行为，因此测试保持其文档所述的纯 `node lib/bin.js` 路径。
 - 未来若依赖或源码 API 提高运行时下限，必须在同一变更中同步调整 `engines.node`、兼容性矩阵和本 Agent Note（agent 决策记录）。
 

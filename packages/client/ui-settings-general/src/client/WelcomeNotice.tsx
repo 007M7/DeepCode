@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
-import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { BrandWordmark, Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-web-react'
 import type { WelcomeNoticeState, WelcomeNoticeStore } from './welcome-store.ts'
@@ -25,11 +25,11 @@ function emphasizedFeedback(paragraph: string, emphasis: string): ReactNode {
 export interface WelcomeNoticeInjected {
   controller: WelcomeNoticeStore
   useSnapshot: SnapshotSelectorHook<WelcomeNoticeState>
-  t: (key: string) => string
 }
 
 /** Coordinator owner props plus the welcome step's injected face. */
-export type WelcomeNoticeProps = PropsRuntime<'settings.onboarding'> & WelcomeNoticeInjected
+export type WelcomeNoticeProps =
+  PropsRuntime<'settings.onboarding'> & PropsLocale<'settings'> & WelcomeNoticeInjected
 
 /** Render the mandatory notice until its current version commits durably. */
 export function WelcomeNotice(props: WelcomeNoticeProps): ReactNode {

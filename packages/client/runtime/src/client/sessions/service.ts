@@ -16,7 +16,12 @@
  * survives frozen (read-only view) until the stage moves on.
  */
 import type { Context, Fiber } from 'cordis'
-import type { IApiClient, RpcError, SessionId, WorkspaceId } from '@deepseek-ai/dsh-client-connection/client'
+import type {
+  IApiClient, RpcError, RpcResult, SessionId, WorkspaceId,
+} from '@deepseek-ai/dsh-client-connection/client'
+// Value import from the inline-safe wire layer (not the connection plugin):
+// plugin-to-plugin value imports are a bundle purity error.
+import { SESSION_SEARCH_RESULT_LIMIT } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type {
   HostObservable, SessionMaybeProvideInfo, SessionProvideInfo,
 } from '@deepseek-ai/dsh-client-ui-slots'
@@ -26,7 +31,7 @@ import type { SessionFace } from '../contract/session.ts'
 import type { ISessions } from '../contract/sessions.ts'
 import { createScope, scopeOf as scopeTagOf } from '../agents/scope.ts'
 import { SessionManager } from './manager.ts'
-import type { SessionListPhase } from './manager.ts'
+import type { SessionListPhase, SessionSearchResultItem } from './manager.ts'
 import { SessionProvideChannel } from './provide.ts'
 import type { Session } from './session.ts'
 
@@ -189,6 +194,13 @@ export interface SessionProvideDescriptor {
 
 /** Root sessions service: list store, current selection, object-layer manager, scope tree, bindings, ancestry. */
 export class SessionsService implements ISessions {
+  /**
+   * The wire schema's own result bound, re-exposed for presentation plugins as
+   * injected data. Not per-connection state: the `session.search` response
+   * schema caps `items` at this constant, so every transport (fixture included)
+   * reports the same number.
+   */
+  readonly searchResultLimit = SESSION_SEARCH_RESULT_LIMIT
   /** List snapshot store (list RPC + host stream increments; re-pulled on reconnect) — the useSessions standard feed, current included. */
   readonly list: SnapshotStore<SessionListState>
   /** The object-layer instance cluster and frame dispatch entry. */
@@ -228,7 +240,10 @@ export class SessionsService implements ISessions {
    * @param ctx - client root context (scope fibers mount under it).
    * @param api - wire client shared with every Session.
    */
-  constructor(private readonly rootCtx: Context, api: IApiClient) {
+  constructor(
+    private readonly rootCtx: Context,
+    api: IApiClient,
+  ) {
     this.selection = createSnapshotStore<{ sessionId?: SessionId }>(
       {},
       { persist: { name: 'dsh.sessions.current' } })
@@ -305,6 +320,20 @@ export class SessionsService implements ISessions {
    */
   refresh(): Promise<void> {
     return this.manager.refreshList()
+  }
+
+  /**
+   * Search the Host's visible message-content index. Results stay
+   * request-local; the list snapshot remains the metadata authority.
+   * @param query - non-blank literal phrase.
+   * @param signal - cancellation for a superseded search.
+   * @returns bounded results or a business/transport error.
+   */
+  search(
+    query: string,
+    signal: AbortSignal,
+  ): Promise<RpcResult<{ items: SessionSearchResultItem[]; hasMore: boolean }>> {
+    return this.manager.search(query, signal)
   }
 
   /**

@@ -5,19 +5,17 @@
  * verbatim across locales per the Figma design. Feature-owned rows
  * (Language, Appearance) ship their copy in their own packages.
  */
-import type { LocaleDict } from '@deepseek-ai/dsh-client-locale/client'
 import { WELCOME_NOTICE_COPY } from '../onboarding-copy.ts'
-
 const SHARED = {
   'permission.value': 'Read only',
   'toolcall.schema.title': 'Schema mode',
   'toolcall.schema.desc': 'Traditional function calling — invoke tools one at a time',
   'toolcall.code.title': 'Code mode',
   'toolcall.code.desc': 'Chain multiple tools with code — multi-step orchestration',
-} satisfies LocaleDict
+} satisfies Record<string, string>
 
-/** Simplified Chinese dictionary. */
-export const zh: LocaleDict = {
+/** Simplified Chinese dictionary (the key-set source of truth). */
+export const zh = {
   ...SHARED,
   'trigger': '设置',
   'title': '设置',
@@ -34,10 +32,13 @@ export const zh: LocaleDict = {
   'welcome.feedbackEmphasis': WELCOME_NOTICE_COPY.zh.feedbackEmphasis,
   'welcome.continue': WELCOME_NOTICE_COPY.zh.continueLabel,
   'welcome.error': '暂时无法保存确认状态，请重试。',
-}
+} satisfies Record<string, string>
 
-/** English dictionary. */
-export const en: LocaleDict = {
+/** The settings namespace key union. */
+export type SettingsKey = keyof typeof zh
+
+/** English dictionary, checked complete against the zh key set. */
+export const en = {
   ...SHARED,
   'trigger': 'Settings',
   'title': 'Settings',
@@ -54,4 +55,4 @@ export const en: LocaleDict = {
   'welcome.feedbackEmphasis': WELCOME_NOTICE_COPY.en.feedbackEmphasis,
   'welcome.continue': WELCOME_NOTICE_COPY.en.continueLabel,
   'welcome.error': 'The acknowledgement could not be saved. Please try again.',
-}
+} satisfies Record<SettingsKey, string>

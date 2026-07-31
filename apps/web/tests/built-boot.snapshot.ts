@@ -60,6 +60,9 @@ let unmount: (() => void) | undefined
 
 beforeEach(() => {
   localStorage.clear()
+  // English pinned before boot: role/text locators stay deterministic across
+  // localized component migrations (the newEnglishPage e2e convention).
+  localStorage.setItem('dsh.locale', 'en')
   document.title = 'DeepSeek Harness'
   vi.stubGlobal('ResizeObserver', ResizeObserverStub)
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
@@ -106,6 +109,18 @@ it('boots the built plugin graph and renders a fixture session end to end', asyn
   fireEvent.click(await within(tree).findByText('Fixture 历史会话'))
   await waitFor(() => {
     expect(document.querySelector('[data-sample="bash-global"]')).not.toBeNull()
+  }, { timeout: 10_000 })
+
+  // The web render intent reaches the assembled boot graph: the fixture's
+  // web_search / web_fetch turns render their keyed WebRow cards, proving the
+  // registration, wire projection, and card rendering survive the real bundle
+  // path (not just the per-package src benches). The selector pins the KEYED
+  // WebRow (its own `data-variant="web"` wrapper), not the `[data-web]` attribute
+  // WebBlock draws — the generic fallback renders the same WebBlock, so a silent
+  // keyed-registration failure would still satisfy a bare `[data-web]` check.
+  await waitFor(() => {
+    expect(document.querySelector('[data-variant="web"][data-tool="web_search"]')).not.toBeNull()
+    expect(document.querySelector('[data-variant="web"][data-tool="web_fetch"]')).not.toBeNull()
   }, { timeout: 10_000 })
 
   // Every bundle injected its plugin-owned style tag (the loader's CSS path).

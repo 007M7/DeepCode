@@ -8,14 +8,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import {
   formatMessageClock, msUntilNextLocalMidnight, startOfLocalDay,
 } from '../src/client/chat/message-chrome.ts'
-import { MessageItem } from '../src/client/chat/MessageItem.tsx'
+import { MessageItem, type MessageItemProps } from '../src/client/chat/MessageItem.tsx'
 import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
 import { StatsLine, type StatsLineProps } from '../src/client/chat/StatsLine.tsx'
+import { zh } from '../src/client/locales.ts'
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.useRealTimers()
+})
+
+// Mirrors the real lookup chain (conversation namespace, then common).
+const t: MessageItemProps['t'] = makeTranslate(zh, commonZh)
 
 describe('MessageItem arms', () => {
   it('user bubbles expose clock / copy / branch / edit; copy writes the text', () => {
@@ -28,7 +37,7 @@ describe('MessageItem arms', () => {
     const now = new Date()
     const time = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 14, 24).getTime()
     render(
-      <MessageItem node={{
+      <MessageItem t={t} node={{
         kind: 'user', seq: 1, time,
         content: [{ type: 'text', text: 'hello bubble' }] as never,
         source: null,
@@ -54,7 +63,7 @@ describe('MessageItem arms', () => {
       value: exec,
     })
     render(
-      <MessageItem node={{
+      <MessageItem t={t} node={{
         kind: 'user', seq: 1, time: 1_000,
         content: [{ type: 'text', text: 'fallback body' }] as never,
         source: null,
@@ -77,7 +86,7 @@ describe('MessageItem arms', () => {
       },
     })
     render(
-      <MessageItem node={{
+      <MessageItem t={t} node={{
         kind: 'user', seq: 1, time: 1_000,
         content: [{ type: 'text', text: 'quiet' }] as never,
         source: null,
@@ -95,7 +104,7 @@ describe('MessageItem arms', () => {
 
   it('steering bubbles carry the interjection badge and non-text rest blocks, without user actions', () => {
     const view = render(
-      <MessageItem node={{
+      <MessageItem t={t} node={{
         kind: 'steering', seq: 2, turn: 1, source: null,
         content: [{ type: 'text', text: 'steer!' }, { type: 'image', data: 'x' }] as never,
       } as never}
@@ -109,7 +118,7 @@ describe('MessageItem arms', () => {
 
   it('context uses the Tool calls disclosure chrome and keeps its JSON collapsed by default', () => {
     const ctxView = render(
-      <MessageItem node={{
+      <MessageItem t={t} node={{
         kind: 'context',
         seq: 3,
         content: [{ type: 'text', text: 'x\n"y":,[{}]' }],
@@ -135,7 +144,7 @@ describe('MessageItem arms', () => {
 
   it('context preserves the bounded JSON truncation contract', () => {
     const view = render(
-      <MessageItem node={{
+      <MessageItem t={t} node={{
         kind: 'context',
         seq: 3,
         content: [{ type: 'text', text: 'x'.repeat(21_000) }],
@@ -150,9 +159,160 @@ describe('MessageItem arms', () => {
 
   it('unknown nodes retain the generic JSON row', () => {
     const unknownView = render(
-      <MessageItem node={{ kind: 'unknown', seq: 4, type: 'surface/next', data: { x: 1 } } as never} />,
+      <MessageItem t={t} node={{ kind: 'unknown', seq: 4, type: 'surface/next', data: { x: 1 } } as never} />,
     )
     expect(unknownView.getByText(/未知 surface 事件：surface\/next/)).toBeTruthy()
+  })
+
+  it('collapses retry details behind the durable model retry status', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(10_000)
+    const view = render(
+      <MessageItem
+        t={t}
+        retryActive
+        node={{
+          kind: 'model-retry',
+          seq: 5,
+          time: 10_000,
+          retryState: 'scheduled',
+          turn: 1,
+          step: 0,
+          provider: 'mock',
+          mode: 'normal',
+          policyKey: 'mock-normal',
+          retry: 1,
+          maxRetries: 2,
+          delayMs: 2_500.4,
+          failure: { code: 'TRANSPORT', message: '连接被重置' },
+        }}
+      />,
+    )
+    const details = view.container.querySelector('details')
+    const summary = view.container.querySelector('summary')
+    expect(details?.open).toBe(false)
+    expect(details?.dataset.active).toBe('true')
+    expect(view.getByRole('status').textContent).toBe('正在重试模型请求（1/2） · 3s')
+    expect(view.getByText('重试延迟：').parentElement?.textContent).toBe('重试延迟：2500ms')
+    expect(view.getByText('失败原因：').parentElement?.textContent).toBe('失败原因：连接被重置')
+
+    act(() => { vi.advanceTimersByTime(1_100) })
+    expect(view.getByRole('status').textContent).toBe('正在重试模型请求（1/2） · 2s')
+    act(() => { vi.advanceTimersByTime(1_000) })
+    expect(view.getByRole('status').textContent).toBe('正在重试模型请求（1/2） · 1s')
+
+    view.rerender(
+      <MessageItem
+        t={t}
+        retryActive
+        node={{
+          kind: 'model-retry',
+          seq: 6,
+          time: 12_100,
+          retryState: 'scheduled',
+          turn: 2,
+          step: 0,
+          provider: 'mock',
+          mode: 'normal',
+          policyKey: 'mock-normal',
+          retry: 2,
+          maxRetries: 2,
+          delayMs: 3_500.4,
+          failure: { code: 'TRANSPORT', message: '再次断开' },
+        }}
+      />,
+    )
+    expect(view.getByRole('status').textContent).toBe('正在重试模型请求（2/2） · 4s')
+
+    if (summary === null) throw new Error('retry summary missing')
+    fireEvent.click(summary)
+    expect(details?.open).toBe(true)
+
+    view.rerender(
+      <MessageItem t={t} node={{
+        kind: 'model-retry',
+        seq: 6,
+        time: 12_100,
+        retryState: 'started',
+        turn: 2,
+        step: 0,
+        provider: 'mock',
+        mode: 'normal',
+        policyKey: 'mock-normal',
+        retry: 2,
+        maxRetries: 2,
+        delayMs: 3_500.4,
+        failure: { code: 'TRANSPORT', message: '再次断开' },
+      }}
+      />,
+    )
+    expect(details?.dataset.active).toBeUndefined()
+    expect(view.getByRole('status').textContent).toBe('已重试模型请求（2/2） · 4s')
+
+    view.rerender(
+      <MessageItem t={t} node={{
+        kind: 'model-retry',
+        seq: 7,
+        time: 12_100,
+        retryState: 'started',
+        turn: 3,
+        step: 0,
+        provider: 'mock',
+        mode: 'always',
+        policyKey: 'mock-always',
+        retry: 3,
+        delayMs: 3_500.4,
+        failure: { code: 'TRANSPORT', message: '继续重试' },
+      }}
+      />,
+    )
+    expect(view.getByRole('status').textContent).toBe('已重试模型请求（3/∞） · 4s')
+
+    view.rerender(
+      <MessageItem t={t} node={{
+        kind: 'model-retry',
+        seq: 8,
+        time: 12_100,
+        retryState: 'cancelled',
+        turn: 4,
+        step: 0,
+        provider: 'mock',
+        mode: 'normal',
+        policyKey: 'mock-normal',
+        retry: 1,
+        maxRetries: 2,
+        delayMs: 3_500.4,
+        failure: { code: 'TRANSPORT', message: '用户取消' },
+      }}
+      />,
+    )
+    expect(view.getByRole('status').textContent).toBe('模型请求重试已取消（1/2） · 4s')
+  })
+
+  it('synchronizes the countdown when an inactive retry becomes active at the one-second floor', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(10_000)
+    const node = {
+      kind: 'model-retry',
+      seq: 5,
+      time: 10_000,
+      retryState: 'scheduled',
+      turn: 1,
+      step: 0,
+      provider: 'mock',
+      mode: 'normal',
+      policyKey: 'mock-normal',
+      retry: 1,
+      maxRetries: 2,
+      delayMs: 5_000,
+      failure: { code: 'TRANSPORT', message: '连接被重置' },
+    } as const
+    const view = render(<MessageItem t={t} node={node} />)
+    expect(view.getByRole('status').textContent).toBe('等待重试模型请求（1/2） · 5s')
+
+    act(() => { vi.advanceTimersByTime(4_200) })
+    view.rerender(<MessageItem t={t} node={node} retryActive />)
+    expect(view.getByRole('status').textContent).toBe('正在重试模型请求（1/2） · 1s')
   })
 })
 
@@ -160,15 +320,15 @@ describe('formatMessageClock', () => {
   const now = new Date(2026, 6, 29, 10, 0).getTime()
 
   it('keeps HH:mm on the same calendar day', () => {
-    expect(formatMessageClock(new Date(2026, 6, 29, 14, 24).getTime(), now)).toBe('14:24')
+    expect(formatMessageClock(new Date(2026, 6, 29, 14, 24).getTime(), t, now)).toBe('14:24')
   })
 
   it('prefixes month and day across days in the same year', () => {
-    expect(formatMessageClock(new Date(2026, 0, 1, 14, 24).getTime(), now)).toBe('1月1日 14:24')
+    expect(formatMessageClock(new Date(2026, 0, 1, 14, 24).getTime(), t, now)).toBe('1月1日 14:24')
   })
 
   it('prefixes year, month, and day across years', () => {
-    expect(formatMessageClock(new Date(2025, 11, 31, 9, 5).getTime(), now)).toBe('2025年12月31日 09:05')
+    expect(formatMessageClock(new Date(2025, 11, 31, 9, 5).getTime(), t, now)).toBe('2025年12月31日 09:05')
   })
 
   it('arms the next local midnight from an in-day instant', () => {
@@ -191,7 +351,7 @@ describe('useCalendarDay boundary refresh', () => {
     vi.setSystemTime(dayStart)
     const time = new Date(2026, 6, 29, 14, 24).getTime()
     render(
-      <MessageItem node={{
+      <MessageItem t={t} node={{
         kind: 'user', seq: 1, time,
         content: [{ type: 'text', text: 'night bubble' }] as never,
         source: null,
@@ -209,7 +369,7 @@ describe('useCalendarDay boundary refresh', () => {
 describe('small branch tails', () => {
   it('AssistantMarkdown single-line reasoning summary skips the newline cut', () => {
     const view = render(
-      <AssistantMarkdown blocks={[{ kind: 'reasoning', text: 'one-liner' }]} streaming={false} />,
+      <AssistantMarkdown t={t} blocks={[{ kind: 'reasoning', text: 'one-liner' }]} streaming={false} />,
     )
     expect(view.getByText('one-liner')).toBeTruthy()
   })
@@ -224,6 +384,7 @@ describe('small branch tails', () => {
     const time = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 14, 24).getTime()
     const settled = render(
       <AssistantMarkdown
+        t={t}
         blocks={[{ kind: 'text', text: 'answer body' }, { kind: 'reasoning', text: 'hidden' }]}
         streaming={false}
         time={time}
@@ -238,6 +399,7 @@ describe('small branch tails', () => {
 
     const thinkOnly = render(
       <AssistantMarkdown
+        t={t}
         blocks={[{ kind: 'reasoning', text: 'only thinking' }]}
         streaming={false}
         time={time}
@@ -248,7 +410,7 @@ describe('small branch tails', () => {
     thinkOnly.unmount()
 
     const streaming = render(
-      <AssistantMarkdown blocks={[{ kind: 'text', text: 'partial' }]} streaming time={time} />,
+      <AssistantMarkdown t={t} blocks={[{ kind: 'text', text: 'partial' }]} streaming time={time} />,
     )
     expect(streaming.queryByRole('button', { name: '复制' })).toBeNull()
     expect(streaming.queryByText('14:24')).toBeNull()

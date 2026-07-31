@@ -18,9 +18,20 @@ import type { ModelsSectionInjected } from './ModelsSection.tsx'
 import { DeepSeekOnboardingDialog } from './DeepSeekOnboardingDialog.tsx'
 import type { DeepSeekOnboardingInjected } from './DeepSeekOnboardingDialog.tsx'
 import { ModelsSettingsStore } from './store.ts'
-import { en, zh } from './locales.ts'
+import { en, zh, type ModelsKey } from './locales.ts'
 
 export type { ModelsSectionInjected, ModelsSectionProps } from './ModelsSection.tsx'
+export type { ModelsKey } from './locales.ts'
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** The Models page + onboarding overlay copy. */
+    'settings.models': ModelsKey
+  }
+}
+
+/** Dictionary namespace owned by this plugin. */
+const NS = 'settings.models'
 export type { ModelsSettingsState, ProviderRow } from './store.ts'
 
 /**
@@ -47,18 +58,14 @@ export const inject = ['slots', 'locale', 'connection']
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
-  ctx.effect(() => {
-    const disposers = [
-      ctx.locale.register('settings.models', 'zh', zh),
-      ctx.locale.register('settings.models', 'en', en),
-    ]
-    return () => { for (const dispose of disposers) dispose() }
-  }, 'ui-models: copy dictionaries')
+  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-models: copy dictionaries')
 
   const connection = ctx.get('connection') as ConnectionHandle
   const controller = new ModelsSettingsStore(connection.api)
   const useSnapshot = bindSnapshotSelector(controller.store)
-  const t = ctx.locale.bind('settings.models') as ModelsSectionInjected['t']
+  // Registration-time text (the nav label thunk) and the inject faces share
+  // one bound translate; copy freshness rides the locale revision.
+  const t = ctx.locale.bind(NS) as ModelsSectionInjected['t']
   const injected = (): ModelsSectionInjected => ({
     controller,
     useSnapshot,
@@ -90,7 +97,7 @@ export function apply(ctx: ClientContext): void {
         name: 'settings.section',
         id: 'models',
         order: 10,
-        label: t('nav'),
+        label: () => t('nav'),
         inject: injected,
       }, ModelsSection))
     const onboarding = deferRegistration(
@@ -104,14 +111,7 @@ export function apply(ctx: ClientContext): void {
         inject: onboardingInjected,
       }, DeepSeekOnboardingDialog),
     )
-    // Nav labels are registrant-localized: refresh on locale change so the
-    // ledger carries fresh text (the version bump re-renders the shell).
-    const offLocale = ctx.on('locale/change', () => {
-      section.refresh()
-      onboarding.refresh()
-    })
     return () => {
-      offLocale()
       section.dispose()
       onboarding.dispose()
     }
