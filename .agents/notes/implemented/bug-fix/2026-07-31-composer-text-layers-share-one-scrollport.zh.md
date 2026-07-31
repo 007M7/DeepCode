@@ -64,6 +64,7 @@ composer 的文本由两层叠放绘制（见 [InputBar](../../../../packages/cl
 - 在 Firefox 与 WebKit 上，点进一个草稿超过上限的 composer 现在还会把会话记录滚动到底部：光标的 scroll-into-view 会越过 composer 的滚动容器一路走到会话记录的滚动容器，而一个比自身盒子矮的 textarea 从不会引发这一步。chromium 不会。已实测，并试过 `overscroll-behavior: contain` 与 `contain: paint`，两者都拦不住这次上行——没有任何 CSS 能终止 scroll-into-view 的接力。接受：它滚向底部，而 composer 本来就在底部，而其替代方案是在每个引擎上都出现光标与文字明显分离。
 - 翻页与拖拽选区的行为未变，二者均做了新旧对照实测。`PageDown`/`PageUp` 本来就不会移动 textarea 的插入点——chromium 是滚动一页并保持 `selectionStart` 不变，新旧几何皆然，区别只在于滚的是哪个盒子。拖拽选区越过下边缘仍会自动滚动，且落点一致（chromium 628/628、firefox 625/620、WebKit 170/170——WebKit 自动滚动较慢，但改动前后一样慢）。
 - composer 自己在解锁与切换会话时的 `focus()` 加了 `preventScroll`。这是唯一一次「由我们发起而非由手势发起」的回视，抑制它可以避免用户只是切了个会话、transcript 却被挪走。
+- 撤销/重做是唯一一条改动草稿却不恢复光标、因而也不回视的路径：状态机重放上一版草稿，DOM 选区停在浏览器钳位后的位置。这早于本次改动且未被改动——在此点名，是因为另外三处恢复都会回视，会让这处遗漏看起来像有意为之；真被报告时 helper 就在旁边。
 - 任何新增在 backdrop 旁边的层都属于滚动容器**内部**，并且必须与草稿等高，否则就会重新引入这一缺陷。这是 composer 长期存在的风险点：两层拆分对 chip 与高亮是承重的，因此耦合必须来自结构，而不是靠维护。
 
 ## 测试
