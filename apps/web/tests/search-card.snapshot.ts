@@ -145,15 +145,21 @@ describe('assembled search card', () => {
     await waitFor(() => {
       expect(document.querySelector('[data-sample="bash-global"]')).not.toBeNull()
     }, { timeout: 10_000 })
-    // The grep turn's keyed SearchRow renders the card resident: wait for it.
+    // The grep turn's keyed SearchRow composes ToolRow: the card is collapsed
+    // by default, so wait for the summary row, then expand it to reach the card.
     await waitFor(() => {
       const tools = [...document.querySelectorAll('[data-tool]')].map(el => el.getAttribute('data-tool'))
       expect(tools, `tools present: ${tools.join(', ')}`).toContain('grep')
     }, { timeout: 10_000 })
 
-    // `data-tool` sits on the summary row; the card and recovery footer are its
-    // siblings inside the SearchRow wrapper, so shape the wrapper (its parent).
-    const grepRow = document.querySelector('[data-tool="grep"]')!.parentElement!
+    // `data-tool` sits on the ToolRow root; the collapsed row is the expand
+    // toggle. Click it so the card and its recovery footer mount, then shape the
+    // whole row (the card lives inside ToolRow's body wrapper).
+    const grepRow = document.querySelector('[data-tool="grep"]')!
+    act(() => { fireEvent.click(grepRow.querySelector('[data-expandable]') ?? grepRow) })
+    await waitFor(() => {
+      expect(grepRow.querySelector('[data-search]')).not.toBeNull()
+    }, { timeout: 10_000 })
     const shape = cardShape(grepRow)
     if (refreshing) {
       mkdirSync(dirname(EXPECTED), { recursive: true })

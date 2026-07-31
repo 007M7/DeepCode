@@ -1,8 +1,8 @@
 /**
  * Shared boot glue for the app bins (`dsh`, `dsh-cli-demo`, `dsh-acp-demo`): load the gitignored
  * `.env`, install the fail-loud Loader guards, resolve the config path (snapshot-aware), load the
- * optional personal overlay patches from the Harness home (`~/.dsh`), and drive the cordis Loader
- * against a leaf `cordis.yml` until the whole tree has settled.
+ * optional personal overlay patches from the Harness home (`~/.dsh`), expose its path resolver to
+ * config expressions, and drive the Cordis Loader against a leaf `cordis.yml` until the tree settles.
  * @module @deepseek-ai/dsh-app-boot
  */
 
@@ -13,9 +13,16 @@ import * as yaml from 'js-yaml'
 import { Context, type FiberState } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import Include, { applyEntryPatches, entryListSchema, type PatchOptions } from '@cordisjs/plugin-include'
-import { resolveDshHome } from '@deepseek-ai/dsh-paths'
+import { dshHomePath, resolveDshHome } from '@deepseek-ai/dsh-paths'
 // Side-effect type import: resolves `ctx.get('systemPrompt')` to the service.
 import type {} from '@deepseek-ai/dsh-system-prompt'
+
+declare module 'cordis' {
+  interface Context {
+    /** Harness-home path resolver available to Loader `!!js` config expressions. */
+    dshHomePath?: typeof dshHomePath
+  }
+}
 
 /**
  * Resolve the config to boot. Replay swaps a `cordis.yml` basename for
@@ -446,6 +453,7 @@ export async function boot(
 ): Promise<Context> {
   const ctx = new Context()
   ctx.baseUrl = pathToFileURL(dirname(absoluteConfigPath)).href + '/'
+  ctx.provide('dshHomePath', dshHomePath)
   await ctx.plugin(Loader)
   ctx.loader.builtins.include = Include
   await prepare?.(ctx)

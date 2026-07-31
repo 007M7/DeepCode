@@ -164,10 +164,10 @@ const SEARCH_MATCHES_FIXTURE: { path: string; matches: { lineNumber: number; lin
   {
     path: 'packages/client/ui-conversation/src/client/toolviews/search-row.tsx',
     matches: [
-      { lineNumber: 71, line: 'export function SearchRow({ toolName, block }: ToolRowProps) {' },
-      { lineNumber: 73, line: '  const search = searchCardModel(block)' },
-      { lineNumber: 90, line: '        <SearchBlock {...search.card} maxLines={CHAT_SEARCH_MAX_LINES} className={css.search} />' },
-      { lineNumber: 113, line: "    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'grep' }, SearchRow)" },
+      { lineNumber: 33, line: 'export function SearchRow({ toolName, block, inspect, t }: SearchRowProps) {' },
+      { lineNumber: 35, line: '  const search = searchCardModel(block)' },
+      { lineNumber: 52, line: '      search={search}' },
+      { lineNumber: 73, line: "    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'grep', locale: NS }, SearchRow)" },
     ],
   },
 ]
@@ -197,7 +197,7 @@ const SEARCH_PATHS_FIXTURE = [
   'packages/client/ui-primitives/src/SearchBlock.module.css',
   'packages/client/ui-conversation/src/client/contract/search-card-model.ts',
   'packages/client/ui-conversation/src/client/toolviews/search-row.tsx',
-  'packages/client/ui-conversation/src/client/toolviews/search-row.module.css',
+  'packages/client/ui-conversation/tests/search-card.spec.tsx',
 ]
 
 /**

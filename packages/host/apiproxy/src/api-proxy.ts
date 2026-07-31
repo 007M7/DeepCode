@@ -1595,6 +1595,15 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       // Exactly one of path/name arrives (schema refine). Existing-folder
       // adoption reuses its canonical path; create-by-name rejects a name
       // already present in the registry.
+      // TODO: the create-by-name branch lost its last product consumer when
+      // the Web picker collapsed onto the directory flow
+      // (.agents/notes/implemented/simplification/2026-07-31-one-route-to-add-a-workspace.md).
+      // Delete it with the wire schema's `name` member, this
+      // `defaults.workspaceRoot`, the client seam that carried the name
+      // (`WorkspaceCreateInput`, `WorkspacesService.create`'s `{ name }` arm,
+      // `intentName`'s name branch, the manager's "name under workspaceRoot"
+      // contract), and the `dsh web --workspace-root` flag plus its apps/cli
+      // README lines, which exist only to feed it.
       async create(request) {
         const { payload } = request
         let path: string

@@ -49,13 +49,13 @@ switch (invocation.mode) {
     break
   }
   case 'meta': {
-    const { runMeta } = await import('./tui.ts')
-    await runMeta()
+    const { runTui, SOURCE_ROOT } = await import('./tui.ts')
+    await runTui(undefined, undefined, SOURCE_ROOT)
     break
   }
   case 'upgrade': {
-    const { runSkillSession } = await import('./tui.ts')
-    await runSkillSession(`dsh-${invocation.mode}`)
+    const { runTui } = await import('./tui.ts')
+    await runTui(undefined, undefined, undefined, `dsh-${invocation.mode}`)
     break
   }
   default:
