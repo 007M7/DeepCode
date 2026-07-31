@@ -7,7 +7,7 @@
  */
 
 /** Copy version persisted after the user explicitly continues. */
-export const TUI_FIRST_RUN_WELCOME_NOTICE_VERSION = 1
+export const TUI_FIRST_RUN_WELCOME_NOTICE_VERSION = 2
 
 /** Locale-shaped text rendered by the first-run welcome overlay. */
 export interface TuiFirstRunWelcomeNoticeCopy {
@@ -34,7 +34,7 @@ export const TUI_FIRST_RUN_WELCOME_NOTICE_COPY = Object.freeze({
     title: 'DeepSeek Harness',
     paragraphs: Object.freeze([
       '感谢您愿意拨冗试用 DeepSeek Harness。',
-      '目前的版本仍处于内部测试阶段，有些功能仍待完善，有些体验难免粗粝。',
+      '目前的版本仍处于内部测试阶段，有些功能仍待完善，有些体验难免粗糙。',
       '“如切如磋，如琢如磨。” 产品的成长，离不开一次次真实的碰撞与坦诚的反馈。您在真实使用中暴露的问题，也可能促使我们重新审视，甚至推翻已有的设计。',
       '我们尤其希望听见那些失败、困惑与不顺手的时刻——如果它未能帮到您，甚至反而为工作平添了麻烦，请在企业微信群中留言，将使用感受告诉我们。每一条反馈，都会帮助我们把它打磨得更好。',
     ]),

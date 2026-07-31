@@ -124,7 +124,7 @@ describe('TUI first-run welcome composition', () => {
     expect(createHash('sha256').update(icon).digest('hex'))
       .toBe('deba5f98a5c1796e20fcac3149bcd7eb8a32f0bdd04d048819400b1f28bd1439')
     expect(createHash('sha256').update(copy.paragraphs.join('\n')).digest('hex'))
-      .toBe('c75e395999f572ee231688ef70d5b7f553de3809b57ce8160b4406bd7650f2ec')
+      .toBe('78d30473a7e3d7afe3157c2f685fd5fd6c94eb9d9d09ac726a36e922c1ff8725')
   })
 
   it.each([
