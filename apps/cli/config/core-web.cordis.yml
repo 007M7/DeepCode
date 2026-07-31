@@ -34,6 +34,9 @@
 - id: tool-todo
   disabled: true
 
+- id: tool-web
+  disabled: true
+
 # The matching browser controls must not offer host tools that this profile
 # omits. ui-question's host half owns the ask_user_question registration.
 - id: ui-plan
@@ -47,7 +50,10 @@
       name: '@deepseek-ai/dsh-pty'
 
     # This backend consumes the existing Web sandbox and permission policy.
-    # An open persistent shell fences permission-mode changes until it closes.
+    # It loads only on Linux/macOS; Windows and other platforms fail at boot.
+    # Its 300s send wait matches the persistent Bash command timeout instead of
+    # pty-local's 30s default. An open persistent shell fences permission-mode
+    # changes until it closes.
     - id: pty-local
       name: '@deepseek-ai/dsh-pty-local'
       config:
