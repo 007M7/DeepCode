@@ -273,6 +273,11 @@
     },
     {
       "doc": "docs/core-data-structures/system-prompt.md",
+      "symbol": "PromptContext",
+      "source": "packages/core/system-prompt/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/system-prompt.md",
       "symbol": "PromptSection",
       "source": "packages/core/system-prompt/src/index.ts"
     },

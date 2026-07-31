@@ -129,7 +129,7 @@ Source: [`packages/ui/user-approval/src/index.ts:55`](../packages/ui/user-approv
 /**
  * The session's approval policy was switched — log-only, durable,
  * replayable, never in the model transcript (the model learns the policy
- * from the prompt section and the narrator's notices). The LAST such
+ * from the cache-safe runtime-context snapshot). The LAST such
  * event is the session's override ({@link effectiveApprovalPolicy}).
  * `source: 'delegation'` marks an override seeded into a child; an absent
  * source is a runtime switch.
@@ -660,3 +660,14 @@ Source: [`packages/core/session/src/types.ts:207`](../packages/core/session/src/
 ```
 
 Source: [`packages/core/session/src/types.ts:227`](../packages/core/session/src/types.ts)
+
+### `web/*`
+
+#### `web/deepseek-search-llm-request` — log-only
+
+```ts persistence-catalog
+/** Secret-free auxiliary DeepSeek search request recorded before dispatch. */
+'web/deepseek-search-llm-request': DeepSeekSearchLlmRequest
+```
+
+Source: [`packages/web/web-search-deepseek/src/provider.ts:83`](../packages/web/web-search-deepseek/src/provider.ts)

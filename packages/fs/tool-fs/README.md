@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The **model-facing filesystem tools** — `read`, `write`, `edit` — and their **executor**. This is the consumer layer of the filesystem stack: it owns tool names, JSON schemas, argument validation, prompt sections, **read windowing**, and result formatting. It reads/writes/edits through the `ctx.fs` provider seam ([`@deepseek-ai/dsh-fs`](../fs)) **directly** — it injects `fs` (plus `tools`/`systemPrompt`), **not** a policy service. The freshness/observation policy is contributed by a separate plugin ([`@deepseek-ai/dsh-fs-policy`](../fs-policy)) through the `fs/*` event gate; the tool is not method-coupled to it.
+The **model-facing filesystem tools** — `read`, `write`, `edit` — and their **executor**. This is the consumer layer of the filesystem stack: it owns tool names, JSON schemas, argument validation, prompt sections, **read windowing**, and result formatting. It reads/writes/edits through the `ctx.fs` provider seam ([`@deepseek-ai/dsh-fs`](../fs)) **directly**. The freshness/observation policy is contributed by a separate plugin ([`@deepseek-ai/dsh-fs-policy`](../fs-policy)) through the `fs/*` event gate; the tool is not method-coupled to it. Under a confining provider, the shared sandbox-policy service is required for per-session execution and the tool exposes escalation for filesystem mutations.
 
 ```ts ignore-check
 // Default deployment: a ctx.fs provider, the policy plugin, then the tools.
@@ -45,6 +45,8 @@ The tools do **not** inject a policy service or inspect any cache. Each tool res
 - **edit** — `ctx.waterfall('fs/edit-intent', target, exec, () => undefined)` for the optional guard, then `ctx.fs.editText(target, edit, intent)`, then `fs/observed`. (0 stat.)
 
 The tool passes `exec` (the tool-execution context) as the opaque `actor` on every dispatch. The default thunks return `undefined` (the unconstrained bare provider). When `@deepseek-ai/dsh-fs-policy` is loaded it occupies the single decision slot — returning `createIfAbsent`/`replaceIfVersion`/`{ version }` or throwing `FS_NOT_OBSERVED` — and records on `fs/observed`. Backend errors (`FsError`) and a thrown `FS_NOT_OBSERVED` flow through `ToolRegistry.execute()` and become `isError` tool results with their `{ name, code }` attached.
+
+When `ctx.fs.sandboxMode` reports confinement, write/edit advertise `sandbox_permissions` and `justification` and resolve approved retries through `ctx.approval`. The policy owner contributes capability-neutral standing policy; the tool results retain operation-specific denial and retry guidance.
 
 ## `fs/observed` is fire-and-forget
 

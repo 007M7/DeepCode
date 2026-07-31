@@ -917,6 +917,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Register an ordered prompt section in the calling context\'s scope. A scoped\n * section shadows a global section with the same name; duplicates within one\n * layer and non-finite orders throw. Registration and disposal emit\n * `system-prompt/change`.\n * @param section - the section to register.\n * @returns the exact Cordis effect disposer.\n */',
       },
       {
+        signature: 'context(context: PromptContext): () => void',
+        jsDoc: '/**\n * Register ordered cache-safe dynamic context in the calling context\'s scope.\n * A scoped context shadows a global context with the same name; duplicates\n * within one layer and non-finite orders throw. Registration and disposal\n * emit `system-prompt/change`.\n * @param context - the context contribution to register.\n * @returns the exact Cordis effect disposer.\n */',
+      },
+      {
         signature: 'tools(provider: (context: AssembleContext) => ToolProviderResult): () => void',
         jsDoc: '/**\n * Register a tool-schema provider in the calling context\'s scope. Global and\n * matching scoped providers both contribute; returning the reserved\n * {@link TOOL_ORDER_REST} name makes assembly fail.\n * @param provider - evaluated for each assembly with its context.\n * @returns the exact Cordis effect disposer.\n */',
       },
@@ -1446,8 +1450,8 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'system-prompt/assemble',
     mode: 'waterfall',
     signature: '\'system-prompt/assemble\'(this: Scoped<SystemPrompt>, assembly: PromptAssembly, context: AssembleContext, next: () => Promise<PromptAssembly>): Promise<PromptAssembly>',
-    jsDoc: '/**\n * Expert waterfall over the assembled sections, tools, and variables.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): scoped listeners\n * receive only that scope\'s assemblies. The returned value is authoritative.\n * A supplied signal controls only this explicit assembly request and must not\n * be retained to control later turns.\n * @param assembly - the mutable assembly built from registered providers.\n * @param context - the caller\'s per-assembly context.\n * @mode waterfall\n */',
-    summary: 'Expert waterfall over the assembled sections, tools, and variables.',
+    jsDoc: '/**\n * Expert waterfall over the assembled sections, contexts, tools, and variables.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): scoped listeners\n * receive only that scope\'s assemblies. The returned value is authoritative.\n * A supplied signal controls only this explicit assembly request and must not\n * be retained to control later turns.\n * @param assembly - the mutable assembly built from registered providers.\n * @param context - the caller\'s per-assembly context.\n * @mode waterfall\n */',
+    summary: 'Expert waterfall over the assembled sections, contexts, tools, and variables.',
   },
   {
     name: 'system-prompt/change',
@@ -1618,6 +1622,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AssembleContext',
     declaration: 'export interface AssembleContext {\n    scope?: ScopeKey;\n    signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'AssembledContext',
+    declaration: 'export interface AssembledContext {\n    name: string;\n    text: string;\n}',
   },
   {
     name: 'AssembledSection',
@@ -2121,7 +2129,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PromptAssembly',
-    declaration: 'export interface PromptAssembly {\n    sections: AssembledSection[];\n    tools: ToolSchema[];\n    variables: Record<string, string | undefined>;\n}',
+    declaration: 'export interface PromptAssembly {\n    sections: AssembledSection[];\n    contexts: AssembledContext[];\n    tools: ToolSchema[];\n    variables: Record<string, string | undefined>;\n}',
+  },
+  {
+    name: 'PromptContext',
+    declaration: 'export interface PromptContext {\n    readonly name: string;\n    readonly order: number;\n    readonly text: string | ((context: AssembleContext) => string);\n}',
   },
   {
     name: 'PromptSection',

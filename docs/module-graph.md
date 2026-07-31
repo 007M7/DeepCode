@@ -428,8 +428,6 @@ flowchart TD
   pkg_web_fetch_local --> pkg_invariants
   pkg_web_fetch_local --> pkg_timeout
   pkg_web_fetch_local --> pkg_web
-  pkg_web_search_deepseek --> pkg_invariants
-  pkg_web_search_deepseek --> pkg_web
   pkg_web_search_exa --> pkg_invariants
   pkg_web_search_exa --> pkg_web
   pkg_web_search_perplexity --> pkg_invariants
@@ -483,9 +481,6 @@ flowchart TD
   pkg_sandbox_local --> pkg_invariants
   pkg_sandbox_local --> pkg_llm
   pkg_sandbox_local --> pkg_sandbox
-  pkg_sandbox_policy --> pkg_invariants
-  pkg_sandbox_policy --> pkg_sandbox
-  pkg_sandbox_policy --> pkg_session
   pkg_session_projection --> pkg_invariants
   pkg_session_projection --> pkg_session
   pkg_llm_retry --> pkg_agent
@@ -516,6 +511,11 @@ flowchart TD
   pkg_skill_local --> pkg_invariants
   pkg_skill_local --> pkg_paths
   pkg_skill_local --> pkg_skill
+  pkg_web_search_deepseek --> pkg_agent
+  pkg_web_search_deepseek --> pkg_credentials
+  pkg_web_search_deepseek --> pkg_invariants
+  pkg_web_search_deepseek --> pkg_session
+  pkg_web_search_deepseek --> pkg_web
   pkg_spill_local --> pkg_invariants
   pkg_spill_local --> pkg_spill
   pkg_hook_protocol --> pkg_bash
@@ -561,6 +561,11 @@ flowchart TD
   pkg_pty --> pkg_agent
   pkg_pty --> pkg_brand
   pkg_pty --> pkg_invariants
+  pkg_sandbox_policy --> pkg_agent
+  pkg_sandbox_policy --> pkg_invariants
+  pkg_sandbox_policy --> pkg_sandbox
+  pkg_sandbox_policy --> pkg_session
+  pkg_sandbox_policy --> pkg_system_prompt
   pkg_scripts --> pkg_app_boot
   pkg_scripts --> pkg_invariants
   pkg_session_projection_cache --> pkg_invariants
@@ -1105,7 +1110,6 @@ flowchart TD
 | [`compact`](../packages/compact/compact) | `compact` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`compact-tool-result-prune`](../packages/compact/compact-tool-result-prune) | `compact` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`web-fetch-local`](../packages/web/web-fetch-local) | `web` | [`invariants`](../packages/support/invariants), [`timeout`](../packages/util/timeout), [`web`](../packages/web/web) |
-| [`web-search-deepseek`](../packages/web/web-search-deepseek) | `web` | [`invariants`](../packages/support/invariants), [`web`](../packages/web/web) |
 | [`web-search-exa`](../packages/web/web-search-exa) | `web` | [`invariants`](../packages/support/invariants), [`web`](../packages/web/web) |
 | [`web-search-perplexity`](../packages/web/web-search-perplexity) | `web` | [`invariants`](../packages/support/invariants), [`web`](../packages/web/web) |
 | [`spill`](../packages/spill/spill) | `spill` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
@@ -1120,7 +1124,6 @@ flowchart TD
 | [`host-directory-picker-native`](../packages/host/directory-picker-native) | `host` | [`client-runtime`](../packages/client/runtime), [`client-ui-slots`](../packages/client/ui-slots), [`client-ui-workspace`](../packages/client/ui-workspace), [`invariants`](../packages/support/invariants) |
 | [`lsp-local`](../packages/lsp/lsp-local) | `lsp` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`lsp`](../packages/lsp/lsp), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
 | [`sandbox-local`](../packages/sandbox/sandbox-local) | `sandbox` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox) |
-| [`sandbox-policy`](../packages/sandbox/sandbox-policy) | `sandbox` | [`invariants`](../packages/support/invariants), [`sandbox`](../packages/sandbox/sandbox), [`session`](../packages/core/session) |
 | [`session-projection`](../packages/session-projection/session-projection) | `session-projection` | [`invariants`](../packages/support/invariants), [`session`](../packages/core/session) |
 | [`llm-retry`](../packages/llm/llm-retry) | `llm` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`timeout`](../packages/util/timeout) |
 | [`token-meter`](../packages/llm/token-meter) | `llm` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-projection`](../packages/session-projection/session-projection) |
@@ -1129,6 +1132,7 @@ flowchart TD
 | [`fs-local`](../packages/fs/fs-local) | `fs` | [`fs`](../packages/fs/fs), [`invariants`](../packages/support/invariants) |
 | [`fs-policy`](../packages/fs/fs-policy) | `fs` | [`fs`](../packages/fs/fs), [`invariants`](../packages/support/invariants) |
 | [`skill-local`](../packages/skill/skill-local) | `skill` | [`fs`](../packages/fs/fs), [`invariants`](../packages/support/invariants), [`paths`](../packages/util/paths), [`skill`](../packages/skill/skill) |
+| [`web-search-deepseek`](../packages/web/web-search-deepseek) | `web` | [`agent`](../packages/core/agent), [`credentials`](../packages/credentials/credentials), [`invariants`](../packages/support/invariants), [`session`](../packages/core/session), [`web`](../packages/web/web) |
 | [`spill-local`](../packages/spill/spill-local) | `spill` | [`invariants`](../packages/support/invariants), [`spill`](../packages/spill/spill) |
 | [`hook-protocol`](../packages/hooks/hook-protocol) | `hooks` | [`bash`](../packages/bash/bash), [`invariants`](../packages/support/invariants), [`session`](../packages/core/session) |
 | [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl) | `session-persistence` | [`invariants`](../packages/support/invariants), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence) |
@@ -1141,6 +1145,7 @@ flowchart TD
 | [`tmux-context`](../packages/context/tmux-context) | `context` | [`agent`](../packages/core/agent), [`bash`](../packages/bash/bash), [`invariants`](../packages/support/invariants), [`session`](../packages/core/session) |
 | [`host-directory-picker-auto`](../packages/host/directory-picker-auto) | `host` | [`host-directory-picker-browse`](../packages/host/directory-picker-browse), [`host-directory-picker-native`](../packages/host/directory-picker-native), [`host-webserver`](../packages/host/webserver), [`invariants`](../packages/support/invariants) |
 | [`pty`](../packages/pty/pty) | `pty` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants) |
+| [`sandbox-policy`](../packages/sandbox/sandbox-policy) | `sandbox` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`sandbox`](../packages/sandbox/sandbox), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt) |
 | [`scripts`](../packages/sdk/scripts) | `sdk` | [`app-boot`](../packages/ui/app-boot), [`invariants`](../packages/support/invariants) |
 | [`session-projection-cache`](../packages/session-projection/session-projection-cache) | `session-projection` | [`invariants`](../packages/support/invariants), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence), [`session-projection`](../packages/session-projection/session-projection), [`storage-domain`](../packages/storage/storage-domain) |
 | [`tasks`](../packages/tasks/tasks) | `tasks` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`session`](../packages/core/session) |

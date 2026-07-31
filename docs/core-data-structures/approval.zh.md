@@ -42,13 +42,12 @@ type ApprovalOutcome = 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'
  *   (exactly today's behavior).
  * - `'never'` — never prompt anyone: every ask resolves `'rejected'`
  *   deterministically. The strict headless stance (CI, unattended runs) and
- *   the only policy value stated in the system prompt — unlike `'ask'`, its
- *   outcome is knowable without asking, so stating it cannot overclaim.
+ *   the policy whose outcome is knowable without asking.
  */
 type ApprovalPolicy = 'ask' | 'never'
 ```
 
-提示词段落会声明 `never` 的确定性行为，并以服务自有的标记记录当前策略。重启后，步骤前叙述器从已记录的请求头中读取该标记，而非从部署 persona 行文中推断状态。
+两种策略都会将各自完整的当前含义贡献给缓存安全的运行时上下文快照。带来源的 `user/message` 是持久化且模型可见的输入；批准状态变化时，会在保留的历史后追加一份新的完整快照，而不改写请求头中的系统提示词。
 
 ## 审批请求
 
@@ -87,4 +86,4 @@ interface ApprovalRequest {
 
 `ctx.approval.request(req)` 要求发起请求的会话处于一个打开的轮次内。它追加 `approval/asked`，获取一个结果，追加对应的 `approval/decided`，然后以该结果 resolve。`never` 策略在服务内部、waterfall 分发之前强制执行，因此即使后来以 `prepend` 注册的应答者也无法绕过它。应答者在拥有该请求时返回结果，否则调用 `next()` 委托；第一个应答占据唯一的决策槽位。
 
-审计事件仅写入日志，不进入模型 transcript（文本记录）。模型可见的行为是调用方派生的工具结果，而请求头记录的是模型实际看到的提示词策略。服务 dispose（资源释放）时会一并移除其提示词段落和步骤前叙述器；应答者监听器独立地通过 effect 绑定到其所属插件。
+审计事件仅写入日志，不进入模型 transcript（文本记录）。模型可见的行为是调用方派生的工具结果与当前运行时上下文快照。服务 dispose（资源释放）时会移除其上下文贡献；应答者监听器独立地通过 effect 绑定到其所属插件。
