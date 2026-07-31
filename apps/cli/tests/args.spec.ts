@@ -45,6 +45,29 @@ describe('parseDshArgs', () => {
       .toEqual({ mode: 'web', dev: false, trustedHosts: ['harness.internal:3080', 'lab.internal', '10.0.0.9'] })
   })
 
+  it('routes the dump flags per surface: composed with the user layer, or shipped only', () => {
+    expect(parse(['--dump-config'])).toEqual({ mode: 'dump-config', surface: 'tui', defaultOnly: false })
+    expect(parse(['--dump-config', '--config', 'c.yml']))
+      .toEqual({ mode: 'dump-config', surface: 'tui', defaultOnly: false, config: 'c.yml' })
+    expect(parse(['--dump-default-config'])).toEqual({ mode: 'dump-config', surface: 'tui', defaultOnly: true })
+    expect(parse(['web', '--dump-config'])).toEqual({ mode: 'dump-config', surface: 'web', defaultOnly: false })
+    expect(parse(['web', '--dump-config', '--config', 'w.yml']))
+      .toEqual({ mode: 'dump-config', surface: 'web', defaultOnly: false, config: 'w.yml' })
+    expect(parse(['web', '--dump-default-config'])).toEqual({ mode: 'dump-config', surface: 'web', defaultOnly: true })
+    // The two dump flags contradict each other; boot-only flags alongside a
+    // dump would be silently ignored; the shipped tree takes no user overlay.
+    expect(exitCode(['--dump-config', '--dump-default-config'])).toBe(1)
+    expect(exitCode(['--dump-default-config', '--config', 'c.yml'])).toBe(1)
+    expect(exitCode(['--dump-config', '--resume', 's'])).toBe(1)
+    expect(exitCode(['--dump-config', '-p', 'task'])).toBe(1)
+    expect(exitCode(['--dump-config', '--config-replace', 'tree.yml'])).toBe(1)
+    expect(exitCode(['web', '--dump-config', '--dump-default-config'])).toBe(1)
+    expect(exitCode(['web', '--dump-default-config', '--config', 'w.yml'])).toBe(1)
+    // A leaked dump flag on a subcommand that has none is a mistyped invocation.
+    expect(exitCode(['meta', '--dump-config'])).toBe(1)
+    expect(exitCode(['upgrade', '--dump-config'])).toBe(1)
+  })
+
   it('exits nonzero instead of silently starting fresh or dropping inputs', () => {
     // Empty resume/prompt would be swallowed downstream; --prompt mixed with
     // TUI inputs must not lose them. (Bad host/port are gated by the webserver

@@ -1269,9 +1269,10 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
       assertUniqueSnapshotContents('tool-schema', schemas)
     })
 
-    it('every committed JSONL has valid tool results and canonical header storage', async () => {
+    it('every committed JSONL has valid tool results and canonical fixture storage', async () => {
       // Prompts and schemas always leave JSONL. Header pins retain prefixes;
-      // every other fixture tokenizes those too. Fixed-point checks make both
+      // every other fixture tokenizes those too. Portable cwd tokens never
+      // retain a platform realpath prefix. Fixed-point checks make these
       // storage rules fail loud.
       for (const scenario of scenarios) {
         const dir = join(snapshotsDir, scenario.name)
@@ -1280,6 +1281,8 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           const fixture = await readFile(join(dir, file), 'utf8')
           expect(unknownToolCallIds(fixture), `${scenario.name}/${file} contains UNKNOWN_TOOL`)
             .toEqual([])
+          expect(fixture, `${scenario.name}/${file} carries a non-canonical macOS cwd token`)
+            .not.toContain('/private{{cwd}}')
           expect(scrubSystemPrompts(fixture), `${scenario.name}/${file} carries an unscrubbed system prompt`)
             .toEqual(fixture)
           expect(scrubToolSchemas(fixture), `${scenario.name}/${file} carries unscrubbed tool schemas`)

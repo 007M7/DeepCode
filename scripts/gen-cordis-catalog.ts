@@ -165,6 +165,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   SubagentService: 'subagent.md',
   SubagentStartRequest: 'subagent.md',
   AssembleContext: 'system-prompt.md',
+  PromptContext: 'system-prompt.md',
   PromptSection: 'system-prompt.md',
   SystemPrompt: 'system-prompt.md',
   ToolProviderResult: 'system-prompt.md',

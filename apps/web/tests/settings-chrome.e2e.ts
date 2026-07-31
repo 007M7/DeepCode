@@ -18,7 +18,7 @@ import {
   acknowledgeReloadConnectionLoss, assertFixtureInventory, captureStableAria, compareOrRefreshGolden,
   launchWebScaffold, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
-import { saveFailureShot } from './support.ts'
+import { ZH_BROWSER_LOCALE, saveFailureShot } from './support.ts'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/settings-chrome', import.meta.url))
 const DIALOG_EXPECTED = join(SNAPSHOT_DIR, 'dialog.expected.md')
@@ -33,7 +33,9 @@ describe('web e2e: settings modal and General preferences', () => {
   beforeAll(async () => {
     scaffold = await launchWebScaffold({})
     browser = await chromium.launch()
-    page = await browser.newPage({ viewport: { width: 1680, height: 1000 } })
+    // Chinese browser: the shared page asserts the localized settings surface
+    // the client derives from it (the English default has its own spec below).
+    page = await browser.newPage({ viewport: { width: 1680, height: 1000 }, locale: ZH_BROWSER_LOCALE })
     tripwire = watchConsole(page)
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
@@ -213,6 +215,30 @@ describe('web e2e: settings modal and General preferences', () => {
     expect(await page.evaluate(() => localStorage.getItem('dsh.locale'))).toBe('zh')
     await page.keyboard.press('Escape')
     expect(tripwire.pageErrors).toEqual([])
+  }, 90_000)
+
+  it('opens an English browser in English without any stored preference', async () => {
+    // A second page under a different browser language: nothing is persisted
+    // for it, so the settings surface must follow the browser rather than the
+    // product fallback the shared zh page shows.
+    const enPage = await browser.newPage({ viewport: { width: 1680, height: 1000 }, locale: 'en-US' })
+    const enTripwire = watchConsole(enPage)
+    onTestFailed(() => saveFailureShot(enPage, 'web-e2e-settings-browser-language'))
+    try {
+      await enPage.goto(scaffold.baseUrl, { waitUntil: 'load' })
+      await enPage.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+      expect(await enPage.evaluate(() => localStorage.getItem('dsh.locale'))).toBeNull()
+      await enPage.getByRole('button', { name: 'Settings', exact: true }).click()
+      const dialog = enPage.getByRole('dialog', { name: 'Settings' })
+      await dialog.waitFor({ timeout: 10_000 })
+      await dialog.getByRole('button', { name: 'English' }).waitFor({ timeout: 10_000 })
+      // This page has no closing inventory spec to sweep its console, so the
+      // scenario clears both tripwire channels itself.
+      expect(enTripwire.pageErrors).toEqual([])
+      expect(enTripwire.warnings).toEqual([])
+    } finally {
+      await enPage.close()
+    }
   }, 90_000)
 
   it.skipIf(MODE === 'record')('keeps the fixture inventory closed', async () => {
