@@ -159,8 +159,21 @@ describe('HoverCard', () => {
       expect(selection.toString()).toBe('card body')
       expect(screen.getByText('card body')).toBeTruthy()
 
-      // A non-collapsed selection elsewhere does not block this card.
+      // Firefox supports multiple selection ranges: any range intersecting
+      // this card wins, not only the first.
       selection.removeAllRanges()
+      const getSelection = vi.spyOn(window, 'getSelection').mockReturnValue({
+        isCollapsed: false,
+        rangeCount: 2,
+        getRangeAt: vi.fn((index: number) => ({
+          intersectsNode: () => index === 1,
+        })),
+      } as unknown as Selection)
+      await act(async () => { fireEvent.click(card) })
+      expect(writeText).not.toHaveBeenCalled()
+      getSelection.mockRestore()
+
+      // A non-collapsed selection elsewhere does not block this card.
       const anchorRange = document.createRange()
       anchorRange.selectNodeContents(screen.getByText('row'))
       selection.addRange(anchorRange)
@@ -191,10 +204,13 @@ describe('HoverCard', () => {
       fireEvent.pointerEnter(wrapper)
       act(() => { vi.advanceTimersByTime(500) })
       const card = screen.getByRole('button', { name: 'Copy path: /full/path' })
+      const status = screen.getByRole('status')
+      expect(status.textContent).toBe('')
+      expect(card.contains(status)).toBe(false)
       Object.defineProperty(card, 'offsetHeight', { configurable: true, value: 96 })
       await act(async () => { fireEvent.click(card) })
       expect(writeText).toHaveBeenCalledWith('/full/path')
-      expect(screen.getByRole('status').textContent).toBe('Copied')
+      expect(status.textContent).toBe('Copied')
       expect(screen.getByRole('button', { name: 'Copy path: /full/path' })).toBe(card)
       expect(card.style.minHeight).toBe('96px')
       // Repeated activation while feedback is visible neither rewrites nor
@@ -202,10 +218,11 @@ describe('HoverCard', () => {
       await act(async () => { fireEvent.click(card) })
       expect(writeText).toHaveBeenCalledOnce()
       act(() => { vi.advanceTimersByTime(999) })
-      expect(screen.getByText('Copied')).toBeTruthy()
+      expect(status.textContent).toBe('Copied')
       act(() => { vi.advanceTimersByTime(1) })
       expect(screen.getByRole('button', { name: 'Copy path: /full/path' })).toBe(card)
       expect(card.style.minHeight).toBe('')
+      expect(status.textContent).toBe('')
       expect(screen.getByText('card body')).toBeTruthy()
     } finally {
       restoreClipboard()
@@ -271,7 +288,7 @@ describe('HoverCard', () => {
       fireEvent.pointerEnter(wrapper)
       act(() => { vi.advanceTimersByTime(500) })
       await act(async () => { fireEvent.click(screen.getByRole('button')) })
-      expect(screen.getByText('Copied')).toBeTruthy()
+      expect(screen.getByRole('status').textContent).toBe('Copied')
       fireEvent.pointerLeave(wrapper)
       act(() => { vi.advanceTimersByTime(POINTER_GRACE_MS) })
       expect(screen.queryByText('Copied')).toBeNull()

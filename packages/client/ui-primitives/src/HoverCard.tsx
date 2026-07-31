@@ -157,8 +157,11 @@ export function HoverCard({
       onClick={copyable
         ? (e) => {
           const selection = window.getSelection()
-          if (selection !== null && !selection.isCollapsed && selection.rangeCount > 0
-            && selection.getRangeAt(0).intersectsNode(e.currentTarget)) return
+          if (selection !== null && !selection.isCollapsed) {
+            for (let i = 0; i < selection.rangeCount; i += 1) {
+              if (selection.getRangeAt(i).intersectsNode(e.currentTarget)) return
+            }
+          }
           void copy(copyText)
         }
         : undefined}
@@ -170,7 +173,7 @@ export function HoverCard({
         }
         : undefined}
     >
-      {copied ? <span className={css.copied} role="status">{copiedLabel}</span> : content}
+      {copied ? <span className={css.copied} aria-hidden="true">{copiedLabel}</span> : content}
     </div>
   )
 
@@ -206,6 +209,7 @@ export function HoverCard({
       }}
     >
       {anchor}
+      {copyable && <span className={css.status} role="status">{copied ? copiedLabel : ''}</span>}
       {card !== false && createPortal(card, document.body)}
     </span>
   )

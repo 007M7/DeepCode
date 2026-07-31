@@ -160,7 +160,7 @@ describe('workspace browser rows', () => {
       expect(screen.getByText(/^创建于 \d+年\d+月\d+日 /)).toBeTruthy()
       await act(async () => { fireEvent.click(screen.getByRole('button', { name: '复制: /projects/project' })) })
       expect(writeText).toHaveBeenCalledWith('/projects/project')
-      expect(screen.getByText('已复制')).toBeTruthy()
+      expect(screen.getByRole('status').textContent).toBe('已复制')
     } finally {
       restoreClipboard()
       vi.useRealTimers()
