@@ -37,9 +37,6 @@
 - id: tool-todo
   disabled: true
 
-- id: tool-web
-  disabled: true
-
 # The matching browser controls must not offer host tools that this profile
 # omits. ui-question's host half owns the ask_user_question registration.
 - id: ui-plan
