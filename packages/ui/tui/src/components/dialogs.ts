@@ -28,7 +28,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import { foldGoal, type GoalPhase } from '@deepseek-ai/dsh-goal'
 import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
 import type {
-  SessionLogSnapshot,
+  LogicalSessionSource,
   SessionRecord,
 } from '@deepseek-ai/dsh-session-query'
 import type { AskUserQuestionItem } from '@deepseek-ai/dsh-user-interaction'
@@ -453,8 +453,8 @@ export interface ResumeCandidate {
   disabledReason?: string
 }
 
-function resumeTurnLabel(snapshot: SessionLogSnapshot): string {
-  const event = snapshot.events.findLast(item => item.type === 'turn/end')
+function resumeTurnLabel(source: LogicalSessionSource): string {
+  const event = source.events.findLast(item => item.type === 'turn/end')
   if (event === undefined) return 'no completed turn'
   const reason = event.data.reason
   switch (reason.kind) {
@@ -468,24 +468,26 @@ function resumeTurnLabel(snapshot: SessionLogSnapshot): string {
   }
 }
 
-function resumeRoute(snapshot: SessionLogSnapshot): ResumeRoute | undefined {
-  const header = snapshot.events.findLast(item => item.type === 'request/header')
+function resumeRoute(source: LogicalSessionSource): ResumeRoute | undefined {
+  const header = source.events.findLast(item => item.type === 'request/header')
   if (header?.type === 'request/header') {
     return { provider: header.data.header.config.provider, model: header.data.header.config.model }
   }
-  const assistant = snapshot.events.findLast(item => item.type === 'assistant/message')
+  const assistant = source.events.findLast(item => item.type === 'assistant/message')
   return assistant?.type === 'assistant/message'
     ? { provider: assistant.data.message.source.provider, model: assistant.data.message.source.model }
     : undefined
 }
 
 /**
- * Build one resume selector row from a record and its log snapshot, deriving the
- * title, route, goal phase, workspace scope, and any reason the session cannot
- * be resumed here. A workspace other than the current one is a scope, not a
- * disabled reason: resuming it hands the process off into that directory.
+ * Build one resume selector row from a record and its borrowed log source,
+ * deriving the title, route, goal phase, workspace scope, and any reason the
+ * session cannot be resumed here. A workspace other than the current one is a
+ * scope, not a disabled reason: resuming it hands the process off into that
+ * directory. The result retains only the record and derived scalars, so a
+ * borrowed source stays valid for exactly this call.
  * @param record - The session record.
- * @param snapshot - The session's log snapshot.
+ * @param source - The session's borrowed header and raw event log.
  * @param currentId - The current session id.
  * @param cwd - The CURRENT session's workspace, which decides the picker scope this row falls in.
  * @param availableProviders - Providers registered in this runtime.
@@ -494,15 +496,15 @@ function resumeRoute(snapshot: SessionLogSnapshot): ResumeRoute | undefined {
  */
 export function summarizeResumeCandidate(
   record: SessionRecord,
-  snapshot: SessionLogSnapshot,
+  source: LogicalSessionSource,
   currentId: SessionId,
   cwd: string | undefined,
   availableProviders: ReadonlySet<string>,
   formatWorkspace: (cwd: string | undefined) => string,
 ): ResumeCandidate {
-  const title = foldSessionTitle(snapshot.events)?.title ?? 'Untitled session'
-  const route = resumeRoute(snapshot)
-  const foldedGoal = foldGoal(snapshot.events).goal
+  const title = foldSessionTitle(source.events)?.title ?? 'Untitled session'
+  const route = resumeRoute(source)
+  const foldedGoal = foldGoal(source.events).goal
   let disabledReason: string | undefined
   if (record.header.id === currentId) disabledReason = 'current session'
   else if (record.live) disabledReason = 'session is already live in this runtime'
@@ -514,8 +516,8 @@ export function summarizeResumeCandidate(
     record,
     title,
     // Excludes a prior pickup's boundary, or every browsed session floats up.
-    lastActivityAt: lastActivityTime(snapshot.events) ?? snapshot.session.createdAt,
-    lastTurn: resumeTurnLabel(snapshot),
+    lastActivityAt: lastActivityTime(source.events) ?? source.header.createdAt,
+    lastTurn: resumeTurnLabel(source),
     currentWorkspace: record.header.cwd === cwd,
     workspaceLabel: formatWorkspace(record.header.cwd),
     ...route === undefined ? {} : { route },

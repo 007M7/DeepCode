@@ -1,6 +1,6 @@
 /**
  * Session-resume sub-controller for the interactive chat channel: the
- * `/resume` selector, per-candidate summary reads that tolerate a corrupt
+ * `/resume` selector, one batch summary projection that tolerates a corrupt
  * neighbor, the pre-handoff preflight, and the terminal handoff itself.
  * @module @deepseek-ai/dsh-tui/chat/resume
  */
@@ -10,7 +10,7 @@ import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {
-  SessionLogSnapshot,
+  LogicalSessionSource,
   SessionQueryService,
   SessionRecord,
 } from '@deepseek-ai/dsh-session-query'
@@ -66,44 +66,45 @@ export function createResumeController(deps: ResumeControllerDeps): ResumeContro
   const workspaceLabel = (cwd: string | undefined): string =>
     runtime.formatCwd?.(cwd) ?? formatCwd(cwd)
 
-  /** Build one display candidate without letting a corrupt neighbor abort the selector. */
+  /** Summarize one record from a borrowed source, retaining only the record and derived scalars. */
+  const summarize = (
+    record: SessionRecord,
+    source: LogicalSessionSource,
+    providers: ReadonlySet<string>,
+  ): ResumeCandidate => summarizeResumeCandidate(
+    record,
+    source,
+    agent.session.id,
+    agent.session.header.cwd,
+    providers,
+    workspaceLabel,
+  )
+
+  /** The disabled fallback row for a session whose log cannot be summarized. */
+  const unreadableCandidate = (record: SessionRecord, error: unknown): ResumeCandidate => ({
+    record,
+    title: 'Unreadable session',
+    lastActivityAt: record.header.createdAt,
+    lastTurn: 'log unavailable',
+    currentWorkspace: record.header.cwd === agent.session.header.cwd,
+    workspaceLabel: workspaceLabel(record.header.cwd),
+    disabledReason: `session cannot be loaded: ${errorChain(error)}`,
+  })
+
+  /** Build one exact candidate from a live-preferred read that replay-validates a persisted log. */
   const readResumeCandidate = async (
     record: SessionRecord,
     providers: ReadonlySet<string>,
   ): Promise<ResumeCandidate> => {
     try {
-      let snapshot: SessionLogSnapshot
-      const live = ctx.sessions.get(record.header.id)
-      if (live !== undefined) {
-        snapshot = {
-          session: structuredClone(live.header),
-          events: live.events.map(event => structuredClone(event)),
-        }
-      } else {
-        const readQuery = sessionQuery()
-        /* v8 ignore start -- caller proves the optional service before mapping records */
-        if (readQuery === undefined) throw new Error('session query is unavailable')
-        /* v8 ignore stop */
-        snapshot = await readQuery.readSession(record.header.id)
-      }
-      return summarizeResumeCandidate(
-        record,
-        snapshot,
-        agent.session.id,
-        agent.session.header.cwd,
-        providers,
-        workspaceLabel,
-      )
+      const readQuery = sessionQuery()
+      /* v8 ignore start -- caller proves the optional service before mapping records */
+      if (readQuery === undefined) throw new Error('session query is unavailable')
+      /* v8 ignore stop */
+      const snapshot = await readQuery.readSession(record.header.id)
+      return summarize(record, { header: snapshot.session, events: snapshot.events }, providers)
     } catch (error: unknown) {
-      return {
-        record,
-        title: 'Unreadable session',
-        lastActivityAt: record.header.createdAt,
-        lastTurn: 'log unavailable',
-        currentWorkspace: record.header.cwd === agent.session.header.cwd,
-        workspaceLabel: workspaceLabel(record.header.cwd),
-        disabledReason: `session cannot be loaded: ${errorChain(error)}`,
-      }
+      return unreadableCandidate(record, error)
     }
   }
 
@@ -199,7 +200,25 @@ export function createResumeController(deps: ResumeControllerDeps): ResumeContro
         // Every workspace in the store is summarized; the picker owns the
         // current-workspace/all-workspaces scope split over the whole set.
         const providers = new Set(ctx.llm.listProviders().map(provider => provider.id))
-        const candidates = await Promise.all(records.map(record => readResumeCandidate(record, providers)))
+        // One bounded batch projection over borrowed logs: unlike a
+        // per-candidate readSession, it lists persistence once and skips
+        // replay validation and log cloning, so opening the selector scales
+        // with session count instead of total log size. A corrupt neighbor
+        // degrades to one disabled row.
+        const recordById = new Map(records.map(record => [record.header.id, record]))
+        const listedRecord = (id: SessionId): SessionRecord => {
+          const record = recordById.get(id)
+          /* v8 ignore next 2 -- projection ids come from this map; the corpus verifies each loaded header id */
+          if (record === undefined) throw new Error(`resume scan returned unlisted session "${id}"`)
+          return record
+        }
+        const results = await listQuery.projectSessions(
+          records.map(record => record.header.id),
+          source => summarize(listedRecord(source.header.id), source, providers),
+        )
+        const candidates = results.map(result => result.status === 'fulfilled'
+          ? result.value
+          : unreadableCandidate(listedRecord(result.sessionId), result.reason))
         candidates.sort((a, b) => b.lastActivityAt - a.lastActivityAt
           || a.record.header.id.localeCompare(b.record.header.id))
         if (deps.isDisposed() || scan !== resumeScan) return

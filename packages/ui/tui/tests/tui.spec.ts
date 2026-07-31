@@ -273,6 +273,20 @@ describe('goodbye message and /resume', () => {
     { type: 'turn/end', seq: 6, time: time + 6, data: { turn: 1, reason } },
     { type: 'session/title', seq: 7, time: time + 7, data: { title, messageSeqs: [1], source: { kind: 'fallback' } } },
   ]
+  /** Derive the selector's batch projection from a fake per-session readSession. */
+  const projectViaReadSession = (
+    readSession: (id: SessionId) => Promise<{ session: SessionHeader; events: SessionEvent[] }>,
+  ) => (
+    ids: readonly SessionId[],
+    project: (source: { header: SessionHeader; events: readonly SessionEvent[] }) => unknown,
+  ) => Promise.all(ids.map(async (sessionId) => {
+    try {
+      const snapshot = await readSession(sessionId)
+      return { sessionId, status: 'fulfilled', value: project({ header: snapshot.session, events: snapshot.events }) }
+    } catch (reason) {
+      return { sessionId, status: 'rejected', reason }
+    }
+  }))
 
   it('prints the host goodbye message on exit', async () => {
     const result = await setup({
@@ -516,6 +530,7 @@ describe('goodbye message and /resume', () => {
             queryCtx = child
             child.provide('sessionQuery', {
               listSessions: async () => { listCalls++; return [] },
+              projectSessions: async () => [],
             } as never)
           },
         })
@@ -546,16 +561,18 @@ describe('goodbye message and /resume', () => {
       cwd: '/workspace',
       async configureContext(ctx) {
         ctx.provide('tools', { get: () => undefined } as never)
+        const readSession = () => Promise.resolve({
+          session: target,
+          events: resumeEvents('Query-only persisted session'),
+        })
         ctx.provide('sessionQuery', {
           listSessions: () => Promise.resolve([{
             header: target,
             live: false,
             persisted: true,
           }]),
-          readSession: () => Promise.resolve({
-            session: target,
-            events: resumeEvents('Query-only persisted session'),
-          }),
+          readSession,
+          projectSessions: projectViaReadSession(readSession),
         } as never)
       },
     })
@@ -593,6 +610,7 @@ describe('goodbye message and /resume', () => {
         ctx.provide('tools', { get: () => undefined } as never)
         ctx.provide('sessionQuery', {
           listSessions: () => ++calls === 1 ? first.promise : Promise.resolve([]),
+          projectSessions: async () => [],
         } as never)
       },
     })
@@ -685,16 +703,18 @@ describe('goodbye message and /resume', () => {
       handoffResume: handoff,
       async configureContext(ctx) {
         ctx.provide('tools', { get: () => undefined } as never)
+        const readSession = () => Promise.resolve({
+          session: target,
+          events: resumeEvents('Live target'),
+        })
         ctx.provide('sessionQuery', {
           listSessions: () => Promise.resolve([{
             header: target,
             live: true,
             persisted: true,
           }]),
-          readSession: () => Promise.resolve({
-            session: target,
-            events: resumeEvents('Live target'),
-          }),
+          readSession,
+          projectSessions: projectViaReadSession(readSession),
         } as never)
       },
     })
@@ -815,12 +835,14 @@ describe('goodbye message and /resume', () => {
       async configureContext(ctx) {
         ctx.provide('tools', { get: () => undefined } as never)
         ctx.on('session/flush', flush)
+        const readSession = () => Promise.resolve({
+          session: target,
+          events: resumeEvents('Dispose during preflight'),
+        })
         ctx.provide('sessionQuery', {
           listSessions: () => ++listings === 1 ? Promise.resolve([record]) : secondListing.promise,
-          readSession: () => Promise.resolve({
-            session: target,
-            events: resumeEvents('Dispose during preflight'),
-          }),
+          readSession,
+          projectSessions: projectViaReadSession(readSession),
         } as never)
       },
     })
@@ -847,16 +869,18 @@ describe('goodbye message and /resume', () => {
       handoffResume: handoff,
       async configureContext(ctx) {
         ctx.provide('tools', { get: () => undefined } as never)
+        const readSession = () => Promise.resolve({
+          session: target,
+          events: resumeEvents('Query without persistence'),
+        })
         ctx.provide('sessionQuery', {
           listSessions: () => Promise.resolve([{
             header: target,
             live: false,
             persisted: true,
           }]),
-          readSession: () => Promise.resolve({
-            session: target,
-            events: resumeEvents('Query without persistence'),
-          }),
+          readSession,
+          projectSessions: projectViaReadSession(readSession),
         } as never)
       },
     })
