@@ -198,11 +198,6 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
             <li key={row.entry.provider} className={styles['rowCard']}>
               <div className={styles['rowHead']}>
                 <span className={styles['rowName']}>{row.entry.displayName}</span>
-                <span className={styles['badges']}>
-                  {row.entry.active
-                    ? <span className={styles['badgeOk']}>{t('active')}</span>
-                    : <span className={styles['badgeMuted']}>{t('dormant')}</span>}
-                </span>
                 <span className={styles['rowActions']}>
                   <button
                     type="button"

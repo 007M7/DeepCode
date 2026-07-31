@@ -54,41 +54,10 @@
   font-weight: 600;
 }
 
-.badges {
-  display: inline-flex;
-  gap: 6px;
-  flex: 1;
-}
-
-.badgeOk {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--dsw-alias-state-success-primary);
-  font-size: 12px;
-}
-
-.badgeOk::before {
-  content: '';
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: currentcolor;
-}
-
-.badgeMuted {
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 12px;
-}
-
-.badgeWarn {
-  color: var(--dsw-alias-state-warn-label);
-  font-size: 12px;
-}
-
 .rowActions {
   display: inline-flex;
   gap: 8px;
+  margin-left: auto;
 }
 
 .primaryButton {

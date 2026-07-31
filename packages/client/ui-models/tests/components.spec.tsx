@@ -152,10 +152,9 @@ describe('ModelsSection', () => {
     // DeepSeek has no configured credential and no stored apiKey → setup card.
     expect(screen.getByText('DeepSeek')).toBeTruthy()
     expect(screen.getByLabelText(en.keyInput)).toBeTruthy()
-    // Configured pi-ai profiles render as rows with liveness badges only.
     expect(screen.getByText('openai')).toBeTruthy()
-    expect(screen.getAllByText(en.active)).toHaveLength(1)
-    expect(screen.getByText(en.dormant)).toBeTruthy()
+    expect(screen.queryByText('Active')).toBeNull()
+    expect(screen.queryByText('Inactive')).toBeNull()
     expect(screen.getByText(`+ ${en.add}`)).toBeTruthy()
   })
 

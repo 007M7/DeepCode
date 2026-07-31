@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-模型设置插件：提供方配置页和 DeepSeek 官方首次使用跳转浮层。它把三个协议领域汇聚为一个共享快照：`llm.providers`（可配置提供方目录，含每条路由的存活／休眠状态）、`settings.describe`（序列化 schema、分层脱敏值、secret 槽位）与 `credentials.describe`（不含值的 configured/source/writable 徽标）；页面据此渲染提供方行，一次只展开一张编辑卡片。
+模型设置插件：提供方配置页和 DeepSeek 官方首次使用跳转浮层。它把三个协议领域汇聚为一个共享快照：`llm.providers`（可配置提供方目录，含每条路由的存活／休眠状态）、`settings.describe`（序列化 schema、分层脱敏值、secret 槽位）与 `credentials.describe`（不含值的 configured/source/writable 徽标）；页面据此渲染提供方行，一次只展开一张编辑卡片，且不把路由存活状态呈现为提供方状态。
 
 行是*已配置*的提供方（其 profile 在所属 namespace 中解析得出）；密钥未在任何地方配置的整分节提供方（DeepSeek 的首次运行姿态）会渲染为其展开的设置卡片而非一行，「新增」流程则是一张承载休眠目录提供方选择框的卡片——裸挂载的 `llm-pi-ai` 在任何路由存在之前就能提供其完整的已安装 catalog。编辑器是每个适配器家族各一张的手写卡片：主字段是单独一个 **API 密钥**输入框——页面从不询问环境变量名；键入的密钥经 `credentials.set` 以**只写**方式存入 profile 的引用之下，profile 没有引用时便派生 `<ROUTE>_API_KEY`，pi-ai profile 会把这次派生记录为 `apiKeyEnv`，因此 `settings.yaml` 从不携带密钥值。收起的「自定义设置」折叠区承载精选的额外字段——两个家族都有 `baseURL`（deepseek 的占位符显示公共端点），另加 `reasoningEffort`（deepseek）或 `reasoning`（pi-ai）；其余每个 profile 字段仍归 `settings.yaml` 所有。只有当某行仅由用户层承载时它才可删除（删除会还原组合 base），而且必须先在本地化对话框中确认，页面才会提交这次破坏性的 unset。
 

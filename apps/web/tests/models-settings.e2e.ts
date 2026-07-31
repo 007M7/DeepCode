@@ -1,10 +1,10 @@
 // Web e2e scenario: the Models settings page end to end through the real
 // wire — the add card offers the dormant pi-ai catalog, typing an API key
 // stores it write-only under the derived reference (`MINIMAX_CN_API_KEY`)
-// while the settings document records only that reference, and the saved
-// route registers live (the row's 已启用 badge is the topology invalidation
-// landing). The customized-settings fold writes the curated reasoning field
-// as a merge patch. Zero model calls: configuration is pure
+// while the settings document records only that reference; the saved row
+// appears after the route topology invalidation without presenting liveness
+// as provider status. The customized-settings fold writes the curated
+// reasoning field as a merge patch. Zero model calls: configuration is pure
 // settings/credentials/llm-domain traffic, so there is no fixture and a
 // stray stream would fail loud on the open seam. The provider under test is
 // minimax-cn so a developer's real ANTHROPIC/OPENAI environment keys can
@@ -84,7 +84,6 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     // registers, and the topology frame invalidates the page into the row.
     const row = dialog.getByText('minimax-cn', { exact: true }).first()
     await row.waitFor({ timeout: 10_000 })
-    await dialog.getByText('已启用').waitFor({ timeout: 10_000 })
     const document = await readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8')
     expect(document).toContain('minimax-cn:')
     expect(document).toContain('apiKeyEnv: MINIMAX_CN_API_KEY')
