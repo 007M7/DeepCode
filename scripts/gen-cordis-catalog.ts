@@ -55,6 +55,8 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   SessionEvent: 'core.md',
   SessionId: 'core.md',
   SessionStartSource: 'core.md',
+  LogicalProjectionResult: 'session-query.md',
+  LogicalSessionSource: 'session-query.md',
   SessionLogSnapshot: 'session-query.md',
   SessionSurfaceSnapshot: 'session-query.md',
   ApprovalOutcome: 'approval.md',

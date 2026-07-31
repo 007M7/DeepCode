@@ -11,13 +11,14 @@
 - `filterSessions(filters, signal?)` 对同一份克隆逻辑语料库应用与提供方无关的会话元数据和可用性谓词。
 - `filterEvents(sessionId, filters)` 提取第一方语义文档，并按 seq 升序应用与提供方无关的元数据和字面文本谓词。
 - `readTitleSnapshots(sessionIds, signal?)` 从一次实时优先的语料库观察中解析唯一 id，将取消信号传递给持久化列表查询和检查，并按顺序返回每个会话的结算结果，使某个缺失或格式错误的标题来源不会丢弃其他来源。每个实时来源直接 fold，每个持久化 worker fold 为脱离存储的 header/标题结果，并在出队下一个 id 前释放完整日志。取消会拒绝整个批次。`readTitleSnapshot(sessionId, signal?)` 是单次观察视图；`readTitle(sessionId, signal?)` 只返回其可选的 folded `session/title`。
+- `projectSessions(sessionIds, project, signal?)` 按唯一 id 各执行一次调用方的同步 fold，其批量语料库观察、失败隔离和取消规则与 `readTitleSnapshots` 相同。每个来源都是借用的原始日志——从不做回放验证，也从不克隆——仅在投影函数调用期间有效，因此一次批量摘要（例如恢复选择器）的开销取决于投影函数保留的内容，而不是日志总大小；投影函数必须克隆它要保留的任何值。
 - `listEvents(sessionId)` 加载实时优先的原始日志，将每个事件分类为 `current`、`shadowed` 或 `log-only`；该分类使用共享 `dsh-session` 表层 fold。
 - `readSurface(sessionId)` 返回一个克隆 header、原始日志捕获边界，以及按模型历史顺序排列的完整折叠后当前表层。实时会话优先于持久化；压缩（compaction）只会在其替换追加之前或之后被观察，绝不会出现合成混合。
 - `readEvent(request, signal?)` 返回一个克隆 header、完整目标事件和有界的原始 seq 窗口。`before` 和 `after` 默认为 0，且不得超过 `readWindowMax`。
 - `traceSession(sessionId, signal?)` 只读取一次语料库，返回从直接父级向外的祖先，以及确定性的递归后代树。`complete: false` 标识第一个缺失父级；与目标相连的循环会以 `SESSION_QUERY_INVALID_LINEAGE` 失败。
 - `traceEvent(request, signal?)` 只加载一次逻辑日志，返回其克隆源 header、直接位置替换和直接已记录来源信息。`replacementChain` 沿位置替换者跟踪到最终替换；来源链接仍不传递。
 
-持久化是可选的，可动态挂载或卸载。已挂载持久化无法读取时，跨语料库列表和血缘跟踪以 `SESSION_QUERY_PERSISTENCE_FAILED` 失败。针对已知实时会话的标题读取、事件跟踪或事件读取不会查询持久化，因此持久化后端的健康状态无法使当前内存状态变得不可读。持久化标题和事件操作在加载前先执行列表查询，并在元数据不匹配时拒绝，而不会组合不一致的观察。血缘跟踪的取消信号会传递给持久化列表查询；事件跟踪和事件读取的取消信号会传递给持久化列表查询和检查。每项操作都会等待已启动的后端调用结算，然后使用信号的精确原因拒绝，即使后端忽略了该信号。针对已知实时会话且预先中止的标题读取、事件跟踪或事件读取会在 fold 或快照之前拒绝，且不查询持久化。批量标题观察执行一次元数据列表查询，使用最多 `persistedInspectConcurrency` 个 worker 检查唯一持久化 id，并保留每个标题自己观察到的 header，供下游授权使用。取消不会启动已排队检查，且只在已启动 worker 结算后拒绝。`listSessions()` 仍保持轻量，不加载日志或索引标题。
+持久化是可选的，可动态挂载或卸载。已挂载持久化无法读取时，跨语料库列表和血缘跟踪以 `SESSION_QUERY_PERSISTENCE_FAILED` 失败。针对已知实时会话的标题读取、事件跟踪或事件读取不会查询持久化，因此持久化后端的健康状态无法使当前内存状态变得不可读。持久化标题和事件操作在加载前先执行列表查询，并在元数据不匹配时拒绝，而不会组合不一致的观察。血缘跟踪的取消信号会传递给持久化列表查询；事件跟踪和事件读取的取消信号会传递给持久化列表查询和检查。每项操作都会等待已启动的后端调用结算，然后使用信号的精确原因拒绝，即使后端忽略了该信号。针对已知实时会话且预先中止的标题读取、事件跟踪或事件读取会在 fold 或快照之前拒绝，且不查询持久化。批量观察——标题或调用方投影——执行一次元数据列表查询，使用最多 `persistedInspectConcurrency` 个 worker 检查唯一持久化 id，并保留每个结果自己观察到的 header，供下游授权使用。取消不会启动已排队检查，且只在已启动 worker 结算后拒绝。`listSessions()` 仍保持轻量，不加载日志或索引标题。
 
 ## 过滤与提取
 

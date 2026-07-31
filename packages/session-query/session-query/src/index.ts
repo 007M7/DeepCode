@@ -36,7 +36,7 @@ import {
   SessionQueryError,
   type Config,
 } from './config.ts'
-import { SessionCorpus } from './corpus.ts'
+import { SessionCorpus, type LogicalProjectionResult, type LogicalSessionSource } from './corpus.ts'
 import { buildSessionEventSearchDocuments } from './documents.ts'
 import {
   filterSessionEventDocuments,
@@ -64,6 +64,7 @@ export {
   materializeSessionResultFilters,
 } from './filters.ts'
 export { assertSessionHeadersCompatible } from './sources.ts'
+export type { LogicalProjectionResult, LogicalSessionSource } from './corpus.ts'
 
 declare module 'cordis' {
   interface Context {
@@ -205,13 +206,36 @@ export abstract class SessionQueryService extends Service {
     sessionIds: readonly SessionId[],
     signal?: AbortSignal,
   ): Promise<SessionTitleObservationResult[]> {
-    return this._corpus.projectMany(sessionIds, (source): SessionTitleObservation => {
+    return this.projectSessions(sessionIds, (source): SessionTitleObservation => {
       const title = foldSessionTitle(source.events)
       return {
         session: structuredClone(source.header),
         ...title === undefined ? {} : { title },
       }
     }, signal)
+  }
+
+  /**
+   * Project unique logical sessions synchronously from one cancellable corpus
+   * observation.
+   *
+   * Each source is a borrowed raw log without replay validation or cloning, so
+   * a batch summary costs one bounded read per persisted session instead of a
+   * full validated copy; the projector must clone anything it retains beyond
+   * its own call. Results preserve first-occurrence input order. Operational
+   * failures stay isolated per session, while cancellation rejects the
+   * complete operation.
+   * @param sessionIds - live or persisted session ids to observe.
+   * @param project - synchronous fold that owns/clones every retained value.
+   * @param signal - optional cancellation shared by all source reads.
+   * @returns one fulfilled or rejected result per unique requested id.
+   */
+  async projectSessions<Value>(
+    sessionIds: readonly SessionId[],
+    project: (source: LogicalSessionSource) => Value,
+    signal?: AbortSignal,
+  ): Promise<LogicalProjectionResult<Value>[]> {
+    return this._corpus.projectMany(sessionIds, project, signal)
   }
 
   /**

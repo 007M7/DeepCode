@@ -548,6 +548,33 @@ describe('session-query exact reads', () => {
     expect(TestPersistence.inspectSignals).toEqual([signal, signal])
   })
 
+  it('projects borrowed raw logs in one corpus scan with per-session failure isolation', async () => {
+    const persisted = header('project-persisted', 1)
+    TestPersistence.reset([{ meta: persisted, events: eventLog('persisted-projection') }])
+    const ctx = await liveContext()
+    const live = ctx.sessions.create(SessionId('project-live'), { meta: { createdAt: 2 } })
+    live.append('session/title', {
+      title: 'Live projection',
+      messageSeqs: [],
+      source: { kind: 'fallback' },
+    })
+    await ctx.plugin(TestPersistence)
+    const missing = SessionId('project-missing')
+
+    const results = await ctx.sessionQuery.projectSessions(
+      [live.id, persisted.id, missing],
+      source => ({ id: source.header.id, eventCount: source.events.length }),
+    )
+
+    expect(results).toMatchObject([
+      { sessionId: live.id, status: 'fulfilled', value: { id: live.id, eventCount: 1 } },
+      { sessionId: persisted.id, status: 'fulfilled', value: { id: persisted.id, eventCount: 1 } },
+      { sessionId: missing, status: 'rejected' },
+    ])
+    expect(TestPersistence.listCalls).toBe(1)
+    expect(TestPersistence.inspectCalls).toEqual([persisted.id])
+  })
+
   it('bounds persisted title inspection concurrency while preserving ordered results', async () => {
     const entries = Array.from({ length: 12 }, (_, index) => {
       const meta = header(`bounded-title-${index}`, index)

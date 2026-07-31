@@ -84,6 +84,25 @@ type SessionTitleObservationResult =
   }
 ```
 
+`projectSessions` batches arbitrary synchronous folds over the same live-preferred corpus: each `LogicalSessionSource` is a borrowed raw log — never replay-validated or cloned — that is valid only for the projector call, so a batch summary costs one bounded read per persisted session. Each `LogicalProjectionResult` settles per unique requested id under the same isolation and cancellation rules as batch title reads.
+
+```ts type-equiv
+/** Borrowed source visible only during one synchronous batch projection. */
+interface LogicalSessionSource {
+  /** Header selected with `events`; callers must clone retained output. */
+  readonly header: SessionHeader
+  /** Raw events selected with `header`; valid only for the projection call. */
+  readonly events: readonly SessionEvent[]
+}
+```
+
+```ts type-equiv
+/** One source-projection result in a batch logical-corpus observation. */
+type LogicalProjectionResult<Value> =
+  | { sessionId: SessionId; status: 'fulfilled'; value: Value }
+  | { sessionId: SessionId; status: 'rejected'; reason: unknown }
+```
+
 ```ts type-equiv
 /** Lightweight metadata for one event within a logical session. */
 interface SessionEventRecord {
