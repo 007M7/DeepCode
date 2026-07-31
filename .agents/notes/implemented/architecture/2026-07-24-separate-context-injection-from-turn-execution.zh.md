@@ -22,11 +22,11 @@ agent API 曾用三种相互重叠的方式表示面向模型的补充输入：�
 
 返回 enter 的 pre-step 会为正在最终确定的请求返回完整的 `PreStepDecision.messages` 批次。工具扩展点仍可返回 `additionalContexts`，这些上下文只会在对应工具结果之后进入 next-step inbox。这些值是扩展点的输出，而不是从调用方 inbox 条目捕获的附件。
 
-每项额外上下文都是独立的 `user/message`，并由 `source` 记录来源。不再有 `context/message`、prompt-prefix 放置方式、稳定请求分隔符或提示词封套。transcript 与 UI 消费方通过 `source` 区分直接用户消息和注入上下文。
+每项额外上下文都是独立的 `UserMessage`，并由 `source` 记录来源。inbox 插入会立即持久化；后续准入会将同一个值记录为 `user/message`。不再有 `context/message`、prompt-prefix 放置方式、稳定请求分隔符或提示词封套。transcript 与 UI 消费方通过 `source` 区分直接用户消息和注入上下文。
 
 ## 注入生命周期
 
-`inject()` 始终把上下文插入不会唤醒的 `next-step` inbox。collecting 或 running 驱动器会在最近的后续 pre-step 边界领取它。idle 驱动器会让它保持待处理，直至 `followup()` 或 `steer()` 提供可唤醒工作；在此之前，取消或 dispose（资源释放）可能将其丢弃。
+`inject()` 始终把上下文插入不会唤醒的 `next-step` inbox，并以 `agent/inbox/spliced` 提交该队列变更。collecting 或 running 驱动器会在最近的后续 pre-step 边界领取它。idle 驱动器会让它保持待处理，直至 `followup()` 或 `steer()` 提供可唤醒工作；在此之前，取消或 dispose（资源释放）可能将其丢弃，但不会抹除持久队列历史。
 
 循环会先领取当前 next-step 批次，再运行 `agent/pre-step`，因此领取后到达的注入可能赶不上正在最终确定的请求，而由下一次边界领取。enter decision 返回的消息会在所属轮次内、消费它们的请求之前追加。在助手工具调用批次期间产生的上下文因此只会出现在该批次全部有序结果之后。
 
@@ -50,7 +50,7 @@ enter 分支的 `PreStepDecision.messages` 是拟议步骤的完整批次。wate
 
 **保留独立的 `context/message` 会话事件。** 面向模型的 user-role 输入会再次拥有两个投影完全相同的事件类型。`user/message.source` 已能为策略、transcript 和回放消费方提供所需区分。
 
-**为空闲注入保留一次性轮次。** 这种方式会为空闲上下文提供即时持久边界，却让轮次计数与轮次观察方报告从未运行模型的工作。不会唤醒的上下文改为保持待处理，直至真实的可唤醒工作提供请求。
+**为空闲注入保留一次性轮次。** 持久 inbox 插入已经能在不打开轮次的情况下记录空闲上下文。合成轮次会让轮次计数与观察方报告从未运行模型的工作；不会唤醒的上下文会保持待处理，直至真实的可唤醒工作提供请求。
 
 **保留 `prompt-prefix` 可选放置方式。** 前缀烘焙可以让上下文和请求位于同一条提供方消息中，但它会引入直接提示词的第二种表示，并把放置处理扩散到准入、steering、日志、回放和 UI 代码。需要文本框架的生产方可以直接把它写入自身上下文内容。
 
@@ -61,14 +61,14 @@ enter 分支的 `PreStepDecision.messages` 是拟议步骤的完整批次。wate
 - 投递输入与 steering inbox 记录不包含附加上下文；`agent/inbox/inserted` 只报告插入消息，目标列表由持久 splice 保留。
 - `UserMessage` 是提示词拦截、工具执行、hook bridge、guard 和上下文生产方共享的带标识且冻结的形状。
 - 公共类型、持久事件、投影和 UI 回放中均不存在 prompt-prefix 放置方式、提示词封套与 `context/message`。
-- idle 状态下的 `inject()` 会将一条不会唤醒的 next-step 消息排队；后续可唤醒投递开始 pre-step 处理前，日志不会追加任何内容。
+- idle 状态下的 `inject()` 会立即追加一条持久 inbox 插入记录，但不会追加模型可见的 `user/message`；后续可唤醒投递可能开始 pre-step 处理。
 - collecting 和活跃轮次中的注入会在最近的后续 pre-step 边界领取，并位于完整工具结果批次之后、消费它的请求之前。
 - pre-step reject 或失败会丢弃其已领取批次；领取后插入的 inbox 工作继续保持待处理。
 - 单元测试、持久化与 resume 测试、不变量测试和 TUI 覆盖会固定事件顺序、领取归属和持久回放。
 
 ## 后果
 
-- idle 注入要到后续 pre-step 让它进入步骤后才会对模型可见，并可能因取消或 dispose 而丢失。
+- idle 注入要到后续 pre-step 让它进入步骤后才会对模型可见，并可能被取消或 dispose 丢弃，而其持久 inbox 生命周期仍会保留记录。
 - 两条连续的 user-role 消息会取代一条烘焙后的提示词消息；提供方适配器会保留这一顺序。
 - 必须影响当前请求的上下文要从 `agent/pre-step` 返回；普通注入只保证由最近的后续边界交付。
 - 公共投递契约和收件箱记录保持精简：没有上下文附件、上下文放置元数据、提示词封套或重复的持久事件类型。

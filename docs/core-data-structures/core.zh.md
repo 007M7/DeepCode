@@ -493,7 +493,7 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
 type InboxTarget = 'next-turn' | 'next-step'
 ```
 
-每个待处理入队项就是其 `UserMessage`；`MessageId` 是唯一标识。`Inbox.append`、`prepend`、`update`、`remove` 与 `splice` 会记录规范化的持久 `agent/inbox/spliced` 变更，并拒绝重复的待处理 id。普通删除表示取消。`claim(target)` 通过纯删除 splice 原子移除拟进入步骤的批次；循环另行逐条发出 claimed 通知。UI 投影等整体队列消费方通过持久 splice 重建 `nextTurn` 与 `nextStep`，而跟踪单条消息的消费方使用精确的 `agent/inbox/inserted`、`claimed` 与 `discarded` 通知。
+每个待处理入队项就是其 `UserMessage`；`MessageId` 是唯一标识。`Inbox.append`、`prepend`、`update`、`remove`、`clear` 与 `splice` 会记录规范化的持久 `agent/inbox/spliced` 变更，并拒绝重复的待处理 id。普通删除和 `clear()` 都表示取消。`claim(target)` 通过纯删除 splice 原子移除拟进入步骤的批次；循环另行逐条发出 claimed 通知。UI 投影等整体队列消费方通过持久 splice 重建 `nextTurn` 与 `nextStep`，而跟踪单条消息的消费方使用精确的 `agent/inbox/inserted`、`claimed` 与 `discarded` 通知。
 
 ```ts type-equiv
 /** Options for {@link Agent.cancel}. */

@@ -61,15 +61,15 @@ Prefix-stable while the plugin scope, configured threshold, and guidance text ar
 
 #### What the model sees
 
-The generated [`get_goal`, `create_goal`, and `update_goal` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-goal). Successful results are compact JSON. Mutation results are followed by the goal domain's raw `<goal_state>` snapshot after the tool batch. `activation` in a result is a live observation and never becomes replay authority.
+The generated [`get_goal`, `create_goal`, and `update_goal` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-goal). Successful results are compact JSON. A mutation queues the goal domain's raw `<goal_state>` snapshot after the tool batch; a later pre-step may admit it, while discarding the queued context does not roll back the durable mutation. `activation` in a result is a live observation and never becomes replay authority.
 
 #### Token effect
 
-Fixed schema cost plus one compact result per call. Mutations also retain the domain snapshot until compaction.
+Fixed schema cost plus one compact result per call. An admitted mutation context retains the domain snapshot until compaction; one discarded before admission adds no model tokens.
 
 #### KV Cache effect
 
-Schemas are prefix-stable while their definitions and visibility are unchanged. Calls, results, and resulting goal snapshots append after the reusable request prefix without invalidating earlier entries.
+Schemas are prefix-stable while their definitions and visibility are unchanged. Calls, results, and admitted goal snapshots append after the reusable request prefix without invalidating earlier entries.
 
 ## Known Limitations and Deferred Work
 

@@ -97,11 +97,11 @@ Sources: [`packages/core/session/src/types.ts:262`](../packages/core/session/src
   start: number
   removedCount?: number
   inserted: UserMessage[]
-  outcome?: 'admitted' | 'canceled'
+  outcome?: 'canceled'
 }
 ```
 
-Source: [`packages/core/agent/src/types.ts:292`](../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:296`](../packages/core/agent/src/types.ts)
 
 ### `approval/*`
 
@@ -636,9 +636,9 @@ Source: [`packages/core/session/src/types.ts:181`](../packages/core/session/src/
 
 ```ts persistence-catalog
 /**
- * Opens turn `turn`. Every turn begins when the loop admits queued input;
- * the following identified `user/message` event or batch records the
- * admitted input.
+ * Opens turn `turn`. Every turn begins after the loop claims queued input
+ * and accepts the pre-step result; the following identified `user/message`
+ * event or batch records the messages entering the step.
  */
 'turn/start': { turn: number }
 ```
@@ -654,7 +654,7 @@ Source: [`packages/core/session/src/types.ts:174`](../packages/core/session/src/
  * A user-role message on the model-visible surface: a direct human prompt
  * (the queued message claimed for this turn), a synthetic `agent.inject()`
  * context (file-change notices, subdir AGENTS.md, skill content, cron
- * notifications, …), or an admitted goal continuation round. All three
+ * notifications, …), or an entered goal continuation round. All three
  * project their `content` verbatim; `source` tells them apart.
  */
 'user/message': UserMessage

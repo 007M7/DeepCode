@@ -101,15 +101,14 @@ async function harness(script: ScriptEntry[]): Promise<Harness> {
   return { ctx, adapter, agent, driver }
 }
 
-/** Observe inserted inbox messages after the session append boundary closes. */
+/** Observe inserted inbox messages after the insertion call completes. */
 function onInboxMessage(
   ctx: Context,
   agent: Agent,
   listener: (message: UserMessage) => void,
 ): () => void {
-  return ctx.on('session/event', (session, event) => {
-    if (session !== agent.session || event.type !== 'agent/inbox/spliced') return
-    for (const message of event.data.inserted) queueMicrotask(() => { listener(message) })
+  return ctx.on('agent/inbox/inserted', (subject, { message }) => {
+    if (subject === agent) queueMicrotask(() => { listener(message) })
   })
 }
 
@@ -386,6 +385,56 @@ describe('same-session goal driving', () => {
 
     expect(goal).toMatchObject({ objective: 'edited downstream', roundsStarted: 1 })
     expect(test.adapter.requests).toHaveLength(1)
+  })
+
+  it('restores non-goal step context when a claimed reservation becomes stale', async () => {
+    const test = await harness([textResponse('side contexts'), textResponse('revised goal')])
+    const claimedContext = createUserMessage({
+      content: [{ type: 'text', text: 'claimed context to restore' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    })
+    const queuedStepContext = createUserMessage({
+      content: [{ type: 'text', text: 'context already queued for the next step' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    })
+    const queuedTurnContext = createUserMessage({
+      content: [{ type: 'text', text: 'context already queued for the next turn' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    })
+    let staged = false
+    const stopInserted = onInboxMessage(test.ctx, test.agent, (message) => {
+      if (message.source.kind !== 'goal' || message.source.round <= 0 || staged) return
+      staged = true
+      test.agent.inbox.prepend('next-step', claimedContext)
+    })
+    let edited = false
+    test.ctx.on('agent/pre-step', async (agent, messages, _context, next) => {
+      const decision = await next()
+      if (!messages.some(message => message.source.kind === 'goal' && message.source.round > 0) || edited) return decision
+      edited = true
+      agent.inbox.prepend('next-step', queuedStepContext)
+      agent.inbox.append('next-turn', queuedTurnContext)
+      const goal = test.ctx.goals.get(agent)
+      if (goal === undefined) throw new Error('missing claimed goal')
+      test.ctx.goals.edit(agent, goal, { objective: 'revised after claim' })
+      return decision.kind === 'reject' ? decision : {
+        kind: 'enter' as const,
+        messages: [...decision.messages, queuedStepContext, queuedTurnContext],
+      }
+    })
+    test.ctx.goals.create(test.agent, { objective: 'stale before admission', maxGoalRounds: 1 })
+
+    const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'blocked')
+    stopInserted()
+
+    expect(goal).toMatchObject({ objective: 'revised after claim', roundsStarted: 1 })
+    expect(test.adapter.requests).toHaveLength(2)
+    expect(requestText(test.adapter.requests[0]!)).toContain('claimed context to restore')
+    expect(requestText(test.adapter.requests[0]!)).toContain('context already queued for the next step')
+    expect(requestText(test.adapter.requests[0]!)).toContain('context already queued for the next turn')
+    expect(requestText(test.adapter.requests[0]!)).not.toContain('<goal_round>')
+    expect(requestText(test.adapter.requests[1]!)).toContain('revised after claim')
+    expect(requestText(test.adapter.requests[1]!)).not.toContain('stale before admission')
   })
 
   it('disarms without dispatch when a durability checkpoint fails', async () => {
@@ -704,7 +753,7 @@ describe('same-session goal driving', () => {
   it('falls back to disarming when a cancelled reservation cannot be paused', async () => {
     const test = await harness([])
     const cancel = onInboxMessage(test.ctx, test.agent, (message) => {
-      if (message.source.kind !== 'goal') return
+      if (message.source.kind !== 'goal' || message.source.round <= 0) return
       cancel()
       vi.spyOn(test.ctx.goals, 'pause').mockImplementationOnce(() => {
         throw new Error('pause failed')

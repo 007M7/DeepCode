@@ -12,13 +12,11 @@ import type { ZodType } from 'zod'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, UserMessage } from '@deepseek-ai/dsh-session'
 // Type-only: resolves ctx.sessionProjections for the optional unit child.
 import type {} from '@deepseek-ai/dsh-session-projection'
 import {
-  applyGoalChange,
   applyGoalEvent,
-  decodeGoalEvent,
   emptyGoalFoldState,
   goalChangeRef,
 } from './fold.ts'
@@ -82,6 +80,12 @@ const goalProjectionSchema: ZodType<GoalProjection | null> = zod.union([
   zod.null(),
 ]) as ZodType<GoalProjection | null>
 
+/** Plain-JSON projection accumulator retaining duplicate-change identity. */
+type GoalProjectionState = readonly [
+  value: GoalProjection | null,
+  insertedChangeMessageIds: readonly string[],
+]
+
 /**
  * Light last-wins fold of the `goal` projection unit. Unlike the strict
  * replay fold (fold.ts: transition validation, fail-loud on malformed
@@ -95,23 +99,31 @@ const goalProjectionSchema: ZodType<GoalProjection | null> = zod.union([
  * @param event - the next committed session event.
  * @returns the next projection (same reference when the event is not a goal change).
  */
-export function applyGoalProjection(state: GoalProjection | null, event: SessionEvent): GoalProjection | null {
-  if (event.type !== 'user/message') return state
-  const source = event.data.source
-  if (source.kind !== 'goal' || source.round !== 0) return state
-  const change = source.change
-  // Session-log data is a durable boundary: the static type promises the kind,
-  // but a foreign or corrupted change record must degrade to same-reference,
-  // never feed the zod parse in the registry drive.
-  // oxlint-disable-next-line typescript/no-unnecessary-condition -- durable-boundary guard
-  if (change === undefined || change.kind !== 'goal/change') return state
-  if (change.operation === 'clear') return null
-  return {
-    goal: change.goal,
-    roundsStarted: change.roundsStarted,
-    createdAt: change.createdAt,
-    updatedAt: change.updatedAt,
+export function applyGoalProjection(state: GoalProjectionState, event: SessionEvent): GoalProjectionState {
+  if (event.type !== 'agent/inbox/spliced') return state
+  let projection = state[0]
+  let insertedChangeMessageIds: string[] | undefined
+  const seen = new Set(state[1])
+  for (const message of event.data.inserted) {
+    const source = message.source
+    const change = source.kind === 'goal' && source.round === 0 ? source.change : undefined
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- durable-boundary guard
+    if (seen.has(message.id) || change === undefined || change.kind !== 'goal/change') continue
+    seen.add(message.id)
+    insertedChangeMessageIds ??= [...state[1]]
+    insertedChangeMessageIds.push(message.id)
+    projection = change.operation === 'clear'
+      ? null
+      : {
+        goal: change.goal,
+        roundsStarted: change.roundsStarted,
+        createdAt: change.createdAt,
+        updatedAt: change.updatedAt,
+      }
   }
+  return insertedChangeMessageIds === undefined
+    ? state
+    : [projection, insertedChangeMessageIds]
 }
 
 /** Deployment defaults for goal creation. */
@@ -126,19 +138,12 @@ export interface ResolvedConfig {
   defaultMaxGoalRounds: number
 }
 
-/** One accepted mutation waiting to enter or be observed in the session log. */
-interface PendingGoalChange {
-  readonly change: GoalChangeMeta
-  readonly activation: GoalActivation
-  applied: boolean
-}
-
-/** Process-local cache plus mutations waiting in the active tool-batch FIFO. */
+/** Process-local cache plus activation intent crossing the synchronous injection boundary. */
 interface GoalCache {
   readonly state: GoalFoldState
   activation: GoalActivation
   observedSeq: number
-  readonly pending: PendingGoalChange[]
+  readonly pendingActivations: Map<UserMessage['id'], GoalActivation>
 }
 
 /** Validated create input with every deployment default materialized. */
@@ -188,11 +193,6 @@ function resolveBlockReason(reason: unknown): GoalBlockReason {
   return { code, message: message.trim() }
 }
 
-/** Compare the complete canonical payloads used for deferred reconciliation. */
-function sameChange(left: GoalChangeMeta, right: GoalChangeMeta): boolean {
-  return JSON.stringify(left) === JSON.stringify(right)
-}
-
 /** Goal service (`ctx.goals`) backed exclusively by the owning session log. */
 export class GoalService extends Service {
   static inject = ['agents']
@@ -216,13 +216,13 @@ export class GoalService extends Service {
     // (see applyGoalProjection). The unit child activates only when a
     // projection registry is composed (headless assemblies stay unaffected).
     ctx.inject(['sessionProjections'], (projectionCtx) => {
-      projectionCtx.sessionProjections.register<'goal', GoalProjection | null>({
+      projectionCtx.sessionProjections.register<'goal', GoalProjectionState>({
         key: 'goal',
         schema: goalProjectionSchema,
-        init: () => null,
+        init: () => [null, []],
         apply: applyGoalProjection,
-        view: state => state,
-        stateVersion: 1,
+        view: state => state[0],
+        stateVersion: 3,
       })
     })
   }
@@ -436,34 +436,24 @@ export class GoalService extends Service {
       state,
       activation: 'disarmed',
       observedSeq: session.seq,
-      pending: [],
+      pendingActivations: new Map(),
     }
     this.caches.set(session, cache)
     return cache
   }
 
-  /** Incrementally observe durable events without losing deferred mutations. */
+  /** Incrementally observe durable events and reconcile local activation intent. */
   private sync(session: Session, cache: GoalCache): void {
     for (const event of session.events.slice(cache.observedSeq)) {
-      // A goal state change is a round-zero goal-sourced user message; a
-      // positive round is a continuation prompt handled by applyGoalEvent.
-      if (event.type === 'user/message' && event.data.source.kind === 'goal' && event.data.source.round === 0) {
-        const change = decodeGoalEvent(event)
-        if (change !== undefined) {
-          const pending = cache.pending[0]
-          if (pending !== undefined && sameChange(pending.change, change)) {
-            if (!pending.applied) {
-              applyGoalChange(cache.state, change)
-              cache.activation = pending.activation
-              pending.applied = true
-            }
-            cache.pending.shift()
-            cache.observedSeq += 1
-            continue
-          }
-        }
-      }
+      const newGoalMessages = event.type === 'agent/inbox/spliced'
+        ? event.data.inserted.filter(message => message.source.kind === 'goal'
+          && message.source.round === 0 && !cache.state.insertedChangeMessages.has(message.id))
+        : []
       applyGoalEvent(cache.state, event)
+      for (const message of newGoalMessages) {
+        cache.activation = cache.pendingActivations.get(message.id) ?? 'disarmed'
+        cache.pendingActivations.delete(message.id)
+      }
       cache.observedSeq += 1
     }
   }
@@ -555,7 +545,7 @@ export class GoalService extends Service {
     }
     this.commit(agent, cache, change, activation)
     const view = this.view(cache)
-    /* v8 ignore next -- applyGoalChange installs the snapshot immediately before this read */
+    /* v8 ignore next -- the durable inbox insertion installs the snapshot before this read */
     if (view === undefined) throw new Error('snapshot commit cleared the goal unexpectedly')
     return view
   }
@@ -563,26 +553,21 @@ export class GoalService extends Service {
   /** Accept one mutation into the agent injection queue, cache, and live event stream. */
   private commit(agent: Agent, cache: GoalCache, change: GoalChangeMeta, activation: GoalActivation): void {
     const ref = goalChangeRef(change)
-    const pending: PendingGoalChange = { change, activation, applied: false }
-    cache.pending.push(pending)
+    const message = createUserMessage({
+      content: renderGoalChange(change),
+      source: { kind: 'goal', goalId: ref.id, revision: ref.revision, round: 0, change },
+    })
+    cache.pendingActivations.set(message.id, activation)
     try {
-      agent.inject(createUserMessage({
-        content: renderGoalChange(change),
-        source: { kind: 'goal', goalId: ref.id, revision: ref.revision, round: 0, change },
-      }))
+      agent.inject(message)
     } catch (error: unknown) {
-      const index = cache.pending.indexOf(pending)
-      /* v8 ignore next -- a committed goal append cannot reject after its contained observers run */
-      if (index < 0) throw new Error('goal injection failed after its pending mutation was reconciled', { cause: error })
-      cache.pending.splice(index, 1)
+      cache.pendingActivations.delete(message.id)
       throw error
     }
-    if (!pending.applied) {
-      applyGoalChange(cache.state, change)
-      cache.activation = activation
-      pending.applied = true
-    }
     this.sync(agent.session, cache)
+    if (cache.pendingActivations.delete(message.id)) {
+      throw new Error('goal injection returned without a durable inbox insertion')
+    }
     const goal = this.view(cache)
     const notification: GoalChanged = {
       operation: change.operation,

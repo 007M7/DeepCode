@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   DeepSeekHarness,
   HarnessClient,
+  HarnessSession,
   JsonRpcResponseError,
   RequestTimeoutError,
   SdkProtocolError,
@@ -53,6 +54,53 @@ async function tempDir(prefix: string): Promise<string> {
 }
 
 describe('DeepSeekHarness', () => {
+  it('ignores notifications that precede the submitted message receipt', async () => {
+    const notifications = [
+      { method: 'session.status', params: { sessionId: 'owned', status: 'running' } },
+      {
+        method: 'session.event',
+        params: {
+          sessionId: 'owned',
+          event: {
+            type: 'agent/inbox/spliced',
+            seq: 0,
+            time: 0,
+            data: {
+              target: 'next-turn',
+              start: 0,
+              inserted: [{ id: 'accepted-message', role: 'user', content: [], source: { kind: 'user' } }],
+            },
+          },
+        },
+      },
+      { method: 'session.status', params: { sessionId: 'owned', status: 'idle' } },
+    ] as HarnessNotification[]
+    let closed = false
+    const harness = {
+      start: () => Promise.resolve(),
+      client: {
+        prompt: () => Promise.resolve('accepted-message'),
+        subscribeSessionTree: () => ({
+          next: async () => {
+            const notification = notifications.shift()
+            if (notification === undefined) throw new Error('scripted notification queue exhausted')
+            return notification
+          },
+          tryNext: () => notifications.shift(),
+          close: () => { closed = true },
+          async * [Symbol.asyncIterator]() {},
+        }),
+      },
+    } as unknown as DeepSeekHarness
+
+    const result = await new HarnessSession(harness, 'owned').run('go')
+
+    expect(result.notifications.map(notification => notification.method))
+      .toEqual(['session.event', 'session.status'])
+    expect(result.events.map(event => event.type)).toEqual(['agent/inbox/spliced'])
+    expect(closed).toBe(true)
+  })
+
   it('runs a turn end to end and reuses the runtime across sessions', async () => {
     const harness = harnessWith({ FAKE_TEXT: 'turn answer' })
     const first = await harness.run('say hi')
@@ -293,9 +341,10 @@ describe('HarnessClient', () => {
 
     const all = client.subscribe()
     const idleOnly = client.subscribe(n => n.method === 'session.status' && n.params.status === 'idle')
+    const firstPending = all.next()
     await client.prompt('sub-test', normalizeInput('go'))
 
-    const first = await all.next()
+    const first = await firstPending
     expect(first.method).toBe('session.event')
     const idle = await idleOnly.next()
     expect(idle.method).toBe('session.status')

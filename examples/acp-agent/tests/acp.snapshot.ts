@@ -353,8 +353,18 @@ it('packed ACP fixture retains every chunk row kind without changing the logical
   expect([...new Set(rowTypes)].sort()).toStrictEqual(['reasoning-chunks', 'text-chunks', 'tool-call-chunks'])
   const withoutMessageId = (record: unknown): unknown => {
     const cloned = structuredClone(record) as {
+      time?: unknown
       type?: unknown
-      data?: { id?: unknown; message?: { id?: unknown } }
+      data?: {
+        durationMs?: unknown
+        id?: unknown
+        inserted?: Array<{ id?: unknown }>
+        message?: { id?: unknown }
+      }
+    }
+    delete cloned.time
+    if (cloned.type === 'agent/inbox/spliced') {
+      for (const message of cloned.data?.inserted ?? []) delete message.id
     }
     if (cloned.type === 'user/message') delete cloned.data?.id
     if (cloned.type === 'assistant/message'
@@ -362,6 +372,7 @@ it('packed ACP fixture retains every chunk row kind without changing the logical
       || cloned.type === 'steering/message') {
       delete cloned.data?.message?.id
     }
+    if (cloned.type === 'hook/result') delete cloned.data?.durationMs
     return cloned
   }
   const logicalRecords = (records: readonly unknown[]): unknown[] => [

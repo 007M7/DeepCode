@@ -3,12 +3,11 @@
     { "op": "initialize" },
     { "op": "newSession" },
     {
-      "op": "promptAndWaitForAgentMessage",
-      "text": "Create a durable two-round goal for the ACP snapshot, inspect it, then report readiness.",
-      "waitForText": "GOAL ROUND ONE"
+      "op": "prompt",
+      "text": "Create a durable two-round goal for the ACP snapshot, inspect it, then report readiness."
     },
     { "op": "waitForTurnStart", "minimumTurn": 3 },
     { "op": "cancel", "waitForFile": { "path": ".dsh-snapshot-goal-cancel-ready" } },
-    { "op": "waitForTurnEnd" }
+    { "op": "waitForInboxMessage", "text": "\"phase\":\"paused\"" }
   ]
 }

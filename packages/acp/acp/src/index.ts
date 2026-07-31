@@ -230,7 +230,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           await record.agent.whenIdle()
           return { stopReason: inflight.cancelled ? 'cancelled' : 'end_turn' }
         } finally {
-          if (record.inflight === inflight) record.inflight = undefined
+          record.inflight = undefined
         }
       },
 

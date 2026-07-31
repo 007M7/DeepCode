@@ -21,13 +21,13 @@ Event-sourced same-session goal state. The service retains one current completio
 
 At most one goal is current. Creation produces an active revision-one goal and arms it. A non-complete goal must be edited, transitioned, or cleared; a completed goal may be replaced by a globally fresh id. Edits retain phase, blocker reason, and activation. Pause, completion, blocking, and clear disarm activation. A block records a policy-owned lower-kebab-case code plus a normalized free-form explanation; provider limits, configured budgets, execution errors, and requests for human input all use this one durable phase rather than multiplying lifecycle states. Resume accepts a stopped phase or a disarmed active goal only while the configured round cap has remaining capacity; it clears any former blocker reason. An active armed goal rejects the redundant operation.
 
-Every mutation queues a complete versioned snapshot through `agent.inject()`; clear uses a revisioned tombstone. A later entering pre-step records it as a model-visible `user/message`, whose content and typed `{ kind: 'goal', change }` source must agree exactly. Replay rejects malformed shapes, source/content drift, discontinuous revisions, illegal lifecycle transitions, non-monotonic per-goal timestamps, and non-sequential goal rounds. Mutation timestamps clamp against the preceding goal update when wall time moves backward.
+Every mutation passes a complete versioned snapshot through `agent.inject()`; clear uses a revisioned tombstone. The mutation commits when injection records the message in the durable `agent/inbox/spliced` insertion, even if that context remains queued and never reaches the model. Removing or discarding the queued message does not roll back the mutation. If the same message is later admitted as a model-visible `user/message`, replay verifies that its id, content, and typed `{ kind: 'goal', change }` source agree with the insertion without applying the mutation again.
 
-Injection may append immediately or wait in an active tool-batch FIFO. The service overlays accepted pending changes in memory and reconciles each exact payload when it enters the log, so consecutive model-tool mutations see their own latest revisions without treating an unlogged cache as durable state. Reentrant append observers see each accepted mutation exactly once, and incremental replay retains its cursor at the first corrupt event. `goal/changed` fires after the append or enqueue succeeds; listener failures are contained.
+Strict replay derives mutations only from inbox insertions and rejects malformed shapes, reused message ids with different changes, source/content drift on admission, discontinuous revisions, illegal lifecycle transitions, non-monotonic per-goal timestamps, and non-sequential admitted goal rounds. Positive rounds advance only on admitted `user/message` events. Mutation timestamps clamp against the preceding goal update when wall time moves backward. Reentrant insertion observers see each accepted mutation exactly once, incremental replay retains its cursor at the first corrupt event, and `goal/changed` fires after injection succeeds with listener failures contained.
 
 Activation is never persisted. A fresh cache and every `agent/session-start` edge disarm it even when replay finds an active durable phase. A continuation driver also calls `disarm()` before unload or after durability uncertainty. Session resume, fork, and driver replacement therefore retain the objective, phase, revisions, and admitted-round count without initiating work; a later explicit resume mutation must arm continuation.
 
-The separately published `./invariant` companion maintains an independent fold of each attached session. It rejects malformed goal source changes, model-visible content drift, discontinuous revisions, illegal lifecycle transitions, timestamp regressions, and non-sequential admitted rounds before the candidate event enters the durable log.
+The separately published `./invariant` companion maintains an independent fold of each attached session. It rejects malformed goal source changes, duplicate-id drift between insertion and admission, model-visible content drift, discontinuous revisions, illegal lifecycle transitions, timestamp regressions, and non-sequential admitted rounds before the candidate event enters the durable log.
 
 ## Extension points
 
@@ -39,15 +39,15 @@ Policy plugins call the service verbs and react to the scoped `goal/changed` eve
 
 #### What the model sees
 
-Each mutation is one raw user-role context block. A snapshot is rendered as `<goal_state>{"goal":...,"roundsStarted":...,"createdAt":...,"updatedAt":...}</goal_state>`; a clear renders the tombstone id/revision and `clearedAt`. There is no hidden state summary outside the log. The descriptive XML delimiter follows this repository's existing `<workspace_context>` convention and [Anthropic's published XML-tag prompting guidance](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices#structure-prompts-with-xml-tags); it is public model-experience prior art, not a claim about any provider's proprietary training corpus.
+Each mutation queues one raw user-role context block. If admitted, a snapshot is rendered as `<goal_state>{"goal":...,"roundsStarted":...,"createdAt":...,"updatedAt":...}</goal_state>`; a clear renders the tombstone id/revision and `clearedAt`. The mutation remains durable if the queued context is discarded before admission, and there is no hidden state summary outside the session log. The descriptive XML delimiter follows this repository's existing `<workspace_context>` convention and [Anthropic's published XML-tag prompting guidance](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices#structure-prompts-with-xml-tags); it is public model-experience prior art, not a claim about any provider's proprietary training corpus.
 
 #### Token effect
 
-Every retained mutation adds one full snapshot to derived history until compaction shadows it. Full snapshots make each record independently inspectable but repeat the objective and lifecycle fields.
+An admitted mutation adds one full snapshot to derived history until compaction shadows it; an insertion discarded before admission costs no model tokens. Full snapshots make each admitted record independently inspectable but repeat the objective and lifecycle fields.
 
 #### KV Cache effect
 
-Append-only within an epoch: each mutation follows the reusable request prefix and preceding history. Compaction may replace the derived-history suffix and move the reusable boundary.
+Append-only within an epoch after admission: each visible mutation follows the reusable request prefix and preceding history. Compaction may replace the derived-history suffix and move the reusable boundary.
 
 ## Known Limitations and Deferred Work
 

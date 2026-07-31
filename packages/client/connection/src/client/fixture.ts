@@ -502,13 +502,13 @@ function projectionFramesOf(id: SessionId, log: readonly SessionEvent[], event: 
     if (!Object.hasOwn(values, 'title')) return []
     return [{ type: 'session/projection', sessionId: id, key: 'title', value: values['title'], seq: event.seq }]
   }
-  // Goal fold: a round-zero goal-sourced user message advances the goal unit.
-  if (type === 'user/message') {
-    const source = (event as unknown as { data?: { source?: { kind?: string; round?: number } } }).data?.source
-    if (source?.kind === 'goal' && source.round === 0) {
+  // Goal fold: inserting a round-zero goal change durably advances the unit;
+  // later admission of the same message must not advance it again.
+  if (type === 'agent/inbox/spliced') {
+    const inserted = (event as unknown as { data: { inserted: UserMessage[] } }).data.inserted
+    if (inserted.some(message => goalChangeOf(message) !== undefined)) {
       return [{ type: 'session/projection', sessionId: id, key: 'goal', value: backscanGoal(log), seq: event.seq }]
     }
-    return []
   }
   // Standing-plan fold: writes replace the list; turn/start clears it (null).
   if (type === 'todo/write' || type === 'turn/start') {
@@ -603,7 +603,7 @@ interface FxGoalProjection {
   updatedAt: number
 }
 
-/** One durable goal change riding a round-zero goal-sourced user message. */
+/** One durable goal change riding a round-zero goal-sourced inbox insertion. */
 type FxGoalChange =
   | { kind: 'goal/change'; version: 1; operation: 'clear'; cleared: { id: string; revision: number }; clearedAt: number }
   | {
@@ -616,6 +616,14 @@ type FxGoalChange =
     updatedAt: number
   }
 
+/** Decode a fixture goal change from its durable inbox message. */
+function goalChangeOf(message: UserMessage): FxGoalChange | undefined {
+  const source = message.source as unknown as { kind?: string; round?: number; change?: FxGoalChange }
+  if (source.kind !== 'goal' || source.round !== 0) return undefined
+  const change = source.change
+  return change?.kind === 'goal/change' ? change : undefined
+}
+
 /**
  * Current goal projection over the full log (host parallel: the GoalService
  * unit's last-wins fold of goal/change whole values; clear returns null).
@@ -624,16 +632,18 @@ function backscanGoal(log: readonly SessionEvent[]): FxGoalProjection | null {
   for (let i = log.length - 1; i >= 0; i--) {
     const event = log[i] as unknown as {
       type: string
-      data?: { source?: { kind?: string; round?: number; change?: FxGoalChange } }
+      data?: { inserted?: UserMessage[] }
     } | undefined
-    if (event === undefined || event.type !== 'user/message') continue
-    const source = event.data?.source
-    if (source?.kind !== 'goal' || source.round !== 0) continue
-    const change = source.change
-    // oxlint-disable-next-line typescript/no-unnecessary-condition
-    if (change === undefined || change.kind !== 'goal/change') continue
-    if (change.operation === 'clear') return null
-    return { goal: change.goal, roundsStarted: change.roundsStarted, createdAt: change.createdAt, updatedAt: change.updatedAt }
+    if (event === undefined || event.type !== 'agent/inbox/spliced') continue
+    const inserted = event.data?.inserted ?? []
+    for (let j = inserted.length - 1; j >= 0; j--) {
+      const message = inserted[j]
+      if (message === undefined) continue
+      const change = goalChangeOf(message)
+      if (change === undefined) continue
+      if (change.operation === 'clear') return null
+      return { goal: change.goal, roundsStarted: change.roundsStarted, createdAt: change.createdAt, updatedAt: change.updatedAt }
+    }
   }
   return null
 }
@@ -869,20 +879,35 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     for (const frame of projectionFramesOf(id, log, event)) emitMux(frame)
   }
 
-  /** Append one goal/change as its round-zero goal-sourced user message (host GoalService parallel). */
+  /** Append one goal/change as its round-zero goal-sourced inbox insertion (host GoalService parallel). */
   const appendGoalChange = (id: SessionId, change: FxGoalChange): FxGoalProjection => {
     const ref = change.operation === 'clear' ? change.cleared : change.goal
     const payload = change.operation === 'clear'
       ? { cleared: change.cleared, clearedAt: change.clearedAt }
       : { goal: change.goal, roundsStarted: change.roundsStarted, createdAt: change.createdAt, updatedAt: change.updatedAt }
+    const log = logOf(id)
+    const pendingNextStep = log.reduce((count, event) => {
+      const inboxEvent = event as unknown as {
+        type: string
+        data: { target: string; removedCount?: number; inserted: UserMessage[] }
+      }
+      if (inboxEvent.type !== 'agent/inbox/spliced' || inboxEvent.data.target !== 'next-step') return count
+      return count - (inboxEvent.data.removedCount ?? 0) + inboxEvent.data.inserted.length
+    }, 0)
     append(id, {
-      type: 'user/message', surfaceOp: 'append',
-      data: userMessage(
-        text(`<goal_state>${JSON.stringify(payload)}</goal_state>`),
-        { kind: 'goal', goalId: ref.id, revision: ref.revision, round: 0, change } as unknown as MessageSource,
-      ),
+      type: 'agent/inbox/spliced',
+      data: {
+        target: 'next-step',
+        start: pendingNextStep,
+        inserted: [
+          userMessage(
+            text(`<goal_state>${JSON.stringify(payload)}</goal_state>`),
+            { kind: 'goal', goalId: ref.id, revision: ref.revision, round: 0, change } as unknown as MessageSource,
+          ),
+        ],
+      },
     })
-    return backscanGoal(logOf(id)) as FxGoalProjection
+    return backscanGoal(log) as FxGoalProjection
   }
 
   /** Shared CAS mutation path of the goal verbs (undefined next = invalid transition). */

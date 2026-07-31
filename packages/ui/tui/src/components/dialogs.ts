@@ -459,7 +459,7 @@ function resumeTurnLabel(snapshot: SessionLogSnapshot): string {
   const reason = event.data.reason
   switch (reason.kind) {
     case 'completed': return `turn ${event.data.turn}: completed`
-    case 'aborted': return `turn ${event.data.turn}: cancelled`
+    case 'aborted': return `turn ${event.data.turn}: ${reason.reason.kind === 'disposed' ? 'disposed' : 'cancelled'}`
     case 'error': return `turn ${event.data.turn}: error`
     case 'max-tokens': return `turn ${event.data.turn}: max tokens`
     case 'interrupted': return `turn ${event.data.turn}: interrupted`

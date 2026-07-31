@@ -165,6 +165,17 @@ describe('dsh-subagent-dsh-sdk provider', () => {
     await ctx.fiber.dispose()
   })
 
+  it('keeps streamed text when a malformed final message prevents completion', async () => {
+    const ctx = await setup({ FAKE_MALFORMED_MESSAGE: '1', FAKE_TEXT: 'stream-only answer' })
+    const run = await ctx.subagents.start('dsh-sdk', request())
+    const result = await run.result
+
+    expect(result.stopReason).toBe('error')
+    expect(text(result.output)).toBe('stream-only answer')
+    await run.dispose()
+    await ctx.fiber.dispose()
+  })
+
   it('reports a settled-without-turn child as an error', async () => {
     const ctx = await setup({ FAKE_REASON_KIND: 'none', FAKE_STATUS: 'error' })
     const run = await ctx.subagents.start('dsh-sdk', request())

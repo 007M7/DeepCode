@@ -11,15 +11,15 @@ viewport
 2| " main-session"
   style 1-12 dim
 3| <blank>
-4| "Assistant                                                                                       "
-  style 0-8 fg=bright-magenta bold underline
-5| "Tracking the steps.                                                                             "
-6| "Model wait 0.0s · Completed 2026-07-21 14:45:00                                                 "
-  style 0-46 dim
-7| <blank>
-8| "You                                                                                             "
+4| "You                                                                                             "
   style 0-2 fg=bright-magenta bold underline
-9| "Plan the work.                                                                                  "
+5| "Plan the work.                                                                                  "
+6| <blank>
+7| "Assistant                                                                                       "
+  style 0-8 fg=bright-magenta bold underline
+8| "Tracking the steps.                                                                             "
+9| "Model wait 0.0s · Completed 2026-07-21 14:45:00                                                 "
+  style 0-46 dim
 10| <blank>
 11| "You                                                                                             "
   style 0-2 fg=bright-magenta bold underline

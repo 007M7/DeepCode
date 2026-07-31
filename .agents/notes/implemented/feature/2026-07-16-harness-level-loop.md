@@ -46,7 +46,7 @@ The detailed contracts live in the [goal-domain](2026-07-19-persisted-same-sessi
 
 ### Durable goal state and live authority
 
-One session has at most one current goal. Every non-clear mutation appends a full, versioned, model-visible goal snapshot through `Agent.inject()`; clear appends a revisioned tombstone. The session log is the only durable source of truth, so normal persistence, resume, compaction semantics, and `SessionStore.fork()` carry the goal without a second database or an artificial cancellation record.
+One session has at most one current goal. Every mutation commits through the durable `agent/inbox/spliced` insertion produced by `Agent.inject()`, carrying a full versioned snapshot or revisioned clear tombstone. Its queued context becomes model-visible only if later admitted, and discarding it does not roll back the goal. The session log is the only durable source of truth, so normal persistence, resume, and `SessionStore.fork()` carry the goal without a second database or an artificial cancellation record.
 
 Durable phases are only `active`, `paused`, `blocked`, and `complete`. A blocked goal carries a required `GoalBlockReason` with a stable lower-kebab-case `code` and a non-empty human-readable `message`; usage limits, round exhaustion, model failures, and policy rejection are reason codes rather than extra lifecycle phases. Separate activation is `armed` or `disarmed` and is never persisted. Creation and explicit resume arm a goal; stop transitions, session start, fork replay, driver replacement, and driver teardown leave it disarmed.
 
@@ -58,9 +58,9 @@ Forked sessions inherit the durable goal prefix because that is the natural repl
 
 ### Same-session continuation
 
-The goal-round driver owns at most one pending reservation per exact live agent. It admits a reservation only when the goal is active and armed, the agent is idle, no competing human work exists, pending mutations are durable, the exact goal id/revision/round still matches, and downstream prompt policy accepts it. The prompt-submit fence checks those facts both before and after asynchronous listeners, preventing an edit, pause, human message, or unload race from admitting obsolete work.
+The goal-round driver owns at most one pending reservation per exact live agent. It admits a reservation only when the goal is active and armed, the agent is idle, no competing human work exists, pending mutation insertions have passed their durability checkpoint, the exact goal id/revision/round still matches, and downstream pre-step policy accepts it. Its `agent/pre-step` fence checks those facts both before and after downstream listeners, preventing an edit, pause, human message, or unload race from admitting obsolete work.
 
-Only the durable goal-sourced `user/message` charges a round. Stale reservations become rejected zero-step turns without consuming the cap. A concurrent goal revision wins over settlement from an older round.
+Only an admitted positive-round goal-sourced `user/message` charges a round. A stale reservation is rejected before a turn opens without consuming the cap. A concurrent goal revision wins over settlement from an older round.
 
 Normal turn completion schedules another round only while the goal remains active, armed, and below its cap. Cancellation pauses. Rate limiting or quota exhaustion blocks with code `usage-limited`; cap exhaustion blocks with `round-limit`; queue failure uses `queue-failed`; turn errors, max-token stops, policy rejection, and unknown terminal results use their corresponding blocker codes. An independently composed request-recovery plugin may retry transient provider failures within that same turn; the goal driver never invents another round after an abnormal terminal outcome. A human can later authorize resume through ordinary language or `/goal resume`.
 

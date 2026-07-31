@@ -2,6 +2,6 @@
   "steps": [
     { "op": "initialize" },
     { "op": "newSession" },
-    { "op": "promptExpectError", "text": "This prompt triggers a recorded provider error." }
+    { "op": "prompt", "text": "This prompt triggers a recorded provider error." }
   ]
 }

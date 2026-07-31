@@ -11,26 +11,26 @@ viewport
 2| " main-session"
   style 1-12 dim
 3| <blank>
-4| "Assistant                                                                                       "
-  style 0-8 fg=bright-magenta bold underline
-5| "Reasoning                                                                                       "
-  style 0-8 dim italic
-6| "Inspecting width and styles.                                                                    "
-  style 0-27 dim italic
-7| "Streaming visible state…                                                                        "
-  style 10-22 bold
-8| "                                                                                                "
-9| "ts                                                                                              "
-  style 0-1 dim
-10| "  const visible = true                                                                          "
-  style 2-21 fg=cyan
-11| "                                                                                                "
-12| "Model wait 1.0s · Thinking 2.0s                                                                 "
-  style 0-30 dim
-13| <blank>
-14| "You                                                                                             "
+4| "You                                                                                             "
   style 0-2 fg=bright-magenta bold underline
-15| "Show the live update.                                                                           "
+5| "Show the live update.                                                                           "
+6| <blank>
+7| "Assistant                                                                                       "
+  style 0-8 fg=bright-magenta bold underline
+8| "Reasoning                                                                                       "
+  style 0-8 dim italic
+9| "Inspecting width and styles.                                                                    "
+  style 0-27 dim italic
+10| "Streaming visible state…                                                                        "
+  style 10-22 bold
+11| "                                                                                                "
+12| "ts                                                                                              "
+  style 0-1 dim
+13| "  const visible = true                                                                          "
+  style 2-21 fg=cyan
+14| "                                                                                                "
+15| "Model wait 1.0s · Thinking 2.0s                                                                 "
+  style 0-30 dim
 16| <blank>
 17| "/workspace/project (tui-staging)  deepseek-v4-flash  ↑0 ↓0  0% context"
   style 0-17 fg=bright-magenta bold

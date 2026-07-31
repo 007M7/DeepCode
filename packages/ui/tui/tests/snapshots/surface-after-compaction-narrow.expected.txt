@@ -11,13 +11,13 @@ buffer
 2| " main-session"
   style 1-12 dim
 3| <blank>
-4| "Assistant                                   "
-  style 0-8 fg=bright-magenta bold underline
-5| <blank>
-6| "You                                         "
+4| "You                                         "
   style 0-2 fg=bright-magenta bold underline
-7| "Old prompt with a long line that exercises  "
-8| "wrapping and stays visible after compaction."
+5| "Old prompt with a long line that exercises  "
+6| "wrapping and stays visible after compaction."
+7| <blank>
+8| "Assistant                                   "
+  style 0-8 fg=bright-magenta bold underline
 9| <blank>
 10| "● Tool / bash / Run the coverage gate"
   style 0-36 fg=green

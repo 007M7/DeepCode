@@ -584,6 +584,55 @@ describe('runScenario', () => {
     expect(result.sessionLogs[0]?.content).toContain('"type":"turn/end"')
   })
 
+  it('waitForInboxMessage holds the app through a matching durable insertion', { timeout: 20_000 }, async () => {
+    const { fixtureFile } = await scenario({
+      prompt: 'hang-until-cancel',
+      persistLogsOnCancel: true,
+      logs: [{
+        file: 'project/main/session.jsonl',
+        lines: [
+          { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
+          {
+            type: 'agent/inbox/spliced',
+            seq: 0,
+            time: 2,
+            data: {
+              target: 'next-turn',
+              start: 0,
+              inserted: [{ role: 'user', content: [{ type: 'text', text: 'durable marker' }] }],
+            },
+          },
+        ],
+      }],
+    })
+    const result = await runScenario(
+      { steps: [...boot, { op: 'promptAndCancel', text: 'hang' }, { op: 'waitForInboxMessage', text: 'marker' }] },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    )
+    expect(result.sessionLogs[0]?.content).toContain('durable marker')
+  })
+
+  it('waitForInboxMessage times out when the session log or matching insertion is absent', { timeout: 20_000 }, async () => {
+    const absent = await scenario({ prompt: 'hang-until-cancel', persistLogsOnCancel: true })
+    await expect(runScenario(
+      { steps: [...boot, { op: 'promptAndCancel', text: 'hang' }, { op: 'waitForInboxMessage', text: 'missing', timeoutMs: 20 }] },
+      { agent: AGENT, mode: 'replay', fixtureFile: absent.fixtureFile },
+    )).rejects.toThrow(/did not persist expected inbox message within 20ms/)
+
+    const unmatched = await scenario({
+      prompt: 'hang-until-cancel',
+      persistLogsOnCancel: true,
+      logs: [{
+        file: 'project/main/session.jsonl',
+        lines: [{ type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 }],
+      }],
+    })
+    await expect(runScenario(
+      { steps: [...boot, { op: 'promptAndCancel', text: 'hang' }, { op: 'waitForInboxMessage', text: 'missing', timeoutMs: 20 }] },
+      { agent: AGENT, mode: 'replay', fixtureFile: unmatched.fixtureFile },
+    )).rejects.toThrow(/did not persist expected inbox message within 20ms/)
+  })
+
   it('waitForTitleAfterTurnEnd holds the app through a standalone durable title', { timeout: 20_000 }, async () => {
     const { fixtureFile } = await scenario({
       prompt: 'hang-until-cancel',
@@ -872,6 +921,7 @@ describe('runScenario', () => {
     [{ op: 'promptAndCancel', text: 'x' }, /promptAndCancel before newSession/],
     [{ op: 'waitForTurnStart' }, /waitForTurnStart before newSession/],
     [{ op: 'waitForTurnEnd' }, /waitForTurnEnd before newSession/],
+    [{ op: 'waitForInboxMessage', text: 'marker' }, /waitForInboxMessage before newSession/],
     [{ op: 'waitForTitleAfterTurnEnd' }, /waitForTitleAfterTurnEnd before newSession/],
     [{ op: 'cancel' }, /cancel before newSession/],
   ] as [InputStep, RegExp][])('rejects %j before newSession', { timeout: 20_000 }, async (step, message) => {

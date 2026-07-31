@@ -27,7 +27,7 @@ sequenceDiagram
   Driver->>Hooks: <code>agent/pre-step</code> waterfall
   Hooks-->>Driver: authoritative reject or enter(messages)
   alt proposed step rejected or pre-step failed
-    Driver-->>Driver: claimed batch stays removed; no turn opens
+    Driver-->>Driver: claimed batch stays removed, no turn opens
   else enter proposed step
   Driver->>Session: <code>turn/start</code>
   Driver->>Session: <code>step/start</code>

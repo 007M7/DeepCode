@@ -17,7 +17,7 @@ Human-facing `/goal` control over [`ctx.goals`](../goal/README.md). The plugin r
 
 Control words are case-insensitive only when they occupy the complete input. Every other non-empty suffix is an objective, so `/goal pause after verification` creates that literal objective. The goal domain trims and validates objectives. Because the generic command plane has no modal editor or confirmation primitive, `edit` takes its replacement inline and an unfinished replacement returns a direct error instructing the user to edit or clear.
 
-Expected domain rejections become stable direct command errors without exposing branded ids or revisions. Unexpected implementation failures still reject dispatch so adapters can report them as command failures. Generic command text and output remain live UI state; every accepted mutation is persisted and made model-visible by `dsh-goal` rather than by this plugin.
+Expected domain rejections become stable direct command errors without exposing branded ids or revisions. Unexpected implementation failures still reject dispatch so adapters can report them as command failures. Generic command text and output remain live UI state; `dsh-goal` persists every accepted mutation through a durable inbox insertion and independently queues its model-facing context.
 
 ## Composition
 
@@ -40,15 +40,15 @@ The TUI app enables the complete persisted-goal stack and this command by defaul
 
 #### What the model sees
 
-The slash input and direct status/error output are absent from model requests. An accepted mutation later appears through the goal domain's raw `<goal_state>` snapshot or clear tombstone; this preserves the model-visible-is-logged invariant without logging presentation text.
+The slash input and direct status/error output are absent from model requests. An accepted mutation queues the goal domain's raw `<goal_state>` snapshot or clear tombstone; the model sees it only if a later pre-step admits that context. The mutation remains durable if the queued message is discarded, and presentation text is never logged.
 
 #### Token effect
 
-Reading status or receiving a direct command error adds no model tokens. Each accepted mutation adds the goal domain's retained full snapshot, and an enabled same-session driver may add later goal-round prompts.
+Reading status or receiving a direct command error adds no model tokens. An admitted mutation context adds the goal domain's retained full snapshot, while one discarded before admission adds none; an enabled same-session driver may add later goal-round prompts.
 
 #### KV Cache effect
 
-Command discovery and direct output do not affect the cache. A mutation appends after the reusable history prefix; later compaction may replace the derived-history suffix.
+Command discovery and direct output do not affect the cache. An admitted mutation context appends after the reusable history prefix; later compaction may replace the derived-history suffix.
 
 ## Known Limitations and Deferred Work
 

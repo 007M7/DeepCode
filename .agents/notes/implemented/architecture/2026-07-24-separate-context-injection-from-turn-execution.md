@@ -22,11 +22,11 @@ A caller that owns context delivers an identified, frozen `UserMessage` through 
 
 An entering pre-step returns the complete `PreStepDecision.messages` batch for the request being finalized. Tool extension points still return `additionalContexts`, which enter the next-step inbox only after the corresponding tool results. These values are extension-point outputs, not attachments captured from a caller's inbox item.
 
-Every additional context is an independent `user/message` whose `source` records provenance. There is no `context/message`, prompt-prefix placement, stable request delimiter, or prompt envelope. Transcript and UI consumers distinguish direct user messages from injected context by `source`.
+Every additional context is an independent `UserMessage` whose `source` records provenance. Inbox insertion is durable immediately; admission later records the same value as `user/message`. There is no `context/message`, prompt-prefix placement, stable request delimiter, or prompt envelope. Transcript and UI consumers distinguish direct user messages from injected context by `source`.
 
 ## Injection lifecycle
 
-`inject()` always inserts context into the non-waking `next-step` inbox. A collecting or running driver claims it at the nearest later pre-step boundary. An idle driver leaves it pending until `followup()` or `steer()` supplies waking work; cancellation or disposal may discard it first.
+`inject()` always inserts context into the non-waking `next-step` inbox and commits that queue mutation as `agent/inbox/spliced`. A collecting or running driver claims it at the nearest later pre-step boundary. An idle driver leaves it pending until `followup()` or `steer()` supplies waking work; cancellation or disposal may discard it first without erasing the durable queue history.
 
 The loop claims the current next-step batch before running `agent/pre-step`, so an injection that arrives after that claim may miss the request already being finalized. The next boundary claims it instead. An enter decision appends its returned messages inside the owning turn before the request consumes them. Context produced during an assistant tool-call batch therefore appears after that batch's complete ordered results.
 
@@ -50,7 +50,7 @@ This decision preserves the caller-owned framing decision from [unwrapped inject
 
 **Keep a distinct `context/message` session event.** User-role model input would again have two event types with identical projection. `user/message.source` already carries the distinction needed by policy, transcript, and replay consumers.
 
-**Keep one-shot turns for idle injection.** This gives idle context an immediate durability boundary, but it makes turn counts and turn observers report work that never ran the model. Non-waking context instead remains pending until real waking work supplies a request.
+**Keep one-shot turns for idle injection.** Durable inbox insertion already records idle context without opening a turn. A synthetic turn would make turn counts and observers report work that never ran the model; non-waking context remains pending until real waking work supplies a request.
 
 **Keep `prompt-prefix` as an optional placement.** Prefix baking can make the context and request appear in one provider message, but it introduces a second representation of the direct prompt and spreads placement handling across admission, steering, logging, replay, and UI code. Producers that require textual framing may include it in their own context content.
 
@@ -61,14 +61,14 @@ This decision preserves the caller-owned framing decision from [unwrapped inject
 - Delivery inputs and steering inbox records contain no attached contexts; `agent/inbox/inserted` reports only the inserted message, while the durable splice retains its target list.
 - `UserMessage` is the shared identified, frozen shape across prompt interception, tool execution, hook bridges, guards, and context producers.
 - Prompt-prefix placement, prompt envelopes, and `context/message` are absent from public types, durable events, projection, and UI replay.
-- Idle `inject()` queues one non-waking next-step item and appends nothing until a later waking delivery starts pre-step processing.
+- Idle `inject()` immediately appends one durable inbox insertion but no model-visible `user/message`; a later waking delivery may start pre-step processing.
 - Collecting and active-turn injection is claimed at the nearest later pre-step boundary, after complete tool-result batches and before the request that consumes it.
 - Rejected or failed pre-step drops its claimed batch; input inserted after the claim remains pending.
 - Unit, persistence/resume, invariant, and TUI coverage pin event order, claim ownership, and durable replay.
 
 ## Consequences
 
-- Idle injection is not model-visible until a later pre-step enters it and may be lost to cancellation or disposal.
+- Idle injection is not model-visible until a later pre-step enters it and may be discarded by cancellation or disposal, while its durable inbox lifecycle remains recorded.
 - Consecutive user-role messages replace one baked prompt message; provider adapters preserve that ordering.
 - Exact-current-request context must be returned from `agent/pre-step`; ordinary injection provides only nearest-later-boundary delivery.
 - The public delivery contract and inbox records remain small: no context attachment, context-placement metadata, prompt envelope, or duplicate durable event type.

@@ -6,7 +6,7 @@ import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import CommandService from '@deepseek-ai/dsh-commands'
 import GoalService from '@deepseek-ai/dsh-goal'
 import type { GoalRef } from '@deepseek-ai/dsh-goal'
-import SessionStore, { Session, SessionId, type UserMessage } from '@deepseek-ai/dsh-session'
+import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import * as commandGoal from '@deepseek-ai/dsh-command-goal'
 
 interface Harness {
@@ -16,31 +16,23 @@ interface Harness {
   readonly plugin: Awaited<ReturnType<Context['plugin']>>
 }
 
-/** Commit one injected message as an already admitted turn for the Agent test double. */
-function appendInjection(session: Session, input: UserMessage): void {
-  const lastStart = session.events.findLast(event => event.type === 'turn/start')
-  const turn = (lastStart?.data.turn ?? 0) + 1
-  session.append('turn/start', { turn })
-  session.append('user/message', input, { surfaceOp: 'append' })
-  session.append('turn/end', { turn, reason: { kind: 'completed' } })
-}
-
 /** Build a live idle agent accepted by the exact-identity goal service. */
 function stubAgent(ctx: Context, id: string): { agent: Agent; session: Session } {
   // Store-created: the command executor durably logs lifecycle events on it.
   const session = ctx.sessions.create(SessionId(id))
+  const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {} })
   let status: AgentStatus = 'idle'
   const agent: Agent = {
     id: session.id,
     options: {},
     session,
-    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
+    inbox,
     ctx: new Context(),
     get status() { return status },
     send: () => {},
     followup: () => {},
     steer: () => {},
-    inject(input) { appendInjection(session, input) },
+    inject(input) { inbox.append('next-step', input) },
     cancel() { status = 'idle' },
     whenIdle() { return Promise.resolve() },
   }
@@ -131,7 +123,7 @@ describe('/goal human command', () => {
     expect(created.text).toContain('Rounds: 0/256')
     expect(created.text).toContain('Activation: armed')
     expect(test.ctx.goals.get(test.agent)?.objective).toBe('finish the release')
-    expect(domainEvents(test.session).map(event => event.type)).toEqual(['turn/start', 'user/message', 'turn/end'])
+    expect(domainEvents(test.session).map(event => event.type)).toEqual(['agent/inbox/spliced'])
 
     const count = domainEvents(test.session).length
     await expect(run(test, ' replacement')).resolves.toEqual({

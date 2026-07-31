@@ -5,10 +5,10 @@ import { tmpdir } from 'node:os'
 import { Context } from 'cordis'
 import { createUserMessage, CallId, type Message } from '@deepseek-ai/dsh-llm'
 import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
-import { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { Session, SessionId, type SessionEvent, type UserMessage } from '@deepseek-ai/dsh-session'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { agentEvents, Inbox, type Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents, Inbox, type Agent, type PreStepDecision } from '@deepseek-ai/dsh-agent'
 import SkillService from '@deepseek-ai/dsh-skill'
 import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
 import * as toolSkill from '@deepseek-ai/dsh-tool-skill'
@@ -93,6 +93,20 @@ async function fireStep(ctx: Context, agent: Agent, turn: number, step: number):
       agent.session.append('user/message', message, { surfaceOp: 'append' })
     }
   }
+}
+
+async function proposeStep(
+  ctx: Context,
+  agent: Agent,
+  messages: UserMessage[],
+): Promise<PreStepDecision> {
+  const signal = new AbortController().signal
+  return await agentEvents(ctx, agent).waterfall(
+    'agent/pre-step',
+    messages,
+    { turn: 1, step: 1, signal },
+    () => Promise.resolve({ kind: 'enter' as const, messages }),
+  )
 }
 
 function catalogMessages(session: Session): Extract<SessionEvent, { type: 'user/message' }>[] {
@@ -332,6 +346,60 @@ describe('dsh-tool-skill', () => {
     await fireStep(ctx, agent, 1, 2)
 
     expect(catalogMessages(session)).toEqual([])
+  })
+
+  it('deduplicates or replaces a catalog already proposed for the same step', async () => {
+    const home = await tempDir('tool-proposed-catalog')
+    const ctx = await setup(home)
+    const disposeFirst = ctx.skills.register({
+      name: 'first-skill',
+      description: 'First skill',
+      source: 'runtime',
+      content: 'First body.',
+    })
+    const session = new Session(SessionId('proposed-catalog'))
+    const agent = sessionAgent(session)
+    openMessageTurn(session)
+    await fireStep(ctx, agent, 1, 1)
+    const initial = catalogMessages(session)[0]?.data
+    if (initial === undefined) throw new Error('expected initial catalog')
+
+    const duplicate = await proposeStep(ctx, agent, [initial])
+    expect(duplicate).toEqual({ kind: 'enter', messages: [] })
+
+    ctx.skills.register({
+      name: 'second-skill',
+      description: 'Second skill',
+      source: 'runtime',
+      content: 'Second body.',
+    })
+    const companion = createUserMessage({
+      content: [{ type: 'text', text: 'keep this message' }],
+      source: { kind: 'user' },
+    })
+    const replaced = await proposeStep(ctx, agent, [companion, initial])
+    expect(replaced.kind).toBe('enter')
+    if (replaced.kind === 'reject') throw new Error('expected catalog replacement')
+    expect(replaced.messages).toHaveLength(2)
+    expect(replaced.messages[0]).toBe(companion)
+    expect(replaced.messages[1]?.id).not.toBe(initial.id)
+    expect(JSON.stringify(replaced.messages[1]?.content)).toContain('second-skill')
+
+    disposeFirst()
+  })
+
+  it('removes a stale proposed catalog before the first empty baseline', async () => {
+    const home = await tempDir('tool-proposed-empty-catalog')
+    const ctx = await setup(home)
+    const session = new Session(SessionId('proposed-empty-catalog'))
+    const stale = createUserMessage({
+      content: catalogContent(['- `stale-skill`: Stale skill']),
+      source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
+    })
+
+    const decision = await proposeStep(ctx, sessionAgent(session), [stale])
+
+    expect(decision).toEqual({ kind: 'enter', messages: [] })
   })
 
   it('injects complete replacement catalogs for additions and an empty tombstone for removals', async () => {

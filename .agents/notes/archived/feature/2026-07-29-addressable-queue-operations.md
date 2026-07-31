@@ -1,6 +1,7 @@
 # Agent Note: Address pending queue occurrences for edit and removal
 
 Status: implemented
+Archived: 2026-07-31
 
 English | [中文](2026-07-29-addressable-queue-operations.zh.md)
 

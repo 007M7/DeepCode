@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-22-docked-web-goal-bar.md
-2026-07-22-docked-web-goal-bar.md: f014da61d2fa0bf25121c040dae99354ab15de9d
-2026-07-22-docked-web-goal-bar.zh.md: f62c6efbb2d330fb7d5ab74138eb781f1a1bc06c
+2026-07-22-docked-web-goal-bar.md: 4f160d590f02ea5237ffb39bdac10aa26f95ddb8
+2026-07-22-docked-web-goal-bar.zh.md: a226bc130ab49df389e24f869b2f640e2c1cff4e

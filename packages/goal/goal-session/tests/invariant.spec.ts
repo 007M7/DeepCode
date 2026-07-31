@@ -41,11 +41,15 @@ function view(roundsStarted: number): GoalView {
 }
 
 function appendChange(session: Session): void {
-  session.append('turn/start', { turn: 1 })
-  session.append('user/message', createUserMessage({
+  const message = createUserMessage({
     content: renderGoalChange(change),
     source: changeSource,
-  }), { surfaceOp: 'append' })
+  })
+  session.append('agent/inbox/spliced', {
+    target: 'next-step', start: 0, inserted: [message],
+  })
+  session.append('turn/start', { turn: 1 })
+  session.append('user/message', message, { surfaceOp: 'append' })
   session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
 }
 

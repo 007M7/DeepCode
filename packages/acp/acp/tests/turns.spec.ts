@@ -164,6 +164,23 @@ describe('ACP prompt lifecycle', () => {
       .toEqual({ kind: 'aborted', reason: { kind: 'user' } })
   })
 
+  it('cancels autonomous running work without an in-flight prompt', async () => {
+    harness = await makeBridgeHarness({ script: ['hang'] })
+    const sessionId = await newSession(harness)
+    const agent = harness.ctx.agents.get(SessionId(sessionId))!
+    agent.followup(createUserMessage({
+      content: [{ type: 'text', text: 'autonomous work' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    }))
+    await vi.waitFor(() => { expect(agent.status).toBe('running') })
+
+    await harness.client.cancel({ sessionId })
+    await agent.whenIdle()
+
+    expect(agent.session.events.findLast(event => event.type === 'turn/end')?.data.reason)
+      .toEqual({ kind: 'aborted', reason: { kind: 'user' } })
+  })
+
   it('an idle cancel does not affect the following prompt', async () => {
     harness = await makeBridgeHarness({ script: [textResponse('answer')] })
     const sessionId = await newSession(harness)

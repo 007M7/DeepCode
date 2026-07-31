@@ -71,10 +71,10 @@ interface GoalView extends GoalSnapshot {
 
 ## 持久变更
 
-每次变更都是 Round 编号为 0、来源为目标的 `user/message`，其元数据要么是完整快照，要么是清除墓碑。版本、元数据、目标来源和逐字渲染内容共同构成一项回放不变量。
+每次变更都是 Round 编号为 0、来源为目标的消息，其元数据要么是完整快照，要么是清除墓碑。当 `agent.inject()` 将该消息记录到持久 `agent/inbox/spliced` 事件的 `inserted` 载荷时，变更即已提交。严格折叠与持久投影只从这些插入项派生变更，因此删除队列中的上下文不会回滚目标状态。随后具有相同 id 的 `user/message` 会对照插入项验证来源、元数据和逐字渲染内容，而不会再次应用变更。
 
 ```ts type-equiv
-/** Full-snapshot goal mutation retained in a model-visible context event. */
+/** Full-snapshot goal mutation committed by an injected inbox message. */
 interface GoalSnapshotChangeMeta {
   readonly kind: 'goal/change'
   readonly version: 1
@@ -97,7 +97,7 @@ interface GoalClearChangeMeta {
 }
 ```
 
-目标状态变更使用 Round `0`。续跑消费方会为每个获准的用户消息轮次标注正数且连续的 Round 编号和当前修订号；回放会拒绝编号缺口、陈旧修订号、已停止阶段和超出上限。
+目标状态变更使用 Round `0`。续跑消费方会为每个获准的用户消息轮次标注正数且连续的 Round 编号和当前修订号；只有这些获准的 `user/message` 事件会推进 `roundsStarted`。回放会拒绝编号缺口、陈旧修订号、已停止阶段和超出上限。
 
 ```ts type-equiv
 /** Message attribution for durable goal state and continuation rounds. */
@@ -133,7 +133,7 @@ interface EditGoalRequest {
 ```
 
 ```ts type-equiv
-/** Live notification after one goal mutation has been accepted for logging. */
+/** Live notification after one goal mutation commits through inbox insertion. */
 interface GoalChanged {
   readonly operation: GoalOperation
   readonly ref: GoalRef
@@ -144,4 +144,4 @@ interface GoalChanged {
 
 ## 服务行为
 
-[`GoalService`](../../packages/goal/goal/src/index.ts) 解析创建默认值、执行严格回放折叠、校验确切的活跃 agent 身份、以比较并设置方式执行变更、叠加延迟注入，并发出 `goal/changed` 通知；监听器故障会被隔离。包 [README](../../packages/goal/goal/README.md) 负责记录可调用契约和面向模型的契约。
+[`GoalService`](../../packages/goal/goal/src/index.ts) 解析创建默认值、从持久 inbox 插入项执行严格回放折叠、校验确切的活跃 agent 身份、以比较并设置方式执行变更、按消息 id 对账后续准入，并发出 `goal/changed` 通知；监听器故障会被隔离。包 [README](../../packages/goal/goal/README.md) 负责记录可调用契约和面向模型的契约。

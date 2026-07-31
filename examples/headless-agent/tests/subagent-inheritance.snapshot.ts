@@ -115,10 +115,8 @@ describe('parent-only override inheritance snapshot', () => {
     const records = result.stdout.trimEnd().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
     expect(records.at(-1)).toMatchObject({
       type: 'result',
-      success: true,
       sessionId,
-      result: 'The delegated child was denied by the sandbox. PARENT_DONE',
-      reason: { kind: 'completed' },
+      output: 'The delegated child was denied by the sandbox. PARENT_DONE',
     })
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 })

@@ -22,6 +22,7 @@ function cloneState(state: GoalFoldState): GoalFoldState {
     updatedAt: state.updatedAt,
     lastRef: state.lastRef,
     seenGoalIds: new Set(state.seenGoalIds),
+    insertedChangeMessages: new Map(state.insertedChangeMessages),
   }
 }
 

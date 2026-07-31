@@ -50,6 +50,7 @@ const WAIT_POLL_INTERVAL_MS = 10
  * `waitForTurnStart` waits for an open durable turn, optionally at or beyond a
  * specified turn number. `waitForTurnEnd` holds the subprocess open until the
  * selected session's latest complete raw-JSONL turn boundary is `turn/end`.
+ * `waitForInboxMessage` waits for inserted inbox text containing a scenario marker.
  * `waitForTitleAfterTurnEnd` additionally waits for a later durable title.
  * A standalone `cancel` may also wait for a cwd-relative readiness marker.
  * All wait timeouts default to 10s.
@@ -68,6 +69,7 @@ export type InputStep =
   }
   | { op: 'waitForTurnStart'; minimumTurn?: number; timeoutMs?: number }
   | { op: 'waitForTurnEnd'; timeoutMs?: number }
+  | { op: 'waitForInboxMessage'; text: string; timeoutMs?: number }
   | { op: 'waitForTitleAfterTurnEnd'; timeoutMs?: number }
   | { op: 'cancel'; waitForFile?: { path: string; timeoutMs?: number } }
 
@@ -290,6 +292,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
         (id) => { sessionId = id },
         (id, timeoutMs, minimumTurn) => waitForPersistedTurnStart(sessionsRoot, id, timeoutMs, minimumTurn),
         (id, timeoutMs) => waitForPersistedTurnEnd(sessionsRoot, id, timeoutMs),
+        (id, text, timeoutMs) => waitForPersistedInboxMessage(sessionsRoot, id, text, timeoutMs),
         (id, timeoutMs) => waitForPersistedTitleAfterTurnEnd(sessionsRoot, id, timeoutMs),
       )
       // A permission exchange happens while a step's request is in flight, so
@@ -364,6 +367,7 @@ async function runStep(
   setSessionId: (id: string) => void,
   waitForTurnStart: (sessionId: string, timeoutMs?: number, minimumTurn?: number) => Promise<void>,
   waitForTurnEnd: (sessionId: string, timeoutMs?: number) => Promise<void>,
+  waitForInboxMessage: (sessionId: string, text: string, timeoutMs?: number) => Promise<void>,
   waitForTitleAfterTurnEnd: (sessionId: string, timeoutMs?: number) => Promise<void>,
 ): Promise<void> {
   switch (step.op) {
@@ -442,6 +446,12 @@ async function runStep(
       await waitForTurnEnd(sessionId, step.timeoutMs)
       return
     }
+    case 'waitForInboxMessage': {
+      const sessionId = getSessionId()
+      if (sessionId === undefined) throw new Error('snapshot-harness: waitForInboxMessage before newSession')
+      await waitForInboxMessage(sessionId, step.text, step.timeoutMs)
+      return
+    }
     case 'waitForTitleAfterTurnEnd': {
       const sessionId = getSessionId()
       if (sessionId === undefined) throw new Error('snapshot-harness: waitForTitleAfterTurnEnd before newSession')
@@ -512,6 +522,29 @@ async function waitForPersistedTurnEnd(
     if (log === undefined || !latestTurnIsClosed(log.content)) {
       throw new Error(`snapshot-harness: session "${sessionId}" did not persist turn/end within ${timeoutMs}ms`)
     }
+  }, { interval: WAIT_POLL_INTERVAL_MS, timeout: timeoutMs })
+}
+
+/** Wait until an inserted inbox message contains scenario-owned text. */
+async function waitForPersistedInboxMessage(
+  root: string,
+  sessionId: string,
+  text: string,
+  timeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
+): Promise<void> {
+  await vi.waitFor(async () => {
+    const log = (await harvestSessionLogs(root)).find(candidate => candidate.id === sessionId)
+    const matched = log?.content.split('\n').some((line) => {
+      if (line.length === 0) return false
+      const record = JSON.parse(line) as {
+        type?: unknown
+        data?: { inserted?: Array<{ content?: Array<{ type?: unknown; text?: unknown }> }> }
+      }
+      return record.type === 'agent/inbox/spliced' && record.data?.inserted?.some(message =>
+        message.content?.some(block => block.type === 'text'
+          && typeof block.text === 'string' && block.text.includes(text))) === true
+    }) ?? false
+    if (!matched) throw new Error(`snapshot-harness: session "${sessionId}" did not persist expected inbox message within ${timeoutMs}ms`)
   }, { interval: WAIT_POLL_INTERVAL_MS, timeout: timeoutMs })
 }
 

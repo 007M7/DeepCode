@@ -21,13 +21,13 @@
 
 最多只有一个当前目标。创建操作会生成 revision 为 1、phase 为 active 的目标并启用续行。未完成的目标必须编辑、转换或清除；已完成目标可以由拥有全局未使用过的 id 的目标替换。编辑会保留 phase、blocker reason 与 activation。暂停、完成、阻塞和清除都会停用续行。阻塞会记录策略自有的 lower-kebab-case 代码和规范化的自由文本说明；提供方限制、配置预算、执行错误与请求人工输入都使用这一种持久 phase，不会扩增生命周期状态。只有配置的 Round 上限仍有剩余容量时，resume 才接受已停止 phase 或 phase 为 active 但已停用续行的目标；它会清除原 blocker reason。phase 为 active 且已启用续行的目标会拒绝冗余操作。
 
-每次变更都会通过 `agent.inject()` 把完整的版本化快照排队；clear 使用带 revision 的 tombstone。后续返回 enter 的 pre-step 会把它记录为模型可见的 `user/message`，其内容与带类型的 `{ kind: 'goal', change }` 来源必须完全一致。回放会拒绝形状错误、来源／内容漂移、不连续 revision、非法生命周期转换、每目标时间戳非单调，以及不连续的 Goal Round。挂钟时间倒退时，变更时间戳会限制在不早于上一次目标更新的值。
+每次变更都会通过 `agent.inject()` 传递完整的版本化快照；clear 使用带 revision 的 tombstone。注入将消息记录到持久 `agent/inbox/spliced` 插入项时，变更即已提交，即使该上下文仍在队列中且从未抵达模型也是如此。移除或丢弃已排队的消息不会回滚变更。如果同一消息随后获准成为模型可见的 `user/message`，回放会验证其 id、内容和带类型的 `{ kind: 'goal', change }` 来源与插入项一致，而不会再次应用变更。
 
-注入可以立即追加，也可能在活跃工具批次 FIFO 中等待。服务会在内存中叠加已接受的待处理变更，并在每个完全一致的载荷进入日志时逐一完成对账，因此连续的模型工具变更可以看到自身最新 revision，而不会把尚未记录的缓存当作持久状态。可重入追加观察者会且只会看到每项已接受变更一次；增量回放会把游标保留在第一个损坏事件处。追加或入队成功后才触发 `goal/changed`；监听器失败会被隔离处理。
+严格回放只从 inbox 插入项派生变更，并拒绝形状错误、以不同变更复用消息 id、准入时的来源／内容漂移、不连续 revision、非法生命周期转换、每目标时间戳非单调，以及不连续的已准入 Goal Round。只有获准的 `user/message` 事件会推进正数 Round。挂钟时间倒退时，变更时间戳会限制在不早于上一次目标更新的值。可重入插入观察者会且只会看到每项已接受变更一次；增量回放会把游标保留在第一个损坏事件处；`goal/changed` 会在注入成功后触发，监听器失败会被隔离处理。
 
 续行启用状态绝不持久化。新缓存与每次触发 `agent/session-start` 时都会停用续行，即使回放找到了持久 phase 为 active 的目标。续行驱动器在卸载前或持久性不确定后也会调用 `disarm()`。因此，会话恢复、fork 与驱动器替换会保留目标、phase、revision 和已准入 Round 数量，却不会启动工作；之后必须通过显式 resume 变更重新启用续行。
 
-单独发布的 `./invariant` 配套模块会为每个已挂接会话维护独立折叠。它会在候选事件进入持久日志前拒绝格式错误的 goal 来源变更、模型可见内容漂移、不连续 revision、非法生命周期转换、时间戳回退，以及不连续的已准入 round。
+单独发布的 `./invariant` 配套模块会为每个已挂接会话维护独立折叠。它会在候选事件进入持久日志前拒绝格式错误的 goal 来源变更、相同 id 在插入与准入之间的变更漂移、模型可见内容漂移、不连续 revision、非法生命周期转换、时间戳回退，以及不连续的已准入 Round。
 
 ## 扩展点
 
@@ -39,15 +39,15 @@
 
 #### 模型看到的内容
 
-每项变更都是一个原始用户角色上下文块。快照渲染为 `<goal_state>{"goal":...,"roundsStarted":...,"createdAt":...,"updatedAt":...}</goal_state>`；clear 会渲染 tombstone id／revision 与 `clearedAt`。日志外不存在隐藏状态摘要。这种描述性 XML 分隔符遵循仓库已有的 `<workspace_context>` 约定和 [Anthropic 发布的 XML 标签提示词指南](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices#structure-prompts-with-xml-tags)；它是公开的模型体验先例，并非关于任何提供方专有训练语料的声明。
+每项变更都会将一个原始用户角色上下文块排队。获准后，快照渲染为 `<goal_state>{"goal":...,"roundsStarted":...,"createdAt":...,"updatedAt":...}</goal_state>`；clear 会渲染 tombstone id／revision 与 `clearedAt`。如果排队的上下文在准入前被丢弃，变更仍然持久；会话日志外不存在隐藏状态摘要。这种描述性 XML 分隔符遵循仓库已有的 `<workspace_context>` 约定和 [Anthropic 发布的 XML 标签提示词指南](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices#structure-prompts-with-xml-tags)；它是公开的模型体验先例，并非关于任何提供方专有训练语料的声明。
 
 #### Token 影响
 
-每项保留的变更都会向派生历史增加一份完整快照，直到压缩（compaction）将其遮蔽。完整快照让每条记录都能独立检查，但会重复目标和生命周期字段。
+获准的变更会向派生历史增加一份完整快照，直到压缩（compaction）将其遮蔽；准入前被丢弃的插入项不消耗模型 token。完整快照让每条获准记录都能独立检查，但会重复目标和生命周期字段。
 
 #### KV Cache 影响
 
-在一个 epoch 内仅追加：每项变更都位于可复用请求前缀和既有历史之后。压缩可能替换派生历史后缀，并移动可复用边界。
+准入后在一个 epoch 内仅追加：每项可见变更都位于可复用请求前缀和既有历史之后。压缩可能替换派生历史后缀，并移动可复用边界。
 
 ## 已知限制与暂缓事项
 

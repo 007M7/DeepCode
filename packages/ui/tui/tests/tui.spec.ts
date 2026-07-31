@@ -460,7 +460,7 @@ describe('goodbye message and /resume', () => {
   it.each([
     [{ kind: 'aborted', reason: { kind: 'user' } }, 'cancelled'],
     [{ kind: 'error', error: 'failed' }, 'error'],
-    [{ kind: 'aborted', reason: { kind: 'disposed' } }, 'cancelled'],
+    [{ kind: 'aborted', reason: { kind: 'disposed' } }, 'disposed'],
     [{ kind: 'max-tokens' }, 'max tokens'],
     [{ kind: 'interrupted' }, 'interrupted'],
     [{ kind: 'future-result' } as unknown as TurnEndReason, 'unknown result'],
@@ -1232,7 +1232,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     }
     const result = await setup({
       beforeMount(session) {
-        session.append('user/message', createUserMessage({
+        const message = createUserMessage({
           content: renderGoalChange(change),
           source: {
             kind: 'goal',
@@ -1241,7 +1241,10 @@ describe('pi-tui chat lifecycle and transcript', () => {
             round: 0,
             change,
           },
-        }), { surfaceOp: 'append' })
+        })
+        session.append('agent/inbox/spliced', {
+          target: 'next-step', start: 0, inserted: [message],
+        })
       },
     })
     expect(result.terminal.output).toContain('Goal restored (active) with automatic continuation disarmed')
@@ -3772,6 +3775,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(events.terminal.output).toContain('live failure')
     expect(events.terminal.output).toContain('durable failure')
     expect(events.terminal.output).toContain('Turn cancelled')
+    expect(events.terminal.output).toContain('Turn stopped: the agent was disposed')
     expect(events.terminal.output).toContain('structured provider failure')
     expect(events.terminal.output).not.toContain('[object Object]')
     expect(events.terminal.output).toContain('output-token limit')

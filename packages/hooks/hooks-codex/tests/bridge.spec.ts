@@ -103,7 +103,7 @@ describe('hooks-codex bridge', () => {
 
     expect(adapter.requests).toHaveLength(2)
     expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('keep going: address the goal')
-  })
+  }, 15_000) // Two real hook subprocesses and agent steps need startup and teardown headroom under load.
 
   it('turn cancellation aborts and reaps a running UserPromptSubmit hook before idle', async () => {
     const dir = configDir()

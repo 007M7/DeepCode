@@ -633,6 +633,10 @@ describe('TUI terminal-state snapshots', () => {
       },
       beforeMount(session) {
         appendUser(session, `Unsafe user ${CONTROL_PROBE}`)
+        session.append('user/message', createUserMessage({
+          content: [{ type: 'text', text: `Unsafe context ${CONTROL_PROBE}` }],
+          source: { kind: 'plugin', plugin: `unsafe-${CONTROL_PROBE}` },
+        }), { surfaceOp: 'append' })
         appendAssistant(session, [
           { type: 'reasoning', text: `Unsafe reasoning ${CONTROL_PROBE}` },
           { type: 'text', text: `Unsafe assistant ${CONTROL_PROBE}` },
@@ -642,10 +646,6 @@ describe('TUI terminal-state snapshots', () => {
         session.append('todo/write', {
           todos: [{ content: `Unsafe todo ${CONTROL_PROBE}`, status: 'in_progress' }],
         })
-        session.append('user/message', createUserMessage({
-          content: [{ type: 'text', text: `Unsafe context ${CONTROL_PROBE}` }],
-          source: { kind: 'plugin', plugin: `unsafe-${CONTROL_PROBE}` },
-        }), { surfaceOp: 'append' })
         session.append('step/end', { turn: 1, step: 1 })
         session.append('turn/end', {
           turn: 1,

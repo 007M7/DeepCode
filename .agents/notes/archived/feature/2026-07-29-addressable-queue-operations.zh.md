@@ -1,6 +1,7 @@
-# Agent Note（agent 决策记录）：为待处理队列项提供编辑与移除操作
+# Agent Note: 为待处理队列项提供编辑与移除操作
 
 Status: implemented
+Archived: 2026-07-31
 
 [English](2026-07-29-addressable-queue-operations.md) | 中文
 

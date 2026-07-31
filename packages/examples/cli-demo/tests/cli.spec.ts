@@ -337,6 +337,16 @@ describe('runOneShot and executeCli', () => {
     expect(files.some(file => file.endsWith('.jsonl.zstd'))).toBe(true)
   })
 
+  it('writes correlated session events in stream-json mode', async () => {
+    const { ctx } = await harness([textResponse('streamed answer')])
+    const output = await invoke(ctx, ['--output-format', 'stream-json', 'task'])
+    const records = output.stdout.trim().split('\n').map(line => JSON.parse(line) as { type: string })
+
+    expect(output.code).toBe(0)
+    expect(records.some(record => record.type === 'session_event')).toBe(true)
+    expect(records.at(-1)).toMatchObject({ type: 'result', output: 'streamed answer' })
+  })
+
   it('sums usage across tool steps and selects the last text-bearing assistant message', async () => {
     const first = { inputTokens: 10, outputTokens: 3, cacheReadTokens: 2, cacheWriteTokens: 1 }
     const second = { inputTokens: 7, outputTokens: 5, cacheReadTokens: 4, reasoningTokens: 6 }

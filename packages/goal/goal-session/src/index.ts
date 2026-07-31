@@ -125,7 +125,8 @@ export function apply(ctx: Context): void {
 
   /** Preserve claimed step context when this driver drops only its own round. */
   function restoreOtherClaimed(agent: Agent, messages: UserMessage[], messageId: MessageId): void {
-    const retained = messages.filter(message => message.id !== messageId)
+    const retained = messages.filter(message => message.id !== messageId
+      && !(message.source.kind === 'goal' && message.source.round === 0))
     for (const message of retained.toReversed()) {
       if (agent.inbox.nextStep.some(candidate => candidate.id === message.id)
         || agent.inbox.nextTurn.some(candidate => candidate.id === message.id)) continue

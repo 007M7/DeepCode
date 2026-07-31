@@ -199,7 +199,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       expect(result?.type === 'tool/result' && result.data.message.content[0].isError).toBe(true)
       expect(result?.type === 'tool/result' && result.data.message.content[0].content.some(b => b.type === 'text' && b.text.includes('downstream-block'))).toBe(true)
       expect(events(agent).some(e => e.type === 'user/message' && e.data.source.kind !== 'user' && e.data.content.some(b => b.type === 'text' && b.text.includes('bridge-note')))).toBe(true)
-    })
+    }, 10_000) // The real hook subprocess needs startup and teardown headroom under full-suite contention.
 
     it('SessionStart additionalContext is injected for the first request', async () => {
       const d = dir()

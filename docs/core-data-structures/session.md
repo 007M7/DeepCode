@@ -26,9 +26,9 @@ interface UserMessage extends Message {
  */
 interface SessionEventMap {
   /**
-   * Opens turn `turn`. Every turn begins when the loop admits queued input;
-   * the following identified `user/message` event or batch records the
-   * admitted input.
+   * Opens turn `turn`. Every turn begins after the loop claims queued input
+   * and accepts the pre-step result; the following identified `user/message`
+   * event or batch records the messages entering the step.
    */
   'turn/start': { turn: number }
   /**
@@ -46,7 +46,7 @@ interface SessionEventMap {
    * A user-role message on the model-visible surface: a direct human prompt
    * (the queued message claimed for this turn), a synthetic `agent.inject()`
    * context (file-change notices, subdir AGENTS.md, skill content, cron
-   * notifications, …), or an admitted goal continuation round. All three
+   * notifications, …), or an entered goal continuation round. All three
    * project their `content` verbatim; `source` tells them apart.
    */
   'user/message': UserMessage
@@ -494,6 +494,8 @@ interface TurnEndReasonMap {
   completed: { kind: 'completed' }
   /** A cancellation request interrupted the live turn. */
   aborted: { kind: 'aborted'; reason: AgentCancelCause }
+
+  blocked: { kind: 'blocked' }
   /**
    * The turn failed.
    */

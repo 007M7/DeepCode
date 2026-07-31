@@ -11,12 +11,12 @@ buffer
 2| " main-session"
   style 1-12 dim
 3| <blank>
-4| "You                                                                                                 "
-  style 0-2 fg=bright-magenta bold underline
-5| "Reply with exactly the word: ONE. No tools.                                                         "
-6| <blank>
-7| "Plan mode on. Use /plan off to leave.                                                               "
+4| "Plan mode on. Use /plan off to leave.                                                               "
   style 0-36 dim
+5| <blank>
+6| "You                                                                                                 "
+  style 0-2 fg=bright-magenta bold underline
+7| "Reply with exactly the word: ONE. No tools.                                                         "
 8| <blank>
 9| "Assistant                                                                                           "
   style 0-8 fg=bright-magenta bold underline
@@ -28,13 +28,13 @@ buffer
 13| "Model wait 0.0s · Completed 2026-07-21 12:00:00                                                     "
   style 0-46 dim
 14| <blank>
-15| "Context · plan-mode"
-  style 0-18 dim
-16| "The user switched this session back to the default mode.                                            "
-  style 0-55 dim
-17| <blank>
-18| "Plan mode off.                                                                                      "
+15| "Plan mode off.                                                                                      "
   style 0-13 dim
+16| <blank>
+17| "Context · plan-mode"
+  style 0-18 dim
+18| "The user switched this session back to the default mode.                                            "
+  style 0-55 dim
 19| <blank>
 20| "You                                                                                                 "
   style 0-2 fg=bright-magenta bold underline

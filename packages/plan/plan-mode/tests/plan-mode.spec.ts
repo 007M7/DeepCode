@@ -249,6 +249,15 @@ describe('ctx.planMode: get/set', () => {
 })
 
 describe('the boundary flush', () => {
+  it('is inert when no selection is pending', async () => {
+    const ctx = await setup()
+    const agent = await agentWithSession(ctx)
+    const service = ctx.planMode as unknown as { onBoundary(session: Session): void }
+
+    expect(() => { service.onBoundary(agent.session) }).not.toThrow()
+    expect(agent.session.events.some(event => event.type === 'plan/mode')).toBe(false)
+  })
+
   it('flushes from pre-step before the following step/start', async () => {
     const ctx = await setup()
     const agent = await agentWithSession(ctx)

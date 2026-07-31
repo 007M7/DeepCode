@@ -470,6 +470,40 @@ describe('unrenderable failure settlement', () => {
 })
 
 describe('driver bookkeeping edges', () => {
+  it('rejects a direct turn invocation without a driver reservation', async () => {
+    const ctx = await harness(new MockAdapter([]))
+    const agent = ctx.agentLoop.create(SessionId('turn-without-reservation'), { provider: 'mock', model: 'mock' })
+
+    await expect((agent as unknown as { turn(): Promise<boolean> }).turn())
+      .rejects.toThrow('turn without driver reservation')
+    expect(agent.status).toBe('idle')
+  })
+
+  it('closes an entered turn as blocked when its next step is rejected', async () => {
+    const adapter = new MockAdapter([textResponse('first step')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('reject-next-step'), { provider: 'mock', model: 'mock' })
+    let proposals = 0
+    ctx.on('agent/pre-step', async (_subject, _messages, _context, next) => {
+      proposals += 1
+      return proposals === 2 ? { kind: 'reject' } : next()
+    })
+    ctx.on('agent/turn-stopping', (subject) => {
+      subject.inject(createUserMessage({
+        content: [{ type: 'text', text: 'do not enter the next step' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      }))
+    })
+
+    send(agent, 'go')
+    await agent.whenIdle()
+
+    expect(proposals).toBe(2)
+    expect(adapter.requests).toHaveLength(1)
+    const end = agent.session.events.findLast(event => event.type === 'turn/end')
+    expect(end?.type === 'turn/end' && end.data.reason).toEqual({ kind: 'blocked' })
+  })
+
   it('a request failure that concludes recovery after step/end closed keeps the boundary balanced', async () => {
     const { LlmError } = await import('@deepseek-ai/dsh-llm')
     // The failure finish-chunk path returns request-failed AFTER step() has

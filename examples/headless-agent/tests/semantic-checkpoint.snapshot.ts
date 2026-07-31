@@ -112,10 +112,8 @@ describe('semantic checkpoint recovery snapshot', () => {
     const records = result.stdout.trimEnd().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
     expect(records.at(-1)).toMatchObject({
       type: 'result',
-      success: true,
       sessionId,
-      result: 'I will verify the external state before deciding whether to retry the side-effecting operation.',
-      reason: { kind: 'completed' },
+      output: 'I will verify the external state before deciding whether to retry the side-effecting operation.',
     })
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 })

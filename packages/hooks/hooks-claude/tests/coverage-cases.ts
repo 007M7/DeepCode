@@ -110,7 +110,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, agent)
       expect(existsSync(marker)).toBe(true) // substituted command ran
-    })
+    }, 15_000) // Real agent and hook subprocess startup can exceed Vitest's default under coverage concurrency.
 
     it('warns and honors updatedInput as a no-op (input rewrite deferred)', async () => {
       const d = dir()

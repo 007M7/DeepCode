@@ -112,10 +112,7 @@ export class ReactLoopAgent implements Agent {
   }
 
   cancel(cause: AgentCancelCause, options: CancelOptions = {}): void {
-    if (!options.keepInbox) {
-      this.inbox.splice('next-step', 0, this.inbox.nextStep.length, [])
-      this.inbox.splice('next-turn', 0, this.inbox.nextTurn.length, [])
-    }
+    if (!options.keepInbox) this.inbox.clear()
     if (this.phase.kind !== 'idle') this.phase.abort.abort(cause)
   }
 

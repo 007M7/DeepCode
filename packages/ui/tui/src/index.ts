@@ -664,6 +664,16 @@ export function createTuiChat(
     chat.addChild(streaming.timing)
   }
 
+  const trailAssistantStep = (): void => {
+    if (streaming === undefined) return
+    for (const child of [streaming, streaming.timing]) {
+      const index = chat.children.indexOf(child)
+      /* v8 ignore next -- an open step keeps both assistant children attached until it settles or retracts. */
+      if (index >= 0) chat.children.splice(index, 1)
+      chat.addChild(child)
+    }
+  }
+
   const renderEvent = (
     event: SessionEvent,
     options: {
@@ -682,6 +692,7 @@ export function createTuiChat(
           if (references !== undefined) {
             chat.addChild(new Spacer(1))
             chat.addChild(new Text(palette.dim(`Referenced sessions · ${references.map(displayText).join(', ')}`), 0, 0))
+            trailAssistantStep()
             break
           }
           const text = contentText(event.data.content).trim()
@@ -701,6 +712,7 @@ export function createTuiChat(
             chat.addChild(new Spacer(1))
             chat.addChild(card)
           }
+          trailAssistantStep()
           break
         }
         const text = displayText(contentText(event.data.content).trim())
@@ -709,6 +721,7 @@ export function createTuiChat(
           chat.addChild(new UserMessageComponent(text, palette, mdTheme))
           if (options.addHistory) editor.addToHistory(text)
         }
+        trailAssistantStep()
         break
       }
       case 'steering/message': {
@@ -799,7 +812,9 @@ export function createTuiChat(
             break
           }
           case 'aborted':
-            appendNotice('Turn cancelled.', 'warning')
+            appendNotice(reason.reason.kind === 'disposed'
+              ? 'Turn stopped: the agent was disposed.'
+              : 'Turn cancelled.', 'warning')
             break
           case 'max-tokens':
             appendNotice('The model reached its output-token limit.', 'warning')

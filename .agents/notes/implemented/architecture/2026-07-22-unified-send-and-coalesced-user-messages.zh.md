@@ -14,11 +14,11 @@ agent 的对外驱动接口逐渐长出三个近乎平行的动词——`send`�
 
 **一个原语，三个预设别名。** `Agent` 接口的 `send(message, target, wakeup)` 覆盖 (`target` × `wakeup`) 矩阵。完整的 `UserMessage` 持有标识、角色、模型可见 `content` 与生产方 `source`；其余参数只持有路由策略。`followup`（`next-turn`/wakeup）、`steer`（`next-step`/wakeup）和 `inject`（`next-step`/no-wakeup）都接收这一条消息并固定策略。`wakeup` 会在 agent 空闲时保留一个驱动器；已经活跃的驱动器不会获得第二次保留，只有在抵达后续 pre-step 边界时才能领取该输入。`next-turn`/no-wakeup（入队但不唤醒）可以表达，只是没有别名，也没有当前调用方。
 
-**inject 是不会唤醒的 next-step 投递。** 它始终把完整消息追加到 next-step inbox。驱动器会在后续 pre-step 领取它，并且只有最终决策把它放入进入步骤的批次时才会记录；空闲注入会保持待处理，直到其他投递唤醒驱动器。必填的 `UserMessage.source` 会保留调用方显式提供的来源信息。
+**inject 是不会唤醒的 next-step 投递。** 它始终把完整消息追加到 next-step inbox，并在持久 `agent/inbox/spliced` 事件中记录该插入。驱动器会在后续 pre-step 领取它，并且只有最终决策把它放入进入步骤的批次时，才会将其记录为模型可见的 `user/message`；空闲注入会保持待处理，直到其他投递唤醒驱动器。必填的 `UserMessage.source` 会保留调用方显式提供的来源信息。
 
-**context/message 已移除。** 注入的上下文现在是一条 `user/message`；上下文生产方显式提供合适的非 `user` 类别 `source`，类型化 source 变体携带所有特定于领域的持久来源信息。对外接口、派生逻辑和 `SurfaceEventType` 都不再包含 `context/message`；需要判断“这是不是一条人类提示词？”的消费方改为读取 `source.kind === 'user'`，而不是事件类型。
+**context/message 已移除。** 注入的上下文在 inbox 中使用同一个 `UserMessage` 值，并在获准时成为 `user/message` 事件；上下文生产方显式提供合适的非 `user` 类别 `source`，类型化 source 变体携带所有特定于领域的持久来源信息。对外接口、派生逻辑和 `SurfaceEventType` 都不再包含 `context/message`；需要判断“这是不是一条人类提示词？”的消费方改为读取 `source.kind === 'user'`，而不是事件类型。
 
-**goal 回放靠轮次而非类型来区分。** 一次 goal 状态变更是一条第 0 轮、来源为 goal 的 `user/message`，其 source 携带完整变更；正数轮次则是一条已准入的继续执行提示词。`decodeGoalEvent` 接收一条 `user/message`，并在 goal 状态内容与其类型化 source 不一致时立即报错。
+**goal 回放靠 Round 而非类型来区分。** 一次 goal 状态变更会作为 Round 为 0、来源为 goal 的消息，在持久 inbox 插入项中提交；正数 Round 只从已准入的继续执行 `user/message` 推进。如果状态变更消息随后获准，回放会检查其 id、内容和类型化 source 是否与插入项一致，而不会再次应用变更。
 
 **`send` 不返回标识。** 调用方已经持有完整消息及其不透明的 `MessageId`；消息的创建与冻结由[带标识的不可变消息值决策](2026-07-28-identified-immutable-message-values.md)负责，而不是由路由负责。
 
@@ -41,7 +41,7 @@ agent 的对外驱动接口逐渐长出三个近乎平行的动词——`send`�
 
 ## 后果
 
-投递接口现在是一个原语加三个自解释的预设，(`target` × `wakeup`) 矩阵把此前无法表达的组合显式化。一种持久消息类型同时服务提示词、注入的上下文和 goal 轮次，因此对外接口的投影和每一处“是否人类提示词？”检查都简化为一次 `source` 判断。`Agent` 契约仍是接口，因此其他实现和对象字面量形式的测试替身只需实现同一个最小结构接口。goal 折叠的通道区分从事件类型改到了 `source.round`；此前过滤 `context/message` 的每个消费方现在改为按来源过滤 `user/message`。空闲注入会保持待处理，不打开轮次也不运行模型；后续会唤醒的投递在 pre-step 将其放入进入步骤的批次时，它才成为 `user/message`。
+投递接口现在是一个原语加三个自解释的预设，(`target` × `wakeup`) 矩阵把此前无法表达的组合显式化。同一个带标识消息值同时服务提示词、注入的上下文和 Goal Round，因此每一处“是否人类提示词？”检查都简化为一次 `source` 判断。`Agent` 契约仍是接口，因此其他实现和对象字面量形式的测试替身只需实现同一个最小结构接口。goal 变更从持久 inbox 插入项折叠，而正数 Round 从已准入的 `user/message` 事件折叠。空闲注入会保持待处理，不打开轮次也不运行模型；后续会唤醒的投递在 pre-step 将其放入进入步骤的批次时，它才成为 `user/message`。
 
 `wakeup` 是“模型是否应当运行”的信号，因此 inbox 会区分能唤醒的排队工作与任何可领取的项：一个孤立的 `next-turn`/no-wakeup 队列项会停泊在空闲状态，并随下一次唤醒 send 一同带出，而 `whenIdle`/`cancel` 依据唤醒信号来结算完全停稳。每次插入与退出都会发布对应的实时通知，特定于领域的持久事实则通过类型化消息 source 传递，而非通过平行的元数据通道。直接使用待处理消息的表示方式，使持久 splice 与实时事件保持可关联，既无需维护第二个 steering 包装层，也避免数据发生分歧。后续的[已领取 pre-step inbox 生命周期](2026-07-31-claimed-pre-step-inbox-lifecycle.md)决策保留通过 `MessageId` 寻址的实时队列变更，并把单消息生命周期通知与持久的整体队列 splice 投影分离。
 

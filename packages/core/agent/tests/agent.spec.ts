@@ -1,6 +1,7 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { Context, Service, symbols } from 'cordis'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { createUserMessage, freezeMessage } from '@deepseek-ai/dsh-llm'
+import { Session, SessionId, type UserMessage } from '@deepseek-ai/dsh-session'
 import AgentRegistry, {
   agentEvents,
   Inbox,
@@ -33,6 +34,69 @@ function stubAgent(rawId: string, overrides: Partial<Agent> = {}): Agent {
   }
   return Object.assign(agent, overrides)
 }
+
+describe('Inbox', () => {
+  it('rejects an invalid durable splice during reconstruction', () => {
+    const session = new Session(SessionId('invalid-inbox-replay'))
+    session.append('agent/inbox/spliced', {
+      target: 'next-turn',
+      start: 1,
+      inserted: [],
+    })
+
+    expect(() => new Inbox(session, { inserted: () => {}, discarded: () => {} }))
+      .toThrow('invalid persisted inbox splice at session seq 0')
+  })
+
+  it('updates a pending message by identity and reports a missing identity', () => {
+    const session = new Session(SessionId('update-inbox'))
+    const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {} })
+    const original = createUserMessage({
+      content: [{ type: 'text', text: 'original' }],
+      source: { kind: 'user' },
+    })
+    const replacement = freezeMessage({
+      ...original,
+      content: [{ type: 'text', text: 'replacement' }],
+    })
+    inbox.append('next-turn', original)
+
+    expect(inbox.update('next-turn', createUserMessage({
+      content: [{ type: 'text', text: 'missing' }],
+      source: { kind: 'user' },
+    }).id, replacement)).toBe(false)
+    expect(inbox.update('next-turn', original.id, replacement)).toBe(true)
+    expect(inbox.nextTurn).toEqual([replacement])
+  })
+
+  it('clears both pending lists as durable cancellations', () => {
+    const session = new Session(SessionId('clear-inbox'))
+    const discarded: UserMessage[] = []
+    const inbox = new Inbox(session, {
+      inserted: () => {},
+      discarded: message => void discarded.push(message),
+    })
+    const nextTurn = createUserMessage({ content: [{ type: 'text', text: 'turn' }], source: { kind: 'user' } })
+    const nextStep = createUserMessage({ content: [{ type: 'text', text: 'step' }], source: { kind: 'user' } })
+    inbox.append('next-turn', nextTurn)
+    inbox.append('next-step', nextStep)
+    const beforeClear = session.events.length
+
+    inbox.clear()
+
+    expect(inbox.hasPending).toBe(false)
+    expect(discarded).toEqual([nextStep, nextTurn])
+    expect(session.events.slice(beforeClear).map(event => event.type === 'agent/inbox/spliced'
+      ? event.data
+      : event.type)).toEqual([
+      { target: 'next-step', start: 0, removedCount: 1, inserted: [], outcome: 'canceled' },
+      { target: 'next-turn', start: 0, removedCount: 1, inserted: [], outcome: 'canceled' },
+    ])
+
+    inbox.clear()
+    expect(session.events).toHaveLength(beforeClear + 2)
+  })
+})
 
 describe('AgentRegistry', () => {
   it('registers exact entries, emits lifecycle events, and unregisters on owner disposal', async () => {
@@ -183,6 +247,21 @@ describe('agentEvents()', () => {
       'agent event "agent/status" listener threw: Error: sync listener',
       'agent event "agent/status" listener rejected: Error: async listener',
     ])
+  })
+
+  it('dispatches serial listeners with the fused agent subject', async () => {
+    const ctx = new Context()
+    const agent = stubAgent('serial-event')
+    const signal = new AbortController().signal
+    const heard: Array<{ agent: Agent; turn: number; signal: AbortSignal }> = []
+    ctx.on('agent/turn-stopping', async (subject, turn, receivedSignal) => {
+      await Promise.resolve()
+      heard.push({ agent: subject, turn, signal: receivedSignal })
+    })
+
+    await agentEvents(ctx, agent).serial('agent/turn-stopping', 3, signal)
+
+    expect(heard).toEqual([{ agent, turn: 3, signal }])
   })
 })
 

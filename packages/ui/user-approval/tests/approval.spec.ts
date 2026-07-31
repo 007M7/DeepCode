@@ -520,6 +520,25 @@ describe('approval policy (the approval/policy fold)', () => {
     expect(narrations(session)).toHaveLength(1)
   })
 
+  it('preserves a rejected pre-step without adding policy narration', async () => {
+    const ctx = new Context()
+    await ctx.plugin(ApprovalService)
+    const { agent, session } = sessionAgent('sess-narr-rejected')
+    appendHeader(session, ASK_MARKER)
+    setApprovalPolicy(session, 'never')
+    const signal = new AbortController().signal
+
+    const decision = await agentEvents(ctx, agent).waterfall(
+      'agent/pre-step',
+      [],
+      { turn: 1, step: 1, signal },
+      () => Promise.resolve({ kind: 'reject' as const }),
+    )
+
+    expect(decision).toEqual({ kind: 'reject' })
+    expect(narrations(session)).toEqual([])
+  })
+
   it('reads what the model was told back from the folded header text after a restart', async () => {
     // A session whose last request carried the never sentence resumes under
     // an ask default: the narrator attributes the change to the operator.

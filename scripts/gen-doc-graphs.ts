@@ -1174,7 +1174,7 @@ function renderLifecycle(): string {
     `  Driver->>Hooks: ${mermaidCode('agent/pre-step')} waterfall`,
     '  Hooks-->>Driver: authoritative reject or enter(messages)',
     '  alt proposed step rejected or pre-step failed',
-    '    Driver-->>Driver: claimed batch stays removed; no turn opens',
+    '    Driver-->>Driver: claimed batch stays removed, no turn opens',
     '  else enter proposed step',
     `  Driver->>Session: ${mermaidCode('turn/start')}`,
     `  Driver->>Session: ${mermaidCode('step/start')}`,

@@ -35,7 +35,7 @@ export type GoalOperation =
   | 'block'
   | 'clear'
 
-/** Full-snapshot goal mutation retained in a model-visible context event. */
+/** Full-snapshot goal mutation committed by an injected inbox message. */
 export interface GoalSnapshotChangeMeta {
   readonly kind: 'goal/change'
   readonly version: 1
@@ -101,7 +101,7 @@ export interface EditGoalRequest {
   readonly maxGoalRounds?: number
 }
 
-/** Live notification after one goal mutation has been accepted for logging. */
+/** Live notification after one goal mutation commits through inbox insertion. */
 export interface GoalChanged {
   readonly operation: GoalOperation
   readonly ref: GoalRef
@@ -124,9 +124,9 @@ export type GoalErrorCode =
 declare module 'cordis' {
   interface Events {
     /**
-     * Goal mutation accepted by one live agent. The matching context event is
-     * already appended or queued in that agent's active tool-batch FIFO.
-     * Listener failures are contained.
+     * Goal mutation accepted by one live agent. The matching message has
+     * already committed through a durable inbox insertion; later admission or
+     * discard does not change that fact. Listener failures are contained.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @param agent - agent whose session owns the goal.
      * @param change - fresh current projection or clear tombstone.

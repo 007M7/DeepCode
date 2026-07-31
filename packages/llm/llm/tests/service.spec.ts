@@ -489,6 +489,23 @@ describe('LlmService', () => {
     expect(cleanupCalls).toBe(1)
   })
 
+  it('allows downstream close when an adapter iterator has no return method', async () => {
+    const adapter = new class extends LlmAdapter {
+      stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
+        return {
+          [Symbol.asyncIterator](): AsyncIterator<StreamChunk> {
+            return { next: () => Promise.resolve({ done: false, value: SCRIPT[0]! }) }
+          },
+        }
+      }
+    }()
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    ctx.llm.registerAdapter(['test'], adapter)
+
+    for await (const _chunk of ctx.llm.stream({ provider: 'test', model: 'test', messages: [] })) break
+  })
+
   it('unregisters adapters when the owning fiber is disposed (HMR safety)', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)

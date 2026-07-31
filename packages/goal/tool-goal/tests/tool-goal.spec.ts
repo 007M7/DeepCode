@@ -21,7 +21,7 @@ interface StubAgent {
   setStatus(status: AgentStatus): void
 }
 
-/** Build one registry-compatible live agent whose injections append in place. */
+/** Build one registry-compatible live agent whose injections enter the durable inbox. */
 function stubAgent(rawId: string, supplied?: Session): StubAgent {
   const session = supplied ?? new Session(SessionId(rawId))
   let status: AgentStatus = 'running'
@@ -36,7 +36,7 @@ function stubAgent(rawId: string, supplied?: Session): StubAgent {
     followup: () => {},
     steer: () => {},
     inject(input) {
-      session.append('user/message', input, { surfaceOp: 'append' })
+      this.inbox.append('next-step', input)
     },
     cancel() {},
     whenIdle() { return Promise.resolve() },
@@ -49,11 +49,17 @@ function openTurn(stub: StubAgent, source: MessageSource, text = 'prompt'): numb
   const turn = stub.session.events
     .filter(event => event.type === 'turn/start')
     .reduce((max, event) => Math.max(max, event.data.turn), 0) + 1
-  stub.session.append('turn/start', { turn })
-  stub.session.append('user/message', createUserMessage({
+  const message = createUserMessage({
     content: [{ type: 'text', text }],
     source,
-  }), { surfaceOp: 'append' })
+  })
+  stub.agent.inbox.append('next-turn', message)
+  const claimed = stub.agent.inbox.claim('next-turn')
+  if (claimed.length === 0) throw new Error('expected queued turn input')
+  stub.session.append('turn/start', { turn })
+  for (const admitted of claimed) {
+    stub.session.append('user/message', admitted, { surfaceOp: 'append' })
+  }
   return turn
 }
 

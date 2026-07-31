@@ -54,6 +54,12 @@ export class Inbox {
     return this.nextTurn.length > 0 || this.nextStep.length > 0
   }
 
+  /** Durably cancel all pending input, clearing next-step before next-turn. */
+  clear(): void {
+    this.splice('next-step', 0, this.nextStep.length, [])
+    this.splice('next-turn', 0, this.nextTurn.length, [])
+  }
+
   /**
    * Remove and return the complete batch proposed for one step. The durable
    * splices are pure deletions; the caller publishes claimed notifications.
