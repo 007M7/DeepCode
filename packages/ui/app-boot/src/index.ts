@@ -326,23 +326,68 @@ async function observeLoaderRejectionCheckpoint(reasons: readonly unknown[]): Pr
 }
 
 /**
+ * How long {@link installFailLoud} waits for its `release` hook before exiting
+ * anyway. A wedged disposer must delay the fatal exit, never cancel it.
+ */
+export const FAIL_LOUD_RELEASE_TIMEOUT_MS = 2_000
+
+/**
  * Install before boot to turn a late unhandled plugin-init rejection into one
  * labelled stderr diagnostic and `exit(1)`. A rejection already included by
  * {@link assertEntriesActivated} is ignored during its process checkpoint;
  * every other rejection remains fatal. Stdout remains untouched for ACP; the
  * returned function removes the handler.
+ *
+ * The Loader mounts entries concurrently, so a surface that owns the terminal
+ * can already hold it when a sibling entry rejects. Exiting straight from the
+ * handler would strand raw mode, bracketed paste, and the keyboard protocol on
+ * the user's shell, and leave an in-flight terminal query's reply to land as
+ * literal text at the next prompt. `release` is the terminal owner's chance to
+ * hand it back; it is awaited under {@link FAIL_LOUD_RELEASE_TIMEOUT_MS}. The
+ * diagnostic is written before the release so the reason survives a disposer
+ * that repaints or clears the screen, and the handler uninstalls itself before
+ * releasing so a rejection from teardown cannot re-enter it.
  * @param binName - the diagnostic prefix on the fatal-failure line.
  * @param proc - the process slice to register on; tests inject a fake.
+ * @param release - optional teardown awaited before exit, used by a
+ *   terminal-owning surface to restore the terminal. Its own failure is
+ *   swallowed because the pending fatal exit already owns the outcome.
  * @returns the uninstaller that removes the rejection handler.
  */
-export function installFailLoud(binName: string, proc: FailLoudProcess = process): () => void {
+export function installFailLoud(
+  binName: string,
+  proc: FailLoudProcess = process,
+  release?: () => Promise<void> | void,
+): () => void {
   const handler = (err: unknown): void => {
     if (assembledActivationRejections.has(err)) return
     proc.stderr.write(`${binName}: fatal load failure: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`)
-    proc.exit(1)
+    if (release === undefined) {
+      proc.exit(1)
+      return
+    }
+    // The release runs plugin disposers, which may themselves reject. Without
+    // this the handler would re-enter and report a teardown failure as a second
+    // fatal load failure, hiding the real one.
+    uninstall()
+    void (async () => {
+      try {
+        await Promise.race([
+          (async () => release())(),
+          new Promise<void>((resolve) => {
+            setTimeout(resolve, FAIL_LOUD_RELEASE_TIMEOUT_MS).unref()
+          }),
+        ])
+      } catch {
+        // The terminal release failed; the fatal exit below is the outcome that
+        // matters, and no reporter runs after it.
+      }
+      proc.exit(1)
+    })()
   }
+  const uninstall = (): void => void proc.off('unhandledRejection', handler)
   proc.on('unhandledRejection', handler)
-  return () => void proc.off('unhandledRejection', handler)
+  return uninstall
 }
 
 /**

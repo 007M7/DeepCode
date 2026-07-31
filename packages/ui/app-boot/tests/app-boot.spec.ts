@@ -5,7 +5,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import {
-  addHarnessSourceSection, assertEntriesActivated, assertEntriesLoaded, boot, HARNESS_SOURCE_SECTION,
+  addHarnessSourceSection, assertEntriesActivated, assertEntriesLoaded, boot,
+  FAIL_LOUD_RELEASE_TIMEOUT_MS, HARNESS_SOURCE_SECTION,
   installFailLoud, loadEnv, loadOverlayPatches, resolveConfigPath, type FailLoudProcess,
 } from '../src/index.ts'
 
@@ -161,6 +162,56 @@ describe('installFailLoud', () => {
     await expect(audit).rejects.toThrow('assembled activation failure')
     proc.handlers[0]!(error)
     expect(proc.exits).toEqual([1])
+  })
+
+  // The Loader mounts entries concurrently, so a terminal-owning surface can
+  // already hold raw mode when a sibling entry rejects. Exiting without running
+  // its teardown strands the terminal on the user's shell.
+  it('awaits the release hook before exiting so the terminal owner can restore it', async () => {
+    const proc = fakeProc()
+    const order: string[] = []
+    installFailLoud(NAME, proc, async () => {
+      await Promise.resolve()
+      order.push('released')
+    })
+    proc.handlers[0]!(new Error('sibling entry rejected'))
+    expect(proc.written[0]).toContain(`${NAME}: fatal load failure: `)
+    // The release is in flight, so the exit has not committed yet.
+    expect(proc.exits).toEqual([])
+    await vi.waitFor(() => { expect(proc.exits).toEqual([1]) })
+    expect(order).toEqual(['released'])
+  })
+
+  it('still exits when the release hook rejects', async () => {
+    const proc = fakeProc()
+    installFailLoud(NAME, proc, () => Promise.reject(new Error('terminal stop failed')))
+    proc.handlers[0]!(new Error('boom'))
+    await vi.waitFor(() => { expect(proc.exits).toEqual([1]) })
+  })
+
+  it('exits without waiting when a release hook never settles', async () => {
+    vi.useFakeTimers()
+    try {
+      const proc = fakeProc()
+      installFailLoud(NAME, proc, () => new Promise<void>(() => {}))
+      proc.handlers[0]!(new Error('boom'))
+      expect(proc.exits).toEqual([])
+      await vi.advanceTimersByTimeAsync(FAIL_LOUD_RELEASE_TIMEOUT_MS)
+      expect(proc.exits).toEqual([1])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // Teardown runs plugin disposers, whose own rejection must not be reported as
+  // a second fatal load failure over the real one.
+  it('uninstalls the handler before releasing, so teardown cannot re-enter it', async () => {
+    const proc = fakeProc()
+    installFailLoud(NAME, proc, () => {})
+    proc.handlers[0]!(new Error('boom'))
+    expect(proc.handlers).toHaveLength(0)
+    await vi.waitFor(() => { expect(proc.exits).toEqual([1]) })
+    expect(proc.written).toHaveLength(1)
   })
 })
 
