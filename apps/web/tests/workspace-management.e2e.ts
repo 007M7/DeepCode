@@ -415,6 +415,7 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
     // Dwell on the seeded row; the card opens after a 500ms hover delay,
     // portaled to body.
     const sessionRow = await seededSessionRow()
+    const rowTitle = await sessionRow.locator('[class*="title"]').innerText()
     await sessionRow.hover()
     // Card content: the full title plus the Idle status line (no aria role —
     // text anchors are the stable selector).
@@ -422,10 +423,17 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
     // The card is REACHABLE: it sits 8px off the row, so getting to it means
     // crossing ground that belongs to neither. Hovering it must not dismiss
     // it — the regression this scenario guards.
-    const card = page.getByText('Idle', { exact: true }).locator('../../..')
+    const card = page.getByRole('button', { name: 'Copy' })
     await card.hover()
     await page.waitForTimeout(600)
     expect(await page.getByText('Idle', { exact: true }).count()).toBeGreaterThanOrEqual(1)
+    // The full title is the card's primary value: activating anywhere on the
+    // card writes it through the browser clipboard and localizes the success
+    // feedback through the English locale seat.
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+    await card.click()
+    await page.getByRole('button', { name: 'Copied' }).waitFor({ timeout: 5_000 })
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(rowTitle)
     // Leaving anchor and card together closes it after the grace.
     await page.getByRole('button', { name: 'Settings' }).hover()
     await expect.poll(() => page.getByText('Idle', { exact: true }).count(), { timeout: 5_000 }).toBe(0)

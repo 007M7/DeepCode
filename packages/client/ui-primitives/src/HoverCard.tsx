@@ -11,6 +11,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { writeClipboard } from './clipboard.ts'
 import { usePointerGrace } from './pointer-grace.ts'
 import css from './HoverCard.module.css'
 
@@ -21,19 +22,32 @@ import css from './HoverCard.module.css'
  * readable and selectable, but it carries no dismissal affordance of its own.
  * @param props.openDelayMs - hover dwell before the card shows (default 500).
  * @param props.disabled - suppress opening; turning true closes an open card.
+ * @param props.copyText - optional primary value copied by activating the card.
+ * @param props.copyLabel - accessible activation label (default "复制").
+ * @param props.copiedLabel - visible success label (default "复制成功").
  * @returns anchor wrapper with the conditional portaled card.
  */
-export function HoverCard({ anchor, content, openDelayMs = 500, disabled = false }: {
+export function HoverCard({
+  anchor, content, openDelayMs = 500, disabled = false,
+  copyText, copyLabel = '复制', copiedLabel = '复制成功',
+}: {
   anchor: ReactNode
   content: ReactNode
   openDelayMs?: number
   disabled?: boolean
+  copyText?: string | undefined
+  copyLabel?: string | undefined
+  copiedLabel?: string | undefined
 }) {
   const rootRef = useRef<HTMLSpanElement>(null)
   const cardRef = useRef<HTMLDivElement>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const copyingRef = useRef(false)
+  const mountedRef = useRef(true)
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
+  const [copied, setCopied] = useState(false)
 
   const { arm: armClose, cancel: cancelClose } = usePointerGrace(() => { setOpen(false) })
 
@@ -52,7 +66,14 @@ export function HoverCard({ anchor, content, openDelayMs = 500, disabled = false
     setOpen(false)
   }, [disabled, cancelClose])
 
-  useEffect(() => clearTimer, [])
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      clearTimer()
+      if (copyTimerRef.current !== null) clearTimeout(copyTimerRef.current)
+    }
+  }, [])
 
   // Fixed-position from the anchor rect before paint; track the anchor while
   // open (capture-phase scroll catches nested panes), as in Menu portal mode.
@@ -88,9 +109,38 @@ export function HoverCard({ anchor, content, openDelayMs = 500, disabled = false
     }
   }, [open, pos])
 
+  const copy = async (text: string): Promise<void> => {
+    if (copied || copyingRef.current) return
+    copyingRef.current = true
+    const accepted = await writeClipboard(text)
+    copyingRef.current = false
+    if (!accepted || !mountedRef.current) return
+    setCopied(true)
+    copyTimerRef.current = setTimeout(() => {
+      copyTimerRef.current = null
+      setCopied(false)
+    }, 1000)
+  }
+
+  const copyable = copyText !== undefined
   const card = open && pos !== null && (
-    <div ref={cardRef} className={css.card} style={pos}>
-      {content}
+    <div
+      ref={cardRef}
+      className={`${css.card}${copyable ? ` ${css.copyable}` : ''}`}
+      style={pos}
+      role={copyable ? 'button' : undefined}
+      tabIndex={copyable ? 0 : undefined}
+      aria-label={copyable ? (copied ? copiedLabel : copyLabel) : undefined}
+      onClick={copyable ? () => { void copy(copyText) } : undefined}
+      onKeyDown={copyable
+        ? (e) => {
+          if (e.key !== 'Enter' && e.key !== ' ') return
+          e.preventDefault()
+          e.currentTarget.click()
+        }
+        : undefined}
+    >
+      {copied ? <span className={css.copied} role="status">{copiedLabel}</span> : content}
     </div>
   )
 

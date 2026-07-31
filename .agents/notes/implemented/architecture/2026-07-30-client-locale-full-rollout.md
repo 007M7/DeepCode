@@ -14,7 +14,7 @@ After the typed locale standard seat landed (`locale:` on register → framework
 
 **Component copy rides the standard `t` seat; deep children take `t` as a plain prop** typed `XxxProps['t']`. The dictionary canon is unchanged: `zh satisfies Record<string, string>` is the key source and `en satisfies Record<XxxKey, string>` locks bilingual balance.
 
-**Zero-cordis atoms (ui-primitives) take copy as props**: `labels` on `TerminalBlock`/`JsonTree`, `copyLabel`/`copiedLabel` on `CodeBlock`, `codeLabels` on `MarkdownText`, `truncatedLabel` on `JsonBlock`, `label` on `ConnectionBanner`, `closeLabel` on `Modal` — defaults are the previous hardcoded strings, so a consumer passing nothing renders byte-identical output. Localized plugins pass dictionary-driven labels from their own `t` seat; call sites passing object props memoize them on the `t` identity (`MarkdownText` caches its component table on the `codeLabels` identity).
+**Zero-cordis atoms (ui-primitives) take copy as props**: `copyLabel`/`copiedLabel` on `HoverCard`, `labels` on `TerminalBlock`/`JsonTree`, `copyLabel`/`copiedLabel` on `CodeBlock`, `codeLabels` on `MarkdownText`, `truncatedLabel` on `JsonBlock`, `label` on `ConnectionBanner`, `closeLabel` on `Modal` — defaults are the previous hardcoded strings, so a consumer passing nothing renders byte-identical output. Localized plugins pass dictionary-driven labels from their own `t` seat; call sites passing object props memoize them on the `t` identity (`MarkdownText` caches its component table on the `codeLabels` identity).
 
 **The non-translation boundary (deliberate decisions, not debt):**
 

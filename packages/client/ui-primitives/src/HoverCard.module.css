@@ -21,3 +21,20 @@
   background: var(--dsw-hovercard-bg);
   box-shadow: var(--dsw-shadow-lv3);
 }
+
+.copyable {
+  cursor: pointer;
+}
+
+.copyable:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 2px;
+}
+
+.copied {
+  display: block;
+  color: #FFFFFF;
+  font-size: 14px;
+  line-height: 20px;
+  text-align: center;
+}

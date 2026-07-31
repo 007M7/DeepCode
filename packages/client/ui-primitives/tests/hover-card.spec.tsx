@@ -17,13 +17,32 @@ function stubAnchorRect(anchor: HTMLElement, rect: { top: number; right: number 
   })
 }
 
-function mount(props: { openDelayMs?: number; disabled?: boolean } = {}) {
+function mount(props: {
+  openDelayMs?: number
+  disabled?: boolean
+  copyText?: string
+  copyLabel?: string
+  copiedLabel?: string
+} = {}) {
   const view = render(
     <HoverCard anchor={<span>row</span>} content={<div>card body</div>} {...props} />,
   )
   const anchor = screen.getByText('row')
   stubAnchorRect(anchor, { top: 40, right: 200 })
   return { view, anchor, wrapper: anchor.parentElement as HTMLElement }
+}
+
+/** Install the async browser clipboard and restore its prior host shape. */
+function installClipboard(writeText: (text: string) => Promise<void>): () => void {
+  const prior = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText },
+  })
+  return () => {
+    if (prior === undefined) Reflect.deleteProperty(navigator, 'clipboard')
+    else Object.defineProperty(navigator, 'clipboard', prior)
+  }
 }
 
 describe('HoverCard', () => {
@@ -126,6 +145,124 @@ describe('HoverCard', () => {
     fireEvent.pointerDown(screen.getByText('row'))
     act(() => { vi.advanceTimersByTime(1000) })
     expect(screen.queryByText('card body')).toBeNull()
+  })
+
+  it('copies its configured value and shows success only for the feedback window', async () => {
+    const writeText = vi.fn(async () => {})
+    const restoreClipboard = installClipboard(writeText)
+    try {
+      const { wrapper } = mount({
+        copyText: '/full/path',
+        copyLabel: 'Copy path',
+        copiedLabel: 'Copied',
+      })
+      fireEvent.pointerEnter(wrapper)
+      act(() => { vi.advanceTimersByTime(500) })
+      const card = screen.getByRole('button', { name: 'Copy path' })
+      await act(async () => { fireEvent.click(card) })
+      expect(writeText).toHaveBeenCalledWith('/full/path')
+      expect(screen.getByRole('status').textContent).toBe('Copied')
+      expect(screen.getByRole('button', { name: 'Copied' })).toBe(card)
+      // Repeated activation while feedback is visible neither rewrites nor
+      // extends the one-second success window.
+      await act(async () => { fireEvent.click(card) })
+      expect(writeText).toHaveBeenCalledOnce()
+      act(() => { vi.advanceTimersByTime(999) })
+      expect(screen.getByText('Copied')).toBeTruthy()
+      act(() => { vi.advanceTimersByTime(1) })
+      expect(screen.getByRole('button', { name: 'Copy path' })).toBe(card)
+      expect(screen.getByText('card body')).toBeTruthy()
+    } finally {
+      restoreClipboard()
+    }
+  })
+
+  it('supports button keys and ignores unrelated keys', async () => {
+    const writeText = vi.fn(async () => {})
+    const restoreClipboard = installClipboard(writeText)
+    try {
+      const { wrapper } = mount({ copyText: 'value', copiedLabel: 'Copied' })
+      fireEvent.pointerEnter(wrapper)
+      act(() => { vi.advanceTimersByTime(500) })
+      const card = screen.getByRole('button')
+      fireEvent.keyDown(card, { key: 'Escape' })
+      expect(writeText).not.toHaveBeenCalled()
+      await act(async () => { fireEvent.keyDown(card, { key: 'Enter' }) })
+      expect(writeText).toHaveBeenCalledOnce()
+      act(() => { vi.advanceTimersByTime(1000) })
+      await act(async () => { fireEvent.keyDown(card, { key: ' ' }) })
+      expect(writeText).toHaveBeenCalledTimes(2)
+    } finally {
+      restoreClipboard()
+    }
+  })
+
+  it('keeps its content when the clipboard rejects the write', async () => {
+    const writeText = vi.fn(async () => { throw new Error('denied') })
+    const restoreClipboard = installClipboard(writeText)
+    try {
+      const { wrapper } = mount({ copyText: 'value', copiedLabel: 'Copied' })
+      fireEvent.pointerEnter(wrapper)
+      act(() => { vi.advanceTimersByTime(500) })
+      await act(async () => { fireEvent.click(screen.getByRole('button')) })
+      expect(screen.queryByText('Copied')).toBeNull()
+      expect(screen.getByText('card body')).toBeTruthy()
+    } finally {
+      restoreClipboard()
+    }
+  })
+
+  it('unmount clears copied feedback', async () => {
+    const writeText = vi.fn(async () => {})
+    const restoreClipboard = installClipboard(writeText)
+    try {
+      const { view, wrapper } = mount({ copyText: 'value' })
+      fireEvent.pointerEnter(wrapper)
+      act(() => { vi.advanceTimersByTime(500) })
+      await act(async () => { fireEvent.click(screen.getByRole('button')) })
+      expect(vi.getTimerCount()).toBe(1)
+      view.unmount()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      restoreClipboard()
+    }
+  })
+
+  it('does not create copied feedback after an in-flight write unmounts', async () => {
+    let acceptWrite: (() => void) | undefined
+    const writeText = vi.fn(() => new Promise<void>((resolve) => { acceptWrite = resolve }))
+    const restoreClipboard = installClipboard(writeText)
+    try {
+      const { view, wrapper } = mount({ copyText: 'value' })
+      fireEvent.pointerEnter(wrapper)
+      act(() => { vi.advanceTimersByTime(500) })
+      fireEvent.click(screen.getByRole('button'))
+      expect(writeText).toHaveBeenCalledOnce()
+      view.unmount()
+      await act(async () => { acceptWrite?.() })
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      restoreClipboard()
+    }
+  })
+
+  it('coalesces activations while the clipboard write is in flight', async () => {
+    let acceptWrite: (() => void) | undefined
+    const writeText = vi.fn(() => new Promise<void>((resolve) => { acceptWrite = resolve }))
+    const restoreClipboard = installClipboard(writeText)
+    try {
+      const { wrapper } = mount({ copyText: 'value', copiedLabel: 'Copied' })
+      fireEvent.pointerEnter(wrapper)
+      act(() => { vi.advanceTimersByTime(500) })
+      const card = screen.getByRole('button')
+      fireEvent.click(card)
+      fireEvent.click(card)
+      expect(writeText).toHaveBeenCalledOnce()
+      await act(async () => { acceptWrite?.() })
+      expect(screen.getByRole('status').textContent).toBe('Copied')
+    } finally {
+      restoreClipboard()
+    }
   })
 
   it('disabled suppresses opening entirely', () => {
