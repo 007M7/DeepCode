@@ -93,7 +93,7 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
     try {
       await activePage.goto(activeScaffold.baseUrl, { waitUntil: 'load' })
       await activePage.waitForSelector('[class*="frame"]', { timeout: 30_000 })
-      await connectFreshWorkspace(activePage, scaffold.workspaceCwd)
+      await connectFreshWorkspace(activePage, activeScaffold.workspaceCwd)
       const input = activePage.locator('textarea').first()
       await activePage.getByRole('button', { name: 'Commands' }).click()
       const menu = activePage.getByRole('listbox', { name: 'Trigger suggestions' })

@@ -253,6 +253,34 @@ describe('WorkspacePicker', () => {
     expect(screen.getByRole('menuitem', { name: '添加工作区…' })).toBeTruthy()
   })
 
+  it('shows no popover at all when nothing is listed and nothing can be added', () => {
+    // A composition mounting this package without any directory-picker: the
+    // hero anchor has neither a Workspace to pick nor a way to add one, so it
+    // must not claim a choice with an empty menu.
+    const b = mount([], vi.fn(), occupancySource(false))
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(screen.queryByTestId('directory-flow')).toBeNull()
+    expect(b.createWorkspace).not.toHaveBeenCalled()
+  })
+
+  it('holds the anchor gesture while an adoption is still settling', async () => {
+    // The auto-open path obeys the same busy rule as the disabled menu entry:
+    // an occupant that re-registers mid-adoption must not raise a second flow.
+    let resolve!: (workspace: WorkspaceView) => void
+    const pending = new Promise<WorkspaceView>((settle) => { resolve = settle })
+    const created = workspace('adopted')
+    const b = mount([workspace('alpha', 'Alpha')], vi.fn(() => pending))
+    chooseAdd()
+    act(() => { b.probe.owner!.onPicked('/tmp/project') })
+    expect(b.probe.owner!.busy).toBe(true)
+    // The list empties under the still-settling adoption (the workspace was
+    // deleted elsewhere), which would otherwise make add the only entry.
+    act(() => { b.rerenderItems([]) })
+    expect(b.createWorkspace).toHaveBeenCalledTimes(1)
+    await act(async () => { resolve(created); await pending })
+    expect(b.probe.owner!.busy).toBe(false)
+  })
+
   it('hides the add entry while the directory-flow hole is empty', () => {
     mount([workspace('alpha', 'Alpha')], vi.fn(), occupancySource(false))
     expect(screen.getByRole('menuitem', { name: 'Alpha' })).toBeTruthy()

@@ -114,6 +114,10 @@ export function WorkspacePickFlow({
       disabled: flowBusy,
     }))
     : addEntries
+  // Nothing listed and nothing to add with (a composition that mounts this
+  // package without any directory-picker): an empty popover would claim a
+  // choice that does not exist, so the anchor gesture shows nothing at all.
+  const menuIsEmpty = items.length === 0
 
   const closeModal = (): void => {
     setErrorOpen(false)
@@ -153,9 +157,11 @@ export function WorkspacePickFlow({
   // made unnecessary; the add-only surface lists nothing and never waits.
   const listSettled = addOnly || workspaceSnapshot.phase === 'ready'
   const addIsTheOnlyEntry = !pinAdd && listSettled && addEntries.length === 1
+  // `flowBusy` gates this exactly as it disables the equivalent menu entry: a
+  // pick still being adopted owns the surface until it settles.
   useEffect(() => {
-    if (open && addIsTheOnlyEntry) openDirectoryFlow()
-  }, [open, addIsTheOnlyEntry, openDirectoryFlow])
+    if (open && addIsTheOnlyEntry && !flowBusy) openDirectoryFlow()
+  }, [open, addIsTheOnlyEntry, flowBusy, openDirectoryFlow])
 
   /** Owner side of the flow conversation: adopt keeps the flow open (busy) until the Host answers. */
   const flowOwner: DirectoryFlowOwnerProps = {
@@ -185,7 +191,7 @@ export function WorkspacePickFlow({
   return (
     <>
       <Menu
-        open={open && !addIsTheOnlyEntry}
+        open={open && !addIsTheOnlyEntry && !menuIsEmpty}
         anchor={null}
         items={items}
         {...pinAdd ? { footer: addEntries } : {}}
@@ -196,7 +202,7 @@ export function WorkspacePickFlow({
         portal
         getAnchorRect={getAnchorRect}
       />
-      {open && !addIsTheOnlyEntry && workspaceSnapshot.phase === 'pending' && <div className={css.menuStatus} role="status">{t('picker.loading')}</div>}
+      {open && !addIsTheOnlyEntry && !menuIsEmpty && workspaceSnapshot.phase === 'pending' && <div className={css.menuStatus} role="status">{t('picker.loading')}</div>}
       {renderDirectoryFlow(flowOwner)}
       <Modal
         open={errorOpen}

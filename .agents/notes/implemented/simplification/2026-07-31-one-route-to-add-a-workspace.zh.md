@@ -19,17 +19,21 @@ Status: implemented
 由该规则派生出两条边界，它们同属这个决定：
 
 - **列表为空只有在基线落地后才算最终结果。** `phase` 仍为 `pending` 时，主视觉区保留菜单与加载状态，而不是跳进一个即将到达的 workspace 会使其变得多余的流程。仅添加表层不列任何东西，因此从不等待。
-- **目录流程的洞没有占用者时，就没有任何可添加的手段。** 此时侧边栏区头干脆不渲染按钮，而不是留下一个点了没反应的按钮；主视觉区的菜单则继续作为选择器工作，列出已有内容。这是 seam 文档化的无流程默认行为走到它的结论：占用者不在，唯一的创建能力也就不在。
+- **目录流程的洞没有占用者时，就没有任何可添加的手段。** 此时侧边栏区头干脆不渲染按钮，而不是留下一个点了没反应的按钮；主视觉区的菜单则继续作为选择器工作，列出已有内容——而当同样没有内容可列时，它什么也不弹：空浮层会宣称一个并不存在的选择。这是 seam 文档化的无流程默认行为走到它的结论：占用者不在，唯一的创建能力也就不在。主视觉区的锚点 chip 归 ui-conversation 所有，因此本包能压掉浮层，却无法隐藏该 chip。
+
+直接拉起的这条路径同样遵守菜单项声明的 busy 规则：某次选取仍在接纳中（`flowBusy`）时，锚点手势会被按住，正如该菜单项会被禁用，从而使迟到的结果无法抢开第二个流程。
 
 `WorkspaceCreateFlow` 现更名为 `WorkspacePickFlow`，其 `createOnly` prop 更名为 `addOnly`；注入的 `createWorkspace` 从 `{ name } | { path }` 收窄为 `{ path }`。
 
 ## Wire and CLI residue
 
-Host 侧的 `workspace.create` 仍接受 `{ name }`，`dsh web --workspace-root` 也仍在为它提供目标目录，但已没有任何产品表层会走到它们。两者都在 `packages/host/apiproxy/src/api-proxy.ts` 的调用点标记为待删除，并留给后续改动：它们属于 backend 与 CLI 面，有各自的 reviewer 和各自的测试波及面（api-proxy workspace 套件、配置目录），而本决定中阻塞发布的部分是 UI。
+Host 侧的 `workspace.create` 仍接受 `{ name }`，`dsh web --workspace-root` 也仍在为它提供目标目录，但已没有任何产品表层会走到它们。把名称送到 wire 的客户端一段同样如此：`WorkspaceCreateInput`、`WorkspacesService.create` 的 `{ name }` 分支、`intentName` 的名称分支，以及 manager 中"workspaceRoot 下的 name"这一契约。`apps/cli/README.md` 及其中文对照本也仍把 `--workspace-root` 记为"创建具名 Workspace"。这一整套都在 `packages/host/apiproxy/src/api-proxy.ts` 的调用点标记为待删除，并留给后续改动：它横跨 backend、客户端 seam 与 CLI 面，有各自的 reviewer 和各自的测试波及面（api-proxy workspace 套件、runtime workspace 套件、配置目录），而本决定中阻塞发布的部分是 UI。
 
 ## Testing
 
-`connectFreshWorkspace`——所有 web e2e 场景启动时都会走的辅助函数——现在驱动真实对话框：路径编辑器 → **新建文件夹** → **创建** → **打开**。这让产出的路径（`<workspaceCwd>/workspace`）与按名称创建时完全一致，因此场景 golden 保持有效；同时它把幸存的创建路径放到了整条 lane 的每个场景之下，而不只是某一个场景。`workspace-management.e2e.ts` 承担针对性覆盖（在自己创建的文件夹上添加两个 workspace、在另一个目录上复用已删除的标题、浏览对话框的 aria golden）。
+`connectFreshWorkspace`——所有 web e2e 场景启动时都会走的辅助函数——会预先备好 `<root>/workspace`，再经对话框的路径编辑器接纳它，因此产出的会话 cwd 与按名称创建时完全一致，场景 golden 保持有效。选择预先备好而不是在对话框内新建，是为了让该辅助函数在一个场景可能发生的多次连接之间保持幂等（第二次创建同名文件夹会失败，而创建对话框会在失败时把流程停在原地）。在选择器内新建文件夹——同一条路径的另一半——由 `workspace-management.e2e.ts` 覆盖，它承担针对性覆盖：在对话框自己创建的文件夹上添加两个 workspace、在另一个目录上复用已删除的标题、以及浏览对话框的 aria golden。
+
+`smoke-real.e2e.ts` 是唯一启动未打补丁的出厂配置树的场景，其中 `-auto` 行会按宿主机解析；它现在通过 `--config` overlay 钉死 `-browse`，使开发机的显示环境无法决定选择器是否可被驱动。
 
 ## Alternatives considered
 
@@ -43,10 +47,11 @@ Host 侧的 `workspace.create` 仍接受 `{ name }`，`dsh web --workspace-root`
 
 **在同一改动中删除 wire 的按名称创建分支。** 本 PR 否决：那是 backend/CLI 面，reviewer 不同、测试波及面更广，而紧急的决定是 UI。见 residue 一节——它是被标记了，不是被遗忘了。
 
-**在 e2e scaffold 中旁路种入 workspace，而不驱动对话框。** 否决：那会让 15 个场景彻底与选择器解耦，使产品唯一的创建路径只剩一个场景覆盖。驱动真实对话框每个场景多花几次交互，换来的是处处都有覆盖。
+**在 e2e scaffold 中经 host 注册 workspace，而不驱动对话框。** 否决：那会让全部 15 个场景与选择器解耦，整条 lane 将无法证明幸存的这条路径能走到可用的 composer。现在每个场景都会走真实对话框来接纳自己的目录；只有"新建文件夹"那一半集中在一个场景里，因为处处重复只会让共享辅助函数失去幂等性，却换不来额外信号。
 
 ## Consequences
 
 - 从 UI 已无法在操作者选定目录之外创建 Workspace；服务端控制的 `--workspace-root` 目标曾是约束新 workspace 文件夹落点的唯一手段，现在没有替代品。需要该约束的部署必须有意识地重新引入它。
 - 仅存的这条路径会浏览宿主机文件系统，因此选择器的可达范围现在是整台宿主机，而非一个配置好的父目录。这本就是浏览占用者的契约，本改动使它成为唯一的契约。
 - 挂载了 `ui-workspace` 但未挂任何 directory-picker 包的组合，已完全无法添加 Workspace；现在它通过不渲染按钮来说明这一点，而不是提供一个按名称创建的兜底。
+- 主视觉区的 chip 仍声明 `aria-haspopup="menu"`，而直接拉起的路径实际弹出的是对话框。要让它如实，需要把流程的展示方式经 `conversation.hero.workspace` 的 owner 契约上报——决定权在流程，播报权在 chip，两者分属不同的包——因此这被列为一项具名的后续工作，而不是一处无声的不一致。本次新增的侧边栏按钮完全不作任何 popup 声明。
