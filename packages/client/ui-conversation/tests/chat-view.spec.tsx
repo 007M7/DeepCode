@@ -5,7 +5,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Profiler } from 'react'
-import { act, cleanup, fireEvent, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
 import type {
   AssistantMessageNode, CommandNode, ConversationNode, ConversationSnapshot,
   ModelRetryNode, RunningToolCall, SessionId, SessionListState, ToolResultNode,
@@ -254,16 +254,16 @@ describe('ChatView', () => {
     } as const satisfies ConversationNode
     const h = makeHarness({ nodes: [user(1, 'try'), retryNode], running: true })
     const view = render(<h.ChatView {...h.props} />)
-    const disclosure = view.container.querySelector('details')
-    expect(disclosure?.dataset.active).toBe('true')
-    expect(view.getByRole('status').textContent).toBe('正在重试模型请求（1/2） · 1s')
+    const disclosure = view.container.querySelector('details') as HTMLDetailsElement
+    expect(disclosure.dataset.active).toBe('true')
+    expect(within(disclosure).getByRole('status').textContent).toBe('正在重试模型请求（1/2） · 1s')
 
     act(() => {
       h.set({ nodes: [user(1, 'try'), retryNode, nextRetry] })
     })
-    expect(view.getAllByRole('status')).toHaveLength(1)
+    expect(within(disclosure).getAllByRole('status')).toHaveLength(1)
     expect(view.container.querySelector('details')).toBe(disclosure)
-    expect(view.getByRole('status').textContent).toBe('正在重试模型请求（2/2） · 1s')
+    expect(within(disclosure).getByRole('status').textContent).toBe('正在重试模型请求（2/2） · 1s')
 
     act(() => {
       h.set({
@@ -277,14 +277,15 @@ describe('ChatView', () => {
         running: false,
       })
     })
-    expect(disclosure?.dataset.active).toBeUndefined()
-    expect(view.getByRole('status').textContent).toBe('已重试模型请求（2/2） · 1s')
+    expect(disclosure.dataset.active).toBeUndefined()
+    expect(within(disclosure).getByRole('status').textContent).toBe('已重试模型请求（2/2） · 1s')
 
     act(() => {
       h.set({ nodes: [user(1, 'try'), { ...retry(6), retryState: 'cancelled' }], running: true })
     })
-    expect(disclosure?.dataset.active).toBeUndefined()
-    expect(view.getByRole('status').textContent).toContain('重试已取消')
+    const cancelledDisclosure = view.container.querySelector('details') as HTMLDetailsElement
+    expect(cancelledDisclosure.dataset.active).toBeUndefined()
+    expect(within(cancelledDisclosure).getByRole('status').textContent).toContain('重试已取消')
   })
 
   it('the expanded row Inspect pill hands the call id to inspectCall', () => {
@@ -448,6 +449,7 @@ describe('ChatView', () => {
     const view = render(<h.ChatView {...h.props} />)
     expect(view.container.querySelector('[data-state="running"]')).not.toBeNull()
     expect(view.getByText('cmd-r1')).toBeTruthy()
+    expect(view.getByRole('status').textContent).toBe('Deep diving...')
   })
 
   it('dispatches each tool row through the keyed slot with the tool name as entryKey', () => {

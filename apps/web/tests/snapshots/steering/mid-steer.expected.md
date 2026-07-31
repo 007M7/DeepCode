@@ -19,6 +19,7 @@
   - img
   - img
   - text: Ask question waiting
+- status: Deep diving...
 - region "Ready to continue?":
   - text: Checkpoint
   - heading "Ready to continue?" [level=2]

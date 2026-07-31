@@ -48,12 +48,12 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 | `system-prompt/assemble` | `waterfall` | [`packages/core/system-prompt/src/index.ts:29`](../packages/core/system-prompt/src/index.ts) | [`system-prompt`](../packages/core/system-prompt) (`waterfall`) | [`agent`](../packages/core/agent), [`system-prompt`](../packages/core/system-prompt) |
 | `system-prompt/change` | `emit` | [`packages/core/system-prompt/src/index.ts:35`](../packages/core/system-prompt/src/index.ts) | [`system-prompt`](../packages/core/system-prompt) (`emit`) | - |
 | `telemetry/record` | `waterfall` | [`packages/telemetry/session-telemetry/src/index.ts:41`](../packages/telemetry/session-telemetry/src/index.ts) | [`session-telemetry`](../packages/telemetry/session-telemetry) (`waterfall`) | - |
-| `tools/change` | `emit` | [`packages/core/tools/src/index.ts:162`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`emit`) | - |
-| `tools/code-dispatch-log` | `waterfall` | [`packages/core/tools/src/index.ts:144`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`waterfall`) | [`spill-policy`](../packages/spill/spill-policy) |
-| `tools/execute` | `waterfall` | [`packages/core/tools/src/index.ts:119`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`waterfall`) | [`session-checkpoint-policy`](../packages/session-persistence/session-checkpoint-policy), [`timeout-policy`](../packages/timeout/timeout-policy) |
-| `tools/post-execute` | `waterfall` | [`packages/core/tools/src/index.ts:131`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`waterfall`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex), [`repeat-tool-guard`](../packages/guard/repeat-tool-guard), [`spill-policy`](../packages/spill/spill-policy), [`tool-fs-search`](../packages/fs/tool-fs-search), [`workspace-context`](../packages/context/workspace-context) |
-| `tools/pre-execute` | `waterfall` | [`packages/core/tools/src/index.ts:108`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`waterfall`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex), [`tool-tasks`](../packages/tasks/tool-tasks) |
-| `tools/result` | `emit` | [`packages/core/tools/src/index.ts:152`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`events.dispatch`) | [`subagent-inprocess`](../packages/subagent/subagent-inprocess), [`workspace-context`](../packages/context/workspace-context) |
+| `tools/change` | `emit` | [`packages/core/tools/src/index.ts:167`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`emit`) | - |
+| `tools/code-dispatch-log` | `waterfall` | [`packages/core/tools/src/index.ts:149`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`waterfall`) | [`spill-policy`](../packages/spill/spill-policy) |
+| `tools/execute` | `waterfall` | [`packages/core/tools/src/index.ts:124`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`waterfall`) | [`session-checkpoint-policy`](../packages/session-persistence/session-checkpoint-policy), [`timeout-policy`](../packages/timeout/timeout-policy) |
+| `tools/post-execute` | `waterfall` | [`packages/core/tools/src/index.ts:136`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`waterfall`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex), [`repeat-tool-guard`](../packages/guard/repeat-tool-guard), [`spill-policy`](../packages/spill/spill-policy), [`tool-fs-search`](../packages/fs/tool-fs-search), [`workspace-context`](../packages/context/workspace-context) |
+| `tools/pre-execute` | `waterfall` | [`packages/core/tools/src/index.ts:113`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`waterfall`) | [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex), [`tool-tasks`](../packages/tasks/tool-tasks) |
+| `tools/result` | `emit` | [`packages/core/tools/src/index.ts:157`](../packages/core/tools/src/index.ts) | [`tools`](../packages/core/tools) (`events.dispatch`) | [`subagent-inprocess`](../packages/subagent/subagent-inprocess), [`workspace-context`](../packages/context/workspace-context) |
 | `workflow/agent-end` | `emit` | [`packages/workflow/workflow/src/index.ts:81`](../packages/workflow/workflow/src/index.ts) | [`workflow`](../packages/workflow/workflow) (`events.dispatch`) | [`workflow`](../packages/workflow/workflow) |
 | `workflow/agent-start` | `emit` | [`packages/workflow/workflow/src/index.ts:70`](../packages/workflow/workflow/src/index.ts) | [`workflow`](../packages/workflow/workflow) (`events.dispatch`) | [`workflow`](../packages/workflow/workflow) |
 | `workflow/end` | `emit` | [`packages/workflow/workflow/src/index.ts:91`](../packages/workflow/workflow/src/index.ts) | [`workflow`](../packages/workflow/workflow) (`events.dispatch`) | [`workflow`](../packages/workflow/workflow) |
@@ -66,14 +66,14 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 | Event string | Dispatchers | Listeners |
 | --- | --- | --- |
 | `commands/changed` | `runtime` (`emit`) | `ui-command` |
-| `connection/reset` | `runtime` (`emit`) | `ui-command`, `ui-models`, `ui-permission` |
+| `connection/reset` | `runtime` (`emit`) | `ui-command`, `ui-models`, `ui-permission`, `ui-settings-general` |
 | `credentials/changed` | `runtime` (`emit`) | `ui-models` |
 | `internal/dispatch` | - | [`commands`](../packages/ui/commands), [`compact`](../packages/compact/compact), [`fs`](../packages/fs/fs), [`goal`](../packages/goal/goal), [`goal-session`](../packages/goal/goal-session), [`hook-protocol`](../packages/hooks/hook-protocol), [`llm-retry`](../packages/llm/llm-retry), [`permission`](../packages/ui/permission), [`plan-mode`](../packages/plan/plan-mode), [`pty-local`](../packages/pty/pty-local), `runtime`, [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`session-title`](../packages/session-title/session-title), [`subagent`](../packages/subagent/subagent), [`time-context`](../packages/context/time-context), [`tool-todo`](../packages/todo/tool-todo), [`tools`](../packages/core/tools), [`user-approval`](../packages/ui/user-approval), [`workflow`](../packages/workflow/workflow) |
 | `internal/plugin` | - | `hmr`, `loader`, `modules`, `webserver` |
 | `internal/status` | - | [`agent`](../packages/core/agent) |
 | `locale/change` | `locale` (`emit`) | `locale` |
 | `models/changed` | `runtime` (`emit`) | `ui-models` |
-| `settings/changed` | `runtime` (`emit`) | `ui-models`, `ui-permission` |
+| `settings/changed` | `runtime` (`emit`) | `ui-models`, `ui-permission`, `ui-settings-general` |
 | `slash/input-begin-command` | - | `ui-conversation` |
 | `slash/input-consume-token` | - | `ui-conversation` |
 | `slash/input-insert-reference` | - | `ui-conversation` |
