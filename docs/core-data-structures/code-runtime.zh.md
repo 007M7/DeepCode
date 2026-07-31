@@ -76,9 +76,9 @@ interface CodeBindingErrorClass {
   name: string
   /**
    * Non-empty own property for the member name. The portable exclusion set is
-   * `RESERVED_ERROR_MEMBERS` plus dunder-form names (`__*__`), enforced
-   * identically by every backend; any other name — identifiers or not — is
-   * accepted everywhere.
+   * `RESERVED_ERROR_MEMBERS` plus dunder-form names (`__x__`, non-empty
+   * middle), enforced identically by every backend; any other name —
+   * identifiers or not — is accepted everywhere.
    */
   memberNameProperty: string
 }
@@ -98,7 +98,10 @@ interface CodeBindingNamespace {
    * identifier subset `[A-Za-z_][A-Za-z0-9_]*` and no language's reserved
    * words, so the same namespace list works against every backend regardless
    * of `language` — a JS-only spelling like `$tools` is rejected by design,
-   * not just by the Python backend.
+   * not just by the Python backend. Names that satisfy the identifier rule but
+   * name a backend-owned slot (`RESERVED_BINDING_GLOBALS`: `console`,
+   * `__dsh_main__`, `__builtins__`, `__name__`, `__debug__`) are also refused
+   * everywhere, since some backend seeds that slot in the program's namespace.
    */
   global: string
   /** The callable members, keyed by the exact name the program calls. */

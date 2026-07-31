@@ -17,9 +17,9 @@ seam 包（`@deepseek-ai/dsh-code-runtime`）以四个具名常量导出可移�
 - `PORTABLE_RESERVED_WORDS`——ECMAScript 与 Python 保留字的联集。任何命名空间 global 或 error-class 名称匹配其中之一，都在所有后端上被拒绝，因此 `lambda` 即便是合法的 JS 参数名也被拒绝。新增一门语言即扩宽此联集，这是对现有绑定名称的一次有意的破坏性复审。
 - `RESERVED_BINDING_GLOBALS`——某个后端在程序命名空间中拥有的 global：`console`（worker 的日志捕获）与 `__dsh_main__`/`__builtins__`/`__name__`/`__debug__`（Python bootstrap 的包装器与预置模块 global）。在所有后端上被拒绝，使命名空间列表无法选到一个在某后端能用、在另一后端冲突的名称。
 - `RESERVED_ERROR_MEMBERS`——每个后端都拒绝的 error-member 名称：JS `Error` 槽位（`name`、`message`、`stack`）与 Python 异常协议成员（`args`、`with_traceback`、`add_note`）。
-- `DUNDER_MEMBER`——dunder 形式正则（`__*__`），作为 error member 被整体拒绝，因为其中若干是受约束的 CPython 描述符，其确切集合是解释器版本细节。
+- `DUNDER_MEMBER`——dunder 形式正则（`__x__`，非空中缀），作为 error member 被整体拒绝，因为其中若干是受约束的 CPython 描述符，其确切集合是解释器版本细节。
 
-seam 同时把可移植标识符子集收窄为 `[A-Za-z_][A-Za-z0-9_]*`（记录在 `CodeBindingNamespace.global` 与 `CodeBindingErrorClass` 上），去掉 JS 专有的 `$`。worker 消费这些共享常量：`RESERVED_WORDS = PORTABLE_RESERVED_WORDS`、`RESERVED_ERROR_PROPERTIES = RESERVED_ERROR_MEMBERS`，其 `IDENTIFIER` 正则去掉 `$`，其 error-member 检查加上 `DUNDER_MEMBER`。
+seam 同时把可移植标识符子集收窄为 `[A-Za-z_][A-Za-z0-9_]*`（记录在 `CodeBindingNamespace.global` 与 `CodeBindingErrorClass` 上），去掉 JS 专有的 `$`。worker 直接以 seam 名消费这些共享常量——binding-global 与 error-class 名称用 `PORTABLE_RESERVED_WORDS`、后端拥有槽位用 `RESERVED_BINDING_GLOBALS`、error member 用 `RESERVED_ERROR_MEMBERS` 加 `DUNDER_MEMBER`——不再本地起别名；其 `IDENTIFIER` 正则去掉 `$`。
 
 尽管本 PR 只交付一个后端，这些常量仍置于 seam：要点正是该契约与语言无关，且拥有权在任何单一语言之上。违反它的后端才是 bug，而共享集合正是复审者查看"可移植"含义的地方。
 
