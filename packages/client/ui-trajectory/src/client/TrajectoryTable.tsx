@@ -1,9 +1,15 @@
 /** Turn-aware trajectory event ledger with a local record inspector. */
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import {
-  extractMarkdownPlainText, IconChevronRightOutline14, JsonTree, MarkdownText,
+  IconChevronRightOutline14,
+  IconSettingsOutline16,
+  IconSparkle16,
+  IconUserOutline16,
+  JsonTree,
+  MarkdownText,
+  Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { structuredPatch } from 'diff'
 import type {
@@ -13,7 +19,7 @@ import type {
   AssistantMetricDetail, TrajectoryCellKind, TrajectoryCellProps, TrajectorySourceBlock,
 } from './trajectory-record.ts'
 import { formatElapsedSeconds } from './trajectory-record.ts'
-import type { TrajectoryTurnModel } from './layout.ts'
+import { trajectoryPreviewText, type TrajectoryTurnModel } from './layout.ts'
 import css from './TrajectoryTable.module.css'
 
 const KIND_LABEL: Record<TrajectoryCellKind, string> = {
@@ -24,6 +30,77 @@ const KIND_LABEL: Record<TrajectoryCellKind, string> = {
   message: 'ASSISTANT',
   tool: 'TOOL',
   subtool: 'SUBTOOL',
+}
+
+function ToolWrenchIcon(): ReactNode {
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      data-role-icon="wrench"
+      aria-hidden="true"
+    >
+      <path d="M14 3.3a3.8 3.8 0 0 1-4.8 4.8l-5.1 5.1a1.6 1.6 0 1 1-2.3-2.3l5.1-5.1A3.8 3.8 0 0 1 11.7 1l-2.3 2.3 2.3 2.3L14 3.3Z" />
+    </svg>
+  )
+}
+
+function InformationIcon(): ReactNode {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      data-role-icon="information"
+      aria-hidden="true"
+    >
+      <circle cx="8" cy="8" r="6.7" />
+      <circle cx="8" cy="5.5" r=".85" fill="currentColor" stroke="none" />
+      <path d="M8 7.75v3.4" strokeWidth="1.8" />
+    </svg>
+  )
+}
+
+function CompactedIcon(): ReactNode {
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      data-role-icon="compacted"
+      aria-hidden="true"
+    >
+      <path d="m2.5 2.5 3.75 3.75M3 6.25h3.25V3" />
+      <path d="m13.5 2.5-3.75 3.75M13 6.25H9.75V3" />
+      <path d="m2.5 13.5 3.75-3.75M3 9.75h3.25V13" />
+      <path d="m13.5 13.5-3.75-3.75M13 9.75H9.75V13" />
+    </svg>
+  )
+}
+
+const KIND_ICON: Record<TrajectoryCellKind, ReactNode> = {
+  system: <IconSettingsOutline16 size={13} />,
+  user: <IconUserOutline16 size={13} />,
+  context: <InformationIcon />,
+  compacted: <CompactedIcon />,
+  message: <IconSparkle16 size={13} />,
+  tool: <ToolWrenchIcon />,
+  subtool: <ToolWrenchIcon />,
 }
 
 interface TableRecord {
@@ -225,6 +302,8 @@ export interface TrajectoryTableProps {
   onSelectedIndexChange?: (index: number | null) => void
   /** Report a direct user selection from a ledger row. */
   onRecordSelect?: (index: number) => void
+  /** One externally requested record selection; a new object repeats the request. */
+  recordSelection?: { readonly index: number } | null
   /** Clear selection state owned by the ledger host. */
   onClearSelection?: () => void
   /** Turn ids whose rows after the first are folded into a summary. */
@@ -721,13 +800,13 @@ function detailTabs(record: TableRecord): readonly DetailTabItem[] {
 
 function recordDisplayText(cell: TrajectoryCellProps): string {
   if (isToolCallOnly(cell)) return ''
+  if (cell.text !== '') return cell.text
   const markdown = cell.kind === 'user' || cell.kind === 'context'
     ? cell.inputDetail
     : cell.kind === 'message'
       ? cell.outputDetail ?? cell.thinkingDetail
       : undefined
-  if (!markdown) return cell.text
-  return extractMarkdownPlainText(markdown).replace(/\s+/g, ' ').trim()
+  return markdown === undefined ? '' : trajectoryPreviewText(markdown)
 }
 
 function toolCallTextParts(
@@ -1043,13 +1122,20 @@ function SystemPromptDiff({
 
 function ToolOutputBlocks({
   blocks,
+  error,
   preview,
 }: {
   blocks: readonly TrajectorySourceBlock[]
+  error: boolean
   preview: boolean
 }) {
   return (
-    <div className={preview ? `${css.resultBlocks} ${css.resultBlocksPreview}` : css.resultBlocks}>
+    <div className={[
+      css.resultBlocks,
+      preview ? css.resultBlocksPreview : undefined,
+      error ? css.errorPayload : undefined,
+    ].filter((value): value is string => value !== undefined).join(' ')}
+    >
       {blocks.map((block, index) => (
         block.imageSrc !== undefined
           ? <PanelImage block={block} preview={preview} key={index} />
@@ -1222,6 +1308,9 @@ function RecordPayload({
     ? 'No payload captured'
     : 'No result captured'
   if (!value) return <p className={css.noPayload}>{missing}</p>
+  const error = direction === 'output' && record.cell.isError === true
+  const payloadClass = preview ? css.jsonPreview : css.jsonPayload
+  const payloadClassName = error ? `${payloadClass} ${css.errorPayload}` : payloadClass
 
   const json = parseJsonContainer(value)
   const singleTextResult = direction === 'output'
@@ -1232,7 +1321,7 @@ function RecordPayload({
       <JsonTree
         data={json}
         label="Result JSON"
-        className={preview ? css.jsonPreview : css.jsonPayload}
+        className={payloadClassName}
       />
     )
   }
@@ -1245,6 +1334,7 @@ function RecordPayload({
     return (
       <ToolOutputBlocks
         blocks={record.cell.outputBlocks}
+        error={error}
         preview={preview}
       />
     )
@@ -1258,7 +1348,11 @@ function RecordPayload({
   )
   if (markdown) {
     return (
-      <div className={preview ? css.markdownPreview : css.markdownPayload}>
+      <div className={[
+        preview ? css.markdownPreview : css.markdownPayload,
+        error ? css.errorPayload : undefined,
+      ].filter((className): className is string => className !== undefined).join(' ')}
+      >
         <MarkdownText text={value} />
       </div>
     )
@@ -1268,7 +1362,7 @@ function RecordPayload({
       <JsonTree
         data={json}
         label={`${direction === 'input' ? 'Payload' : 'Result'} JSON`}
-        className={preview ? css.jsonPreview : css.jsonPayload}
+        className={payloadClassName}
       />
     )
   }
@@ -1276,7 +1370,7 @@ function RecordPayload({
     <pre className={[
       css.payload,
       preview ? css.payloadPreview : undefined,
-      record.cell.isError ? css.error : undefined,
+      error ? css.errorPayload : undefined,
       value === 'No output' ? css.noOutputText : undefined,
     ].filter((value): value is string => value !== undefined).join(' ')}
     >
@@ -1397,6 +1491,7 @@ export function TrajectoryTable({
   searchMatchIndexes = null,
   onSelectedIndexChange,
   onRecordSelect,
+  recordSelection = null,
   onClearSelection,
   collapsedTurns,
   onToggleTurn,
@@ -1406,15 +1501,16 @@ export function TrajectoryTable({
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
   const [selectedRequest, setSelectedRequest] = useState<SelectedRequest | null>(null)
   const [activeTab, setActiveTab] = useState<DetailTab>('overview')
-  const [thinkingExpanded, setThinkingExpanded] = useState(true)
+  const [thinkingExpanded, setThinkingExpanded] = useState(false)
   const [detailsWidth, setDetailsWidth] = useState<number | null>(null)
   const [toolRequestOffset, setToolRequestOffset] = useState<number | null>(null)
   const detailsResizeDrag = useRef<DetailsResizeDrag | null>(null)
+  const appliedRecordSelection = useRef<TrajectoryTableProps['recordSelection']>(null)
   const tabHistory = useRef<Set<DetailTab>>(new Set(['overview']))
   useEffect(() => {
     onSelectedIndexChange?.(selectedIndex)
   }, [onSelectedIndexChange, selectedIndex])
-  const allRecords = flattenRecords(turns)
+  const allRecords = useMemo(() => flattenRecords(turns), [turns])
   const requestNumbers = indexRequestNumbers(allRecords, sessionRequestNumbers)
   const records = searchMatchIndexes === null
     ? collapseAssistantRecords(
@@ -1531,7 +1627,7 @@ export function TrajectoryTable({
     onClearSelection?.()
   }
 
-  const selectRecord = (index: number) => {
+  const selectRecord = useCallback((index: number) => {
     const record = allRecords.find(candidate => candidate.cell.index === index)
     onRecordSelect?.(index)
     setSelectedRequest(null)
@@ -1541,7 +1637,15 @@ export function TrajectoryTable({
     const available = new Set(tabs.map(tab => tab.id))
     const recent = [...tabHistory.current].reverse().find(tab => available.has(tab))
     setActiveTab(recent ?? tabs[0]?.id ?? 'overview')
-  }
+  }, [allRecords, onRecordSelect])
+  useEffect(() => {
+    if (
+      recordSelection === null
+      || appliedRecordSelection.current === recordSelection
+    ) return
+    appliedRecordSelection.current = recordSelection
+    selectRecord(recordSelection.index)
+  }, [recordSelection, selectRecord])
 
   const selectRequest = (
     request: SelectedRequest,
@@ -1714,8 +1818,14 @@ export function TrajectoryTable({
                         className={activeTurn === record.turn
                           ? `${css.turnLabel} ${css.turnLabelActive}`
                           : css.turnLabel}
+                        aria-label={`Turn ${record.turn}`}
                       >
-                        Turn {record.turn}
+                        <span className={css.turnLabelFull} aria-hidden="true">
+                          Turn {record.turn}
+                        </span>
+                        <span className={css.turnLabelCompact} aria-hidden="true">
+                          #{record.turn}
+                        </span>
                       </span>
                     )}
                     <div className={css.eventInner}>
@@ -1723,24 +1833,33 @@ export function TrajectoryTable({
                         <span
                           className={css.kindSlot}
                         >
-                          <span className={`${css.kindTag} ${
-                            record.cell.kind === 'system'
-                              ? css.systemNeutral
-                              : record.cell.kind === 'context'
-                                ? css.contextGreen
-                                : record.cell.kind === 'compacted'
-                                  ? css.compacted
-                                  : record.cell.kind === 'tool'
-                                    ? css.toolAmber
-                                    : record.cell.kind === 'message'
-                                      ? css.assistantVioletBright
-                                      : record.cell.kind === 'subtool'
-                                        ? css.subtoolAmber
-                                        : css[record.cell.kind]
-                          }`}
-                          >
-                            {KIND_LABEL[record.cell.kind]}
-                          </span>
+                          <Tooltip label={KIND_LABEL[record.cell.kind]} side="bottom">
+                            <span
+                              className={`${css.kindTag} ${
+                                record.cell.kind === 'system'
+                                  ? css.systemNeutral
+                                  : record.cell.kind === 'context'
+                                    ? css.contextGreen
+                                    : record.cell.kind === 'compacted'
+                                      ? css.compacted
+                                      : record.cell.kind === 'tool'
+                                        ? css.toolAmber
+                                        : record.cell.kind === 'message'
+                                          ? css.assistantVioletBright
+                                          : record.cell.kind === 'subtool'
+                                            ? css.subtoolAmber
+                                            : css[record.cell.kind]
+                              }`}
+                              data-role-kind={record.cell.kind}
+                            >
+                              <span className={css.kindTagIcon} aria-hidden="true">
+                                {KIND_ICON[record.cell.kind]}
+                              </span>
+                              <span className={css.kindTagLabel}>
+                                {KIND_LABEL[record.cell.kind]}
+                              </span>
+                            </span>
+                          </Tooltip>
                         </span>
                       )}
                     </div>
@@ -1973,7 +2092,9 @@ export function TrajectoryTable({
                 <dl className={css.overview}>
                   <div>
                     <dt>Status</dt>
-                    <dd>{statusLabel(selectedRequestState)}</dd>
+                    <dd className={selectedRequestState === 'error' ? css.error : undefined}>
+                      {statusLabel(selectedRequestState)}
+                    </dd>
                   </div>
                   {selectedRequestInfo?.purpose === 'compaction' && (
                     <div>
@@ -2014,7 +2135,7 @@ export function TrajectoryTable({
                   {selectedRequestInfo?.error !== undefined && (
                     <div>
                       <dt>Error</dt>
-                      <dd>{selectedRequestInfo.error}</dd>
+                      <dd className={css.error}>{selectedRequestInfo.error}</dd>
                     </div>
                   )}
                   {selectedRequestInfo?.retry !== undefined && (
@@ -2122,7 +2243,9 @@ export function TrajectoryTable({
                 <dl className={css.overview}>
                   <div>
                     <dt>Status</dt>
-                    <dd>{statusLabel(selectedState)}</dd>
+                    <dd className={selectedState === 'error' ? css.error : undefined}>
+                      {statusLabel(selectedState)}
+                    </dd>
                   </div>
                   <div>
                     <dt>Duration</dt>
@@ -2225,7 +2348,9 @@ export function TrajectoryTable({
                   )}
                   <div>
                     <dt>Status</dt>
-                    <dd>{statusLabel(selectedState)}</dd>
+                    <dd className={selectedState === 'error' ? css.error : undefined}>
+                      {statusLabel(selectedState)}
+                    </dd>
                   </div>
                   {selected.cell.kind === 'message' && (
                     <TokenRows cell={selected.cell} />

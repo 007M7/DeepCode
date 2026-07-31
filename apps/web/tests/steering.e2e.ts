@@ -121,9 +121,9 @@ describe('web e2e: mid-turn steering lands durably and visibly', () => {
       // exists yet and no interjection bubble renders — the composer still
       // blocks, alone. The DOM is stable here (no further SSE frames can
       // arrive until the question is answered), making this state capturable.
-      expect(await page.getByText('插话').count()).toBe(0)
+      expect(await page.getByText('Interjection', { exact: true }).count()).toBe(0)
       expect(await page.getByText(STEER, { exact: true }).count()).toBe(0)
-      expect(await page.getByRole('button', { name: '编辑排队消息' }).count()).toBe(0)
+      expect(await page.getByRole('button', { name: 'Edit queued message' }).count()).toBe(0)
       const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
       await compareOrRefreshGolden(MID_EXPECTED, snapshot, MODE)
     }
@@ -157,7 +157,7 @@ describe('web e2e: mid-turn steering lands durably and visibly', () => {
 
     // Visible: the badged interjection bubble plus the reply that obeys it
     // (steer text + final reply each contain the marker word).
-    await expect.poll(() => page.getByText('插话').count(), { timeout: 15_000 }).toBe(1)
+    await expect.poll(() => page.getByText('Interjection', { exact: true }).count(), { timeout: 15_000 }).toBe(1)
     await expect.poll(() => page.getByText('Interjection:', { exact: false }).count(), { timeout: 10_000 }).toBe(1)
     await expect.poll(() => page.getByText('BANANA', { exact: false }).count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(2)
     expect(await page.locator('[data-question-key]').count()).toBe(0)

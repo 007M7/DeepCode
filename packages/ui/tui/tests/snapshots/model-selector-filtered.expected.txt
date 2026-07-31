@@ -36,9 +36,9 @@ buffer
 14| "        │                                                                          │        "
   style 8-8 fg=bright-magenta
   style 83-83 fg=bright-magenta
-15| "        │ → deepseek/deepseek-v4-pro        DeepSeek V4 Pro                        │        "
+15| "        │ → deepseek-official/deepseek-v4-  DeepSeek V4 Pro                        │        "
   style 8-8 fg=bright-magenta
-  style 10-58 fg=bright-magenta inverse
+  style 10-41 fg=bright-magenta inverse
   style 83-83 fg=bright-magenta
 16| "        │                                                                          │        "
   style 8-8 fg=bright-magenta

@@ -87,7 +87,7 @@ describe('bounded retry through the real DeepSeek HTTP/SSE adapter', () => {
     const port = await unusedPort()
     context = await harness(`http://127.0.0.1:${port}`, { initialDelayMs: 100 })
     const agent = context.agentLoop.create(SessionId('wire-refused'), {
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'mock-model',
     })
     let recoveryServer: Promise<MockLlmServer> | undefined
@@ -122,7 +122,7 @@ describe('bounded retry through the real DeepSeek HTTP/SSE adapter', () => {
     })
     context = await harness(server.baseURL)
     const agent = context.agentLoop.create(SessionId(`wire-${behavior}`), {
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'mock-model',
     })
 
@@ -151,7 +151,7 @@ describe('bounded retry through the real DeepSeek HTTP/SSE adapter', () => {
     })
     context = await harness(server.baseURL)
     const agent = context.agentLoop.create(SessionId('wire-empty'), {
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'mock-model',
     })
 
@@ -179,7 +179,7 @@ describe('bounded retry through the real DeepSeek HTTP/SSE adapter', () => {
     })
     context = await harness(server.baseURL)
     const agent = context.agentLoop.create(SessionId('wire-partial-eof'), {
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'mock-model',
     })
 
@@ -206,7 +206,7 @@ describe('bounded retry through the real DeepSeek HTTP/SSE adapter', () => {
     // the stalled attempt and the mock server's immediate successful response.
     context = await harness(server.baseURL, { streamIdleTimeoutMs: 1_000 })
     const agent = context.agentLoop.create(SessionId('wire-stall'), {
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'mock-model',
     })
 
@@ -224,7 +224,7 @@ describe('bounded retry through the real DeepSeek HTTP/SSE adapter', () => {
     })
     context = await harness(server.baseURL)
     const agent = context.agentLoop.create(SessionId('wire-exhausted'), {
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'mock-model',
     })
 

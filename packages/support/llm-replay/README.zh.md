@@ -33,7 +33,7 @@ fixture 就是持久化的会话日志（`<scenario>/session.jsonl`）。其 `as
   name: '@deepseek-ai/dsh-llm-replay'
   config:
     providers:
-      - id: deepseek
+      - id: deepseek-official
         name: DeepSeek
         retryPolicy:
           mode: normal

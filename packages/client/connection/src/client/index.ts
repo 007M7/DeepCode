@@ -22,6 +22,8 @@ export type {
   ClientRequest, ServerResponse, ServerRequest, ClientResponse, RpcMessage, RpcReceipt,
   IApiClient, SessionId, SessionEvent, ContentBlock, StreamChunk,
   GoalsApi, GoalRef,
+  SettingsApi, SettingsNamespaceView, SettingsPathOpView, SettingsSecretView,
+  CredentialsApi, CredentialView, ConfigurableProviderView, LlmApi,
 } from './api.ts'
 export { RpcId, AbstractApiClient, transportError } from './api.ts'
 

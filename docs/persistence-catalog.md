@@ -78,7 +78,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-Sources: [`packages/core/session/src/types.ts:258`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:265`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:294`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:326`](../packages/core/session/src/types.ts)
+Sources: [`packages/core/session/src/types.ts:261`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:268`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:297`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:329`](../packages/core/session/src/types.ts)
 
 ## Events
 
@@ -101,7 +101,7 @@ Sources: [`packages/core/session/src/types.ts:258`](../packages/core/session/src
 }
 ```
 
-Source: [`packages/core/agent/src/types.ts:272`](../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:281`](../packages/core/agent/src/types.ts)
 
 ### `approval/*`
 
@@ -175,7 +175,7 @@ Source: [`packages/ui/user-approval/src/index.ts:67`](../packages/ui/user-approv
 
 Types: [StreamChunk](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:191`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:194`](../packages/core/session/src/types.ts)
 
 #### `assistant/message` — surface
 
@@ -191,7 +191,7 @@ Source: [`packages/core/session/src/types.ts:191`](../packages/core/session/src/
 
 Types: [TokenUsage](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:198`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:201`](../packages/core/session/src/types.ts)
 
 ### `command/*`
 
@@ -400,7 +400,7 @@ Source: [`packages/plan/plan-mode/src/index.ts:51`](../packages/plan/plan-mode/s
 'request/header': { header: EpochHeader; reason: RequestHeaderReason }
 ```
 
-Source: [`packages/core/session/src/types.ts:231`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:234`](../packages/core/session/src/types.ts)
 
 ### `sandbox/*`
 
@@ -453,7 +453,7 @@ Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:33`](../packages/s
 'session/end-seed': Record<string, never>
 ```
 
-Source: [`packages/core/session/src/types.ts:254`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:257`](../packages/core/session/src/types.ts)
 
 #### `session/title` — log-only
 
@@ -489,7 +489,7 @@ Source: [`packages/session-title/session-title-llm/src/index.ts:43`](../packages
 'steering/message': { turn: number; message: UserMessage }
 ```
 
-Source: [`packages/core/session/src/types.ts:224`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:227`](../packages/core/session/src/types.ts)
 
 ### `step/*`
 
@@ -500,7 +500,7 @@ Source: [`packages/core/session/src/types.ts:224`](../packages/core/session/src/
 'step/end': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:180`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:183`](../packages/core/session/src/types.ts)
 
 #### `step/start` — log-only
 
@@ -509,7 +509,7 @@ Source: [`packages/core/session/src/types.ts:180`](../packages/core/session/src/
 'step/start': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:178`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:181`](../packages/core/session/src/types.ts)
 
 ### `todo/*`
 
@@ -522,7 +522,7 @@ Source: [`packages/core/session/src/types.ts:178`](../packages/core/session/src/
 
 Types: [TodoItem](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:226`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:229`](../packages/core/session/src/types.ts)
 
 ### `tool/*`
 
@@ -539,7 +539,7 @@ Source: [`packages/core/session/src/types.ts:226`](../packages/core/session/src/
 
 Types: [CallId](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:204`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:207`](../packages/core/session/src/types.ts)
 
 #### `tool/code-dispatch` — log-only
 
@@ -612,7 +612,7 @@ Source: [`packages/core/tools/src/code-mode.ts:33`](../packages/core/tools/src/c
 }
 ```
 
-Source: [`packages/core/session/src/types.ts:216`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:219`](../packages/core/session/src/types.ts)
 
 ### `turn/*`
 
@@ -630,7 +630,7 @@ Source: [`packages/core/session/src/types.ts:216`](../packages/core/session/src/
 
 Types: [TurnEndReason](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:176`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:179`](../packages/core/session/src/types.ts)
 
 #### `turn/start` — log-only
 
@@ -643,7 +643,7 @@ Source: [`packages/core/session/src/types.ts:176`](../packages/core/session/src/
 'turn/start': { turn: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:169`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:172`](../packages/core/session/src/types.ts)
 
 ### `user/*`
 
@@ -661,4 +661,4 @@ Source: [`packages/core/session/src/types.ts:169`](../packages/core/session/src/
 'user/message': UserMessage
 ```
 
-Source: [`packages/core/session/src/types.ts:189`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:192`](../packages/core/session/src/types.ts)

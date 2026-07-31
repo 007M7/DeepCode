@@ -27,7 +27,7 @@ export { interruptedTurnClosers, lastActivityTime, TOOL_NOT_STARTED, TOOL_OUTCOM
 export { decodeStorageRecord, packChunkRuns } from './chunk-rows.ts'
 export type { ChunkRow, StorageRecord } from './chunk-rows.ts'
 export type { SessionSurface, SurfaceFoldReplacement, SurfaceFoldResult } from './surface.ts'
-export { foldSurface, isSurfaceEvent, isSurfaceEligibleType } from './surface.ts'
+export { foldSurface, isAppendSurfaceEvent, isReplacementSurfaceEvent, isSurfaceEvent, isSurfaceEligibleType } from './surface.ts'
 export { canonicalHeader, foldRequestHeader, headerEquals } from './request-header.ts'
 
 declare module 'cordis' {
@@ -179,18 +179,43 @@ function assertCurrentLlmShape(event: Record<string, unknown>, index: number): v
     : undefined
   if (event['type'] === 'request/header') {
     const header = record?.['header']
-    const config = typeof header === 'object' && header !== null ? (header as Record<string, unknown>)['config'] : undefined
+    const headerRecord = typeof header === 'object' && header !== null && !Array.isArray(header)
+      ? header as Record<string, unknown>
+      : undefined
+    const config = headerRecord?.['config']
     if (!hasProviderModel(config)) throw new Error(`seed request/header at index ${index} lacks provider/model`)
-    const reasoningEffort = (config as Record<string, unknown>)['reasoningEffort']
+    const configRecord = config as Record<string, unknown>
+    const reasoningEffort = configRecord['reasoningEffort']
     if (reasoningEffort !== undefined
       && (typeof reasoningEffort !== 'string' || reasoningEffort.length === 0)) {
       throw new Error(`seed request/header at index ${index} has an invalid reasoningEffort`)
     }
+    assertAdapterDefaults(headerRecord?.['adapterDefaults'], configRecord, index)
   }
   const type = event['type']
   if (type !== 'user/message' && type !== 'assistant/message'
     && type !== 'tool/result' && type !== 'steering/message') return
   assertMessageEventShape(event, `seed ${type} at index ${index}`)
+}
+
+/** Validate adapter-default provenance imported from a durable request header. */
+function assertAdapterDefaults(
+  value: unknown,
+  config: Record<string, unknown>,
+  index: number,
+): void {
+  if (value === undefined) return
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`seed request/header at index ${index} has invalid adapterDefaults`)
+  }
+  const defaults = value as Record<string, unknown>
+  const allowed = new Set(['reasoningEffort', 'maxTokens'])
+  if (Object.keys(defaults).some(key => !allowed.has(key))
+    || Object.values(defaults).some(marker => marker !== true)
+    || defaults['reasoningEffort'] === true && config['reasoningEffort'] === undefined
+    || defaults['maxTokens'] === true && config['maxTokens'] === undefined) {
+    throw new Error(`seed request/header at index ${index} has invalid adapterDefaults`)
+  }
 }
 
 /** Validate only the event-specific invariants needed to safely replay a message. */
@@ -442,7 +467,8 @@ export class Session {
    *   the ordered surface; `sourceEventSeqs` records provenance (the seq
    *   numbers of events this one derives from). REQUIRED for
    *   {@link SurfaceEventType} events (every message-producing event must
-   *   declare how it joins the surface, the sole source of derived history) and
+   *   declare how it joins the surface, the sole source of derived model
+   *   history) and
    *   rejected by the compiler for non-surface types like `turn/start` or
    *   `assistant/chunk`.
    * @returns the logged event — its assigned `seq`/`time` plus the SNAPSHOT of

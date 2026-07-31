@@ -5,9 +5,10 @@ import {
   IconCloseOutline16, IconEditOutline16, MarkdownText,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
-  PendingQuestion,
+  PendingQuestion, planReviewOf,
   type QuestionAnswer, type QuestionComposerProps,
 } from './contract/slots.ts'
+import { PlanReviewPanel } from './PlanReviewPanel.tsx'
 import css from './QuestionComposer.module.css'
 
 interface DraftAnswer {
@@ -46,14 +47,24 @@ function isComposing(event: KeyboardEvent<HTMLTextAreaElement | HTMLInputElement
 /**
  * Composer takeover boundary; the carrier key keys local drafts, so a
  * same-request replay (same key, new carrier object) preserves them.
+ *
+ * One takeover, two shapes: a request that declares a presentation intent this
+ * package renders takes that shape (a plan review is one decision over one
+ * plan, not a question set), and every other request takes the generic flow.
+ * The routing lives here, at the one entry that owns the composer seat, so
+ * neither shape can claim a request the other is already rendering.
+ *
  * @param props - the selector-matched pending question carrier plus the framework standard kit.
- * @returns The question flow for this request.
+ * @returns The question flow, or the intent's own surface, for this request.
  */
 export function QuestionComposer(props: QuestionComposerProps) {
   // Domain-face mint rides the carrier's stable identity (never minted in a
   // select/render dispatch — per-dispatch minting would churn memo identity).
   const question = useMemo(() => new PendingQuestion(props.matched), [props.matched])
-  return <QuestionFlow key={question.key} pending={question} t={props.t} />
+  const review = useMemo(() => planReviewOf(question.questions), [question])
+  return review === undefined
+    ? <QuestionFlow key={question.key} pending={question} t={props.t} />
+    : <PlanReviewPanel key={question.key} pending={question} review={review} t={props.t} />
 }
 
 function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<QuestionComposerProps, 't'>) {

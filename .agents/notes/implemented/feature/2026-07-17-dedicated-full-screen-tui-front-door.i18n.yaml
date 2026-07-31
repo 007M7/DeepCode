@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-17-dedicated-full-screen-tui-front-door.md
-2026-07-17-dedicated-full-screen-tui-front-door.md: f8fa05383edc3f2abcbf9b5dd8b98e3a15c9a4a3
-2026-07-17-dedicated-full-screen-tui-front-door.zh.md: 12bf3b1633bcb3d958549be3a74bca3c1bdaa816
+2026-07-17-dedicated-full-screen-tui-front-door.md: cd0e9b3005e6344a054ac0ada731531be335c1dd
+2026-07-17-dedicated-full-screen-tui-front-door.zh.md: ec1b1e54039c43d336a4e5663d2bf382340da32a

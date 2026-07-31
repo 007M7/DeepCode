@@ -38,6 +38,7 @@
     { "path": "./packages/host/directory-picker-native" },
     { "path": "./packages/host/directory-picker-browse" },
     { "path": "./packages/client/ui-slots" },
+    { "path": "./packages/client/schema-form" },
     { "path": "./packages/client/ui-primitives" },
     { "path": "./packages/client/web-react" },
     { "path": "./packages/client/modules" },

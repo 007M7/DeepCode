@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-**组合是一棵平铺 config tree。** `apps/cli/cordis.yml` 持有全部行——host runtime（32 行）、`api-gateway` 行、`webserver` 行、`dshClient` 行（浏览器 roster；modules 行同时是 host 行）。不做 spine bundle：每插件一行、每个 config 字段 yml 可改。`--dev` 在 settle sweep 之前由代码追加 `dsh-client-hmr` 行——prod 与 dev 的全部差异就是这一行。行序无装载语义；激活由服务可用性驱动，boot 以 fail-loud 三件套补偿：`assertEntriesLoaded`（import 失败）、`installFailLoud`（迟到的 apply 拒绝）、all-ACTIVE sweep（PENDING fiber——cordis inject 等待没有超时）。
+**组合结果是一棵平铺配置树。** `apps/cli/config/base.cordis.yml` 与 `apps/cli/config/web.cordis.yml` 共同持有全部行——host runtime（32 行）、`api-gateway` 行、`webserver` 行、`dshClient` 行（浏览器 roster；modules 行同时是 host 行）。不做 spine bundle：每插件一行、每个 config 字段 yml 可改。这一立场后来推广到全仓：两个 surface 共享的配置项被抽取进 `apps/cli/config/base.cordis.yml`，各 surface 则收敛为一份 overlay（[共享 base overlay](../simplification/2026-07-29-shared-base-config-overlays.md)）。`--dev` 在 settle sweep 之前由代码追加 `dsh-client-hmr` 行——prod 与 dev 的全部差异就是这一行。行序无装载语义；激活由服务可用性驱动，boot 以 fail-loud 三件套补偿：`assertEntriesLoaded`（import 失败）、`installFailLoud`（迟到的 apply 拒绝）、all-ACTIVE sweep（PENDING fiber——cordis inject 等待没有超时）。
 
 **boot 胶水是一对 class。** `AppCLIEntry`（apps/cli）与 `AppWebEntry`（壳内核）只持有独立于 cordis 必须提前存在的东西：argv 事实、合成的 patch 集、解析出的 boot manifest、模块系统实例、loading 页句柄——其余一律进插件。`AppCLIEntry.run()` 三段：分层 env（ambient > cwd `.env` > `$DSH_HOME/.env`，顺手关掉上述缺陷）→ patch 合成 → Loader include boot 加三件套。`AppWebEntry.run()` 在浏览器侧镜像它：把 `window.__DSH_BOOT__` 解析成 `BootManifest`（双视角：npm 包行给模块表、cordis 插件行给 entry 组合；畸形 wire 大声抛）、建模块系统、渲染 loading 页、immediately 层预取与 Context/Loader 准备并行、**create entry 之前等预取齐**（物化是 `tree.import` 的同步 require，不受 fiber inject 等待保护；i18n → runtime/client 这类跨包 require 边要求 immediately 层工厂全部注册完——否则有实测 10–25% 的 boot 竞态）、收编 modules entry、逐图行 create、settle、sweep。
 

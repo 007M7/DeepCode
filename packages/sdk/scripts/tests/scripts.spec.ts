@@ -94,7 +94,7 @@ function creation(
     packageManager: new NpmPackageManager('10.0.0'),
     releaseVersion: '0.0.1',
     features: [
-      { id: featureId('provider'), options: ['deepseek'], secrets: { apiKey: 'key' } },
+      { id: featureId('provider'), options: ['deepseek-official'], secrets: { apiKey: 'key' } },
       { id: featureId('bash'), options: ['local'] },
       { id: featureId('app'), options: [app] },
       { id: featureId('persistence'), options: ['jsonl'] },
@@ -550,7 +550,7 @@ describe('ConfigWorkflow', () => {
     const output = outputBuffer()
     const workflow = new ConfigWorkflow(new QueuePort([
       [
-        { value: 'feature:provider', choices: ['deepseek'] },
+        { value: 'feature:provider', choices: ['deepseek-official'] },
         { value: 'feature:app', choices: ['acp'] },
         { value: 'feature:persistence', choices: ['jsonl'] },
         { value: 'feature:ask-user', choices: ['default'] },

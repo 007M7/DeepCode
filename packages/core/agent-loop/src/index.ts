@@ -134,6 +134,15 @@ interface PreparedAgent {
 declare module 'cordis' {
   interface Context {
     agentLoop: AgentLoop
+    /**
+     * Launcher-owned exact session identities for configured agents, keyed by
+     * the agent's config `id` and set with `ctx.provide()` before any Loader
+     * entry mounts (see {@link CONFIGURED_AGENT_IDENTITIES_KEY}). A launcher
+     * owns identity because only it knows whether the session already exists,
+     * while the `cordis.yml` row keeps the model route as ordinary patchable
+     * config. An entry with no matching key keeps its configured identity.
+     */
+    configuredAgentIdentities?: ConfiguredAgentIdentities
   }
   interface Events {
     /**
@@ -150,6 +159,53 @@ declare module 'cordis' {
 }
 
 export { DEFAULT_MAX_PARALLEL_TOOL_CALLS }
+
+/**
+ * One launcher-selected session identity for a configured agent. `resume`
+ * distinguishes rehydrating existing persisted history from creating the
+ * session fresh under that exact id, which the two config keys express as
+ * `resumeSessionId` and `sessionId`.
+ */
+export interface LauncherAgentIdentity {
+  /** Exact session id to create fresh or resume. */
+  id: SessionId
+  /** Resume existing persisted history instead of creating the session fresh. */
+  resume: boolean
+}
+
+/** Launcher-selected identities keyed by the configured agent's `id`. */
+export interface ConfiguredAgentIdentities extends Readonly<Record<string, LauncherAgentIdentity>> {}
+
+/**
+ * Context key a launcher sets before any Loader entry mounts
+ * (`ctx.provide(CONFIGURED_AGENT_IDENTITIES_KEY, identities)`) to fix
+ * configured agents' session identities without a config key, so an overlay
+ * repointing the row's model route cannot drop them.
+ */
+export const CONFIGURED_AGENT_IDENTITIES_KEY = 'configuredAgentIdentities'
+
+/**
+ * Apply launcher-owned identities over the configured agents, replacing both
+ * identity keys for every entry the launcher named so a config-supplied
+ * identity can never survive alongside a launcher-supplied one.
+ * @param agents - the configured agent entries.
+ * @param identities - launcher identities keyed by configured agent `id`, or `undefined`.
+ * @returns the entries with launcher-owned identities applied.
+ */
+function applyLauncherIdentities(
+  agents: Config['agents'],
+  identities: ConfiguredAgentIdentities | undefined,
+): Config['agents'] {
+  if (identities === undefined) return agents
+  return agents.map((agent) => {
+    const identity = identities[agent.id]
+    if (identity === undefined) return agent
+    const { sessionId: _sessionId, resumeSessionId: _resumeSessionId, ...rest } = agent
+    return identity.resume
+      ? { ...rest, resumeSessionId: identity.id }
+      : { ...rest, sessionId: identity.id }
+  })
+}
 
 /** Agent-loop plugin configuration. */
 export interface Config {
@@ -220,6 +276,7 @@ export class AgentLoop extends Service implements AgentFactory {
     super(ctx, 'agentLoop')
     this.config = {
       ...config,
+      agents: applyLauncherIdentities(config.agents, ctx.get(CONFIGURED_AGENT_IDENTITIES_KEY)),
       maxParallelToolCalls: resolveMaxParallelToolCalls(config.maxParallelToolCalls),
     }
     validateConfiguredAgents(this.config.agents)

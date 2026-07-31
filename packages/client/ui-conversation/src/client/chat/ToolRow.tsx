@@ -8,14 +8,17 @@
 // component-local view state. File-tool summaries are path links that open
 // through the host; the row itself is not a details-panel control.
 
-import { useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
+import { useState, type MouseEvent, type ReactNode } from 'react'
 import { CodeBlock, StateDot, TerminalBlock } from '@deepseek-ai/dsh-client-ui-primitives'
-import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { CHAT_TERMINAL_MAX_LINES, type TerminalCardModel } from '../contract/terminal-card-model.ts'
+import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+import { CHAT_TERMINAL_MAX_LINES, terminalBlockLabels, type TerminalCardModel } from '../contract/terminal-card-model.ts'
 import type { ToolRowState, ToolRowVariant } from '../contract/tool-call-model.ts'
+import { DisclosureRow } from './DisclosureRow.tsx'
 import css from './ToolRow.module.css'
 
 export interface ToolRowProps {
+  /** The render site's conversation locale seat (terminal/code body copy). */
+  t: TranslateNS<'conversation'>
   variant: ToolRowVariant
   /** Wire tool name for tool-owned styling layered over the generic variant. */
   toolName?: string | undefined
@@ -56,6 +59,7 @@ function leadingFor(state: ToolRowState, icon: ReactNode): ReactNode {
 }
 
 export function ToolRow({
+  t,
   variant,
   toolName,
   icon,
@@ -82,63 +86,27 @@ export function ToolRow({
   // this substitution never shows.
   const text = body ?? ''
   const open = expanded && expandable
-  const rowExpands = expandable && expandOnRowClick
   const toggleExpand = () => {
     setExpanded(v => !v)
-  }
-  const toggleFromLeading = (event: MouseEvent<HTMLButtonElement>) => {
-    event.stopPropagation()
-    toggleExpand()
-  }
-  const toggleFromKeyboard = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (!rowExpands || (event.key !== 'Enter' && event.key !== ' ')) return
-    event.preventDefault()
-    toggleExpand()
   }
   const openFile = (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation()
     if (filePath !== undefined) onOpenFile?.(filePath)
   }
-  // Expandable rows preview the toggle on hover: the tool icon yields to a
-  // down chevron (CSS swap on .row:hover); state dots still take precedence.
-  const collapsedIcon = expandable
-    ? (
-      <>
-        <span className={css.iconIdle}>{icon}</span>
-        <IconChevronDownOutline14 className={css.chevronHover} />
-      </>
-    )
-    : icon
-  const leading = open
-    ? <IconChevronDownOutline14 />
-    : leadingFor(state, collapsedIcon)
   return (
     <div className={css.root} data-variant={variant} data-tool={toolName} data-state={state}>
-      <div
-        className={css.row}
-        data-expandable={rowExpands || undefined}
-        role={rowExpands ? 'button' : undefined}
-        tabIndex={rowExpands ? 0 : undefined}
-        aria-expanded={rowExpands ? open : undefined}
-        onClick={rowExpands ? toggleExpand : undefined}
-        onKeyDown={rowExpands ? toggleFromKeyboard : undefined}
-      >
-        {expandable && !rowExpands ? (
-          <button
-            type="button"
-            className={css.leading}
-            aria-expanded={open}
-            onClick={toggleFromLeading}
-          >
-            {leading}
-          </button>
-        ) : (
-          <span className={css.leading}>
-            {leading}
-          </span>
-        )}
-        <span className={css.title}>{title}</span>
-        {!open && (
+      <DisclosureRow
+        rowClassName={css.row}
+        leadingClassName={css.leading}
+        titleClassName={css.title}
+        icon={leadingFor(state, icon)}
+        title={title}
+        open={open}
+        expandable={expandable}
+        expandOnRowClick={expandOnRowClick}
+        previewChevron={expandable && state !== 'error' && state !== 'stopped'}
+        onToggle={toggleExpand}
+        collapsedContent={(
           <>
             <span className={css.sep} aria-hidden />
             {fileLink ? (
@@ -154,18 +122,25 @@ export function ToolRow({
             )}
           </>
         )}
-      </div>
-      {/* The terminal presenter's description belongs ABOVE the card per the
-          render-intent contract, so an expanded terminal row keeps showing it
-          even though the collapsed summary is hidden while open. */}
-      {open && terminalBody?.description !== undefined && (
-        <div className={css.terminalDescription}>{terminalBody.description}</div>
-      )}
-      {open && (terminalBody !== null
-        ? <TerminalBlock {...terminalBody.card} maxLines={CHAT_TERMINAL_MAX_LINES} className={css.terminalBody} />
-        : variant === 'code'
-          ? <CodeBlock code={text} lang="typescript" className={css.codeBody} />
-          : <div className={css.body}>{text}</div>)}
+      >
+        {/* The terminal presenter's description belongs above the card per
+            the render-intent contract. */}
+        {terminalBody?.description !== undefined && (
+          <div className={css.terminalDescription}>{terminalBody.description}</div>
+        )}
+        {terminalBody !== null
+          ? (
+            <TerminalBlock
+              {...terminalBody.card}
+              maxLines={CHAT_TERMINAL_MAX_LINES}
+              labels={terminalBlockLabels(t)}
+              className={css.terminalBody}
+            />
+          )
+          : variant === 'code'
+            ? <CodeBlock code={text} lang="typescript" copyLabel={t('copy')} copiedLabel={t('copied')} className={css.codeBody} />
+            : <div className={css.body}>{text}</div>}
+      </DisclosureRow>
     </div>
   )
 }

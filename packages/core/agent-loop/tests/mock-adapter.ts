@@ -67,6 +67,7 @@ export class MockAdapter extends LlmAdapter {
   constructor(
     private script: (StreamChunk[] | ((options: GenerateOptions) => StreamChunk[]) | 'hang')[],
     private readonly reasoning?: LlmModelReasoningInfo,
+    private readonly defaultMaxTokens?: number,
   ) {
     super()
   }
@@ -80,6 +81,7 @@ export class MockAdapter extends LlmAdapter {
       id: model,
       name: model,
       ...this.reasoning === undefined ? {} : { reasoning: this.reasoning },
+      ...this.defaultMaxTokens === undefined ? {} : { defaultMaxTokens: this.defaultMaxTokens },
     })
   }
 

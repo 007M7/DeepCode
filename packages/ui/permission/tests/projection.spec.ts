@@ -89,7 +89,7 @@ describe('/permission command', () => {
     const { ctx, session } = await harness()
     const agent = await agentFor(ctx, session)
     const execution = await ctx.commands.execute(agent, '/permission danger-full-access', new AbortController().signal)
-    expect(execution?.result).toEqual({ kind: 'success', text: 'Permission preset: danger-full-access.' })
+    expect(execution?.result).toEqual({ kind: 'success', text: 'preset danger-full-access' })
     expect(ctx.permission.current(session.events)).toBe('danger-full-access')
     const run = session.events.find(event => event.type === 'command/run')
     expect(run?.data).toMatchObject({ name: 'permission', args: ' danger-full-access' })
@@ -101,7 +101,7 @@ describe('/permission command', () => {
     const execution = await ctx.commands.execute(agent, '/permission', new AbortController().signal)
     expect(execution?.result).toEqual({
       kind: 'success',
-      text: 'Current permission preset: workspace-write. Available: workspace-write, danger-full-access.',
+      text: 'current preset workspace-write (available: workspace-write, danger-full-access)',
     })
     expect(session.events.filter(event => event.type === 'permission/preset')).toHaveLength(0)
   })
@@ -110,7 +110,13 @@ describe('/permission command', () => {
     const { ctx, session } = await harness()
     const agent = await agentFor(ctx, session)
     const execution = await ctx.commands.execute(agent, '/permission yolo', new AbortController().signal)
-    expect(execution?.result).toMatchObject({ kind: 'error' })
+    // The error text carries the same no-self-labelling rule as the success
+    // texts: `permission · unknown preset "yolo" (…)`, not `unknown permission
+    // preset`, which the row's own title already says.
+    expect(execution?.result).toEqual({
+      kind: 'error',
+      text: 'unknown preset "yolo" (available: workspace-write, danger-full-access)',
+    })
     expect(session.events.filter(event => event.type !== 'command/run' && event.type !== 'command/done')).toHaveLength(0)
   })
 })

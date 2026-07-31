@@ -8,9 +8,14 @@
 
 import { IconChecklistOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context } from 'cordis'
+import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ToolRowProps } from '../contract/slots.ts'
 import { toolRowModel } from '../contract/tool-call-model.ts'
 import { ToolRow } from '../chat/ToolRow.tsx'
+import { NS } from '../locales.ts'
+
+/** Todo row props: the toolview runtime share plus the standard locale seat. */
+type TodoRowProps = ToolRowProps & PropsLocale<'conversation'>
 
 /** One parsed args item, shape-checked (model JSON: any field may be missing or mistyped). */
 interface TodoWriteItem { content?: unknown; status?: unknown }
@@ -19,7 +24,7 @@ function isItem(value: unknown): value is TodoWriteItem {
   return typeof value === 'object' && value !== null
 }
 
-function summarize(argsRaw: string): string | null {
+function summarize(argsRaw: string, t: TodoRowProps['t']): string | null {
   let parsed: unknown
   try {
     parsed = JSON.parse(argsRaw)
@@ -32,9 +37,9 @@ function summarize(argsRaw: string): string | null {
   if (typeof parsed !== 'object' || parsed === null) return null
   const todos = (parsed as { todos?: unknown }).todos
   if (!Array.isArray(todos) || !todos.every(isItem)) return null
-  const done = todos.filter(t => t.status === 'completed').length
-  const active = todos.find(t => t.status === 'in_progress')
-  const head = `${done}/${todos.length} 已完成`
+  const done = todos.filter(item => item.status === 'completed').length
+  const active = todos.find(item => item.status === 'in_progress')
+  const head = t('todo.completed', { done, total: todos.length })
   return typeof active?.content === 'string' && active.content !== ''
     ? `${head} · ${active.content}`
     : head
@@ -43,16 +48,17 @@ function summarize(argsRaw: string): string | null {
 /** One-line plan update row (leading toggle expands the raw args). Non-ok
  *  execution states keep the shared row's dot semantics — a cancelled call
  *  wrote no todo/write, so it must not read as a completed update. */
-export function TodoRow({ toolName, block }: ToolRowProps) {
+export function TodoRow({ toolName, block, t }: TodoRowProps) {
   const model = toolRowModel(toolName, block)
   const argsRaw = ('kind' in block ? block.call?.argsRaw : block.argsRaw) ?? ''
-  const summary = summarize(argsRaw) ?? model.summary
+  const summary = summarize(argsRaw, t) ?? model.summary
   return (
     <ToolRow
+      t={t}
       variant={model.variant}
       toolName={toolName}
       icon={<IconChecklistOutline14 />}
-      title="更新任务清单"
+      title={t('todo.rowTitle')}
       summary={summary}
       body={model.body}
       state={model.state}
@@ -73,6 +79,6 @@ export const todoToolview = {
    * @param ctx - registrant context (disposal rides ctx.effect inside slots.register).
    */
   apply(ctx: Context): void {
-    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'todo_write' }, TodoRow)
+    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'todo_write', locale: NS }, TodoRow)
   },
 }
