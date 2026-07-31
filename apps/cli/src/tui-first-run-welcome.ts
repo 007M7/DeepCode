@@ -169,8 +169,8 @@ export function tuiFirstRunWelcomeArtTier(
   viewportRows: number,
 ): TuiFirstRunWelcomeArtTier | undefined {
   if (innerWidth >= 96 && viewportRows >= 23) return 'full'
-  if (innerWidth >= 64 && viewportRows >= 18) return 'compact'
-  if (innerWidth >= 48 && viewportRows >= 14) return 'minimal'
+  if (innerWidth >= 80 && viewportRows >= 34) return 'compact'
+  if (innerWidth >= 64 && viewportRows >= 14) return 'minimal'
   return undefined
 }
 

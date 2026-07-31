@@ -6,7 +6,7 @@ English | [中文](2026-07-30-versioned-tui-first-run-welcome.zh.md)
 
 ## Problem
 
-The shipped `dsh` terminal starts directly in the editor and gives first-time internal testers no durable orientation about the product's maturity or feedback channel. The existing one-line `welcome` banner subtitle cannot carry the supplied four-paragraph notice without crowding the normal session header, and putting onboarding in the session log would create a user turn or model-visible context that is unrelated to the user's work.
+The shipped `dsh` terminal starts directly in the editor and gives first-time internal testers no durable orientation about the product's maturity or feedback channel. The existing one-line `welcome` banner subtitle cannot carry the supplied notice without crowding the normal session header, and putting onboarding in the session log would create a user turn or model-visible context that is unrelated to the user's work.
 
 The notice also needs a recognizable DeepSeek composition without copying another product's startup art or maintaining a hand-drawn approximation that drifts from the official mark.
 
@@ -18,7 +18,7 @@ The marker is launcher state rather than session persistence because eligibility
 
 The supplied official `24x24` DeepSeek SVG is committed as the visual source. Static full, compact, and minimal terminal rasters sample that exact path at decreasing square resolutions; they do not redraw the contour. Unicode `▀`/`▄`/`█` cells preserve two vertical source pixels per terminal cell, while an explicitly ASCII-only locale uses the bit-equivalent `'`/`_`/`#` fallback. ANSI styling stays outside both the SVG and editable copy: `ctx.tui` supplies a semantic `brand` role, using the official `#4D6BFE` ink when truecolor is available, standard ANSI blue otherwise, and plain text when color is disabled. The normal startup banner retains its existing gradient.
 
-The overlay is centered and consumes the available terminal width, while its height follows actual content and treats 90% of the viewport only as an upper bound. Wide terminals place the full icon beside the title and prose; medium and narrow terminals stack the compact or minimal icon above them; low height removes the icon before reducing prose space. The prose scrolls while the title and only action remain fixed. The quotation is promoted to its own visual paragraph without changing the centrally owned Chinese string. Closing through Enter returns modal ownership to the existing FIFO manager, which restores the editor and leaves the normal startup banner, transcript, and focus behavior intact.
+The overlay is centered and consumes the available terminal width, while its height follows actual content and treats 90% of the viewport only as an upper bound. Wide terminals place the full icon beside the title and prose; medium and narrow terminals stack the compact or minimal icon above them; low height removes the icon before reducing prose space. The prose scrolls while the title and only action remain fixed. Every locale uses the same centrally owned Chinese copy, and the quotation is promoted to its own visual paragraph without changing that string. Closing through Enter returns modal ownership to the existing FIFO manager, which restores the editor and leaves the normal startup banner, transcript, and focus behavior intact.
 
 ## Verification
 
@@ -38,6 +38,6 @@ Focused unit coverage pins the supplied SVG and Chinese copy hashes, version bum
 
 ## Consequences
 
-Each Harness home receives the notice once per copy version, only after a successful Enter acknowledgement. Maintainers can edit all bilingual wording and the version in one small owner file, and can update the official SVG and derived static rasters in their separate visual owner without chasing snapshots for full prose copies.
+Each Harness home receives the notice once per copy version, only after a successful Enter acknowledgement. Maintainers can edit the all-locale Chinese wording and version in one small owner file, and can update the official SVG and derived static rasters in their separate visual owner without chasing snapshots for full prose copies.
 
 The terminal cannot display SVG vectors directly, so its faithful representation is resolution-bounded. Smaller tiers preserve the sampled silhouette but necessarily lose fine detail; low-height terminals prefer readable prose and an always-reachable action over brand art. The marker format is intentionally one-file-per-version during the pre-release period; old markers are harmless and no compatibility reader is required.

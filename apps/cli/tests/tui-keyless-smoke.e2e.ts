@@ -172,6 +172,7 @@ function smoke(overrides: Partial<TuiPtySmokeOptions> & {
 }
 
 const firstRunCopy = TUI_FIRST_RUN_WELCOME_NOTICE_COPY[TUI_FIRST_RUN_WELCOME_NOTICE_LOCALE]
+const firstRunOpeningSentence = `${firstRunCopy.paragraphs[0]!.split('。', 1)[0]}。`
 
 /** Keep only the overlay rows, excluding platform-specific scrollback and the underlying TUI. */
 function overlaySnapshot(snapshot: string, columns: number, rows: number): string {
@@ -220,11 +221,11 @@ const SELECT_PRO_MODEL = [
 
 describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
   it.each([
-    { columns: 60, tier: 'minimal' },
-    { columns: 80, tier: 'compact' },
+    { columns: 60, tier: undefined },
+    { columns: 80, tier: 'minimal' },
     { columns: 120, tier: 'full' },
     { columns: 160, tier: 'full' },
-  ] as const)('renders and acknowledges the $tier first-run composition at $columns columns', async ({ columns, tier }) => {
+  ] as const)('renders and acknowledges the responsive first-run composition at $columns columns', async ({ columns, tier }) => {
     const output = await smoke({
       label: `dsh first-run welcome ${String(columns)} columns`,
       tempDirPrefix: `dsh-tui-welcome-${String(columns)}-`,
@@ -251,9 +252,13 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
         }
       },
     })
-    await expect(await firstRunFrameSnapshot(output, firstRunCopy.paragraphs[0]!, columns, 30))
+    await expect(await firstRunFrameSnapshot(output, firstRunOpeningSentence, columns, 30))
       .toMatchFileSnapshot(join(firstRunSnapshots, `${String(columns)}-columns.expected.txt`))
-    expect(output).toContain(TUI_FIRST_RUN_WELCOME_WHALE[tier].unicode[0]!.trim())
+    if (tier === undefined) {
+      expect(output).not.toContain(TUI_FIRST_RUN_WELCOME_WHALE.minimal.unicode[0]!.trim())
+    } else {
+      expect(output).toContain(TUI_FIRST_RUN_WELCOME_WHALE[tier].unicode[0]!.trim())
+    }
     expect(output).toContain(`Enter  ${firstRunCopy.continueLabel}`)
   }, PTY_SMOKE_TEST_TIMEOUT_MS)
 
@@ -267,7 +272,7 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
       columns: 60,
       rows: 12,
       actions: [
-        { waitFor: firstRunCopy.paragraphs[0]!, send: '\x1b[F' },
+        { waitFor: firstRunOpeningSentence, send: '\x1b[F' },
         {
           waitFor: `Enter  ${firstRunCopy.continueLabel}`,
           occurrence: 2,
@@ -276,10 +281,10 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
         },
       ],
     })
-    await expect(await firstRunFrameSnapshot(output, firstRunCopy.paragraphs[0]!, 60, 12))
+    await expect(await firstRunFrameSnapshot(output, firstRunOpeningSentence, 60, 12))
       .toMatchFileSnapshot(join(firstRunSnapshots, '60-columns-low-height.expected.txt'))
     expect(output).toContain(firstRunCopy.title)
-    expect(output).toContain(firstRunCopy.paragraphs[0])
+    expect(output).toContain(firstRunOpeningSentence)
     expect(output).toContain('企业微信群')
     expect(output).toContain(`Enter  ${firstRunCopy.continueLabel}`)
     expect(output).not.toContain(TUI_FIRST_RUN_WELCOME_WHALE.minimal.unicode[0]!.trim())
@@ -310,7 +315,7 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
         expectedExitCode: process.platform === 'win32' ? 0 : -15,
         actions: [{ waitFor: 'main-session-', signal: 'SIGTERM' }],
       })
-      expect(second).not.toContain(firstRunCopy.paragraphs[0])
+      expect(second).not.toContain(firstRunOpeningSentence)
       expect(second).not.toContain(`Enter  ${firstRunCopy.continueLabel}`)
     } finally {
       await rm(cwd, { recursive: true, force: true })
@@ -327,7 +332,7 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
         configPath: scriptedConfigPath,
         showFirstRunWelcome: true,
         expectedExitCode: -15,
-        actions: [{ waitFor: firstRunCopy.paragraphs[0]!, signal: 'SIGTERM' }],
+        actions: [{ waitFor: firstRunOpeningSentence, signal: 'SIGTERM' }],
         inspect: async (workspace) => {
           expect(await hasTuiFirstRunWelcomeAcknowledgement(join(workspace, '.dsh'))).toBe(false)
         },
@@ -344,7 +349,7 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
           { waitFor: `Enter  ${firstRunCopy.continueLabel}`, send: '\r', signalAfterMs: 2_000 },
         ],
       })
-      expect(next).toContain(firstRunCopy.paragraphs[0])
+      expect(next).toContain(firstRunOpeningSentence)
     } finally {
       await rm(cwd, { recursive: true, force: true })
     }
@@ -557,7 +562,7 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
         expect(appended).not.toContainEqual(expect.objectContaining({ type: 'turn/start' }))
       },
     })
-    expect(output).toContain(firstRunCopy.paragraphs[0])
+    expect(output).toContain(firstRunOpeningSentence)
     expect(output).toContain('Resume selector design — DeepSeek Harness')
   }, PTY_SMOKE_TEST_TIMEOUT_MS)
 

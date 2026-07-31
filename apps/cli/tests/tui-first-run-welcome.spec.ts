@@ -60,6 +60,7 @@ function hostFixture(rows: number): {
 }
 
 const copy = TUI_FIRST_RUN_WELCOME_NOTICE_COPY[TUI_FIRST_RUN_WELCOME_NOTICE_LOCALE]
+const openingSentence = `${copy.paragraphs[0]!.split('。', 1)[0]}。`
 const temporaryHomes: string[] = []
 
 function withoutWhitespace(value: string): string {
@@ -124,15 +125,17 @@ describe('TUI first-run welcome composition', () => {
     expect(createHash('sha256').update(icon).digest('hex'))
       .toBe('deba5f98a5c1796e20fcac3149bcd7eb8a32f0bdd04d048819400b1f28bd1439')
     expect(createHash('sha256').update(copy.paragraphs.join('\n')).digest('hex'))
-      .toBe('e1b8ea95d9f8af276c4b2b76fff23fa068bdad61b5d4a10300600ed47572900d')
+      .toBe('54389347f93109c7cb17baa4312ae55eaefe77cbbf2ffe3e7579a4538e9f5738')
+    expect(TUI_FIRST_RUN_WELCOME_NOTICE_COPY.en).toBe(copy)
   })
 
   it.each([
-    { columns: 60, inner: 50, rows: 30, tier: 'minimal' },
-    { columns: 80, inner: 68, rows: 30, tier: 'compact' },
+    { columns: 60, inner: 50, rows: 30, tier: undefined },
+    { columns: 80, inner: 68, rows: 30, tier: 'minimal' },
+    { columns: 100, inner: 84, rows: 34, tier: 'compact' },
     { columns: 120, inner: 104, rows: 30, tier: 'full' },
     { columns: 160, inner: 140, rows: 30, tier: 'full' },
-  ] as const)('renders the $tier composition at $columns columns without overdraw', ({ inner, rows, tier }) => {
+  ] as const)('renders the responsive composition at $columns columns without overdraw', ({ inner, rows, tier }) => {
     const fixture = hostFixture(rows)
     const component = new TuiFirstRunWelcomeComponent(fixture.host, copy, async () => {})
     const renderWidth = inner + 4
@@ -140,7 +143,17 @@ describe('TUI first-run welcome composition', () => {
 
     expect(tuiFirstRunWelcomeArtTier(inner, rows)).toBe(tier)
     expect(lines.every(line => tuiVisibleWidth(line) <= renderWidth)).toBe(true)
-    expect(lines.join('\n')).toContain(TUI_FIRST_RUN_WELCOME_WHALE[tier].unicode[0]!.trim())
+    if (tier === undefined) {
+      expect(lines.join('\n')).not.toMatch(/[▀▄█]/u)
+    } else {
+      expect(lines.join('\n')).toContain(TUI_FIRST_RUN_WELCOME_WHALE[tier].unicode[0]!.trim())
+    }
+    const rendered = lines.join('\n')
+    const placeholder = copy.paragraphs.at(-1)!.match(/【[^】]+】/u)![0]
+    expect(rendered).not.toContain(copy.scrollHint)
+    expect(rendered).toContain(copy.paragraphs.at(-1)!.match(/[A-Za-z]+ [A-Za-z]+/u)![0])
+    expect(rendered).toContain(placeholder.slice(0, 3))
+    expect(rendered).toContain(placeholder.slice(-3))
     expect(lines.join('\n')).toContain(`Enter  ${copy.continueLabel}`)
     expect(lines.length).toBeLessThanOrEqual(Math.floor(rows * 0.9))
     expect(lines.length).toBeGreaterThan(5)
@@ -151,12 +164,12 @@ describe('TUI first-run welcome composition', () => {
     const component = new TuiFirstRunWelcomeComponent(fixture.host, copy, async () => {})
     const initial = component.render(54).join('\n')
     expect(tuiFirstRunWelcomeArtTier(50, 10)).toBeUndefined()
-    expect(initial).toContain(copy.paragraphs[0])
+    expect(initial).toContain(openingSentence)
     expect(initial).toContain(`Enter  ${copy.continueLabel}`)
 
     component.handleInput('\x1b[F')
     const end = component.render(54).join('\n')
-    expect(withoutWhitespace(end)).toContain(withoutWhitespace(copy.paragraphs.at(-1)!.slice(-10)))
+    expect(withoutWhitespace(end)).toContain(withoutWhitespace(copy.paragraphs.at(-1)!.slice(-7)))
     expect(end).toContain(`Enter  ${copy.continueLabel}`)
 
     for (const key of ['\x1b[A', '\x1b[B', '\x1b[5~', '\x1b[6~', '\x1b[H', 'x']) {
@@ -173,11 +186,20 @@ describe('TUI first-run welcome composition', () => {
     expect(lines.every(line => tuiVisibleWidth(line) <= 6)).toBe(true)
   })
 
+  it('keeps the side-by-side composition aligned when prose outgrows the full raster', () => {
+    const fixture = hostFixture(40)
+    const longCopy = { ...copy, paragraphs: [copy.paragraphs.join(' ').repeat(4)] }
+    const component = new TuiFirstRunWelcomeComponent(fixture.host, longCopy, async () => {})
+    const lines = component.render(100)
+    expect(lines.length).toBeGreaterThan(TUI_FIRST_RUN_WELCOME_WHALE.full.unicode.length)
+    expect(lines.every(line => tuiVisibleWidth(line) <= 100)).toBe(true)
+  })
+
   it('renders the bit-equivalent ASCII icon fallback for an explicitly non-Unicode terminal', () => {
     const fixture = hostFixture(30)
     const component = new TuiFirstRunWelcomeComponent(fixture.host, copy, async () => {}, true)
     const rendered = component.render(72).join('\n')
-    expect(rendered).toContain(TUI_FIRST_RUN_WELCOME_WHALE.compact.ascii[0]!.trim())
+    expect(rendered).toContain(TUI_FIRST_RUN_WELCOME_WHALE.minimal.ascii[0]!.trim())
     expect(rendered).not.toMatch(/[▀▄█]/u)
   })
 
@@ -264,6 +286,6 @@ describe('TUI first-run welcome composition', () => {
 
     apply(ctx, { dshHome: home, asciiArt: true })
     expect(request?.create(fixture.host).render(72).join('\n'))
-      .toContain(TUI_FIRST_RUN_WELCOME_WHALE.compact.ascii[0]!.trim())
+      .toContain(TUI_FIRST_RUN_WELCOME_WHALE.minimal.ascii[0]!.trim())
   })
 })

@@ -8,13 +8,13 @@ overlay 60x12 rows=10
 2| "│                                                          │"
   style 0-0 dim
   style 59-59 dim
-3| "│ 感谢您愿意拨冗试用 DeepSeek Harness。                    │"
+3| "│ 感谢您愿意拨冗试用 DeepSeek Harness。当前版本仍处于内部  │"
   style 0-0 dim
   style 59-59 dim
-4| "│                                                          │"
+4| "│ 测试阶段，功能仍待完善，体验难免有些粗糙。               │"
   style 0-0 dim
   style 59-59 dim
-5| "│ 目前的版本仍处于内部测试阶段，功能仍待完善，体验难免有些 │"
+5| "│                                                          │"
   style 0-0 dim
   style 59-59 dim
 6| "├──────────────────────────────────────────────────────────┤"
