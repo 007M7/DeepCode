@@ -11,6 +11,10 @@
   - img
 - button "Edit":
   - img
+- button "Context injection":
+  - img
+  - img
+  - text: Context injection
 - paragraph: partial
 - text: Stopped
 - button "Copy":

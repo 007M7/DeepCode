@@ -108,8 +108,9 @@
   margin: 0;
 }
 
-/* Same rule for the web card: it sits under the section label, so the section
-   owns the spacing rather than the primitive's own vertical margin. */
+/* The read and web cards sit directly under their section label, same as the
+   terminal card: drop the primitive's standalone vertical margin. */
+.read,
 .web {
   margin: 0;
 }
