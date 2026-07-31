@@ -41,7 +41,22 @@ const DeepSeekConfig = Schema.object({
     name: Schema.string(),
     description: Schema.string(),
     contextWindow: Schema.number().step(1).min(1),
-  })),
+  // The adapter declares its catalog as a schema default rather than a
+  // composition entry, which is what the restore-defaults path has to read.
+  })).default([
+    {
+      id: 'deepseek-v4-flash',
+      name: 'DeepSeek-V4-Flash',
+      description: '',
+      contextWindow: 1_000_000,
+    },
+    {
+      id: 'deepseek-v4-pro',
+      name: 'DeepSeek-V4-Pro',
+      description: '',
+      contextWindow: 1_000_000,
+    },
+  ]),
 })
 
 const DEFAULT_DEEPSEEK_MODELS = [
@@ -418,6 +433,48 @@ describe('ModelsSection', () => {
     fireEvent.click(screen.getByText(en.apply))
     await screen.findByText(`Model 1: ${en.modelContextInvalid}`)
     expect(mutate).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['the schema default', undefined],
+    ['the composition entry', { models: [{ id: 'pinned-by-deployment' }] }],
+  ])('restores %s the moment the override is dropped, not after a reload', async (_label, base) => {
+    // The regression: reset read the EFFECTIVE value, which still carries the
+    // stored override until the unset is applied — so the rows did not change
+    // and the catalog only looked restored after reopening the card.
+    const { face } = scriptedFace()
+    const stored = { models: [{ id: 'user-only-model', name: 'User Only' }] }
+    const overridden: SettingsNamespaceView = {
+      ns: 'llm-deepseek',
+      schema: JSON.parse(JSON.stringify(DeepSeekConfig.toJSON())) as unknown,
+      value: { ...stored, defaultContextWindow: 1_000_000 },
+      ...base === undefined ? {} : { base },
+      user: stored,
+      applies: 'live',
+      secrets: [],
+      revision: 0,
+    }
+    const { ProviderEditor } = await import('../src/client/ProviderEditor.tsx')
+    render(<ProviderEditor
+      provider="deepseek-official"
+      displayName="DeepSeek"
+      namespace={overridden}
+      settingsPath={[]}
+      api={face as never}
+      t={t}
+      readOnly={false}
+      onClose={() => {}}
+    />)
+    fireEvent.click(screen.getByText(en.customized))
+    expect(screen.getByText(en.modelsCustomized)).toBeTruthy()
+    expect(screen.getAllByLabelText(new RegExp(en.modelId)).map(input => (input as HTMLInputElement).value))
+      .toEqual(['user-only-model'])
+
+    fireEvent.click(screen.getByText(en.resetModels))
+
+    expect(screen.getByText(en.modelsInherited)).toBeTruthy()
+    expect(screen.getAllByLabelText(new RegExp(en.modelId)).map(input => (input as HTMLInputElement).value))
+      .toEqual(base === undefined ? ['deepseek-v4-flash', 'deepseek-v4-pro'] : ['pinned-by-deployment'])
   })
 
   it('renders malformed draft fallbacks without inventing catalog values', () => {

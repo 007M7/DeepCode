@@ -240,6 +240,18 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
   const keyLocked = keyState?.writable === false
 
   /**
+   * The catalog beneath the user layer: what the composition entry pinned, or
+   * else the schema default that `resolve` would supply. The effective value
+   * cannot answer this — it still carries the stored override until the unset
+   * is applied, so reading it would echo that override straight back the
+   * moment reset drops it, leaving the rows unchanged until a reload.
+   */
+  const inheritedModels = (): unknown => {
+    const pinned = getPath(namespace.base, [...settingsPath, 'models'])
+    return pinned ?? nodeAtPath(root, [...settingsPath, 'models'])?.meta.default
+  }
+
+  /**
    * The curated fields of one known adapter family. Taking the narrowed
    * family as a parameter is what makes `EFFORT_FIELD` total here: an
    * unknown namespace never reaches this body.
@@ -248,7 +260,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
     const effortField = EFFORT_FIELD[family]
     const customModels = getPath(draft, ['models'])
     const modelsOverridden = hasPath(draft, ['models'])
-    const models = modelDrafts(modelsOverridden ? customModels : getPath(fallback, ['models']))
+    const models = modelDrafts(modelsOverridden ? customModels : inheritedModels())
     const defaultContextWindow = getPath(fallback, ['defaultContextWindow'])
     return (
       <>
