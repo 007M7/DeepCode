@@ -36,7 +36,7 @@
       - id: sandbox-policy
         name: '@deepseek-ai/dsh-sandbox-policy'
         config:
-          mode: danger-full-access
+          mode: workspace-write
           workspaceRoot: /tmp
       - insert:
           - id: llm-replay

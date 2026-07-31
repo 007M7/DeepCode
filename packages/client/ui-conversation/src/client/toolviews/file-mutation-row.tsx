@@ -18,6 +18,7 @@ import { DiffBlock, IconEditOutline16, StateDot } from '@deepseek-ai/dsh-client-
 import type { ToolRowProps } from '../contract/slots.ts'
 import { CHAT_DIFF_MAX_LINES, diffCardModel } from '../contract/diff-card-model.ts'
 import { toolRowModel, type ToolRowState } from '../contract/tool-call-model.ts'
+import { rowResultText, rowStateStatus } from '../contract/toolview-status.ts'
 import css from './file-mutation-row.module.css'
 
 function leadingFor(state: ToolRowState) {
@@ -27,37 +28,6 @@ function leadingFor(state: ToolRowState) {
     // Running keeps the icon — the row sweep carries the in-flight signal.
     default: return <IconEditOutline16 size={14} />
   }
-}
-
-/** Visually hidden status — StateDot is aria-hidden; AT needs a text label. */
-function stateStatus(state: ToolRowState): string | null {
-  switch (state) {
-    case 'running': return '运行中'
-    case 'error': return '失败'
-    case 'stopped': return '已停止'
-    default: return null
-  }
-}
-
-/**
- * A settled result's text, flattened from its content blocks, for the arm that
- * shows a failure the diff card cannot: write/edit return `undefined` from
- * `presentResult` on `result.isError`, so an errored mutation has no diff card,
- * and the keyed row is not a details-panel target. Without this the failure —
- * an `old_string` that did not match, a permission denial — would read as a bare
- * red dot with the model-facing error text nowhere on screen.
- * @param block - the frozen call slice.
- * @returns the result text, or null for a running call or an empty result.
- */
-function errorText(block: ToolRowProps['block']): string | null {
-  if (!('kind' in block)) return null
-  const parts: string[] = []
-  for (const item of block.content) {
-    if (item.type === 'text') parts.push(item.text)
-  }
-  if (parts.length === 0 && block.error !== undefined) parts.push(`${block.error.name}: ${block.error.code}`)
-  const text = parts.join('\n')
-  return text === '' ? null : text
 }
 
 /**
@@ -70,11 +40,11 @@ function errorText(block: ToolRowProps['block']): string | null {
 export function FileMutationRow({ toolName, block, cwd, openFile }: ToolRowProps) {
   const model = toolRowModel(toolName, block, cwd)
   const diff = diffCardModel(block)
-  const status = stateStatus(model.state)
+  const status = rowStateStatus(model.state)
   const filePath = model.filePath
   // An errored mutation has no diff card (presentResult returns undefined on
   // isError); surface its result text so the failure is more than a red dot.
-  const failure = diff === null && model.state === 'error' ? errorText(block) : null
+  const failure = diff === null && model.state === 'error' ? rowResultText(block) : null
   return (
     <div className={css.card}>
       <div className={css.root} data-variant={model.variant} data-state={model.state}>
