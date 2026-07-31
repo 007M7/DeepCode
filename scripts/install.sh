@@ -78,9 +78,9 @@ DSH_STAGING=$DSH_SOURCE/staging-$DSH_STAMP
 # `git rev-parse --path-format=absolute` would do this, but it needs git 2.31+.
 #
 # A not-yet-created directory (the container on a fresh install) has no physical
-# path, so fall back to the literal argument here rather than at each call site:
-# `x=$(cmd) || fallback` never fires, because the assignment succeeds even when
-# the substitution fails, which would silently yield an empty path.
+# path. Falling back here rather than at each call site keeps every caller a
+# plain assignment, so no site can compare against an empty path by forgetting
+# its own fallback.
 resolve_dir() { CDPATH= cd -- "$1" 2>/dev/null && pwd -P || printf '%s\n' "$1"; }
 
 # --- in-repo detection ---------------------------------------------------------
@@ -95,6 +95,8 @@ DSH_CHECKOUT=''
 if [ -f "$0" ]; then
   _self_dir=$(resolve_dir "$(dirname -- "$0")")
   if [ -n "$_self_dir" ]; then
+    # Physical without its own resolve_dir: dirname is textual, so trimming a
+    # resolved path leaves one. The comparison below depends on that.
     _repo_root=$(dirname -- "$_self_dir")
     if [ "$(basename -- "$_self_dir")" = scripts ] \
       && [ -x "$_repo_root/bin/dsh" ] && [ -f "$_repo_root/scripts/install.sh" ]; then
@@ -277,9 +279,10 @@ else
     mkdir -p "$DSH_SOURCE"
     git clone --branch "$DSH_REF" "$DSH_REPO" "$DSH_MASTER"
   fi
-  REPO_COMMON=$DSH_MASTER/.git
-  # Physical, to match the adoption branch: every REPO_ROOT comparison below
-  # runs against resolved paths.
+  # Physical on both branches: REPO_ROOT is compared against resolved paths
+  # below, and REPO_COMMON stays symmetric with it so neither can be read as
+  # carrying a different kind of path.
+  REPO_COMMON=$(resolve_dir "$DSH_MASTER/.git")
   REPO_ROOT=$(resolve_dir "$DSH_MASTER")
 fi
 
