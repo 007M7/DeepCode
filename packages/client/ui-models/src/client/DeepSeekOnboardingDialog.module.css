@@ -3,7 +3,7 @@
   z-index: 1;
   width: min(640px, calc(100vw - 64px));
   max-height: 100vh;
-  padding: clamp(64px, 9vh, 104px) 0 40px;
+  padding: clamp(104px, 18vh, 156px) 0 40px;
   box-sizing: border-box;
   overflow-y: auto;
   color: var(--dsw-alias-label-primary);
@@ -79,7 +79,7 @@
 @media (max-width: 560px) {
   .page {
     width: calc(100vw - 40px);
-    padding-top: 38px;
+    padding-top: 64px;
   }
 
   .brand {
