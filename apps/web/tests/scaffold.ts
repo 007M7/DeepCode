@@ -206,9 +206,9 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     ...surfacePatches,
     { id: 'session-persistence-jsonl', config: { root: persistenceRoot } },
     { id: 'session-query-sqlite', config: { path: ':memory:', openAt: 'first-search' } },
-    // storage-json's './.storages' yml default is cwd-relative and resolves
-    // per write; the scaffold restores the original cwd after boot, so the
-    // row gets an absolute temp root (removed with the workspace at close).
+    // storage-json's yml root is anchored to the real $DSH_HOME; pin the row
+    // to an absolute temp root (removed with the workspace at close) so tests
+    // never write the user's harness home.
     { id: 'storage-json', config: { root: join(workspaceCwd, '.dsh-storages') } },
     // Skill discovery is model-visible input. Pin every host-level root inside
     // the owned temp world so ~/.dsh, ~/.agents, and a bundled-root env setting
