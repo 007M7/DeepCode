@@ -25,9 +25,9 @@ Loader 并发挂载各个条目，因此条目失败的顺序并不等于启动�
 
 `installFailLoud` 新增可选的 `release` 拆卸回调，在诊断信息与退出之间被等待：
 
-- 诊断信息在 release **之前**写出，因此即使 disposer 重绘或清屏，失败原因也不会丢失。
-- 处理函数在 release 之前先卸载自己。拆卸会执行插件 disposer，其自身可能 rejection；若处理函数被重入，就会把清理失败报告成第二次致命加载失败，从而掩盖真正的原因。
-- release 以 `FAIL_LOUD_RELEASE_TIMEOUT_MS`（2 秒）为上限，且其 rejection 被吞掉。卡住或失败的 disposer 只会延迟致命退出，绝不会取消它。
+- 诊断信息在 release **之前**写出，因此卡住或失败的 disposer 无法吞掉失败原因。
+- 使用闩锁（latch）而非卸载监听器，来保证被报告的始终是第一个 rejection。若在拆卸期间移除监听器，第二个并发 rejection 就会变成未捕获错误，Node 会在拆卸中途杀死进程——恰好残留下本次要恢复的终端状态。后续 rejection（包括 release 自身的）都会落入已挂起的退出流程。
+- release 以 `FAIL_LOUD_RELEASE_TIMEOUT_MS`（2 秒）为上限，且其 rejection 被吞掉。卡住或失败的 disposer 只会延迟致命退出，绝不会取消它。该定时器保持 **referenced**：一旦 `unref()`，Node 就会在事件循环清空后、恰恰在报告这次失败时以 0 退出，因为 `unhandledRejection` 监听器抑制了默认的致命退出。
 - 不传 `release` 时行为与此前完全一致，因此 ACP、JSON-RPC 和各 demo bin 均无变化。
 
 `dsh` 的 TUI 启动器传入的 release 会释放根上下文，从而执行 TUI 已有的 `shutdown()` 并把终端交还。
@@ -52,6 +52,8 @@ Loader 并发挂载各个条目，因此条目失败的顺序并不等于启动�
 
 ## Testing
 
-`packages/ui/app-boot/tests/app-boot.spec.ts` 覆盖 release 契约：退出提交前会等待该回调；回调 rejection 时仍退出 1；在 fake timers 下，永不结算的回调会在 `FAIL_LOUD_RELEASE_TIMEOUT_MS` 后退出；以及处理函数在 release 之前已卸载，使拆卸无法重入它。
+`packages/ui/app-boot/tests/app-boot.spec.ts` 覆盖 release 契约：退出提交前会等待该回调；回调 rejection 时仍退出 1；永不结算的回调会在 `FAIL_LOUD_RELEASE_TIMEOUT_MS` 后退出；以及一连串 rejection 只报告第一个，同时 release 仍能跑完。
 
-端到端症状是**进程退出之后**的终端状态——即 `dsh` 消失后 shell 所看到的东西——没有任何进程内断言能观测到它。该症状在 tmux 中针对 `providers` 为列表形状的配置手工验证：修复前下一条命令会被弄乱（`zsh: command not found: 4cecho`），修复后诊断信息完整、退出码为 1、下一条命令正常执行。同时复查了 `/exit` 路径，确认告别行与退出码 0 均未改变。
+这些基于假进程的测试无法观测到最关键的两种失败形态——真实事件循环下的进程退出码，以及退出之后的终端状态——因此回归用例放在 `apps/cli/tests/tui-keyless-smoke.e2e.ts`。它在真实 PTY 中以 `fixtures/tui-invalid-provider.cordis.yml`（`providers` 为列表形状，正是用户真实会犯的错误）启动出厂配置树，期望退出码为 1，并断言捕获到的字节流同时包含诊断信息与 `ESC[?2004l`。在修复前的源码上，捕获流止于 `ESC[?2004h ESC[>7u ESC[?u ESC[c` 而没有任何重置，该用例正是在这条断言上失败。
+
+测试规范要求：只要改动终端拆卸，就必须有 PTY 用例——这就是它。`/exit` 路径保留其原有断言，确认正常退出时同样会出现该重置序列。

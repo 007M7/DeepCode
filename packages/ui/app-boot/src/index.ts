@@ -343,10 +343,16 @@ export const FAIL_LOUD_RELEASE_TIMEOUT_MS = 2_000
  * handler would strand raw mode, bracketed paste, and the keyboard protocol on
  * the user's shell, and leave an in-flight terminal query's reply to land as
  * literal text at the next prompt. `release` is the terminal owner's chance to
- * hand it back; it is awaited under {@link FAIL_LOUD_RELEASE_TIMEOUT_MS}. The
- * diagnostic is written before the release so the reason survives a disposer
- * that repaints or clears the screen, and the handler uninstalls itself before
- * releasing so a rejection from teardown cannot re-enter it.
+ * hand it back; it is awaited under {@link FAIL_LOUD_RELEASE_TIMEOUT_MS}, whose
+ * timer stays referenced so a never-settling disposer cannot let Node reach an
+ * empty event loop and exit 0 instead of failing.
+ *
+ * The diagnostic is written before the release so a hanging or failing disposer
+ * cannot swallow the reason. The handler stays installed while the release runs
+ * — removing it would let a second concurrent rejection become uncaught and kill
+ * the process mid-teardown, stranding exactly the terminal state this restores —
+ * so a latch keeps the first rejection the reported one and lets later
+ * rejections (including the release's own) fall through to the pending exit.
  * @param binName - the diagnostic prefix on the fatal-failure line.
  * @param proc - the process slice to register on; tests inject a fake.
  * @param release - optional teardown awaited before exit, used by a
@@ -359,29 +365,33 @@ export function installFailLoud(
   proc: FailLoudProcess = process,
   release?: () => Promise<void> | void,
 ): () => void {
+  let exiting = false
   const handler = (err: unknown): void => {
     if (assembledActivationRejections.has(err)) return
+    // A release in flight already owns the exit. Swallow later rejections
+    // (teardown's own included) rather than reporting a second failure over the
+    // real one or letting Node kill the process before the terminal is back.
+    if (exiting) return
+    exiting = true
     proc.stderr.write(`${binName}: fatal load failure: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`)
     if (release === undefined) {
       proc.exit(1)
       return
     }
-    // The release runs plugin disposers, which may themselves reject. Without
-    // this the handler would re-enter and report a teardown failure as a second
-    // fatal load failure, hiding the real one.
-    uninstall()
     void (async () => {
+      let timer: ReturnType<typeof setTimeout> | undefined
       try {
         await Promise.race([
           (async () => release())(),
           new Promise<void>((resolve) => {
-            setTimeout(resolve, FAIL_LOUD_RELEASE_TIMEOUT_MS).unref()
+            timer = setTimeout(resolve, FAIL_LOUD_RELEASE_TIMEOUT_MS)
           }),
         ])
       } catch {
         // The terminal release failed; the fatal exit below is the outcome that
         // matters, and no reporter runs after it.
       }
+      if (timer !== undefined) clearTimeout(timer)
       proc.exit(1)
     })()
   }

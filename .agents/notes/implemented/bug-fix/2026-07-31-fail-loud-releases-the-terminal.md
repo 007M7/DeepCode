@@ -25,9 +25,9 @@ The `/exit` path was never affected, because it disposes the tree and reaches th
 
 `installFailLoud` takes an optional `release` teardown, awaited between the diagnostic and the exit:
 
-- The diagnostic is written **before** the release, so the reason survives a disposer that repaints or clears the screen.
-- The handler uninstalls itself before releasing. Teardown runs plugin disposers that may themselves reject, and a re-entered handler would report a cleanup failure as a second fatal load failure, burying the real one.
-- The release is bounded by `FAIL_LOUD_RELEASE_TIMEOUT_MS` (2s) and its rejection is swallowed. A wedged or failing disposer delays the fatal exit; it never cancels it.
+- The diagnostic is written **before** the release, so a hanging or failing disposer cannot swallow the reason.
+- A latch, not an uninstall, keeps the first rejection the reported one. Removing the listener during teardown would let a second concurrent rejection become uncaught, and Node would kill the process mid-teardown — stranding exactly the terminal state this restores. Later rejections, including the release's own, fall through to the pending exit.
+- The release is bounded by `FAIL_LOUD_RELEASE_TIMEOUT_MS` (2s) and its rejection is swallowed. A wedged or failing disposer delays the fatal exit; it never cancels it. That timer stays **referenced**: an `unref()`ed one lets Node reach an empty event loop and exit 0 on the very failure being reported, because an `unhandledRejection` listener suppresses the default fatal exit.
 - Omitting `release` keeps the previous behavior exactly, so the ACP, JSON-RPC, and demo bins are unchanged.
 
 `dsh`'s TUI launcher passes a release that disposes the root context, which runs the TUI's existing `shutdown()` and hands the terminal back.
@@ -52,6 +52,8 @@ The guarantee belongs to whichever bin owns the terminal: a surface that grabs t
 
 ## Testing
 
-`packages/ui/app-boot/tests/app-boot.spec.ts` covers the release contract: the hook is awaited before the exit commits, a rejecting hook still exits 1, a never-settling hook exits after `FAIL_LOUD_RELEASE_TIMEOUT_MS` under fake timers, and the handler is uninstalled before releasing so teardown cannot re-enter it.
+`packages/ui/app-boot/tests/app-boot.spec.ts` covers the release contract: the hook is awaited before the exit commits, a rejecting hook still exits 1, a never-settling hook exits after `FAIL_LOUD_RELEASE_TIMEOUT_MS`, and a burst of rejections reports only the first while the release still completes.
 
-The end-to-end symptom is terminal state after process exit — what the *shell* sees once `dsh` is gone — which no in-process assertion observes. It was verified manually in tmux against a config with a list-shaped `providers` value: before the change the next command was mangled (`zsh: command not found: 4cecho`); after it, the diagnostic is intact, the exit code is 1, and the next command runs normally. The `/exit` path was re-checked to confirm the goodbye line and exit code 0 are unchanged.
+Those fake-process tests cannot observe the two failure modes that matter most — process exit code with a real event loop, and terminal state after exit — so the regression lives in `apps/cli/tests/tui-keyless-smoke.e2e.ts`. It boots the shipped tree in a real PTY over `fixtures/tui-invalid-provider.cordis.yml` (a list-shaped `providers`, the mistake users actually make), expects exit 1, and asserts the captured bytes contain both the diagnostic and `ESC[?2004l`. Against the pre-fix source the captured stream ends at `ESC[?2004h ESC[>7u ESC[?u ESC[c` with no reset, and the case fails on that assertion.
+
+Testing policy requires a PTY case whenever terminal teardown changes, and this is it. The `/exit` path keeps its existing assertion that the same reset appears on a clean exit.

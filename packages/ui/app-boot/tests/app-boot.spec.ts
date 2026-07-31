@@ -110,16 +110,22 @@ describe('installFailLoud', () => {
     expect(proc.exits).toEqual([1])
   })
 
+  // One rejection is reported per install: the first is the diagnosis, so each
+  // formatting case needs its own handler rather than reusing a latched one.
   it('stringifies a non-Error rejection and an Error without a stack falls back to its message', () => {
-    const proc = fakeProc()
-    installFailLoud(NAME, proc)
-    proc.handlers[0]!('plain failure')
-    expect(proc.written[0]).toContain('plain failure')
+    const plain = fakeProc()
+    installFailLoud(NAME, plain)
+    plain.handlers[0]!('plain failure')
+    expect(plain.written[0]).toContain('plain failure')
+    expect(plain.exits).toEqual([1])
+
     const stackless = new Error('no stack')
     delete (stackless as { stack?: string }).stack
-    proc.handlers[0]!(stackless)
-    expect(proc.written[1]).toContain('no stack')
-    expect(proc.exits).toEqual([1, 1])
+    const bare = fakeProc()
+    installFailLoud(NAME, bare)
+    bare.handlers[0]!(stackless)
+    expect(bare.written[0]).toContain('no stack')
+    expect(bare.exits).toEqual([1])
   })
 
   it('returns an uninstaller that removes the handler (and defaults to the real process)', () => {
@@ -203,15 +209,23 @@ describe('installFailLoud', () => {
     }
   })
 
-  // Teardown runs plugin disposers, whose own rejection must not be reported as
-  // a second fatal load failure over the real one.
-  it('uninstalls the handler before releasing, so teardown cannot re-enter it', async () => {
+  // Loader failures arrive in bursts, and teardown's own disposers may reject.
+  // Only the first rejection is the diagnosis; the handler must stay installed
+  // so a later one cannot become uncaught and kill the process mid-teardown.
+  it('reports only the first rejection and keeps handling later ones during the release', async () => {
     const proc = fakeProc()
-    installFailLoud(NAME, proc, () => {})
-    proc.handlers[0]!(new Error('boom'))
-    expect(proc.handlers).toHaveLength(0)
-    await vi.waitFor(() => { expect(proc.exits).toEqual([1]) })
+    let released = false
+    installFailLoud(NAME, proc, async () => {
+      await Promise.resolve()
+      released = true
+    })
+    proc.handlers[0]!(new Error('first rejection'))
+    proc.handlers[0]!(new Error('second rejection'))
+    expect(proc.handlers).toHaveLength(1)
     expect(proc.written).toHaveLength(1)
+    expect(proc.written[0]).toContain('first rejection')
+    await vi.waitFor(() => { expect(proc.exits).toEqual([1]) })
+    expect(released).toBe(true)
   })
 })
 
