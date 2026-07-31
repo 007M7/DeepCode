@@ -72,6 +72,9 @@ import { openNativePath } from './native-path-opener.ts'
 /** Page size when history is called without maxMessages. */
 const DEFAULT_MAX_MESSAGES = 50
 
+/** Non-model settings namespaces intentionally served to the Web client. */
+const WEB_SETTINGS_NAMESPACES = ['permission'] as const
+
 /** Provider work budget: at most 100 calls and 2,000 inspected hits. */
 const SESSION_SEARCH_PROVIDER_CALL_LIMIT = 100
 
@@ -1098,31 +1101,35 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     }
   }
 
-  /**
-   * The settings namespaces this proxy serves: exactly those a registered
-   * configurable provider addresses. The settings seam itself is general —
-   * any plugin may register a namespace for its own configuration — but the
-   * Web configuration plane is scoped to model providers, and that boundary
-   * has to be enforced here rather than assumed from the current plugin set.
-   * Without it, every future `settings.register()` would silently become
-   * remotely readable and writable configuration.
-   */
-  function exposedNamespaces(): Set<string> {
+  /** Settings namespaces whose changes can invalidate the model catalog. */
+  function modelProviderNamespaces(): Set<string> {
     return new Set(ctx.llm.listConfigurableProviders().map(entry => entry.settingsNs))
   }
 
-  /** Refuse a namespace outside the model-provider boundary, naming why. */
+  /**
+   * The settings namespaces this proxy serves: configurable model providers
+   * plus the small explicit Web preference allowlist. The settings seam
+   * remains general; a future registration does not become remotely readable
+   * or writable by default.
+   */
+  function exposedNamespaces(): Set<string> {
+    const exposed = modelProviderNamespaces()
+    for (const ns of WEB_SETTINGS_NAMESPACES) exposed.add(ns)
+    return exposed
+  }
+
+  /** Refuse a namespace outside the explicit configuration-client boundary. */
   function notExposed(request: RpcRequest<unknown>, ns: string): RpcResponse<SettingsNamespaceView> {
     return err(request, {
       code: 'settings-not-exposed',
-      message: `settings namespace "${ns}" is not exposed to configuration clients; only a namespace a registered model provider addresses is`,
+      message: `settings namespace "${ns}" is not exposed to configuration clients`,
       details: { ns },
     })
   }
 
   /**
    * Run one settings write (merge or wholesale replace) and acknowledge with
-   * the namespace's new redacted view. A namespace outside the model-provider
+   * the namespace's new redacted view. A namespace outside the configuration
    * boundary is refused before the seam is touched; every seam refusal —
    * unknown or invalid namespace, read-only provider, schema validation,
    * storage — becomes one `settings-rejected` carrying the seam's own message.
@@ -2165,11 +2172,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             // inherited to overridden leaves the resolved value equal, and a
             // configuration client still has to re-read (its held revision is
             // stale, and the field's meaning changed).
-            queue.push(frame({ type: 'host/settings-changed', ns: String(ns) }))
+            const name = String(ns)
+            queue.push(frame({ type: 'host/settings-changed', ns: name }))
             // A provider's own settings carry its model catalog and endpoint,
             // so a change there invalidates the model list even when the route
             // set is untouched — `llm/adapters-updated` alone misses it.
-            if (exposedNamespaces().has(String(ns))) queue.push(frame({ type: 'host/models-changed' }))
+            if (modelProviderNamespaces().has(name)) queue.push(frame({ type: 'host/models-changed' }))
           }),
           ctx.on('credentials/updated', (ref) => {
             queue.push(frame({ type: 'host/credentials-changed', ref: String(ref) }))

@@ -10,11 +10,11 @@
   - button "关闭":
     - img
     - text: 关闭
-  - text: 权限 选择默认权限模式
-  - button "Read only" [disabled]:
-    - text: Read only
+  - text: 权限 选择新会话的默认权限模式
+  - button "Full access":
+    - text: Full access
     - img
-  - text: 工具调用 Schema mode Traditional function calling — invoke tools one at a time Code mode Chain multiple tools with code — multi-step orchestration 语言
+  - text: 语言
   - button "中文":
     - text: 中文
     - img
