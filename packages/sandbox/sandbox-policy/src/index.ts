@@ -9,11 +9,9 @@
  * consumers resolve without rewriting the stable system prompt.
  *
  * Enforcing filesystem, one-shot bash, and terminal backends read the SAME
- * resolved policy here and register their independently disposable model-facing
- * families. Tool owners separately register families whose schemas expose an
- * approved wider retry. The context therefore describes only operations this
- * runtime actually fences and adds anti-refusal guidance only where escalation
- * exists, while each backend retains its own enforcement dialect. The service
+ * resolved policy here. The context describes that policy without inventorying
+ * capabilities, while each backend retains its own enforcement dialect and each
+ * tool owns its operation-specific denial and escalation guidance. The service
  * reads session state once at each operation boundary; executors and providers
  * remain session-free.
  *
@@ -36,47 +34,15 @@ function resolveWorkspaceRoot(path: string): string {
   return resolvePath(canonicalPath(path))
 }
 
-/** Model-facing operation family whose current file policy is enforced by a runtime contribution. */
-type FilePolicyFamily = 'filesystem' | 'bash' | 'terminal'
-
-/** Canonical model-facing order, independent of plugin load order. */
-const FILE_POLICY_FAMILIES: readonly FilePolicyFamily[] = ['filesystem', 'bash', 'terminal']
-
-const FAMILY_LABELS: Readonly<Record<FilePolicyFamily, string>> = {
-  filesystem: 'the write and edit tools',
-  bash: 'one-shot bash commands',
-  terminal: 'terminal sessions',
-}
-
-/** Join model-facing family names with stable English punctuation. */
-function familyList(families: readonly FilePolicyFamily[], conjunction: 'and' | 'or'): string {
-  const labels = families.map(family => FAMILY_LABELS[family])
-  if (labels.length === 1) return labels[0] as string
-  if (labels.length === 2) return `${labels[0]} ${conjunction} ${labels[1]}`
-  return `${labels.slice(0, -1).join(', ')}, ${conjunction} ${labels.at(-1)}`
-}
-
-/** Render only policy facts shared by every backend enforcing each registered family. */
-function renderPolicyContext(
-  policy: SandboxExecutionPolicy,
-  families: readonly FilePolicyFamily[],
-  escalatableFamilies: readonly FilePolicyFamily[],
-): string {
-  if (families.length === 0) return ''
+/** Render the policy without claiming which capabilities are mounted. */
+function renderPolicyContext(policy: SandboxExecutionPolicy): string {
   switch (policy.mode) {
-    case 'read-only': {
-      const subjects = familyList(families, 'and')
-      const standing = `Current DSH file policy: read-only. ${subjects[0]?.toUpperCase()}${subjects.slice(1)} cannot modify files in the standing mode.`
-      if (escalatableFamilies.length === 0) return standing
-      const escalatable = familyList(escalatableFamilies, 'and')
-      return `${standing} For ${escalatable}, do not refuse a required modification from this standing mode alone: attempt it normally and follow the tool's denial and escalation guidance.`
-    }
-    case 'workspace-write': {
-      const subjects = familyList(families, 'and')
-      return `Current DSH file policy: workspace-write. ${subjects[0]?.toUpperCase()}${subjects.slice(1)} may modify files under the session workspace: ${JSON.stringify(policy.workspaceRoot)}. Some platform temporary areas may also be writable.`
-    }
+    case 'read-only':
+      return 'Current DSH file policy: read-only. Any available operation enforced by the DSH file sandbox cannot modify files in the standing mode. Do not refuse a required modification from this policy alone: try an available tool normally and follow any denial and escalation guidance it returns.'
+    case 'workspace-write':
+      return `Current DSH file policy: workspace-write. Any available operation enforced by the DSH file sandbox may modify files under the session workspace: ${JSON.stringify(policy.workspaceRoot)}. Some platform temporary areas may also be writable.`
     case 'danger-full-access':
-      return `Current DSH file policy: danger-full-access. The DSH file sandbox does not restrict ${familyList(families, 'or')}.`
+      return 'Current DSH file policy: danger-full-access. The DSH file sandbox does not restrict file modifications by available operations.'
     /* v8 ignore next 4 -- SandboxMode is a typed same-process closed union; this branch is only the static exhaustiveness guard. */
     default: {
       const mode: never = policy.mode
@@ -118,10 +84,9 @@ export interface SandboxPolicyRequest {
 
 /**
  * The sandbox-policy service (`ctx.sandboxPolicy`). Owns the deployment
- * default mode, fallback workspace root, enforcing-family contributions, and
- * current request-time policy section. Tool layers call {@link resolve} for
- * each execution so a session's mode log and immutable cwd travel together to
- * every enforcing capability.
+ * default mode, fallback workspace root, and current request-time policy
+ * section. Tool layers call {@link resolve} for each execution so a session's
+ * mode log and immutable cwd travel together to every enforcing capability.
  */
 export class SandboxPolicyService extends Service {
   // Inline schema call: the config catalog walks `static Config` statically.
@@ -136,11 +101,6 @@ export class SandboxPolicyService extends Service {
   readonly defaultMode: SandboxMode
   /** The absolute `workspace-write` fallback root for calls without a session cwd. */
   readonly workspaceRoot: string
-  /** Independently disposable enforcement-family contributions. */
-  private readonly enforcedFamilies = new Map<FilePolicyFamily, Set<symbol>>()
-  /** Independently disposable tool families that expose an approved wider retry. */
-  private readonly escalatableFamilies = new Map<FilePolicyFamily, Set<symbol>>()
-
   constructor(ctx: Context, config: Config) {
     super(ctx, 'sandboxPolicy')
     // schemastery (static Config) already filled `mode`; the cast records that
@@ -157,57 +117,10 @@ export class SandboxPolicyService extends Service {
           const session = context.agent?.session
           return session === undefined
             ? ''
-            : renderPolicyContext(this.resolve({ session }), this.activeFamilies(), this.activeEscalatableFamilies())
+            : renderPolicyContext(this.resolve({ session }))
         },
       })
     })
-  }
-
-  /**
-   * Register one runtime contribution that enforces the shared file policy for
-   * a model-facing operation family. Equal families remain independently
-   * disposable; registration and removal invalidate request-input assemblies
-   * when a system-prompt service is active.
-   * @param family - operation family whose file effects this contribution enforces.
-   * @returns the exact Cordis effect disposer for this contribution.
-   */
-  registerEnforcedFamily(family: 'filesystem' | 'bash' | 'terminal'): () => void {
-    return this.registerFamily(this.enforcedFamilies, family, 'sandboxPolicy.registerEnforcedFamily()')
-  }
-
-  /**
-   * Register one model-facing family whose tool schema and execution path offer
-   * an approved wider retry after a real denial. Equal contributions remain
-   * independently disposable; a family is narrated as escalatable only while
-   * it is also enforced.
-   * @param family - operation family whose tools expose escalation.
-   * @returns the exact Cordis effect disposer for this contribution.
-   */
-  registerEscalatableFamily(family: 'filesystem' | 'bash' | 'terminal'): () => void {
-    return this.registerFamily(this.escalatableFamilies, family, 'sandboxPolicy.registerEscalatableFamily()')
-  }
-
-  /** Register one independently disposable family contribution in an owned map. */
-  private registerFamily(
-    registry: Map<FilePolicyFamily, Set<symbol>>,
-    family: FilePolicyFamily,
-    label: string,
-  ): () => void {
-    const token = Symbol(family)
-    const dispose = this.ctx.effect(() => {
-      const contributions = registry.get(family) ?? new Set<symbol>()
-      contributions.add(token)
-      registry.set(family, contributions)
-      this.emitPromptChange()
-      return () => {
-        contributions.delete(token)
-        if (contributions.size === 0 && registry.get(family) === contributions) {
-          registry.delete(family)
-        }
-        this.emitPromptChange()
-      }
-    }, label)
-    return () => void dispose()
   }
 
   /**
@@ -234,21 +147,6 @@ export class SandboxPolicyService extends Service {
    */
   overrideOf(session: Session): SandboxMode | undefined {
     return effectiveSandboxMode(session.events)
-  }
-
-  /** Active families in canonical model-facing order. */
-  private activeFamilies(): FilePolicyFamily[] {
-    return FILE_POLICY_FAMILIES.filter(family => (this.enforcedFamilies.get(family)?.size ?? 0) > 0)
-  }
-
-  /** Escalatable families that are also currently enforced, in canonical order. */
-  private activeEscalatableFamilies(): FilePolicyFamily[] {
-    return this.activeFamilies().filter(family => (this.escalatableFamilies.get(family)?.size ?? 0) > 0)
-  }
-
-  /** Notify prompt consumers only after their registry exists. */
-  private emitPromptChange(): void {
-    if (this.ctx.get('systemPrompt') !== undefined) this.ctx.emit('system-prompt/change')
   }
 }
 

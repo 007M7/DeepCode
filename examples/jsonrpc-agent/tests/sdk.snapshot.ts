@@ -91,8 +91,8 @@ const SCENARIOS: SdkScenario[] = [
     expectedFiles: { 'note.txt': 'target:\n\tnew\n' },
     expectedTools: { bash: ['command'], str_replace_editor: ['command', 'path'] },
     policyContext: {
-      includes: ['the write and edit tools', 'terminal sessions'],
-      excludes: ['one-shot bash commands'],
+      includes: ['Current DSH file policy: danger-full-access.', 'file modifications by available operations'],
+      excludes: ['write and edit tools', 'terminal sessions', 'one-shot bash commands'],
     },
   },
 ]

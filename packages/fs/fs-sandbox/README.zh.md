@@ -26,7 +26,7 @@
 
 #### 模型看到的内容
 
-该后端会向归属方渲染的 `sandbox:policy` 段落贡献 write/edit 家族。作为间接影响，`dsh-tool-fs` 会把本后端的 `FS_SANDBOX_DENIED` 拒绝渲染为 `[sandbox: file access denied under <mode> mode]` 标记和同轮次升级提示。
+策略归属方会贡献与具体能力无关的 `sandbox:policy` 上下文。作为间接影响，`dsh-tool-fs` 会把本后端的 `FS_SANDBOX_DENIED` 拒绝渲染为 `[sandbox: file access denied under <mode> mode]` 标记和同轮次升级提示。
 
 #### Token 影响
 
@@ -34,7 +34,7 @@
 
 #### KV Cache 影响
 
-常驻策略或家族组合发生变化时，归属方渲染的请求前缀会更新；操作结果保持仅追加。
+常驻策略发生变化时，归属方渲染的请求前缀会更新；操作结果保持仅追加。
 
 ## 已知限制与暂缓事项
 

@@ -26,7 +26,7 @@ A denial is a structured `FsError` (`FS_SANDBOX_DENIED`, carrying the effective 
 
 #### What the model sees
 
-This backend contributes the write/edit family to the owner-rendered `sandbox:policy` section. Indirectly, `dsh-tool-fs` renders its `FS_SANDBOX_DENIED` refusals as the `[sandbox: file access denied under <mode> mode]` marker plus the same-turn escalation hint.
+The policy owner contributes capability-neutral `sandbox:policy` context. Indirectly, `dsh-tool-fs` renders this backend's `FS_SANDBOX_DENIED` refusals as the `[sandbox: file access denied under <mode> mode]` marker plus the same-turn escalation hint.
 
 #### Token effect
 
@@ -34,7 +34,7 @@ The current-policy clause adds a small fixed prefix while this backend is mounte
 
 #### KV Cache effect
 
-A standing-policy or family-composition change updates the owner-rendered request prefix; operation results remain append-only.
+A standing-policy change updates the owner-rendered request prefix; operation results remain append-only.
 
 ## Known Limitations and Deferred Work
 

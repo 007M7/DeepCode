@@ -52,12 +52,11 @@ class SnapshotSession {
 
 /** Cordis plugin name. */
 export const name = 'pty-snapshot-backend'
-/** Required PTY service and the policy owner whose terminal context this test adapter mirrors. */
-export const inject = ['pty', 'sandboxPolicy']
+/** Required PTY service. */
+export const inject = ['pty']
 
 /** Register the deterministic snapshot backend. */
 export function apply(ctx) {
-  ctx.sandboxPolicy.registerEnforcedFamily('terminal')
   ctx.pty.registerBackend({
     type: 'shell',
     spawn: () => Promise.resolve(new SnapshotSession()),
