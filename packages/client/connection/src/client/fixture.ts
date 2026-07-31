@@ -223,7 +223,7 @@ const SEARCH_PATHS_FIXTURE = [
   'packages/client/ui-primitives/src/SearchBlock.module.css',
   'packages/client/ui-conversation/src/client/contract/search-card-model.ts',
   'packages/client/ui-conversation/src/client/toolviews/search-row.tsx',
-  'packages/client/ui-conversation/src/client/toolviews/search-row.module.css',
+  'packages/client/ui-conversation/tests/search-card.spec.tsx',
 ]
 
 /**
