@@ -13,8 +13,25 @@
   - img
   - text: Context injection
 - paragraph: partial
+- text: Stopped
+- button "Copy":
+  - img
+- button "Branch into a new conversation":
+  - img
+- text: {{clock}} Edited queue item {{clock}}
+- button "Copy":
+  - img
+- button "Branch into a new conversation":
+  - img
+- paragraph: partial
 - status: Deep diving...
-- button "2 queued messages"
+- list:
+  - listitem:
+    - text: Queue item preserved after stop
+    - button "Edit queued message":
+      - img
+    - button "Remove queued message":
+      - img
 - textbox "Message the agent"
 - button "Commands":
   - img
@@ -23,3 +40,4 @@
   - text: DeepSeek-V4-Flash
   - img
 - button "Stop generating"
+- text: 1 turns · 1 steps Input 0 tok · Output 0 tok

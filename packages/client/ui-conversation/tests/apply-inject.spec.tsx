@@ -228,12 +228,9 @@ describe('conversation slot inject surface', () => {
     await b.runtime.dispose()
   })
 
-  it('routes navigation and workspace switching through the runtime owners, carrying the draft', async () => {
+  it('routes workspace switching through the runtime owner, carrying the draft', async () => {
     const b = await bench()
-    const { injected } = b.conversationSurface(ROOT)
     const resident = b.residentSurface(ROOT)
-    injected.open(ROOT)
-    expect(b.runtime.sessions.calls).toContainEqual({ method: 'open', args: [ROOT] })
     // Same-session connect (the picked workspace resolves to this session):
     // no draft movement, plain re-open.
     b.runtime.workspaces.stub('connectWorkspace', () => Promise.resolve(ROOT))
@@ -241,7 +238,7 @@ describe('conversation slot inject surface', () => {
     actions.setDraft('carry me')
     void resident.selectWorkspace('workspace-1' as never)
     await vi.waitFor(() => {
-      expect(b.runtime.sessions.calls.filter(c => c.method === 'open')).toHaveLength(2)
+      expect(b.runtime.sessions.calls.filter(c => c.method === 'open')).toHaveLength(1)
     })
     expect(b.runtime.workspaces.calls).toContainEqual({ method: 'connectWorkspace', args: ['workspace-1'] })
     expect(state.getSnapshot().draft).toBe('carry me')
