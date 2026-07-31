@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-纯 React 原子组件（零 cordis）：StateDot、ic_ds_* 图标、Button/Pill/Menu/Modal/Input、markdown 家族（MessageText/MarkdownText/JsonBlock）、只读 JsonTree 检查器、`useAnchoredMaxHeight` hook（把底部锚定的浮层高度收敛到锚点上方的视口空间，并在 resize、scroll 与调用方提供的依赖变化时重新测量）、TerminalBlock、SearchBlock、DiffBlock，以及 WebBlock。契约：api-contracts v3 §8。
+纯 React 原子组件（零 cordis）：StateDot、ic_ds_* 图标、Button/Pill/Menu/Modal/Input、markdown 家族（MessageText/MarkdownText/JsonBlock）、只读 JsonTree 检查器、`useAnchoredMaxHeight` hook（把底部锚定的浮层高度收敛到锚点上方的视口空间，并在 resize、scroll 与调用方提供的依赖变化时重新测量）、TerminalBlock、DiffBlock、ReadBlock、SearchBlock，以及 WebBlock。契约：api-contracts v3 §8。
 
 ## Markdown 渲染
 
@@ -11,13 +11,17 @@
 
 `TerminalBlock` 将一条 shell 命令渲染为终端表层：命令的每一行各占一个提示行（缩短后的 `cwd` 标签只出现在第一行，因为视图只知道一个工作目录，而一个 `cd` 就会让后面的行去到别处，标签之后是该行）、命令输出、非零退出码或终止信号对应的状态胶囊，以及写入原始 `output` prop 的复制控件。一枚运行状态 `StateDot` 为整次调用标记一次，位于第一行，以脱离文档流的方式落在卡片以自身左内边距预留的落区中，因此它位于卡片盒之内、提示文字之左。它用到 `StateDot` 的三种状态——`running` 期间为追逐动画，与渲染状态胶囊相同的退出状态为红色，其余为绿色——因此卡片直接陈述其命令是否仍在运行，而不是让人从有无输出中推断；由于 `StateDot` 是 `aria-hidden`，它携带一处视觉隐藏的文本标签。无论多少行都只有一枚状态点是有意为之：退出状态属于整次调用，因此每行一枚就会声称一个视图并不携带的逐行结果。命令文本使用 `white-space: pre`，因此重复空格、制表符与缩进续行都原样呈现，同时该行仍保持单行并以省略号截断。ANSI 转义序列通过运行时依赖 `anser` 解析为 React span；光标移动在剥除无显示意义控制符之前先重放进逐行的列缓冲，因为回车与退格**只移动**光标：单是 `100%` 加回车再加 `OK` 显示为 `OK0%`，而 spinner 随重绘写出的 `\x1b[K` 会擦掉尾巴，因此 `100%\r\x1b[KOK` 显示为 `OK`。行内擦除的三种参数形式都被遵循，光标按终端列推进（8 列制表位；emoji 与 CJK 占两列；组合标记不占列），SGR 状态按单元格归一化存储，与终端一致，并跨行延续、在行结束时的状态处收束；基础 16 色前景色映射到 `--dsw-*` token，而 256 色板与真彩色值按字面 rgb 透传。输出保持 `white-space: pre` 并支持横向滚动，因此按列对齐的输出保留其对齐而不会软换行；超过 `maxLines`（默认 16，与 TUI 转录相同的切分算法）时折叠为头部切片加尾部切片，由展开按钮控制。原理：[Web 终端卡片笔记](../../../.agents/notes/implemented/feature/2026-07-28-web-terminal-card.md)。
 
-## 搜索结果
+## Read 渲染
 
-`SearchBlock` 渲染一次已完成的搜索,一个组件绘制两种 kind(由 `kind` 判别)。`matches`(grep)把每个文件渲染为粗体路径头加其 `lineNumber: line` 行,每个文件组可折叠;`paths`(glob)渲染扁平路径列表。两者都摊平成一个行列表,由高度上限做头/尾切片(默认 16,与 TerminalBlock 相同的切分算法),且都不软换行——长匹配行或路径横向滚动而非折行。当工具截断结果时,banner 摘要把截断前总数折入(grep 为 `显示 X / 共 N 处匹配 · K 个文件`,glob 为 `显示 X / 共 N 个路径`),使卡片绝不把截断结果呈现为完整;复制控件写入完整结构化结果,无论是否触及上限或哪些组被折叠。几何镜像 CodeBlock/TerminalBlock。原理:[Web 搜索卡片笔记](../../../.agents/notes/implemented/feature/2026-07-30-web-search-card.md)。
+`ReadBlock` 将返回的文件窗口渲染为带行号、语法高亮的代码表层：一个粗体路径（或 presenter 提供的标题）横幅加复制控件，其下是内容行，行号槽里是文件自身的行号（窗口化的 read 保留文件本身的编号，因此偏移之后的 read 从大于 1 处起始）。`totalLines` 超过窗口行数时画出 `showing N of M` 提示；超过 `maxLines`（默认 16，与 TerminalBlock 相同的切分算法）时折叠为头部切片加尾部切片，由展开按钮控制。高亮走与 `CodeBlock` 相同的 shiki 路径。原理：[Web read 卡片笔记](../../../.agents/notes/implemented/feature/2026-07-30-web-read-card.md)。
 
 ## Diff 渲染
 
 `DiffBlock` 将一次文件改动渲染为内联 diff 表层：每个文件一个粗体路径头、删除行（`- `，error token）在新增行（`+ `，success token）之上、同文件第二个 hunk 前一个 `⋯` gap，以及暗色 `└ +A -R · N file(s)` 页脚。各行使用 `white-space: pre` 并横向滚动，因此源码行保留其缩进而不软换行；超过 `maxLines`（默认 16，与 `TerminalBlock` 相同的切分算法）时折叠为头部切片加尾部切片，由展开按钮控制。新建（`oldText: null`）没有删除侧。复制控件写入带前缀的 diff 文本（路径头、`- `/`+ ` 行、gap），使多文件复制保持可归属，并浮在右上角而非占据自己的 banner 行。几何镜像 `CodeBlock`/`TerminalBlock`。`+`/`-` 块形式镜像 TUI 转录的 diff 卡片，使 diff 在两个前端读起来一致。原理：[Web diff 卡片笔记](../../../.agents/notes/implemented/feature/2026-07-30-web-diff-card.md)。
+
+## 搜索结果
+
+`SearchBlock` 渲染一次已完成的搜索,一个组件绘制两种 kind(由 `kind` 判别)。`matches`(grep)把每个文件渲染为粗体路径头加其 `lineNumber: line` 行,每个文件组可折叠;`paths`(glob)渲染扁平路径列表。两者都摊平成一个行列表,由高度上限做头/尾切片(默认 16,与 TerminalBlock 相同的切分算法),且都不软换行——长匹配行或路径横向滚动而非折行。当工具截断结果时,banner 摘要把截断前总数折入(grep 为 `显示 X / 共 N 处匹配 · K 个文件`,glob 为 `显示 X / 共 N 个路径`),使卡片绝不把截断结果呈现为完整;复制控件写入完整结构化结果,无论是否触及上限或哪些组被折叠。几何镜像 CodeBlock/TerminalBlock。原理:[Web 搜索卡片笔记](../../../.agents/notes/implemented/feature/2026-07-30-web-search-card.md)。
 
 ## Web 检索
 

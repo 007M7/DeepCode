@@ -4,17 +4,19 @@
 // WebRow (registered under both web_search and web_fetch), the GenericToolCard
 // render-site fallback, and the details panel's Output section. Mirrors
 // terminal-card.spec.tsx: model derivation + null arms, both kinds, the chat
-// row's resident card, the panel arm, and the keyed registration.
+// row's collapsed-by-default ToolRow card, the panel arm, and the keyed
+// registration. WebRow now composes the shared ToolRow, so its web card is
+// collapsed by default and appears only once the whole row is expanded.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, fireEvent, render } from '@testing-library/react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   ConversationSnapshot, RunningToolCall, SessionId, SessionListState, ToolResultNode, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
-import type { SelectionTarget, ToolRowOwnerProps, ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { SelectionTarget, ToolRowOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { CHAT_WEB_MAX_SOURCES, webCardModel } from '../src/client/contract/web-card-model.ts'
 import { createChatStore } from '../src/client/stores.ts'
 import { GenericToolCard } from '../src/client/chat/GenericToolCard.tsx'
@@ -122,36 +124,49 @@ describe('chat row web body', () => {
   const ownerProps = (block: RunningToolCall | ToolResultNode, toolName: string): ToolRowOwnerProps => ({
     callId: block.callId, toolName, block, openFile: vi.fn(),
   })
-  // WebRow reads only toolName/block off the full runtime share; the standard
-  // kit is unused, so the cast supplies the owner slice alone (as BashRow's
-  // tests do for the terminal card).
-  const rowProps = (block: RunningToolCall | ToolResultNode, toolName: string): ToolRowProps =>
-    ownerProps(block, toolName) as unknown as ToolRowProps
+  // WebRow reads only toolName/block off the full runtime share plus the locale
+  // seat; the standard kit is unused, so the cast supplies the owner slice and
+  // `t` alone (as BashRow's tests do for the terminal card).
+  const rowProps = (block: RunningToolCall | ToolResultNode, toolName: string): Parameters<typeof WebRow>[0] =>
+    ({ ...ownerProps(block, toolName), t } as unknown as Parameters<typeof WebRow>[0])
 
-  it('the WebRow renders the search card resident under the summary, capped tighter than the panel', () => {
+  /** The whole summary row is the expand toggle (ToolRow's unified interaction). */
+  const toggleRow = (view: { container: HTMLElement }) => {
+    fireEvent.click(view.container.querySelector('[data-expandable]')!)
+  }
+
+  it('the WebRow collapses to the summary row, expanding to the search card capped tighter than the panel', () => {
     expect(CHAT_WEB_MAX_SOURCES).toBeLessThan(16)
     const view = render(<WebRow {...rowProps(settledSearch(), 'web_search')} />)
-    // The summary row plus the resident card, without any expand gesture on the row itself.
+    // Collapsed: the summary row alone, no card in the DOM.
     expect(view.getByText('Search')).toBeTruthy()
+    expect(view.queryByText('Titled')).toBeNull()
+    expect(view.container.querySelector('[data-web]')).toBeNull()
+    toggleRow(view)
+    // Expanded: the resident search card with every source field.
     expect(view.getByText('Titled')).toBeTruthy()
     expect(view.getByText('excerpt')).toBeTruthy()
     // hostname fallback for the source with no title
     expect(view.getByText('plain.example.org')).toBeTruthy()
   })
 
-  it('the WebRow renders the fetch card resident, titled Fetch', () => {
+  it('the WebRow expands to the fetch card, titled Fetch', () => {
     const view = render(<WebRow {...rowProps(settledFetch(), 'web_fetch')} />)
     expect(view.getByText('Fetch')).toBeTruthy()
-    // The url shows in the summary row and as the card's link; scope to the card.
+    expect(view.container.querySelector('[data-web]')).toBeNull()
+    toggleRow(view)
+    // The url shows as the card's link; scope to the card.
     const card = view.container.querySelector('[data-web="fetch"]')
     expect(card?.querySelector('a')?.getAttribute('href')).toBe('https://example.com/page')
     expect(view.getByText('HTTP 200')).toBeTruthy()
   })
 
-  it('a running web call is the summary row alone (no card until it settles)', () => {
+  it('a running web call is the summary row alone, with nothing to expand', () => {
     const view = render(<WebRow {...rowProps(runningSearch(), 'web_search')} />)
     expect(view.getByText('Search')).toBeTruthy()
     expect(view.queryByText('Titled')).toBeNull()
+    // No card material and no expandable body: clicking the row reveals nothing.
+    expect(view.container.querySelector('[data-expandable]')).toBeNull()
     expect(view.container.querySelector('[data-web]')).toBeNull()
   })
 
@@ -165,12 +180,14 @@ describe('chat row web body', () => {
     expect(view.container.querySelector('[data-state="error"]')).not.toBeNull()
   })
 
-  it('the GenericToolCard fallback also renders a resident web card for a web-declaring tool', () => {
+  it('the GenericToolCard fallback also expands to a web card for a web-declaring tool', () => {
     // A web-declaring tool without its own keyed row lands on the fallback; its
-    // card is resident there too.
+    // card routes through the same collapsed-by-default ToolRow.
     const view = render(<GenericToolCard {...ownerProps(settledSearch({
       call: { name: 'fx-web', argsRaw: SEARCH_ARGS },
     }), 'fx-web')} t={t} />)
+    expect(view.container.querySelector('[data-web]')).toBeNull()
+    toggleRow(view)
     expect(view.getByText('Titled')).toBeTruthy()
     expect(view.container.querySelector('[data-web="search"]')).not.toBeNull()
   })
@@ -250,17 +267,19 @@ describe('DetailsPanel web Output section', () => {
 
 describe('web toolview registration', () => {
   it('registers one WebRow under both web_search and web_fetch', () => {
-    const registered: { key: string; component: unknown }[] = []
+    const registered: { key: string; locale: unknown; component: unknown }[] = []
     const ctx = {
       slots: {
-        register: (options: { name: string; key: string }, component: unknown) => {
-          registered.push({ key: options.key, component })
+        register: (options: { name: string; key: string; locale?: string }, component: unknown) => {
+          registered.push({ key: options.key, locale: options.locale, component })
           return () => {}
         },
       },
     } as unknown as import('cordis').Context
     webToolview.apply(ctx)
     expect(registered.map(r => r.key)).toEqual(['web_search', 'web_fetch'])
+    // Both keys claim the conversation locale seat ToolRow's body copy needs.
+    expect(registered.map(r => r.locale)).toEqual(['conversation', 'conversation'])
     // One component under both keys, not two thin rows.
     expect(registered[0]?.component).toBe(WebRow)
     expect(registered[1]?.component).toBe(WebRow)
