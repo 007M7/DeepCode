@@ -1,13 +1,13 @@
 /**
  * Static terminal rasters derived from the official 24x24 DeepSeek icon.
  *
- * Source: `../assets/deepseek-color.svg`, whose path data is copied exactly
+ * Source: `../../assets/deepseek-color.svg`, whose path data is copied exactly
  * from the supplied official icon (viewBox `0 0 24 24`, fill `#4D6BFE`). Each
  * tier rasterizes that path into a square binary
  * mask without redrawing its contour. The Unicode form packs two source rows
  * into `▀`/`▄`/`█`; the ASCII fallback packs the same two bits into
  * `'`/`_`/`#`. Assets contain no ANSI and are never generated at runtime.
- * @module @deepseek-ai/dsh/tui-first-run-welcome-art
+ * @module @deepseek-ai/dsh/tui-onboarding/tui-first-run-welcome-art
  */
 
 /** Responsive official-icon raster tier. */

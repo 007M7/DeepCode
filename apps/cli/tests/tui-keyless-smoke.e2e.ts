@@ -13,12 +13,12 @@ import { HeadlessTerminal } from '../../../packages/ui/tui/tests/headless-termin
 import {
   acknowledgeTuiFirstRunWelcome,
   hasTuiFirstRunWelcomeAcknowledgement,
-} from '../src/tui-first-run-welcome.ts'
+} from '../src/tui-onboarding/tui-first-run-welcome.ts'
 import {
   TUI_FIRST_RUN_WELCOME_NOTICE_COPY,
   TUI_FIRST_RUN_WELCOME_NOTICE_LOCALE,
-} from '../src/tui-first-run-welcome-copy.ts'
-import { TUI_FIRST_RUN_WELCOME_WHALE } from '../src/tui-first-run-welcome-art.ts'
+} from '../src/tui-onboarding/tui-first-run-welcome-copy.ts'
+import { TUI_FIRST_RUN_WELCOME_WHALE } from '../src/tui-onboarding/tui-first-run-welcome-art.ts'
 
 const dshBinScript = fileURLToPath(new URL('../src/bin.ts', import.meta.url))
 // `--config` layers an overlay over the shared base, so the default surface
@@ -174,6 +174,10 @@ function smoke(overrides: Partial<TuiPtySmokeOptions> & {
 const firstRunCopy = TUI_FIRST_RUN_WELCOME_NOTICE_COPY[TUI_FIRST_RUN_WELCOME_NOTICE_LOCALE]
 const firstRunOpeningSentence = `${firstRunCopy.paragraphs[0]!.split('。', 1)[0]}。`
 
+function firstRunArtAnchor(tier: keyof typeof TUI_FIRST_RUN_WELCOME_WHALE): string {
+  return TUI_FIRST_RUN_WELCOME_WHALE[tier].unicode[tier === 'full' ? 2 : 0]!.trim()
+}
+
 /** Keep only the overlay rows, excluding platform-specific scrollback and the underlying TUI. */
 function overlaySnapshot(snapshot: string, columns: number, rows: number): string {
   const blocks: string[][] = []
@@ -231,15 +235,13 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
       tempDirPrefix: `dsh-tui-welcome-${String(columns)}-`,
       configPath: scriptedConfigPath,
       showFirstRunWelcome: true,
-      expectedExitCode: process.platform === 'win32' ? 0 : -9,
+      expectedExitCode: 0,
       columns,
       rows: 30,
       actions: [
         {
           waitFor: `Enter  ${firstRunCopy.continueLabel}`,
-          send: '\r',
-          signalAfterMs: 2_000,
-          signalAfter: 'SIGKILL',
+          send: '\r\x03',
         },
       ],
       inspect: async (cwd) => {
@@ -257,7 +259,7 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
     if (tier === undefined) {
       expect(output).not.toContain(TUI_FIRST_RUN_WELCOME_WHALE.minimal.unicode[0]!.trim())
     } else {
-      expect(output).toContain(TUI_FIRST_RUN_WELCOME_WHALE[tier].unicode[0]!.trim())
+      expect(output).toContain(firstRunArtAnchor(tier))
     }
     expect(output).toContain(`Enter  ${firstRunCopy.continueLabel}`)
   }, PTY_SMOKE_TEST_TIMEOUT_MS)
@@ -268,7 +270,7 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
       tempDirPrefix: 'dsh-tui-welcome-low-',
       configPath: scriptedConfigPath,
       showFirstRunWelcome: true,
-      expectedExitCode: process.platform === 'win32' ? 0 : -15,
+      expectedExitCode: 0,
       columns: 60,
       rows: 12,
       actions: [
@@ -276,8 +278,7 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
         {
           waitFor: `Enter  ${firstRunCopy.continueLabel}`,
           occurrence: 2,
-          send: '\r',
-          signalAfterMs: 2_000,
+          send: '\r\x03',
         },
       ],
     })
@@ -299,9 +300,9 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
         cwd,
         configPath: scriptedConfigPath,
         showFirstRunWelcome: true,
-        expectedExitCode: process.platform === 'win32' ? 0 : -15,
+        expectedExitCode: 0,
         actions: [
-          { waitFor: `Enter  ${firstRunCopy.continueLabel}`, send: '\r', signalAfterMs: 2_000 },
+          { waitFor: `Enter  ${firstRunCopy.continueLabel}`, send: '\r\x03' },
         ],
       })
       expect(first).toContain(firstRunCopy.title)
@@ -344,9 +345,9 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
         cwd,
         configPath: scriptedConfigPath,
         showFirstRunWelcome: true,
-        expectedExitCode: -15,
+        expectedExitCode: 0,
         actions: [
-          { waitFor: `Enter  ${firstRunCopy.continueLabel}`, send: '\r', signalAfterMs: 2_000 },
+          { waitFor: `Enter  ${firstRunCopy.continueLabel}`, send: '\r\x03' },
         ],
       })
       expect(next).toContain(firstRunOpeningSentence)
@@ -534,7 +535,7 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
       binScript: dshBinScript,
       configArgs: ['--resume', 'resume-target', '--config', scriptedConfigPath],
       showFirstRunWelcome: true,
-      expectedExitCode: process.platform === 'win32' ? 0 : -15,
+      expectedExitCode: 0,
       prepare: async (cwd) => {
         await seedResumeSession(cwd)
         const before = await readFile(logPath(
@@ -546,7 +547,7 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
         originalLineCount = before.split('\n').filter(Boolean).length
       },
       actions: [
-        { waitFor: `Enter  ${firstRunCopy.continueLabel}`, send: '\r', signalAfterMs: 2_000 },
+        { waitFor: `Enter  ${firstRunCopy.continueLabel}`, send: '\r\x03' },
       ],
       inspect: async (cwd) => {
         const after = await readFile(logPath(

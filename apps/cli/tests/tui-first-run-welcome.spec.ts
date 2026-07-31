@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Context } from 'cordis'
+import { visibleWidth } from '@earendil-works/pi-tui'
 import {
-  tuiVisibleWidth,
   type TuiOverlayHost,
   type TuiOverlayRequest,
   type TuiTheme,
@@ -18,13 +18,19 @@ import {
   TuiFirstRunWelcomeComponent,
   tuiFirstRunWelcomeAcknowledgementPath,
   tuiFirstRunWelcomeArtTier,
-} from '../src/tui-first-run-welcome.ts'
+} from '../src/tui-onboarding/tui-first-run-welcome.ts'
 import {
   TUI_FIRST_RUN_WELCOME_NOTICE_COPY,
   TUI_FIRST_RUN_WELCOME_NOTICE_LOCALE,
   TUI_FIRST_RUN_WELCOME_NOTICE_VERSION,
-} from '../src/tui-first-run-welcome-copy.ts'
-import { TUI_FIRST_RUN_WELCOME_WHALE } from '../src/tui-first-run-welcome-art.ts'
+} from '../src/tui-onboarding/tui-first-run-welcome-copy.ts'
+import { TUI_FIRST_RUN_WELCOME_WHALE } from '../src/tui-onboarding/tui-first-run-welcome-art.ts'
+
+const mockDisposeRootAndExit = vi.hoisted(() => vi.fn())
+vi.mock('@deepseek-ai/dsh-tui', async importOriginal => ({
+  ...await importOriginal<typeof import('@deepseek-ai/dsh-tui')>(),
+  disposeRootAndExit: mockDisposeRootAndExit,
+}))
 
 const identityTheme: TuiTheme = Object.freeze({
   text: (value: string) => value,
@@ -63,6 +69,10 @@ const copy = TUI_FIRST_RUN_WELCOME_NOTICE_COPY[TUI_FIRST_RUN_WELCOME_NOTICE_LOCA
 const openingSentence = `${copy.paragraphs[0]!.split('。', 1)[0]}。`
 const temporaryHomes: string[] = []
 
+function artAnchor(tier: keyof typeof TUI_FIRST_RUN_WELCOME_WHALE): string {
+  return TUI_FIRST_RUN_WELCOME_WHALE[tier].unicode[tier === 'full' ? 2 : 0]!.trim()
+}
+
 function withoutWhitespace(value: string): string {
   return value.replace(/\s/gu, '')
 }
@@ -74,6 +84,7 @@ async function temporaryHome(prefix: string): Promise<string> {
 }
 
 afterEach(async () => {
+  mockDisposeRootAndExit.mockClear()
   await Promise.all(temporaryHomes.splice(0).map(home => rm(home, { recursive: true, force: true })))
 })
 
@@ -125,7 +136,7 @@ describe('TUI first-run welcome composition', () => {
     expect(createHash('sha256').update(icon).digest('hex'))
       .toBe('deba5f98a5c1796e20fcac3149bcd7eb8a32f0bdd04d048819400b1f28bd1439')
     expect(createHash('sha256').update(copy.paragraphs.join('\n')).digest('hex'))
-      .toBe('54389347f93109c7cb17baa4312ae55eaefe77cbbf2ffe3e7579a4538e9f5738')
+      .toBe('99f9a828b4f083b28de21bf5e03f939c00238531e765db78911957c44c6e98da')
     expect(TUI_FIRST_RUN_WELCOME_NOTICE_COPY.en).toBe(copy)
   })
 
@@ -137,31 +148,45 @@ describe('TUI first-run welcome composition', () => {
     { columns: 160, inner: 140, rows: 30, tier: 'full' },
   ] as const)('renders the responsive composition at $columns columns without overdraw', ({ inner, rows, tier }) => {
     const fixture = hostFixture(rows)
-    const component = new TuiFirstRunWelcomeComponent(fixture.host, copy, async () => {})
+    const component = new TuiFirstRunWelcomeComponent(fixture.host, copy, async () => {}, () => {})
     const renderWidth = inner + 4
     const lines = component.render(renderWidth)
 
     expect(tuiFirstRunWelcomeArtTier(inner, rows)).toBe(tier)
-    expect(lines.every(line => tuiVisibleWidth(line) <= renderWidth)).toBe(true)
+    expect(lines.every(line => visibleWidth(line) <= renderWidth)).toBe(true)
     if (tier === undefined) {
       expect(lines.join('\n')).not.toMatch(/[▀▄█]/u)
     } else {
-      expect(lines.join('\n')).toContain(TUI_FIRST_RUN_WELCOME_WHALE[tier].unicode[0]!.trim())
+      expect(lines.join('\n')).toContain(artAnchor(tier))
     }
     const rendered = lines.join('\n')
-    const placeholder = copy.paragraphs.at(-1)!.match(/【[^】]+】/u)![0]
+    const optOut = copy.paragraphs.at(-1)!.match(/[A-Z_]+=1/u)![0]
     expect(rendered).not.toContain(copy.scrollHint)
     expect(rendered).toContain(copy.paragraphs.at(-1)!.match(/[A-Za-z]+ [A-Za-z]+/u)![0])
-    expect(rendered).toContain(placeholder.slice(0, 3))
-    expect(rendered).toContain(placeholder.slice(-3))
+    expect(rendered).toContain(optOut)
     expect(lines.join('\n')).toContain(`Enter  ${copy.continueLabel}`)
     expect(lines.length).toBeLessThanOrEqual(Math.floor(rows * 0.9))
     expect(lines.length).toBeGreaterThan(5)
   })
 
+  it.each([
+    { inner: 68, rows: 14, tier: undefined },
+    { inner: 68, rows: 17, tier: undefined },
+    { inner: 68, rows: 18, tier: 'minimal' },
+    { inner: 84, rows: 21, tier: 'minimal' },
+    { inner: 84, rows: 22, tier: 'compact' },
+  ] as const)('degrades art to preserve the action at $rows rows', ({ inner, rows, tier }) => {
+    const fixture = hostFixture(rows)
+    const component = new TuiFirstRunWelcomeComponent(fixture.host, copy, async () => {}, () => {})
+    const lines = component.render(inner + 4)
+    expect(tuiFirstRunWelcomeArtTier(inner, rows)).toBe(tier)
+    expect(lines.length).toBeLessThanOrEqual(Math.floor(rows * 0.9))
+    expect(lines.join('\n')).toContain(`Enter  ${copy.continueLabel}`)
+  })
+
   it('drops the whale at low height while keeping prose, scrolling, and Enter reachable', () => {
     const fixture = hostFixture(10)
-    const component = new TuiFirstRunWelcomeComponent(fixture.host, copy, async () => {})
+    const component = new TuiFirstRunWelcomeComponent(fixture.host, copy, async () => {}, () => {})
     const initial = component.render(54).join('\n')
     expect(tuiFirstRunWelcomeArtTier(50, 10)).toBeUndefined()
     expect(initial).toContain(openingSentence)
@@ -181,32 +206,44 @@ describe('TUI first-run welcome composition', () => {
   it('renders a tiny viewport and a quotation-only paragraph without overdraw', () => {
     const fixture = hostFixture(5)
     const quoteOnly = { ...copy, paragraphs: ['“如切如磋，如琢如磨。”'] }
-    const component = new TuiFirstRunWelcomeComponent(fixture.host, quoteOnly, async () => {})
+    const component = new TuiFirstRunWelcomeComponent(fixture.host, quoteOnly, async () => {}, () => {})
     const lines = component.render(2)
-    expect(lines.every(line => tuiVisibleWidth(line) <= 6)).toBe(true)
+    expect(lines.every(line => visibleWidth(line) <= 6)).toBe(true)
   })
 
   it('keeps the side-by-side composition aligned when prose outgrows the full raster', () => {
     const fixture = hostFixture(40)
     const longCopy = { ...copy, paragraphs: [copy.paragraphs.join(' ').repeat(4)] }
-    const component = new TuiFirstRunWelcomeComponent(fixture.host, longCopy, async () => {})
+    const component = new TuiFirstRunWelcomeComponent(fixture.host, longCopy, async () => {}, () => {})
     const lines = component.render(100)
     expect(lines.length).toBeGreaterThan(TUI_FIRST_RUN_WELCOME_WHALE.full.unicode.length)
-    expect(lines.every(line => tuiVisibleWidth(line) <= 100)).toBe(true)
+    expect(lines.every(line => visibleWidth(line) <= 100)).toBe(true)
+    component.handleInput('\x1b[F')
+    expect(component.render(100).join('\n')).toContain(copy.title)
   })
 
   it('renders the bit-equivalent ASCII icon fallback for an explicitly non-Unicode terminal', () => {
     const fixture = hostFixture(30)
-    const component = new TuiFirstRunWelcomeComponent(fixture.host, copy, async () => {}, true)
+    const component = new TuiFirstRunWelcomeComponent(fixture.host, copy, async () => {}, () => {}, true)
     const rendered = component.render(72).join('\n')
     expect(rendered).toContain(TUI_FIRST_RUN_WELCOME_WHALE.minimal.ascii[0]!.trim())
     expect(rendered).not.toMatch(/[▀▄█]/u)
   })
 
+  it.each(['full', 'compact', 'minimal'] as const)('keeps the $tier ASCII raster bit-equivalent', (tier) => {
+    const mapped = TUI_FIRST_RUN_WELCOME_WHALE[tier].unicode.map(line => Array.from(line).map((cell) => {
+      if (cell === '▀') return "'"
+      if (cell === '▄') return '_'
+      if (cell === '█') return '#'
+      return cell
+    }).join(''))
+    expect(mapped).toEqual(TUI_FIRST_RUN_WELCOME_WHALE[tier].ascii)
+  })
+
   it('ignores Escape and acknowledges only Enter before closing', async () => {
     const fixture = hostFixture(30)
     const acknowledge = vi.fn(async () => {})
-    const component = new TuiFirstRunWelcomeComponent(fixture.host, copy, acknowledge)
+    const component = new TuiFirstRunWelcomeComponent(fixture.host, copy, acknowledge, () => {})
     component.render(72)
 
     component.handleInput('\x1b')
@@ -219,11 +256,23 @@ describe('TUI first-run welcome composition', () => {
     expect(acknowledge).toHaveBeenCalledOnce()
   })
 
+  it('keeps the notice eligible when Ctrl+C or Ctrl+D requests a normal exit', async () => {
+    const fixture = hostFixture(30)
+    const acknowledge = vi.fn(async () => {})
+    const exit = vi.fn()
+    const component = new TuiFirstRunWelcomeComponent(fixture.host, copy, acknowledge, exit)
+    component.handleInput('\x03')
+    component.handleInput('\x04')
+    expect(exit).toHaveBeenCalledTimes(2)
+    expect(acknowledge).not.toHaveBeenCalled()
+    expect(fixture.closed()).toBe(false)
+  })
+
   it('does not start a second acknowledgement while the first Enter is pending', async () => {
     const fixture = hostFixture(30)
     const pending = Promise.withResolvers<undefined>()
     const acknowledge = vi.fn(async () => pending.promise)
-    const component = new TuiFirstRunWelcomeComponent(fixture.host, copy, acknowledge)
+    const component = new TuiFirstRunWelcomeComponent(fixture.host, copy, acknowledge, () => {})
     component.render(72)
 
     component.handleInput('\r')
@@ -242,7 +291,7 @@ describe('TUI first-run welcome composition', () => {
     const component = new TuiFirstRunWelcomeComponent(fixture.host, copy, async () => {
       attempts += 1
       if (attempts === 1) throw new Error('disk unavailable')
-    })
+    }, () => {})
     component.render(72)
 
     component.handleInput('\r')
@@ -260,7 +309,12 @@ describe('TUI first-run welcome composition', () => {
   it('opens through the TUI extension and uses the launcher-owned acknowledgement closure', async () => {
     const home = await temporaryHome('dsh-tui-welcome-apply-')
     let request: TuiOverlayRequest | undefined
+    let disposePending: (() => Promise<void>) | undefined
     const ctx = {
+      effect(register: () => () => Promise<void>) {
+        disposePending = register()
+        return () => {}
+      },
       tui: {
         openOverlay(value: TuiOverlayRequest) {
           request = value
@@ -279,10 +333,11 @@ describe('TUI first-run welcome composition', () => {
     const fixture = hostFixture(30)
     const component = request?.create(fixture.host)
     expect(component).toBeInstanceOf(TuiFirstRunWelcomeComponent)
+    component?.handleInput?.('\x03')
+    expect(mockDisposeRootAndExit).toHaveBeenCalledWith(ctx, 0)
     component?.handleInput?.('\r')
-    await vi.waitFor(async () => {
-      expect(await hasTuiFirstRunWelcomeAcknowledgement(home)).toBe(true)
-    })
+    await disposePending?.()
+    expect(await hasTuiFirstRunWelcomeAcknowledgement(home)).toBe(true)
 
     apply(ctx, { dshHome: home, asciiArt: true })
     expect(request?.create(fixture.host).render(72).join('\n'))

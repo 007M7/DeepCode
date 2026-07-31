@@ -17,13 +17,6 @@ import {
   TuiOverlayManager,
   type TuiOverlayDriver,
 } from '../src/extension/overlay-manager.ts'
-import {
-  matchesTuiKey,
-  truncateTuiText,
-  TuiKey,
-  tuiVisibleWidth,
-  wrapTuiText,
-} from '../src/index.ts'
 
 const theme: TuiTheme = Object.freeze({
   text: (value: string) => `text:${value}`,
@@ -35,17 +28,6 @@ const theme: TuiTheme = Object.freeze({
   warning: (value: string) => `warning:${value}`,
   error: (value: string) => `error:${value}`,
   bold: (value: string) => `bold:${value}`,
-})
-
-describe('TUI extension terminal primitives', () => {
-  it('owns semantic keys, ANSI-safe wrapping, truncation, and visible width', () => {
-    expect(matchesTuiKey('\r', TuiKey.enter)).toBe(true)
-    expect(tuiVisibleWidth('\x1b[34m鲸鱼\x1b[39m')).toBe(4)
-    const truncated = truncateTuiText('鲸鱼欢迎', 6)
-    expect(truncated).toContain('鲸鱼欢')
-    expect(tuiVisibleWidth(truncated)).toBe(6)
-    expect(wrapTuiText('\x1b[34m鲸鱼欢迎\x1b[39m', 4)).toHaveLength(2)
-  })
 })
 
 interface ShownOverlay {

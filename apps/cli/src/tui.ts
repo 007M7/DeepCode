@@ -49,10 +49,10 @@ import {
   inject as tuiFirstRunWelcomeInject,
   name as tuiFirstRunWelcomeName,
   needsTuiFirstRunWelcomeAsciiArt,
-} from './tui-first-run-welcome.ts'
+} from './tui-onboarding/tui-first-run-welcome.ts'
 import {
   TUI_FIRST_RUN_WELCOME_NOTICE_VERSION,
-} from './tui-first-run-welcome-copy.ts'
+} from './tui-onboarding/tui-first-run-welcome-copy.ts'
 
 const NAME = 'dsh'
 
@@ -134,11 +134,6 @@ export async function runTui(
     process.exit(1)
   }
   installFailLoud(NAME)
-  const dshHome = resolveDshHome()
-  const showFirstRunWelcome = !await hasTuiFirstRunWelcomeAcknowledgement(
-    dshHome,
-    TUI_FIRST_RUN_WELCOME_NOTICE_VERSION,
-  )
   // The bin already loaded the invoking directory's .env, and that is the
   // whole environment: $DSH_HOME/.env is credentials-local's writable store,
   // and hoisting it would make every stored key read as a read-only ambient
@@ -149,6 +144,11 @@ export async function runTui(
   // both together. Sessions themselves live under the Harness home so `/resume`
   // spans every workspace, and are unaffected by this chdir.
   if (workspace !== undefined) process.chdir(workspace)
+  const dshHome = resolveDshHome()
+  const showFirstRunWelcome = !await hasTuiFirstRunWelcomeAcknowledgement(
+    dshHome,
+    TUI_FIRST_RUN_WELCOME_NOTICE_VERSION,
+  )
   process.env.DSH_BUNDLED_SKILL_DIR = join(SOURCE_ROOT, 'skills')
   // The in-place `/resume` handoff re-execs `dsh` with a normalized `--resume`
   // flag, so the resumed process rehydrates through this same intake. The

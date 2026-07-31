@@ -42,8 +42,6 @@ while time.monotonic() < deadline:
         if output.count(marker) < actions[action_index].get("occurrence", 1):
             break
         action = actions[action_index]
-        if action.get("delayMs", 0) > 0:
-            time.sleep(action["delayMs"] / 1000)
         if "signal" in action:
             os.kill(pid, getattr(signal, action["signal"]))
         elif "writeFile" in action:
@@ -55,9 +53,6 @@ while time.monotonic() < deadline:
                 os.write(fd, action["send"].encode())
         else:
             os.write(fd, action["send"].encode())
-            if "signalAfterMs" in action:
-                time.sleep(action["signalAfterMs"] / 1000)
-                os.kill(pid, getattr(signal, action.get("signalAfter", "SIGTERM")))
         action_index += 1
     waited, candidate = os.waitpid(pid, os.WNOHANG)
     if waited == pid:
@@ -83,19 +78,13 @@ type TuiPtyAction =
     readonly waitFor: string
     readonly occurrence?: number
     readonly send: string
-    readonly delayMs?: number
-    /** Terminate the process this many milliseconds after sending input. */
-    readonly signalAfterMs?: number
-    /** Signal used by {@link signalAfterMs}; defaults to `SIGTERM`. */
-    readonly signalAfter?: 'SIGTERM' | 'SIGKILL'
   }
-  | { readonly waitFor: string; readonly occurrence?: number; readonly signal: 'SIGTERM'; readonly delayMs?: number }
+  | { readonly waitFor: string; readonly occurrence?: number; readonly signal: 'SIGTERM' }
   | {
     readonly waitFor: string
     readonly occurrence?: number
     readonly writeFile: { readonly path: string; readonly content: string }
     readonly send?: string
-    readonly delayMs?: number
   }
 
 /** Inputs for a keyless real-Loader TUI process smoke. */
@@ -212,19 +201,9 @@ async function runWindowsPtySmoke(
           mkdirSync(dirname(target), { recursive: true })
           writeFileSync(target, action.writeFile.content)
           const input = action.send
-          if (input !== undefined) {
-            if (action.delayMs === undefined) terminal.write(input)
-            else setTimeout(() => { terminal.write(input) }, action.delayMs)
-          }
+          if (input !== undefined) terminal.write(input)
         } else {
-          const send = (): void => {
-            terminal.write(action.send)
-            if (action.signalAfterMs !== undefined) {
-              setTimeout(() => { terminal.kill(action.signalAfter ?? 'SIGTERM') }, action.signalAfterMs)
-            }
-          }
-          if (action.delayMs === undefined) send()
-          else setTimeout(send, action.delayMs)
+          terminal.write(action.send)
         }
         actionIndex += 1
       }

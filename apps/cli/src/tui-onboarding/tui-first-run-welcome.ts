@@ -4,7 +4,7 @@
  * The launcher owns the per-DSH_HOME acknowledgement boundary; the component
  * reaches the terminal only through the mounted `ctx.tui` overlay service and
  * never touches the session or model context.
- * @module @deepseek-ai/dsh/tui-first-run-welcome
+ * @module @deepseek-ai/dsh/tui-onboarding/tui-first-run-welcome
  */
 
 import { randomUUID } from 'node:crypto'
@@ -12,11 +12,14 @@ import { lstat, mkdir, open, rename, rm } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import type { Context } from 'cordis'
 import {
-  matchesTuiKey,
-  truncateTuiText,
-  TuiKey,
-  tuiVisibleWidth,
-  wrapTuiText,
+  Key,
+  matchesKey,
+  truncateToWidth,
+  visibleWidth,
+  wrapTextWithAnsi,
+} from '@earendil-works/pi-tui'
+import {
+  disposeRootAndExit,
   type TuiComponent,
   type TuiFocusable,
   type TuiOverlayHost,
@@ -119,7 +122,6 @@ export async function acknowledgeTuiFirstRunWelcome(
     handle = undefined
     await created.close()
     await rename(temp, path)
-    await syncDirectory(directory)
   } catch (error) {
     /* v8 ignore start -- fault-injected UI coverage proves failed acknowledgements stay uncommitted and retryable */
     try {
@@ -129,6 +131,13 @@ export async function acknowledgeTuiFirstRunWelcome(
     }
     throw error
     /* v8 ignore stop */
+  }
+  try {
+    await syncDirectory(directory)
+  /* v8 ignore next -- rename is the commit point; directory-fsync fault injection is platform-specific */
+  } catch {
+    // Swallow post-rename directory fsync failure: the marker is already committed,
+    // and crash loss can only make the notice reappear on the safe side.
   }
 }
 
@@ -147,14 +156,14 @@ async function syncDirectory(path: string): Promise<void> {
 
 /** Render one visible-width-padded line inside the notice frame. */
 function framed(content: string, innerWidth: number, host: TuiOverlayHost): string {
-  const clipped = truncateTuiText(content, innerWidth)
-  return `${host.theme.dim('│')} ${clipped}${' '.repeat(Math.max(0, innerWidth - tuiVisibleWidth(clipped)))} ${host.theme.dim('│')}`
+  const clipped = truncateToWidth(content, innerWidth, '')
+  return `${host.theme.dim('│')} ${clipped}${' '.repeat(Math.max(0, innerWidth - visibleWidth(clipped)))} ${host.theme.dim('│')}`
 }
 
 /** Center one line by terminal column width. */
 function centered(content: string, width: number): string {
-  const clipped = truncateTuiText(content, width)
-  const remaining = Math.max(0, width - tuiVisibleWidth(clipped))
+  const clipped = truncateToWidth(content, width, '')
+  const remaining = Math.max(0, width - visibleWidth(clipped))
   return `${' '.repeat(Math.floor(remaining / 2))}${clipped}`
 }
 
@@ -168,9 +177,10 @@ export function tuiFirstRunWelcomeArtTier(
   innerWidth: number,
   viewportRows: number,
 ): TuiFirstRunWelcomeArtTier | undefined {
-  if (innerWidth >= 96 && viewportRows >= 23) return 'full'
-  if (innerWidth >= 80 && viewportRows >= 34) return 'compact'
-  if (innerWidth >= 64 && viewportRows >= 14) return 'minimal'
+  const compositionCapacity = Math.max(1, Math.max(7, Math.floor(viewportRows * 0.9)) - 5)
+  if (innerWidth >= 96 && TUI_FIRST_RUN_WELCOME_WHALE.full.unicode.length <= compositionCapacity) return 'full'
+  if (innerWidth >= 80 && TUI_FIRST_RUN_WELCOME_WHALE.compact.unicode.length + 4 <= compositionCapacity) return 'compact'
+  if (innerWidth >= 64 && TUI_FIRST_RUN_WELCOME_WHALE.minimal.unicode.length + 4 <= compositionCapacity) return 'minimal'
   return undefined
 }
 
@@ -187,11 +197,11 @@ function proseLines(
     if (quoteEnd > 0) {
       const quote = paragraph.slice(0, quoteEnd + 1)
       const remainder = paragraph.slice(quoteEnd + 1).trimStart()
-      lines.push(...wrapTuiText(host.theme.bold(host.theme.text(host.display(quote))), width))
+      lines.push(...wrapTextWithAnsi(host.theme.bold(host.theme.text(host.display(quote))), width))
       lines.push('')
-      if (remainder !== '') lines.push(...wrapTuiText(host.theme.text(host.display(remainder)), width))
+      if (remainder !== '') lines.push(...wrapTextWithAnsi(host.theme.text(host.display(remainder)), width))
     } else {
-      lines.push(...wrapTuiText(host.theme.text(host.display(paragraph)), width))
+      lines.push(...wrapTextWithAnsi(host.theme.text(host.display(paragraph)), width))
     }
   }
   return lines
@@ -221,6 +231,7 @@ export class TuiFirstRunWelcomeComponent implements TuiComponent, TuiFocusable {
     private readonly host: TuiOverlayHost,
     private readonly copy: TuiFirstRunWelcomeNoticeCopy,
     private readonly acknowledge: () => Promise<void>,
+    private readonly exit: () => void,
     private readonly asciiArt = false,
   ) {}
 
@@ -234,6 +245,7 @@ export class TuiFirstRunWelcomeComponent implements TuiComponent, TuiFocusable {
     const availableRows = Math.max(7, Math.floor(viewportRows * 0.9))
     const title = this.host.theme.bold(this.host.theme.brand(this.copy.title))
     let fixedHeader: string[] = []
+    let fullContentHeader: string[] = []
     let body: string[]
     let fullArt: string[] | undefined
     const fullArtWidth = 44
@@ -241,7 +253,8 @@ export class TuiFirstRunWelcomeComponent implements TuiComponent, TuiFocusable {
     if (tier === 'full') {
       fullArt = artLines(tier, fullArtWidth, this.host, this.asciiArt)
       const contentWidth = Math.max(1, innerWidth - fullArtWidth - 3)
-      body = [centered(title, contentWidth), '', ...proseLines(this.copy, contentWidth, this.host)]
+      fullContentHeader = [centered(title, contentWidth), '']
+      body = proseLines(this.copy, contentWidth, this.host)
     } else {
       const art = tier === undefined ? [] : artLines(tier, innerWidth, this.host, this.asciiArt)
       fixedHeader = [...art, ...art.length === 0 ? [] : [''], centered(title, innerWidth), '']
@@ -249,7 +262,7 @@ export class TuiFirstRunWelcomeComponent implements TuiComponent, TuiFocusable {
     }
 
     const compositionCapacity = Math.max(1, availableRows - 5)
-    const bodyLimit = Math.max(1, compositionCapacity - fixedHeader.length)
+    const bodyLimit = Math.max(1, compositionCapacity - fixedHeader.length - fullContentHeader.length)
     this.bodyCapacity = Math.min(body.length, bodyLimit)
     const maxOffset = Math.max(0, body.length - this.bodyCapacity)
     this.maxScrollOffset = maxOffset
@@ -271,12 +284,13 @@ export class TuiFirstRunWelcomeComponent implements TuiComponent, TuiFocusable {
         ? this.host.theme.dim(this.copy.saving)
         : this.host.theme.dim(scroll)
 
+    const fullContent = [...fullContentHeader, ...visibleBody]
     const composition = fullArt === undefined
       ? [...fixedHeader, ...visibleBody]
-      : Array.from({ length: Math.max(fullArt.length, visibleBody.length) }, (_, index) => {
+      : Array.from({ length: Math.max(fullArt.length, fullContent.length) }, (_, index) => {
         const art = fullArt[index] ?? ''
-        const line = visibleBody[index] ?? ''
-        const left = `${art}${' '.repeat(Math.max(0, fullArtWidth - tuiVisibleWidth(art)))}`
+        const line = fullContent[index] ?? ''
+        const left = `${art}${' '.repeat(Math.max(0, fullArtWidth - visibleWidth(art)))}`
         return `${left}   ${line}`
       })
 
@@ -291,17 +305,21 @@ export class TuiFirstRunWelcomeComponent implements TuiComponent, TuiFocusable {
   }
 
   handleInput(data: string): void {
-    if (matchesTuiKey(data, TuiKey.enter)) {
+    if (matchesKey(data, Key.ctrl('c')) || matchesKey(data, Key.ctrl('d'))) {
+      this.exit()
+      return
+    }
+    if (matchesKey(data, Key.enter)) {
       if (!this.saving) void this.commit()
       return
     }
-    if (this.saving || matchesTuiKey(data, TuiKey.escape)) return
-    if (matchesTuiKey(data, TuiKey.up)) this.scrollBy(-1)
-    else if (matchesTuiKey(data, TuiKey.down)) this.scrollBy(1)
-    else if (matchesTuiKey(data, TuiKey.pageUp)) this.scrollBy(-this.bodyCapacity)
-    else if (matchesTuiKey(data, TuiKey.pageDown)) this.scrollBy(this.bodyCapacity)
-    else if (matchesTuiKey(data, TuiKey.home)) this.scrollTo(0)
-    else if (matchesTuiKey(data, TuiKey.end)) this.scrollTo(this.maxScrollOffset)
+    if (this.saving || matchesKey(data, Key.escape)) return
+    if (matchesKey(data, Key.up)) this.scrollBy(-1)
+    else if (matchesKey(data, Key.down)) this.scrollBy(1)
+    else if (matchesKey(data, Key.pageUp)) this.scrollBy(-this.bodyCapacity)
+    else if (matchesKey(data, Key.pageDown)) this.scrollBy(this.bodyCapacity)
+    else if (matchesKey(data, Key.home)) this.scrollTo(0)
+    else if (matchesKey(data, Key.end)) this.scrollTo(this.maxScrollOffset)
   }
 
   private scrollBy(delta: number): void {
@@ -335,11 +353,23 @@ export class TuiFirstRunWelcomeComponent implements TuiComponent, TuiFocusable {
  */
 export function apply(ctx: Context, config: Config): void {
   const copy = TUI_FIRST_RUN_WELCOME_NOTICE_COPY[TUI_FIRST_RUN_WELCOME_NOTICE_LOCALE]
+  const pending = new Set<Promise<void>>()
+  const acknowledge = (): Promise<void> => {
+    const task = acknowledgeTuiFirstRunWelcome(config.dshHome)
+    pending.add(task)
+    const settled = (): void => { pending.delete(task) }
+    void task.then(settled, settled)
+    return task
+  }
+  ctx.effect(() => async () => {
+    await Promise.allSettled(pending)
+  }, 'tui first-run welcome acknowledgement')
   ctx.tui.openOverlay({
     create: host => new TuiFirstRunWelcomeComponent(
       host,
       copy,
-      () => acknowledgeTuiFirstRunWelcome(config.dshHome),
+      acknowledge,
+      () => { disposeRootAndExit(ctx, 0) },
       config.asciiArt ?? false,
     ),
     options: {
