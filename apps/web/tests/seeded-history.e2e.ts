@@ -238,7 +238,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
     // where neither half repeats the other (the dispatched `/` and its
     // argument stay out of the title, and the settlement text never restates
     // the command's own name).
-    await page.getByRole('button', { name: 'Access mode, current: Danger Full Access' }).click()
+    await page.getByRole('button', { name: 'Access mode, current: Full access' }).click()
     await page.getByRole('menuitem', { name: 'Workspace Write' }).click()
     await page.getByRole('button', { name: 'Access mode, current: Workspace Write' }).waitFor({ timeout: 10_000 })
     // Scoped to the row itself, so unrelated page text that happens to read

@@ -55,6 +55,17 @@ type RenderToolRow = ChatViewSlotProps['renderSlot']
  *  chat view narrows once to the runtime snapshot the binding actually feeds. */
 type UseConversation = SnapshotSelectorHook<ConversationSnapshot>
 
+function activeRetrySeq(nodes: readonly ConversationNode[], running: boolean): number | null {
+  if (!running) return null
+  for (let index = nodes.length - 1; index >= 0; index -= 1) {
+    const node = nodes[index]
+    if (node === undefined) continue
+    if (node.kind === 'model-retry') return node.retryState === 'cancelled' ? null : node.seq
+    if (node.kind === 'assistant' || node.kind === 'user') return null
+  }
+  return null
+}
+
 /** One `run_code` sub-dispatch row: the identical keyed-slot dispatch as a
  *  top-level call (same registrations, same fallback), nested by the parent.
  *  A started-but-unsettled sub-call arrives as the RunningToolCall shape and
@@ -262,6 +273,7 @@ export function ChatView({
   const selectedCallId = useStore(s => s.selection?.callId)
 
   const items = useMemo(() => deriveChatFlow(nodes), [nodes])
+  const activeRetry = useMemo(() => activeRetrySeq(nodes, running), [nodes, running])
   // Only the last content assistant of each turn owns IconActions; mid-turn
   // text (before tools) omits `time` so AssistantMarkdown stays chrome-free.
   const actionSeqs = useMemo(() => assistantActionsSeqs(nodes), [nodes])
@@ -424,7 +436,15 @@ export function ChatView({
     }
     /* v8 ignore next -- tool-result never reaches here: deriveChatFlow folds them into groups. */
     if (node.kind === 'tool-result') return null
-    return <MessageItem key={item.key} node={node} onFork={forkAt} t={t} />
+    return (
+      <MessageItem
+        key={item.key}
+        node={node}
+        retryActive={node.kind === 'model-retry' && node.seq === activeRetry}
+        onFork={forkAt}
+        t={t}
+      />
+    )
   }
 
   return (
