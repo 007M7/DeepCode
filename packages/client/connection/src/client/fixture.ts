@@ -137,6 +137,44 @@ const TERMINAL_EXIT_STATUS: Record<string, { exitCode: number } | { signal: stri
   [TERMINAL_OUTPUT_FIXTURE]: { exitCode: 1 },
 }
 
+/**
+ * The structured `web_search` result view for fixture turn 66, authored inline
+ * because this client-side fixture cannot import the web tool that projects it.
+ * The sources exercise the citation list's features: a titled source with a
+ * snippet and a date, a source with no title (its hostname labels the link) and
+ * a snippet but no date, and a source with a title and a date but no snippet.
+ * `truncated` marks the capped indicator. The shape is the contract's own
+ * search view minus its wire discriminants.
+ */
+const WEB_SEARCH_RESULT: Omit<Extract<ToolResultView, { card: 'web'; kind: 'search' }>, 'card' | 'kind'> = {
+  answer: 'DeepSeek Harness is a plugin-based agent harness on vendored Cordis where **every capability is a plugin**.',
+  sources: [
+    {
+      url: 'https://github.com/deepseek-ai/deepseek-harness',
+      title: 'DeepSeek Harness — plugin-based agent harness',
+      snippet: 'Everything is a plugin: session, tools, agent-loop, and LLM adapters all mount on the same Cordis context.',
+      publishedAt: '2026-07-01',
+    },
+    {
+      url: 'https://www.deepseek.com/blog/harness-architecture',
+      snippet: 'The capability-seam pattern splits each capability into interface, implementation, and consumer packages.',
+    },
+    {
+      url: 'https://docs.deepseek.com/harness/plugins',
+      title: 'Writing a harness plugin',
+      publishedAt: '2026-06-15',
+    },
+  ],
+  truncated: true,
+}
+
+/** The `web_fetch` result view for fixture turn 67, authored inline for the same reason. */
+const WEB_FETCH_RESULT: Omit<Extract<ToolResultView, { card: 'web'; kind: 'fetch' }>, 'card' | 'kind'> = {
+  url: 'https://www.deepseek.com/blog/harness-architecture',
+  statusCode: 200,
+  truncated: false,
+}
+
 const DEEPSEEK_REASONING = {
   efforts: [
     { id: 'off', name: 'Off' },
@@ -262,6 +300,13 @@ function buildAlphaLog(): SessionEvent[] {
   toolTurn(61, 'fx-write', '{"path":"notes/demo.txt","content":"hello fixture\\n"}', 'wrote notes/demo.txt')
   toolTurn(62, 'edit', '{"file_path":"notes/demo.txt","old_string":"hello","new_string":"hello fixture"}', '已编辑')
   toolTurn(63, 'write', '{"file_path":"notes/new-demo.txt","content":"hello fixture\\n"}', '已写入')
+  // Turn 67: a multi-hunk edit — two scattered replacements in one file. Named
+  // `edit` so it lands on the keyed FileMutationRow (the resident diff card the
+  // single-hunk turn 62 also uses), and file_path `src/config.ts` is the marker
+  // the presenter reads to emit the two-hunk sample: the card draws one path
+  // header, the first hunk, a `⋯` gap, then the second (the same-file
+  // second-hunk arm turns 62/63 cannot reach).
+  toolTurn(67, 'edit', '{"file_path":"src/config.ts","old_string":"const timeout = 30","new_string":"const timeout = 60"}', '已编辑')
   // Turn 64: one run_code turn with three logged sub-dispatches — the Code
   // Mode acceptance surface (parent code row + nested native-identical rows,
   // including an isError sub-call and a bash sub-call that must hit the same
@@ -326,8 +371,20 @@ function buildAlphaLog(): SessionEvent[] {
   // strip empty and take the todo surfaces' own coverage with it.
   toolTurn(65, 'bash', '{"command":"pnpm run check","cwd":"/tmp/fixture/deep/nested"}', TERMINAL_OUTPUT_FIXTURE)
 
+  // Turns 66-67: the web render intent — a web_search whose result view carries
+  // structured sources plus an answer (the citation list, one source lacking a
+  // title so its hostname labels the link, the capped indicator on), and a
+  // web_fetch whose result view carries the fetched URL and its HTTP status.
+  // Both keep a generic pending call view and add the `web` card only at
+  // result time, which is the contract's result-only web shape. Named after
+  // the real tools so they hit the keyed WebRow registration. Ordered BEFORE
+  // the todo turn for the same reason turn 65 is: the standing plan retires at
+  // the next turn/start, so a turn after it would empty the dock's plan strip.
+  toolTurn(66, 'web_search', '{"query":"deepseek harness architecture"}', 'Search results for deepseek harness architecture.')
+  toolTurn(67, 'web_fetch', '{"url":"https://www.deepseek.com/blog/harness-architecture"}', '# Harness architecture\n\nEverything is a plugin.')
+
   const todoArgs = JSON.stringify({ todos: fixtureTodos })
-  toolTurn(66, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
+  toolTurn(68, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
   // The real tool appends the snapshot mid-execution — between tool/call and
   // tool/result — so the fixture reproduces that exact ordering (the last
   // toolTurn events run ... tool/call, tool/result, step/end, turn/end).
@@ -363,9 +420,33 @@ function presentCall(name: string, argsRaw: string): ToolCallView | undefined {
         diffs: [{ path: str(args.path), oldText: null, newText: str(args.content) }],
       }
     case 'edit':
-      return { card: 'generic', title: `Edit ${str(args.file_path)}`, kind: 'edit', rawInput: args }
+      // The multi-hunk sample (turn 67) is keyed on its file_path, so the two
+      // scattered hunks share one path header and the card draws the `⋯` gap.
+      if (str(args.file_path) === 'src/config.ts') {
+        return {
+          card: 'diff', title: `Edit ${str(args.file_path)}`,
+          diffs: [
+            { path: str(args.file_path), oldText: 'const timeout = 30', newText: 'const timeout = 60' },
+            { path: str(args.file_path), oldText: 'retries: 1', newText: 'retries: 3' },
+          ],
+        }
+      }
+      return {
+        card: 'diff', title: `Edit ${str(args.file_path)}`,
+        diffs: [{ path: str(args.file_path), oldText: str(args.old_string), newText: str(args.new_string) }],
+      }
     case 'write':
-      return { card: 'generic', title: `Write ${str(args.file_path)}`, kind: 'edit', rawInput: args }
+      return {
+        card: 'diff', title: `Write ${str(args.file_path)}`,
+        diffs: [{ path: str(args.file_path), oldText: null, newText: str(args.content) }],
+      }
+    // The web tools keep a GENERIC pending card and add the `web` result card
+    // only at result time (the contract's result-only web shape); their pending
+    // kind matches the result kind so a call and its result read as one category.
+    case 'web_search':
+      return { card: 'generic', title: `Search ${str(args.query)}`, kind: 'search', rawInput: args }
+    case 'web_fetch':
+      return { card: 'generic', title: `Fetch ${str(args.url)}`, kind: 'fetch', rawInput: args }
     default:
       return undefined // echo et al: the documented no-view fallback path
   }
@@ -374,6 +455,17 @@ function presentCall(name: string, argsRaw: string): ToolCallView | undefined {
 function presentResult(name: string, argsRaw: string, resultText: string): ToolResultView | undefined {
   const call = presentCall(name, argsRaw)
   if (call === undefined) return undefined
+  // The web tools keep a generic pending card, so their result card is chosen
+  // by tool name rather than by the pending card tag: the structured `web` card
+  // the frontend consumes. The view carries no `content` copy (per the contract
+  // and the web-result-card note); a capability-less UI falls back to the raw
+  // `tool/result` content, which this fixture emits from `resultText`.
+  if (name === 'web_search') {
+    return { card: 'web', kind: 'search', ...WEB_SEARCH_RESULT }
+  }
+  if (name === 'web_fetch') {
+    return { card: 'web', kind: 'fetch', ...WEB_FETCH_RESULT }
+  }
   switch (call.card) {
     case 'terminal':
       // The sample's own exit status, authored beside it: re-parsing the
@@ -1058,6 +1150,8 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
   let failNextHistory = false
   /** Force-enders for currently open stream generators (timing hook: simulated connection loss). */
   const streamBreakers = new Set<() => void>()
+  /** Retry scenarios opened by timing hooks and completed in a later browser assertion phase. */
+  const retryScenarios = new Map<SessionId, { turn: number; stepStarted: boolean }>()
 
   // Timing-acceptance hooks (browser test backdoor): the in-memory fixture is ideally timed, which
   // is exactly what masked the open-window and reconnect-gap bugs (audit S1/S3). These let
@@ -1080,6 +1174,89 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       const log = logOf(sid(id))
       const messageSeqs = log.filter(event => event.type === 'user/message').map(event => event.seq)
       append(sid(id), { type: 'session/title', data: { title, messageSeqs, source: { kind: 'provider', provider: 'fixture' } } })
+    },
+    /** Open one failed model step whose partial remains visible until llm/retry arrives. */
+    beginModelRetry(id: string): void {
+      const sessionId = sid(id)
+      const turn = nextTurn.get(sessionId) ?? 0
+      nextTurn.set(sessionId, turn + 1)
+      retryScenarios.set(sessionId, { turn, stepStarted: true })
+      setRunning(sessionId, true)
+      append(sessionId, { type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
+      append(sessionId, { type: 'user/message', surfaceOp: 'append', data: { content: text('请重试这个请求'), source: { kind: 'user' } } })
+      append(sessionId, { type: 'step/start', data: { turn, step: 1 } })
+      append(sessionId, { type: 'assistant/chunk', data: { turn, step: 1, chunk: { type: 'block-start', index: 0, blockType: 'text' } } })
+      append(sessionId, { type: 'assistant/chunk', data: { turn, step: 1, chunk: { type: 'text-delta', index: 0, text: '应撤回的半截回复' } } })
+      append(sessionId, { type: 'step/end', data: { turn, step: 1 } })
+    },
+    /** Record one retry decision, then open the next retry turn. */
+    scheduleModelRetry(id: string, retry = 1, delayMs = 450): void {
+      const sessionId = sid(id)
+      const scenario = retryScenarios.get(sessionId)
+      if (scenario === undefined) throw new Error(`fixture: no model retry scenario for ${id}`)
+      if (!scenario.stepStarted) {
+        append(sessionId, { type: 'step/start', data: { turn: scenario.turn, step: 1 } })
+        append(sessionId, { type: 'assistant/chunk', data: { turn: scenario.turn, step: 1, chunk: { type: 'block-start', index: 0, blockType: 'text' } } })
+        append(sessionId, { type: 'assistant/chunk', data: { turn: scenario.turn, step: 1, chunk: { type: 'text-delta', index: 0, text: `第 ${String(retry)} 次应撤回的回复` } } })
+        append(sessionId, { type: 'step/end', data: { turn: scenario.turn, step: 1 } })
+        scenario.stepStarted = true
+      }
+      const failure = { code: 'TRANSPORT', message: '连接被重置' }
+      append(sessionId, {
+        type: 'llm/retry',
+        data: {
+          turn: scenario.turn, step: 1,
+          provider: 'fixture', mode: 'normal', policyKey: 'fixture-normal',
+          retry, maxRetries: 2, delayMs, failure,
+        },
+      })
+      append(sessionId, {
+        type: 'turn/end',
+        data: { turn: scenario.turn, reason: { kind: 'error', step: 1, failure } },
+      })
+      const next = nextTurn.get(sessionId) ?? scenario.turn + 1
+      nextTurn.set(sessionId, next + 1)
+      append(sessionId, { type: 'turn/start', data: { turn: next, trigger: { kind: 'retry' } } })
+      scenario.turn = next
+      scenario.stepStarted = false
+    },
+    /** Record one retry decision, then cancel its source turn before the retry starts. */
+    cancelModelRetryDuringBackoff(id: string, delayMs = 450): void {
+      const sessionId = sid(id)
+      const scenario = retryScenarios.get(sessionId)
+      if (scenario === undefined) throw new Error(`fixture: no model retry scenario for ${id}`)
+      const failure = { code: 'TRANSPORT', message: '连接被重置' }
+      append(sessionId, {
+        type: 'llm/retry',
+        data: {
+          turn: scenario.turn, step: 1,
+          provider: 'fixture', mode: 'normal', policyKey: 'fixture-normal',
+          retry: 1, maxRetries: 2, delayMs, failure,
+        },
+      })
+      append(sessionId, { type: 'turn/end', data: { turn: scenario.turn, reason: { kind: 'aborted' } } })
+      retryScenarios.delete(sessionId)
+      setRunning(sessionId, false)
+    },
+    /** Finish the timing-hook retry with a finalized response in the open retry turn. */
+    completeModelRetry(id: string): void {
+      const sessionId = sid(id)
+      const scenario = retryScenarios.get(sessionId)
+      if (scenario === undefined) throw new Error(`fixture: no model retry scenario for ${id}`)
+      retryScenarios.delete(sessionId)
+      append(sessionId, { type: 'step/start', data: { turn: scenario.turn, step: 1 } })
+      append(sessionId, {
+        type: 'assistant/message',
+        surfaceOp: 'append',
+        data: {
+          turn: scenario.turn,
+          step: 1,
+          message: assistantMessage(text('重试后的完整回复')),
+        },
+      })
+      append(sessionId, { type: 'step/end', data: { turn: scenario.turn, step: 1 } })
+      append(sessionId, { type: 'turn/end', data: { turn: scenario.turn, reason: { kind: 'completed' } } })
+      setRunning(sessionId, false)
     },
     /** Log append WITHOUT the mux emit: a frame lost in transit — history still serves it, the client must repull. */
     appendSilent(id: string, msg: string): void {
