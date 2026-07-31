@@ -307,6 +307,22 @@ describe('worktree-local Lefthook installer', () => {
     expect(existsSync(join(hooksPath(fixture, fixture.main), '.fake-lefthook-running'))).toBe(false)
   }, 15_000)
 
+  it('waits for a concurrent installer to finish publishing its lock record', async () => {
+    const fixture = createFixture()
+    const lockPath = installLockPath(fixture)
+    const publishing = runInstaller(fixture, fixture.main, {
+      DSH_TEST_LEFTHOOK_LOCK_WRITE_DELAY_MS: '200',
+    })
+    await waitForPath(lockPath)
+    expect(readFileSync(lockPath, 'utf8')).toBe('')
+
+    const waiting = runInstaller(fixture, fixture.linked)
+    const results = await Promise.all([publishing, waiting])
+
+    for (const result of results) expect(result.status, result.stderr).toBe(0)
+    expect(existsSync(lockPath)).toBe(false)
+  })
+
   it('repairs its owned absolute hook path after the checkout moves', async () => {
     const fixture = createFixture()
     const oldRoot = fixture.main
