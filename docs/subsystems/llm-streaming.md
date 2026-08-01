@@ -2,9 +2,81 @@
 
 English | [中文](llm-streaming.zh.md)
 
-The wire-level streaming vocabulary of [dsh-llm](../../packages/llm/llm). [core.md](core.md) introduces `StreamChunk`, `Message`, and `ContentBlock`; this page owns the full chunk protocol, the adapter contract every adapter must obey, and the shared assembler.
+The conversation and streaming vocabulary of [`packages/llm`](../../packages/llm/README.md): the `Message`/`ContentBlock` shapes every request and durable history share, the fully-assembled model request, the raw `StreamChunk` protocol, the adapter contract every adapter must obey, and the shared assembler. The [core spine](core.md) holds and logs these values on every turn; this page declares them.
 
 Source: [`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
+
+<a id="content-blocks-and-messages"></a>
+
+## Content blocks and messages
+
+A conversation is `Message`s; a message is an array of typed **content blocks**. The block union derives from `ContentBlockMap`.
+
+Source: [`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
+
+```ts type-equiv
+/**
+ * Merge-extensible content blocks keyed by `type`. New core blocks must land
+ * with adapter, UI, and compaction support.
+ */
+interface ContentBlockMap {
+  'text': TextBlock
+  'reasoning': ReasoningBlock
+  'tool-call': ToolCallBlock
+  'tool-result': ToolResultBlock
+}
+```
+
+The block interfaces (full fields in source): `TextBlock` (`text`), `ReasoningBlock` (thinking, distinct from visible text), `ToolCallBlock` (`id: CallId`, `name`, raw-JSON `arguments`), `ToolResultBlock` (`toolCallId`, nested `content: ContentBlock[]`, `isError?`). `ContentBlock = ContentBlockMap[ContentBlockType]`. The core set is limited to blocks every shipping path honors — multimodal content (images, audio, …) has no core block type; a feature that needs one adds it via the merge-extensible map together with the adapter/UI/compaction support that honors it.
+
+Source: [`packages/llm/llm/src/message.ts`](../../packages/llm/llm/src/message.ts)
+
+A `Message` is one identified, immutable role/source/content value. Model-produced assistant messages carry provider/model ownership and optional adapter-private replay metadata in their source:
+
+```ts type-equiv
+/** Provider ownership and adapter-private replay data for an assistant message. */
+interface AssistantProvenance {
+  /** Provider route that produced the message. */
+  provider: string
+  /** Provider model id that produced the message. */
+  model: string
+  /**
+   * Lossless-JSON adapter state needed to replay the provider response.
+   * `LlmService` exposes it to a target adapter only when that adapter instance
+   * currently owns both this historical provider and the target provider.
+   */
+  replayState?: unknown
+}
+```
+
+```ts type-equiv
+/** One immutable message representation shared by delivery, durable history, and model requests. */
+interface Message {
+  /** Stable identity preserved across every representation boundary. */
+  readonly id: MessageId
+  /** Provider-neutral conversation role. */
+  readonly role: 'system' | 'user' | 'assistant'
+  /** Exact model-facing blocks. */
+  readonly content: ContentBlock[]
+  /** Required producer provenance. */
+  readonly source: MessageSource
+}
+```
+
+Where a message came from is itself a merge-extensible sum type:
+
+```ts type-equiv
+/**
+ * Where a message (or injected content) came from.
+ * Merge-extensible sum type — plugins add their own `kind`s.
+ */
+interface MessageSourceMap {
+  user: { kind: 'user' }
+  plugin: { kind: 'plugin'; plugin: string }
+  model: ModelMessageSource
+  tool: ToolMessageSource
+}
+```
 
 ## `StreamChunk` — the raw protocol
 
@@ -15,9 +87,8 @@ A streaming response interleaves several typed blocks (text, reasoning, multiple
  * Raw streaming protocol emitted by adapters.
  * Block indexes correlate interleaved deltas, and `block-end` carries the
  * assembled block. Adapters emit usage before the terminal finish and nothing
- * afterward; tool arguments remain raw JSON strings. An adapter implementation
- * may throw, but `LlmService.stream()` normalizes that failure to a terminal
- * `error` or `aborted` finish before exposing it to consumers.
+ * afterward; tool arguments remain raw JSON strings. Failures either throw or
+ * end with `error`/`aborted`, and consumers must handle both paths.
  */
 type StreamChunk =
   | { type: 'block-start'; index: number; blockType: ContentBlockType }
@@ -65,10 +136,10 @@ Every adapter MUST obey these, and every consumer may rely on them:
 - **Provider stalls are bounded at the transport.** Both shipping remote adapters expose positive finite `streamIdleTimeoutMs` with a five-minute default. The watchdog arms only while iterator `next()` is outstanding, uses one stable signal for the whole request, maps its own expiry to `TIMEOUT`, and keeps an earlier caller abort as `ABORTED`.
 - **Context overflow has one canonical code.** Both DeepSeek adapters classify explicit provider detail through `isContextWindowExceededError()` and surface `CONTEXT_WINDOW_EXCEEDED`, whether the failure arrives as a thrown HTTP `LlmError` or an in-band finish error. Consumers route on the code, never provider text.
 - **An empty completion is a retryable error, not a silent success.** Both adapters map a terminal `stop` finish that carried no content blocks to `finish {kind:'error'}` with the canonical `EMPTY_RESPONSE` code, and `dsh-llm-retry` retries it by default; see [empty model responses are retryable](../../.agents/notes/implemented/bug-fix/2026-07-24-empty-model-response-is-retryable.md).
-- **Every provider HTTP request carries the app-attribution header.** Adapters send `attributionHeaders()` (below), the `User-Agent` baseline.
+- **Every provider HTTP request carries the app-attribution header.** Adapters send `attributionHeaders()` (below) - the `User-Agent` baseline - and prove it with a wire-level test (mock server asserting the received header, or the library's header hook for a library-backed adapter).
 - **Replay state is adapter-owned.** A successful `finish` may carry lossless-JSON state needed to reconstruct a native provider response. The loop stores it with the assembled assistant message. On a later request, `LlmService` passes the state only when the historical provider and target provider are currently registered to the exact same adapter instance. That adapter validates the state and owns any cross-model or cross-provider conversion; other adapters receive the provider-neutral content and provenance without the private state.
 
-Two independent implementations obey this contract: `dsh-llm-deepseek` uses direct fetch with SSE framing through `eventsource-parser`, while `dsh-llm-pi-ai` provides a generic multi-provider adapter through `@earendil-works/pi-ai`. Both carry cancellation and the idle watchdog to the provider request.
+This contract is pinned down by two deliberately independent implementations: `dsh-llm-deepseek` (direct fetch, SSE framing via `eventsource-parser`) and `dsh-llm-pi-ai` (a generic multi-provider adapter through `@earendil-works/pi-ai`). The library-backed adapter exercises the finish-chunk error path, while transport-boundary tests prove each idle watchdog stops its actual request.
 
 ## `ResolvedRetryPolicy`
 
@@ -142,9 +213,8 @@ declare class BlockAssembler {
   push(chunk: StreamChunk): void;
   /**
    * Assemble all blocks seen so far, in stream order.
-   * @returns one block per seen index, except that max-token truncation drops
-   *   tool calls that cannot be executed safely; an open block assembles from
-   *   its accumulated deltas (an unknown block type never closed by `block-end` throws).
+   * @returns one block per seen index; an open block assembles from its
+   *   accumulated deltas (an unknown block type never closed by `block-end` throws).
    */
   blocks(): ContentBlock[];
   /** Usage from the `usage` chunk; undefined until one arrives. */
@@ -162,6 +232,263 @@ declare class BlockAssembler {
 }
 ```
 
+<a id="the-model-request-and-result"></a>
+
+## The model request
+
+One model call is a fully-assembled `GenerateOptions`. The adapter answers with a raw [`StreamChunk`](#streamchunk--the-raw-protocol) stream; the consumer assembles it with [`BlockAssembler`](#blockassembler).
+
+Source: [`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
+
+Provider and model discovery uses small provider-neutral descriptors. A model catalog is advisory: routing still keys on a registered provider, and an adapter may accept unlisted model ids.
+
+Registering an adapter returns a handle: the disposer, plus the atomic route replacement a plugin whose route set is user-configurable needs.
+
+```ts type-equiv
+/**
+ * What {@link LlmService.registerAdapter} returns: the disposer, plus an
+ * atomic route replacement for the same adapter instance.
+ */
+interface AdapterRegistrationHandle {
+  /** Release every route this registration currently holds. */
+  (): void
+  /**
+   * Replace this registration's routes with `providers`, keeping the same
+   * adapter instance. The candidate set is validated in full first — a
+   * conflict with another adapter, an invalid name, or bad provider metadata
+   * throws and leaves the current routes untouched — and the swap itself is
+   * one synchronous section, so no request can observe a gap. An empty array
+   * is legal here (a settings section that emptied holds zero routes while
+   * staying registered), unlike an empty initial registration.
+   *
+   * Throws `LlmError` with code `REGISTRATION_DISPOSED` once the registration
+   * has been released: its routes are gone and its disposer has already run,
+   * so anything registered afterwards would have no owner left to release it.
+   * @param providers - the complete next route set for this registration.
+   */
+  replace(providers: string[]): void
+}
+```
+
+```ts type-equiv
+/** Display metadata for one registered provider route. */
+interface LlmProviderInfo {
+  /** Provider route key used by {@link GenerateOptions.provider}. */
+  id: string
+  /** Human-readable provider name for selectors and diagnostics. */
+  name: string
+}
+```
+
+Adapter plugins additionally declare which routes *could* run through `registerConfigurableProviders()`, addressing each one's user-settings section, so configuration surfaces can offer dormant providers before any route registers.
+
+```ts type-equiv
+/**
+ * One provider route an adapter plugin can activate through configuration,
+ * whether or not the route is currently registered. Configuration surfaces
+ * merge this directory with `listProviders()` to offer every configurable
+ * provider alongside its live/dormant state.
+ */
+interface LlmConfigurableProvider {
+  /** Provider route key this entry activates when configured. */
+  provider: string
+  /** Human-readable provider name for configuration surfaces. */
+  displayName: string
+  /** User-settings namespace whose section configures this provider. */
+  settingsNs: string
+  /**
+   * Path from that namespace's section root to this provider's profile
+   * object; empty when the whole section is the profile.
+   */
+  settingsPath: readonly string[]
+}
+```
+
+```ts type-equiv
+/** One adapter-discovered model; catalog membership is advisory, not request validation. */
+interface LlmModelInfo {
+  /** Provider route that owns this model entry. */
+  provider: string
+  /** Model id passed to {@link GenerateOptions.model}. */
+  id: string
+  /** Human-readable model name for selectors. */
+  name: string
+  /** Optional user-facing distinction from otherwise similar models. */
+  description?: string
+}
+```
+
+Correctness-sensitive metadata is resolved separately from the advisory catalog and is owned by the adapter serving the exact route. Context capacity, adapter call defaults, and reasoning choices share one exact-model result so consumers do not repeat authoritative model resolution.
+
+```ts type-equiv
+/** Provider-owned context capacity for one exact provider/model route. */
+interface LlmModelContext {
+  /** Maximum combined request and response context in tokens. */
+  contextWindow: number
+}
+```
+
+Reasoning effort is another exact-route capability. The core brands identifiers but does not enumerate their values; each adapter owns the ordered set, display names, and optional deployment default.
+
+```ts type-equiv
+/** Adapter-owned identifier for one model's selectable reasoning effort. */
+type ReasoningEffortId = Branded<'ReasoningEffortId'>
+```
+
+```ts type-equiv
+/** Display metadata for one adapter-owned reasoning effort. */
+interface LlmReasoningEffortInfo {
+  /** Opaque stable value accepted by {@link GenerateOptions.reasoningEffort}. */
+  id: ReasoningEffortId
+  /** Human-readable effort name for selectors and diagnostics. */
+  name: string
+  /** Optional user-facing distinction from otherwise similar efforts. */
+  description?: string
+}
+```
+
+```ts type-equiv
+/** Selectable reasoning efforts for one exact provider/model route. */
+interface LlmModelReasoningInfo {
+  /** Supported efforts in adapter-preferred display order. */
+  efforts: readonly LlmReasoningEffortInfo[]
+  /**
+   * Adapter-configured default materialized into requests when callers omit
+   * an effort. Absence preserves the provider's own default.
+   */
+  defaultEffort?: ReasoningEffortId
+}
+```
+
+```ts type-equiv
+/** Exact-route model metadata resolved by its owning adapter. */
+interface LlmResolvedModelInfo extends LlmModelInfo {
+  /** Provider-owned context capacity when known. */
+  context?: LlmModelContext
+  /** Adapter-configured per-request output cap materialized when callers omit one. */
+  defaultMaxTokens?: number
+  /** Adapter-owned selectable reasoning levels when exposed. */
+  reasoning?: LlmModelReasoningInfo
+}
+```
+
+```ts type-equiv
+/** A single model request, fully assembled. */
+interface GenerateOptions {
+  /** Registered provider route selecting the adapter instance. */
+  provider: string
+  model: string
+  /** Adapter-owned reasoning effort selected for this exact model. */
+  reasoningEffort?: ReasoningEffortId
+  /**
+   * Ordered conversation messages, exactly as the provider sees them (after
+   * the `system` slot). A loop-built request assembles them as
+   * the derived history (dsh-agent-loop); a hand-built one-shot passes any list.
+   */
+  messages: Message[]
+  /** System prompt text (adapters map to the provider's system slot). */
+  system?: string
+  /** Tool schemas (adapters map to the provider's `tools` field). */
+  tools?: ToolSchema[]
+  temperature?: number
+  maxTokens?: number
+  /**
+   * Stop sequences: generation halts as soon as the model produces any one of
+   * these strings (adapters map to the provider's stop field, e.g. OpenAI
+   * `stop`). The stop string itself is not included in the output.
+   */
+  stop?: string[]
+  signal?: AbortSignal
+  /**
+   * Session identity stamped by the loop for listener routing. Adapters ignore
+   * it; replay uses it to keep concurrent parent and child cursors independent.
+   */
+  sessionId?: Branded<'SessionId'>
+  /**
+   * Provider-neutral classification for an auxiliary model call. Adapters may
+   * map the purpose to model-hidden transport metadata or purpose-specific
+   * generation policy. Ordinary conversation requests leave it unset.
+   */
+  purpose?: 'compaction' | 'session-title'
+}
+```
+
+Why a model response stopped is a merge-extensible reason. Terminal provider failures carry the streaming contract's [`LlmFailure`](#llmfailure):
+
+```ts type-equiv
+/**
+ * Why a model response stopped.
+ * Merge-extensible so adapters can surface provider-specific reasons.
+ */
+interface FinishReasonMap {
+  'stop': { kind: 'stop' }
+  'tool-calls': { kind: 'tool-calls' }
+  'max-tokens': { kind: 'max-tokens' }
+  'aborted': { kind: 'aborted'; failure: LlmFailure }
+  'error': { kind: 'error'; failure: LlmFailure }
+}
+```
+
+`FinishReason = FinishReasonMap[keyof FinishReasonMap]`. `TokenUsage` (per-call accounting with disjoint cache fields) is detailed [below](#tokenusage).
+
+`GenerateOptions.tools` carries `ToolSchema` — the JSON-schema description of a tool, as sent to the model. It is declared in dsh-llm (not dsh-tools) precisely because it is part of the request the loop assembles every step:
+
+```ts type-equiv
+/**
+ * JSON-schema description of a tool, as sent to the model.
+ *
+ * Declared here (not in dsh-tools) because it is part of {@link GenerateOptions};
+ * dsh-tools' ToolDefinition and dsh-system-prompt's PromptAssembly both import
+ * it from this package.
+ */
+interface ToolSchema {
+  name: string
+  description: string
+  /** JSON Schema object for the arguments. */
+  parameters: Record<string, unknown>
+}
+```
+
+The model-facing `ToolSchema` is the wire shape; the registered `ToolDefinition` that produces it (schema + `execute`) is on [tools.md](tools.md).
+
+### The request envelope: `LlmCallConfig` and the logged header
+
+The loop builds each request from logged state. `EpochHeader` records call config, adapter-default provenance, rendered prompt, and authoritative returned tool order (configured by `toolOrder`, or lexicographic when unset) through full `request/header` snapshots. Together with derived history, this makes the request reconstructable from the session log. See [session.md](session.md#the-request-header-event-requestheader) and the [reconstructability Agent Note](../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md).
+
+`agent/request` receives a frozen call-config seed and may return a replacement to switch provider, model, reasoning effort, or sampling. Before the waterfall, the loop removes values marked as adapter defaults so exact-model preparation materializes the selected route's current values; unmarked explicit settings remain in the proposal. After the waterfall, preparation rejects unsupported explicit effort ids without clamping and logs the effective config plus provenance under the turn signal. The prepared call keeps one adapter registration through dispatch. Requests reaching `llm/stream` are deep-frozen, so mutation throws, and carry a process-local loop identity so observers do not confuse separately logged frozen auxiliary calls with conversation requests.
+
+On the wire, a loop-built request reads the `system` slot (the rendered prompt assembly) followed by the derived history — the boundary snapshot, whose tail is the newest `user/message` on a turn's first step and the previous step's tool results on later steps. The dev invariant recomputes exactly this equation against every loop-built request.
+
+FIXME(call-config-shape): revisit which remaining fields are genuinely epoch-level for cache purposes (`model` and the model-owned reasoning effort are explicit; the sampling scalars sit here out of caution).
+
+```ts type-equiv
+/**
+ * Provider, model, reasoning effort, and sampling scalars of one conversation's
+ * requests. Every field maps 1:1 onto the same-named `GenerateOptions` field;
+ * the loop builds requests from the logged header rather than accepting these
+ * per call.
+ */
+interface LlmCallConfig {
+  provider: string
+  model: string
+  reasoningEffort?: ReasoningEffortId
+  temperature?: number
+  maxTokens?: number
+  stop?: string[]
+}
+```
+
+```ts type-equiv
+/**
+ * Effective config fields supplied by exact-model adapter resolution rather
+ * than by the caller's request proposal.
+ */
+interface LlmCallConfigAdapterDefaults {
+  reasoningEffort?: true
+  maxTokens?: true
+}
+```
+
 ## The seam
 
 `LlmAdapter` is the provider seam: subclass, implement `stream()`, and register one adapter instance with `ctx.llm.registerAdapter(providers, adapter)`. `GenerateOptions.provider` selects the registered adapter; `GenerateOptions.model` is passed to that adapter and need not be registered at lifecycle start. Duplicate provider routes fail atomically. Optional `providerRetryPolicy()` is captured per route with normal defaults, while `providerInfo()` and asynchronous `listModels()` feed `LlmService.listProviders()` / `listModels()` with detached selector metadata. That catalog is advisory rather than a request whitelist: the adapter remains authoritative and may accept unlisted model ids. One asynchronous `resolveModel()` query returns exact model identity plus optional correctness-sensitive context capacity, an adapter-configured `defaultMaxTokens`, and ordered model-owned reasoning ids with an optional deployment default; absent fields mean unavailable metadata or provider-owned behavior, not invalid catalog membership. The resolver receives optional cancellation and must settle promptly after abort. `LlmService.resolveModelInfo()` validates and detaches the aggregate. At the final adapter boundary, `resolveCallConfig()` materializes the output default only when `maxTokens` is absent and validates and materializes reasoning, so direct calls cannot bypass either configured behavior; direct dispatch captures one registration before awaiting that resolution. The agent loop instead uses `prepareCall()` to keep the same registration across model resolution, durable header logging, and dispatch, retain detached context metadata from that exact lookup, and report which config fields the adapter defaulted. Adapter lookup happens at the terminal continuation of the `llm/stream` waterfall, so a listener may short-circuit the call or route a mutable one-shot request before lookup. AgentLoop observes a request attempt once the outer waterfall returns a stream handle; that limited boundary does not prove a lazy terminal adapter was constructed or began provider I/O. The `block-start` / `block-end` `index` correlation and the assembler together mean an adapter only has to emit well-formed chunks — block reassembly is not each adapter's problem. The consumer surface (`ctx.llm.stream()`) and the `llm/stream` waterfall are described in [architecture.md § Content blocks and streaming](../architecture.md#content-blocks-and-streaming-dsh-llm).
@@ -171,8 +498,6 @@ declare class BlockAssembler {
 interface PreparedLlmCall {
   /** Detached, deep-frozen config with any adapter-owned default materialized. */
   readonly config: LlmCallConfig
-  /** Immutable retry policy captured with the adapter registration. */
-  readonly retryPolicy: ResolvedRetryPolicy
   /** Detached context metadata resolved with the registration-bound call. */
   readonly context?: LlmModelContext
   /** Config fields materialized by the captured adapter rather than proposed by the caller. */
@@ -239,22 +564,7 @@ declare abstract class LlmAdapter {
 }
 ```
 
-`ContentBlockType` (the key set the `index`-correlated blocks carry) derives from `ContentBlockMap`:
-
-```ts type-equiv
-/**
- * Merge-extensible content blocks keyed by `type`. New core blocks must land
- * with adapter, UI, and compaction support.
- */
-interface ContentBlockMap {
-  'text': TextBlock
-  'reasoning': ReasoningBlock
-  'tool-call': ToolCallBlock
-  'tool-result': ToolResultBlock
-}
-```
-
-See [core.md § Content blocks and messages](core.md#content-blocks-and-messages) for the block interfaces.
+`ContentBlockType` (the key set the `index`-correlated blocks carry) derives from [`ContentBlockMap`](#content-blocks-and-messages) above.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -293,38 +603,15 @@ listProviders(): LlmProviderInfo[]
  * entry, or a provider already declared by any registration throws
  * `LlmError` without registering the rest. Disposed with the fiber.
  * @param entries - every configurable provider this plugin owns.
- * @returns a handle that withdraws all of them, and can atomically replace them.
+ * @returns the disposer that withdraws all of them.
  */
-registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle
+registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): () => void
 
 /**
  * List every declared configurable provider, registered or dormant.
  * @returns detached directory entries in declaration order.
  */
 listConfigurableProviders(): LlmConfigurableProvider[]
-
-/**
- * Offer to interrogate provider endpoints on behalf of the settings
- * namespace this plugin owns. The namespace is the key because that is what
- * a configuration surface already holds from the configurable-provider
- * directory, and because a provider being *added* has no route to name yet.
- * Disposed with the fiber.
- * @param settingsNs - the namespace whose profiles this discovery serves.
- * @param discover - interrogates one endpoint; must honor `request.signal`.
- * @returns the disposer that withdraws the offer.
- */
-registerModelDiscovery( settingsNs: string, discover: (request: LlmModelDiscoveryRequest) => Promise<readonly LlmDiscoveredModel[]>, ): () => void
-
-/**
- * Interrogate one provider endpoint for the models it advertises. The
- * request describes a draft, not a stored route, so nothing here reads or
- * writes settings or credentials — the caller owns both, and the reply is
- * candidate metadata a surface may offer for adoption.
- * @param settingsNs - namespace whose registered discovery serves this draft.
- * @param request - the endpoint, protocol, and one-shot credential to use.
- * @returns the advertised models, deduplicated in endpoint order.
- */
-async discoverModels( settingsNs: string, request: LlmModelDiscoveryRequest, ): Promise<LlmDiscoveredModel[]>
 
 /**
  * Resolve the retry policy captured when one provider route was registered.
@@ -375,22 +662,22 @@ async resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<Ll
 async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall>
 
 /**
- * Stream one model call as raw chunks (token-level deltas). Replay state is
- * retained only when the same adapter instance owns its historical provider
- * and the target provider. Final adapter selection remains fixed through
- * asynchronous exact-model resolution and dispatch. Adapter selection,
- * dispatch, and iteration failures become terminal `error` or `aborted`
- * finish chunks; middleware, nested-call, cleanup, and consumer failures
- * remain thrown.
+ * Stream one model call as raw chunks (token-level deltas). Throws
+ * `LlmError` with code `NO_ADAPTER` if no adapter is registered for
+ * `options.provider`. Replay state is retained only when the same adapter
+ * instance owns its historical provider and the target provider. Final
+ * adapter selection remains fixed through asynchronous exact-model resolution
+ * and dispatch. Selection, dispatch, and iteration failures retain their
+ * original Error identity and are tagged in a call-local scope for narrow
+ * agent-loop request recovery; middleware and nested-call failures remain
+ * untagged for the outer call.
  * @param options - the full request; `options.provider` selects the adapter.
  * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.
  */
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
-Types: [AdapterRegistrationHandle](core.md) · [DirectoryRegistrationHandle](core.md) · [GenerateOptions](core.md) · [LlmCallConfig](core.md) · [LlmConfigurableProvider](core.md) · [LlmDiscoveredModel](core.md) · [LlmModelDiscoveryRequest](core.md) · [LlmModelInfo](core.md) · [LlmProviderInfo](core.md) · [LlmResolvedModelInfo](core.md)
-
-Source: [`packages/llm/llm/src/index.ts:292`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:232`](../../packages/llm/llm/src/index.ts)
 
 <a id="llm-events"></a>
 
@@ -415,7 +702,7 @@ The provider topology changed: an adapter registered or unregistered routes, or 
 'llm/adapters-updated'(): void
 ```
 
-Source: [`packages/llm/llm/src/index.ts:73`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:71`](../../packages/llm/llm/src/index.ts)
 
 <a id="llmstream--waterfall"></a>
 
@@ -439,7 +726,5 @@ Waterfall around every streaming model call (retry, replay, routing). Bound to t
 'llm/stream'(this: LlmService, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>
 ```
 
-Types: [GenerateOptions](core.md)
-
-Source: [`packages/llm/llm/src/index.ts:62`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:60`](../../packages/llm/llm/src/index.ts)
 <!-- END GENERATED cordis-surface -->

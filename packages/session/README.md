@@ -47,3 +47,5 @@ Projects session activity into outbound telemetry and delegates delivery to a co
 |---|---|
 | [`session-telemetry/`](session-telemetry/README.md) | Defines capture, redaction, projection, and live or on-demand backend delivery. |
 | [`session-telemetry-otel/`](session-telemetry-otel/README.md) | Delivers telemetry through OpenTelemetry logs in `FULL`, `FEEDBACK_ONLY`, or `DISABLED` mode. |
+
+The subsystem references: [persistence.md](../../docs/subsystems/persistence.md), [session-projection.md](../../docs/subsystems/session-projection.md), [session-title.md](../../docs/subsystems/session-title.md), and [telemetry.md](../../docs/subsystems/telemetry.md). Only one title provider may register at a time; the demo spine mounts the fallback service and leaves both model providers out of default composition.

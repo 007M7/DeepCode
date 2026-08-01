@@ -102,7 +102,7 @@ async listCandidates( agent: Agent, query: string = '', limit: number = this.con
 async prepare( agent: Agent, content: ContentBlock[], references: SessionReferenceInput[], signal?: AbortSignal, ): Promise<PreparedReferencedMessage>
 ```
 
-Types: [Agent](core.md) · [ContentBlock](core.md)
+Types: [Agent](core.md) · [ContentBlock](llm-streaming.md)
 
 Source: [`packages/context/session-reference/src/index.ts:70`](../../packages/context/session-reference/src/index.ts)
 <!-- END GENERATED cordis-surface -->

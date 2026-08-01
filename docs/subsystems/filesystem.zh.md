@@ -256,6 +256,10 @@ type FsErrorCode =
 
 目录列表使用 `FS_NOT_DIRECTORY`、`FS_PERMISSION_DENIED` 与 `FS_IO_ERROR` 区分已存在但并非目录的目标、被拒绝的列表操作和意外的后端 I/O 失败。`FS_SANDBOX_DENIED` 是强制执行沙箱的后端（`dsh-fs-sandbox`）所作的策略拒绝——模式边界拒绝了写入/编辑——与 `FS_PERMISSION_DENIED`（宿主内核拒绝）不同。`FS_NOT_OBSERVED` 表示策略插件没有此所有者的先前观察记录（或 `createIfAbsent` 遇到了现有文件）。`FS_STALE_VERSION` 表示后端版本不再与观察到的版本匹配（或编辑操作遇到缺失目标）。新鲜度授权没有部分/完整之分，因此不存在 `FS_PARTIAL_OBSERVATION`。
 
+## 文件 IO 不设超时
+
+`read`/`write`/`edit` **不**接受 `timeoutMs`，提供方 seam 也不设置截止时间——不同于 bash 与 web（它们消费 [`@deepseek-ai/dsh-timeout`](../../packages/util/timeout/README.md)）以及 bash 支撑的 `glob`/`grep`（其声明的 `timeoutMs` 由 `@deepseek-ai/dsh-timeout-policy` 强制执行）：那些是进程支撑的，截止时间可以真正终止工作。本地系统调用至多是尽力中止——超时无法迫使进行中的 `fsync`/`rename` 停下，因此这里的截止时间会成为无法兑现承诺的旋钮，而且恰好落在"显式优于隐式"禁止隐式默认值的位置。两个参照 agent（Claude Code、Codex）出于同样原因不给文件 IO 计时；取消仍通过工具执行 signal 传播，在系统调用边界尽力中止。
+
 ## 服务与插件
 
 `FileSystem`（`ctx.fs`，abstract）拥有提供方原语：`resolve`、`processPath`、`fileUrl`、`contains`、`stat`、`lstat`、`readText`、`streamText`、`listDir`、`writeText` 与 `editText`。`dsh-fs-policy` **不注册服务**——它是一个通过 `fs/*` 事件门禁添加策略的插件：对写入/编辑意图 waterfall 作出决策（提供 `createIfAbsent`/`replaceIfVersion`/`{ version }`，或抛出 `FS_NOT_OBSERVED`），并在 `fs/observed` 上记录。执行器是 `dsh-tool-fs`：它通过 `ctx.fs` 读取/写入/编辑，分发 waterfall，并 emit 记录事件。下方生成的 [`ctx.fs` 小节](#ctxfs--filesystem-abstract-seam) 展示确切的 `ctx.fs` 签名。

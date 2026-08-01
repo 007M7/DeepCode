@@ -224,7 +224,7 @@ pruneContent(blocks: readonly ContentBlock[]): ContentBlock[] | null
 pruneSession(session: Session): PruneResult
 ```
 
-Types: [ContentBlock](core.md) · [Session](session.md)
+Types: [ContentBlock](llm-streaming.md) · [Session](session.md)
 
 Source: [`packages/compact/compact-tool-result-prune/src/index.ts:44`](../../packages/compact/compact-tool-result-prune/src/index.ts)
 <!-- END GENERATED cordis-surface -->

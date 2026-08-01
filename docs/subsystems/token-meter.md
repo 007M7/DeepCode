@@ -84,7 +84,7 @@ measure(session: Session, requestHeader?: EpochHeader): TokenMeasurement
 estimateMessage(message: Message): number
 ```
 
-Types: [EpochHeader](session.md) · [Message](core.md) · [Session](session.md)
+Types: [EpochHeader](session.md) · [Message](llm-streaming.md) · [Session](session.md)
 
 Source: [`packages/llm/token-meter/src/index.ts:74`](../../packages/llm/token-meter/src/index.ts)
 <!-- END GENERATED cordis-surface -->

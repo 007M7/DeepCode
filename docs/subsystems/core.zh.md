@@ -1,22 +1,29 @@
-# 核心数据结构
+# 核心
 
 [English](core.md) | 中文
 
-本页编目 DeepSeek Harness 的**核心**数据结构：每个主干类型代表什么、它的字面形状，以及完整细节在哪里。它与 [architecture.md](../architecture.md) 互补——后者描述*行为*（服务映射、会话/轮次/步骤生命周期、事件分类体系）；本页描述行为所操作的*词汇*。同级的各子系统页面见[目录 README](README.md)。
+**核心**子系统即 [`packages/core`](../../packages/core/README.md)——每个组合都会启动的控制主干：事件溯源的会话日志、系统提示词组装、工具注册表、agent 词汇，以及驱动它们的具体循环。本页拥有主干的共享词汇——`Agent` 句柄及其投递与拦截契约，以及全仓通用的类型模式——并指引到该组的专属页面；目录索引见[子系统 README](README.md)。
 
-## 什么算"核心"
+## 主干逐包速览
 
-harness 是一个微内核：一个极小的核心加上众多插件。大多数类型属于某一个插件或某一项能力。但有少数类型构成**主干**——agent loop（智能体循环）及其事件在*每一个*轮次中使用的语言，无论加载了哪些可选插件。这些就是"核心"。
+一个轮次按同一条循环流经六个包：[`agent-loop`](../../packages/core/agent-loop) 中的 driver 认领一条排队的 prompt，在[会话日志](session.md)（`ctx.sessions`）上开启轮次，通过 [system-prompt](system-prompt.md)（`ctx.systemPrompt`）组装请求前缀并从日志派生历史，经 [LLM seam](llm-streaming.md) 流式获取模型响应，经[工具注册表](tools.md)（`ctx.tools`）分发工具调用，并把每个模型可见的事实追加回日志，供下一步派生。
 
-精确地说，一个数据结构是**核心**的，当且仅当满足以下条件之一：
+| 包 | 负责内容 | 页面 |
+|---|---|---|
+| `session/` | 只追加的 `SessionEvent` 日志与内存 store——唯一事实来源（`ctx.sessions`） | [session.md](session.md) |
+| `system-prompt/` | 提示词段落与工具 schema 组装（`ctx.systemPrompt`） | [system-prompt.md](system-prompt.md) |
+| `tools/` | 带作用域的工具注册表与受保护的执行流水线（`ctx.tools`） | [tools.md](tools.md) |
+| `agent/` | `Agent` 接口、实时注册表、发起者作用域与 `agent/*` 事件词汇（`ctx.agents`） | 本页 |
+| `agent-loop/` | 实现公开 `Agent` 契约的具体 driver（`ctx.agentLoop`） | 本页 |
+| `scope/` | 注册表与循环用于构建按 agent 作用域的注册原语 | [scope.md](scope.md) |
 
-1. 它流经 agent loop 主干——循环在每个轮次中持有、派生、流式输出或记录它（`Message`、`StreamChunk`、`SessionEvent`、`Agent` 句柄本身），与当前加载了哪些插件无关；**或者**
-2. 它是插件作者面向某条流水线编写的代表性类型——`ToolDefinition`（每个工具*是什么*）。
+`scope/` 是这里唯一的非服务包：一个零依赖库（`createScope`/`scopeOf`/`scopeTarget`），在模块图中位于 `session/` 与 `system-prompt/` 之下，正是为了让它们消费它而不形成环。`agent-loop` 是 `agent` seam 的唯一具体实现，放在这里因为它是 harness 的默认产品循环；它在 `ctx.agents.withInitiator()` 内运行每个 driver。扩展插件依赖 `agent`——包括需要发起 Agent 时——而绝不直接依赖 `agent-loop`，因此循环保持可替换。把这条主干接成可运行 agent 的默认组合是 [`examples/agent-spine-demo`](../../packages/examples/agent-spine-demo/README.md)。
 
-其他一切都记录在各自的子系统页面上，而非本页。划线的规则是：*你编写、持有或接收的类型是核心；为它提供类型推导、渲染或持久化的机制是其他页面的细节*。因此 `ToolDefinition` 是核心，但为它提供类型推导的 `ValueSchemaSpec`/`ParameterSchemaSpec` 机制、为它提供渲染意图的 `ToolCallView`/`ToolResultView` 词汇，以及存储事件日志的 `SessionPersistence` seam 都不是——它们各有自己的页面（[目录](README.md)）。
+<a id="what-counts-as-core"></a>
 
+## 本页拥有什么
 
-<a id="the-map--derived-union-pattern"></a>
+循环搬运的对话词汇——`Message`、`ContentBlock`、`StreamChunk`、模型请求——由 [`packages/llm`](../../packages/llm/README.md) 声明，记录在 [llm-streaming.md](llm-streaming.md)；会话事件、提示词组装与工具词汇在上表该组的专属页面。留在本页的是所有部分共享的词汇：`Agent` 句柄及其投递、取消与拦截契约（由 `packages/core/agent` 声明）、`SessionEvent` 信封，以及每个子系统都遵循的两个类型模式。范围界定规则记录在[子系统目录 Agent Note](../../.agents/notes/implemented/process/2026-06-20-core-data-structures-catalog.md)：你编写、持有或接收的类型记录在其声明子系统所在之处；为它提供类型推导、渲染或持久化的机制留在该机制自己的页面。
 
 ## `…Map → derived-union` 模式
 
@@ -39,13 +46,14 @@ declare module '@deepseek-ai/dsh-llm' {
 }
 ```
 
-五个规范 map 使用此模式；插件作者扩展它们：
+六个规范 map 使用此模式；插件作者扩展它们：
 
 | Map | 包 | 派生 | 目录 |
 |---|---|---|---|
-| `ContentBlockMap` | dsh-llm | `ContentBlock` | [下文](#content-blocks-and-messages) |
-| `MessageSourceMap` | dsh-llm | `MessageSource` | [下文](#content-blocks-and-messages) |
-| `FinishReasonMap` | dsh-llm | `FinishReason` | [下文](#the-model-request-and-result) |
+| `ContentBlockMap` | dsh-llm | `ContentBlock` | [llm-streaming.md](llm-streaming.md#content-blocks-and-messages) |
+| `MessageSourceMap` | dsh-llm | `MessageSource` | [llm-streaming.md](llm-streaming.md#content-blocks-and-messages) |
+| `FinishReasonMap` | dsh-llm | `FinishReason` | [llm-streaming.md](llm-streaming.md#the-model-request-and-result) |
+| `TurnTriggerMap` | dsh-session | `TurnTrigger` | [session.md](session.md) |
 | `TurnEndReasonMap` | dsh-session | `TurnEndReason` | [session.md](session.md) |
 | `SessionEventMap` | dsh-session | `SessionEvent` | [session.md](session.md) |
 
@@ -68,460 +76,6 @@ type Branded<B extends string> = string & { readonly [BRAND]: B }
 
 两个核心 ID 是 `CallId`（关联工具调用及其结果；dsh-llm）和 `SessionId`（活跃 agent 与持久会话共享的标识；dsh-session）。能力包也会品牌化各自的 id，例如 [tasks.md](tasks.md) 中的 `TaskId`。
 
-<a id="content-blocks-and-messages"></a>
-
-## 内容块与消息
-
-一段对话由 `Message` 组成；一条消息是一个类型化**内容块**的数组。块的联合类型从 `ContentBlockMap` 派生。
-
-源码：[`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
-
-```ts type-equiv
-/**
- * Merge-extensible content blocks keyed by `type`. New core blocks must land
- * with adapter, UI, and compaction support.
- */
-interface ContentBlockMap {
-  'text': TextBlock
-  'reasoning': ReasoningBlock
-  'tool-call': ToolCallBlock
-  'tool-result': ToolResultBlock
-}
-```
-
-各块接口（完整字段见源码）：`TextBlock`（`text`）、`ReasoningBlock`（thinking，区别于可见文本）、`ToolCallBlock`（`id: CallId`、`name`、原始 JSON `arguments`）、`ToolResultBlock`（`toolCallId`、嵌套 `content: ContentBlock[]`、`isError?`）。`ContentBlock = ContentBlockMap[ContentBlockType]`。核心集仅限于每条交付路径都尊重的块——多模态内容（图像、音频等）没有核心块类型；需要的功能通过可合并扩展的 map 添加，同时提供适配器/UI/压缩支持。
-
-源码：[`packages/llm/llm/src/message.ts`](../../packages/llm/llm/src/message.ts)
-
-`Message` 是一个带标识且不可变的角色／来源／内容值。模型产生的 assistant 消息会在其来源中携带提供方／模型所有权与可选的适配器私有回放元数据：
-
-```ts type-equiv
-/** Provider ownership and adapter-private replay data for an assistant message. */
-interface AssistantProvenance {
-  /** Provider route that produced the message. */
-  provider: string
-  /** Provider model id that produced the message. */
-  model: string
-  /**
-   * Lossless-JSON adapter state needed to replay the provider response.
-   * `LlmService` exposes it to a target adapter only when that adapter instance
-   * currently owns both this historical provider and the target provider.
-   */
-  replayState?: unknown
-}
-```
-
-```ts type-equiv
-/** One immutable message representation shared by delivery, durable history, and model requests. */
-interface Message {
-  /** Stable identity preserved across every representation boundary. */
-  readonly id: MessageId
-  /** Provider-neutral conversation role. */
-  readonly role: 'system' | 'user' | 'assistant'
-  /** Exact model-facing blocks. */
-  readonly content: ContentBlock[]
-  /** Required producer provenance. */
-  readonly source: MessageSource
-}
-```
-
-消息来源本身也是一个可合并扩展的和类型：
-
-```ts type-equiv
-/**
- * Where a message (or injected content) came from.
- * Merge-extensible sum type — plugins add their own `kind`s.
- */
-interface MessageSourceMap {
-  user: { kind: 'user' }
-  plugin: { kind: 'plugin'; plugin: string } & ContextFormed
-  model: ModelMessageSource
-  tool: ToolMessageSource
-}
-```
-
-溯源与形态是相互独立的两根轴。`kind` 回答「由谁产生」；生产方可选混入的 `form` 回答「这是何种形态的信息」，因此多个生产方可以共用一种呈现，一个生产方在一次会话中也可以发出多种形态。该词汇表是语义的，逐个取值增长；未声明或无法识别的取值是有文档的默认，按不透明内容呈现：
-
-```ts type-equiv
-/**
- * What SHAPE of information a producer-supplied context carries, declared by
- * the producer beside its provenance.
- *
- * `MessageSource.kind` answers *who produced this*; `form` answers *what kind
- * of thing it is*, and the two axes are deliberately independent — several
- * producers share one form (three snapshot producers today), and one producer
- * may emit more than one form over a session.
- *
- * The vocabulary is SEMANTIC, never visual: a value states that the content is
- * a file's instructions or a catalog of available items, and a consumer decides
- * what that looks like. Colors, icons, ordering, and collapse defaults are the
- * consumer's business and must not enter this union. It grows one value at a
- * time as producers gain the structured fields their form needs; an absent or
- * unknown value is the documented default, presented as opaque content.
- */
-type ContextForm =
-  /** Instructions read out of workspace files the model is expected to follow. */
-  | 'instructions'
-  /** A catalog of items available in this session, republished as it changes. */
-  | 'catalog'
-  /** Current state, where a later snapshot from the same producer supersedes an earlier one. */
-  | 'snapshot'
-  /** A one-off account of something that just happened; it supersedes nothing. */
-  | 'notice'
-  /** A message another agent addressed to this one. */
-  | 'relay'
-  /** Material lifted out of another session's log, possibly reduced on the way in. */
-  | 'recall'
-```
-
-```ts type-equiv
-/** One named contribution to a `snapshot`-form context, in assembly order. */
-interface ContextSnapshotSection {
-  /** The contributing subsystem's name. */
-  readonly name: string
-  /** That contribution's model-facing text, exactly as assembled. */
-  readonly text: string
-}
-```
-
-```ts type-equiv
-/**
- * Producer-declared {@link ContextForm} and the fields that form requires,
- * mixed into the source shapes that carry one.
- *
- * Discriminated by `form` so a producer cannot declare a shape without the
- * facts that shape is presented from: a `notice` must record its one-line
- * account, a `snapshot` its sections. Omitting `form` stays valid — an
- * undeclared context is the documented default.
- */
-type ContextFormed =
-  | { readonly form?: never }
-  | { readonly form: 'instructions' }
-  | { readonly form: 'catalog' }
-  | {
-    readonly form: 'snapshot'
-    /** The named contributions this snapshot assembled, in order. */
-    readonly sections: readonly ContextSnapshotSection[]
-  }
-  | {
-    readonly form: 'notice'
-    /** One-line account of what happened, shown without expanding the row. */
-    readonly summary: string
-  }
-  | { readonly form: 'relay' }
-  | { readonly form: 'recall' }
-```
-
-## 流式输出
-
-适配器发出原始**分片**协议；循环记录分片（回放保真度），同时将同一批分片送入 `BlockAssembler` 以重建块和消息。`StreamChunk` 是基于 `type` 的封闭判别联合——`block-start`、`text-delta`、`reasoning-delta`、`tool-call-delta`、`block-end`、`usage`、`finish`。
-
-完整联合类型、适配器契约（usage-before-finish、原始 JSON 工具参数、两条认可的错误路径）和 `BlockAssembler` 在 **[llm-streaming.md](llm-streaming.md)** 中。
-
-<a id="the-model-request-and-result"></a>
-
-## 模型请求
-
-一次模型调用是一个完全组装好的 `GenerateOptions`。适配器以原始 `StreamChunk` 流作答；消费方用 `BlockAssembler` 组装它（见 [llm-streaming.md](llm-streaming.md)）。
-
-源码：[`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
-
-提供方与模型发现使用小型、提供方无关的描述符。模型目录仅供参考：路由仍以已注册提供方为键，适配器也可以接受未列出的模型 id。
-
-注册适配器会返回一个句柄：既是释放器，也带有原子的路由替换——路由集合由用户配置决定的插件正需要它。
-
-```ts type-equiv
-/**
- * What {@link LlmService.registerAdapter} returns: the disposer, plus an
- * atomic route replacement for the same adapter instance.
- */
-interface AdapterRegistrationHandle {
-  /** Release every route this registration currently holds. */
-  (): void
-  /**
-   * Replace this registration's routes with `providers`, keeping the same
-   * adapter instance. The candidate set is validated in full first — a
-   * conflict with another adapter, an invalid name, or bad provider metadata
-   * throws and leaves the current routes untouched — and the swap itself is
-   * one synchronous section, so no request can observe a gap. An empty array
-   * is legal here (a settings section that emptied holds zero routes while
-   * staying registered), unlike an empty initial registration.
-   *
-   * Throws `LlmError` with code `REGISTRATION_DISPOSED` once the registration
-   * has been released: its routes are gone and its disposer has already run,
-   * so anything registered afterwards would have no owner left to release it.
-   * @param providers - the complete next route set for this registration.
-   */
-  replace(providers: string[]): void
-}
-```
-
-```ts type-equiv
-/** Display metadata for one registered provider route. */
-interface LlmProviderInfo {
-  /** Provider route key used by {@link GenerateOptions.provider}. */
-  id: string
-  /** Human-readable provider name for selectors and diagnostics. */
-  name: string
-}
-```
-
-适配器插件还会通过 `registerConfigurableProviders()` 声明哪些路由*可以*运行，并指明每条路由的用户设置分节，使配置界面能在任何路由注册之前就呈现休眠的提供方。
-
-```ts type-equiv
-/**
- * One provider route an adapter plugin can activate through configuration,
- * whether or not the route is currently registered. Configuration surfaces
- * merge this directory with `listProviders()` to offer every configurable
- * provider alongside its live/dormant state.
- */
-interface LlmConfigurableProvider {
-  /** Provider route key this entry activates when configured. */
-  provider: string
-  /** Human-readable provider name for configuration surfaces. */
-  displayName: string
-  /** User-settings namespace whose section configures this provider. */
-  settingsNs: string
-  /**
-   * Path from that namespace's section root to this provider's profile
-   * object; empty when the whole section is the profile.
-   */
-  settingsPath: readonly string[]
-}
-```
-
-```ts type-equiv
-/** One adapter-discovered model; catalog membership is advisory, not request validation. */
-interface LlmModelInfo {
-  /** Provider route that owns this model entry. */
-  provider: string
-  /** Model id passed to {@link GenerateOptions.model}. */
-  id: string
-  /** Human-readable model name for selectors. */
-  name: string
-  /** Optional user-facing distinction from otherwise similar models. */
-  description?: string
-}
-```
-
-界面正在起草的提供方既没有路由也没有 catalog，因此询问被单独描述：请求携带用户正在编辑的草稿，回复是界面可以采纳的候选，而不是它必须服务的 catalog。
-
-```ts type-equiv
-/**
- * One interrogation of a provider endpoint that configuration has not stored
- * yet. Configuration surfaces send the draft a user is still editing, so the
- * request carries the endpoint and credential directly instead of naming a
- * route: a provider being added has no route to name.
- */
-interface LlmModelDiscoveryRequest {
-  /**
-   * Route the draft is editing, when it edits an existing one. A route whose
-   * adapter already knows its models answers from that knowledge instead of
-   * asking the endpoint — the adapter's own registry is the better answer, and
-   * it costs no network call.
-   */
-  provider?: string
-  /**
-   * Endpoint to interrogate. Optional because a route the adapter already
-   * describes needs none; a route it does not must supply one.
-   */
-  baseURL?: string
-  /** Wire protocol the endpoint speaks, when the draft names one. */
-  api?: string
-  /** Credential for this interrogation alone; the harness never stores it. */
-  apiKey?: string
-  /** Caller cancellation; implementations must settle promptly after it aborts. */
-  signal?: AbortSignal
-}
-```
-
-```ts type-equiv
-/**
- * One model an endpoint reports about itself. Every field but the id is
- * optional because most provider listings disclose an id and nothing else;
- * a surface adopting one of these still owes the capacities its adapter needs.
- */
-interface LlmDiscoveredModel {
-  /** Model id the endpoint accepts. */
-  id: string
-  /** Human-readable name when the endpoint supplies one. */
-  name?: string
-  /** Maximum combined request and response context, when disclosed. */
-  contextWindow?: number
-  /** Maximum output tokens, when disclosed. */
-  maxTokens?: number
-}
-```
-
-对正确性敏感的元数据与参考目录分开解析，并归服务该确切路由的适配器所有。上下文容量、适配器调用默认值和推理选项共用同一个确切模型结果，消费方因而无需重复执行权威模型解析。
-
-```ts type-equiv
-/** Provider-owned context capacity for one exact provider/model route. */
-interface LlmModelContext {
-  /** Maximum combined request and response context in tokens. */
-  contextWindow: number
-}
-```
-
-推理强度是另一项针对确切路由的能力。核心为标识符添加品牌类型，但不枚举其值；有序集合、展示名称和可选的部署默认值均由各适配器持有。
-
-```ts type-equiv
-/** Adapter-owned identifier for one model's selectable reasoning effort. */
-type ReasoningEffortId = Branded<'ReasoningEffortId'>
-```
-
-```ts type-equiv
-/** Display metadata for one adapter-owned reasoning effort. */
-interface LlmReasoningEffortInfo {
-  /** Opaque stable value accepted by {@link GenerateOptions.reasoningEffort}. */
-  id: ReasoningEffortId
-  /** Human-readable effort name for selectors and diagnostics. */
-  name: string
-  /** Optional user-facing distinction from otherwise similar efforts. */
-  description?: string
-}
-```
-
-```ts type-equiv
-/** Selectable reasoning efforts for one exact provider/model route. */
-interface LlmModelReasoningInfo {
-  /** Supported efforts in adapter-preferred display order. */
-  efforts: readonly LlmReasoningEffortInfo[]
-  /**
-   * Adapter-configured default materialized into requests when callers omit
-   * an effort. Absence preserves the provider's own default.
-   */
-  defaultEffort?: ReasoningEffortId
-}
-```
-
-```ts type-equiv
-/** Exact-route model metadata resolved by its owning adapter. */
-interface LlmResolvedModelInfo extends LlmModelInfo {
-  /** Provider-owned context capacity when known. */
-  context?: LlmModelContext
-  /** Adapter-configured per-request output cap materialized when callers omit one. */
-  defaultMaxTokens?: number
-  /** Adapter-owned selectable reasoning levels when exposed. */
-  reasoning?: LlmModelReasoningInfo
-}
-```
-
-```ts type-equiv
-/** A single model request, fully assembled. */
-interface GenerateOptions {
-  /** Registered provider route selecting the adapter instance. */
-  provider: string
-  model: string
-  /** Adapter-owned reasoning effort selected for this exact model. */
-  reasoningEffort?: ReasoningEffortId
-  /**
-   * Ordered conversation messages, exactly as the provider sees them (after
-   * the `system` slot). A loop-built request assembles them as
-   * the derived history (dsh-agent-loop); a hand-built one-shot passes any list.
-   */
-  messages: Message[]
-  /** System prompt text (adapters map to the provider's system slot). */
-  system?: string
-  /** Tool schemas (adapters map to the provider's `tools` field). */
-  tools?: ToolSchema[]
-  temperature?: number
-  maxTokens?: number
-  /**
-   * Stop sequences: generation halts as soon as the model produces any one of
-   * these strings (adapters map to the provider's stop field, e.g. OpenAI
-   * `stop`). The stop string itself is not included in the output.
-   */
-  stop?: string[]
-  signal?: AbortSignal
-  /**
-   * Session identity stamped by the loop for listener routing. Adapters ignore
-   * it; replay uses it to keep concurrent parent and child cursors independent.
-   */
-  sessionId?: Branded<'SessionId'>
-  /**
-   * Provider-neutral classification for an auxiliary model call. Adapters may
-   * map the purpose to model-hidden transport metadata or purpose-specific
-   * generation policy. Ordinary conversation requests leave it unset.
-   */
-  purpose?: 'compaction' | 'session-title'
-}
-```
-
-模型响应为何停止由可合并扩展的原因表示。提供方终态失败携带流式契约的 [`LlmFailure`](llm-streaming.md#llmfailure)：
-
-```ts type-equiv
-/**
- * Why a model response stopped.
- * Merge-extensible so adapters can surface provider-specific reasons.
- */
-interface FinishReasonMap {
-  'stop': { kind: 'stop' }
-  'tool-calls': { kind: 'tool-calls' }
-  'max-tokens': { kind: 'max-tokens' }
-  'aborted': { kind: 'aborted'; failure: LlmFailure }
-  'error': { kind: 'error'; failure: LlmFailure }
-}
-```
-
-`FinishReason = FinishReasonMap[keyof FinishReasonMap]`。`TokenUsage`（逐调用计量，含不相交的缓存字段）详见 [llm-streaming.md](llm-streaming.md)。
-
-`GenerateOptions.tools` 携带 `ToolSchema`——工具的 JSON Schema 描述，发送给模型。它声明在 dsh-llm（而非 dsh-tools）中，正是因为它是循环每一步组装请求的一部分：
-
-```ts type-equiv
-/**
- * JSON-schema description of a tool, as sent to the model.
- *
- * Declared here (not in dsh-tools) because it is part of {@link GenerateOptions};
- * dsh-tools' ToolDefinition and dsh-system-prompt's PromptAssembly both import
- * it from this package.
- */
-interface ToolSchema {
-  name: string
-  description: string
-  /** JSON Schema object for the arguments. */
-  parameters: Record<string, unknown>
-}
-```
-
-面向模型的 `ToolSchema` 是协议格式；产出它的已注册 `ToolDefinition`（schema + `execute`）在 [tools.md](tools.md) 中。
-
-### 请求信封：`LlmCallConfig` 与记录的 header
-
-循环从已记录状态构建每个请求。`EpochHeader` 通过完整的 `request/header` 快照记录调用配置、适配器默认值来源、渲染后的提示词以及权威返回工具顺序（由 `toolOrder` 配置；未配置时按字典序）。结合派生历史，请求便可由会话日志重建。见 [session.md](session.md#the-request-header-event-requestheader) 与[可重建性 Agent Note（agent 决策记录）](../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)。
-
-`agent/request` 接收冻结的调用配置种子，并可返回替代值以切换提供方、模型、推理强度或采样参数。waterfall 开始前，循环会移除标记为适配器默认值的值，使确切模型准备过程填入所选路由的当前值；未带标记的显式设置仍保留在提议中。waterfall 结束后，准备过程会在轮次信号控制下拒绝显式指定但不受支持的推理强度 ID（不自动调整），并记录生效配置及其来源。准备完成的调用直至分派完成始终持有同一项适配器注册。到达 `llm/stream` 的请求会被深度冻结，因此变更会抛异常；请求还携带进程本地循环标识，使观察者不会把单独记录的冻结辅助调用误认成对话请求。
-
-在协议格式上，循环构建的请求先读取 `system` 槽位（渲染后的提示词组装），再读取派生历史——边界快照，其尾部在轮次首步是最新的 `user/message`，在后续步骤是上一步的工具结果。开发不变式针对每个循环构建的请求精确重算此等式。
-
-```ts type-equiv
-/**
- * Provider, model, reasoning effort, and sampling scalars of one conversation's
- * requests. Every field maps 1:1 onto the same-named `GenerateOptions` field;
- * the loop builds requests from the logged header rather than accepting these
- * per call.
- */
-interface LlmCallConfig {
-  provider: string
-  model: string
-  reasoningEffort?: ReasoningEffortId
-  temperature?: number
-  maxTokens?: number
-  stop?: string[]
-}
-```
-
-```ts type-equiv
-/**
- * Effective config fields supplied by exact-model adapter resolution rather
- * than by the caller's request proposal.
- */
-interface LlmCallConfigAdapterDefaults {
-  reasoningEffort?: true
-  maxTokens?: true
-}
-```
-
 ## 会话
 
 `Session` 是一份类型化 `SessionEvent` 的**仅追加日志**——唯一的真源。LLM（大语言模型）消息历史从日志*派生*（`deriveMessages()`），而非单独存储。事件词汇从 `SessionEventMap` 派生：
@@ -537,7 +91,7 @@ interface LlmCallConfigAdapterDefaults {
  *
  * The {@link sourceEventSeqs} and {@link surfaceOp} fields are conditional:
  * they only exist on {@link SurfaceEventType} variants (`user/message`,
- * `assistant/message`, `tool/result`).
+ * `assistant/message`, `tool/result`, `steering/message`).
  * Non-surface events (boundary markers, chunks, usage, errors) never carry
  * surface metadata — the compiler enforces this at `Session.append()`
  * call sites.
@@ -565,7 +119,7 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-会话事件变体、`deriveMessages()` 投影规则、`TurnEndReason` 词汇以及执行封闭和独立事件规则都在 **[session.md](session.md)** 中。日志如何持久化——`SessionPersistence` seam、JSONL/SQLite 后端、`session/flush` 检查点、崩溃恢复与 `SessionHeader`——则在 **[persistence.md](persistence.md)** 中。
+十二种事件变体（`turn/start`、`turn/end`、`step/start`、`step/end`、`user/message`、`assistant/chunk`、`assistant/message`、`tool/call`、`tool/result`、`steering/message`、`todo/write`、`request/header`）、`deriveMessages()` 投影规则、`TurnTrigger`/`TurnEndReason` 原因以及执行封闭和独立事件规则都在 **[session.md](session.md)** 中。日志如何持久化——`SessionPersistence` seam、JSONL/SQLite 后端、`session/flush` 检查点、崩溃恢复与 `SessionHeader`——则在 **[persistence.md](persistence.md)** 中。
 
 <a id="the-agent-handle"></a>
 
@@ -576,11 +130,72 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
 源码：[`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
 ```ts type-equiv
-/** One of the two ordered pending-message lists owned by an agent. */
-type InboxTarget = 'next-turn' | 'next-step'
+/**
+ * Which inbox queue a {@link Agent.send} item joins:
+ * - `next-turn` — the item becomes its own turn, claimed at a turn boundary.
+ * - `next-step` — during prompt admission or an open turn, the item stages for
+ *   the next safe step boundary; otherwise it is promoted per its `wakeup`
+ *   flag.
+ */
+type SendTarget = 'next-turn' | 'next-step'
 ```
 
-每个待处理入队项就是其 `UserMessage`；`MessageId` 是唯一标识。`Inbox.append`、`prepend`、`replace`、`remove`、`clear`、`splice` 与 `claim` 会记录规范化的持久 `agent/inbox/spliced` 变更，并拒绝重复的待处理 id。`replace(messageId, newMessage)` 与 `remove(messageId)` 通过 `MessageId` 跨两份列表定位待处理消息；替换可以改变标识，并先将旧消息作为 discarded 发布，再将新消息作为 inserted 发布。普通删除和 `clear()` 都表示取消。`claim(target)` 通过无 outcome 的纯删除 splice 移除拟进入步骤的批次——全部 `next-step` 输入，外加轮次边界上的一条 `next-turn` 消息——且不发出 discarded 通知；循环另行逐条发出 claimed 通知。UI 投影等整体队列消费方通过持久 splice 重建 `nextTurn` 与 `nextStep`，而跟踪单条消息的消费方使用精确的 `agent/inbox/inserted`、`claimed` 与 `discarded` 通知。
+```ts type-equiv
+/** Resolved inbox placement reported when an accepted message is enqueued. */
+type InboxPlacement = 'queued' | 'steering'
+```
+
+`InboxItemId` 是为每次获准进入 FIFO 的项铸造的进程本地品牌字符串。它有意区别于 `MessageId`：同一条不可变消息发送两次，会创建两个可独立寻址的待处理项。
+
+```ts type-equiv
+/** One independently addressable accepted occurrence in an agent inbox. */
+interface InboxItem {
+  /** Agent-loop-minted occurrence identity. */
+  readonly id: InboxItemId
+  /** Identified message delivered by the caller. */
+  readonly message: UserMessage
+  /** Acceptance-time FIFO classification. */
+  readonly placement: InboxPlacement
+}
+```
+
+```ts type-equiv
+/** A user-requested mutation of one still-pending queued occurrence. */
+type InboxAction =
+  | { readonly kind: 'edit'; readonly content: ContentBlock[] }
+  | { readonly kind: 'remove' }
+  | { readonly kind: 'steer' }
+```
+
+```ts type-equiv
+/** Result of applying an inbox action at the synchronous ownership boundary. */
+type InboxActionResult = 'applied' | 'not-found' | 'steer-unavailable'
+```
+
+```ts type-equiv
+/**
+ * Options for the unified {@link Agent.send} primitive over the
+ * (`target` × `wakeup`) matrix. Named presets: {@link Agent.followup}
+ * (`next-turn`/wakeup), {@link Agent.steer} (`next-step`/wakeup), and
+ * {@link Agent.inject} (`next-step`/no-wakeup).
+ *
+ * The object is complete so routing policy is explicit.
+ */
+interface SendOptions {
+  /** Queue the item joins. */
+  target: SendTarget
+  /**
+   * Whether this item makes the model run: wake a parked driver (`next-turn`)
+   * or force a continuation step (`next-step` while running). A `false`
+   * `next-turn` item queues without waking; a `false`
+   * `next-step` item attaches durable context without forcing another step
+   * (the injection preset).
+   */
+  wakeup: boolean
+}
+```
+
+固定预设的别名方法自带 `target` 与 `wakeup`；其已有标识的 `UserMessage` 会携带角色、内容与 provenance。编辑替换内容或严格 steering（中途引导）转移不可变消息时，其 `MessageId` 都保持稳定。原 queued 单次入队项会结束，严格 steering 则接受一个具有不同 `InboxItemId` 的新 steering 单次入队项。注入绕过两个 FIFO，从不出现在 inbox 生命周期事件中。
 
 ```ts type-equiv
 /** Options for {@link Agent.cancel}. */
@@ -588,25 +203,28 @@ interface CancelOptions {
   /**
    * Preserve queued and steering inbox items instead of discarding them. The
    * active turn is still aborted, but un-started and pending work survives for a
-   * later turn and no canceled inbox splice is logged.
+   * later turn and no `agent/inbox/discard` fires.
    */
-  keepInbox?: boolean | undefined
+  keepInbox?: boolean
 }
 ```
 
+`SteeringReceipt.outcome` 始终会解析。`admitted` 标识其不可变请求历史包含该确切消息的轮次与步骤；`rejected` 表示生命周期或终止策略先丢弃了该消息。同步输入校验仍会从 `steer()` 抛出异常。
+
 ```ts type-equiv
-/** Why an active agent driver was cancelled. */
+/** Stable runtime cause accepted by {@link Agent.cancel}. */
 type AgentCancelCause =
   | { readonly kind: 'user' }
   | { readonly kind: 'parent' }
-  | { readonly kind: 'hook'; readonly reason: string }
-  | { readonly kind: 'disposed' }
 ```
 
-`Agent` 是覆盖公开活跃 agent 契约的接口。它的统一 `send` 方法直接公开目标与唤醒路由；`followup`、`steer` 和 `inject` 是固定预设别名。
+`Agent` 是覆盖公开活跃 agent 契约的接口。具体驱动器拥有 `followup`/`steer`/`inject` 别名方法，并将它们经由 `send` 的（`target` × `wakeup`）矩阵路由。
 
 ```ts type-equiv
-/** Public live-agent handle. */
+/**
+ * Public live-agent handle with aliases over the unified delivery primitive.
+ * @typert object
+ */
 interface Agent {
   /** The single identity shared with {@link session}. */
   readonly id: SessionId
@@ -614,28 +232,78 @@ interface Agent {
   readonly options: AgentOptions
   /** The live session this agent drives; its log is the durable source of truth. */
   readonly session: Session
-  /** The agent-owned projection of durable pending work. */
-  readonly inbox: Inbox
   /** The current lifecycle state, mirrored on every `agent/status` transition. */
   readonly status: AgentStatus
+  /**
+   * Whether a `next-step` send currently stages for prompt admission or the
+   * open turn. Unlike {@link status}, this excludes admission exit and turn
+   * settlement, when a waking `next-step` send becomes a queued follow-up.
+   */
+  readonly acceptsNextStep: boolean
   /** Agent-scoped context; its contributions are agent-local, unwind on disposal, and reject registration afterward. */
   readonly ctx: Context
 
   /**
+   * The unified delivery primitive over the (`target` × `wakeup`) matrix.
+   * It routes the caller's typed content and source as follows:
+   *
+   * - `next-turn` queues an item that becomes the sole ordinary message of its
+   *   own FIFO-ordered turn; `wakeup:true` wakes a
+   *   parked driver, while `wakeup:false` queues without waking.
+   * - `next-step` with `wakeup:true` stages steering during prompt admission
+   *   or an open turn; outside that window it falls back to a woken
+   *   `next-turn`.
+   * - `next-step` with `wakeup:false` injects durable model-facing context
+   *   without running the model: admission or an open turn stages it for the
+   *   next safe log position, while an injection outside that window appends
+   *   immediately without opening a turn. If admission closes without a turn,
+   *   a context-only boundary appends immediately; context staged beside
+   *   steering remains pending with it.
+   * The agent publishes or queues the identified frozen message as-is.
+   * @param message - identified model-facing content and its producer provenance.
+   * @param options - target queue and wakeup decision.
+   */
+  send(message: UserMessage, options: SendOptions): void
+
+  /**
+   * Reserve admission of the next ordinary turn while this agent is idle, so an
+   * operation can mutate durable history before any queued prompt derives a
+   * request from it. Already-accepted waking work has right of way, including a
+   * send whose wake is still a pending microtask. Later sends keep their
+   * ordinary placement, FIFO order, and `wakeup` facts, and
+   * {@link acceptsNextStep} stays `false`, so a waking `next-step` send becomes
+   * a queued follow-up rather than steering; cancellation and disposal may
+   * still discard them. {@link inject} is not withheld. {@link whenIdle} treats
+   * a live reservation as activity, while lifecycle teardown does not await it.
+   * @returns the idempotent release, or `undefined` when the agent is running, already reserved, or already committed to waking work.
+   */
+  reserveTurnAdmission(): (() => void) | undefined
+
+  /**
+   * Mutate one still-pending queued occurrence synchronously. Editing preserves
+   * the message identity and queue position; removal publishes its terminal
+   * discard. Steer strictly transfers the message into the current next-step
+   * window, or returns `steer-unavailable` without changing the queued
+   * occurrence. Steering occurrences and driver-claimed items return
+   * `not-found`.
+   * @param id - independently addressable queued occurrence.
+   * @param action - edit, remove, or strict steer operation.
+   * @returns the applied outcome or the reason no mutation occurred.
+   */
+  updateInbox(id: InboxItemId, action: InboxAction): InboxActionResult
+
+  /**
    * Clear queued and steering work — unless `keepInbox` — and abort the active
-   * turn or between-turn task. The first cause wins for that activity. With no
-   * active activity, cancellation is a no-op and does not arm later work.
-   * @param cause - the stable caller intent carried by the active operation signal.
+   * turn. An effective call first emits `agent/cancel-requested` with the
+   * resolved typed cause. The first cause wins for the active turn, and
+   * `whenIdle()` resolves after cancellation reaches quiescence. Idle
+   * cancellation is a no-op and does not arm later work.
+   * @param cause - the stable caller intent carried by the current turn signal.
    * @param options - cancellation options; `keepInbox` preserves pending work.
    */
   cancel(cause: AgentCancelCause, options?: CancelOptions): void
 
-  /**
-   * Resolve after the current whole-agent activity reaches quiescence. This
-   * follows replacement work started before the observed driver retires,
-   * but does not identify the settlement of any particular message.
-   * @returns fulfillment after no active driver or maintenance task remains.
-   */
+  /** Resolve at idle quiescence; disposal waits for driver exit rather than only the status transition. */
   whenIdle(): Promise<void>
 
   /**
@@ -670,29 +338,35 @@ interface Agent {
   followup(message: UserMessage): void
 
   /**
-   * Submit steering for the nearest step. An idle driver starts a turn;
-   * a running driver consumes it at its next step boundary.
-   * A rejected step leaves steering parked in the inbox until the next
-   * wake; cancellation or disposal may discard pending steering.
+   * Submit steering with a message-owned admission receipt — the
+   * `next-step`/wakeup preset of {@link send}. During prompt admission or an
+   * open turn, the message waits in the steering FIFO until a committed step
+   * snapshots it; outside that window it enters the ordinary queued FIFO. The
+   * receipt resolves `admitted` only after the message joins that step's
+   * immutable request history, or `rejected` when terminal policy,
+   * cancellation, or disposal discards it first. A non-terminal turn close may
+   * leave it staged for a later admitted prompt without settling the receipt.
    * @param message - identified steering content and its producer provenance.
+   * @returns the receipt for this exact message's eventual admission outcome.
    */
-  steer(message: UserMessage): void
+  steer(message: UserMessage): SteeringReceipt
 
   /**
-   * Queue model-facing context for the next pre-step without waking the
-   * driver. A running driver claims it at the nearest later step boundary;
-   * idle drivers leave it pending until follow-up or steering
-   * wakes them. It may miss a request whose pre-step already claimed its
-   * batch. Cancellation or disposal may discard pending context.
+   * Append model-facing context without running the model — the
+   * `next-step`/no-wakeup preset of {@link send}. Admission or an open turn
+   * stages it at the next safe log position; outside that window it appends
+   * immediately without opening a turn. If admission closes without a turn,
+   * a context-only boundary appends immediately; context staged beside
+   * steering remains pending with it.
    * @param message - identified injected context and its producer provenance.
    */
   inject(message: UserMessage): void
 }
 ```
 
-`AgentStatus` 为 `'idle' | 'running'`，`SessionId` 是品牌类型。dispose（资源释放）会把 agent 从注册表移除并发出 `agent/disposed`；它不是一个终态 status 值。`running` 描述整个驱动器的排空区间，可能跨越连续的排队轮次；它不能证明某个轮次仍然打开。`followup()` 不返回 handle：其 `MessageId` 标识持久 inbox 的插入、领取与丢弃事实，而不标识之后的助手输出或轮次结束。`whenIdle()` 观察整个 agent，因此只有显式拥有从回执到 idle 这一完整区间的调用方才能将其称为一次运行（[决策](../../.agents/notes/implemented/architecture/2026-07-30-followup-enqueue-and-owned-runs.md)）。`AgentOptions` 可合并扩展：core 声明 `provider?`、`model?` 与 `maxTokens?`（在 `agent/request` 后，分发要求 provider 与 model 都存在）。提供 `maxTokens` 时，它必须是正安全整数，并限制每次对话模型请求的输出；省略时，系统会在写入请求 header 前填入确切模型的适配器默认值，否则提供方行为保持不变。Persona 归 `dsh-system-prompt` 所有：agent 作用域的 `deployment:persona` 可以遮蔽全局默认值。
+`AgentStatus` 为 `'idle' | 'running'`，`SessionId` 是品牌类型。dispose（资源释放）会把 agent 从注册表移除并发出 `agent/disposed`；它不是一个终态 status 值。`running` 描述整个驱动器的排空区间，可能跨越连续的排队轮次；它不能证明某个轮次仍然打开。对于需要在把输入作为 steering 加入当前提示词准入／轮次，还是提交为一个新的待准入提示词之间做选择的调用方，`acceptsNextStep` 才是更窄且准确的路由判断条件。活动的轮次接纳预留与完全停稳相关，但不会改变 `status`，也不会把之后的队列项变成 steering；它的唯一权限是将驱动器的下一次认领延迟到释放时。`AgentOptions` 可合并扩展：core 声明 `provider?`、`model?` 与 `maxTokens?`（在 `agent/request` 后，分发要求 provider 与 model 都存在）。提供 `maxTokens` 时，它必须是正安全整数，并限制每次对话模型请求的输出；省略时，系统会在写入请求 header 前填入确切模型的适配器默认值，否则提供方行为保持不变。Persona 归 `dsh-system-prompt` 所有：agent 作用域的 `deployment:persona` 可以遮蔽全局默认值。
 
-cause 是由 TypeScript 强制约束的同进程输入。活跃的取消持有者会将它复制到仅运行时的 `AbortSignal.reason`；signal 不授予协作监听器任何分类权限。持久 `turn/end` 保留粗粒度 `{ kind: 'aborted' }` 结果；若需记录请求 provenance，应使用单独的持久事件，而不是让终态结果承担额外含义。
+cause 是由 TypeScript 强制约束的同进程输入。活跃的 `TurnCancellation` 持有者会把其判别字段复制到仅运行时的 `AbortSignal.reason`，并在发布 `turn/end` 前退役；冻结后的 `AbortSignal.reason` 仍可读取。只有 loop 会在结算时从自己机器私有的 signal 上读回 cause（`user`、`parent` 或仅用于生命周期的 `disposed`）——不存在公开的读取器，signal 也不授予协作监听器任何分类权限。持久 `turn/end` 保留粗粒度 `{ kind: 'aborted' }` 结果；若需记录请求 provenance，应使用单独的持久事件，而不是让终态结果承担额外含义。
 
 [事件分类](../architecture.md#event)拥有 `agent/*` 生命周期、检查点与 waterfall（瀑布式事件）契约。轮次和步骤边界是持久会话事件，而不是 agent emit。
 
@@ -702,19 +376,22 @@ cause 是由 TypeScript 强制约束的同进程输入。活跃的取消持有�
 
 ## 拦截决策
 
-pre-step 决策使用与持久 user-role 输入相同、带标识的 `UserMessage` 形状。进入步骤的批次具有权威性，并保留每条消息的标识与 provenance。钩子桥接层把其原生决策字段映射到这一类型化结果上。
+提示词决策与工具后决策使用与持久 user-role 输入相同、带标识的 `UserMessage` 形状。每个 `additionalContexts` 条目都会成为一条独立的 `user/message`，保留各自的标识与 provenance。钩子桥接层把其原生决策字段映射到这些类型化结果上。
 
 源码：[`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
-`agent/pre-step` 接收一个 payload，携带独占的已领取批次（`messages`）、拟进入步骤的坐标（`turn`、`step`）与当前轮次的取消 `signal`。首次提案在已打开的轮次内、任何步骤开始前运行；工具 continuation 可以在步骤之间提交空的已领取批次：
-
-它返回 `PreStepDecision`。reject 不会打开步骤。enter 提供在 `step/start` 后追加的完整消息批次；最终决策省略的已领取消息保持已删除，而领取后插入的输入仍留待后续处理：
+`agent/prompt-submit` 在轮次打开前返回 `PromptDecision`。allow 可以改写已领取的提示词或附加 `additionalContexts`；block 拒绝准入且不产生任何轮次事件：
 
 ```ts type-equiv
-/** Whether and with which messages the loop enters a proposed step. */
-type PreStepDecision =
-  | { kind: 'reject' }
-  | { kind: 'enter'; messages: UserMessage[] }
+/**
+ * Prompt interception result. `allow.content` replaces the prompt, while
+ * `additionalContexts` appends model-facing context before the turn starts.
+ * An `allow` returned by a listener is authoritative: a listener wrapping
+ * `next()` preserves both fields unless it intentionally replaces them.
+ */
+type PromptDecision =
+  | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: UserMessage[] }
+  | { kind: 'block'; reason: string }
 ```
 
 `agent/request-error` 在失败的模型步骤关闭之后、其轮次关闭之前运行。listener 可以在失败轮次的 signal 仍然存活时修复持久状态或 await 策略工作。处理该错误的 listener 返回 `{ kind: 'retry' }` 且不调用 `next()`；默认的 `undefined` 会让失败保持终态。
@@ -724,7 +401,12 @@ type PreStepDecision =
 type RequestErrorAction = { kind: 'retry' } | undefined
 ```
 
-`agent/pre-step` 是请求推导前唯一的串行边界。`agent/turn-stopping` 在轮次没有工具或 steering（中途引导）后续时运行，先于最后一次 steering 排空。
+```ts type-equiv
+/** Model-request failure with an optional machine-routable provider code. */
+type RequestError = Error & { code?: string }
+```
+
+`agent/step` 是请求推导前唯一的串行边界。`agent/turn-stopping` 在轮次没有工具或 steering（中途引导）后续时运行，先于最后一次 steering 排空。
 
 `agent/session-start` 携带 `SessionStartSource`（会话生命周期为何开始；桥接层据此匹配其 SessionStart）：
 
@@ -784,7 +466,7 @@ async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandl
 
 Types: [SessionHeader](persistence.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:277`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:252`](../../packages/core/agent-loop/src/index.ts)
 
 <a id="ctxagents--agentregistry"></a>
 
@@ -962,6 +644,29 @@ Source: [`packages/core/agent/src/index.ts:242`](../../packages/core/agent/src/i
 
 ### `agent/*` events
 
+<a id="agentcancel-requested--emit"></a>
+
+#### `agent/cancel-requested` — emit
+
+Effective broad cancellation was requested, before queued/outbox work is cleared or the active turn is aborted. This observe-only notification cannot veto cancellation; listener failures are contained.
+
+```ts cordis-catalog
+/**
+ * Effective broad cancellation was requested, before queued/outbox work
+ * is cleared or the active turn is aborted. This observe-only notification
+ * cannot veto cancellation; listener failures are contained.
+ * @param agent - the agent whose current work is being cancelled.
+ * @param cause - the explicit typed cancellation cause.
+ * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+ * @mode emit
+ */
+'agent/cancel-requested'(this: Scoped<Agent>, agent: Agent, cause: AgentCancelCause): void
+```
+
+Types: [Scoped](scope.md)
+
+Source: [`packages/core/agent/src/types.ts:353`](../../packages/core/agent/src/types.ts)
+
 <a id="agentcreated--emit"></a>
 
 #### `agent/created` — emit
@@ -975,11 +680,11 @@ A fully configured agent and live session were published. Setup is composition-o
  * Synchronous listener failure vetoes publication, while returned-promise
  * rejection is reported. Detach requested during dispatch waits until every
  * creation listener has observed the stable entry.
- * @param payload.agent - the newly registered agent with its live session and completed setup.
+ * @param agent - the newly registered agent with its live session and completed setup.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode emit
  */
-'agent/created'(this: Scoped<Agent>, payload: { agent: Agent }): void
+'agent/created'(this: Scoped<Agent>, agent: Agent): void
 ```
 
 Types: [Scoped](scope.md)
@@ -997,11 +702,11 @@ An agent left the registry; AgentLoop emits this after driver quiescence and sco
  * An agent left the registry; AgentLoop emits this after driver quiescence
  * and scoped-registration unwind, but before session detachment. Custom
  * registry users own their driver-ordering contract.
- * @param payload.agent - the exact agent removed from the registry.
+ * @param agent - the exact agent removed from the registry.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode emit
  */
-'agent/disposed'(this: Scoped<Agent>, payload: { agent: Agent }): void
+'agent/disposed'(this: Scoped<Agent>, agent: Agent): void
 ```
 
 Types: [Scoped](scope.md)
@@ -1012,111 +717,138 @@ Source: [`packages/core/agent/src/types.ts:167`](../../packages/core/agent/src/t
 
 #### `agent/error` — emit
 
-A step or turn errored. The machine reports a failure here even when the error has no in-turn position for a durable record.
+A step or turn errored. The machine reports a failure here (plus the logger) even when the error has no in-turn position for a durable record.
 
 ```ts cordis-catalog
 /**
- * A step or turn errored. The machine reports a failure here even when
- * the error has no in-turn position for a durable record.
- * @param payload.agent - the agent whose turn errored.
- * @param payload.turn - the turn in which the failure surfaced.
- * @param payload.step - the step at which the failure surfaced.
- * @param payload.error - the failure, verbatim.
+ * A step or turn errored. The machine reports a failure here (plus the
+ * logger) even when the error has no in-turn position for a durable record.
+ * @param agent - the agent whose turn errored.
+ * @param turn - the turn in which the failure surfaced.
+ * @param step - the step at which the failure surfaced.
+ * @param error - the failure, verbatim.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode emit
  */
-'agent/error'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; step: number; error: unknown }): void
+'agent/error'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: unknown): void
 ```
 
 Types: [Scoped](scope.md)
 
 Source: [`packages/core/agent/src/types.ts:289`](../../packages/core/agent/src/types.ts)
 
-<a id="agentinboxclaimed--emit"></a>
+<a id="agentinboxdequeue--emit"></a>
 
-#### `agent/inbox/claimed` — emit
+#### `agent/inbox/dequeue` — emit
 
-One message left the inbox inside its open turn. If the proposed step is rejected, the claimed message ends here: it is neither discarded nor re-emitted as a user/message, and the turn closes without a step.
+The driver claimed one item out of the inbox: a queued item at a turn boundary, or steering drained between steps. Fires after the item leaves its FIFO and before it becomes a durable message.
 
 ```ts cordis-catalog
 /**
- * One message left the inbox inside its open turn. If the proposed step
- * is rejected, the claimed message ends here: it is neither discarded nor
- * re-emitted as a user/message, and the turn closes without a step.
- * @param payload.agent - the agent whose inbox changed.
- * @param payload.message - the claimed message.
- * @param payload.turn - the owning turn.
+ * The driver claimed one item out of the inbox: a queued item at a turn
+ * boundary, or steering drained between steps. Fires after the item leaves
+ * its FIFO and before it becomes a durable message.
+ * @param agent - the agent whose inbox item was claimed.
+ * @param item - the exact claimed occurrence.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode emit
  */
-'agent/inbox/claimed'(this: Scoped<Agent>, payload: { agent: Agent; message: UserMessage; turn: number }): void
+'agent/inbox/dequeue'(this: Scoped<Agent>, agent: Agent, item: InboxItem): void
 ```
 
-Types: [Scoped](scope.md) · [UserMessage](session.md)
+Types: [Scoped](scope.md)
 
 Source: [`packages/core/agent/src/types.ts:196`](../../packages/core/agent/src/types.ts)
 
-<a id="agentinboxdiscarded--emit"></a>
+<a id="agentinboxdiscard--emit"></a>
 
-#### `agent/inbox/discarded` — emit
+#### `agent/inbox/discard` — emit
 
-One message was discarded from the live inbox.
+Pending inbox items were dropped without delivering them, so every enqueue occurrence receives exactly one terminal `agent/inbox/dequeue` OR `agent/inbox/discard`. `cancel()` without `keepInbox`, including disposal, emits this after `agent/cancel-requested` when applicable and before aborting the active work. Fires once per drop with every dropped item.
 
 ```ts cordis-catalog
 /**
- * One message was discarded from the live inbox.
- * @param payload.agent - the agent whose inbox changed.
- * @param payload.message - the discarded message.
+ * Pending inbox items were dropped without delivering them, so every
+ * enqueue occurrence receives exactly one terminal `agent/inbox/dequeue` OR
+ * `agent/inbox/discard`. `cancel()` without `keepInbox`, including disposal,
+ * emits this after `agent/cancel-requested` when applicable and before
+ * aborting the active work. Fires once per drop with every dropped item.
+ * @param agent - the agent whose inbox items were dropped.
+ * @param items - the discarded occurrences in FIFO order (queued then steering); never empty.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode emit
  */
-'agent/inbox/discarded'(this: Scoped<Agent>, payload: { agent: Agent; message: UserMessage }): void
+'agent/inbox/discard'(this: Scoped<Agent>, agent: Agent, items: InboxItem[]): void
 ```
 
-Types: [Scoped](scope.md) · [UserMessage](session.md)
+Types: [Scoped](scope.md)
 
 Source: [`packages/core/agent/src/types.ts:204`](../../packages/core/agent/src/types.ts)
 
-<a id="agentinboxinserted--emit"></a>
+<a id="agentinboxenqueue--emit"></a>
 
-#### `agent/inbox/inserted` — emit
+#### `agent/inbox/enqueue` — emit
 
-One message entered the live inbox.
+An item entered the queued or steering inbox. `placement` is the acceptance-time routing result; listeners must not reconstruct it from later agent or session state.
 
 ```ts cordis-catalog
 /**
- * One message entered the live inbox.
- * @param payload.agent - the agent whose inbox changed.
- * @param payload.message - the inserted message.
+ * An item entered the queued or steering inbox. `placement` is the
+ * acceptance-time routing result; listeners must not reconstruct it from
+ * later agent or session state.
+ * @param agent - the owning agent.
+ * @param item - accepted occurrence, message, and resolved placement.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode emit
  */
-'agent/inbox/inserted'(this: Scoped<Agent>, payload: { agent: Agent; message: UserMessage }): void
+'agent/inbox/enqueue'(this: Scoped<Agent>, agent: Agent, item: InboxItem): void
 ```
 
-Types: [Scoped](scope.md) · [UserMessage](session.md)
+Types: [Scoped](scope.md)
 
 Source: [`packages/core/agent/src/types.ts:185`](../../packages/core/agent/src/types.ts)
 
-<a id="agentpre-step--waterfall"></a>
+<a id="agentinboxupdate--emit"></a>
 
-#### `agent/pre-step` — waterfall
+#### `agent/inbox/update` — emit
 
-Reject a proposed step or replace the messages that enter it. Calling `next()` preserves the current messages.
+A still-pending queued item changed content. The item id, placement, and position remain stable while the event carries the replacement message.
 
 ```ts cordis-catalog
 /**
- * Reject a proposed step or replace the messages that enter it. Calling
- * `next()` preserves the current messages.
- * @param payload.agent - the agent proposing the step.
- * @param payload.messages - messages removed from the inbox for this step.
- * @param payload.turn - the turn that will own the step.
- * @param payload.step - the step proposed by the loop.
- * @param payload.signal - the current turn's cancellation signal.
+ * A still-pending queued item changed content. The item id, placement, and
+ * position remain stable while the event carries the replacement message.
+ * @param agent - the owning agent.
+ * @param item - the complete post-update occurrence.
+ * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+ * @mode emit
+ */
+'agent/inbox/update'(this: Scoped<Agent>, agent: Agent, item: InboxItem): void
+```
+
+Types: [Scoped](scope.md)
+
+Source: [`packages/core/agent/src/types.ts:321`](../../packages/core/agent/src/types.ts)
+
+<a id="agentprompt-submit--waterfall"></a>
+
+#### `agent/prompt-submit` — waterfall
+
+Allow, rewrite, or block one claimed prompt before it becomes a user message or opens a turn. Call `next()` for the unchanged default. The signal controls only this admission attempt; listeners may cooperate with it but must not retain it for a later attempt or turn.
+
+```ts cordis-catalog
+/**
+ * Allow, rewrite, or block one claimed prompt before it becomes a user
+ * message or opens a turn. Call `next()` for the unchanged default. The
+ * signal controls only this admission attempt; listeners may cooperate with
+ * it but must not retain it for a later attempt or turn.
+ * @param agent - the agent whose turn claimed the message.
+ * @param message - the frozen claimed message, including identity and source.
+ * @param signal - the current turn's explicit abort signal.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode waterfall
  */
-'agent/pre-step'(this: Scoped<Agent>, payload: { agent: Agent; messages: UserMessage[]; turn: number; step: number; signal: AbortSignal }, next: () => Promise<PreStepDecision>): Promise<PreStepDecision>
+'agent/prompt-submit'(this: Scoped<Agent>, agent: Agent, message: UserMessage, signal: AbortSignal, next: () => Promise<PromptDecision>): Promise<PromptDecision>
 ```
 
 Types: [Scoped](scope.md) · [UserMessage](session.md)
@@ -1135,17 +867,17 @@ Replace the frozen call configuration. `await next()` yields the config the mach
  * the machine would use (agent options on the first request, the logged
  * header afterwards); return a replacement to switch. Model-visible
  * content must use logged channels; this seam cannot mutate messages.
- * @param payload.agent - the agent making the model call.
- * @param payload.turn - the open turn number.
- * @param payload.step - the step whose request this is.
- * @param payload.signal - the current turn's explicit abort signal.
+ * @param agent - the agent making the model call.
+ * @param turn - the open turn number.
+ * @param step - the step whose request this is.
+ * @param signal - the current turn's explicit abort signal.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode waterfall
 */
-'agent/request'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; step: number; signal: AbortSignal }, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
+'agent/request'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
 ```
 
-Types: [Scoped](scope.md)
+Types: [LlmCallConfig](llm-streaming.md) · [Scoped](scope.md)
 
 Source: [`packages/core/agent/src/types.ts:243`](../../packages/core/agent/src/types.ts)
 
@@ -1153,25 +885,28 @@ Source: [`packages/core/agent/src/types.ts:243`](../../packages/core/agent/src/t
 
 #### `agent/request-error` — waterfall
 
-Handle one failed model-request attempt before the loop retries or closes its step. A listener returns `{ kind: 'retry' }` without calling `next()` when it owns recovery, or calls `next()` to delegate. The default `undefined` leaves the failure terminal.
+Handle a model-request failure after its failed step has closed but before the failed turn closes. A listener returns `{ kind: 'retry' }` without calling `next()` when it owns the error, or calls `next()` to delegate. The default `undefined` leaves the failure terminal.
 
 ```ts cordis-catalog
 /**
- * Handle one failed model-request attempt before the loop retries or closes
- * its step. A listener returns `{ kind: 'retry' }` without calling `next()`
- * when it owns recovery, or calls `next()` to delegate. The default
- * `undefined` leaves the failure terminal.
- * @param payload.agent - the agent whose request failed.
- * @param payload.turn - the turn containing the failed request.
- * @param payload.step - the step containing the failed request attempt.
- * @param payload.provider - the provider selected for the failed request.
- * @param payload.failure - serializable facts normalized at the final adapter boundary.
- * @param payload.retryPolicy - the policy of the adapter registration that served the failed request.
- * @param payload.signal - the turn abort signal.
+ * Handle a model-request failure after its failed step has closed but
+ * before the failed turn closes. A listener returns `{ kind: 'retry' }`
+ * without calling `next()` when it owns the error, or calls `next()` to
+ * delegate. The default `undefined` leaves the failure terminal.
+ * @param agent - the agent whose request failed.
+ * @param turn - the open turn number.
+ * @param step - the failed step number.
+ * @param error - the original model-request failure.
+ * @param failure - serializable facts normalized at the final adapter boundary.
+ * @param priorFailures - immutable failures that already authorized another
+ * retry turn in this consecutive sequence.
+ * @param retryPolicy - immutable policy of the adapter registration that served
+ * the failed request, or `undefined` if no final adapter served it.
+ * @param signal - the turn abort signal.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode waterfall
  */
-'agent/request-error'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; step: number; provider: string; failure: LlmFailure; retryPolicy: ResolvedRetryPolicy | undefined; signal: AbortSignal }, next: () => Promise<RequestErrorAction>): Promise<RequestErrorAction>
+'agent/request-error'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: RequestError, failure: LlmFailure, priorFailures: readonly LlmFailure[], retryPolicy: ResolvedRetryPolicy | undefined, signal: AbortSignal, next: () => Promise<RequestErrorAction>): Promise<RequestErrorAction>
 ```
 
 Types: [LlmFailure](llm-streaming.md) · [ResolvedRetryPolicy](llm-streaming.md) · [Scoped](scope.md)
@@ -1190,12 +925,12 @@ The session lifecycle began, once before the first turn. Use `agent.inject()` to
  * `agent.inject()` to seed model-facing context. This is a notification, not
  * a veto; disposal requested by a lifecycle owner is rechecked before the
  * driver starts.
- * @param payload.agent - the agent whose session lifecycle began.
- * @param payload.source - why the session started (fresh startup, resume, …).
+ * @param agent - the agent whose session lifecycle began.
+ * @param source - why the session started (fresh startup, resume, …).
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode emit
  */
-'agent/session-start'(this: Scoped<Agent>, payload: { agent: Agent; source: SessionStartSource }): void
+'agent/session-start'(this: Scoped<Agent>, agent: Agent, source: SessionStartSource): void
 ```
 
 Types: [Scoped](scope.md)
@@ -1206,19 +941,18 @@ Source: [`packages/core/agent/src/types.ts:216`](../../packages/core/agent/src/t
 
 #### `agent/status` — emit
 
-Agent status changed (`idle` ⇄ `running`). A waking delivery enters `running` synchronously after reserving cancellation; `idle` means no driver remains scheduled or active.
+Agent status changed (`idle` ⇄ `running`). `send()` does not enter `running` synchronously; drive lifecycle from this event.
 
 ```ts cordis-catalog
 /**
- * Agent status changed (`idle` ⇄ `running`). A waking delivery enters
- * `running` synchronously after reserving cancellation; `idle` means no
- * driver remains scheduled or active.
- * @param payload.agent - the agent whose status flipped.
- * @param payload.status - the status just entered (the transition's destination).
+ * Agent status changed (`idle` ⇄ `running`). `send()` does not enter
+ * `running` synchronously; drive lifecycle from this event.
+ * @param agent - the agent whose status flipped.
+ * @param status - the status just entered (the transition's destination).
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode emit
  */
-'agent/status'(this: Scoped<Agent>, payload: { agent: Agent; status: AgentStatus }): void
+'agent/status'(this: Scoped<Agent>, agent: Agent, status: AgentStatus): void
 ```
 
 Types: [Scoped](scope.md)
@@ -1229,7 +963,7 @@ Source: [`packages/core/agent/src/types.ts:177`](../../packages/core/agent/src/t
 
 #### `agent/turn-stopping` — serial
 
-The turn is about to close: the model owes no response (no live tool calls, no fresh steering). Awaited before the boundary commits — a listener that objects steers (`agent.steer(...)`) and the machine re-reads its inbox: fresh steering runs another step, none closes the turn. Data decides, so listener order cannot change the outcome. The inverse control (stop a tool loop early) is data too: a tool result carrying `concludesTurn` ends the turn at its step. The conclusion never short-circuits already-submitted next-step work: same-step `additionalContexts` or racing steering still runs, and the turn closes only when that inbox drains.
+The turn is about to close: the model owes no response (no live tool calls, no fresh steering). Awaited before the boundary commits — a listener that objects steers (`agent.steer(...)`) and the machine re-reads its inbox: fresh steering runs another step, none closes the turn. Data decides, so listener order cannot change the outcome. The inverse control (stop a tool loop early) is data too: a tool result carrying `concludesTurn` ends the turn at its step.
 
 ```ts cordis-catalog
 /**
@@ -1239,17 +973,14 @@ The turn is about to close: the model owes no response (no live tool calls, no f
  * re-reads its inbox: fresh steering runs another step, none closes the
  * turn. Data decides, so listener order cannot change the outcome. The
  * inverse control (stop a tool loop early) is data too: a tool result
- * carrying `concludesTurn` ends the turn at its step. The conclusion
- * never short-circuits already-submitted next-step work: same-step
- * `additionalContexts` or racing steering still runs, and the turn
- * closes only when that inbox drains.
- * @param payload.agent - the agent whose turn is at its stop boundary.
- * @param payload.turn - the turn about to close.
- * @param payload.signal - the current turn's explicit abort signal.
+ * carrying `concludesTurn` ends the turn at its step.
+ * @param agent - the agent whose turn is at its stop boundary.
+ * @param turn - the turn about to close.
+ * @param signal - the current turn's explicit abort signal.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode serial
  */
-'agent/turn-stopping'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; signal: AbortSignal }): Promise<void> | void
+'agent/turn-stopping'(this: Scoped<Agent>, agent: Agent, turn: number, signal: AbortSignal): Promise<void> | void
 ```
 
 Types: [Scoped](scope.md)
@@ -1272,12 +1003,12 @@ A declarative agent entry failed before it could publish a live agent. Consumers
  * Consumers that buffer work for the configured identity use this
  * transient signal to reject that work instead of waiting forever. Normal
  * factory teardown suppresses failures from the cancelled startup attempt.
- * @param payload.sessionId - exact shared agent/session identity that failed startup.
- * @param payload.error - persistence, setup, or publication failure.
+ * @param sessionId - exact shared agent/session identity that failed startup.
+ * @param error - persistence, setup, or publication failure.
  * @mode emit
  */
-'agent-loop/config-start-failed'(payload: { sessionId: SessionId; error: unknown }): void
+'agent-loop/config-start-failed'(sessionId: SessionId, error: unknown): void
 ```
 
-Source: [`packages/core/agent-loop/src/index.ts:182`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:157`](../../packages/core/agent-loop/src/index.ts)
 <!-- END GENERATED cordis-surface -->

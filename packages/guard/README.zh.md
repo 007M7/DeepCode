@@ -8,3 +8,5 @@
 |---|---|---|
 | [`repeat-tool-guard/`](repeat-tool-guard/README.md) | 针对重复工具调用的建议性提醒 | 监听工具和 agent 事件 |
 | [`timeout-policy/`](timeout-policy/README.md) | 以部署策略形式设置单次工具调用截止时间 | 注册 `tools/execute` 监听器 |
+
+提醒作为 `additionalContexts` 随 `tools/post-execute` 决策传递，并以插件来源的 `user/message` 事件记录（[工具](../../docs/subsystems/tools.md)）；跨 `dsh-timeout`、能力方终止与本策略层的超时拆分记录在[超时库 Agent Note](../../.agents/notes/implemented/architecture/2026-07-06-timeout-deadline-library.md)。

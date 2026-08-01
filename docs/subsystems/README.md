@@ -6,8 +6,8 @@ One page per subsystem of the DeepSeek Harness: what it is, the data structures 
 
 | Page | Owns |
 |---|---|
-| [core.md](core.md) | the spine vocabulary every turn traffics in — `Message`/`ContentBlock`, `StreamChunk`, `SessionEvent`, the `Agent` handle, `ToolDefinition`, branded ids, the `…Map → derived-union` pattern |
-| [llm-streaming.md](llm-streaming.md) | the `StreamChunk` wire protocol + adapter contract, `BlockAssembler`, the `LlmAdapter` seam |
+| [core.md](core.md) | the `packages/core` control spine: the package-by-package loop map, the `Agent` handle with its delivery/cancellation/interception contracts, the `SessionEvent` envelope, branded ids, the `…Map → derived-union` pattern |
+| [llm-streaming.md](llm-streaming.md) | the `packages/llm` conversation vocabulary — `Message`/`ContentBlock`, the assembled model request, the `StreamChunk` wire protocol + adapter contract, `BlockAssembler`, the `LlmAdapter` seam |
 | [token-meter.md](token-meter.md) | immutable scalar and positional replay measurements with consumed-log revisions |
 | [scope.md](scope.md) | scoped registration identity, dispatch carriers, and the owned `Scope` context |
 | [typert.md](typert.md) | Remote invocation descriptors, lookup/Context declarations, TypeRT registries, and the Host Gateway/Client API seams |

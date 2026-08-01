@@ -596,7 +596,7 @@ Shape the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before the bri
 'tools/code-dispatch-log'(this: Scoped<ToolRegistry>, dispatch: CodeDispatchLog, next: () => Promise<ContentBlock[]>): Promise<ContentBlock[]>
 ```
 
-Types: [ContentBlock](core.md) · [Scoped](scope.md)
+Types: [ContentBlock](llm-streaming.md) · [Scoped](scope.md)
 
 Source: [`packages/core/tools/src/index.ts:173`](../../packages/core/tools/src/index.ts)
 

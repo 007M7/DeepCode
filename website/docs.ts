@@ -259,7 +259,7 @@ const cordisPrimerReference = pairedPages([
 
 const subsystemsReference = pairedPages(([
   ['README.md', '子系统', 'Subsystems', 0],
-  ['core.md', '核心数据结构', 'Core data structures', 1],
+  ['core.md', '核心', 'Core', 1],
   ['scope.md', '作用域', 'Scopes', 2],
   ['session.md', '会话', 'Sessions', 3],
   ['session-query.md', '会话查询', 'Session query', 4],

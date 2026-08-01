@@ -7,22 +7,17 @@
       "source": "packages/util/brand/src/index.ts"
     },
     {
-      "doc": "docs/subsystems/core.md",
-      "symbol": "ContentBlockMap",
-      "source": "packages/llm/llm/src/types.ts"
-    },
-    {
-      "doc": "docs/subsystems/core.md",
+      "doc": "docs/subsystems/llm-streaming.md",
       "symbol": "AssistantProvenance",
       "source": "packages/llm/llm/src/message.ts"
     },
     {
-      "doc": "docs/subsystems/core.md",
+      "doc": "docs/subsystems/llm-streaming.md",
       "symbol": "Message",
       "source": "packages/llm/llm/src/message.ts"
     },
     {
-      "doc": "docs/subsystems/core.md",
+      "doc": "docs/subsystems/llm-streaming.md",
       "symbol": "MessageSourceMap",
       "source": "packages/llm/llm/src/message.ts"
     },
@@ -42,22 +37,22 @@
       "source": "packages/llm/llm/src/message.ts"
     },
     {
-      "doc": "docs/subsystems/core.md",
+      "doc": "docs/subsystems/llm-streaming.md",
       "symbol": "FinishReasonMap",
       "source": "packages/llm/llm/src/types.ts"
     },
     {
-      "doc": "docs/subsystems/core.md",
+      "doc": "docs/subsystems/llm-streaming.md",
       "symbol": "AdapterRegistrationHandle",
       "source": "packages/llm/llm/src/index.ts"
     },
     {
-      "doc": "docs/subsystems/core.md",
+      "doc": "docs/subsystems/llm-streaming.md",
       "symbol": "LlmProviderInfo",
       "source": "packages/llm/llm/src/types.ts"
     },
     {
-      "doc": "docs/subsystems/core.md",
+      "doc": "docs/subsystems/llm-streaming.md",
       "symbol": "LlmModelInfo",
       "source": "packages/llm/llm/src/types.ts"
     },
@@ -72,47 +67,47 @@
       "source": "packages/llm/llm/src/types.ts"
     },
     {
-      "doc": "docs/subsystems/core.md",
+      "doc": "docs/subsystems/llm-streaming.md",
       "symbol": "LlmModelContext",
       "source": "packages/llm/llm/src/types.ts"
     },
     {
-      "doc": "docs/subsystems/core.md",
+      "doc": "docs/subsystems/llm-streaming.md",
       "symbol": "ReasoningEffortId",
       "source": "packages/llm/llm/src/brand.ts"
     },
     {
-      "doc": "docs/subsystems/core.md",
+      "doc": "docs/subsystems/llm-streaming.md",
       "symbol": "LlmReasoningEffortInfo",
       "source": "packages/llm/llm/src/types.ts"
     },
     {
-      "doc": "docs/subsystems/core.md",
+      "doc": "docs/subsystems/llm-streaming.md",
       "symbol": "LlmModelReasoningInfo",
       "source": "packages/llm/llm/src/types.ts"
     },
     {
-      "doc": "docs/subsystems/core.md",
+      "doc": "docs/subsystems/llm-streaming.md",
       "symbol": "LlmResolvedModelInfo",
       "source": "packages/llm/llm/src/types.ts"
     },
     {
-      "doc": "docs/subsystems/core.md",
+      "doc": "docs/subsystems/llm-streaming.md",
       "symbol": "GenerateOptions",
       "source": "packages/llm/llm/src/types.ts"
     },
     {
-      "doc": "docs/subsystems/core.md",
+      "doc": "docs/subsystems/llm-streaming.md",
       "symbol": "ToolSchema",
       "source": "packages/llm/llm/src/types.ts"
     },
     {
-      "doc": "docs/subsystems/core.md",
+      "doc": "docs/subsystems/llm-streaming.md",
       "symbol": "LlmCallConfig",
       "source": "packages/llm/llm/src/call-config.ts"
     },
     {
-      "doc": "docs/subsystems/core.md",
+      "doc": "docs/subsystems/llm-streaming.md",
       "symbol": "LlmCallConfigAdapterDefaults",
       "source": "packages/llm/llm/src/call-config.ts"
     },
@@ -1491,7 +1486,7 @@
       "source": "packages/settings/settings/src/index.ts"
     },
     {
-      "doc": "docs/subsystems/core.md",
+      "doc": "docs/subsystems/llm-streaming.md",
       "symbol": "LlmConfigurableProvider",
       "source": "packages/llm/llm/src/types.ts"
     },

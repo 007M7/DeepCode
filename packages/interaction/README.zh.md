@@ -13,3 +13,5 @@
 | [`tool-ask-user/`](tool-ask-user/README.md) | 向模型公开用户问题。 | （注册到 `ctx.tools`） |
 
 这些包通过现有的 agent（智能体）和会话契约集成，而不改变循环。交互式应用提供具体的命令、审批和提问适配器；自动化使用 [`acp/`](../acp/README.md)，可运行的演示组合包位于 [`examples/`](../examples/README.md)。产品 [`dsh`](../../apps/cli/README.md) CLI（命令行界面）直接组合这些包。
+
+子系统参考：[approval.md](../../docs/subsystems/approval.md)、[permission.md](../../docs/subsystems/permission.md)、[user-interaction.md](../../docs/subsystems/user-interaction.md)、[commands.md](../../docs/subsystems/commands.md) 与 [tui.md](../../docs/subsystems/tui.md)。仅自动化的 ACP 传输在 [`acp/`](../acp/README.md)，SDK 的 JSON-RPC 服务器一半在 [`scaffold/server`](../scaffold/README.md)，共享 bin 启动胶水在 [`boot/`](../boot/README.md)。

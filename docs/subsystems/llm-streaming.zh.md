@@ -2,9 +2,83 @@
 
 [English](llm-streaming.md) | 中文
 
-[dsh-llm](../../packages/llm/llm) 的协议格式（wire format）级流式输出词汇。[core.md](core.md) 介绍了 `StreamChunk`、`Message` 与 `ContentBlock`；本页拥有完整的分片协议、每个适配器必须遵守的适配器契约（adapter contract），以及共享的 assembler。
+[`packages/llm`](../../packages/llm/README.md) 的对话与流式输出词汇：每个请求与持久历史共享的 `Message`/`ContentBlock` 形状、完整组装的模型请求、原始 `StreamChunk` 协议、每个适配器必须遵守的适配器契约（adapter contract），以及共享的 assembler。[核心主干](core.md)在每个轮次持有并记录这些值；本页声明它们。
 
 源码：[`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
+
+<a id="content-blocks-and-messages"></a>
+
+## 内容块与消息
+
+一段对话由 `Message` 组成；一条消息是一个类型化**内容块**的数组。块的联合类型从 `ContentBlockMap` 派生。
+
+源码：[`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
+
+```ts type-equiv
+/**
+ * Merge-extensible content blocks keyed by `type`. New core blocks must land
+ * with adapter, UI, and compaction support.
+ */
+interface ContentBlockMap {
+  'text': TextBlock
+  'reasoning': ReasoningBlock
+  'tool-call': ToolCallBlock
+  'tool-result': ToolResultBlock
+}
+```
+
+各块接口（完整字段见源码）：`TextBlock`（`text`）、`ReasoningBlock`（thinking，区别于可见文本）、`ToolCallBlock`（`id: CallId`、`name`、原始 JSON `arguments`）、`ToolResultBlock`（`toolCallId`、嵌套 `content: ContentBlock[]`、`isError?`）。`ContentBlock = ContentBlockMap[ContentBlockType]`。核心集仅限于每条交付路径都尊重的块——多模态内容（图像、音频等）没有核心块类型；需要的功能通过可合并扩展的 map 添加，同时提供适配器/UI/压缩支持。
+
+源码：[`packages/llm/llm/src/message.ts`](../../packages/llm/llm/src/message.ts)
+
+`Message` 是一个带标识且不可变的角色／来源／内容值。模型产生的 assistant 消息会在其来源中携带提供方／模型所有权与可选的适配器私有回放元数据：
+
+```ts type-equiv
+/** Provider ownership and adapter-private replay data for an assistant message. */
+interface AssistantProvenance {
+  /** Provider route that produced the message. */
+  provider: string
+  /** Provider model id that produced the message. */
+  model: string
+  /**
+   * Lossless-JSON adapter state needed to replay the provider response.
+   * `LlmService` exposes it to a target adapter only when that adapter instance
+   * currently owns both this historical provider and the target provider.
+   */
+  replayState?: unknown
+}
+```
+
+```ts type-equiv
+/** One immutable message representation shared by delivery, durable history, and model requests. */
+interface Message {
+  /** Stable identity preserved across every representation boundary. */
+  readonly id: MessageId
+  /** Provider-neutral conversation role. */
+  readonly role: 'system' | 'user' | 'assistant'
+  /** Exact model-facing blocks. */
+  readonly content: ContentBlock[]
+  /** Required producer provenance. */
+  readonly source: MessageSource
+}
+```
+
+消息来源本身也是一个可合并扩展的和类型：
+
+```ts type-equiv
+/**
+ * Where a message (or injected content) came from.
+ * Merge-extensible sum type — plugins add their own `kind`s.
+ */
+interface MessageSourceMap {
+  user: { kind: 'user' }
+  plugin: { kind: 'plugin'; plugin: string }
+  model: ModelMessageSource
+  tool: ToolMessageSource
+}
+```
+
+<a id="streamchunk--the-raw-protocol"></a>
 
 ## `StreamChunk`：原始协议
 
@@ -15,9 +89,8 @@
  * Raw streaming protocol emitted by adapters.
  * Block indexes correlate interleaved deltas, and `block-end` carries the
  * assembled block. Adapters emit usage before the terminal finish and nothing
- * afterward; tool arguments remain raw JSON strings. An adapter implementation
- * may throw, but `LlmService.stream()` normalizes that failure to a terminal
- * `error` or `aborted` finish before exposing it to consumers.
+ * afterward; tool arguments remain raw JSON strings. Failures either throw or
+ * end with `error`/`aborted`, and consumers must handle both paths.
  */
 type StreamChunk =
   | { type: 'block-start'; index: number; blockType: ContentBlockType }
@@ -33,6 +106,8 @@ type StreamChunk =
     replayState?: unknown
   }
 ```
+
+<a id="llmfailure"></a>
 
 ## `LlmFailure`
 
@@ -65,10 +140,10 @@ interface LlmFailure {
 - **提供方停顿在传输层受到时限约束。** 两个已交付的远程适配器都暴露正数且有限的 `streamIdleTimeoutMs`，默认五分钟。watchdog 只在 iterator `next()` 尚未完成时启动，整个请求使用同一个稳定 signal，把自身到期映射为 `TIMEOUT`，并把更早发生的调用方中止保留为 `ABORTED`。
 - **上下文溢出只有一个规范 code。** 两个 DeepSeek 适配器都通过 `isContextWindowExceededError()` 对提供方的显式细节分类并暴露 `CONTEXT_WINDOW_EXCEEDED`，无论失败以抛出的 HTTP `LlmError` 还是带内 finish error 到达。消费方按 code 路由，绝不依赖提供方文本。
 - **空 completion 是可重试错误，而不是静默的成功结果。** 两个适配器都把没有携带任何内容块的终止性 `stop` 结束映射为携带规范 `EMPTY_RESPONSE` code 的 `finish {kind:'error'}`，`dsh-llm-retry` 默认会重试它；详见[空模型响应可重试](../../.agents/notes/implemented/bug-fix/2026-07-24-empty-model-response-is-retryable.md)。
-- **每个提供方 HTTP 请求都携带应用归属头。** 适配器发送下文的 `attributionHeaders()`，即 `User-Agent` 基线。
+- **每个提供方 HTTP 请求都携带应用归属头。** 适配器发送 `attributionHeaders()`（见下文）作为 `User-Agent` 基线，并通过协议级测试加以证明（mock 服务器断言收到的 header，或对基于库的适配器使用库的 header 钩子）。
 - **回放状态归适配器所有。** 成功的 `finish` 可以携带重建提供方原生响应所需的无损 JSON 状态。循环会将其与组装后的 assistant 消息一起存储。后续请求中，仅当历史提供方与目标提供方当前注册到完全相同的适配器实例时，`LlmService` 才会传递该状态。该适配器负责校验状态并拥有所有跨模型或跨提供方转换；其他适配器只会收到提供方无关的内容与 provenance，不会收到私有状态。
 
-两个彼此独立的实现遵循该契约：`dsh-llm-deepseek` 使用直接 fetch，并通过 `eventsource-parser` 进行 SSE（Server-Sent Events）分帧；`dsh-llm-pi-ai` 则通过 `@earendil-works/pi-ai` 提供通用多提供方适配器。两者都会把取消与空闲 watchdog 传递至提供方请求。
+该契约由两个有意保持独立的实现锁定：`dsh-llm-deepseek`（直接 fetch，SSE（Server-Sent Events）分帧经由 `eventsource-parser`）和 `dsh-llm-pi-ai`（通过 `@earendil-works/pi-ai` 实现的通用多提供方适配器）。基于库的适配器覆盖 finish 分片错误路径，而传输边界测试证明每个空闲 watchdog 都会停止其实际请求。
 
 ## `ResolvedRetryPolicy`
 
@@ -76,7 +151,7 @@ interface LlmFailure {
 
 ## `AppIdentity`：应用归属
 
-每个适配器都会向提供方发送的静态公开应用标识（[`packages/llm/llm/src/attribution.ts`](../../packages/llm/llm/src/attribution.ts)）。`attributionHeaders(identity?)` 只把它映射到标准 `User-Agent` header；该契约有意不支持 OpenRouter 特有的应用归属 header。默认 `APP_IDENTITY` 从包 manifest（元数据清单）获取版本；每个字段都是公开产品事实——不含 secret、路径、会话 id 或逐用户标识，且任何逐请求信息都不得影响这些值。设计理由见[强制 `User-Agent` 归属](../../.agents/notes/implemented/architecture/2026-06-21-mandatory-app-attribution-headers.md)。
+每个适配器都会向提供方发送的静态公开应用标识（[`packages/llm/llm/src/attribution.ts`](../../packages/llm/llm/src/attribution.ts)）。`attributionHeaders(identity?)` 只把它映射到标准 `User-Agent` header；该契约有意不支持 OpenRouter 特有的应用归属 header。默认 `APP_IDENTITY` 从包（package） manifest（元数据清单）获取版本；每个字段都是公开产品事实——不含 secret、路径、会话 id 或逐用户标识，且任何逐请求信息都不得影响这些值。设计理由见[强制 `User-Agent` 归属](../../.agents/notes/implemented/architecture/2026-06-21-mandatory-app-attribution-headers.md)。
 
 ```ts type-equiv
 /**
@@ -95,6 +170,8 @@ interface AppIdentity {
   url: string
 }
 ```
+
+<a id="tokenusage"></a>
 
 ## `TokenUsage`
 
@@ -117,6 +194,8 @@ interface TokenUsage {
   reasoningTokens?: number
 }
 ```
+
+<a id="blockassembler"></a>
 
 ## `BlockAssembler`
 
@@ -142,9 +221,8 @@ declare class BlockAssembler {
   push(chunk: StreamChunk): void;
   /**
    * Assemble all blocks seen so far, in stream order.
-   * @returns one block per seen index, except that max-token truncation drops
-   *   tool calls that cannot be executed safely; an open block assembles from
-   *   its accumulated deltas (an unknown block type never closed by `block-end` throws).
+   * @returns one block per seen index; an open block assembles from its
+   *   accumulated deltas (an unknown block type never closed by `block-end` throws).
    */
   blocks(): ContentBlock[];
   /** Usage from the `usage` chunk; undefined until one arrives. */
@@ -162,6 +240,263 @@ declare class BlockAssembler {
 }
 ```
 
+<a id="the-model-request-and-result"></a>
+
+## 模型请求
+
+一次模型调用是一个完全组装好的 `GenerateOptions`。适配器以原始 [`StreamChunk`](#streamchunk--the-raw-protocol) 流作答；消费方用 [`BlockAssembler`](#blockassembler) 组装它。
+
+源码：[`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
+
+提供方与模型发现使用小型、提供方无关的描述符。模型目录仅供参考：路由仍以已注册提供方为键，适配器也可以接受未列出的模型 id。
+
+注册适配器会返回一个句柄：既是释放器，也带有原子的路由替换——路由集合由用户配置决定的插件正需要它。
+
+```ts type-equiv
+/**
+ * What {@link LlmService.registerAdapter} returns: the disposer, plus an
+ * atomic route replacement for the same adapter instance.
+ */
+interface AdapterRegistrationHandle {
+  /** Release every route this registration currently holds. */
+  (): void
+  /**
+   * Replace this registration's routes with `providers`, keeping the same
+   * adapter instance. The candidate set is validated in full first — a
+   * conflict with another adapter, an invalid name, or bad provider metadata
+   * throws and leaves the current routes untouched — and the swap itself is
+   * one synchronous section, so no request can observe a gap. An empty array
+   * is legal here (a settings section that emptied holds zero routes while
+   * staying registered), unlike an empty initial registration.
+   *
+   * Throws `LlmError` with code `REGISTRATION_DISPOSED` once the registration
+   * has been released: its routes are gone and its disposer has already run,
+   * so anything registered afterwards would have no owner left to release it.
+   * @param providers - the complete next route set for this registration.
+   */
+  replace(providers: string[]): void
+}
+```
+
+```ts type-equiv
+/** Display metadata for one registered provider route. */
+interface LlmProviderInfo {
+  /** Provider route key used by {@link GenerateOptions.provider}. */
+  id: string
+  /** Human-readable provider name for selectors and diagnostics. */
+  name: string
+}
+```
+
+适配器插件还会通过 `registerConfigurableProviders()` 声明哪些路由*可以*运行，并指明每条路由的用户设置分节，使配置界面能在任何路由注册之前就呈现休眠的提供方。
+
+```ts type-equiv
+/**
+ * One provider route an adapter plugin can activate through configuration,
+ * whether or not the route is currently registered. Configuration surfaces
+ * merge this directory with `listProviders()` to offer every configurable
+ * provider alongside its live/dormant state.
+ */
+interface LlmConfigurableProvider {
+  /** Provider route key this entry activates when configured. */
+  provider: string
+  /** Human-readable provider name for configuration surfaces. */
+  displayName: string
+  /** User-settings namespace whose section configures this provider. */
+  settingsNs: string
+  /**
+   * Path from that namespace's section root to this provider's profile
+   * object; empty when the whole section is the profile.
+   */
+  settingsPath: readonly string[]
+}
+```
+
+```ts type-equiv
+/** One adapter-discovered model; catalog membership is advisory, not request validation. */
+interface LlmModelInfo {
+  /** Provider route that owns this model entry. */
+  provider: string
+  /** Model id passed to {@link GenerateOptions.model}. */
+  id: string
+  /** Human-readable model name for selectors. */
+  name: string
+  /** Optional user-facing distinction from otherwise similar models. */
+  description?: string
+}
+```
+
+对正确性敏感的元数据与参考目录分开解析，并归服务该确切路由的适配器所有。上下文容量、适配器调用默认值和推理选项共用同一个确切模型结果，消费方因而无需重复执行权威模型解析。
+
+```ts type-equiv
+/** Provider-owned context capacity for one exact provider/model route. */
+interface LlmModelContext {
+  /** Maximum combined request and response context in tokens. */
+  contextWindow: number
+}
+```
+
+推理强度是另一项针对确切路由的能力。核心为标识符添加品牌类型，但不枚举其值；有序集合、展示名称和可选的部署默认值均由各适配器持有。
+
+```ts type-equiv
+/** Adapter-owned identifier for one model's selectable reasoning effort. */
+type ReasoningEffortId = Branded<'ReasoningEffortId'>
+```
+
+```ts type-equiv
+/** Display metadata for one adapter-owned reasoning effort. */
+interface LlmReasoningEffortInfo {
+  /** Opaque stable value accepted by {@link GenerateOptions.reasoningEffort}. */
+  id: ReasoningEffortId
+  /** Human-readable effort name for selectors and diagnostics. */
+  name: string
+  /** Optional user-facing distinction from otherwise similar efforts. */
+  description?: string
+}
+```
+
+```ts type-equiv
+/** Selectable reasoning efforts for one exact provider/model route. */
+interface LlmModelReasoningInfo {
+  /** Supported efforts in adapter-preferred display order. */
+  efforts: readonly LlmReasoningEffortInfo[]
+  /**
+   * Adapter-configured default materialized into requests when callers omit
+   * an effort. Absence preserves the provider's own default.
+   */
+  defaultEffort?: ReasoningEffortId
+}
+```
+
+```ts type-equiv
+/** Exact-route model metadata resolved by its owning adapter. */
+interface LlmResolvedModelInfo extends LlmModelInfo {
+  /** Provider-owned context capacity when known. */
+  context?: LlmModelContext
+  /** Adapter-configured per-request output cap materialized when callers omit one. */
+  defaultMaxTokens?: number
+  /** Adapter-owned selectable reasoning levels when exposed. */
+  reasoning?: LlmModelReasoningInfo
+}
+```
+
+```ts type-equiv
+/** A single model request, fully assembled. */
+interface GenerateOptions {
+  /** Registered provider route selecting the adapter instance. */
+  provider: string
+  model: string
+  /** Adapter-owned reasoning effort selected for this exact model. */
+  reasoningEffort?: ReasoningEffortId
+  /**
+   * Ordered conversation messages, exactly as the provider sees them (after
+   * the `system` slot). A loop-built request assembles them as
+   * the derived history (dsh-agent-loop); a hand-built one-shot passes any list.
+   */
+  messages: Message[]
+  /** System prompt text (adapters map to the provider's system slot). */
+  system?: string
+  /** Tool schemas (adapters map to the provider's `tools` field). */
+  tools?: ToolSchema[]
+  temperature?: number
+  maxTokens?: number
+  /**
+   * Stop sequences: generation halts as soon as the model produces any one of
+   * these strings (adapters map to the provider's stop field, e.g. OpenAI
+   * `stop`). The stop string itself is not included in the output.
+   */
+  stop?: string[]
+  signal?: AbortSignal
+  /**
+   * Session identity stamped by the loop for listener routing. Adapters ignore
+   * it; replay uses it to keep concurrent parent and child cursors independent.
+   */
+  sessionId?: Branded<'SessionId'>
+  /**
+   * Provider-neutral classification for an auxiliary model call. Adapters may
+   * map the purpose to model-hidden transport metadata or purpose-specific
+   * generation policy. Ordinary conversation requests leave it unset.
+   */
+  purpose?: 'compaction' | 'session-title'
+}
+```
+
+模型响应为何停止由可合并扩展的原因表示。提供方终态失败携带流式契约的 [`LlmFailure`](#llmfailure)：
+
+```ts type-equiv
+/**
+ * Why a model response stopped.
+ * Merge-extensible so adapters can surface provider-specific reasons.
+ */
+interface FinishReasonMap {
+  'stop': { kind: 'stop' }
+  'tool-calls': { kind: 'tool-calls' }
+  'max-tokens': { kind: 'max-tokens' }
+  'aborted': { kind: 'aborted'; failure: LlmFailure }
+  'error': { kind: 'error'; failure: LlmFailure }
+}
+```
+
+`FinishReason = FinishReasonMap[keyof FinishReasonMap]`。`TokenUsage`（逐调用计量，含不相交的缓存字段）详见[下文](#tokenusage)。
+
+`GenerateOptions.tools` 携带 `ToolSchema`——工具的 JSON Schema 描述，发送给模型。它声明在 dsh-llm（而非 dsh-tools）中，正是因为它是循环每一步组装请求的一部分：
+
+```ts type-equiv
+/**
+ * JSON-schema description of a tool, as sent to the model.
+ *
+ * Declared here (not in dsh-tools) because it is part of {@link GenerateOptions};
+ * dsh-tools' ToolDefinition and dsh-system-prompt's PromptAssembly both import
+ * it from this package.
+ */
+interface ToolSchema {
+  name: string
+  description: string
+  /** JSON Schema object for the arguments. */
+  parameters: Record<string, unknown>
+}
+```
+
+面向模型的 `ToolSchema` 是协议格式；产出它的已注册 `ToolDefinition`（schema + `execute`）在 [tools.md](tools.md) 中。
+
+### 请求信封：`LlmCallConfig` 与记录的 header
+
+循环从已记录状态构建每个请求。`EpochHeader` 通过完整的 `request/header` 快照记录调用配置、适配器默认值来源、渲染后的提示词以及权威返回工具顺序（由 `toolOrder` 配置；未配置时按字典序）。结合派生历史，请求便可由会话日志重建。见 [session.md](session.md#the-request-header-event-requestheader) 与[可重建性 Agent Note（agent 决策记录）](../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)。
+
+`agent/request` 接收冻结的调用配置种子，并可返回替代值以切换提供方、模型、推理强度或采样参数。waterfall 开始前，循环会移除标记为适配器默认值的值，使确切模型准备过程填入所选路由的当前值；未带标记的显式设置仍保留在提议中。waterfall 结束后，准备过程会在轮次信号控制下拒绝显式指定但不受支持的推理强度 ID（不自动调整），并记录生效配置及其来源。准备完成的调用直至分派完成始终持有同一项适配器注册。到达 `llm/stream` 的请求会被深度冻结，因此变更会抛异常；请求还携带进程本地循环标识，使观察者不会把单独记录的冻结辅助调用误认成对话请求。
+
+在协议格式上，循环构建的请求先读取 `system` 槽位（渲染后的提示词组装），再读取派生历史——边界快照，其尾部在轮次首步是最新的 `user/message`，在后续步骤是上一步的工具结果。开发不变式针对每个循环构建的请求精确重算此等式。
+
+FIXME(call-config-shape)：重新审视其余哪些字段出于缓存目的确实属于 epoch 层级（`model` 和模型持有的推理强度已明确属于；采样标量目前出于谨慎保留在此）。
+
+```ts type-equiv
+/**
+ * Provider, model, reasoning effort, and sampling scalars of one conversation's
+ * requests. Every field maps 1:1 onto the same-named `GenerateOptions` field;
+ * the loop builds requests from the logged header rather than accepting these
+ * per call.
+ */
+interface LlmCallConfig {
+  provider: string
+  model: string
+  reasoningEffort?: ReasoningEffortId
+  temperature?: number
+  maxTokens?: number
+  stop?: string[]
+}
+```
+
+```ts type-equiv
+/**
+ * Effective config fields supplied by exact-model adapter resolution rather
+ * than by the caller's request proposal.
+ */
+interface LlmCallConfigAdapterDefaults {
+  reasoningEffort?: true
+  maxTokens?: true
+}
+```
+
 ## seam
 
 `LlmAdapter` 是提供方 seam：创建子类、实现 `stream()`，再用 `ctx.llm.registerAdapter(providers, adapter)` 注册一个适配器实例。`GenerateOptions.provider` 选择已注册适配器；`GenerateOptions.model` 会传给该适配器，无需在生命周期启动时注册。重复提供方路由会原子失败。可选的 `providerRetryPolicy()` 会按路由捕获并填入 normal 默认值，`providerInfo()` 与异步 `listModels()` 方法则为 `LlmService.listProviders()` / `listModels()` 提供分离的 selector 元数据。该目录仅供参考，不是请求白名单：适配器仍是权威，并可接受未列出的模型 id。单次异步 `resolveModel()` 查询返回确切模型身份，以及可选的对正确性敏感的上下文容量、适配器配置的 `defaultMaxTokens`、由模型持有的有序推理强度 ID 和部署默认值；字段缺失表示元数据不可用或保留提供方持有的行为，而不表示目录成员关系无效。解析器会接收可选的取消信号，并且必须在信号中止后迅速完成结算。`LlmService.resolveModelInfo()` 会校验聚合结果并返回分离值。在最终适配器边界，`resolveCallConfig()` 仅在 `maxTokens` 缺失时填入输出默认值，并校验和填入推理强度，因此直接调用也无法绕过任何一项已配置行为；直接分派会在等待解析前捕获一项适配器注册。agent loop 则使用 `prepareCall()`，使模型解析、请求头持久记录和分派全程使用同一项注册，保留来自同一次查询的分离上下文元数据，并报告适配器填入的配置字段。适配器查找发生在 `llm/stream` waterfall（瀑布式事件）的终端 continuation，因此 listener 可以在查找前短路调用，或路由一个可变的一次性请求。AgentLoop 在外层 waterfall 返回流句柄时观察到一次请求尝试；这个有限边界不能证明惰性终端适配器已构造完成或开始提供方 I/O。`block-start` / `block-end` 的 `index` 关联与 assembler 共同意味着适配器只需 emit 格式正确的分片——块重组不是每个适配器各自的问题。消费方 surface（`ctx.llm.stream()`）与 `llm/stream` waterfall 见 [architecture.md § 内容块与流式传输](../architecture.md#content-blocks-and-streaming-dsh-llm)。
@@ -171,8 +506,6 @@ declare class BlockAssembler {
 interface PreparedLlmCall {
   /** Detached, deep-frozen config with any adapter-owned default materialized. */
   readonly config: LlmCallConfig
-  /** Immutable retry policy captured with the adapter registration. */
-  readonly retryPolicy: ResolvedRetryPolicy
   /** Detached context metadata resolved with the registration-bound call. */
   readonly context?: LlmModelContext
   /** Config fields materialized by the captured adapter rather than proposed by the caller. */
@@ -239,22 +572,7 @@ declare abstract class LlmAdapter {
 }
 ```
 
-`ContentBlockType`（`index` 关联块所携带的键集合）派生自 `ContentBlockMap`：
-
-```ts type-equiv
-/**
- * Merge-extensible content blocks keyed by `type`. New core blocks must land
- * with adapter, UI, and compaction support.
- */
-interface ContentBlockMap {
-  'text': TextBlock
-  'reasoning': ReasoningBlock
-  'tool-call': ToolCallBlock
-  'tool-result': ToolResultBlock
-}
-```
-
-块接口详见 [core.md § Content blocks and messages](core.md#content-blocks-and-messages)。
+`ContentBlockType`（带 `index` 关联的块所携带的键集合）从上文的 [`ContentBlockMap`](#content-blocks-and-messages) 派生。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -293,38 +611,15 @@ listProviders(): LlmProviderInfo[]
  * entry, or a provider already declared by any registration throws
  * `LlmError` without registering the rest. Disposed with the fiber.
  * @param entries - every configurable provider this plugin owns.
- * @returns a handle that withdraws all of them, and can atomically replace them.
+ * @returns the disposer that withdraws all of them.
  */
-registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle
+registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): () => void
 
 /**
  * List every declared configurable provider, registered or dormant.
  * @returns detached directory entries in declaration order.
  */
 listConfigurableProviders(): LlmConfigurableProvider[]
-
-/**
- * Offer to interrogate provider endpoints on behalf of the settings
- * namespace this plugin owns. The namespace is the key because that is what
- * a configuration surface already holds from the configurable-provider
- * directory, and because a provider being *added* has no route to name yet.
- * Disposed with the fiber.
- * @param settingsNs - the namespace whose profiles this discovery serves.
- * @param discover - interrogates one endpoint; must honor `request.signal`.
- * @returns the disposer that withdraws the offer.
- */
-registerModelDiscovery( settingsNs: string, discover: (request: LlmModelDiscoveryRequest) => Promise<readonly LlmDiscoveredModel[]>, ): () => void
-
-/**
- * Interrogate one provider endpoint for the models it advertises. The
- * request describes a draft, not a stored route, so nothing here reads or
- * writes settings or credentials — the caller owns both, and the reply is
- * candidate metadata a surface may offer for adoption.
- * @param settingsNs - namespace whose registered discovery serves this draft.
- * @param request - the endpoint, protocol, and one-shot credential to use.
- * @returns the advertised models, deduplicated in endpoint order.
- */
-async discoverModels( settingsNs: string, request: LlmModelDiscoveryRequest, ): Promise<LlmDiscoveredModel[]>
 
 /**
  * Resolve the retry policy captured when one provider route was registered.
@@ -375,22 +670,22 @@ async resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<Ll
 async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall>
 
 /**
- * Stream one model call as raw chunks (token-level deltas). Replay state is
- * retained only when the same adapter instance owns its historical provider
- * and the target provider. Final adapter selection remains fixed through
- * asynchronous exact-model resolution and dispatch. Adapter selection,
- * dispatch, and iteration failures become terminal `error` or `aborted`
- * finish chunks; middleware, nested-call, cleanup, and consumer failures
- * remain thrown.
+ * Stream one model call as raw chunks (token-level deltas). Throws
+ * `LlmError` with code `NO_ADAPTER` if no adapter is registered for
+ * `options.provider`. Replay state is retained only when the same adapter
+ * instance owns its historical provider and the target provider. Final
+ * adapter selection remains fixed through asynchronous exact-model resolution
+ * and dispatch. Selection, dispatch, and iteration failures retain their
+ * original Error identity and are tagged in a call-local scope for narrow
+ * agent-loop request recovery; middleware and nested-call failures remain
+ * untagged for the outer call.
  * @param options - the full request; `options.provider` selects the adapter.
  * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.
  */
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
-Types: [AdapterRegistrationHandle](core.md) · [DirectoryRegistrationHandle](core.md) · [GenerateOptions](core.md) · [LlmCallConfig](core.md) · [LlmConfigurableProvider](core.md) · [LlmDiscoveredModel](core.md) · [LlmModelDiscoveryRequest](core.md) · [LlmModelInfo](core.md) · [LlmProviderInfo](core.md) · [LlmResolvedModelInfo](core.md)
-
-Source: [`packages/llm/llm/src/index.ts:292`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:232`](../../packages/llm/llm/src/index.ts)
 
 <a id="llm-events"></a>
 
@@ -415,7 +710,7 @@ The provider topology changed: an adapter registered or unregistered routes, or 
 'llm/adapters-updated'(): void
 ```
 
-Source: [`packages/llm/llm/src/index.ts:73`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:71`](../../packages/llm/llm/src/index.ts)
 
 <a id="llmstream--waterfall"></a>
 
@@ -439,7 +734,5 @@ Waterfall around every streaming model call (retry, replay, routing). Bound to t
 'llm/stream'(this: LlmService, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>
 ```
 
-Types: [GenerateOptions](core.md)
-
-Source: [`packages/llm/llm/src/index.ts:62`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:60`](../../packages/llm/llm/src/index.ts)
 <!-- END GENERATED cordis-surface -->

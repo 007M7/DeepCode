@@ -6,8 +6,8 @@
 
 | 页面 | 负责内容 |
 |---|---|
-| [core.md](core.md) | 每个轮次都在使用的主干词汇——`Message`/`ContentBlock`、`StreamChunk`、`SessionEvent`、`Agent` 句柄、`ToolDefinition`、品牌化 id，以及 `…Map → 派生联合` 模式 |
-| [llm-streaming.md](llm-streaming.md) | `StreamChunk` 协议格式（wire format）+ 适配器契约（adapter contract）、`BlockAssembler`、`LlmAdapter` seam |
+| [core.md](core.md) | `packages/core` 控制主干：逐包循环地图、`Agent` 句柄及其投递/取消/拦截契约、`SessionEvent` 信封、品牌化 id，以及 `…Map → 派生联合` 模式 |
+| [llm-streaming.md](llm-streaming.md) | `packages/llm` 的对话词汇——`Message`/`ContentBlock`、组装完成的模型请求、`StreamChunk` 协议格式（wire format）+ 适配器契约（adapter contract）、`BlockAssembler`、`LlmAdapter` seam |
 | [token-meter.md](token-meter.md) | 不可变的标量与位置回放度量，附带已消费日志修订号 |
 | [scope.md](scope.md) | 作用域注册标识、dispatch 载体，以及拥有的 `Scope` 上下文 |
 | [typert.md](typert.md) | 远程调用描述符、lookup/Context 声明、TypeRT 注册表，以及 Host Gateway/Client API seam |
