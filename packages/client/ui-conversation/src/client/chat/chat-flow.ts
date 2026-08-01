@@ -33,6 +33,21 @@ function rendersNothing(node: ConversationNode): boolean {
 }
 
 /**
+ * Paths a call view reports having created or changed, by render intent rather
+ * than tool name: a diff card, or a generic card whose kind is `edit` (the
+ * shape `str_replace_editor`'s insert presents). Every other card produces
+ * nothing to open — a read looked, a delete removed, a terminal ran.
+ */
+function producedPaths(view: ToolResultNode['callView']): readonly string[] {
+  if (view === null) return []
+  if (view.card === 'diff') return (view.locations ?? []).map(location => location.path)
+  if (view.card === 'generic' && view.kind === 'edit') {
+    return (view.locations ?? []).map(location => location.path)
+  }
+  return []
+}
+
+/**
  * Seq set of assistants that own IconActions: the last content-text assistant
  * in each turn. Mid-turn narration (text before tools) stays chrome-free.
  * @param nodes - snapshot nodes (surface order).
@@ -54,10 +69,19 @@ export function assistantActionsSeqs(nodes: readonly ConversationNode[]): Readon
  *
  * The source is the mutation tools' own follow-along `locations`, not the
  * closing prose: a produced file must be listed whether or not the model
- * remembered to name it. Reads contribute nothing (looking at a file does not
- * produce it) and a failed mutation contributes nothing (there is no file to
- * open). Paths keep first-seen order and appear once, so a file written and
- * then edited in the same turn is one entry.
+ * remembered to name it. A mutation is recognized by render intent, not by
+ * tool name — a diff card, or a generic card whose `kind` is `edit` (the shape
+ * `str_replace_editor`'s insert presents) — so a new mutation tool joins by
+ * declaring what it does. Reads contribute nothing (looking at a file does not
+ * produce it), and neither do deletes (there is nothing left to open) or
+ * failed calls. Paths keep first-seen order and appear once, so a file written
+ * and then edited in the same turn is one entry.
+ *
+ * Accumulation resets on the turn boundary, not merely at the closing
+ * assistant: a turn that mutates files and then ends without content text
+ * (interrupted mid-tool, or a turn whose last text precedes its last tool
+ * result) must not spill its paths into the next turn's row, nor leave `seen`
+ * suppressing a file the next turn legitimately rewrites.
  * @param nodes - snapshot nodes (surface order).
  * @returns Per-closing-seq produced paths; a turn that produced none is absent.
  */
@@ -65,21 +89,37 @@ export function turnDeliverables(nodes: readonly ConversationNode[]): ReadonlyMa
   const closing = assistantActionsSeqs(nodes)
   const byClosingSeq = new Map<number, readonly string[]>()
   let pending: string[] = []
-  const seen = new Set<string>()
+  let seen = new Set<string>()
+  let turn: number | undefined
   for (const node of nodes) {
     if (node.kind === 'tool-result') {
-      if (node.isError || node.callView?.card !== 'diff') continue
-      for (const location of node.callView.locations ?? []) {
-        if (seen.has(location.path)) continue
-        seen.add(location.path)
-        pending.push(location.path)
+      if (node.isError) continue
+      for (const path of producedPaths(node.callView)) {
+        if (seen.has(path)) continue
+        seen.add(path)
+        pending.push(path)
       }
       continue
+    }
+    // Tool results carry no turn of their own, so the boundary is read off the
+    // nodes that do. A user message opens a turn without reporting a number,
+    // which is why the tracked turn goes back to undefined there: the next
+    // node to report one is stating the current turn, not entering a new one.
+    if (node.kind === 'user') {
+      turn = undefined
+      pending = []
+      seen = new Set()
+    } else if ('turn' in node) {
+      if (turn !== undefined && node.turn !== turn) {
+        pending = []
+        seen = new Set()
+      }
+      turn = node.turn
     }
     if (node.kind !== 'assistant' || !closing.has(node.seq)) continue
     if (pending.length > 0) byClosingSeq.set(node.seq, pending)
     pending = []
-    seen.clear()
+    seen = new Set()
   }
   return byClosingSeq
 }

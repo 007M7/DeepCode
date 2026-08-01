@@ -241,6 +241,38 @@ describe('chat-flow derivation', () => {
     expect(turnDeliverables([user(1, 'hi'), assistant(2, 'hello', 1)]).size).toBe(0)
   })
 
+  it('turnDeliverables counts a generic edit and never spills across the turn boundary', () => {
+    const inserted = (seq: number, callId: string, path: string): ToolResultNode => ({
+      ...toolResult(seq, callId, 'str_replace_editor'),
+      // str_replace_editor's insert mutates behind a generic card, so the
+      // discriminant is the render intent, not the card shape alone.
+      callView: { card: 'generic', title: `insert ${path}`, kind: 'edit', locations: [{ path }] },
+    })
+    const wrote = (seq: number, callId: string, path: string): ToolResultNode => ({
+      ...toolResult(seq, callId, 'write'),
+      callView: {
+        card: 'diff', title: 'Write', diffs: [{ path, oldText: null, newText: 'x' }], locations: [{ path }],
+      },
+    })
+    const produced = turnDeliverables([
+      user(1, 'insert a line'),
+      inserted(2, 'i', 'notes.md'),
+      assistant(3, 'inserted', 1),
+      // Turn 2 mutates and then ends with no content text (interrupted, or its
+      // last text preceded the tool): its paths must not ride into turn 3.
+      user(4, 'now rewrite it'),
+      wrote(5, 'w', 'leaked.txt'),
+      user(6, 'and again'),
+      wrote(7, 'w2', 'notes.md'),
+      assistant(8, 'done', 3),
+    ])
+    expect(produced.get(3)).toEqual(['notes.md'])
+    // Turn 3 lists only its own file — and `seen` did not suppress the rewrite
+    // of a path an earlier turn already touched.
+    expect(produced.get(8)).toEqual(['notes.md'])
+    expect([...produced.values()].flat()).not.toContain('leaked.txt')
+  })
+
   it('renders the produced files under the closing message and opens one on click', () => {
     const wrote = (seq: number, callId: string, ...paths: string[]): ToolResultNode => ({
       ...toolResult(seq, callId, 'write'),

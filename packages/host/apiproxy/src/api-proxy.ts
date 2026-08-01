@@ -2299,6 +2299,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       if (live !== undefined) return live.session.header.cwd
       const persistence = ctx.get('sessionPersistence')
       if (persistence === undefined) return undefined
+      // TODO(persistence/by-id): a full listing per lookup. Harmless while the
+      // caller is one preview open, but a served document with N relative
+      // sub-resources pays it N times; a by-id header read on the persistence
+      // seam would retire it.
       return (await persistence.list()).find(meta => meta.id === sessionId)?.cwd
     },
   }

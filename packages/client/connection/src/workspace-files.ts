@@ -10,13 +10,13 @@
  * owns the browser-trust fence ([api-request-trust](./api-request-trust.ts)) —
  * this module is reached only by requests that already passed it.
  *
- * A served document is same-origin with `/api`, and deliberately carries no
- * isolation header. The only author of these files is the agent already
- * holding this user's shell and filesystem, so a browser sandbox would not
- * move the trust boundary — it would sit behind one already crossed, at the
- * cost of `localStorage` and cookies in every preview. Isolating a preview
- * becomes a real question when workspace content stops being the viewer's own;
- * the answer then is a separate origin, not a header.
+ * Script-capable documents are served into an opaque origin. A workspace file
+ * is not necessarily agent-authored — a read row makes every file in a cloned
+ * repository openable — so an active document served same-origin with `/api`
+ * reaches the whole RPC surface, the loopback-pinned settings and credential
+ * methods included. The sandbox costs a preview its `localStorage` and
+ * cookies; restoring those without reopening that hole needs a separate
+ * origin, not a weaker header.
  */
 
 import { createReadStream } from 'node:fs'
@@ -59,6 +59,17 @@ const MIME: Record<string, string> = {
 
 const DEFAULT_MIME = 'text/plain; charset=utf-8'
 
+/** Extensions whose top-level navigation can execute script, and so need the sandbox. */
+const SCRIPTABLE = new Set(['.html', '.htm', '.xhtml', '.svg'])
+
+/**
+ * The opaque origin an active workspace document runs in. Without it the
+ * document is same-origin with `/api` and its script passes the browser-trust
+ * fence, which admits every method — including the ones pinned to loopback
+ * precisely because they mutate settings and credentials.
+ */
+const SANDBOX_CSP = 'sandbox allow-scripts allow-popups allow-modals allow-forms'
+
 /** How the route learns which directory a session may serve from. */
 export interface WorkspaceFileDeps {
   /**
@@ -85,8 +96,11 @@ function fail(res: ServerResponse, status: number): void {
  */
 async function confine(cwd: string, segments: readonly string[]): Promise<string | undefined> {
   const root = await realpath(cwd)
+  // A filesystem root already ends in the separator; appending a second one
+  // would make every child fail the prefix test and 403 the whole workspace.
+  const prefix = root.endsWith(sep) ? root : root + sep
   const real = await realpath(resolve(root, ...segments))
-  return real.startsWith(root + sep) ? real : undefined
+  return real.startsWith(prefix) ? real : undefined
 }
 
 /**
@@ -146,6 +160,7 @@ export async function handleWorkspaceFile(
     // Workspace files change under the agent's hands; a cached preview would
     // show the previous turn's output after the next edit.
     'cache-control': 'no-store',
+    ...SCRIPTABLE.has(ext) ? { 'content-security-policy': SANDBOX_CSP } : {},
   })
   if (req.method === 'HEAD') {
     res.end()

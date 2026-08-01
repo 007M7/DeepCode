@@ -118,7 +118,8 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
         return
       }
       if (req.method !== 'GET' && req.method !== 'HEAD') {
-        res.writeHead(405)
+        // RFC 9110 §15.5.6: a 405 names the methods the resource does support.
+        res.writeHead(405, { allow: 'GET, HEAD' })
         res.end()
         return
       }

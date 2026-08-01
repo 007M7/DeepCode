@@ -34,11 +34,15 @@ function fakeRequest(headers: Record<string, string>, url = `${API_PATH}/session
 }
 
 /** Response recorder compatible with both the fence's short-circuit and the bridge. */
-function fakeResponse(): { response: ServerResponse; state: { status?: number; body?: unknown } } {
-  const state: { status?: number; body?: unknown } = {}
+function fakeResponse(): { response: ServerResponse; state: { status?: number; body?: unknown; headers?: Record<string, string> } } {
+  const state: { status?: number; body?: unknown; headers?: Record<string, string> } = {}
   const response = Object.assign(new EventEmitter(), {
     writableEnded: false,
-    writeHead(value: number) { state.status = value; return this },
+    writeHead(value: number, headers?: Record<string, string>) {
+      state.status = value
+      if (headers !== undefined) state.headers = headers
+      return this
+    },
     write() { return true },
     end(this: { writableEnded: boolean }, value?: unknown) {
       if (value !== undefined) state.body = value
@@ -177,6 +181,7 @@ describe('connection node half: the /f workspace-file route', () => {
     Object.assign(post, { method: 'POST' })
     await filesRoute(routes).handler(post, written.response)
     expect(written.state.status).toBe(405)
+    expect(written.state.headers).toMatchObject({ allow: 'GET, HEAD' })
     await dispose()
   })
 

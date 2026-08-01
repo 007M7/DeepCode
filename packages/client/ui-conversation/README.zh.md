@@ -12,7 +12,7 @@
 
 已记录的非用户消息渲染为默认折叠的 `上下文注入` 展开项。它通过包内部的 `DisclosureRow` 与 `ToolRow` 共享 Tool calls 标题栏的几何与交互，同时保留上下文语义：展开内容区的高度会随内容自适应，最大为 141px，超出后滚动，并以内联 JSON 展示 `content` 和 `source`，且不会合成工具状态、摘要或键控 toolview 分发（[决策](../../../.agents/notes/implemented/feature/2026-07-30-web-context-injection-disclosure.md)）。
 
-通用工具行把内置的 bash、read、search、write、edit 和 run_code 名称归入专用视觉变体。文件系统变体会渲染 edit 图标和路径摘要；该路径是悬停下划线链接，点击后通过宿主操作系统的默认应用打开文件（`host.openPath`，相对路径相对会话 cwd 解析）。工具行不再是整行点击目标，也不会打开 details 面板。code 变体以模型撰写的 `description` 作摘要，展开后显示程序本身；其已记录的子调用经由同一个键控 toolview 空位渲染为始终可见的嵌套行（自定义注册和 GenericToolCard fallback 原样适用于子行）。Cordis 生命周期工具复用这些通用变体，同时以统一的 Cordis 强调色呈现 `Inspect`、`Mount temporary Plugin` 和 `Unmount temporary Plugin`；mount 行保留 code 变体的可展开源码渲染。
+通用工具行把内置的 bash、read、search、write、edit 和 run_code 名称归入专用视觉变体。文件系统变体会渲染 edit 图标和路径摘要；该路径是悬停下划线链接，点击即打开文件：位于会话工作区之内的文件在新浏览器标签页打开，由 web 传输的 `/f` 路由提供，因此不在 Host 机器上的客户端也能看到；工作区之外的文件没有可服务的 URL，回退到宿主操作系统的默认应用（`host.openPath`，相对路径相对会话 cwd 解析）。工具行不再是整行点击目标，也不会打开 details 面板。code 变体以模型撰写的 `description` 作摘要，展开后显示程序本身；其已记录的子调用经由同一个键控 toolview 空位渲染为始终可见的嵌套行（自定义注册和 GenericToolCard fallback 原样适用于子行）。Cordis 生命周期工具复用这些通用变体，同时以统一的 Cordis 强调色呈现 `Inspect`、`Mount temporary Plugin` 和 `Unmount temporary Plugin`；mount 行保留 code 变体的可展开源码渲染。
 
 声明 `terminal` 渲染意图的工具调用，会在两个对话渲染点上都通过 ui-primitives 的 `TerminalBlock` 内联渲染其命令输出。`contract/terminal-card-model.ts` 是从快照的 `callView`／`resultView` 对推导的唯一位置，因此两个渲染点不可能在命令、cwd 或退出状态上产生分歧；对任何其他 card 标签——包括当前客户端版本不认识的标签——它返回 null，落回通用路径。因此两个渲染点也都显示卡片的运行状态点，它与工具行行首图标承载同一套 `StateDot` 语义，所以一行与其自身的卡片对同一条命令的状态总是一致。多行命令的每一行各占一个提示行，状态点只在第一行为整次调用标记一次——退出状态属于整次调用，因此每行一枚就会声称一个 bash 并不报告的逐行结果。键控的 `BashRow` 把卡片常驻在摘要行下方；由于工具行已不再是详情面板的点击目标，卡片的复制与展开控件就是该行唯一的交互。渲染点兜底行则保持其既有的展开控件。行的上限是 `CHAT_TERMINAL_MAX_LINES`（8），面板为 16，正是这一点让摘要面保持有界——面板仍是单次调用的阅读面。内联输出按渲染意图开放——终端卡片与 web 卡片，各有自己的上限；通用工具的内容仍然只在面板中呈现（[决策](../../../.agents/notes/implemented/feature/2026-07-28-web-terminal-card.md)）。
 
@@ -41,6 +41,8 @@ todo 两个面就是在该形状上的两个注册项，都是普通注册方插
 聊天统计行的 token 账目来自经标准套件 `useProjection` 读取的两个通用 token-meter 投影：`tokenUsage` 提供完整日志计费用量（计费输入为未缓存输入、缓存读取与缓存写入之和；缓存命中率以缓存读取除以该总量），`contextPressure` 提供上下文占用率。可见节点只提供轮次与步骤计数，以及 LLM（大语言模型）和工具的墙钟时间：这些是关于「屏幕上有什么」的窗口作用域事实，而非账目；压缩（compaction）使已加载窗口不再包含 assistant 节点时，持久 token 与上下文分组仍保持可见。未组合 token-meter 的部署会整组省略 token 分组；只有提供方压力与路由容量都已知时才显示占用率。占用率是刻意为之的近似值：它的分子与容量是两个相互独立的「后写覆盖」投影字段，并非同一次请求的原子观测（[原理](../../llm/token-meter/README.md)）。行内统计行仍是唯一的上下文 UI；模型选择器不增加圆环或附属控件。
 
 `src/client/` 按未来的包拆分组织：`contract/` 是唯一的跨领域共享表层（`slots.ts` slot 声明 + 组合后的 slot props，包括工具行契约、`views.ts` 共享原语、`tool-call-model.ts`）；`skeleton/`、`chat/` 和 `toolviews/`（示例注册方）领域目录只导入 contract 文件，彼此绝不导入；`apply.ts` 是唯一允许导入全部三个领域的组装点。`/client` 导出表层只包含契约：`apply`／`inject`、两个服务类和 `contract/` 类型家族；实现组件（骨架、聊天行）与 store factory 保持内部状态，只能通过 apply 的 slot 注册到达页面（测试通过 `./src/*` 子路径获取它们）。
+
+完成的一轮以它产出的文件收尾。`chat-flow.ts` 的 `turnDeliverables` 从改写工具自身的跟随文件 `locations` 中读出它们——diff 卡片，或 `kind` 为 `edit` 的 generic 卡片（即 `str_replace_editor` 的 insert 所呈现的形状）——因此无论收尾消息是否点名，这一轮的产出都会被列出；新的改写工具靠声明自己做了什么加入，而不是靠被加进某张名单。read、删除与失败的调用不贡献任何条目；同一路径在一轮内按首见顺序只出现一次；累积在 turn 边界重置，因此一轮若先改写文件、随后没有正文内容就结束，不会溢进下一轮的行里。该行渲染在收尾 assistant 正文之下、其 IconActions 之上，键控到 `assistantActionsSeqs` 选出的同一个 seq。它展示六枚 chip（文本为文件名，完整路径作为 title），外加一个显式的剩余计数，每枚 chip 都经由工具行所用的同一个 `openFile` 打开。
 
 ## 模型体验
 

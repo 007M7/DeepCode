@@ -8,7 +8,7 @@ import type { AddressInfo } from 'node:net'
 import type { ServerResponse } from 'node:http'
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { Writable } from 'node:stream'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { FILES_PATH } from '@deepseek-ai/dsh-host-apiproxy/api'
@@ -37,7 +37,8 @@ beforeAll(async () => {
 
   const server = createServer((req, res) => {
     void handleWorkspaceFile(req, res, {
-      cwdFor: async sessionId => sessionId === SESSION ? workspace : undefined,
+      // 'rooted' names the filesystem root, the separator-terminated realpath case.
+      cwdFor: async sessionId => sessionId === SESSION ? workspace : sessionId === 'rooted' ? sep : undefined,
     })
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
@@ -58,25 +59,35 @@ function get(path: string, init?: RequestInit): Promise<Response> {
 }
 
 describe('workspace file reads', () => {
-  it('serves a produced document with its own capabilities intact', async () => {
+  it('serves an active document into an opaque origin', async () => {
     const response = await get(`${FILES_PATH}/${SESSION}/index.html`)
     expect(response.status).toBe(200)
     expect(await response.text()).toBe('<h1>产物</h1>')
     expect(response.headers.get('content-type')).toBe('text/html; charset=utf-8')
-    // No isolation header: a preview keeps localStorage and cookies, because
-    // the file's author already holds this user's shell (see the module doc).
-    expect(response.headers.get('content-security-policy')).toBeNull()
+    // A workspace file is not necessarily agent-authored, and same-origin
+    // script here would pass the browser-trust fence into every RPC method.
+    expect(response.headers.get('content-security-policy')).toContain('sandbox')
+    expect(response.headers.get('content-security-policy')).not.toContain('allow-same-origin')
     expect(response.headers.get('x-content-type-options')).toBe('nosniff')
     expect(response.headers.get('cache-control')).toBe('no-store')
     expect(response.headers.get('content-disposition')).toBe('inline')
   })
 
-  it('types SVG as a standalone document rather than sniffable bytes', async () => {
+  it('sandboxes SVG too, and leaves inert types unrestricted', async () => {
     const svg = await get(`${FILES_PATH}/${SESSION}/chart.svg`)
     expect(svg.headers.get('content-type')).toBe('image/svg+xml')
-    expect(svg.headers.get('x-content-type-options')).toBe('nosniff')
+    expect(svg.headers.get('content-security-policy')).toContain('sandbox')
     const text = await get(`${FILES_PATH}/${SESSION}/notes.txt`)
     expect(text.headers.get('content-type')).toBe('text/plain; charset=utf-8')
+    expect(text.headers.get('content-security-policy')).toBeNull()
+  })
+
+  it('serves a workspace rooted at a filesystem root, whose realpath already ends in a separator', async () => {
+    // `realpath('/')` is '/', so a naive `root + sep` prefix is '//' and every
+    // child of that workspace would 403.
+    const rooted = await fetch(`${origin}${FILES_PATH}/rooted${new URL(`file://${workspace}/notes.txt`).pathname}`)
+    expect(rooted.status).toBe(200)
+    expect(await rooted.text()).toBe('plain')
   })
 
   it('shows an unknown extension as text rather than downloading it', async () => {
