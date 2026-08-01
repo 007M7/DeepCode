@@ -273,6 +273,19 @@ function sessionBlank(session: Session): boolean {
   return !session.events.some(event => event.type === 'turn/start')
 }
 
+/** Shared Session-header projection for list baselines and creation frames. */
+function sessionListFields(header: SessionHeader): {
+  parentSessionId?: SessionId
+  origin?: 'subagent'
+  cwd?: string
+} {
+  return {
+    ...header.parentSession === undefined ? {} : { parentSessionId: header.parentSession },
+    ...header.origin === undefined ? {} : { origin: header.origin },
+    ...header.cwd === undefined ? {} : { cwd: header.cwd },
+  }
+}
+
 /** SessionSummary projection for attached (in-memory) sessions. */
 function summarize(session: Session, running: boolean): SessionSummary {
   return {
@@ -282,9 +295,7 @@ function summarize(session: Session, running: boolean): SessionSummary {
     updatedAt: lastActivityTime(session.events) ?? session.header.createdAt,
     running,
     blank: sessionBlank(session),
-    ...session.header.parentSession === undefined ? {} : { parentSessionId: session.header.parentSession },
-    ...session.header.origin === undefined ? {} : { origin: session.header.origin },
-    ...session.header.cwd === undefined ? {} : { cwd: session.header.cwd },
+    ...sessionListFields(session.header),
   }
 }
 
@@ -2378,10 +2389,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               // Derived at frame time like summarize(); a just-created session
               // has run no turn yet, so this is constantly true in practice.
               blank: sessionBlank(session),
-              ...session.header.parentSession === undefined ? {} : { parentSessionId: session.header.parentSession },
-              ...session.header.origin === undefined ? {} : { origin: session.header.origin },
-              // cwd rides the frame so the client list needs no refresh to group the new session.
-              ...session.header.cwd === undefined ? {} : { cwd: session.header.cwd },
+              // Including cwd lets the client group the new session without refreshing the list.
+              ...sessionListFields(session.header),
             }))
           }),
           ctx.on('session/disposed', (session: Session) => {

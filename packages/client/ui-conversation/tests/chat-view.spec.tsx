@@ -93,7 +93,7 @@ const runningCall = (callId: string, name = 'bash'): RunningToolCall => ({
 /** Empty sessions-list hook for the global standard-kit seat. */
 function emptySessions() {
   const store = createSnapshotStore<SessionListState>(
-    { ids: [], byId: {}, current: undefined, phase: 'ready', subagentsByParent: {}, currentAddress: undefined, })
+    { ids: [], byId: {}, current: undefined, phase: 'ready', subagentsByParent: {}, currentAddress: undefined })
   return bindSnapshotSelector(store)
 }
 
