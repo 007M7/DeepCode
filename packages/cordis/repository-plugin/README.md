@@ -36,7 +36,7 @@ The containing package manager still runs the configured repository package's li
 
 ## Runtime composition
 
-Loading this package registers one effect-scoped Loader builtin. Each generated wrapper delegates to that builtin with its own module URL and prepared manifest. Repository skill roots mount as a uniquely named `dsh-skill-local` provider with default project/user roots excluded and watching disabled; cached package generations are immutable. Wrapper disposal removes the provider and all composed MCP clients through normal Cordis child-fiber teardown.
+Loading this package registers one effect-scoped Loader builtin. Each generated wrapper delegates to that builtin with its own module URL and prepared manifest. The runtime validates every declared skill root as an existing in-package directory before mounting — a package whose generated outputs were dropped (a `files`/`.npmignore` mistake, a damaged cache entry) fails the plugin load instead of silently mounting a skill-less plugin. Repository skill roots mount as a uniquely named `dsh-skill-local` provider with default project/user roots excluded and watching disabled; cached package generations are immutable. Wrapper disposal removes the provider and all composed MCP clients through normal Cordis child-fiber teardown.
 
 ## Common MCP format
 

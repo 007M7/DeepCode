@@ -5,7 +5,14 @@
 
 import { z } from 'zod'
 
-const SERVER_NAME_PATTERN = /^[A-Za-z0-9_-]{1,32}$/
+/**
+ * Restates dsh-mcp-client's `SERVER_NAME_PATTERN` rather than importing it:
+ * the prepare bin must stay a zod-only module graph (no tools seam, no MCP
+ * SDK). Exported so `repository-plugin.spec.ts` pins equality with the
+ * client's exported pattern — prepare-time validation cannot drift from the
+ * registry that enforces uniqueness.
+ */
+export const SERVER_NAME_PATTERN = /^[A-Za-z0-9_-]{1,32}$/
 const ENVIRONMENT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
 const PLACEHOLDER_PATTERN = /\$\{([^}]*)\}/g
 
@@ -89,7 +96,7 @@ export function parseMcpDocument(content: string): McpDocument {
   if (!result.success) throw new Error(`invalid .mcp.json:\n${z.prettifyError(result.error)}`)
   for (const [serverName, definition] of Object.entries(result.data.mcpServers)) {
     if (!SERVER_NAME_PATTERN.test(serverName)) {
-      throw new Error(`invalid .mcp.json: server name ${JSON.stringify(serverName)} must match [A-Za-z0-9_-]{1,32}`)
+      throw new Error(`invalid .mcp.json: server name ${JSON.stringify(serverName)} must match ${SERVER_NAME_PATTERN.source}`)
     }
     visitStrings(serverName, definition, assertTemplate)
   }

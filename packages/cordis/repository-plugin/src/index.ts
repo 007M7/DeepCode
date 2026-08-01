@@ -3,8 +3,8 @@
  * @module @deepseek-ai/dsh-repository-plugin
  */
 
-import { readFile } from 'node:fs/promises'
-import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
+import { readFile, stat } from 'node:fs/promises'
+import { dirname, isAbsolute, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Context } from 'cordis'
 import type {} from '@cordisjs/plugin-loader'
@@ -12,6 +12,7 @@ import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
 import * as McpClient from '@deepseek-ai/dsh-mcp-client'
 import {
   REPOSITORY_PLUGIN_BUILTIN,
+  isOutside,
   parsePreparedPluginConfig,
   type PreparedPluginConfig,
 } from './format.ts'
@@ -34,10 +35,26 @@ function preparedPath(baseUrl: string, configured: string): string {
   if (isAbsolute(configured)) throw new Error(`prepared DSH plugin path must be relative: ${JSON.stringify(configured)}`)
   const directory = dirname(fileURLToPath(baseUrl))
   const path = resolve(directory, configured)
-  const rel = relative(directory, path)
-  /* v8 ignore next -- Different-drive Windows relative paths cannot be produced on POSIX coverage hosts. */
-  if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+  if (isOutside(directory, path)) {
     throw new Error(`prepared DSH plugin path escapes its package: ${JSON.stringify(configured)}`)
+  }
+  return path
+}
+
+async function preparedDirectory(baseUrl: string, configured: string): Promise<string> {
+  const path = preparedPath(baseUrl, configured)
+  // A manifest-declared skill root missing from the installed package (files/
+  // .npmignore dropping generated outputs, a damaged cache entry) must fail
+  // the plugin load: the skill provider treats an absent root as legitimately
+  // empty, which would silently mount a skill-less plugin.
+  let info
+  try {
+    info = await stat(path)
+  } catch (cause) {
+    throw new Error(`prepared DSH plugin skill root is missing from the installed package: ${JSON.stringify(configured)}`, { cause })
+  }
+  if (!info.isDirectory()) {
+    throw new Error(`prepared DSH plugin skill root is not a directory: ${JSON.stringify(configured)}`)
   }
   return path
 }
@@ -45,13 +62,15 @@ function preparedPath(baseUrl: string, configured: string): string {
 async function applyPrepared(ctx: Context, value: PreparedPluginConfig): Promise<void> {
   const config = parsePreparedPluginConfig(value)
   const directory = dirname(fileURLToPath(config.baseUrl))
-  const skillDirectories = config.manifest.skills.map(path => preparedPath(config.baseUrl, path))
+  const skillDirectories = await Promise.all(config.manifest.skills.map(path => preparedDirectory(config.baseUrl, path)))
   const mcpConfigs = config.manifest.mcpServers === undefined
     ? []
     : resolveMcpServers(
       parseMcpDocument(await readFile(preparedPath(config.baseUrl, config.manifest.mcpServers), 'utf8')),
       process.env,
       directory,
+      // Schemastery call signatures collapse the parameter to `never` under
+      // NodeNext; ResolvedMcpServer is shaped for the Config union by design.
     ).map(input => McpClient.Config(input as never))
 
   await ctx.effect(async function* () {

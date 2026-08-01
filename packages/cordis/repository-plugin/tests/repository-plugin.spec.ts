@@ -59,7 +59,9 @@ describe('dsh-plugin-prepare', () => {
     })
     const wrapper = await readFile(join(directory, RepositoryPlugin.PREPARED_ENTRY_FILENAME), 'utf8')
     expect(wrapper).toContain(`ctx.loader.builtins["${RepositoryPlugin.REPOSITORY_PLUGIN_BUILTIN}"]`)
-    expect(wrapper).not.toMatch(/\b(?:import|from)\s/)
+    // Import-free means no static AND no dynamic imports; `import.meta.url`
+    // (no whitespace, no call parenthesis) is the one allowed appearance.
+    expect(wrapper).not.toMatch(/\b(?:import|from)\s|\bimport\s*\(/)
     await expect(readFile(join(directory, 'dsh-plugin-assets/skills/0/repository-fixture/SKILL.md'), 'utf8'))
       .resolves.toContain('Static instructions.')
     await expect(readFile(join(directory, 'dsh-plugin-assets/.mcp.json'), 'utf8'))
@@ -214,6 +216,34 @@ describe('prepared repository plugin Loader composition', () => {
         '',
       ].join('\n'))
       await expect(ctx.loader.create({ name: pathToFileURL(wrapper).href })).rejects.toThrow('prepared DSH plugin path')
+    }
+    await ctx.fiber.dispose()
+  })
+
+  it('fails the plugin load when a declared skill root is missing or not a directory', async () => {
+    const root = await temporaryDirectory('missing-skill-root')
+    await writeFile(join(root, 'not-a-directory'), 'text')
+    const ctx = new Context()
+    ctx.baseUrl = pathToFileURL(root).href + '/'
+    await ctx.plugin(Loader)
+    await ctx.plugin(SkillService)
+    await ctx.plugin(RepositoryPlugin)
+
+    for (const [filename, skillPath, message] of [
+      ['missing.mjs', 'dsh-plugin-assets/skills/0', 'skill root is missing from the installed package'],
+      ['file.mjs', 'not-a-directory', 'skill root is not a directory'],
+    ] as const) {
+      const wrapper = join(root, filename)
+      await writeFile(wrapper, [
+        "export const inject = ['loader']",
+        'export async function apply(ctx) {',
+        `  await ctx.plugin(ctx.loader.builtins['${RepositoryPlugin.REPOSITORY_PLUGIN_BUILTIN}'], {`,
+        `    baseUrl: import.meta.url, manifest: { name: 'damaged', skills: [${JSON.stringify(skillPath)}] },`,
+        '  })',
+        '}',
+        '',
+      ].join('\n'))
+      await expect(ctx.loader.create({ name: pathToFileURL(wrapper).href })).rejects.toThrow(message)
     }
     await ctx.fiber.dispose()
   })

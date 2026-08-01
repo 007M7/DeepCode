@@ -14,7 +14,7 @@
 
 `@deepseek-ai/dsh-repository-plugin` 负责一个受限的 `.dsh-plugin` package 格式，且只允许两类贡献：skill 根和一个通用 `.mcp.json`。Package metadata 使用 `package.json#dsh.skills` 声明相对 skill 根路径，使用 `package.json#dsh.mcpServers` 声明相对 MCP 文档路径；两者至少需要一个。路径可以离开 `.dsh-plugin` 以复用仓库内容，但必须留在包含该 `.dsh-plugin` 的目录之下；因此，一个嵌套且可选择的 Plugin 可以拥有其 package 上方相邻的子树，却不能访问无关宿主路径。
 
-`.dsh-plugin` package 把 `dsh-plugin-prepare` 声明为普通 package-manager `prepare` 脚本。Helper 会校验 metadata 与源码类型，严格解析 `.mcp.json`，把静态资源复制到 `dsh-plugin-assets`，并写入 `dsh-plugin.mjs`。`.mjs` 扩展名避免强迫仓库作者在 package metadata 中设置 `type: module`。生成模块来自固定、无 import 的模板，只包含规范化 manifest、`inject = ['loader']`，以及对 `dsh-repository-plugin` Loader builtin 的委托。准备阶段永远不会发现、转译、打包或保留自定义仓库入口。
+`.dsh-plugin` package 把 `dsh-plugin-prepare` 声明为普通 package-manager `prepare` 脚本。Helper 会校验 metadata 与源码类型，严格解析 `.mcp.json`，把静态资源复制到 `dsh-plugin-assets`，并写入 `dsh-plugin.mjs`。`.mjs` 扩展名避免强迫仓库作者在 package metadata 中设置 `type: module`。生成模块来自固定、无 import 的模板，只包含规范化 manifest、由 manifest 派生的 `inject` 列表（`loader`，加上按声明能力加入的 `skills`／`tools`，使包装 fiber 在其子插件所需服务上门控），以及对 `dsh-repository-plugin` Loader builtin 的委托。准备阶段永远不会发现、转译、打包或保留自定义仓库入口。
 
 加载 DSH package 会以 effect 方式注册该 builtin。生成的包装模块使用 `import.meta.url` 把 builtin 挂载为自己的子级，因此所有贡献都归属于包装 fiber，并在 Loader 移除或回滚时消失。Builtin 会在读取资源前重新校验已准备 manifest 与路径包含关系。它只组合现有实现，而不自行注册 skills 或 MCP 工具。
 

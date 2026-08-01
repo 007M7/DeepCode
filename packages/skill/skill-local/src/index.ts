@@ -69,7 +69,7 @@ export interface Config {
   watchMaxProjects?: number
   /** Whether watched symbolic links follow their target files. */
   watchFollowSymlinks?: boolean
-  /** Bundled skill root; defaults to `$DSH_BUNDLED_SKILL_DIR`, otherwise mounts none. */
+  /** Bundled skill root; defaults to `$DSH_BUNDLED_SKILL_DIR` when default roots are included, otherwise mounts none. */
   bundledSkillDir?: string
 }
 
@@ -165,7 +165,12 @@ export class LocalSkillProvider implements SkillProvider {
     this.customSkillDirs = (config.customSkillDirs ?? []).map(root => resolve(root))
     this.watchManager = new SkillWatchManager(ctx, control.invalidate, resolveWatchConfig(config))
     control.signal.addEventListener('abort', () => { void this.dispose() }, { once: true })
-    const bundledSkillDir = config.bundledSkillDir ?? process.env.DSH_BUNDLED_SKILL_DIR
+    // The environment bundled root is a default root: an isolated provider
+    // (includeDefaultRoots: false — repository plugins) must see only its
+    // explicit custom roots, or every such provider would re-discover the
+    // app's bundled skills and claim them under its own provider name.
+    const bundledSkillDir = config.bundledSkillDir
+      ?? (this.includeDefaultRoots ? process.env.DSH_BUNDLED_SKILL_DIR : undefined)
     this.bundledSkillDir = bundledSkillDir === undefined ? undefined : resolve(bundledSkillDir)
   }
 

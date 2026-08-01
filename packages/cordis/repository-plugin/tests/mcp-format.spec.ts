@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { parseMcpDocument, resolveMcpServers } from '../src/mcp.ts'
+import { SERVER_NAME_PATTERN as CLIENT_SERVER_NAME_PATTERN } from '@deepseek-ai/dsh-mcp-client'
+import { SERVER_NAME_PATTERN, parseMcpDocument, resolveMcpServers } from '../src/mcp.ts'
 
 describe('repository plugin common .mcp.json support', () => {
+  it('validates server names with exactly the pattern the MCP client registry enforces', () => {
+    // mcp.ts restates the pattern to keep the prepare bin's module graph
+    // zod-only; this pin is the drift guard.
+    expect(SERVER_NAME_PATTERN.source).toBe(CLIENT_SERVER_NAME_PATTERN.source)
+    expect(SERVER_NAME_PATTERN.flags).toBe(CLIENT_SERVER_NAME_PATTERN.flags)
+  })
+
   it('maps Expo-style HTTP servers to the existing Streamable HTTP client config', () => {
     const document = parseMcpDocument(JSON.stringify({
       mcpServers: {

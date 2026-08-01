@@ -36,7 +36,7 @@
 
 ## 运行时组合
 
-加载本包会注册一个 effect-scoped Loader builtin。每个生成的包装模块都把自身模块 URL 和已准备的 manifest 委托给该 builtin。Repository skill 根以唯一命名的 `dsh-skill-local` 提供方挂载，排除默认项目／用户根并禁用监视；缓存 package generation 是不可变的。包装模块 dispose 时，会通过正常的 Cordis 子 fiber teardown 移除提供方和所有组合的 MCP client。
+加载本包会注册一个 effect-scoped Loader builtin。每个生成的包装模块都把自身模块 URL 和已准备的 manifest 委托给该 builtin。运行时在挂载前会校验每个声明的 skill 根都是包内实际存在的目录——生成输出被丢弃的包（`files`／`.npmignore` 配置失误、缓存条目损坏）会使插件加载失败，而不是静默挂载一个没有 skill 的插件。Repository skill 根以唯一命名的 `dsh-skill-local` 提供方挂载，排除默认项目／用户根并禁用监视；缓存 package generation 是不可变的。包装模块 dispose 时，会通过正常的 Cordis 子 fiber teardown 移除提供方和所有组合的 MCP client。
 
 ## 通用 MCP 格式
 
