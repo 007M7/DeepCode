@@ -12,7 +12,7 @@ node 半侧在桥接前守卫 `/api` 下的每个请求（`src/api-request-trust
 
 node 半侧还会在 `/f/<sessionId>/<segments…>` 下逐个提供某个 Session 工作区里的文件，让产出的交付物能从报告它的那个页面直接抵达——`http` 页面无法跟随 `file://` 链接，而不在 Host 机器上的浏览器本来也没有那条路径。段落走 URL 而非查询参数，是为了让所服务文档的相对引用能解析到它的同级文件。请求指名一个 Session，由网关指名该 Session 的目录（`ApiProxy.workspaceRootOf`，它从活跃 agent 的 header 或持久化存储作答，绝不会为了提供一个文件而恢复 agent）；本包读取这个权威来源而不去够核心服务，因为持有它们的 host 侧 Context 声明会把它们盖到浏览器运行时自己的声明之上。URL 形状本身与其余浏览器可导入的契约面放在一起，位于 [`@deepseek-ai/dsh-host-apiproxy/api`](../../host/apiproxy/README.md)，因此构造 URL 的浏览器半侧与解析 URL 的这一半共享同一个编码决定。cwd 与解析出的目标在比较前都要过 `realpath`，因此工作区内指向工作区外的符号链接会因其目标而被拒绝，而不是因其名字；穿越写法拒得更早，在解析期、任何文件系统调用之前。读取是流式的（没有请求会把文件缓冲起来），只应答 `GET`／`HEAD`，并带上 `nosniff` 与 `no-store`。所服务的内容类型表之外的扩展名一律按 `text/plain` 定型而非作为下载给出，因为工作区读取本就是一个“让我看看这个文件”的请求。
 
-能执行脚本的文档——`.html`、`.htm`、`.xhtml`、`.svg`——还会额外带上 `Content-Security-Policy: sandbox allow-scripts allow-popups allow-modals allow-forms`。模型撰写的标记与 `/api` 同源提供，而 `/api/events.mux` 是一条可读的 `GET` 流，因此正是不透明源阻止了一个生成页面通过一次 `window.open` 读走会话事件流。代价由预览承担：其中无法使用 `localStorage`、cookie 与同源 `fetch`，而 `host.openPath` 仍是在 Host 机器上以完整能力打开同一文件的方式。这条前缀由同一道信任 fence 把守，因此配置了 `trustedHosts` 的部署提供工作区文件的范围，与它提供普通读取的范围完全一致。
+所服务的文档不带任何隔离头，与 `/api` 同源。这是一个决定，不是遗漏：这些文件的唯一作者，正是那个已经握着本用户 shell 与文件系统的 agent，因此 `Content-Security-Policy: sandbox` 只会立在一条它早已越过的信任边界之后，代价却是每个预览都失去 `localStorage` 与 cookie——一个会记住主题的生成页面在它之下就是坏的。把 `dsh web` 服务到回环之外的部署，应当把工作区内容按可信处理，而这一点对其 agent 所做的其他一切本来就已成立。当工作区内容不再属于观看者本人时，隔离预览才成为一个真问题；那时的答案是一个独立的源，而不是一个头。这条前缀由同一道信任 fence 把守，因此配置了 `trustedHosts` 的部署提供工作区文件的范围，与它提供普通读取的范围完全一致。
 
 ## 无密钥 fixture
 

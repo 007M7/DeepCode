@@ -9,6 +9,14 @@
  * names its cwd, and nothing outside that realpath is ever served. The caller
  * owns the browser-trust fence ([api-request-trust](./api-request-trust.ts)) —
  * this module is reached only by requests that already passed it.
+ *
+ * A served document is same-origin with `/api`, and deliberately carries no
+ * isolation header. The only author of these files is the agent already
+ * holding this user's shell and filesystem, so a browser sandbox would not
+ * move the trust boundary — it would sit behind one already crossed, at the
+ * cost of `localStorage` and cookies in every preview. Isolating a preview
+ * becomes a real question when workspace content stops being the viewer's own;
+ * the answer then is a separate origin, not a header.
  */
 
 import { createReadStream } from 'node:fs'
@@ -50,19 +58,6 @@ const MIME: Record<string, string> = {
 }
 
 const DEFAULT_MIME = 'text/plain; charset=utf-8'
-
-/** Extensions whose top-level navigation can execute script, and so need the sandbox. */
-const SCRIPTABLE = new Set(['.html', '.htm', '.xhtml', '.svg'])
-
-/**
- * Model-authored documents run in an opaque origin. Without it a generated page
- * is same-origin with the RPC gateway, where `/api/events.mux` is a readable
- * GET stream — one `window.open` away from every session's events. The cost is
- * that `localStorage`, cookies, and same-origin `fetch` are unavailable inside
- * a preview; the native-open path (`host.openPath`) remains the full-capability
- * way to view a file.
- */
-const SANDBOX_CSP = 'sandbox allow-scripts allow-popups allow-modals allow-forms'
 
 /** How the route learns which directory a session may serve from. */
 export interface WorkspaceFileDeps {
@@ -151,7 +146,6 @@ export async function handleWorkspaceFile(
     // Workspace files change under the agent's hands; a cached preview would
     // show the previous turn's output after the next edit.
     'cache-control': 'no-store',
-    ...SCRIPTABLE.has(ext) ? { 'content-security-policy': SANDBOX_CSP } : {},
   })
   if (req.method === 'HEAD') {
     res.end()

@@ -58,26 +58,25 @@ function get(path: string, init?: RequestInit): Promise<Response> {
 }
 
 describe('workspace file reads', () => {
-  it('serves a produced document with the sandbox that keeps it off this origin', async () => {
+  it('serves a produced document with its own capabilities intact', async () => {
     const response = await get(`${FILES_PATH}/${SESSION}/index.html`)
     expect(response.status).toBe(200)
     expect(await response.text()).toBe('<h1>产物</h1>')
     expect(response.headers.get('content-type')).toBe('text/html; charset=utf-8')
-    // The whole reason a model-authored page may be served from the RPC
-    // origin: an opaque origin cannot read /api/events.mux.
-    expect(response.headers.get('content-security-policy')).toContain('sandbox')
+    // No isolation header: a preview keeps localStorage and cookies, because
+    // the file's author already holds this user's shell (see the module doc).
+    expect(response.headers.get('content-security-policy')).toBeNull()
     expect(response.headers.get('x-content-type-options')).toBe('nosniff')
     expect(response.headers.get('cache-control')).toBe('no-store')
     expect(response.headers.get('content-disposition')).toBe('inline')
   })
 
-  it('sandboxes SVG too, and leaves non-scriptable types alone', async () => {
+  it('types SVG as a standalone document rather than sniffable bytes', async () => {
     const svg = await get(`${FILES_PATH}/${SESSION}/chart.svg`)
     expect(svg.headers.get('content-type')).toBe('image/svg+xml')
-    expect(svg.headers.get('content-security-policy')).toContain('sandbox')
+    expect(svg.headers.get('x-content-type-options')).toBe('nosniff')
     const text = await get(`${FILES_PATH}/${SESSION}/notes.txt`)
     expect(text.headers.get('content-type')).toBe('text/plain; charset=utf-8')
-    expect(text.headers.get('content-security-policy')).toBeNull()
   })
 
   it('shows an unknown extension as text rather than downloading it', async () => {
