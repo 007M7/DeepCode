@@ -20,10 +20,6 @@
     model: deepseek-v4-pro
     persistenceRoot: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
     persistenceCompression: !!js "process.env.DSH_SNAPSHOT === undefined ? 'zstd' : 'none'"
-    # Unpacked rows: the eager-drain batch boundaries that split packed delta
-    # runs are timing-dependent, so packed logs cannot replay-match a live
-    # record of a long reasoning stream.
-    packChunks: false
     workspaceContext: false
     skills:
       enabled: false
