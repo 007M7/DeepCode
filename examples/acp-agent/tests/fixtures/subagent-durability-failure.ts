@@ -22,7 +22,7 @@ export const inject = ['sessionPersistence', 'subagents']
 const PLACEHOLDER_CHILD_ID = '33333333-3333-4333-8333-333333333333'
 const UNKNOWN_CHILD_ID = '22222222-2222-4222-8222-222222222222'
 /** The child continuation turn whose durability checkpoint is forced to fail. */
-const FAILED_CHECKPOINT_TURN = 4
+const FAILED_CHECKPOINT_TURN = 3
 
 /** Fail the child checkpoint and stabilize the authored follow-up failure ordering. */
 export function apply(ctx: Context): void {
