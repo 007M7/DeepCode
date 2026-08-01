@@ -77,8 +77,9 @@ function executable(path: string, content: string): void {
 async function createFixture(): Promise<Fixture> {
   const root = await mkdtemp(join(tmpdir(), 'dsh-install-'))
   fixtures.push(root)
-  const scriptsDirectory = join(root, 'scripts')
-  const sourceBinDirectory = join(root, 'bin')
+  const checkoutDirectory = join(root, 'checkout')
+  const scriptsDirectory = join(checkoutDirectory, 'scripts')
+  const sourceBinDirectory = join(checkoutDirectory, 'bin')
   const fakeBinDirectory = join(root, 'fake-bin')
   const binDirectory = join(root, 'path-bin')
   for (const directory of [scriptsDirectory, sourceBinDirectory, fakeBinDirectory, binDirectory, join(root, 'home/.dsh')]) {
@@ -93,6 +94,13 @@ async function createFixture(): Promise<Fixture> {
 if [ "\${1:-}" = --version ]; then printf '11.7.0\\n'; exit 0; fi
 printf '%s\\n' "$*" >>"$DSH_TEST_PNPM_LOG"
 `)
+  await execa('git', ['init', '-q'], { cwd: checkoutDirectory })
+  await execa('git', ['add', 'bin/dsh', 'scripts/install.sh'], { cwd: checkoutDirectory })
+  await execa('git', [
+    '-c', 'user.name=dsh-test',
+    '-c', 'user.email=dsh-test@example.invalid',
+    'commit', '-qm', 'fixture',
+  ], { cwd: checkoutDirectory })
   writeFileSync(join(root, 'home/.dsh/.env'), 'DEEPSEEK_API_KEY=test\n')
   return { binDirectory, launchLog, pnpmLog, root, script }
 }
