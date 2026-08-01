@@ -25,7 +25,8 @@ function readVersion(): string {
 }
 
 loadEnv('dsh')
-const invocation = parseDshArgs(process.argv.slice(2), readVersion())
+// The env opt-in is read at the process boundary; `1` is the documented value.
+const invocation = parseDshArgs(process.argv.slice(2), readVersion(), process.env.DSH_EXPERIMENTAL === '1')
 
 switch (invocation.mode) {
   case 'web': {

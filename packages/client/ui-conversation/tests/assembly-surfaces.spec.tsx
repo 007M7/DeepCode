@@ -149,7 +149,7 @@ describe('terminal card assembly', () => {
     const view = runtime.renderRoot()
 
     // Keyed BashRow: collapsed by default, the whole summary row is the toggle.
-    const keyedRow = view.container.querySelector('[data-sample="bash-global"]')
+    const keyedRow = view.container.querySelector('[data-sample="bash"]')
     const keyed = keyedRow?.parentElement
     expect(keyed?.querySelector('[data-terminal]')).toBeNull()
     fireEvent.click(keyedRow!)

@@ -317,7 +317,7 @@ export function apply(ctx: Context): void {
   ctx.plugin(ConversationService, { input: inputHub })
 
   // The bash sample rides that exact seam, in third-party posture
-  // (ToolRow-matching Bash · {description} chrome; scoped badge in child sessions).
+  // (ToolRow-matching Bash · {description} chrome).
   ctx.plugin(bashToolviewSample)
 
   // The read row rides the same seam (a product registration, not a sample):

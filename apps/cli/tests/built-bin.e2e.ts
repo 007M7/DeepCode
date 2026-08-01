@@ -54,6 +54,31 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
     expect(stdout).toBe('')
   }, 30_000)
 
+  describe('experimental subcommand gate', () => {
+    // The gate has two halves: a per-invocation --experimental flag parsed by
+    // Commander and an env opt-in read by bin.ts as exactly '1'. Passing the
+    // gate is proven by reaching the NEXT failure — the TUI's piped-stdio
+    // refusal — instead of the gate diagnostic.
+    it('rejects bare `meta`/`upgrade` LOUD, naming both opt-ins', async () => {
+      for (const command of ['meta', 'upgrade']) {
+        const { code, stderr } = await runBuiltBin([command], { DSH_EXPERIMENTAL: '' })
+        expect(code).toBe(1)
+        expect(stderr).toContain(`${command} is experimental; pass --experimental or set DSH_EXPERIMENTAL=1`)
+      }
+    }, 30_000)
+
+    it('admits --experimental and DSH_EXPERIMENTAL=1, but not other env values', async () => {
+      const flagged = await runBuiltBin(['meta', '--experimental'], { DSH_EXPERIMENTAL: '' })
+      expect(flagged.stderr).toContain('requires stdin and stdout to be interactive TTYs')
+      const env = await runBuiltBin(['meta'], { DSH_EXPERIMENTAL: '1' })
+      expect(env.stderr).toContain('requires stdin and stdout to be interactive TTYs')
+      // The env opt-in is exact: '0' (or any other value) does not enable.
+      const zero = await runBuiltBin(['meta'], { DSH_EXPERIMENTAL: '0' })
+      expect(zero.code).toBe(1)
+      expect(zero.stderr).toContain('meta is experimental')
+    }, 30_000)
+  })
+
   describe('dsh --dump-config', () => {
     let home: string
     beforeEach(() => { home = mkdtempSync(join(tmpdir(), 'dsh-dump-bin-')) })

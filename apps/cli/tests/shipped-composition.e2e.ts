@@ -11,6 +11,7 @@ import { acknowledgeTuiFirstRunWelcome } from '../src/tui-onboarding/tui-first-r
 
 const dshBinScript = fileURLToPath(new URL('../src/bin.ts', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
+const PERMISSION_SUMMARY = 'current preset workspace-write (available: read-only, workspace-write, danger-full-access)'
 // An overlay over the shipped tree, so the catalog under test is the one
 // `base.cordis.yml` + `tui.cordis.yml` assemble; the tail only swaps the model
 // and redirects session artifacts.
@@ -67,6 +68,8 @@ interface LoggedHeader {
   names: string[]
   /** `bash`'s assembled parameter properties; the escalation pair is present only under a confining executor. */
   bashArguments: Record<string, unknown>
+  /** Initial permission facts pinned by the shipped composition. */
+  permissionEvents: Array<[string, unknown]>
 }
 
 /**
@@ -82,18 +85,22 @@ async function loggedHeader(cwd: string): Promise<LoggedHeader> {
   // A single keyless run writes one session log.
   const logRelPath = entries.find(name => name.endsWith('.jsonl'))
   if (logRelPath === undefined) throw new Error(`no session log written under ${sessionsDir}`)
-  const lines = (await readFile(join(sessionsDir, logRelPath), 'utf8')).split('\n').filter(Boolean)
-  for (const line of lines) {
-    const event = JSON.parse(line) as SessionEvent
-    if (event.type !== 'request/header') continue
-    const tools = event.data.header.tools ?? []
-    const bash = tools.find(schema => schema.name === 'bash')
-    return {
-      names: tools.map(schema => schema.name).sort(),
-      bashArguments: (bash?.parameters as { properties?: Record<string, unknown> } | undefined)?.properties ?? {},
-    }
+  const events = (await readFile(join(sessionsDir, logRelPath), 'utf8')).split('\n').filter(Boolean)
+    .map(line => JSON.parse(line) as SessionEvent)
+  const header = events.find(event => event.type === 'request/header')
+  if (header === undefined || header.type !== 'request/header') {
+    throw new Error(`session log ${logRelPath} has no request/header event`)
   }
-  throw new Error(`session log ${logRelPath} has no request/header event`)
+  const tools = header.data.header.tools ?? []
+  const bash = tools.find(schema => schema.name === 'bash')
+  return {
+    names: tools.map(schema => schema.name).sort(),
+    bashArguments: (bash?.parameters as { properties?: Record<string, unknown> } | undefined)?.properties ?? {},
+    permissionEvents: events.flatMap(event =>
+      event.type === 'permission/preset' || event.type === 'sandbox/mode' || event.type === 'approval/policy'
+        ? [[event.type, event.data] as [string, unknown]]
+        : []),
+  }
 }
 
 describe('shipped dsh composition (real Loader tree in a PTY)', () => {
@@ -110,17 +117,22 @@ describe('shipped dsh composition (real Loader tree in a PTY)', () => {
       // Artifact CI builds and smokes concurrently on a contended runner.
       ...(process.env.DSH_EXAMPLE_MODE === 'lib' ? { timeoutMs: 60_000 } : {}),
       actions: [
-        { waitFor: COMPOSITION_SETTLED_MARKER, send: 'Describe the shipped composition.\r' },
+        { waitFor: COMPOSITION_SETTLED_MARKER, send: '/permission\r' },
+        { waitFor: PERMISSION_SUMMARY, send: 'Describe the shipped composition.\r' },
         { waitFor: COMPOSITION_REPLY_TEXT, send: '/exit\r' },
       ],
       inspect: async (cwd) => { observed = await loggedHeader(cwd) },
     })
     expect(output).toContain(COMPOSITION_REPLY_TEXT)
+    expect(output).toContain(PERMISSION_SUMMARY)
     expect(observed?.names.filter(name => !RIPGREP_TOOLS.includes(name))).toEqual(EXPECTED_TUI_TOOLS)
     expect([[], RIPGREP_TOOLS]).toContainEqual(observed?.names.filter(name => RIPGREP_TOOLS.includes(name)))
-    // The TUI mounts the unrestricted local executors, so `tool-bash` emits no
-    // escalation pair. Pinning its absence keeps a later sandbox change from
-    // arriving here unannounced.
-    expect(Object.keys(observed?.bashArguments ?? {})).not.toContain('sandbox_permissions')
+    expect(observed?.bashArguments).toHaveProperty('sandbox_permissions')
+    expect(observed?.bashArguments).toHaveProperty('justification')
+    expect(observed?.permissionEvents).toEqual([
+      ['permission/preset', { preset: 'workspace-write' }],
+      ['sandbox/mode', { mode: 'workspace-write' }],
+      ['approval/policy', { policy: 'ask' }],
+    ])
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 })
