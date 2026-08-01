@@ -118,8 +118,6 @@ flowchart LR
   cfg --> plugin_tui_tool_goal
   plugin_tui_tool_ralph["tool-ralph<br/>@deepseek-ai/dsh-tool-ralph"]
   cfg --> plugin_tui_tool_ralph
-  plugin_tui_tool_session_query["tool-session-query<br/>@deepseek-ai/dsh-tool-session-query"]
-  cfg --> plugin_tui_tool_session_query
   plugin_tui_tool_str_replace_editor["tool-str-replace-editor<br/>@deepseek-ai/dsh-tool-str-replace-editor"]
   cfg --> plugin_tui_tool_str_replace_editor
   plugin_tui_repeat_tool_guard["repeat-tool-guard<br/>@deepseek-ai/dsh-repeat-tool-guard"]
@@ -199,7 +197,6 @@ flowchart LR
 | `tool-todo` | `@deepseek-ai/dsh-tool-todo` |
 | `tool-goal` | `@deepseek-ai/dsh-tool-goal` |
 | `tool-ralph` | `@deepseek-ai/dsh-tool-ralph` |
-| `tool-session-query` | `@deepseek-ai/dsh-tool-session-query` |
 | `tool-str-replace-editor` | `@deepseek-ai/dsh-tool-str-replace-editor` |
 | `repeat-tool-guard` | `@deepseek-ai/dsh-repeat-tool-guard` |
 | `web` | `@deepseek-ai/dsh-web` |
