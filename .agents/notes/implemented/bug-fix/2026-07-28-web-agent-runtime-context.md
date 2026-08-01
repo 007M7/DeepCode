@@ -10,13 +10,13 @@ The shared CLI base configured an empty deployment persona, the Web overlay did 
 
 ## Decision
 
-The shared Web/headless overlay (`apps/cli/config/web.cordis.yml`) supplies a concise coding-agent persona containing the resolved `{{model}}` and session `{{cwd}}`. `dsh web` additionally resolves the harness checkout from the launcher's module URL, installs the existing `harness:source` section, and adds an `app:web-surface` section before serving requests. The [source-checkout/workdir decision](2026-07-30-source-checkout-workdir-distinction.md) owns the source section's wording and its warning not to infer one path from the other.
+The shared Web/headless overlay (`apps/cli/config/web.cordis.yml`) supplies a concise coding-agent persona containing the resolved `{{model}}` and session `{{cwd}}`. `dsh web` additionally resolves the harness checkout from the launcher's module URL, installs the existing `harness:source` section, and adds an `app:web-surface` section before serving requests. The launcher registers that setup before mounting the config tree; its `systemPrompt` injection therefore installs both sections before later prompt consumers such as the agent loop can activate and emit a request header. The [source-checkout/workdir decision](2026-07-30-source-checkout-workdir-distinction.md) owns the source section's wording and its warning not to infer one path from the other.
 
 The Web section treats unqualified references to “this page,” “this GUI,” or “this app” as references to the DeepSeek Harness Web GUI. It also states that the browser provides no implicit DOM, route, or screenshot context, so the model can identify the product without claiming visual state it did not receive. The assembled text is logged in `request/header`, preserving the model-visible/logged invariant.
 
 ## Verification
 
-The keyless fresh-round-trip Web scenario boots the shipped base plus Web overlay, installs the same launcher context as `dsh web`, runs a real session through the HTTP/SSE application, and snapshots the first four system-prompt sections with source and working-directory paths normalized. The snapshot pins the harness identity, source checkout, Web orientation, and resolved coding-agent persona in request order.
+The focused startup-order test registers a later `systemPrompt` consumer and proves that it observes both launcher sections on its first activation. The keyless fresh-round-trip Web scenario boots the shipped base plus Web overlay, registers the same launcher context as `dsh web`, runs a real session through the HTTP/SSE application, and snapshots the first four system-prompt sections with source and working-directory paths normalized. The snapshot pins the harness identity, source checkout, Web orientation, and resolved coding-agent persona in request order.
 
 ## Alternatives considered
 

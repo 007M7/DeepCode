@@ -23,17 +23,18 @@ const WEB_SURFACE_PROMPT = 'You are interacting with the user through the DeepSe
   + 'The browser provides no implicit DOM, route, or screenshot context.'
 
 /**
- * Add the launcher-owned source location and Web-surface orientation after the
- * shared config tree settles. The request header logs both sections with every
- * model-visible prompt.
- * @param ctx - settled Web application context.
+ * Register the launcher-owned source location and Web-surface orientation
+ * before the shared config tree mounts. The injection installs both sections
+ * when `systemPrompt` activates; because it precedes the Loader entries, later
+ * prompt consumers observe them on their first activation.
+ * @param ctx - Web root context with Loader installed but no config tree mounted.
  * @param sourceRoot - absolute checkout root resolved from the launcher module.
  */
-export function installWebPromptContext(ctx: Context, sourceRoot: string): void {
-  const systemPrompt = ctx.get('systemPrompt')
-  if (systemPrompt === undefined) throw new Error('dsh web: systemPrompt service missing after settled boot')
-  addHarnessSourceSection(ctx, sourceRoot)
-  systemPrompt.section({ name: 'app:web-surface', order: -98, text: WEB_SURFACE_PROMPT })
+export function prepareWebPromptContext(ctx: Context, sourceRoot: string): void {
+  ctx.inject(['systemPrompt'], (promptCtx) => {
+    addHarnessSourceSection(promptCtx, sourceRoot)
+    promptCtx.systemPrompt.section({ name: 'app:web-surface', order: -98, text: WEB_SURFACE_PROMPT })
+  })
 }
 
 // Display-only mirror of the webserver schema's loopback host: the address the
@@ -65,13 +66,13 @@ export async function runWeb(
     overlayPath: WEB_OVERLAY,
     ...config !== undefined && { extraOverlayPath: resolveConfigPath(config, undefined) },
     dev,
+    prepare: (ctx) => { prepareWebPromptContext(ctx, SOURCE_ROOT) },
     ...host !== undefined && { host },
     ...port !== undefined && { port },
     ...workspaceRoot !== undefined && { workspaceRoot },
     ...trustedHosts !== undefined && { trustedHosts },
   })
   const { ctx, port: boundPort } = await entry.run()
-  installWebPromptContext(ctx, SOURCE_ROOT)
 
   let exiting = false
   const shutdown = (code: number): void => {
