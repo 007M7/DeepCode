@@ -1735,14 +1735,14 @@ export interface Config {
   rawOutputMaxBytes?: number
   /** Terminate-escalation grace period (ms) for one search process, handed to the subprocess seam. */
   graceMs?: number
-  /** Max bytes retained for one search's stderr diagnostic tail (never surfaced to the model). */
+  /** Max bytes retained for one search's stderr tail; the excerpt is embedded in `SEARCH_*` error messages, never shown on success. */
   stderrMaxBytes?: number
   /** Cooperative tool-call timeout budget (ms) on both tools, enforced by `@deepseek-ai/dsh-timeout-policy` through `exec.signal`. */
   timeoutMs?: number
 }
 ```
 
-Source: [`packages/fs/tool-fs-search/src/index.ts:71`](../packages/fs/tool-fs-search/src/index.ts)
+Source: [`packages/fs/tool-fs-search/src/index.ts:72`](../packages/fs/tool-fs-search/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-goal`
 
