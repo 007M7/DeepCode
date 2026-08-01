@@ -8,8 +8,8 @@
  * from it, so `dsh` acts on whatever project it is launched in. Session storage
  * is the exception — it lives under the Harness home so `/resume` reaches every
  * workspace, and an in-place resume enters the selected session's own directory.
- * `dsh experimental-meta` is the one exception — it makes this harness
- * checkout the workspace. `dsh experimental-upgrade` is a fresh session whose
+ * `dsh meta` is the one exception — it makes this harness
+ * checkout the workspace. `dsh upgrade` is a fresh session whose
  * first turn auto-invokes a bundled skill. After boot, the agent's system
  * prompt is told the path to this harness checkout so it can find its own
  * source.
@@ -71,7 +71,7 @@ const SESSION_QUERY_DB = `session-query-${String(process.pid)}-${randomUUID()}.d
 // The harness checkout root: three hops up from apps/cli/{src,lib}, resolved
 // from this bin's location so it holds however `dsh` is launched (a PATH
 // symlink, an arbitrary cwd). The agent is told where its own source lives.
-/** The harness checkout used as the `dsh experimental-meta` workspace and source prompt path. */
+/** The harness checkout used as the `dsh meta` workspace and source prompt path. */
 export const SOURCE_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 
 /* v8 ignore start -- composition over the unit-tested dsh-app-boot helpers;
@@ -88,9 +88,9 @@ export const SOURCE_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
  * {@link CONFIGURED_AGENT_IDENTITIES_KEY}, so no config key selects the session
  * and an overlay replacing the agent row cannot drop it.
  * @param workspace - a directory to make the workspace instead of the invoking
- * one, or `undefined` to keep the cwd. Only `dsh experimental-meta` passes it.
+ * one, or `undefined` to keep the cwd. Only `dsh meta` passes it.
  * @param initialSkill - a bundled skill to auto-invoke as a fresh session's
- * first turn, or `undefined`. Set only by `dsh experimental-upgrade` and
+ * first turn, or `undefined`. Set only by `dsh upgrade` and
  * ignored on a resume, so it never re-fires; reaches the app through
  * {@link INITIAL_SKILL_KEY}.
  * @param configReplace - a config path to boot as the ENTIRE tree, bypassing the
@@ -140,7 +140,7 @@ export async function runTui(
   const entry = process.argv[1]
   const execve = process.execve?.bind(process)
   const app: { current?: Context } = {}
-  // Resume always enters the default surface because experimental-meta rejects
+  // Resume always enters the default surface because meta rejects
   // parent options, including `--resume`. The resumed session already persists
   // its cwd.
   const resumeArgs = (sessionId: string): string[] => [

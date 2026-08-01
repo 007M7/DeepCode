@@ -391,9 +391,9 @@ describe('boot', () => {
 
 describe('addHarnessSourceSection', () => {
   const SOURCE_ROOT = `${sep}opt${sep}harness-src`
-  const EXPECTED = `Your own source code is the checkout at ${SOURCE_ROOT}; you can read it there to learn how dsh works and how to extend it.`
+  const EXPECTED = `The DeepSeek Harness implementation checkout is at ${SOURCE_ROOT}. The checkout location and current working directory are separate values and may differ; never infer the working directory from this path. Use pwd to determine the current working directory. Use this checkout only to inspect or extend DSH itself.`
 
-  it('adds the source path between the harness identity and the deployment persona', async () => {
+  it('distinguishes the source path from the current workdir between identity and persona', async () => {
     const ctx = new Context()
     try {
       await ctx.plugin(SystemPrompt, { persona: 'You are a coding agent.' })
