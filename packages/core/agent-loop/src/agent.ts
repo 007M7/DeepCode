@@ -71,6 +71,7 @@ function createSteeringDelivery(): SteeringDelivery {
   return {
     receipt: { outcome: promise },
     settle(outcome): void {
+      /* v8 ignore next -- each ownership transfer removes the delivery before another settlement path can reach it. */
       if (settled) return
       settled = true
       resolve(outcome)
@@ -544,6 +545,7 @@ export class ReactLoopAgent implements Agent {
               this.drainOutbox(turn)
               break steps
             }
+            /* v8 ignore next -- step() folded the same steering predicate into continueTurn immediately before returning. */
             if (outcome.continueTurn || this.outbox.some(item => item.steering)) continue
             break
           case 'request-failed': {

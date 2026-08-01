@@ -35,6 +35,7 @@ const EXPECTED_TUI_TOOLS = [
   'get_goal',
   'ralph',
   'read',
+  'send_message',
   'skill',
   'str_replace_editor',
   'subagent',

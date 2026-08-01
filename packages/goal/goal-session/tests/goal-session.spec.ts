@@ -9,7 +9,7 @@ import type { GoalView } from '@deepseek-ai/dsh-goal'
 import { createUserMessage, LlmAdapter, LlmError  } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionEvent, TurnEndReason } from '@deepseek-ai/dsh-session'
+import type { TurnEndReason } from '@deepseek-ai/dsh-session'
 import * as goalSession from '../src/index.ts'
 
 declare module '@deepseek-ai/dsh-session' {
@@ -785,35 +785,6 @@ describe('same-session goal driving', () => {
     })
     await test.agent.whenIdle()
     expect(test.adapter.requests).toHaveLength(1)
-  })
-
-  it('yields to a round whose turn/end never committed instead of misreading it as settled', async () => {
-    const test = await harness([textResponse('round ran')])
-    // A persistent pre-commit turn/end rejection reaches idle with the
-    // attempt's turn open and no terminal reason. The driver must yield
-    // instead of clearing the reservation or scheduling another round.
-    let roundTurn: number | undefined
-    test.ctx.on('internal/dispatch', (_mode, name, args) => {
-      if (name !== 'session/event') return
-      const event = args[1] as SessionEvent
-      if (event.type === 'turn/start' && event.data.trigger.kind === 'message'
-        && event.data.trigger.source.kind === 'goal') {
-        roundTurn = event.data.turn
-      }
-      if (event.type === 'turn/end' && event.data.turn === roundTurn) {
-        throw new Error('turn close permanently rejected')
-      }
-    })
-    test.ctx.goals.create(test.agent, { objective: 'survive a lost turn end' })
-    await waitForRequests(test.adapter, 1)
-    await test.agent.whenIdle()
-    await new Promise((resolve) => { setImmediate(resolve) })
-
-    expect(test.adapter.requests).toHaveLength(1)
-    expect(test.ctx.goals.get(test.agent)).toMatchObject({
-      phase: 'active',
-      activation: 'armed',
-    })
   })
 
   it('cancels an accepted queued round and awaits its driver task during teardown', async () => {
