@@ -445,7 +445,9 @@ export async function assertEntriesActivated(ctx: Context, binName: string): Pro
  * @param prepare - optional host setup run after Loader installation and before any config-tree entry mounts.
  * @returns the root context once every entry has started, or as soon as a
  * surface disposed the tree while startup was still in flight.
- * @throws a labelled load error after disposing the partial context.
+ * @throws a labelled error after disposing the partial context — `host
+ * preparation failed` when `prepare` threw before any config-tree entry
+ * mounted, `plugin tree failed to load` afterwards.
  */
 export async function boot(
   binName: string,
@@ -454,12 +456,16 @@ export async function boot(
   prepare?: (ctx: Context) => Promise<void> | void,
 ): Promise<Context> {
   const ctx = new Context()
+  // Two failure labels: `prepare` runs before any config-tree entry mounts,
+  // so its failure is host setup, not the plugin tree.
+  let stage = 'host preparation failed'
   try {
     ctx.baseUrl = pathToFileURL(dirname(absoluteConfigPath)).href + '/'
     ctx.provide('dshHomePath', dshHomePath)
     await ctx.plugin(Loader)
     ctx.loader.builtins.include = Include
     await prepare?.(ctx)
+    stage = 'plugin tree failed to load'
     // Pinned id: the bootstrap include is app glue, not a config row, and its
     // id appears in Loader failure chains — a random id would make startup
     // diagnostics unstable across runs (and snapshot fixtures).
@@ -485,6 +491,9 @@ export async function boot(
     await assertEntriesActivated(ctx, binName)
     return ctx
   } catch (cause) {
+    // Root-fiber disposal contains cleanup failures per observer (Cordis
+    // fiber.ts hardening) and a repeated call returns the settled single-shot
+    // result, so this await cannot reject and replace `cause`.
     await ctx.fiber.dispose()
     const detail = cause instanceof Error ? cause.message : String(cause)
     // The transactional Loader wraps a failing entry apply in one message per
@@ -495,7 +504,7 @@ export async function boot(
     let deepest: unknown = cause
     while (deepest instanceof Error && deepest.cause !== undefined) deepest = deepest.cause
     const stack = deepest instanceof Error && deepest !== cause ? `\n${deepest.stack ?? deepest.message}` : ''
-    throw new Error(`${binName}: plugin tree failed to load: ${detail}${stack}`, { cause })
+    throw new Error(`${binName}: ${stage}: ${detail}${stack}`, { cause })
   }
 }
 

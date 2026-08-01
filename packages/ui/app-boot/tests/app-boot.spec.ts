@@ -335,7 +335,7 @@ describe('boot', () => {
     })
 
     await expect(task).rejects.toMatchObject({
-      message: `${NAME}: plugin tree failed to load: ${failure}`,
+      message: `${NAME}: host preparation failed: ${failure}`,
       cause: failure,
     })
     expect(disposed).toBe(true)
@@ -418,9 +418,9 @@ describe('boot', () => {
     const deepest = new Error('stackless deep failure')
     delete (deepest as { stack?: string }).stack
     await expect(boot(NAME, join(dir, 'cordis.yml'), undefined, () => {
-      throw new Error('host preparation failed', { cause: deepest })
+      throw new Error('wrapped setup failure', { cause: deepest })
     })).rejects.toThrow(
-      `${NAME}: plugin tree failed to load: host preparation failed\nstackless deep failure`,
+      `${NAME}: host preparation failed: wrapped setup failure\nstackless deep failure`,
     )
   })
 
