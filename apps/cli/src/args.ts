@@ -285,7 +285,7 @@ Examples:
     .option('--config <path>', 'apply this overlay of loader patches over the shipped configuration')
     .option('--host <host>', 'bind host; pass 0.0.0.0 to reach it from another machine')
     .option('--port <port>', 'listen port; pass 0 to let the OS pick a free one')
-    .option('--dev', 'developer mode: hot-reload the browser client')
+    .option('--dev', 'mount the client-plugin HMR receiver (run pnpm run dev:web separately to rebuild bundles)')
     .option('--workspace-root <path>', 'parent directory for workspaces created from the browser UI')
     .option('--trusted-host <authority...>', 'extra authority the /api browser-trust fence accepts (host or host:port; repeatable)')
     .option('--dump-config', 'print the composed config tree (base + web + --config/personal overlay) and exit')
