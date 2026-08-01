@@ -324,9 +324,11 @@ export class WorkerCodeRuntime extends CodeRuntime {
         throw new Error(`dsh-code-runtime-worker: binding global ${JSON.stringify(namespace.global)} is not a usable identifier`)
       }
       // RESERVED_BINDING_GLOBALS is the seam's shared backend-owned set:
-      // `console` is THIS backend's log-capture slot; the dunder entries are
-      // the Python backend's — refused here too so the namespace list stays
-      // portable across backends.
+      // `console` is THIS backend's log-capture slot; the dunder entries exist
+      // for the Python side — its seeded/wrapped slots plus the `__debug__`
+      // compile-time constant — refused here too so the namespace list stays
+      // portable across backends. The seam declaration is the single home for
+      // why each entry is reserved.
       if (RESERVED_BINDING_GLOBALS.has(namespace.global)) {
         throw new Error(`dsh-code-runtime-worker: reserved binding global ${JSON.stringify(namespace.global)}`)
       }
