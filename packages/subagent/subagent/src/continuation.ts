@@ -404,22 +404,7 @@ export class SubagentContinuationManager {
       for (const child of activation.ownedChildren) owned.add(child)
     }
     const roots = [...this.activations.values()].filter(activation => !owned.has(activation.childId))
-    const failures = await Promise.all(roots.map(async (activation) => {
-      try {
-        await this.dispose(activation)
-        return undefined
-      } catch (error: unknown) {
-        return error
-      }
-    }))
-    const reasons = failures.filter(failure => failure !== undefined)
-    if (reasons.length > 0) {
-      throw new SubagentError(
-        `continuable subagent teardown failed for ${reasons.length} activation(s): `
-        + reasons.map(reason => errorChain(reason)).join('; '),
-        'ACTIVATION_TEARDOWN_FAILED',
-      )
-    }
+    await this.disposeRoots(roots, 'activation(s)')
   }
 
   /**
@@ -481,7 +466,15 @@ export class SubagentContinuationManager {
     }
 
     await Promise.all(materializations.map(materialization => materialization.settled))
-    const failures = await Promise.all(targetRoots.map(async (activation) => {
+    await this.disposeRoots(targetRoots, 'scoped activation(s)')
+  }
+
+  /** Dispose independent roots and report every branch failure after all settle. */
+  private async disposeRoots(
+    roots: readonly Activation[],
+    failureSubject: 'activation(s)' | 'scoped activation(s)',
+  ): Promise<void> {
+    const failures = await Promise.all(roots.map(async (activation) => {
       try {
         await this.dispose(activation)
         return undefined
@@ -492,7 +485,7 @@ export class SubagentContinuationManager {
     const reasons = failures.filter(failure => failure !== undefined)
     if (reasons.length > 0) {
       throw new SubagentError(
-        `continuable subagent teardown failed for ${reasons.length} scoped activation(s): `
+        `continuable subagent teardown failed for ${reasons.length} ${failureSubject}: `
         + reasons.map(reason => errorChain(reason)).join('; '),
         'ACTIVATION_TEARDOWN_FAILED',
       )
