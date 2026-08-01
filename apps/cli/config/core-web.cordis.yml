@@ -45,9 +45,6 @@
 - id: tool-ralph
   disabled: true
 
-- id: tool-session-query
-  disabled: true
-
 - id: tool-str-replace-editor
   disabled: true
 

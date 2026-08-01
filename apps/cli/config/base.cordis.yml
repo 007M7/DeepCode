@@ -316,12 +316,6 @@
     subagentProvider: spawn
     maxRounds: 64
 
-- id: tool-session-query
-  name: '@deepseek-ai/dsh-tool-session-query'
-  config:
-    maxSearchResults: 100
-    searchTimeoutMs: 30000
-
 - id: tool-str-replace-editor
   name: '@deepseek-ai/dsh-tool-str-replace-editor'
   config:
