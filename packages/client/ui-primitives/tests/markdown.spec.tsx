@@ -144,6 +144,21 @@ describe('MarkdownText', () => {
     expect(container.querySelector('.katex-display annotation')?.textContent).toContain('\\frac{\\partial \\mathbf{u}}')
     expect(container.querySelector('a')).toBeNull()
   })
+
+  it('defers TeX rendering while streaming so incomplete formulas never flash KaTeX errors', () => {
+    const partial = '$$\n\\frac{\\partial \\mathbf{u}}{\\partial'
+    const complete = '$$\n\\frac{\\partial \\mathbf{u}}{\\partial t}\n$$'
+    const live = render(<MarkdownText text={partial} streaming />)
+
+    expect(live.container.querySelector('.katex')).toBeNull()
+    expect(live.container.querySelector('.katex-error')).toBeNull()
+    expect(live.container.textContent).toContain('\\frac{\\partial \\mathbf{u}}{\\partial')
+
+    live.rerender(<MarkdownText text={complete} />)
+    expect(live.container.querySelectorAll('.katex')).toHaveLength(1)
+    expect(live.container.querySelectorAll('.katex-display')).toHaveLength(1)
+    expect(live.container.querySelector('.katex-error')).toBeNull()
+  })
 })
 
 describe('JsonBlock', () => {
