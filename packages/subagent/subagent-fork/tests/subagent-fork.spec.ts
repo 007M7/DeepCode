@@ -226,7 +226,7 @@ describe('dsh-subagent-fork', () => {
     expect(fresh.seed).toBeUndefined()
 
     // Complete one parent turn, then the prefix is captured once at creation.
-    parent.followup({ content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } })
+    parent.followup(createUserMessage({ content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } }))
     await parent.whenIdle()
     const seeded = await provider.prepareContinuable!({
       sessionId: SessionId('continuable-seeded'),

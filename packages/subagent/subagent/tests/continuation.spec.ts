@@ -12,7 +12,7 @@ import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn'
 import * as SubagentFork from '@deepseek-ai/dsh-subagent-fork'
 import type { GenerateOptions, MessageId, StreamChunk } from '@deepseek-ai/dsh-llm'
-import { LlmAdapter } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
@@ -356,24 +356,26 @@ describe('SubagentService.startContinuable', () => {
     await drainManager(fresh)
   })
 
-  it('numbers the descriptor turn after an inherited fork prefix', async () => {
+  it('continues turn numbering after an inherited fork prefix and pre-turn descriptor', async () => {
     const { ctx, parent } = await setup([
       textResponse('parent turn'),
       textResponse('forked child'),
     ])
     // Complete one parent turn so fork has a prefix to contribute.
-    parent.followup({ content: message('parent work'), source: { kind: 'user' } })
+    parent.followup(createUserMessage({ content: message('parent work'), source: { kind: 'user' } }))
     await parent.whenIdle()
 
     const started = await ctx.subagents.startContinuable(startSpec(parent, 'fork'))
     await waitNoActivation(ctx, started.childId)
 
     const loaded = await ctx.sessionPersistence.load(started.childId)
-    const descriptorTurn = loaded.events.find(event => event.type === 'turn/start'
-      && event.data.trigger.kind === 'subagent-descriptor')
-    // The seeded descriptor turn continues the inherited numbering rather than
-    // restarting at 1, so the replayed child log stays balanced.
-    expect(descriptorTurn?.type === 'turn/start' && descriptorTurn.data.turn).toBe(2)
+    const descriptorIndex = loaded.events.findIndex(event => event.type === 'subagent/descriptor')
+    const childTurn = loaded.events.slice(descriptorIndex + 1)
+      .find(event => event.type === 'turn/start')
+    // The first child turn after the descriptor continues the inherited prefix
+    // rather than restarting at 1, so the replayed child log stays balanced.
+    expect(descriptorIndex).toBeGreaterThanOrEqual(0)
+    expect(childTurn?.type === 'turn/start' && childTurn.data.turn).toBe(2)
     expect(loaded.meta.seedLength).toBeGreaterThan(0)
   })
 
