@@ -11,7 +11,13 @@ const pathsPlugin = (): ReturnType<typeof tsconfigPaths> => tsconfigPaths({ proj
 
 const windowsUnsupportedPackages = process.platform === 'win32'
   ? [
-      'packages/bash/*',
+      // Bash-requiring suites (a real POSIX shell is unavailable on Windows).
+      // The pwsh-requiring suites (pwsh-local, tool-pwsh) deliberately stay
+      // INCLUDED: PowerShell ships with Windows, so they run natively here.
+      'packages/bash/bash-local',
+      'packages/bash/bash-sandbox',
+      'packages/bash/tool-bash',
+      'packages/bash/tool-bash-persistent',
       'packages/hooks/*',
       'packages/subprocess/*',
       'packages/pty/pty-local',
