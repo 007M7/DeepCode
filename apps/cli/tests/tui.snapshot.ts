@@ -7,6 +7,7 @@ import { Context } from 'cordis'
 import { scrubRequestHeaders, tokenizeSessionFixtureCwd } from '@deepseek-ai/dsh-acp-snapshot'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import * as AgentCore from '@deepseek-ai/dsh-agent-spine-demo'
+import { addHarnessSourceSection } from '@deepseek-ai/dsh-app-boot'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import WorkerCodeRuntime from '@deepseek-ai/dsh-code-runtime-worker'
@@ -59,6 +60,10 @@ interface Scenario {
   leavePlanModeAfterFirstTurn?: boolean
   recorded: boolean
   seedWorkspace?: boolean
+  /** Add the launcher's model-visible DSH source checkout at this fixed path. */
+  harnessSourceRoot?: string
+  /** Replace the real `pwd` result with a portable fixed-length workspace path. */
+  normalizePwdResult?: boolean
   /**
    * Load the opt-in `todo_write` tool for this scenario. The shipped TUI
    * config omits it, so only the todo-plan scenario (the enabled-path proof)
@@ -114,6 +119,14 @@ const SCENARIOS: Scenario[] = [
     composition: 'native',
     expectedTools: ['bash'],
     recorded: true,
+  },
+  {
+    name: 'source-checkout-workdir',
+    composition: 'native',
+    expectedTools: ['bash'],
+    recorded: true,
+    harnessSourceRoot: '/opt/dsh-source',
+    normalizePwdResult: true,
   },
   {
     name: 'parallel-file-reads',
@@ -251,6 +264,12 @@ function rawSessionLog(session: Session): string {
   ].join('\n')
 }
 
+async function materializeFixtureCwd(fixtureFile: string, cwd: string, replayRoot: string): Promise<string> {
+  const realized = join(replayRoot, basename(fixtureFile))
+  await writeFile(realized, (await readFile(fixtureFile, 'utf8')).split('{{cwd}}').join(cwd))
+  return realized
+}
+
 function normalizeTerminalSnapshot(snapshot: string, cwd: string, displayCwd: string): string {
   return snapshot
     .split(`/private${cwd}`).join('/workspace/project')
@@ -294,6 +313,7 @@ async function mountScenarioContext(
   displayCwd: string,
   fixtureFile: string,
   childFiles: string[],
+  replayRoot: string | undefined,
 ): Promise<Context> {
   class SnapshotLocalFileSystem extends LocalFileSystem {
     override async resolve(
@@ -313,6 +333,7 @@ async function mountScenarioContext(
     tools: { mode: scenario.composition === 'code' ? 'code' : scenario.composition === 'advanced' ? 'both' : 'native' },
     skills: { local: { agentsHome: join(cwd, '.agents') } },
   })
+  if (scenario.harnessSourceRoot !== undefined) addHarnessSourceSection(ctx, scenario.harnessSourceRoot)
   await ctx.plugin(TokenMeterService)
   if (scenario.manualCompact === true) {
     await ctx.plugin(DeferredSnapshotCompactService, { auto: false })
@@ -349,7 +370,12 @@ async function mountScenarioContext(
   if (MODE === 'record' && scenario.recorded) {
     await ctx.plugin(LlmDeepSeek)
   } else {
-    installLlmReplay(ctx, { file: fixtureFile, childFiles, providers: PROVIDERS })
+    if (replayRoot === undefined) throw new Error('replay mode requires an isolated fixture directory')
+    // Recorded model text may name the generated cwd. Realize the portable token
+    // outside that cwd so tools see only the scenario workspace during replay.
+    const replayFile = await materializeFixtureCwd(fixtureFile, cwd, replayRoot)
+    const replayChildFiles = await Promise.all(childFiles.map(file => materializeFixtureCwd(file, cwd, replayRoot)))
+    installLlmReplay(ctx, { file: replayFile, childFiles: replayChildFiles, providers: PROVIDERS })
   }
   return ctx
 }
@@ -373,15 +399,27 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
 
   const cwd = await mkdtemp(join(SNAPSHOT_TMP_ROOT, `dsh-tui-snapshot-${scenario.name}-`))
   const displayCwd = `/tmp/${basename(cwd)}`
+  let replayRoot: string | undefined
   let ctx: Context | undefined
   let controller: ReturnType<typeof createTuiChat> | undefined
   const terminal = new HeadlessTerminal(100, 36)
   try {
+    if (!(MODE === 'record' && scenario.recorded)) {
+      replayRoot = await mkdtemp(join(SNAPSHOT_TMP_ROOT, `dsh-tui-replay-${scenario.name}-`))
+    }
     if (scenario.seedWorkspace === true) {
       const source = join(fixtureDir(scenario), 'workspace')
       await cp(source, cwd, { recursive: true })
     }
-    ctx = await mountScenarioContext(scenario, cwd, displayCwd, fixtureFile, childFiles)
+    ctx = await mountScenarioContext(scenario, cwd, displayCwd, fixtureFile, childFiles, replayRoot)
+    if (scenario.normalizePwdResult === true) {
+      ctx.on('tools/post-execute', async (exec, result, next) => {
+        const args = exec.arguments as { command?: unknown }
+        return exec.name === 'bash' && args.command === 'pwd' && !result.isError
+          ? { kind: 'accept', content: [{ type: 'text', text: '/workspace/project\n' }] }
+          : next()
+      })
+    }
     const disposedSessions: Session[] = []
     ctx.on('session/disposed', (session) => { disposedSessions.push(session) })
     const workflowEvents: string[] = []
@@ -582,6 +620,10 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
     const firstHeader = events.find(event => event.type === 'request/header')
     expect(firstHeader?.type === 'request/header' && firstHeader.data.header.system)
       .toContain(FILE_REFERENCE_PROMPT)
+    if (scenario.harnessSourceRoot !== undefined) {
+      expect(firstHeader?.type === 'request/header' && firstHeader.data.header.system)
+        .toContain(`The DeepSeek Harness implementation checkout is at ${scenario.harnessSourceRoot}. The checkout location and current working directory are separate values and may differ; never infer the working directory from this path. Use pwd to determine the current working directory. Use this checkout only to inspect or extend DSH itself.`)
+    }
     expect(events.filter(event => event.type === 'tool/call').map(event => event.data.name)).toEqual(scenario.expectedTools)
     for (const [type, count] of Object.entries(scenario.expectedEventCounts ?? {})) {
       expect(events.filter(event => event.type === type), `${scenario.name} must emit ${type}`).toHaveLength(count)
@@ -734,6 +776,7 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
     await ctx?.fiber.dispose()
     await terminal.dispose()
     await rm(cwd, { recursive: true, force: true })
+    if (replayRoot !== undefined) await rm(replayRoot, { recursive: true, force: true })
     clock.mockRestore()
   }
 }

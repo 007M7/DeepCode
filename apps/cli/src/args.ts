@@ -2,8 +2,11 @@
  * Commander adapter for the `dsh` command-line entry: the one place argv is
  * parsed and routed to a mode. `bin.ts` switches on the returned discriminant
  * and dynamic-imports that mode's module. One program: the default (no
- * subcommand) is the TUI/headless surface with option-only flags; `meta` and
- * `web` are real subcommands. Commander owns `--help`/`--version` and parse
+ * subcommand) is the TUI/headless surface with option-only flags;
+ * `meta`, `upgrade`, and `web` are real subcommands; the experimental ones
+ * (`meta`, `upgrade`) run only under the `--experimental` flag or
+ * `DSH_EXPERIMENTAL=1`. Commander owns
+ * `--help`/`--version` and parse
  * errors — it prints and exits at the point of failure (a domain failure routes through
  * `command.error`), so this returns only a resolved mode.
  * @module @deepseek-ai/dsh/args
@@ -45,16 +48,17 @@ interface HeadlessInvocation {
   prompt: string
 }
 
-/** Interactive fresh TUI over this harness checkout; accepts no default-surface options. */
+/** Interactive fresh TUI over this harness checkout; accepts no default-surface options, only the experimental gate. */
 interface MetaInvocation {
   mode: 'meta'
 }
 
 /**
- * Guided fresh-session entry: `dsh upgrade` seeds the first turn with the
- * `dsh-upgrade` skill. It always mints a
- * fresh session in the invoking directory and takes no options — `--resume`,
- * `--config`, and `-p` are rejected as mistyped, so there is nothing to carry.
+ * Guided fresh-session entry: `dsh upgrade` seeds the first turn
+ * with the `dsh-upgrade` skill. It always mints a
+ * fresh session in the invoking directory and takes no options beyond the
+ * experimental gate — `--resume`, `--config`, and `-p` are rejected as
+ * mistyped, so there is nothing to carry.
  */
 interface SkillSessionInvocation {
   mode: 'upgrade'
@@ -153,9 +157,11 @@ function resolveWeb(options: WebOptions): WebInvocation {
  * TUI/headless surface; `web` is a subcommand.
  * @param argv - the arguments after the node binary and script (`process.argv.slice(2)`).
  * @param version - the version string `--version` prints; read from this app's package.json.
+ * @param experimentalEnv - whether the environment opts into experimental
+ * subcommands (`DSH_EXPERIMENTAL=1`); the caller reads the process boundary.
  * @returns the resolved invocation (only reached on a valid, non-help invocation).
  */
-export function parseDshArgs(argv: readonly string[], version: string): DshInvocation {
+export function parseDshArgs(argv: readonly string[], version: string, experimentalEnv: boolean): DshInvocation {
   let resolved: DshInvocation | undefined
   const program = new Command()
     .name('dsh')
@@ -247,15 +253,27 @@ Examples:
     }
   }
 
+  // `meta` and `upgrade` are experimental: each runs only under its own
+  // `--experimental` flag or an environment-wide `DSH_EXPERIMENTAL=1` opt-in,
+  // and fails loud otherwise so the gate is never silently skipped.
+  const requireExperimental = (command: string, flag: boolean | undefined): void => {
+    if (flag !== true && !experimentalEnv) {
+      program.error(`error: ${command} is experimental; pass --experimental or set DSH_EXPERIMENTAL=1`)
+    }
+  }
+
   // Registration order is the rendered help order, so daily use comes first
-  // and the harness-development surfaces (`web --dev`, `meta`) come last.
-  // `upgrade` is a guided fresh-session entry: it takes no options and always
-  // mints a fresh session, so nothing is left to carry.
+  // and the harness-development surfaces (`web --dev`, `meta`)
+  // come last. `upgrade` is a guided fresh-session entry: beyond the
+  // experimental gate it takes no options and always mints a fresh session,
+  // so nothing is left to carry.
   program
     .command('upgrade')
-    .description('update this dsh installation to the latest version')
-    .action(() => {
+    .description('update this dsh installation to the latest version (experimental)')
+    .option('--experimental', 'acknowledge this subcommand is experimental')
+    .action((options: { experimental?: boolean }) => {
       rejectParentOptions('upgrade')
+      requireExperimental('upgrade', options.experimental)
       resolved = { mode: 'upgrade' }
     })
 
@@ -284,9 +302,11 @@ Examples:
 
   program
     .command('meta')
-    .description('work on the dsh source that runs this command, from any directory')
-    .action(() => {
+    .description('work on the dsh source that runs this command, from any directory (experimental)')
+    .option('--experimental', 'acknowledge this subcommand is experimental')
+    .action((options: { experimental?: boolean }) => {
       rejectParentOptions('meta')
+      requireExperimental('meta', options.experimental)
       resolved = { mode: 'meta' }
     })
 

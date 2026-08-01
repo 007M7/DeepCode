@@ -8,10 +8,11 @@
  * from it, so `dsh` acts on whatever project it is launched in. Session storage
  * is the exception — it lives under the Harness home so `/resume` reaches every
  * workspace, and an in-place resume enters the selected session's own directory.
- * `dsh meta` is the one exception — it makes this harness checkout the
- * workspace. `dsh upgrade` is a fresh session whose first turn auto-invokes a
- * bundled skill. After boot, the agent's system prompt is told the path to this
- * harness checkout so it can find its own source.
+ * `dsh meta` is the one exception — it makes this harness
+ * checkout the workspace. `dsh upgrade` is a fresh session whose
+ * first turn auto-invokes a bundled skill. After boot, the agent's system
+ * prompt is told the path to this harness checkout so it can find its own
+ * source.
  * @module @deepseek-ai/dsh/tui
  */
 
@@ -28,6 +29,7 @@ import {
   loadPersonalPatches,
   resolveConfigPath,
 } from '@deepseek-ai/dsh-app-boot'
+import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { configHasTelemetryRow, resolveTelemetryPatch } from './app-cli-entry.ts'
 import { SESSION_QUERY_SQLITE_PATH_KEY } from '@deepseek-ai/dsh-session-query-sqlite'
@@ -40,6 +42,16 @@ import {
   type MainSessionIdentity,
   type TuiResumeHost,
 } from '@deepseek-ai/dsh-tui'
+import {
+  apply as applyTuiFirstRunWelcome,
+  hasTuiFirstRunWelcomeAcknowledgement,
+  inject as tuiFirstRunWelcomeInject,
+  name as tuiFirstRunWelcomeName,
+  needsTuiFirstRunWelcomeAsciiArt,
+} from './tui-onboarding/tui-first-run-welcome.ts'
+import {
+  TUI_FIRST_RUN_WELCOME_NOTICE_VERSION,
+} from './tui-onboarding/tui-first-run-welcome-copy.ts'
 
 const NAME = 'dsh'
 
@@ -78,8 +90,9 @@ export const SOURCE_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
  * @param workspace - a directory to make the workspace instead of the invoking
  * one, or `undefined` to keep the cwd. Only `dsh meta` passes it.
  * @param initialSkill - a bundled skill to auto-invoke as a fresh session's
- * first turn, or `undefined`. Set only by `dsh upgrade` and ignored on a resume,
- * so it never re-fires; reaches the app through {@link INITIAL_SKILL_KEY}.
+ * first turn, or `undefined`. Set only by `dsh upgrade` and
+ * ignored on a resume, so it never re-fires; reaches the app through
+ * {@link INITIAL_SKILL_KEY}.
  * @param configReplace - a config path to boot as the ENTIRE tree, bypassing the
  * shared base, the TUI overlay, and the personal overlay alike, or `undefined`
  * to compose them; already parsed from `--config-replace`.
@@ -111,6 +124,11 @@ export async function runTui(
   // both together. Sessions themselves live under the Harness home so `/resume`
   // spans every workspace, and are unaffected by this chdir.
   if (workspace !== undefined) process.chdir(workspace)
+  const dshHome = resolveDshHome()
+  const showFirstRunWelcome = !await hasTuiFirstRunWelcomeAcknowledgement(
+    dshHome,
+    TUI_FIRST_RUN_WELCOME_NOTICE_VERSION,
+  )
   process.env.DSH_BUNDLED_SKILL_DIR = join(SOURCE_ROOT, 'skills')
   // The in-place `/resume` handoff re-execs `dsh` with a normalized `--resume`
   // flag, so the resumed process rehydrates through this same intake. The
@@ -122,8 +140,9 @@ export async function runTui(
   const entry = process.argv[1]
   const execve = process.execve?.bind(process)
   const app: { current?: Context } = {}
-  // Resume always enters the default surface because meta rejects parent
-  // options, including `--resume`. The resumed session already persists its cwd.
+  // Resume always enters the default surface because meta rejects
+  // parent options, including `--resume`. The resumed session already persists
+  // its cwd.
   const resumeArgs = (sessionId: string): string[] => [
     `--resume=${sessionId}`,
     // Both config flags must survive the handoff: resuming into a different
@@ -229,5 +248,15 @@ export async function runTui(
   )
   app.current = ctx
   addHarnessSourceSection(ctx, SOURCE_ROOT)
+  if (showFirstRunWelcome) {
+    await ctx.plugin({
+      name: tuiFirstRunWelcomeName,
+      inject: tuiFirstRunWelcomeInject,
+      apply: applyTuiFirstRunWelcome,
+    }, {
+      dshHome,
+      asciiArt: needsTuiFirstRunWelcomeAsciiArt(),
+    })
+  }
 }
 /* v8 ignore stop */

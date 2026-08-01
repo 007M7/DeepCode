@@ -496,7 +496,7 @@ export async function seedSession(scaffold: WebScaffold, fixtureText: string, id
  * volatility collapse to stable tokens.
  */
 function normalizeAria(snapshot: string, workspaceCwd: string): string {
-  // The header breadcrumb renders the workspace's basename, not the full
+  // The session heading renders the workspace's basename, not the full
   // path, so both spellings must collapse to the token.
   const base = workspaceCwd.split('/').pop()!
   return snapshot

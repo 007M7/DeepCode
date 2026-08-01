@@ -2,7 +2,7 @@
 
 import {
   memo, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent,
-  type PointerEvent, type WheelEvent,
+  type PointerEvent,
 } from 'react'
 import type { TrajectoryTurnModel } from './layout.ts'
 import {
@@ -70,11 +70,17 @@ function rangeFraction(
   range: TrajectoryTimeRange,
   start: number,
   duration: number,
+  minimum: number,
+  maximum: number,
 ): FractionRange {
-  return orderedRange(
-    clampFraction((range.start - start) / duration),
-    clampFraction((range.end - start) / duration),
+  const bounded = orderedRange(
+    Math.min(maximum, Math.max(minimum, range.start)),
+    Math.min(maximum, Math.max(minimum, range.end)),
   )
+  return {
+    start: (bounded.start - start) / duration,
+    end: (bounded.end - start) / duration,
+  }
 }
 
 function LaneLabels() {
@@ -117,6 +123,8 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
     anchorClientX: number
     recordIndex: number | null
   } | null>(null)
+  const rootRef = useRef<HTMLElement | null>(null)
+  const trackRef = useRef<HTMLDivElement | null>(null)
   const [draft, setDraft] = useState<TrajectoryTimeRange | null>(null)
   const [hover, setHover] = useState<HoverPoint | null>(null)
   const [viewport, setViewport] = useState<TrajectoryTimeRange | null>(null)
@@ -183,16 +191,48 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
     } as CSSProperties
   const committed = model === null || range === null
     ? null
-    : rangeFraction(range, domainStart, domainDuration)
+    : rangeFraction(range, domainStart, domainDuration, model.start, model.end)
   const draftFraction = model === null || draft === null
     ? null
-    : rangeFraction(draft, domainStart, domainDuration)
+    : rangeFraction(draft, domainStart, domainDuration, model.start, model.end)
   const visibleRange = draftFraction ?? committed
   const activeRange = draft ?? range
+  useEffect(() => {
+    const root = rootRef.current
+    if (root === null) return
+    const onWheel = (event: globalThis.WheelEvent): void => {
+      event.preventDefault()
+      const track = trackRef.current
+      if (track === null || model === null) return
+      setAnimateViewport(false)
+      const rect = track.getBoundingClientRect()
+      const anchorFraction =
+        clampFraction((event.clientX - rect.left) / Math.max(1, rect.width))
+      const nextDuration = Math.min(
+        fullDuration,
+        Math.max(
+          Math.min(mode === 'sequence' ? MINIMUM_ZOOM_OPERATIONS : 20, fullDuration),
+          domainDuration * Math.exp(event.deltaY * 0.0015),
+        ),
+      )
+      if (nextDuration >= fullDuration * 0.999) {
+        setViewport(null)
+        return
+      }
+      const anchorTime = domainStart + anchorFraction * domainDuration
+      const nextStart = Math.min(
+        Math.max(anchorTime - anchorFraction * nextDuration, model.start),
+        model.end - nextDuration,
+      )
+      setViewport({ start: nextStart, end: nextStart + nextDuration })
+    }
+    root.addEventListener('wheel', onWheel, { passive: false })
+    return () => { root.removeEventListener('wheel', onWheel) }
+  }, [domainDuration, domainStart, fullDuration, mode, model])
 
   if (model === null) {
     return (
-      <section className={css.root} aria-label="Trajectory timeline">
+      <section ref={rootRef} className={css.root} aria-label="Trajectory timeline">
         <div className={css.plot}>
           <LaneLabels />
           <div className={css.track}>
@@ -339,36 +379,12 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
     setHover(null)
   }
 
-  const onWheel = (event: WheelEvent<HTMLDivElement>) => {
-    event.preventDefault()
-    setAnimateViewport(false)
-    const rect = event.currentTarget.getBoundingClientRect()
-    const anchorFraction =
-      clampFraction((event.clientX - rect.left) / Math.max(1, rect.width))
-    const nextDuration = Math.min(
-      fullDuration,
-      Math.max(
-        Math.min(mode === 'sequence' ? MINIMUM_ZOOM_OPERATIONS : 20, fullDuration),
-        domainDuration * Math.exp(event.deltaY * 0.0015),
-      ),
-    )
-    if (nextDuration >= fullDuration * 0.999) {
-      setViewport(null)
-      return
-    }
-    const anchorTime = domainStart + anchorFraction * domainDuration
-    const nextStart = Math.min(
-      Math.max(anchorTime - anchorFraction * nextDuration, model.start),
-      model.end - nextDuration,
-    )
-    setViewport({ start: nextStart, end: nextStart + nextDuration })
-  }
-
   return (
-    <section className={css.root} aria-label="Trajectory timeline">
+    <section ref={rootRef} className={css.root} aria-label="Trajectory timeline">
       <div className={css.plot}>
         <LaneLabels />
         <div
+          ref={trackRef}
           className={css.track}
           aria-label="Timeline overview; drag horizontally to focus events"
           tabIndex={0}
@@ -384,7 +400,6 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
             event.preventDefault()
             onRangeChange(null)
           }}
-          onWheel={onWheel}
           onContextMenu={(event) => {
             event.preventDefault()
             setAnimateViewport(false)

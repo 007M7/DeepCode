@@ -455,6 +455,17 @@ describe('fork', () => {
     })
   })
 
+  it('floors a fractional anchor to the real event seq the wire accepts', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 'source', cwd: '/work' }])
+    b.api.onFork = () => Promise.resolve(ok({ sessionId: sid('child') }))
+
+    // The frozen node of an interrupted turn carries turnEnd.seq - 0.9.
+    await expect(b.svc.fork({ sessionId: sid('source'), atSeq: 41.1 })).resolves.toBe('child')
+
+    expect(b.api.callsOf('session.fork')).toEqual([{ sessionId: 'source', atSeq: 41 }])
+  })
+
   it('does not rename without the title policy or a durable source title', async () => {
     const b = bench()
     await feedList(b, [{ id: 'source', cwd: '/work' }])
