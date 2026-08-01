@@ -14,7 +14,7 @@ The Web Session-row menu and message IconActions share the client runtime's `ses
 
 `forkAt(seq)` touches the session service only in ui-conversation's apply injection layer; message components report only the event `seq`. Session rows likewise initiate the operation only through ui-workspace's injected callback. Neither presentation package owns session mutation state or duplicates the host's boundary evaluation.
 
-Session lineage is not projected into a list hierarchy. WorkSpace mode displays source sessions and all fork children as peer rows in the manual order from `WorkspaceView.sessionIds`; every row can be opened, searched, and dragged independently. In one list mode continues to sort strictly by `updatedAt`; the Ungrouped group also sorts by recency when no workspace ledger is available. `parentId` remains available for lineage, tool presentation, and later queries, but does not control session-list visibility.
+Session lineage is not projected into a list hierarchy. WorkSpace mode displays source sessions and all fork children as peer rows in the manual order from `WorkspaceView.sessionIds`; every row can be opened, searched, and dragged independently. In one list mode continues to sort strictly by `updatedAt`; the Ungrouped group also sorts by recency when no workspace ledger is available. `parentId` remains available for lineage and later queries, but does not control session-list visibility.
 
 ## Alternatives considered
 

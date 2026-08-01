@@ -46,7 +46,7 @@
     reasoningEffort: max
 
 # This single-session app resolves relative paths from the process cwd.
-- id: fs-local
+- id: fs-sandbox
   config:
     cwd: !!js process.cwd()
 

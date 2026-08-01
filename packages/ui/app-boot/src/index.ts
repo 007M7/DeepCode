@@ -480,11 +480,11 @@ export async function boot(
 export const HARNESS_SOURCE_SECTION = 'harness:source'
 
 /**
- * Add a global prompt section naming the on-disk path to the harness source
- * checkout the running bin was launched from, so the agent knows where its own
- * source lives (the self-referential `dsh-tool-cordis` toolset reads and edits
- * it). Call once on the settled boot context ({@link boot}); the section orders
- * just after the harness identity opener (`-100`) and before the deployment
+ * Add a global prompt section naming the on-disk harness source checkout while
+ * explicitly distinguishing it from the task workspace and current working
+ * directory. The self-referential `dsh-tool-cordis` toolset reads and edits this
+ * checkout. Call once on the settled boot context ({@link boot}); the section
+ * orders just after the harness identity opener (`-100`) and before the deployment
  * persona (`0`). A booted tree with no `systemPrompt` service has no prompt to
  * augment, so this is then a no-op that returns `undefined`. The section is
  * registered against the `systemPrompt` service's fiber, so a dev HMR reload of
@@ -499,6 +499,6 @@ export function addHarnessSourceSection(ctx: Context, sourceRoot: string): (() =
   return systemPrompt.section({
     name: HARNESS_SOURCE_SECTION,
     order: -99,
-    text: `Your own source code is the checkout at ${sourceRoot}; you can read it there to learn how dsh works and how to extend it.`,
+    text: `The DeepSeek Harness implementation checkout is at ${sourceRoot}. The checkout location and current working directory are separate values and may differ; never infer the working directory from this path. Use pwd to determine the current working directory. Use this checkout only to inspect or extend DSH itself.`,
   })
 }

@@ -738,11 +738,12 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
     expect(output).not.toContain('[exit code: 3]')
   }, PTY_SMOKE_TEST_TIMEOUT_MS)
 
-  it('tells the model its source path and offers the bundled maintenance skills', async () => {
+  it('distinguishes its source path from the current workdir and offers the bundled maintenance skills', async () => {
     // The launcher resolves the checkout root three hops up from apps/cli/{src,lib};
     // this test file sits an equal depth under the same root, so the same hop applies.
-    // The source-path line is a system-prompt section; the bundled skills reach the
-    // model through a durable user message, so each assertion targets its own field.
+    // The source-path line explicitly distinguishes that checkout from the current workdir;
+    // bundled skills reach the model through a durable user message, so each assertion
+    // targets its own field.
     const sourceRoot = fileURLToPath(new URL('../../..', import.meta.url))
     let context: LoggedRequestContext = { system: '', skillCatalog: '' }
     await smoke({
@@ -758,7 +759,7 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
       ],
       inspect: async (cwd) => { context = await readLoggedRequestContext(cwd) },
     })
-    expect(context.system).toContain(`Your own source code is the checkout at ${sourceRoot}; you can read it there to learn how dsh works and how to extend it.`)
+    expect(context.system).toContain(`The DeepSeek Harness implementation checkout is at ${sourceRoot}. The checkout location and current working directory are separate values and may differ; never infer the working directory from this path. Use pwd to determine the current working directory. Use this checkout only to inspect or extend DSH itself.`)
     expect(context.skillCatalog).toContain("- `dsh-customize`: Customize or maintain any dsh source checkout — the one powering the current DSH process, the installed `dsh` command, or a sibling dsh/deepseek-harness clone. Use before any requested action that alters such a checkout's files or git state. Read-only questions that only inspect the checkout do not trigger this. Do not edit the personal staging checkout directly.")
     expect(context.skillCatalog).toContain('- `dsh-upgrade`: Upgrades a source-installed, personally customized DSH checkout to upstream master while preserving local changes and an unchanged rollback worktree. Use when the user asks to update or upgrade DSH.')
     expect(context.skillCatalog).toContain('- `dsh-upstream-customization`: Classifies personal DSH customizations for upstream contribution and, after explicit per-feature approval, rebuilds one on upstream master and opens a draft pull request. Use when the user asks to contribute, publish, or upstream a local DSH change, or asks whether one is worth proposing.')

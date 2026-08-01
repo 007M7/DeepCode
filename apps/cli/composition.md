@@ -42,8 +42,16 @@ flowchart LR
   cfg --> plugin_tui_telemetry_otel
   plugin_tui_subprocess["subprocess<br/>@deepseek-ai/dsh-subprocess-local"]
   cfg --> plugin_tui_subprocess
-  plugin_tui_bash_local["bash-local<br/>@deepseek-ai/dsh-bash-local"]
-  cfg --> plugin_tui_bash_local
+  plugin_tui_sandbox["sandbox<br/>@deepseek-ai/dsh-sandbox-local"]
+  cfg --> plugin_tui_sandbox
+  plugin_tui_sandbox_policy["sandbox-policy<br/>@deepseek-ai/dsh-sandbox-policy"]
+  cfg --> plugin_tui_sandbox_policy
+  plugin_tui_bash_sandbox["bash-sandbox<br/>@deepseek-ai/dsh-bash-sandbox"]
+  cfg --> plugin_tui_bash_sandbox
+  plugin_tui_approval["approval<br/>@deepseek-ai/dsh-user-approval"]
+  cfg --> plugin_tui_approval
+  plugin_tui_permission["permission<br/>@deepseek-ai/dsh-permission"]
+  cfg --> plugin_tui_permission
   plugin_tui_tool_bash["tool-bash<br/>@deepseek-ai/dsh-tool-bash"]
   cfg --> plugin_tui_tool_bash
   plugin_tui_tool_tasks["tool-tasks<br/>@deepseek-ai/dsh-tool-tasks"]
@@ -126,8 +134,8 @@ flowchart LR
   cfg --> plugin_tui_system_prompt
   plugin_tui_agent_loop["agent-loop<br/>@deepseek-ai/dsh-agent-loop"]
   cfg --> plugin_tui_agent_loop
-  plugin_tui_fs_local["fs-local<br/>@deepseek-ai/dsh-fs-local"]
-  cfg --> plugin_tui_fs_local
+  plugin_tui_fs_sandbox["fs-sandbox<br/>@deepseek-ai/dsh-fs-sandbox"]
+  cfg --> plugin_tui_fs_sandbox
   plugin_tui_llm_deepseek["llm-deepseek<br/>@deepseek-ai/dsh-llm-deepseek"]
   cfg --> plugin_tui_llm_deepseek
 ```
@@ -151,7 +159,11 @@ flowchart LR
 | `session-query-sqlite` | `@deepseek-ai/dsh-session-query-sqlite` |
 | `telemetry-otel` | `@deepseek-ai/dsh-session-telemetry-otel` |
 | `subprocess` | `@deepseek-ai/dsh-subprocess-local` |
-| `bash-local` | `@deepseek-ai/dsh-bash-local` |
+| `sandbox` | `@deepseek-ai/dsh-sandbox-local` |
+| `sandbox-policy` | `@deepseek-ai/dsh-sandbox-policy` |
+| `bash-sandbox` | `@deepseek-ai/dsh-bash-sandbox` |
+| `approval` | `@deepseek-ai/dsh-user-approval` |
+| `permission` | `@deepseek-ai/dsh-permission` |
 | `tool-bash` | `@deepseek-ai/dsh-tool-bash` |
 | `tool-tasks` | `@deepseek-ai/dsh-tool-tasks` |
 | `fs-policy` | `@deepseek-ai/dsh-fs-policy` |
@@ -193,7 +205,7 @@ flowchart LR
 | `tools` | `@deepseek-ai/dsh-tools` |
 | `system-prompt` | `@deepseek-ai/dsh-system-prompt` |
 | `agent-loop` | `@deepseek-ai/dsh-agent-loop` |
-| `fs-local` | `@deepseek-ai/dsh-fs-local` |
+| `fs-sandbox` | `@deepseek-ai/dsh-fs-sandbox` |
 | `llm-deepseek` | `@deepseek-ai/dsh-llm-deepseek` |
 
 Source config: [`apps/cli/config/base.cordis.yml`](config/base.cordis.yml).
