@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"{{sessionId}}","createdAt":0,"cwd":"{{cwd}}","parentSession":"{{sessionId}}","delegationDepth":1}
+{"type":"session","version":0,"id":"{{sessionId}}","createdAt":0,"cwd":"{{cwd}}","parentSession":"{{sessionId}}","origin":"subagent","delegationDepth":1}
 {"type":"sandbox/mode","seq":0,"time":0,"data":{"mode":"read-only","source":"delegation"}}
 {"type":"turn/start","seq":1,"time":0,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":2,"time":0,"data":{"content":[{"type":"text","text":"Use the write tool exactly once with file_path set to exactly the relative path inherited.txt and content escaped. If the write is denied, reply with the single word CHILD_DENIED and the denial marker line; do not retry and do not request escalation. If it succeeds, reply CHILD_WROTE."}],"source":{"kind":"user"},"role":"user","id":"{{sessionId}}"},"surfaceOp":"append"}

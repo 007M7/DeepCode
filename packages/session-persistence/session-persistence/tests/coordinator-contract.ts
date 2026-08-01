@@ -276,7 +276,12 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         let session!: Session
         const sessionFiber = await ctx.plugin(Object.assign((inner: Context) => {
           session = inner.sessions.create(SessionId('delegated-child'), {
-            meta: { cwd: WORK, parentSession: SessionId('root'), delegationDepth: 2 },
+            meta: {
+              cwd: WORK,
+              parentSession: SessionId('root'),
+              origin: 'subagent',
+              delegationDepth: 2,
+            },
           })
         }, { inject: ['sessions'] }))
         send(session, oneTurnLog())
@@ -285,6 +290,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
 
         const loaded = await ctx.sessionPersistence.load(SessionId('delegated-child'))
         expect(loaded.meta.delegationDepth).toBe(2)
+        expect(loaded.meta.origin).toBe('subagent')
       } finally {
         await fiber.dispose()
         await fix.cleanup()
