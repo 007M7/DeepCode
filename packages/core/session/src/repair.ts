@@ -46,6 +46,7 @@ export const TOOL_OUTCOME_UNKNOWN = 'TOOL_OUTCOME_UNKNOWN'
 export function interruptedTurnClosers(events: readonly SessionEvent[]): SessionEvent[] {
   let openTurn: number | null = null
   let openStep: number | null = null
+  let lastStep = 0
   // Reset at each turn boundary so earlier calls cannot leak into tail repair.
   // Assistant blocks register calls; later tool/call events add provenance seqs.
   const pendingCalls = new Map<CallId, { step: number; callSeq?: number }>()
@@ -54,15 +55,18 @@ export function interruptedTurnClosers(events: readonly SessionEvent[]): Session
       case 'turn/start':
         openTurn = event.data.turn
         openStep = null
+        lastStep = 0
         pendingCalls.clear()
         break
       case 'turn/end':
         openTurn = null
         openStep = null
+        lastStep = 0
         pendingCalls.clear()
         break
       case 'step/start':
         openStep = event.data.step
+        lastStep = event.data.step
         break
       case 'step/end':
         pendingCalls.clear()
@@ -147,6 +151,6 @@ export function interruptedTurnClosers(events: readonly SessionEvent[]): Session
   if (openStep !== null) {
     closers.push({ type: 'step/end', seq: seq++, time, data: { turn: openTurn, step: openStep } })
   }
-  closers.push({ type: 'turn/end', seq: seq++, time, data: { turn: openTurn, reason: { kind: 'interrupted' } } })
+  closers.push({ type: 'turn/end', seq: seq++, time, data: { turn: openTurn, step: lastStep, reason: { kind: 'interrupted' } } })
   return closers
 }

@@ -126,7 +126,7 @@ describe('TelemetryCoordinator capture', () => {
       }),
     }, { surfaceOp: 'append' })
     session.append('telemetry-test/opaque', { payload: { nested: [] } })
-    session.append('turn/end', { turn: 1, reason: { kind: 'error', error: 'boom' } })
+    session.append('turn/end', { turn: 1, step: 1, reason: { kind: 'error', error: 'boom' } })
     const severities = backend.ledger().map(r => [r.attributes['event.type'], r.severity])
     expect(severities).toEqual([
       ['turn/start', 'info'],
@@ -180,7 +180,7 @@ describe('TelemetryCoordinator adoption', () => {
       apply: (inner: Context) => void new TelemetryCoordinator(inner, backend),
     })
     const child = ctx.sessions.prepare(SessionId('seeded'), { seed: [...parent.events], meta: {} })
-    child.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    child.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
     ctx.sessions.enter(child)
     ctx.sessions.announce(child)
 
@@ -234,7 +234,7 @@ describe('TelemetryCoordinator adoption', () => {
       inject: ['sessions'],
       apply: (inner: Context) => void new TelemetryCoordinator(inner, backend),
     })
-    child.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    child.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
     const record = backend.ledger().find(r => r.attributes['session.id'] === 'stitch-child')!
     expect(record.attributes['session.parent_id']).toBe('stitch-parent')
     expect(record.attributes['session.seed_length']).toBe(2)
@@ -272,7 +272,7 @@ describe('TelemetryCoordinator adoption', () => {
     await fiber.dispose()
     // The reload window: appends while no telemetry listener is registered.
     session.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'mid-step continuation' } })
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn: 1, step: 1, reason: { kind: 'completed' } })
 
     const second = new FakeBackend()
     await ctx.plugin({
@@ -292,7 +292,7 @@ describe('TelemetryCoordinator adoption', () => {
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     const session = liveSession(ctx, 'partial')
     appendTurn(session)
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
     // The backend rejects exactly the middle historical event: fail-closed
     // must withhold THAT record only — an adoption replay that dies on the
     // first contained failure would silently skip the rest of the log while
@@ -415,7 +415,7 @@ describe('TelemetryCoordinator lifecycle and containment', () => {
     expect(() => session.append('turn/start', { turn: 1 })).not.toThrow()
     expect(warn).toHaveBeenCalled()
     backend.emitError = undefined
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
     expect(backend.ledger().map(r => r.attributes['event.type'])).toEqual(['turn/end'])
   })
 

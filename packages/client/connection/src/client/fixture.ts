@@ -1477,23 +1477,20 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       nextTurn.set(sessionId, turn + 1)
       retryScenarios.set(sessionId, { turn, stepStarted: true })
       setRunning(sessionId, true)
-      append(sessionId, { type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
+      append(sessionId, { type: 'turn/start', data: { turn } })
       append(sessionId, { type: 'user/message', surfaceOp: 'append', data: { content: text('请重试这个请求'), source: { kind: 'user' } } })
       append(sessionId, { type: 'step/start', data: { turn, step: 1 } })
       append(sessionId, { type: 'assistant/chunk', data: { turn, step: 1, chunk: { type: 'block-start', index: 0, blockType: 'text' } } })
       append(sessionId, { type: 'assistant/chunk', data: { turn, step: 1, chunk: { type: 'text-delta', index: 0, text: '应撤回的半截回复' } } })
-      append(sessionId, { type: 'step/end', data: { turn, step: 1 } })
     },
-    /** Record one retry decision, then open the next retry turn. */
+    /** Record one retry decision; the next attempt remains in the same step. */
     scheduleModelRetry(id: string, retry = 1, delayMs = 450): void {
       const sessionId = sid(id)
       const scenario = retryScenarios.get(sessionId)
       if (scenario === undefined) throw new Error(`fixture: no model retry scenario for ${id}`)
       if (!scenario.stepStarted) {
-        append(sessionId, { type: 'step/start', data: { turn: scenario.turn, step: 1 } })
         append(sessionId, { type: 'assistant/chunk', data: { turn: scenario.turn, step: 1, chunk: { type: 'block-start', index: 0, blockType: 'text' } } })
         append(sessionId, { type: 'assistant/chunk', data: { turn: scenario.turn, step: 1, chunk: { type: 'text-delta', index: 0, text: `第 ${String(retry)} 次应撤回的回复` } } })
-        append(sessionId, { type: 'step/end', data: { turn: scenario.turn, step: 1 } })
         scenario.stepStarted = true
       }
       const failure = { code: 'TRANSPORT', message: '连接被重置' }
@@ -1505,14 +1502,6 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           retry, maxRetries: 2, delayMs, failure,
         },
       })
-      append(sessionId, {
-        type: 'turn/end',
-        data: { turn: scenario.turn, reason: { kind: 'error', step: 1, failure } },
-      })
-      const next = nextTurn.get(sessionId) ?? scenario.turn + 1
-      nextTurn.set(sessionId, next + 1)
-      append(sessionId, { type: 'turn/start', data: { turn: next, trigger: { kind: 'retry' } } })
-      scenario.turn = next
       scenario.stepStarted = false
     },
     /** Record one retry decision, then cancel its source turn before the retry starts. */
@@ -1529,17 +1518,23 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           retry: 1, maxRetries: 2, delayMs, failure,
         },
       })
-      append(sessionId, { type: 'turn/end', data: { turn: scenario.turn, reason: { kind: 'aborted' } } })
+      append(sessionId, { type: 'step/end', data: { turn: scenario.turn, step: 1 } })
+      append(sessionId, { type: 'turn/end', data: { turn: scenario.turn, step: 1, reason: { kind: 'aborted', reason: { kind: 'user' } },
+      } })
       retryScenarios.delete(sessionId)
       setRunning(sessionId, false)
     },
-    /** Finish the timing-hook retry with a finalized response in the open retry turn. */
+    /** Finish the timing-hook retry with a finalized response in the open step. */
     completeModelRetry(id: string): void {
       const sessionId = sid(id)
       const scenario = retryScenarios.get(sessionId)
       if (scenario === undefined) throw new Error(`fixture: no model retry scenario for ${id}`)
       retryScenarios.delete(sessionId)
-      append(sessionId, { type: 'step/start', data: { turn: scenario.turn, step: 1 } })
+      append(sessionId, { type: 'assistant/chunk', data: {
+        turn: scenario.turn,
+        step: 1,
+        chunk: { type: 'block-start', index: 0, blockType: 'text' },
+      } })
       append(sessionId, {
         type: 'assistant/message',
         surfaceOp: 'append',
@@ -1550,7 +1545,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         },
       })
       append(sessionId, { type: 'step/end', data: { turn: scenario.turn, step: 1 } })
-      append(sessionId, { type: 'turn/end', data: { turn: scenario.turn, reason: { kind: 'completed' } } })
+      append(sessionId, { type: 'turn/end', data: { turn: scenario.turn, step: 1, reason: { kind: 'completed' } } })
       setRunning(sessionId, false)
     },
     /** Log append WITHOUT the mux emit: a frame lost in transit — history still serves it, the client must repull. */

@@ -19,8 +19,8 @@ function fakeAgent(ctx: Context, rawId: string): Agent {
   const session = new Session(id)
   const agent: Agent = {
     id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
-    status: 'idle', acceptsNextStep: false, ctx: scope.ctx,
-    send: () => {}, updateInbox: () => 'not-found', reserveTurnAdmission: () => undefined,
+    status: 'idle', ctx: scope.ctx,
+    send: () => {},
     followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
   }
   ctx.agents.register(agent)

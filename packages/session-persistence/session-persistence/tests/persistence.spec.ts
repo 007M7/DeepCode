@@ -240,7 +240,7 @@ describe('PersistenceCoordinator eager writes', () => {
       session.append('turn/start', { turn: 1 })
       await vi.waitFor(() => { expect(backend.appendAttempts).toBe(1) })
 
-      session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+      session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
       appendGate.resolve(true)
 
       await vi.waitFor(() => {
@@ -273,7 +273,7 @@ describe('PersistenceCoordinator eager writes', () => {
       const session = ctx.sessions.create(SessionId('eager-flush-retry'))
       await ctx.sessions.flush(session)
       session.append('turn/start', { turn: 1 })
-      session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+      session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
       await vi.waitFor(() => { expect(backend.appendAttempts).toBe(1) })
 
       const barriers = [ctx.sessions.flush(session), ctx.sessions.flush(session)]
@@ -535,7 +535,7 @@ describe('PersistenceCoordinator observation cancellation', () => {
         session = inner.sessions.create(id)
       }, { inject: ['sessions'] }))
       session.append('turn/start', { turn: 1 })
-      session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+      session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
       // Dispose the session so retirement starts; its append is gated, so the
       // retirement promise stays pending in the coordinator.
       await sessionFiber.dispose()
@@ -678,7 +678,7 @@ describe('PersistenceCoordinator retirement', () => {
       await ctx.sessions.flush(first)
       backend.beforeAppend = async () => { await appendGate.promise }
       first.append('turn/start', { turn: 1 })
-      first.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+      first.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
       await vi.waitFor(() => { expect(backend.appendAttempts).toBe(1) })
       await firstFiber.dispose()
 
@@ -718,7 +718,7 @@ describe('PersistenceCoordinator retirement', () => {
       await ctx.sessions.flush(first)
       backend.beforeAppend = async () => { await appendGate.promise }
       first.append('turn/start', { turn: 1 })
-      first.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+      first.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
       await vi.waitFor(() => { expect(backend.appendAttempts).toBe(1) })
       await firstFiber.dispose()
       const baselineLoads = backend.loadAttempts
@@ -782,7 +782,7 @@ describe('PersistenceCoordinator retirement', () => {
         type: 'turn/end',
         seq: 1,
         time: 2,
-        data: { turn: 1, reason: { kind: 'completed' } },
+        data: { turn: 1, step: 0, reason: { kind: 'completed' } },
       }])
 
       await vi.waitFor(() => { expect(backend.appendAttempts).toBe(1) })
@@ -825,7 +825,7 @@ describe('PersistenceCoordinator retirement', () => {
         session = inner.sessions.create(SessionId('retry-retirement'))
       }, { inject: ['sessions'] }))
       session.append('turn/start', { turn: 1 })
-      session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+      session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
       await sessionFiber.dispose()
 
       await vi.waitFor(() => {
@@ -869,7 +869,7 @@ describe('PersistenceCoordinator retirement', () => {
         session = inner.sessions.create(SessionId('inflight-retirement'))
       }, { inject: ['sessions'] }))
       session.append('turn/start', { turn: 1 })
-      session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+      session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
       await sessionFiber.dispose()
       await vi.waitFor(() => {
         expect(backend.appendAttempts).toBe(1)
@@ -1054,7 +1054,7 @@ describe('SessionPersistence service registration', () => {
           session = inner.sessions.create(SessionId(`disposed-${index}`))
         }, { inject: ['sessions'] }))
         session.append('turn/start', { turn: 1 })
-        session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+        session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
         await ctx.sessions.flush(session)
         await sessionFiber.dispose()
       }

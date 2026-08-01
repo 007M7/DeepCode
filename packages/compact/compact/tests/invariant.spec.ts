@@ -90,7 +90,7 @@ describe('compaction invariants', () => {
 
     expect(() => replayed.append(
       'turn/end',
-      { turn: 1, reason: { kind: 'interrupted' } },
+      { turn: 1, step: 0, reason: { kind: 'interrupted' } },
     )).not.toThrow()
   })
 
@@ -100,7 +100,7 @@ describe('compaction invariants', () => {
     const source = new Session(SessionId('stale-repaired-compaction-source'))
     source.append('compact/start', { turn: null })
     startTurn(source)
-    source.append('turn/end', { turn: 1, reason: { kind: 'interrupted' } })
+    source.append('turn/end', { turn: 1, step: 0, reason: { kind: 'interrupted' } })
     const replayed = ctx.sessions.create(SessionId('stale-repaired-compaction-replay'), {
       seed: source.events,
     })
@@ -116,7 +116,7 @@ describe('compaction invariants', () => {
 
     expect(() => {
       startTurn(replayed, 2)
-      replayed.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
+      replayed.append('turn/end', { turn: 2, step: 0, reason: { kind: 'completed' } })
     }).not.toThrow()
   })
 
@@ -126,7 +126,7 @@ describe('compaction invariants', () => {
     const source = new Session(SessionId('closed-nested-compaction-source'))
     source.append('compact/start', { turn: null })
     startTurn(source)
-    source.append('turn/end', { turn: 1, reason: { kind: 'interrupted' } })
+    source.append('turn/end', { turn: 1, step: 0, reason: { kind: 'interrupted' } })
     source.append('compact/end', { turn: null, error: 'failed after crossing turn' })
     const replayed = ctx.sessions.create(SessionId('closed-nested-compaction-replay'), {
       seed: source.events,
@@ -147,7 +147,7 @@ describe('compaction invariants', () => {
     await ctx.plugin(InvariantService)
     await ctx.plugin(CompactInvariant)
     expect(() => session.append('compact/end', { turn: 1, error: 'resume failed' })).not.toThrow()
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
   })
 
   it('adopts a bare session and ignores unrelated committed events', async () => {
@@ -200,7 +200,7 @@ describe('compaction invariants', () => {
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create()
     startTurn(session)
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
     session.append('compact/start', { turn: 1 })
     await ctx.plugin(InvariantService)
     await expect(ctx.plugin(CompactInvariant).then(() => undefined)).rejects.toThrow(/outside any open turn/)
@@ -215,7 +215,7 @@ describe('compaction invariants', () => {
     standalone.append('compact/end', { turn: null, error: 'cancelled' })
     expect(() => {
       startTurn(standalone)
-      standalone.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+      standalone.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
     }).not.toThrow()
 
     const numbered = ctx.sessions.create()
@@ -223,12 +223,12 @@ describe('compaction invariants', () => {
     numbered.append('compact/start', { turn: 1 })
     expect(() => numbered.append(
       'turn/end',
-      { turn: 1, reason: { kind: 'completed' } },
+      { turn: 1, step: 0, reason: { kind: 'completed' } },
     )).toThrow(/turn\/end cannot cross an open compaction for turn 1/)
     numbered.append('compact/end', { turn: 1, error: 'cancelled' })
     expect(() => numbered.append(
       'turn/end',
-      { turn: 1, reason: { kind: 'completed' } },
+      { turn: 1, step: 0, reason: { kind: 'completed' } },
     )).not.toThrow()
   })
 

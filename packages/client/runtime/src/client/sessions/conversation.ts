@@ -122,15 +122,15 @@ export interface ContextMessageNode {
   source: unknown
 }
 
-/** Durable notice that a closed failed step is waiting for a model-request retry. */
+/** Durable notice that a failed model request is waiting for another attempt. */
 export type ModelRetryNode = LlmRetryEventData & {
   kind: 'model-retry'
   seq: number
   /** Unix epoch ms from the llm/retry session event. */
   time: number
   /**
-   * Client-derived lifecycle: scheduled until a retry turn starts, started
-   * once it does, or cancelled when the failed turn aborts first.
+   * Client-derived lifecycle: scheduled until another attempt emits retry or
+   * chunk evidence, started once it does, or cancelled if the turn aborts first.
    */
   retryState: 'scheduled' | 'started' | 'cancelled'
 }

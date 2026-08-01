@@ -183,12 +183,13 @@ export interface SessionEventMap {
    */
   'turn/start': { turn: number }
   /**
-   * Closes turn `turn` with the {@link TurnEndReason} that ended it. The loop
-   * awaits `session/flush` after an ordinary turn ends before claiming the next
-   * queued item. Success commits the turn; rejection is reported live and does
-   * not prevent later work.
+   * Closes turn `turn` after `step`, the last entered step (`0` when none),
+   * with the {@link TurnEndReason} that ended it. The loop awaits
+   * `session/flush` after an ordinary turn ends before claiming the next queued
+   * item. Success commits the turn; rejection is reported live and does not
+   * prevent later work.
    */
-  'turn/end': { turn: number; reason: TurnEndReason }
+  'turn/end': { turn: number; step: number; reason: TurnEndReason }
   /** Opens step `step` of turn `turn` — one model call plus the tool executions it requested. */
   'step/start': { turn: number; step: number }
   /** Closes step `step` of turn `turn`. */

@@ -385,7 +385,7 @@ describe('plugin exceptions are contained', () => {
     send(agent, 'first')
     await waitForIdle(ctx, agent)
     expect(agent.session.events.findLast(event => event.type === 'turn/end')).toMatchObject({
-      data: { reason: { kind: 'error', error: 'broken continuation plugin' } },
+      data: { step: 1, reason: { kind: 'error', error: 'broken continuation plugin' } },
     })
 
     // the loop is still alive: a second send works normally
@@ -629,7 +629,7 @@ describe('a finish-error stream chunk ends the turn as error, not completed', ()
 
     const events = [...agent.session.events]
     const turnEnd = events.find(event => event.type === 'turn/end')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'error', error: failure })
+    expect(turnEnd).toMatchObject({ data: { step: 1, reason: { kind: 'error', error: failure } } })
     // A failed step must not synthesize an assistant message.
     expect(events.some(event => event.type === 'assistant/message')).toBe(false)
   })
@@ -808,7 +808,7 @@ describe('turn and step boundary recovery', () => {
       errors: 1,
     })
     expect(agent.session.events.findLast(event => event.type === 'turn/end')).toMatchObject({
-      data: { reason: { kind: 'error', error: 'reject step-start before commit' } },
+      data: { step: 0, reason: { kind: 'error', error: 'reject step-start before commit' } },
     })
   })
 

@@ -102,6 +102,22 @@ const NEVER_SENTENCE = 'Approval prompts are disabled in this session: actions t
 /** Model-facing statement for an interactive policy that may still fail closed. */
 const ASK_SENTENCE = 'Approval policy: ask. Operations that require approval may ask through the configured answerers; without an available answerer, the request fails closed.'
 
+/** Read the latest visible policy from the runtime-context projection owned by system-prompt. */
+function toldApprovalPolicy(session: Session): ApprovalPolicy | undefined {
+  const messages = session.deriveMessages()
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (message?.source.kind !== 'plugin' || message.source.plugin !== '@deepseek-ai/dsh-system-prompt') continue
+    for (const block of message.content) {
+      if (block.type !== 'text') continue
+      if (block.text.includes(NEVER_SENTENCE)) return 'never'
+      if (block.text.includes(ASK_SENTENCE)) return 'ask'
+    }
+    return undefined
+  }
+  return undefined
+}
+
 /**
  * The session's approval-policy override: the last `approval/policy` event in
  * the log, or undefined when the session never switched (callers apply the
@@ -249,8 +265,7 @@ export class ApprovalService extends Service {
       // Same fold effectivePolicy performs — override is scanned here anyway
       // for POSITIONAL attribution; the default lives once, in the method.
       const current = this.effectivePolicy(session)
-      const header = session.requestHeader()
-      const told = toldApprovalPolicy(header?.system)
+      const told = toldApprovalPolicy(session)
       // Cold start (nothing ever told) narrates nothing — the section about
       // to go out states the truth, and there is no delta to explain.
       if (told === undefined || told === current) return decision

@@ -360,9 +360,9 @@ function deriveRequests(events: readonly SessionEvent[]): readonly RequestView[]
     }
     if (sourceEvent.type === 'turn/end' && sourceEvent.data.reason.kind === 'error') {
       const reason = sourceEvent.data.reason
-      updateAssistant(ordinaryByStep.get(requestKey(sourceEvent.data.turn, reason.step)), {
+      updateAssistant(ordinaryByStep.get(requestKey(sourceEvent.data.turn, sourceEvent.data.step)), {
         status: 'error',
-        error: displayFailureMessage('failure' in reason ? reason.failure : reason),
+        error: displayFailureMessage(reason.error),
       })
       continue
     }

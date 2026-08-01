@@ -27,7 +27,7 @@ describe('session-log invariants', () => {
     const session = ctx.sessions.create(SessionId('global-under-scoped-invariants'))
     expect(() => {
       session.append('turn/start', { turn: 1 })
-      session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+      session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
     }).not.toThrow()
   })
 
@@ -63,7 +63,7 @@ describe('session-log invariants', () => {
         }),
       }, { surfaceOp: 'append' })
       session.append('step/end', { turn: 1, step: 1 })
-      session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+      session.append('turn/end', { turn: 1, step: 1, reason: { kind: 'completed' } })
     }).not.toThrow()
   })
 
@@ -82,7 +82,7 @@ describe('session-log invariants', () => {
     expect(session.events).toEqual([])
     expect(() => {
       session.append('turn/start', { turn: 1 })
-      session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+      session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
     }).not.toThrow()
   })
 
@@ -94,7 +94,7 @@ describe('session-log invariants', () => {
     ctx.on('session/event', () => { throw new Error('hostile observer') }, { prepend: true })
     expect(() => {
       session.append('turn/start', { turn: 1 })
-      session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+      session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
     }).not.toThrow()
     expect(warnings).toHaveLength(2)
   })
@@ -112,7 +112,7 @@ describe('session-log invariants', () => {
       type: 'turn/end',
       seq: 0,
       time: 2,
-      data: { turn: 1, reason: { kind: 'completed' } },
+      data: { turn: 1, step: 0, reason: { kind: 'completed' } },
     } as never) }).toThrow(/seq must strictly increase/)
   })
 
@@ -122,12 +122,12 @@ describe('session-log invariants', () => {
     open.append('turn/start', { turn: 1 })
     expect(() => open.append('turn/start', { turn: 2 }))
       .toThrow(/turn 1 is still open/)
-    expect(() => open.append('turn/end', { turn: 2, reason: { kind: 'completed' } }))
+    expect(() => open.append('turn/end', { turn: 2, step: 0, reason: { kind: 'completed' } }))
       .toThrow(/does not match open turn 1/)
 
     const second = (await setup()).ctx.sessions.create()
     second.append('turn/start', { turn: 1 })
-    second.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    second.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
     expect(() => second.append('turn/start', { turn: 3 }))
       .toThrow(/expected turn 2, got 3/)
 
@@ -166,7 +166,7 @@ describe('session-log invariants', () => {
     nested.append('turn/start', { turn: 1 })
     nested.append('step/start', { turn: 1, step: 1 })
     expect(() => nested.append('step/start', { turn: 1, step: 2 })).toThrow(/while step 1 is still open/)
-    expect(() => nested.append('turn/end', { turn: 1, reason: { kind: 'completed' } }))
+    expect(() => nested.append('turn/end', { turn: 1, step: 1, reason: { kind: 'completed' } }))
       .toThrow(/while step 1 is still open/)
     expect(() => nested.append('step/end', { turn: 1, step: 2 })).toThrow(/open is turn 1\/step 1/)
     expect(() => nested.append('assistant/message', {
@@ -250,7 +250,7 @@ describe('session-log invariants', () => {
       }),
     }, { surfaceOp: 'append' })
     session.append('step/end', { turn: 1, step: 1 })
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn: 1, step: 1, reason: { kind: 'completed' } })
 
     session.append('turn/start', { turn: 2 })
     expect(() => session.append('tool/result', {
@@ -290,7 +290,7 @@ describe('session-log invariants', () => {
       }),
     }, { surfaceOp: 'append' })
     session.append('step/end', { turn: 1, step: 1 })
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn: 1, step: 1, reason: { kind: 'completed' } })
 
     expect(() => session.append('tool/result', {
       ...original.data,
@@ -323,7 +323,7 @@ describe('session-log invariants', () => {
         error: { name: 'ToolNotStartedError', code: TOOL_NOT_STARTED },
       }, { surfaceOp: 'append' })
       repaired.append('step/end', { turn: 1, step: 1 })
-      repaired.append('turn/end', { turn: 1, reason: { kind: 'interrupted' } })
+      repaired.append('turn/end', { turn: 1, step: 1, reason: { kind: 'interrupted' } })
     }).not.toThrow()
 
     const unresolved = (await setup()).ctx.sessions.create()
@@ -332,7 +332,7 @@ describe('session-log invariants', () => {
       unresolved.append('step/start', { turn: 1, step: 1 })
       unresolved.append('tool/call', { turn: 1, step: 1, callId: CallId('c1'), name: 'echo', arguments: '{}' })
       unresolved.append('step/end', { turn: 1, step: 1 })
-      unresolved.append('turn/end', { turn: 1, reason: { kind: 'error', error: 'boom' } })
+      unresolved.append('turn/end', { turn: 1, step: 1, reason: { kind: 'error', error: 'boom' } })
     }).not.toThrow()
   })
 
@@ -391,7 +391,7 @@ describe('session-log invariants', () => {
     // Balanced seed: between turns.
     expect(() => ctx.sessions.create(SessionId('inherited-between-turns'), { seed: [
       { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
-      { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'completed' } } },
+      { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, step: 0, reason: { kind: 'completed' } } },
     ] })).not.toThrow()
     // Unbalanced seed: inside the open turn, which the relation permits.
     const open = ctx.sessions.create(SessionId('inherited-inside-open-turn'), { seed: [
@@ -401,7 +401,7 @@ describe('session-log invariants', () => {
     // Still open afterwards: the boundary moves no cursor.
     expect(() => open.append('turn/start', { turn: 2 }))
       .toThrow(/turn 1 is still open/)
-    expect(() => open.append('turn/end', { turn: 1, reason: { kind: 'completed' } })).not.toThrow()
+    expect(() => open.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })).not.toThrow()
   })
 
   it('removes all listeners when the companion is disposed', async () => {

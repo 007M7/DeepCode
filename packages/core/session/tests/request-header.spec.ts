@@ -121,7 +121,7 @@ describe('Session.requestContext', () => {
   /** A turn-enclosed capacity record; the invariant rejects one outside a turn. */
   function seedWith(...records: { provider: string; model: string; contextWindow?: number }[]): SessionEvent[] {
     const events: SessionEvent[] = [{
-      type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+      type: 'turn/start', seq: 0, time: 1, data: { turn: 1 },
     }]
     for (const data of records) {
       events.push({ type: 'request/context', seq: events.length, time: 1, data })

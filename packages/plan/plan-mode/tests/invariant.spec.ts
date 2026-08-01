@@ -31,8 +31,7 @@ describe('plan-mode stream invariants', () => {
     expect(() => { ctx.emit('session/event', session, event(true)) }).not.toThrow()
     expect(() => { ctx.emit('session/event', session, event(false)) }).not.toThrow()
     ctx.emit('session/event', session, {
-      type: 'turn/end', seq: 3, time: 3,
-      data: { turn: 1, reason: { kind: 'completed' } },
+      type: 'turn/end', seq: 3, time: 3, data: { turn: 1, step: 0, reason: { kind: 'completed' } },
     })
   })
 
@@ -67,7 +66,7 @@ describe('plan-mode stream invariants', () => {
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1 })
     session.append('plan/mode', { active: 'plan' as unknown as boolean })
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
     await ctx.plugin(InvariantService, { enabled: true })
 
     await expect(ctx.plugin(PlanModeInvariant).then(() => undefined)).rejects.toThrow(/expected a boolean/)
@@ -79,7 +78,7 @@ describe('plan-mode stream invariants', () => {
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1 })
     session.append('plan/mode', { active: true })
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
     await ctx.plugin(InvariantService, { enabled: true })
 
     await expect(ctx.plugin(PlanModeInvariant).then(() => undefined)).resolves.toBeUndefined()

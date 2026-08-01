@@ -93,7 +93,7 @@ const mark = (session: Session, marks: string[]): SessionEvent =>
   session.append('cache-test/mark', { marks })
 
 const endTurn = (session: Session): SessionEvent =>
-  session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+  session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
 
 /** The stored medium record for one session id (undefined = never written). */
 function storedRecord(pool: MemoryMediaPool, id: Session['id']) {
@@ -226,7 +226,7 @@ describe('SessionProjectionCache cold read', () => {
     for (const m of marks) {
       events.push({ type: 'cache-test/mark', seq: events.length, time: events.length, data: { marks: m } })
     }
-    events.push({ type: 'turn/end', seq: events.length, time: events.length, data: { turn: 1, reason: { kind: 'completed' } } })
+    events.push({ type: 'turn/end', seq: events.length, time: events.length, data: { turn: 1, step: 0, reason: { kind: 'completed' } } })
     return events
   }
 

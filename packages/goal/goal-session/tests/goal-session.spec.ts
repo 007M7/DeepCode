@@ -994,7 +994,7 @@ describe('same-session goal driving', () => {
     orphan.append('turn/start', {
       turn: 1,
     })
-    orphan.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    orphan.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
 
     const handle = await test.ctx.agents.create({
       sessionId: SessionId('goal-session-disposed'),

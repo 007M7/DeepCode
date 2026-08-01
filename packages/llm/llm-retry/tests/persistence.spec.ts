@@ -49,12 +49,8 @@ describe.each(['jsonl', 'sqlite'] as const)('%s retry-event persistence', (kind)
         failure: { message: 'provider busy', code: 'RATE_LIMIT', status: 429 },
       })
       session.append('step/end', { turn: 1, step: 1 })
-      session.append('turn/end', {
-        turn: 1,
-        reason: {
-          kind: 'error',
-          error: { message: 'provider busy', code: 'RATE_LIMIT', status: 429 },
-        },
+      session.append('turn/end', { turn: 1, step: 1, reason: { kind: 'error', error: { message: 'provider busy', code: 'RATE_LIMIT', status: 429 },
+      },
       })
 
       expect(session.deriveMessages()).toEqual([])

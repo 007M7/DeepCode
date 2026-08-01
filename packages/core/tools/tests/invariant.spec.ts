@@ -100,7 +100,7 @@ describe('tool-pipeline invariants', () => {
     expect(() => session.append('tool/code-dispatch-start', data)).toThrow(/outside any open turn/)
     session.append('turn/start', { turn: 1 })
     expect(() => session.append('tool/code-dispatch-start', data)).not.toThrow()
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
   })
 
   it('replays enclosed code-dispatch records on late registration', async () => {
@@ -116,7 +116,7 @@ describe('tool-pipeline invariants', () => {
       isError: false,
       content: [{ type: 'text', text: 'ok' }],
     })
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
     await ctx.plugin(InvariantService)
     await expect(ctx.plugin(ToolsInvariant).then(() => undefined)).resolves.toBeUndefined()
   })

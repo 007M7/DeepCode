@@ -212,8 +212,9 @@ export class ReactLoopAgent implements Agent {
     try {
       while (true) {
         signal.throwIfAborted()
-        const step = ++phase.step
+        const step = phase.step + 1
         this.session.append('step/start', { turn, step })
+        phase.step = step
         try {
           for (const message of decision.messages) {
             this.session.append('user/message', message, { surfaceOp: 'append' })
@@ -249,7 +250,7 @@ export class ReactLoopAgent implements Agent {
     } finally {
       try {
         // oxlint-disable-next-line typescript/no-non-null-assertion -- every exit assigns a turn ending
-        this.session.append('turn/end', { turn, reason: turnEnds! })
+        this.session.append('turn/end', { turn, step: phase.step, reason: turnEnds! })
       } catch (error: unknown) {
         this.throwError(error)
       }
@@ -262,11 +263,10 @@ export class ReactLoopAgent implements Agent {
     const { turn, step, abort: { signal } } = this.phase
     signal.throwIfAborted()
     const system = renderPrompt(assembly)
-    const boundaryMessages = this.session.deriveMessages()
 
     while (true) {
       const { request, preparedCall } = await this.buildRequest(
-        turn, step, assembly.tools, system, boundaryMessages, signal,
+        turn, step, assembly.tools, system, this.session.deriveMessages(), signal,
       )
       const assembler = new BlockAssembler()
       const chunkSeqs: number[] = []

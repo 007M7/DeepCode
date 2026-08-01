@@ -91,7 +91,7 @@ describe('attached updatedAt excludes end-seed', () => {
     const resumed = ctx.sessions.create(sid('resumed-untouched'), {
       seed: [
         { type: 'turn/start', seq: 0, time: worked, data: { turn: 1 } },
-        { type: 'turn/end', seq: 1, time: worked, data: { turn: 1, reason: { kind: 'completed' } } },
+        { type: 'turn/end', seq: 1, time: worked, data: { turn: 1, step: 0, reason: { kind: 'completed' } } },
       ],
       meta: { cwd: '/proj', createdAt: 500 },
     })

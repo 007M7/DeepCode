@@ -29,7 +29,6 @@ function stubAgent(rawId: string, overrides: Partial<Agent> = {}): Agent {
     followup: () => {},
     steer: () => {},
     inject: () => {},
-    reserveTurnAdmission: () => undefined,
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }

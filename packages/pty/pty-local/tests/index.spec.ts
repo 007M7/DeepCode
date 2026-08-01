@@ -43,8 +43,8 @@ function agent(ctx: Context, cwd?: string): Agent {
   const session = new Session(id, undefined, { version: 0, id, createdAt: 0, ...cwd === undefined ? {} : { cwd } })
   return {
     id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
-    status: 'idle', acceptsNextStep: false, ctx,
-    send: () => {}, updateInbox: () => 'not-found', reserveTurnAdmission: () => undefined,
+    status: 'idle', ctx,
+    send: () => {},
     followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
   }
 }
@@ -258,8 +258,8 @@ describe('pty-local plugin shape', () => {
     const ownerFiber = await ctx.plugin(() => {})
     const owner: Agent = {
       id: session.id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
-      status: 'idle', acceptsNextStep: false, ctx: ownerFiber.ctx,
-      send: () => {}, updateInbox: () => 'not-found', reserveTurnAdmission: () => undefined,
+      status: 'idle', ctx: ownerFiber.ctx,
+      send: () => {},
       followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     }
     ctx.agents.register(owner)
@@ -303,8 +303,8 @@ describe('pty-local plugin shape', () => {
     const ownerFiber = await ctx.plugin(() => {})
     const owner: Agent = {
       id: session.id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
-      status: 'idle', acceptsNextStep: false, ctx: ownerFiber.ctx,
-      send: () => {}, updateInbox: () => 'not-found', reserveTurnAdmission: () => undefined,
+      status: 'idle', ctx: ownerFiber.ctx,
+      send: () => {},
       followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     }
     ctx.agents.register(owner)

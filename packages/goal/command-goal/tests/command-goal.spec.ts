@@ -29,13 +29,10 @@ function stubAgent(ctx: Context, id: string): { agent: Agent; session: Session }
     inbox,
     ctx: new Context(),
     get status() { return status },
-    get acceptsNextStep() { return status === 'running' },
     send: () => {},
-    updateInbox: () => 'not-found',
     followup: () => {},
     steer: () => {},
     inject(input) { inbox.append('next-step', input) },
-    reserveTurnAdmission: () => undefined,
     cancel() { status = 'idle' },
     whenIdle() { return Promise.resolve() },
   }

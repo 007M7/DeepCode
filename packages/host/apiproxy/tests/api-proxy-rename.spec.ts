@@ -62,7 +62,7 @@ function liveAgent(ctx: Context, id: string, turns: number): Session {
       content: [{ type: 'text', text: `prompt ${String(turn)}` }],
       source: { kind: 'user' },
     }), { surfaceOp: 'append' })
-    session.append('turn/end', { turn, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn, step: 0, reason: { kind: 'completed' } })
   }
   ctx.agents.register({ id: session.id, session, status: 'idle', ctx } as Agent)
   return session

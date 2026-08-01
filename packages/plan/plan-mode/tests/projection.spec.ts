@@ -60,7 +60,7 @@ function runPlanCommand(session: Session, args: string, index: number): void {
 function commitPlanMode(session: Session, active: boolean, turn: number): void {
   session.append('turn/start', { turn })
   session.append('plan/mode', { active })
-  session.append('turn/end', { turn, reason: { kind: 'completed' } })
+  session.append('turn/end', { turn, step: 0, reason: { kind: 'completed' } })
 }
 
 describe('plan projection unit', () => {

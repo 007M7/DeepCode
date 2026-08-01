@@ -60,7 +60,7 @@ function appendToolStep(
     ...extra,
   }, { surfaceOp: 'append' })
   session.append('step/end', { turn, step: 1 })
-  session.append('turn/end', { turn, reason: { kind: 'completed' } })
+  session.append('turn/end', { turn, step: 1, reason: { kind: 'completed' } })
   return result.seq
 }
 

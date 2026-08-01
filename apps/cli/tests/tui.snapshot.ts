@@ -509,14 +509,14 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
       expect(await terminal.snapshot({ includeScrollback: true }))
         .toContain('/compact — Compact older conversation history')
 
-      const compact = ctx.compact as DeferredSnapshotCompactService
+      const compact = ctx.compact as unknown as DeferredSnapshotCompactService
       const inbox: string[] = []
       manualOrder = []
-      ctx.on('agent/inbox/enqueue', (subject, item) => {
-        if (subject === agent) inbox.push(`enqueue:${item.placement}:${item.id}`)
+      ctx.on('agent/inbox/inserted', (subject, { message }) => {
+        if (subject === agent) inbox.push(`inserted:${message.id}`)
       })
-      ctx.on('agent/inbox/dequeue', (subject, message) => {
-        if (subject === agent) inbox.push(`dequeue:${message.id}`)
+      ctx.on('agent/inbox/claimed', (subject, { message }) => {
+        if (subject === agent) inbox.push(`claimed:${message.id}`)
       })
       ctx.on('session/event', (session, event) => {
         if (session !== agent.session) return
@@ -531,7 +531,7 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
         if (event.type === 'user/message'
           && event.data.source.kind === 'plugin'
           && event.data.source.plugin === 'compact') manualOrder?.push('checkpoint')
-        if (event.type === 'turn/start') manualOrder?.push(`turn/start:${event.data.trigger.kind}`)
+        if (event.type === 'turn/start') manualOrder?.push('turn/start')
       })
       ctx.on('session/flush', (session) => {
         if (session === agent.session) manualOrder?.push('flush')
@@ -562,7 +562,7 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
         content: [{ type: 'text', text: 'Injected while compaction was running.' }],
         source: { kind: 'plugin', plugin: 'snapshot-injector' },
       }))
-      expect(inbox[0]).toMatch(/^enqueue:queued:/u)
+      expect(inbox[0]).toMatch(/^inserted:/u)
       expect(agent.status).toBe('idle')
       expect(agent.session.events.some(event => event.type === 'user/message'
         && event.data.source.kind === 'user'
@@ -575,7 +575,7 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
           agent.session.events.slice(-12).map(event => event.type).join(',')
         }`)
       await settleTerminal(terminal)
-      expect(inbox).toEqual([inbox[0], `dequeue:${inbox[0]?.slice('enqueue:queued:'.length) ?? ''}`])
+      expect(inbox).toEqual([inbox[0], `claimed:${inbox[0]?.slice('inserted:'.length) ?? ''}`])
     }
 
     const events: SessionEvent[] = [...agent.session.events]
@@ -641,7 +641,7 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
       const compactStartIndex = manualTimeline.indexOf('compact/start')
       const compactEndIndex = manualTimeline.indexOf('compact/end')
       const firstFlushIndex = manualTimeline.indexOf('flush')
-      const queuedTurnIndex = manualTimeline.indexOf('turn/start:message')
+      const queuedTurnIndex = manualTimeline.indexOf('turn/start')
       const commandDoneIndex = manualTimeline.indexOf('command/done')
       expect(manualTimeline.filter(item => item === 'command/run')).toHaveLength(1)
       expect(manualTimeline.filter(item => item === 'command/done')).toHaveLength(1)

@@ -29,7 +29,7 @@ function appendClosedTurn(
     content: [{ type: 'text', text }],
     source: { kind: 'user' },
   }), { surfaceOp: 'append' })
-  session.append('turn/end', { turn, reason })
+  session.append('turn/end', { turn, step: 0, reason })
 }
 
 function appendOpenTurn(session: Session, turn: number): void {

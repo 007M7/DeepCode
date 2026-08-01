@@ -96,7 +96,7 @@ function openTurn(session: Session, turn = 0): void {
 
 /** Close the open turn (the between-turns shape: selections commit immediately). */
 function closeTurn(session: Session, turn = 0): void {
-  session.append('turn/end', { turn, reason: { kind: 'completed' } })
+  session.append('turn/end', { turn, step: 0, reason: { kind: 'completed' } })
 }
 
 /** Append a minimal `request/header` snapshot so the log has a "what the model was told" anchor. */
@@ -799,17 +799,17 @@ describe('exit_plan_mode', () => {
     expect(ctx.planMode.get(agent)).toEqual({ active: true, pending: false })
   })
 
-  it('an approved exit keeps plan guidance until the boundary and never removes the tool', async () => {
+  it('an approved exit projects the next assembly before the boundary and never removes the tool', async () => {
     const { ctx, agent } = await setupWithReview({ selected: ['Approve'] })
     const approved = await callExit(ctx, agent)
     expect(approved.isError).toBe(false)
-    // Calls of the SAME assistant response (no boundary between) were
-    // requested under the plan-shaped header — the fold stays plan for that
-    // whole batch; the boundary flush is what flips the next step.
+    // Calls of the SAME assistant response were requested under the existing
+    // plan-shaped header. Pending state shapes only the proposed next
+    // assembly; the accepted boundary then commits the matching durable fold.
     expect(foldPlanMode(agent.session.events)).toBe(true)
     const assembly = await ctx.systemPrompt.assemble({ agent })
     expect(assembly.tools.some(tool => tool.name === EXIT_PLAN_MODE)).toBe(true)
-    expect(assembly.sections.find(section => section.name === 'plan:policy')?.text).toBe(TEST_PLAN_SECTION)
+    expect(assembly.sections.find(section => section.name === 'plan:policy')?.text).toBe('')
     await boundary(ctx, agent, 'step-start')
     expect(foldPlanMode(agent.session.events)).toBe(false)
     const afterExit = await ctx.systemPrompt.assemble({ agent })

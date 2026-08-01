@@ -86,7 +86,7 @@ function withCompaction(raw: string): string {
     lines.push(JSON.stringify({ ...event, seq: taken, time: time++ }))
     return taken
   }
-  at({ type: 'turn/start', data: { turn, trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'compact' } } } })
+  at({ type: 'turn/start', data: { turn } })
   const startSeq = at({ type: 'compact/start', data: { turn } })
   const summarySeq = at({
     type: 'compact/summary',

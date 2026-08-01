@@ -44,7 +44,7 @@ async function persistSession(sessionId: SessionId): Promise<string> {
   // the model merely to construct this lifecycle fixture.
   const seed: SessionEvent[] = [
     { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
-    { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'completed' } } },
+    { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, step: 0, reason: { kind: 'completed' } } },
   ]
   const session = ctx.sessions.create(sessionId, { seed })
   await ctx.sessions.flush(session)
@@ -108,7 +108,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
         surfaceOp: 'append',
       },
       { type: 'step/end', seq: 4, time: 5, data: { turn: 1, step: 1 } },
-      { type: 'turn/end', seq: 5, time: 6, data: { turn: 1, reason: { kind: 'completed' } } },
+      { type: 'turn/end', seq: 5, time: 6, data: { turn: 1, step: 1, reason: { kind: 'completed' } } },
     ] as unknown as SessionEvent[])
     await first.ctx.fiber.dispose()
 
@@ -181,7 +181,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     await expect(ctx.agents.resume({ resumeSessionId: sessionId }))
       .rejects.toThrow(/live turn is open/)
 
-    first.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    first.session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
     await ctx.sessions.flush(first.session)
     const loaded = await ctx.sessionPersistence.load(sessionId)
     expect(loaded.events.map(event => event.type)).toEqual(['turn/start', 'turn/end'])
@@ -496,7 +496,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     // materializes the fork (header + seed) on disk.
     const seed: SessionEvent[] = [
       { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
-      { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'completed' } } },
+      { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, step: 0, reason: { kind: 'completed' } } },
     ]
     const adapter1 = new MockAdapter([textResponse('a')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)

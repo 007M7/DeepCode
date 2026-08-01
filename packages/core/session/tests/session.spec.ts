@@ -48,7 +48,7 @@ describe('Session', () => {
         isError: false,
       }),
     }, { surfaceOp: 'append' })
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn: 1, step: 1, reason: { kind: 'completed' } })
 
     const messages = session.deriveMessages()
     expect(messages.map(m => m.role)).toEqual(['user', 'assistant', 'user'])
@@ -62,7 +62,7 @@ describe('Session', () => {
     // append and persist like any other reason (JSON-serializable, no fields).
     const session = new Session(SessionId('s1'))
     session.append('turn/start', { turn: 1 })
-    session.append('turn/end', { turn: 1, reason: { kind: 'max-tokens' } })
+    session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'max-tokens' } })
 
     const turnEnd = session.events.findLast(e => e.type === 'turn/end')!
     expect(turnEnd.data.reason).toEqual({ kind: 'max-tokens' })
@@ -73,7 +73,7 @@ describe('Session', () => {
   it('round-trips an aborted turn with its cancellation cause', () => {
     const session = new Session(SessionId('aborted'))
     session.append('turn/start', { turn: 1 })
-    session.append('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } } })
+    session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'aborted', reason: { kind: 'user' } } })
     const replayed = new Session(SessionId('aborted-replay'), structuredClone(session.events))
     expect(replayed.events.slice(0, -1)).toEqual(session.events)
     const turnEnd = replayed.events.findLast(event => event.type === 'turn/end')
@@ -132,7 +132,7 @@ describe('Session', () => {
         },
       }),
     }, { surfaceOp: 'append' })
-    original.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    original.append('turn/end', { turn: 1, step: 1, reason: { kind: 'completed' } })
 
     const replayed = new Session(SessionId('s3-replay'), [...original.events])
     expect(replayed.deriveMessages()).toEqual(original.deriveMessages())
@@ -493,7 +493,7 @@ describe('Session', () => {
   it('validates seed events: rejects a non-contiguous seq', () => {
     const gapSeed = [
       { type: 'turn/start' as const, seq: 0, time: 1, data: { turn: 1 } },
-      { type: 'turn/end' as const, seq: 5, time: 2, data: { turn: 1, reason: { kind: 'completed' as const } } }, // gap: expected seq 1
+      { type: 'turn/end' as const, seq: 5, time: 2, data: { turn: 1, step: 0, reason: { kind: 'completed' as const } } }, // gap: expected seq 1
     ] as SessionEvent[]
     expect(() => new Session(SessionId('seed-gap'), gapSeed)).toThrow(/contiguous|seq/)
   })
@@ -508,7 +508,7 @@ describe('Session', () => {
       { type: 'user/message' as const, seq: 1, time: 2, data: createUserMessage({
         content: [{ type: 'text' as const, text: 'hi' }], source: { kind: 'user' as const },
       }) },
-      { type: 'turn/end' as const, seq: 2, time: 3, data: { turn: 1, reason: { kind: 'completed' as const } } },
+      { type: 'turn/end' as const, seq: 2, time: 3, data: { turn: 1, step: 0, reason: { kind: 'completed' as const } } },
     ] as SessionEvent[]
     expect(() => new Session(SessionId('seed-no-marker'), markerlessSeed)).toThrow(/requires a surfaceOp marker/)
   })
@@ -519,7 +519,7 @@ describe('Session', () => {
       { type: 'user/message' as const, seq: 1, time: 2, data: createUserMessage({
         content: [{ type: 'text' as const, text: 'hi' }], source: { kind: 'user' as const },
       }), surfaceOp: 'append' as const },
-      { type: 'turn/end' as const, seq: 2, time: 3, data: { turn: 1, reason: { kind: 'completed' as const } } },
+      { type: 'turn/end' as const, seq: 2, time: 3, data: { turn: 1, step: 0, reason: { kind: 'completed' as const } } },
     ] as SessionEvent[]
     const session = new Session(SessionId('seed-ok'), goodSeed)
     expect(session.events.slice(0, 3)).toEqual(goodSeed)
@@ -708,7 +708,7 @@ describe('Session', () => {
         role: 'user' as const,
         content: [{ type: 'text' as const, text: 'original' }], source: { kind: 'user' as const },
       }, surfaceOp: 'append' as const },
-      { type: 'turn/end' as const, seq: 2, time: 3, data: { turn: 1, reason: { kind: 'completed' as const } } },
+      { type: 'turn/end' as const, seq: 2, time: 3, data: { turn: 1, step: 0, reason: { kind: 'completed' as const } } },
     ] as SessionEvent[]
     const session = new Session(SessionId('seed-snapshot'), seed)
     // Mutate the ORIGINAL seed objects after construction: a shared reference
@@ -902,7 +902,7 @@ describe('Session', () => {
     expect(() => { (before as SessionEvent[]).push(beforeEvent) }).toThrow(TypeError)
     expect(() => { beforeEvent.data.turn = 99 }).toThrow(TypeError)
 
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
     const after = session.events
     expect(before).toHaveLength(1)
     expect(after).toHaveLength(2)
@@ -1636,7 +1636,7 @@ describe('todo/write event', () => {
     const original = new Session(SessionId('t4'))
     original.append('turn/start', { turn: 1 })
     original.append('todo/write', { todos: [{ content: 'only', status: 'completed' }] })
-    original.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    original.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
     // Seeding a non-surface event with no surfaceOp must not throw.
     const replayed = new Session(SessionId('t4-replay'), [...original.events])
     expect(replayed.events.findLast(e => e.type === 'todo/write')!.data.todos)

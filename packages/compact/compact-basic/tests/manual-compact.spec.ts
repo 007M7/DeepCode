@@ -112,7 +112,7 @@ async function loopHarness(): Promise<LoopHarness> {
   const agent = ctx.agentLoop.create(SessionId('manual-compact'), { provider: MODEL, model: MODEL })
   const log: string[] = []
   ctx.on('session/event', (_session, event) => {
-    if (event.type === 'turn/start') log.push(`turn/start:${event.data.trigger.kind}`)
+    if (event.type === 'turn/start') log.push('turn/start')
     if (event.type === 'turn/end') log.push('turn/end')
     if (event.type === 'compact/start') log.push(`compact/start:${String(event.data.turn)}`)
     if (event.type === 'compact/summary') log.push('compact/summary')
@@ -169,7 +169,7 @@ function closedConversation(turns = 2, lastTurnNumber = turns): Session {
   const session = new Session(SessionId(`closed-${turns}-${lastTurnNumber}`))
   for (let index = 1; index <= turns; index += 1) {
     const turn = index === turns ? lastTurnNumber : index
-    session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: `${PROMPT} ${turn}` }],
       source: { kind: 'user' },
@@ -190,7 +190,7 @@ function closedConversation(turns = 2, lastTurnNumber = turns): Session {
       }),
     }, { surfaceOp: 'append' })
     session.append('step/end', { turn, step: 1 })
-    session.append('turn/end', { turn, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn, step: 1, reason: { kind: 'completed' } })
   }
   return session
 }
@@ -256,7 +256,7 @@ describe('compactNow through the real loop', () => {
     const summary = log.indexOf('compact/summary')
     const end = log.indexOf('compact/end:null')
     const flush = log.indexOf('flush')
-    const nextTurn = log.indexOf('turn/start:message')
+    const nextTurn = log.indexOf('turn/start')
     expect(start).toBeLessThan(summary)
     expect(summary).toBeLessThan(end)
     expect(end).toBeLessThan(flush)
@@ -424,8 +424,8 @@ describe('compactNow transaction and failure classification', () => {
     const { compact } = detachedService()
     const original = closedConversation(2)
     original.append('compact/start', { turn: null })
-    original.append('turn/start', { turn: 3, trigger: { kind: 'message', source: { kind: 'user' } } })
-    original.append('turn/end', { turn: 3, reason: { kind: 'interrupted' } })
+    original.append('turn/start', { turn: 3 })
+    original.append('turn/end', { turn: 3, step: 0, reason: { kind: 'interrupted' } })
     const reloaded = new Session(SessionId('reloaded-orphan'), [...original.events])
     const agent = fakeAgent(reloaded, () => () => undefined)
 
@@ -436,7 +436,7 @@ describe('compactNow transaction and failure classification', () => {
   it('refuses an open turn in the log', async () => {
     const { compact } = detachedService()
     const session = closedConversation(2)
-    session.append('turn/start', { turn: 3, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 3 })
     const agent = fakeAgent(session, () => () => undefined)
 
     const error = await rejection(compact.compactNow(agent, SIGNAL))
@@ -814,7 +814,7 @@ describe('compactNow transaction and failure classification', () => {
   it('excludes a manual request while an explicit region compaction runs', async () => {
     const { compact } = detachedService()
     const session = closedConversation(3)
-    session.append('turn/start', { turn: 4, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 4 })
     const agent = fakeAgent(session, () => () => undefined)
     const gate = deferred()
     compact.gate = gate.promise

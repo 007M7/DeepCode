@@ -53,7 +53,7 @@ export function oneTurnLog(): SessionEvent[] {
       }),
     }, surfaceOp: 'append' },
     { type: 'step/end', seq: 4, time: 5, data: { turn: 1, step: 1 } },
-    { type: 'turn/end', seq: 5, time: 6, data: { turn: 1, reason: { kind: 'completed' } } },
+    { type: 'turn/end', seq: 5, time: 6, data: { turn: 1, step: 1, reason: { kind: 'completed' } } },
   ]
 }
 
@@ -158,7 +158,7 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
         // the balanced length (seq 10), and a reload round-trips identically.
         await persistence.append(m.id, [
           { type: 'turn/start', seq: 10, time: 9, data: { turn: 3 } },
-          { type: 'turn/end', seq: 11, time: 10, data: { turn: 3, reason: { kind: 'completed' } } },
+          { type: 'turn/end', seq: 11, time: 10, data: { turn: 3, step: 0, reason: { kind: 'completed' } } },
         ])
         const reloaded = await persistence.load(m.id)
         expect(reloaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])

@@ -38,7 +38,6 @@ function stubAgent(rawId: string, supplied?: Session): StubAgent {
     inject(input) {
       this.inbox.append('next-step', input)
     },
-    reserveTurnAdmission: () => undefined,
     cancel() {},
     whenIdle() { return Promise.resolve() },
   }
@@ -66,7 +65,7 @@ function openTurn(stub: StubAgent, source: MessageSource, text = 'prompt'): numb
 
 /** Close the currently open test turn. */
 function closeTurn(stub: StubAgent, turn: number): void {
-  stub.session.append('turn/end', { turn, reason: { kind: 'completed' } })
+  stub.session.append('turn/end', { turn, step: 0, reason: { kind: 'completed' } })
 }
 
 async function harness(config: toolGoal.Config = {}) {

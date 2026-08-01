@@ -646,6 +646,7 @@ export class Session implements SessionFace {
       if (this.partial !== null && this.partial.turn === data.turn && this.partial.step === data.step) {
         this.partial = null
       }
+      this.settleScheduledRetry('started', data.turn)
       this.derivedNodes.push({
         kind: 'model-retry',
         seq: event.seq,
@@ -716,11 +717,10 @@ export class Session implements SessionFace {
       return
     }
     switch (event.type) {
-      case 'turn/start': {
-        if (event.data.trigger.kind === 'retry') this.settleScheduledRetry('started')
+      case 'turn/start':
         return
-      }
       case 'assistant/chunk': {
+        this.settleScheduledRetry('started', event.data.turn)
         const { turn, step, chunk } = event.data
         if (this.partial === null || this.partial.turn !== turn || this.partial.step !== step) {
           this.partial = new PartialAccumulator(turn, step)
@@ -748,22 +748,29 @@ export class Session implements SessionFace {
         return
       }
       case 'turn/end': {
-        if (event.data.reason.kind === 'aborted' || event.data.reason.kind === 'disposed') {
+        if (event.data.reason.kind === 'error') {
+          this.settleScheduledRetry('started', event.data.turn)
+        } else if (event.data.reason.kind === 'aborted' || event.data.reason.kind === 'interrupted') {
           this.settleScheduledRetry('cancelled', event.data.turn)
         }
         if (
           event.data.reason.kind === 'error'
           && !this.derivedNodes.some(node => node.kind === 'model-retry' && node.turn === event.data.turn)
         ) {
-          const failure = 'failure' in event.data.reason ? event.data.reason.failure : event.data.reason
+          const failure = event.data.reason.error
+          const failedTurn = event.data.turn
+          const code = failure !== null && typeof failure === 'object'
+            && typeof (failure as { code?: unknown }).code === 'string'
+            ? (failure as { code: string }).code
+            : undefined
           this.derivedNodes.push({
             kind: 'turn-error',
             seq: event.seq,
             time: event.time,
-            turn: event.data.turn,
-            step: event.data.reason.step,
+            turn: failedTurn,
+            step: event.data.step,
             message: displayFailureMessage(failure),
-            ...(failure.code === undefined ? {} : { code: failure.code }),
+            ...code === undefined ? {} : { code },
           })
           this.derivedRev++
         }

@@ -38,7 +38,7 @@ describe('approval invariants', () => {
     await ctx.plugin(InvariantService)
     await ctx.plugin(ApprovalInvariant)
     expect(() => session.append('approval/decided', { id, outcome: 'cancelled' })).not.toThrow()
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
   })
 
   it('adopts a bare session first observed through publication', async () => {
@@ -77,7 +77,7 @@ describe('approval invariants', () => {
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create()
     startTurn(session)
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
     session.append('approval/asked', {
       id: ApprovalRequestId('ask-replay'), toolName: 'bash',
     })

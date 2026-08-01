@@ -58,7 +58,7 @@ describe('SessionTitleService provider lifecycle', () => {
     })
     const inheritedMessage = appendHumanPrompt(parent, 'Inherited title prompt')
     await settle()
-    parent.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    parent.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
 
     const child = ctx.sessions.fork(parent, undefined, SessionId('title-child'))
     expect(ctx.sessionTitle.get(child)).toEqual(ctx.sessionTitle.get(parent))
@@ -81,7 +81,7 @@ describe('SessionTitleService provider lifecycle', () => {
     await settle()
     appendRoute(child)
     await settle()
-    child.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
+    child.append('turn/end', { turn: 2, step: 0, reason: { kind: 'completed' } })
     expect(firstGenerate).not.toHaveBeenCalled()
     await disposeFirst()
 
@@ -101,7 +101,7 @@ describe('SessionTitleService provider lifecycle', () => {
     await settle()
     appendRoute(child, 'change')
     await settle()
-    child.append('turn/end', { turn: 3, reason: { kind: 'completed' } })
+    child.append('turn/end', { turn: 3, step: 0, reason: { kind: 'completed' } })
 
     expect(allGenerate).toHaveBeenCalledOnce()
     expect(ctx.sessionTitle.get(child)).toMatchObject({
@@ -287,7 +287,7 @@ describe('SessionTitleService provider lifecycle', () => {
     appendRoute(session)
     await settle()
     session.append('step/end', { turn: 1, step: 1 })
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn: 1, step: 1, reason: { kind: 'completed' } })
 
     session.append('turn/start', {
       turn: 2,

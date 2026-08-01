@@ -271,7 +271,7 @@ describe('goodbye message and /resume', () => {
       }),
     }, surfaceOp: 'append' },
     { type: 'step/end', seq: 5, time: time + 5, data: { turn: 1, step: 1 } },
-    { type: 'turn/end', seq: 6, time: time + 6, data: { turn: 1, reason } },
+    { type: 'turn/end', seq: 6, time: time + 6, data: { turn: 1, step: 1, reason } },
     { type: 'session/title', seq: 7, time: time + 7, data: { title, messageSeqs: [1], source: { kind: 'fallback' } } },
   ]
 
@@ -466,7 +466,7 @@ describe('goodbye message and /resume', () => {
 
   it.each([
     [{ kind: 'aborted', reason: { kind: 'user' } }, 'cancelled'],
-    [{ kind: 'error', error: 'failed' }, 'error'],
+    [{ kind: 'error', step: 1, error: 'failed' }, 'error'],
     [{ kind: 'aborted', reason: { kind: 'disposed' } }, 'disposed'],
     [{ kind: 'max-tokens' }, 'max tokens'],
     [{ kind: 'interrupted' }, 'interrupted'],
@@ -1372,12 +1372,10 @@ describe('pi-tui chat lifecycle and transcript', () => {
     }), { surfaceOp: 'append' })
     appendAssistant(result.session, [])
     result.session.append('step/end', { turn: 1, step: 1 })
-    result.session.append('turn/end', {
-      turn: 1,
-      reason: { kind: 'aborted', reason: { kind: 'user' } },
+    result.session.append('turn/end', { turn: 1, step: 1, reason: { kind: 'aborted', reason: { kind: 'user' } },
     })
     result.session.append('turn/start', { turn: 2 })
-    result.session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
+    result.session.append('turn/end', { turn: 2, step: 0, reason: { kind: 'completed' } })
     result.session.append('turn/start', { turn: 3 })
     result.session.append('step/start', { turn: 3, step: 1 })
     result.session.append('assistant/chunk', {
@@ -1871,7 +1869,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
           session.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'done' } })
           clock += 1_000
           session.append('step/end', { turn: 1, step: 1 })
-          session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+          session.append('turn/end', { turn: 1, step: 1, reason: { kind: 'completed' } })
         },
       })
       result.agent.status = 'running'
@@ -4001,31 +3999,25 @@ describe('pi-tui chat lifecycle and transcript', () => {
     agentEvents(events.ctx, unrelatedAgent).emit('agent/disposed')
     agentEvents(events.ctx, events.agent).emit('agent/error', 1, 1, new Error('live failure'))
     events.session.append('step/end', { turn: 1, step: 1 })
-    events.session.append('turn/end', { turn: 1, reason: { kind: 'error', error: 'live failure' } })
+    events.session.append('turn/end', { turn: 1, step: 1, reason: { kind: 'error', error: 'live failure' } })
     events.session.append('turn/start', { turn: 2 })
-    events.session.append('turn/end', { turn: 2, reason: { kind: 'error', error: 'durable failure' } })
+    events.session.append('turn/end', { turn: 2, step: 0, reason: { kind: 'error', error: 'durable failure' } })
     events.session.append('turn/start', { turn: 3 })
-    events.session.append('turn/end', {
-      turn: 3,
-      reason: { kind: 'aborted', reason: { kind: 'user' } },
+    events.session.append('turn/end', { turn: 3, step: 0, reason: { kind: 'aborted', reason: { kind: 'user' } },
     })
     events.session.append('turn/start', { turn: 4 })
-    events.session.append('turn/end', { turn: 4, reason: { kind: 'max-tokens' } })
+    events.session.append('turn/end', { turn: 4, step: 0, reason: { kind: 'max-tokens' } })
     events.session.append('turn/start', { turn: 5 })
-    events.session.append('turn/end', { turn: 5, reason: { kind: 'interrupted' } })
+    events.session.append('turn/end', { turn: 5, step: 0, reason: { kind: 'interrupted' } })
     events.session.append('turn/start', { turn: 6 })
-    events.session.append('turn/end', {
-      turn: 6,
-      reason: { kind: 'error', error: { message: 'structured provider failure', code: 'SERVER' } },
+    events.session.append('turn/end', { turn: 6, step: 0, reason: { kind: 'error', error: { message: 'structured provider failure', code: 'SERVER' } },
     })
     events.session.append('turn/start', { turn: 8 })
-    events.session.append('turn/end', {
-      turn: 8,
-      reason: { kind: 'aborted', reason: { kind: 'disposed' } },
+    events.session.append('turn/end', { turn: 8, step: 0, reason: { kind: 'aborted', reason: { kind: 'disposed' } },
     })
     events.session.append('turn/start', { turn: 9 })
     // Merge-extensible reason kind unknown to the TUI still names the stop.
-    events.session.append('turn/end', { turn: 9, reason: { kind: 'plugin-policy' } as never })
+    events.session.append('turn/end', { turn: 9, step: 0, reason: { kind: 'plugin-policy' } as never })
     agentEvents(events.ctx, events.agent).emit('agent/disposed')
     await tick()
     expect(events.terminal.output).toContain('live failure')
@@ -5454,8 +5446,8 @@ describe('terminal mounting', () => {
     const session = ctx.sessions.create(SessionId('main'))
     ctx.agents.register({
       id: session.id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
-      status: 'idle', acceptsNextStep: false, ctx,
-      send: () => {}, updateInbox: () => 'not-found', reserveTurnAdmission: () => undefined,
+      status: 'idle', ctx,
+      send: () => {},
       followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
@@ -5481,8 +5473,8 @@ describe('terminal mounting', () => {
     const session = ctx.sessions.create(SessionId('main'))
     ctx.agents.register({
       id: session.id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
-      status: 'idle', acceptsNextStep: false, ctx,
-      send: () => {}, updateInbox: () => 'not-found', reserveTurnAdmission: () => undefined,
+      status: 'idle', ctx,
+      send: () => {},
       followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
@@ -5518,8 +5510,8 @@ describe('terminal mounting', () => {
     const otherSession = ctx.sessions.create(SessionId('other-session'))
     ctx.agents.register({
       id: otherSession.id, options: {}, session: otherSession, inbox: new Inbox(otherSession, { inserted: () => {}, discarded: () => {} }),
-      status: 'idle', acceptsNextStep: false, ctx,
-      send: () => {}, updateInbox: () => 'not-found', reserveTurnAdmission: () => undefined,
+      status: 'idle', ctx,
+      send: () => {},
       followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     expect(terminal.started).toBe(0)
@@ -5527,8 +5519,8 @@ describe('terminal mounting', () => {
     const session = ctx.sessions.create(SessionId('late-session'))
     const agent = {
       id: session.id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
-      status: 'idle', acceptsNextStep: false, ctx,
-      send: () => {}, updateInbox: () => 'not-found', reserveTurnAdmission: () => undefined,
+      status: 'idle', ctx,
+      send: () => {},
       followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     } as Agent
     ctx.agents.register(agent)
@@ -5560,8 +5552,8 @@ describe('terminal mounting', () => {
     const session = ctx.sessions.create(SessionId('main-session'))
     ctx.agents.register({
       id: session.id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
-      status: 'idle', acceptsNextStep: false, ctx,
-      send: () => {}, updateInbox: () => 'not-found', reserveTurnAdmission: () => undefined,
+      status: 'idle', ctx,
+      send: () => {},
       followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     await tick()
@@ -5606,8 +5598,8 @@ describe('terminal mounting', () => {
     session.append('step/start', { turn: 1, step: 1 })
     ctx.agents.register({
       id: session.id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
-      status: 'running', acceptsNextStep: true, ctx,
-      send: () => {}, updateInbox: () => 'not-found', reserveTurnAdmission: () => undefined,
+      status: 'running', ctx,
+      send: () => {},
       followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()

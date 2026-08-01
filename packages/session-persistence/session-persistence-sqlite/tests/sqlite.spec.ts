@@ -135,7 +135,7 @@ describe('scanRows', () => {
     const gapped: SessionEvent[] = [
       { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
       { type: 'step/start', seq: 2, time: 2, data: { turn: 1, step: 1 } }, // seq 1 missing
-      { type: 'turn/end', seq: 3, time: 3, data: { turn: 1, reason: { kind: 'completed' } } },
+      { type: 'turn/end', seq: 3, time: 3, data: { turn: 1, step: 1, reason: { kind: 'completed' } } },
     ]
     expect(() => scanRows(rows(gapped))).toThrow(/seq gap in committed region/)
   })
@@ -143,7 +143,7 @@ describe('scanRows', () => {
   it('throws on an unparsable row inside the committed region', () => {
     const withCorruptCommitted: EventRow[] = [
       { seq: 0, type: 'turn/start', time: 1, data: '{not json', source_event_seqs: null, surface_op: null }, // corrupt, sits before a turn/end
-      { seq: 1, type: 'turn/end', time: 2, data: JSON.stringify({ turn: 1, reason: { kind: 'completed' } }), source_event_seqs: null, surface_op: null },
+      { seq: 1, type: 'turn/end', time: 2, data: JSON.stringify({ turn: 1, step: 0, reason: { kind: 'completed' } }), source_event_seqs: null, surface_op: null },
     ]
     expect(() => scanRows(withCorruptCommitted)).toThrow(/unparsable committed event/)
   })
@@ -185,7 +185,7 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     const insert = db.prepare('INSERT INTO events (session_id, seq, type, time, data) VALUES (?, ?, ?, ?, ?)')
     insert.run(m.id, 0, 'turn/start', 1, JSON.stringify({ turn: 1 }))
     insert.run(m.id, 1, 'request/header-delta', 2, JSON.stringify({ config: { model: 'legacy' } }))
-    insert.run(m.id, 2, 'turn/end', 3, JSON.stringify({ turn: 1, reason: { kind: 'completed' } }))
+    insert.run(m.id, 2, 'turn/end', 3, JSON.stringify({ turn: 1, step: 0, reason: { kind: 'completed' } }))
     db.close()
 
     const mounted = await backend(path)
@@ -252,7 +252,7 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     // length (seq 10) and a reload round-trips identically.
     await ctx2.sessionPersistence.append(m.id, [
       { type: 'turn/start', seq: 10, time: 9, data: { turn: 3 } },
-      { type: 'turn/end', seq: 11, time: 10, data: { turn: 3, reason: { kind: 'completed' } } },
+      { type: 'turn/end', seq: 11, time: 10, data: { turn: 3, step: 0, reason: { kind: 'completed' } } },
     ])
     const reloaded = await ctx2.sessionPersistence.load(m.id)
     expect(reloaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
@@ -478,7 +478,7 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     // load physically deleted the corrupt tail row, so a fresh append continues.
     await b2.ctx.sessionPersistence.append(m.id, [
       { type: 'turn/start', seq: 6, time: 8, data: { turn: 2 } },
-      { type: 'turn/end', seq: 7, time: 9, data: { turn: 2, reason: { kind: 'completed' } } },
+      { type: 'turn/end', seq: 7, time: 9, data: { turn: 2, step: 0, reason: { kind: 'completed' } } },
     ])
     const reloaded = await b2.ctx.sessionPersistence.load(m.id)
     expect(reloaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
@@ -704,7 +704,7 @@ describe('SessionPersistenceSqlite: edge cases', () => {
     await b2.ctx.sessionPersistence.load(m.id) // cursor 6 in b2
     const turn2: SessionEvent[] = [
       { type: 'turn/start', seq: 6, time: 7, data: { turn: 2 } },
-      { type: 'turn/end', seq: 7, time: 8, data: { turn: 2, reason: { kind: 'completed' } } },
+      { type: 'turn/end', seq: 7, time: 8, data: { turn: 2, step: 0, reason: { kind: 'completed' } } },
     ]
     // b1 commits seq 6..7 first.
     await b1.ctx.sessionPersistence.append(m.id, turn2)
@@ -799,7 +799,7 @@ describe('surface field round-trip', () => {
         data: JSON.stringify({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }),
         source_event_seqs: null, surface_op: '{"op":"replace","start":0,"end":0}' },
       { seq: 1, type: 'turn/end', time: 2,
-        data: JSON.stringify({ turn: 1, reason: { kind: 'completed' } }),
+        data: JSON.stringify({ turn: 1, step: 0, reason: { kind: 'completed' } }),
         source_event_seqs: null, surface_op: null },
     ]
     const { preserved } = scanRows(rows)
@@ -831,7 +831,7 @@ describe('surface field round-trip', () => {
       }),
     }, { surfaceOp: 'append', sourceEventSeqs: [2] })
     session.append('step/end', { turn: 1, step: 1 })
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn: 1, step: 1, reason: { kind: 'completed' } })
     await ctx.sessions.flush(session)
     const loaded = await ctx.sessionPersistence.load(SessionId('roundtrip-surface'))
     expect(loaded.events).toHaveLength(6)
@@ -857,7 +857,7 @@ describe('surface field round-trip', () => {
         source: { kind: 'user' },
       }),
     }, { surfaceOp: 'append' })
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
     await ctx.sessions.flush(session)
     const loaded = await ctx.sessionPersistence.load(SessionId('surface-noseq'))
     expect((loaded.events[1]! as SurfaceEvent).surfaceOp).toBe('append')

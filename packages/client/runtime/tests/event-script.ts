@@ -82,7 +82,12 @@ export const ev = {
       },
     }),
   turnEnd: (seq: number, turn: number, reason: 'completed' | 'aborted' | 'disposed' = 'completed'): SessionEvent =>
-    at(seq, { type: 'turn/end', data: { turn, reason: { kind: reason } } }),
+    at(seq, { type: 'turn/end', data: {
+      turn,
+      reason: reason === 'completed'
+        ? { kind: 'completed' }
+        : { kind: 'aborted', reason: { kind: reason === 'disposed' ? 'disposed' : 'user' } },
+    } }),
   commandRun: (seq: number, commandId: string, name: string, args = ''): SessionEvent =>
     at(seq, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } }),
   commandDone: (seq: number, commandId: string, kind: 'success' | 'error' = 'success', text?: string): SessionEvent =>

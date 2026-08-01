@@ -19,7 +19,7 @@ describe('interruptedTurnClosers', () => {
   it('returns nothing for a balanced log (ends on turn/end)', () => {
     const balanced: SessionEvent[] = [
       userTurnStart(1, 0),
-      { type: 'turn/end', seq: 1, time: 1, data: { turn: 1, reason: { kind: 'completed' } } },
+      { type: 'turn/end', seq: 1, time: 1, data: { turn: 1, step: 0, reason: { kind: 'completed' } } },
     ]
     expect(interruptedTurnClosers(balanced)).toEqual([])
   })
@@ -169,7 +169,7 @@ describe('interruptedTurnClosers', () => {
         }),
       } },
       { type: 'step/end', seq: 4, time: 4, data: { turn: 1, step: 1 } },
-      { type: 'turn/end', seq: 5, time: 5, data: { turn: 1, reason: { kind: 'completed' } } },
+      { type: 'turn/end', seq: 5, time: 5, data: { turn: 1, step: 1, reason: { kind: 'completed' } } },
       userTurnStart(2, 6),
       { type: 'step/start', seq: 7, time: 7, data: { turn: 2, step: 1 } },
       { type: 'assistant/message', seq: 8, time: 8, data: {
@@ -285,7 +285,7 @@ describe('lastActivityTime', () => {
   it('reports the log tail when no boundary is present', () => {
     const events: SessionEvent[] = [
       userTurnStart(1, 0),
-      { type: 'turn/end', seq: 1, time: 500, data: { turn: 1, reason: { kind: 'completed' } } },
+      { type: 'turn/end', seq: 1, time: 500, data: { turn: 1, step: 0, reason: { kind: 'completed' } } },
     ]
     expect(lastActivityTime(events)).toBe(500)
   })
@@ -293,7 +293,7 @@ describe('lastActivityTime', () => {
   it('skips a trailing boundary in favour of the last real work', () => {
     const events: SessionEvent[] = [
       userTurnStart(1, 0),
-      { type: 'turn/end', seq: 1, time: 500, data: { turn: 1, reason: { kind: 'completed' } } },
+      { type: 'turn/end', seq: 1, time: 500, data: { turn: 1, step: 0, reason: { kind: 'completed' } } },
       endSeedAt(2, 9_000),
     ]
     // Resumed long after the work, but never worked in again.
@@ -304,7 +304,7 @@ describe('lastActivityTime', () => {
     const events: SessionEvent[] = [
       userTurnStart(1, 0),
       endSeedAt(1, 9_000),
-      { type: 'turn/end', seq: 2, time: 9_500, data: { turn: 1, reason: { kind: 'completed' } } },
+      { type: 'turn/end', seq: 2, time: 9_500, data: { turn: 1, step: 0, reason: { kind: 'completed' } } },
     ]
     expect(lastActivityTime(events)).toBe(9_500)
   })

@@ -573,7 +573,7 @@ describe('runScenario', () => {
         file: 'project/main/session.jsonl',
         lines: [
           { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
-          { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'aborted' } } },
+          { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, step: 0, reason: { kind: 'aborted' } } },
         ],
       }],
     })
@@ -641,7 +641,7 @@ describe('runScenario', () => {
         file: 'project/main/session.jsonl',
         lines: [
           { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
-          { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'aborted' } } },
+          { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, step: 0, reason: { kind: 'aborted' } } },
           { type: 'session/title', seq: 2, time: 3, data: { title: 'Late title' } },
         ],
       }],
@@ -721,7 +721,7 @@ describe('runScenario', () => {
         lines: [
           { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
           { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
-          { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'stop' } } },
+          { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, step: 0, reason: { kind: 'stop' } } },
         ],
       }],
     })
@@ -800,7 +800,7 @@ describe('runScenario', () => {
         lines: [
           { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
           { type: 'session/title', seq: 1, time: 1, data: { title: 'Early title' } },
-          { type: 'turn/end', seq: 2, time: 2, data: { turn: 1, reason: { kind: 'aborted' } } },
+          { type: 'turn/end', seq: 2, time: 2, data: { turn: 1, step: 0, reason: { kind: 'aborted' } } },
         ],
       }],
     })

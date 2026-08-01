@@ -54,7 +54,7 @@ function liveAgent(ctx: Context, id: string, turns: number, openTail = false): S
       content: [{ type: 'text', text: `prompt ${String(turn)}` }],
       source: { kind: 'user' },
     }), { surfaceOp: 'append' })
-    session.append('turn/end', { turn, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn, step: 0, reason: { kind: 'completed' } })
   }
   if (openTail) {
     session.append('turn/start', { turn: turns + 1 })

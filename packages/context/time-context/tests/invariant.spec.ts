@@ -47,7 +47,7 @@ function preparing(turn: number, step: number): Session {
   const session = new Session(SessionId(`time-invariant-${turn}-${step}`))
   for (let priorTurn = 1; priorTurn < turn; priorTurn += 1) {
     session.append('turn/start', { turn: priorTurn })
-    session.append('turn/end', { turn: priorTurn, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn: priorTurn, step: 0, reason: { kind: 'completed' } })
   }
   session.append('turn/start', { turn })
   session.append('user/message', createUserMessage({
@@ -127,7 +127,7 @@ describe('time-context invariants', () => {
   it('rejects a reading after cancellation closes the turn', async () => {
     const ctx = await setup()
     const session = preparing(1, 2)
-    session.append('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } } })
+    session.append('turn/end', { turn: 1, step: 1, reason: { kind: 'aborted', reason: { kind: 'user' } } })
     expect(() => { ctx.emit('session/event', session, event(reading('1', '2', 'step context'))) })
       .toThrow(/at a prompt boundary/)
   })

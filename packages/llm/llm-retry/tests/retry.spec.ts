@@ -337,7 +337,7 @@ describe('provider-routed retry policy', () => {
     expect(agent.session.events.filter(event => event.type === 'llm/retry')).toHaveLength(2)
     expect(agent.session.events.at(-1)).toMatchObject({
       type: 'turn/end',
-      data: { reason: { kind: 'error', error: { message: 'busy three', code: 'SERVER' } } },
+      data: { step: 1, reason: { kind: 'error', error: { message: 'busy three', code: 'SERVER' } } },
     })
   })
 
@@ -450,7 +450,7 @@ describe('provider-routed retry policy', () => {
     expect(agent.session.events.some(event => event.type === 'llm/retry')).toBe(false)
     expect(agent.session.events.at(-1)).toMatchObject({
       type: 'turn/end',
-      data: { reason: { kind: 'error', error: { code: 'NO_ADAPTER' } } },
+      data: { step: 1, reason: { kind: 'error', error: { code: 'NO_ADAPTER' } } },
     })
   })
 

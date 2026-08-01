@@ -209,7 +209,7 @@ function overflowHistorySeed(): SessionEvent[] {
       }),
     }, { surfaceOp: 'append' })
     session.append('step/end', { turn, step: 1 })
-    session.append('turn/end', { turn, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn, step: 1, reason: { kind: 'completed' } })
   }
   return [...session.events]
 }

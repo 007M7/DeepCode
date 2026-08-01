@@ -172,7 +172,9 @@ describe('ACP prompt lifecycle', () => {
       content: [{ type: 'text', text: 'autonomous work' }],
       source: { kind: 'plugin', plugin: 'test' },
     }))
-    await vi.waitFor(() => { expect(agent.status).toBe('running') })
+    await vi.waitFor(() => {
+      expect(agent.session.events.some(event => event.type === 'turn/start')).toBe(true)
+    })
 
     await harness.client.cancel({ sessionId })
     await agent.whenIdle()

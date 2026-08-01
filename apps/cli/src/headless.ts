@@ -32,9 +32,9 @@ async function unwrap<T>(response: RpcResponse<T>, dispose: () => Promise<void>)
 
 /**
  * Consume mux frames until the task turn ends, per the cli-demo runOneShot
- * correlation precedent: anchor on the first turn/start whose trigger kind is
- * 'message' (startup-injected turns are skipped), aggregate text from that
- * turn's assistant/message events (last one wins), finish on its turn/end.
+ * correlation precedent: the stream opens immediately before the prompt, so
+ * its first observed turn/start owns the task. Aggregate text from that turn's
+ * assistant/message events (last one wins), then finish on its turn/end.
  */
 async function consumeUntilTurnEnd(frames: AsyncIterable<RpcRequest<MuxFrame>>, sessionId: SessionId): Promise<TurnOutcome> {
   let targetTurn: number | undefined

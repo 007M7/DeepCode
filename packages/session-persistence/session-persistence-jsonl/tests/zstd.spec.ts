@@ -286,7 +286,7 @@ describe('SessionPersistenceJsonl: default Zstandard encoding', () => {
     const before = await readFile(path)
     const secondTurn = [
       { type: 'turn/start', seq: 6, time: 7, data: { turn: 2 } },
-      { type: 'turn/end', seq: 7, time: 8, data: { turn: 2, reason: { kind: 'completed' } } },
+      { type: 'turn/end', seq: 7, time: 8, data: { turn: 2, step: 0, reason: { kind: 'completed' } } },
     ] as SessionEvent[]
     await ctx.sessionPersistence.append(header.id, secondTurn)
 
@@ -428,7 +428,7 @@ describe('SessionPersistenceJsonl: default Zstandard encoding', () => {
     const path = logPath(root, header.cwd, header.id, 'zstd')
     const secondTurn = [
       { type: 'turn/start', seq: 6, time: 7, data: { turn: 2 } },
-      { type: 'turn/end', seq: 7, time: 8, data: { turn: 2, reason: { kind: 'completed' } } },
+      { type: 'turn/end', seq: 7, time: 8, data: { turn: 2, step: 0, reason: { kind: 'completed' } } },
     ] as SessionEvent[]
     const frame = await compressZstdFrame(secondTurn.map(e => JSON.stringify(e)).join('\n') + '\n')
     await appendFile(path, frame.subarray(0, -1))
@@ -476,7 +476,7 @@ describe('SessionPersistenceJsonl: default Zstandard encoding', () => {
     })
     const secondTurn = [
       { type: 'turn/start', seq: 6, time: 7, data: { turn: 2 } },
-      { type: 'turn/end', seq: 7, time: 8, data: { turn: 2, reason: { kind: 'completed' } } },
+      { type: 'turn/end', seq: 7, time: 8, data: { turn: 2, step: 0, reason: { kind: 'completed' } } },
     ] as SessionEvent[]
     await expect(ctx.sessionPersistence.append(header.id, secondTurn)).rejects.toThrow(/simulated Zstandard fsync failure/)
     expect(await readFile(path)).toEqual(before)

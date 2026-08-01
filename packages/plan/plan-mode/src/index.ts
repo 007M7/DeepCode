@@ -9,8 +9,9 @@
  * The state in force is folded from the session log (`plan/mode`, last one
  * wins), so resume and fork restore it without a live mirror. User selections
  * are held as pending intent until an in-turn step boundary. The service
- * flushes from `agent/pre-step` before the affected request assembly;
- * same-step request retries reuse their assembly.
+ * projects pending intent into the proposed step assembly, then flushes it
+ * from `agent/pre-step` only when the step is accepted. Same-step request
+ * retries reuse their assembly.
  *
  * The exit tool remains registered while plan mode is inactive so crossing a
  * boundary changes only the prompt section, not the request tool catalog.
@@ -225,9 +226,11 @@ export class PlanModeService extends Service {
     ctx.systemPrompt.section({
       name: 'plan:policy',
       order: 50,
-      text: context => context.agent !== undefined && foldPlanMode(context.agent.session.events)
-        ? this.section
-        : '',
+      text: (context) => {
+        if (context.agent === undefined) return ''
+        const pending = this.pendingIntents.get(context.agent.session)
+        return (pending?.active ?? foldPlanMode(context.agent.session.events)) ? this.section : ''
+      },
     })
 
     // The plan projection unit (session-projection RFC): a pure double-event

@@ -98,14 +98,11 @@ function sessionAgent(session: Session, id = 'agent'): Agent {
     session,
     inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
     status: 'running',
-    acceptsNextStep: true,
     ctx: new Context(),
     send: () => {},
     followup: () => {},
     steer: () => {},
     inject: () => { throw new Error('tmux-context must append directly to the open step') },
-    updateInbox: () => 'not-found',
-    reserveTurnAdmission: () => undefined,
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }
@@ -212,12 +209,12 @@ describe('tmux-context injection', () => {
 
     openMessageTurn(session, 1)
     await fire(ctx, agent, 1, 1)
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
 
     // Same state on turn 2: suppressed.
     openMessageTurn(session, 2)
     await fire(ctx, agent, 2, 1)
-    session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn: 2, step: 0, reason: { kind: 'completed' } })
     expect(contextTexts(session)).toHaveLength(1)
 
     // Moved pane on turn 3: re-injected.
@@ -240,7 +237,7 @@ describe('tmux-context injection', () => {
 
     openMessageTurn(session, 1)
     await fire(ctx, agent, 1, 1)
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
 
     // Changed state but inside the interval: suppressed, and never queried.
     bash.result = runResult(`${tmuxLine({ paneId: '%99' })}\n`)
