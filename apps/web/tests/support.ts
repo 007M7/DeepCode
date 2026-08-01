@@ -35,7 +35,7 @@ export async function newEnglishPage(browser: Browser, height = 1000): Promise<P
 /** Fail loud on a stale checkout instead of testing yesterday's bundle. */
 export function requireDist(): void {
   if (!existsSync(DIST_INDEX)) {
-    throw new Error('web app dist not built — run `pnpm --filter @deepseek-ai/dsh-frontend build` (pnpm run test:web does this first)')
+    throw new Error('web app dist not built — run `pnpm run build` from the repository root (`pnpm run test:web` does this first)')
   }
 }
 

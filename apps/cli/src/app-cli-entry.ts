@@ -324,7 +324,7 @@ export class AppCLIEntry {
     try {
       return require.resolve('@deepseek-ai/dsh-frontend/dist/index.html')
     } catch {
-      throw new Error('dsh: frontend dist not built; run pnpm --filter @deepseek-ai/dsh-frontend build first')
+      throw new Error('dsh: frontend dist not built; run pnpm run build from the repository root first')
     }
   }
 }
