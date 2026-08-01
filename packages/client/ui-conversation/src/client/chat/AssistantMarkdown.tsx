@@ -14,6 +14,7 @@ import {
   IconThinkOutline14, JsonBlock, MarkdownText,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
+import { Deliverables } from './Deliverables.tsx'
 import { MessageIconActions } from './MessageIconActions.tsx'
 import { ToolRow } from './ToolRow.tsx'
 import css from './AssistantMarkdown.module.css'
@@ -30,6 +31,11 @@ export interface AssistantMarkdownProps {
   seq?: number | undefined
   /** Fork the session through the turn containing this finalized message. */
   onFork?: ((seq: number) => void) | undefined
+  /** Files the closing turn produced, listed under the body; omitted for a
+   *  mid-turn assistant and for a turn that wrote nothing. */
+  produced?: readonly string[] | undefined
+  /** Opens one produced file; omitted wherever `produced` is. */
+  openFile?: ((path: string) => void) | undefined
   /** The owning view's locale seat, passed down as a plain prop. */
   t: ChatViewSlotProps['t']
 }
@@ -69,7 +75,7 @@ function ThinkRow({ text, running, t }: { text: string; running: boolean; t: Ass
 }
 
 export const AssistantMarkdown = memo(function AssistantMarkdown({
-  blocks, streaming, interrupted, time, seq, onFork, t,
+  blocks, streaming, interrupted, time, seq, onFork, produced, openFile, t,
 }: AssistantMarkdownProps) {
   // Stable per locale revision (t identity changes on switch): a fresh object
   // per render would rebuild MarkdownText's component table every chunk.
@@ -107,6 +113,9 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
         })}
         {interrupted && <span className={css.stopped}>{t('message.stopped')}</span>}
       </div>
+      {showActions && produced !== undefined && openFile !== undefined && (
+        <Deliverables paths={produced} openFile={openFile} t={t} />
+      )}
       {showActions && (
         <MessageIconActions
           text={copyText(blocks)}

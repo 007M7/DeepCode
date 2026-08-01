@@ -48,6 +48,43 @@ export function assistantActionsSeqs(nodes: readonly ConversationNode[]): Readon
 }
 
 /**
+ * Files each turn produced, keyed by the assistant seq that closes it — the
+ * same anchor {@link assistantActionsSeqs} elects, so the row lands under the
+ * message that reports the work rather than after some mid-turn narration.
+ *
+ * The source is the mutation tools' own follow-along `locations`, not the
+ * closing prose: a produced file must be listed whether or not the model
+ * remembered to name it. Reads contribute nothing (looking at a file does not
+ * produce it) and a failed mutation contributes nothing (there is no file to
+ * open). Paths keep first-seen order and appear once, so a file written and
+ * then edited in the same turn is one entry.
+ * @param nodes - snapshot nodes (surface order).
+ * @returns Per-closing-seq produced paths; a turn that produced none is absent.
+ */
+export function turnDeliverables(nodes: readonly ConversationNode[]): ReadonlyMap<number, readonly string[]> {
+  const closing = assistantActionsSeqs(nodes)
+  const byClosingSeq = new Map<number, readonly string[]>()
+  let pending: string[] = []
+  const seen = new Set<string>()
+  for (const node of nodes) {
+    if (node.kind === 'tool-result') {
+      if (node.isError || node.callView?.card !== 'diff') continue
+      for (const location of node.callView.locations ?? []) {
+        if (seen.has(location.path)) continue
+        seen.add(location.path)
+        pending.push(location.path)
+      }
+      continue
+    }
+    if (node.kind !== 'assistant' || !closing.has(node.seq)) continue
+    if (pending.length > 0) byClosingSeq.set(node.seq, pending)
+    pending = []
+    seen.clear()
+  }
+  return byClosingSeq
+}
+
+/**
  * Group finalized nodes into the step-summary flow.
  * @param nodes - snapshot nodes in human-transcript and durable-notice order.
  * @returns flow items; consecutive tool results group and retry notices reuse their first key.
