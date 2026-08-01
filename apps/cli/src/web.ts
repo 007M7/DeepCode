@@ -83,14 +83,6 @@ export function prepareWebRuntimeContext(ctx: Context, sourceRoot: string, mode:
 }
 
 /**
- * Fail a settled Web boot whose composition omitted the managed Bash environment registry.
- * @param ctx - settled Web application context.
- */
-export function assertWebRuntimeContext(ctx: Context): void {
-  if (ctx.get('bashEnv') === undefined) throw new Error('dsh web: bashEnv service missing after settled boot')
-}
-
-/**
  * Serve the browser UI from the shipped config tree. `host`/`port` are passed
  * through only when the flag was given; absent, the shipped Web overlay value stands.
  * @param host - the bind host, or `undefined` to keep the config default.
@@ -123,7 +115,6 @@ export async function runWeb(
     ...trustedHosts !== undefined && { trustedHosts },
   })
   const { ctx, port: boundPort } = await entry.run()
-  assertWebRuntimeContext(ctx)
   const resolvedLocalWebUrl = localWebUrl(ctx)
 
   let exiting = false

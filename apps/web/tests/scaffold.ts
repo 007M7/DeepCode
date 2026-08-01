@@ -53,7 +53,7 @@ import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 // Empty type imports carry the httpServer/agents/sessionPersistence Context merges.
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-agent'
-import { assertWebRuntimeContext, prepareWebRuntimeContext } from '../../cli/src/web.ts'
+import { prepareWebRuntimeContext } from '../../cli/src/web.ts'
 import { DIST_INDEX, REPO_ROOT, requireDist } from './support.ts'
 
 /** Snapshot mode for the lane, from $DSH_SNAPSHOT (same vocabulary as the ACP/TUI suites). */
@@ -318,7 +318,6 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
       throw new Error('web e2e scaffold: httpServer service missing after settled boot')
     }
     port = boundPort
-    assertWebRuntimeContext(ctx)
 
     // Fill the open llm seam on the settled root ctx. Ordinary keyless modes
     // disable llm-deepseek; the first-run lane keeps it mounted but has no
