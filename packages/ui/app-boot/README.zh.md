@@ -15,7 +15,7 @@
 | `loadOverlayPatches(binName, file)` | 解析一份必需的 patch 列表文件，其形状与个人配置相同；读取或解析失败时抛出带标签的错误 |
 | `boot(binName, absoluteConfigPath, patches?, prepare?)` | 创建根上下文，向 Loader `!!js` 配置表达式暴露 `dshHomePath(...segments)` 并安装 Loader，在配置树条目挂载前执行可选的宿主准备操作（`prepare` 可以使用 Loader，也可以提供由启动器拥有的上下文插槽，例如 [`MAIN_SESSION_ID_KEY`](../tui/README.md)），再挂载并等待 include 树结算，断言所有条目均已加载并激活，最后返回根上下文 |
 | `renderConfigDump(binName, absoluteConfigPath, layers, warn?)` | 离线合成基础配置与带标签的覆盖层——使用 include 自己的解析器和补丁算法（`entryListSchema`/`applyEntryPatches`），因此结果与 `boot()` 挂载的内容一致——并渲染为 YAML，`!!js` 表达式原样保留；每段来源相同的连续行之前都有一条 `# ==` 注释，标明贡献该段的文件以及修补过它的层，输出仍是一份可加载的文档；未匹配到行的补丁连同其层标签交给 `warn`（默认：一行 stderr），读取／解析／形状失败则抛出 |
-| `addHarnessSourceSection(ctx, sourceRoot)` | 添加全局 `harness:source` 提示词段落（顺序紧随 harness 身份、位于 persona 之前），告知 agent（智能体）自身源代码 checkout 的磁盘路径；如果已启动树没有此项服务，则不执行操作并返回 `undefined`。这里的服务是 `systemPrompt`；该段落注册到它的 fiber，因此开发环境 HMR（热模块替换）重新加载系统提示词后，它会消失直至下次启动 |
+| `addHarnessSourceSection(ctx, sourceRoot)` | 添加全局 `harness:source` 提示词段落（顺序紧随 harness 身份、位于 persona 之前），告知 agent（智能体）DSH 实现代码 checkout 的磁盘路径，同时提醒它不得据此推断当前工作目录，而应使用 `pwd`；如果已启动树没有此项服务，则不执行操作并返回 `undefined`。这里的服务是 `systemPrompt`；该段落注册到它的 fiber，因此开发环境 HMR（热模块替换）重新加载系统提示词后，它会消失直至下次启动 |
 | `HARNESS_SOURCE_SECTION` | `'harness:source'` 段落名称，供 `addHarnessSourceSection` 注册使用 |
 
 Loader 树结算不会向调用方传播两类故障，因此需要分别保护。插件导入失败会留下没有 fiber 的配置项，`assertEntriesLoaded` 将其转换为 `boot()` rejection，并列出每个未解析插件。插件回调或配置失败则会留下失败的 fiber，因为 `loader.await()` 只结算生命周期任务，不传播该错误；`assertEntriesActivated` 会显式等待该 fiber，并把原始错误堆栈写入启动 rejection。抛出错误前，审计会通过一个进程级检查点标记这些 rejection 的确切原因，从而让 `installFailLoud` 将 Loader 的重复通知合并为一次，而所有无关的未处理 rejection 仍然致命。

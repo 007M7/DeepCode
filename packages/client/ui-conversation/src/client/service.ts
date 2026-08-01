@@ -38,7 +38,7 @@ export interface IConversation {
    */
   updateQueue(itemId: QueueItemId, action: QueueAction): Promise<void>
   /**
-   * Cancel the scoped session's in-flight turn.
+   * Cancel the scoped session's in-flight turn while preserving its pending Queue.
    * @returns completion; failures reject as in send.
    */
   cancel(): Promise<void>
@@ -86,7 +86,7 @@ export class ConversationService extends Service implements IConversation {
     }
   }
 
-  /** Cancel the scoped session's in-flight turn (failures land in promptError and reject, as in send). */
+  /** Cancel the scoped session's in-flight turn while preserving Queue (failures land in promptError and reject, as in send). */
   async cancel(): Promise<void> {
     const session = this.scopedSession('cancel')
     const result = await session.cancel()
