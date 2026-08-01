@@ -1,11 +1,15 @@
 import { isValidElement, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import type { Components, UrlTransform } from 'react-markdown'
+import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
 import { CodeBlock } from './CodeBlock.tsx'
+import 'katex/dist/katex.min.css'
 import css from './MarkdownText.module.css'
 
-const remarkPlugins = [remarkGfm]
+const remarkPlugins = [remarkGfm, remarkMath]
+const rehypePlugins = [rehypeKatex]
 
 function sanitizeUrl(url: string): string {
   try {
@@ -93,7 +97,7 @@ const streamingComponents = buildComponents(true)
  * pass a reference-stable object (memoized per locale revision), because the
  * component table memoizes on its identity and a fresh literal per render
  * would rebuild it every streaming chunk.
- * @returns A GFM document with raw HTML, relative links, unsafe protocols, and remote images disabled.
+ * @returns A GFM document with TeX math rendered through KaTeX and raw HTML, relative links, unsafe protocols, and remote images disabled.
  */
 export function MarkdownText({ text, streaming = false, codeLabels }: {
   text: string
@@ -110,6 +114,7 @@ export function MarkdownText({ text, streaming = false, codeLabels }: {
     <div className={css.markdown}>
       <ReactMarkdown
         remarkPlugins={remarkPlugins}
+        rehypePlugins={rehypePlugins}
         components={components}
         urlTransform={safeUrl}
       >
