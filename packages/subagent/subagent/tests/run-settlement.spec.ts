@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { HarnessError } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { settleRun } from '../src/index.ts'
 
@@ -43,19 +42,6 @@ describe('outcome mapping helpers', () => {
     })
     expect(failed).toEqual({ status: 'failed', detail: 'Error: transport gone' })
     expect(disposed).toBe(true)
-
-    const durabilityMessage = 'subagent "child-3" durability checkpoint failed; latest state unavailable: disk full'
-    const durabilityFailed = await settleRun({
-      id: SessionId('child-3'),
-      localAgent: undefined,
-      result: Promise.reject(new HarnessError(
-        durabilityMessage,
-        'DURABILITY_FAILED',
-        { cause: new Error('disk full') },
-      )),
-      dispose: () => Promise.resolve(),
-    })
-    expect(durabilityFailed).toEqual({ status: 'failed', detail: durabilityMessage })
 
     const disposeFailed = await settleRun({
       id: SessionId('child-4'),

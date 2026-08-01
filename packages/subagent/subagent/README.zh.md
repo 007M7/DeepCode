@@ -77,7 +77,7 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 
 管理器预留子 agent 身份、解析持久化描述符，通过私有的 activation-owner 作用域调用 `ctx.agents.create()`（冷恢复时为 `ctx.agents.resume()`），把返回的 `AgentHandle` 安装到 Activation 中，建立任何可继续父级所有权，然后提交提示词。冷恢复绝不通过提供方分发，因为持久化 Session 已持有初始前缀，折叠后的描述符即是全部重建输入。
 
-受继续执行管理的父级 Activation 会在子 agent 能够运行之前，把每个子 agent 的 Session id 记录到 `ownedChildren` 集合中，并且只有在每个所拥有的子 agent Activation 完成 `AgentHandle` dispose 之后才会 dispose（子先于父）。拆卸会先自顶向下传播 Agent 取消，再等待缓慢的后代，而 handle 释放仍保持 child-first。顶层及其他非继续执行的 Agent 没有 Activation，处于该等待图之外。最终结算只把 `ctx.sessions.flush(child.session) === true` 视为持久性确认；`false` 或拒绝会报告 `DURABILITY_FAILED`，但仍会 dispose 句柄并释放所有权，因为保留失败的子 agent 会使其祖先永久停留在 `waiting`。
+受继续执行管理的父级 Activation 会在子 agent 能够运行之前，把每个子 agent 的 Session id 记录到 `ownedChildren` 集合中，并且只有在每个所拥有的子 agent Activation 完成 `AgentHandle` dispose 之后才会 dispose（子先于父）。拆卸会先自顶向下传播 Agent 取消，再等待缓慢的后代，而 handle 释放仍保持 child-first。顶层及其他非继续执行的 Agent 没有 Activation，处于该等待图之外。最终结算会在 dispose handle 前等待 best-effort 的 `ctx.sessions.flush(child.session)`。listener rejection 会被记录，但不会使 Activation 失败，因为 listener 是否参与无法标识持久化后端；因此，恢复时持久化状态可能缺失或陈旧。
 
 ## 生命周期事件
 
@@ -91,7 +91,7 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 
 面向模型的工具默认同步收集：先等待子 agent 结果，再 dispose 运行，然后才返回。一次性后台委派会在工具中注册普通 Task，其通用状态、收集和取消工具负责后续交互，并将模型提供的 `description` 持久化为可选显示标签。可继续后台委派会调用 `ctx.subagents.startContinuable()`，只返回持久化子 agent id；子 agent 自 inbox 接受起就拥有自己的轮次，因此没有 Task、没有结果 promise，也没有公开的子 agent 取消操作——调用方通过 `send_message` 后续操作工具发送后续工作，而持久化子 agent Session 仍是子 agent 详细输出的来源。只有 `ctx.agents` 可用时，继续执行管理器才会存在，而会话持久化按每项继续执行操作解析。与此独立，`listChildren()` 只在被调用时解析会话查询并动态导入其可选运行时，然后解释对所有带描述符的直接 child 所作的只读、实时优先扫描，且不查询继续执行管理器、Agent 注册信息、Activation 或提供方。UI 等服务消费方可以保留两种模式，并为无标签的一次性 child 选择回退展示；面向模型的 `list_agents` 工具只投影 `continuable` 条目，并将服务活动状态映射到现有的 `running`／`complete` 词汇。扫描会把调用方的取消信号转发到可取消的追踪与精确读取操作，在其余事件列表读取的前后检查取消，并将每次检测到的中止报告为 `SubagentError` 错误码 `CANCELLED`。完整契约见[后台 subagent 任务 Agent Note](../../../.agents/notes/implemented/feature/2026-07-08-background-subagent-tasks.md)、[可继续后台 subagent Agent Note](../../../.agents/notes/implemented/feature/2026-07-21-continuable-background-subagents.md)、[持久化目录 Agent Note](../../../.agents/notes/implemented/feature/2026-07-22-durable-subagent-catalog-and-list-agents.md)、[服务合并 Agent Note](../../../.agents/notes/implemented/simplification/2026-07-26-merge-subagent-control-service.md)、[能力 seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-21-subagent-capability-seam.md)和 `src/types.ts`。
 
-可继续 Activation 要求最终持久性确认。一次性运行保留尽力执行的会话检查点，因此已完成的一次性 child 只有在其会话确实进入持久化存储时，才可在 dispose 后继续被发现；如果该检查点缺失，服务不会根据 Task 历史虚构目录条目。
+可继续 Activation 会等待 best-effort 的最终会话 flush，但不会把 listener 参与视为持久性确认。一次性运行保留尽力执行的会话检查点，因此已完成的一次性 child 只有在其会话确实进入持久化存储时，才可在 dispose 后继续被发现；如果该检查点缺失，服务不会根据 Task 历史虚构目录条目。
 
 ## 模型体验
 

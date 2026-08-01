@@ -615,7 +615,7 @@ describe('continuable child ownership', () => {
 })
 
 describe('continuable durability and teardown', () => {
-  it('reports DURABILITY_FAILED without leaking a waiting Activation', async () => {
+  it('settles when the best-effort final flush has no listeners', async () => {
     const releaseResponse = Promise.withResolvers<undefined>()
     const adapter = new GatedAdapter([
       { chunks: textResponse('unconfirmed answer'), gate: releaseResponse.promise },
@@ -626,32 +626,60 @@ describe('continuable durability and teardown', () => {
 
     const started = await ctx.subagents.startContinuable(startSpec(parent))
     await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
-    // Remove every durability listener, so the final checkpoint cannot confirm.
+    // Remove every persistence listener; the final flush is advisory.
     await disposePersistence!()
     releaseResponse.resolve(undefined)
 
-    // The handle is still disposed and ownership released, so nothing is pinned.
     await waitNoActivation(ctx, started.childId)
-    await vi.waitFor(() => {
-      expect(warnings.some(warning => warning.includes('durability'))).toBe(true)
-    })
+    expect(warnings.some(warning => warning.includes('final session flush'))).toBe(false)
   })
 
-  it('reports DURABILITY_FAILED when the final checkpoint rejects', async () => {
+  it('logs a failed final flush after every listener settles without failing the Activation', async () => {
     const { ctx, parent } = await setup([textResponse('answer')])
     const warnings: string[] = []
+    const ends: SubagentRunEndInfo[] = []
+    let peerFlushed = false
     ctx.logger.warn = (message: string) => { warnings.push(message) }
-    // A listener that throws makes flush reject rather than return false.
+    ctx.on('subagent/end', info => void ends.push(info))
     ctx.on('session/flush', (session) => {
       if (session.header.parentSession !== undefined) throw new Error('disk full')
     })
+    ctx.on('session/flush', (session) => {
+      if (session.header.parentSession !== undefined) peerFlushed = true
+    })
 
     const started = await ctx.subagents.startContinuable(startSpec(parent))
-    // The handle is still disposed and ownership released, so nothing is pinned.
     await waitNoActivation(ctx, started.childId)
+    expect(peerFlushed).toBe(true)
+    expect(warnings.some(warning => warning.includes('best-effort final session flush failed'))).toBe(true)
+    expect(ends.at(-1)?.stopReason).toBe('completed')
+  })
+
+  it('logs a teardown failure reached through normal settlement', async () => {
+    const hold = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([{ chunks: textResponse('answer'), gate: hold.promise }])
+    const { ctx, parent } = await setupWith(adapter)
+    const warnings: string[] = []
+    ctx.logger.warn = (message: string) => { warnings.push(message) }
+
+    const started = await ctx.subagents.startContinuable(startSpec(parent))
+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
+    const manager = (ctx.subagents as unknown as {
+      continuations: { activations: Map<SessionId, { handle: { dispose: () => Promise<void> } }> }
+    }).continuations
+    const activation = manager.activations.get(started.childId)!
+    const realDispose = activation.handle.dispose.bind(activation.handle)
+    activation.handle.dispose = async () => {
+      await realDispose()
+      throw new Error('normal settlement cleanup failed')
+    }
+
+    hold.resolve(undefined)
+
     await vi.waitFor(() => {
-      expect(warnings.some(warning => warning.includes('durability checkpoint failed'))).toBe(true)
+      expect(warnings.some(warning => warning.includes('normal settlement cleanup failed'))).toBe(true)
     })
+    expect(ctx.agents.get(started.childId)).toBeUndefined()
   })
 
   it('disposes every live Activation forest child-first on manager teardown', async () => {
@@ -1184,7 +1212,38 @@ describe('continuable review regressions', () => {
     expect(ends[0]!.stopReason).toBe('error')
   })
 
-  it('cancels a running turn before the final durability checkpoint', async () => {
+  it('preserves independent pre-disposal and handle-disposal failures', async () => {
+    const hold = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([{ chunks: textResponse('answer'), gate: hold.promise }])
+    const { ctx, parent } = await setupWith(adapter)
+    const started = await ctx.subagents.startContinuable(startSpec(parent))
+    const manager = (ctx.subagents as unknown as {
+      continuations: {
+        activations: Map<SessionId, {
+          handle: { dispose: () => Promise<void> }
+          observer: { capture: (child: Agent) => void }
+        }>
+      }
+    }).continuations
+    const activation = manager.activations.get(started.childId)!
+    const realDispose = activation.handle.dispose.bind(activation.handle)
+    activation.observer.capture = () => { throw new Error('capture failed') }
+    activation.handle.dispose = async () => {
+      await realDispose()
+      throw new Error('scoped cleanup failed')
+    }
+
+    const drained = drainManager(ctx)
+    hold.resolve(undefined)
+    const failure = await drained.catch((error: unknown) => error)
+
+    expect(failure).toMatchObject({ code: 'ACTIVATION_TEARDOWN_FAILED' })
+    expect(String(failure)).toContain('capture failed')
+    expect(String(failure)).toContain('scoped cleanup failed')
+    expect(ctx.agents.get(started.childId)).toBeUndefined()
+  })
+
+  it('cancels a running turn before the best-effort final flush', async () => {
     const hold = Promise.withResolvers<undefined>()
     const adapter = new GatedAdapter([{ chunks: textResponse('slow'), gate: hold.promise }])
     const { ctx, parent } = await setupWith(adapter)

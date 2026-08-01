@@ -362,7 +362,14 @@ export function apply(ctx: Context, config: AcpConfig): void {
           logger.warn(`acp: continuable subagent teardown failed: ${String(error)}`)
         }
       }
-      await Promise.all(records.map(record => record.dispose()))
+      const disposals = await Promise.allSettled(records.map(record => record.dispose()))
+      const failures: unknown[] = []
+      for (const result of disposals) {
+        if (result.status === 'rejected') failures.push(result.reason as unknown)
+      }
+      if (failures.length > 0) {
+        throw new AggregateError(failures, `ACP agent teardown failed for ${failures.length} session(s)`)
+      }
     })()
     return quiescing
   }

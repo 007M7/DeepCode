@@ -96,6 +96,52 @@ describe('ACP connection ownership', () => {
     expect(harness.ctx.agents.get(SessionId(sessionId))).toBeUndefined()
   })
 
+  it('awaits every owned session disposal before reporting one failure', async () => {
+    harness = await makeBridgeHarness()
+    const create = harness.ctx.agents.create.bind(harness.ctx.agents)
+    const releaseSecond = Promise.withResolvers<undefined>()
+    const warnings: string[] = []
+    let created = 0
+    let secondStarted = false
+    harness.ctx.logger.warn = (message: string) => { warnings.push(message) }
+    const createSpy = vi.spyOn(harness.ctx.agents, 'create').mockImplementation(async (options) => {
+      const handle = await create(options)
+      const originalDispose = handle.dispose.bind(handle)
+      if (created++ === 0) {
+        handle.dispose = async () => {
+          await originalDispose()
+          throw new Error('first session cleanup failed')
+        }
+      } else {
+        handle.dispose = async () => {
+          secondStarted = true
+          await releaseSecond.promise
+          await originalDispose()
+        }
+      }
+      return handle
+    })
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const first = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    const second = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+
+    await harness.closeClientTransport()
+    await vi.waitFor(() => { expect(secondStarted).toBe(true) })
+    expect(warnings.some(warning => warning.includes('connection-close teardown failed'))).toBe(false)
+
+    releaseSecond.resolve(undefined)
+    await vi.waitFor(() => {
+      expect(warnings.some(warning => warning.includes('ACP agent teardown failed for 1 session(s)'))).toBe(true)
+      expect(harness!.ctx.agents.get(SessionId(first.sessionId))).toBeUndefined()
+      expect(harness!.ctx.agents.get(SessionId(second.sessionId))).toBeUndefined()
+    })
+
+    createSpy.mockRestore()
+    const disposed = harness
+    harness = undefined
+    await disposed.dispose().catch(() => undefined)
+  })
+
   it('an ACP-only reload rejects new sessions before creating an orphan', async () => {
     harness = await makeBridgeHarness()
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })

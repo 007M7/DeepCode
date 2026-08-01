@@ -103,7 +103,7 @@ Agent inbox 是唯一队列。每条继续执行消息都使用 `Agent.followup(
 
 当经过身份认证的 parent 自身是由继续执行管理器管理的激活时，启动 child 或提交由 parent 发起的工作，会在 child 可以运行或消息可以进入其 inbox 前，将 child 会话 id 加入该 parent 的 `ownedChildren`。该集合非空时，这个 parent 不能结算或 dispose。顶层 Agent 或其他非继续执行 Agent 没有激活，也不会加入该等待图。
 
-只有在 child Agent 完全停稳、该 child 持有的每个 child 都已 dispose、最终持久性检查点结算且 child 的 `AgentHandle` 完成 dispose 后，系统才释放 child。管理器会调用 `ctx.sessions.flush(child.session)`：只有 `true` 确认持久性，`false` 或 rejection 则统一报告为 `DURABILITY_FAILED`。检查点失败会被报告，但不会阻止 handle dispose 或释放所有权，因为保留失败的 child 会让其祖先永久固定在 `waiting`。如果 child 归 parent 所有，管理器随后会通过 `SessionHeader.parentSession` 解析在线 parent，并从其 `ownedChildren` 中移除 child 会话 id。管理器拆卸使用相同的 child-first 顺序。
+只有在 child Agent 完全停稳、该 child 持有的每个 child 都已 dispose、best-effort 的最终会话 flush 结算且 child 的 `AgentHandle` 完成 dispose 后，系统才释放 child。管理器会等待 `ctx.sessions.flush(child.session)`，但不解释其参与布尔值：任意 listener 都无法证明所选持久化后端已存储该状态。rejection 会被记录，但不会阻止 handle dispose 或释放所有权，因为保留 child 会让其祖先永久固定在 `waiting`。如果 child 归 parent 所有，管理器随后会通过 `SessionHeader.parentSession` 解析在线 parent，并从其 `ownedChildren` 中移除 child 会话 id。管理器拆卸使用相同的 child-first 顺序。
 
 系统会一直保留所有权，直至 child 激活完成 dispose。后续改进可以更早释放限定到请求的 lease，但这需要精确关联轮次完成，而本 Task-free 提案特意不增加该机制。
 
@@ -137,7 +137,7 @@ activation-owner 作用域之所以存在，是因为普通 Cordis owner effect 
 
 宿主和管理器拆卸仍是生命周期停止路径。管理器卸载会全局应用它；宿主只会在自己确切拥有的顶层 Agent 之下应用它。两种形式都会关闭适用的准入作用域，停止选中的可见 Activation，等待该作用域中已获准的物化过程，按 child-first 顺序释放，并保留持久化 Session。
 
-每个轮次都会请求执行会话持久性检查点，激活最终结算时，管理器必须检查 `ctx.sessions.flush()`，而不能忽略其布尔结果。`true` 确认至少有一个持久性 listener 参与，且所有 listener 都成功结算。`false` 或 rejection 会报告 `DURABILITY_FAILED`；普通后台结算会记录该生命周期失败，显式的宿主或管理器 drain 则会在所有分支结算后，将其纳入聚合 rejection。无论结果如何，管理器仍会 dispose handle 并释放所有权，后续恢复时持久化 child 状态可能缺失或陈旧。
+每个轮次都会请求执行会话持久性检查点，而 Activation 最终结算还会等待 `ctx.sessions.flush()`，将其作为 best-effort 屏障。管理器特意忽略布尔结果，因为 listener 是否参与无法标识持久化后端。rejection 会被记录，但不会改变生命周期结果或宿主 drain 的结果；管理器仍会 dispose handle 并释放所有权，后续恢复时持久化 child 状态可能缺失或陈旧。
 
 只有实际写入 child 会话日志的消息，才能根据其准入来源重建；仅被 inbox 接受并不提供重启保证。
 
@@ -193,13 +193,13 @@ activation-owner 作用域之所以存在，是因为普通 Cordis owner effect 
 - 带有在线所持 child 的空闲 Agent 会产生 `waiting` 激活，其 `AgentHandle` 继续保留。
 - 向 `waiting` 投递 `next-turn` 会唤醒同一个激活；完成 dispose 后投递消息会冷恢复新激活。
 - 每个由继续执行管理器管理的 parent 激活只会在直接持有的所有 child 激活完成 `AgentHandle` dispose 后进行 dispose；顶层 Agent 不加入等待图。
-- 激活最终结算时，只有 `ctx.sessions.flush(child.session) === true` 才确认持久性；`false` 和 rejection 会报告 `DURABILITY_FAILED`，但仍会 dispose child handle 并释放 parent 所有权，使持久性失败不会泄漏 `waiting` 激活。
+- Activation 最终结算会等待 `ctx.sessions.flush(child.session)`，将其作为 best-effort 屏障；它会记录 rejection，但不会把 listener 参与解释为持久性证明，然后 dispose child handle 并释放 parent 所有权，使 flush 失败不会泄漏 `waiting` Activation。
 - 管理器拆卸会全局关闭准入；拥有选定顶层 Agent 的宿主则只关闭这些确切身份之下的准入，直到这些根离开注册表。两者都会按确切祖先关系跟踪已获准的物化过程，为每个选中的可见 Activation 安装一个记忆化 dispose 截止点，自顶向下传播取消，按 child-first 顺序释放 handle，即使个别分支失败也会等待所有选中分支，之后才 dispose 对应的顶层 Agent 或管理器作用域。
 - 本版本不暴露 `report` 工具，不提供从 child 到 parent 的内容投递，也不自动唤醒 parent。
 - 会话日志只能根据准入来源重建实际写入的消息；已被 inbox 接受但未写入日志的消息没有重启保证。
 - 可继续 subagent 路径不创建或依赖 Task、`TaskId`、Task 完成通知、Task 取消或中间的带结果执行包装层。
 - 单元覆盖固定 `startContinuable()` 在 inbox 接受消息时的返回边界、每条接受前和生命周期发布失败路径的完整回滚、全局和限定到 parent 作用域的 drain 都会等待夹在 Agent 发布与 Activation 注册之间的物化过程完全停稳、同级森林隔离、中间 Agent 离开注册表后的确切祖先关系、不依赖提供方的冷恢复、冷恢复物化后的最终确切 parent 再授权、接受前后两个阶段的调用方 signal 与拆卸所有权，以及已接受但未写入日志的消息不会自动回放。
-- 单元覆盖固定仅由驻留状态决定的路由表、单 inbox 顺序、通过 inbox 事件关联 `MessageId`、在开放轮次期间 follow-up、等待唤醒、冷恢复、所有权注册与释放、child-first dispose、发送与 dispose 的竞争、最终持久性检查点返回 `false` 和 rejection 时都不泄漏所有权，以及不存在公开 subagent 取消、steering 和报告工具这一事实。
+- 单元覆盖固定仅由驻留状态决定的路由表、单 inbox 顺序、通过 inbox 事件关联 `MessageId`、在开放轮次期间 follow-up、等待唤醒、冷恢复、所有权注册与释放、child-first dispose、发送与 dispose 的竞争、没有 listener 和 listener 失败时的 best-effort 最终 flush，以及不存在公开 subagent 取消、steering 和报告工具这一事实。
 - 一项无密钥整套应用快照覆盖 parent 委派和 follow-up 排队、不存在 subagent steering、报告投递和自动唤醒 parent、保留等待中的 `AgentHandle` 以及 child-first dispose。
 
 ### 已接受的代价
@@ -214,4 +214,4 @@ activation-owner 作用域之所以存在，是因为普通 Cordis owner effect 
 
 将每条继续执行消息排队，意味着 parent 无法立即纠正正在进行的 child 轮次；纠正操作会在下一个轮次执行。后续 UI steering 操作可以缩短该延迟，而不改变 follow-up 排序。
 
-最终持久性检查点失败时，运行时所有权图仍可完成 drain，但持久化 child 状态会缺失或陈旧。该失败会以 `DURABILITY_FAILED` 的形式被观测到；重试与修复需要单独的恢复设计。
+best-effort 最终 flush 失败时会记录日志，同时运行时所有权图继续 drain；持久化 child 状态可能缺失或陈旧。重试与修复需要单独的恢复设计。

@@ -917,9 +917,9 @@ export class SubagentContinuationManager {
    * transaction is installed before cancellation or recursive callbacks, so
    * admission and reentrant teardown converge on the same owner.
    *
-   * A failed final checkpoint is reported but never prevents handle disposal or
-   * ownership release, because retaining a failed child would permanently pin
-   * its ancestors in `waiting`.
+   * The final session flush is best effort and never prevents handle disposal
+   * or ownership release, because retaining a child would permanently pin its
+   * ancestors in `waiting`.
    * @param activation - the residency epoch to stop and release.
    * @returns the one disposal transaction owned by this Activation.
    */
@@ -951,7 +951,7 @@ export class SubagentContinuationManager {
       .filter((child): child is Activation => child !== undefined)
     const childDisposals = children.map(child => this.dispose(child))
 
-    let failure: Error | undefined
+    const failures: SubagentError[] = []
     try {
       // Release remains child-first even though cancellation propagated
       // top-down: every owned child completes before this handle is removed.
@@ -965,71 +965,73 @@ export class SubagentContinuationManager {
       }))
       const reasons = childFailures.filter(reason => reason !== undefined)
       if (reasons.length > 0) {
-        failure = new SubagentError(
+        failures.push(new SubagentError(
           `subagent "${childId}" child teardown failed: ${reasons.map(reason => errorChain(reason)).join('; ')}`,
           'ACTIVATION_TEARDOWN_FAILED',
-        )
+        ))
       }
-      // Quiesce before the checkpoint: a turn still running would keep
+      // Quiesce before the flush: a turn still running would keep
       // appending events the flush cannot cover.
       await idle
-      const durability = await this.checkpoint(activation)
-      failure ??= durability
+      await this.flushFinalState(activation)
       // Capture the child-dependent edge data while the child is still live:
       // handle disposal unregisters it, and consumers read its log and scope.
       activation.observer.capture(activation.handle.agent)
     } catch (error: unknown) {
-      failure ??= new SubagentError(
+      failures.push(new SubagentError(
         `subagent "${childId}" activation teardown failed: ${errorChain(error)}`,
         'ACTIVATION_TEARDOWN_FAILED',
         { cause: error },
-      )
-    } finally {
-      try {
-        await activation.handle.dispose()
-      } catch (error: unknown) {
-        failure ??= new SubagentError(
-          `subagent "${childId}" activation handle disposal failed: ${errorChain(error)}`,
-          'ACTIVATION_TEARDOWN_FAILED',
-          { cause: error },
-        )
-      } finally {
-        // Only now is the Activation gone: keeping the entry until disposal
-        // settles makes a racing delivery wait for release rather than
-        // cold-resume into the still-registered agent.
-        this.activations.delete(childId)
-        // Release ownership even on failure: a retained failed child would pin
-        // its ancestors in `waiting` forever.
-        this.releaseOwnership(childId)
-        // Emit once the disposal outcome is known, so a rejecting scoped cleanup
-        // cannot be reported as a successful epoch.
-        activation.observer.settle(failure)
-      }
+      ))
     }
+    try {
+      await activation.handle.dispose()
+    } catch (error: unknown) {
+      failures.push(new SubagentError(
+        `subagent "${childId}" activation handle disposal failed: ${errorChain(error)}`,
+        'ACTIVATION_TEARDOWN_FAILED',
+        { cause: error },
+      ))
+    }
+
+    let failure: SubagentError | undefined
+    if (failures.length === 1) {
+      failure = failures[0]
+    } else if (failures.length > 1) {
+      failure = new SubagentError(
+        `subagent "${childId}" activation teardown failed at ${failures.length} boundaries: `
+        + failures.map(item => errorChain(item)).join('; '),
+        'ACTIVATION_TEARDOWN_FAILED',
+        { cause: new AggregateError(failures) },
+      )
+    }
+    // Only now is the Activation gone: keeping the entry until disposal settles
+    // makes a racing delivery wait for release rather than cold-resume into the
+    // still-registered agent.
+    this.activations.delete(childId)
+    // Release ownership even on failure: a retained failed child would pin its
+    // ancestors in `waiting` forever.
+    this.releaseOwnership(childId)
+    // Emit once the disposal outcome is known, so a rejecting scoped cleanup
+    // cannot be reported as a successful epoch.
+    activation.observer.settle(failure)
     if (failure !== undefined) throw failure
   }
 
   /**
-   * Request the final durability checkpoint. Only `true` confirms durability;
-   * `false` and rejection both report `DURABILITY_FAILED` so the persisted
-   * child state is known to be possibly missing or stale on a later resume.
+   * Request a best-effort final session flush after the child is quiescent.
+   * Listener failure is logged because flush participation cannot identify a
+   * particular persistence backend, and teardown must still release ownership.
+   * @param activation - the Activation whose final events should be flushed.
    */
-  private async checkpoint(activation: Activation): Promise<SubagentError | undefined> {
+  private async flushFinalState(activation: Activation): Promise<void> {
     const child = activation.handle.agent
     try {
-      const participated = await child.ctx.sessions.flush(child.session)
-      if (participated) return undefined
-      return new SubagentError(
-        `subagent "${activation.childId}" required durability checkpoint has no registered listener; `
-        + 'the latest child state was not confirmed persisted and may be unavailable or stale on resume',
-        'DURABILITY_FAILED',
-      )
+      await child.ctx.sessions.flush(child.session)
     } catch (error: unknown) {
-      return new SubagentError(
-        `subagent "${activation.childId}" durability checkpoint failed; the latest child state was not `
-        + `confirmed persisted and may be unavailable or stale on resume: ${errorChain(error)}`,
-        'DURABILITY_FAILED',
-        { cause: error },
+      this.ctx.logger.warn(
+        `subagent "${activation.childId}" best-effort final session flush failed; `
+        + `the persisted state may be unavailable or stale on resume: ${errorChain(error)}`,
       )
     }
   }
