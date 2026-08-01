@@ -354,6 +354,9 @@ const BACKGROUND_OUTPUT_PROPERTIES = {
 } as const
 
 export function apply(ctx: Context, config: Config = {}): void {
+  // FIXME(bash-env-ownership): Move ctx.bashEnv to a tool-independent shell
+  // environment plugin; replacing this tool with persistent Bash must not
+  // remove the managed DSH_* contributor seam.
   const bashEnv = new BashEnvRegistry(ctx, config)
   bashEnv.register({
     name: 'session-persistence',

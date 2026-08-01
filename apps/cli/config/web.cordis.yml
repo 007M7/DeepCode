@@ -10,6 +10,11 @@
 
 # ── surface-specific values the base deliberately omits ─────────────────────
 
+- id: system-prompt
+  config:
+    persona: >-
+      You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}.
+
 # TODO: Re-enable shared HMR for Web after its reload lifecycle is tested.
 - id: hmr
   disabled: true
