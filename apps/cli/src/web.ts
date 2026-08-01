@@ -109,6 +109,7 @@ export async function runWeb(
     ...config !== undefined && { extraOverlayPath: resolveConfigPath(config, undefined) },
     dev,
     prepare: (ctx) => { prepareWebRuntimeContext(ctx, SOURCE_ROOT, mode) },
+    watchPersonalConfig: true,
     ...host !== undefined && { host },
     ...port !== undefined && { port },
     ...workspaceRoot !== undefined && { workspaceRoot },

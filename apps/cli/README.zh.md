@@ -11,7 +11,7 @@ TUI 界面：
 - 使用 `dsh --resume <session-id>` 恢复已持久化会话。当 Node 宿主公开 `process.execve` 时，还会提供 TUI 的原地移交宿主：选择器预检并刷新当前会话后，宿主会释放应用，并以规范化的恢复调用替换进程；不支持进程替换的运行时会让会话继续运行并给出提示。会话身份与退出行由本 CLI 拥有，而非由配置指定：它创建或选定 `main` 会话 id，并把该 id 以及可复现本次调用的确切命令一起提供到启动上下文（[`MAIN_SESSION_ID_KEY`](../../packages/ui/tui/README.md) 与 `TUI_GOODBYE_MESSAGE_KEY`）。任何 `cordis.yml` 键都无法移除恢复能力；缺失或无法读取的 id 会明确报错，而不会创建新会话；
 - 将 **调用目录** 视为 workspace：会话、相对路径和 workspace 指令都从 cwd 解析（`dsh meta` 是唯一例外，见下文）；
 - 告知 agent 自身源码所在位置：启动后添加一个命名此 harness checkout 的提示词段。该路径从启动器的真实路径解析，因此在 PATH 符号链接和任意 cwd 下仍然有效，使自指的 `cordis` 工具集可以读取并修改它；
-- 应用 `~/.dsh` 中的个人覆盖（参见 [app-boot 的个人配置](../../packages/ui/app-boot/README.md#personal-config)）：`config.yaml` 修补已启动的树，而那里的 `.env` 是凭据 provider 自己的存储（绝不会被提升进环境，因此密钥始终可轮换）。环境优先级为环境中已有的值 > 项目 `.env`。
+- 应用 `~/.dsh` 中的个人覆盖（参见 [app-boot 的个人配置](../../packages/ui/app-boot/README.md#personal-config)）：`config.yaml` 修补已启动的树，而那里的 `.env` 是凭据 provider 自己的存储（绝不会被提升进环境，因此密钥始终可轮换）。环境优先级为环境中已有的值 > 项目 `.env`。已交付配置树中的 Cordis HMR 会持续应用 `config.yaml` 的变更；显式 `--config` 配置树会替代该个人覆盖，未包含 HMR 的配置树只在启动时读取该文件。
 - 当 `DSH_HOME` 下不存在不可变确认标记时，通过已挂载的 TUI overlay 服务呈现[版本化首次运行欢迎页](../../.agents/notes/implemented/feature/2026-07-30-versioned-tui-first-run-welcome.md)；只有 Enter 会创建该版本的标记，Escape、资源释放或进程退出仍保留展示资格。官方 DeepSeek 图标、响应式终端栅格图、所有 locale 共用的中文文案和通知版本均由静态本地文件持有；overlay 不会写入会话事件或模型上下文。
 - 注册裸 `/compact`：agent 空闲时，即使未达到自动压力，也会摘要有效的较早历史；该命令拒绝参数，并只在独立替换标记对持久化后报告成功。压缩（compaction）期间提交的提示词保留其队列身份，并在该检查点之后启动；注入的上下文仍保持可见。
 
@@ -24,6 +24,18 @@ TUI 界面：
 Web 和无头界面启动 `base.cordis.yml` 与 `web.cordis.yml`，随后应用 `$DSH_HOME/config.yaml`；显式的 `--config <path>` 会替代该个人覆盖。除此之外，两者共享同一套组合：两者都会告知编码 agent 所用模型和会话工作目录，将调用目录视为默认项目和 Workspace 根目录，除非通过 `--workspace-root <path>` 覆盖，否则会在该根目录下创建具名 Workspace；它们会把适用的 `AGENTS.md`/`CLAUDE.md` 指令加载到每个 agent-loop 请求前缀中，渲染预算为 65,536 字节，选用首条消息模型标题，采用与 TUI 相同的有界暂时性模型请求重试策略，并挂载一个可丢弃的内存 SQLite 内容索引服务。Web 还会明确说明交互界面是 DeepSeek Harness Web GUI、当前 checkout 是自身源码位置，并在提示词及受管的 `$DSH_WEB_URL`/`$DSH_WEB_MODE` 中提供该进程的规范本地 URL 和模式；因此，「这个页面」等表述会指向该 GUI，但 agent 不会声称可以访问未显式提供的 DOM、路由或截图状态。在生产模式下，宿主会在下次请求时读取重新构建的前端 dist 和客户端 bundle，因此刷新现有 URL 即可更新该 GUI，无须替换其进程。`dsh web --dev` 会挂载客户端插件的 HMR（热模块替换）接收端，但要实现无刷新更新，还需在同一 checkout 中运行 `pnpm run dev:web`，以监视并重新构建插件 bundle；shell 和普通包（package）的更改仍需重新构建并刷新页面。直接使用裸 `apps/web` Vite 服务会在开始监听前失败，因为它无法注入 `window.__DSH_BOOT__`。索引服务在启动时处于 ACTIVE 状态，但其 `node:sqlite` 模块与数据库句柄分别要到首次内容搜索才会导入和打开。这样可使 Node 22 在尚未使用搜索时的启动输出不出现 SQLite 实验性警告；首次实际搜索仍可能发出运行时警告。每个服务实例独占自己的数据库，因此并行调用既不会共享不受支持的 SQLite 状态，也不会留下派生索引文件，首次搜索还会惰性对账实时日志与持久化日志。无头界面唯一的差异是监听操作系统分配的端口（并行 `dsh -p` 运行绝不冲突；stderr 打印的 URL 会在浏览器中打开实时会话）。两者都需要先构建前端 dist 和客户端 bundle（`pnpm run build && pnpm run build:web`）。
 
 共享组合把新建 TUI、Web 和无头会话的权限默认设为 `workspace-write` preset（`workspace-write` 文件模式加 `ask` 审批策略）。由沙箱强制约束的 bash 与文件系统修改只能写入会话工作区和平台临时根目录；读取、网络访问和进程可见性不受该策略约束。浏览器可以应答一次性审批请求，并提供 Access 选择器；TUI 提供 `/permission`，但没有审批请求应答者，因此自动请求更宽权限的重试会以拒绝方式关闭，直到用户主动更改会话 preset。`DSH_PERMISSION_MODE` 会更改进程回退值，而「通用」设置中已存储的「权限」值只适用于之后的会话，不会更改已打开的会话。
+
+三个界面都会使用 `$DSH_HOME/config.yaml`；TUI 和 Web 实时应用有效编辑，而一次性无头运行只在启动时读取。已交付的配置树包含一个空的 `repository-plugins` 配置项，因此独立用户无需 SDK 项目或安装命令，只需配置即可添加已准备的 GitHub 插件：
+
+```yaml
+- id: repository-plugins
+  name: '@deepseek-ai/dsh-repository-plugin'
+  config:
+    repositories:
+      - 'github:PolyArch/humanize#<commit>'
+```
+
+仓库必须包含已准备的 `.dsh-plugin` 包；[仓库插件契约](../../packages/cordis/repository-plugin/README.md#standalone-app-configuration)说明创作方式、嵌套插件路径、不可变缓存、信任边界和失败语义。实时编辑失败时，最后一个可用树保持运行，并发出 Cordis 的 HMR（热模块替换）事件 `hmr/config-update-failed`。
 
 已交付的 TUI 和 Web 组合会注册原生 DeepSeek 适配器，以及 pi-ai 的 OpenAI 和 Anthropic 提供方配置。凭据和端点覆盖来自启动分层环境中的提供方标准变量对：`DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL`、`OPENAI_API_KEY` / `OPENAI_BASE_URL` 和 `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL`。
 
