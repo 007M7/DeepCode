@@ -2,14 +2,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type {
-  SessionId, SessionListState, SubagentCatalogSnapshot,
+  SessionId, SessionListState, SessionSummary, SubagentCatalogSnapshot,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import {
   SubagentCatalogAction, type SubagentCatalogActionProps,
 } from '../src/client/SubagentCatalogAction.tsx'
 import { SubagentReadOnlyComposer } from '../src/client/SubagentReadOnlyComposer.tsx'
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+})
 
 const PARENT = 'parent' as SessionId
 const CHILD = 'child' as SessionId
@@ -37,10 +40,11 @@ function catalog(over: Partial<SubagentCatalogSnapshot> = {}): SubagentCatalogSn
 function props(
   value: SubagentCatalogSnapshot | undefined,
   nested: Readonly<Record<SessionId, SubagentCatalogSnapshot>> = {},
+  summaries?: Readonly<Record<SessionId, SessionSummary>>,
 ) {
   const state = {
     ids: [CHILD],
-    byId: {
+    byId: summaries ?? {
       [CHILD]: {
         id: CHILD,
         title: '正在扫描项目文件',
@@ -65,6 +69,17 @@ function props(
     refresh: vi.fn(),
     setCatalogOpen: vi.fn(),
   } as unknown as SubagentCatalogActionProps
+}
+
+function summary(id: SessionId, updatedAt: number): SessionSummary {
+  return {
+    id,
+    displayTitle: id,
+    running: false,
+    blank: false,
+    waitingApproval: false,
+    updatedAt,
+  }
 }
 
 describe('SubagentCatalogAction', () => {
@@ -98,14 +113,88 @@ describe('SubagentCatalogAction', () => {
 
     fireEvent.keyDown(document.activeElement as Element, { key: 'End' })
     expect(document.activeElement).toBe(screen.getByRole('treeitem', { name: /reviewer/ }))
+    fireEvent.keyDown(document.activeElement as Element, { key: 'Home' })
+    expect(document.activeElement).toBe(screen.getByRole('treeitem', { name: /worker/ }))
+    fireEvent.keyDown(document.activeElement as Element, { key: 'ArrowUp' })
+    expect(document.activeElement).toBe(screen.getByRole('treeitem', { name: /reviewer/ }))
     fireEvent.keyDown(document.activeElement as Element, { key: 'Escape' })
     await Promise.resolve()
     expect(screen.queryByRole('tree')).toBeNull()
     expect(document.activeElement).toBe(trigger)
 
     fireEvent.click(trigger)
+    fireEvent.pointerDown(screen.getByRole('tree'))
+    expect(screen.getByRole('tree')).toBeTruthy()
     fireEvent.pointerDown(document.body)
     expect(screen.queryByRole('tree')).toBeNull()
+  })
+
+  it('covers diagnostic variants, fallback labels, and keyboard row activation', () => {
+    const unsupported = 'unsupported' as SessionId
+    const unavailable = 'unavailable' as SessionId
+    const unlabeled = 'unlabeled' as SessionId
+    const input = props(catalog({
+      entries: [
+        { kind: 'diagnostic', id: unsupported, reason: 'unsupported' },
+        { kind: 'diagnostic', id: unavailable, reason: 'unavailable' },
+        { kind: 'child', id: CHILD, mode: 'continuable', label: 'worker', activity: 'running' },
+        { kind: 'child', id: unlabeled, mode: 'one-shot', activity: 'inactive' },
+      ],
+    }))
+    render(<SubagentCatalogAction {...input} />)
+    const trigger = screen.getByRole('button', { name: /2 个子代理/ })
+    fireEvent.keyDown(trigger, { key: 'Tab' })
+    expect(screen.queryByRole('tree')).toBeNull()
+    fireEvent.click(trigger)
+    expect(screen.getByRole('treeitem', { name: /子代理记录版本不受支持/ })).toBeTruthy()
+    expect(screen.getByRole('treeitem', { name: /会话记录暂不可用/ })).toBeTruthy()
+
+    fireEvent.keyDown(screen.getByRole('treeitem', { name: /worker/ }), { key: 'Enter' })
+    expect(input.openChild).toHaveBeenLastCalledWith({
+      parentSessionId: PARENT, childSessionId: CHILD, mode: 'continuable',
+    })
+    fireEvent.click(trigger)
+    fireEvent.keyDown(screen.getByRole('treeitem', { name: /unlabeled/ }), { key: ' ' })
+    expect(input.openChild).toHaveBeenLastCalledWith({
+      parentSessionId: PARENT, childSessionId: unlabeled, mode: 'one-shot',
+    })
+  })
+
+  it('renders compact activity times across every unit and clamps future timestamps', () => {
+    const now = 2_000_000_000_000
+    vi.spyOn(Date, 'now').mockReturnValue(now)
+    const minute = 60_000
+    const hour = 60 * minute
+    const day = 24 * hour
+    const rows = [
+      ['future', now + minute],
+      ['minutes', now - 2 * minute],
+      ['hours', now - 2 * hour],
+      ['days', now - 2 * day],
+      ['months', now - 60 * day],
+      ['years', now - 2 * 365 * day],
+    ] as const
+    const entries = rows.map(([id]) => ({
+      kind: 'child' as const,
+      id: id as SessionId,
+      mode: 'continuable' as const,
+      label: id,
+      activity: 'inactive' as const,
+    }))
+    const summaries = Object.fromEntries(rows.map(([id, updatedAt]) => [
+      id,
+      summary(id as SessionId, updatedAt),
+    ])) as Record<SessionId, SessionSummary>
+    const input = props(catalog({ entries }), {}, summaries)
+    render(<SubagentCatalogAction {...input} />)
+    fireEvent.click(screen.getByRole('button', { name: /6 个子代理/ }))
+
+    expect(screen.getByRole('treeitem', { name: /future.*刚刚/ })).toBeTruthy()
+    expect(screen.getByRole('treeitem', { name: /minutes.*2分钟/ })).toBeTruthy()
+    expect(screen.getByRole('treeitem', { name: /hours.*2小时/ })).toBeTruthy()
+    expect(screen.getByRole('treeitem', { name: /days.*2天/ })).toBeTruthy()
+    expect(screen.getByRole('treeitem', { name: /months.*2个月/ })).toBeTruthy()
+    expect(screen.getByRole('treeitem', { name: /years.*2年/ })).toBeTruthy()
   })
 
   it('lazily expands and collapses descendant catalogs with direct-parent navigation', () => {
@@ -159,7 +248,34 @@ describe('SubagentCatalogAction', () => {
     expect(input.setCatalogOpen).toHaveBeenCalledWith(CHILD, false)
   })
 
+  it('closes expanded descendants even when their own catalogs have not arrived', () => {
+    const input = props(catalog(), {
+      [CHILD]: catalog({
+        entries: [
+          {
+            kind: 'child', id: GRANDCHILD, mode: 'continuable',
+            label: 'indexer', activity: 'running',
+          },
+          { kind: 'diagnostic', id: 'nested-bad' as SessionId, reason: 'corrupt' },
+        ],
+      }),
+    })
+    render(<SubagentCatalogAction {...input} />)
+    fireEvent.click(screen.getByRole('button', { name: /2 个子代理/ }))
+    fireEvent.click(screen.getByRole('button', { name: '展开 worker 的下级子代理' }))
+    fireEvent.click(screen.getByRole('button', { name: '展开 indexer 的下级子代理' }))
+    fireEvent.click(screen.getByRole('button', { name: '收起 worker 的下级子代理' }))
+
+    expect(input.setCatalogOpen).toHaveBeenCalledWith(GRANDCHILD, false)
+    expect(input.setCatalogOpen).toHaveBeenCalledWith(CHILD, false)
+    expect(screen.queryByRole('treeitem', { name: /indexer/ })).toBeNull()
+  })
+
   it('hides an arrived empty catalog and exposes retry for a failed one', () => {
+    const absent = render(<SubagentCatalogAction {...props(undefined)} />)
+    expect(screen.queryByRole('button')).toBeNull()
+    absent.unmount()
+
     const empty = props(catalog({ entries: [] }))
     const view = render(<SubagentCatalogAction {...empty} />)
     expect(screen.queryByRole('button')).toBeNull()
@@ -175,6 +291,36 @@ describe('SubagentCatalogAction', () => {
     expect(screen.getByText('index down')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /重试/ }))
     expect(failed.refresh).toHaveBeenCalledWith(PARENT)
+  })
+
+  it('renders empty loading and fallback error states without focusable rows', async () => {
+    const loading = props(catalog({ entries: [], state: 'loading' }))
+    const view = render(<SubagentCatalogAction {...loading} />)
+    const trigger = screen.getByRole('button', { name: /0 个子代理/ })
+    fireEvent.click(trigger)
+    expect(screen.getByText('正在加载子代理…')).toBeTruthy()
+    fireEvent.keyDown(trigger, { key: 'ArrowDown' })
+    await Promise.resolve()
+    expect(screen.getByRole('tree')).toBeTruthy()
+    fireEvent.keyDown(screen.getByRole('tree'), { key: 'ArrowUp' })
+    view.unmount()
+
+    const failed = props(catalog({ entries: [], state: 'error', error: null }))
+    render(<SubagentCatalogAction {...failed} />)
+    fireEvent.click(screen.getByRole('button', { name: /0 个子代理/ }))
+    expect(screen.getByText('无法加载子代理')).toBeTruthy()
+  })
+
+  it('navigates from outside the tree and tolerates a deferred focus after unmount', async () => {
+    const input = props(catalog())
+    const view = render(<SubagentCatalogAction {...input} />)
+    const trigger = screen.getByRole('button', { name: /2 个子代理/ })
+    fireEvent.click(trigger)
+    fireEvent.keyDown(screen.getByRole('tree'), { key: 'ArrowUp' })
+    expect(document.activeElement).toBe(screen.getByRole('treeitem', { name: /reviewer/ }))
+    fireEvent.keyDown(trigger, { key: 'ArrowDown' })
+    view.unmount()
+    await Promise.resolve()
   })
 
   it('closes every observed catalog when the root becomes empty', () => {
