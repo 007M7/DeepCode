@@ -867,7 +867,7 @@ export interface StreamableHttpConfig {
 }
 ```
 
-Source: [`packages/mcp/mcp-client/src/index.ts:93`](../packages/mcp/mcp-client/src/index.ts)
+Source: [`packages/mcp/mcp-client/src/index.ts:96`](../packages/mcp/mcp-client/src/index.ts)
 
 ## `@deepseek-ai/dsh-permission`
 
@@ -994,6 +994,22 @@ export interface Config {
 ```
 
 Source: [`packages/guard/repeat-tool-guard/src/index.ts:28`](../packages/guard/repeat-tool-guard/src/index.ts)
+
+## `@deepseek-ai/dsh-repository-plugin`
+
+Requires: `loader`
+
+```ts config-catalog
+/** Repository Plugin runtime and source-list configuration. */
+export interface Config {
+  /** GitHub repository sources with explicit refs and optional `.dsh-plugin` subpaths. */
+  repositories?: string[]
+  /** Persistent generation cache; defaults to `$DSH_HOME/cache/repository-plugins`. */
+  cacheDir?: string
+}
+```
+
+Source: [`packages/cordis/repository-plugin/src/index.ts:42`](../packages/cordis/repository-plugin/src/index.ts)
 
 ## `@deepseek-ai/dsh-sandbox-local`
 
@@ -1312,6 +1328,10 @@ Requires: `skills`
 ```ts config-catalog
 /** Local filesystem skill provider configuration. */
 export interface Config {
+  /** Unique provider name. Defaults to `local`. */
+  providerName?: string
+  /** Whether project and user roots are included around custom roots. */
+  includeDefaultRoots?: boolean
   /** DeepSeek Harness config root. Defaults to `$DSH_HOME` or `~/.dsh`. */
   dshHome?: string
   /** Shared agent config root. Defaults to `$DSH_AGENTS_HOME` or `~/.agents`. */
@@ -1330,7 +1350,7 @@ export interface Config {
   watchMaxProjects?: number
   /** Whether watched symbolic links follow their target files. */
   watchFollowSymlinks?: boolean
-  /** Bundled skill root; defaults to `$DSH_BUNDLED_SKILL_DIR`, otherwise mounts none. */
+  /** Bundled skill root; defaults to `$DSH_BUNDLED_SKILL_DIR` when default roots are included, otherwise mounts none. */
   bundledSkillDir?: string
 }
 ```

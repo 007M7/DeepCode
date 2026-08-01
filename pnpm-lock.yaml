@@ -312,6 +312,9 @@ importers:
       '@deepseek-ai/dsh-repeat-tool-guard':
         specifier: workspace:^
         version: link:../../packages/guard/repeat-tool-guard
+      '@deepseek-ai/dsh-repository-plugin':
+        specifier: workspace:^
+        version: link:../../packages/cordis/repository-plugin
       '@deepseek-ai/dsh-sandbox-local':
         specifier: workspace:^
         version: link:../../packages/sandbox/sandbox-local
@@ -488,7 +491,7 @@ importers:
         version: 15.0.0
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@vendor+include)(@cordisjs/plugin-loader@vendor+loader)
+        version: link:../../vendor/cordis
       js-yaml:
         specifier: ^4.2.0
         version: 4.2.0
@@ -671,6 +674,9 @@ importers:
       '@deepseek-ai/dsh-repeat-tool-guard':
         specifier: workspace:*
         version: link:../packages/guard/repeat-tool-guard
+      '@deepseek-ai/dsh-repository-plugin':
+        specifier: workspace:*
+        version: link:../packages/cordis/repository-plugin
       '@deepseek-ai/dsh-sandbox-local':
         specifier: workspace:*
         version: link:../packages/sandbox/sandbox-local
@@ -841,7 +847,7 @@ importers:
         version: 0.25.1(zod@4.4.3)
       schemastery:
         specifier: ^3.17.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
@@ -869,7 +875,7 @@ importers:
         version: link:../../ui/user-approval
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/bash/bash:
     devDependencies:
@@ -884,13 +890,13 @@ importers:
         version: link:../../subprocess/subprocess
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/bash/bash-local:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-bash':
         specifier: workspace:^
@@ -909,7 +915,7 @@ importers:
         version: link:../../util/timeout
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/bash/bash-sandbox:
     devDependencies:
@@ -936,7 +942,7 @@ importers:
         version: link:../../subprocess/subprocess-local
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
       node-addon-landlock-run:
         specifier: 0.0.0-test.0
         version: 0.0.0-test.0
@@ -945,7 +951,7 @@ importers:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
@@ -1009,7 +1015,7 @@ importers:
         version: link:../../ui/user-approval
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/client/connection:
     dependencies:
@@ -1030,7 +1036,7 @@ importers:
         version: link:../../core/tools
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-host-webserver':
         specifier: workspace:^
@@ -1040,13 +1046,13 @@ importers:
         version: link:../../support/invariants
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/client/hmr:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@cordisjs/plugin-loader':
         specifier: workspace:^
@@ -1062,7 +1068,7 @@ importers:
         version: link:../../support/invariants
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@vendor+loader)
+        version: link:../../../vendor/cordis
 
   packages/client/locale:
     devDependencies:
@@ -1083,7 +1089,7 @@ importers:
         version: 18.3.31
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
       react:
         specifier: ^18.2.0
         version: 18.3.1
@@ -1101,7 +1107,7 @@ importers:
         version: link:../../support/invariants
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@vendor+loader)
+        version: link:../../../vendor/cordis
 
   packages/client/runtime:
     dependencies:
@@ -1156,20 +1162,20 @@ importers:
         version: 18.3.31
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/client/schema-form:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/client/test-runtime:
     dependencies:
@@ -1206,7 +1212,7 @@ importers:
         version: 18.3.7(@types/react@18.3.31)
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
       react:
         specifier: ^18.2.0
         version: 18.3.1
@@ -1252,7 +1258,7 @@ importers:
         version: 18.3.31
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
       react:
         specifier: ^18.2.0
         version: 18.3.1
@@ -1310,7 +1316,7 @@ importers:
         version: 18.3.31
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
       react:
         specifier: ^18.2.0
         version: 18.3.1
@@ -1352,7 +1358,7 @@ importers:
         version: 18.3.31
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
       react:
         specifier: ^18.2.0
         version: 18.3.1
@@ -1382,7 +1388,7 @@ importers:
         version: 18.3.31
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
       react:
         specifier: ^18.2.0
         version: 18.3.1
@@ -1424,7 +1430,7 @@ importers:
         version: 2.1.1
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
       react:
         specifier: ^18.2.0
         version: 18.3.1
@@ -1466,7 +1472,7 @@ importers:
         version: 18.3.31
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
       react:
         specifier: ^18.2.0
         version: 18.3.1
@@ -1511,7 +1517,7 @@ importers:
         version: 18.3.31
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
       react:
         specifier: ^18.2.0
         version: 18.3.1
@@ -1553,7 +1559,7 @@ importers:
         version: 18.3.31
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
       react:
         specifier: ^18.2.0
         version: 18.3.1
@@ -1614,7 +1620,7 @@ importers:
         version: 18.3.7(@types/react@18.3.31)
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/client/ui-question:
     dependencies:
@@ -1666,7 +1672,7 @@ importers:
         version: 18.3.31
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/client/ui-settings:
     dependencies:
@@ -1700,7 +1706,7 @@ importers:
         version: 18.3.7(@types/react@18.3.31)
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
       react:
         specifier: ^18.2.0
         version: 18.3.1
@@ -1715,7 +1721,7 @@ importers:
         version: link:../../settings/settings
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-client-connection':
         specifier: workspace:^
@@ -1749,7 +1755,7 @@ importers:
         version: 18.3.31
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
       react:
         specifier: ^18.2.0
         version: 18.3.1
@@ -1786,7 +1792,7 @@ importers:
         version: 18.3.31
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
       react:
         specifier: ^18.2.0
         version: 18.3.1
@@ -1810,7 +1816,7 @@ importers:
         version: link:../../support/invariants
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/client/ui-slash:
     dependencies:
@@ -1841,7 +1847,7 @@ importers:
         version: 18.3.31
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
       react:
         specifier: ^18.2.0
         version: 18.3.1
@@ -1856,7 +1862,7 @@ importers:
         version: 18.3.31
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/client/ui-subagent:
     devDependencies:
@@ -1874,7 +1880,7 @@ importers:
         version: link:../../support/invariants
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/client/ui-theme:
     dependencies:
@@ -1905,7 +1911,7 @@ importers:
         version: 18.3.31
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
       react:
         specifier: ^18.2.0
         version: 18.3.1
@@ -1936,7 +1942,7 @@ importers:
         version: 18.3.31
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
       react:
         specifier: ^18.2.0
         version: 18.3.1
@@ -1976,7 +1982,7 @@ importers:
         version: 18.3.31
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
       react:
         specifier: ^18.2.0
         version: 18.3.1
@@ -2028,7 +2034,7 @@ importers:
         version: 18.3.7(@types/react@18.3.31)
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@vendor+loader)
+        version: link:../../../vendor/cordis
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -2053,7 +2059,7 @@ importers:
         version: 18.3.31
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/code-runtime/code-runtime:
     devDependencies:
@@ -2062,13 +2068,13 @@ importers:
         version: link:../../support/invariants
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/code-runtime/code-runtime-worker:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-code-runtime':
         specifier: workspace:^
@@ -2084,7 +2090,7 @@ importers:
         version: link:../../util/timeout
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/compact/command-compact:
     devDependencies:
@@ -2114,7 +2120,7 @@ importers:
         version: link:../../core/session
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@vendor+include)(@cordisjs/plugin-loader@vendor+loader)
+        version: link:../../../vendor/cordis
 
   packages/compact/compact:
     devDependencies:
@@ -2129,13 +2135,13 @@ importers:
         version: link:../../core/session
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/compact/compact-basic:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@cordisjs/plugin-include':
         specifier: workspace:^
@@ -2178,13 +2184,13 @@ importers:
         version: link:../../core/tools
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@vendor+include)(@cordisjs/plugin-loader@vendor+loader)
+        version: link:../../../vendor/cordis
 
   packages/compact/compact-tool-result-prune:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@cordisjs/plugin-include':
         specifier: workspace:^
@@ -2203,13 +2209,13 @@ importers:
         version: link:../../core/session
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@vendor+include)(@cordisjs/plugin-loader@vendor+loader)
+        version: link:../../../vendor/cordis
 
   packages/context/session-reference:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
@@ -2234,13 +2240,13 @@ importers:
         version: link:../../session-query/session-query
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/context/time-context:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
@@ -2271,13 +2277,13 @@ importers:
         version: link:../../core/tools
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/context/tmux-context:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
@@ -2299,13 +2305,13 @@ importers:
         version: link:../../core/system-prompt
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/context/workspace-context:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@cordisjs/plugin-loader':
         specifier: workspace:^
@@ -2348,17 +2354,51 @@ importers:
         version: link:../../core/tools
       cordis:
         specifier: ^4.0.0-rc.6
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@vendor+loader)
+        version: link:../../../vendor/cordis
+
+  packages/cordis/repository-plugin:
+    dependencies:
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@cordisjs/plugin-loader':
+        specifier: workspace:^
+        version: link:../../../vendor/loader
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../support/invariants
+      '@deepseek-ai/dsh-mcp-client':
+        specifier: workspace:^
+        version: link:../../mcp/mcp-client
+      '@deepseek-ai/dsh-paths':
+        specifier: workspace:^
+        version: link:../../util/paths
+      '@deepseek-ai/dsh-skill':
+        specifier: workspace:^
+        version: link:../../skill/skill
+      '@deepseek-ai/dsh-skill-local':
+        specifier: workspace:^
+        version: link:../../skill/skill-local
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: workspace:^
+        version: link:../../core/system-prompt
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:^
+        version: link:../../core/tools
+      cordis:
+        specifier: ^4.0.0-rc.7
+        version: link:../../../vendor/cordis
 
   packages/cordis/tool-cordis:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@cordisjs/plugin-loader':
         specifier: ^1.0.0-rc.5
-        version: 1.0.0-rc.5(cordis@4.0.0-rc.7)(node-addon-require-builtin@0.1.3)
+        version: link:../../../vendor/loader
       '@cordisjs/plugin-timer':
         specifier: workspace:^
         version: link:../../../vendor/timer
@@ -2391,7 +2431,7 @@ importers:
         version: link:../../core/tools
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/core/agent:
     devDependencies:
@@ -2415,13 +2455,13 @@ importers:
         version: link:../system-prompt
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/core/agent-loop:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
@@ -2452,7 +2492,7 @@ importers:
         version: link:../tools
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/core/scope:
     devDependencies:
@@ -2461,7 +2501,7 @@ importers:
         version: link:../../support/invariants
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/core/session:
     devDependencies:
@@ -2479,13 +2519,13 @@ importers:
         version: link:../scope
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/core/system-prompt:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
@@ -2498,13 +2538,13 @@ importers:
         version: link:../scope
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/core/tools:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
@@ -2532,7 +2572,7 @@ importers:
         version: link:../../ui/user-approval
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/credentials/credentials:
     devDependencies:
@@ -2544,7 +2584,7 @@ importers:
         version: link:../../support/invariants
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/credentials/credentials-local:
     dependencies:
@@ -2556,7 +2596,7 @@ importers:
         version: 17.4.2
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-atomic-write':
         specifier: workspace:^
@@ -2572,7 +2612,7 @@ importers:
         version: link:../../util/paths
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/examples/acp-demo:
     devDependencies:
@@ -2620,16 +2660,16 @@ importers:
         version: link:../../context/workspace-context
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@vendor+include)(@cordisjs/plugin-loader@vendor+loader)
+        version: link:../../../vendor/cordis
       schemastery:
         specifier: ^3.17.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
 
   packages/examples/agent-spine-demo:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@cordisjs/plugin-timer':
         specifier: workspace:^
@@ -2729,7 +2769,7 @@ importers:
         version: link:../../context/workspace-context
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
       node-addon-landlock-run:
         specifier: 0.0.0-test.0
         version: 0.0.0-test.0
@@ -2777,10 +2817,10 @@ importers:
         version: link:../../context/workspace-context
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@vendor+include)(@cordisjs/plugin-loader@vendor+loader)
+        version: link:../../../vendor/cordis
       schemastery:
         specifier: ^3.17.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
 
   packages/examples/jsonrpc-demo:
     dependencies:
@@ -2793,7 +2833,7 @@ importers:
         version: link:../../support/invariants
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/fs/fs:
     devDependencies:
@@ -2811,7 +2851,7 @@ importers:
         version: link:../../sandbox/sandbox
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/fs/fs-local:
     dependencies:
@@ -2820,7 +2860,7 @@ importers:
         version: 3.1.1
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-fs':
         specifier: workspace:^
@@ -2833,7 +2873,7 @@ importers:
         version: link:../../llm/llm
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/fs/fs-policy:
     devDependencies:
@@ -2848,7 +2888,7 @@ importers:
         version: link:../../llm/llm
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/fs/fs-sandbox:
     devDependencies:
@@ -2869,7 +2909,7 @@ importers:
         version: link:../../sandbox/sandbox-policy
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/fs/tool-fs:
     dependencies:
@@ -2878,7 +2918,7 @@ importers:
         version: 9.0.0
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
@@ -2927,13 +2967,13 @@ importers:
         version: link:../../ui/user-approval
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/fs/tool-fs-search:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
@@ -2970,13 +3010,13 @@ importers:
         version: link:../../core/tools
       cordis:
         specifier: ^4.0.0-rc.6
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/fs/tool-str-replace-editor:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
@@ -3016,7 +3056,7 @@ importers:
         version: link:../../core/tools
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/goal/command-goal:
     devDependencies:
@@ -3043,13 +3083,13 @@ importers:
         version: link:../../core/session
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@vendor+loader)
+        version: link:../../../vendor/cordis
 
   packages/goal/goal:
     dependencies:
       schemastery:
         specifier: ^3.17.2
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -3080,7 +3120,7 @@ importers:
         version: link:../../session-projection/session-projection
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/goal/goal-session:
     devDependencies:
@@ -3113,13 +3153,13 @@ importers:
         version: link:../../core/tools
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/goal/tool-goal:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@cordisjs/plugin-loader':
         specifier: workspace:^
@@ -3147,13 +3187,13 @@ importers:
         version: link:../../core/tools
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@vendor+loader)
+        version: link:../../../vendor/cordis
 
   packages/guard/repeat-tool-guard:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
@@ -3178,7 +3218,7 @@ importers:
         version: link:../../core/tools
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/hooks/hook-protocol:
     devDependencies:
@@ -3193,13 +3233,13 @@ importers:
         version: link:../../core/session
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/hooks/hooks-claude:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
@@ -3245,13 +3285,13 @@ importers:
         version: link:../../core/tools
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/hooks/hooks-codex:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
@@ -3294,7 +3334,7 @@ importers:
         version: link:../../core/tools
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/host/apiproxy:
     dependencies:
@@ -3360,7 +3400,7 @@ importers:
         version: link:../../workspace/workspace
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -3376,7 +3416,7 @@ importers:
         version: link:../../storage/storage-domain
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/host/directory-picker:
     devDependencies:
@@ -3385,7 +3425,7 @@ importers:
         version: link:../../support/invariants
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/host/directory-picker-auto:
     devDependencies:
@@ -3412,7 +3452,7 @@ importers:
         version: link:../../support/invariants
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@vendor+include)(@cordisjs/plugin-loader@vendor+loader)
+        version: link:../../../vendor/cordis
 
   packages/host/directory-picker-browse:
     dependencies:
@@ -3424,7 +3464,7 @@ importers:
         version: 2.1.1
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-client-locale':
         specifier: workspace:^
@@ -3452,7 +3492,7 @@ importers:
         version: 18.3.31
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
       react:
         specifier: ^18.2.0
         version: 18.3.1
@@ -3483,7 +3523,7 @@ importers:
         version: 18.3.31
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
       react:
         specifier: ^18.2.0
         version: 18.3.1
@@ -3492,20 +3532,20 @@ importers:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/llm/llm:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-brand':
         specifier: workspace:^
@@ -3518,7 +3558,7 @@ importers:
         version: link:../../util/timeout
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/llm/llm-deepseek:
     dependencies:
@@ -3527,7 +3567,7 @@ importers:
         version: 3.1.0
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-credentials':
         specifier: workspace:^
@@ -3546,7 +3586,7 @@ importers:
         version: link:../../util/timeout
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/llm/llm-pi-ai:
     dependencies:
@@ -3555,7 +3595,7 @@ importers:
         version: 0.82.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.0)(zod@4.4.3)
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-credentials':
         specifier: workspace:^
@@ -3577,13 +3617,13 @@ importers:
         version: link:../../util/timeout
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/llm/llm-retry:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@cordisjs/plugin-include':
         specifier: workspace:^
@@ -3632,13 +3672,13 @@ importers:
         version: link:../../core/tools
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@vendor+include)(@cordisjs/plugin-loader@vendor+loader)
+        version: link:../../../vendor/cordis
 
   packages/llm/token-meter:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -3657,7 +3697,7 @@ importers:
         version: link:../../session-projection/session-projection
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/lsp/lsp:
     devDependencies:
@@ -3672,13 +3712,13 @@ importers:
         version: link:../../llm/llm
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/lsp/lsp-local:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-brand':
         specifier: workspace:^
@@ -3703,7 +3743,7 @@ importers:
         version: link:../../util/timeout
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -3715,7 +3755,7 @@ importers:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
@@ -3749,7 +3789,7 @@ importers:
         version: link:../../core/tools
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/mcp/mcp-client:
     dependencies:
@@ -3758,7 +3798,7 @@ importers:
         version: 1.29.0(zod@4.4.3)
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -3783,7 +3823,7 @@ importers:
         version: 2026.7.10(zod@4.4.3)
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/plan/plan-mode:
     dependencies:
@@ -3826,7 +3866,7 @@ importers:
         version: link:../../ui/user-interaction
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/pty/pty:
     devDependencies:
@@ -3844,7 +3884,7 @@ importers:
         version: link:../../core/session
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/pty/pty-local:
     dependencies:
@@ -3853,7 +3893,7 @@ importers:
         version: 1.1.0(patch_hash=7a0c04f1f49d798a9ffe2f7f414c01064a44ca2489772d0c3e1235ab336755e6)
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
@@ -3878,13 +3918,13 @@ importers:
         version: link:../../subprocess/subprocess
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/pty/tool-bash-persistent:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@cordisjs/plugin-include':
         specifier: workspace:^
@@ -3927,13 +3967,13 @@ importers:
         version: link:../../core/tools
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@vendor+include)(@cordisjs/plugin-loader@vendor+loader)
+        version: link:../../../vendor/cordis
 
   packages/pty/tool-pty:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@cordisjs/plugin-include':
         specifier: workspace:^
@@ -3985,7 +4025,7 @@ importers:
         version: link:../../core/tools
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@vendor+include)(@cordisjs/plugin-loader@vendor+loader)
+        version: link:../../../vendor/cordis
 
   packages/sandbox/sandbox:
     devDependencies:
@@ -3997,7 +4037,7 @@ importers:
         version: link:../../llm/llm
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/sandbox/sandbox-local:
     dependencies:
@@ -4006,7 +4046,7 @@ importers:
         version: 0.0.0-test.0
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
@@ -4019,13 +4059,13 @@ importers:
         version: link:../sandbox
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/sandbox/sandbox-policy:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
@@ -4044,7 +4084,7 @@ importers:
         version: link:../../core/system-prompt
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/sdk/create-sdk:
     dependencies:
@@ -4060,7 +4100,7 @@ importers:
         version: link:../../support/invariants
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/sdk/helper:
     dependencies:
@@ -4109,7 +4149,7 @@ importers:
         version: link:../../web/tool-web
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/sdk/scripts:
     dependencies:
@@ -4134,7 +4174,7 @@ importers:
         version: link:../../support/invariants
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
       tsdown:
         specifier: ^0.22.2
         version: 0.22.2(oxc-resolver@11.20.0)(publint@0.3.21)(tsx@4.22.4)(typescript@6.0.3)
@@ -4158,7 +4198,7 @@ importers:
         version: link:../../core/session
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/sdk/sdk-protocol:
     devDependencies:
@@ -4176,7 +4216,7 @@ importers:
         version: link:../../subagent/subagent
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/sdk/telemetry:
     dependencies:
@@ -4195,7 +4235,7 @@ importers:
         version: link:../../util/paths
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/session-persistence/session-checkpoint-policy:
     devDependencies:
@@ -4234,7 +4274,7 @@ importers:
         version: link:../../core/tools
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@vendor+loader)
+        version: link:../../../vendor/cordis
 
   packages/session-persistence/session-persistence:
     devDependencies:
@@ -4252,7 +4292,7 @@ importers:
         version: link:../../core/session
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/session-persistence/session-persistence-jsonl:
     dependencies:
@@ -4261,7 +4301,7 @@ importers:
         version: 3.1.1
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
@@ -4274,13 +4314,13 @@ importers:
         version: link:../session-persistence
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/session-persistence/session-persistence-sqlite:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
@@ -4293,7 +4333,7 @@ importers:
         version: link:../session-persistence
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/session-projection/session-projection:
     dependencies:
@@ -4309,13 +4349,13 @@ importers:
         version: link:../../core/session
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/session-projection/session-projection-cache:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -4340,7 +4380,7 @@ importers:
         version: link:../../storage/storage-domain
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/session-query/session-query:
     devDependencies:
@@ -4364,13 +4404,13 @@ importers:
         version: link:../../session-title/session-title
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/session-query/session-query-sqlite:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@cordisjs/plugin-loader':
         specifier: workspace:^
@@ -4392,13 +4432,13 @@ importers:
         version: link:../session-query
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@vendor+loader)
+        version: link:../../../vendor/cordis
 
   packages/session-query/tool-session-query:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
@@ -4441,13 +4481,13 @@ importers:
         version: link:../../core/tools
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/session-title/session-title:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -4475,13 +4515,13 @@ importers:
         version: link:../../session-projection/session-projection
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/session-title/session-title-all-messages-llm:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
@@ -4500,13 +4540,13 @@ importers:
         version: link:../session-title-llm
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/session-title/session-title-first-message-llm:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@cordisjs/plugin-include':
         specifier: workspace:^
@@ -4534,13 +4574,13 @@ importers:
         version: link:../session-title-llm
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@vendor+include)(@cordisjs/plugin-loader@vendor+loader)
+        version: link:../../../vendor/cordis
 
   packages/session-title/session-title-llm:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
@@ -4559,7 +4599,7 @@ importers:
         version: link:../../util/timeout
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/settings/settings:
     devDependencies:
@@ -4571,10 +4611,10 @@ importers:
         version: link:../../support/invariants
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
 
   packages/settings/settings-local:
     dependencies:
@@ -4583,7 +4623,7 @@ importers:
         version: 4.0.3
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
       yaml:
         specifier: ^2.9.0
         version: 2.9.0
@@ -4602,20 +4642,20 @@ importers:
         version: link:../settings
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/skill/skill:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/skill/skill-local:
     dependencies:
@@ -4624,7 +4664,7 @@ importers:
         version: 5.0.0
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
       yaml:
         specifier: ^2.4.2
         version: 2.9.0
@@ -4643,13 +4683,13 @@ importers:
         version: link:../skill
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/skill/tool-skill:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
@@ -4677,7 +4717,7 @@ importers:
         version: link:../../core/tools
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/spill/spill:
     devDependencies:
@@ -4695,13 +4735,13 @@ importers:
         version: link:../../core/session
       cordis:
         specifier: ^4.0.0-rc.6
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/spill/spill-local:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-brand':
         specifier: workspace:^
@@ -4720,13 +4760,13 @@ importers:
         version: link:../spill
       cordis:
         specifier: ^4.0.0-rc.6
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/spill/spill-policy:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
@@ -4754,7 +4794,7 @@ importers:
         version: link:../../core/tools
       cordis:
         specifier: ^4.0.0-rc.6
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/storage/storage:
     devDependencies:
@@ -4763,13 +4803,13 @@ importers:
         version: link:../../support/invariants
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/storage/storage-domain:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -4782,13 +4822,13 @@ importers:
         version: link:../storage
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/storage/storage-json:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
@@ -4798,13 +4838,13 @@ importers:
         version: link:../storage
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/storage/storage-sqlite:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
@@ -4814,7 +4854,7 @@ importers:
         version: link:../storage
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/subagent/subagent:
     devDependencies:
@@ -4841,7 +4881,7 @@ importers:
         version: link:../../core/tools
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/subagent/subagent-acp:
     dependencies:
@@ -4850,11 +4890,11 @@ importers:
         version: 0.25.1(zod@4.4.3)
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@cordisjs/plugin-loader':
         specifier: ^1.0.0-rc.5
-        version: 1.0.0-rc.5(cordis@4.0.0-rc.7)(node-addon-require-builtin@0.1.3)
+        version: link:../../../vendor/loader
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
         version: link:../../core/agent
@@ -4881,17 +4921,17 @@ importers:
         version: link:../../subprocess/subprocess-local
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/subagent/subagent-dsh-sdk:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@cordisjs/plugin-loader':
         specifier: ^1.0.0-rc.5
-        version: 1.0.0-rc.5(cordis@4.0.0-rc.7)(node-addon-require-builtin@0.1.3)
+        version: link:../../../vendor/loader
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
         version: link:../../core/agent
@@ -4921,17 +4961,17 @@ importers:
         version: link:../../subprocess/subprocess
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/subagent/subagent-fork:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@cordisjs/plugin-loader':
         specifier: ^1.0.0-rc.5
-        version: 1.0.0-rc.5(cordis@4.0.0-rc.7)(node-addon-require-builtin@0.1.3)
+        version: link:../../../vendor/loader
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
         version: link:../../core/agent
@@ -4961,7 +5001,7 @@ importers:
         version: link:../subagent-spawn
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/subagent/subagent-inprocess:
     devDependencies:
@@ -5006,17 +5046,17 @@ importers:
         version: link:../../ui/user-approval
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/subagent/subagent-spawn:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@cordisjs/plugin-loader':
         specifier: ^1.0.0-rc.5
-        version: 1.0.0-rc.5(cordis@4.0.0-rc.7)(node-addon-require-builtin@0.1.3)
+        version: link:../../../vendor/loader
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
         version: link:../../core/agent
@@ -5058,17 +5098,17 @@ importers:
         version: link:../tool-subagent
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/subagent/tool-subagent:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@cordisjs/plugin-loader':
         specifier: ^1.0.0-rc.5
-        version: 1.0.0-rc.5(cordis@4.0.0-rc.7)(node-addon-require-builtin@0.1.3)
+        version: link:../../../vendor/loader
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
         version: link:../../core/agent
@@ -5098,7 +5138,7 @@ importers:
         version: link:../../core/tools
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/subprocess/subprocess:
     devDependencies:
@@ -5107,7 +5147,7 @@ importers:
         version: link:../../support/invariants
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/subprocess/subprocess-local:
     devDependencies:
@@ -5119,7 +5159,7 @@ importers:
         version: link:../subprocess
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/support/acp-snapshot:
     dependencies:
@@ -5138,7 +5178,7 @@ importers:
         version: link:../invariants
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/support/agent-loop-testkit:
     devDependencies:
@@ -5165,17 +5205,17 @@ importers:
         version: link:../../core/tools
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/support/invariants:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/support/llm-mock-server:
     devDependencies:
@@ -5184,7 +5224,7 @@ importers:
         version: link:../invariants
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/support/llm-replay:
     devDependencies:
@@ -5199,7 +5239,7 @@ importers:
         version: link:../../core/session
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/support/loader-smoke:
     dependencies:
@@ -5215,7 +5255,7 @@ importers:
         version: link:../invariants
       cordis:
         specifier: ^4.0.0-rc.6
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/tasks/tasks:
     devDependencies:
@@ -5233,7 +5273,7 @@ importers:
         version: link:../../core/session
       cordis:
         specifier: ^4.0.0-rc.6
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/tasks/tasks-local:
     devDependencies:
@@ -5257,13 +5297,13 @@ importers:
         version: link:../../util/timeout
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/tasks/tool-tasks:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
@@ -5294,7 +5334,7 @@ importers:
         version: link:../../core/tools
       cordis:
         specifier: ^4.0.0-rc.6
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/telemetry/session-telemetry:
     devDependencies:
@@ -5309,7 +5349,7 @@ importers:
         version: link:../../core/session
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/telemetry/session-telemetry-otel:
     dependencies:
@@ -5333,7 +5373,7 @@ importers:
         version: 0.220.0(@opentelemetry/api@1.9.1)
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@cordisjs/plugin-loader':
         specifier: workspace:^
@@ -5358,7 +5398,7 @@ importers:
         version: link:../session-telemetry
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@vendor+loader)
+        version: link:../../../vendor/cordis
 
   packages/timeout/timeout-policy:
     devDependencies:
@@ -5376,7 +5416,7 @@ importers:
         version: link:../../core/tools
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/todo/tool-todo:
     dependencies:
@@ -5419,7 +5459,7 @@ importers:
         version: link:../../ui/user-interaction
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/typert/generator:
     dependencies:
@@ -5438,7 +5478,7 @@ importers:
         version: link:../registry
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -5447,7 +5487,7 @@ importers:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@cordisjs/plugin-loader':
         specifier: workspace:^
@@ -5460,7 +5500,7 @@ importers:
         version: link:../registry
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@vendor+loader)
+        version: link:../../../vendor/cordis
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -5476,7 +5516,7 @@ importers:
         version: link:../../support/invariants
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/ui/app-boot:
     dependencies:
@@ -5484,12 +5524,18 @@ importers:
         specifier: ^4.2.0
         version: 4.2.0
     devDependencies:
+      '@cordisjs/plugin-hmr':
+        specifier: workspace:^
+        version: link:../../../vendor/hmr
       '@cordisjs/plugin-include':
         specifier: workspace:^
         version: link:../../../vendor/include
       '@cordisjs/plugin-loader':
         specifier: workspace:^
         version: link:../../../vendor/loader
+      '@cordisjs/plugin-timer':
+        specifier: workspace:^
+        version: link:../../../vendor/timer
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants
@@ -5504,7 +5550,7 @@ importers:
         version: 4.0.9
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@vendor+include)(@cordisjs/plugin-loader@vendor+loader)
+        version: link:../../../vendor/cordis
 
   packages/ui/commands:
     devDependencies:
@@ -5525,13 +5571,13 @@ importers:
         version: link:../../core/session
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/ui/jsonrpc:
     dependencies:
       schemastery:
         specifier: ^3.17.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@cordisjs/plugin-loader':
         specifier: workspace:^
@@ -5568,13 +5614,13 @@ importers:
         version: link:../../subagent/subagent
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@vendor+loader)
+        version: link:../../../vendor/cordis
 
   packages/ui/permission:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -5608,7 +5654,7 @@ importers:
         version: link:../user-approval
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/ui/tool-ask-user:
     devDependencies:
@@ -5632,7 +5678,7 @@ importers:
         version: link:../user-interaction
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/ui/tui:
     dependencies:
@@ -5644,7 +5690,7 @@ importers:
         version: 6.0.0
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@cordisjs/plugin-loader':
         specifier: workspace:^
@@ -5720,13 +5766,13 @@ importers:
         version: 5.5.0
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@vendor+loader)
+        version: link:../../../vendor/cordis
 
   packages/ui/user-approval:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
@@ -5751,7 +5797,7 @@ importers:
         version: link:../../core/system-prompt
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/ui/user-interaction:
     devDependencies:
@@ -5766,7 +5812,7 @@ importers:
         version: link:../../llm/llm
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/util/atomic-write:
     devDependencies:
@@ -5775,7 +5821,7 @@ importers:
         version: link:../../support/invariants
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/util/brand:
     devDependencies:
@@ -5784,7 +5830,7 @@ importers:
         version: link:../../support/invariants
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/util/native-command:
     devDependencies:
@@ -5793,7 +5839,7 @@ importers:
         version: link:../../support/invariants
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/util/paths:
     devDependencies:
@@ -5802,7 +5848,7 @@ importers:
         version: link:../../support/invariants
       cordis:
         specifier: ^4.0.0-rc.6
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/util/retention:
     devDependencies:
@@ -5811,7 +5857,7 @@ importers:
         version: link:../../support/invariants
       cordis:
         specifier: ^4.0.0-rc.6
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/util/timeout:
     devDependencies:
@@ -5820,7 +5866,7 @@ importers:
         version: link:../../support/invariants
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/web/tool-web:
     dependencies:
@@ -5829,7 +5875,7 @@ importers:
         version: 1.0.67
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
       turndown:
         specifier: ^7.2.4
         version: 7.2.4
@@ -5875,13 +5921,13 @@ importers:
         version: 5.0.6
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/web/web:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
@@ -5891,13 +5937,13 @@ importers:
         version: link:../../llm/llm
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/web/web-fetch-local:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
@@ -5910,13 +5956,13 @@ importers:
         version: link:../web
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/web/web-search-deepseek:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
@@ -5938,13 +5984,13 @@ importers:
         version: link:../web
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/web/web-search-exa:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
@@ -5954,13 +6000,13 @@ importers:
         version: link:../web
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/web/web-search-perplexity:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
@@ -5970,13 +6016,13 @@ importers:
         version: link:../web
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/workflow/tool-ralph:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@cordisjs/plugin-loader':
         specifier: workspace:^
@@ -6022,13 +6068,13 @@ importers:
         version: link:../workflow-workerthread
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@vendor+loader)
+        version: link:../../../vendor/cordis
 
   packages/workflow/tool-workflow:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
@@ -6059,7 +6105,7 @@ importers:
         version: link:../workflow-workerthread
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/workflow/workflow:
     devDependencies:
@@ -6080,13 +6126,13 @@ importers:
         version: link:../../core/session
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/workflow/workflow-workerthread:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
@@ -6126,7 +6172,7 @@ importers:
         version: link:../workflow
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
       tsx:
         specifier: ^4.19.2
         version: 4.22.4
@@ -6157,7 +6203,7 @@ importers:
         version: link:../../storage/storage-domain
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   python/sdk-runtime:
     dependencies:
@@ -6460,16 +6506,16 @@ importers:
     dependencies:
       '@cordisjs/plugin-include':
         specifier: ^1.0.4
-        version: 1.0.4(@cordisjs/plugin-loader@1.0.0-rc.5)(cordis@4.0.0-rc.7)
+        version: link:../include
       '@cordisjs/plugin-loader':
         specifier: ^1.0.0-rc.5
-        version: 1.0.0-rc.5(cordis@4.0.0-rc.7)(node-addon-require-builtin@0.1.3)
+        version: link:../loader
       '@standard-schema/spec':
         specifier: ^1.1.0
         version: 1.1.0
       cosmokit:
         specifier: ^1.8.1
-        version: 1.8.1
+        version: link:../cosmokit
 
   vendor/cosmokit: {}
 
@@ -6477,10 +6523,10 @@ importers:
     dependencies:
       '@cordisjs/plugin-loader':
         specifier: ^1.0.0-rc.5
-        version: 1.0.0-rc.5(cordis@4.0.0-rc.7)(node-addon-require-builtin@0.1.3)
+        version: link:../loader
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../cordis
 
   vendor/hmr:
     dependencies:
@@ -6489,22 +6535,22 @@ importers:
         version: 7.29.7
       '@cordisjs/plugin-timer':
         specifier: ^1.1.2
-        version: 1.1.2(cordis@4.0.0-rc.7)
+        version: link:../timer
       chokidar:
         specifier: ^4.0.3
         version: 4.0.3
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../cordis
       cosmokit:
         specifier: ^1.8.1
-        version: 1.8.1
+        version: link:../cosmokit
       picomatch:
         specifier: ^4.0.3
         version: 4.0.4
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../schemastery
     devDependencies:
       '@types/babel__code-frame':
         specifier: ^7.27.0
@@ -6520,13 +6566,13 @@ importers:
     dependencies:
       '@cordisjs/plugin-loader':
         specifier: ^1.0.0-rc.5
-        version: 1.0.0-rc.5(cordis@4.0.0-rc.7)(node-addon-require-builtin@0.1.3)
+        version: link:../loader
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../cordis
       cosmokit:
         specifier: ^1.8.1
-        version: 1.8.1
+        version: link:../cosmokit
       js-yaml:
         specifier: ^4.1.0
         version: 4.2.0
@@ -6535,25 +6581,28 @@ importers:
     dependencies:
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../cordis
       cosmokit:
         specifier: ^1.8.1
-        version: 1.8.1
+        version: link:../cosmokit
       node-addon-require-builtin:
         specifier: ^0.1.3
         version: 0.1.3
+      pnpm:
+        specifier: 11.7.0
+        version: 11.7.0
 
   vendor/logger-console:
     dependencies:
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../cordis
       cosmokit:
         specifier: ^1.8.1
-        version: 1.8.1
+        version: link:../cosmokit
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../schemastery
       supports-color:
         specifier: ^9.4.0
         version: 9.4.0
@@ -6565,16 +6614,16 @@ importers:
         version: 1.1.0
       cosmokit:
         specifier: ^1.8.1
-        version: 1.8.1
+        version: link:../cosmokit
 
   vendor/timer:
     dependencies:
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../cordis
       cosmokit:
         specifier: ^1.8.1
-        version: 1.8.1
+        version: link:../cosmokit
 
   website:
     devDependencies:
@@ -6949,26 +6998,6 @@ packages:
   '@clack/prompts@1.7.0':
     resolution: {integrity: sha512-y7/yvZ2TPAnR9+jnc00klvNNLkJiXFFrQA/hlLCcxA9a2A4zQIOimyFQ9XfwYKiGD1fb5GY8vbKIIgO8d5Tb2A==}
     engines: {node: '>= 20.12.0'}
-
-  '@cordisjs/plugin-include@1.0.4':
-    resolution: {integrity: sha512-b1Hm1wmue0v7d/jayoXoBjCV2J14XWTL5yyDZEYeL2L9HgcyTq6JbCw99ozSbei98uAbkwq/pBhimsp/HsySeg==}
-    peerDependencies:
-      '@cordisjs/plugin-loader': ^1.0.0-rc.4
-      cordis: ^4.0.0-rc.5
-
-  '@cordisjs/plugin-loader@1.0.0-rc.5':
-    resolution: {integrity: sha512-084Wn2SzkFinbaASTq8blHOUqQt/oxZfX6gnrt0lnJ1CrystulFLL1+XVgF4o7lUMN9bHn4cfT1pMtkHprCtHw==}
-    peerDependencies:
-      cordis: ^4.0.0-rc.7
-      node-addon-require-builtin: ^0.1.0
-    peerDependenciesMeta:
-      node-addon-require-builtin:
-        optional: true
-
-  '@cordisjs/plugin-timer@1.1.2':
-    resolution: {integrity: sha512-5z5C3Eewt8JzK9XGy5JgIoYFRqXPWZnT7hHFfuJMQNzSom6iEVeLXpYiMvqVqGfJicHA7IroaOjcLRf99sidrQ==}
-    peerDependencies:
-      cordis: ^4.0.0-rc.5
 
   '@csstools/color-helpers@6.1.0':
     resolution: {integrity: sha512-064IFJdjTfUqnjpCVpMOdbr8FLQBhinbZj6yRv2An2E41O/pLEXqfFRWqGq/SxlE5PEUYTlvWsG2r8MswAVvkg==}
@@ -9344,18 +9373,6 @@ packages:
     resolution: {integrity: sha512-7Vv6asjS4gMOuILabD3l739tsaxFQmC+a7pLZm02zyvs8p977bL3zEgq3yDk5rn9B0PbYgIv++jmHcuUab4RhA==}
     engines: {node: '>=18'}
 
-  cordis@4.0.0-rc.7:
-    resolution: {integrity: sha512-5nm6ehrSfJhEUV659CctEvyNuBY/AXapw8+ZEw7YENztdzpiT+Ha8nIfkyhfyAgPtJns9aB5On5nzl9Sm6zHeQ==}
-    hasBin: true
-    peerDependencies:
-      '@cordisjs/plugin-include': ^1.0.4
-      '@cordisjs/plugin-loader': ^1.0.0-rc.5
-    peerDependenciesMeta:
-      '@cordisjs/plugin-include':
-        optional: true
-      '@cordisjs/plugin-loader':
-        optional: true
-
   core-util-is@1.0.3:
     resolution: {integrity: sha512-ZQBvi1DcpJ4GDqanjucZ2Hj3wEO5pZDS89BWbkcrvdxksJorwUDDZamX9ldFkp9aw2lmBDLgkObEA4DWNJ9FYQ==}
 
@@ -9368,9 +9385,6 @@ packages:
 
   cose-base@2.2.0:
     resolution: {integrity: sha512-AzlgcsCbUMymkADOJtQm3wO9S3ltPfYOFD5033keQn9NJzIbtnZj+UdBJe7DYml/8TdbtHJW3j58SOnKhWY/5g==}
-
-  cosmokit@1.8.1:
-    resolution: {integrity: sha512-PDBv4l90xZKrUsZ0vtoycgZpO/j4iFsqJXrAxsyBDsnQRI7ZMJXIjgDJsKNjd5L8jnVnnlrDCdhkFbTncgCVjQ==}
 
   cross-spawn@7.0.6:
     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
@@ -10980,6 +10994,11 @@ packages:
     engines: {node: '>=18'}
     hasBin: true
 
+  pnpm@11.7.0:
+    resolution: {integrity: sha512-GcyFLBIMcSV2DyRD7mvgyltA+fUFmN4aCaHxd1A+AQ5Xwjx3ZG4B52HeWb+HT7IqM5jDOrlpH8E+uUa28PTWIA==}
+    engines: {node: '>=22.13'}
+    hasBin: true
+
   points-on-curve@0.2.0:
     resolution: {integrity: sha512-0mYKnYYe9ZcqMCWhUjItv/oHjvgEsfKvnUTg8sAtnHr3GVy7rGkXCb6d5cSyqrWqL4k81b9CPg3urd+T7aop3A==}
 
@@ -11199,9 +11218,6 @@ packages:
 
   scheduler@0.23.2:
     resolution: {integrity: sha512-UOShsPwz7NrMUqhR6t0hWjFduvOzbtv7toDH1/hIrfRNIDBnnBWd0CwJTGvTpngVlmwGCdP9/Zl/tVrDqcuYzQ==}
-
-  schemastery@3.18.0:
-    resolution: {integrity: sha512-Jw2uxjoyyqc/yeurmChUEc/jbi8GsrdXV/KmqRUDZXJAXAmrJiPsz8vKa17l/VckyzljHZ9oGaul443CQiXxtA==}
 
   scslre@0.3.0:
     resolution: {integrity: sha512-3A6sD0WYP7+QrjbfNA2FN3FsOaGGFoekCVgTyypy53gPxhbkCIjtO6YWgdrfM+n/8sI8JeXZOIxsHjMTNxQ4nQ==}
@@ -12456,33 +12472,6 @@ snapshots:
       fast-string-width: 3.0.2
       fast-wrap-ansi: 0.2.2
       sisteransi: 1.0.5
-
-  '@cordisjs/plugin-include@1.0.4(@cordisjs/plugin-loader@1.0.0-rc.5)(cordis@4.0.0-rc.7)':
-    dependencies:
-      '@cordisjs/plugin-loader': 1.0.0-rc.5(cordis@4.0.0-rc.7)(node-addon-require-builtin@0.1.3)
-      cordis: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
-      cosmokit: 1.8.1
-      js-yaml: 4.2.0
-
-  '@cordisjs/plugin-include@1.0.4(@cordisjs/plugin-loader@vendor+loader)(cordis@4.0.0-rc.7)':
-    dependencies:
-      '@cordisjs/plugin-loader': link:vendor/loader
-      cordis: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@vendor+loader)
-      cosmokit: 1.8.1
-      js-yaml: 4.2.0
-    optional: true
-
-  '@cordisjs/plugin-loader@1.0.0-rc.5(cordis@4.0.0-rc.7)(node-addon-require-builtin@0.1.3)':
-    dependencies:
-      cordis: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
-      cosmokit: 1.8.1
-    optionalDependencies:
-      node-addon-require-builtin: 0.1.3
-
-  '@cordisjs/plugin-timer@1.1.2(cordis@4.0.0-rc.7)':
-    dependencies:
-      cordis: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
-      cosmokit: 1.8.1
 
   '@csstools/color-helpers@6.1.0': {}
 
@@ -14423,30 +14412,6 @@ snapshots:
     dependencies:
       is-what: 5.5.0
 
-  cordis@4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5):
-    dependencies:
-      '@standard-schema/spec': 1.1.0
-      cosmokit: 1.8.1
-    optionalDependencies:
-      '@cordisjs/plugin-include': 1.0.4(@cordisjs/plugin-loader@1.0.0-rc.5)(cordis@4.0.0-rc.7)
-      '@cordisjs/plugin-loader': 1.0.0-rc.5(cordis@4.0.0-rc.7)(node-addon-require-builtin@0.1.3)
-
-  cordis@4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@vendor+loader):
-    dependencies:
-      '@standard-schema/spec': 1.1.0
-      cosmokit: 1.8.1
-    optionalDependencies:
-      '@cordisjs/plugin-include': 1.0.4(@cordisjs/plugin-loader@vendor+loader)(cordis@4.0.0-rc.7)
-      '@cordisjs/plugin-loader': link:vendor/loader
-
-  cordis@4.0.0-rc.7(@cordisjs/plugin-include@vendor+include)(@cordisjs/plugin-loader@vendor+loader):
-    dependencies:
-      '@standard-schema/spec': 1.1.0
-      cosmokit: 1.8.1
-    optionalDependencies:
-      '@cordisjs/plugin-include': link:vendor/include
-      '@cordisjs/plugin-loader': link:vendor/loader
-
   core-util-is@1.0.3: {}
 
   cors@2.8.6:
@@ -14461,8 +14426,6 @@ snapshots:
   cose-base@2.2.0:
     dependencies:
       layout-base: 2.0.1
-
-  cosmokit@1.8.1: {}
 
   cross-spawn@7.0.6:
     dependencies:
@@ -16472,6 +16435,8 @@ snapshots:
     optionalDependencies:
       fsevents: 2.3.2
 
+  pnpm@11.7.0: {}
+
   points-on-curve@0.2.0: {}
 
   points-on-path@0.2.1:
@@ -16802,11 +16767,6 @@ snapshots:
   scheduler@0.23.2:
     dependencies:
       loose-envify: 1.4.0
-
-  schemastery@3.18.0:
-    dependencies:
-      '@standard-schema/spec': 1.1.0
-      cosmokit: 1.8.1
 
   scslre@0.3.0:
     dependencies:

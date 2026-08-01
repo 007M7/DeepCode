@@ -79,7 +79,7 @@ When required `gh`, `pnpm`, build, test, or generator commands fail because the 
 
 ### Run relevant checks locally
 
-Agents MUST run relevant tests and checks before pushing; select them with [dsh-pre-push-checks](.agents/skills/dsh-pre-push-checks/SKILL.md) and report only commands run.
+Run checks before pushes via [dsh-pre-push-checks](.agents/skills/dsh-pre-push-checks/SKILL.md); report only commands run. After `gh stack sync`, validate immediately; do not merge before checks pass.
 
 - Match evidence to the surface: focused tests for behavior, snapshots for model or user output, `doc-sync` for docs, build/hygiene and built smokes for published paths, and real-API e2e for provider behavior.
 - Never default to the full suite or repeat a passing check for commit or push. CI owns exhaustive coverage and the platform matrix; rehearse all locally only by explicit request, for CI diagnosis, or for an irreducibly repository-wide change.
@@ -116,7 +116,7 @@ Real-API tests and demos read `DEEPSEEK_API_KEY`, optional `DEEPSEEK_BASE_URL`, 
 - **Testing policy** — [docs/testing.md](docs/testing.md). Every non-trivial model- or product-user-visible behavior change adds or updates a keyless snapshot through a real runnable example in the same PR; package tests, e2e-only assertions, and mock-only fixtures do not substitute for the assembled application transcript. Fixtures must replay on macOS/Linux; fix fixtures, not normalizers.
 - **A tool's UI render intent is part of its design**, decided up front (`generic`/`terminal`/`diff`, `locations`); presentation methods are pure functions of `args` ([cookbook](docs/cookbook/adding-a-tool.md)).
 - **Plan unit, e2e, and snapshot coverage** for new seams, lifecycle shapes, and transcript surfaces; missing snapshot-harness support is part of the implementation, not deferred follow-up.
-- **Use incremental merge commits.** Split independent changes. Pushed history may be rewritten before review; afterward prefer new commits. Fix the introducing PR before merging down-stack. If the base advances mid-merge, finish the checkpoint, push when authorized, then merge the newer tip separately ([rationale](.agents/notes/implemented/process/2026-07-26-incremental-pr-base-retargeting.md)).
+- **Choose PR history deliberately.** Split independent changes; fix the introducing PR before propagation. Standalone PRs and official stacks may merge-forward or rebase after review. Rewrites use `--force-with-lease`, abort on remote movement, never raw `--force`; an in-progress merge-forward preserves its checkpoint before taking a newer base ([rationale](.agents/notes/implemented/process/2026-08-02-native-github-stacks-and-optional-rebases.md)).
 - **Label PRs:** one kind (`feature`/`bug-fix`/`doc`/`testing`/`cleanup`), each matching area; the [taxonomy](.agents/notes/implemented/process/2026-07-25-semantic-pr-label-taxonomy.md) is extensible.
 - TODO markers: `FIXME`/`TODO`/`XXX` by urgency ([semantics](docs/development.md)).
 - Files end with exactly one trailing newline; `git diff --cached --check` (pre-commit) gates it.

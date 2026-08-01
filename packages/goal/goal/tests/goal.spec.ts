@@ -11,7 +11,7 @@ import GoalService, {
   foldGoal,
   renderGoalChange,
 } from '@deepseek-ai/dsh-goal'
-import type { GoalChangeMeta, GoalRef, GoalSnapshotChangeMeta } from '@deepseek-ai/dsh-goal'
+import type { GoalChangeMeta, GoalChanged, GoalRef, GoalSnapshotChangeMeta } from '@deepseek-ai/dsh-goal'
 
 type DeferredInjection = UserMessage
 
@@ -379,6 +379,25 @@ describe('GoalService mutations', () => {
     expect(() => ctx.goals.clear(agent, goal)).toThrow(expect.objectContaining({ code: 'GOAL_NOT_FOUND' }))
     const next = ctx.goals.create(agent, { objective: 'fresh' })
     expect(next.id).not.toBe(goal.id)
+  })
+
+  it('emits bare compare-and-set refs in folded lastRef and goal/changed notifications', async () => {
+    const { ctx, agent, session } = await harness()
+    const seen: GoalChanged['ref'][] = []
+    ctx.on('goal/changed', (_subject, change) => { seen.push(change.ref) })
+    const created = ctx.goals.create(agent, { objective: 'bare refs', maxGoalRounds: 3 })
+    const edited = ctx.goals.edit(agent, created, { objective: 'bare refs edited' })
+    const blocked = ctx.goals.block(agent, edited, { code: 'bare-blocker', message: 'Bare refs.' })
+    // GoalRef is exactly { id, revision }: every notification ref must be bare.
+    for (const ref of seen) {
+      expect(Object.keys(ref).sort()).toEqual(['id', 'revision'])
+      expect(ref).toEqual({ id: created.id, revision: ref.revision })
+    }
+    expect(seen).toHaveLength(3)
+    // The durable fold's lastRef is the same bare ref, not a full snapshot.
+    const folded = foldGoal(session.events)
+    expect(folded.lastRef).toEqual({ id: blocked.id, revision: blocked.revision })
+    expect(Object.keys(folded.lastRef as object).sort()).toEqual(['id', 'revision'])
   })
 
   it('keeps per-goal mutation timestamps monotonic when the wall clock moves backward', async () => {

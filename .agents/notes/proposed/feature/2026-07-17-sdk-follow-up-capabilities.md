@@ -47,6 +47,8 @@ The repository ships a thin `SKILL.md` that teaches an agent to construct the st
 
 The package manager owns source parsing, version or commit resolution, integrity data, lockfile updates, and any build policy. The SDK does not download or unpack a second copy through giget or pacote. An external plugin remains a dependency under `node_modules`; local plugin scaffolding remains a separate project-creation concern.
 
+This proposal concerns dependencies of developer-owned SDK projects. Standalone app repository caching, its bundled-pnpm policy, and its explicit preparation trust boundary are owned by the [package-manager-native repository cache](../../implemented/architecture/2026-07-30-package-manager-native-repository-cache.md).
+
 ## Launcher telemetry
 
 ### Consent and collection
