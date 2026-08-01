@@ -237,6 +237,31 @@ describe('SubagentCatalogAction', () => {
     expect(input.setCatalogOpen).toHaveBeenCalledWith(CHILD, false)
   })
 
+  it('shows initial descendant loading status without drawing its branch', () => {
+    const loading = props(catalog(), {
+      [CHILD]: catalog({ entries: [], state: 'loading' }),
+    })
+    const view = render(<SubagentCatalogAction {...loading} />)
+    fireEvent.click(screen.getByRole('button', { name: /2 个子代理/ }))
+    fireEvent.click(screen.getByRole('button', { name: '展开 worker 的下级子代理' }))
+
+    expect(loading.setCatalogOpen).toHaveBeenCalledWith(CHILD, true)
+    expect(screen.getByRole('group').getAttribute('aria-busy')).toBe('true')
+    expect(screen.getByText('正在加载子代理…')).toBeTruthy()
+
+    const ready = props(catalog(), {
+      [CHILD]: catalog({
+        entries: [{
+          kind: 'child', id: GRANDCHILD, mode: 'continuable',
+          label: 'indexer', activity: 'inactive', hasChildren: false,
+        }],
+      }),
+    })
+    view.rerender(<SubagentCatalogAction {...ready} />)
+    expect(screen.getByRole('group').getAttribute('aria-busy')).toBeNull()
+    expect(screen.getByRole('treeitem', { name: /indexer/ })).toBeTruthy()
+  })
+
   it('uses ArrowRight and ArrowLeft for branch disclosure', async () => {
     const input = props(catalog(), {
       [CHILD]: catalog({

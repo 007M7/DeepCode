@@ -118,6 +118,7 @@ function CatalogRows({
         const childCatalog = catalogs[entry.id]
         const isExpanded = expanded.has(entry.id)
         const knownLeaf = !entry.hasChildren
+        const emptyLoading = childCatalog?.state === 'loading' && childCatalog.entries.length === 0
         const summary = summaries[entry.id]
         const label = entry.label ?? entry.id
         const mode = entry.mode === 'one-shot' ? '一次性' : '可继续'
@@ -176,15 +177,21 @@ function CatalogRows({
                     <IconChevronRightOutline14 />
                   </button>
                 )}
-              <StateDot state={entry.activity === 'running' ? 'ongoing' : 'done'} />
-              <span className={css.content}>
-                <span className={css.label}>{label}</span>
-                <span className={css.summary}>{secondary}</span>
-              </span>
-              {time !== undefined && <span className={css.time}>{time}</span>}
+              <div className={css.clickarea}>
+                <StateDot state={entry.activity === 'running' ? 'ongoing' : 'done'} />
+                <span className={css.content}>
+                  <span className={css.label}>{label}</span>
+                  <span className={css.summary}>{secondary}</span>
+                </span>
+                {time !== undefined && <span className={css.time}>{time}</span>}
+              </div>
             </div>
             {isExpanded && childCatalog !== undefined && !knownLeaf && (
-              <div role="group" className={css.children}>
+              <div
+                role="group"
+                className={css.children}
+                aria-busy={emptyLoading || undefined}
+              >
                 <CatalogRows
                   parentSessionId={entry.id}
                   catalog={childCatalog}
