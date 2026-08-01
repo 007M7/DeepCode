@@ -1,8 +1,8 @@
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 /**
  * Tests for the queue-aware `Agent.cancel()` primitive. The default clears
- * queued and steering work, while `keepInbox` preserves pending input and
- * resumes waking turns after the active turn reaches quiescence. The suite
+ * queued and steering work, while `keepInbox` preserves pending input for a
+ * later wake after the active turn reaches quiescence. The suite
  * covers every landing window plus signal reset and `whenIdle()` quiescence.
  * @module dsh-agent-loop/tests/cancel
  */
@@ -282,41 +282,6 @@ describe('Agent.cancel()', () => {
     expect(userTexts(agent)).toEqual(['go'])
     expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
     expect(adapter.requests).toHaveLength(1)
-  })
-
-  it('cancel({ keepInbox: true }) aborts the active turn and drains the queued tail in FIFO order', async () => {
-    const adapter = new MockAdapter([
-      'hang',
-      textResponse('second reply'),
-      textResponse('third reply'),
-    ])
-    const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('keep-inbox-running'), { provider: 'mock', model: 'mock' })
-    const reasons: TurnEndReason[] = []
-    const discards: unknown[] = []
-    ctx.on('session/event', (session, event) => {
-      if (session === agent.session && event.type === 'turn/end') reasons.push(event.data.reason)
-    })
-    ctx.on('agent/inbox/discard', (subject, items) => {
-      if (subject === agent) discards.push(items)
-    })
-
-    send(agent, 'active')
-    await new Promise(resolve => setTimeout(resolve, 30))
-    send(agent, 'queued second')
-    send(agent, 'queued third')
-    const idle = agent.whenIdle()
-    agent.cancel({ kind: 'user' }, { keepInbox: true })
-    await idle
-
-    expect(discards).toEqual([])
-    expect(userTexts(agent)).toEqual(['active', 'queued second', 'queued third'])
-    expect(reasons).toEqual([
-      { kind: 'aborted' },
-      { kind: 'completed' },
-      { kind: 'completed' },
-    ])
-    expect(adapter.requests).toHaveLength(3)
   })
 
   it('cancel from an assistant/message observer skips execution but balances replay', async () => {
@@ -770,7 +735,7 @@ describe('Agent.cancel()', () => {
     agent.cancel({ kind: 'user' })
     await idle
     const turnEnd = agent.session.events.findLast(event => event.type === 'turn/end')
-    if (stage === 'pre-step') {
+    if (stage === 'pre-step' || stage === 'system-prompt') {
       expect(turnEnd).toBeUndefined()
     } else {
       expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted', reason: { kind: 'user' } })

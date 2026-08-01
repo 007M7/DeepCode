@@ -151,6 +151,16 @@ export interface EpochHeader {
   tools?: ToolSchema[]
 }
 
+/** Registration-bound metadata for one resolved model route. */
+export interface RequestContext {
+  /** Registered provider route the metadata belongs to. */
+  provider: string
+  /** Provider-owned model id the metadata belongs to. */
+  model: string
+  /** Maximum combined request and response context in tokens, when advertised. */
+  contextWindow?: number
+}
+
 /**
  * Why a `request/header` snapshot was appended: `'initial'` — the log's first
  * header (a new conversation); `'resume'` — a loop instance's first request
@@ -233,6 +243,11 @@ export interface SessionEventMap {
    * It is log-only; the latest snapshot reconstructs the request header.
    */
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
+  /**
+   * Route metadata for the next request, logged only when the route or capacity
+   * changes. It does not participate in request reconstruction or header equality.
+   */
+  'request/context': RequestContext
   /**
    * Marks the end of a constructor seed. Events before it have smaller seq
    * values and came from the seed (resume, fork, or replay); this lifecycle

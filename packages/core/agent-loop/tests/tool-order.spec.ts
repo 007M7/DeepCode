@@ -93,8 +93,7 @@ describe('loop-level canonical tool order', () => {
     expect(Object.isFrozen(adapter.requests[0])).toBe(true)
   })
 
-  it('fails the turn — no model request — when toolOrder names an unregistered tool', async () => {
-    // Unknown tool order fails before step or request creation and returns the agent to idle.
+  it('fails before opening a turn when toolOrder names an unregistered tool', async () => {
     const adapter = new MockAdapter([textResponse('never sent')])
     const ctx = await harness(adapter, ['ghost', TOOL_ORDER_REST])
     registerNamed(ctx, 'alpha')
@@ -103,12 +102,9 @@ describe('loop-level canonical tool order', () => {
     await waitForIdle(ctx, agent)
     expect(adapter.requests).toHaveLength(0)
     expect(foldRequestHeader(agent.session.events)).toBeUndefined()
-    const end = agent.session.events.find(e => e.type === 'turn/end')
-    expect(end?.type === 'turn/end' && end.data.reason).toEqual({
-      kind: 'error',
-      error: 'toolOrder lists unregistered tool "ghost"; known tools: alpha',
-    })
-    expect(agent.session.events.filter(e => e.type === 'step/start')).toHaveLength(1)
-    expect(agent.session.events.filter(e => e.type === 'step/end')).toHaveLength(1)
+    expect(agent.session.events.some(e => e.type === 'turn/start')).toBe(false)
+    expect(agent.session.events.some(e => e.type === 'turn/end')).toBe(false)
+    expect(agent.session.events.some(e => e.type === 'step/start')).toBe(false)
+    expect(agent.session.events.some(e => e.type === 'step/end')).toBe(false)
   })
 })

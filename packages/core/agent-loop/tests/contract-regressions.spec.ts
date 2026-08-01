@@ -1122,7 +1122,7 @@ describe('tool result call identity', () => {
 })
 
 describe('disposal and cancellation during pre-step assembly', () => {
-  it('disposal during system-prompt assembly closes the started step as disposed', { timeout: 30000 }, async () => {
+  it('disposal during system-prompt assembly prevents the turn from opening', { timeout: 30000 }, async () => {
     // Start disposal, then release assembly. Do not await disposal first: it
     // waits for the blocked driver to exit.
     const adapter = new MockAdapter(['hang'])
@@ -1154,7 +1154,7 @@ describe('disposal and cancellation during pre-step assembly', () => {
     ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
     send(agent, 'go')
-    // Give the loop time to enter the step and reach assemble().
+    // Give the loop time to reach pre-step assembly.
     await new Promise(r => setTimeout(r, 50))
 
     // Release assembly before awaiting disposal because disposal joins the blocked driver.
@@ -1165,18 +1165,15 @@ describe('disposal and cancellation during pre-step assembly', () => {
     await driverDone(agent)
     unlisten()
 
-    // Turn boundaries are durable rows; there is no `agent/*` mirror to assert.
     const e = [...agent.session.events]
-    expect(e.filter(x => x.type === 'turn/start')).toHaveLength(1)
-    expect(e.filter(x => x.type === 'turn/end')).toHaveLength(1)
-    const turnEnd = e.findLast(x => x.type === 'turn/end')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted', reason: { kind: 'disposed' } })
-    expect(e.filter(x => x.type === 'step/start')).toHaveLength(1)
-    expect(e.filter(x => x.type === 'step/end')).toHaveLength(1)
+    expect(e.some(x => x.type === 'turn/start')).toBe(false)
+    expect(e.some(x => x.type === 'turn/end')).toBe(false)
+    expect(e.some(x => x.type === 'step/start')).toBe(false)
+    expect(e.some(x => x.type === 'step/end')).toBe(false)
     expect(e.some(x => x.type === 'assistant/chunk')).toBe(false)
   })
 
-  it('cancel during system-prompt assembly closes the started step as aborted', { timeout: 30000 }, async () => {
+  it('cancel during system-prompt assembly prevents the turn from opening', { timeout: 30000 }, async () => {
     const adapter = new MockAdapter([textResponse('should not appear')])
     let releaseAssemble!: () => void
     const blocker = new Promise<void>(r => void (releaseAssemble = r))
@@ -1215,16 +1212,14 @@ describe('disposal and cancellation during pre-step assembly', () => {
     unlisten()
 
     const e = [...agent.session.events]
-    expect(e.filter(x => x.type === 'turn/start')).toHaveLength(1)
-    expect(e.filter(x => x.type === 'turn/end')).toHaveLength(1)
-    const turnEnd = e.findLast(x => x.type === 'turn/end')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted', reason: { kind: 'user' } })
-    expect(e.filter(x => x.type === 'step/start')).toHaveLength(1)
-    expect(e.filter(x => x.type === 'step/end')).toHaveLength(1)
+    expect(e.some(x => x.type === 'turn/start')).toBe(false)
+    expect(e.some(x => x.type === 'turn/end')).toBe(false)
+    expect(e.some(x => x.type === 'step/start')).toBe(false)
+    expect(e.some(x => x.type === 'step/end')).toBe(false)
     expect(e.some(x => x.type === 'assistant/chunk')).toBe(false)
     expect(e.some(x => x.type === 'assistant/message')).toBe(false)
     expect(adapter.requests).toHaveLength(0)
-    expect(reasons).toEqual([{ kind: 'aborted', reason: { kind: 'user' } }])
+    expect(reasons).toEqual([])
   })
 
   it('disposal during pre-step prevents the turn from opening', { timeout: 15000 }, async () => {
@@ -1356,14 +1351,10 @@ describe('disposal and cancellation during pre-step assembly', () => {
     await driverDone(agent)
 
     const e = [...agent.session.events]
-    expect(e.filter(x => x.type === 'turn/start')).toHaveLength(1)
-    expect(e.filter(x => x.type === 'turn/end')).toHaveLength(1)
-    // The critical assertions: after disposal, the turn has no assistant
-    // artifacts — the turn ended disposed before the model was invoked.
+    expect(e.some(x => x.type === 'turn/start')).toBe(false)
+    expect(e.some(x => x.type === 'turn/end')).toBe(false)
     expect(e.some(x => x.type === 'assistant/chunk')).toBe(false)
     expect(e.some(x => x.type === 'assistant/message')).toBe(false)
     expect(adapter.requests).toHaveLength(0)
-    // The durable turn/end reason is the authoritative turn-boundary record
-    // (turn boundaries have no agent/* mirror).
   })
 })

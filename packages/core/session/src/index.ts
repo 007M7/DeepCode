@@ -13,7 +13,7 @@ import { scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { Message } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
-import type { CreateSessionOptions, EpochHeader, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
+import type { CreateSessionOptions, EpochHeader, RequestContext, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
 import { snapshotJsonValue } from './json.ts'
 import { SurfaceManager } from './surface.ts'
 import type { SessionSurface } from './surface.ts'
@@ -392,7 +392,7 @@ export class Session {
   readonly firstLiveSeq: number
 
   constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader) {
-    if (seed) {
+    if (seed !== undefined) {
       // Validate the seed to the SAME invariants `append` enforces, so a
       // replay/fork (`ctx.sessions.create(id, { seed })`) cannot construct a
       // live log that no persistence backend could store: each event's `data`
@@ -429,7 +429,7 @@ export class Session {
     // captures the creation seed: no load-time write. Re-marking is skipped
     // because a cold session is resumed on first touch, so repeatedly opening
     // one must not grow its log per open.
-    if (this.firstLiveSeq > 0 && this.log.at(-1)?.type !== 'session/end-seed') {
+    if (seed !== undefined && this.log.at(-1)?.type !== 'session/end-seed') {
       this.append('session/end-seed', {})
     }
   }
@@ -564,6 +564,25 @@ export class Session {
       this.headerFoldSeq = this.log.length
     }
     return this.headerFold
+  }
+
+  /** Cached fold of `request/context` events. */
+  private contextFold: RequestContext | undefined
+  private contextFoldSeq = 0
+
+  /**
+   * Return the latest resolved route metadata, or `undefined` before the first
+   * `request/context` event. Each event is folded once.
+   * @returns the latest immutable route metadata.
+   */
+  requestContext(): RequestContext | undefined {
+    if (this.contextFoldSeq < this.log.length) {
+      for (const event of this.log.slice(this.contextFoldSeq)) {
+        if (event.type === 'request/context') this.contextFold = deepFreeze({ ...event.data })
+      }
+      this.contextFoldSeq = this.log.length
+    }
+    return this.contextFold
   }
 
   /** The derived-message cache: frozen projections, extended per unseen node. */

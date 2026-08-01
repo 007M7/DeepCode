@@ -11,7 +11,6 @@ import type {
   AgentStatus,
   CancelOptions,
   InboxTarget,
-  PreStepDecision,
   RequestErrorAction,
 } from '@deepseek-ai/dsh-agent'
 import { Inbox, agentCarrier, agentEvents, assembleContextFor, emitAgentEvent } from '@deepseek-ai/dsh-agent'
@@ -26,10 +25,12 @@ import {
 } from '@deepseek-ai/dsh-llm'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import { createScope } from '@deepseek-ai/dsh-scope'
-import type { EpochHeader, Session, SessionId, TurnEndReason, UserMessage } from '@deepseek-ai/dsh-session'
+import type { EpochHeader, RequestContext, Session, SessionId, TurnEndReason, UserMessage } from '@deepseek-ai/dsh-session'
 import { canonicalHeader, headerEquals } from '@deepseek-ai/dsh-session'
-import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
+import { renderContextSnapshot, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
+import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import type { Context } from 'cordis'
+import { RuntimeContextProjection } from './runtime-context.ts'
 import { executeToolCalls } from './tool-calls.ts'
 
 type Phase =
@@ -38,6 +39,10 @@ type Phase =
   | { kind: 'running'; abort: AbortController; turn: number; step: number }
 
 type StepEndReason = Extract<TurnEndReason, { kind: 'completed' | 'max-tokens' }>
+
+type PreparedStep =
+  | { kind: 'reject' }
+  | { kind: 'enter'; messages: UserMessage[]; assembly: PromptAssembly }
 
 /** Remove adapter-derived values before plugins propose the next request config. */
 function requestProposal(header: EpochHeader): LlmCallConfig {
@@ -60,6 +65,7 @@ export class ReactLoopAgent implements Agent {
 
   /** Whether this loop instance has appended its initial/resume request anchor. */
   private requestHeaderLogged = false
+  private readonly runtimeContext: RuntimeContextProjection
 
   constructor(
     private loopCtx: Context,
@@ -75,6 +81,7 @@ export class ReactLoopAgent implements Agent {
     this.phase = { kind: 'idle', lastTurn }
     this.scope = createScope(loopCtx, this)
     this.ctx = this.scope.ctx.extend({ agent: this })
+    this.runtimeContext = new RuntimeContextProjection(this.ctx, session)
   }
 
   get status(): AgentStatus {
@@ -154,19 +161,25 @@ export class ReactLoopAgent implements Agent {
     }
   }
 
-  private async preStep(target: InboxTarget, position: { turn: number; step: number }): Promise<PreStepDecision> {
+  private async preStep(target: InboxTarget, position: { turn: number; step: number }): Promise<PreparedStep> {
     if (this.phase.kind !== 'running') throw new Error(`agent "${this.id}": pre-step outside running phase`)
     const signal = this.phase.abort.signal
     const claimed = this.inbox.claim(target)
     for (const message of claimed) {
       emitAgentEvent(this.loopCtx, this, 'agent/inbox/claimed', { message, turn: position.turn })
     }
+    const assembly = await this.loopCtx.systemPrompt.assemble(assembleContextFor(this, signal))
+    signal.throwIfAborted()
+    const context = this.runtimeContext.project(renderContextSnapshot(assembly))
     const decision = await agentEvents(this.loopCtx, this).waterfall(
       'agent/pre-step', claimed, { ...position, signal },
-      () => Promise.resolve({ kind: 'enter', messages: claimed }),
+      () => Promise.resolve({
+        kind: 'enter',
+        messages: context === undefined ? claimed : [...claimed, context],
+      }),
     )
     signal.throwIfAborted()
-    return decision
+    return decision.kind === 'reject' ? decision : { ...decision, assembly }
   }
 
   /** Claimed input stays unowned until `turn/start` commits. */
@@ -180,7 +193,7 @@ export class ReactLoopAgent implements Agent {
     const phase = { kind: 'running' as const, abort, turn: lastTurn, step: 0 }
     this.setPhase(phase)
     signal.throwIfAborted()
-    let decision: PreStepDecision
+    let decision: PreparedStep
     try {
       decision = await this.preStep('next-turn', { turn: phase.turn + 1, step: 1 })
       if (decision.kind === 'reject') return false
@@ -205,7 +218,7 @@ export class ReactLoopAgent implements Agent {
           for (const message of decision.messages) {
             this.session.append('user/message', message, { surfaceOp: 'append' })
           }
-          turnEnds = await this.step()
+          turnEnds = await this.step(decision.assembly)
         } finally {
           this.session.append('step/end', { turn, step })
         }
@@ -244,17 +257,16 @@ export class ReactLoopAgent implements Agent {
     return this.inbox.hasPending
   }
 
-  private async step(): Promise<StepEndReason | null> {
+  private async step(assembly: PromptAssembly): Promise<StepEndReason | null> {
     if (this.phase.kind !== 'running') throw new Error(`agent "${this.id}": step outside running phase`)
     const { turn, step, abort: { signal } } = this.phase
     signal.throwIfAborted()
-    const assembly = await this.loopCtx.systemPrompt.assemble(assembleContextFor(this, signal))
-    signal.throwIfAborted()
     const system = renderPrompt(assembly)
+    const boundaryMessages = this.session.deriveMessages()
 
     while (true) {
       const { request, preparedCall } = await this.buildRequest(
-        turn, step, assembly.tools, system, this.session.deriveMessages(), signal,
+        turn, step, assembly.tools, system, boundaryMessages, signal,
       )
       const assembler = new BlockAssembler()
       const chunkSeqs: number[] = []
@@ -382,6 +394,19 @@ export class ReactLoopAgent implements Agent {
       this.requestHeaderLogged = true
     } else if (baseline === undefined || !headerEquals(baseline, header)) {
       this.session.append('request/header', { header, reason: 'change' })
+    }
+
+    const contextWindow = preparedCall?.context?.contextWindow
+    const requestContext: RequestContext = {
+      provider: config.provider,
+      model: config.model,
+      ...contextWindow === undefined ? {} : { contextWindow },
+    }
+    const previousContext = session.requestContext()
+    if (previousContext?.provider !== requestContext.provider
+      || previousContext.model !== requestContext.model
+      || previousContext.contextWindow !== requestContext.contextWindow) {
+      session.append('request/context', requestContext)
     }
     signal.throwIfAborted()
 
