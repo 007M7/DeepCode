@@ -53,16 +53,16 @@ set -eu
 
 DSH_REF=${DSH_REF:-master}
 DSH_REPO=${DSH_REPO:-https://github.com/deepseek-harness/deepseek-harness.git}
-# DSH_SOURCE is the container directory that holds the master clone and every
-# staging worktree; DSH_MASTER is the one real clone inside it. Remember whether
-# the caller pinned the source container before defaulting it, so in-repo
-# detection only repoints an unset DSH_SOURCE.
+# DSH_SOURCE is the staging-worktree container and the default home of `current`.
+# DSH_MASTER names the main clone: clone mode defaults it inside DSH_SOURCE,
+# while adoption discovers an existing clone anywhere on disk. Remember whether
+# DSH_SOURCE was explicit so a different path selects clone mode.
 if [ -n "${DSH_SOURCE:-}" ]; then DSH_SOURCE_EXPLICIT=1; else DSH_SOURCE_EXPLICIT=0; fi
 DSH_SOURCE=${DSH_SOURCE:-$HOME/.dsh/source}
 DSH_MASTER=${DSH_MASTER:-$DSH_SOURCE/master}
-# The stable symlink the PATH launcher resolves through: PATH -> current/bin/dsh
-# -> <staging>/bin/dsh. Fresh installs and upgrades repoint this one symlink; the
-# PATH launcher itself is written once and never moves. In-repo reuse ignores it.
+# The stable symlink the PATH launcher resolves through: PATH/dsh ->
+# current/bin/dsh -> <staging>/bin/dsh. Installs and upgrades repoint `current`;
+# the PATH target remains current/bin/dsh.
 DSH_CURRENT=${DSH_CURRENT:-$DSH_SOURCE/current}
 DSH_BIN_DIR=${DSH_BIN_DIR:-$HOME/.local/bin}
 # One UTC basic timestamp names this install's staging branch and worktree.
