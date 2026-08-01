@@ -991,7 +991,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/bash/pwsh-local/src/index.ts:43`](../packages/bash/pwsh-local/src/index.ts)
+Source: [`packages/bash/pwsh-local/src/index.ts:44`](../packages/bash/pwsh-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-repeat-tool-guard`
 
