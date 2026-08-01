@@ -27,6 +27,7 @@ const NESTED_LABEL = 'example editor'
 const PARENT_PROMPT = 'Ask a research subagent to explain event sourcing.'
 const INITIAL_PROMPT = 'Explain event sourcing in one sentence.'
 const FOLLOWUP = 'Now give the same explanation to a human reader.'
+const POST_FORK_FOLLOWUP = 'Continue the original conversation after the fork.'
 
 function childFixture(source: string, fixtureId: string, withContinuation: boolean): string {
   const [header, ...eventLines] = source.trimEnd().split('\n')
@@ -295,5 +296,50 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     await page.getByRole('treeitem', { name: new RegExp(ONE_SHOT_LABEL) }).click()
     await page.getByText('一次性任务不支持后续消息，可在这里查看完整执行记录。').waitFor()
     expect(scaffold.ctx.agents.get(oneShotId)).toBeUndefined()
+  })
+
+  it('cold-resumes the original subagent while its ordinary fork stays active', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-subagent-post-fork-followup'))
+    const sessions = page.getByRole('tree', { name: 'Sessions' })
+    await sessions.getByRole('treeitem', { name: /Ask a research subagent to/ }).click()
+    await page.getByRole('button', { name: '2 个子代理' }).click()
+    await page.getByRole('treeitem', { name: new RegExp(LABEL) }).click()
+    await page.locator('textarea:enabled').first().waitFor()
+    expect(scaffold.ctx.agents.get(childId)).toBeUndefined()
+
+    const forkResponse = page.waitForResponse(response =>
+      new URL(response.url()).pathname === '/api/session.fork')
+    await page.getByRole('button', { name: 'Branch into a new conversation' }).last().click()
+    const forkReceipt = await (await forkResponse).json() as {
+      result: { ok: true; value: { sessionId: string } } | { ok: false }
+    }
+    expect(forkReceipt.result).toMatchObject({ ok: true })
+    if (!forkReceipt.result.ok) return
+    const forkId = sessionId(forkReceipt.result.value.sessionId)
+    await expect.poll(() => scaffold.ctx.agents.get(forkId)).not.toBeUndefined()
+
+    await sessions.getByRole('treeitem', { name: /Ask a research subagent to/ }).click()
+    await page.getByRole('button', { name: '2 个子代理' }).click()
+    await page.getByRole('treeitem', { name: new RegExp(LABEL) }).click()
+    const input = page.locator('textarea:enabled').first()
+    await input.waitFor()
+    const promptResponse = page.waitForResponse(response =>
+      new URL(response.url()).pathname === '/api/subagent.prompt')
+    await input.fill(POST_FORK_FOLLOWUP)
+    await input.press('Enter')
+    const promptReceipt = await (await promptResponse).json() as {
+      result: { ok: true } | { ok: false; error: { code: string; message: string } }
+    }
+    if (!promptReceipt.result.ok) {
+      throw new Error(`post-fork follow-up rejected: ${JSON.stringify(promptReceipt.result.error)}`)
+    }
+    await expect.poll(async () => {
+      const loaded = await scaffold.ctx.sessionPersistence.load(childId)
+      const messageIndex = loaded.events.findIndex(event => event.type === 'user/message'
+        && event.data.content.some(block => block.type === 'text' && block.text === POST_FORK_FOLLOWUP))
+      return messageIndex >= 0 && loaded.events.slice(messageIndex + 1).some(event => event.type === 'turn/end')
+    }, { timeout: 30_000 }).toBe(true)
+    expect(scaffold.ctx.agents.get(forkId)).not.toBeUndefined()
+    await expect.poll(() => scaffold.ctx.agents.get(childId), { timeout: 10_000 }).toBeUndefined()
   })
 })
