@@ -1,6 +1,7 @@
 import { availableParallelism } from 'node:os'
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { defineConfig } from 'vitest/config'
+import { vitestExecArgv } from './vitest.shared.ts'
 
 const DEFAULT_SNAPSHOT_MAX_CONCURRENCY = 5
 
@@ -41,6 +42,7 @@ export default defineConfig({
   // this (the root tsconfig is a solution file with no paths).
   plugins: [tsconfigPaths({ projects: ['./tsconfig.base.json'] })],
   test: {
+    execArgv: vitestExecArgv,
     setupFiles: ['./scripts/test-invariants.ts'],
     include: [
       'scripts/**/*.snapshot.ts',
@@ -48,6 +50,8 @@ export default defineConfig({
       // mode remains the zero-build path, while lib mode requires a prior build.
       ...(process.env.DSH_EXAMPLE_MODE === 'lib' ? ['apps/web/tests/**/*.snapshot.ts'] : []),
       'examples/*/tests/**/*.snapshot.ts',
+      // The shipped TUI's terminal-journey scenarios moved here with its config.
+      'apps/cli/tests/**/*.snapshot.ts',
       'packages/sdk/*/tests/**/*.snapshot.ts',
       'packages/ui/tui/tests/**/*.snapshot.ts',
     ],

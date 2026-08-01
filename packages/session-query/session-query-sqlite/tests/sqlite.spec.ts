@@ -1,3 +1,4 @@
+import { createAssistantMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context, type Fiber } from 'cordis'
 import { DatabaseSync } from 'node:sqlite'
@@ -44,7 +45,9 @@ function messageEvents(text: string, time = 1): SessionEvent[] {
     type: 'user/message',
     seq: 0,
     time,
-    data: { content: [{ type: 'text', text }], source: { kind: 'user' } },
+    data: createUserMessage({
+      content: [{ type: 'text', text }], source: { kind: 'user' },
+    }),
     surfaceOp: 'append',
   }]
 }
@@ -146,6 +149,11 @@ class TestPersistence extends SessionPersistence {
     return structuredClone(entry)
   }
 
+  async readFrom(id: SessionIdType, fromSeq: number, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    const whole = await this.inspect(id, signal)
+    return { meta: whole.meta, events: whole.events.filter(event => event.seq >= fromSeq) }
+  }
+
   async list(): Promise<SessionHeader[]> {
     TestPersistence.listStarted?.()
     await TestPersistence.listGate
@@ -177,16 +185,19 @@ async function liveContext(config: ConstructorParameters<typeof SessionQuerySqli
 }
 
 describe('SQLite session search', () => {
-  it('defaults and validates persisted inspection concurrency through its Cordis config', async () => {
+  it('defaults and validates opening policy and persisted inspection concurrency through its Cordis config', async () => {
     const defaultCtx = await liveContext()
+    expect((defaultCtx.sessionQuery as SessionQuerySqlite).config.openAt).toBe('startup')
     expect((defaultCtx.sessionQuery as SessionQuerySqlite).config.persistedInspectConcurrency)
       .toBe(SESSION_QUERY_DEFAULT_PERSISTED_INSPECT_CONCURRENCY)
 
     const configuredValue = 2
     const configured = new SessionQuerySqlite.Config({
       path: ':memory:',
+      openAt: 'first-search',
       persistedInspectConcurrency: configuredValue,
     })
+    expect(configured.openAt).toBe('first-search')
     expect(configured.persistedInspectConcurrency).toBe(configuredValue)
     const configuredCtx = await liveContext(configured)
     expect((configuredCtx.sessionQuery as SessionQuerySqlite).config.persistedInspectConcurrency)
@@ -198,6 +209,72 @@ describe('SQLite session search', () => {
         persistedInspectConcurrency,
       })).toThrow()
     }
+    expect(() => new SessionQuerySqlite.Config({
+      path: ':memory:',
+      openAt: 'later' as never,
+    })).toThrow()
+  })
+
+  it('mounts and disposes first-search mode without opening its database', async () => {
+    const path = await temporaryPath('unopened.db')
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const search = await ctx.plugin(SessionQuerySqlite, {
+      path,
+      openAt: 'first-search',
+    })
+
+    await expect(stat(path)).rejects.toMatchObject({ code: 'ENOENT' })
+    await search.dispose()
+    await expect(stat(path)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('opens once on the first search and reuses readiness for later searches', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionQuerySqlite, {
+      path: ':memory:',
+      openAt: 'first-search',
+    })
+    const service = ctx.sessionQuery as SessionQuerySqlite
+    const internals = service as unknown as { _open(): Promise<void> }
+    const open = vi.spyOn(internals, '_open')
+
+    await expect(service.searchSessions({ query: 'first' })).resolves.toEqual({ items: [] })
+    await expect(service.searchSessions({ query: 'second' })).resolves.toEqual({ items: [] })
+
+    expect(open).toHaveBeenCalledOnce()
+  })
+
+  it('shares one readiness promise across concurrent first searches', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionQuerySqlite, {
+      path: ':memory:',
+      openAt: 'first-search',
+    })
+    const service = ctx.sessionQuery as SessionQuerySqlite
+    const internals = service as unknown as { _open(): Promise<void> }
+    const originalOpen = internals._open.bind(internals)
+    const release = Promise.withResolvers<undefined>()
+    const started = Promise.withResolvers<undefined>()
+    const open = vi.spyOn(internals, '_open').mockImplementation(async () => {
+      started.resolve(undefined)
+      await release.promise
+      await originalOpen()
+    })
+
+    const first = service.searchSessions({ query: 'first' })
+    const second = service.searchSessions({ query: 'second' })
+    await started.promise
+    expect(open).toHaveBeenCalledOnce()
+    release.resolve(undefined)
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { items: [] },
+      { items: [] },
+    ])
+    expect(open).toHaveBeenCalledOnce()
   })
 
   it('searches two-character Unicode61 tokens in live-only sessions', async () => {
@@ -207,7 +284,9 @@ describe('SQLite session search', () => {
     })
     session.append(
       'user/message',
-      { content: [{ type: 'text', text: 'An AI helper' }], source: { kind: 'user' } },
+      createUserMessage({
+        content: [{ type: 'text', text: 'An AI helper' }], source: { kind: 'user' },
+      }),
       { surfaceOp: 'append' },
     )
 
@@ -220,13 +299,47 @@ describe('SQLite session search', () => {
       .resolves.toMatchObject({ items: [{ header: { ...session.header, seedLength: 1 }, live: true, persisted: false }] })
   })
 
+  it('excludes assistant reasoning while indexing visible answer text', async () => {
+    const ctx = await liveContext()
+    const session = ctx.sessions.create(SessionId('reasoning'))
+    session.append(
+      'assistant/message',
+      {
+        turn: 1,
+        step: 1,
+        message: createAssistantMessage({
+          content: [
+            { type: 'reasoning', text: 'private-chain-marker' },
+            { type: 'text', text: 'visible-answer-marker' },
+          ],
+          source: { provider: 'mock', model: 'mock' },
+        }),
+      },
+      { surfaceOp: 'append' },
+    )
+
+    await expect(ctx.sessionQuery.searchSessions({ query: 'private-chain-marker' }))
+      .resolves.toEqual({ items: [] })
+    await expect(ctx.sessionQuery.searchSessions({ query: 'visible-answer-marker' }))
+      .resolves.toMatchObject({
+        items: [{
+          header: { id: session.id },
+          bestMatch: { snippet: 'visible-answer-marker' },
+        }],
+      })
+  })
+
   it('searches all surfaces by default and applies metadata before ranking', async () => {
     const ctx = await liveContext({ path: ':memory:', defaultLimit: 10, maxLimit: 20 })
     const parent = SessionId('parent')
     const events: SessionEvent[] = [
-      { type: 'user/message', seq: 0, time: 10, data: { content: [{ type: 'text', text: 'needle original' }], source: { kind: 'user' } }, surfaceOp: 'append' },
+      { type: 'user/message', seq: 0, time: 10, data: createUserMessage({
+        content: [{ type: 'text', text: 'needle original' }], source: { kind: 'user' },
+      }), surfaceOp: 'append' },
       { type: 'assistant/chunk', seq: 1, time: 11, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'needle raw' } } },
-      { type: 'user/message', seq: 2, time: 12, data: { content: [{ type: 'text', text: 'needle summary' }], source: { kind: 'plugin', plugin: 'test' } }, surfaceOp: { op: 'replace', start: 0, end: 0 }, sourceEventSeqs: [0] },
+      { type: 'user/message', seq: 2, time: 12, data: createUserMessage({
+        content: [{ type: 'text', text: 'needle summary' }], source: { kind: 'plugin', plugin: 'test' },
+      }), surfaceOp: { op: 'replace', start: 0, end: 0 }, sourceEventSeqs: [0] },
       { type: 'turn/end', seq: 3, time: 13, data: { turn: 1, reason: { kind: 'error', step: 1, message: 'needle failure' } } },
     ]
     ctx.sessions.create(SessionId('a'), { seed: events, meta: { cwd: '/a', parentSession: parent, createdAt: 20 } })
@@ -445,7 +558,9 @@ describe('SQLite session search', () => {
       cursor: eventPage.nextCursor,
     })).rejects.toThrow(expectCode('SESSION_QUERY_INVALID_CURSOR'))
 
-    target.append('user/message', { content: [{ type: 'text', text: 'needle four' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    target.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'needle four' }], source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
     await expect(ctx.sessionQuery.searchEvents({
       sessionId: target.id,
       query: 'needle',
@@ -522,6 +637,7 @@ describe('SQLite session search', () => {
       { path: ':memory:', persistedInspectConcurrency: 0 },
       { path: ':memory:', persistedInspectConcurrency: Number.MAX_SAFE_INTEGER + 1 },
       { path: ':memory:', defaultLimit: 3, maxLimit: 2 },
+      { path: ':memory:', openAt: 'later' },
       { path: ':memory:', journalMode: 'memory' },
     ]) {
       const direct = new Context()
@@ -620,7 +736,9 @@ describe('SQLite reconciliation and source lifecycle', () => {
     await expect(ctx.sessionQuery.searchSessions({ query: 'durable' }))
       .resolves.toMatchObject({ items: [{ header: durable, live: false, persisted: true }] })
     const live = ctx.sessions.prepare(shared.id, { meta: { createdAt: 10, cwd: '/work' } })
-    live.append('user/message', { content: [{ type: 'text', text: 'live needle' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    live.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'live needle' }], source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
     const detach = ctx.sessions.enter(live)
     ctx.sessions.announce(live)
 
@@ -1053,12 +1171,15 @@ describe('SQLite reconciliation and source lifecycle', () => {
     await ctx.sessionQuery.searchEvents({ sessionId: live.id, query: 'base' })
     const db = (ctx.sessionQuery as unknown as { _db: DatabaseSync })._db
     db.exec('PRAGMA query_only = ON')
-    live.append('user/message', { content: [{ type: 'text', text: 'retry needle' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    live.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'retry needle' }], source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
     await expect(ctx.sessionQuery.searchEvents({ sessionId: live.id, query: 'needle' }))
       .rejects.toThrow(expectCode('SESSION_QUERY_INDEX_FAILED'))
     db.exec('PRAGMA query_only = OFF')
+    // seq 2: one-event seed, end-seed, then the live message.
     await expect(ctx.sessionQuery.searchEvents({ sessionId: live.id, query: 'needle' }))
-      .resolves.toMatchObject({ items: [{ seq: 1 }] })
+      .resolves.toMatchObject({ items: [{ seq: 2 }] })
   })
 })
 
@@ -1120,7 +1241,7 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     const staleOwner = await liveContext({ path: stalePath })
     await (staleOwner.sessionQuery as SessionQuerySqlite).close()
     const stale = new DatabaseSync(stalePath)
-    stale.exec('PRAGMA user_version = 999')
+    stale.exec(`PRAGMA user_version = ${SESSION_QUERY_SQLITE_SCHEMA_VERSION - 1}`)
     stale.close()
     const staleCtx = await liveContext({ path: stalePath })
     staleCtx.sessions.create(SessionId('live'), { seed: messageEvents('needle') })
@@ -1236,6 +1357,30 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     } finally {
       process.off('unhandledRejection', onUnhandled)
     }
+  })
+
+  it('defers an invalid database failure only in first-search mode', async () => {
+    const path = await temporaryPath('lazy-invalid.db')
+    const foreign = new DatabaseSync(path)
+    foreign.exec('CREATE TABLE canonical(value TEXT)')
+    foreign.close()
+
+    const lazyCtx = new Context()
+    await lazyCtx.plugin(SessionStore)
+    const lazy = await lazyCtx.plugin(SessionQuerySqlite, {
+      path,
+      openAt: 'first-search',
+    })
+    expect(lazyCtx.sessionQuery).toBeInstanceOf(SessionQuerySqlite)
+    await expect(lazyCtx.sessionQuery.searchSessions({ query: 'needle' }))
+      .rejects.toThrow(expectCode('SESSION_QUERY_INDEX_FAILED'))
+    await lazy.dispose()
+
+    const eagerCtx = new Context()
+    await eagerCtx.plugin(SessionStore)
+    await expect(eagerCtx.plugin(SessionQuerySqlite, { path }))
+      .rejects.toThrow(expectCode('SESSION_QUERY_INDEX_FAILED'))
+    expect(eagerCtx.sessionQuery).toBeUndefined()
   })
 
   it.each(['sessions', 'events'] as const)(

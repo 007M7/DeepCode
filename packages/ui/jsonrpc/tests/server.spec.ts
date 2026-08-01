@@ -1,3 +1,4 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -5,9 +6,9 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import AgentRegistry, { AgentMessageId, type Agent, type AgentHandle } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent, type AgentHandle } from '@deepseek-ai/dsh-agent'
 
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, type UserMessage } from '@deepseek-ai/dsh-session'
 import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
@@ -120,8 +121,9 @@ describe('HarnessSdkServer', () => {
 
       const init = await server.handleRequest('initialize', {
         cwd: storageDir,
-        provider: 'deepseek',
+        provider: 'deepseek-official',
         model: 'dsagent-model',
+        maxTokens: 321,
       }) as { serverInfo: { name: string } }
       expect(init.serverInfo.name).toBe('deepseek-harness-sdk-runtime')
 
@@ -131,8 +133,9 @@ describe('HarnessSdkServer', () => {
       })
 
       expect(llmServer.requests).toHaveLength(1)
-      const body = llmServer.requests[0] as { model: string; messages: { role: string }[] }
+      const body = llmServer.requests[0] as { model: string; messages: { role: string }[]; max_tokens?: number }
       expect(body.model).toBe('dsagent-model')
+      expect(body.max_tokens).toBe(321)
       expect(body.messages[0]?.role).toBe('system')
       expect(body.messages.at(-1)?.role).toBe('user')
       expect(llmServer.headers[0]?.authorization).toBe('Bearer test-key')
@@ -151,9 +154,9 @@ describe('HarnessSdkServer', () => {
       const orphanHandle = await ctx.agents.create({
         sessionId: SessionId('orphan-session'),
         meta: { cwd: storageDir },
-        agentOptions: { provider: 'deepseek', model: 'dsagent-model' },
+        agentOptions: { provider: 'deepseek-official', model: 'dsagent-model' },
       })
-      orphanHandle.agent.followup({ content: [{ type: 'text', text: 'outside the sdk session map' }], source: { kind: 'user' } })
+      orphanHandle.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'outside the sdk session map' }], source: { kind: 'user' } }))
       await orphanHandle.agent.whenIdle()
       await orphanHandle.dispose()
       expect(llmServer.requests).toHaveLength(3)
@@ -171,13 +174,13 @@ describe('HarnessSdkServer', () => {
     const mainWhenIdle = vi.fn<() => Promise<void>>()
       .mockReturnValueOnce(firstMainIdle)
       .mockResolvedValue(undefined)
-    const mainFollowup = vi.fn<Agent['followup']>().mockReturnValue(AgentMessageId('main-followup'))
+    const mainFollowup = vi.fn<Agent['followup']>()
     const mainAgent = ({
       id: SessionId('main'),
       followup: mainFollowup,
       whenIdle: mainWhenIdle,
     } satisfies Pick<Agent, 'id' | 'followup' | 'whenIdle'>) as unknown as Agent
-    const otherFollowup = vi.fn<Agent['followup']>().mockReturnValue(AgentMessageId('other-followup'))
+    const otherFollowup = vi.fn<Agent['followup']>()
     const otherAgent = ({
       id: SessionId('other'),
       followup: otherFollowup,
@@ -220,7 +223,7 @@ describe('HarnessSdkServer', () => {
   })
 
   it('rejects a prompt for a session whose agent was disposed outside the server', async () => {
-    const followup = vi.fn<Agent['followup']>().mockReturnValue(AgentMessageId('stub'))
+    const followup = vi.fn<Agent['followup']>()
     const agent = ({
       id: SessionId('zombie'),
       followup,
@@ -266,7 +269,7 @@ describe('HarnessSdkServer', () => {
     const agent = ({
       id: SessionId('message-outcome'),
       session,
-      followup(input: { content: { type: 'text'; text: string }[]; source: { kind: 'user' } }) {
+      followup(input: UserMessage) {
         session.append('turn/start', {
           turn: 1,
           trigger: { kind: 'message', source: input.source },
@@ -277,12 +280,12 @@ describe('HarnessSdkServer', () => {
           turn: 2,
           trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'late-metadata' } },
         })
-        session.append('user/message', {
+        session.append('user/message', createUserMessage({
           content: [{ type: 'text', text: 'late metadata' }],
           source: { kind: 'plugin', plugin: 'late-metadata' },
-        }, { surfaceOp: 'append' })
+        }), { surfaceOp: 'append' })
         session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
-        return AgentMessageId('message-outcome')
+        return input.id
       },
       whenIdle: () => Promise.resolve(),
     } satisfies Pick<Agent, 'id' | 'session' | 'followup' | 'whenIdle'>) as unknown as Agent
@@ -349,7 +352,7 @@ describe('HarnessSdkServer', () => {
     try {
       const server = new HarnessSdkServer(ctx, new FakeTransport())
 
-      await server.initialize({ cwd: storageDir, provider: 'deepseek', model: 'plain-model' })
+      await server.initialize({ cwd: storageDir, provider: 'deepseek-official', model: 'plain-model' })
       await server.prompt({
         sessionId: 'plain',
         contentBlocks: [{ type: 'text', text: 'hello' }],
@@ -373,20 +376,20 @@ describe('HarnessSdkServer', () => {
       const parentHandle = await ctx.agents.create({
         sessionId: SessionId('main'),
         meta: { cwd: storageDir },
-        agentOptions: { provider: 'deepseek', model: 'deepseek' },
+        agentOptions: { provider: 'deepseek-official', model: 'deepseek-official' },
       })
       // A custom in-process provider may own its child at the provider/root
       // scope while preserving durable parent lineage.
       const handle = await ctx.agents.create({
         sessionId: SessionId('child-session'),
         meta: { cwd: storageDir, parentSession: SessionId('main') },
-        agentOptions: { provider: 'deepseek', model: 'deepseek' },
+        agentOptions: { provider: 'deepseek-official', model: 'deepseek-official' },
       })
       expect(ctx.agents.roots()).toContain(handle.agent)
       const parentlessHandle = await parentHandle.agent.ctx.agents.create({
         sessionId: SessionId('parentless-child-session'),
         meta: { cwd: storageDir },
-        agentOptions: { model: 'deepseek' },
+        agentOptions: { model: 'deepseek-official' },
       })
       await settleSubagent(ctx, parentHandle.agent, {
         provider: 'spawn',
@@ -443,12 +446,12 @@ describe('HarnessSdkServer', () => {
       const parentHandle = await ctx.agents.create({
         sessionId: SessionId('collision-parent'),
         meta: { cwd: storageDir },
-        agentOptions: { model: 'deepseek' },
+        agentOptions: { model: 'deepseek-official' },
       })
       const collidingChild = await parentHandle.agent.ctx.agents.create({
         sessionId: SessionId('remote-run-id'),
         meta: { cwd: storageDir, parentSession: SessionId('collision-parent') },
-        agentOptions: { model: 'deepseek' },
+        agentOptions: { model: 'deepseek-official' },
       })
 
       await settleSubagent(ctx, parentHandle.agent, {
@@ -482,12 +485,12 @@ describe('HarnessSdkServer', () => {
       const parentHandle = await ctx.agents.create({
         sessionId: SessionId('continuation-parent'),
         meta: { cwd: storageDir },
-        agentOptions: { model: 'deepseek' },
+        agentOptions: { model: 'deepseek-official' },
       })
       const childHandle = await parentHandle.agent.ctx.agents.create({
         sessionId: SessionId('continuation-child'),
         meta: { cwd: storageDir, parentSession: SessionId('continuation-parent') },
-        agentOptions: { model: 'deepseek' },
+        agentOptions: { model: 'deepseek-official' },
       })
 
       await settleSubagent(ctx, parentHandle.agent, {
@@ -527,12 +530,12 @@ describe('HarnessSdkServer', () => {
       const oldParent = await ctx.agents.create({
         sessionId: SessionId('old-parent'),
         meta: { cwd: storageDir },
-        agentOptions: { model: 'deepseek' },
+        agentOptions: { model: 'deepseek-official' },
       })
       const oldChild = await oldParent.agent.ctx.agents.create({
         sessionId: SessionId('reused-child'),
         meta: { cwd: storageDir, parentSession: SessionId('old-parent') },
-        agentOptions: { model: 'deepseek' },
+        agentOptions: { model: 'deepseek-official' },
       })
       const first = Promise.withResolvers<SubagentResult>()
       const sameLifetime = Promise.withResolvers<SubagentResult>()
@@ -568,12 +571,12 @@ describe('HarnessSdkServer', () => {
       const newParent = await ctx.agents.create({
         sessionId: SessionId('new-parent'),
         meta: { cwd: storageDir },
-        agentOptions: { model: 'deepseek' },
+        agentOptions: { model: 'deepseek-official' },
       })
       const newChild = await newParent.agent.ctx.agents.create({
         sessionId: SessionId('reused-child'),
         meta: { cwd: storageDir, parentSession: SessionId('new-parent') },
-        agentOptions: { model: 'deepseek' },
+        agentOptions: { model: 'deepseek-official' },
       })
       currentLocalAgent = newChild.agent
       const secondRun = await ctx.subagents.start('reused', {
@@ -626,12 +629,12 @@ describe('HarnessSdkServer', () => {
       const parent = await ctx.agents.create({
         sessionId: SessionId('provider-reuse-parent'),
         meta: { cwd: storageDir },
-        agentOptions: { model: 'deepseek' },
+        agentOptions: { model: 'deepseek-official' },
       })
       const child = await parent.agent.ctx.agents.create({
         sessionId: SessionId('provider-reuse-child'),
         meta: { cwd: storageDir, parentSession: SessionId('provider-reuse-parent') },
-        agentOptions: { model: 'deepseek' },
+        agentOptions: { model: 'deepseek-official' },
       })
       const localResult = Promise.withResolvers<SubagentResult>()
       const remoteResult = Promise.withResolvers<SubagentResult>()
@@ -719,18 +722,18 @@ describe('HarnessSdkServer', () => {
       parentHandle = await ctx.agents.create({
         sessionId: SessionId('fallback-parent'),
         meta: { cwd: storageDir },
-        agentOptions: { provider: 'deepseek', model: 'deepseek' },
+        agentOptions: { provider: 'deepseek-official', model: 'deepseek-official' },
       })
       handle = await parentHandle.agent.ctx.agents.create({
         sessionId: SessionId('fallback-child-session'),
         meta: { cwd: storageDir, parentSession: SessionId('fallback-parent') },
-        agentOptions: { provider: 'deepseek', model: 'deepseek' },
+        agentOptions: { provider: 'deepseek-official', model: 'deepseek-official' },
       })
       const fallbackChild = handle.agent
       failedHandle = await parentHandle.agent.ctx.agents.create({
         sessionId: SessionId('failed-child-session'),
         meta: { cwd: storageDir },
-        agentOptions: { provider: 'deepseek', model: 'deepseek' },
+        agentOptions: { provider: 'deepseek-official', model: 'deepseek-official' },
       })
       const missedStartResult = Promise.withResolvers<SubagentResult>()
       const disposeMissedStartProvider = ctx.subagents.registerProvider({
@@ -828,11 +831,11 @@ describe('HarnessSdkServer', () => {
       const server = new HarnessSdkServer(ctx, new FakeTransport())
       const inspect = server as unknown as { hasAdapterFor(provider: string): boolean }
 
-      expect(inspect.hasAdapterFor('deepseek')).toBe(true)
+      expect(inspect.hasAdapterFor('deepseek-official')).toBe(true)
       expect(inspect.hasAdapterFor('missing-provider')).toBe(false)
-      await server.initialize({ cwd: storageDir, provider: 'deepseek', model: 'preinstalled-model' })
+      await server.initialize({ cwd: storageDir, provider: 'deepseek-official', model: 'preinstalled-model' })
 
-      expect(ctx.get('llm')?.listProviders().filter(provider => provider.id === 'deepseek')).toEqual([{ id: 'deepseek', name: 'DeepSeek' }])
+      expect(ctx.get('llm')?.listProviders().filter(provider => provider.id === 'deepseek-official')).toEqual([{ id: 'deepseek-official', name: 'DeepSeek' }])
       await server.shutdown()
     } finally {
       await ctx.fiber.dispose()
@@ -851,13 +854,34 @@ describe('HarnessSdkServer', () => {
       await expect(server.initialize({ cwd: storageDir, provider: 'private', model: 'new-model' }))
         .rejects.toThrow('no adapter registered for provider "private"')
 
-      expect(ctx.get('llm')?.listProviders()).toEqual([{ id: 'deepseek', name: 'DeepSeek' }])
+      expect(ctx.get('llm')?.listProviders()).toEqual([{ id: 'deepseek-official', name: 'DeepSeek' }])
       await server.shutdown()
     } finally {
       await ctx.fiber.dispose()
       await rm(storageDir, { recursive: true, force: true })
     }
   })
+
+  it.each([0, -1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1])(
+    'rejects invalid initialize maxTokens %s at the wire boundary',
+    async (maxTokens) => {
+      const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-invalid-max-tokens-'))
+      const ctx = await makeHarness(storageDir)
+      try {
+        const server = new HarnessSdkServer(ctx, new FakeTransport())
+        await expect(server.initialize({
+          cwd: storageDir,
+          provider: 'deepseek-official',
+          model: 'model',
+          maxTokens,
+        })).rejects.toThrow('initialize maxTokens must be a positive safe integer')
+        await server.shutdown()
+      } finally {
+        await ctx.fiber.dispose()
+        await rm(storageDir, { recursive: true, force: true })
+      }
+    },
+  )
 
   it('classifies defensive finish states', async () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-finish-states-'))
@@ -973,15 +997,18 @@ describe('HarnessSdkServer', () => {
       get: () => ({ listProviders: () => [{ id: 'mock', name: 'Mock' }] }),
     } as unknown as Context
     const server = new HarnessSdkServer(ctx, new FakeTransport()) as unknown as {
-      initialize(params: { cwd: string; provider: string; model: string }): Promise<unknown>
+      initialize(params: { cwd: string; provider: string; model: string; maxTokens?: number }): Promise<unknown>
       getOrCreateSession(sessionId: string): Promise<unknown>
       shutdown(): Promise<Record<string, never>>
     }
 
-    await server.initialize({ cwd: '.', provider: 'mock', model: 'model' })
+    await server.initialize({ cwd: '.', provider: 'mock', model: 'model', maxTokens: 123 })
     await server.getOrCreateSession('relative')
 
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({ meta: { cwd: process.cwd() } }))
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      meta: { cwd: process.cwd() },
+      agentOptions: { provider: 'mock', model: 'model', maxTokens: 123 },
+    }))
     await server.shutdown()
   })
 

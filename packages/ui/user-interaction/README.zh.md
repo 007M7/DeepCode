@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-抽象用户交互 seam。它拥有 `ctx.userInteraction`：当面向模型的工具或权限插件需要暂停工作并询问人类决定时所使用的服务。
+抽象用户交互 seam。它定义 `ctx.userInteraction`，供面向模型的工具或权限插件在需要暂停工作并询问人类决定时使用。
 
 ## 服务：`UserInteractionService`（ctx 键：`userInteraction`）
 
@@ -13,13 +13,18 @@
 
 ### 关键类型
 
-- `AskUserQuestionRequest`：`{ questions: [{ id, question, detail?, header?, options?, multiSelect? }], agent?, signal? }`；`detail` 提供辅助文本，提供方会将其随问题一起渲染，而不会将其变成选项标签。
+- `AskUserQuestionRequest`：`{ questions: [{ id, question, detail?, header?, options?, multiSelect?, intent? }], agent?, signal? }`；`detail` 提供辅助文本，提供方会将其随问题一起渲染，而不会将其变成选项标签。
 - `AskUserQuestionOption`：`{ label, description? }`。
+- `AskUserQuestionIntent`：`{ kind: 'plan-review', approve }`；即下文的带标签呈现意图。
 - `AskUserQuestionAnswer`：`{ answers: [{ id, selected, custom? }] }`。
 - `UserInteractionProvider`：包含 `ask(request)` 的 UI 实现。
-- `UserInteractionError`：`HarnessError` 的子类，包含 `EMPTY_QUESTIONS`、`NO_PROVIDER`、`DUPLICATE_PROVIDER` 和 `ASK_ABORTED` 等代码。
+- `UserInteractionError`：`HarnessError` 的子类，包含 `EMPTY_QUESTIONS`、`BAD_INTENT`、`NO_PROVIDER`、`DUPLICATE_PROVIDER` 和 `ASK_ABORTED` 等代码。
 
-当回答包含 `custom` 时，`selected` 为空；自定义文本会覆盖所选选项，而不是补充它们。UI 可以把跳过的条目保留为 `{ id, selected: [] }`，既维持现有回答形态，也保留该批次中的其他回答。
+当回答包含 `custom` 时，`selected` 为空；自定义文本是所选选项的替代，而不是补充。UI 可以把跳过的条目保留为 `{ id, selected: [] }`，既维持现有回答形态，也保留该批次中的其他回答。
+
+### 呈现意图
+
+`intent` 声明某个问题本身就是一次已知形状的决定，因此认识该标签的 UI 可以照此呈现 —— `plan-review` 表示 `detail` 是一份待审阅的计划，`dsh-plan-mode` 会在 `exit_plan_mode` 的问题上设置它。意图只塑造呈现：遵循它的 UI 回答的仍是通用 UI 会发送的那些选项标签，不认识该标签的 UI 渲染通用选项列表，因此调用方两种情况下读到的都是同一种回答形态。`approve` 指名表示批准的标签，而不依赖选项顺序。有两项断言是任何类型都承载不了的，`ask()` 会以 `BAD_INTENT` 拒绝它们：`approve` 未命中该问题自身的任一选项，以及意图落在没有 `detail` 的问题上 —— 而 `detail` 正是它自称在审阅的东西。
 
 ## 职责
 
@@ -31,9 +36,9 @@
 
 #### KV Cache 影响
 
-不会直接使缓存失效；具名消费方拥有所有请求前缀变更。
+不会直接使 KV Cache 失效；请求前缀的任何变更均由上述消费方负责。
 
-## 已知限制与延期工作
+## 已知限制与暂缓事项
 
 - **每个上下文只能有一个提供方**：不支持路由或扇出到多个 UI；第二次注册会抛出 `DUPLICATE_PROVIDER`，未注册任何提供方时，`ask()` 会抛出 `NO_PROVIDER`，而不会降级。
-- **词汇仅包含问题表单形态**：可选选项加可选自定义文本；更丰富的交互形态（文件选择器、diff 预览确认）尚无 seam 词汇。
+- **词汇仅包含问题表单形态**：可供选择的选项加可选的自定义文本；更丰富的交互形态（文件选择器、diff 预览确认）尚无 seam 词汇。

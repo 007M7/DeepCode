@@ -11,9 +11,12 @@ import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ClientContext, ConversationSnapshot, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SubmitOutcome } from '@deepseek-ai/dsh-client-ui-slash/client'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { SessionInputShell } from '../src/client/input/facade.ts'
 import { InputBar } from '../src/client/skeleton/InputBar.tsx'
 import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
+import { zh } from '../src/client/locales.ts'
 
 afterEach(cleanup)
 
@@ -23,8 +26,8 @@ const SID = 's1' as SessionId
 /** Standard-props InputBar mount over a real shell (the composer-bar entry shape). */
 function mountBar(shell: SessionInputShell, over?: { running?: boolean; disabled?: boolean }) {
   const session = createSnapshotStore<ConversationSnapshot>({
-    sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
-    pending: [], queue: [], todos: [], running: over?.running ?? false, composerPhase: 'active',
+    sessionId: SID, nodes: [], partial: null, runningCalls: [], codeDispatches: new Map(),
+    pending: [], queue: [], running: over?.running ?? false, composerPhase: 'active',
     removed: over?.disabled ?? false, openState: 'open', openError: null, hasMore: false,
     loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
   })
@@ -36,16 +39,22 @@ function mountBar(shell: SessionInputShell, over?: { running?: boolean; disabled
       ids: [], byId: {}, current: undefined, phase: 'ready',
     })),
     useWorkspaces: bindSnapshotSelector(createSnapshotStore({
-      items: [], state: 'idle', phase: 'ready', error: null,
+      items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     })),
+    useProjection: (() => undefined),
     useInput: bindSnapshotSelector(shell.state),
     inputActions: shell.actions,
     keyboard: shell,
+    toggleCommandMenu: vi.fn(),
     useNotices: bindSnapshotSelector(shell.notices),
     useLexicon: bindSnapshotSelector(shell.lexicon),
+    useMenuLauncher: bindSnapshotSelector(createSnapshotStore<string | null>(null)),
     renderSlot: (() => null) as InputBarProps['renderSlot'],
     stop: vi.fn(),
+    command: () => Promise.resolve(true),
+    // Mirrors the real lookup chain (conversation namespace, then common).
+    t: makeTranslate(zh, commonZh),
     variant: 'composer',
   }
   return render(<InputBar {...props} />)
@@ -78,7 +87,7 @@ describe('matrix row: plain', () => {
     fireEvent.change(textarea, { target: { value: '普通消息' } })
     expect(shell.snapshot.claim).toBeUndefined()
     fireEvent.keyDown(textarea, { key: 'Enter' })
-    expect(sink).toHaveBeenCalledWith('普通消息', 'queue')
+    expect(sink).toHaveBeenCalledWith('普通消息')
     expect(shell.snapshot.phase).toBe('plain')
   })
 })
@@ -89,7 +98,8 @@ describe('matrix row: claimed', () => {
     claim()
     expect(shell.snapshot.claim).toEqual({ token: '/goal ', hint: '目标' })
     expect(view.container.querySelector('[data-decoration="token"]')?.textContent).toBe('/goal ')
-    expect(view.container.querySelector('[data-decoration="hint"]')?.textContent).toBe('目标')
+    // The zh dictionary owns a hint.goal entry, which overrides the raw claim hint (production behavior).
+    expect(view.container.querySelector('[data-decoration="hint"]')?.textContent).toBe('输入目标，智能体将持续执行')
     expect((textarea).readOnly).toBe(false)
     // Free editing beyond the token: hint drops, claim holds.
     fireEvent.change(textarea, { target: { value: '/goal 发布版本' } })
@@ -123,13 +133,12 @@ describe('matrix row: claimed', () => {
 describe('matrix row: submitting', () => {
   it('locks enter, renders pending + read-only, keeps the claim snapshot on the currency', async () => {
     const submit = vi.fn(() => new Promise<SubmitOutcome>(() => {})) // never settles
-    const { view, textarea, shell, sink, claim } = bench({ submit })
+    const { textarea, shell, sink, claim } = bench({ submit })
     claim()
     fireEvent.keyDown(textarea, { key: 'Enter' })
     expect(shell.snapshot.phase).toBe('submitting')
     expect(shell.snapshot.claim).toBeDefined()
     expect((textarea).readOnly).toBe(true)
-    expect(view.container.querySelector('[data-input-pending]')).not.toBeNull()
     // Enter is dead inside the lock (submit dispatch is microtask-deferred).
     await vi.waitFor(() => { expect(submit).toHaveBeenCalledTimes(1) })
     fireEvent.keyDown(textarea, { key: 'Enter' })
@@ -168,7 +177,7 @@ describe('matrix row: locked (session disabled)', () => {
   it('disables the textarea and chrome; the machine currency is untouched', () => {
     const { view, textarea, shell } = bench({ disabled: true })
     expect((textarea).disabled).toBe(true)
-    expect((view.getByLabelText('Add attachment') as HTMLButtonElement).disabled).toBe(true)
+    expect((view.getByLabelText('命令') as HTMLButtonElement).disabled).toBe(true)
     expect(shell.snapshot.phase).toBe('plain')
   })
 
@@ -177,7 +186,7 @@ describe('matrix row: locked (session disabled)', () => {
     expect((textarea).disabled).toBe(false)
     fireEvent.change(textarea, { target: { value: '排队' } })
     fireEvent.keyDown(textarea, { key: 'Enter' })
-    expect(sink).toHaveBeenCalledWith('排队', 'queue')
+    expect(sink).toHaveBeenCalledWith('排队')
   })
 })
 

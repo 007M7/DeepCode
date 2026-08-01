@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { SessionId, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-client-connection/client'
 import { SessionsService } from '../src/client/sessions/service.ts'
 import { WorkspaceManager } from '../src/client/workspaces/manager.ts'
-import { WorkspaceCreateError, WorkspacesService } from '../src/client/workspaces/service.ts'
+import { DirectoryBrowseError, WorkspaceCreateError, WorkspacesService } from '../src/client/workspaces/service.ts'
 import { FakeApiClient, deferred, err, ok } from './fake-api.ts'
 
 const sid = (id: string): SessionId => id as SessionId
@@ -183,6 +183,12 @@ describe('WorkspacesService', () => {
 
     // Unknown workspace fails loud instead of silently creating in nowhere.
     await expect(workspaces.connectWorkspace(wid('ghost'))).rejects.toThrow(/unknown workspace ghost/)
+
+    // An archived blank is never reused: no surface can show it, so New
+    // Session mints a fresh one for alpha instead.
+    await workspaces.archiveSession(sid('s-blank'))
+    api.onCreate = () => Promise.resolve(ok({ sessionId: sid('s-fresh-2') }))
+    await expect(workspaces.connectWorkspace(wid('alpha'))).resolves.toBe('s-fresh-2')
   })
 
   it('a rejected first prompt keeps the blank session eligible for connectWorkspace reuse', async () => {
@@ -234,6 +240,40 @@ describe('WorkspacesService', () => {
     api.onPickDirectory = () => Promise.resolve(ok({ path: null }))
     await expect(workspaces.pickDirectory()).resolves.toBeNull()
     expect(api.callsOf('host.pickDirectory')).toEqual([{}, {}])
+    api.onPickDirectory = () => Promise.resolve(err({ code: 'internal', message: 'no chooser', details: {} }))
+    await expect(workspaces.pickDirectory()).rejects.toThrow(/no chooser/)
+  })
+
+  it('passes listings and creation through the browse wire, wrapping business failures', async () => {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const workspaces = new WorkspacesService(ctx, api, new SessionsService(ctx, api))
+    const listing = { path: '/home/u', home: '/home/u', crumbs: [{ name: '/', path: '/', hidden: false }], entries: [{ name: 'p', path: '/home/u/p', hidden: false }], truncated: false }
+    api.onListDirectory = () => Promise.resolve(ok(listing))
+    await expect(workspaces.listDirectory()).resolves.toEqual(listing)
+    await expect(workspaces.listDirectory('/home/u')).resolves.toEqual(listing)
+    // The optional path is omitted from the payload, not sent as undefined.
+    expect(api.callsOf('host.listDirectory')).toEqual([{}, { path: '/home/u' }])
+    api.onListDirectory = () => Promise.resolve(err({ code: 'directory-unreadable', message: 'denied', details: { path: '/x' } }))
+    const listFailure = workspaces.listDirectory('/x')
+    await expect(listFailure).rejects.toBeInstanceOf(DirectoryBrowseError)
+    await expect(listFailure).rejects.toMatchObject({ rpcError: { code: 'directory-unreadable' } })
+
+    await expect(workspaces.createDirectory('/home/u', 'fresh')).resolves.toBe('/home/fake/new')
+    expect(api.callsOf('host.createDirectory')).toEqual([{ path: '/home/u', name: 'fresh' }])
+    api.onCreateDirectory = () => Promise.resolve(err({ code: 'directory-exists', message: 'taken', details: { path: '/home/u/fresh' } }))
+    await expect(workspaces.createDirectory('/home/u', 'fresh')).rejects.toMatchObject({ rpcError: { code: 'directory-exists' } })
+  })
+
+  it('opens a filesystem path through the host without local state', async () => {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const sessions = new SessionsService(ctx, api)
+    const workspaces = new WorkspacesService(ctx, api, sessions)
+    await expect(workspaces.openPath('/w/alpha/a.ts')).resolves.toBeUndefined()
+    expect(api.callsOf('host.openPath')).toEqual([{ path: '/w/alpha/a.ts' }])
+    api.onOpenPath = () => Promise.resolve(err({ code: 'internal', message: 'boom', details: {} }))
+    await expect(workspaces.openPath('/missing')).rejects.toThrow(/path open failed/)
   })
 
   it('deletes a Workspace or preserves it when the Host rejects deletion', async () => {
@@ -250,5 +290,158 @@ describe('WorkspacesService', () => {
       code: 'workspace-not-found', message: 'gone', details: { workspaceId: 'ghost' },
     }))
     await expect(workspaces.delete(wid('ghost'))).rejects.toThrow(/workspace-not-found: gone/)
+  })
+
+  it('archives a session, projects the set from the response, list, and frame, and clears only the current one', async () => {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const sessions = new SessionsService(ctx, api)
+    const workspaces = new WorkspacesService(ctx, api, sessions)
+    api.onList = () => Promise.resolve(ok({
+      items: [
+        { sessionId: sid('s-open'), updatedAt: 2, running: false, blank: false },
+        { sessionId: sid('s-idle'), updatedAt: 1, running: false, blank: false },
+      ],
+    }) as never)
+    await sessions.refresh()
+    sessions.open(sid('s-open'))
+
+    // Archiving a non-current session installs the unary echo and keeps the selection.
+    await expect(workspaces.archiveSession(sid('s-idle'))).resolves.toBeUndefined()
+    expect(api.callsOf('workspace.archiveSession')).toEqual([{ sessionId: 's-idle' }])
+    expect(workspaces.list.getSnapshot().archivedSessionIds).toEqual(['s-idle'])
+    expect(sessions.list.getSnapshot().current).toBe('s-open')
+
+    // Archiving the current session clears it into the New Session view state.
+    api.onWorkspaceArchiveSession = () => Promise.resolve(ok({ archivedSessionIds: [sid('s-idle'), sid('s-open')] }))
+    await workspaces.archiveSession(sid('s-open'))
+    expect(workspaces.list.getSnapshot().archivedSessionIds).toEqual(['s-idle', 's-open'])
+    expect(sessions.list.getSnapshot().current).toBeUndefined()
+
+    // A Host failure leaves the set and the selection untouched.
+    api.onWorkspaceArchiveSession = () => Promise.resolve(err({
+      code: 'session-not-found', message: 'no session ghost', details: { sessionId: sid('ghost') },
+    }))
+    await expect(workspaces.archiveSession(sid('ghost'))).rejects.toThrow(/session-not-found/)
+    expect(workspaces.list.getSnapshot().archivedSessionIds).toEqual(['s-idle', 's-open'])
+
+    // The changed frame and the list baseline both re-install the full set.
+    workspaces.handleHostEnvelope({
+      rpcId: 'frame' as never,
+      payload: { type: 'host/archived-sessions-changed', archivedSessionIds: [sid('s-idle')] },
+    } as never)
+    // Frame installs ride the notifier's microtask batch before projecting.
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(workspaces.list.getSnapshot().archivedSessionIds).toEqual(['s-idle'])
+    api.onWorkspaceList = () => Promise.resolve(ok({ items: [], archivedSessionIds: [sid('s-open')] }) as never)
+    await workspaces.refresh()
+    expect(workspaces.list.getSnapshot().archivedSessionIds).toEqual(['s-open'])
+  })
+
+  it('clears a current archived by a remote frame and shields the set from a stale in-flight baseline', async () => {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const sessions = new SessionsService(ctx, api)
+    const workspaces = new WorkspacesService(ctx, api, sessions)
+    api.onList = () => Promise.resolve(ok({
+      items: [{ sessionId: sid('s-open'), updatedAt: 1, running: false, blank: false }],
+    }) as never)
+    await sessions.refresh()
+    sessions.open(sid('s-open'))
+
+    // A stale baseline is in flight (older, empty set) when another tab's
+    // archive frame lands: the frame clears the current selection and its
+    // set survives the baseline's later resolution.
+    const gate = deferred<Awaited<ReturnType<FakeApiClient['onWorkspaceList']>>>()
+    api.onWorkspaceList = () => gate.promise
+    const hydration = workspaces.refresh()
+    workspaces.handleHostEnvelope({
+      rpcId: 'frame' as never,
+      payload: { type: 'host/archived-sessions-changed', archivedSessionIds: [sid('s-open')] },
+    } as never)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(sessions.list.getSnapshot().current).toBeUndefined()
+    gate.resolve(ok({ items: [], archivedSessionIds: [] }))
+    await hydration
+    expect(workspaces.list.getSnapshot().archivedSessionIds).toEqual(['s-open'])
+    // The next (fresh) baseline is authoritative again.
+    api.onWorkspaceList = () => Promise.resolve(ok({ items: [], archivedSessionIds: [] }) as never)
+    await workspaces.refresh()
+    expect(workspaces.list.getSnapshot().archivedSessionIds).toEqual([])
+  })
+})
+
+describe('startInitialSelection', () => {
+  function bench() {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const sessions = new SessionsService(ctx, api)
+    const workspaces = new WorkspacesService(ctx, api, sessions)
+    return { api, sessions, workspaces }
+  }
+
+  it('connects the recent Workspace blank session once baselines are ready and opens it', async () => {
+    const b = bench()
+    const stop = b.workspaces.startInitialSelection()
+    // Nothing happens before both baselines land.
+    expect(b.api.callsOf('session.create')).toHaveLength(0)
+
+    b.api.onWorkspaceList = () => Promise.resolve(ok({
+      items: [workspace('recent', [], '2026-01-02T00:00:00.000Z')] as never[],
+    }))
+    b.api.onCreate = () => Promise.resolve(ok({ sessionId: sid('s-new') }))
+    await b.workspaces.refresh()
+    await b.sessions.refresh()
+    // Store notifications and the connect round trip are microtask-batched.
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(b.api.callsOf('session.create')).toEqual([{ workspaceId: 'recent' }])
+    expect(b.sessions.list.getSnapshot().current).toBe('s-new')
+    stop()
+  })
+
+  it('stays idle when a session is already current or no recent Workspace exists', async () => {
+    const withCurrent = bench()
+    withCurrent.api.onList = () => Promise.resolve(ok({
+      items: [{ sessionId: sid('s1'), updatedAt: 1, running: false, blank: false }] as never[],
+    }))
+    await withCurrent.sessions.refresh()
+    withCurrent.sessions.open(sid('s1'))
+    withCurrent.api.onWorkspaceList = () => Promise.resolve(ok({ items: [workspace('w1', [sid('s1')])] as never[] }))
+    const stopCurrent = withCurrent.workspaces.startInitialSelection()
+    await withCurrent.workspaces.refresh()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(withCurrent.api.callsOf('session.create')).toHaveLength(0)
+    stopCurrent()
+
+    const noRecent = bench()
+    const stopEmpty = noRecent.workspaces.startInitialSelection()
+    await noRecent.workspaces.refresh()
+    await noRecent.sessions.refresh()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(noRecent.api.callsOf('session.create')).toHaveLength(0)
+    expect(() => noRecent.workspaces.startInitialSelection()).toThrow(/already started/)
+    stopEmpty()
+  })
+
+  it('a failed connect returns to waiting and retries on the next list change', async () => {
+    const b = bench()
+    b.api.onWorkspaceList = () => Promise.resolve(ok({
+      items: [workspace('recent', [], '2026-01-02T00:00:00.000Z')] as never[],
+    }))
+    b.api.onCreate = () => Promise.resolve(err({ code: 'internal', message: 'attach exploded', details: {} }))
+    const stop = b.workspaces.startInitialSelection()
+    await b.workspaces.refresh()
+    await b.sessions.refresh()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(b.api.callsOf('session.create')).toHaveLength(1)
+    expect(b.sessions.list.getSnapshot().current).toBeUndefined()
+
+    // Recovery: the next workspace-list change re-runs the reconcile.
+    b.api.onCreate = () => Promise.resolve(ok({ sessionId: sid('s-retry') }))
+    await b.workspaces.refresh()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(b.api.callsOf('session.create')).toHaveLength(2)
+    expect(b.sessions.list.getSnapshot().current).toBe('s-retry')
+    stop()
   })
 })

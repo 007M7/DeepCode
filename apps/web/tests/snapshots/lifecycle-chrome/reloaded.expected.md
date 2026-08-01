@@ -1,24 +1,33 @@
 - banner:
-  - navigation "Session hierarchy":
-    - button "Reply with the single word" [disabled]
-    - text: · 1 turns
+  - heading "Reply with the single word" [level=1]
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
-    - tab "Waterfall"
-- text: Reply with the single word LIGHTHOUSE and stop.
+- text: Reply with the single word LIGHTHOUSE and stop. {{clock}}
+- button "Copy":
+  - img
+- button "Branch into a new conversation":
+  - img
+- button "Context injection":
+  - img
+  - img
+  - text: Context injection
 - button "Think The user wants me to reply with a single word. Let me comply.":
+  - img
   - img
   - text: Think The user wants me to reply with a single word. Let me comply.
 - paragraph: LIGHTHOUSE
-- text: cache hit 99% · 7,810 tokens · 1 turns · 1 steps
-- textbox "Message the agent"
-- button "Add attachment":
+- button "Copy":
   - img
-- combobox "Access mode":
-  - option "Read-only" [selected]
-  - option "Read-write"
-- button "选择模型，当前 deepseek-v4-flash":
-  - text: deepseek-v4-flash
+- button "Branch into a new conversation":
+  - img
+- text: {{clock}}
+- textbox "Message the agent"
+- button "Commands":
+  - img
+- 'button "Access mode, current: Workspace Write"': Workspace Write
+- button "Select model, current DeepSeek-V4-Flash":
+  - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
+- text: 1 turns · 1 steps Context 6% of 128K Cache hit 99% Input 7.8K tok · Output 21 tok

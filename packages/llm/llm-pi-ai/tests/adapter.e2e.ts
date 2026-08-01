@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { CallId, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import LlmService, { createUserMessage, CallId, ReasoningEffortId  } from '@deepseek-ai/dsh-llm'
 import type { Message, ToolSchema } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import type { PiAiProviderProfile } from '@deepseek-ai/dsh-llm-pi-ai'
@@ -23,12 +23,13 @@ async function harness(_model: string, config: Partial<PiAiProviderProfile> = {}
   contexts.push(ctx)
   await ctx.plugin(LlmService)
   await ctx.plugin(LlmPiAi, {
-    providers: [{
-      provider: 'deepseek',
-      ...process.env.DEEPSEEK_API_KEY === undefined ? {} : { apiKey: process.env.DEEPSEEK_API_KEY },
-      ...process.env.DEEPSEEK_BASE_URL === undefined ? {} : { baseURL: process.env.DEEPSEEK_BASE_URL },
-      ...config,
-    }],
+    providers: {
+      deepseek: {
+        ...process.env.DEEPSEEK_API_KEY === undefined ? {} : { apiKey: process.env.DEEPSEEK_API_KEY },
+        ...process.env.DEEPSEEK_BASE_URL === undefined ? {} : { baseURL: process.env.DEEPSEEK_BASE_URL },
+        ...config,
+      },
+    },
   })
   return ctx
 }
@@ -38,7 +39,10 @@ afterEach(async () => {
 })
 
 function ask(text: string): Message[] {
-  return [{ role: 'user', content: [{ type: 'text', text }] }]
+  return [createUserMessage({
+    content: [{ type: 'text', text }],
+    source: { kind: 'plugin', plugin: 'test' },
+  })]
 }
 
 function textOf(result: AssembledResult): string {
@@ -122,14 +126,14 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('llm-pi-ai e2e (real API)', () =>
       messages: [
         ...ask('What is the weather in Paris right now? Use the get_weather tool.'),
         first.message,
-        {
-          role: 'user',
+        createUserMessage({
           content: [{
             type: 'tool-result',
             toolCallId: CallId(call!.id),
             content: [{ type: 'text', text: 'Sunny, 22°C' }],
           }],
-        },
+          source: { kind: 'plugin', plugin: 'test' },
+        }),
       ],
       tools: [weatherTool],
       maxTokens: 2000,
@@ -151,7 +155,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('llm-pi-ai e2e (real API)', () =>
 
     const prompt = ask('Reply with exactly the word: pong')
     const [fromDeepSeek, fromPiAi] = await Promise.all([
-      assemble(deepseekCtx, { model: FLASH, messages: prompt, maxTokens: 50 }),
+      assemble(deepseekCtx, { provider: 'deepseek-official', model: FLASH, messages: prompt, maxTokens: 50 }),
       assemble(piCtx, { model: FLASH, messages: prompt, maxTokens: 50 }),
     ])
     expect(blockKinds(fromPiAi)).toEqual(blockKinds(fromDeepSeek))

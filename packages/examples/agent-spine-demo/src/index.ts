@@ -68,9 +68,9 @@ export interface GoalConfig {
 /**
  * Bundle config: each field forwarded verbatim to the child that owns it —
  * `agents` to the agent loop (an app that pre-creates no agents, like the ACP
- * bridge, simply omits it), `persona` and `toolOrder` to the system-prompt
- * plugin (the deployment's persona section and the explicit model-facing tool
- * order), the `tools` object to the tool registry (its presentation `mode`),
+ * bridge, simply omits it), `includeHarnessIdentity`, `persona`, and `toolOrder`
+ * to the system-prompt plugin (the fixed opener, deployment persona, and explicit
+ * model-facing tool order), the `tools` object to the tool registry (its presentation `mode`),
  * `dshHome` to bash environment and local skill discovery, `sessionTitle` to
  * the fallback title service, `skills` to the
  * skill registry/local provider/tool consumer, `workspaceContext` to the
@@ -83,13 +83,16 @@ export interface GoalConfig {
  * workspace context instead requires an explicit byte budget or `false` because
  * it changes model-visible input. Producer opt-in stays producer-local:
  * `toolBash` configures bash only; independently composed producers keep their
- * own config.
+ * own config. Set `toolBash: false` when another plugin owns the model-facing
+ * `bash` name.
  */
 export interface Config {
   /** The agent-loop `agents` list (see dsh-agent-loop's `Config`). */
   agents?: AgentLoopConfig['agents']
   /** Agent-loop concurrency cap; `1` is serial. */
   maxParallelToolCalls?: AgentLoopConfig['maxParallelToolCalls']
+  /** Whether the system prompt includes the fixed Harness identity (default true). */
+  includeHarnessIdentity?: SystemPromptConfig['includeHarnessIdentity']
   /** The deployment persona (see dsh-system-prompt's `Config`). */
   persona?: SystemPromptConfig['persona']
   /** The explicit model-facing tool order (see dsh-system-prompt's `Config`). */
@@ -102,10 +105,14 @@ export interface Config {
   sessionTitle?: SessionTitleConfig
   /** Workspace-context loader controls with an explicit byte budget; set `false` for hermetic prompts. */
   workspaceContext: workspaceContext.Config | false
-  /** Skill registry, local provider, and model-facing consumer config. */
+  /**
+   * Skill registry, local provider, and model-facing consumer config.
+   * Skills use `enabled` because one nested config controls a provider stack;
+   * single model-tool plugins use `Config | false` to disable that one consumer.
+   */
   skills?: SkillConfig
-  /** Model-facing bash tool config, including this producer's background opt-in. */
-  toolBash?: toolBash.Config
+  /** Model-facing bash tool config, or false when another plugin owns `bash`. */
+  toolBash?: toolBash.Config | false
   /** Generic background-task controls; set false to keep the task service without model-facing task tools. */
   toolTasks?: toolTasks.Config | false
   /** Global enablement and package-name filters for invariant companions. */
@@ -127,7 +134,8 @@ export const SessionTitleConfigSchema: z<SessionTitleConfig> = SessionTitleServi
   .default(EXAMPLE_SESSION_TITLE_CONFIG)
 
 /** The bash-tool config schema exported for app packages that forward `toolBash`. */
-export const ToolBashConfigSchema: z<toolBash.Config> = toolBash.Config
+export const ToolBashConfigSchema: z<toolBash.Config | false> =
+  z.union([z.const(false), toolBash.Config])
 
 /** The task-control-tool config schema exported for app packages that forward `toolTasks`. */
 export const ToolTasksConfigSchema: z<toolTasks.Config> = toolTasks.Config
@@ -163,6 +171,7 @@ export const Config = z.intersect([
 export function pickSpineConfig(config: Omit<Config, 'agents'>): Omit<Config, 'agents'> {
   return {
     ...config.maxParallelToolCalls !== undefined ? { maxParallelToolCalls: config.maxParallelToolCalls } : {},
+    ...config.includeHarnessIdentity !== undefined ? { includeHarnessIdentity: config.includeHarnessIdentity } : {},
     ...config.persona !== undefined ? { persona: config.persona } : {},
     ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
     ...config.tools !== undefined ? { tools: config.tools } : {},
@@ -201,6 +210,7 @@ export function apply(ctx: Context, config: Config): void {
   ctx.plugin(SessionTitleService, config.sessionTitle ?? EXAMPLE_SESSION_TITLE_CONFIG)
   // Owner schemas resolve defaults; forward toolOrder only when explicitly set.
   ctx.plugin(SystemPrompt, {
+    includeHarnessIdentity: config.includeHarnessIdentity ?? true,
     persona: config.persona ?? '',
     ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
   })
@@ -223,7 +233,9 @@ export function apply(ctx: Context, config: Config): void {
   ctx.plugin(agentInvariant)
   ctx.plugin(scopeInvariant)
   ctx.plugin(agentLoopInvariant)
-  ctx.plugin(toolBash, Object.assign({}, config.toolBash, { dshHome }))
+  if (config.toolBash !== false) {
+    ctx.plugin(toolBash, Object.assign({}, config.toolBash, { dshHome }))
+  }
   if (config.workspaceContext !== false) {
     ctx.plugin(workspaceContext, config.workspaceContext)
   }

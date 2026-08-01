@@ -1,3 +1,4 @@
+- button "New session"
 - button "Collapse sidebar":
   - img
 - button "New session":
@@ -6,7 +7,7 @@
 - text: Workspaces
 - button "Group by":
   - img
-- button "Create workspace":
+- button "Add workspace":
   - img
 - button "Search sessions":
   - img
@@ -15,25 +16,23 @@
   - treeitem "workspace 1 session" [expanded]:
     - img
     - text: workspace 1 session
-  - treeitem "New Session now" [selected]
-- button "设置":
+  - treeitem "New Session" [selected]
+- button "Settings":
   - img
-  - text: 设置
+  - text: Settings
 - text: Let's start building
 - button "Choose workspace":
   - img
   - text: workspace
   - img
 - textbox "Describe what you want to build"
-- button "Add attachment":
+- button "Commands":
   - img
-- combobox "Access mode":
-  - option "Read-only" [selected]
-  - option "Read-write"
-- button "选择模型，当前 deepseek-v4-flash":
-  - text: deepseek-v4-flash
+- 'button "Access mode, current: Workspace Write"': Workspace Write
+- button "Select model, current DeepSeek-V4-Flash":
+  - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
-- text: 详情
-- button "关闭详情"
-- text: 点击消息流中的工具行查看详情
+- text: Details
+- button "Close details"
+- text: Click a tool row in the message flow to view its details

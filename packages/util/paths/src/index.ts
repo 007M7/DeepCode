@@ -53,6 +53,15 @@ export function resolveDshHome(configured?: string, env: Record<string, string |
 }
 
 /**
+ * Join path segments onto the resolved DeepSeek Harness home.
+ * @param segments - path segments appended to the Harness home; an empty list returns the home itself.
+ * @returns the normalized absolute joined path.
+ */
+export function dshHomePath(...segments: string[]): string {
+  return join(resolveDshHome(), ...segments)
+}
+
+/**
  * Describe a resolved harness home symbolically for user-facing display.
  *
  * It never returns an absolute machine path: the default home is labelled

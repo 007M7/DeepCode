@@ -259,13 +259,16 @@ export function rewriteMarkdown(source: string, options: RewriteMarkdownOptions)
  * Record the canonical edit target in VitePress frontmatter.
  *
  * @param markdown Projected Markdown content.
- * @param sourcePath Repository-relative canonical source path.
- * @returns Markdown with an `editSource` frontmatter field.
+ * @param page Publication manifest entry for the content.
+ * @returns Markdown with projection-owned frontmatter fields.
  */
-export function addProjectionFrontmatter(markdown: string, sourcePath: string): string {
-  const field = `editSource: ${JSON.stringify(sourcePath)}`
-  if (markdown.startsWith('---\n')) return markdown.replace('---\n', `---\n${field}\n`)
-  return `---\n${field}\n---\n\n${markdown}`
+export function addProjectionFrontmatter(markdown: string, page: Pick<DocsPage, 'source' | 'outline'>): string {
+  const fields = [
+    `editSource: ${JSON.stringify(page.source)}`,
+    ...(page.outline === undefined ? [] : [`outline: ${JSON.stringify(page.outline)}`]),
+  ].join('\n')
+  if (markdown.startsWith('---\n')) return markdown.replace('---\n', `---\n${fields}\n`)
+  return `---\n${fields}\n---\n\n${markdown}`
 }
 
 /**
@@ -317,6 +320,6 @@ export function projectDocs(): void {
       repoRoot: root,
       repositoryRef,
     })
-    writeFileSync(output, addProjectionFrontmatter(projectedPageContent(projected, page), page.source))
+    writeFileSync(output, addProjectionFrontmatter(projectedPageContent(projected, page), page))
   }
 }

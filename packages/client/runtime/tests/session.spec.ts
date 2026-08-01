@@ -8,6 +8,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import { Session } from '../src/client/sessions/session.ts'
 import { FakeApiClient, deferred, err, ok } from './fake-api.ts'
@@ -22,9 +23,9 @@ function makeSession(api = new FakeApiClient()): { api: FakeApiClient; session: 
   return { api, session: new Session(SID, api) }
 }
 
-function histResponse(events: SessionEvent[], hasMore = false, todos?: { content: string; status: 'pending' | 'in_progress' | 'completed' }[]) {
+function histResponse(events: SessionEvent[], hasMore = false) {
   // history now returns HistoryEntry[] ({event, view?}); these tests are view-less.
-  return Promise.resolve(ok({ events: entries(events) as never[], hasMore, ...todos === undefined ? {} : { todos } }))
+  return Promise.resolve(ok({ events: entries(events) as never[], hasMore }))
 }
 
 describe('open', () => {
@@ -78,7 +79,7 @@ describe('open', () => {
     gate.resolve(ok({
       events: entries(page) as never[],
       hasMore: false,
-      modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+      modelTarget: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
     }))
     await opening
     const seqs = session.getSnapshot().nodes.map(n => n.seq)
@@ -104,6 +105,43 @@ describe('live event path', () => {
     expect(session.getSnapshot().nodes).toEqual(before.nodes)
   })
 
+  it('materializes a command node from live lifecycle frames and reproduces it from a history window', async () => {
+    // Live path: run mints an executing node, done settles it in the flow.
+    const { session } = await opened()
+    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
+    feed(ev.commandRun(6, 'cmd-live', 'plan'))
+    let command = session.getSnapshot().nodes.at(-1)
+    expect(command).toMatchObject({ kind: 'command', name: 'plan', args: '', outcome: null })
+    feed(ev.commandDone(7, 'cmd-live', 'success', '已进入 plan mode'))
+    command = session.getSnapshot().nodes.at(-1)
+    expect(command).toMatchObject({ kind: 'command', seq: 6, outcome: { kind: 'success', text: '已进入 plan mode' } })
+
+    // Replay path (refresh): the same pair inside the history window folds identically.
+    const replayed = await opened([
+      ...plainTurn(0, 0, 'a', 'b'),
+      ev.commandRun(6, 'cmd-live', 'plan'),
+      ev.commandDone(7, 'cmd-live', 'success', '已进入 plan mode'),
+    ])
+    expect(replayed.session.getSnapshot().nodes.at(-1)).toMatchObject({
+      kind: 'command', seq: 6, name: 'plan', outcome: { kind: 'success', text: '已进入 plan mode' },
+    })
+  })
+
+  it('command lifecycle rows alone keep the composer blank (hero survives a /permission or /plan switch)', async () => {
+    // A fresh session whose only window content is a command pair (plus the
+    // knob events a /permission switch appends — not surface-eligible, so
+    // they never become nodes) stays phase 'blank': selecting a preset from
+    // the hero must not enter the conversation view.
+    const { session } = await opened([])
+    expect(session.getSnapshot().composerPhase).toBe('blank')
+    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
+    feed(ev.commandRun(0, 'cmd-perm', 'permission', ' danger-full-access'))
+    feed(ev.commandDone(1, 'cmd-perm', 'success', 'preset danger-full-access'))
+    const snapshot = session.getSnapshot()
+    expect(snapshot.nodes.at(-1)).toMatchObject({ kind: 'command', name: 'permission' })
+    expect(snapshot.composerPhase).toBe('blank')
+  })
+
   it('accumulates chunks into partial, then finalize swaps partial out as the node lands', async () => {
     const { session } = await opened()
     const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
@@ -124,6 +162,259 @@ describe('live event path', () => {
     expect((last as { interrupted?: true }).interrupted).toBeUndefined()
   })
 
+  it('retracts the failed step partial on retry and keeps a replayable notice before the recovered response', async () => {
+    const { session } = await opened()
+    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
+    const retryTurn = [
+      ev.turnStart(6, 1),
+      ev.user(7, '请重试'),
+      ev.stepStart(8, 1),
+      ev.chunkStart(9, 1),
+      ev.chunkText(10, 1, '不完整回复'),
+      ev.stepEnd(11, 1),
+      ev.retry(12, 1, 0, 1, 2, 450, '连接被重置'),
+      at(13, {
+        type: 'turn/end',
+        data: {
+          turn: 1,
+          reason: {
+            kind: 'error', step: 0,
+            failure: { code: 'TRANSPORT', message: '连接被重置' },
+          },
+        },
+      }),
+      at(14, { type: 'turn/start', data: { turn: 2, trigger: { kind: 'retry' } } }),
+      ev.stepStart(15, 2),
+      ev.assistant(16, 2, '完整回复'),
+      ev.stepEnd(17, 2),
+      ev.turnEnd(18, 2),
+    ]
+    for (const event of retryTurn.slice(0, 7)) feed(event)
+
+    let snapshot = session.getSnapshot()
+    expect(snapshot.partial).toBeNull()
+    expect(snapshot.nodes.at(-1)).toMatchObject({
+      kind: 'model-retry',
+      retryState: 'scheduled',
+      turn: 1,
+      step: 0,
+      provider: 'fake',
+      mode: 'normal',
+      policyKey: 'fake-normal',
+      retry: 1,
+      maxRetries: 2,
+      delayMs: 450,
+      failure: { code: 'TRANSPORT', message: '连接被重置' },
+    })
+    expect(JSON.stringify(snapshot.nodes)).not.toContain('不完整回复')
+
+    for (const event of retryTurn.slice(7)) feed(event)
+    snapshot = session.getSnapshot()
+    expect(snapshot.nodes.slice(-2).map(node => node.kind)).toEqual(['model-retry', 'assistant'])
+    expect(snapshot.nodes.some(node => node.kind === 'turn-error')).toBe(false)
+    expect(snapshot.nodes.at(-2)).toMatchObject({ kind: 'model-retry', retryState: 'started' })
+    expect(snapshot.nodes.at(-1)).toMatchObject({ kind: 'assistant', blocks: [{ kind: 'text', text: '完整回复' }] })
+
+    const replay = makeSession()
+    replay.api.onHistory = () => histResponse([...plainTurn(0, 0, 'a', 'b'), ...retryTurn])
+    await replay.session.open()
+    expect(replay.session.getSnapshot().nodes).toEqual(snapshot.nodes)
+    expect(replay.session.getSnapshot().partial).toBeNull()
+  })
+
+  it('projects unretried terminal failures at turn/end and reproduces them from history', async () => {
+    const { session } = await opened()
+    const feed = (event: SessionEvent) => {
+      session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event })
+    }
+    const failedTurns = [
+      ev.turnStart(6, 1),
+      ev.user(7, '鉴权失败'),
+      at(8, {
+        type: 'turn/end',
+        data: {
+          turn: 1,
+          reason: {
+            kind: 'error',
+            step: 0,
+            failure: {
+              code: 'AUTH',
+              message: 'Authentication Fails, Your api key: sk-preview-secret is invalid',
+            },
+          },
+        },
+      }),
+      ev.turnStart(9, 2),
+      ev.user(10, '内部失败'),
+      at(11, {
+        type: 'turn/end',
+        data: { turn: 2, reason: { kind: 'error', step: 1, message: 'plugin exploded' } },
+      }),
+    ]
+    for (const event of failedTurns) feed(event)
+
+    const errors = session.getSnapshot().nodes.filter(node => node.kind === 'turn-error')
+    expect(errors).toMatchObject([
+      { seq: 8, turn: 1, step: 0, code: 'AUTH', message: 'API key is invalid' },
+      { seq: 11, turn: 2, step: 1, message: 'plugin exploded' },
+    ])
+    expect('code' in errors[1]!).toBe(false)
+
+    const replay = makeSession()
+    replay.api.onHistory = () => histResponse([...plainTurn(0, 0, 'a', 'b'), ...failedTurns])
+    await replay.session.open()
+    expect(replay.session.getSnapshot().nodes).toEqual(session.getSnapshot().nodes)
+  })
+
+  it('rejects retry payloads outside the producer contract without retracting the current partial', async () => {
+    const { session } = await opened()
+    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
+    feed(ev.turnStart(6, 1))
+    feed(ev.chunkStart(7, 1))
+    feed(ev.chunkText(8, 1, '仍在生成'))
+    const valid = {
+      turn: 1, step: 0,
+      provider: 'fake', mode: 'normal', policyKey: 'fake-normal',
+      retry: 1, maxRetries: 2, delayMs: 500,
+      failure: { code: 'TRANSPORT', message: 'temporary failure' },
+    }
+    const invalid = [
+      { ...valid, turn: Number.MAX_SAFE_INTEGER + 1 },
+      { ...valid, step: Number.MAX_SAFE_INTEGER + 1 },
+      { ...valid, provider: '' },
+      { ...valid, policyKey: '' },
+      { ...valid, retry: Number.MAX_SAFE_INTEGER + 1 },
+      { ...valid, maxRetries: Number.MAX_SAFE_INTEGER + 1 },
+      { ...valid, delayMs: -1 },
+      { ...valid, delayMs: Number.POSITIVE_INFINITY },
+      { ...valid, delayMs: MAX_TIMER_DELAY_MS + 1 },
+      { ...valid, failure: { ...valid.failure, message: '' } },
+      { ...valid, failure: { ...valid.failure, code: '' } },
+      { ...valid, failure: { ...valid.failure, status: '429' } },
+      { ...valid, failure: { ...valid.failure, status: 99 } },
+      { ...valid, failure: { ...valid.failure, status: 429.5 } },
+      { ...valid, failure: { ...valid.failure, status: 600 } },
+      { ...valid, failure: { ...valid.failure, providerRetryAfterMs: 0 } },
+      { ...valid, failure: { ...valid.failure, providerRetryAfterMs: Number.POSITIVE_INFINITY } },
+      { ...valid, failure: { ...valid.failure, requestId: 1 } },
+      { ...valid, failure: { ...valid.failure, requestId: '' } },
+    ]
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      for (const [index, data] of invalid.entries()) {
+        feed(at(9 + index, { type: 'llm/retry', data }))
+      }
+      expect(session.getSnapshot().partial?.blocks).toEqual([{ kind: 'text', text: '仍在生成' }])
+      expect(session.getSnapshot().nodes.filter(node => node.kind === 'model-retry')).toEqual([])
+      expect(errorSpy).toHaveBeenCalledTimes(invalid.length)
+      expect(errorSpy).toHaveBeenCalledWith('[web-runtime] ignored malformed llm/retry event at seq 9')
+    } finally {
+      errorSpy.mockRestore()
+    }
+  })
+
+  it('accepts complete retry payloads at the producer field boundaries', async () => {
+    const { session } = await opened()
+    session.handleMuxEnvelope('r' as never, {
+      type: 'session/event',
+      sessionId: SID,
+      event: at(6, {
+        type: 'llm/retry',
+        data: {
+          turn: Number.MAX_SAFE_INTEGER,
+          step: Number.MAX_SAFE_INTEGER,
+          provider: 'fake',
+          mode: 'normal',
+          policyKey: 'fake-normal',
+          retry: Number.MAX_SAFE_INTEGER,
+          maxRetries: Number.MAX_SAFE_INTEGER,
+          delayMs: MAX_TIMER_DELAY_MS,
+          failure: {
+            code: 'RATE_LIMIT',
+            message: 'provider busy',
+            status: 599,
+            providerRetryAfterMs: Number.MIN_VALUE,
+            requestId: 'req-1',
+          },
+        },
+      }),
+    })
+    expect(session.getSnapshot().nodes.at(-1)).toMatchObject({
+      kind: 'model-retry',
+      retryState: 'scheduled',
+      retry: Number.MAX_SAFE_INTEGER,
+      delayMs: MAX_TIMER_DELAY_MS,
+      failure: { status: 599, providerRetryAfterMs: Number.MIN_VALUE, requestId: 'req-1' },
+    })
+  })
+
+  it('projects always-mode retries and rejects mode-specific maximums or unknown modes', async () => {
+    const { session } = await opened()
+    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      feed(at(6, {
+        type: 'llm/retry',
+        data: {
+          turn: 1, step: 0,
+          provider: 'fake', mode: 'always', policyKey: 'fake-always',
+          retry: 3, delayMs: 500,
+          failure: { code: 'TRANSPORT', message: 'retry forever' },
+        },
+      }))
+      expect(session.getSnapshot().nodes.at(-1)).toMatchObject({
+        kind: 'model-retry',
+        retryState: 'scheduled',
+        mode: 'always',
+        retry: 3,
+      })
+
+      feed(at(7, {
+        type: 'llm/retry',
+        data: {
+          turn: 2, step: 0,
+          provider: 'fake', mode: 'always', policyKey: 'fake-always',
+          retry: 4, maxRetries: 4, delayMs: 500,
+          failure: { code: 'TRANSPORT', message: 'unexpected maximum' },
+        },
+      }))
+      feed(at(8, {
+        type: 'llm/retry',
+        data: {
+          turn: 2, step: 0,
+          provider: 'fake', mode: 'sometimes', policyKey: 'fake-unknown',
+          retry: 4, delayMs: 500,
+          failure: { code: 'TRANSPORT', message: 'unknown mode' },
+        },
+      }))
+      expect(session.getSnapshot().nodes.filter(node => node.kind === 'model-retry')).toHaveLength(1)
+      expect(errorSpy).toHaveBeenCalledTimes(2)
+    } finally {
+      errorSpy.mockRestore()
+    }
+  })
+
+  it.each(['aborted', 'disposed'] as const)(
+    'marks a scheduled retry as cancelled when its failed turn ends %s',
+    async (reason) => {
+      const { session } = await opened()
+      const feed = (event: SessionEvent) => {
+        session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event })
+      }
+      feed(ev.turnStart(6, 1))
+      feed(ev.retry(7, 1))
+      expect(session.getSnapshot().nodes.at(-1)).toMatchObject({
+        kind: 'model-retry',
+        retryState: 'scheduled',
+      })
+      feed(ev.turnEnd(8, 1, reason))
+      expect(session.getSnapshot().nodes.at(-1)).toMatchObject({
+        kind: 'model-retry',
+        retryState: 'cancelled',
+      })
+    },
+  )
+
   it('freezes an unfinalized partial into an interrupted node on turn/end (cancel path)', async () => {
     const { session } = await opened()
     const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
@@ -131,7 +422,7 @@ describe('live event path', () => {
     feed(ev.user(7, '要被打断的'))
     feed(ev.chunkStart(8, 1))
     feed(ev.chunkText(9, 1, '说到一半'))
-    feed(ev.turnEnd(10, 1, 'cancelled')) // no assistant/message ever arrives
+    feed(ev.turnEnd(10, 1, 'aborted')) // no assistant/message ever arrives
     const snapshot = session.getSnapshot()
     expect(snapshot.partial).toBeNull()
     const frozen = snapshot.nodes.at(-1)
@@ -150,7 +441,7 @@ describe('live event path', () => {
     expect(session.getSnapshot().runningCalls).toEqual([])
     // Second call never resolves: turn/end freezes it as an error card.
     feed(ev.toolCall(9, 1, 'c2', 'slow_tool', '{}'))
-    feed(ev.turnEnd(10, 1, 'cancelled'))
+    feed(ev.turnEnd(10, 1, 'aborted'))
     const snapshot = session.getSnapshot()
     expect(snapshot.runningCalls).toEqual([])
     expect(snapshot.nodes.at(-1)).toMatchObject({
@@ -158,40 +449,43 @@ describe('live event path', () => {
     })
   })
 
-  it('folds todo/write into snapshot.todos last-write-wins, live and on window replay', async () => {
-    const listA = [{ content: '搭骨架', status: 'completed' as const }, { content: '写组件', status: 'in_progress' as const }]
-    const listB = [{ content: '搭骨架', status: 'completed' as const }, { content: '写组件', status: 'completed' as const }]
+  it('keeps compacted history and adds one marker, live and on replay alike', async () => {
+    // A landed compaction must not erase conversation the reader already saw:
+    // the shadowed messages stay at their own log positions and the checkpoint
+    // contributes one marker after them.
     const { session } = await opened()
-    expect(session.getSnapshot().todos).toEqual([])
     const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
-    feed(ev.todoWrite(6, listA))
-    expect(session.getSnapshot().todos).toEqual(listA)
-    feed(ev.todoWrite(7, listB))
-    expect(session.getSnapshot().todos).toEqual(listB)
-    // Window replay converges on the same last snapshot (history contains both writes).
-    const replayed = makeSession()
-    replayed.api.onHistory = () => histResponse([...plainTurn(0, 0, 'a', 'b'), ev.todoWrite(6, listA), ev.todoWrite(7, listB)])
-    await replayed.session.open()
-    expect(replayed.session.getSnapshot().todos).toEqual(listB)
+    feed(ev.compactSummary(6, '压缩摘要', 1, 3))
+    feed(ev.compactCheckpoint(7, 6, 1, 3))
+    const live = session.getSnapshot().nodes
+    expect(live.map(n => [n.kind, n.seq])).toEqual([['user', 1], ['assistant', 3], ['compaction', 7]])
+    expect(live.at(-1)).toMatchObject({ kind: 'compaction', summary: '压缩摘要' })
+
+    const replayed = await opened([
+      ...plainTurn(0, 0, 'a', 'b'),
+      ev.compactSummary(6, '压缩摘要', 1, 3),
+      ev.compactCheckpoint(7, 6, 1, 3),
+    ])
+    expect(replayed.session.getSnapshot().nodes).toEqual(live)
   })
 
-  it('seeds todos from the tail page projection when the last write precedes the window', async () => {
-    const list = [{ content: '窗口外的计划', status: 'in_progress' as const }]
-    // Cold open: the page window carries NO todo/write; the projection rides the response.
-    const { api, session } = makeSession()
-    api.onHistory = () => histResponse(plainTurn(100, 9, '问', '答'), true, list)
-    await session.open()
-    expect(session.getSnapshot().todos).toEqual(list)
-    // Paging an older window in must not clear the session-level projection.
-    api.onHistory = () => histResponse(plainTurn(94, 8, '旧问', '旧答'), false)
-    await session.loadOlder()
-    expect(session.getSnapshot().todos).toEqual(list)
-    // A later live write still overrides the seeded projection.
-    session.handleMuxEnvelope('r' as never, {
-      type: 'session/event', sessionId: SID,
-      event: ev.todoWrite(106, [{ content: '新计划', status: 'pending' as const }]),
-    })
-    expect(session.getSnapshot().todos).toEqual([{ content: '新计划', status: 'pending' }])
+  it('merges an interrupted frozen node by seq into the log-ordered transcript', async () => {
+    // The transcript array is seq-monotonic, so the frozen node's fractional
+    // seq lands it exactly where it happened — including after a compaction
+    // checkpoint whose own seq is higher than the range it shadowed.
+    const { session } = await opened()
+    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
+    feed(ev.compactSummary(6, '压缩摘要', 1, 3))
+    feed(ev.compactCheckpoint(7, 6, 1, 3))
+    feed(ev.turnStart(8, 1))
+    feed(ev.user(9, '压缩后的提问'))
+    feed(ev.chunkStart(10, 1))
+    feed(ev.chunkText(11, 1, '说到一半'))
+    feed(ev.turnEnd(12, 1, 'aborted'))
+    expect(session.getSnapshot().nodes.map(n => n.kind)).toEqual([
+      'user', 'assistant', 'compaction', 'user', 'assistant',
+    ])
+    expect(session.getSnapshot().nodes.at(-1)).toMatchObject({ interrupted: true })
   })
 
   it('repairs a seq gap by repulling the tail page instead of appending a hole', async () => {
@@ -206,37 +500,6 @@ describe('live event path', () => {
     await Promise.resolve()
     const seqs = session.getSnapshot().nodes.map(n => n.seq)
     expect(seqs).toEqual([1, 3, 7, 9]) // both turns' user/assistant, no hole, no duplicate 9
-  })
-
-  it('gap repair adopts the repull response projection (a missed todo/write outside the new tail page)', async () => {
-    const { api, session } = await opened(plainTurn(0, 0, 'a', 'b')) // tail seq = 5
-    expect(session.getSnapshot().todos).toEqual([])
-    // The missed range contained a todo/write that the repulled page no longer
-    // covers; the response's session-level projection is the only carrier.
-    const current = [{ content: '断线期间写的', status: 'in_progress' as const }]
-    api.onHistory = () => histResponse([...plainTurn(0, 0, 'a', 'b'), ...plainTurn(8, 1, 'c', 'd')], false, current)
-    session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event: ev.assistant(11, 1, 'd') })
-    await vi.waitFor(() => {
-      expect(api.callsOf('session.history').length).toBe(2)
-    })
-    await Promise.resolve()
-    expect(session.getSnapshot().todos).toEqual(current)
-  })
-
-  it('clears the plan when a tail response omits the projection (a write the log never kept)', async () => {
-    // Live write lands, then the host crashes before persisting it: the
-    // authoritative log holds no todo/write, so the resync tail response
-    // carries no projection — an omitted field on a tail request is the empty
-    // list, not a missing carrier, and the rolled-back plan must disappear.
-    const { api, session } = await opened(plainTurn(0, 0, 'a', 'b'))
-    session.handleMuxEnvelope('r' as never, {
-      type: 'session/event', sessionId: SID,
-      event: ev.todoWrite(6, [{ content: '丢失的计划', status: 'in_progress' as const }]),
-    })
-    expect(session.getSnapshot().todos).toEqual([{ content: '丢失的计划', status: 'in_progress' }])
-    api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'))
-    await session.resync()
-    expect(session.getSnapshot().todos).toEqual([])
   })
 })
 
@@ -254,6 +517,30 @@ describe('paging', () => {
     expect(api.callsOf('session.history')).toMatchObject([{}, { beforeSeq: 6 }].map(p => ({ sessionId: SID, ...p })))
     expect(snapshot.hasMore).toBe(false)
     expect(snapshot.nodes.map(n => n.seq)).toEqual([1, 3, 7, 9])
+  })
+
+  it('renders a page whose checkpoint shadows seqs below the window head, logging nothing', async () => {
+    // Pagination no longer spends maxMessages quota on replacement copies, so a
+    // page can carry a compaction checkpoint whose surfaceOp.start lies outside
+    // the window. The old surface fold rejected that range and degraded with a
+    // console error; the log-ordered transcript has no range to resolve.
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse([
+      ev.compactSummary(80, '窗外范围的摘要', 3, 40),
+      ev.compactCheckpoint(81, 80, 3, 40),
+      ev.user(82, '压缩后的新问题'),
+    ], true)
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      await session.open()
+      const snapshot = session.getSnapshot()
+      expect(snapshot.openState).toBe('open')
+      expect(snapshot.nodes.map(n => [n.kind, n.seq])).toEqual([['compaction', 81], ['user', 82]])
+      expect(snapshot.nodes[0]).toMatchObject({ summary: '窗外范围的摘要' })
+      expect(errorSpy).not.toHaveBeenCalled()
+    } finally {
+      errorSpy.mockRestore()
+    }
   })
 
   it('drops a discontinuous older page fail-soft (window unchanged, hasMore cleared)', async () => {
@@ -285,7 +572,7 @@ describe('paging', () => {
     gate.resolve(ok({
       events: entries(plainTurn(0, 0, 'a', 'b')) as never[],
       hasMore: false,
-      modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+      modelTarget: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
     }))
     await Promise.all([first, second])
     expect(api.callsOf('session.history')).toHaveLength(2) // open + one page, not two
@@ -328,6 +615,32 @@ describe('prompt and cancel errors', () => {
     const result = await session.cancel()
     expect(result.ok).toBe(false)
     expect(session.getSnapshot().promptError).toMatchObject({ op: 'stop', error: { code: 'internal' } })
+  })
+})
+
+describe('rename', () => {
+  it('settles the title projection cell from the unary response (higher-seq-wins vs the push frame)', async () => {
+    const { api, session } = makeSession()
+    api.onRename = () => Promise.resolve(ok({ title: '正名', seq: 7 }))
+    const result = await session.rename('  正名  ')
+    expect(result).toMatchObject({ ok: true, value: { title: '正名', seq: 7 } })
+    expect(api.callsOf('session.rename')).toMatchObject([{ sessionId: SID, title: '  正名  ' }])
+    expect(session.projections.faceOf('title').getSnapshot()).toBe('正名')
+    // A stale lower-seq apply (the push-frame path routes into this same
+    // store) must not roll the settled value back.
+    session.projections.apply('title', '旧名', 3)
+    expect(session.projections.faceOf('title').getSnapshot()).toBe('正名')
+  })
+
+  it('returns the business error untouched and folds a transport throw to internal', async () => {
+    const { api, session } = makeSession()
+    api.onRename = () => Promise.resolve(err({ code: 'title-invalid', message: 'empty', details: { sessionId: SID } }))
+    const rejected = await session.rename('   ')
+    expect(rejected).toMatchObject({ ok: false, error: { code: 'title-invalid' } })
+    expect(session.projections.faceOf('title').getSnapshot()).toBeUndefined()
+    api.onRename = () => Promise.reject(new Error('rename transport down'))
+    const folded = await session.rename('x')
+    expect(folded).toMatchObject({ ok: false, error: { code: 'internal' } })
   })
 })
 
@@ -533,7 +846,7 @@ describe('remaining branches', () => {
     const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
     feed(ev.turnStart(6, 1))
     feed(ev.chunkStart(7, 1)) // empty text block only, no delta
-    feed(ev.turnEnd(8, 1, 'cancelled'))
+    feed(ev.turnEnd(8, 1, 'aborted'))
     const snapshot = session.getSnapshot()
     expect(snapshot.partial).toBeNull()
     expect(snapshot.nodes.filter(n => n.kind === 'assistant' && (n as { interrupted?: true }).interrupted)).toEqual([])
@@ -547,7 +860,7 @@ describe('remaining branches', () => {
     feed(ev.turnStart(6, 1))
     feed(ev.toolCall(7, 1, 'turn1-call', 'echo', '{}'))
     feed(ev.toolCall(8, 2, 'turn2-call', 'echo', '{}')) // stray call attributed to a later turn
-    feed(ev.turnEnd(9, 1, 'cancelled'))
+    feed(ev.turnEnd(9, 1, 'aborted'))
     const snapshot = session.getSnapshot()
     expect(snapshot.runningCalls.map(c => c.callId)).toEqual(['turn2-call'])
     expect(snapshot.nodes.at(-1)).toMatchObject({ kind: 'tool-result', callId: 'turn1-call', isError: true })
@@ -575,7 +888,7 @@ describe('remaining branches', () => {
     stale.resolve(ok({
       events: entries(plainTurn(0, 0, '旧', '代')) as never[],
       hasMore: false,
-      modelTarget: { provider: 'deepseek', model: 'stale' },
+      modelTarget: { provider: 'deepseek-official', model: 'stale' },
     })) // success, but its generation is gone
     await Promise.all([opening, resynced])
     expect(session.getSnapshot().nodes.map(n => n.seq)).toEqual([7, 9]) // only the fresh generation's window
@@ -598,7 +911,7 @@ describe('remaining branches', () => {
     secondPull.resolve(ok({
       events: entries([...plainTurn(0, 0, 'a', 'b'), ...plainTurn(6, 1, 'c', 'd')]) as never[],
       hasMore: false,
-      modelTarget: { provider: 'deepseek', model: 'stale' },
+      modelTarget: { provider: 'deepseek-official', model: 'stale' },
     }))
     await Promise.all([opening, resynced])
     expect(session.getSnapshot().openState).toBe('open')
@@ -616,7 +929,7 @@ describe('remaining branches', () => {
     repairPull.resolve(ok({
       events: entries(plainTurn(0, 0, '旧', '页')) as never[],
       hasMore: false,
-      modelTarget: { provider: 'deepseek', model: 'stale' },
+      modelTarget: { provider: 'deepseek-official', model: 'stale' },
     })) // repair result: stale, dropped
     await resynced
     expect(session.getSnapshot().nodes.map(n => n.seq)).toEqual([7, 9])
@@ -641,7 +954,7 @@ describe('remaining branches', () => {
     const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
     feed(ev.turnStart(6, 1))
     feed(at(7, { type: 'assistant/chunk', data: { turn: 1, step: 0, chunk: { type: 'tool-call-delta', index: 0, id: 'c1', name: 'echo', argumentsDelta: '{' } } }))
-    feed(ev.turnEnd(8, 1, 'cancelled'))
+    feed(ev.turnEnd(8, 1, 'aborted'))
     const frozen = session.getSnapshot().nodes.at(-1)
     expect(frozen).toMatchObject({ kind: 'assistant', interrupted: true, blocks: [{ kind: 'tool-call', callId: 'c1' }] })
   })
@@ -661,7 +974,7 @@ describe('remaining branches', () => {
         { event: ev.toolResult(7, 1, 'h1', 'done'), view: { for: 'result', view: { card: 'generic', title: '历史果' } } },
       ] as never[],
       hasMore: false,
-      modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+      modelTarget: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
     }))
     await session.open()
     expect(session.getSnapshot().nodes.at(-1)).toMatchObject({
@@ -731,6 +1044,7 @@ describe('resync', () => {
     expect(snapshot.openState).toBe('open') // stale failure did not settle the fresh generation into error
     expect(snapshot.nodes.map(n => n.seq)).toEqual([7, 9])
   })
+
 })
 
 describe('run_code sub-dispatch indexing', () => {
@@ -844,20 +1158,23 @@ describe('reference stability (the memo contract)', () => {
     await session.open()
     const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
     feed(ev.turnStart(6, 1))
-    feed(ev.toolCall(7, 1, 'c1', 'echo', '{}'))
+    feed(ev.stepStart(7, 1))
+    feed(ev.toolCall(8, 1, 'c1', 'echo', '{}'))
     session.handleMuxEnvelope('ra' as never, { type: 'approval/requested', sessionId: SID, approvalId: 'ap1' as never, toolName: 'rm' })
     const before = session.getSnapshot()
-    // A chunk storm touches partial/nodes only: runningCalls and pending must keep identity.
-    feed(ev.chunkStart(8, 1))
-    feed(ev.chunkText(9, 1, '与工具无关的流式'))
+    // A chunk storm touches partial/nodes only: unrelated projections keep identity.
+    feed(ev.chunkStart(9, 1))
+    feed(ev.chunkText(10, 1, '与工具无关的流式'))
     const after = session.getSnapshot()
     expect(after).not.toBe(before)
     expect(after.runningCalls).toBe(before.runningCalls)
     expect(after.pending).toBe(before.pending)
     // And a mutation on the tracked domain swaps that array.
-    feed(ev.toolResult(10, 1, 'c1', 'ECHO'))
+    feed(ev.toolResult(11, 1, 'c1', 'ECHO'))
     const resolved = session.getSnapshot()
     expect(resolved.runningCalls).not.toBe(after.runningCalls)
     expect(resolved.pending).toBe(after.pending)
+    feed(ev.assistant(12, 1, '完成'))
+    expect(session.getSnapshot()).not.toBe(resolved)
   })
 })

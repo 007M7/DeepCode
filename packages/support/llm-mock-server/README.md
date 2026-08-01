@@ -26,7 +26,7 @@ DEEPSEEK_API_KEY=mock-key \
 pnpm run demo:headless "test provider recovery"
 ```
 
-The built package also exposes `dsh-llm-mock-server`. Stdout is JSONL: a `ready` record carries the `/v1` base URL and random seed, followed by request/result records that name both the scripted behavior and the concrete selected behavior.
+The repository script writes JSONL to stdout: a `ready` record carries the `/v1` base URL and random seed, followed by request/result records that name both the scripted behavior and the concrete selected behavior. The private support package exposes no installable binary.
 
 ## Behavior script
 

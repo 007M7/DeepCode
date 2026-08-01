@@ -1,22 +1,35 @@
-// MessageItem: the four simple node kinds — user bubble (right-aligned, with
-// copy / branch / edit IconActions), steering (badged bubble), context
-// injection and unknown-surface JSON rows. Props are frozen node slices off
-// the snapshot cache; memo holds across streaming because unchanged nodes
-// keep their references.
+// MessageItem: simple chat nodes — user bubble (right-aligned, with
+// clock + copy / branch IconActions), steering (same bubble, no actions),
+// context injection, compaction marker, retry disclosure, and
+// unknown-surface JSON rows.
 
-import { memo, useCallback } from 'react'
+import { memo, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import type {
-  ContextMessageNode, SteeringMessageNode, UnknownSurfaceNode, UserMessageNode,
+  CompactionSummaryNode, ContextMessageNode, ModelRetryNode, SteeringMessageNode,
+  TurnErrorNode, UnknownSurfaceNode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import {
-  IconBranchOutline16, IconCopyOutline16, IconEditOutline16,
-  JsonBlock, MessageText, Tooltip,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+import { JsonBlock, MessageText, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { ChatViewSlotProps } from '../contract/slots.ts'
+import { CompactionItem } from './CompactionItem.tsx'
+import { ContextInjectionRow } from './ContextInjectionRow.tsx'
+import { MessageIconActions } from './MessageIconActions.tsx'
 import css from './MessageItem.module.css'
 
 export interface MessageItemProps {
-  node: UserMessageNode | SteeringMessageNode | ContextMessageNode | UnknownSurfaceNode
+  node:
+    | UserMessageNode
+    | SteeringMessageNode
+    | ContextMessageNode
+    | CompactionSummaryNode
+    | ModelRetryNode
+    | TurnErrorNode
+    | UnknownSurfaceNode
+  retryActive?: boolean
+  /** Fork the session through the turn containing this message (user-bubble branch action). */
+  onFork?: (seq: number) => void
+  /** The owning view's locale seat, passed down as a plain prop. */
+  t: ChatViewSlotProps['t']
 }
 
 function contentText(content: readonly unknown[]): { text: string; rest: unknown[] } {
@@ -30,40 +43,96 @@ function contentText(content: readonly unknown[]): { text: string; rest: unknown
   return { text: texts.join(''), rest }
 }
 
-/** Best-effort clipboard write; rejections stay swallowed (no success chrome). */
-async function writeClipboard(text: string): Promise<void> {
-  // lib.dom types clipboard non-optional, but insecure contexts omit it —
-  // that runtime gap is exactly what this guard detects.
-  /* eslint-disable-next-line @typescript-eslint/no-unnecessary-condition */
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text)
-    } catch {
-      // Denied permissions / iframe policy.
+function retrySeconds(milliseconds: number): number {
+  return Math.max(1, Math.ceil(milliseconds / 1_000))
+}
+
+interface RetryCountdown {
+  deadline: number
+  seconds: number
+}
+
+function ModelRetryItem({ node, active, t }: {
+  node: ModelRetryNode
+  active: boolean
+  t: ChatViewSlotProps['t']
+}) {
+  // Anchor the host-scheduled delay to this browser's first render of the
+  // retry node. Host event time and Date.now() may belong to different clocks.
+  const deadline = useMemo(() => Date.now() + node.delayMs, [node.delayMs, node.seq])
+  const scheduledSeconds = retrySeconds(node.delayMs)
+  const maximum = node.mode === 'normal' ? node.maxRetries : '∞'
+  const [countdown, setCountdown] = useState<RetryCountdown>(() => ({
+    deadline,
+    seconds: retrySeconds(deadline - Date.now()),
+  }))
+  const remainingSeconds = countdown.deadline === deadline
+    ? countdown.seconds
+    : retrySeconds(deadline - Date.now())
+
+  useEffect(() => {
+    if (!active) return
+    const updateCountdown = (): number => {
+      const next = retrySeconds(deadline - Date.now())
+      setCountdown(current => (
+        current.deadline === deadline && current.seconds === next
+          ? current
+          : { deadline, seconds: next }
+      ))
+      return next
     }
-    return
-  }
-  // execCommand('copy') is the only clipboard fallback where the async API
-  // is missing (insecure contexts); deprecated but deliberately retained.
-  /* eslint-disable @typescript-eslint/no-deprecated */
-  const exec = typeof document.execCommand === 'function'
-    ? document.execCommand.bind(document)
-    : undefined
-  if (exec === undefined) return
-  const el = document.createElement('textarea')
-  el.value = text
-  el.setAttribute('readonly', '')
-  el.style.position = 'fixed'
-  el.style.left = '-9999px'
-  document.body.appendChild(el)
-  el.select()
-  try {
-    exec('copy')
-  } catch {
-    // Clipboard unavailable; the button stays idle.
-  }
-  /* eslint-enable @typescript-eslint/no-deprecated */
-  el.remove()
+    if (updateCountdown() === 1) return
+    const timer = window.setInterval(() => {
+      if (updateCountdown() === 1) window.clearInterval(timer)
+    }, 250)
+    return () => { window.clearInterval(timer) }
+  }, [active, deadline])
+
+  const label = active
+    ? t('message.retry.active')
+    : node.retryState === 'cancelled'
+      ? t('message.retry.cancelled')
+      : node.retryState === 'started'
+        ? t('message.retry.started')
+        : t('message.retry.scheduled')
+  const seconds = active ? remainingSeconds : scheduledSeconds
+
+  return (
+    <details className={css.retryRow} data-active={active || undefined}>
+      <summary className={css.retrySummary}>
+        <span className={css.retryText} role="status">
+          {t('message.retry.status', { label, retry: node.retry, maximum, seconds })}
+        </span>
+      </summary>
+      <div className={css.retryDetails}>
+        <div>
+          <span className={css.retryDetailLabel}>{t('message.retry.delay')}</span>
+          {Math.round(node.delayMs)}ms
+        </div>
+        <div>
+          <span className={css.retryDetailLabel}>{t('message.retry.failure')}</span>
+          {node.failure.message}
+        </div>
+      </div>
+    </details>
+  )
+}
+
+/** Persistent, turn-positioned feedback for a terminal failure. */
+function TurnErrorItem({ node, t }: {
+  node: TurnErrorNode
+  t: ChatViewSlotProps['t']
+}) {
+  return (
+    <div className={css.turnErrorRow} role="status">
+      <StateDot state="error" className={css.turnErrorDot} />
+      <div className={css.turnErrorCopy}>
+        <span className={css.turnErrorTitle}>{t('message.turnError')}</span>
+        <span className={css.turnErrorMessage}>{node.message}</span>
+      </div>
+      {node.code !== undefined && <code className={css.turnErrorCode}>{node.code}</code>}
+    </div>
+  )
 }
 
 /**
@@ -98,68 +167,66 @@ function projectUserText(text: string): ReactNode {
   return <>{parts}</>
 }
 
-/** User-bubble IconActions (figma 659:38820): copy is live; branch/edit are chrome stubs. */
-function UserActions({ text }: { text: string }) {
-  const onCopy = useCallback(() => {
-    void writeClipboard(text)
-  }, [text])
+/** Right-aligned bubble shared by user and steering rows (steering has no actions). */
+function UserStyleBubble({
+  content, actions, t,
+}: {
+  content: readonly unknown[]
+  /** Optional IconActions (or similar) below the bubble; receives the joined text. */
+  actions?: (text: string) => ReactNode
+  t: ChatViewSlotProps['t']
+}): ReactNode {
+  const { text, rest } = contentText(content)
+  const truncated = (total: number): string => t('json.truncated', { total })
   return (
-    <div className={css.actions}>
-      <Tooltip label="复制" side="bottom">
-        <button type="button" className={css.action} aria-label="复制" onClick={onCopy}>
-          <IconCopyOutline16 />
-        </button>
-      </Tooltip>
-      <Tooltip label="在新对话中分支" side="bottom">
-        <button type="button" className={css.action} aria-label="在新对话中分支">
-          <IconBranchOutline16 />
-        </button>
-      </Tooltip>
-      <Tooltip label="编辑" side="bottom">
-        <button type="button" className={css.action} aria-label="编辑">
-          <IconEditOutline16 />
-        </button>
-      </Tooltip>
+    <div className={css.userRow}>
+      <div className={css.bubble}>
+        {projectUserText(text)}
+        {rest.map((block, i) => <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />)}
+      </div>
+      {actions?.(text)}
     </div>
   )
 }
 
-export const MessageItem = memo(function MessageItem({ node }: MessageItemProps) {
+export const MessageItem = memo(function MessageItem({
+  node, retryActive = false, onFork, t,
+}: MessageItemProps) {
+  const truncated = (total: number): string => t('json.truncated', { total })
   switch (node.kind) {
-    case 'user': {
-      const { text, rest } = contentText(node.content)
+    case 'user':
       return (
-        <div className={css.userRow}>
-          <div className={css.bubble}>
-            {projectUserText(text)}
-            {rest.map((block, i) => <JsonBlock key={i} label="附加内容块" payload={block} />)}
-          </div>
-          <UserActions text={text} />
-        </div>
+        <UserStyleBubble
+          content={node.content}
+          t={t}
+          actions={text => (
+            <MessageIconActions
+              text={text}
+              time={node.time}
+              clock="start"
+              onBranch={onFork === undefined ? undefined : () => { onFork(node.seq) }}
+              className={css.actions}
+              t={t}
+            />
+          )}
+        />
       )
-    }
-    case 'steering': {
-      const { text, rest } = contentText(node.content)
-      return (
-        <div className={css.userRow}>
-          <div className={css.bubble}>
-            <span className={css.badge}>插话</span>
-            {projectUserText(text)}
-            {rest.map((block, i) => <JsonBlock key={i} label="附加内容块" payload={block} />)}
-          </div>
-        </div>
-      )
-    }
+    case 'steering':
+      return <UserStyleBubble content={node.content} t={t} />
     case 'context':
       return (
-        <div className={css.contextRow}>
-          <JsonBlock label="上下文注入" payload={{ content: node.content, source: node.source }} />
-        </div>
+        <ContextInjectionRow content={node.content} source={node.source} t={t} />
       )
+    case 'compaction':
+      return <CompactionItem node={node} t={t} />
+    case 'model-retry':
+      return <ModelRetryItem node={node} active={retryActive} t={t} />
+    case 'turn-error':
+      return <TurnErrorItem node={node} t={t} />
     default:
       return (
         <div className={css.contextRow}>
-          <JsonBlock label={`未知 surface 事件：${node.type}`} payload={node.data} />
+          <JsonBlock label={t('message.unknownSurface', { type: node.type })} payload={node.data} truncatedLabel={truncated} />
         </div>
       )
   }

@@ -8,6 +8,7 @@
 import type { Context } from 'cordis'
 import { resolve } from 'node:path'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { carrierKeyOf, type Scoped } from '@deepseek-ai/dsh-scope'
 import { findLastMessageTurnEnd, SessionId, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import type SubagentService from '@deepseek-ai/dsh-subagent'
@@ -54,8 +55,9 @@ function successStatus(reason: string, options: HarnessSdkServerOptions): 'ok' |
  */
 export class HarnessSdkServer {
   private cwd = process.cwd()
-  private provider = 'deepseek'
-  private model = 'deepseek'
+  private provider = 'deepseek-official'
+  private model = 'deepseek-official'
+  private maxTokens: number | undefined
   private llmFiber: { dispose(): Promise<void> } | undefined
   private readonly sessions = new Map<string, SessionRecord>()
   private readonly sessionCreations = new Map<string, Promise<SessionRecord>>()
@@ -113,11 +115,16 @@ export class HarnessSdkServer {
    * @returns server identity for the handshake.
    */
   async initialize(params: InitializeParams): Promise<InitializeResult> {
+    if (params.maxTokens !== undefined
+      && (!Number.isSafeInteger(params.maxTokens) || params.maxTokens <= 0)) {
+      throw new TypeError('initialize maxTokens must be a positive safe integer')
+    }
     this.cwd = resolve(params.cwd)
     this.provider = params.provider
     this.model = params.model
+    this.maxTokens = params.maxTokens
     if (!this.hasAdapterFor(this.provider)) {
-      if (this.provider !== 'deepseek') throw new Error(`no adapter registered for provider "${this.provider}"`)
+      if (this.provider !== 'deepseek-official') throw new Error(`no adapter registered for provider "${this.provider}"`)
       this.llmFiber = await this.ctx.plugin(LlmDeepSeek, {})
     }
     return { serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' } }
@@ -140,7 +147,7 @@ export class HarnessSdkServer {
     rec.activePrompt = true
     try {
       rec.lastTurnEnd = undefined
-      rec.handle.agent.followup({ content: params.contentBlocks, source: { kind: 'user' } })
+      rec.handle.agent.followup(createUserMessage({ content: params.contentBlocks, source: { kind: 'user' } }))
       await rec.handle.agent.whenIdle()
       const payload: SessionFinishedNotification = {
         sessionId: params.sessionId,
@@ -231,7 +238,11 @@ export class HarnessSdkServer {
     const handle = await this.ctx.agents.create({
       sessionId: SessionId(sessionId),
       meta: { cwd: this.cwd },
-      agentOptions: { provider: this.provider, model: this.model },
+      agentOptions: {
+        provider: this.provider,
+        model: this.model,
+        ...this.maxTokens === undefined ? {} : { maxTokens: this.maxTokens },
+      },
     })
     const rec: SessionRecord = { handle, lastTurnEnd: undefined, activePrompt: false }
     this.sessions.set(sessionId, rec)

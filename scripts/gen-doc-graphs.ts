@@ -8,7 +8,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, relative, resolve } from 'node:path'
 import ts from 'typescript'
-import { collectEvents, collectServices } from './gen-cordis-catalog.ts'
+import { projectCordisCatalog } from '@deepseek-ai/dsh-typert-generator'
+import { CORDIS_CATALOG_POLICY } from './gen-cordis-catalog.ts'
+import type { EventEntry, ServiceEntry } from '@deepseek-ai/dsh-typert-generator'
 import {
   collectPackageGraph,
   escapeMermaidLabel as escLabel,
@@ -46,9 +48,13 @@ interface EventRelation {
   listeners: Set<string>
 }
 
-interface PackageSource {
+/** One scanned package source file and its owning package short name. */
+export interface PackageSource {
+  /** Repository-relative path. */
   rel: string
+  /** Package short name from the `packages/<group>/<pkg>/src` path. */
   pkg: string
+  /** The bound program source file. */
   sourceFile: ts.SourceFile
 }
 
@@ -58,6 +64,7 @@ const GROUP_ORDER = [
   'util',
   'llm',
   'core',
+  'typert',
   'goal',
   'process',
   'bash',
@@ -129,6 +136,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Companion subpaths register owner-local checks; the service owns selection, uniqueness, child fibers, and package-attributed failures.',
   },
   {
+    key: 'typert',
+    pkg: 'typert-registry',
+    title: 'Runtime type registry',
+    mode: 'core',
+    consumers: ['typert-loader'],
+    note: 'Plugins register live zod contributions directly or through dsh-typert-loader; runtime consumers query schemas and reflection metadata at their own edges.',
+  },
+  {
     key: 'sessionPersistence',
     pkg: 'session-persistence',
     title: 'Durable session persistence seam',
@@ -136,6 +151,24 @@ const SERVICE_ROLES: ServiceRole[] = [
     implementations: ['session-persistence-jsonl', 'session-persistence-sqlite'],
     consumers: ['agent-loop', 'tool-bash', 'hooks-claude', 'hooks-codex', 'session-query', 'session-query-sqlite'],
     note: 'Backends persist the same SessionEvent vocabulary; apps choose a backend at composition time.',
+  },
+  {
+    key: 'settings',
+    pkg: 'settings',
+    title: 'User-settings seam',
+    mode: 'seam',
+    implementations: ['settings-local'],
+    consumers: ['llm-deepseek', 'llm-pi-ai', 'apiproxy'],
+    note: 'Plugins register namespace schemas and resolve layered values; providers store the raw document. The LLM adapters register their entry config as the composition base under the user section; the web gateway serves redacted layered descriptors and writes the user layer.',
+  },
+  {
+    key: 'credentials',
+    pkg: 'credentials',
+    title: 'Credential seam',
+    mode: 'seam',
+    implementations: ['credentials-local'],
+    consumers: ['llm-deepseek', 'llm-pi-ai', 'apiproxy'],
+    note: 'Configuration carries references to secrets; providers own the values. Consumers resolve per operation, so a rotated credential reaches the very next request; the web gateway exposes value-free views and write-only storage.',
   },
   {
     key: 'telemetry',
@@ -235,6 +268,22 @@ const SERVICE_ROLES: ServiceRole[] = [
     mode: 'core',
     consumers: ['tui'],
     note: 'Plugins register direct human commands; TUI consumes the effective per-agent catalog without sending invocations to the model.',
+  },
+  {
+    key: 'sessionProjections',
+    pkg: 'session-projection',
+    title: 'Session projection units',
+    mode: 'core',
+    consumers: ['tool-todo', 'session-title', 'host-apiproxy'],
+    note: 'Domains register state-driven fold units; the eager drive keeps per-session watermark states and api-proxy serves baselines and pushes changed values.',
+  },
+  {
+    key: 'sessionProjectionCache',
+    pkg: 'session-projection-cache',
+    title: 'Persisted projection cache',
+    mode: 'core',
+    consumers: ['host-apiproxy'],
+    note: 'Durably checkpoints projection unit states per session (throttled + turn/end/detach mandatory points) and serves the cold-read ladder: cache row + persistence tail replay, so listings never load full logs.',
   },
   {
     key: 'tui',
@@ -409,6 +458,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'The backend saves oversized tool text and returns a model-facing locator plus retrieval hint; spill-policy is the tools/post-execute consumer that decides when to spill.',
   },
   {
+    key: 'directoryPicker',
+    pkg: 'directory-picker',
+    title: 'Workspace-directory picking seam',
+    mode: 'seam',
+    implementations: ['directory-picker-native', 'directory-picker-browse'],
+    consumers: ['apiproxy'],
+    note: 'Discriminated interaction capability: the native backend opens one OS chooser on the host display, the browse backend serves listing/creation primitives for the in-app browser; dual-face backends fill ui-workspace directory-flow slots from their browser halves (no wire advertisement).',
+  },
+  {
     key: 'httpServer',
     pkg: 'webserver',
     title: 'HTTP route registration',
@@ -482,8 +540,8 @@ function tableCell(value: string): string {
   return value.replace(/\|/g, '\\|').replace(/\n/g, '<br>')
 }
 
-function assertServiceRolesComplete(): void {
-  const discovered = new Set(collectServices().map(service => service.key))
+function assertServiceRolesComplete(services: readonly ServiceEntry[]): void {
+  const discovered = new Set(services.map(service => service.key))
   const classified = new Set(SERVICE_ROLES.map(role => role.key))
   const missing = [...discovered].filter(key => !classified.has(key)).sort()
   const stale = [...classified].filter(key => !discovered.has(key)).sort()
@@ -495,8 +553,8 @@ function assertServiceRolesComplete(): void {
   }
 }
 
-function renderCapabilitySeams(pkgs: Pkg[]): string {
-  assertServiceRolesComplete()
+function renderCapabilitySeams(pkgs: Pkg[], services: readonly ServiceEntry[]): string {
+  assertServiceRolesComplete(services)
   const pkgsByShort = new Map(pkgs.map(pkg => [pkg.short, pkg]))
   const maintenance = 'hybrid: services are discovered from Cordis declarations; interface/implementation/consumer roles are classified in `scripts/gen-doc-graphs.ts` with a completeness guard'
   const nodes = new Map<string, string>()
@@ -569,11 +627,11 @@ function stripYamlScalar(value: string): string {
 const APP_EXAMPLES = [
   {
     id: 'tui',
-    rel: 'examples/tui-agent/composition.md',
+    rel: 'apps/cli/composition.md',
     title: 'TUI Agent App Composition',
-    label: 'examples/tui-agent',
-    config: 'examples/tui-agent/cordis.yml',
-    summary: 'The TUI agent combines the real DeepSeek adapter, coding tools, compaction, subagents, and workflows with the full-screen terminal app package.',
+    label: 'apps/cli/config',
+    config: 'apps/cli/config/base.cordis.yml',
+    summary: 'The TUI surface combines the shared CLI base with its surface overlay and full-screen terminal package.',
   },
   {
     id: 'headless',
@@ -582,14 +640,6 @@ const APP_EXAMPLES = [
     label: 'examples/headless-agent',
     config: 'examples/headless-agent/cordis.yml',
     summary: 'The headless demo combines the real DeepSeek adapter and coding capabilities with the one-shot app package, format-pure stdout, and one fresh persisted top-level session.',
-  },
-  {
-    id: 'cordis',
-    rel: 'examples/cordis-agent/composition.md',
-    title: 'Cordis Agent App Composition',
-    label: 'examples/cordis-agent',
-    config: 'examples/cordis-agent/cordis.yml',
-    summary: 'The self-referential demo puts @deepseek-ai/dsh-tool-cordis on the coding spine, letting the agent inspect its current-process runtime and mount or unmount in-memory temporary Plugins.',
   },
   {
     id: 'acp',
@@ -655,13 +705,26 @@ function renderAppComposition(example: AppExample): string {
   return lines.join('\n')
 }
 
+type CallSiteIndex = Map<ts.SignatureDeclaration | ts.JSDocSignature, ts.CallExpression[]>
+
+/**
+ * The only method names visitSource classifies; receiver typing runs on these
+ * alone. Obligation: every method name matched by a branch inside visitSource
+ * must appear here — the prefilter drops non-members before any branch runs,
+ * so a branch for an unlisted name is silently dead.
+ */
+const EVENT_API_METHODS = new Set(['on', 'once', 'emit', 'parallel', 'serial', 'waterfall', 'dispatch'])
+
 /** Collect event dispatch/listener relations from real cross-file receiver types. */
-class EventRelationCollector {
+export class EventRelationCollector {
   private readonly relations = new Map<string, EventRelation>()
-  private readonly callSites = new Map<ts.SignatureDeclaration | ts.JSDocSignature, ts.CallExpression[]>()
+  private readonly fileCallSites = new Map<ts.SourceFile, CallSiteIndex>()
+  private readonly localCalleeProofs = new Map<ts.FunctionDeclaration, boolean>()
+  private globalCallSites: CallSiteIndex | null = null
   private readonly contextType: ts.Type
   private readonly agentDispatchType: ts.Type
   private readonly eventsServiceType: ts.Type
+  private readonly packageSourceFiles: ReadonlySet<ts.SourceFile>
 
   constructor(
     private readonly project: TypeScriptProject,
@@ -670,7 +733,7 @@ class EventRelationCollector {
     this.contextType = this.declaredType('vendor/cordis/src/context.ts', 'Context')
     this.agentDispatchType = this.declaredType('packages/core/agent/src/dispatch.ts', 'AgentEventDispatch')
     this.eventsServiceType = this.declaredType('vendor/cordis/src/events.ts', 'EventsService')
-    this.indexCallSites()
+    this.packageSourceFiles = new Set(sources.map(source => source.sourceFile))
   }
 
   /** Return all event relations discovered from the Program. */
@@ -690,20 +753,88 @@ class EventRelationCollector {
     return this.project.checker.getDeclaredTypeOfSymbol(symbol)
   }
 
-  /** Index resolved local function calls for narrow argument-flow recovery. */
-  private indexCallSites(): void {
+  /** Index resolved function calls in the given files for narrow argument-flow recovery. */
+  private buildCallSiteIndex(files: Iterable<ts.SourceFile>): CallSiteIndex {
+    const index: CallSiteIndex = new Map()
     const visit = (node: ts.Node): void => {
       if (ts.isCallExpression(node)) {
         const declaration = this.project.checker.getResolvedSignature(node)?.declaration
         if (declaration) {
-          const calls = this.callSites.get(declaration) ?? []
+          const calls = index.get(declaration) ?? []
           calls.push(node)
-          this.callSites.set(declaration, calls)
+          index.set(declaration, calls)
         }
       }
       ts.forEachChild(node, visit)
     }
-    for (const source of this.sources) visit(source.sourceFile)
+    for (const file of files) visit(file)
+    return index
+  }
+
+  /**
+   * Return every indexed call resolving to one local helper declaration.
+   * Fast path: when every same-file reference to the non-exported helper is
+   * provably a direct callee, module scoping confines all of its calls to that
+   * file, so only that file is indexed. Any other reference shape may alias
+   * the function value outward, so the original full package-source index
+   * decides instead.
+   */
+  private callSitesFor(owner: ts.FunctionDeclaration): ts.CallExpression[] {
+    if (!this.globalCallSites && !this.provenLocalCallee(owner)) {
+      this.globalCallSites = this.buildCallSiteIndex(this.packageSourceFiles)
+    }
+    if (this.globalCallSites) return this.globalCallSites.get(owner) ?? []
+    const file = owner.getSourceFile()
+    let index = this.fileCallSites.get(file)
+    if (!index) {
+      index = this.buildCallSiteIndex([file])
+      this.fileCallSites.set(file, index)
+    }
+    return index.get(owner) ?? []
+  }
+
+  /**
+   * Prove every same-file reference to one helper is a direct callee. The
+   * proof owns its premises: an exported helper or a helper in a global
+   * script file (no import/export means program-wide scope, callable from
+   * another file with no same-file reference at all) fails immediately.
+   * Alias escapes (re-export statements, default exports, value reads)
+   * resolve back to the owner symbol at a non-callee position and fail the
+   * proof, as does anything the scan cannot positively classify.
+   */
+  private provenLocalCallee(owner: ts.FunctionDeclaration): boolean {
+    const cached = this.localCalleeProofs.get(owner)
+    if (cached !== undefined) return cached
+    if (hasExportModifier(owner) || !ts.isExternalModule(owner.getSourceFile())) {
+      this.localCalleeProofs.set(owner, false)
+      return false
+    }
+    const name = owner.name
+    const ownerSymbol = name && this.project.checker.getSymbolAtLocation(name)
+    let proven = !!ownerSymbol
+    const refersToOwner = (identifier: ts.Identifier): boolean => {
+      // Shorthand properties resolve to the property symbol; ask for the value side.
+      const local = ts.isShorthandPropertyAssignment(identifier.parent)
+        ? this.project.checker.getShorthandAssignmentValueSymbol(identifier.parent)
+        : this.project.checker.getSymbolAtLocation(identifier)
+      if (!local) return false
+      const symbol = local.flags & ts.SymbolFlags.Alias
+        ? this.project.checker.getAliasedSymbol(local)
+        : local
+      return symbol === ownerSymbol
+    }
+    const visit = (node: ts.Node): void => {
+      if (!proven) return
+      if (ts.isIdentifier(node) && node !== name && node.text === name?.text
+        && !isDirectCallee(node) && refersToOwner(node)) {
+        proven = false
+        return
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(owner.getSourceFile())
+    this.localCalleeProofs.set(owner, proven)
+    return proven
   }
 
   /** Walk one package source file and classify event API calls by receiver type. */
@@ -717,7 +848,7 @@ class EventRelationCollector {
               this.addDispatcher(name, source.pkg, 'emitAgentEvent')
             }
           }
-        } else if (ts.isPropertyAccessExpression(node.expression)) {
+        } else if (ts.isPropertyAccessExpression(node.expression) && EVENT_API_METHODS.has(node.expression.name.text)) {
           const receiverKind = this.receiverKind(node.expression.expression)
           const method = node.expression.name.text
           if (receiverKind === 'events-service' && method === 'dispatch') {
@@ -820,7 +951,7 @@ class EventRelationCollector {
     const index = owner.parameters.indexOf(parameter)
     if (index < 0) return new Set()
     const events = new Set<string>()
-    for (const call of this.callSites.get(owner) ?? []) {
+    for (const call of this.callSitesFor(owner)) {
       const argument = call.arguments[index]
       if (argument) addAll(events, this.eventNamesFromArgumentList(argument, new Set(seen)))
     }
@@ -865,6 +996,21 @@ class EventRelationCollector {
     methods.add(method)
     relation.dispatchers.set(pkg, methods)
   }
+}
+
+/** Return whether an identifier is the callee of a call, seen through value-preserving wrappers. */
+function isDirectCallee(identifier: ts.Identifier): boolean {
+  let current: ts.Node = identifier
+  while (
+    ts.isParenthesizedExpression(current.parent)
+    || ts.isAsExpression(current.parent)
+    || ts.isTypeAssertionExpression(current.parent)
+    || ts.isNonNullExpression(current.parent)
+    || ts.isSatisfiesExpression(current.parent)
+  ) {
+    current = current.parent
+  }
+  return ts.isCallExpression(current.parent) && current.parent.expression === current
 }
 
 /** Peel syntax-only wrappers that do not change an expression's runtime value. */
@@ -922,14 +1068,22 @@ function unionSets<T>(left: ReadonlySet<T>, right: ReadonlySet<T>): Set<T> {
   return out
 }
 
-function collectEventRelations(): Map<string, EventRelation> {
-  const project = new TypeScriptProject(root)
-  const sources = project.sourceFiles().flatMap((sourceFile): PackageSource[] => {
+/**
+ * Select the package source files of one project in deterministic order.
+ * @param project - the loaded repository TypeScript project.
+ * @returns `packages/<group>/<pkg>/src` files tagged with their package name.
+ */
+export function collectPackageSources(project: TypeScriptProject): PackageSource[] {
+  return project.sourceFiles().flatMap((sourceFile): PackageSource[] => {
     const rel = project.relativePath(sourceFile)
     const match = /^packages\/[^/]+\/([^/]+)\/src\/.+\.ts$/.exec(rel)
     return match?.[1] ? [{ rel, pkg: match[1], sourceFile }] : []
   }).sort((left, right) => left.rel.localeCompare(right.rel))
-  return new EventRelationCollector(project, sources).collect()
+}
+
+function collectEventRelations(): Map<string, EventRelation> {
+  const project = new TypeScriptProject(root)
+  return new EventRelationCollector(project, collectPackageSources(project)).collect()
 }
 
 function relationPackages(map: Map<string, Set<string>>, pkgsByShort: Map<string, Pkg>): string {
@@ -945,8 +1099,7 @@ function listenerPackages(listeners: Set<string>, pkgsByShort: Map<string, Pkg>)
   return [...listeners].sort().map(pkg => pkgLink(pkgsByShort.get(pkg), pkg)).join(', ')
 }
 
-function renderEventRelations(pkgs: Pkg[]): string {
-  const events = collectEvents()
+function renderEventRelations(pkgs: Pkg[], events: readonly EventEntry[]): string {
   const relations = collectEventRelations()
   const pkgsByShort = new Map(pkgs.map(pkg => [pkg.short, pkg]))
   const maintenance = 'generated: Cordis event declarations and producer/listener edges are resolved from the repository TypeScript Program'
@@ -1135,10 +1288,11 @@ function renderToolPipeline(): string {
 
 function renderDocs(): GraphDoc[] {
   const pkgs = collectPackageGraph(root, GROUP_ORDER, 'gen-doc-graphs')
+  const { model } = projectCordisCatalog(root, CORDIS_CATALOG_POLICY)
   const docs: GraphDoc[] = [
-    { rel: 'docs/capability-seams.md', content: renderCapabilitySeams(pkgs) },
+    { rel: 'docs/capability-seams.md', content: renderCapabilitySeams(pkgs, model.services) },
     ...APP_EXAMPLES.map(example => ({ rel: example.rel, content: renderAppComposition(example) })),
-    { rel: 'docs/event-producer-consumer.md', content: renderEventRelations(pkgs) },
+    { rel: 'docs/event-producer-consumer.md', content: renderEventRelations(pkgs, model.events) },
     { rel: 'docs/agent-lifecycle.md', content: renderLifecycle() },
     { rel: 'docs/tool-execution-pipeline.md', content: renderToolPipeline() },
   ]

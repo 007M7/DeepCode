@@ -1,33 +1,50 @@
 - banner:
-  - navigation "Session hierarchy":
-    - button "Use the read tool twice" [disabled]
-    - text: · 1 turns
+  - heading "Use the read tool twice" [level=1]
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
-    - tab "Waterfall"
-- text: "Use the read tool twice in one assistant message: read a.txt and b.txt. Then reply with the single word DONE and stop."
+- text: "Use the read tool twice in one assistant message: read a.txt and b.txt. Then reply with the single word DONE and stop. 7/25 {{clock}}"
+- button "Copy":
+  - img
+- button "Branch into a new conversation":
+  - img
 - button "Think The user wants me to read a.txt and b.txt, then reply with \"DONE\". Let me do both reads in parallel.":
   - img
+  - img
   - text: Think The user wants me to read a.txt and b.txt, then reply with "DONE". Let me do both reads in parallel.
-- button:
+- button "Read a.txt":
   - img
-- text: Read a.txt
-- button:
   - img
-- text: Read b.txt
+  - text: Read
+  - button "a.txt"
+- button "Read b.txt":
+  - img
+  - img
+  - text: Read
+  - button "b.txt"
 - button "Think Both files have been read. a.txt contains \"alpha\" and b.txt contains \"beta\". I'll now reply with DONE as instructed.":
+  - img
   - img
   - text: Think Both files have been read. a.txt contains "alpha" and b.txt contains "beta". I'll now reply with DONE as instructed.
 - paragraph: DONE
-- text: cache hit 98% · 15,962 tokens · 1 turns · 2 steps
-- textbox "Message the agent"
-- button "Add attachment":
+- button "Copy":
   - img
-- combobox "Access mode":
-  - option "Read-only" [selected]
-  - option "Read-write"
-- button "选择模型，当前 deepseek-v4-flash":
+- button "Branch into a new conversation":
+  - img
+- text: 7/25 {{clock}}
+- button "Context compacted View compaction summary":
+  - img
+  - text: Context compacted View compaction summary
+- button "Context injection":
+  - img
+  - img
+  - text: Context injection
+- textbox "Message the agent"
+- button "Commands":
+  - img
+- 'button "Access mode, current: Workspace Write"': Workspace Write
+- button "Select model, current deepseek-v4-flash":
   - text: deepseek-v4-flash
   - img
 - button "Send message" [disabled]
+- text: 1 turns · 2 steps Tool call {{duration}} Cache hit 98% Input 15.8K tok · Output 135 tok

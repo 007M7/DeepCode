@@ -10,7 +10,7 @@ import { Context } from 'cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import { SessionCreateError, SessionsService, scopeOf } from '../src/client/sessions/service.ts'
-import { FakeApiClient, deferred, ok } from './fake-api.ts'
+import { FakeApiClient, deferred, err, ok } from './fake-api.ts'
 
 const sid = (s: string): SessionId => s as SessionId
 
@@ -47,7 +47,7 @@ describe('list store projection', () => {
     const b = bench()
     b.svc.handleMuxEnvelope({
       rpcId: 'title' as never,
-      payload: { type: 'session/title', sessionId: sid('s1'), title: 'Durable title', eventSeq: 2, updatedAt: 3 },
+      payload: { type: 'session/projection', sessionId: sid('s1'), key: 'title', value: 'Durable title', seq: 2 } as never,
     })
     await feedList(b, [
       { id: 's1', cwd: '/home/u/proj-a/' },
@@ -66,6 +66,29 @@ describe('list store projection', () => {
     b.svc.handleHostEnvelope({ rpcId: 'r1' as never, payload: { type: 'host/session-added', blank: true, sessionId: sid('s2') } as never })
     await Promise.resolve()
     expect(b.svc.list.getSnapshot().ids).toContain('s2')
+  })
+})
+
+describe('search', () => {
+  it('delegates transient content search without changing the list snapshot', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 's1' }])
+    const before = b.svc.list.getSnapshot()
+    b.api.onSearch = () => Promise.resolve(ok({
+      items: [{ sessionId: sid('s1'), snippet: 'matching excerpt' }],
+      hasMore: false,
+    }))
+    const signal = new AbortController().signal
+
+    await expect(b.svc.search('needle', signal)).resolves.toEqual({
+      ok: true,
+      value: {
+        items: [{ sessionId: 's1', snippet: 'matching excerpt' }],
+        hasMore: false,
+      },
+    })
+    expect(b.api.lastSearchSignal).toBe(signal)
+    expect(b.svc.list.getSnapshot()).toBe(before)
   })
 })
 
@@ -396,6 +419,80 @@ describe('create', () => {
       rpcError: { code: 'workspace-attach-failed' },
     })
     expect(b.svc.list.getSnapshot().byId[sid('published')]).toMatchObject({ id: 'published', blank: true })
+  })
+})
+
+describe('fork', () => {
+  it.each([
+    ['Roadmap', 'Roadmap (1)'],
+    ['Roadmap (1)', 'Roadmap (2)'],
+    ['计划（1）', '计划（2）'],
+    ['计划 （9）', '计划 （10）'],
+  ])('increments the durable title %j after the child is published', async (sourceTitle, childTitle) => {
+    const b = bench()
+    b.svc.handleMuxEnvelope({
+      rpcId: 'source-title' as never,
+      payload: { type: 'session/projection', sessionId: sid('source'), key: 'title', value: sourceTitle, seq: 2 } as never,
+    })
+    await feedList(b, [{ id: 'source', cwd: '/work' }])
+    b.api.onFork = () => Promise.resolve(ok({ sessionId: sid('child') }))
+    b.api.onRename = (payload) => {
+      const { title } = payload as { title: string }
+      return Promise.resolve(ok({ title, seq: 3 }))
+    }
+
+    await expect(b.svc.fork({
+      sessionId: sid('source'), atSeq: 7, increaseTitle: true,
+    })).resolves.toBe('child')
+
+    expect(b.api.callsOf('session.fork')).toEqual([{ sessionId: 'source', atSeq: 7 }])
+    expect(b.api.callsOf('session.rename')).toEqual([{ sessionId: 'child', title: childTitle }])
+    await Promise.resolve()
+    expect(b.svc.list.getSnapshot().byId[sid('child')]).toMatchObject({
+      title: childTitle,
+      displayTitle: childTitle,
+      parentId: 'source',
+    })
+  })
+
+  it('floors a fractional anchor to the real event seq the wire accepts', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 'source', cwd: '/work' }])
+    b.api.onFork = () => Promise.resolve(ok({ sessionId: sid('child') }))
+
+    // The frozen node of an interrupted turn carries turnEnd.seq - 0.9.
+    await expect(b.svc.fork({ sessionId: sid('source'), atSeq: 41.1 })).resolves.toBe('child')
+
+    expect(b.api.callsOf('session.fork')).toEqual([{ sessionId: 'source', atSeq: 41 }])
+  })
+
+  it('does not rename without the title policy or a durable source title', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 'source', cwd: '/work' }])
+    b.api.onFork = () => Promise.resolve(ok({ sessionId: sid('child') }))
+    await expect(b.svc.fork({ sessionId: sid('source'), increaseTitle: true })).resolves.toBe('child')
+    expect(b.api.callsOf('session.rename')).toEqual([])
+
+    b.api.onFork = () => Promise.resolve(ok({ sessionId: sid('child-2') }))
+    await expect(b.svc.fork({ sessionId: sid('source') })).resolves.toBe('child-2')
+    expect(b.api.callsOf('session.rename')).toEqual([])
+  })
+
+  it('rejects when child rename fails while keeping the published child addressable', async () => {
+    const b = bench()
+    b.svc.handleMuxEnvelope({
+      rpcId: 'source-title' as never,
+      payload: { type: 'session/projection', sessionId: sid('source'), key: 'title', value: 'Roadmap', seq: 2 } as never,
+    })
+    await feedList(b, [{ id: 'source' }])
+    b.api.onFork = () => Promise.resolve(ok({ sessionId: sid('child') }))
+    b.api.onRename = () => Promise.resolve(err({
+      code: 'title-invalid', message: 'rejected', details: { sessionId: sid('child') },
+    }))
+
+    await expect(b.svc.fork({ sessionId: sid('source'), increaseTitle: true }))
+      .rejects.toThrow('fork child rename failed: title-invalid: rejected')
+    expect(b.svc.binding(sid('child'))).toBeDefined()
   })
 })
 

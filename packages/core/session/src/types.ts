@@ -1,5 +1,17 @@
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { AssistantProvenance, CallId, ContentBlock, LlmCallConfig, LlmFailure, MessageSource, StreamChunk, TokenUsage, ToolSchema } from '@deepseek-ai/dsh-llm'
+import type {
+  AssistantMessage,
+  CallId,
+  LlmCallConfig,
+  LlmCallConfigAdapterDefaults,
+  LlmFailure,
+  MessageSource,
+  StreamChunk,
+  TokenUsage,
+  ToolResultMessage,
+  ToolSchema,
+  UserMessage,
+} from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from './json.ts'
 
 /** Identifies one session in the store (and its persistence artifacts). */
@@ -61,7 +73,7 @@ export interface SessionHeader {
  * store folds into a {@link SessionHeader}.
  */
 export interface CreateSessionOptions {
-  /** Events to seed the new session with (replay/fork). */
+  /** Initial replay or fork history supplied at construction. */
   readonly seed?: readonly SessionEvent[]
   /**
    * Storage metadata read once before publication. `seedLength` is explicit
@@ -152,10 +164,26 @@ export interface TodoItem {
 export interface EpochHeader {
   /** The conversation's call configuration (provider, model, reasoning effort, and sampling scalars). */
   config: LlmCallConfig
+  /** Effective config fields materialized from the exact adapter rather than proposed by a caller. */
+  adapterDefaults?: LlmCallConfigAdapterDefaults
   /** Rendered system prompt text; absent for a system-less request. */
   system?: string
   /** Assembled tool schemas; absent for a tool-less request. */
   tools?: ToolSchema[]
+}
+
+/**
+ * Registration-bound context metadata of one resolved model route. Adapter
+ * metadata about a route rather than a request input, which is why it lives
+ * outside {@link EpochHeader}.
+ */
+export interface RequestContext {
+  /** Registered provider route the metadata was resolved through. */
+  provider: string
+  /** Provider-owned model id the metadata belongs to. */
+  model: string
+  /** Maximum combined request and response context in tokens; absent when the adapter advertises none. */
+  contextWindow?: number
 }
 
 /**
@@ -165,20 +193,6 @@ export interface EpochHeader {
  * `'change'` — a later request used a different header.
  */
 export type RequestHeaderReason = 'initial' | 'resume' | 'change'
-
-/**
- * Shared payload for user, injected-context, and steering messages. A
- * direct human prompt, a synthetic `agent.inject()` context, and mid-turn
- * steering all project into the model transcript as verbatim user-role content;
- * they are told apart by `source` (a non-`user` kind marks injected context),
- * not by event type.
- */
-export interface UserMessageData {
-  /** Exact model-facing blocks. */
-  content: ContentBlock[]
-  /** Producer provenance. */
-  source: MessageSource
-}
 
 /**
  * The merge-extensible, append-only source of truth for an agent interaction.
@@ -210,7 +224,7 @@ export interface SessionEventMap {
    * project their `content` verbatim; `source` tells them apart. An idle
    * injection may append this event between turns without running the model.
    */
-  'user/message': UserMessageData
+  'user/message': UserMessage
   /** Raw stream chunk — token-level replay fidelity. */
   'assistant/chunk': { turn: number; step: number; chunk: StreamChunk }
   /**
@@ -219,7 +233,7 @@ export interface SessionEventMap {
    * the model output and its accounting travel together (there is no separate
    * usage record). `usage` is absent when the adapter reported none.
    */
-  'assistant/message': { turn: number; step: number; content: ContentBlock[]; provenance: AssistantProvenance; usage?: TokenUsage }
+  'assistant/message': { turn: number; step: number; message: AssistantMessage; usage?: TokenUsage }
   /**
    * The model requested one tool invocation: `name` with the raw `arguments`
    * JSON string exactly as the model produced it (unparsed). `callId` pairs the
@@ -240,14 +254,12 @@ export interface SessionEventMap {
   'tool/result': {
     turn: number
     step: number
-    callId: CallId
-    content: ContentBlock[]
-    isError: boolean
+    message: ToolResultMessage
     error?: { name: string; code: string }
     meta?: JsonValue
   }
   /** Steering content injected between steps of a running turn. */
-  'steering/message': UserMessageData & { turn: number }
+  'steering/message': { turn: number; message: UserMessage }
   /** Whole-list snapshot; latest write wins on replay. Log-only UI state; never derived history. */
   'todo/write': { todos: TodoItem[] }
   /**
@@ -255,6 +267,41 @@ export interface SessionEventMap {
    * It is log-only; the latest snapshot reconstructs the request header.
    */
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
+  /**
+   * Registration-bound context metadata for the route a request resolved to,
+   * appended inside its step beside `request/header` and only when the route
+   * or capacity differs from the last record. It is log-only and deliberately
+   * NOT part of {@link EpochHeader}: capacity is adapter metadata about a
+   * route, not an input the request was built from, so it must not participate
+   * in request reconstruction or header equality. `contextWindow` is absent
+   * when the route's adapter advertises no capacity.
+   */
+  'request/context': RequestContext
+  /**
+   * Marks the end of a constructor seed. Events before it have smaller seq
+   * values and came from the seed (resume, fork, or replay); this lifecycle
+   * produced none of them. An explicitly supplied empty seed puts the marker
+   * at seq 0, distinguishing an empty resumed session from a fresh session.
+   * This log-only event is the durable projection of
+   * {@link Session.firstLiveSeq}. Its payload is empty — position and `time`
+   * carry the meaning.
+   *
+   * Locate the LAST one in stored history. A seed already ending in one is not
+   * re-marked, so reopening an untouched session does not grow its log per
+   * pickup and the event need not be at the current `firstLiveSeq`.
+   *
+   * `Session`'s constructor is the only legitimate writer. The invariant
+   * companion deliberately constrains nothing here, so a plugin appending one
+   * would silently classify every live bracket before it as seed history.
+   *
+   * An owner of a standalone open/close bracket (`compact/start` …
+   * `compact/end`) reads it because seed history and live work are otherwise
+   * byte-identical: an unmatched opening marker before this event belongs to
+   * an ended lifecycle, whatever ended it. NOT a liveness signal about other
+   * writers — a concurrently live session holds its own boundary elsewhere,
+   * so tolerating concurrent writers needs a signal beyond the log.
+   */
+  'session/end-seed': Record<string, never>
 }
 
 /** The appendable event-type keys of {@link SessionEventMap}, plugin-merged extensions included. */

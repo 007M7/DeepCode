@@ -16,7 +16,7 @@ TUI 主题把 `color`、`truecolor`、`leftPrompt`、`rightPrompt`、`inputPromp
 
 注册的片段被视为可信的、允许携带 ANSI 的呈现输出。模板中的字面文本与普通外部内容仍会被清洗，但提供提示符值的插件可以输出终端控制序列。复合值自行负责协调背景色过渡与分隔符，因此一个 `${powerline}` 值就能渲染完整的 Powerline 段，而无需与相邻的原子提供方耦合。
 
-内置的 `cwd`、`git/worktree`、`token_meter/cache_hit_rate`、`model`、`context`、`timing`、带样式的 `symbol` 标签与 `indicator` 光标符值使用同一个注册表。会话与 agent（智能体）事件更新各自的句柄，运行计时器每一拍更新 `timing` 与带动画的 `indicator`。随附的输入模板为 `${symbol} ${indicator}`，保留了原有的 `dsh > ` 前缀。
+内置的 `cwd`、`git/worktree`、`token_meter/cache_hit_rate`、`model`、`context`、`queued`、带样式的 `symbol` 标签与 `indicator` 光标符值使用同一个注册表。会话与 agent（智能体）事件更新各自的句柄，运行计时器每一拍更新 `queued`——转向队列徽标，仅在运行中的一轮有排队消息时才可用——与带动画的 `indicator`。随附的输入模板为 `${symbol} ${indicator}`，保留了原有的 `dsh > ` 前缀。
 
 ## 曾考虑的替代方案
 

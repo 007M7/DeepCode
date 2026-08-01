@@ -12,7 +12,9 @@ import css from './Pill.module.css'
  */
 export function Pill({ active = false, className, children, onClick, ...rest }: {
   active?: boolean
-  className?: string
+  // `| undefined` so a caller can forward an optional class straight through
+  // under exactOptionalPropertyTypes (a CSS-module lookup is string|undefined).
+  className?: string | undefined
   children?: ReactNode
 } & ButtonHTMLAttributes<HTMLButtonElement>) {
   if (!onClick) {

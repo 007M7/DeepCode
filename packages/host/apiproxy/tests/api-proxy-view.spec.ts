@@ -14,9 +14,9 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import { CallId, createMessage, createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import { CallId } from '@deepseek-ai/dsh-llm'
-import type { Session, SessionId } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import type { MuxFrame, RpcRequest } from '@deepseek-ai/dsh-host-apiproxy/api'
@@ -33,6 +33,35 @@ function tool(name: string, presenters: Pick<ToolDefinition, 'presentCall' | 'pr
     execute: () => reply(`ran:${name}`),
     ...presenters,
   })
+}
+
+/** Append a production-shaped human prompt to the session surface. */
+function appendUserText(session: Session, text: string): SessionEvent {
+  return session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text }], source: { kind: 'user' },
+  }), { surfaceOp: 'append' })
+}
+
+/** Append a production-shaped assistant message to the session surface. */
+function appendAssistantText(session: Session, text: string, step: number): SessionEvent {
+  return session.append('assistant/message', {
+    turn: 1,
+    step,
+    message: createMessage({
+      role: 'assistant',
+      content: [{ type: 'text', text }],
+      source: { kind: 'model', provider: 'p', model: 'm' },
+    }),
+  }, { surfaceOp: 'append' })
+}
+
+/**
+ * Append a plugin-owned log-only event. The host proxy is projection-only, so it
+ * declares no compaction vocabulary; the cast writes the real event shape without
+ * depending on the owning package.
+ */
+function appendExtension(session: Session, type: string, data: unknown): SessionEvent {
+  return (session.append as unknown as (type: string, data: unknown) => SessionEvent)(type, data)
 }
 
 async function harness(): Promise<{ ctx: Context }> {
@@ -88,16 +117,35 @@ describe('mux live view computation', () => {
     session.append('tool/call', { turn: 1, step: 1, callId: CallId('c-term'), name: 'term', arguments: '{"cmd":"echo hi"}' })
     session.append('tool/call', { turn: 1, step: 1, callId: CallId('c-diff'), name: 'diffy', arguments: '{}' })
     session.append('tool/call', { turn: 1, step: 1, callId: CallId('c-call-only'), name: 'call-only', arguments: '{}' })
-    session.append('tool/result', { turn: 1, step: 1, callId: CallId('c-call-only'), content: [{ type: 'text', text: rawResult }], isError: false }, { surfaceOp: 'append' })
+    session.append('tool/result', {
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: CallId('c-call-only'),
+        content: [{ type: 'text', text: rawResult }],
+        isError: false,
+      }),
+    }, { surfaceOp: 'append' })
     session.append('tool/call', { turn: 1, step: 1, callId: CallId('c-plain'), name: 'plain', arguments: '{}' })
     session.append('tool/call', { turn: 1, step: 1, callId: CallId('c-boom'), name: 'boom', arguments: '{}' })
-    session.append('tool/result', { turn: 1, step: 1, callId: CallId('c-gen'), content: [{ type: 'text', text: 'ok' }], isError: false }, { surfaceOp: 'append' })
+    session.append('tool/result', {
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: CallId('c-gen'),
+        content: [{ type: 'text', text: 'ok' }],
+        isError: false,
+      }),
+    }, { surfaceOp: 'append' })
 
     const frames = await collected
     const events = frames.filter(f => f.type === 'session/event')
     const byCall = new Map(events
       .filter(f => f.event.type === 'tool/call' || f.event.type === 'tool/result')
-      .map(f => [`${f.event.type}:${(f.event.data as { callId: string }).callId}`, f]))
+      .map(f => [
+        `${f.event.type}:${f.event.type === 'tool/call'
+          ? f.event.data.callId
+          : (f.event.data as SessionEvent<'tool/result'>['data']).message.source.callId}`,
+        f,
+      ]))
 
     expect(byCall.get('tool/call:c-gen')?.view).toEqual({ for: 'call', view: { card: 'generic', title: 'gen call' } })
     expect(byCall.get('tool/call:c-term')?.view).toEqual({ for: 'call', view: { card: 'terminal', title: 'echo hi' } })
@@ -130,15 +178,44 @@ describe('mux live view computation', () => {
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('tool/call', { turn: 1, step: 1, callId: CallId('h-term'), name: 'term', arguments: '{"cmd":"ls"}' })
     // meta rides through to presentResult's ToolResult (the spread arm).
-    session.append('tool/result', { turn: 1, step: 1, callId: CallId('h-term'), content: [{ type: 'text', text: 'ok' }], isError: false, meta: { n: 1 } }, { surfaceOp: 'append' })
+    session.append('tool/result', {
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: CallId('h-term'),
+        content: [{ type: 'text', text: 'ok' }],
+        isError: false,
+      }),
+      meta: { n: 1 },
+    }, { surfaceOp: 'append' })
     // Unpaired result: no tool/call with this id anywhere in the page.
-    session.append('tool/result', { turn: 1, step: 1, callId: CallId('h-orphan'), content: [{ type: 'text', text: 'x' }], isError: false }, { surfaceOp: 'append' })
+    session.append('tool/result', {
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: CallId('h-orphan'),
+        content: [{ type: 'text', text: 'x' }],
+        isError: false,
+      }),
+    }, { surfaceOp: 'append' })
     // Paired, but the call's stored arguments do not parse: backscan soft-falls.
     session.append('tool/call', { turn: 1, step: 1, callId: CallId('h-bad'), name: 'term', arguments: '{broken' })
-    session.append('tool/result', { turn: 1, step: 1, callId: CallId('h-bad'), content: [{ type: 'text', text: 'y' }], isError: false }, { surfaceOp: 'append' })
+    session.append('tool/result', {
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: CallId('h-bad'),
+        content: [{ type: 'text', text: 'y' }],
+        isError: false,
+      }),
+    }, { surfaceOp: 'append' })
     // Presenterless tool: pairing succeeds but presentResult is absent.
     session.append('tool/call', { turn: 1, step: 1, callId: CallId('h-plain'), name: 'plain', arguments: '{}' })
-    session.append('tool/result', { turn: 1, step: 1, callId: CallId('h-plain'), content: [{ type: 'text', text: 'z' }], isError: false }, { surfaceOp: 'append' })
+    session.append('tool/result', {
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: CallId('h-plain'),
+        content: [{ type: 'text', text: 'z' }],
+        isError: false,
+      }),
+    }, { surfaceOp: 'append' })
 
     const response = await api.sessions.history({ rpcId: RpcId('t-hist'), payload: { sessionId: session.id } })
     expect(response.result.ok).toBe(true)
@@ -146,7 +223,12 @@ describe('mux live view computation', () => {
     const entries = response.result.value.events
     const byKey = new Map(entries
       .filter(entry => entry.event.type === 'tool/call' || entry.event.type === 'tool/result')
-      .map(entry => [`${entry.event.type}:${(entry.event.data as { callId: string }).callId}`, entry]))
+      .map(entry => [
+        `${entry.event.type}:${entry.event.type === 'tool/call'
+          ? entry.event.data.callId
+          : (entry.event.data as SessionEvent<'tool/result'>['data']).message.source.callId}`,
+        entry,
+      ]))
     expect(byKey.get('tool/call:h-term')?.view).toEqual({ for: 'call', view: { card: 'terminal', title: 'ls' } })
     expect(byKey.get('tool/result:h-term')?.view).toEqual({ for: 'result', view: { card: 'terminal', output: 'done' } })
     expect('view' in (byKey.get('tool/result:h-orphan') ?? {})).toBe(false)
@@ -154,37 +236,53 @@ describe('mux live view computation', () => {
     expect('view' in (byKey.get('tool/result:h-plain') ?? {})).toBe(false)
   })
 
-  it('tail page carries the full-log todo projection; older pages and todo-less sessions omit it', async () => {
+  it('counts only append-origin messages toward maxMessages and keeps compaction provenance whole', async () => {
     const { ctx } = await harness()
     const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
     const session = ctx.sessions.create()
     ctx.agents.register({ id: session.id, session, status: 'idle', ctx } as Agent)
-    // Superseded write early in the log, latest write later; enough messages to page.
-    session.append('todo/write', { todos: [{ content: 'old', status: 'pending' }] })
-    for (let turn = 0; turn < 6; turn++) {
-      session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
-      session.append('user/message', { content: [{ type: 'text', text: `q${turn}` }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-      session.append('assistant/message', { turn, step: 0, content: [{ type: 'text', text: `a${turn}` }], provenance: { provider: 'p', model: 'm' } }, { surfaceOp: 'append' })
-      session.append('turn/end', { turn, reason: { kind: 'completed' } })
-    }
-    session.append('todo/write', { todos: [{ content: 'current', status: 'in_progress' }] })
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    const first = appendUserText(session, 'first prompt')
+    appendAssistantText(session, 'first reply', 1)
+    const third = appendUserText(session, 'second prompt')
+    appendAssistantText(session, 'second reply', 2)
+    const shadowed = [...session.surface.nodes]
+    // A compaction transaction: log-only provenance immediately followed by the
+    // replacement that shadows the range.
+    const summary = appendExtension(session, 'compact/summary', {
+      summary: [{ type: 'text', text: 'summary' }],
+      shadowedRange: { start: shadowed[0], end: shadowed.at(-1) },
+      shadowedSeqs: shadowed,
+      shadowedTokenCount: 0,
+      provider: 'p',
+      model: 'm',
+    })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: '<context_checkpoint>summary</context_checkpoint>' }],
+      source: { kind: 'plugin', plugin: 'compact' },
+    }), {
+      surfaceOp: { op: 'replace', start: shadowed[0] as number, end: shadowed.at(-1) as number },
+      sourceEventSeqs: [...shadowed, summary.seq],
+    })
 
-    // Tail page limited to 2 messages: the latest todo/write may or may not sit
-    // in the window — the projection must come from the FULL log either way.
-    const tail = await api.sessions.history({ rpcId: RpcId('t-todos'), payload: { sessionId: session.id, maxMessages: 2 } })
-    if (!tail.result.ok) throw new Error('history failed')
-    expect(tail.result.value.todos).toEqual([{ content: 'current', status: 'in_progress' }])
-    // An older page omits the projection (session-level, tail-page-only).
-    const boundary = tail.result.value.events[0]?.event.seq ?? 0
-    const older = await api.sessions.history({ rpcId: RpcId('t-todos-2'), payload: { sessionId: session.id, beforeSeq: boundary, maxMessages: 2 } })
-    if (!older.result.ok) throw new Error('older failed')
-    expect('todos' in older.result.value).toBe(false)
-    // A session with no todo/write anywhere omits the field.
-    const bare = ctx.sessions.create()
-    ctx.agents.register({ id: bare.id, session: bare, status: 'idle', ctx } as Agent)
-    const bareTail = await api.sessions.history({ rpcId: RpcId('t-todos-3'), payload: { sessionId: bare.id } })
-    if (!bareTail.result.ok) throw new Error('bare failed')
-    expect('todos' in bareTail.result.value).toBe(false)
+    const response = await api.sessions.history({
+      rpcId: RpcId('t-hist-compact'),
+      payload: { sessionId: session.id, maxMessages: 2 },
+    })
+    if (!response.result.ok) throw new Error('unreachable')
+    const page = response.result.value.events.map(entry => entry.event)
+    // Two append-origin messages fill the page even though a replacement copy of
+    // the same event type sits in the window: the copy is model-only.
+    const messages = page.filter(event => event.type === 'user/message' || event.type === 'assistant/message')
+    expect(messages.map(event => event.seq)).toEqual([third.seq, third.seq + 1, third.seq + 3])
+    expect(page.some(event => event.seq === first.seq)).toBe(false)
+    expect(response.result.value.hasMore).toBe(true)
+    // The range stays contiguous, so the checkpoint's provenance is readable on
+    // the same page as the checkpoint itself.
+    const summaryIndex = page.findIndex(event => event.seq === summary.seq)
+    expect(summaryIndex).toBeGreaterThan(-1)
+    expect(page[summaryIndex + 1]?.seq).toBe(summary.seq + 1)
+    expect(page.map(event => event.seq)).toEqual(page.map((_event, index) => third.seq + index))
   })
 
   it('drops a disposed session from the live open-call table (result after dispose gets no view)', async () => {
@@ -221,7 +319,14 @@ describe('mux live view computation', () => {
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     // The turn/end above cleared the live table; pairing must fall back to
     // scanning the session's in-memory events.
-    session.append('tool/result', { turn: 1, step: 1, callId: CallId('c-late'), content: [{ type: 'text', text: 'ok' }], isError: false }, { surfaceOp: 'append' })
+    session.append('tool/result', {
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: CallId('c-late'),
+        content: [{ type: 'text', text: 'ok' }],
+        isError: false,
+      }),
+    }, { surfaceOp: 'append' })
 
     const frames = await collected
     const result = frames.find(f => f.type === 'session/event' && f.event.type === 'tool/result')

@@ -44,6 +44,14 @@ export class ModelService extends Service {
     ctx.on('connection/reset', () => {
       for (const directory of this.live.directories.values()) directory.resetConnected()
     })
+    // Provider topology changed on the host (a settings-born route appeared
+    // or dropped): refresh every open directory in the background so pickers
+    // show the new catalog without a reopen. Failures stay on each store.
+    ctx.on('models/changed', () => {
+      for (const directory of this.live.directories.values()) {
+        directory.load().catch(() => undefined)
+      }
+    })
   }
 
   /**

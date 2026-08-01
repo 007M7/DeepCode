@@ -54,7 +54,13 @@
       "path": "../commands"
     },
     {
+      "path": "../../compact/compact"
+    },
+    {
       "path": "../../skill/skill"
+    },
+    {
+      "path": "../../subprocess/subprocess"
     },
     {
       "path": "../user-interaction"

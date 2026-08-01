@@ -7,12 +7,11 @@
 | 包 | npm 名称 | 角色 |
 |---|---|---|
 | `agent-spine-demo/` | `@deepseek-ai/dsh-agent-spine-demo` | 不含执行器和 UI 的 agent 主干，打包为一个组合包插件，带后备会话标题和选用的持久目标栈 |
-| `tui-demo/` | `@deepseek-ai/dsh-tui-demo` | 全屏终端应用组合包：主干 + 持久目标 + `/goal` 命令 + JSONL 持久化 + `dsh-tui` + 预创建的 `main` agent；没有 bin，由 [`dsh`](../../apps/cli/README.md) CLI 启动 |
 | `cli-demo/` | `@deepseek-ai/dsh-cli-demo` | 无头单次应用：主干 + JSONL 持久化 + 预创建的 `main` agent，提供文本和 DSH 原生 JSON 输出 |
 | `acp-demo/` | `@deepseek-ai/dsh-acp-demo` | ACP 自动化服务器应用：主干 + 持久目标 + JSONL 持久化 + [`acp`](../acp/acp/README.md) 桥接层（无 stdout logger），带启动 `bin` |
 | `jsonrpc-demo/` | `@deepseek-ai/dsh-jsonrpc-demo` | 只有 bin 的 runtime，用于启动外部 `cordis.yml`，供 stdio JSON-RPC SDK 客户端使用 |
 
-`agent-spine-demo` 是共享组合包；`tui-demo`、`cli-demo` 和 `acp-demo` 分别将它与全屏终端、无头单次和 ACP 自动化前端入口组合。`cli-demo` 与 `acp-demo` 拥有各自的启动 bin；`tui-demo` 只交付组合包插件，产品 [`dsh`](../../apps/cli/README.md) CLI 是它的终端前端入口。`jsonrpc-demo` 自身不挂载任何组合，而是启动部署的 `cordis.yml` 所指名的任意插件树；Python SDK runtime 会启动它。
+`agent-spine-demo` 是共享组合包；`cli-demo` 和 `acp-demo` 分别将它与无头单次和 ACP 自动化前端入口组合，并拥有各自的启动 bin。产品 [`dsh`](../../apps/cli/README.md) CLI 不使用组合包：其 TUI 与 web surface 都是一份共享的 `base.cordis.yml` 加各自一份 overlay。`jsonrpc-demo` 自身不挂载任何组合，而是启动部署的 `cordis.yml` 所指名的任意插件树；Python SDK runtime 会启动它。
 
 这些 **不是** 产品 API。它们打包的主干组件位于 [`core/`](../core/README.md)，人类／SDK 通道和启动粘合代码位于 [`ui/`](../ui/README.md)，自动化传输位于 [`acp/`](../acp/README.md)，可替换后端位于各自能力组；演示组合包只选定其中一种具体组合。可以自由替换或 fork。
 

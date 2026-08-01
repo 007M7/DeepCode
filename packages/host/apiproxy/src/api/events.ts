@@ -8,7 +8,8 @@
 
 import type { AskUserQuestionItem } from '@deepseek-ai/dsh-user-interaction/types'
 import type { ApprovalOutcome, ApprovalRequestId } from '@deepseek-ai/dsh-user-approval/types'
-import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm/types'
+import type { Message } from '@deepseek-ai/dsh-llm/types'
+import type { InboxItemId } from '@deepseek-ai/dsh-agent/brand'
 import type { CallId } from '@deepseek-ai/dsh-llm/brand'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools/presentation'
@@ -31,13 +32,21 @@ export type ToolEventView =
   | { for: 'call'; view: ToolCallView }
   | { for: 'result'; view: ToolResultView }
 
+/** One pending queued occurrence in an authoritative queue snapshot. */
+export interface QueuedInboxItem {
+  /** Agent-owned occurrence identity used by queue mutations. */
+  id: InboxItemId
+  /** Complete pending message; it is not durable until the Agent claims it. */
+  message: Message
+}
+
 /** Streaming face of the contract: the two SSE stream openers (mux + host). */
 export interface EventsApi {
   /**
    * All-session aggregated mux stream. On open, emits a subscribed control frame for every
-   * attached session followed by its optional latest title snapshot, then replays each
-   * session's still-pending approval/question requested frames (rpcId reused verbatim — the
-   * refresh-recovery baseline).
+   * attached session, then replays each session's still-pending approval/question requested
+   * frames (rpcId reused verbatim — the refresh-recovery baseline). Session titles ride the
+   * generic projection pair (history-tail projections block + session/projection frames).
    * since: resume seam, unimplemented in v1 (ignored if passed); reconnection = reopen the
    * stream + refetch history.
    */
@@ -57,24 +66,27 @@ export interface EventsApi {
 export type MuxFrame =
   | { type: 'session/event'; sessionId: SessionId; event: SessionEvent; view?: ToolEventView }
   | { type: 'session/subscribed'; sessionId: SessionId; lastSeq: number }
-  | { type: 'session/title'; sessionId: SessionId; title: string; eventSeq: number; updatedAt: number }
   | { type: 'approval/requested'; sessionId: SessionId; approvalId: ApprovalRequestId; toolName: string; callId?: CallId; reason?: string }
   | { type: 'approval/resolved'; sessionId: SessionId; approvalId: ApprovalRequestId; outcome: ApprovalOutcome }
   | { type: 'question/requested'; sessionId: SessionId; questions: AskUserQuestionItem[] }
   | { type: 'question/resolved'; sessionId: SessionId; questionRpcId: RpcId; outcome: 'answered' | 'cancelled' }
   /**
-   * A message entered the addressed agent's inbox. A queued message is not
-   * model-visible, so there is no session event to carry it; this transient
-   * frame is the only wire signal. On stream open the
-   * host replays the current queue snapshot for every attached session (same
-   * refresh-recovery baseline as pending questions); queue clearing on cancel
-   * has no dedicated frame — clients fold it from the status flip.
-   * `steering` is the host's acceptance-time queue classification and remains
-   * authoritative in reconnect snapshots. `source` carries the prompt's rpcId
-   * when the message came over this wire (the client's provisional-echo
-   * reconciliation key).
+   * Complete transient queue state after every enqueue, mutation, claim, or
+   * discard. Pending work is not model-visible and therefore has no durable
+   * session event; the whole snapshot makes edit, deletion, cancel, and
+   * reconnect converge through one authoritative signal. Pending steering is
+   * outside this Web queue projection.
    */
-  | { type: 'session/queued'; sessionId: SessionId; content: ContentBlock[]; source: MessageSource; steering: boolean }
+  | { type: 'session/queue'; sessionId: SessionId; items: QueuedInboxItem[] }
+  /**
+   * One projection unit's finished value changed (session-projection RFC).
+   * Live push state, never logged — replay recomputes on the host (the
+   * tool-view posture). `value` is the unit's schema-validated view output;
+   * `seq` is the unit's watermark at emission. Clients keep one generic
+   * per-session value store under higher-seq-wins, seeded by the history
+   * tail page's projections block.
+   */
+  | { type: 'session/projection'; sessionId: SessionId; key: string; value: unknown; seq: number }
   | { type: 'stream/error'; error: RpcError }
 
 /**
@@ -89,7 +101,9 @@ export type MuxFrame =
  * workspace mutation (create/attach/order change — the client upserts, while
  * `workspace.list` provides the reconnect baseline); workspace-removed is the
  * committed registration-deletion increment and never implies directory or
- * session-log deletion.
+ * session-log deletion; archived-sessions-changed pushes the full registry
+ * archive set after every durable change (same full-snapshot posture as
+ * workspace-changed — `workspace.list` re-baselines it on reconnect).
  */
 export type HostFrame =
   | { type: 'host/session-added'; sessionId: SessionId; blank: boolean; parentSessionId?: SessionId; cwd?: string }
@@ -98,10 +112,30 @@ export type HostFrame =
   | { type: 'host/agent-error'; sessionId: SessionId; message: string }
   | { type: 'host/workspace-changed'; workspace: WorkspaceView }
   | { type: 'host/workspace-removed'; workspaceId: WorkspaceView['workspaceId'] }
+  | { type: 'host/archived-sessions-changed'; archivedSessionIds: SessionId[] }
   /**
    * The command registry changed (`commands/change` passthrough). Pure
    * invalidation signal, no payload: clients refetch `command.list` in the
    * background rather than diffing.
    */
   | { type: 'host/commands-changed' }
+  /**
+   * One settings namespace's resolved value changed (`settings/updated`
+   * passthrough) — an RPC write, an external `settings.yaml` edit, or a
+   * provider reload all converge here. Clients refetch `settings.describe`;
+   * values never ride the frame (they would need redaction and can go stale).
+   */
+  | { type: 'host/settings-changed'; ns: string }
+  /**
+   * One credential reference's state changed (`credentials/updated`
+   * passthrough): a set/unset over this wire or an external `.env` edit.
+   * The ref is an environment-variable NAME — never a value.
+   */
+  | { type: 'host/credentials-changed'; ref: string }
+  /**
+   * The provider topology changed (`llm/adapters-updated` passthrough):
+   * routes registered or dropped, or the configurable directory moved. Pure
+   * invalidation: clients refetch `llm.providers`/`llm.models`/`session.models`.
+   */
+  | { type: 'host/models-changed' }
   | { type: 'stream/error'; error: RpcError }

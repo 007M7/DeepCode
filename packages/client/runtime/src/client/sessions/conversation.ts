@@ -3,14 +3,33 @@
 // substructures keep their references (the React.memo premise). callId/approvalId stay plain
 // string here (narrow to real brands when convenient).
 
+import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
+import type { LlmRetryEventData } from '@deepseek-ai/dsh-llm-retry/types'
 import type { TodoItem } from '@deepseek-ai/dsh-session/types'
 import type {
-  RpcError, SessionId, ToolCallView, ToolResultView,
+  InboxItemId, RpcError, SessionId, ToolCallView, ToolResultView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type { PendingInteraction } from './pending.ts'
-
 export type { TodoItem }
+
+/** Request configuration recorded for one provider call. */
+export interface AssistantRequestConfig {
+  provider: string
+  model: string
+  purpose?: string
+  thinking?: string
+  reasoningEffort?: string
+  temperature?: number
+  maxTokens?: number
+  stop?: readonly string[]
+}
+
+/** Stable provider/model identity reported for one completed request. */
+export interface AssistantProvenanceView {
+  provider: string
+  model: string
+}
 
 /** Assistant content blocks sorted by what the UI cares about
  *  (text body / collapsible reasoning / tool-call card head / other fallback). */
@@ -53,6 +72,16 @@ export interface UserMessageNode {
   source: unknown
 }
 
+/** Recorded boundaries used to derive assistant latency and throughput. */
+export interface AssistantTiming {
+  /** Matching step/start timestamp, or null when it is outside the current event window. */
+  stepStartTime: number | null
+  /** First non-empty text/reasoning/tool delta timestamp, or null when no token delta was recorded. */
+  firstTokenTime: number | null
+  /** Final assistant/message timestamp. */
+  completedTime: number
+}
+
 /** A finalized (or interruption-frozen) assistant message. */
 export interface AssistantMessageNode {
   kind: 'assistant'
@@ -63,6 +92,10 @@ export interface AssistantMessageNode {
   step: number
   blocks: readonly AssistantBlock[]
   usage?: unknown
+  provenance?: AssistantProvenanceView
+  requestConfig?: AssistantRequestConfig
+  /** Timing derived from the recorded step/chunk/message event sequence. */
+  timing?: AssistantTiming
   /** Frozen partial of an aborted turn (no finalize ever arrives): rendered with a 已停止 marker.
    *  Synthetic seq (fractional, derived from the turn/end seq) keeps it ordered inside the flow. */
   interrupted?: true
@@ -89,6 +122,32 @@ export interface ContextMessageNode {
   source: unknown
 }
 
+/** Durable notice that a closed failed step is waiting for a model-request retry. */
+export type ModelRetryNode = LlmRetryEventData & {
+  kind: 'model-retry'
+  seq: number
+  /** Unix epoch ms from the llm/retry session event. */
+  time: number
+  /**
+   * Client-derived lifecycle: scheduled until a retry turn starts, started
+   * once it does, or cancelled when the failed turn aborts first.
+   */
+  retryState: 'scheduled' | 'started' | 'cancelled'
+}
+
+/** Durable terminal failure for a turn that has no scheduled retry. */
+export interface TurnErrorNode {
+  kind: 'turn-error'
+  /** Seq of the owning turn/end event. */
+  seq: number
+  /** Unix epoch ms from the turn/end event. */
+  time: number
+  turn: number
+  step: number
+  message: string
+  code?: string
+}
+
 /** A tool result paired (when in-window) with its call head. */
 export interface ToolResultNode {
   kind: 'tool-result'
@@ -110,7 +169,32 @@ export interface ToolResultNode {
   resultView: ToolResultView | null
 }
 
-/** Fallback for surface events this UI version does not know. */
+/**
+ * One landed compaction, marked at the checkpoint's own log position. The
+ * conversation it shadowed on the model surface stays in the transcript above
+ * it: the marker reports where the model stopped seeing that history, it does
+ * not replace it. The framed checkpoint payload is an instruction envelope
+ * written for the model and never renders.
+ */
+export interface CompactionSummaryNode {
+  kind: 'compaction'
+  /** Seq of the replacement `user/message` that landed the checkpoint. */
+  seq: number
+  /** Unix epoch ms of the checkpoint event. */
+  time: number
+  /** Summary text from the checkpoint's `compact/summary` provenance; null when
+   *  the window cut left that provenance outside (the marker is then not expandable). */
+  summary: string | null
+}
+
+/**
+ * Fallback for surface events this UI version does not know: the documented
+ * default arm of `SessionEventMap`, which is merge-extensible, so the
+ * projection's switch cannot end in `assertNever`. No event produces this node
+ * today — `isAppendSurfaceEvent` admits only the four types in core's
+ * `SurfaceEventType`, and each has its own arm — and it exists so widening that
+ * set core-side degrades to a raw row instead of dropping the event silently.
+ */
 export interface UnknownSurfaceNode {
   kind: 'unknown'
   seq: number
@@ -120,13 +204,42 @@ export interface UnknownSurfaceNode {
   data: unknown
 }
 
+/**
+ * One slash-command lifecycle folded from the log-only `command/run` /
+ * `command/done` pair (paired by commandId, mirroring tool call↔result).
+ * Log-only events are not surface events, so the TranscriptAdapter indexes
+ * them separately and merges the nodes into the flow by seq. A window cut
+ * between the pair soft-falls like tool pairs: a done with no in-window run
+ * still builds a node (name/args null), and a run with no done renders as
+ * still executing.
+ */
+export interface CommandNode {
+  kind: 'command'
+  /** Seq of the command/run event; the done event's seq when only the done is in-window. */
+  seq: number
+  /** Unix epoch ms of the anchoring event. */
+  time: number
+  /** Pairing id minted by the host executor. */
+  commandId: CommandId
+  /** Command name (run payload's structured field); null when the run fell outside the window. */
+  name: string | null
+  /** Verbatim rawInput after the name, separator whitespace included (run payload); null when the run fell outside the window. */
+  args: string | null
+  /** Settlement outcome (done payload); null while the command is still executing. */
+  outcome: { kind: 'success' | 'error'; text?: string } | null
+}
+
 /** Finalized conversation node union (kind discriminates; seq is the React key). */
 export type ConversationNode =
   | UserMessageNode
   | AssistantMessageNode
   | SteeringMessageNode
   | ContextMessageNode
+  | ModelRetryNode
+  | TurnErrorNode
   | ToolResultNode
+  | CommandNode
+  | CompactionSummaryNode
   | UnknownSurfaceNode
 
 /**
@@ -136,7 +249,7 @@ export type ConversationNode =
  * {@link RunningToolCall} (rows derive the running state from the shape,
  * exactly as for native calls) and its `tool/code-dispatch` settlement
  * replaces it in place with the {@link ToolResultNode} form. Never part of
- * the surface `nodes` flow — sub-calls live under their parent via
+ * the transcript `nodes` flow — sub-calls live under their parent via
  * {@link ConversationSnapshot.codeDispatches}. `callId` is the deterministic
  * sub-call id (`<parent>:code:<n>`); the call side carries the sub-tool name
  * and its JSON-stringified logged arguments; `content`/`isError` are the
@@ -158,10 +271,12 @@ export interface RunningToolCall {
 }
 
 
-/** One queued-message row mirrored from `session/queued` frames (key: the enqueueing prompt's rpcId when wire-sourced). */
+/** One independently addressable row from the transient queue snapshot. */
 export interface QueuedMessage {
-  readonly key: string
+  readonly id: InboxItemId
   readonly preview: string
+  /** Complete editable text; null when the message contains non-text blocks. */
+  readonly text: string | null
 }
 
 /** In-progress assistant output (chunk accumulator product). */
@@ -205,10 +320,8 @@ export interface PromptError {
 /** The immutable snapshot contract Session hands to uSES (see the web client architecture RFC). */
 export interface ConversationSnapshot {
   sessionId: SessionId
-  /** Surface fold product (finalized conversation nodes in surface order). */
+  /** Human transcript plus retry notices and interrupted-turn terminal nodes in event order. */
   nodes: readonly ConversationNode[]
-  /** Fold degradation flag (cross-window replace defense): when true, nodes come from the lenient linear scan. */
-  foldDegraded: boolean
   partial: PartialAssistant | null
   runningCalls: readonly RunningToolCall[]
   /**
@@ -219,7 +332,7 @@ export interface ConversationSnapshot {
    */
   codeDispatches: ReadonlyMap<string, readonly CodeSubCall[]>
   pending: readonly PendingInteraction[]
-  /** Read-only inbox mirror (session/queued frames + mux-open baseline; cleared by the leave-running flip). */
+  /** Authoritative transient inbox snapshot, replaced after every host-side change. */
   queue: readonly QueuedMessage[]
   running: boolean
   /** Input-area shape (see {@link ComposerPhase}); derived here, switched on by consumers. */
@@ -243,7 +356,4 @@ export interface ConversationSnapshot {
    */
   blank: boolean
   lastAgentError: string | null
-  /** Current whole-list `todo/write` projection — the tail page's full-log value, then each live
-   *  write (last write wins); empty = the log holds no plan. */
-  todos: readonly TodoItem[]
 }

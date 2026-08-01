@@ -24,7 +24,22 @@
       "path": "../../host/apiproxy"
     },
     {
+      "path": "../../ui/commands"
+    },
+    {
+      "path": "../../compact/compact"
+    },
+    {
+      "path": "../../session-projection/session-projection"
+    },
+    {
+      "path": "../../session-title/session-title"
+    },
+    {
       "path": "../../llm/llm"
+    },
+    {
+      "path": "../../llm/llm-retry"
     },
     {
       "path": "../../support/invariants"

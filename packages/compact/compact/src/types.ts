@@ -7,12 +7,16 @@
  * @module @deepseek-ai/dsh-compact/types
  */
 
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, TokenUsage } from '@deepseek-ai/dsh-llm'
 
 declare module '@deepseek-ai/dsh-session' {
   interface SessionEventMap {
-    /** Marks the start of a compaction — log-only, holds the lock until `compact/end`. */
-    'compact/start': { turn: number }
+    /**
+     * Marks the start of a compaction — log-only, holds the lock until
+     * `compact/end`. A numbered owner is strictly enclosed by that open turn;
+     * `null` identifies a standalone manual transaction between turns.
+     */
+    'compact/start': { turn: number | null }
     /**
      * Provenance record of a completed summarization — log-only, no surfaceOp.
      * The summary content is in `data.summary`; the actual surface replacement
@@ -21,6 +25,8 @@ declare module '@deepseek-ai/dsh-session' {
      */
     'compact/summary': {
       summary: ContentBlock[]
+      /** Complete provider output before the backend's safe summary projection. */
+      rawOutput?: ContentBlock[]
       shadowedRange: { start: number; end: number }
       shadowedSeqs: number[]
       shadowedTokenCount: number
@@ -35,9 +41,14 @@ declare module '@deepseek-ai/dsh-session' {
       model: string
       /** The generation cap the summarize call sent, when one applied. */
       maxTokens?: number
+      /** Provider-reported token usage for the summarization request, when emitted. */
+      usage?: TokenUsage
     }
-    /** Marks the end of a compaction — log-only, releases the lock. `error` set if summarization failed. */
-    'compact/end': { turn: number; error?: string }
+    /**
+     * Marks the end of a compaction — log-only, releases the lock. Its owner
+     * matches `compact/start`; `error` records an unsuccessful attempt.
+     */
+    'compact/end': { turn: number | null; error?: string }
   }
 }
 

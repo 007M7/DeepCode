@@ -9,29 +9,56 @@ import { join } from 'node:path'
 import type { Context } from 'cordis'
 import { installAgentLlmTarget } from '@deepseek-ai/dsh-agent'
 import type {
-  Agent, AgentLlmTarget, AgentLlmTargetRef, AgentMessage, AgentMessageId, AgentStatus,
+  Agent, AgentLlmTarget, AgentLlmTargetRef, AgentStatus, InboxItem, InboxItemId,
 } from '@deepseek-ai/dsh-agent'
-import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
-import type { JsonValue, Session, SessionEvent, SessionHeader, SessionId, TodoItem } from '@deepseek-ai/dsh-session'
+import type { MessageSource } from '@deepseek-ai/dsh-llm'
+import { isAppendSurfaceEvent, lastActivityTime } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
-import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
+import { SessionQueryError, type SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
 import type { Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
 import {
   workspaceDomainState, workspaceRecord, WorkspaceId as brandWorkspaceId,
-  WorkspaceMoveInvalidError, WorkspaceNameConflictError,
+  WorkspaceMoveInvalidError, WorkspaceUnknownSessionError,
 } from '@deepseek-ai/dsh-workspace'
 // Type-only: brings the `ctx.tools` Context merge into this program (viewFor reads presenters).
 import type {} from '@deepseek-ai/dsh-tools'
 import type {
-  ApiProxy, HistoryEntry, HostFrame, ModelCatalogFailure, ModelProviderGroup, ModelReasoning,
-  MuxFrame, QuestionResponsePayload, SessionSummary, ToolEventView,
-  WorkspaceId, WorkspaceView,
+  ApiProxy, CredentialView, GoalRef, HistoryEntry, HostFrame, ModelCatalogFailure, ModelProviderGroup,
+  ModelReasoning, MuxFrame, QuestionResponsePayload, SessionProjectionsBlock, SessionSearchItem,
+  SessionSummary, SettingsNamespaceView, ToolEventView, WorkspaceId, WorkspaceView,
 } from './api/index.ts'
+import {
+  SESSION_SEARCH_RESULT_LIMIT,
+  SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS,
+  truncateUnicodeCodePoints,
+} from './api/session-search.ts'
+// Type-only: resolves `ctx.get('sessionProjections')` to the projection registry.
+import type {} from '@deepseek-ai/dsh-session-projection'
+// Type-only: resolves `ctx.get('sessionProjectionCache')` (the cold listing column).
+import type {} from '@deepseek-ai/dsh-session-projection-cache'
+// GoalError narrows domain rejections to their stable codes at the wire boundary.
+import { GoalError } from '@deepseek-ai/dsh-goal'
+import type { GoalRef as CoreGoalRef } from '@deepseek-ai/dsh-goal'
 // Type-only edges: resolve `ctx.get('commands')`, the `commands/change` event, and `ctx.get('skills')`.
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-skill'
+// The settings/credentials seams: brand guards run at this wire boundary; the
+// service reads stay optional (`ctx.get`) so a composition without either
+// provider still serves every other domain.
+import { SettingsConflictError, settingsNamespace } from '@deepseek-ai/dsh-settings'
+import type { SettingsDescriptor, SettingsNamespace, SettingsPathOp } from '@deepseek-ai/dsh-settings'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
+// Value edge: the rename impl narrows the title service's validation failure; the import also resolves `ctx.get('sessionTitle')`.
+import { SessionTitleInvalidError } from '@deepseek-ai/dsh-session-title'
+import type { CallId } from '@deepseek-ai/dsh-llm/brand'
+import type { ApprovalOutcome, ApprovalRequestId } from '@deepseek-ai/dsh-user-approval'
+// Side-effect type import: resolves the `approval/request` waterfall and
+// `ctx.get('approval')` without a value dependency on the seam (optional composition).
+import type {} from '@deepseek-ai/dsh-user-approval'
+import { approvalResponsePayloadSchema } from './api/approvals.schema.ts'
 import { questionResponsePayloadSchema } from './api/questions.schema.ts'
 import type { ClientResponse, RpcError, RpcReceipt, RpcRequest, RpcResponse } from './api/rpc.ts'
 import { RpcId } from './api/rpc.ts'
@@ -39,19 +66,41 @@ import type {
   AskUserQuestionAnswer, AskUserQuestionItem, AskUserQuestionRequest,
 } from '@deepseek-ai/dsh-user-interaction'
 import { UserInteractionError } from '@deepseek-ai/dsh-user-interaction'
-import { pickNativeDirectory } from './native-directory-picker.ts'
+import { DirectoryPickerError } from '@deepseek-ai/dsh-host-directory-picker'
+import { openNativePath } from './native-path-opener.ts'
 
 /** Page size when history is called without maxMessages. */
 const DEFAULT_MAX_MESSAGES = 50
 
-/** Surface message event types (the pagination counting unit). */
+/** Non-model settings namespaces intentionally served to the Web client. */
+const WEB_SETTINGS_NAMESPACES = ['permission'] as const
+
+/** Provider work budget: at most 100 calls and 2,000 inspected hits. */
+const SESSION_SEARCH_PROVIDER_CALL_LIMIT = 100
+
+/** Bound cold-log stat fan-out and settle each started batch before cancellation returns. */
+const COLD_SUMMARY_BATCH_SIZE = 16
+
+/** Conversation message event types (the pagination counting unit). */
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message', 'steering/message'])
 
+/** Product settings intentionally exposed beside model-provider namespaces. */
+const PRODUCT_SETTINGS_NAMESPACES = new Set(['ui-onboarding'])
+
+/** Read live abort state across awaits without treating it as synchronously immutable. */
+function isAborted(signal: AbortSignal): boolean {
+  return signal.aborted
+}
+
 /**
- * Message-boundary pagination: count maxMessages surface messages backwards from
- * the window tail; the cut is the starting seq of the oldest message group
- * (chunks group via sourceEventSeqs — never cut mid-message). The tail page
- * naturally includes the in-progress partial.
+ * Message-boundary pagination: count maxMessages append-origin messages
+ * backwards from the window tail. Replacement copies never entered the
+ * conversation a reader sees — they restate a shadowed range for the model
+ * alone — so they consume no quota; the page stays one contiguous raw range,
+ * which keeps a compaction's log-only provenance on the same page as its
+ * replacement. The cut is the starting seq of the oldest message group (chunks
+ * group via sourceEventSeqs — never cut mid-message). The tail page naturally
+ * includes the in-progress partial.
  */
 function paginate(
   events: readonly SessionEvent[],
@@ -63,7 +112,7 @@ function paginate(
   let cut = 0
   for (let i = window.length - 1; i >= 0; i--) {
     const event = window[i] as SessionEvent
-    if (!MESSAGE_TYPES.has(event.type)) continue
+    if (!MESSAGE_TYPES.has(event.type) || !isAppendSurfaceEvent(event)) continue
     count++
     const sources = (event as { sourceEventSeqs?: number[] }).sourceEventSeqs
     const groupStart = sources !== undefined && sources.length > 0 ? Math.min(event.seq, ...sources) : event.seq
@@ -79,6 +128,82 @@ function paginate(
 /** Wrap an ok result echoing the request's rpcId. */
 function ok<T>(request: RpcRequest<unknown>, value: T): RpcResponse<T> {
   return { rpcId: request.rpcId, result: { ok: true, value } }
+}
+
+/**
+ * Build the provider/model catalog over every registered route. Shared by the
+ * session-scoped `session.models` (which passes the session's current target
+ * so an unlisted current model still renders selectable) and the host-scoped
+ * `llm.models` (no current). Per-provider failures ride `failures` without
+ * failing the sound groups; groups that advertise nothing are dropped.
+ */
+async function buildModelCatalog(
+  ctx: Context,
+  current?: { provider: string; model: string },
+): Promise<{ groups: ModelProviderGroup[]; failures: ModelCatalogFailure[] }> {
+  const catalog = await Promise.all(ctx.llm.listProviders().map(async (provider) => {
+    try {
+      const advertised = await ctx.llm.listModels(provider.id)
+      const models = [...advertised]
+      if (
+        current !== undefined
+        && provider.id === current.provider
+        && !models.some(model => model.id === current.model)
+      ) {
+        models.push({
+          provider: provider.id,
+          id: current.model,
+          name: current.model,
+        })
+      }
+      const entries = await Promise.all(models.map(async (model) => {
+        const resolved = await ctx.llm.resolveModelInfo(provider.id, model.id)
+        const reasoning: ModelReasoning | undefined = resolved.reasoning === undefined
+          ? undefined
+          : {
+            efforts: resolved.reasoning.efforts.map(effort => ({
+              id: effort.id,
+              name: effort.name,
+              ...effort.description === undefined
+                ? {}
+                : { description: effort.description },
+            })),
+            ...resolved.reasoning.defaultEffort === undefined
+              ? {}
+              : { defaultEffort: resolved.reasoning.defaultEffort },
+          }
+        return {
+          id: model.id,
+          name: model.name,
+          ...model.description === undefined ? {} : { description: model.description },
+          ...current !== undefined
+            && provider.id === current.provider
+            && model.id === current.model
+            && !advertised.some(candidate => candidate.id === current.model)
+            ? { unlisted: true as const }
+            : {},
+          ...reasoning === undefined ? {} : { reasoning },
+        }
+      }))
+      const group: ModelProviderGroup = {
+        id: provider.id,
+        name: provider.name,
+        models: entries,
+      }
+      return { kind: 'group' as const, group }
+    } catch (error: unknown) {
+      const failure: ModelCatalogFailure = {
+        id: provider.id,
+        name: provider.name,
+        message: error instanceof Error ? error.message : String(error),
+      }
+      return { kind: 'failure' as const, failure }
+    }
+  }))
+  return {
+    groups: catalog.flatMap(item => item.kind === 'group' ? [item.group] : []).filter(group => group.models.length > 0),
+    failures: catalog.flatMap(item => item.kind === 'failure' ? [item.failure] : []),
+  }
 }
 
 /** Wrap an error result echoing the request's rpcId. */
@@ -121,43 +246,39 @@ class FrameQueue<F> {
 }
 
 /**
- * Server-side frame mint: pure pushes get a fresh rpcId per frame (stable ids
- * for answerable frames belong to the approval/question registry, absent in
- * this minimal version).
+ * Server-side frame mint: pure pushes get a fresh rpcId per frame (answerable
+ * frames — approval/question requested — mint their stable id in their
+ * pending registries instead).
  */
 function frame<F>(payload: F): RpcRequest<F> {
   return { rpcId: RpcId(randomUUID()), payload }
 }
 
-type SessionTitleFrame = Extract<MuxFrame, { type: 'session/title' }>
-
-/** Project the latest durable title without exposing title-generation policy. */
-function titleFrame(session: Session): SessionTitleFrame | undefined {
-  const title = foldSessionTitle(session.events)
-  if (title === undefined) return undefined
-  return {
-    type: 'session/title',
-    sessionId: session.id,
-    title: title.title,
-    eventSeq: title.eventSeq,
-    updatedAt: title.updatedAt,
-  }
-}
-
-/** Queue the subscription baseline followed by its optional title snapshot. */
+/** Queue the subscription baseline frame. */
 function subscribeSession(queue: FrameQueue<RpcRequest<MuxFrame>>, session: Session): void {
   queue.push(frame({ type: 'session/subscribed', sessionId: session.id, lastSeq: session.seq - 1 }))
-  const title = titleFrame(session)
-  if (title !== undefined) queue.push(frame(title))
+}
+
+/**
+ * Whether the session's conversation has started: no turn has run yet (a
+ * turn is one model-loop execution). Standalone plugin events — command
+ * lifecycle records, plan/mode, titles, goals — never open a turn, so
+ * running `/plan` or `/goal` on a fresh session keeps it blank
+ * (list-hidden, reusable).
+ */
+function sessionBlank(session: Session): boolean {
+  return !session.events.some(event => event.type === 'turn/start')
 }
 
 /** SessionSummary projection for attached (in-memory) sessions. */
 function summarize(session: Session, running: boolean): SessionSummary {
   return {
     sessionId: session.id,
-    updatedAt: session.events.at(-1)?.time ?? session.header.createdAt,
+    // Excludes end-seed: a resumed-but-untouched session
+    // must not sort as freshly worked in.
+    updatedAt: lastActivityTime(session.events) ?? session.header.createdAt,
     running,
-    blank: session.events.length === 0,
+    blank: sessionBlank(session),
     ...session.header.parentSession === undefined ? {} : { parentSessionId: session.header.parentSession },
     ...session.header.cwd === undefined ? {} : { cwd: session.header.cwd },
   }
@@ -168,22 +289,30 @@ function summarize(session: Session, running: boolean): SessionSummary {
  * updatedAt is the log file's mtime; backends without a per-session file
  * (locate() undefined) fall back to the header's createdAt.
  */
-async function summarizeCold(persistence: SessionPersistence, meta: SessionHeader): Promise<SessionSummary> {
+async function summarizeCold(
+  persistence: SessionPersistence,
+  meta: SessionHeader,
+  signal?: AbortSignal,
+): Promise<SessionSummary> {
+  signal?.throwIfAborted()
   let updatedAt = meta.createdAt
   const location = persistence.locate(meta)
+  signal?.throwIfAborted()
   if (location !== undefined) {
     try {
       updatedAt = (await stat(location.path)).mtimeMs
     } catch {
       // The log vanished between list() and stat() (concurrent cleanup); createdAt stands in.
     }
+    signal?.throwIfAborted()
   }
   return {
     sessionId: meta.id,
     updatedAt,
     running: false,
-    // Lazy persistence keeps never-appended sessions out of list(): a cold
-    // session necessarily has events, so blank is constantly false here.
+    // Lazy persistence keeps never-appended sessions out of list(); reading
+    // a cold log to check for turns would defeat the index read, so a listed
+    // cold session is served as not-blank (its log holds its conversation).
     blank: false,
     ...meta.parentSession === undefined ? {} : { parentSessionId: meta.parentSession },
     /* v8 ignore next -- the empty arm needs a cwd-less meta, but list()
@@ -191,6 +320,14 @@ async function summarizeCold(persistence: SessionPersistence, meta: SessionHeade
     summarize() shape. */
     ...meta.cwd === undefined ? {} : { cwd: meta.cwd },
   }
+}
+
+/** Map a browse-primitive failure onto the wire error vocabulary (unknown throws stay internal). */
+function directoryError(error: unknown): RpcError {
+  if (error instanceof DirectoryPickerError) {
+    return { code: error.code, message: error.message, details: { path: error.path } }
+  }
+  return { code: 'internal', message: error instanceof Error ? error.message : String(error), details: {} }
 }
 
 /** Resolved Host routing and project-directory defaults consumed by the API implementation. */
@@ -201,14 +338,41 @@ export interface ApiProxyDefaults {
   cwd: string
   /** Parent directory for name-created workspaces. */
   workspaceRoot: string
-  /** Native single-directory picker; injectable for carrier tests. */
-  pickDirectory?: (signal: AbortSignal) => Promise<string | null>
+  /** Native open-with-default-application; injectable for carrier tests. */
+  openPath?: (path: string, signal: AbortSignal) => Promise<void>
 }
 
 /** The tool/call payload fields the presenter path reads. */
 interface ToolCallData { callId: string; name: string; arguments: string }
-/** The tool/result payload fields the presenter path reads. */
-interface ToolResultData { callId: string; content: ContentBlock[]; isError: boolean; meta?: JsonValue }
+/**
+ * One outstanding approval question: the stable server-request id, the frame
+ * material replayed to late mux subscribers, and the resolver that settles the
+ * answerer's promise back into `ctx.approval`.
+ */
+interface PendingApproval {
+  rpcId: RpcId
+  sessionId: SessionId
+  approvalId: ApprovalRequestId
+  toolName: string
+  callId?: CallId
+  reason?: string
+  resolve(outcome: ApprovalOutcome): void
+}
+
+/** Project a pending entry into its answerable mux frame (initial push and mux-open replay share it). */
+function requestedFrame(pending: PendingApproval): RpcRequest<MuxFrame> {
+  return {
+    rpcId: pending.rpcId,
+    payload: {
+      type: 'approval/requested',
+      sessionId: pending.sessionId,
+      approvalId: pending.approvalId,
+      toolName: pending.toolName,
+      ...pending.callId === undefined ? {} : { callId: pending.callId },
+      ...pending.reason === undefined ? {} : { reason: pending.reason },
+    },
+  }
+}
 
 /** One host-owned question wait, addressed by the stable server-request id. */
 interface PendingQuestion {
@@ -256,10 +420,16 @@ function viewFor(ctx: Context, event: SessionEvent, argsFor: (callId: string) =>
       return view === undefined ? undefined : { for: 'call', view }
     }
     if (event.type === 'tool/result') {
-      const { callId, content, isError, meta } = event.data as ToolResultData
+      const { message, meta } = event.data
+      const [result] = message.content
+      const callId = message.source.callId
       const call = argsFor(callId) as { name: string; args: unknown } | undefined
       if (call === undefined) return undefined
-      const view = ctx.tools.get(call.name)?.presentResult?.(call.args, { content, isError, ...meta === undefined ? {} : { meta } })
+      const view = ctx.tools.get(call.name)?.presentResult?.(call.args, {
+        content: result.content,
+        isError: result.isError === true,
+        ...meta === undefined ? {} : { meta },
+      })
       return view === undefined ? undefined : { for: 'result', view }
     }
   } catch (error: unknown) {
@@ -292,13 +462,41 @@ function backscanArgs(events: readonly SessionEvent[], callId: string): { name: 
   return undefined
 }
 
-/** Current todo projection: the latest `todo/write` over the full log (whole-list replace ⇒ last write wins); undefined when none. */
-function backscanTodos(events: readonly SessionEvent[]): TodoItem[] | undefined {
-  for (let i = events.length - 1; i >= 0; i--) {
-    const event = events[i]
-    if (event !== undefined && event.type === 'todo/write') return event.data.todos
+/**
+ * The projection baseline for one history tail page: the registry's
+ * watermark-cache snapshot — one fully synchronous read (no await between the
+ * page slice and this), so all values and `asOfSeq` form a single consistent
+ * cut and `asOfSeq` equals the window tail event seq. The carrier holds zero
+ * domain knowledge (each value passed its unit's own schema inside the
+ * registry). An absent registry means the deployment has no projection seam:
+ * the whole block is absent and clients treat every key as capability-absent.
+ */
+function projectionsFor(ctx: Context, agent: Agent): SessionProjectionsBlock | undefined {
+  const registry = ctx.get('sessionProjections')
+  if (registry === undefined) return undefined
+  return registry.snapshot(agent.session)
+}
+
+/**
+ * The projection baseline of one session.list row, fail-soft: attached
+ * sessions cut the registry's live watermark cache; cold sessions view the
+ * persisted projection cache's identity-checked stored rows (zero log loads
+ * either way — the listing use case the cache exists for). The block shape
+ * (values + asOfSeq) matches the history tail's, so a client seeds its
+ * value store under the same higher-seq-wins rule. Any failure — and an
+ * empty value set — yields an absent block: a listing without projections
+ * is degraded, never broken.
+ */
+function listProjectionsFor(ctx: Context, meta: SessionHeader, session: Session | undefined): SessionProjectionsBlock | undefined {
+  try {
+    const block = session !== undefined
+      ? ctx.get('sessionProjections')?.snapshot(session)
+      : ctx.get('sessionProjectionCache')?.cachedSnapshot(meta)
+    return block !== undefined && Object.keys(block.values).length > 0 ? block : undefined
+  } catch (error) {
+    ctx.logger.warn(`session.list: projection column for "${meta.id}" failed (serving the row without it): ${String(error)}`)
+    return undefined
   }
-  return undefined
 }
 
 /**
@@ -323,6 +521,14 @@ class SessionCwdConflict extends Error {
 
 /** Host failed before the registry could adopt a name-created directory. */
 class WorkspaceDirectoryCreationError extends Error {}
+
+/** An explicit Host naming operation would duplicate another Workspace title. */
+class WorkspaceNameConflictError extends Error {
+  constructor(readonly workspaceName: string) {
+    super(`workspace name '${workspaceName}' is already in use`)
+    this.name = 'WorkspaceNameConflictError'
+  }
+}
 
 /** Shared workspace-not-found error response of the workspace.* mutation rows. */
 function workspaceNotFound<T>(request: RpcRequest<unknown>, workspaceId: string): RpcResponse<T> {
@@ -372,9 +578,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   const resumes = new Map<SessionId, Promise<Agent>>()
   /** Client-chosen identity creation/resume, deduplicated across concurrent retries. */
   const sessionCreations = new Map<SessionId, Promise<Agent>>()
-  /** Serializes path ownership checks with record creation across spellings. */
+  /** Serializes path ownership and explicit title checks with Workspace mutations. */
   let workspaceCreationChain = Promise.resolve()
   const pendingQuestions = new Map<RpcId, PendingQuestion>()
+  const pendingApprovals = new Map<RpcId, PendingApproval>()
   const muxQueues = new Set<FrameQueue<RpcRequest<MuxFrame>>>()
 
   /**
@@ -417,46 +624,117 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     for (const queue of muxQueues) queue.push(envelope)
   }
 
+  // Projection change feed → session/projection push frames. The carrier
+  // mints the wire frame (the seam package holds no wire vocabulary); the
+  // child activates only when a projection registry is composed, and the
+  // subscription unwinds with this gateway's fiber.
+  ctx.inject(['sessionProjections'], (projectionCtx) => {
+    projectionCtx.sessionProjections.onChanged((session, key, value, seq) => {
+      broadcast({ type: 'session/projection', sessionId: session.id, key, value, seq })
+    })
+  })
+
   /**
-   * Per-session inbox mirror serving the mux-open queue snapshot (the same
-   * refresh-recovery baseline as pending questions). Keyed by the stable
-   * AgentMessageId: every enqueued id receives exactly one terminal
-   * `agent/inbox/dequeue` OR `agent/inbox/discard` (the inbox contract), so
-   * the mirror needs no consumption heuristics or sweeps beyond disposal.
+   * Per-session queued-occurrence mirror serving the mux-open queue snapshot
+   * (the same refresh-recovery baseline as pending questions). Each terminal
+   * queue event retires one matching occurrence, so repeated sends of the same
+   * identified message remain visible until every occurrence is claimed.
    */
-  const queuedMirror = new Map<SessionId, Map<AgentMessageId, { message: AgentMessage; steering: boolean }>>()
+  const queuedMirror = new Map<SessionId, InboxItem[]>()
+  type UnseenQueueEvent =
+    | { readonly kind: 'update'; readonly item: InboxItem }
+    | { readonly kind: 'terminal' }
+  const unseenQueueEvents = new Map<SessionId, Map<InboxItemId, UnseenQueueEvent>>()
+  const rememberUnseen = (sessionId: SessionId, itemId: InboxItemId, event: UnseenQueueEvent): void => {
+    let events = unseenQueueEvents.get(sessionId)
+    if (events === undefined) {
+      events = new Map()
+      unseenQueueEvents.set(sessionId, events)
+    }
+    events.set(itemId, event)
+    // Only synchronous re-entrancy may deliver a mutation before its outer
+    // enqueue observer. Drop unmatched protocol-invalid observations instead
+    // of retaining process-local ids indefinitely.
+    queueMicrotask(() => {
+      const current = unseenQueueEvents.get(sessionId)
+      if (current?.get(itemId) !== event) return
+      current.delete(itemId)
+      if (current.size === 0) unseenQueueEvents.delete(sessionId)
+    })
+  }
+  const takeUnseen = (sessionId: SessionId, itemId: InboxItemId): UnseenQueueEvent | undefined => {
+    const events = unseenQueueEvents.get(sessionId)
+    const event = events?.get(itemId)
+    if (event === undefined) return undefined
+    events?.delete(itemId)
+    if (events?.size === 0) unseenQueueEvents.delete(sessionId)
+    return event
+  }
+  const publishQueue = (sessionId: SessionId): void => {
+    const items = queuedMirror.get(sessionId) ?? []
+    broadcast({
+      type: 'session/queue',
+      sessionId,
+      items: items.map(item => ({
+        id: item.id,
+        message: item.message,
+      })),
+    })
+  }
   ctx.effect(() => {
-    const retire = (agent: Agent, id: AgentMessageId): void => {
+    const retire = (agent: Agent, item: InboxItem): boolean => {
       const entries = queuedMirror.get(agent.id)
-      if (entries === undefined) return
-      entries.delete(id)
-      if (entries.size === 0) queuedMirror.delete(agent.id)
+      if (entries === undefined) {
+        rememberUnseen(agent.id, item.id, { kind: 'terminal' })
+        return false
+      }
+      const index = entries.findIndex(entry => entry.id === item.id)
+      if (index === -1) {
+        rememberUnseen(agent.id, item.id, { kind: 'terminal' })
+        return false
+      }
+      entries.splice(index, 1)
+      if (entries.length === 0) queuedMirror.delete(agent.id)
+      return true
     }
     const disposers = [
-      ctx.on('agent/inbox/enqueue', (agent: Agent, message: AgentMessage, placement) => {
+      ctx.on('agent/inbox/enqueue', (agent: Agent, item: InboxItem) => {
+        if (item.placement !== 'queued') return
+        const unseen = takeUnseen(agent.id, item.id)
+        if (unseen?.kind === 'terminal') return
         let entries = queuedMirror.get(agent.id)
         if (entries === undefined) {
-          entries = new Map<AgentMessageId, { message: AgentMessage; steering: boolean }>()
+          entries = []
           queuedMirror.set(agent.id, entries)
         }
-        const steering = placement === 'steering'
-        entries.set(message.id, { message, steering })
-        broadcast({
-          type: 'session/queued',
-          sessionId: agent.id,
-          content: message.content,
-          source: message.source,
-          steering,
-        })
+        entries.push(unseen?.kind === 'update' ? unseen.item : item)
+        publishQueue(agent.id)
       }),
-      ctx.on('agent/inbox/dequeue', (agent: Agent, message: AgentMessage) => {
-        retire(agent, message.id)
+      ctx.on('agent/inbox/update', (agent: Agent, item: InboxItem) => {
+        const entries = queuedMirror.get(agent.id)
+        if (entries === undefined) {
+          rememberUnseen(agent.id, item.id, { kind: 'update', item })
+          return
+        }
+        const index = entries.findIndex(entry => entry.id === item.id)
+        if (index === -1) {
+          rememberUnseen(agent.id, item.id, { kind: 'update', item })
+          return
+        }
+        entries.splice(index, 1, item)
+        publishQueue(agent.id)
       }),
-      ctx.on('agent/inbox/discard', (agent: Agent, messages: AgentMessage[]) => {
-        for (const message of messages) retire(agent, message.id)
+      ctx.on('agent/inbox/dequeue', (agent: Agent, item: InboxItem) => {
+        if (retire(agent, item)) publishQueue(agent.id)
+      }),
+      ctx.on('agent/inbox/discard', (agent: Agent, items: InboxItem[]) => {
+        let changed = false
+        for (const item of items) changed = retire(agent, item) || changed
+        if (changed) publishQueue(agent.id)
       }),
       ctx.on('session/disposed', (session: Session) => {
         queuedMirror.delete(session.id)
+        unseenQueueEvents.delete(session.id)
       }),
     ]
     return () => { for (const dispose of disposers) dispose() }
@@ -511,6 +789,90 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         'web user-interaction provider was disposed', 'ASK_ABORTED'))
     }
   }, 'api-proxy: user-interaction provider')
+
+  // --- Approval pending registry ------------------------------------------
+  // The proxy is the approval channel for every agent this host owns: an ask
+  // through `ctx.approval` becomes an answerable server-request on the mux
+  // stream (stable rpcId), settled by POST /api/respond. The entry survives
+  // client disconnects — mux-open replays still-pending requested frames with
+  // the same rpcId (the refresh-recovery baseline) — and withdraws on the
+  // ask's own abort signal (turn cancel), pushing `cancelled` to subscribers.
+  if (ctx.get('approval') !== undefined) {
+    // Teardown parity with the question provider above: a gateway disposed
+    // while approvals are pending settles every entry as 'cancelled' (the
+    // service's fail-closed vocabulary), so no ask promise dangles past the
+    // proxy's lifetime and subscribers see the withdrawal.
+    ctx.effect(() => () => {
+      for (const pending of [...pendingApprovals.values()]) pending.resolve('cancelled')
+    }, 'api-proxy: approval registry teardown')
+    ctx.on('approval/request', (req, next) => {
+      // Dispatch rides a microtask behind the service's own signal check: an
+      // abort landing in that window would register the abort listener AFTER
+      // the signal fired — never invoked, entry pending forever, zombie frame
+      // on every mux replay. Settle synchronously instead of publishing.
+      if (req.signal?.aborted === true) return Promise.resolve<ApprovalOutcome>('cancelled')
+      // The audit pair `approval/asked` is already appended by the service
+      // before dispatch, but dispatch rides a microtask: parallel tool calls
+      // can append several asked events before any answerer runs. THIS
+      // request's event is therefore the newest asked event that is still
+      // undecided, unclaimed by another pending entry, and — when the ask
+      // names a call — carries the same callId.
+      const events = req.agent.session.events
+      const claimed = new Set<ApprovalRequestId>()
+      for (const entry of pendingApprovals.values()) claimed.add(entry.approvalId)
+      const decided = new Set<ApprovalRequestId>()
+      let approvalId: ApprovalRequestId | undefined
+      for (let i = events.length - 1; i >= 0; i -= 1) {
+        const event = events[i] as SessionEvent
+        if (event.type === 'approval/decided') {
+          decided.add(event.data.id)
+        } else if (event.type === 'approval/asked') {
+          if (decided.has(event.data.id) || claimed.has(event.data.id)) continue
+          // Symmetric pairing: a callId-bearing ask only takes its own call's
+          // record, and a callId-less ask only takes a callId-less record —
+          // so neither shape can steal the other's audit id under parallel
+          // asks. (Today every producer — the tool executor — passes callId;
+          // the callId-less arm guards any future non-tool asker.)
+          if ((req.callId ?? null) !== (event.data.callId ?? null)) continue
+          approvalId = event.data.id
+          break
+        }
+      }
+      // No asked event means the request bypassed the service's audit path —
+      // not this channel's question; delegate to the fail-closed default.
+      if (approvalId === undefined) return next()
+      const id = approvalId
+      return new Promise<ApprovalOutcome>((resolve) => {
+        const settle = (outcome: ApprovalOutcome): void => {
+          /* v8 ignore next 3 -- defensive double-settle guard: respond() routes
+             through the pending table (a settled id is not-pending before it can
+             re-settle) and the first settle removes the abort listener, so no
+             reachable path settles twice; kept against future settle callers. */
+          if (!pendingApprovals.delete(pending.rpcId)) return
+          req.signal?.removeEventListener('abort', onAbort)
+          broadcast({ type: 'approval/resolved', sessionId: pending.sessionId, approvalId: id, outcome })
+          // A cancelled ask was already settled by the service's own signal
+          // race, which discards this late resolution; resolving is a no-op
+          // there and keeps this promise from dangling forever.
+          resolve(outcome)
+        }
+        const onAbort = (): void => { settle('cancelled') }
+        const pending: PendingApproval = {
+          rpcId: RpcId(randomUUID()),
+          sessionId: req.agent.session.id,
+          approvalId: id,
+          toolName: req.toolName,
+          ...req.callId === undefined ? {} : { callId: req.callId },
+          ...req.reason === undefined ? {} : { reason: req.reason },
+          resolve: settle,
+        }
+        pendingApprovals.set(pending.rpcId, pending)
+        req.signal?.addEventListener('abort', onAbort, { once: true })
+        const envelope = requestedFrame(pending)
+        for (const queue of muxQueues) queue.push(envelope)
+      })
+    })
+  }
 
   /**
    * Gate the cold path on the store: an id absent from it, or naming a legacy
@@ -638,6 +1000,202 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     return operation
   }
 
+  /**
+   * Build the session.list baseline shared by listing and search visibility.
+   * Attached sessions come from memory; servable cold sessions merge from
+   * persistence, and the final order is newest-first.
+   */
+  async function listVisibleSessionSummaries(signal?: AbortSignal): Promise<SessionSummary[]> {
+    signal?.throwIfAborted()
+    const items = ctx.sessions.list().map((session) => {
+      const agent = ctx.agents.get(session.id)
+      const projections = listProjectionsFor(ctx, session.header, session)
+      return {
+        ...summarize(session, agent?.status === 'running'),
+        ...projections === undefined ? {} : { projections },
+      }
+    })
+    signal?.throwIfAborted()
+    const attached = new Set(items.map(item => item.sessionId))
+    const persistence = ctx.get('sessionPersistence')
+    if (persistence !== undefined) {
+      const cold = (await persistence.list(signal))
+        .filter(meta => !attached.has(meta.id) && meta.cwd !== undefined)
+      signal?.throwIfAborted()
+      for (let offset = 0; offset < cold.length; offset += COLD_SUMMARY_BATCH_SIZE) {
+        signal?.throwIfAborted()
+        const batch = cold.slice(offset, offset + COLD_SUMMARY_BATCH_SIZE)
+        const settled = await Promise.allSettled(
+          batch.map(async (meta) => {
+            // Cold rows read the persisted projection cache only — never a
+            // log load; a session without a cache row simply has no column.
+            const projections = listProjectionsFor(ctx, meta, undefined)
+            return {
+              ...await summarizeCold(persistence, meta, signal),
+              ...projections === undefined ? {} : { projections },
+            }
+          }),
+        )
+        const summaries: SessionSummary[] = []
+        let rejected = false
+        let failure: unknown
+        for (const result of settled) {
+          if (result.status === 'fulfilled') {
+            summaries.push(result.value)
+          } else if (!rejected) {
+            rejected = true
+            failure = result.reason
+          }
+        }
+        if (rejected) throw failure
+        signal?.throwIfAborted()
+        items.push(...summaries)
+      }
+    }
+    items.sort((a, b) => b.updatedAt - a.updatedAt)
+    return items
+  }
+
+  /** Resolve the goal service; absent = the deployment did not compose @deepseek-ai/dsh-goal. */
+  function goalService(): NonNullable<ReturnType<typeof ctx.get<'goals'>>> | { error: RpcError } {
+    const goals = ctx.get('goals')
+    if (goals === undefined) {
+      return { error: { code: 'internal', message: 'goal service is absent: this deployment does not mount @deepseek-ai/dsh-goal in its composition (cordis.yml or explicit assembly)', details: {} } }
+    }
+    return goals
+  }
+
+  /** Map one goal-domain rejection to the wire error (stable GoalError codes ride in details). */
+  function goalError(request: RpcRequest<unknown>, error: unknown): RpcResponse<never> {
+    const details = error instanceof GoalError ? { goalCode: error.code } : {}
+    return err(request, { code: 'internal', message: String(error), details })
+  }
+
+  /** Resolve a session's agent, apply one goal mutation, and acknowledge with the new CAS ref. */
+  async function mutateGoal(
+    request: RpcRequest<{ sessionId: SessionId }>,
+    mutation: (goals: NonNullable<ReturnType<typeof ctx.get<'goals'>>>, agent: Agent) => CoreGoalRef,
+  ): Promise<RpcResponse<{ ref: GoalRef }>> {
+    const goals = goalService()
+    if ('error' in goals) return err(request, goals.error)
+    const found = await agentFor(request.payload.sessionId)
+    if ('error' in found) return err(request, found.error)
+    try {
+      const ref = mutation(goals, found.agent)
+      return ok(request, { ref: { id: ref.id, revision: ref.revision } })
+    } catch (error: unknown) {
+      return goalError(request, error)
+    }
+  }
+
+  /** Missing-service report shared by the settings domain (skills-domain stance). */
+  function settingsAbsent(): RpcError {
+    return { code: 'internal', message: 'settings service is absent: this deployment does not mount a settings provider (e.g. @deepseek-ai/dsh-settings-local) in its composition', details: {} }
+  }
+
+  /** Missing-service report shared by the credentials domain. */
+  function credentialsAbsent(): RpcError {
+    return { code: 'internal', message: 'credentials service is absent: this deployment does not mount a credential provider (e.g. @deepseek-ai/dsh-credentials-local) in its composition', details: {} }
+  }
+
+  /** Map one redacted seam descriptor to its wire view. */
+  function namespaceView(descriptor: SettingsDescriptor): SettingsNamespaceView {
+    return {
+      ns: String(descriptor.ns),
+      schema: descriptor.schema,
+      value: descriptor.value,
+      ...descriptor.base === undefined ? {} : { base: descriptor.base },
+      ...descriptor.user === undefined ? {} : { user: descriptor.user },
+      applies: descriptor.applies,
+      secrets: (descriptor.secrets ?? []).map(secret => ({ path: [...secret.path], set: secret.set })),
+      revision: descriptor.revision,
+    }
+  }
+
+  /** Settings namespaces whose changes can invalidate the model catalog. */
+  function modelProviderNamespaces(): Set<string> {
+    return new Set(ctx.llm.listConfigurableProviders().map(entry => entry.settingsNs))
+  }
+
+  /**
+   * The settings namespaces this proxy serves: configurable model providers
+   * plus the small explicit Web preference and product-owned allowlists. The
+   * settings seam remains general; a future registration does not become
+   * remotely readable or writable by default.
+   */
+  function exposedNamespaces(): Set<string> {
+    const exposed = modelProviderNamespaces()
+    for (const ns of WEB_SETTINGS_NAMESPACES) exposed.add(ns)
+    for (const ns of PRODUCT_SETTINGS_NAMESPACES) exposed.add(ns)
+    return exposed
+  }
+
+  /** Refuse a namespace outside the explicit configuration-client boundary. */
+  function notExposed(request: RpcRequest<unknown>, ns: string): RpcResponse<SettingsNamespaceView> {
+    return err(request, {
+      code: 'settings-not-exposed',
+      message: `settings namespace "${ns}" is not exposed to configuration clients`,
+      details: { ns },
+    })
+  }
+
+  /**
+   * Run one settings write (merge or wholesale replace) and acknowledge with
+   * the namespace's new redacted view. A namespace outside the configuration
+   * boundary is refused before the seam is touched; every seam refusal —
+   * unknown or invalid namespace, read-only provider, schema validation,
+   * storage — becomes one `settings-rejected` carrying the seam's own message.
+   */
+  async function settingsWrite(
+    request: RpcRequest<unknown>,
+    ns: string,
+    mode: 'update' | 'replace' | 'mutate',
+    section: object,
+    expectedRevision?: number,
+  ): Promise<RpcResponse<SettingsNamespaceView>> {
+    const settings = ctx.get('settings')
+    if (settings === undefined) return err(request, settingsAbsent())
+    const rejected = (error: unknown): RpcResponse<SettingsNamespaceView> => {
+      // A stale writer is its own outcome, not a malformed request: the client
+      // must re-read and re-apply rather than treat the write as invalid.
+      if (error instanceof SettingsConflictError) {
+        return err(request, {
+          code: 'settings-conflict',
+          message: error.message,
+          details: { ns, expected: error.expected, actual: error.actual },
+        })
+      }
+      return err(request, {
+        code: 'settings-rejected',
+        message: error instanceof Error ? error.message : String(error),
+        details: { ns },
+      })
+    }
+    let branded: SettingsNamespace
+    try {
+      branded = settingsNamespace(ns)
+    } catch (error: unknown) {
+      // A malformed name is a client bug, reported as such; it could never be
+      // in the exposed set either, so naming the real fault costs no ground.
+      return rejected(error)
+    }
+    if (!exposedNamespaces().has(ns)) return notExposed(request, ns)
+    try {
+      if (mode === 'update') await settings.update(branded, section, expectedRevision)
+      else if (mode === 'replace') await settings.replace(branded, section, expectedRevision)
+      else await settings.mutate(branded, section as SettingsPathOp[], expectedRevision)
+    } catch (error: unknown) {
+      return rejected(error)
+    }
+    const descriptor = settings.describe({ redactSecrets: true }).find(candidate => candidate.ns === branded)
+    if (descriptor === undefined) {
+      // The write committed but the namespace vanished before this read: only
+      // a concurrent registrant disposal can produce it.
+      return err(request, { code: 'internal', message: `settings namespace "${ns}" was disposed after the ${mode}`, details: {} })
+    }
+    return ok(request, namespaceView(descriptor))
+  }
+
   return {
     sessions: {
       // Attached sessions summarize from memory; persisted-but-unattached (cold)
@@ -645,18 +1203,137 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       // Legacy logs without a cwd (pre-project stance) are not served — every
       // session now records its project at create time.
       async list(request) {
-        const items = ctx.sessions.list().map((session) => {
-          const agent = ctx.agents.get(session.id)
-          return summarize(session, agent?.status === 'running')
+        return ok(request, { items: await listVisibleSessionSummaries() })
+      },
+
+      async search(request, signal) {
+        const cancelled = () => err<{ items: SessionSearchItem[]; hasMore: boolean }>(request, {
+          code: 'cancelled',
+          message: 'session search was aborted',
+          details: {},
         })
-        const attached = new Set(items.map(item => item.sessionId))
-        const persistence = ctx.get('sessionPersistence')
-        if (persistence !== undefined) {
-          const cold = (await persistence.list()).filter(meta => !attached.has(meta.id) && meta.cwd !== undefined)
-          items.push(...await Promise.all(cold.map(meta => summarizeCold(persistence, meta))))
+        if (isAborted(signal)) return cancelled()
+        const sessionQuery = ctx.get('sessionQuery')
+        if (sessionQuery === undefined) {
+          return err(request, {
+            code: 'internal',
+            message: 'session search is unavailable: this deployment does not mount @deepseek-ai/dsh-session-query',
+            details: {},
+          })
         }
-        items.sort((a, b) => b.updatedAt - a.updatedAt)
-        return ok(request, { items })
+        try {
+          const visible = await listVisibleSessionSummaries(signal)
+          if (isAborted(signal)) return cancelled()
+          if (visible.length === 0) return ok(request, { items: [], hasMore: false })
+          const visibleIds = new Set(visible.map(item => item.sessionId))
+          const authorized: SessionSearchItem[] = []
+          const acceptedIds = new Set<SessionId>()
+          const seenCursors = new Set<SessionSearchCursor>()
+          let cursor: SessionSearchCursor | undefined
+          let providerCallCount = 0
+          let providerPageLimit = SESSION_SEARCH_RESULT_LIMIT
+          while (authorized.length <= SESSION_SEARCH_RESULT_LIMIT) {
+            if (isAborted(signal)) return cancelled()
+            if (providerCallCount >= SESSION_SEARCH_PROVIDER_CALL_LIMIT) {
+              throw new Error(
+                `session search provider exceeded the ${SESSION_SEARCH_PROVIDER_CALL_LIMIT}-call work budget`,
+              )
+            }
+            providerCallCount++
+            const requestedCursor = cursor
+            const requestedPageLimit = providerPageLimit
+            let page
+            try {
+              page = await sessionQuery.searchSessions({
+                query: request.payload.query,
+                eventFilters: [
+                  { kind: 'type', values: ['user/message', 'assistant/message', 'steering/message'] },
+                  { kind: 'surface', values: ['current'] },
+                ],
+                limit: requestedPageLimit,
+                ...requestedCursor === undefined ? {} : { cursor: requestedCursor },
+              }, { signal })
+            } catch (error: unknown) {
+              if (isAborted(signal)) return cancelled()
+              if (
+                requestedCursor === undefined
+                && error instanceof SessionQueryError
+                && error.code === 'SESSION_QUERY_INVALID_LIMIT'
+                && requestedPageLimit > 1
+              ) {
+                providerPageLimit = Math.max(1, Math.floor(requestedPageLimit / 2))
+                continue
+              }
+              if (
+                requestedCursor !== undefined
+                && error instanceof SessionQueryError
+                && error.code === 'SESSION_QUERY_STALE_CURSOR'
+              ) {
+                authorized.length = 0
+                acceptedIds.clear()
+                seenCursors.clear()
+                cursor = undefined
+                continue
+              }
+              throw error
+            }
+            if (isAborted(signal)) return cancelled()
+            const providerItemCount = page.items.length
+            if (providerItemCount > requestedPageLimit) {
+              throw new Error(
+                `session search provider returned ${providerItemCount} items; maximum is ${requestedPageLimit}`,
+              )
+            }
+            // Host visibility is the authorization boundary. Consume the
+            // provider's globally ranked stream rather than binding every
+            // visible id into one SQLite statement, then re-check complete
+            // provenance before emitting any snippet.
+            for (const hit of page.items) {
+              if (authorized.length > SESSION_SEARCH_RESULT_LIMIT) continue
+              if (
+                !visibleIds.has(hit.header.id)
+                || hit.bestMatch.sessionId !== hit.header.id
+                || hit.bestMatch.surface !== 'current'
+                || !MESSAGE_TYPES.has(hit.bestMatch.type)
+                || acceptedIds.has(hit.header.id)
+              ) continue
+              const snippet = truncateUnicodeCodePoints(
+                hit.bestMatch.snippet,
+                SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS,
+              )
+              acceptedIds.add(hit.header.id)
+              authorized.push({
+                sessionId: hit.header.id,
+                snippet,
+              })
+            }
+            const nextCursor = page.nextCursor
+            if (nextCursor !== undefined) {
+              if (seenCursors.has(nextCursor)) {
+                throw new Error('session search provider repeated a continuation cursor')
+              }
+              seenCursors.add(nextCursor)
+            }
+            if (authorized.length > SESSION_SEARCH_RESULT_LIMIT || nextCursor === undefined) break
+            cursor = nextCursor
+          }
+          return ok(request, {
+            items: authorized.slice(0, SESSION_SEARCH_RESULT_LIMIT),
+            hasMore: authorized.length > SESSION_SEARCH_RESULT_LIMIT,
+          })
+        } catch (error: unknown) {
+          if (
+            isAborted(signal)
+            || (error instanceof SessionQueryError && error.code === 'SESSION_QUERY_ABORTED')
+          ) return cancelled()
+          // XXX: Redact provider details before exposing this gateway beyond
+          // its current single-user local deployment.
+          return err(request, {
+            code: 'internal',
+            message: `session search failed: ${String(error)}`,
+            details: {},
+          })
+        }
       },
 
       async create(request) {
@@ -711,6 +1388,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const { sessionId, beforeSeq, maxMessages } = request.payload
         const found = await agentFor(sessionId)
         if ('error' in found) return err(request, found.error)
+        // Everything below the resume above is synchronous: the page slice,
+        // the seq read, and the projection walk see one un-torn session state.
         const page = paginate(found.agent.session.events, beforeSeq, maxMessages ?? DEFAULT_MAX_MESSAGES)
         // Views are computed against the registry at pagination time; result
         // pairing scans within the page only (message-boundary pagination keeps
@@ -719,11 +1398,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           const view = viewFor(ctx, event, callId => backscanArgs(page.events, callId))
           return { event, ...view === undefined ? {} : { view } }
         })
-        // Tail page carries the session-level todo projection over the FULL
-        // log (the page window may not contain the last todo/write; a paged
-        // client cannot reconstruct session-level state from it).
-        const todos = beforeSeq === undefined ? backscanTodos(found.agent.session.events) : undefined
-        return ok(request, { events: entries, hasMore: page.hasMore, ...todos === undefined ? {} : { todos } })
+        // Baseline rider: tail page only — loadOlder (beforeSeq present) is
+        // the one path that never needs a fresh projection baseline.
+        const projections = beforeSeq === undefined ? projectionsFor(ctx, found.agent) : undefined
+        return ok(request, {
+          events: entries,
+          hasMore: page.hasMore,
+          ...projections === undefined ? {} : { projections },
+        })
       },
 
       async models(request) {
@@ -731,70 +1413,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const found = await agentFor(sessionId)
         if ('error' in found) return err(request, found.error)
         const current = targetFor(found.agent).current
-        const catalog = await Promise.all(ctx.llm.listProviders().map(async (provider) => {
-          try {
-            const advertised = await ctx.llm.listModels(provider.id)
-            const models = [...advertised]
-            if (
-              provider.id === current.provider
-              && !models.some(model => model.id === current.model)
-            ) {
-              models.push({
-                provider: provider.id,
-                id: current.model,
-                name: current.model,
-              })
-            }
-            const entries = await Promise.all(models.map(async (model) => {
-              const resolved = await ctx.llm.resolveModelInfo(provider.id, model.id)
-              const reasoning: ModelReasoning | undefined = resolved.reasoning === undefined
-                ? undefined
-                : {
-                  efforts: resolved.reasoning.efforts.map(effort => ({
-                    id: effort.id,
-                    name: effort.name,
-                    ...effort.description === undefined
-                      ? {}
-                      : { description: effort.description },
-                  })),
-                  ...resolved.reasoning.defaultEffort === undefined
-                    ? {}
-                    : { defaultEffort: resolved.reasoning.defaultEffort },
-                }
-              return {
-                id: model.id,
-                name: model.name,
-                ...model.description === undefined ? {} : { description: model.description },
-                ...provider.id === current.provider
-                  && model.id === current.model
-                  && !advertised.some(candidate => candidate.id === current.model)
-                  ? { unlisted: true as const }
-                  : {},
-                ...reasoning === undefined ? {} : { reasoning },
-              }
-            }))
-            const group: ModelProviderGroup = {
-              id: provider.id,
-              name: provider.name,
-              models: entries,
-            }
-            return { kind: 'group' as const, group }
-          } catch (error: unknown) {
-            const failure: ModelCatalogFailure = {
-              id: provider.id,
-              name: provider.name,
-              message: error instanceof Error ? error.message : String(error),
-            }
-            return { kind: 'failure' as const, failure }
-          }
-        }))
-        const groups = catalog.flatMap(item => item.kind === 'group' ? [item.group] : [])
-        const failures = catalog.flatMap(item => item.kind === 'failure' ? [item.failure] : [])
-        return ok(request, {
-          current: { ...current },
-          groups: groups.filter(group => group.models.length > 0),
-          failures,
-        })
+        const { groups, failures } = await buildModelCatalog(ctx, current)
+        return ok(request, { current: { ...current }, groups, failures })
       },
 
       async selectModel(request) {
@@ -827,6 +1447,105 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         }
       },
 
+      async rename(request) {
+        const { sessionId, title } = request.payload
+        const found = await agentFor(sessionId)
+        if ('error' in found) return err(request, found.error)
+        const titles = ctx.get('sessionTitle')
+        if (titles === undefined) {
+          return err(request, { code: 'internal', message: 'renaming is unavailable: this deployment mounts no session-title service', details: {} })
+        }
+        try {
+          const accepted = titles.rename(found.agent.session, title)
+          return ok(request, { title: accepted.title, seq: accepted.eventSeq })
+        } catch (error: unknown) {
+          // Only the input's fault maps to title-invalid (the message is
+          // product-user-visible in the rename dialog); liveness and disposal
+          // races are deployment trouble, not a bad title.
+          if (error instanceof SessionTitleInvalidError) {
+            return err(request, {
+              code: 'title-invalid',
+              message: error.message,
+              details: { sessionId },
+            })
+          }
+          return err(request, {
+            code: 'internal',
+            message: `failed to rename session "${sessionId}": ${String(error)}`,
+            details: {},
+          })
+        }
+      },
+
+      async fork(request) {
+        const { sessionId, atSeq } = request.payload
+        const found = await agentFor(sessionId)
+        if ('error' in found) return err(request, found.error)
+        const source = found.agent.session
+        const events = source.events
+        // An in-log anchor belongs to the turn containing it and must never
+        // clip backward to an earlier completed turn. Omitted and past-end
+        // anchors retain the last-completed-turn shortcut.
+        const lastSeq = events.at(-1)?.seq ?? -1
+        const anchoredBoundary = atSeq === undefined
+          ? undefined
+          : events.find(e => e.type === 'turn/end' && e.seq >= atSeq)
+        const boundary = anchoredBoundary
+          ?? (atSeq === undefined || atSeq > lastSeq
+            ? events.findLast(e => e.type === 'turn/end')
+            : undefined)
+        if (boundary === undefined) {
+          return err(request, {
+            code: 'fork-unavailable',
+            message: atSeq !== undefined && atSeq <= lastSeq
+              ? `session "${sessionId}" has not completed the turn containing event ${String(atSeq)}`
+              : `session "${sessionId}" has no completed turn to fork from`,
+            details: { sessionId },
+          })
+        }
+        // Extend the cut through trailing out-of-band appends (session/title,
+        // injections) up to the next turn/start: they are standalone events, so
+        // the seed stays balanced, and the child inherits a title generated
+        // right after the boundary turn.
+        let cut = boundary.seq + 1
+        while (cut < events.length && events[cut]?.type !== 'turn/start') cut++
+        const childId = `session-${randomUUID()}` as SessionId
+        try {
+          await ctx.agents.create({
+            sessionId: childId,
+            seed: events.slice(0, cut),
+            meta: {
+              ...source.header.cwd === undefined ? {} : { cwd: source.header.cwd },
+              parentSession: source.id,
+              seedLength: cut,
+            },
+            agentOptions,
+            setup: installTarget,
+          })
+        } catch (error: unknown) {
+          return err(request, {
+            code: 'internal',
+            message: `failed to fork session "${sessionId}": ${String(error)}`,
+            details: {},
+          })
+        }
+        // Keep the child in the source's Workspace so the list nests it under
+        // its parent; the child is already published if the attach fails.
+        const workspace = ctx.workspace.list().find(w => w.sessionIds.includes(source.id))
+        if (workspace !== undefined) {
+          try {
+            await workspace.attachSession(childId)
+          } catch (error: unknown) {
+            return err(request, {
+              code: 'workspace-attach-failed',
+              message: `session "${childId}" was forked but could not attach to workspace "${workspace.id}": ${String(error)}`,
+              details: { sessionId: childId, workspaceId: workspace.id },
+            })
+          }
+        }
+        return ok(request, { sessionId: childId })
+      },
+
       async prompt(request) {
         const { sessionId, mode, content } = request.payload
         const found = await agentFor(sessionId)
@@ -835,13 +1554,27 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // The rpcId rides MessageSource into user/message (merge declaration in api/sessions.ts; provisional correlation).
         const source: MessageSource = { kind: 'user', rpcId: request.rpcId }
         try {
-          if (mode === 'steer') agent.steer({ content, source })
-          else agent.followup({ content, source })
+          const message: UserMessage = createUserMessage({ content, source })
+          if (mode === 'steer') agent.steer(message)
+          else agent.followup(message)
         } catch (error: unknown) {
           // A synchronous throw from steer/followup means disposed or invalid input; surface as agent-busy with the reason attached.
           return err(request, { code: 'agent-busy', message: 'prompt rejected', details: { reason: String(error) } })
         }
         return ok(request, { accepted: true as const })
+      },
+
+      updateQueue(request) {
+        const { sessionId, itemId, action } = request.payload
+        const agent = ctx.agents.get(sessionId)
+        if (agent === undefined || agent.updateInbox(itemId, action) === 'not-found') {
+          return Promise.resolve(err(request, {
+            code: 'queue-item-not-found',
+            message: 'queued item is no longer pending',
+            details: { itemId },
+          }))
+        }
+        return Promise.resolve(ok(request, { accepted: true as const }))
       },
 
       cancel(request) {
@@ -854,19 +1587,31 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             details: { sessionId },
           }))
         }
-        agent.cancel({ kind: 'user' })
+        agent.cancel({ kind: 'user' }, { keepInbox: true })
         return Promise.resolve(ok(request, { accepted: true as const }))
       },
     },
 
     workspace: {
       list(request) {
-        return Promise.resolve(ok(request, { items: ctx.workspace.list().map(workspaceView) }))
+        return Promise.resolve(ok(request, {
+          items: ctx.workspace.list().map(workspaceView),
+          archivedSessionIds: [...ctx.workspace.archivedSessionIds],
+        }))
       },
 
       // Exactly one of path/name arrives (schema refine). Existing-folder
       // adoption reuses its canonical path; create-by-name rejects a name
       // already present in the registry.
+      // TODO: the create-by-name branch lost its last product consumer when
+      // the Web picker collapsed onto the directory flow
+      // (.agents/notes/implemented/simplification/2026-07-31-one-route-to-add-a-workspace.md).
+      // Delete it with the wire schema's `name` member, this
+      // `defaults.workspaceRoot`, the client seam that carried the name
+      // (`WorkspaceCreateInput`, `WorkspacesService.create`'s `{ name }` arm,
+      // `intentName`'s name branch, the manager's "name under workspaceRoot"
+      // contract), and the `dsh web --workspace-root` flag plus its apps/cli
+      // README lines, which exist only to feed it.
       async create(request) {
         const { payload } = request
         let path: string
@@ -977,6 +1722,23 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         }
         return ok(request, { workspace: workspaceView(workspace) })
       },
+
+      async archiveSession(request) {
+        const { sessionId } = request.payload
+        try {
+          await ctx.workspace.archiveSession(sessionId)
+        } catch (error: unknown) {
+          // Only the registry's unknown-session rejection is the business
+          // code; storage/durability failures propagate as internal errors.
+          if (!(error instanceof WorkspaceUnknownSessionError)) throw error
+          return err(request, {
+            code: 'session-not-found',
+            message: error.message,
+            details: { sessionId },
+          })
+        }
+        return ok(request, { archivedSessionIds: [...ctx.workspace.archivedSessionIds] })
+      },
     },
 
     host: {
@@ -994,8 +1756,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       async pickDirectory(request, signal) {
+        const capability = ctx.directoryPicker.capability()
+        if (capability.kind !== 'native') {
+          return err(request, {
+            code: 'directory-picker-unavailable',
+            message: `host.pickDirectory needs the native capability; the composed picker serves "${capability.kind}"`,
+            details: { capability: capability.kind },
+          })
+        }
         try {
-          const path = await (defaults.pickDirectory ?? pickNativeDirectory)(signal)
+          const path = await capability.pick(signal)
           return ok(request, { path })
         } catch (error: unknown) {
           if (signal.aborted) {
@@ -1008,6 +1778,67 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           return err(request, {
             code: 'internal',
             message: `directory picker failed: ${error instanceof Error ? error.message : String(error)}`,
+            details: {},
+          })
+        }
+      },
+
+      async listDirectory(request, signal) {
+        const capability = ctx.directoryPicker.capability()
+        if (capability.kind !== 'browse') {
+          return err(request, {
+            code: 'directory-picker-unavailable',
+            message: `host.listDirectory needs the browse capability; the composed picker serves "${capability.kind}"`,
+            details: { capability: capability.kind },
+          })
+        }
+        try {
+          // The carrier's signal follows the caller: a disconnect or timeout
+          // stops the backend's directory scan instead of outliving it.
+          return ok(request, await capability.list(request.payload.path, signal))
+        } catch (error: unknown) {
+          // An abort is the caller's own timeout/disconnect, not a server
+          // failure — same code pickDirectory and command.execute report.
+          if (signal.aborted) {
+            return err(request, { code: 'cancelled', message: 'directory listing was aborted', details: {} })
+          }
+          return err(request, directoryError(error))
+        }
+      },
+
+      async createDirectory(request) {
+        const capability = ctx.directoryPicker.capability()
+        if (capability.kind !== 'browse') {
+          return err(request, {
+            code: 'directory-picker-unavailable',
+            message: `host.createDirectory needs the browse capability; the composed picker serves "${capability.kind}"`,
+            details: { capability: capability.kind },
+          })
+        }
+        try {
+          return ok(request, { path: await capability.createDirectory(request.payload.path, request.payload.name) })
+        } catch (error: unknown) {
+          return err(request, directoryError(error))
+        }
+      },
+
+      async openPath(request, signal) {
+        try {
+          const open = defaults.openPath
+            ?? ((path: string, openSignal: AbortSignal) => openNativePath(path, openSignal))
+          await open(request.payload.path, signal)
+          return ok(request, { opened: true as const })
+        } catch (error: unknown) {
+          if (signal.aborted) {
+            return err(request, {
+              code: 'cancelled',
+              message: 'path open was aborted',
+              details: {},
+            })
+          }
+          return err(request, {
+            code: 'internal',
+            message: `path open failed: ${error instanceof Error ? error.message : String(error)}`,
             details: {},
           })
         }
@@ -1039,15 +1870,66 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const found = await agentFor(sessionId)
         if ('error' in found) return err(request, found.error)
         try {
-          const result = await commands.execute(found.agent, line, signal)
-          if (result === undefined) return ok(request, { matched: false })
-          return ok(request, {
-            matched: true,
-            result: { kind: result.kind, ...result.text === undefined ? {} : { text: result.text } },
-          })
+          // Pure admission: the executor's durable command/run + command/done
+          // pair (broadcast on the mux stream) carries the outcome; the
+          // response reports whether the line resolved to a handler, plus the
+          // minted pairing id so the issuing client can correlate its request
+          // with the flow node the lifecycle events produce.
+          const execution = await commands.execute(found.agent, line, signal)
+          return ok(request, execution === undefined
+            ? { matched: false }
+            : { matched: true, commandId: execution.commandId })
         } catch (error: unknown) {
           if (signal.aborted) return err(request, { code: 'cancelled', message: 'command execution was aborted', details: {} })
           return err(request, { code: 'internal', message: `command failed: ${String(error)}`, details: {} })
+        }
+      },
+    },
+
+    goals: {
+      // Mutations only — the read side is the 'goal' session projection.
+      // Every verb resolves the session's agent (agentFor: implicit cold
+      // resume, the command.* precedent) and acknowledges with the new CAS
+      // ref; the committed goal/change event carries the whole value to every
+      // client through the projection frames.
+      async create(request) {
+        const { objective, maxGoalRounds } = request.payload
+        return mutateGoal(request, (goals, agent) => goals.create(agent, {
+          objective,
+          ...(maxGoalRounds !== undefined ? { maxGoalRounds } : {}),
+        }))
+      },
+
+      async edit(request) {
+        const { ref, objective, maxGoalRounds } = request.payload
+        return mutateGoal(request, (goals, agent) => goals.edit(agent, ref, {
+          ...(objective !== undefined ? { objective } : {}),
+          ...(maxGoalRounds !== undefined ? { maxGoalRounds } : {}),
+        }))
+      },
+
+      async pause(request) {
+        return mutateGoal(request, (goals, agent) => goals.pause(agent, request.payload.ref))
+      },
+
+      async resume(request) {
+        return mutateGoal(request, (goals, agent) => goals.resume(agent, request.payload.ref))
+      },
+
+      async complete(request) {
+        return mutateGoal(request, (goals, agent) => goals.complete(agent, request.payload.ref))
+      },
+
+      async clear(request) {
+        const goals = goalService()
+        if ('error' in goals) return err(request, goals.error)
+        const found = await agentFor(request.payload.sessionId)
+        if ('error' in found) return err(request, found.error)
+        try {
+          goals.clear(found.agent, request.payload.ref)
+          return ok(request, { cleared: true as const })
+        } catch (error: unknown) {
+          return goalError(request, error)
         }
       },
     },
@@ -1082,7 +1964,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           return err(request, { code: 'internal', message: 'skill registry is absent: this deployment does not mount @deepseek-ai/dsh-skill in its composition (cordis.yml or explicit assembly)', details: {} })
         }
         try {
-          const skills = await skillRegistry.list({ cwd })
+          const skills = (await skillRegistry.list({ cwd }))
+            .filter(skill => skill.invocation.modelInvocable && skill.invocation.userInvocable)
           return ok(request, {
             skills: skills.map(skill => ({
               name: skill.name,
@@ -1093,6 +1976,105 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         } catch (error: unknown) {
           return err(request, { code: 'internal', message: `skill listing failed: ${String(error)}`, details: {} })
         }
+      },
+    },
+
+    settings: {
+      describe(request) {
+        const settings = ctx.get('settings')
+        if (settings === undefined) return Promise.resolve(err(request, settingsAbsent()))
+        const exposed = exposedNamespaces()
+        return Promise.resolve(ok(request, {
+          writable: settings.writable,
+          namespaces: settings.describe({ redactSecrets: true })
+            .filter(descriptor => exposed.has(String(descriptor.ns)))
+            .map(namespaceView),
+        }))
+      },
+      update: request => settingsWrite(request, request.payload.ns, 'update', request.payload.patch, request.payload.expectedRevision),
+      replace: request => settingsWrite(request, request.payload.ns, 'replace', request.payload.section, request.payload.expectedRevision),
+      mutate: request => settingsWrite(request, request.payload.ns, 'mutate', request.payload.ops, request.payload.expectedRevision),
+    },
+
+    credentials: {
+      async describe(request) {
+        const credentials = ctx.get('credentials')
+        if (credentials === undefined) return err(request, credentialsAbsent())
+        const entries = await Promise.all(request.payload.refs.map(async (ref) => {
+          const info = await credentials.describe(credentialRef(ref))
+          const view: CredentialView = {
+            configured: info.configured,
+            ...info.source === undefined ? {} : { source: info.source },
+            writable: info.writable,
+          }
+          return [ref, view] as const
+        }))
+        return ok(request, { credentials: Object.fromEntries(entries) })
+      },
+
+      async set(request) {
+        const credentials = ctx.get('credentials')
+        if (credentials === undefined) return err(request, credentialsAbsent())
+        const { ref, value } = request.payload
+        try {
+          await credentials.set(credentialRef(ref), value)
+        } catch (error: unknown) {
+          return err(request, {
+            code: 'credential-rejected',
+            message: error instanceof Error ? error.message : String(error),
+            details: { ref },
+          })
+        }
+        return ok(request, {})
+      },
+
+      async unset(request) {
+        const credentials = ctx.get('credentials')
+        if (credentials === undefined) return err(request, credentialsAbsent())
+        const { ref } = request.payload
+        try {
+          await credentials.unset(credentialRef(ref))
+        } catch (error: unknown) {
+          return err(request, {
+            code: 'credential-rejected',
+            message: error instanceof Error ? error.message : String(error),
+            details: { ref },
+          })
+        }
+        return ok(request, {})
+      },
+    },
+
+    llm: {
+      providers(request) {
+        const registered = ctx.llm.listProviders()
+        const active = new Set(registered.map(provider => provider.id))
+        const directory = ctx.llm.listConfigurableProviders()
+        const declared = new Set(directory.map(entry => entry.provider))
+        const views = directory.map(entry => ({
+          provider: entry.provider,
+          displayName: entry.displayName,
+          settingsNs: entry.settingsNs,
+          settingsPath: [...entry.settingsPath],
+          active: active.has(entry.provider),
+        }))
+        // Routes registered without a directory declaration still appear —
+        // they exist and serve models — just with no settings address.
+        for (const provider of registered) {
+          if (declared.has(provider.id)) continue
+          views.push({
+            provider: provider.id,
+            displayName: provider.name,
+            settingsNs: '',
+            settingsPath: [],
+            active: true,
+          })
+        }
+        return Promise.resolve(ok(request, { providers: views }))
+      },
+
+      async models(request) {
+        return ok(request, await buildModelCatalog(ctx))
       },
     },
 
@@ -1112,19 +2094,21 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             },
           })
         }
+        // Refresh recovery: still-pending approval questions replay with their
+        // stable rpcId so a reconnecting client can still answer them.
+        for (const pending of pendingApprovals.values()) queue.push(requestedFrame(pending))
         // Queue snapshot baseline (pendingQuestions precedent): frames replayed
         // in arrival order per session; a reconnecting client rebuilds its
         // queue view from these alone.
-        for (const [sessionId, entries] of queuedMirror) {
-          for (const entry of entries.values()) {
-            queue.push(frame({
-              type: 'session/queued',
-              sessionId,
-              content: entry.message.content,
-              source: entry.message.source,
-              steering: entry.steering,
-            }))
-          }
+        for (const [sessionId, items] of queuedMirror) {
+          queue.push(frame({
+            type: 'session/queue',
+            sessionId,
+            items: items.map(item => ({
+              id: item.id,
+              message: item.message,
+            })),
+          }))
         }
         // Per-session open-call table for result-view pairing. Bounded by the
         // per-turn call count: entries clear on turn/end; a table miss (stream
@@ -1147,10 +2131,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             const view = viewFor(ctx, event, callId =>
               openCalls.get(session.id)?.get(callId) ?? backscanArgs(session.events, callId))
             queue.push(frame({ type: 'session/event', sessionId: session.id, event, ...view === undefined ? {} : { view } }))
-            if (event.type === 'session/title') {
-              // The accepted raw event is already in session.events, so the fold must find it.
-              queue.push(frame(titleFrame(session) as SessionTitleFrame))
-            }
           }),
           ctx.on('session/created', (session: Session) => {
             subscribeSession(queue, session)
@@ -1170,14 +2150,18 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const committedWorkspaceIds = new Set(
           ctx.workspace.list().map(workspace => String(workspace.id)),
         )
+        // Frame-dedup baseline, same posture as committedWorkspaceIds: the
+        // stream opens against the current set; workspace.list re-baselines
+        // reconnecting clients, so only later changes need frames.
+        let archivedSessionIds = ctx.workspace.archivedSessionIds
         const disposers = [
           ctx.on('session/created', (session: Session) => {
             queue.push(frame({
               type: 'host/session-added',
               sessionId: session.id,
               // Derived at frame time like summarize(); a just-created session
-              // has no events yet, so this is constantly true in practice.
-              blank: session.events.length === 0,
+              // has run no turn yet, so this is constantly true in practice.
+              blank: sessionBlank(session),
               ...session.header.parentSession === undefined ? {} : { parentSessionId: session.header.parentSession },
               // cwd rides the frame so the client list needs no refresh to group the new session.
               ...session.header.cwd === undefined ? {} : { cwd: session.header.cwd },
@@ -1206,6 +2190,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
                 committedWorkspaceIds.add(workspaceId)
                 queue.push(frame({ type: 'host/workspace-changed', workspace: workspaceView(workspace) }))
               }
+              if (state.archivedSessionIds.length !== archivedSessionIds.length
+                || state.archivedSessionIds.some((id, index) => id !== archivedSessionIds[index])) {
+                archivedSessionIds = state.archivedSessionIds
+                queue.push(frame({
+                  type: 'host/archived-sessions-changed',
+                  archivedSessionIds: [...state.archivedSessionIds],
+                }))
+              }
               return
             }
             if (change.table !== 'workspaces') return
@@ -1228,12 +2220,44 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           ctx.on('commands/change', () => {
             queue.push(frame({ type: 'host/commands-changed' }))
           }),
+          ctx.on('settings/document-updated', (ns) => {
+            // The RAW-section event, not the resolved one: a field going from
+            // inherited to overridden leaves the resolved value equal, and a
+            // configuration client still has to re-read (its held revision is
+            // stale, and the field's meaning changed).
+            const name = String(ns)
+            queue.push(frame({ type: 'host/settings-changed', ns: name }))
+            // A provider's own settings carry its model catalog and endpoint,
+            // so a change there invalidates the model list even when the route
+            // set is untouched — `llm/adapters-updated` alone misses it.
+            if (modelProviderNamespaces().has(name)) queue.push(frame({ type: 'host/models-changed' }))
+          }),
+          ctx.on('credentials/updated', (ref) => {
+            queue.push(frame({ type: 'host/credentials-changed', ref: String(ref) }))
+          }),
+          ctx.on('llm/adapters-updated', () => {
+            queue.push(frame({ type: 'host/models-changed' }))
+          }),
         ]
         return queue.iterate(signal, () => { for (const dispose of disposers) dispose() })
       },
     },
 
     respond(message: ClientResponse): Promise<RpcReceipt> {
+      // Route by the echoed rpcId (the wire correlation): approvals first,
+      // then questions — the two registries share one id space of UUIDs.
+      const approval = pendingApprovals.get(message.rpcId)
+      if (approval !== undefined) {
+        if (!message.result.ok) return Promise.resolve({ accepted: false, reason: 'bad-response' })
+        const parsed = approvalResponsePayloadSchema.safeParse(message.result.value)
+        // The payload's audit correlation must match the entry the rpcId routed
+        // to — a mismatched answer is malformed, not merely late.
+        if (!parsed.success || parsed.data.approvalId !== approval.approvalId || parsed.data.sessionId !== approval.sessionId) {
+          return Promise.resolve({ accepted: false, reason: 'bad-response' })
+        }
+        approval.resolve(parsed.data.outcome)
+        return Promise.resolve({ accepted: true })
+      }
       const pending = pendingQuestions.get(message.rpcId)
       if (pending === undefined) return Promise.resolve({ accepted: false, reason: 'not-pending' })
       if (!message.result.ok) {

@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import { defineAcpSnapshotSuite, type HarvestedLog, type Scenario } from '../src/index.ts'
 import {
+  assertUniqueSnapshotContents,
+  claimSharedSnapshot,
   fixtureContext,
   formatSystemPromptSnapshot,
   headerChangeCount,
@@ -18,6 +20,7 @@ import {
   scenarioSkipped,
   sessionFixtureNames,
   restorePinnedToolSchemas,
+  type SharedSnapshotClaim,
   stabilizeRefreshLog,
   stdoutExpectedVariants,
   unknownToolCallIds,
@@ -58,6 +61,16 @@ const RECORD_SRC = fileURLToPath(new URL('./fixtures/record-suite', import.meta.
 const REPLAY_SCENARIOS: Scenario[] = [
   { name: 'pin-turn', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderChanges: 1, headerClass: 'main' },
   {
+    name: 'shared-pin',
+    hasModelTurn: true,
+    recorded: true,
+    pinsHeader: true,
+    expectedHeaderChanges: 1,
+    headerClass: 'shared',
+    systemPromptSource: 'pin-turn',
+    toolSchemasSource: 'pin-turn',
+  },
+  {
     name: 'plain-turn',
     hasModelTurn: true,
     recorded: true,
@@ -65,6 +78,9 @@ const REPLAY_SCENARIOS: Scenario[] = [
     env: { DSH_PERMISSION_MODE: 'never' },
     configPath: AGENT.configPath,
     workspaceParent: tmpdir(),
+    prepareWorkspace: (cwd) => {
+      writeFileSync(join(cwd, 'seed.txt'), 'prepared at runtime')
+    },
   },
   { name: 'no-model', hasModelTurn: false, recorded: false, headerClass: 'main' },
   { name: 'blocked-log', hasModelTurn: false, comparesLog: true, recorded: false, headerClass: 'main' },
@@ -164,12 +180,17 @@ describe('defineAcpSnapshotSuite: refresh write-back', () => {
     const schemas = readFileSync(join(refreshDir, 'pin-turn', 'tool-schemas.expected.json'), 'utf8')
     expect(schemas).toContain('"description": "D1"')
     expect(schemas).not.toContain('"name":"stale"')
+
+    const pinSession = readFileSync(join(refreshDir, 'pin-turn', 'session.jsonl'), 'utf8')
+    expect(pinSession).toContain('"cwd":"{{cwd}}"')
   })
 })
 
 describe('defineAcpSnapshotSuite: record inventory write-back', () => {
   it('creates a missing primary fixture and prunes stale child fixtures', () => {
-    expect(readFileSync(join(recordDir, 'rec-pin', 'session.jsonl'), 'utf8')).toContain('"type":"session"')
+    const fixture = readFileSync(join(recordDir, 'rec-pin', 'session.jsonl'), 'utf8')
+    expect(fixture).toContain('"type":"session"')
+    expect(fixture).toContain('"cwd":"{{cwd}}"')
     expect(() => readFileSync(join(recordDir, 'rec-child', 'session.2.jsonl'), 'utf8')).toThrow()
   })
 })
@@ -210,6 +231,158 @@ describe('defineAcpSnapshotSuite: registration contract', () => {
         mode: 'replay',
       })
     }).toThrow(/header class "default" pinned by both first-pin and second-pin/)
+  })
+
+  it('throws when scenario names are duplicated', () => {
+    expect(() => {
+      defineAcpSnapshotSuite({
+        agent: AGENT,
+        snapshotsDir: REPLAY_DIR,
+        scenarios: [
+          { name: 'duplicate', hasModelTurn: true, recorded: true, pinsHeader: true },
+          { name: 'duplicate', hasModelTurn: true, recorded: true },
+        ],
+        mode: 'replay',
+      })
+    }).toThrow(/duplicate scenario name "duplicate"/)
+  })
+
+  it.each(['systemPromptSource', 'toolSchemasSource'] as const)(
+    'rejects %s away from a header pin',
+    (field) => {
+      expect(() => {
+        defineAcpSnapshotSuite({
+          agent: AGENT,
+          snapshotsDir: REPLAY_DIR,
+          scenarios: [{
+            name: 'plain',
+            hasModelTurn: true,
+            recorded: true,
+            [field]: 'owner',
+          }],
+          mode: 'replay',
+        })
+      }).toThrow(new RegExp(`plain\\.${field} is only valid on a header-pinning scenario`))
+    },
+  )
+
+  it('rejects an unknown or non-pinning sidecar source', () => {
+    expect(() => {
+      defineAcpSnapshotSuite({
+        agent: AGENT,
+        snapshotsDir: REPLAY_DIR,
+        scenarios: [{
+          name: 'pin',
+          hasModelTurn: true,
+          recorded: true,
+          pinsHeader: true,
+          systemPromptSource: 'missing',
+        }],
+        mode: 'replay',
+      })
+    }).toThrow(/pin names unknown system-prompt snapshot source "missing"/)
+
+    expect(() => {
+      defineAcpSnapshotSuite({
+        agent: AGENT,
+        snapshotsDir: REPLAY_DIR,
+        scenarios: [
+          {
+            name: 'pin',
+            hasModelTurn: true,
+            recorded: true,
+            pinsHeader: true,
+            toolSchemasSource: 'plain',
+          },
+          { name: 'plain', hasModelTurn: true, recorded: true },
+        ],
+        mode: 'replay',
+      })
+    }).toThrow(/pin names non-pinning tool-schema snapshot source "plain"/)
+  })
+
+  it('rejects a sidecar source that redirects the same artifact', () => {
+    expect(() => {
+      defineAcpSnapshotSuite({
+        agent: AGENT,
+        snapshotsDir: REPLAY_DIR,
+        scenarios: [
+          { name: 'owner', hasModelTurn: true, recorded: true, pinsHeader: true },
+          {
+            name: 'redirect',
+            hasModelTurn: true,
+            recorded: true,
+            pinsHeader: true,
+            headerClass: 'redirect',
+            systemPromptSource: 'owner',
+          },
+          {
+            name: 'consumer',
+            hasModelTurn: true,
+            recorded: true,
+            pinsHeader: true,
+            headerClass: 'consumer',
+            systemPromptSource: 'redirect',
+          },
+        ],
+        mode: 'replay',
+      })
+    }).toThrow(/consumer names system-prompt snapshot source "redirect", which does not own its sidecar/)
+  })
+
+  it('rejects shared sidecars with different header-change counts', () => {
+    expect(() => {
+      defineAcpSnapshotSuite({
+        agent: AGENT,
+        snapshotsDir: REPLAY_DIR,
+        scenarios: [
+          {
+            name: 'owner',
+            hasModelTurn: true,
+            recorded: true,
+            pinsHeader: true,
+            expectedHeaderChanges: 1,
+          },
+          {
+            name: 'consumer',
+            hasModelTurn: true,
+            recorded: true,
+            pinsHeader: true,
+            headerClass: 'consumer',
+            toolSchemasSource: 'owner',
+          },
+        ],
+        mode: 'replay',
+      })
+    }).toThrow(/consumer and owner declare different header-change counts for shared tool-schema snapshot/)
+  })
+})
+
+describe('shared snapshot content', () => {
+  it('accepts identical claims and rejects order-dependent shared output', () => {
+    const claims = new Map<string, SharedSnapshotClaim>()
+    claimSharedSnapshot(claims, 'shared/system-prompt.expected.md', 'first', 'prompt\n')
+    claimSharedSnapshot(claims, 'shared/system-prompt.expected.md', 'second', 'prompt\n')
+    expect(claims.get('shared/system-prompt.expected.md')).toEqual({
+      scenario: 'first',
+      content: 'prompt\n',
+    })
+    expect(() => {
+      claimSharedSnapshot(claims, 'shared/system-prompt.expected.md', 'third', 'different\n')
+    }).toThrow(/diverged between first and third/)
+  })
+
+  it('rejects identical committed content under different paths', () => {
+    assertUniqueSnapshotContents('prompt', [
+      { path: 'one/system-prompt.expected.md', content: 'one\n' },
+      { path: 'two/system-prompt.expected.md', content: 'two\n' },
+    ])
+    expect(() => {
+      assertUniqueSnapshotContents('prompt', [
+        { path: 'one/system-prompt.expected.md', content: 'same\n' },
+        { path: 'two/system-prompt.expected.md', content: 'same\n' },
+      ])
+    }).toThrow(/identical prompt snapshots appear in one\/system-prompt\.expected\.md and two\/system-prompt\.expected\.md/)
   })
 })
 
@@ -432,8 +605,8 @@ describe('tool-schema snapshots', () => {
 describe('unknownToolCallIds', () => {
   it('returns structured UNKNOWN_TOOL call ids and ignores other results', () => {
     const log = [
-      '{"type":"tool/result","data":{"callId":"missing","error":{"code":"UNKNOWN_TOOL"}}}',
-      '{"type":"tool/result","data":{"callId":"failed","error":{"code":"EXECUTION_FAILED"}}}',
+      '{"type":"tool/result","data":{"message":{"source":{"kind":"tool","callId":"missing"}},"error":{"code":"UNKNOWN_TOOL"}}}',
+      '{"type":"tool/result","data":{"message":{"source":{"kind":"tool","callId":"failed"}},"error":{"code":"EXECUTION_FAILED"}}}',
       '{"type":"tool/result","data":null}',
       '{"type":"tool/result","data":"invalid"}',
       '{"type":"tool/result","data":{"error":null}}',
@@ -446,7 +619,7 @@ describe('unknownToolCallIds', () => {
   })
 
   it('returns no failures for ordinary tool results', () => {
-    expect(unknownToolCallIds('{"type":"tool/result","data":{"callId":"ok"}}\n')).toEqual([])
+    expect(unknownToolCallIds('{"type":"tool/result","data":{"message":{"source":{"kind":"tool","callId":"ok"}}}}\n')).toEqual([])
   })
 })
 

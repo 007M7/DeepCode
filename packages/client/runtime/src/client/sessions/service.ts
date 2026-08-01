@@ -16,15 +16,23 @@
  * survives frozen (read-only view) until the stage moves on.
  */
 import type { Context, Fiber } from 'cordis'
-import type { IApiClient, RpcError, SessionId, WorkspaceId } from '@deepseek-ai/dsh-client-connection/client'
+import type {
+  IApiClient, RpcError, RpcResult, SessionId, WorkspaceId,
+} from '@deepseek-ai/dsh-client-connection/client'
+// Value import from the inline-safe wire layer (not the connection plugin):
+// plugin-to-plugin value imports are a bundle purity error.
+import { SESSION_SEARCH_RESULT_LIMIT } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type {
   HostObservable, SessionMaybeProvideInfo, SessionProvideInfo,
 } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SnapshotStore } from '../contract/store.ts'
 import { createSnapshotStore } from '../contract/store.ts'
+import type { SessionFace } from '../contract/session.ts'
+import type { ISessions } from '../contract/sessions.ts'
 import { createScope, scopeOf as scopeTagOf } from '../agents/scope.ts'
 import { SessionManager } from './manager.ts'
-import type { SessionListPhase } from './manager.ts'
+import type { SessionListPhase, SessionSearchResultItem } from './manager.ts'
+import { SessionProvideChannel } from './provide.ts'
 import type { Session } from './session.ts'
 
 /** Session list row projected from the host list RPC plus live stream increments. */
@@ -37,6 +45,8 @@ export interface SessionSummary {
   cwd?: string
   parentId?: SessionId
   running: boolean
+  /** An approval question is pending on this session (sidebar amber-dot state). */
+  waitingApproval: boolean
   /**
    * Empty-log bit (host summary derivation mirror). New Session reuses a blank
    * one targeting the same workspace. Filtering stays with the consumer: the
@@ -76,10 +86,27 @@ export class SessionCreateError extends Error {
   }
 }
 
+/** Structured session-fork failure. */
+export class SessionForkError extends Error {
+  override readonly name = 'SessionForkError'
+
+  /**
+   * @param rpcError - Host business or folded transport error.
+   * @param sourceSessionId - the session the fork was cut from.
+   */
+  constructor(
+    readonly rpcError: RpcError,
+    readonly sourceSessionId: SessionId,
+  ) {
+    super(`session fork failed: ${rpcError.code}: ${rpcError.message}`)
+  }
+}
+
 /** Session assembly handle for SessionProvider/inject factories (identity-stable per session). */
 export interface SessionBinding {
   readonly sessionId: SessionId
-  readonly session: Session
+  /** The outward session face only — feature code never sees the concrete class. */
+  readonly session: SessionFace
   readonly ctx: Context
 }
 
@@ -115,10 +142,30 @@ function displayTitleOf(title: string | undefined, cwd: string | undefined, id: 
   return id
 }
 
+/**
+ * Increment a trailing fork number while preserving its half-width or
+ * full-width parentheses; an unnumbered title starts with ` (1)`.
+ * @param title - source session's durable title.
+ * @returns the title assigned to the fork child.
+ */
+function increasedForkTitle(title: string): string {
+  const ascii = /^(.*?)\((\d+)\)$/u.exec(title)
+  if (ascii?.[1] !== undefined && ascii[2] !== undefined) {
+    return `${ascii[1]}(${BigInt(ascii[2]) + 1n})`
+  }
+  const fullWidth = /^(.*?)（(\d+)）$/u.exec(title)
+  if (fullWidth?.[1] !== undefined && fullWidth[2] !== undefined) {
+    return `${fullWidth[1]}（${BigInt(fullWidth[2]) + 1n}）`
+  }
+  return `${title} (1)`
+}
+
 interface ScopeRecord {
   fiber: Fiber
   ctx: Context
   binding: SessionBinding
+  /** The concrete Session for runtime-internal entry points (staging open()); the binding carries only the outward face. */
+  session: Session
   /** Render-layer standard-props bundle (identity-stable per scope; the renderer's per-info caches key off it). */
   provideInfo: SessionProvideInfo
 }
@@ -146,7 +193,14 @@ export interface SessionProvideDescriptor {
 }
 
 /** Root sessions service: list store, current selection, object-layer manager, scope tree, bindings, ancestry. */
-export class SessionsService {
+export class SessionsService implements ISessions {
+  /**
+   * The wire schema's own result bound, re-exposed for presentation plugins as
+   * injected data. Not per-connection state: the `session.search` response
+   * schema caps `items` at this constant, so every transport (fixture included)
+   * reports the same number.
+   */
+  readonly searchResultLimit = SESSION_SEARCH_RESULT_LIMIT
   /** List snapshot store (list RPC + host stream increments; re-pulled on reconnect) — the useSessions standard feed, current included. */
   readonly list: SnapshotStore<SessionListState>
   /** The object-layer instance cluster and frame dispatch entry. */
@@ -170,14 +224,8 @@ export class SessionsService {
   private readonly selection: SnapshotStore<{ sessionId?: SessionId }>
 
   private readonly scopes = new Map<SessionId, ScopeRecord>()
-  /** Registered per-session standard-props providers, in registration order. */
-  private readonly providers: SessionProvideDescriptor[] = []
-  /** Static no-session projection, rebuilt only when the provider roster changes. */
-  private maybeInfo: SessionMaybeProvideInfo
-  /** Latest published {@link SessionsService.currentProvideInfo} bundle (identity comparison dedupes republish). */
-  private currentProvideInfoSnapshot: SessionMaybeProvideInfo
-  /** currentProvideInfo subscribers (plain cell: bundles hold live Session sources, so no store freeze may touch them). */
-  private readonly currentProvideInfoListeners = new Set<() => void>()
+  /** The provide channel (roster, materialization rules, current projection) — shared with the test runtime's double. */
+  private readonly provideChannel: SessionProvideChannel
   /**
    * The staged session id — follows `list.current` exactly, holding its last
    * defined value across masked gaps (a transiently absent selection blanks
@@ -192,7 +240,10 @@ export class SessionsService {
    * @param ctx - client root context (scope fibers mount under it).
    * @param api - wire client shared with every Session.
    */
-  constructor(private readonly rootCtx: Context, api: IApiClient) {
+  constructor(
+    private readonly rootCtx: Context,
+    api: IApiClient,
+  ) {
     this.selection = createSnapshotStore<{ sessionId?: SessionId }>(
       {},
       { persist: { name: 'dsh.sessions.current' } })
@@ -212,23 +263,17 @@ export class SessionsService {
     // The current-provide projection follows the same current writes.
     this.list.subscribe(() => {
       this.followCurrent()
-      this.updateCurrentProvideInfo()
+      this.provideChannel.publishCurrent()
     })
-    // The runtime's own contribution comes first: useSession rides the same
-    // provide channel every plugin uses (no renderer special case).
-    this.providers.push({
-      hooks: ['session'],
-      resolve: binding => ({ hooks: { session: binding.session } }),
-    })
-    this.maybeInfo = this.materializeMaybeProvideInfo()
-    this.currentProvideInfoSnapshot = this.maybeInfo
-    this.currentProvideInfo = {
-      getSnapshot: () => this.currentProvideInfoSnapshot,
-      subscribe: (fn) => {
-        this.currentProvideInfoListeners.add(fn)
-        return () => { this.currentProvideInfoListeners.delete(fn) }
+    this.provideChannel = new SessionProvideChannel({
+      rebuildBundles: () => {
+        for (const record of this.scopes.values()) {
+          record.provideInfo = this.provideChannel.materializeInfo(record.binding)
+        }
       },
-    }
+      resolveCurrent: () => this.maybeProvideInfo(this.list.getSnapshot().current),
+    })
+    this.currentProvideInfo = this.provideChannel.currentProvideInfo
     rootCtx.reflect.provide('sessions', this, undefined)
   }
 
@@ -243,98 +288,10 @@ export class SessionsService {
    * @returns disposer removing the provider (already-materialized bundles keep their members until their scope drops).
    */
   provide(descriptor: SessionProvideDescriptor): () => void {
-    this.providers.push(descriptor)
     // Scopes may already exist (boot order: the list lands and resolves
-    // scopes before later plugins register) — their bundles must include
-    // every provider by first render, so re-materialize on roster change.
-    this.rematerializeProvideBundles()
-    return () => {
-      const at = this.providers.indexOf(descriptor)
-      if (at >= 0) this.providers.splice(at, 1)
-      this.rematerializeProvideBundles()
-    }
-  }
-
-  /** Rebuild every live scope's standard-props bundle after a provider roster change. */
-  private rematerializeProvideBundles(): void {
-    this.maybeInfo = this.materializeMaybeProvideInfo()
-    for (const record of this.scopes.values()) {
-      record.provideInfo = this.materializeProvideInfo(record.binding)
-    }
-    this.updateCurrentProvideInfo()
-  }
-
-  /**
-   * Re-derive the current selection's provide bundle and publish it when it
-   * changed. Bundles are identity-stable per (scope, roster)
-   * materialization, so an identity compare is exact; synchronous notify —
-   * both call sites (list.subscribe, provide()) already sit behind their own
-   * batching or registration edges.
-   */
-  private updateCurrentProvideInfo(): void {
-    const next = this.maybeProvideInfo(this.list.getSnapshot().current)
-    if (next === this.currentProvideInfoSnapshot) return
-    this.currentProvideInfoSnapshot = next
-    for (const fn of [...this.currentProvideInfoListeners]) {
-      try {
-        fn()
-      } catch (error) {
-        // Contain subscriber failures: this notify runs inside the list
-        // notification, where a throwing render-side subscriber would starve
-        // later listeners and abort the projection pass that scheduled it.
-        console.error('sessions.currentProvideInfo subscriber failed:', error)
-      }
-    }
-  }
-
-  /** Build the static no-session kit and reject duplicate declared names. */
-  private materializeMaybeProvideInfo(): SessionMaybeProvideInfo {
-    const hooks: Record<string, undefined> = {}
-    const props: Record<string, undefined> = {}
-    for (const descriptor of this.providers) {
-      for (const name of descriptor.hooks ?? []) {
-        if (Object.hasOwn(hooks, name)) throw new Error(`sessions.provide: duplicate hook "${name}"`)
-        hooks[name] = undefined
-      }
-      for (const name of descriptor.props ?? []) {
-        if (Object.hasOwn(props, name)) throw new Error(`sessions.provide: duplicate prop "${name}"`)
-        props[name] = undefined
-      }
-    }
-    return { sessionId: undefined, hooks, props }
-  }
-
-  /** Materialize the standard-props bundle for one session (fails loud on duplicate member names). */
-  private materializeProvideInfo(binding: SessionBinding): SessionProvideInfo {
-    const hooks: Record<string, HostObservable<unknown>> = {}
-    const props: Record<string, unknown> = {}
-    for (const descriptor of this.providers) {
-      const contribution = descriptor.resolve(binding)
-      const contributedHooks = contribution.hooks ?? {}
-      const contributedProps = contribution.props ?? {}
-      for (const name of Object.keys(contributedHooks)) {
-        if (!(descriptor.hooks ?? []).includes(name)) {
-          throw new Error(`sessions.provide: undeclared hook "${name}"`)
-        }
-      }
-      for (const name of Object.keys(contributedProps)) {
-        if (!(descriptor.props ?? []).includes(name)) {
-          throw new Error(`sessions.provide: undeclared prop "${name}"`)
-        }
-      }
-      for (const name of descriptor.hooks ?? []) {
-        const source = contributedHooks[name]
-        if (source === undefined) throw new Error(`sessions.provide: missing hook "${name}"`)
-        if (Object.hasOwn(hooks, name)) throw new Error(`sessions.provide: duplicate hook "${name}"`)
-        hooks[name] = source
-      }
-      for (const name of descriptor.props ?? []) {
-        if (!Object.hasOwn(contributedProps, name)) throw new Error(`sessions.provide: missing prop "${name}"`)
-        if (Object.hasOwn(props, name)) throw new Error(`sessions.provide: duplicate prop "${name}"`)
-        props[name] = contributedProps[name]
-      }
-    }
-    return { sessionId: binding.sessionId, hooks, props }
+    // scopes before later plugins register) — the channel rebuilds their
+    // bundles through the host hooks so every provider lands by first render.
+    return this.provideChannel.provide(descriptor)
   }
 
   /**
@@ -366,6 +323,20 @@ export class SessionsService {
   }
 
   /**
+   * Search the Host's visible message-content index. Results stay
+   * request-local; the list snapshot remains the metadata authority.
+   * @param query - non-blank literal phrase.
+   * @param signal - cancellation for a superseded search.
+   * @returns bounded results or a business/transport error.
+   */
+  search(
+    query: string,
+    signal: AbortSignal,
+  ): Promise<RpcResult<{ items: SessionSearchResultItem[]; hasMore: boolean }>> {
+    return this.manager.search(query, signal)
+  }
+
+  /**
    * Route a mux stream envelope into the Session object layer.
    * @param envelope - validated mux stream envelope.
    */
@@ -386,6 +357,11 @@ export class SessionsService {
     this.manager.handleConnected()
   }
 
+  /** Drop generation-scoped live interaction state the moment a connection generation dies. */
+  handleDisconnected(): void {
+    this.manager.handleDisconnected()
+  }
+
   /**
    * Create a session on the host. Resolution guarantee: by the time the
    * promise resolves, the created session is in the list store and
@@ -402,6 +378,48 @@ export class SessionsService {
     if (!result.ok) throw new SessionCreateError(result.error, opts.sessionId)
     this.projectList()
     return result.value.sessionId
+  }
+
+  /**
+   * Fork a session from a completed-turn prefix of the source (same
+   * synchronous-addressability guarantee as {@link SessionsService.create}:
+   * on resolution the child is in the list store and open() can target it).
+   * @param opts - source session id, the optional event seq anchoring the
+   *   cut (the boundary is the first turn/end at or after it; an in-log
+   *   anchor in an open turn is unavailable rather than clipped backward),
+   *   and whether to increment an inherited durable title before resolving.
+   *   A fractional anchor floors to a real event seq: the frozen nodes of an
+   *   interrupted turn carry flow-ordering seqs between two events, and the
+   *   wire takes integers only.
+   * @returns the child session id.
+   * @throws {SessionForkError} with the source id.
+   * @throws {Error} when a requested child-title rename fails after creation.
+   */
+  async fork(opts: {
+    sessionId: SessionId
+    atSeq?: number
+    increaseTitle?: boolean
+  }): Promise<SessionId> {
+    const sourceTitle = opts.increaseTitle
+      ? this.list.getSnapshot().byId[opts.sessionId]?.title
+      : undefined
+    const result = await this.manager.fork({
+      sessionId: opts.sessionId,
+      // Flooring lands inside the anchor's own turn (every turn opens with a
+      // turn/start), so the host's first-turn/end-at-or-after cut still ends
+      // on that turn — never clipped back to the previous one.
+      ...(opts.atSeq === undefined ? {} : { atSeq: Math.floor(opts.atSeq) }),
+    })
+    if (!result.ok) throw new SessionForkError(result.error, opts.sessionId)
+    this.projectList()
+    const childId = result.value.sessionId
+    if (sourceTitle !== undefined) {
+      const child = this.binding(childId)?.session
+      if (child === undefined) throw new Error(`fork child "${childId}" is not locally addressable`)
+      const renamed = await child.rename(increasedForkTitle(sourceTitle))
+      if (!renamed.ok) throw new Error(`fork child rename failed: ${renamed.error.code}: ${renamed.error.message}`)
+    }
+    return childId
   }
 
   /**
@@ -432,9 +450,9 @@ export class SessionsService {
    * `agent.session`). Same service-method seam as
    * {@link SessionsService.scopeOf}.
    * @param ctx - an Agent-scoped context.
-   * @returns the Session, or undefined when the ctx is untagged or its scope was pruned.
+   * @returns the session face, or undefined when the ctx is untagged or its scope was pruned.
    */
-  sessionOf(ctx: Context): Session | undefined {
+  sessionOf(ctx: Context): SessionFace | undefined {
     const id = scopeTagOf(ctx)
     if (id === undefined) return undefined
     return this.scopes.get(id)?.binding.session
@@ -466,7 +484,7 @@ export class SessionsService {
    * return the static no-session projection rather than removing hook props.
    */
   private maybeProvideInfo(id: string | undefined): SessionMaybeProvideInfo {
-    return (id === undefined ? undefined : this.provideInfo(id)) ?? this.maybeInfo
+    return (id === undefined ? undefined : this.provideInfo(id)) ?? this.provideChannel.maybeInfo
   }
 
   /**
@@ -490,7 +508,7 @@ export class SessionsService {
      * validates and the projection masks absent selections), so resolve
      * cannot miss; kept so a future current writer cannot crash the notify. */
     if (record !== undefined) {
-      void record.binding.session.open()
+      void record.session.open()
     }
   }
 
@@ -533,8 +551,9 @@ export class SessionsService {
       fiber,
       ctx,
       binding,
+      session,
       // Sources are bare observables; React binds selector hooks at its own seam.
-      provideInfo: this.materializeProvideInfo(binding),
+      provideInfo: this.provideChannel.materializeInfo(binding),
     }
     this.scopes.set(id, record)
     return record
@@ -556,6 +575,7 @@ export class SessionsService {
         id: entry.sessionId,
         displayTitle: displayTitleOf(entry.title, entry.cwd, entry.sessionId),
         running: entry.running,
+        waitingApproval: entry.waitingApproval,
         blank: entry.blank,
         updatedAt: entry.updatedAt,
         ...(entry.title !== undefined ? { title: entry.title } : {}),
@@ -601,7 +621,7 @@ export class SessionsService {
     void record.fiber.dispose()
     // Release the Session's dispatch point with the scope it belongs to (a
     // surviving instance — the live Intent — rebinds when resolve re-mints).
-    record.binding.session.unbindScope()
+    record.session.unbindScope()
     // Optional lookup: slots and sessions are sibling services with no
     // declared dependency; a slots-less boot (object-layer tests) skips.
     this.rootCtx.get('slots')?.pruneStoreScope(id)

@@ -1,48 +1,61 @@
 - banner:
-  - navigation "Session hierarchy":
-    - button "Use only Cordis tools. First" [disabled]
-    - text: · 1 turns
+  - heading "Use only Cordis tools. First" [level=1]
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
-    - tab "Waterfall"
-- text: "Use only Cordis tools. First call cordis_inspect with what \"temporary\". Then call cordis_mount with this exact code: \"return { name: \\\"snapshot-noop\\\", apply(ctx) {} }\". Read its returned id and call cordis_unmount with that exact id. After all three calls succeed, reply exactly CORDIS_UI_DONE and stop."
-- button "复制":
+- text: "Use only Cordis tools. First call cordis_inspect with what \"temporary\". Then call cordis_mount with this exact code: \"return { name: \\\"snapshot-noop\\\", apply(ctx) {} }\". Read its returned id and call cordis_unmount with that exact id. After all three calls succeed, reply exactly CORDIS_UI_DONE and stop. {{clock}}"
+- button "Copy":
   - img
-- button "在新对话中分支":
+- button "Branch into a new conversation":
   - img
-- button "编辑":
+- button "Context injection":
   - img
-- button "▸ 上下文注入"
+  - img
+  - text: Context injection
 - button "Think The user wants me to:":
   - img
-  - text: "Think The user wants me to:"
-- button:
   - img
-- text: Inspect temporary
+  - text: "Think The user wants me to:"
+- button "Inspect temporary":
+  - img
+  - img
+  - text: Inspect temporary
 - 'button "Think Good, no temporary plugins running. Now step 2: call cordis_mount with the exact code."':
   - img
-  - text: "Think Good, no temporary plugins running. Now step 2: call cordis_mount with the exact code."
-- button [expanded]:
   - img
-- text: Mount temporary Plugin typescript
-- button "复制"
+  - text: "Think Good, no temporary plugins running. Now step 2: call cordis_mount with the exact code."
+- 'button "Mount temporary Plugin return { name: \"snapshot-noop\", apply(ctx) {} }" [expanded]':
+  - img
+  - text: "Mount temporary Plugin return { name: \"snapshot-noop\", apply(ctx) {} }"
+- text: typescript
+- button "Copy"
 - code: "return { name: \"snapshot-noop\", apply(ctx) {} }"
+- text: OUT Temporary Plugin dyn-1 is running (plugin "snapshot-noop"; available until unmounted or DSH restarts).
+- button "Inspect"
 - 'button "Think The id is \"dyn-1\". Now step 3: call cordis_unmount with that id."':
   - img
-  - text: "Think The id is \"dyn-1\". Now step 3: call cordis_unmount with that id."
-- button:
   - img
-- text: Unmount temporary Plugin dyn-1
+  - text: "Think The id is \"dyn-1\". Now step 3: call cordis_unmount with that id."
+- button "Unmount temporary Plugin dyn-1":
+  - img
+  - img
+  - text: Unmount temporary Plugin dyn-1
 - button "Think All three calls succeeded. I should now reply exactly \"CORDIS_UI_DONE\" and stop.":
+  - img
   - img
   - text: Think All three calls succeeded. I should now reply exactly "CORDIS_UI_DONE" and stop.
 - paragraph: CORDIS_UI_DONE
-- text: cache hit 77% · 66,813 tokens · 1 turns · 4 steps
-- textbox "Message the agent"
-- button "Add attachment":
+- button "Copy":
   - img
-- combobox "Access mode":
-  - option "Read-only" [selected]
-  - option "Read-write"
+- button "Branch into a new conversation":
+  - img
+- text: {{clock}}
+- textbox "Message the agent"
+- button "Commands":
+  - img
+- 'button "Access mode, current: Workspace Write"': Workspace Write
+- button "Select model, current DeepSeek-V4-Flash":
+  - text: DeepSeek-V4-Flash
+  - img
 - button "Send message" [disabled]
+- text: 1 turns · 4 steps Tool call {{duration}} Context 13% of 128K Cache hit 77% Input 66.5K tok · Output 312 tok

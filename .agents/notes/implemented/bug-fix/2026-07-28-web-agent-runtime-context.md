@@ -6,17 +6,17 @@ English | [中文](2026-07-28-web-agent-runtime-context.zh.md)
 
 ## Problem
 
-The Web composition configured an empty deployment persona and added no launcher-owned source or interaction-surface section. A session header recorded its working directory for tools and persistence, but the model prompt did not state that directory or identify the DeepSeek Harness Web GUI. A request such as “change this page's theme” therefore made the agent search the selected project for an unspecified page, even when the user meant the GUI running the session.
+The shared CLI base configured an empty deployment persona, the Web overlay did not replace it, and the Web launcher added no source or interaction-surface section. A session header recorded its working directory for tools and persistence, but the model prompt did not state that directory or identify the DeepSeek Harness Web GUI. A request such as “change this page's theme” therefore made the agent search the selected project for an unspecified page, even when the user meant the GUI running the session.
 
 ## Decision
 
-The shared Web/headless composition supplies a concise coding-agent persona containing the resolved `{{model}}` and session `{{cwd}}`. `dsh web` additionally resolves the harness checkout from the launcher's module URL, installs the existing `harness:source` section, and adds an `app:web-surface` section before serving requests.
+The shared Web/headless overlay (`apps/cli/config/web.cordis.yml`) supplies a concise coding-agent persona containing the resolved `{{model}}` and session `{{cwd}}`. `dsh web` additionally resolves the harness checkout from the launcher's module URL, installs the existing `harness:source` section, and adds an `app:web-surface` section before serving requests. The [source-checkout/workdir decision](2026-07-30-source-checkout-workdir-distinction.md) owns the source section's wording and its warning not to infer one path from the other.
 
 The Web section treats unqualified references to “this page,” “this GUI,” or “this app” as references to the DeepSeek Harness Web GUI. It also states that the browser provides no implicit DOM, route, or screenshot context, so the model can identify the product without claiming visual state it did not receive. The assembled text is logged in `request/header`, preserving the model-visible/logged invariant.
 
 ## Verification
 
-The keyless fresh-round-trip Web scenario boots the shipped composition, installs the same launcher context as `dsh web`, runs a real session through the HTTP/SSE application, and snapshots the first four system-prompt sections with source and working-directory paths normalized. The snapshot pins the harness identity, source checkout, Web orientation, and resolved coding-agent persona in request order.
+The keyless fresh-round-trip Web scenario boots the shipped base plus Web overlay, installs the same launcher context as `dsh web`, runs a real session through the HTTP/SSE application, and snapshots the first four system-prompt sections with source and working-directory paths normalized. The snapshot pins the harness identity, source checkout, Web orientation, and resolved coding-agent persona in request order.
 
 ## Alternatives considered
 

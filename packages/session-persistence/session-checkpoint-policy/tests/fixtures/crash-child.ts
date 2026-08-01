@@ -2,7 +2,7 @@ import { writeFile } from 'node:fs/promises'
 import { Context } from 'cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { CallId, type GenerateOptions, LlmAdapter, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, CallId, type GenerateOptions, LlmAdapter, type StreamChunk  } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import * as checkpointPolicy from '../../src/index.ts'
@@ -56,5 +56,5 @@ const handle = await ctx.agents.create({
   sessionId: SessionId('semantic-checkpoint-crash'),
   agentOptions: { provider: 'crash', model: 'crash' },
 })
-handle.agent.followup({ content: [{ type: 'text', text: 'exercise the crash boundary' }], source: { kind: 'user' } })
+handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'exercise the crash boundary' }], source: { kind: 'user' } }))
 await waitForCrash()
