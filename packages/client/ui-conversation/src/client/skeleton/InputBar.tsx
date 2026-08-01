@@ -285,13 +285,14 @@ export function InputBar({
   }
 
   const ordinary = subagent === null
-  const primaryLabel = running && ordinary ? t('input.stop') : t('input.send')
+  const stopping = running && ordinary
+  const primaryLabel = stopping ? t('input.stop') : t('input.send')
   const onPrimary = (): void => {
-    if (inputActions === undefined || stop === undefined) return // absent machine: the button is disabled
-    if (running && ordinary) {
-      stop()
+    if (stopping) {
+      stop?.()
       return
     }
+    if (inputActions === undefined) return // absent machine: the button is disabled
     /* v8 ignore next -- defensive: the primary button is disabled while empty||disabled, so a click cannot reach the false arm. */
     if (!empty && !disabled && !machineBusy) inputActions.submit()
   }
@@ -467,11 +468,11 @@ export function InputBar({
               className={css.primary}
               aria-label={primaryLabel}
               title={primaryLabel}
-              disabled={!running && (empty || disabled || machineBusy)}
+              disabled={stopping ? stop === undefined : empty || disabled || machineBusy}
               onMouseDown={keepFocus}
               onClick={onPrimary}
             >
-              {running ? (
+              {stopping ? (
                 <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
                   <rect x="3" y="3" width="10" height="10" rx="3" fill="currentColor" />
                 </svg>
