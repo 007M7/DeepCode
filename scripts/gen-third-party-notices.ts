@@ -157,6 +157,30 @@ function loadWorkspaceManifests(): { manifests: Map<string, Manifest>; names: Se
   return { manifests, names }
 }
 
+type VirtualManifest = Manifest & { license?: string; repository?: string | { url?: string }; homepage?: string }
+
+/**
+ * Resolve one package's manifest inside a pnpm virtual store. The prefix scan
+ * matches ordinary `@scope+name@version` directory names; pnpm 11 truncates
+ * long names (a peer-suffixed name past the length limit becomes
+ * `<prefix>_<hash>`), so a content scan falls back over the whole store when
+ * the prefix misses.
+ */
+function virtualManifest(virtual: string, name: string): VirtualManifest | undefined {
+  const prefix = `${name.replace('/', '+')}@`
+  const entry = readdirSync(virtual).find(dir => dir.startsWith(prefix))
+  if (entry !== undefined) {
+    return JSON.parse(readFileSync(resolve(virtual, entry, 'node_modules', name, 'package.json'), 'utf8')) as VirtualManifest
+  }
+  for (const dir of readdirSync(virtual)) {
+    const candidate = resolve(virtual, dir, 'node_modules', name, 'package.json')
+    if (existsSync(candidate)) {
+      return JSON.parse(readFileSync(candidate, 'utf8')) as VirtualManifest
+    }
+  }
+  return undefined
+}
+
 /** License and repository URL for an installed external package, from the pnpm store. */
 function installedMetadata(name: string): { license: string; repo: string } {
   const override = OVERRIDES[name]
@@ -171,11 +195,8 @@ function installedMetadata(name: string): { license: string; repo: string } {
     }
     const virtual = resolve(root, store, '.pnpm')
     if (!existsSync(virtual)) continue
-    const prefix = `${name.replace('/', '+')}@`
-    const entry = readdirSync(virtual).find(dir => dir.startsWith(prefix))
-    if (entry === undefined) continue
-    manifest = JSON.parse(readFileSync(resolve(virtual, entry, 'node_modules', name, 'package.json'), 'utf8')) as typeof manifest
-    break
+    manifest = virtualManifest(virtual, name)
+    if (manifest !== undefined) break
   }
   const license = override?.license ?? manifest?.license
   const rawRepo = typeof manifest?.repository === 'string' ? manifest.repository : manifest?.repository?.url ?? manifest?.homepage

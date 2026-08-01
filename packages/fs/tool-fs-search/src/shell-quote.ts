@@ -1,12 +1,9 @@
 /**
- * The one shell-quoting helper both search tools MUST route every
- * model-controlled value through before it enters an `rg` command string. The
- * bash seam (`ctx.bash`) accepts a command STRING, not an argv vector, so this
- * is the safety boundary that stops a `pattern`, `path`, or `include` from
- * breaking out of its argument and injecting shell syntax.
- *
- * Command builders in `glob.ts` / `grep.ts` must never hand-roll quoting or
- * concatenate an unquoted model value — they call {@link singleQuote}.
+ * POSIX single-quoting helper retained for compatibility with older
+ * deployments and tests. The current `glob`/`grep` command builders spawn the
+ * packaged ripgrep binary with a plain argv vector — no shell layer exists —
+ * so no quoting is involved; this module is kept because its export is part
+ * of the package surface.
  *
  * @module @deepseek-ai/dsh-tool-fs-search/shell-quote
  */

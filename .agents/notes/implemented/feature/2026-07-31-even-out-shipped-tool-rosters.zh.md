@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-那些并非 surface 专属的行移入 [`base.cordis.yml`](../../../../apps/cli/config/base.cordis.yml),另有三行加入:`tool-session-query`、`tool-str-replace-editor` 和 `repeat-tool-guard`。Web 搜索也一并移入；其[部署决策](2026-07-31-web-default-search.md)负责安全边界，共享 base 则负责与 surface 无关的挂载。两个 surface 现在组装同一份清单：每台宿主上都有二十五个工具，ripgrep 可用时再加上 `glob` 和 `grep`。
+那些并非 surface 专属的行移入 [`base.cordis.yml`](../../../../apps/cli/config/base.cordis.yml),另有三行加入:`tool-session-query`、`tool-str-replace-editor` 和 `repeat-tool-guard`。Web 搜索也一并移入；其[部署决策](2026-07-31-web-default-search.md)负责安全边界，共享 base 则负责与 surface 无关的挂载。两个 surface 现在组装同一份清单：每台宿主上都有二十七个工具——二十五个共享行加上 `glob` 和 `grep`，它们成为固定成员是因为 `dsh-tool-fs-search` 直接 spawn [打包的 ripgrep 二进制](../architecture/2026-08-01-packaged-ripgrep-search.md)。
 
 有两行仍是 surface 专属。`tmux-context` 只在 TUI,因为浏览器 surface 没有终端复用器可描述。`session-reference` 只在 TUI,因为它以 launcher 的进程本地路径驱动共享的 session-query 索引,而浏览器侧边栏会在自己的首次搜索里重建该索引。
 
@@ -62,7 +62,7 @@ Status: implemented
 
 ## 后果
 
-同一个模型在两个 surface 上拿到同样的工具,那处没有记录理由的差异消失了。测试会精确断言二十五个无条件提供的名称，并要求依赖 ripgrep 的一对工具在两侧要么同时存在、要么同时缺席，因此日后只改一个 surface 都会让检查失败而不是悄悄发出去。
+同一个模型在两个 surface 上拿到同样的工具,那处没有记录理由的差异消失了。测试会精确断言两侧全部二十七个名称，因此日后只改一个 surface 都会让检查失败而不是悄悄发出去。
 
 `apps/cli` 增加五个 workspace 依赖:四个是交付树现在挂载的,外加 `dsh-mcp-client`——它并不被挂载,存在的意义是让已安装的 `dsh` 能挂。
 
