@@ -181,16 +181,23 @@ const SCENARIOS: Scenario[] = [
   // `--sort=modified` order, pinning over-cap glob sampling without depending
   // on a host-installed ripgrep binary or a PATH stand-in. POSIX-only because
   // the displayed paths carry `/` separators the session-log comparison
-  // cannot normalize.
+  // cannot normalize. Recorded (not authored): the assistant turn is a real
+  // model transcript; re-record with `test:snapshot:record -t fs-glob-sampling`.
+  // The composition disables packed chunk rows (fs-search.cordis.yml), whose
+  // run boundaries depend on eager-drain timing, and the recorded fixture's
+  // `request/header` config and `request/context` are normalized to the
+  // replay-produced minimal shape (the live adapter logs model capabilities
+  // like maxTokens/reasoningEffort that llm-replay has no data for), and its
+  // tool-result paths are canonicalized to `/` separators.
   {
     name: 'fs-glob-sampling',
     hasModelTurn: true,
-    recorded: false,
+    recorded: true,
+    posixOnly: true,
     pinsHeader: true,
     headerClass: 'fs-search',
     configPath: FS_SEARCH_CONFIG,
     prepareWorkspace: prepareFsSearchWorkspace,
-    posixOnly: true,
   },
   { name: 'fs-read', hasModelTurn: true, recorded: true },
   { name: 'fs-write', hasModelTurn: true, recorded: true },
