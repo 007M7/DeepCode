@@ -156,7 +156,7 @@ pnpm run demo:acp
 
 ### 逐字记录类型（`ts type-equiv`）
 
-[核心数据结构](subsystems/core.md)文档会把与源码等价的声明及其原始 JSDoc 一并粘贴，让读者看到确切形状和源码契约。为防止粘贴内容在源码变化时漂移，请将其围栏为 ` ```ts type-equiv `（而不是 ` ```ts `），并在 `scripts/type-equiv.manifest.json` 中登记它镜像的源文件和符号：
+[子系统](subsystems/README.md)页面会把与源码等价的声明及其原始 JSDoc 一并粘贴，让读者看到确切形状和源码契约。为防止粘贴内容在源码变化时漂移，请将其围栏为 ` ```ts type-equiv `（而不是 ` ```ts `），并在 `scripts/type-equiv.manifest.json` 中登记它镜像的源文件和符号：
 
 ```json
 { "doc": "docs/subsystems/session.md", "symbol": "SessionEvent", "source": "packages/core/session/src/types.ts" }

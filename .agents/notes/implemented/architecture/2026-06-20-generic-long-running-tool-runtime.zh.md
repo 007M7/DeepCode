@@ -23,7 +23,7 @@ Status: implemented
 
 ## 运行时契约
 
-字面类型见[任务数据结构目录](../../../../docs/subsystems/tasks.md)。生产方调用 `ctx.tasks.start()`，传入 kind、label、可选的所属 `Agent`、可选的正数 `outputLimitBytes` 与一个 `run()` 函数。运行时会在调用 `run()` 前完成所有可能失败的预检工作，并且只调用一次。`run()` 返回钩子后，注册过程不会再执行可能失败的步骤而直接提交；生产方无法启动没有可收集 task id 的工作。
+字面类型见[任务子系统页面](../../../../docs/subsystems/tasks.md)。生产方调用 `ctx.tasks.start()`，传入 kind、label、可选的所属 `Agent`、可选的正数 `outputLimitBytes` 与一个 `run()` 函数。运行时会在调用 `run()` 前完成所有可能失败的预检工作，并且只调用一次。`run()` 返回钩子后，注册过程不会再执行可能失败的步骤而直接提交；生产方无法启动没有可收集 task id 的工作。
 
 `outputLimitBytes` 是生产方拥有的呈现策略，而非注册表缓冲区。注册表校验该值，并将其原样投影到 `TaskSnapshot`；通用控制接口添加自身的状态或通知元数据后，再将该上限应用于完整的面向模型输出。省略该值时保持现有接口行为，因此运行时不会向无关的生产方类别施加隐式默认值。
 

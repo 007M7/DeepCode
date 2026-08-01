@@ -156,7 +156,7 @@ Pick the tag that matches the urgency so anyone scanning the code can tell a rel
 
 ### Documenting types verbatim (`ts type-equiv`)
 
-The [core data structures](subsystems/core.md) docs paste source-equivalent declarations together with their original JSDoc so a reader sees the exact shape and source contract. To keep a paste from drifting when source changes, fence it as ` ```ts type-equiv ` (instead of ` ```ts `) and register it in `scripts/type-equiv.manifest.json` with the source file and symbol it mirrors:
+The [subsystems](subsystems/README.md) pages paste source-equivalent declarations together with their original JSDoc so a reader sees the exact shape and source contract. To keep a paste from drifting when source changes, fence it as ` ```ts type-equiv ` (instead of ` ```ts `) and register it in `scripts/type-equiv.manifest.json` with the source file and symbol it mirrors:
 
 ```json
 { "doc": "docs/subsystems/session.md", "symbol": "SessionEvent", "source": "packages/core/session/src/types.ts" }

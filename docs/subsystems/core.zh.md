@@ -2,7 +2,7 @@
 
 [English](core.md) | 中文
 
-本目录编目 DeepSeek Harness 的**数据结构**：每个核心类型代表什么、它的字面形状，以及完整细节在哪里。它与 [architecture.md](../architecture.md) 互补——后者描述*行为*（服务映射、会话/轮次/步骤生命周期、事件分类体系）；本页描述行为所操作的*词汇*。
+本页编目 DeepSeek Harness 的**核心**数据结构：每个主干类型代表什么、它的字面形状，以及完整细节在哪里。它与 [architecture.md](../architecture.md) 互补——后者描述*行为*（服务映射、会话/轮次/步骤生命周期、事件分类体系）；本页描述行为所操作的*词汇*。同级的各子系统页面见[目录 README](README.md)。
 
 ## 什么算"核心"
 
@@ -13,50 +13,8 @@ harness 是一个微内核：一个极小的核心加上众多插件。大多数
 1. 它流经 agent loop 主干——循环在每个轮次中持有、派生、流式输出或记录它（`Message`、`StreamChunk`、`SessionEvent`、`Agent` 句柄本身），与当前加载了哪些插件无关；**或者**
 2. 它是插件作者面向某条流水线编写的代表性类型——`ToolDefinition`（每个工具*是什么*）。
 
-其他一切都记录在**子页面**上，而非本页。划线的规则是：*你编写、持有或接收的类型是核心；为它提供类型推导、渲染或持久化的机制是子页面细节*。因此 `ToolDefinition` 是核心，但为它提供类型推导的 `ValueSchemaSpec`/`ParameterSchemaSpec` 机制、为它提供渲染意图的 `ToolCallView`/`ToolResultView` 词汇，以及存储事件日志的 `SessionPersistence` seam 都不是——它们分别在下列子页面中。
+其他一切都记录在各自的子系统页面上，而非本页。划线的规则是：*你编写、持有或接收的类型是核心；为它提供类型推导、渲染或持久化的机制是其他页面的细节*。因此 `ToolDefinition` 是核心，但为它提供类型推导的 `ValueSchemaSpec`/`ParameterSchemaSpec` 机制、为它提供渲染意图的 `ToolCallView`/`ToolResultView` 词汇，以及存储事件日志的 `SessionPersistence` seam 都不是——它们各有自己的页面（[目录](README.md)）。
 
-| 子页面 | 负责内容 |
-|---|---|
-| [llm-streaming.md](llm-streaming.md) | `StreamChunk` 协议格式（wire format）+ 适配器契约（adapter contract）、`BlockAssembler`、`LlmAdapter` seam |
-| [token-meter.md](token-meter.md) | 不可变的标量与位置回放度量，附带已消费日志修订号 |
-| [scope.md](scope.md) | 作用域注册标识、dispatch 载体，以及拥有的 `Scope` 上下文 |
-| [typert.md](typert.md) | Remote 调用 descriptor、lookup/Context 声明、TypeRT 注册表，以及 Host Gateway/Client API seam |
-| [goal.md](goal.md) | 持久 goal 标识、生命周期快照、激活、变更记录与 Round 归属 |
-| [commands.md](commands.md) | 人类命令 seam：定义、适配器发现、直接调用、结果与解析视图 |
-| [session.md](session.md) | 完整的 `SessionEventMap` 变体目录、`TurnTrigger`/`TurnEndReason`、`deriveMessages()`、执行封闭与独立事件 |
-| [persistence.md](persistence.md) | 持久性 seam：`SessionPersistence`、JSONL + SQLite 后端、`session/flush`、崩溃恢复、`SessionHeader` |
-| [settings.md](settings.md) | 用户设置 seam：`SettingsNamespace` 注册、分层解析（默认值 → 组合 `base` → 用户文档）、owner scope、热提交 |
-| [credentials.md](credentials.md) | 凭据 seam：配置中的 `CredentialRef` 引用（绝不含值）、按操作解析、对 UI 安全的 `CredentialInfo`、provider 来源层 |
-| [session-query.md](session-query.md) | 逻辑记录、有界精确事件读取、关系追踪、语义筛选器/文档与全文检索结果页 |
-| [session-title.md](session-title.md) | 持久标题快照、来源 provenance 与异步提供方契约 |
-| [system-prompt.md](system-prompt.md) | 逐次组装的上下文、工具提供方结果、提示词段落与协作式组装 |
-| [tools.md](tools.md) | `ToolDefinition` 完整字段、schema DSL、`ToolExecution`/`ToolResult`、工具展示 UI 类型，以及受保护的执行流水线 |
-| [user-interaction.md](user-interaction.md) | UI 支持的人工问答 seam：`AskUserQuestionRequest`、answer/options 词汇、提供方 API、错误分类体系 |
-| [approval.md](approval.md) | 一次性用户审批 seam：`ApprovalRequest`、`ApprovalOutcome`、逐会话策略、审计与 answerer 契约 |
-| [bash.md](bash.md) | bash 执行器 seam：`BashExecRequest`/`Spec`、`BashRunResult`、后台 `BashProcess` 句柄 |
-| [subprocess.md](subprocess.md) | 子进程 seam：完全显式的 `SubprocessSpawnSpec`、基于偏移的输出读取器、不含分类的 `SubprocessOutcome`，以及受管 `DSH_*` 环境词汇 |
-| [pty.md](pty.md) | 持久化终端 ID、后端/会话契约、发送就绪状态、有界读取与 owner 可见快照 |
-| [sandbox.md](sandbox.md) | 每会话策略解析与进程约束 seam：文件效果模式、执行/提供方策略、`ConfinedArgv`、强制执行与故障关闭错误 |
-| [code-runtime.md](code-runtime.md) | 代码执行 seam：`CodeRunRequest`/`Result`、绑定命名空间、捕获日志、`CodeRunFailure` 分类体系 |
-| [filesystem.md](filesystem.md) | 文件系统 seam：`FsTarget`、读/写/编辑结果、观测到的文件状态、`FsErrorCode` |
-| [lsp.md](lsp.md) | LSP 导航 seam：`LspQueryRequest`/`Result`、`LspProvider`/`Service`、四种操作、`LspError` |
-| [skills.md](skills.md) | skill（技能）服务：发现优先级、`SkillSummary`/`SkillDefinition`、会话前缀目录、面向模型的 `skill` 加载 |
-| [compaction.md](compaction.md) | 压缩（compaction）seam：`compact/*` 会话事件、`CompactionResult`、`CompactService` 接口 |
-| [subagent.md](subagent.md) | subagent seam：命名提供方注册表、`SubagentStartRequest`/`Result`/`Run`、启动时与运行时能力拆分 |
-| [web.md](web.md) | Web 访问 seam：`WebSearchRequest`/`Result`、`WebFetchRequest`/`Result`、`WebFetchBody`、提供方可用性、`WebError` |
-| [spill.md](spill.md) | spill 存储 seam：`SaveTextSpill`、`SpillOwner`/`SpillSource`、`SpillRef`、品牌类型 `SpillLocator` |
-| [workflow.md](workflow.md) | 工作流 seam：`WorkflowStartRequest`、`WorkflowMeta`、`WorkflowRun`/`Result`、`workflow/*` 事件载荷、`WorkflowError` 致命性 |
-| [permission.md](permission.md) | 权限预设层：`PresetSpec`/`PresetOption`、派生的 `custom` 状态、仅记日志的 `permission/preset` 事件 |
-| [plan.md](plan.md) | 计划模式：仅记日志的 `plan/mode` 状态、待定选择的冲刷、`PlanModeConfig`、`exit_plan_mode` 审阅流程 |
-| [invariants.md](invariants.md) | 运行时不变式注册表：选择配置 `Config`、`InvariantInstaller`/`InvariantFailure`、空配套插件契约 |
-| [http-server.md](http-server.md) | HTTP 载体：`WebRouteKind`/`WebRoute`、匹配顺序、静态 dist 回退、index 转换 |
-| [storage.md](storage.md) | 存储子系统：后端 seam（`StorageBackend`）、`StorageForms`、`DomainSpec`/`Domain`、`domain/changed` |
-| [workspace.md](workspace.md) | 工作区注册表：`Workspace`/`WorkspaceId`、注册与解析、与会话 `cwd` 的关系 |
-| [client-modules.md](client-modules.md) | Web 插件表：`dshClient` 声明、`WebBootGraph` 线上组合、bundle 路由与 index 转换 |
-| [session-projection.md](session-projection.md) | 投影 seam：`SessionProjectionMap`、纯函数 `ProjectionDefinition` 单元、`ProjectionSnapshot` 的一致切面、变更馈送 |
-| [telemetry.md](telemetry.md) | 对外上报 seam：`TelemetryRecord`/`TelemetrySeverity`、`TelemetryBackend` 契约、`telemetry/record` 脱敏 waterfall |
-
-> 这些页面上的类型声明及其 JSDoc 与源码等价，并由 `pnpm run verify-type-equiv` 检查漂移（见 [development.md](../development.md#documenting-types-verbatim-ts-type-equiv)）。普通块保留完整声明；`public-api` 块保留去除实现体的公开 class 声明。Cordis 服务使用生成的[服务目录](#cordis-surface)。
 
 <a id="the-map--derived-union-pattern"></a>
 
@@ -329,15 +287,6 @@ interface LlmConfigurableProvider {
    * object; empty when the whole section is the profile.
    */
   settingsPath: readonly string[]
-  /**
-   * Whether the owning adapter knows this route only because configuration
-   * declared it — a gateway or self-hosted server it ships nothing about.
-   * Absent means the adapter draws no such distinction; false means it does
-   * and this route is one of its own. Only the adapter can answer: a stored
-   * profile is how a user-added route AND a corrected shipped one both look
-   * from outside.
-   */
-  declared?: boolean
 }
 ```
 
@@ -1007,7 +956,7 @@ list(): Agent[]
 roots(): Agent[]
 ```
 
-Source: [`packages/core/agent/src/index.ts:253`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:242`](../../packages/core/agent/src/index.ts)
 
 <a id="agent-events"></a>
 

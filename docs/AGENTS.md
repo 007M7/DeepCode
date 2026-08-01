@@ -21,15 +21,17 @@ Each fact has one home: the tier whose job it is. Elsewhere, link to that home.
 | Root `AGENTS.md` | Standing orders: rules an agent needs in context in every session, one to three lines each, linking its home | Stories, worked examples, situational procedures, anything restated from a linked home |
 | Subtree `AGENTS.md` (`packages/`, `examples/`, `docs/`, `.agents/notes/`) | Orders specific to that subtree | Repo-wide rules the root file already carries |
 | [architecture.md](architecture.md) | The system map: services, the loop, extension seams — read before changing `packages/` | Type shapes (→ subsystems), per-package detail (→ package READMEs), decision rationale (→ Agent Notes), implementation-status annotations |
-| [subsystems/](subsystems/core.md) | The type catalog: literal shapes and semantics of the spine and seam vocabulary | Behavior narration (→ architecture.md) |
-| [Agent Notes](../.agents/notes/README.md) | Decision records under their own lifecycle contract | Migration plans, checklists, and spec-speak once implemented; archived notes are frozen history |
+| [subsystems/](subsystems/README.md) | One reference page per subsystem: literal type shapes, semantics, and the generated Cordis surface | Behavior narration (→ architecture.md) |
+| [Agent Notes](../.agents/notes/README.md) | Active decision records: the why, what-was-given-up, and concise verification contract; `implemented/` notes describe shipped reality in present tense | Migration plans, acceptance-task checklists, fixture walkthroughs, and spec-speak ("should…") once the decision has shipped; archived notes are frozen history, never current authority |
 | [postmortem/](postmortem/README.md) | Incident stories — the only tier where war-story narrative belongs | — |
 | [cookbook/](cookbook/adding-a-package.md) | Step-by-step how-tos with numbered verify steps | Design rationale (→ the Agent Note each guide links) |
 | [user/](user/index.md) | Product-facing guides published by the documentation website | Generated reference tables, contributor procedures, decision history |
-| Package README | Per-package config, semantics, limitations, extension points, and [Model Experience](cookbook/adding-a-package.md#4-write-the-package-readme) | JSDoc or catalog restatement, other packages' concerns |
-| [development.md](development.md) | Contributor onboarding: setup, daily workflow, and CI shape at summary level | Runtime rationale (→ Agent Notes), drifting gate inventories |
-| Generated reference: the per-page `cordis-surface` regions in [subsystems/](subsystems/core.md), the [Cordis core API + inherited tier](cordis-api/context.md), [tool-catalog](tool-catalog.md), [config-catalog](config-catalog.md), [persistence-catalog](persistence-catalog.md), [module-graph.md](module-graph.md) | Exhaustive enumerations regenerated from source, freshness-gated | Hand edits of any kind (regions included) |
+| Package README | The per-package contract: config, semantics, limitations, extension points, and [Model Experience](cookbook/adding-a-package.md#4-write-the-package-readme) | JSDoc restatement, generated-catalog restatement (event/tool tables), other packages' concerns |
+| [development.md](development.md) | First-stop contributor onboarding: local setup, daily workflow, and CI shape at summary level; a bilingual pair under the [i18n contract](i18n/README.md) | Runtime/version rationale (→ Agent Notes), gate-by-gate enumerations that drift from `package.json` scripts |
+| Generated reference: the per-page `cordis-surface` regions in [subsystems/](subsystems/README.md), the [Cordis core API + inherited tier](cordis-api/context.md), [tool-catalog](tool-catalog.md), [config-catalog](config-catalog.md), [persistence-catalog](persistence-catalog.md), [module-graph.md](module-graph.md) | Exhaustive enumerations regenerated from source, freshness-gated | Hand edits of any kind (regions included) |
 | Skills (`.agents/skills/`) | Reusable workflows and specialized decision standards | Product and runtime contracts (→ docs or source) |
+
+Placement: bugs → postmortems; rationale → Agent Notes; procedures → cookbooks; type shapes → subsystems; package contracts → READMEs; standing orders → root `AGENTS.md` with a rationale link.
 
 ## Writing rules
 
@@ -37,7 +39,7 @@ Each fact has one home: the tier whose job it is. Elsewhere, link to that home.
 - **Every non-trivial change includes at least one Agent Note in the same PR.** Update the owning note or add one; only mechanical/local edits are exempt ([scope](../.agents/notes/README.md#when-to-write-one)).
 - **One physical line per paragraph** (`verify-md-wrap`): use editor soft-wrap. Code blocks, tables, and list structure keep their formatting; code comments stay under the linter's column limit.
 - **Fenced `ts` blocks must compile** (`doc-typecheck`); a pasted type declaration and its original JSDoc use ` ```ts type-equiv `, while a body-stripped public class declaration uses ` ```ts public-api `; register either in the manifest so neither can drift ([mechanics](development.md#documenting-types-verbatim-ts-type-equiv)).
-- **The [subsystems catalog](subsystems/core.md) updates in the same change** that reshapes a documented type. `verify-type-equiv` catches drifted pastes, not never-documented new types ([what counts as core](subsystems/core.md#what-counts-as-core)).
+- **The owning [subsystems page](subsystems/README.md) updates in the same change** that reshapes a documented type. `verify-type-equiv` catches drifted pastes, not never-documented new types ([what counts as core](subsystems/core.md#what-counts-as-core)).
 - **Bilingual pairs update together**: editing either side obligates the counterpart and a re-record in the same change ([i18n contract](i18n/README.md)).
 - **Comments and JSDoc state complete contracts, not reasoning transcripts.** Preserve behavior, timing, modality, exceptions, consequences, and non-obvious orientation; delete narration, test walkthroughs, review analysis, and code restatement. Keep the local contract and link its rationale. Use [dsh-prose-standard](../.agents/skills/dsh-prose-standard/SKILL.md) for details.
 - Your audience is professional programmers. Prefer concise and straight-forward English over metaphor. Do not overuse words like "gate", "vocabulary", "surface", "seams".
