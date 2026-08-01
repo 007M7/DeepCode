@@ -233,4 +233,38 @@ describe('boot with personal patches', () => {
     await expect(watchPersonalPatches(withoutInclude, { binName: NAME, dir: tmp() })).rejects.toThrow('requires the root Include entry')
     await withoutInclude.fiber.dispose()
   })
+
+  it('returns a no-op disposer when the tree is disposed while the watcher opens', async () => {
+    // A TUI `/exit` typed during startup disposes the whole tree while
+    // registerConfig's effect registration is still in flight (the HMR effect
+    // then fails with INACTIVE_EFFECT); the app is exiting exactly as asked,
+    // so the watcher must not crash the process. The stub makes the race
+    // deterministic — the live-teardown ordering itself is not stageable.
+    const dir = tmp()
+    const ctx = await boot(NAME, writeTree(dir))
+    try {
+      const teardown = Object.assign(new Error('cannot create effect on inactive context'), { code: 'INACTIVE_EFFECT' })
+      ctx.provide('hmr', { registerConfig: () => Promise.reject(teardown) })
+      const dispose = await watchPersonalPatches(ctx, { binName: NAME, dir: tmp() })
+      await expect(dispose()).resolves.toBeUndefined()
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('propagates registration failures other than mid-teardown', async () => {
+    const dir = tmp()
+    const personal = tmp()
+    const ctx = await boot(NAME, writeTree(dir))
+    try {
+      await ctx.plugin(Timer)
+      await ctx.plugin(Hmr, { root: [], ignored: [], debounce: 0 })
+      const dispose = await watchPersonalPatches(ctx, { binName: NAME, dir: personal })
+      // Same personal path registered twice: HMR refuses; not a teardown race.
+      await expect(watchPersonalPatches(ctx, { binName: NAME, dir: personal })).rejects.toThrow('already registered')
+      await dispose()
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
 })

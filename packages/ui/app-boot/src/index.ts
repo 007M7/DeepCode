@@ -323,7 +323,7 @@ export async function watchPersonalPatches(
   const entry = bootstrapIncludes.get(ctx)
   if (entry === undefined) throw new Error(`${binName}: personal config watching requires the root Include entry`)
   const filename = join(dir, PERSONAL_CONFIG_FILENAME)
-  return hmr.registerConfig(filename, async () => {
+  const register = hmr.registerConfig(filename, async () => {
     // Re-read the include's non-patch options per refresh: a writer that
     // updates the root Include's other options between refreshes (none exists
     // today) must not have them silently reverted by a personal reload.
@@ -337,6 +337,16 @@ export async function watchPersonalPatches(
       },
     })
   })
+  try {
+    return await register
+  } catch (error) {
+    // A surface can dispose the whole tree while the watcher is still opening
+    // (a TUI `/exit` typed during startup): the HMR effect registration then
+    // fails with INACTIVE_EFFECT. That is the app exiting exactly as asked,
+    // not a watch failure — return a no-op disposer instead of crashing.
+    if ((error as { code?: string } | null)?.code === 'INACTIVE_EFFECT') return async () => {}
+    throw error
+  }
 }
 
 /**
