@@ -122,7 +122,7 @@ export interface Config extends TuiConfig {
   /**
    * Skill name auto-invoked as this session's first user turn, exactly as if
    * the user typed `/skill:<name>`. Set only by a launcher for a fresh
-   * skill-guided session (`dsh migrate`/`dsh experimental-upgrade`); absent
+   * skill-guided session (`dsh migrate`/`dsh upgrade`); absent
    * leaves the first turn to the user.
    */
   initialSkill?: string
