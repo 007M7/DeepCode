@@ -147,6 +147,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Approval service that applies session policy before answerers and logs every ask/outcome pair to the requesting session.',
     methods: [
       {
+        signature: 'setPolicy(agent: Agent, policy: ApprovalPolicy): void',
+        jsDoc: '/**\n * Switch one live agent\'s policy and queue the transition for its next model\n * step. Session initialization uses {@link setApprovalPolicy} directly\n * because there is no previously visible policy to change.\n * @param agent - the live agent whose policy is changing.\n * @param policy - the new effective policy.\n */',
+      },
+      {
         signature: 'async request(req: ApprovalRequest): Promise<ApprovalOutcome>',
         jsDoc: '/**\n * Ask the composed answerers to decide one readonly same-process request.\n * The service borrows the request, agent, session, and live signal directly.\n * The request requires an open turn because the audit pair must be enclosed\n * by the durable log\'s commit/replay boundary; an idle ask rejects before\n * appending anything. The answerer phase always produces an outcome: an\n * aborted signal yields `\'cancelled\'`, a missing or throwing answerer yields\n * `\'unavailable\'` (fail closed), and a rogue non-vocabulary return value is\n * normalized to `\'unavailable\'`. A failure that prevents either audit append\n * from committing still rejects because returning an unlogged decision would\n * violate the pair. Session contains post-commit observer failures, so an\n * authoritative append cannot reject the request or suppress its matching\n * audit event.\n * @param req - the pending decision (agent, tool identity, reason, signal).\n * @returns the closed outcome; `\'allowed-once\'` is the only grant.\n * @throws when no turn is open or either audit event fails before the session\n *   append commit point.\n */',
       },

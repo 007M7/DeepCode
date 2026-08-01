@@ -220,9 +220,18 @@ Source: [`packages/core/agent/src/index.ts:216`](../../packages/core/agent/src/i
 
 ## `ctx.approval` — `ApprovalService`
 
-Approval service that applies session policy before answerers and logs every ask/outcome pair to the requesting session. It exposes deterministic policy changes to the model through the cache-safe runtime-context snapshot and prompt-submission notices.
+Approval service that applies session policy before answerers and logs every ask/outcome pair to the requesting session. It exposes deterministic policy changes to the model through the runtime-context snapshot and switch notices.
 
 ```ts cordis-catalog
+/**
+ * Switch one live agent's policy and queue the transition for its next model
+ * step. Session initialization uses {@link setApprovalPolicy} directly
+ * because there is no previously visible policy to change.
+ * @param agent - the live agent whose policy is changing.
+ * @param policy - the new effective policy.
+ */
+setPolicy(agent: Agent, policy: ApprovalPolicy): void
+
 /**
  * Ask the composed answerers to decide one readonly same-process request.
  * The service borrows the request, agent, session, and live signal directly.
@@ -251,9 +260,9 @@ async request(req: ApprovalRequest): Promise<ApprovalOutcome>
 overrideOf(session: Session): ApprovalPolicy | undefined
 ```
 
-Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalPolicy](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md) · [Session](../core-data-structures/session.md)
+Types: [Agent](../core-data-structures/core.md) · [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalPolicy](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/ui/user-approval/src/index.ts:210`](../../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:193`](../../packages/ui/user-approval/src/index.ts)
 
 ## `ctx.bash` — `BashExecutor` (abstract seam)
 

@@ -7,7 +7,7 @@
 import { randomUUID } from 'node:crypto'
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
-import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, type CallId } from '@deepseek-ai/dsh-llm'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
@@ -59,8 +59,8 @@ declare module '@deepseek-ai/dsh-session' {
     /**
      * The session's approval policy was switched — log-only, durable,
      * replayable, never in the model transcript (the model learns the policy
-     * from the cache-safe runtime-context snapshot). The LAST such
-     * event is the session's override ({@link effectiveApprovalPolicy}).
+     * from the runtime-context snapshot and live switch notices). The LAST
+     * such event is the session's override ({@link effectiveApprovalPolicy}).
      * `source: 'delegation'` marks an override seeded into a child; an absent
      * source is a runtime switch.
      */
@@ -101,22 +101,6 @@ export const APPROVAL_POLICIES: readonly ApprovalPolicy[] = ['ask', 'never']
 const NEVER_SENTENCE = 'Approval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`).'
 /** Model-facing statement for an interactive policy that may still fail closed. */
 const ASK_SENTENCE = 'Approval policy: ask. Operations that require approval may ask through the configured answerers; without an available answerer, the request fails closed.'
-
-/** Read the latest visible policy from the runtime-context projection owned by system-prompt. */
-function toldApprovalPolicy(session: Session): ApprovalPolicy | undefined {
-  const messages = session.deriveMessages()
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index]
-    if (message?.source.kind !== 'plugin' || message.source.plugin !== '@deepseek-ai/dsh-system-prompt') continue
-    for (const block of message.content) {
-      if (block.type !== 'text') continue
-      if (block.text.includes(NEVER_SENTENCE)) return 'never'
-      if (block.text.includes(ASK_SENTENCE)) return 'ask'
-    }
-    return undefined
-  }
-  return undefined
-}
 
 /**
  * The session's approval-policy override: the last `approval/policy` event in
@@ -204,8 +188,7 @@ export interface Config {
 /**
  * Approval service that applies session policy before answerers and logs every
  * ask/outcome pair to the requesting session. It exposes deterministic policy
- * changes to the model through the cache-safe runtime-context snapshot and
- * prompt-submission notices.
+ * changes to the model through the runtime-context snapshot and switch notices.
  */
 export class ApprovalService extends Service {
   static Config: z<Config> = z.object({
@@ -232,57 +215,26 @@ export class ApprovalService extends Service {
         },
       })
     })
+  }
 
-    // Visibility layer 2: pre-step processing narrates a policy delta in the
-    // exact request whose prompt is being finalized. The last request header
-    // is authoritative for what the model was told, so a later listener that
-    // rejects or throws cannot advance narration state. Attribution is
-    // positional: an override event after the log's last `request/header` was
-    // a runtime switch by the user; otherwise the configured default moved
-    // under the session.
-    ctx.on('agent/pre-step', async (
-      agent,
-      _messages,
-      _signal,
-      next,
-    ): Promise<PreStepDecision> => {
-      const decision = await next()
-      if (decision.kind === 'reject') return decision
-      const session = agent.session
-      const events = session.events
-      let overrideIndex = -1
-      let overrideSource: 'delegation' | undefined
-      let headerIndex = -1
-      for (let index = events.length - 1; index >= 0 && (overrideIndex < 0 || headerIndex < 0); index -= 1) {
-        const event = events[index] as (typeof events)[number]
-        if (overrideIndex < 0 && event.type === 'approval/policy') {
-          overrideIndex = index
-          overrideSource = event.data.source
-        } else if (headerIndex < 0 && event.type === 'request/header') {
-          headerIndex = index
-        }
-      }
-      // Same fold effectivePolicy performs — override is scanned here anyway
-      // for POSITIONAL attribution; the default lives once, in the method.
-      const current = this.effectivePolicy(session)
-      const told = toldApprovalPolicy(session)
-      // Cold start (nothing ever told) narrates nothing — the section about
-      // to go out states the truth, and there is no delta to explain.
-      if (told === undefined || told === current) return decision
-      const cause = overrideSource === 'delegation'
-        ? 'inherited from the delegating session'
-        : overrideIndex > headerIndex ? 'changed by the user' : 'changed by the operator/config'
-      return {
-        ...decision,
-        messages: [
-          ...decision.messages,
-          createUserMessage({
-            content: [{ type: 'text', text: `The approval policy changed from "${told}" to "${current}" (${cause}).` }],
-            source: { kind: 'plugin', plugin: 'user-approval' },
-          }),
-        ],
-      }
-    })
+  /**
+   * Switch one live agent's policy and queue the transition for its next model
+   * step. Session initialization uses {@link setApprovalPolicy} directly
+   * because there is no previously visible policy to change.
+   * @param agent - the live agent whose policy is changing.
+   * @param policy - the new effective policy.
+   */
+  setPolicy(agent: Agent, policy: ApprovalPolicy): void {
+    const previous = this.effectivePolicy(agent.session)
+    if (previous === policy) return
+    setApprovalPolicy(agent.session, policy)
+    agent.inject(createUserMessage({
+      content: [{
+        type: 'text',
+        text: `The approval policy changed from "${previous}" to "${policy}" (changed by the user).`,
+      }],
+      source: { kind: 'plugin', plugin: 'user-approval' },
+    }))
   }
 
   /**

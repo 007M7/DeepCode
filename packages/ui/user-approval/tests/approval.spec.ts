@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
-import { CallId, createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import { CallId } from '@deepseek-ai/dsh-llm'
 import { carrierKeyOf, createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -354,60 +354,14 @@ describe('approval policy (the approval/policy fold)', () => {
   const ASK_SENTENCE = 'Approval policy: ask. Operations that require approval may ask through the configured answerers; without an available answerer, the request fails closed.'
 
   /**
-   * An agent stand-in over a REAL Session — gate, section, and narrator fold
-   * real events; the opened turn satisfies request()'s enclosure precondition.
+   * An agent stand-in over a REAL Session — gate and context fold real events;
+   * the opened turn satisfies request()'s enclosure precondition.
    */
   function sessionAgent(id: string): { agent: Agent; session: Session } {
     const session = new Session(SessionId(id))
     session.append('turn/start', { turn: 1 })
-    const agent = {
-      id,
-      session,
-      inject: () => { throw new Error('step-boundary narration must not use agent.inject()') },
-    } as unknown as Agent
+    const agent = { id, session } as unknown as Agent
     return { agent, session }
-  }
-
-  const submitPrompt = async (ctx: Context, agent: Agent): Promise<void> => {
-    const signal = new AbortController().signal
-    const configured = ctx.get('approval')?.config.policy ?? 'ask'
-    const current = effectiveApprovalPolicy(agent.session.events) ?? configured
-    const runtimeContext = createUserMessage({
-      content: [{ type: 'text', text: current === 'never' ? NEVER_SENTENCE : ASK_SENTENCE }],
-      source: { kind: 'plugin', plugin: '@deepseek-ai/dsh-system-prompt' },
-    })
-    const decision = await agentEvents(ctx, agent).waterfall(
-      'agent/pre-step',
-      [],
-      { turn: 1, step: 1, signal },
-      () => Promise.resolve({ kind: 'enter' as const, messages: [runtimeContext] }),
-    )
-    if (decision.kind === 'enter') {
-      for (const message of decision.messages) {
-        agent.session.append('user/message', message, { surfaceOp: 'append' })
-      }
-      appendHeader(agent.session)
-    }
-  }
-
-  const narrations = (session: Session): string[] => session.events.flatMap(event =>
-    event.type === 'user/message'
-      && event.data.source.kind === 'plugin'
-      && event.data.source.plugin === 'user-approval'
-      ? [event.data.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('')]
-      : [])
-
-  /** Append the stable system header that follows one entered prompt. */
-  function appendHeader(session: Session): void {
-    session.append('request/header', { header: { config: { provider: 'mock', model: 'mock' }, system: 'persona' }, reason: 'initial' })
-  }
-
-  /** Append one model-visible runtime-context snapshot owned by system-prompt. */
-  function appendToldPolicy(session: Session, policy: 'ask' | 'never'): void {
-    session.append('user/message', createUserMessage({
-      content: [{ type: 'text', text: policy === 'never' ? NEVER_SENTENCE : ASK_SENTENCE }],
-      source: { kind: 'plugin', plugin: '@deepseek-ai/dsh-system-prompt' },
-    }), { surfaceOp: 'append' })
   }
 
   it('folds to the last event, or undefined without one', () => {
@@ -494,6 +448,27 @@ describe('approval policy (the approval/policy fold)', () => {
     await expect(ctx.approval.request({ agent, toolName: 'bash' })).resolves.toBe('rejected')
   })
 
+  it('queues a live policy switch for the next model step', async () => {
+    const ctx = new Context()
+    await ctx.plugin(ApprovalService)
+    const { agent, session } = sessionAgent('sess-policy-notice')
+    const inject = vi.fn<Agent['inject']>()
+    const liveAgent = { ...agent, inject } as Agent
+
+    ctx.approval.setPolicy(liveAgent, 'never')
+    ctx.approval.setPolicy(liveAgent, 'never')
+
+    expect(effectiveApprovalPolicy(session.events)).toBe('never')
+    expect(inject).toHaveBeenCalledOnce()
+    expect(inject.mock.calls[0]?.[0]).toMatchObject({
+      content: [{
+        type: 'text',
+        text: 'The approval policy changed from "ask" to "never" (changed by the user).',
+      }],
+      source: { kind: 'plugin', plugin: 'user-approval' },
+    })
+  })
+
   it('contributes the complete current ask or never policy as cache-safe context', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
@@ -507,26 +482,6 @@ describe('approval policy (the approval/policy fold)', () => {
     expect(await contextFor({ agent: neverAgent })).toBe(NEVER_SENTENCE)
     // A bare assemble (no agent) has no session to state.
     expect(await contextFor({})).toBe('')
-  })
-
-  it('reflects the latest durable switch and stays byte-stable while unchanged', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ApprovalService)
-    const { agent, session } = sessionAgent('sess-narr-1')
-    await submitPrompt(ctx, agent)
-    expect(narrations(session)).toEqual([])
-    setApprovalPolicy(session, 'never')
-    setApprovalPolicy(session, 'ask')
-    setApprovalPolicy(session, 'never')
-    await submitPrompt(ctx, agent)
-    expect(narrations(session)).toEqual(['The approval policy changed from "ask" to "never" (changed by the user).'])
-    await submitPrompt(ctx, agent)
-    expect(narrations(session)).toHaveLength(1)
-    setApprovalPolicy(session, 'ask')
-    setApprovalPolicy(session, 'never')
-    await submitPrompt(ctx, agent)
-    expect(narrations(session)).toHaveLength(1)
   })
 
   it('reflects the latest durable switch in cache-safe context and stays byte-stable while unchanged', async () => {
@@ -545,169 +500,15 @@ describe('approval policy (the approval/policy fold)', () => {
     expect(await contextFor()).toBe(NEVER_SENTENCE)
   })
 
-  it('preserves a rejected pre-step without adding policy narration', async () => {
-    const ctx = new Context()
-    await ctx.plugin(ApprovalService)
-    const { agent, session } = sessionAgent('sess-narr-rejected')
-    appendToldPolicy(session, 'ask')
-    appendHeader(session)
-    setApprovalPolicy(session, 'never')
-    const signal = new AbortController().signal
-
-    const decision = await agentEvents(ctx, agent).waterfall(
-      'agent/pre-step',
-      [],
-      { turn: 1, step: 1, signal },
-      () => Promise.resolve({ kind: 'reject' as const }),
-    )
-
-    expect(decision).toEqual({ kind: 'reject' })
-    expect(narrations(session)).toEqual([])
-  })
-
-  it('reads what the model was told from visible runtime context after a restart', async () => {
-    // A session whose retained context stated never resumes under
-    // an ask default: the narrator attributes the change to the operator.
-    const ctx = new Context()
-    await ctx.plugin(ApprovalService)
-    const { agent, session } = sessionAgent('sess-narr-2')
-    appendToldPolicy(session, 'never')
-    appendHeader(session)
-    await submitPrompt(ctx, agent)
-    expect(narrations(session)).toEqual(['The approval policy changed from "never" to "ask" (changed by the operator/config).'])
-  })
-
-  it('retries narration when an outer pre-step listener throws before entry', async () => {
-    const ctx = new Context()
-    let fail = true
-    ctx.on('agent/pre-step', async (_agent, _messages, _context, next) => {
-      const decision = await next()
-      if (fail) {
-        fail = false
-        throw new Error('outer failure')
-      }
-      return decision
-    })
-    await ctx.plugin(ApprovalService)
-    const { agent, session } = sessionAgent('sess-narr-retry')
-    appendToldPolicy(session, 'ask')
-    appendHeader(session)
-    setApprovalPolicy(session, 'never')
-
-    await expect(submitPrompt(ctx, agent)).rejects.toThrow('outer failure')
-    await submitPrompt(ctx, agent)
-
-    expect(narrations(session)).toEqual(['The approval policy changed from "ask" to "never" (changed by the user).'])
-  })
-
-  it('attributes a constructor-seeded policy event to delegation', async () => {
-    const ctx = new Context()
-    await ctx.plugin(ApprovalService)
-    const { agent, session } = sessionAgent('sess-narr-inherited')
-    appendToldPolicy(session, 'ask')
-    appendHeader(session)
-    session.append('approval/policy', { policy: 'never', source: 'delegation' })
-
-    await submitPrompt(ctx, agent)
-
-    expect(narrations(session)).toEqual(['The approval policy changed from "ask" to "never" (inherited from the delegating session).'])
-  })
-
-  it('narrates a config default drift from retained runtime context', async () => {
-    const ctx = new Context()
-    await ctx.plugin(ApprovalService, { policy: 'never' })
-    const { agent, session } = sessionAgent('sess-narr-3')
-    appendToldPolicy(session, 'ask')
-    appendHeader(session)
-    await submitPrompt(ctx, agent)
-    expect(narrations(session)).toEqual(['The approval policy changed from "ask" to "never" (changed by the operator/config).'])
-  })
-
-  it('a pinned override survives a default change silently', async () => {
-    const ctx = new Context()
-    await ctx.plugin(ApprovalService, { policy: 'never' })
-    const { agent, session } = sessionAgent('sess-narr-4')
-    appendToldPolicy(session, 'ask')
-    appendHeader(session)
-    setApprovalPolicy(session, 'ask')
-    appendHeader(session)
-    await submitPrompt(ctx, agent)
-    expect(narrations(session)).toEqual([])
-  })
-
-  it('does not infer never from an unowned message that quotes the never sentence', async () => {
-    const ctx = new Context()
-    await ctx.plugin(ApprovalService)
-    const { agent, session } = sessionAgent('sess-narr-spoof-prose')
-    session.append('user/message', createUserMessage({
-      content: [{ type: 'text', text: NEVER_SENTENCE }],
-      source: { kind: 'user' },
-    }), { surfaceOp: 'append' })
-    appendToldPolicy(session, 'ask')
-    appendHeader(session)
-    await submitPrompt(ctx, agent)
-    expect(narrations(session)).toEqual([])
-  })
-
-  it('treats a legacy header with no owned runtime context as untold', async () => {
-    const ctx = new Context()
-    await ctx.plugin(ApprovalService, { policy: 'never' })
-    const { agent, session } = sessionAgent('sess-narr-unmarked-header')
-    appendHeader(session)
-    await submitPrompt(ctx, agent)
-    expect(narrations(session)).toEqual([])
-  })
-
-  it('uses the latest owned runtime-context snapshot', async () => {
-    const ctx = new Context()
-    await ctx.plugin(ApprovalService)
-    const { agent, session } = sessionAgent('sess-narr-spoof-marker')
-    appendToldPolicy(session, 'never')
-    appendToldPolicy(session, 'ask')
-    appendHeader(session)
-    await submitPrompt(ctx, agent)
-    expect(narrations(session)).toEqual([])
-  })
-
-  it('does not fall through a newer complete runtime-context snapshot', async () => {
-    const ctx = new Context()
-    await ctx.plugin(ApprovalService)
-    const { agent, session } = sessionAgent('sess-narr-latest-context')
-    appendToldPolicy(session, 'never')
-    session.append('user/message', createUserMessage({
-      content: [{ type: 'text', text: 'Current runtime context:\n\nUnrelated context only.' }],
-      source: { kind: 'plugin', plugin: '@deepseek-ai/dsh-system-prompt' },
-    }), { surfaceOp: 'append' })
-    appendHeader(session)
-
-    await submitPrompt(ctx, agent)
-
-    expect(narrations(session)).toEqual([])
-  })
-
-  it('disposes the service prompt section and pre-step narrator together (HMR safety)', async () => {
+  it('disposes the runtime-context contribution with the service', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     const fiber = await ctx.plugin(ApprovalService)
-    const live = sessionAgent('sess-hmr-service-live')
-    const afterDispose = sessionAgent('sess-hmr-service-disposed')
+    const { agent } = sessionAgent('sess-hmr-service-live')
     const contextFor = async () =>
-      (await ctx.systemPrompt.assemble({ agent: live.agent })).contexts.find(context => context.name === 'approval:policy')
+      (await ctx.systemPrompt.assemble({ agent })).contexts.find(context => context.name === 'approval:policy')
     expect(await contextFor()).toBeDefined()
-
-    appendToldPolicy(live.session, 'ask')
-    appendHeader(live.session)
-    setApprovalPolicy(live.session, 'never')
-    await submitPrompt(ctx, live.agent)
-    expect(narrations(live.session)).toEqual(['The approval policy changed from "ask" to "never" (changed by the user).'])
-
-    appendToldPolicy(afterDispose.session, 'ask')
-    appendHeader(afterDispose.session)
-    setApprovalPolicy(afterDispose.session, 'never')
     await fiber.dispose()
-
     expect(await contextFor()).toBeUndefined()
-    await submitPrompt(ctx, afterDispose.agent)
-    expect(narrations(afterDispose.session)).toEqual([])
   })
 })
