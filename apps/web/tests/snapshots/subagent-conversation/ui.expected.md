@@ -1,5 +1,8 @@
 - banner:
-  - heading "event-sourcing researcher" [level=1]
+  - navigation "Session hierarchy":
+    - button "Ask a research subagent to"
+    - text: /
+    - button "event-sourcing researcher" [disabled]
   - button "1 个子代理":
     - text: 1 个子代理
     - img

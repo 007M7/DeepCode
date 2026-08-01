@@ -111,6 +111,7 @@ function mount(
   const useInput = bindSnapshotSelector(wiring.state)
   const inputActions = wiring.actions
   const stop = vi.fn()
+  const open = vi.fn()
   const slotCalls: string[] = []
   let pickerOwner: unknown
   const renderSlot = ((key: string, owner: object, opts?: { only?: string }) => {
@@ -139,6 +140,8 @@ function mount(
             version: () => 1,
           }}
           bindDraftMirror={write => wiring.bindMirror(write)}
+          open={open}
+          t={t}
           {...owner}
         />
       )

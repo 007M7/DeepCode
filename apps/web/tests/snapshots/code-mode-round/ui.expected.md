@@ -1,5 +1,6 @@
 - banner:
-  - 'heading "Using ONE run_code program: run" [level=1]'
+  - navigation "Session hierarchy":
+    - 'button "Using ONE run_code program: run" [disabled]'
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"

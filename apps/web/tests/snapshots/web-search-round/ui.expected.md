@@ -1,5 +1,6 @@
 - banner:
-  - heading "Use web_search to search exactly" [level=1]
+  - navigation "Session hierarchy":
+    - button "Use web_search to search exactly" [disabled]
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
