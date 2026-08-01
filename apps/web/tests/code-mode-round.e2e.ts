@@ -112,7 +112,7 @@ describe('web e2e: Code Mode round renders nested sub-calls', () => {
     // the bash sub-call landed in the bash sample registration.
     const nest = page.locator('[data-subcalls]').first()
     await nest.waitFor({ timeout: 10_000 })
-    expect(await nest.locator('[data-sample="bash-global"]').count()).toBeGreaterThanOrEqual(1)
+    expect(await nest.locator('[data-sample="bash"]').count()).toBeGreaterThanOrEqual(1)
     // The failing read sub-call wears the same error state a native failed
     // row wears (the recorded program tolerates a read of missing.txt).
     expect(await nest.locator('[data-state="error"]').count()).toBeGreaterThanOrEqual(1)
@@ -123,7 +123,7 @@ describe('web e2e: Code Mode round renders nested sub-calls', () => {
     const nest = page.locator('[data-subcalls]').first()
     const frame = page.locator('[style*="grid-template-columns"]').first()
     expect(await frame.getAttribute('data-details-collapsed')).toBe('true')
-    await nest.locator('[data-sample="bash-global"]').first().click()
+    await nest.locator('[data-sample="bash"]').first().click()
     // Tool rows do not drive layout geometry; the Session's default panel stays closed.
     await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).toBe('true')
   })
