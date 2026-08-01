@@ -22,11 +22,12 @@ function catalog(over: Partial<SubagentCatalogSnapshot> = {}): SubagentCatalogSn
   return {
     entries: [
       {
-        kind: 'child', id: CHILD, mode: 'continuable', label: 'worker', activity: 'running',
+        kind: 'child', id: CHILD, mode: 'continuable', label: 'worker',
+        activity: 'running', hasChildren: true,
       },
       {
         kind: 'child', id: 'child-2' as SessionId, mode: 'one-shot',
-        label: 'reviewer', activity: 'inactive',
+        label: 'reviewer', activity: 'inactive', hasChildren: false,
       },
       { kind: 'diagnostic', id: 'bad' as SessionId, reason: 'corrupt' },
     ],
@@ -95,6 +96,8 @@ describe('SubagentCatalogAction', () => {
     expect(screen.getByText('一次性 · 当前未运行')).toBeTruthy()
     const diagnostic = screen.getByRole('treeitem', { name: /会话记录损坏/ })
     expect(diagnostic.getAttribute('aria-disabled')).toBe('true')
+    expect(screen.getByRole('button', { name: '展开 worker 的下级子代理' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '展开 reviewer 的下级子代理' })).toBeNull()
 
     fireEvent.click(screen.getByRole('treeitem', { name: /worker/ }))
     expect(input.openChild).toHaveBeenCalledWith({
@@ -137,8 +140,14 @@ describe('SubagentCatalogAction', () => {
       entries: [
         { kind: 'diagnostic', id: unsupported, reason: 'unsupported' },
         { kind: 'diagnostic', id: unavailable, reason: 'unavailable' },
-        { kind: 'child', id: CHILD, mode: 'continuable', label: 'worker', activity: 'running' },
-        { kind: 'child', id: unlabeled, mode: 'one-shot', activity: 'inactive' },
+        {
+          kind: 'child', id: CHILD, mode: 'continuable', label: 'worker',
+          activity: 'running', hasChildren: false,
+        },
+        {
+          kind: 'child', id: unlabeled, mode: 'one-shot',
+          activity: 'inactive', hasChildren: false,
+        },
       ],
     }))
     render(<SubagentCatalogAction {...input} />)
@@ -180,6 +189,7 @@ describe('SubagentCatalogAction', () => {
       mode: 'continuable' as const,
       label: id,
       activity: 'inactive' as const,
+      hasChildren: false,
     }))
     const summaries = Object.fromEntries(rows.map(([id, updatedAt]) => [
       id,
@@ -202,7 +212,7 @@ describe('SubagentCatalogAction', () => {
       entries: [
         {
           kind: 'child', id: GRANDCHILD, mode: 'continuable',
-          label: 'indexer', activity: 'inactive',
+          label: 'indexer', activity: 'inactive', hasChildren: false,
         },
       ],
     })
@@ -232,7 +242,7 @@ describe('SubagentCatalogAction', () => {
       [CHILD]: catalog({
         entries: [{
           kind: 'child', id: GRANDCHILD, mode: 'continuable',
-          label: 'indexer', activity: 'running',
+          label: 'indexer', activity: 'running', hasChildren: false,
         }],
       }),
     })
@@ -254,7 +264,7 @@ describe('SubagentCatalogAction', () => {
         entries: [
           {
             kind: 'child', id: GRANDCHILD, mode: 'continuable',
-            label: 'indexer', activity: 'running',
+            label: 'indexer', activity: 'running', hasChildren: true,
           },
           { kind: 'diagnostic', id: 'nested-bad' as SessionId, reason: 'corrupt' },
         ],
@@ -328,7 +338,7 @@ describe('SubagentCatalogAction', () => {
       [CHILD]: catalog({
         entries: [{
           kind: 'child', id: GRANDCHILD, mode: 'continuable',
-          label: 'indexer', activity: 'inactive',
+          label: 'indexer', activity: 'inactive', hasChildren: false,
         }],
       }),
     })

@@ -16,6 +16,8 @@ export type SubagentListEntry =
     kind: 'child'
     id: SessionId
     activity: 'running' | 'inactive'
+    /** Whether a direct descendant has durable `origin: 'subagent'`. */
+    hasChildren: boolean
   } & (
     | {
       mode: 'one-shot'

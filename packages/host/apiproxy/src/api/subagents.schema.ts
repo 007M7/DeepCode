@@ -16,6 +16,7 @@ export const subagentListEntrySchema = z.union([
     id: sessionIdSchema,
     mode: z.literal('one-shot'),
     activity: z.union([z.literal('running'), z.literal('inactive')]),
+    hasChildren: z.boolean(),
     label: z.string().optional(),
   }),
   z.object({
@@ -23,6 +24,7 @@ export const subagentListEntrySchema = z.union([
     id: sessionIdSchema,
     mode: z.literal('continuable'),
     activity: z.union([z.literal('running'), z.literal('inactive')]),
+    hasChildren: z.boolean(),
     label: z.string(),
   }),
   z.object({

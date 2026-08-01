@@ -192,16 +192,19 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     expect(scaffold.ctx.agents.get(oneShotId)).toBeUndefined()
     expect(scaffold.ctx.agents.get(grandchildId)).toBeUndefined()
     await expect(scaffold.ctx.subagents.listChildren(parent.id)).resolves.toMatchObject([
-      { kind: 'child', id: childId, mode: 'continuable', label: LABEL, activity: 'inactive' },
+      {
+        kind: 'child', id: childId, mode: 'continuable', label: LABEL,
+        activity: 'inactive', hasChildren: true,
+      },
       {
         kind: 'child', id: oneShotId, mode: 'one-shot',
-        label: ONE_SHOT_LABEL, activity: 'inactive',
+        label: ONE_SHOT_LABEL, activity: 'inactive', hasChildren: false,
       },
     ])
     await expect(scaffold.ctx.subagents.listChildren(childId)).resolves.toMatchObject([
       {
         kind: 'child', id: grandchildId, mode: 'continuable',
-        label: NESTED_LABEL, activity: 'inactive',
+        label: NESTED_LABEL, activity: 'inactive', hasChildren: false,
       },
     ])
     await page.getByRole('button', { name: '2 个子代理' }).waitFor({ timeout: 15_000 })
@@ -222,6 +225,9 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
   it('expands a persisted grandchild progressively without activating either level', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-subagent-tree'))
     await page.getByRole('button', { name: '2 个子代理' }).click()
+    expect(await page.getByRole('button', {
+      name: `展开 ${ONE_SHOT_LABEL} 的下级子代理`,
+    }).count()).toBe(0)
     await page.getByRole('button', { name: `展开 ${LABEL} 的下级子代理` }).click()
     await page.getByRole('treeitem', { name: new RegExp(NESTED_LABEL) }).waitFor({ timeout: 15_000 })
     expect(scaffold.ctx.agents.get(childId)).toBeUndefined()

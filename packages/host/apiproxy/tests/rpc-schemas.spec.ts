@@ -292,13 +292,19 @@ describe('sessions domain schemas', () => {
 describe('subagent domain schemas', () => {
   it('validates the direct catalog and addressed history pair', () => {
     const child = {
-      kind: 'child', id: 'c', mode: 'continuable', label: 'worker', activity: 'running',
+      kind: 'child', id: 'c', mode: 'continuable', label: 'worker',
+      activity: 'running', hasChildren: true,
     }
-    const oneShot = { kind: 'child', id: 'o', mode: 'one-shot', activity: 'inactive' }
+    const oneShot = {
+      kind: 'child', id: 'o', mode: 'one-shot', activity: 'inactive', hasChildren: false,
+    }
     const diagnostic = { kind: 'diagnostic', id: 'bad', reason: 'unsupported' }
     expect(subagentListEntrySchema.parse(child)).toEqual(child)
     expect(subagentListEntrySchema.parse(oneShot)).toEqual(oneShot)
     expect(subagentListEntrySchema.parse(diagnostic)).toEqual(diagnostic)
+    expect(() => subagentListEntrySchema.parse({
+      kind: 'child', id: 'missing', mode: 'one-shot', activity: 'inactive',
+    })).toThrow()
     expect(subagentListRequestSchema.parse({ parentSessionId: 'p' })).toEqual({ parentSessionId: 'p' })
     expect(subagentListValueSchema.parse({
       entries: [child, oneShot, diagnostic], parentAvailable: true,

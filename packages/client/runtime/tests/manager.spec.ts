@@ -287,7 +287,8 @@ describe('subagent catalogs', () => {
     ] as never[] }))
     api.onSubagentList = () => Promise.resolve(ok({
       entries: [{
-        kind: 'child', id: S2, mode: 'continuable', label: 'worker', activity: 'running',
+        kind: 'child', id: S2, mode: 'continuable', label: 'worker',
+        activity: 'running', hasChildren: false,
       }] as never[],
       parentAvailable: true,
     }))
@@ -384,6 +385,46 @@ describe('subagent catalogs', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('marks a loaded parent row expandable only for a direct subagent publication', async () => {
+    const api = new FakeApiClient()
+    const root = 'fk-root' as SessionId
+    api.onSubagentList = () => Promise.resolve(ok({
+      entries: [
+        {
+          kind: 'child', id: S1, mode: 'continuable', label: 'parent',
+          activity: 'inactive', hasChildren: false,
+        },
+        {
+          kind: 'child', id: S2, mode: 'continuable', label: 'ordinary parent',
+          activity: 'inactive', hasChildren: false,
+        },
+      ] as never[],
+      parentAvailable: true,
+    }))
+    const manager = new SessionManager(api)
+    await manager.refreshSubagents(root)
+
+    manager.handleHostEnvelope({
+      rpcId: 'nested-subagent' as never,
+      payload: {
+        type: 'host/session-added', sessionId: 'fk-grandchild' as SessionId,
+        parentSessionId: S1, origin: 'subagent', blank: false,
+      },
+    })
+    manager.handleHostEnvelope({
+      rpcId: 'ordinary-fork' as never,
+      payload: {
+        type: 'host/session-added', sessionId: 'fk-fork' as SessionId,
+        parentSessionId: S2, blank: false,
+      },
+    })
+
+    expect(manager.getListSnapshot().subagentsByParent[root]?.entries).toMatchObject([
+      { kind: 'child', id: S1, hasChildren: true },
+      { kind: 'child', id: S2, hasChildren: false },
+    ])
   })
 })
 

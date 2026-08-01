@@ -4,11 +4,5 @@
       - img
     - text: event-sourcing researcher 可继续 · 当前未运行
   - group:
-    - treeitem "example editor 可继续 · 当前未运行" [level=2]:
-      - button "展开 example editor 的下级子代理":
-        - img
-      - text: example editor 可继续 · 当前未运行
-  - treeitem "event-sourcing reviewer 一次性 · 当前未运行" [level=1]:
-    - button "展开 event-sourcing reviewer 的下级子代理":
-      - img
-    - text: event-sourcing reviewer 一次性 · 当前未运行
+    - treeitem "example editor 可继续 · 当前未运行" [level=2]
+  - treeitem "event-sourcing reviewer 一次性 · 当前未运行" [level=1]

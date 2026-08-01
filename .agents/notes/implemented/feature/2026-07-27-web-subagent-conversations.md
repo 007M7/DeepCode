@@ -32,14 +32,14 @@ The Figma [subagent list](https://www.figma.com/design/jRBBK7zBgcszdVWQ0Fh5J8/Ha
 | --- | --- |
 | The session header opens a compact child list. | The action shows every direct catalog entry in service order, including disabled diagnostics. |
 | Selecting a row reuses the conversation UI. | Addressed history never activates the child; only a continuable row with a live parent retains the ordinary composer. |
-| Nested agents expand progressively. | Each disclosure loads only that row's direct catalog and retains its own parent address. |
+| Nested agents expand progressively. | Each row carries a one-level `hasChildren` snapshot; disclosure still loads only that row's direct catalog and retains its own parent address. |
 | Rows show labels, state, and relative time without duplicating sidebar rows. | Mode and `running`/`inactive` activity are textual as well as visual; optional title and time come from summaries. `SessionHeader.origin` removes duplicate navigation rows but grants no capability. |
 
 ## Product contract
 
-The header action count includes healthy `kind: 'child'` entries and excludes diagnostics. It is absent only after a complete empty response. The tree presents continuable and one-shot rows, falling back to the session id when an optional one-shot label is absent. Corrupt, unsupported, and unavailable candidates remain visible as disabled diagnostic rows.
+The header action count includes healthy `kind: 'child'` entries and excludes diagnostics. It is absent only after a complete empty response. Every healthy row carries a read-time `hasChildren` hint derived only from direct lineage headers with durable `origin: 'subagent'`; normal healthy and diagnostic subagent candidates carry that marker, while ordinary forks do not. This lookahead reads no descendant event log, and the descriptor-backed catalog loaded after disclosure remains authoritative. The UI omits disclosure for a known leaf before interaction; the hint does not promise that the child will remain a leaf. The tree presents continuable and one-shot rows, falling back to the session id when an optional one-shot label is absent. Corrupt, unsupported, and unavailable candidates remain visible as disabled diagnostic rows.
 
-`running` means the logical child record is live in the session corpus; `inactive` means it exists only in persistence. The UI does not translate either value into success, failure, cancellation, completeness, or resumability. `host/session-status` updates known activity in place. Membership, labels, mode, and diagnostics still require a debounced `subagent.list` refresh while the affected branch is open. A prompt response remains delivery-time authority.
+`running` means the logical child record is live in the session corpus; `inactive` means it exists only in persistence. The UI does not translate either value into success, failure, cancellation, completeness, or resumability. `host/session-status` updates known activity in place. A `host/session-added` frame for a direct subagent immediately flips any loaded parent row to `hasChildren: true`; membership, labels, mode, diagnostics, and the authoritative snapshot still require a debounced `subagent.list` refresh while the affected branch is open. A prompt response remains delivery-time authority.
 
 Selecting a row records its exact address before opening the resident client `Session`. History pagination, event folding, tool render intents, titles, breadcrumbs, and live mux reconciliation reuse the ordinary conversation machinery. The catalog is an ARIA tree with lazy ArrowRight/ArrowLeft disclosure, linear ArrowUp/ArrowDown navigation, Home/End, Escape, and focus restoration.
 
@@ -51,7 +51,7 @@ Agent-bound auxiliary controls are unavailable in addressed child views. In part
 
 `@deepseek-ai/dsh-host-apiproxy` owns a browser-safe `subagents` domain:
 
-- `subagent.list` takes `parentSessionId`, calls `ctx.subagents.listChildren(parentSessionId, signal)`, returns the complete ordered entries, and includes whether the exact parent currently resolves from `ctx.agents`.
+- `subagent.list` takes `parentSessionId`, calls `ctx.subagents.listChildren(parentSessionId, signal)`, returns the complete ordered entries with each healthy row's boolean `hasChildren` snapshot, and includes whether the exact parent currently resolves from `ctx.agents`.
 - `subagent.history` takes the full mode-bearing address plus ordinary page arguments. It verifies the child and mode against the direct catalog, reads through `ctx.sessionQuery.readSession()`, rechecks direct lineage, and returns the ordinary raw-event, render-intent, pagination, and host-computed session-projection baseline without publishing an Agent.
 - `subagent.prompt` accepts only a `mode: 'continuable'` address and `ContentBlock[]`. It requires the exact live parent, revalidates the catalog address, calls `ctx.subagents.followup(parent, childId, content, { source, signal })`, and returns the accepted `MessageId`.
 
@@ -69,7 +69,7 @@ The React-free runtime owns catalogs, single-flight refreshes, retained addresse
 
 Catalogs ride the standard `useSessions` snapshot. Component-local state owns menu visibility, expanded branches, and focus. `ui-conversation` declares the generic header-action list slot and dispatches the current conversation snapshot through its composer chain; it contains no subagent-specific takeover flag. `@deepseek-ai/dsh-client-ui-subagent` registers the catalog action and elects a reason-specific read-only composer from ordinary owner props. Components receive derived props and callbacks, never `ctx`.
 
-Every in-process subagent child stamps `SessionHeader.origin: 'subagent'` before publication. Session list summaries and incremental Host frames project it so grouped and flat sidebars omit duplicate child rows while preserving ordinary forks. Descriptor mode and catalog verification remain the authority for navigation, continuation, and authorization.
+Every in-process subagent child stamps `SessionHeader.origin: 'subagent'` before publication. Session list summaries and incremental Host frames project it so grouped and flat sidebars omit duplicate child rows while preserving ordinary forks. The same existing `host/session-added` frame marks a loaded direct parent row expandable without introducing a catalog event stream. Descriptor mode and catalog verification remain the authority for navigation, continuation, and authorization.
 
 The package's existing `@label` source remains separate plain-text model input. It does not resolve labels to addresses or acquire continuation semantics.
 
@@ -93,23 +93,23 @@ The shipped Web composition mounts SQLite session query beside JSONL persistence
 
 **Infer mode or sidebar filtering from lineage.** Rejected because ordinary forks share `parentSession`. The descriptor-backed catalog owns mode; the separate `origin` marker is only a cheap navigation classifier.
 
-**Build an eager recursive tree or dedicated catalog stream.** Rejected for the current scale. Lazy direct-child reads preserve ordering and diagnostics; existing Host frames update activity and trigger bounded membership refreshes.
+**Build an eager recursive tree or dedicated catalog stream.** Rejected for the current scale. Header-only one-level expandability lookahead preserves pre-click stability without reading descendant events, while disclosure remains a lazy authoritative direct-child read; existing Host frames update activity, restore expandable parent rows, and trigger bounded membership refreshes.
 
 **Let a child remain independently interactive after its parent disappears.** Rejected because independent lifetime and user ownership require side-session semantics.
 
 ## Testing
 
-- Host protocol tests pin schemas, id echoing, mode verification, non-activating history, exact-parent enforcement, FIFO admission receipts, cancellation, and sanitized failure mapping.
+- Host protocol tests pin schemas including required boolean expandability, id echoing, mode verification, non-activating history, exact-parent enforcement, FIFO admission receipts, cancellation, and sanitized failure mapping.
 - Generic Host tests pin attached and cold history and forks without Agent publication, cold projection folding, descriptor/origin/runtime-owner denial, explicit-id adoption denial, and the direct queue-control fence.
-- Client object tests pin retained and restored addresses, one-shot read-only rejection, history routing, continuable prompt routing, no addressed cancellation, suppression of Agent-bound model controls, live activity flips, and membership refresh.
-- jsdom tests pin mixed-mode rows, diagnostics, lazy descendant disclosure, direct-parent addresses, keyboard behavior, and both read-only reasons.
+- Client object tests pin retained and restored addresses, one-shot read-only rejection, history routing, continuable prompt routing, no addressed cancellation, suppression of Agent-bound model controls, live activity flips, subagent-parent expandability flips, and membership refresh.
+- jsdom tests pin mixed-mode rows, pre-click leaf disclosure, diagnostics, lazy descendant disclosure, direct-parent addresses, keyboard behavior, and both read-only reasons.
 - The keyless assembled Web snapshot contains an inactive continuable child, an inactive one-shot sibling, and a persisted grandchild; it expands without activation, opens persisted history, admits a human FIFO follow-up, reconciles child mux events, and proves one-shot history remains read-only.
 - Sidebar tests pin `origin: 'subagent'` filtering without hiding ordinary forks.
 
 ## Consequences
 
-- Catalog reads may rescan persisted lineage and descriptor logs, so activity uses existing live frames while membership refresh stays debounced and single-flight.
-- Parent availability and child activity are process-local snapshots. Publication, disposal, another sender, or another process may win after listing; typed prompt failure remains expected.
+- Catalog reads may rescan persisted lineage and each direct candidate's descriptor log, but expandability reuses only descendant headers already present in that trace; activity uses existing live frames while membership refresh stays debounced and single-flight.
+- Parent availability, child activity, and `hasChildren` are snapshots. Publication, disposal, another sender, or another process may win after listing; typed prompt failure remains expected.
 - A child may publish between history fetch and mux subscription, so the existing sequence reconciliation also covers the cold-to-live addressed path.
 - Persisted origin adds one deliberately weak product-classification field to child headers and list projections; it cannot become an authorization shortcut.
 - The UI has no child cancellation, durable outcome, activation duration, deletion, or independently interactive offline mode, and its text must not imply those capabilities.

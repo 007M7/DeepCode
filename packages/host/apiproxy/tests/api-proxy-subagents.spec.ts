@@ -28,7 +28,10 @@ function bench(options: {
     options.parentLive !== false && id === PARENT ? parent : undefined)
   const listChildren = vi.fn(() => options.listError === undefined
     ? Promise.resolve(options.entries ?? [
-      { kind: 'child', id: CHILD, mode: 'continuable', label: 'worker', activity: 'inactive' },
+      {
+        kind: 'child', id: CHILD, mode: 'continuable', label: 'worker',
+        activity: 'inactive', hasChildren: false,
+      },
     ])
     : Promise.reject(options.listError))
   const followup = vi.fn((
@@ -63,8 +66,14 @@ function bench(options: {
 describe('subagent gateway', () => {
   it('lists the complete catalog and reports exact live-parent availability', async () => {
     const { api, listChildren } = bench({ parentLive: false, entries: [
-      { kind: 'child', id: CHILD, mode: 'continuable', label: 'worker', activity: 'inactive' },
-      { kind: 'child', id: sid('one-shot'), mode: 'one-shot', activity: 'inactive' },
+      {
+        kind: 'child', id: CHILD, mode: 'continuable', label: 'worker',
+        activity: 'inactive', hasChildren: true,
+      },
+      {
+        kind: 'child', id: sid('one-shot'), mode: 'one-shot',
+        activity: 'inactive', hasChildren: false,
+      },
       { kind: 'diagnostic', id: sid('bad'), reason: 'corrupt' },
     ] })
     const response = await api.subagents.list(request({ parentSessionId: PARENT }))
@@ -98,7 +107,8 @@ describe('subagent gateway', () => {
 
   it('reads one-shot history and rejects an address with the wrong mode', async () => {
     const oneShot = {
-      kind: 'child', id: CHILD, mode: 'one-shot', label: 'batch', activity: 'inactive',
+      kind: 'child', id: CHILD, mode: 'one-shot', label: 'batch',
+      activity: 'inactive', hasChildren: false,
     }
     const { api, readSession } = bench({ entries: [oneShot] })
     expect((await api.subagents.history(request({

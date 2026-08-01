@@ -102,6 +102,7 @@ describe('dsh-tool-subagent-control/list-agents', () => {
         label: 'finished once',
         mode: 'one-shot',
         activity: 'inactive',
+        hasChildren: false,
       },
       {
         kind: 'child',
@@ -109,6 +110,7 @@ describe('dsh-tool-subagent-control/list-agents', () => {
         label: 'real child',
         mode: 'continuable',
         activity: 'inactive',
+        hasChildren: false,
       },
       {
         kind: 'child',
@@ -116,6 +118,7 @@ describe('dsh-tool-subagent-control/list-agents', () => {
         label: 'still working',
         mode: 'continuable',
         activity: 'running',
+        hasChildren: true,
       },
       { kind: 'diagnostic', id: SessionId('broken-child'), reason: 'corrupt' },
     ]

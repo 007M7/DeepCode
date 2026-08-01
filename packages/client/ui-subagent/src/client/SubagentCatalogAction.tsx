@@ -117,7 +117,7 @@ function CatalogRows({
 
         const childCatalog = catalogs[entry.id]
         const isExpanded = expanded.has(entry.id)
-        const knownLeaf = childCatalog?.state === 'ready' && childCatalog.entries.length === 0
+        const knownLeaf = !entry.hasChildren
         const summary = summaries[entry.id]
         const label = entry.label ?? entry.id
         const mode = entry.mode === 'one-shot' ? '一次性' : '可继续'

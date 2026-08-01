@@ -616,6 +616,9 @@ export class SessionManager {
           ...(frame.cwd !== undefined ? { cwd: frame.cwd } : {}),
         })
         this.sessions.get(frame.sessionId)?.handleBlank(frame.blank)
+        if (frame.origin === 'subagent' && frame.parentSessionId !== undefined) {
+          this.markCatalogParentExpandable(frame.parentSessionId)
+        }
         if (frame.parentSessionId !== undefined
           && (this.selected === frame.parentSessionId || this.openCatalogs.has(frame.parentSessionId))) {
           this.scheduleCatalogRefresh(frame.parentSessionId)
@@ -710,6 +713,22 @@ export class SessionManager {
       })
       changed = true
       this.catalogs.set(parentSessionId, { ...catalog, entries })
+    }
+    if (changed) this.notifier.markDirty()
+  }
+
+  /** Mark a loaded parent row expandable after one direct subagent publishes. */
+  private markCatalogParentExpandable(parentSessionId: SessionId): void {
+    let changed = false
+    for (const [catalogParentId, catalog] of this.catalogs) {
+      if (!catalog.entries.some(entry =>
+        entry.kind === 'child' && entry.id === parentSessionId && !entry.hasChildren)) continue
+      const entries = catalog.entries.map((entry) => {
+        if (entry.kind !== 'child' || entry.id !== parentSessionId || entry.hasChildren) return entry
+        return { ...entry, hasChildren: true }
+      })
+      changed = true
+      this.catalogs.set(catalogParentId, { ...catalog, entries })
     }
     if (changed) this.notifier.markDirty()
   }

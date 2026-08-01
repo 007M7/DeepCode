@@ -22,9 +22,10 @@ type SessionQueryRuntime = Pick<
 /**
  * One entry of a {@link listChildren} result in trace candidate order. A valid
  * descriptor produces a `child`, a per-child inspection failure produces a
- * `diagnostic`, and a descriptor-less ordinary child is omitted. Diagnostics
- * are transient query results, never session events or catalog state, and
- * never expose model-hidden descriptor content.
+ * `diagnostic`, and a descriptor-less ordinary child is omitted. Healthy rows
+ * include a one-level, origin-classified descendant hint. Diagnostics are
+ * transient query results, never session events or catalog state, and never
+ * expose model-hidden descriptor content.
  */
 export type SubagentListEntry =
   | {
@@ -38,6 +39,8 @@ export type SubagentListEntry =
      * delivery as an ownership conflict.
      */
     readonly activity: 'running' | 'inactive'
+    /** Whether a direct descendant has durable `origin: 'subagent'`. */
+    readonly hasChildren: boolean
   } & (
     | {
       /** A terminal one-shot child. */
@@ -100,7 +103,12 @@ export async function listChildren(
   )
   const entries: SubagentListEntry[] = []
   for (const node of trace.descendants) {
-    const entry = await inspectChild(query, queryRuntime, parentSessionId, node.session, signal)
+    const hasChildren = node.descendants.some(
+      descendant => descendant.session.header.origin === 'subagent',
+    )
+    const entry = await inspectChild(
+      query, queryRuntime, parentSessionId, node.session, hasChildren, signal,
+    )
     // Cancellation can race the inspection's last checkpoint or diagnostic
     // mapping; do not return success or begin another candidate afterward.
     assertListingNotCancelled(signal)
@@ -115,6 +123,7 @@ async function inspectChild(
   queryRuntime: SessionQueryRuntime,
   parentSessionId: SessionId,
   candidate: SessionRecord,
+  hasChildren: boolean,
   signal?: AbortSignal,
 ): Promise<SubagentListEntry | undefined> {
   const childId = candidate.header.id
@@ -158,9 +167,13 @@ async function inspectChild(
         mode: descriptor.mode,
         ...descriptor.label !== undefined ? { label: descriptor.label } : {},
         activity,
+        hasChildren,
       }
     }
-    return { kind: 'child', id: childId, mode: descriptor.mode, label: descriptor.label, activity }
+    return {
+      kind: 'child', id: childId, mode: descriptor.mode, label: descriptor.label,
+      activity, hasChildren,
+    }
   } catch (error: unknown) {
     const reason = perChildDiagnosticReason(error, queryRuntime.SessionQueryError)
     if (reason === undefined) throw error
