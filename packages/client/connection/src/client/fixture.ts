@@ -5,15 +5,36 @@
 // prompt triggers a chunked streaming replay; cancel stops the replay; resident pending
 // approval/question requests exercise replay and composer takeover with stable rpcIds.
 
-import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
-import type { SessionEvent, SessionId, TodoItem } from '@deepseek-ai/dsh-session/types'
+import {
+  createAssistantMessage,
+  createToolResultMessage,
+  createUserMessage,
+} from '@deepseek-ai/dsh-llm/message'
+import { CallId } from '@deepseek-ai/dsh-llm/brand'
+import type {
+  AssistantMessage,
+  ContentBlock,
+  MessageSource,
+  TokenUsage,
+  ToolResultMessage,
+  UserMessage,
+} from '@deepseek-ai/dsh-llm'
+import type {
+  SessionEvent,
+  SessionId,
+  TodoItem,
+} from '@deepseek-ai/dsh-session/types'
+// Type-only: the brand constructor is host-side; the fixture casts at its
+// wire-fabrication boundary (the schema layer's one-cast-point posture).
+import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
+import { foldSurface } from '@deepseek-ai/dsh-session/surface'
 import type {
   ApiProxy, ClientRequest, ClientResponse, HistoryEntry, HostFrame, MuxFrame, RpcReceipt,
-  ModelTarget, RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
+  ModelProviderGroup, ModelTarget, RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
   ToolCallView, ToolEventView, ToolResultView, WorkspaceId, WorkspaceView,
 } from './api.ts'
 import type { RequestPayload, ResponseValue, RpcMethodMap } from '@deepseek-ai/dsh-host-apiproxy/api'
-import { AbstractApiClient, RpcId } from './api.ts'
+import { AbstractApiClient, RpcId, SESSION_SEARCH_RESULT_LIMIT } from './api.ts'
 
 /** The fake carrier mints like a real one (business code never mints). */
 function rpcRequest<P>(payload: P): RpcRequest<P> {
@@ -22,6 +43,21 @@ function rpcRequest<P>(payload: P): RpcRequest<P> {
 
 function text(t: string): ContentBlock[] {
   return [{ type: 'text', text: t }]
+}
+
+function userMessage(content: ContentBlock[], source: MessageSource = { kind: 'user' }): UserMessage {
+  return createUserMessage({ content, source })
+}
+
+function assistantMessage(content: ContentBlock[]): AssistantMessage {
+  return createAssistantMessage({
+    content,
+    source: { provider: 'fixture', model: 'fx-1' },
+  })
+}
+
+function toolResultMessage(callId: string, content: ContentBlock[], isError: boolean): ToolResultMessage {
+  return createToolResultMessage({ callId: CallId(callId), content, isError })
 }
 
 const MARKDOWN_FIXTURE = [
@@ -46,6 +82,200 @@ const MARKDOWN_FIXTURE = [
 
 const USER_MARKDOWN_LITERAL = '用户字面量：# 不渲染 `code` [link](https://example.com)'
 
+/**
+ * SGR wrapper for the terminal output sample below: authoring the escapes as
+ * `\u001b` keeps literal control bytes out of this source file.
+ * @param code - the SGR parameter (an ANSI color or attribute number).
+ * @param body - the text the attribute applies to.
+ * @returns the body wrapped in the attribute and a reset.
+ */
+function sgr(code: number, body: string): string {
+  return `\u001b[${code}m${body}\u001b[0m`
+}
+
+/**
+ * Terminal output sample for fixture turn 65, authored to carry every feature
+ * the terminal card draws that turn 60's two prompt rows cannot reach:
+ * basic-16 SGR foreground runs (green, red, bright-black) that must resolve to
+ * `--dsw-*` tokens, a bold run, column-aligned table rows that must scroll
+ * rather than fold, more than DEFAULT_TERMINAL_MAX_LINES (16) lines so the
+ * height cap collapses the middle. The exit status is authored separately in
+ * TERMINAL_EXIT_STATUS and deliberately absent from this text: the real bash
+ * presenter CONSUMES its `[exit code: N]` marker out of the body, because a
+ * terminal card shows the exit as its own pill and leaving the marker in would
+ * render it twice (packages/bash/tool-bash/src/render.ts).
+ */
+const TERMINAL_OUTPUT_FIXTURE = [
+  sgr(1, 'Running 4 checks'),
+  `${sgr(32, '\u2713')} typecheck                                          1.82s`,
+  `${sgr(32, '\u2713')} lint                                               0.94s`,
+  `${sgr(32, '\u2713')} duplication                                        2.10s`,
+  `${sgr(31, '\u2717')} unit                                               8.41s`,
+  '',
+  sgr(90, 'packages/client/ui-primitives/tests/terminal-block.spec.tsx'),
+  `  ${sgr(31, 'FAIL')} caps output at the configured line budget`,
+  '    expected 16 lines, received 24',
+  '',
+  'NAME                        LINES    BRANCHES    FUNCTIONS    UNCOVERED',
+  'TerminalBlock.tsx           100%     100%        100%         -',
+  'ansi.ts                     100%     100%        100%         -',
+  'clipboard.ts                100%     100%        100%         -',
+  'CodeBlock.tsx               98.4%    96.2%       100%         41-43',
+  'highlight.ts                100%     100%        100%         -',
+  'Pill.tsx                    100%     100%        100%         -',
+  'StateDot.tsx                100%     100%        100%         -',
+  'markdown/Markdown.tsx       100%     100%        100%         -',
+  '',
+  sgr(31, '1 of 4 checks failed'),
+].join('\n')
+
+/**
+ * Exit status for each terminal sample, keyed by its output text. Authored
+ * alongside the sample rather than parsed back out of its trailing marker,
+ * which is the bash tool's own job and not something to reimplement here.
+ */
+const TERMINAL_EXIT_STATUS: Record<string, { exitCode: number } | { signal: string }> = {
+  [TERMINAL_OUTPUT_FIXTURE]: { exitCode: 1 },
+}
+
+/**
+ * Structured grep result for the search sample (turn 66): matches grouped by
+ * file, authored inline because the client-side fixture cannot import the tool
+ * that produces the canonical value. `truncated` with a larger `total` than the
+ * retained match count exercises the search card's capped indicator; the file
+ * with more than CHAT_SEARCH_MAX_LINES rows exercises its head/tail height cap.
+ */
+const SEARCH_MATCHES_FIXTURE: { path: string; matches: { lineNumber: number; line: string }[] }[] = [
+  {
+    path: 'packages/client/ui-primitives/src/SearchBlock.tsx',
+    matches: [
+      { lineNumber: 16, line: 'export const DEFAULT_SEARCH_MAX_LINES = 16' },
+      { lineNumber: 138, line: 'export function SearchBlock(props: SearchBlockProps) {' },
+      { lineNumber: 141, line: '  const [collapsed, setCollapsed] = useState<ReadonlySet<number>>(() => new Set())' },
+    ],
+  },
+  {
+    path: 'packages/client/ui-conversation/src/client/contract/search-card-model.ts',
+    matches: [
+      { lineNumber: 24, line: 'export const CHAT_SEARCH_MAX_LINES = 8' },
+      { lineNumber: 60, line: 'export function searchCardModel(block: ToolCallBlock): SearchCardModel | null {' },
+    ],
+  },
+  {
+    path: 'packages/client/ui-conversation/src/client/toolviews/search-row.tsx',
+    matches: [
+      { lineNumber: 33, line: 'export function SearchRow({ toolName, block, inspect, t }: SearchRowProps) {' },
+      { lineNumber: 35, line: '  const search = searchCardModel(block)' },
+      { lineNumber: 52, line: '      search={search}' },
+      { lineNumber: 73, line: "    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'grep', locale: NS }, SearchRow)" },
+    ],
+  },
+]
+
+/**
+ * The model-facing grep render text for the sample — what a UI without a search
+ * card shows, attached as the view's `content`. Mirrors the real grep
+ * presenter's shape (see formatGrepOutput in dsh-tool-fs-search): a
+ * `Found X of Y matches` header, the matches grouped under file headers with
+ * `Line N:` rows, then a spill-recovery footer.
+ */
+const SEARCH_MATCHES_TEXT = [
+  'Found 9 of 42 matches',
+  '',
+  ...SEARCH_MATCHES_FIXTURE.map(file =>
+    [file.path, ...file.matches.map(m => `Line ${m.lineNumber}: ${m.line}`)].join('\n')),
+  '',
+  '(Full grep result stored at: fixture://spill/grep-66. Read it to see every match.)',
+].join('\n')
+
+/**
+ * Structured glob result for the search sample (turn 67): a flat path list,
+ * truncated with a larger `total` so the path card shows its capped indicator.
+ */
+const SEARCH_PATHS_FIXTURE = [
+  'packages/client/ui-primitives/src/SearchBlock.tsx',
+  'packages/client/ui-primitives/src/SearchBlock.module.css',
+  'packages/client/ui-conversation/src/client/contract/search-card-model.ts',
+  'packages/client/ui-conversation/src/client/toolviews/search-row.tsx',
+  'packages/client/ui-conversation/tests/search-card.spec.tsx',
+]
+
+/**
+ * The model-facing glob render text — the newline-joined path list plus a
+ * spill-recovery footer, mirroring the real glob presenter's shape (see
+ * formatGlobOutput in dsh-tool-fs-search).
+ */
+const SEARCH_PATHS_TEXT = [
+  ...SEARCH_PATHS_FIXTURE,
+  '',
+  '(Showing 5 of 23 paths. Full sorted result stored at: fixture://spill/glob-67. Read it to see every path.)',
+].join('\n')
+
+/**
+ * Read-card sample for the read turn: a WINDOW past an offset, so the line
+ * numbers start above 1 (the card's gutter keeps the file's own numbering) and
+ * `totalLines` exceeds the window (the card shows a "showing N of M" note). The
+ * fixture is client-side and cannot import the read tool, so the structured
+ * window is authored inline exactly as the tool would project it through
+ * `presentationMeta`. `lang` is a `ts` hint so the shiki path highlights it.
+ */
+const READ_SAMPLE_FIRST_LINE = 41
+const READ_SAMPLE_SOURCE = [
+  'export interface ReadBlockProps {',
+  '  label?: string | undefined',
+  '  lines: readonly ReadBlockLine[]',
+  '  totalLines: number',
+  '  lang?: string | undefined',
+  '  maxLines?: number | undefined',
+  '  className?: string | undefined',
+  '}',
+  '',
+  '// A windowed read keeps the file line numbers in the gutter.',
+  'const marker = "fixture read sample"',
+]
+const READ_SAMPLE_LINES = READ_SAMPLE_SOURCE.map((text, index) => ({ number: READ_SAMPLE_FIRST_LINE + index, text }))
+const READ_SAMPLE_PATH = 'packages/client/ui-primitives/src/ReadBlock.tsx'
+const READ_SAMPLE_TOTAL = 180
+const READ_SAMPLE_TEXT = READ_SAMPLE_SOURCE.map((text, index) => `${READ_SAMPLE_FIRST_LINE + index}: ${text}`).join('\n')
+
+/**
+ * The structured `web_search` result view for the web-search turn, authored inline
+ * because this client-side fixture cannot import the web tool that projects it.
+ * The sources exercise the citation list's features: a titled source with a
+ * snippet and a date, a source with no title (its hostname labels the link) and
+ * a snippet but no date, and a source with a title and a date but no snippet.
+ * `truncated` marks the capped indicator. The shape is the contract's own
+ * search view minus its wire discriminants.
+ */
+const WEB_SEARCH_RESULT: Omit<Extract<ToolResultView, { card: 'web'; kind: 'search' }>, 'card' | 'kind'> = {
+  answer: 'DeepSeek Harness is a plugin-based agent harness on vendored Cordis where **every capability is a plugin**.',
+  sources: [
+    {
+      url: 'https://github.com/deepseek-ai/deepseek-harness',
+      title: 'DeepSeek Harness — plugin-based agent harness',
+      snippet: 'Everything is a plugin: session, tools, agent-loop, and LLM adapters all mount on the same Cordis context.',
+      publishedAt: '2026-07-01',
+    },
+    {
+      url: 'https://www.deepseek.com/blog/harness-architecture',
+      snippet: 'The capability-seam pattern splits each capability into interface, implementation, and consumer packages.',
+    },
+    {
+      url: 'https://docs.deepseek.com/harness/plugins',
+      title: 'Writing a harness plugin',
+      publishedAt: '2026-06-15',
+    },
+  ],
+  truncated: true,
+}
+
+/** The `web_fetch` result view for the web-fetch turn, authored inline for the same reason. */
+const WEB_FETCH_RESULT: Omit<Extract<ToolResultView, { card: 'web'; kind: 'fetch' }>, 'card' | 'kind'> = {
+  url: 'https://www.deepseek.com/blog/harness-architecture',
+  statusCode: 200,
+  truncated: false,
+}
+
 const DEEPSEEK_REASONING = {
   efforts: [
     { id: 'off', name: 'Off' },
@@ -65,8 +295,47 @@ const OPENAI_REASONING = {
   defaultEffort: 'medium',
 }
 
+/** Catalog served by `session.models` and `llm.models` alike (fresh copies per call). */
+function fixtureModelGroups(): ModelProviderGroup[] {
+  return [
+    {
+      id: 'deepseek-official',
+      name: 'DeepSeek',
+      models: [
+        {
+          id: 'deepseek-v4-flash',
+          name: 'DeepSeek-V4-Flash',
+          description: '快速响应',
+          reasoning: DEEPSEEK_REASONING,
+        },
+        {
+          id: 'deepseek-v4-pro',
+          name: 'DeepSeek-V4-Pro',
+          description: '复杂任务',
+          reasoning: DEEPSEEK_REASONING,
+        },
+      ],
+    },
+    {
+      id: 'openai',
+      name: 'OpenAI',
+      models: [{ id: 'gpt-5', name: 'GPT-5', reasoning: OPENAI_REASONING }],
+    },
+  ]
+}
+
 function sid(id: string): SessionId {
   return id as SessionId
+}
+
+/** Deterministic provider billing attached to fixture assistant messages. */
+function fixtureUsage(turn: number, step: number): TokenUsage {
+  return {
+    inputTokens: 20 + turn % 5,
+    outputTokens: 8 + step,
+    cacheReadTokens: turn === 0 ? 0 : 80,
+    cacheWriteTokens: turn % 10 === 0 ? 4 : 0,
+  }
 }
 
 /** fx-alpha history script: 60 turns (~130+ messages -> 3 pages at PAGE_MESSAGES=50),
@@ -76,17 +345,24 @@ function buildAlphaLog(): SessionEvent[] {
   let time = Date.now() - 3_600_000
   const push = (e: Record<string, unknown>): number => {
     const seq = events.length
-    events.push({ seq, time: (time += 800), ...e })
+    const data = e['data'] as Record<string, unknown> | undefined
+    const authored = e['type'] === 'assistant/message' && data !== undefined
+      ? {
+        ...e,
+        data: {
+          ...data,
+          usage: fixtureUsage(data['turn'] as number, data['step'] as number),
+        },
+      }
+      : e
+    events.push({ seq, time: (time += 800), ...authored })
     return seq
   }
   for (let turn = 0; turn < 60; turn++) {
     push({ type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
     const userSeq = push({
       type: 'user/message', surfaceOp: 'append',
-      data: {
-        content: text(turn === 59 ? USER_MARKDOWN_LITERAL : `问题 ${turn}：fixture 历史消息，用于翻页与渲染验收。`),
-        source: { kind: 'user' },
-      },
+      data: userMessage(text(turn === 59 ? USER_MARKDOWN_LITERAL : `问题 ${turn}：fixture 历史消息，用于翻页与渲染验收。`)),
     })
     if (turn === 0) {
       push({
@@ -95,7 +371,7 @@ function buildAlphaLog(): SessionEvent[] {
       })
     }
     if (turn % 9 === 4) {
-      push({ type: 'user/message', surfaceOp: 'append', data: { content: text(`[fixture] 上下文注入（turn ${turn}）`), source: { kind: 'plugin', plugin: 'fixture' } } })
+      push({ type: 'user/message', surfaceOp: 'append', data: userMessage(text(`[fixture] 上下文注入（turn ${turn}）`), { kind: 'plugin', plugin: 'fixture' }) })
     }
     push({ type: 'step/start', data: { turn, step: 0 } })
     const withTool = turn % 5 === 2
@@ -106,19 +382,19 @@ function buildAlphaLog(): SessionEvent[] {
     if (withTool) {
       const callId = `fx-call-${turn}`
       blocks.push({ type: 'tool-call', id: callId, name: 'echo', arguments: `{"text":"turn ${turn}"}` } as ContentBlock)
-      push({ type: 'assistant/message', surfaceOp: 'append', data: { turn, step: 0, content: blocks, provenance: { provider: 'fixture', model: 'fx-1' } } })
+      push({ type: 'assistant/message', surfaceOp: 'append', data: { turn, step: 0, message: assistantMessage(blocks) } })
       push({ type: 'tool/call', data: { turn, step: 0, callId, name: 'echo', arguments: `{"text":"turn ${turn}"}` } })
-      push({ type: 'tool/result', surfaceOp: 'append', data: { turn, step: 0, callId, content: text(`ECHO: TURN ${turn}`), isError: turn % 25 === 12 } })
+      push({ type: 'tool/result', surfaceOp: 'append', data: { turn, step: 0, message: toolResultMessage(callId, text(`ECHO: TURN ${turn}`), turn % 25 === 12) } })
       push({ type: 'step/end', data: { turn, step: 0 } })
       push({ type: 'step/start', data: { turn, step: 1 } })
-      push({ type: 'assistant/message', surfaceOp: 'append', data: { turn, step: 1, content: text(`工具结果已消化（turn ${turn}）。`), provenance: { provider: 'fixture', model: 'fx-1' } } })
+      push({ type: 'assistant/message', surfaceOp: 'append', data: { turn, step: 1, message: assistantMessage(text(`工具结果已消化（turn ${turn}）。`)) } })
       push({ type: 'step/end', data: { turn, step: 1 } })
     } else {
-      push({ type: 'assistant/message', surfaceOp: 'append', data: { turn, step: 0, content: blocks, provenance: { provider: 'fixture', model: 'fx-1' } } })
+      push({ type: 'assistant/message', surfaceOp: 'append', data: { turn, step: 0, message: assistantMessage(blocks) } })
       push({ type: 'step/end', data: { turn, step: 0 } })
     }
     if (turn % 13 === 6) {
-      push({ type: 'steering/message', surfaceOp: 'append', data: { turn, content: text(`插话 ${turn}：fixture steering 消息。`), source: { kind: 'user' } } })
+      push({ type: 'steering/message', surfaceOp: 'append', data: { turn, message: userMessage(text(`插话 ${turn}：fixture steering 消息。`)) } })
     }
     push({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
   }
@@ -128,21 +404,30 @@ function buildAlphaLog(): SessionEvent[] {
   const toolTurn = (turn: number, name: string, args: string, resultText: string): void => {
     const callId = `fx-call-${turn}`
     push({ type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
-    push({ type: 'user/message', surfaceOp: 'append', data: { content: text(`问题 ${turn}：${name} 样本。`), source: { kind: 'user' } } })
+    push({ type: 'user/message', surfaceOp: 'append', data: userMessage(text(`问题 ${turn}：${name} 样本。`)) })
     push({ type: 'step/start', data: { turn, step: 0 } })
     push({
       type: 'assistant/message', surfaceOp: 'append',
-      data: { turn, step: 0, content: [{ type: 'tool-call', id: callId, name, arguments: args } as ContentBlock], provenance: { provider: 'fixture', model: 'fx-1' } },
+      data: { turn, step: 0, message: assistantMessage([{ type: 'tool-call', id: callId, name, arguments: args } as ContentBlock]) },
     })
     push({ type: 'tool/call', data: { turn, step: 0, callId, name, arguments: args } })
-    push({ type: 'tool/result', surfaceOp: 'append', data: { turn, step: 0, callId, content: text(resultText), isError: false } })
+    push({ type: 'tool/result', surfaceOp: 'append', data: { turn, step: 0, message: toolResultMessage(callId, text(resultText), false) } })
     push({ type: 'step/end', data: { turn, step: 0 } })
     push({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
   }
-  toolTurn(60, 'fx-bash', '{"command":"ls -la","cwd":"/tmp/fixture"}', 'total 2\ndrwxr-xr-x fixture\n-rw-r--r-- demo.txt')
+  // A two-line command, so the fixture covers the terminal card's one-row-per-
+  // command-line prompt (and that the card still marks the call exactly once).
+  toolTurn(60, 'fx-bash', '{"command":"ls -la\\necho done","cwd":"/tmp/fixture"}', 'total 2\ndrwxr-xr-x fixture\n-rw-r--r-- demo.txt')
   toolTurn(61, 'fx-write', '{"path":"notes/demo.txt","content":"hello fixture\\n"}', 'wrote notes/demo.txt')
   toolTurn(62, 'edit', '{"file_path":"notes/demo.txt","old_string":"hello","new_string":"hello fixture"}', '已编辑')
   toolTurn(63, 'write', '{"file_path":"notes/new-demo.txt","content":"hello fixture\\n"}', '已写入')
+  // Turn 67: a multi-hunk edit — two scattered replacements in one file. Named
+  // `edit` so it lands on the keyed FileMutationRow (the resident diff card the
+  // single-hunk turn 62 also uses), and file_path `src/config.ts` is the marker
+  // the presenter reads to emit the two-hunk sample: the card draws one path
+  // header, the first hunk, a `⋯` gap, then the second (the same-file
+  // second-hunk arm turns 62/63 cannot reach).
+  toolTurn(67, 'edit', '{"file_path":"src/config.ts","old_string":"const timeout = 30","new_string":"const timeout = 60"}', '已编辑')
   // Turn 64: one run_code turn with three logged sub-dispatches — the Code
   // Mode acceptance surface (parent code row + nested native-identical rows,
   // including an isError sub-call and a bash sub-call that must hit the same
@@ -151,16 +436,16 @@ function buildAlphaLog(): SessionEvent[] {
     const turn = 64
     const callId = `fx-call-${turn}`
     const program = 'const listing = await tools.bash({ command: "ls notes", description: "List notes" })\n'
-      + 'const demo = await tools.read({ path: "notes/demo.txt" })\n'
-      + 'await tools.read({ path: "notes/missing.txt" }).catch(() => "tolerated")\n'
+      + 'const demo = await tools.read({ file_path: "notes/demo.txt" })\n'
+      + 'await tools.read({ file_path: "notes/missing.txt" }).catch(() => "tolerated")\n'
       + 'return { listing, demo }'
     const args = JSON.stringify({ code: program, description: 'Read the notes files and summarize' })
     push({ type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
-    push({ type: 'user/message', surfaceOp: 'append', data: { content: text(`问题 ${turn}：run_code 样本。`), source: { kind: 'user' } } })
+    push({ type: 'user/message', surfaceOp: 'append', data: userMessage(text(`问题 ${turn}：run_code 样本。`)) })
     push({ type: 'step/start', data: { turn, step: 0 } })
     push({
       type: 'assistant/message', surfaceOp: 'append',
-      data: { turn, step: 0, content: [{ type: 'tool-call', id: callId, name: 'run_code', arguments: args } as ContentBlock], provenance: { provider: 'fixture', model: 'fx-1' } },
+      data: { turn, step: 0, message: assistantMessage([{ type: 'tool-call', id: callId, name: 'run_code', arguments: args } as ContentBlock]) },
     })
     push({ type: 'tool/call', data: { turn, step: 0, callId, name: 'run_code', arguments: args } })
     const dispatchPair = (n: number, name: string, dispatchArgs: Record<string, unknown>, resultText: string, isError = false): void => {
@@ -177,24 +462,73 @@ function buildAlphaLog(): SessionEvent[] {
       })
     }
     dispatchPair(1, 'bash', { command: 'ls notes', description: 'List notes' }, 'demo.txt\nnew-demo.txt')
-    dispatchPair(2, 'read', { path: 'notes/demo.txt' }, 'hello fixture\n')
-    dispatchPair(3, 'read', { path: 'notes/missing.txt' }, 'Error: ENOENT: notes/missing.txt not found', true)
+    dispatchPair(2, 'read', { file_path: 'notes/demo.txt' }, 'hello fixture\n')
+    dispatchPair(3, 'read', { file_path: 'notes/missing.txt' }, 'Error: ENOENT: notes/missing.txt not found', true)
     push({
       type: 'tool/result', surfaceOp: 'append',
-      data: { turn, step: 0, callId, content: text('{"listing":"demo.txt\\nnew-demo.txt","demo":"hello fixture\\n"}'), isError: false },
+      data: { turn, step: 0, message: toolResultMessage(callId, text('{"listing":"demo.txt\\nnew-demo.txt","demo":"hello fixture\\n"}'), false) },
     })
     push({ type: 'step/end', data: { turn, step: 0 } })
     push({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
   }
-  // Turn 65: todo_write sample — the TodoRow toolview in the flow plus the
+  // Turn 67: todo_write sample — the TodoRow toolview in the flow plus the
   // todo/write snapshot event feeding the TodoPanel plan strip.
   const fixtureTodos = [
     { content: '梳理需求', status: 'completed' },
     { content: '实现 fixture 样本', status: 'in_progress' },
     { content: '浏览器验收', status: 'pending' },
   ]
+  // Turn 65: the terminal sample turn 60's two clean prompt rows cannot cover —
+  // ANSI SGR coloring, output past the terminal card's height cap, a nested cwd
+  // whose prompt label is its last segment, and a non-zero exit authored beside
+  // the sample in TERMINAL_EXIT_STATUS — its body deliberately carries no
+  // `[exit code: N]` marker, since the real presenter consumes that one out of
+  // the body. Named `bash`, so it also covers
+  // the keyed toolview row (turn 60's `fx-bash` covers the render-site fallback
+  // row) — the two chat-row shapes the terminal card renders in.
+  //
+  // Ordered BEFORE the todo turn deliberately: the standing plan retires at the
+  // next `turn/start`, so a turn appended after it would leave the dock's plan
+  // strip empty and take the todo surfaces' own coverage with it.
+  toolTurn(65, 'bash', '{"command":"pnpm run check","cwd":"/tmp/fixture/deep/nested"}', TERMINAL_OUTPUT_FIXTURE)
+
+  // Turns 66-67: the search card's two shapes. `grep` emits a `card: 'search'`
+  // `shape: 'matches'` result view (grouped-by-file matches, truncated with a
+  // larger `total`), `glob` emits `shape: 'paths'` (a flat path list, likewise
+  // truncated). Both ride the keyed SearchRow registration under their own
+  // names; the render-site fallback row is covered by the model derivation
+  // tests, since every fixture search tool has a keyed row. Ordered before the
+  // todo turn for the same standing-plan reason the bash turn is.
+  toolTurn(66, 'grep', '{"pattern":"SEARCH_MAX_LINES","path":"packages/client"}', SEARCH_MATCHES_TEXT)
+  toolTurn(67, 'glob', '{"pattern":"**/SearchBlock*","path":"packages/client"}', SEARCH_PATHS_TEXT)
+
+  // Turn 68: the read sample — a WINDOW past an offset so the card draws file
+  // line numbers starting above 1 and a "showing N of M" note (the window is
+  // shorter than READ_SAMPLE_TOTAL), with a `ts` language hint the shiki path
+  // highlights. Named `read`, so it exercises the keyed ReadRow registration.
+  // The render-site fallback ROW SHAPE (a read call on the generic flattened
+  // path) is covered by the turn 64 run_code read sub-dispatches, which
+  // session.ts folds with resultView: null; the fallback-row + read-CARD
+  // combination is pinned by the web_fetch case in read-card.spec.tsx, not by
+  // this fixture. The read render intent is result-side only, so its pending
+  // call stays a generic `kind: 'read'` card; presentResult carries the
+  // structured window.
+  toolTurn(68, 'read', `{"file_path":${JSON.stringify(READ_SAMPLE_PATH)},"offset":${READ_SAMPLE_FIRST_LINE}}`, READ_SAMPLE_TEXT)
+
+  // Turns 69-70: the web render intent — a web_search whose result view carries
+  // structured sources plus an answer (the citation list, one source lacking a
+  // title so its hostname labels the link, the capped indicator on), and a
+  // web_fetch whose result view carries the fetched URL and its HTTP status.
+  // Both keep a generic pending call view and add the `web` card only at
+  // result time, which is the contract's result-only web shape. Named after
+  // the real tools so they hit the keyed WebRow registration. Ordered BEFORE
+  // the todo turn for the same reason turn 65 is: the standing plan retires at
+  // the next turn/start, so a turn after it would empty the dock's plan strip.
+  toolTurn(69, 'web_search', '{"query":"deepseek harness architecture"}', 'Search results for deepseek harness architecture.')
+  toolTurn(70, 'web_fetch', '{"url":"https://www.deepseek.com/blog/harness-architecture"}', '# Harness architecture\n\nEverything is a plugin.')
+
   const todoArgs = JSON.stringify({ todos: fixtureTodos })
-  toolTurn(65, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
+  toolTurn(71, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
   // The real tool appends the snapshot mid-execution — between tool/call and
   // tool/result — so the fixture reproduces that exact ordering (the last
   // toolTurn events run ... tool/call, tool/result, step/end, turn/end).
@@ -219,17 +553,57 @@ function presentCall(name: string, argsRaw: string): ToolCallView | undefined {
     return undefined
   }
   switch (name) {
+    // Both names present the same terminal card: `fx-bash` lands on the
+    // render-site fallback row, `bash` on the keyed BashRow registration.
     case 'fx-bash':
+    case 'bash':
       return { card: 'terminal', title: str(args.command), cwd: str(args.cwd, '/tmp/fixture'), description: 'fixture 终端样本' }
     case 'fx-write':
       return {
         card: 'diff', title: `Write ${str(args.path)}`,
         diffs: [{ path: str(args.path), oldText: null, newText: str(args.content) }],
       }
+    // A read pending call is a GENERIC card (kind: 'read', a follow-along
+    // location): the read render intent is result-side only, because a call
+    // carries no file content until execute returns. The rich read card arrives
+    // in presentResult.
+    case 'read':
+      return { card: 'generic', title: `Read ${str(args.file_path)}`, kind: 'read', locations: [{ path: str(args.file_path) }] }
     case 'edit':
-      return { card: 'generic', title: `Edit ${str(args.file_path)}`, kind: 'edit', rawInput: args }
+      // The multi-hunk sample (turn 67) is keyed on its file_path, so the two
+      // scattered hunks share one path header and the card draws the `⋯` gap.
+      if (str(args.file_path) === 'src/config.ts') {
+        return {
+          card: 'diff', title: `Edit ${str(args.file_path)}`,
+          diffs: [
+            { path: str(args.file_path), oldText: 'const timeout = 30', newText: 'const timeout = 60' },
+            { path: str(args.file_path), oldText: 'retries: 1', newText: 'retries: 3' },
+          ],
+        }
+      }
+      return {
+        card: 'diff', title: `Edit ${str(args.file_path)}`,
+        diffs: [{ path: str(args.file_path), oldText: str(args.old_string), newText: str(args.new_string) }],
+      }
     case 'write':
-      return { card: 'generic', title: `Write ${str(args.file_path)}`, kind: 'edit', rawInput: args }
+      return {
+        card: 'diff', title: `Write ${str(args.file_path)}`,
+        diffs: [{ path: str(args.file_path), oldText: null, newText: str(args.content) }],
+      }
+    // A search call stays a generic card (kind: 'search'): the structured
+    // matches/paths exist only after execute, so the search card is result-time
+    // only (presentResult builds it). This mirrors the real grep/glob presenters.
+    case 'grep':
+      return { card: 'generic', title: `Grep ${str(args.pattern)}`, kind: 'search', rawInput: args }
+    case 'glob':
+      return { card: 'generic', title: `Glob ${str(args.pattern)}`, kind: 'search', rawInput: args }
+    // The web tools keep a GENERIC pending card and add the `web` result card
+    // only at result time (the contract's result-only web shape); their pending
+    // kind matches the result kind so a call and its result read as one category.
+    case 'web_search':
+      return { card: 'generic', title: `Search ${str(args.query)}`, kind: 'search', rawInput: args }
+    case 'web_fetch':
+      return { card: 'generic', title: `Fetch ${str(args.url)}`, kind: 'fetch', rawInput: args }
     default:
       return undefined // echo et al: the documented no-view fallback path
   }
@@ -238,9 +612,45 @@ function presentCall(name: string, argsRaw: string): ToolCallView | undefined {
 function presentResult(name: string, argsRaw: string, resultText: string): ToolResultView | undefined {
   const call = presentCall(name, argsRaw)
   if (call === undefined) return undefined
+  // Search is result-time only: the call stays a generic search card, and the
+  // result view carries the structured shape the card renders. The view holds no
+  // result text — a UI without a search card falls back to the raw tool/result
+  // content — so the truncation recovery footer rides that raw content (the
+  // `toolTurn` message text), not the view. `total` exceeds the retained count so
+  // the card shows its capped indicator.
+  if (name === 'grep') {
+    return { card: 'search', shape: 'matches', files: SEARCH_MATCHES_FIXTURE, truncated: true, total: 42 }
+  }
+  if (name === 'glob') {
+    return { card: 'search', shape: 'paths', paths: SEARCH_PATHS_FIXTURE, truncated: true, total: 23 }
+  }
+  // The read result is the structured window the tool projects through
+  // `presentationMeta`; the fixture authors it inline (it cannot import the
+  // tool). Keyed on the name because the read pending call is a generic card,
+  // so `call.card` alone does not distinguish it from edit/write.
+  if (name === 'read') {
+    return {
+      card: 'read', path: READ_SAMPLE_PATH, offset: READ_SAMPLE_FIRST_LINE, lines: READ_SAMPLE_LINES,
+      totalLines: READ_SAMPLE_TOTAL, lang: 'ts', content: text(resultText),
+    }
+  }
+  // The web tools keep a generic pending card, so their result card is chosen
+  // by tool name rather than by the pending card tag: the structured `web` card
+  // the frontend consumes. The view carries no `content` copy (per the contract
+  // and the web-result-card note); a capability-less UI falls back to the raw
+  // `tool/result` content, which this fixture emits from `resultText`.
+  if (name === 'web_search') {
+    return { card: 'web', kind: 'search', ...WEB_SEARCH_RESULT }
+  }
+  if (name === 'web_fetch') {
+    return { card: 'web', kind: 'fetch', ...WEB_FETCH_RESULT }
+  }
   switch (call.card) {
     case 'terminal':
-      return { card: 'terminal', output: resultText, exitCode: 0 }
+      // The sample's own exit status, authored beside it: re-parsing the
+      // trailing marker here would duplicate the bash tool's `parseExitStatus`,
+      // which this client-side fixture cannot import.
+      return { card: 'terminal', output: resultText, ...(TERMINAL_EXIT_STATUS[resultText] ?? { exitCode: 0 }) }
     case 'diff':
       return { card: 'diff', diffs: call.diffs }
     case 'generic':
@@ -255,13 +665,13 @@ function viewFor(event: SessionEvent, log: readonly SessionEvent[]): ToolEventVi
     return view === undefined ? undefined : { for: 'call', view }
   }
   if (event.type === 'tool/result') {
-    const callId = String(event.data.callId)
+    const callId = String(event.data.message.source.callId)
     for (let i = log.length - 1; i >= 0; i--) {
       const candidate = log[i]
       /* v8 ignore next -- dense-array guard: i stays within [0, log.length),
       so the undefined arm needs a sparse log no code path builds. */
       if (candidate !== undefined && candidate.type === 'tool/call' && String(candidate.data.callId) === callId) {
-        const resultText = event.data.content.map(b => (b.type === 'text' ? b.text : '')).join('')
+        const resultText = event.data.message.content[0].content.map(b => (b.type === 'text' ? b.text : '')).join('')
         const view = presentResult(candidate.data.name, candidate.data.arguments, resultText)
         return view === undefined ? undefined : { for: 'result', view }
       }
@@ -271,18 +681,266 @@ function viewFor(event: SessionEvent, log: readonly SessionEvent[]): ToolEventVi
   return undefined
 }
 
-/** Fold the latest fixture title into the host's control-frame projection. */
-function titleFrameOf(id: SessionId, log: readonly SessionEvent[]): Extract<MuxFrame, { type: 'session/title' }> | undefined {
-  const event = log.findLast(item => (item as { type: string }).type === 'session/title')
-  if (event === undefined) return undefined
-  const titleEvent = event as unknown as { seq: number; time: number; data: { title: string } }
-  return {
-    type: 'session/title',
-    sessionId: id,
-    title: titleEvent.data.title,
-    eventSeq: titleEvent.seq,
-    updatedAt: titleEvent.time,
+/**
+ * Fixture parallel of the plan unit's double-event fold: `command/run`
+ * records named `plan` set the wanted target (`off` → false, else true);
+ * `plan/mode` commits and clears it. `wanted` is exposed for the prompt
+ * boundary (the fixture's agent/step parallel).
+ */
+function foldPlan(log: readonly SessionEvent[]): { active: boolean; pending: boolean; wanted: boolean | null } {
+  let active = false
+  let wanted: boolean | null = null
+  for (const event of log) {
+    const item = event as unknown as { type: string; data?: Record<string, unknown> }
+    if (item.type === 'command/run' && item.data?.['name'] === 'plan') {
+      const args = item.data['args']
+      wanted = (typeof args === 'string' ? args : '').trim() !== 'off'
+    } else if (item.type === 'plan/mode') {
+      active = item.data?.['active'] === true
+      wanted = null
+    }
   }
+  return { active, pending: wanted !== null && wanted !== active, wanted }
+}
+
+/** The plan projection's wire view over the full log. */
+function planViewOf(log: readonly SessionEvent[]): { active: boolean; pending: boolean } {
+  const plan = foldPlan(log)
+  return { active: plan.active, pending: plan.pending }
+}
+
+/** Fixture parallel of the host's projection units: whole current values per key over the full log. */
+/** Fixture preset table (the host PermissionService defaults). */
+const PERMISSION_PRESETS: Record<string, { sandbox: string; approval: string; description: string }> = {
+  'workspace-write': { sandbox: 'workspace-write', approval: 'ask', description: 'Write inside the workspace and permitted temporary directories; wider retries require approval.' },
+  'danger-full-access': { sandbox: 'danger-full-access', approval: 'never', description: 'Full file access without approval prompts.' },
+}
+
+/** Host permissions-unit parallel: fold the three knob events, derive the select over the fixture defaults. */
+function permissionSelectOf(
+  log: readonly SessionEvent[],
+): { options: { value: string; name: string; description?: string }[]; currentValue: string } {
+  let preset: string | null = null
+  let sandbox = 'workspace-write'
+  let approval = 'ask'
+  for (const event of log) {
+    const item = event as { type: string; data: Record<string, unknown> }
+    if (item.type === 'permission/preset') preset = item.data['preset'] as string
+    else if (item.type === 'sandbox/mode') sandbox = item.data['mode'] as string
+    else if (item.type === 'approval/policy') approval = item.data['policy'] as string
+  }
+  const matches = (spec: { sandbox: string; approval: string }): boolean => spec.sandbox === sandbox && spec.approval === approval
+  let currentValue = 'custom'
+  const folded = preset === null ? undefined : PERMISSION_PRESETS[preset]
+  if (preset !== null && folded !== undefined && matches(folded)) {
+    currentValue = preset
+  } else {
+    for (const [name, spec] of Object.entries(PERMISSION_PRESETS)) {
+      if (matches(spec)) { currentValue = name; break }
+    }
+  }
+  return {
+    options: [
+      ...Object.entries(PERMISSION_PRESETS).map(([value, spec]) => ({ value, name: value, description: spec.description })),
+      ...currentValue === 'custom' ? [{ value: 'custom', name: 'Custom', description: 'Current sandbox and approval settings do not match a preset.' }] : [],
+    ],
+    currentValue,
+  }
+}
+
+interface FixtureTokenUsageProjection {
+  uncachedInputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
+}
+
+interface FixtureUsageSample {
+  turn: number
+  step: number
+  usage: TokenUsage
+}
+
+/** Read one provider usage sample from either durable carrier. */
+function usageSampleOf(event: SessionEvent): FixtureUsageSample | undefined {
+  const item = event as unknown as {
+    type: string
+    data: {
+      turn?: number
+      step?: number
+      usage?: TokenUsage
+      chunk?: { type?: string; usage?: TokenUsage }
+    }
+  }
+  const usage = item.type === 'assistant/chunk' && item.data.chunk?.type === 'usage'
+    ? item.data.chunk.usage
+    : item.type === 'assistant/message'
+      ? item.data.usage
+      : undefined
+  return usage === undefined || item.data.turn === undefined || item.data.step === undefined
+    ? undefined
+    : { turn: item.data.turn, step: item.data.step, usage }
+}
+
+/** Fixture parallel of token-meter's last-sample-replacing usage projection. */
+function tokenUsageOf(log: readonly SessionEvent[]): FixtureTokenUsageProjection {
+  const totals: FixtureTokenUsageProjection = {
+    uncachedInputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+  }
+  let last: {
+    turn: number
+    step: number
+    buckets: FixtureTokenUsageProjection
+  } | null = null
+  for (const event of log) {
+    const sample = usageSampleOf(event)
+    if (sample === undefined) continue
+    const buckets: FixtureTokenUsageProjection = {
+      uncachedInputTokens: sample.usage.inputTokens,
+      outputTokens: sample.usage.outputTokens,
+      cacheReadTokens: sample.usage.cacheReadTokens ?? 0,
+      cacheWriteTokens: sample.usage.cacheWriteTokens ?? 0,
+    }
+    const previous = last?.turn === sample.turn && last.step === sample.step
+      ? last.buckets
+      : undefined
+    totals.uncachedInputTokens += buckets.uncachedInputTokens - (previous?.uncachedInputTokens ?? 0)
+    totals.outputTokens += buckets.outputTokens - (previous?.outputTokens ?? 0)
+    totals.cacheReadTokens += buckets.cacheReadTokens - (previous?.cacheReadTokens ?? 0)
+    totals.cacheWriteTokens += buckets.cacheWriteTokens - (previous?.cacheWriteTokens ?? 0)
+    last = { turn: sample.turn, step: sample.step, buckets }
+  }
+  return totals
+}
+
+interface FixtureRequestContext {
+  provider: string
+  model: string
+  contextWindow?: number
+}
+
+/** Latest log-only route context, or undefined before any request ran. */
+function lastRequestContext(
+  log: readonly SessionEvent[],
+): FixtureRequestContext | undefined {
+  const event = log.findLast(item => (item as { type: string }).type === 'request/context')
+  return event === undefined
+    ? undefined
+    : (event as unknown as { data: FixtureRequestContext }).data
+}
+
+/**
+ * Fixture parallel of token-meter's request-pressure projection: the last
+ * provider-reported prompt size paired with the last recorded capacity. The
+ * two need not come from one request — see the token-meter README.
+ */
+function contextPressureOf(
+  log: readonly SessionEvent[],
+): { pressureTokens?: number; contextWindow?: number } {
+  let pressureTokens: number | undefined
+  for (const event of log) {
+    const sample = usageSampleOf(event)
+    if (sample === undefined) continue
+    pressureTokens = sample.usage.inputTokens
+      + (sample.usage.cacheReadTokens ?? 0)
+      + (sample.usage.cacheWriteTokens ?? 0)
+  }
+  const contextWindow = lastRequestContext(log)?.contextWindow
+  return {
+    ...pressureTokens === undefined ? {} : { pressureTokens },
+    ...contextWindow === undefined ? {} : { contextWindow },
+  }
+}
+
+function projectionValuesOf(log: readonly SessionEvent[]): Record<string, unknown> {
+  const values: Record<string, unknown> = {}
+  const titleEvent = log.findLast(item => (item as { type: string }).type === 'session/title')
+  if (titleEvent !== undefined) {
+    values['title'] = (titleEvent as unknown as { data: { title: string } }).data.title
+  }
+  // Always present (tool-todo unit composed): null when no plan stands.
+  values['todos'] = backscanTodos(log) ?? null
+  // Always present (permission service composed): the whole select.
+  values['permissions'] = permissionSelectOf(log)
+  // Always present (plan-mode unit composed): the {active, pending} view.
+  values['plan'] = planViewOf(log)
+  // Always present (GoalService unit composed): null before create / after clear.
+  values['goal'] = backscanGoal(log)
+  // Always present (token-meter composed): full-log provider billing.
+  values['tokenUsage'] = tokenUsageOf(log)
+  // Always present (token-meter composed): last request pressure and capacity.
+  values['contextPressure'] = contextPressureOf(log)
+  return values
+}
+
+/** Host push-frame parallel: emit one session/projection frame per key the given event advanced. */
+function projectionFramesOf(id: SessionId, log: readonly SessionEvent[], event: SessionEvent): Extract<MuxFrame, { type: 'session/projection' }>[] {
+  const type = (event as { type: string }).type
+  // One usage sample advances both token-meter units.
+  if (usageSampleOf(event) !== undefined) {
+    return [
+      { type: 'session/projection', sessionId: id, key: 'tokenUsage', value: tokenUsageOf(log), seq: event.seq },
+      { type: 'session/projection', sessionId: id, key: 'contextPressure', value: contextPressureOf(log), seq: event.seq },
+    ]
+  }
+  if (type === 'request/context') {
+    return [{
+      type: 'session/projection',
+      sessionId: id,
+      key: 'contextPressure',
+      value: contextPressureOf(log),
+      seq: event.seq,
+    }]
+  }
+  if (type === 'session/title') {
+    const values = projectionValuesOf(log)
+    /* v8 ignore next -- the advancing title event is in the log, so the key is present. */
+    if (!Object.hasOwn(values, 'title')) return []
+    return [{ type: 'session/projection', sessionId: id, key: 'title', value: values['title'], seq: event.seq }]
+  }
+  // Goal fold: a round-zero goal-sourced user message advances the goal unit.
+  if (type === 'user/message') {
+    const source = (event as unknown as { data?: { source?: { kind?: string; round?: number } } }).data?.source
+    if (source?.kind === 'goal' && source.round === 0) {
+      return [{ type: 'session/projection', sessionId: id, key: 'goal', value: backscanGoal(log), seq: event.seq }]
+    }
+    return []
+  }
+  // Standing-plan fold: writes replace the list; turn/start clears it (null).
+  if (type === 'todo/write' || type === 'turn/start') {
+    return [{
+      type: 'session/projection',
+      sessionId: id,
+      key: 'todos',
+      value: backscanTodos(log) ?? null,
+      seq: event.seq,
+    }]
+  }
+  // Knob fold: any of the three whole-value knob events advances the select.
+  if (type === 'permission/preset' || type === 'sandbox/mode' || type === 'approval/policy') {
+    return [{
+      type: 'session/projection',
+      sessionId: id,
+      key: 'permissions',
+      value: permissionSelectOf(log),
+      seq: event.seq,
+    }]
+  }
+  // The plan unit advances on its two folded event kinds.
+  if (type === 'plan/mode' || (type === 'command/run'
+    && (event as unknown as { data: { name?: string } }).data.name === 'plan')) {
+    return [{
+      type: 'session/projection',
+      sessionId: id,
+      key: 'plan',
+      value: planViewOf(log),
+      seq: event.seq,
+    }]
+  }
+  return []
 }
 
 /**
@@ -316,13 +974,205 @@ function pageOf(
   return { events, hasMore: start > 0 }
 }
 
-/** Current todo projection over the full log (host parallel: latest todo/write, last write wins). */
+/** Fixture mirror of first-party message extraction used by session-query. */
+function searchBlockText(block: ContentBlock): string[] {
+  switch (block.type) {
+    case 'text':
+      return [block.text]
+    case 'reasoning':
+      return []
+    case 'tool-call':
+      return [block.name, block.arguments]
+    case 'tool-result':
+      return block.content.flatMap(searchBlockText)
+    default:
+      return []
+  }
+}
+
+/** One current-surface user/assistant/steering document, if searchable. */
+function searchEventText(event: SessionEvent): string {
+  const content = event.type === 'user/message'
+    ? event.data.content
+    : event.type === 'assistant/message' || event.type === 'steering/message'
+      ? event.data.message.content
+      : undefined
+  if (content === undefined) return ''
+  return content.flatMap(searchBlockText).map(part => part.trim()).filter(Boolean).join('\n')
+}
+
+interface FixtureSearchToken {
+  value: string
+  /** Inclusive code-point offset in the whitespace-normalized display text. */
+  start: number
+  /** Exclusive code-point offset in the whitespace-normalized display text. */
+  end: number
+}
+
+/**
+ * Browser-safe approximation of SQLite FTS5 unicode61 token boundaries.
+ * Keeping phrase matching token-based prevents the development fixture from
+ * promising arbitrary within-token substring behavior that production lacks.
+ */
+function searchTokenSpans(value: string): { text: string; tokens: FixtureSearchToken[] } {
+  const text = value.replace(/\s+/gu, ' ').trim()
+  const characters = Array.from(text)
+  const tokens: FixtureSearchToken[] = []
+  let start: number | undefined
+  let raw = ''
+  const flush = (end: number): void => {
+    if (start !== undefined) {
+      const folded = raw.normalize('NFD').replace(/\p{M}+/gu, '').toLowerCase()
+      if (folded !== '') tokens.push({ value: folded, start, end })
+    }
+    start = undefined
+    raw = ''
+  }
+  for (let index = 0; index < characters.length; index++) {
+    const character = characters[index] as string
+    const tokenBase = character.normalize('NFD').replace(/\p{M}+/gu, '')
+    if (tokenBase === '') {
+      if (start !== undefined) raw += character
+      continue
+    }
+    if (/^[\p{L}\p{N}\p{Co}]+$/u.test(tokenBase)) {
+      start ??= index
+      raw += character
+    } else {
+      flush(index)
+    }
+  }
+  flush(characters.length)
+  return { text, tokens }
+}
+
+interface FixturePhraseMatch {
+  count: number
+  start: number
+  end: number
+}
+
+/** Count exact contiguous token-phrase occurrences and retain the first display span. */
+function phraseMatch(document: readonly FixtureSearchToken[], phrase: readonly string[]): FixturePhraseMatch {
+  if (phrase.length === 0 || phrase.length > document.length) return { count: 0, start: 0, end: 0 }
+  let count = 0
+  let firstStart = 0
+  let firstEnd = 0
+  for (let start = 0; start <= document.length - phrase.length; start++) {
+    if (!phrase.every((token, offset) => document[start + offset]?.value === token)) continue
+    count++
+    if (count === 1) {
+      firstStart = document[start]?.start ?? 0
+      firstEnd = document[start + phrase.length - 1]?.end ?? firstStart
+    }
+  }
+  return { count, start: firstStart, end: firstEnd }
+}
+
+/** Match-centered fixture excerpt, bounded by Unicode code points for the sidebar. */
+function searchSnippet(value: string, matchStart: number, matchEnd: number): string {
+  const characters = Array.from(value)
+  if (characters.length <= 120) return value
+  const boundedStart = Math.min(Math.max(0, matchStart), characters.length - 1)
+  const boundedEnd = Math.min(
+    characters.length,
+    Math.max(boundedStart + 1, matchEnd),
+  )
+  const center = Math.floor((boundedStart + boundedEnd) / 2)
+  let start = Math.min(
+    characters.length - 118,
+    Math.max(0, center - Math.floor(118 / 2)),
+  )
+  let end = start + 118
+  if (start === 0) {
+    end = 119
+  } else if (end === characters.length) {
+    start = characters.length - 119
+  }
+  return `${start > 0 ? '…' : ''}${characters.slice(start, end).join('')}${end < characters.length ? '…' : ''}`
+}
+
+interface FixtureSearchCandidate {
+  sessionId: SessionId
+  seq: number
+  time: number
+  text: string
+  matchCount: number
+  matchStart: number
+  matchEnd: number
+  documentLength: number
+}
+
+/** Mirrors `packages/session-query/session-query-sqlite/src/index.ts`; update both together. */
+function compareSearchCandidates(a: FixtureSearchCandidate, b: FixtureSearchCandidate): number {
+  if (a.matchCount !== b.matchCount) return b.matchCount - a.matchCount
+  if (a.documentLength !== b.documentLength) return a.documentLength - b.documentLength
+  if (a.time !== b.time) return b.time - a.time
+  if (a.sessionId !== b.sessionId) return a.sessionId < b.sessionId ? -1 : 1
+  return b.seq - a.seq
+}
+
+/**
+ * Current plan projection over the full log (host parallel: latest todo/write
+ * with no later turn/start; a new turn retires the previous plan).
+ */
 function backscanTodos(log: readonly SessionEvent[]): TodoItem[] | undefined {
   for (let i = log.length - 1; i >= 0; i--) {
     const event = log[i]
-    if (event !== undefined && event.type === 'todo/write') return event.data.todos
+    if (event === undefined) continue
+    if (event.type === 'turn/start') return undefined
+    if (event.type === 'todo/write') return event.data.todos
   }
   return undefined
+}
+
+/** Fixture-local mirror of the goal projection value (dsh-goal's GoalProjection shape). */
+interface FxGoalProjection {
+  goal: {
+    id: string
+    revision: number
+    objective: string
+    phase: 'active' | 'paused' | 'blocked' | 'complete'
+    maxGoalRounds: number
+  }
+  roundsStarted: number
+  createdAt: number
+  updatedAt: number
+}
+
+/** One durable goal change riding a round-zero goal-sourced user message. */
+type FxGoalChange =
+  | { kind: 'goal/change'; version: 1; operation: 'clear'; cleared: { id: string; revision: number }; clearedAt: number }
+  | {
+    kind: 'goal/change'
+    version: 1
+    operation: 'create' | 'edit' | 'pause' | 'resume' | 'complete'
+    goal: FxGoalProjection['goal']
+    roundsStarted: number
+    createdAt: number
+    updatedAt: number
+  }
+
+/**
+ * Current goal projection over the full log (host parallel: the GoalService
+ * unit's last-wins fold of goal/change whole values; clear returns null).
+ */
+function backscanGoal(log: readonly SessionEvent[]): FxGoalProjection | null {
+  for (let i = log.length - 1; i >= 0; i--) {
+    const event = log[i] as unknown as {
+      type: string
+      data?: { source?: { kind?: string; round?: number; change?: FxGoalChange } }
+    } | undefined
+    if (event === undefined || event.type !== 'user/message') continue
+    const source = event.data?.source
+    if (source?.kind !== 'goal' || source.round !== 0) continue
+    const change = source.change
+    // oxlint-disable-next-line typescript/no-unnecessary-condition
+    if (change === undefined || change.kind !== 'goal/change') continue
+    if (change.operation === 'clear') return null
+    return { goal: change.goal, roundsStarted: change.roundsStarted, createdAt: change.createdAt, updatedAt: change.updatedAt }
+  }
+  return null
 }
 
 interface StreamConn<F> {
@@ -400,8 +1250,14 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
   const logs = new Map<SessionId, SessionEvent[]>([[sid('fx-alpha'), buildAlphaLog()]])
   const modelTargets = new Map<SessionId, ModelTarget>(sessions.map(session => [
     session.sessionId,
-    { provider: 'deepseek', model: 'deepseek-v4-flash' },
+    { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
   ]))
+  /** Credential store double: set/unset flip the describe badge, values never read back. */
+  const fixtureCredentials = new Map<string, true>([
+    // The assembled fixture represents an already-configured shipped
+    // DeepSeek route so unrelated GUI journeys do not enter first-run setup.
+    ['DEEPSEEK_API_KEY', true],
+  ])
   const nextTurn = new Map<SessionId, number>([[sid('fx-alpha'), 60]])
   let nextSession = 1
   let nextRpc = 1
@@ -419,9 +1275,46 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     updatedAt: fixtureEpoch,
   }]
   let nextWorkspace = 1
+  // Registry-global archive set mirroring the host: archived sessions keep
+  // their workspace accounting slot and only grouping surfaces hide them.
+  const archivedSessionIds: SessionId[] = []
+
+  // In-memory browse tree behind the fixture's `browse` picker capability —
+  // deterministic content mirroring the design mock so assembled Web tests
+  // and snapshots can walk it. Leaves are materialized lazily: a child listed
+  // by its parent lists as empty until something is created inside it.
+  const FIXTURE_HOME = '/home/fixture'
+  const directoryTree = new Map<string, string[]>([
+    ['/', ['home']],
+    ['/home', ['fixture']],
+    [FIXTURE_HOME, ['Documents', 'Downloads', '.config']],
+    [`${FIXTURE_HOME}/Documents`, [
+      'project', 'deepseek-iOS', 'deepseek-android', 'deepseek-platform',
+      'deepseek-web', 'deepseek-harness', 'deepseek-app', 'deepseek-landing-blog',
+    ]],
+  ])
+  const childrenOf = (path: string): string[] | undefined => {
+    const known = directoryTree.get(path)
+    if (known !== undefined) return known
+    const parent = path.slice(0, path.lastIndexOf('/')) || '/'
+    const name = path.slice(path.lastIndexOf('/') + 1)
+    return directoryTree.get(parent)?.includes(name) === true ? [] : undefined
+  }
+  const crumbsOf = (path: string): { name: string; path: string; hidden: boolean }[] => {
+    const crumbs = [{ name: '/', path: '/', hidden: false }]
+    let acc = ''
+    for (const segment of path.split('/').filter(Boolean)) {
+      acc += `/${segment}`
+      crumbs.push({ name: segment, path: acc, hidden: false })
+    }
+    return crumbs
+  }
   const mint = (): ReturnType<typeof RpcId> => RpcId(`fx-rpc-${nextRpc++}`)
-  /** Resident pending approval (stable rpcId: every mux open replays the same id, matching host replay semantics). */
+  /** Resident pending approval (stable rpcId: every mux open replays the same id while unanswered, matching host replay semantics). */
   const pendingApprovalRpcId = mint()
+  const pendingApprovalId = 'fx-approval-1' as Extract<MuxFrame, { type: 'approval/requested' }>['approvalId']
+  /** Cleared once answered through respond; replay stops and approval/resolved is broadcast. */
+  let approvalPending = true
   const pendingQuestionRpcId = mint()
   let questionPending = true
   const fixtureQuestions: Extract<MuxFrame, { type: 'question/requested' }>['questions'] = [
@@ -512,10 +1405,49 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     emitMux(view === undefined
       ? { type: 'session/event', sessionId: id, event }
       : { type: 'session/event', sessionId: id, event, view })
-    if ((event as { type: string }).type === 'session/title') {
-      // The raw title is already in this log, so the latest-title fold must find it.
-      emitMux(titleFrameOf(id, log) as Extract<MuxFrame, { type: 'session/title' }>)
+    // Host eager-drive parallel: a unit-advancing event pushes its finished value.
+    for (const frame of projectionFramesOf(id, log, event)) emitMux(frame)
+  }
+
+  /** Append one goal/change as its round-zero goal-sourced user message (host GoalService parallel). */
+  const appendGoalChange = (id: SessionId, change: FxGoalChange): FxGoalProjection => {
+    const ref = change.operation === 'clear' ? change.cleared : change.goal
+    const payload = change.operation === 'clear'
+      ? { cleared: change.cleared, clearedAt: change.clearedAt }
+      : { goal: change.goal, roundsStarted: change.roundsStarted, createdAt: change.createdAt, updatedAt: change.updatedAt }
+    append(id, {
+      type: 'user/message', surfaceOp: 'append',
+      data: userMessage(
+        text(`<goal_state>${JSON.stringify(payload)}</goal_state>`),
+        { kind: 'goal', goalId: ref.id, revision: ref.revision, round: 0, change } as unknown as MessageSource,
+      ),
+    })
+    return backscanGoal(logOf(id)) as FxGoalProjection
+  }
+
+  /** Shared CAS mutation path of the goal verbs (undefined next = invalid transition). */
+  const fxMutateGoal = (
+    request: RpcRequest<{ sessionId: SessionId; ref: { id: string; revision: number } }>,
+    ref: { id: string; revision: number },
+    next: (current: FxGoalProjection) => FxGoalProjection['goal'] | undefined,
+  ): Promise<RpcResponse<{ ref: { id: never; revision: number } }>> => {
+    const missing = requireSession(request)
+    if (missing !== undefined) return missing
+    const id = request.payload.sessionId
+    const current = backscanGoal(logOf(id))
+    if (current === null || current.goal.id !== ref.id || current.goal.revision !== ref.revision) {
+      return err(request, { code: 'internal', message: 'stale or missing goal revision', details: { goalCode: 'GOAL_STALE_REVISION' } })
     }
+    const goal = next(current)
+    if (goal === undefined) {
+      return err(request, { code: 'internal', message: `invalid goal transition from "${current.goal.phase}"`, details: { goalCode: 'GOAL_INVALID_TRANSITION' } })
+    }
+    const projection = appendGoalChange(id, {
+      kind: 'goal/change', version: 1,
+      operation: goal.phase === current.goal.phase ? 'edit' : goal.phase === 'paused' ? 'pause' : goal.phase === 'active' ? 'resume' : 'complete',
+      goal, roundsStarted: current.roundsStarted, createdAt: current.createdAt, updatedAt: Date.now(),
+    })
+    return ok(request, { ref: { id: projection.goal.id as never, revision: projection.goal.revision } })
   }
 
   /** At most one in-flight replay per session; cancel clears it. */
@@ -527,6 +1459,8 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
   let failNextHistory = false
   /** Force-enders for currently open stream generators (timing hook: simulated connection loss). */
   const streamBreakers = new Set<() => void>()
+  /** Retry scenarios opened by timing hooks and completed in a later browser assertion phase. */
+  const retryScenarios = new Map<SessionId, { turn: number; stepStarted: boolean }>()
 
   // Timing-acceptance hooks (browser test backdoor): the in-memory fixture is ideally timed, which
   // is exactly what masked the open-window and reconnect-gap bugs (audit S1/S3). These let
@@ -542,7 +1476,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     },
     /** Log append + mux emit (the normal live path). */
     appendUser(id: string, msg: string): void {
-      append(sid(id), { type: 'user/message', surfaceOp: 'append', data: { content: text(msg), source: { kind: 'user' } } })
+      append(sid(id), { type: 'user/message', surfaceOp: 'append', data: userMessage(text(msg)) })
     },
     /** Append a later durable title revision through the normal raw-event + control-frame path. */
     appendTitle(id: string, title: string): void {
@@ -550,10 +1484,93 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       const messageSeqs = log.filter(event => event.type === 'user/message').map(event => event.seq)
       append(sid(id), { type: 'session/title', data: { title, messageSeqs, source: { kind: 'provider', provider: 'fixture' } } })
     },
+    /** Open one failed model step whose partial remains visible until llm/retry arrives. */
+    beginModelRetry(id: string): void {
+      const sessionId = sid(id)
+      const turn = nextTurn.get(sessionId) ?? 0
+      nextTurn.set(sessionId, turn + 1)
+      retryScenarios.set(sessionId, { turn, stepStarted: true })
+      setRunning(sessionId, true)
+      append(sessionId, { type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
+      append(sessionId, { type: 'user/message', surfaceOp: 'append', data: { content: text('请重试这个请求'), source: { kind: 'user' } } })
+      append(sessionId, { type: 'step/start', data: { turn, step: 1 } })
+      append(sessionId, { type: 'assistant/chunk', data: { turn, step: 1, chunk: { type: 'block-start', index: 0, blockType: 'text' } } })
+      append(sessionId, { type: 'assistant/chunk', data: { turn, step: 1, chunk: { type: 'text-delta', index: 0, text: '应撤回的半截回复' } } })
+      append(sessionId, { type: 'step/end', data: { turn, step: 1 } })
+    },
+    /** Record one retry decision, then open the next retry turn. */
+    scheduleModelRetry(id: string, retry = 1, delayMs = 450): void {
+      const sessionId = sid(id)
+      const scenario = retryScenarios.get(sessionId)
+      if (scenario === undefined) throw new Error(`fixture: no model retry scenario for ${id}`)
+      if (!scenario.stepStarted) {
+        append(sessionId, { type: 'step/start', data: { turn: scenario.turn, step: 1 } })
+        append(sessionId, { type: 'assistant/chunk', data: { turn: scenario.turn, step: 1, chunk: { type: 'block-start', index: 0, blockType: 'text' } } })
+        append(sessionId, { type: 'assistant/chunk', data: { turn: scenario.turn, step: 1, chunk: { type: 'text-delta', index: 0, text: `第 ${String(retry)} 次应撤回的回复` } } })
+        append(sessionId, { type: 'step/end', data: { turn: scenario.turn, step: 1 } })
+        scenario.stepStarted = true
+      }
+      const failure = { code: 'TRANSPORT', message: '连接被重置' }
+      append(sessionId, {
+        type: 'llm/retry',
+        data: {
+          turn: scenario.turn, step: 1,
+          provider: 'fixture', mode: 'normal', policyKey: 'fixture-normal',
+          retry, maxRetries: 2, delayMs, failure,
+        },
+      })
+      append(sessionId, {
+        type: 'turn/end',
+        data: { turn: scenario.turn, reason: { kind: 'error', step: 1, failure } },
+      })
+      const next = nextTurn.get(sessionId) ?? scenario.turn + 1
+      nextTurn.set(sessionId, next + 1)
+      append(sessionId, { type: 'turn/start', data: { turn: next, trigger: { kind: 'retry' } } })
+      scenario.turn = next
+      scenario.stepStarted = false
+    },
+    /** Record one retry decision, then cancel its source turn before the retry starts. */
+    cancelModelRetryDuringBackoff(id: string, delayMs = 450): void {
+      const sessionId = sid(id)
+      const scenario = retryScenarios.get(sessionId)
+      if (scenario === undefined) throw new Error(`fixture: no model retry scenario for ${id}`)
+      const failure = { code: 'TRANSPORT', message: '连接被重置' }
+      append(sessionId, {
+        type: 'llm/retry',
+        data: {
+          turn: scenario.turn, step: 1,
+          provider: 'fixture', mode: 'normal', policyKey: 'fixture-normal',
+          retry: 1, maxRetries: 2, delayMs, failure,
+        },
+      })
+      append(sessionId, { type: 'turn/end', data: { turn: scenario.turn, reason: { kind: 'aborted' } } })
+      retryScenarios.delete(sessionId)
+      setRunning(sessionId, false)
+    },
+    /** Finish the timing-hook retry with a finalized response in the open retry turn. */
+    completeModelRetry(id: string): void {
+      const sessionId = sid(id)
+      const scenario = retryScenarios.get(sessionId)
+      if (scenario === undefined) throw new Error(`fixture: no model retry scenario for ${id}`)
+      retryScenarios.delete(sessionId)
+      append(sessionId, { type: 'step/start', data: { turn: scenario.turn, step: 1 } })
+      append(sessionId, {
+        type: 'assistant/message',
+        surfaceOp: 'append',
+        data: {
+          turn: scenario.turn,
+          step: 1,
+          message: assistantMessage(text('重试后的完整回复')),
+        },
+      })
+      append(sessionId, { type: 'step/end', data: { turn: scenario.turn, step: 1 } })
+      append(sessionId, { type: 'turn/end', data: { turn: scenario.turn, reason: { kind: 'completed' } } })
+      setRunning(sessionId, false)
+    },
     /** Log append WITHOUT the mux emit: a frame lost in transit — history still serves it, the client must repull. */
     appendSilent(id: string, msg: string): void {
       const log = logOf(sid(id))
-      log.push({ type: 'user/message', surfaceOp: 'append', seq: log.length, time: Date.now(), data: { content: text(msg), source: { kind: 'user' } } } as unknown as SessionEvent)
+      log.push({ type: 'user/message', surfaceOp: 'append', seq: log.length, time: Date.now(), data: userMessage(text(msg)) } as unknown as SessionEvent)
     },
     /** End every open stream generator (client sees both streams close -> reconnect + resync path). */
     breakStreams(): void {
@@ -574,7 +1591,16 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       replays.delete(id)
       const done = pieces.slice(0, i).join('')
       append(id, { type: 'assistant/chunk', data: { turn, step, chunk: { type: 'block-end', index: 0, block: { type: 'text', text: done } } } })
-      append(id, { type: 'assistant/message', surfaceOp: 'append', data: { turn, step, content: text(aborted ? `${done}（已中断）` : done), provenance: { provider: 'fixture', model: 'fx-1' } } })
+      append(id, {
+        type: 'assistant/message',
+        surfaceOp: 'append',
+        data: {
+          turn,
+          step,
+          message: assistantMessage(text(aborted ? `${done}（已中断）` : done)),
+          usage: fixtureUsage(turn, step),
+        },
+      })
       append(id, { type: 'step/end', data: { turn, step } })
       append(id, { type: 'turn/end', data: { turn, reason: { kind: aborted ? 'cancelled' : 'completed' } } })
       setRunning(id, false)
@@ -595,6 +1621,45 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
   return {
     sessions: {
       list: request => ok(request, { items: [...sessions].sort((a, b) => b.updatedAt - a.updatedAt) }),
+      search: (request, signal) => {
+        if (signal.aborted) {
+          return err(request, {
+            code: 'cancelled',
+            message: 'fixture session search was aborted',
+            details: {},
+          })
+        }
+        const query = searchTokenSpans(request.payload.query).tokens.map(token => token.value)
+        const matches = sessions.flatMap((summary) => {
+          const log = logs.get(summary.sessionId) ?? []
+          const current = new Set(foldSurface(log).nodes)
+          const best = log.flatMap((event): FixtureSearchCandidate[] => {
+            if (!current.has(event.seq)) return []
+            const eventText = searchEventText(event)
+            const document = searchTokenSpans(eventText)
+            const match = phraseMatch(document.tokens, query)
+            if (match.count === 0) return []
+            return [{
+              sessionId: summary.sessionId,
+              seq: event.seq,
+              time: event.time,
+              text: document.text,
+              matchCount: match.count,
+              matchStart: match.start,
+              matchEnd: match.end,
+              documentLength: Array.from(eventText).length,
+            }]
+          }).sort(compareSearchCandidates)[0]
+          return best === undefined ? [] : [best]
+        }).sort(compareSearchCandidates)
+        return ok(request, {
+          items: matches.slice(0, SESSION_SEARCH_RESULT_LIMIT).map(match => ({
+            sessionId: match.sessionId,
+            snippet: searchSnippet(match.text, match.matchStart, match.matchEnd),
+          })),
+          hasMore: matches.length > SESSION_SEARCH_RESULT_LIMIT,
+        })
+      },
       create: async (request) => {
         const workspace = request.payload.workspaceId === undefined
           ? undefined
@@ -644,7 +1709,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           sessionId: requestedId ?? sid(`fx-${nextSession++}`), updatedAt: Date.now(), running: false, blank: true, cwd,
         }
         sessions.push(created)
-        modelTargets.set(created.sessionId, { provider: 'deepseek', model: 'deepseek-v4-flash' })
+        modelTargets.set(created.sessionId, { provider: 'deepseek-official', model: 'deepseek-v4-flash' })
         attachedSessions += 1
         const emitSession = (): void => {
           // Mirrors the host: the frame fires at creation, so blank is constantly true.
@@ -664,47 +1729,98 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         if (options.dropSessionCreateResponse) throw new Error('fixture: dropped session.create response after publication')
         return ok(request, { sessionId: created.sessionId })
       },
+      rename: (request) => {
+        const missing = requireSession(request)
+        if (missing !== undefined) return missing
+        const { sessionId, title } = request.payload
+        const normalized = title.trim().replace(/\s+/g, ' ')
+        if (normalized.length === 0) {
+          return err(request, {
+            code: 'title-invalid',
+            message: 'session title must contain visible characters',
+            details: { sessionId },
+          })
+        }
+        // The append emits the session/event and its session/projection frame
+        // (host parallel); the unary response settles the caller first.
+        append(sessionId, {
+          type: 'session/title',
+          data: { title: normalized, messageSeqs: [], source: { kind: 'user' } },
+        })
+        const appended = logOf(sessionId).at(-1) as SessionEvent
+        return ok(request, { title: normalized, seq: appended.seq })
+      },
+      fork: (request) => {
+        const { sessionId, atSeq } = request.payload
+        const source = summaryOf(sessionId)
+        if (source === undefined) {
+          return err(request, {
+            code: 'session-not-found',
+            message: `no session ${sessionId}`,
+            details: { sessionId },
+          })
+        }
+        const log = logs.get(sessionId) ?? []
+        const lastSeq = log.at(-1)?.seq ?? -1
+        const anchoredBoundary = atSeq === undefined
+          ? undefined
+          : log.find(e => e.type === 'turn/end' && e.seq >= atSeq)
+        const boundary = anchoredBoundary
+          ?? (atSeq === undefined || atSeq > lastSeq
+            ? log.findLast(e => e.type === 'turn/end')
+            : undefined)
+        if (boundary === undefined) {
+          return err(request, {
+            code: 'fork-unavailable',
+            message: atSeq !== undefined && atSeq <= lastSeq
+              ? `session ${sessionId} has not completed the turn containing event ${String(atSeq)}`
+              : `session ${sessionId} has no completed turn`,
+            details: { sessionId },
+          })
+        }
+        let cut = boundary.seq + 1
+        while (cut < log.length && log[cut]?.type !== 'turn/start') cut++
+        const child: SessionSummary = {
+          sessionId: sid(`fx-${nextSession++}`), updatedAt: Date.now(), running: false, blank: false,
+          parentSessionId: sessionId,
+          ...source.cwd === undefined ? {} : { cwd: source.cwd },
+        }
+        logs.set(child.sessionId, log.slice(0, cut))
+        sessions.push(child)
+        emitHost({
+          type: 'host/session-added', sessionId: child.sessionId, blank: false,
+          parentSessionId: sessionId,
+          ...source.cwd === undefined ? {} : { cwd: source.cwd },
+        })
+        const workspace = workspaces.find(w => w.sessionIds.includes(sessionId))
+        if (workspace !== undefined) {
+          workspace.sessionIds = [child.sessionId, ...workspace.sessionIds]
+          workspace.updatedAt = new Date().toISOString()
+          emitHost({ type: 'host/workspace-changed', workspace: { ...workspace } })
+        }
+        return ok(request, { sessionId: child.sessionId })
+      },
       history: async (request) => {
         const log = logs.get(request.payload.sessionId) ?? []
         // Snapshot at request time, deliver after the transit delay (mirrors a real host under latency).
         const page = pageOf(log, request.payload.beforeSeq, request.payload.maxMessages ?? 50)
-        // Tail page carries the session-level todo projection (host parallel: full-log backscan).
-        const todos = request.payload.beforeSeq === undefined ? backscanTodos(log) : undefined
+        // Tail page carries the projections block (host parallel: one consistent
+        // cut over the registered units; asOfSeq = window tail seq, -1 on an
+        // empty log — the host's session.seq-1 convention).
+        const projections = request.payload.beforeSeq === undefined
+          ? { asOfSeq: log.length - 1, values: projectionValuesOf(log) }
+          : undefined
         const doomed = failNextHistory
         failNextHistory = false
         const delay = historyDelayMs
         if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay))
         if (doomed) throw new Error('fixture: simulated history transport failure')
-        return ok(request, { ...page, ...todos === undefined ? {} : { todos } })
+        return ok(request, { ...page, ...projections === undefined ? {} : { projections } })
       },
       models: request => ok(request, {
         current: modelTargets.get(request.payload.sessionId)
-          ?? { provider: 'deepseek', model: 'deepseek-v4-flash' },
-        groups: [
-          {
-            id: 'deepseek',
-            name: 'DeepSeek',
-            models: [
-              {
-                id: 'deepseek-v4-flash',
-                name: 'DeepSeek-V4-Flash',
-                description: '快速响应',
-                reasoning: DEEPSEEK_REASONING,
-              },
-              {
-                id: 'deepseek-v4-pro',
-                name: 'DeepSeek-V4-Pro',
-                description: '复杂任务',
-                reasoning: DEEPSEEK_REASONING,
-              },
-            ],
-          },
-          {
-            id: 'openai',
-            name: 'OpenAI',
-            models: [{ id: 'gpt-5', name: 'GPT-5', reasoning: OPENAI_REASONING }],
-          },
-        ],
+          ?? { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+        groups: fixtureModelGroups(),
         failures: [],
       }),
       selectModel: (request) => {
@@ -739,14 +1855,30 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           // Steering: insert a steering message into the current turn; the replay continues.
           /* v8 ignore next -- the ?? arm needs a missing counter, but a live replay implies a prior prompt already set it. */
           const turn = (nextTurn.get(id) ?? 1) - 1
-          append(id, { type: 'steering/message', surfaceOp: 'append', data: { turn, content, source: { kind: 'user' } } })
+          append(id, { type: 'steering/message', surfaceOp: 'append', data: { turn, message: userMessage(content) } })
           return ok(request, { accepted: true as const })
         }
         const turn = nextTurn.get(id) ?? 0
         nextTurn.set(id, turn + 1)
         setRunning(id, true)
         append(id, { type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
-        append(id, { type: 'user/message', surfaceOp: 'append', data: { content, source: { kind: 'user' } } })
+        // Boundary flush parallel (the host's agent/step seam): an outstanding
+        // /plan selection commits as plan/mode inside the opened turn.
+        const plan = foldPlan(logOf(id))
+        if (plan.wanted !== null && plan.wanted !== plan.active) {
+          append(id, { type: 'plan/mode', data: { active: plan.wanted } })
+        }
+        append(id, { type: 'user/message', surfaceOp: 'append', data: userMessage(content) })
+        // Capacity parallel of the host token-meter's request/context record:
+        // log-only, appended inside the open turn, and deduplicated against the
+        // route already recorded (the fixture never varies contextWindow).
+        const target = modelTargets.get(id) ?? { provider: 'deepseek', model: 'deepseek-v4-flash' }
+        if (lastRequestContext(logOf(id))?.model !== target.model) {
+          append(id, {
+            type: 'request/context',
+            data: { provider: target.provider, model: target.model, contextWindow: 128_000 },
+          })
+        }
         startReply(
           id,
           turn,
@@ -762,6 +1894,11 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         )
         return ok(request, { accepted: true as const })
       },
+      updateQueue: request => err(request, {
+        code: 'queue-item-not-found',
+        message: 'fixture has no pending queue item',
+        details: { itemId: request.payload.itemId },
+      }),
       cancel: (request) => {
         const replay = replays.get(request.payload.sessionId)
         if (replay !== undefined) {
@@ -775,10 +1912,49 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     },
     host: {
       describe: request => ok(request, { version: '0.0.0-fixture', cwd: '/tmp/fixture', attachedSessions }),
-      pickDirectory: request => ok(request, { path: null }),
+      // Deterministic native pick: the keyless lanes drive the full
+      // pick-then-adopt path without an OS chooser (design-mock content,
+      // same tree the browse primitives serve).
+      pickDirectory: request => ok(request, { path: `${FIXTURE_HOME}/Documents/project` }),
+      listDirectory: (request) => {
+        const target = request.payload.path ?? FIXTURE_HOME
+        const children = childrenOf(target)
+        if (children === undefined) {
+          return err(request, { code: 'directory-unreadable', message: `cannot list ${target}: not in the fixture tree`, details: { path: target } })
+        }
+        return ok(request, {
+          path: target,
+          home: FIXTURE_HOME,
+          crumbs: crumbsOf(target),
+          entries: [...children].sort((a, b) => a.localeCompare(b))
+            .map(name => ({ name, path: target === '/' ? `/${name}` : `${target}/${name}`, hidden: name.startsWith('.') })),
+          // The fixture tree is tiny; no level ever reaches a backend bound.
+          truncated: false,
+        })
+      },
+      createDirectory: (request) => {
+        const parent = request.payload.path
+        const children = childrenOf(parent)
+        if (children === undefined) {
+          return err(request, { code: 'directory-create-failed', message: `missing parent ${parent}`, details: { path: parent } })
+        }
+        // Same root special case as listDirectory's entry paths: a plain join
+        // under '/' would mint '//name' and fork the tree's identity.
+        const target = parent === '/' ? `/${request.payload.name}` : `${parent}/${request.payload.name}`
+        if (children.includes(request.payload.name)) {
+          return err(request, { code: 'directory-exists', message: `${target} already exists`, details: { path: target } })
+        }
+        directoryTree.set(parent, [...children, request.payload.name])
+        directoryTree.set(target, [])
+        return ok(request, { path: target })
+      },
+      openPath: request => ok(request, { opened: true as const }),
     },
     workspace: {
-      list: request => ok(request, { items: workspaces.map(w => ({ ...w })) }),
+      list: request => ok(request, {
+        items: workspaces.map(w => ({ ...w })),
+        archivedSessionIds: [...archivedSessionIds],
+      }),
       create: (request) => {
         const { path, name } = request.payload
         const target = path ?? `/tmp/fixture-workspaces/${name ?? ''}`
@@ -864,6 +2040,16 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         }
         return ok(request, { workspace: { ...workspace } })
       },
+      archiveSession: (request) => {
+        const missing = requireSession(request)
+        if (missing !== undefined) return missing
+        const { sessionId } = request.payload
+        if (!archivedSessionIds.includes(sessionId)) {
+          archivedSessionIds.push(sessionId)
+          emitHost({ type: 'host/archived-sessions-changed', archivedSessionIds: [...archivedSessionIds] })
+        }
+        return ok(request, { archivedSessionIds: [...archivedSessionIds] })
+      },
     },
     commands: {
       // The catalog mirrors one session's effective view (every fixture
@@ -875,29 +2061,92 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           commands: [
             { name: 'compact', description: 'fixture：压缩当前会话上下文' },
             { name: 'echo', description: 'fixture：回显参数', input: { hint: 'text to echo' } },
-            { name: 'goal-fixture', description: 'fixture：目标样本命令', input: { hint: '<objective>' } },
+            { name: 'goal', description: 'set or view the goal for a long-running task', input: { hint: '<objective>' } },
+            { name: 'permission', description: 'Switch the permission preset (sandbox mode + approval policy)', input: { hint: '<preset>' } },
+            { name: 'plan', description: 'Enter or leave plan mode', input: { hint: '[off|message]' } },
           ],
         })
       },
+      // Pure admission, mirroring the host: an admitted command logs the
+      // command/run + command/done lifecycle pair (mux-broadcast by append),
+      // and the response only reports resolution.
       execute: (request) => {
         const missing = requireSession(request)
         if (missing !== undefined) return missing
-        const line = request.payload.line.trim()
-        const match = /^\/(\S+)(?:\s+(.*))?$/.exec(line)
+        const id = request.payload.sessionId
+        // Structured split mirroring the host parser: name + verbatim rawInput
+        // (separator whitespace included) — the run payload carries no line.
+        const match = /^\/(\S+)((?:\s.*)?)$/.exec(request.payload.line.trim())
         const name = match?.[1]
-        if (name === 'compact' || name === 'echo') {
-          return ok(request, {
-            matched: true as const,
-            result: { kind: 'success' as const, text: name === 'echo' ? (match?.[2] ?? '') : 'fixture：已压缩（假动作）' },
-          })
+        const args = match?.[2] ?? ''
+        // /permission mirrors the host handler: switch through the knob
+        // events (each append pushes a permissions projection frame).
+        if (name === 'permission') {
+          const preset = args.trim()
+          const commandId = `fx-cmd-${logOf(id).length}` as CommandId
+          append(id, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } })
+          const spec = PERMISSION_PRESETS[preset]
+          if (preset === '') {
+            const current = permissionSelectOf(logOf(id)).currentValue
+            append(id, { type: 'command/done', data: { commandId, kind: 'success', text: `current preset ${current} (available: ${Object.keys(PERMISSION_PRESETS).join(', ')})` } })
+          } else if (spec === undefined) {
+            append(id, { type: 'command/done', data: { commandId, kind: 'error', text: `unknown preset "${preset}" (available: ${Object.keys(PERMISSION_PRESETS).join(', ')})` } })
+          } else {
+            if (permissionSelectOf(logOf(id)).currentValue !== preset) append(id, { type: 'permission/preset', data: { preset } })
+            append(id, { type: 'sandbox/mode', data: { mode: spec.sandbox } })
+            append(id, { type: 'approval/policy', data: { policy: spec.approval } })
+            append(id, { type: 'command/done', data: { commandId, kind: 'success', text: `preset ${preset}` } })
+          }
+          return ok(request, { matched: true as const, commandId })
         }
-        if (name === 'goal-fixture') {
-          return ok(request, {
-            matched: true as const,
-            result: { kind: 'success' as const, text: `fixture：goal 已设置（${request.payload.sessionId}）` },
-          })
+        if (name === 'goal') {
+          // Host parallel: /goal with an objective creates (or reports) the
+          // current goal; the command lifecycle pair brackets the mutation.
+          const commandId = `fx-cmd-${logOf(id).length}` as CommandId
+          append(id, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } })
+          const objective = args.trim()
+          const current = backscanGoal(logOf(id))
+          let text: string
+          if (objective === '') {
+            text = current === null ? 'No goal is set. Usage: /goal <objective>' : `Current goal: ${current.goal.objective}`
+          } else if (current !== null && current.goal.phase !== 'complete') {
+            text = `A goal already exists (${current.goal.objective}). Clear it first.`
+          } else {
+            const created = appendGoalChange(id, {
+              kind: 'goal/change', version: 1, operation: 'create',
+              goal: { id: `fx-goal-${logOf(id).length}`, revision: 1, objective, phase: 'active', maxGoalRounds: 256 },
+              roundsStarted: 0, createdAt: Date.now(), updatedAt: Date.now(),
+            })
+            text = `Goal created: ${created.goal.objective}`
+          }
+          append(id, { type: 'command/done', data: { commandId, kind: 'success', text } })
+          return ok(request, { matched: true as const, commandId })
         }
-        return ok(request, { matched: false as const })
+        // Host parallel: /plan on an idle fixture session commits plan/mode
+        // immediately (the boundary flush covers only a running turn), so the
+        // outcome copy matches the immediate branch of the host handler.
+        const running = summaryOf(id)?.running === true
+        const outcomes: Record<string, string> = {
+          compact: 'fixture：已压缩（假动作）',
+          echo: args.trim(),
+          plan: args.trim() === 'off'
+            ? (running ? 'Leaving plan mode (applies from the next step).' : 'Plan mode off.')
+            : (running
+              ? 'Entering plan mode (applies from the next step). Use /plan off to leave.'
+              : 'Plan mode on. Use /plan off to leave.'),
+        }
+        const text = name === undefined ? undefined : outcomes[name]
+        if (name === undefined || text === undefined) return ok(request, { matched: false as const })
+        const commandId = `fx-cmd-${logOf(id).length}` as CommandId
+        append(id, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } })
+        if (name === 'plan' && !running) {
+          const plan = foldPlan(logOf(id))
+          if (plan.wanted !== null && plan.wanted !== plan.active) {
+            append(id, { type: 'plan/mode', data: { active: plan.wanted } })
+          }
+        }
+        append(id, { type: 'command/done', data: { commandId, kind: 'success', ...text === '' ? {} : { text } } })
+        return ok(request, { matched: true as const, commandId })
       },
     },
     skills: {
@@ -911,6 +2160,62 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         })
       },
     },
+    goals: {
+      // Mutation-only mirror of the host handlers: each verb CAS-checks the
+      // projected current goal, appends the whole-value change (the mux
+      // stream and projection frame ride the shared append path), and
+      // acknowledges with the new ref only.
+      create: (request) => {
+        const missing = requireSession(request)
+        if (missing !== undefined) return missing
+        const id = request.payload.sessionId
+        const current = backscanGoal(logOf(id))
+        if (current !== null && current.goal.phase !== 'complete') {
+          return err(request, { code: 'internal', message: `goal "${current.goal.id}" already exists`, details: { goalCode: 'GOAL_ALREADY_EXISTS' } })
+        }
+        const projection = appendGoalChange(id, {
+          kind: 'goal/change', version: 1, operation: 'create',
+          goal: { id: `fx-goal-${logOf(id).length}`, revision: 1, objective: request.payload.objective, phase: 'active', maxGoalRounds: request.payload.maxGoalRounds ?? 256 },
+          roundsStarted: 0, createdAt: Date.now(), updatedAt: Date.now(),
+        })
+        return ok(request, { ref: { id: projection.goal.id as never, revision: projection.goal.revision } })
+      },
+      edit: request => fxMutateGoal(request, request.payload.ref, current => ({
+        ...current.goal,
+        revision: current.goal.revision + 1,
+        ...request.payload.objective === undefined ? {} : { objective: request.payload.objective },
+        ...request.payload.maxGoalRounds === undefined ? {} : { maxGoalRounds: request.payload.maxGoalRounds },
+      })),
+      pause: request => fxMutateGoal(request, request.payload.ref, current => (
+        current.goal.phase === 'active'
+          ? { ...current.goal, revision: current.goal.revision + 1, phase: 'paused' }
+          : undefined
+      )),
+      resume: request => fxMutateGoal(request, request.payload.ref, current => (
+        current.goal.phase === 'paused' || current.goal.phase === 'blocked' || current.goal.phase === 'active'
+          ? { ...current.goal, revision: current.goal.revision + 1, phase: 'active' }
+          : undefined
+      )),
+      complete: request => fxMutateGoal(request, request.payload.ref, current => (
+        current.goal.phase === 'complete'
+          ? undefined
+          : { ...current.goal, revision: current.goal.revision + 1, phase: 'complete' }
+      )),
+      clear: (request) => {
+        const missing = requireSession(request)
+        if (missing !== undefined) return missing
+        const id = request.payload.sessionId
+        const current = backscanGoal(logOf(id))
+        if (current === null || current.goal.id !== request.payload.ref.id || current.goal.revision !== request.payload.ref.revision) {
+          return err(request, { code: 'internal', message: 'stale or missing goal revision', details: { goalCode: 'GOAL_STALE_REVISION' } })
+        }
+        appendGoalChange(id, {
+          kind: 'goal/change', version: 1, operation: 'clear',
+          cleared: { id: current.goal.id, revision: current.goal.revision + 1 }, clearedAt: Date.now(),
+        })
+        return ok(request, { cleared: true as const })
+      },
+    },
     events: {
       async *mux(_request, signal) {
         const conn = new FxInbox<MuxFrame>()
@@ -920,18 +2225,24 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         // Open baseline: subscribed sessions + pending interactions replayed with stable rpcIds.
         for (const s of sessions) {
           if (!s.running) continue
-          conn.push({ rpcId: mint(), payload: { type: 'session/subscribed', sessionId: s.sessionId, lastSeq: (logs.get(s.sessionId)?.length ?? 0) - 1 } })
-          const title = titleFrameOf(s.sessionId, logs.get(s.sessionId) ?? [])
-          if (title !== undefined) conn.push({ rpcId: mint(), payload: title })
+          const log = logs.get(s.sessionId) ?? []
+          conn.push({ rpcId: mint(), payload: { type: 'session/subscribed', sessionId: s.sessionId, lastSeq: log.length - 1 } })
+          // Post-subscribe projection baseline (host parallel: recomputed unit values ride push frames).
+          const values = projectionValuesOf(log)
+          for (const key of Object.keys(values)) {
+            conn.push({ rpcId: mint(), payload: { type: 'session/projection', sessionId: s.sessionId, key, value: values[key], seq: log.length - 1 } })
+          }
         }
-        conn.push({
-          rpcId: pendingApprovalRpcId,
-          payload: {
-            type: 'approval/requested', sessionId: sid('fx-alpha'),
-            approvalId: 'fx-approval-1' as MuxFrame extends never ? never : Extract<MuxFrame, { type: 'approval/requested' }>['approvalId'],
-            toolName: 'dangerous_tool', reason: 'fixture 常驻占位审批（可见不可答）',
-          },
-        })
+        if (approvalPending) {
+          conn.push({
+            rpcId: pendingApprovalRpcId,
+            payload: {
+              type: 'approval/requested', sessionId: sid('fx-alpha'),
+              approvalId: pendingApprovalId,
+              toolName: 'dangerous_tool', reason: 'fixture 常驻审批（可答：批准/拒绝后消失）',
+            },
+          })
+        }
         if (questionPending) {
           conn.push({
             rpcId: pendingQuestionRpcId,
@@ -968,7 +2279,78 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         }
       },
     },
+    settings: {
+      // Only the resolved DeepSeek address needed by first-run readiness is
+      // represented here. Fixture-backed journeys do not open its Models
+      // editor; real schema-driven forms ride the HTTP transport.
+      describe: request => ok(request, {
+        writable: true,
+        namespaces: [{
+          ns: 'llm-deepseek',
+          schema: {},
+          value: { apiKeyEnv: 'DEEPSEEK_API_KEY' },
+          applies: 'live',
+          secrets: [{ path: ['apiKey'], set: false }],
+          revision: 0,
+        }],
+      }),
+      update: request => err(request, {
+        code: 'settings-rejected',
+        message: 'fixture: the minimal readiness settings descriptor is read-only',
+        details: { ns: request.payload.ns },
+      }),
+      replace: request => err(request, {
+        code: 'settings-rejected',
+        message: 'fixture: the minimal readiness settings descriptor is read-only',
+        details: { ns: request.payload.ns },
+      }),
+      mutate: request => err(request, {
+        code: 'settings-rejected',
+        message: 'fixture: no settings namespaces are registered',
+        details: { ns: request.payload.ns },
+      }),
+    },
+    credentials: {
+      describe: request => ok(request, {
+        credentials: Object.fromEntries(request.payload.refs.map(ref => [ref, {
+          configured: fixtureCredentials.has(ref),
+          ...fixtureCredentials.has(ref) ? { source: 'file' } : {},
+          writable: true,
+        }])),
+      }),
+      set: (request) => {
+        fixtureCredentials.set(request.payload.ref, true)
+        return ok(request, {})
+      },
+      unset: (request) => {
+        fixtureCredentials.delete(request.payload.ref)
+        return ok(request, {})
+      },
+    },
+    llm: {
+      providers: request => ok(request, {
+        providers: [
+          { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [], active: true },
+          { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'], active: true },
+          { provider: 'anthropic', displayName: 'anthropic', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'anthropic'], active: false },
+        ],
+      }),
+      models: request => ok(request, { groups: fixtureModelGroups(), failures: [] }),
+    },
     respond(message: ClientResponse): Promise<RpcReceipt> {
+      // Same routing discipline as the host: rpcId first, then the payload's
+      // audit correlation; a settled or unknown id is not-pending.
+      if (message.rpcId === pendingApprovalRpcId) {
+        if (!approvalPending) return Promise.resolve({ accepted: false, reason: 'not-pending' })
+        if (!message.result.ok) return Promise.resolve({ accepted: false, reason: 'bad-response' })
+        const value = message.result.value as { approvalId?: unknown; outcome?: unknown }
+        if (value.approvalId !== pendingApprovalId || (value.outcome !== 'allowed-once' && value.outcome !== 'rejected')) {
+          return Promise.resolve({ accepted: false, reason: 'bad-response' })
+        }
+        approvalPending = false
+        emitMux({ type: 'approval/resolved', sessionId: sid('fx-alpha'), approvalId: pendingApprovalId, outcome: value.outcome })
+        return Promise.resolve({ accepted: true })
+      }
       if (!questionPending || message.rpcId !== pendingQuestionRpcId) {
         return Promise.resolve({ accepted: false, reason: 'not-pending' })
       }
@@ -1005,37 +2387,68 @@ export class FixtureApiClient extends AbstractApiClient {
   protected override async callUnary<K extends keyof RpcMethodMap>(
     method: K,
     payload: RequestPayload<K>,
+    signal?: AbortSignal,
   ): Promise<RpcResponse<ResponseValue<K>>> {
     const request = rpcRequest(payload)
     const full: ClientRequest = { type: 'client-request', rpcId: request.rpcId, method, payload }
     this.onEnvelope(full)
-    const response = await this.dispatch(method, request as RpcRequest<never>) as RpcResponse<ResponseValue<K>>
+    const response = await this.dispatch(
+      method,
+      request as RpcRequest<never>,
+      signal ?? new AbortController().signal,
+    ) as RpcResponse<ResponseValue<K>>
     const fullResponse: ServerResponse = { type: 'server-response', rpcId: response.rpcId, result: response.result }
     this.onEnvelope(fullResponse)
     return response
   }
 
   /** Method-key dispatch into the in-memory contract impl (a real carrier routes by URL path instead). */
-  private dispatch(method: keyof RpcMethodMap, request: RpcRequest<never>): Promise<RpcResponse<unknown>> {
+  private dispatch(
+    method: keyof RpcMethodMap,
+    request: RpcRequest<never>,
+    signal: AbortSignal,
+  ): Promise<RpcResponse<unknown>> {
     switch (method) {
       case 'session.list': return this.api.sessions.list(request)
+      case 'session.search': return this.api.sessions.search(request, signal)
       case 'session.create': return this.api.sessions.create(request)
       case 'session.history': return this.api.sessions.history(request)
       case 'session.models': return this.api.sessions.models(request)
       case 'session.selectModel': return this.api.sessions.selectModel(request)
+      case 'session.rename': return this.api.sessions.rename(request)
+      case 'session.fork': return this.api.sessions.fork(request)
       case 'session.prompt': return this.api.sessions.prompt(request)
+      case 'session.updateQueue': return this.api.sessions.updateQueue(request)
       case 'session.cancel': return this.api.sessions.cancel(request)
       case 'host.describe': return this.api.host.describe(request)
       case 'host.pickDirectory': return this.api.host.pickDirectory(request, new AbortController().signal)
+      case 'host.listDirectory': return this.api.host.listDirectory(request, new AbortController().signal)
+      case 'host.createDirectory': return this.api.host.createDirectory(request)
+      case 'host.openPath': return this.api.host.openPath(request, new AbortController().signal)
       case 'workspace.list': return this.api.workspace.list(request)
       case 'workspace.create': return this.api.workspace.create(request)
       case 'workspace.rename': return this.api.workspace.rename(request)
       case 'workspace.delete': return this.api.workspace.delete(request)
       case 'workspace.insertSessionBefore': return this.api.workspace.insertSessionBefore(request)
+      case 'workspace.archiveSession': return this.api.workspace.archiveSession(request)
       case 'command.list': return this.api.commands.list(request)
-      // The in-memory execute never blocks, so a never-aborting signal is faithful here.
-      case 'command.execute': return this.api.commands.execute(request, new AbortController().signal)
+      case 'command.execute': return this.api.commands.execute(request, signal)
       case 'skill.list': return this.api.skills.list(request)
+      case 'goal.create': return this.api.goals.create(request)
+      case 'goal.edit': return this.api.goals.edit(request)
+      case 'goal.pause': return this.api.goals.pause(request)
+      case 'goal.resume': return this.api.goals.resume(request)
+      case 'goal.complete': return this.api.goals.complete(request)
+      case 'goal.clear': return this.api.goals.clear(request)
+      case 'settings.describe': return this.api.settings.describe(request)
+      case 'settings.update': return this.api.settings.update(request)
+      case 'settings.replace': return this.api.settings.replace(request)
+      case 'settings.mutate': return this.api.settings.mutate(request)
+      case 'credentials.describe': return this.api.credentials.describe(request)
+      case 'credentials.set': return this.api.credentials.set(request)
+      case 'credentials.unset': return this.api.credentials.unset(request)
+      case 'llm.providers': return this.api.llm.providers(request)
+      case 'llm.models': return this.api.llm.models(request)
     }
   }
 

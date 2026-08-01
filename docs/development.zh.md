@@ -27,7 +27,7 @@ pnpm install
 node scripts/install-lefthook.mjs
 ```
 
-包装层会拒绝用户自有的 `core.hooksPath` 值。继承自系统、全局或共用仓库配置的路径必须设置 `DSH_LEFTHOOK_ALLOW_HOOKS_PATH_OVERRIDE=1`；命令作用域和 worktree 作用域的自定义路径必须显式集成或移除。
+包装层会拒绝用户自有的 `core.hooksPath` 值。继承自系统、全局或共用仓库配置的路径必须设置 `DSH_LEFTHOOK_ALLOW_HOOKS_PATH_OVERRIDE=1`。当 Git 使用另一个已注册 worktree 中由所有权标记佐证的钩子路径初始化新 worktree 时，包装层会将这个复制值替换为新 worktree 自有的路径；命令作用域和其他 worktree 作用域的路径必须显式集成或移除。
 
 启用 worktree 配置之前，请迁移格式 0 共用配置中直接设置的 `extensions.*`，并迁移直接设置的 `core.worktree` 或 `core.bare=true`，以及任何非空且尚未生效的 `config.worktree`。共用配置和每个 worktree 配置都必须是常规文件，而自有钩子目录只能包含不带别名的常规文件。
 
@@ -83,7 +83,7 @@ DEEPSEEK_BASE_URL=https://... # optional
 
 lefthook 在 `lefthook.yml` 中配置，作为快速的本地检查点：
 
-- `pre-commit` 运行对暂存文件的 ESLint 修复，检查暂存 diff 中的空白错误，并运行 vendor manifest（元数据清单）守卫；
+- `pre-commit` 应用仅用于格式化的 ESLint 修复，使用 Oxlint 验证暂存文件并应用其原生修复，在暂存文件属于 `THIRD_PARTY_NOTICES.md` 的输入时重新生成该文件，然后检查暂存 diff 中的空白错误，并运行 vendor manifest（元数据清单）守卫；
 - `pre-push` 只运行仓库增量类型检查（对根 solution 执行 `tsc -b`，覆盖 host 与 client 两个聚合）。
 
 vendor manifest 守卫检查 `vendor/*/src` 下的改动是否连同对应的 `vendor/README.md` manifest 更新一起暂存。请在编辑 vendor 代码前先阅读 `vendor/README.md`。
@@ -106,8 +106,8 @@ pnpm run test:coverage  # unit tests with per-file coverage gates
 pnpm run test:e2e       # real-API tests; self-skips without DEEPSEEK_API_KEY
 pnpm run check:all      # comprehensive opt-in gate set; not wired to Git hooks
 pnpm run typecheck      # tsc -b over the root solution: emits package/vendor lib/types, checks both aggregates
-pnpm run lint           # eslint .
-pnpm run lint:fix       # eslint . --fix
+pnpm run lint           # oxlint .
+pnpm run lint:fix       # formatting-only ESLint, then oxlint . --fix
 pnpm run doc-typecheck  # compile checked TypeScript snippets in Markdown docs
 pnpm run gen-cordis-catalog     # regenerate docs/cordis-catalog/events.md + services.md from source
 pnpm run verify-cordis-catalog  # fail if either cordis catalog is stale
@@ -143,7 +143,7 @@ pnpm run demo:headless "summarize this workspace"
 pnpm run demo:tui
 ```
 
-自指的 cordis-agent 演示可以检查并修改其实时插件运行时，并需要相同的凭证：
+自指的 cordis 演示可以检查并修改其实时插件运行时，并需要相同的凭证（默认 `web`，也可用 `acp`）：
 
 ```sh
 pnpm run demo:cordis

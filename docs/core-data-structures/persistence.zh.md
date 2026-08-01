@@ -77,7 +77,7 @@ interface SessionHeader {
 
 ## `CreateSessionOptions`：seed 与元数据
 
-通过 store 创建 `Session` 时会接收 `seed`（回放/fork 现有事件日志）与 `meta`（store 折叠进 `SessionHeader` 的存储层字段）。store 填充 `version`/`id` 并为 `createdAt` 提供默认值；调用方提供已校验的绝对 `cwd`、`parentSession` 谱系、`seedLength` 种子边界、`delegationDepth`，以及——仅在重建已持久化会话时——需要保留的原始 `createdAt`。
+通过 store 创建 `Session` 时会接收 `seed`（初始回放或 fork 历史）与 `meta`（store 折叠进 `SessionHeader` 的存储层字段）。store 填充 `version`/`id` 并为 `createdAt` 提供默认值；调用方提供已校验的绝对 `cwd`、`parentSession` 谱系、`seedLength` 种子边界、`delegationDepth`，以及——仅在重建已持久化会话时——需要保留的原始 `createdAt`。
 
 ```ts type-equiv
 /**
@@ -86,7 +86,7 @@ interface SessionHeader {
  * store folds into a {@link SessionHeader}.
  */
 interface CreateSessionOptions {
-  /** Events to seed the new session with (replay/fork). */
+  /** Initial replay or fork history supplied at construction. */
   readonly seed?: readonly SessionEvent[]
   /**
    * Storage metadata read once before publication. `seedLength` is explicit

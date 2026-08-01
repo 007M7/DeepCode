@@ -40,6 +40,7 @@ UI 插件从 `session/event` 事件流渲染（助手 token 流以 `assistant/ch
 
 ```ts
 import type { Context } from 'cordis'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 
 declare function render(text: string): void
@@ -54,10 +55,10 @@ export function apply(ctx: Context) {
       render(event.data.chunk.text)
     }
   })
-  onUserInput(text => ctx.agents.get(SessionId('client-session'))?.followup({
+  onUserInput(text => ctx.agents.get(SessionId('client-session'))?.followup(createUserMessage({
     content: [{ type: 'text', text }],
     source: { kind: 'user' },
-  }))
+  })))
 }
 ```
 
@@ -90,7 +91,7 @@ export function apply(ctx: Context) {
 
 ## 可运行的组装示例
 
-可运行叶子从 `examples/*/cordis.yml` 加载各自的插件树；根目录的 `demo:*` 脚本和这些叶子目录是权威清单。交互式叶子使用 [`@deepseek-ai/dsh-tui-demo`](../../packages/examples/tui-demo)，非交互式叶子使用 [`@deepseek-ai/dsh-cli-demo`](../../packages/examples/cli-demo)，ACP 叶子使用 [`@deepseek-ai/dsh-acp-demo`](../../packages/examples/acp-demo)，应用包共享 [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo)。
+可运行叶子从 `examples/*/cordis.yml` 加载各自的插件树；根目录的 `demo:*` 脚本和这些叶子目录是权威清单。交互式叶子使用 [`@deepseek-ai/dsh-tui`](../../packages/ui/tui)，非交互式叶子使用 [`@deepseek-ai/dsh-cli-demo`](../../packages/examples/cli-demo)，ACP 叶子使用 [`@deepseek-ai/dsh-acp-demo`](../../packages/examples/acp-demo)，应用包共享 [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo)。
 
 ## 功能→机制映射
 

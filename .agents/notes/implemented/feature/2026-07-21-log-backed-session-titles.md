@@ -36,9 +36,13 @@ Model providers require explicit word, CJK-character, input-byte, output-token, 
 
 Automatic provider failures are nonfatal warnings and retain the latest title. Explicit refresh failures reject to the caller. Output must be non-empty text with unique ordered seqs drawn from the fixed request; the service normalizes and byte-limits it before log acceptance.
 
+### Explicit rename
+
+`rename(session, title)` accepts a user title synchronously: it normalizes the text under the accepted-title byte limit, supersedes in-flight automatic work, and appends a `session/title` event with the third source kind, `user`. A user-sourced latest title pins the session: `onUserMessage` schedules no automatic revision while it stands, under either cadence. An explicit `refresh()` remains the deliberate unpin — it appends a provider or fallback event over the pinned one whenever a replacement title is derivable (an underivable fallback, e.g. under a tiny byte cap, leaves the pin standing). The Web host exposes this as the `session.rename` unary method (resuming cold sessions first) and returns the normalized title plus its event seq so the client settles its `title` projection cell before the push frame arrives.
+
 ### Forks and consumers
 
-A fork inherits seed title events unchanged, like the rest of its source log. The first-message provider does not automatically retitle a fork. The all-messages provider may append a child-owned revision after a later child prompt, using inherited and new eligible messages.
+A fork inherits seed title events unchanged, like the rest of its source log — a pinned (user-sourced) title stays pinned in the child until an explicit refresh. The first-message provider does not automatically retitle a fork. The all-messages provider may append a child-owned revision after a later child prompt, using inherited and new eligible messages.
 
 `ctx.sessionQuery.readTitle()` folds one live-preferred or persisted log without loading titles during `listSessions()`. The TUI uses the latest title as its header subtitle and sets the terminal window title to `<session title> — <configured product title>` after terminal-safe rendering. The Web host folds the same log state into a validated mux control frame after each attached-session subscription baseline and immediately after forwarding a live raw title event. The browser retains only newer title event seqs even when the control frame precedes list or session-instance creation; sidebar labels, search, breadcrumbs, and the browser title then react to the projected revision. `session.list` remains metadata-only, so a cold persisted session uses the cwd basename or id until opening or resuming it attaches the log. The browser title uses `<session title> — <existing HTML title>` only for a selected titled session and otherwise preserves the product title. Consumers reporting agent completion use the core `findLastMessageTurnEnd()` fold, so a later between-turn title record cannot replace the preceding message-triggered outcome.
 
@@ -59,4 +63,4 @@ A fork inherits seed title events unchanged, like the rest of its source log. Th
 - A fallback appears immediately. Each fresh Web session adds one first-message auxiliary call; other compositions choose whether better titles justify model cost and whether later prompts should retitle a session.
 - Auxiliary request records and late accepted titles consume event seqs without consuming turn numbers, so persistence exposes both attempted dispatches and accepted updates even though model history and KV-cache identity do not change.
 - One provider and monotonic per-session revisions make disposal, supersession, and stale-result rejection explicit, at the cost of leaving multi-strategy precedence to a composite provider.
-- Manual rename, deletion, generated-versus-user precedence, search, and list indexing remain outside the capability.
+- Deletion (unpinning without an explicit refresh), search, and list indexing remain outside the capability.

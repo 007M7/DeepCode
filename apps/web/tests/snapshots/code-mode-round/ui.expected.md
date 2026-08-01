@@ -1,32 +1,46 @@
 - banner:
-  - navigation "Session hierarchy":
-    - 'button "Using ONE run_code program: run" [disabled]'
-    - text: · 1 turns
+  - 'heading "Using ONE run_code program: run" [level=1]'
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
-    - tab "Waterfall"
-- text: "Using ONE run_code program: run bash `echo CODE_ROUND_OK`, then read the file missing.txt catching its error in the program. Return an object with both outcomes. Then reply DONE and stop."
+- text: "Using ONE run_code program: run bash `echo CODE_ROUND_OK`, then read the file missing.txt catching its error in the program. Return an object with both outcomes. Then reply DONE and stop. {{clock}}"
+- button "Copy":
+  - img
+- button "Branch into a new conversation":
+  - img
+- button "Context injection":
+  - img
+  - img
+  - text: Context injection
 - 'button "Think The user wants me to write a single `run_code` program that:"':
   - img
-  - text: "Think The user wants me to write a single `run_code` program that:"
-- button:
   - img
-- text: Code Run bash echo and catch missing file read Echo CODE_ROUND_OK
-- button
-- text: Read missing.txt
+  - text: "Think The user wants me to write a single `run_code` program that:"
+- button "Code Run bash echo and catch missing file read":
+  - img
+  - img
+  - text: Code Run bash echo and catch missing file read
+- img
+- text: Bash Echo CODE_ROUND_OK Failed
+- 'button "Read Error: cannot read \"{{cwd}}/workspace/missing.txt\": not found"':
+  - img
+  - text: "Read Error: cannot read \"{{cwd}}/workspace/missing.txt\": not found"
 - button "Think The program ran successfully. Let me now reply DONE as instructed.":
+  - img
   - img
   - text: Think The program ran successfully. Let me now reply DONE as instructed.
 - paragraph: DONE
-- text: cache hit 52% · 17,490 tokens · 1 turns · 2 steps
-- textbox "Message the agent"
-- button "Add attachment":
+- button "Copy":
   - img
-- combobox "Access mode":
-  - option "Read-only" [selected]
-  - option "Read-write"
-- button "选择模型，当前 deepseek-v4-flash":
-  - text: deepseek-v4-flash
+- button "Branch into a new conversation":
+  - img
+- text: {{clock}}
+- textbox "Message the agent"
+- button "Commands":
+  - img
+- 'button "Access mode, current: Workspace Write"': Workspace Write
+- button "Select model, current DeepSeek-V4-Flash":
+  - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
+- text: 1 turns · 2 steps Tool call {{duration}} Context 7% of 128K Cache hit 52% Input 17.2K tok · Output 252 tok

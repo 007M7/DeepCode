@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { CallId, MessageSource, ProviderRequestId, StreamChunk } from '@deepseek-ai/dsh-llm'
+import LlmService, { createUserMessage, CallId, MessageSource, ProviderRequestId, StreamChunk  } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionEvent, SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineContentToolFixture, type PostToolDecision } from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { type Agent, type InboxPlacement } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent, type InboxItem, type InboxPlacement } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { ReactLoopAgent } from '../src/agent.ts'
 import InvariantService from '@deepseek-ai/dsh-invariants'
@@ -50,8 +50,113 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 }
 
 function send(agent: Agent, text: string) {
-  agent.followup({ content: [{ type: 'text', text }], source: { kind: 'user' } })
+  agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
 }
+
+function inboxText(item: InboxItem): string {
+  return item.message.content
+    .flatMap(block => block.type === 'text' ? [block.text] : [])
+    .join('')
+}
+
+describe('addressable inbox operations', () => {
+  it('edits in place and removes exactly one queued item', async () => {
+    const adapter = new MockAdapter([
+      textResponse('first reply'),
+      textResponse('edited reply'),
+    ])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('inbox-actions'), { provider: 'mock', model: 'mock' })
+    const admission = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    ctx.on('agent/prompt-submit', async (_subject, message, _signal, next) => {
+      if (message.content[0]?.type === 'text' && message.content[0].text === 'first') {
+        admission.resolve(undefined)
+        await release.promise
+      }
+      return next()
+    })
+
+    const pending: InboxItem[] = []
+    const updates: { id: string; text: string }[] = []
+    const discards: string[][] = []
+    ctx.on('agent/inbox/enqueue', (subject, item) => {
+      if (subject === agent && inboxText(item) !== 'first') pending.push(item)
+    })
+    ctx.on('agent/inbox/update', (subject, item) => {
+      if (subject === agent) updates.push({ id: item.id, text: inboxText(item) })
+    })
+    ctx.on('agent/inbox/discard', (subject, items) => {
+      if (subject === agent) discards.push(items.map(item => item.id))
+    })
+
+    send(agent, 'first')
+    await admission.promise
+    send(agent, 'remove me')
+    send(agent, 'edit me')
+    expect(pending.map(inboxText)).toEqual(['remove me', 'edit me'])
+
+    const remove = pending[0]!
+    const edit = pending[1]!
+    expect(agent.updateInbox(edit.id, {
+      kind: 'edit',
+      content: [{ type: 'text', text: 'edited' }],
+    })).toBe('applied')
+    expect(agent.updateInbox(remove.id, { kind: 'remove' })).toBe('applied')
+    expect(updates).toEqual([{ id: edit.id, text: 'edited' }])
+    expect(discards).toEqual([[remove.id]])
+
+    const idle = waitForIdle(ctx, agent)
+    release.resolve(undefined)
+    await idle
+    expect(agent.session.events
+      .filter(event => event.type === 'user/message')
+      .map(event => event.type === 'user/message'
+        ? event.data.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('')
+        : ''))
+      .toEqual(['first', 'edited'])
+    expect(agent.updateInbox(edit.id, { kind: 'remove' })).toBe('not-found')
+  })
+
+  it('does not mutate steering occurrences', async () => {
+    const adapter = new MockAdapter([textResponse('done')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('steering-inbox-actions'), { provider: 'mock', model: 'mock' })
+    const entered = Promise.withResolvers<undefined>()
+    const decision = Promise.withResolvers<{ kind: 'allow' }>()
+    ctx.on('agent/prompt-submit', async () => {
+      entered.resolve(undefined)
+      return decision.promise
+    })
+
+    const pending: InboxItem[] = []
+    ctx.on('agent/inbox/enqueue', (subject, item) => {
+      if (subject === agent && item.placement === 'steering') pending.push(item)
+    })
+
+    const idle = waitForIdle(ctx, agent)
+    send(agent, 'admitted prompt')
+    await entered.promise
+    agent.steer(createUserMessage({ content: [{ type: 'text', text: 'keep me' }], source: { kind: 'user' } }))
+    expect(pending.map(inboxText)).toEqual(['keep me'])
+
+    const steering = pending[0]!
+    expect(agent.updateInbox(steering.id, {
+      kind: 'edit',
+      content: [{ type: 'text', text: 'edited' }],
+    })).toBe('not-found')
+    expect(agent.updateInbox(steering.id, { kind: 'remove' })).toBe('not-found')
+
+    decision.resolve({ kind: 'allow' })
+    await idle
+    expect(agent.session.events
+      .filter(event => event.type === 'steering/message')
+      .map(event => event.type === 'steering/message'
+        ? event.data.message.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('')
+        : ''))
+      .toEqual(['keep me'])
+  })
+})
 
 describe('assistant replay provenance', () => {
   it('records adapter replay state with the assembled assistant content', async () => {
@@ -66,11 +171,11 @@ describe('assistant replay provenance', () => {
     await waitForIdle(ctx, agent)
 
     const recorded = agent.session.events.find(event => event.type === 'assistant/message')
-    expect(recorded?.type === 'assistant/message' && recorded.data.provenance).toEqual({
-      provider: 'mock', model: 'next-model', replayState,
+    expect(recorded?.type === 'assistant/message' && recorded.data.message.source).toEqual({
+      kind: 'model', provider: 'mock', model: 'next-model', replayState,
     })
-    expect(agent.session.deriveMessages().at(-1)?.provenance).toEqual({
-      provider: 'mock', model: 'next-model', replayState,
+    expect(agent.session.deriveMessages().at(-1)?.source).toEqual({
+      kind: 'model', provider: 'mock', model: 'next-model', replayState,
     })
   })
 })
@@ -85,17 +190,17 @@ describe('abort during tool execution ends the turn', () => {
       description: '',
       parameters: {},
       async execute() {
-        agent.inject({ content: [{ type: 'text', text: 'accepted before abort' }], source: { kind: 'plugin', plugin: 'test' } })
+        agent.inject(createUserMessage({ content: [{ type: 'text', text: 'accepted before abort' }], source: { kind: 'plugin', plugin: 'test' } }))
         agent.cancel({ kind: 'user' })
         return [{ type: 'text', text: 'done' }]
       },
     }))
     ctx.on('tools/post-execute', async (): Promise<PostToolDecision> => ({
       kind: 'accept',
-      additionalContexts: [{
+      additionalContexts: [createUserMessage({
         content: [{ type: 'text', text: 'accepted result context after abort' }],
         source: { kind: 'plugin', plugin: 'test' },
-      }],
+      })],
     }))
 
     send(agent, 'go')
@@ -148,10 +253,10 @@ describe('abort during tool execution ends the turn', () => {
       if (exec.callId !== CallId('c1')) return next()
       return {
         kind: 'accept',
-        additionalContexts: [{
+        additionalContexts: [createUserMessage({
           content: [{ type: 'text', text: 'accepted after first result' }],
           source: { kind: 'plugin', plugin: 'test' },
-        }],
+        })],
       }
     })
 
@@ -185,7 +290,7 @@ describe('abort during tool execution ends the turn', () => {
       description: '',
       parameters: {},
       async execute(_args, exec) {
-        agent.inject({ content: [{ type: 'text', text: 'accepted before disposal' }], source: { kind: 'plugin', plugin: 'test' } })
+        agent.inject(createUserMessage({ content: [{ type: 'text', text: 'accepted before disposal' }], source: { kind: 'plugin', plugin: 'test' } }))
         started.resolve(undefined)
         const signal = exec.signal
         if (!signal) throw new Error('tool execution signal is missing')
@@ -198,10 +303,10 @@ describe('abort during tool execution ends the turn', () => {
     }))
     ctx.on('tools/post-execute', async (): Promise<PostToolDecision> => ({
       kind: 'accept',
-      additionalContexts: [{
+      additionalContexts: [createUserMessage({
         content: [{ type: 'text', text: 'accepted result context during disposal' }],
         source: { kind: 'plugin', plugin: 'test' },
-      }],
+      })],
     }))
 
     send(agent, 'go')
@@ -254,7 +359,7 @@ describe('abort during tool execution ends the turn', () => {
     await waitForIdle(ctx, agent)
     ctx.on('agent/step', (subject, turn) => {
       if (subject === agent && turn === 2) {
-        agent.inject({ content: [{ type: 'text', text: 'new turn context' }], source: { kind: 'plugin', plugin: 'test' } })
+        agent.inject(createUserMessage({ content: [{ type: 'text', text: 'new turn context' }], source: { kind: 'plugin', plugin: 'test' } }))
       }
     })
     send(agent, 'start a text-only turn')
@@ -282,7 +387,7 @@ describe('steering from late extension points is never stranded', () => {
     ctx.on('agent/turn-stopping', () => {
       if (!steeredOnce) {
         steeredOnce = true
-        agent.steer({ content: [{ type: 'text', text: 'one more thing' }], source: { kind: 'user' } })
+        agent.steer(createUserMessage({ content: [{ type: 'text', text: 'one more thing' }], source: { kind: 'user' } }))
       }
     })
 
@@ -307,7 +412,7 @@ describe('steering from late extension points is never stranded', () => {
     ctx.on('session/event', (subject, event) => {
       if (subject !== agent.session || event.type !== 'step/end' || steeredOnce) return
       steeredOnce = true
-      agent.steer({ content: [{ type: 'text', text: 'goal reminder from step/end' }], source: { kind: 'user' } })
+      agent.steer(createUserMessage({ content: [{ type: 'text', text: 'goal reminder from step/end' }], source: { kind: 'user' } }))
     })
 
     send(agent, 'go')
@@ -339,7 +444,7 @@ describe('steering from late extension points is never stranded', () => {
       if (event.type === 'turn/end' && !steeredOnce) {
         steeredOnce = true
         expect(agent.acceptsNextStep).toBe(false)
-        agent.steer({ content: [{ type: 'text', text: 'too late for this turn' }], source: { kind: 'user' } })
+        agent.steer(createUserMessage({ content: [{ type: 'text', text: 'too late for this turn' }], source: { kind: 'user' } }))
       }
     })
 
@@ -494,7 +599,7 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
       description: '',
       parameters: {},
       async execute() {
-        agent.steer({ content: [{ type: 'text', text: 's' }], source: { kind: 'plugin', plugin: 'goal' } })
+        agent.steer(createUserMessage({ content: [{ type: 'text', text: 's' }], source: { kind: 'plugin', plugin: 'goal' } }))
         return []
       },
     }))
@@ -502,10 +607,10 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
     const queuedSources: MessageSource[] = []
     const queuedShapes: string[][] = []
     const placements: InboxPlacement[] = []
-    ctx.on('agent/inbox/enqueue', (_agent, message, placement) => {
-      queuedSources.push(message.source)
-      queuedShapes.push(Object.keys(message).sort())
-      placements.push(placement)
+    ctx.on('agent/inbox/enqueue', (_agent, item) => {
+      queuedSources.push(item.message.source)
+      queuedShapes.push(Object.keys(item.message).sort())
+      placements.push(item.placement)
     })
 
     send(agent, 'go') // no explicit source → default {kind:'user'} must be visible
@@ -516,13 +621,13 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
       { kind: 'plugin', plugin: 'goal' },
     ])
     expect(queuedShapes).toEqual([
-      ['content', 'id', 'source'],
-      ['content', 'id', 'source'],
+      ['content', 'id', 'role', 'source'],
+      ['content', 'id', 'role', 'source'],
     ])
     expect(placements).toEqual(['queued', 'steering'])
     // The drain appends the durable steering/message with the caller's source
     // intact — the log, not a transient emit, is where consumers read it.
-    const steeringSources = agent.session.events.flatMap(e => e.type === 'steering/message' ? [e.data.source] : [])
+    const steeringSources = agent.session.events.flatMap(e => e.type === 'steering/message' ? [e.data.message.source] : [])
     expect(steeringSources).toEqual([{ kind: 'plugin', plugin: 'goal' }])
   })
 
@@ -554,7 +659,7 @@ describe('turn numbering continues across seeded sessions', () => {
 
     const turns: number[] = []
     ctx2.on('session/event', (_s, event) => { if (event.type === 'turn/start') turns.push(event.data.turn) })
-    forked.followup({ content: [{ type: 'text', text: 'continue' }], source: { kind: 'user' } })
+    forked.followup(createUserMessage({ content: [{ type: 'text', text: 'continue' }], source: { kind: 'user' } }))
     await new Promise<void>((resolve) => {
       ctx2.on('agent/status', (subject, status) => {
         if (subject === forked && status === 'idle') resolve()
@@ -1105,7 +1210,7 @@ describe('tool result call identity', () => {
     const resultEvent = [...agent.session.events].find(e => e.type === 'tool/result')
     expect(resultEvent?.type).toBe('tool/result')
     if (resultEvent?.type === 'tool/result') {
-      expect(resultEvent.data.callId).toBe(CallId('c1'))
+      expect(resultEvent.data.message.source.callId).toBe(CallId('c1'))
     }
 
     // And deriveMessages pairs the tool-result with the assistant tool-call:

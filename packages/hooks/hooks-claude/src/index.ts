@@ -13,8 +13,9 @@ import { readFileSync } from 'node:fs'
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import type { Agent, PromptDecision } from '@deepseek-ai/dsh-agent'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
-import type { UserMessageData } from '@deepseek-ai/dsh-session'
+import type { UserMessage } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { PostToolDecision, PreToolDecision, ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import {
@@ -185,14 +186,14 @@ export function apply(ctx: Context, config: Config): void {
   // TODO(hook-continue-false): `merged.stop` is logged but needs a run-level halt seam.
 
   /** Build additional model context from hook output, or return undefined when empty. */
-  function contextFrom(merged: MergedHookOutcome): UserMessageData | undefined {
+  function contextFrom(merged: MergedHookOutcome): UserMessage | undefined {
     if (merged.additionalContext.length === 0) return undefined
     const content: ContentBlock[] = merged.additionalContext.map(text => ({ type: 'text', text }))
-    return { content, source: PLUGIN_SOURCE }
+    return createUserMessage({ content, source: PLUGIN_SOURCE })
   }
 
   /** Prepend one context without flattening downstream provenance or metadata. */
-  function prependContext(ours: UserMessageData, theirs: UserMessageData[] | undefined): UserMessageData[] {
+  function prependContext(ours: UserMessage, theirs: UserMessage[] | undefined): UserMessage[] {
     return [ours, ...theirs ?? []]
   }
 
@@ -203,7 +204,7 @@ export function apply(ctx: Context, config: Config): void {
     detached.track(runPoint('SessionStart', source, sessionStartPayload(ctx, agent, source), { agent, signal: detached.signal })
       .then((merged) => {
         const context = contextFrom(merged)
-        if (context) agent.inject({ content: context.content, source: context.source })
+        if (context) agent.inject(context)
       })
       .catch((error: unknown) => {
         ctx.logger.warn(`hooks-claude: SessionStart hook failed: ${String(error)}`)
@@ -212,8 +213,8 @@ export function apply(ctx: Context, config: Config): void {
 
   // --- UserPromptSubmit → PromptDecision. The prompt text is the payload; no
   // matcher subject (CC ignores matchers for this event). ---
-  ctx.on('agent/prompt-submit', async (agent, content, _source, signal, next): Promise<PromptDecision> => {
-    const merged = await runPoint('UserPromptSubmit', '', promptPayload(ctx, agent, content), { agent, signal })
+  ctx.on('agent/prompt-submit', async (agent, message, signal, next): Promise<PromptDecision> => {
+    const merged = await runPoint('UserPromptSubmit', '', promptPayload(ctx, agent, message.content), { agent, signal })
     if (merged.decision === 'deny') {
       return { kind: 'block', reason: merged.reason ?? 'blocked by UserPromptSubmit hook' }
     }
@@ -267,7 +268,7 @@ export function apply(ctx: Context, config: Config): void {
     if (merged.decision === 'deny') {
       // A blocking Stop hook forces continuation.
       const text = merged.reason ?? 'continue: blocked by Stop hook'
-      agent.steer({ content: [{ type: 'text', text }], source: PLUGIN_SOURCE })
+      agent.steer(createUserMessage({ content: [{ type: 'text', text }], source: PLUGIN_SOURCE }))
     }
   })
 
@@ -278,7 +279,7 @@ export function apply(ctx: Context, config: Config): void {
     detached.track(runPoint('SubagentStart', SUBAGENT_TYPE, subagentPayload(ctx, 'SubagentStart', info, child), { ...child ? { agent: child } : {}, signal: detached.signal })
       .then((merged) => {
         const context = contextFrom(merged)
-        if (context && child) child.inject({ content: context.content, source: context.source })
+        if (context && child) child.inject(context)
       })
       .catch((error: unknown) => { ctx.logger.warn(`hooks-claude: SubagentStart hook failed: ${String(error)}`) }))
   })

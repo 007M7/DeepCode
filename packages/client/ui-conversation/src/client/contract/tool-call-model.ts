@@ -1,12 +1,15 @@
 /**
  * Pure row-model derivation for tool summary rows: variant classification,
- * one-line summary and expanded-body text from the frozen call slice. No
- * inline output ever — full results live in the details panel.
+ * one-line summary, expanded-body text, and flattened result output from the
+ * frozen call slice. Input material comes from the call ARGUMENTS; output and
+ * error material from the settled result node. A call whose render intent is
+ * a terminal card gets its expanded body from the views instead, through
+ * `terminalCardModel` in terminal-card-model.ts.
  */
 // The block union's defining home is runtime (fold-product types); this
 // contract only forwards it (type-definition authority stays with the layer
 // that produces the values).
-import type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ToolCallBlock, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 
 export type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
 
@@ -62,9 +65,38 @@ export interface ToolRowModel {
   variant: ToolRowVariant
   title: string
   summary: string
-  /** Expanded-body text (pretty args); null = row not expandable. */
+  /**
+   * Filesystem path from args (`path` / `file_path`) when the row is a file
+   * tool; absent for URL reads and non-file tools. The chat view resolves
+   * relative values against the session cwd before opening.
+   */
+  filePath: string | undefined
+  /** Expanded-body input text (pretty args); null = no input section. */
   body: string | null
+  /** Flattened result text ({@link resultText}); null while running or when the result carries no text. */
+  output: string | null
+  /** First line of the result text on an error row; null for every other state. */
+  errorSummary: string | null
   state: ToolRowState
+}
+
+/**
+ * Flatten a settled result's content blocks to display text: text blocks
+ * verbatim, other block shapes as pretty JSON. Empty content on a failed call
+ * falls back to the structured error's `name: code` line.
+ * @param node - the settled result node.
+ * @returns the flattened result text (may be empty).
+ */
+export function resultText(node: ToolResultNode): string {
+  const parts: string[] = []
+  for (const block of node.content) {
+    if (block.type === 'text') parts.push(block.text)
+    else parts.push(JSON.stringify(block, null, 2))
+  }
+  if (parts.length === 0 && node.error !== undefined) {
+    parts.push(`${node.error.name}: ${node.error.code}`)
+  }
+  return parts.join('\n')
 }
 
 function parseArgs(argsRaw: string): unknown {
@@ -101,8 +133,13 @@ const SUMMARY_KEYS: Record<ToolRowVariant, readonly string[]> = {
   others: [],
 }
 
-/** Strip the workspace root from workspace-rooted absolute paths (display only). */
-function relativizeToCwd(text: string, cwd: string | undefined): string {
+/**
+ * Strip the workspace root from a workspace-rooted absolute path (display only).
+ * @param text - the path to shorten.
+ * @param cwd - session workspace root; absent or empty leaves the path unchanged.
+ * @returns the path relative to the workspace root, or unchanged when it is not rooted there.
+ */
+export function relativizeToCwd(text: string, cwd: string | undefined): string {
   if (cwd === undefined || cwd === '') return text
   const root = cwd.replace(/[/\\]+$/, '')
   if (text.startsWith(`${root}/`) || text.startsWith(`${root}\\`)) return text.slice(root.length + 1)
@@ -119,6 +156,35 @@ function deriveSummary(variant: ToolRowVariant, argsRaw: string): string {
     if (typeof v === 'string' && v !== '') return firstLine(v)
   }
   return firstLine(argsRaw)
+}
+
+/** Path keys only — never `url` (web_fetch lands on the read variant). */
+const FILE_PATH_KEYS = ['path', 'file_path'] as const
+
+/** File-tool variants whose summary may be an openable workspace path. */
+const FILE_PATH_VARIANTS: ReadonlySet<ToolRowVariant> = new Set(['read', 'write', 'edit'])
+
+function deriveFilePath(variant: ToolRowVariant, argsRaw: string): string | undefined {
+  if (!FILE_PATH_VARIANTS.has(variant)) return undefined
+  const parsed = parseArgs(argsRaw)
+  if (typeof parsed !== 'object' || parsed === null) return undefined
+  const picked = pickString(parsed as Record<string, unknown>, FILE_PATH_KEYS)
+  return picked === undefined ? undefined : firstLine(picked)
+}
+
+/**
+ * Resolve a tool-arg path against the session cwd for host.openPath.
+ * Absolute POSIX/Windows paths pass through; relative paths join under cwd.
+ * @param cwd - session working directory (may be absent for ungrouped sessions).
+ * @param path - path as carried in tool args.
+ * @returns a host-facing path string.
+ */
+export function resolveToolPath(cwd: string | undefined, path: string): string {
+  if (path.startsWith('/') || /^[A-Za-z]:[/\\]/.test(path) || path.startsWith('\\\\')) return path
+  if (cwd === undefined || cwd === '') return path
+  const base = cwd.replace(/[/\\]+$/, '')
+  const rel = path.replace(/^[/\\]+/, '')
+  return `${base}/${rel}`
 }
 
 function deriveBody(variant: ToolRowVariant, argsRaw: string): string | null {
@@ -155,11 +221,19 @@ export function toolRowModel(toolName: string, block: ToolCallBlock, cwd?: strin
   const summary = variant === 'others' && toolName !== '' && toolTitle === undefined
     ? `${toolName} · ${base}`
     : base
+  // The empty string is "no text" for both derived result fields: a settled
+  // call with blank content has nothing to expand, and a blank first line
+  // would erase the collapsed error row's summary slot.
+  const output = done ? (resultText(block) || null) : null
+  const errorSummary = state === 'error' && output !== null ? firstLine(output) : null
   return {
     variant,
     title: toolTitle ?? VARIANT_TITLES[variant],
     summary,
+    filePath: deriveFilePath(variant, argsRaw),
     body: deriveBody(variant, argsRaw),
+    output,
+    errorSummary,
     state,
   }
 }

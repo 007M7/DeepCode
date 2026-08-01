@@ -2,15 +2,16 @@
  * React renderer for declarative slots. Per-entry bindings enforce child
  * authorization, and entry boundaries contain registrant failures.
  */
-import { Component, useSyncExternalStore, type FC, type ReactNode } from 'react'
+import { Component, useState, useSyncExternalStore, type FC, type ReactNode } from 'react'
 import {
   SlotOwnershipError, StaleAuthorizationError,
-  type ChainRenderOpts, type HostObservable, type RenderOpts, type SessionMaybeProvideInfo,
-  type SessionProvideInfo, type SlotRenderer, type SlotRendererHost, type SlotScope, type StoredEntry,
+  type ChainRenderOpts, type HostObservable, type LocaleFace, type RenderOpts,
+  type SessionMaybeProvideInfo, type SessionProvideInfo, type SlotRenderer, type SlotRendererHost,
+  type SlotScope, type StoredEntry, type Translate,
 } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   HostContext, SessionMaybeProvider, SessionProvider, SlotAssemblyError, maybeObservableHook,
-  observableHook, useHost, useSessionMaybeProvideInfo,
+  observableHook, projectionHook, useHost, useSessionMaybeProvideInfo,
 } from './session-provider.tsx'
 
 type InjectedProps = Record<string, unknown>
@@ -160,6 +161,74 @@ function cachedSessionMaybeInject(
 }
 
 /**
+ * Locale `t` seat bindings, cached per (face, namespace, revision). The
+ * revision is part of the cache key ON PURPOSE: a locale switch mints a NEW
+ * function reference per namespace, so `React.memo` components taking `t`
+ * re-render through ordinary shallow comparison — freshness rides identity,
+ * no extra invalidation channel. Within one revision the reference is stable
+ * (memoized children do not churn on unrelated re-renders).
+ */
+const localeSeatCache = new WeakMap<LocaleFace, Map<string, { revision: number; t: Translate }>>()
+
+function localeSeat(face: LocaleFace, ns: string): Translate {
+  let perNs = localeSeatCache.get(face)
+  if (!perNs) {
+    perNs = new Map()
+    localeSeatCache.set(face, perNs)
+  }
+  const revision = face.getSnapshot().revision
+  const cached = perNs.get(ns)
+  if (cached && cached.revision === revision) return cached.t
+  const bound = face.bind(ns)
+  // Fresh wrapper per revision: bind() itself may return a stable reference.
+  const t: Translate = (key, params) => bound(key, params)
+  perNs.set(ns, { revision, t })
+  return t
+}
+
+const noopSubscribe = (): (() => void) => () => {}
+const zeroRevision = (): number => 0
+
+/**
+ * Per-face subscribe/getSnapshot closure pair. Cached by face identity: the
+ * face is one global source shared by every outlet, and uSES resubscribes
+ * whenever the subscribe reference changes — fresh closures per render would
+ * churn one unsubscribe/resubscribe pair per outlet per render.
+ */
+const localeSubscriptionCache = new WeakMap<LocaleFace, {
+  subscribe: (fn: () => void) => () => void
+  getRevision: () => number
+}>()
+
+function localeSubscription(face: LocaleFace): { subscribe: (fn: () => void) => () => void; getRevision: () => number } {
+  let cached = localeSubscriptionCache.get(face)
+  if (!cached) {
+    cached = {
+      subscribe: fn => face.subscribe(fn),
+      getRevision: () => face.getSnapshot().revision,
+    }
+    localeSubscriptionCache.set(face, cached)
+  }
+  return cached
+}
+
+/**
+ * Subscribe an outlet to the installed locale face's revision (0 while none
+ * is installed — exactly one uSES call either way, keeping hook order
+ * stable). Every outlet re-renders on a locale switch; entry bodies then
+ * re-derive their `t` seat at the new revision. The face must be installed
+ * before the first render that needs it — a face appearing later has no
+ * notification channel to already-mounted outlets.
+ */
+function useLocaleRevision(face: LocaleFace | undefined): number {
+  const subscription = face !== undefined ? localeSubscription(face) : undefined
+  return useSyncExternalStore(
+    subscription?.subscribe ?? noopSubscribe,
+    subscription?.getRevision ?? zeroRevision,
+  )
+}
+
+/**
  * Entry-identity React keys for chain boundaries. A chain outlet renders ONE
  * elected entry through an error boundary; without a key, a boundary that
  * failed on entry A would survive a re-election and keep a healthy entry B
@@ -238,6 +307,19 @@ function standardKit(
     }
     Object.assign(kit, info.props)
     kit['sessionId'] = info.sessionId
+    // The useProjection seat (fifth framework hook): key-addressed cell
+    // reader, bound per provide bundle (cached by info identity).
+    kit['useProjection'] = projectionHook(info)
+  }
+  if (entry.locale !== undefined) {
+    const face = host.locale
+    // Loud assembly failure: locale is immediately-tier infrastructure; a
+    // declared namespace with no installed face is a miswired composition.
+    if (face === undefined) {
+      throw new SlotAssemblyError(
+        `entry declares locale namespace '${entry.locale}' but no locale face is installed (locale plugin missing from the composition?)`)
+    }
+    kit['t'] = localeSeat(face, entry.locale)
   }
   const store = scope === 'session-maybe' && info?.sessionId === undefined
     ? undefined
@@ -284,14 +366,68 @@ function SessionEntry({ entry, ownerProps, info }: {
   return <Comp {...kit} {...injected} {...ownerProps} />
 }
 
-function SessionMaybeEntry({ entry, ownerProps }: { entry: StoredEntry; ownerProps: object }) {
+function SessionMaybeEntryBody({ entry, ownerProps, info }: {
+  entry: StoredEntry
+  ownerProps: object
+  info: SessionMaybeProvideInfo
+}) {
   const host = useHost()
-  const info = useSessionMaybeProvideInfo()
   const Comp = entry.component as FC<InjectedProps>
   const { kit, actions } = standardKit(host, entry, 'session-maybe', info)
   const injected = cachedSessionMaybeInject(entry, info, actions)
   return <Comp {...kit} {...injected} {...ownerProps} />
 }
+
+/**
+ * Session-maybe identity: adoption — the ONLY behavior (there is no
+ * hold-identity-forever mode). An incarnation born session-less ADOPTS the
+ * first session that arrives: identity holds across that one transition
+ * (undefined → first id), so a blank shell's DOM survives the moment a
+ * session appears. From then on the entry behaves exactly like a strict
+ * session entry: switching to a DIFFERENT session remounts (component-local
+ * state must not leak between sessions), and dropping back to no-session
+ * remounts into a fresh blank incarnation, which will adopt again.
+ * Component-local per-session state therefore clears by construction; state
+ * that must SURVIVE a switch belongs in session-bound sources (machine,
+ * store, hooks) — the existing layering rule, now load-bearing.
+ */
+function SessionMaybeEntry({ entry, ownerProps }: { entry: StoredEntry; ownerProps: object }) {
+  const info = useSessionMaybeProvideInfo()
+  // The child key is an incarnation counter, NOT the session id: adoption
+  // must keep the key constant across undefined → first id. Bookkeeping
+  // lives in this stable (unkeyed) wrapper via the render-phase setState
+  // form (React's sanctioned derived-state pattern: setState during render
+  // of the same component re-renders once before children mount, and the
+  // guard conditions make it convergent — StrictMode-safe).
+  const [state, setState] = useState<MaybeIncarnation>(FIRST_INCARNATION)
+  let { adopted, epoch } = state
+  if (info.sessionId !== undefined && adopted === undefined) {
+    // Adoption: same epoch — no remount.
+    adopted = info.sessionId
+    setState({ adopted, epoch })
+  } else if (adopted !== undefined && info.sessionId !== undefined && info.sessionId !== adopted) {
+    // Post-adoption session switch: next incarnation, born already adopted.
+    adopted = info.sessionId
+    epoch += 1
+    setState({ adopted, epoch })
+  } else if (adopted !== undefined && info.sessionId === undefined) {
+    // Back to no-session: next incarnation, born blank (adopts anew later).
+    adopted = undefined
+    epoch += 1
+    setState({ adopted, epoch })
+  }
+  return <SessionMaybeEntryBody key={epoch} entry={entry} ownerProps={ownerProps} info={info} />
+}
+
+/** Adoption bookkeeping of one session-maybe outlet (see SessionMaybeEntry). */
+interface MaybeIncarnation {
+  /** Session this incarnation adopted; undefined while born blank and unadopted. */
+  readonly adopted: string | undefined
+  /** Incarnation counter — the child key; bumps exactly when an incarnation dies. */
+  readonly epoch: number
+}
+
+const FIRST_INCARNATION: MaybeIncarnation = { adopted: undefined, epoch: 0 }
 
 function RootEntry({ entry, ownerProps }: { entry: StoredEntry; ownerProps: object }) {
   const host = useHost()
@@ -326,6 +462,9 @@ function SlotOutlet({ slotKey, ownerProps, opts }: {
     fn => host.subscribe(slotKey, fn),
     () => host.getVersion(slotKey),
   )
+  // Locale revision tick: a locale switch re-renders every outlet, and entry
+  // bodies re-derive their `t` seat at the new revision (fresh identity).
+  useLocaleRevision(host.locale)
   const sessionInfo = useSessionMaybeProvideInfo()
   const spec = host.specOf(slotKey)
   // Undeclared (or no-longer-declared) keys render empty: a declaring entry's
@@ -432,6 +571,7 @@ function RootOutlet({ ownerProps }: { ownerProps: object }) {
     fn => host.subscribe('root', fn),
     () => host.getVersion('root'),
   )
+  useLocaleRevision(host.locale)
   const entry = host.entriesOf('root')[0]
   if (!entry) throw new SlotAssemblyError("renderSlot('root') before any 'root' registration (boot order)")
   return (

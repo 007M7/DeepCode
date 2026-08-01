@@ -4,9 +4,10 @@
 // plain fallback for everything else. Chrome (language banner + copy) matches
 // deepsuite `@deepseek/md` code blocks; token colors stay on `--shiki-*`.
 
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import clsx from 'clsx'
-import { highlightToHtml } from './highlight.ts'
+import { writeClipboard } from '../clipboard.ts'
+import { grammarLoadCount, highlightToHtml, subscribeGrammarLoaded } from './highlight.ts'
 import css from './CodeBlock.module.css'
 
 export interface CodeBlockProps {
@@ -16,50 +17,19 @@ export interface CodeBlockProps {
   lang?: string | undefined
   /** Extra class merged onto the wrapper (callers position; this component draws). */
   className?: string | undefined
+  /** Copy-button idle label; the owner passes localized copy (this package is cordis-free, so copy arrives via props). */
+  copyLabel?: string | undefined
+  /** Copy-button label during the post-copy confirmation window. */
+  copiedLabel?: string | undefined
 }
 
-/** @returns true only when the host accepted the write. */
-async function writeClipboard(text: string): Promise<boolean> {
-  // lib.dom types clipboard non-optional, but insecure contexts omit it —
-  // that runtime gap is exactly what this guard detects.
-  /* eslint-disable-next-line @typescript-eslint/no-unnecessary-condition */
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text)
-      return true
-    } catch {
-      // Denied permissions / iframe policy — do not claim success.
-      return false
-    }
-  }
-  // jsdom and older hosts: best-effort execCommand path when present.
-  // execCommand('copy') is the only clipboard fallback where the async API
-  // is missing; deprecated but deliberately retained.
-  /* eslint-disable @typescript-eslint/no-deprecated */
-  const exec = typeof document.execCommand === 'function'
-    ? document.execCommand.bind(document)
-    : undefined
-  if (exec === undefined) return false
-  const el = document.createElement('textarea')
-  el.value = text
-  el.setAttribute('readonly', '')
-  el.style.position = 'fixed'
-  el.style.left = '-9999px'
-  document.body.appendChild(el)
-  el.select()
-  try {
-    return exec('copy')
-  } catch {
-    return false
-  } finally {
-    el.remove()
-  }
-  /* eslint-enable @typescript-eslint/no-deprecated */
-}
-
-export function CodeBlock({ code, lang, className }: CodeBlockProps) {
+export function CodeBlock({ code, lang, className, copyLabel = '复制', copiedLabel = '复制成功' }: CodeBlockProps) {
   const trimmed = code.endsWith('\n') ? code.slice(0, -1) : code
-  const html = useMemo(() => highlightToHtml(trimmed, lang), [trimmed, lang])
+  // Re-render when a lazy grammar finishes loading, so a fence that showed plain
+  // text while its language's grammar imported picks up highlighting. The
+  // snapshot value is opaque; only its change across renders drives the memo.
+  const loaded = useSyncExternalStore(subscribeGrammarLoaded, grammarLoadCount, grammarLoadCount)
+  const html = useMemo(() => highlightToHtml(trimmed, lang), [trimmed, lang, loaded])
   const rootRef = useRef<HTMLDivElement>(null)
   const [copied, setCopied] = useState(false)
 
@@ -93,7 +63,7 @@ export function CodeBlock({ code, lang, className }: CodeBlockProps) {
           <div className={css.infostring}>{lang ?? ''}</div>
           <div className={css.action}>
             <button type="button" className={css.copyButton} onClick={onCopy}>
-              {copied ? '复制成功' : '复制'}
+              {copied ? copiedLabel : copyLabel}
             </button>
           </div>
         </div>

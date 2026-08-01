@@ -5,7 +5,7 @@
 // always-visible nested rows through the SAME keyed toolview hole — the bash
 // sub-call lands in the bash sample plugin's registration exactly like a
 // top-level bash row, unregistered sub-tools fall back to GenericToolCard —
-// and a sub-row click opens details for the sub-callId. Running parents
+// and a file sub-row click opens the host path. Running parents
 // (runningCalls) nest their so-far dispatches the same way.
 
 import { Context } from 'cordis'
@@ -17,14 +17,26 @@ import type {
   ToolResultNode, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { createSlotRenderer } from '@deepseek-ai/dsh-client-web-react'
+import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-conversation/client'
 
 const SID = 's1' as SessionId
 
-afterEach(cleanup)
+/** jsdom has no ResizeObserver; the composer seat publishes its height through one. */
+class ResizeObserverStub {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 beforeEach(() => {
   localStorage.clear()
+  vi.stubGlobal('ResizeObserver', ResizeObserverStub)
 })
 
 const PROGRAM = 'const listing = await tools.bash({ command: "ls notes", description: "List notes" })\nreturn listing'
@@ -55,8 +67,8 @@ function snapshotWith(
   runningCalls: RunningToolCall[] = [],
 ): ConversationSnapshot {
   return {
-    sessionId: SID, nodes, foldDegraded: false, partial: null, runningCalls, codeDispatches,
-    pending: [], queue: [], todos: [], running: runningCalls.length > 0, composerPhase: 'active', removed: false,
+    sessionId: SID, nodes, partial: null, runningCalls, codeDispatches,
+    pending: [], queue: [], running: runningCalls.length > 0, composerPhase: 'active', removed: false,
     openState: 'open', openError: null,
     hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
   }
@@ -78,7 +90,7 @@ async function bench(snapshot: ConversationSnapshot) {
   const session = createSnapshotStore<ConversationSnapshot>(snapshot)
   const list = createSnapshotStore<SessionListState>({
     ids: [SID],
-    byId: { [SID]: { id: SID, title: 'S', displayTitle: 'S', running: false, blank: false, updatedAt: 1 } },
+    byId: { [SID]: { id: SID, title: 'S', displayTitle: 'S', running: false, waitingApproval: false, blank: false, updatedAt: 1 } },
     current: SID,
     phase: 'ready',
   })
@@ -114,16 +126,20 @@ async function bench(snapshot: ConversationSnapshot) {
     open: vi.fn(),
   }
   ctx.provide('sessions', sessionsFake)
-  ctx.provide('workspaces', {
+  const workspaces = {
     list: createSnapshotStore<WorkspaceListState>({
-      items: [], state: 'idle', phase: 'ready', error: null,
+      items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     }),
     startSession: vi.fn(),
     sendSession: vi.fn(),
-  })
+    openPath: vi.fn(async () => {}),
+  }
+  ctx.provide('workspaces', workspaces)
   ctx.provide('layout', layout)
-  ctx.provide('i18n', { bind: () => (key: string) => key })
+  const locale = new LocaleService(ctx)
+  ctx.provide('locale', locale)
+  slots.installLocale(locale)
 
   slots.install(createSlotRenderer())
   slots.register({
@@ -136,7 +152,7 @@ async function bench(snapshot: ConversationSnapshot) {
 
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
-  return { ctx, slots, fiber, session, layout }
+  return { ctx, slots, fiber, session, layout, workspaces }
 }
 
 function mountApp(slots: SlotsService) {
@@ -165,7 +181,7 @@ describe('run_code sub-calls through the real chat machinery', () => {
     // sub-tool fell back to GenericToolCard at the same render site.
     const nest = view.container.querySelector('[data-subcalls]')
     expect(nest).not.toBeNull()
-    expect(nest!.querySelector('[data-sample="bash-global"]')).not.toBeNull()
+    expect(nest!.querySelector('[data-sample="bash"]')).not.toBeNull()
     expect(view.getByText('Bash')).toBeTruthy()
     expect(view.getByText('List notes')).toBeTruthy()
     expect(view.getByText('Tool call')).toBeTruthy()
@@ -189,7 +205,7 @@ describe('run_code sub-calls through the real chat machinery', () => {
     expect(nest.querySelector('[data-tool="cordis_unmount"]')?.textContent)
       .toContain('Unmount temporary Plugindyn-2')
 
-    fireEvent.click(mounted!.querySelector('button[aria-expanded]')!)
+    fireEvent.click(mounted!.querySelector('[data-expandable]')!)
     expect(mounted!.querySelector('pre.shiki')?.textContent).toBe(code)
   })
 
@@ -197,8 +213,8 @@ describe('run_code sub-calls through the real chat machinery', () => {
     const parent = 'call-64'
     const b = await bench(snapshotWith([codeResult(10, parent)], new Map()))
     const view = mountApp(b.slots)
-    // The code row is expandable via its leading control (body = the program).
-    const toggle = view.container.querySelector('[data-variant="code"] button[aria-expanded]')
+    // The code row is expandable via the whole summary row (body = the program).
+    const toggle = view.container.querySelector('[data-variant="code"] [data-expandable]')
     expect(toggle).not.toBeNull()
     fireEvent.click(toggle!)
     // Shiki splits the program into token spans inside one <pre class="shiki">:
@@ -220,15 +236,21 @@ describe('run_code sub-calls through the real chat machinery', () => {
     expect(nested).not.toBeNull()
   })
 
-  it('a sub-row click opens details for the sub-callId', async () => {
+  it('a file sub-row click opens the host path; bash sub-rows do not open details', async () => {
     const parent = 'call-64'
     const dispatches = new Map([[parent, [
-      subCall(11, parent, 1, 'bash', { command: 'ls notes', description: 'List notes' }, 'demo.txt'),
+      subCall(11, parent, 1, 'read', { path: 'notes/demo.txt' }, 'ok'),
+      subCall(12, parent, 2, 'bash', { command: 'ls notes', description: 'List notes' }, 'demo.txt'),
     ]]])
     const b = await bench(snapshotWith([codeResult(10, parent)], dispatches))
     const view = mountApp(b.slots)
+    view.getByText('notes/demo.txt').click()
+    expect(b.layout.openDetails).not.toHaveBeenCalled()
+    await vi.waitFor(() => {
+      expect(b.workspaces.openPath).toHaveBeenCalledWith('notes/demo.txt')
+    })
     view.getByText('List notes').click()
-    expect(b.layout.openDetails).toHaveBeenCalledTimes(1)
+    expect(b.layout.openDetails).not.toHaveBeenCalled()
   })
 
   it('a RUNNING run_code call nests its so-far dispatches under the spinner row', async () => {
@@ -242,7 +264,7 @@ describe('run_code sub-calls through the real chat machinery', () => {
     expect(running).not.toBeNull()
     const nest = view.container.querySelector('[data-subcalls]')
     expect(nest).not.toBeNull()
-    expect(nest!.querySelector('[data-sample="bash-global"]')).not.toBeNull()
+    expect(nest!.querySelector('[data-sample="bash"]')).not.toBeNull()
   })
 
   it('a started-but-unsettled sub-call renders the running state exactly like a native in-flight row', async () => {

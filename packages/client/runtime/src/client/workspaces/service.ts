@@ -2,16 +2,26 @@
 
 import type { Context } from 'cordis'
 import type {
-  IApiClient, RpcError, SessionId, WorkspaceId, WorkspaceView,
+  DirectoryListing, IApiClient, RpcError,
+  SessionId, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type { SnapshotStore } from '../contract/store.ts'
 import { createSnapshotStore } from '../contract/store.ts'
-import type { SessionsService } from '../sessions/service.ts'
+import type { SessionsPort, SessionsPortList } from '../contract/sessions-port.ts'
+import type { IWorkspaces } from '../contract/workspaces.ts'
 import { WorkspaceManager, type WorkspaceListPhase } from './manager.ts'
 
 /** Workspace list plus the two-baseline readiness and default-target projection. */
 export interface WorkspaceListState {
   items: readonly WorkspaceView[]
+  /**
+   * Registry-global archive set in Host order: grouping surfaces hide these
+   * sessions everywhere (workspace groups and the ungrouped bucket) while
+   * their session logs and workspace accounting slots remain. A plain array
+   * (store-engine vocabulary; immer drafts reject Sets) — membership lookups
+   * build their own transient Set.
+   */
+  archivedSessionIds: readonly SessionId[]
   state: 'idle' | 'loading' | 'error'
   phase: WorkspaceListPhase
   error: RpcError | null
@@ -29,8 +39,16 @@ export class WorkspaceCreateError extends Error {
   }
 }
 
+/** Structured browse failure so the directory browser can branch on Host business codes. */
+export class DirectoryBrowseError extends Error {
+  constructor(readonly rpcError: RpcError) {
+    super(`directory browse failed: ${rpcError.code}: ${rpcError.message}`)
+    this.name = 'DirectoryBrowseError'
+  }
+}
+
 /** Real Workspace object layer and Host actions. */
-export class WorkspacesService {
+export class WorkspacesService implements IWorkspaces {
   /** UI-facing immutable projection; the manager remains wire truth. */
   readonly list: SnapshotStore<WorkspaceListState>
   /** Workspace baseline and frame owner. */
@@ -43,12 +61,12 @@ export class WorkspacesService {
   /**
    * @param ctx - client root context.
    * @param api - shared wire client.
-   * @param sessions - lower-level Session service used for recency and blank-session reuse.
+   * @param sessions - cross-domain sessions face used for recency and blank-session reuse.
    */
-  constructor(ctx: Context, private readonly api: IApiClient, private readonly sessions: SessionsService) {
+  constructor(ctx: Context, private readonly api: IApiClient, private readonly sessions: SessionsPort) {
     this.manager = new WorkspaceManager(api)
     this.list = createSnapshotStore<WorkspaceListState>({
-      items: [], state: 'idle', phase: 'pending', error: null,
+      items: [], archivedSessionIds: [], state: 'idle', phase: 'pending', error: null,
       baselinesReady: false, recentWorkspaceId: undefined,
     })
     this.manager.subscribe(() => { this.project() })
@@ -78,10 +96,14 @@ export class WorkspacesService {
     if (inflight !== undefined) return inflight
     // Reuse: blank && same canonical cwd (workspace.path is the host realpath
     // canon; summary cwd is the session header passthrough of the same canon).
+    // An archived blank is never reused: reuse would open a session no
+    // grouping surface can show, so New Session mints a fresh one instead.
+    const archived = this.list.getSnapshot().archivedSessionIds
     const sessions = this.sessions.list.getSnapshot()
     for (const id of sessions.ids) {
       const summary = sessions.byId[id]
-      if (summary !== undefined && summary.blank && summary.cwd === workspace.path) return summary.id
+      if (summary !== undefined && summary.blank && summary.cwd === workspace.path
+        && !archived.includes(summary.id)) return summary.id
     }
     const attempt = this.sessions.create({ workspaceId })
       .finally(() => { this.connecting.delete(workspaceId) })
@@ -171,7 +193,7 @@ export class WorkspacesService {
   }
 
   /**
-   * Open the Host's native directory picker.
+   * Open the Host's native directory picker (the `native` capability).
    * @returns the selected path, or null when the user cancelled.
    */
   async pickDirectory(): Promise<string | null> {
@@ -180,6 +202,41 @@ export class WorkspacesService {
       throw new Error(`directory picker failed: ${response.result.error.message}`)
     }
     return response.result.value.path
+  }
+
+  /**
+   * List one directory level through the Host's `browse` capability.
+   * @param path - absolute directory to list; absent lists the Host home directory.
+   * @param signal - aborts the wire request (and the Host's scan) when the caller supersedes it.
+   * @returns the level's listing with breadcrumb ancestry.
+   */
+  async listDirectory(path?: string, signal?: AbortSignal): Promise<DirectoryListing> {
+    const response = await this.api.host.listDirectory(path === undefined ? {} : { path }, signal)
+    if (!response.result.ok) throw new DirectoryBrowseError(response.result.error)
+    return response.result.value
+  }
+
+  /**
+   * Create one child directory through the Host's `browse` capability.
+   * @param path - absolute existing parent directory.
+   * @param name - single non-blank path segment.
+   * @returns the created directory's absolute path.
+   */
+  async createDirectory(path: string, name: string): Promise<string> {
+    const response = await this.api.host.createDirectory({ path, name })
+    if (!response.result.ok) throw new DirectoryBrowseError(response.result.error)
+    return response.result.value.path
+  }
+
+  /**
+   * Open a filesystem path with the Host operating system's default application.
+   * @param path - absolute or host-resolvable path.
+   */
+  async openPath(path: string): Promise<void> {
+    const response = await this.api.host.openPath({ path })
+    if (!response.result.ok) {
+      throw new Error(`path open failed: ${response.result.error.message}`)
+    }
   }
 
   /**
@@ -202,6 +259,17 @@ export class WorkspacesService {
   async delete(workspaceId: WorkspaceId): Promise<void> {
     const result = await this.manager.delete(workspaceId)
     if (!result.ok) throw new Error(`workspace delete failed: ${result.error.code}: ${result.error.message}`)
+  }
+
+  /**
+   * Archive a session into the registry-global set. Clearing an archived
+   * current selection is the projection sweep's job (one rule for the local
+   * echo and a remote tab's frame alike).
+   * @param sessionId - session to archive.
+   */
+  async archiveSession(sessionId: SessionId): Promise<void> {
+    const result = await this.manager.archiveSession(sessionId)
+    if (!result.ok) throw new Error(`session archive failed: ${result.error.code}: ${result.error.message}`)
   }
 
   /**
@@ -246,8 +314,17 @@ export class WorkspacesService {
     const workspace = this.manager.getSnapshot()
     const sessions = this.sessions.list.getSnapshot()
     const baselinesReady = workspace.phase === 'ready' && sessions.phase === 'ready'
+    // An archived current selection clears into the New Session view state —
+    // a hidden row must not stay open behind the list. Sweeping here covers
+    // every install path with one rule: the local unary echo, another tab's
+    // changed frame, and a reconnect baseline restoring a persisted
+    // selection that was archived while this client was away.
+    if (sessions.current !== undefined && workspace.archivedSessionIds.includes(sessions.current)) {
+      this.sessions.clear()
+    }
     this.list.set({
       items: workspace.items,
+      archivedSessionIds: workspace.archivedSessionIds,
       state: workspace.state,
       phase: workspace.phase,
       error: workspace.error,
@@ -260,7 +337,7 @@ export class WorkspacesService {
 /** Stable tie-breaking follows Host Workspace order. */
 function recentWorkspace(
   workspaces: readonly WorkspaceView[],
-  sessions: ReturnType<SessionsService['list']['getSnapshot']>['byId'],
+  sessions: SessionsPortList['byId'],
 ): WorkspaceId | undefined {
   let selected: WorkspaceId | undefined
   let selectedTime = Number.NEGATIVE_INFINITY

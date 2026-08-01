@@ -6,17 +6,17 @@ Status: implemented
 
 ## 问题
 
-Web 组合把部署 persona 配置为空，也没有添加由启动器拥有的源码位置或交互界面提示词段。会话 header 会记录工作目录，供工具与持久化使用，但模型提示词既不说明该目录，也不标识 DeepSeek Harness Web GUI。因此，当用户提出「修改这个页面的主题」之类的请求时，即使用户指的是承载当前会话的 GUI，agent 也只能在所选项目中搜索一个未明确说明的页面。
+CLI 共享 base 配置了空的部署 persona，Web overlay 没有替换它，而 Web 启动器既未添加源码提示词段，也未添加交互界面提示词段。会话 header 会记录工作目录，供工具与持久化使用，但模型提示词既不说明该目录，也不标识 DeepSeek Harness Web GUI。因此，当用户提出「修改这个页面的主题」之类的请求时，即使用户指的是承载当前会话的 GUI，agent 也只能在所选项目中搜索一个未明确说明的页面。
 
 ## 决策
 
-Web／无头共享组合提供一段简洁的编码 agent persona，其中包含解析后的 `{{model}}` 与会话 `{{cwd}}`。`dsh web` 还会根据启动器模块的 URL 解析 harness checkout，安装现有的 `harness:source` 提示词段，并在对外提供请求服务前添加 `app:web-surface` 提示词段。
+`apps/cli/config/web.cordis.yml` 这份 Web／无头共享 overlay 提供一段简洁的编码 agent persona，其中包含解析后的 `{{model}}` 与会话 `{{cwd}}`。`dsh web` 还会根据启动器模块的 URL 解析 harness checkout，安装现有的 `harness:source` 提示词段，并在对外提供请求服务前添加 `app:web-surface` 提示词段。源码提示词段的措辞，以及其中不得从一条路径推断另一条路径的警告，均由另行记录的[源码 checkout 与工作目录区分决策](2026-07-30-source-checkout-workdir-distinction.md)负责。
 
 Web 提示词段把未限定的「这个页面」「这个 GUI」或「这个应用」解释为 DeepSeek Harness Web GUI。同时，它会明确说明浏览器不会隐式提供 DOM、路由或截图上下文，使模型能够识别产品，但不会声称掌握未收到的视觉状态。组装后的文本会记录在 `request/header` 中，从而保持「模型可见内容必须有日志记录」这一不变量。
 
 ## 验证
 
-无密钥的 Web fresh-round-trip 场景会启动已交付组合，安装与 `dsh web` 相同的启动器上下文，并通过 HTTP／SSE 应用运行一个真实会话。测试会把源码路径和工作目录规范化，然后对系统提示词的前四个段落生成快照。该快照按请求顺序固定 harness 身份、源码 checkout、Web 界面定位，以及解析后的编码 agent persona。
+无密钥的 Web fresh-round-trip 场景会启动已交付的 base 与 Web overlay，安装与 `dsh web` 相同的启动器上下文，并通过 HTTP／SSE 应用运行一个真实会话。测试会把源码路径和工作目录规范化，然后对系统提示词的前四个段落生成快照。该快照按请求顺序固定 harness 身份、源码 checkout、Web 界面定位，以及解析后的编码 agent persona。
 
 ## 考虑过的替代方案
 

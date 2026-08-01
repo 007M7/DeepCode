@@ -37,6 +37,36 @@ export function isSurfaceEvent(event: SessionEvent): event is SurfaceEvent {
   return (event as SessionEvent<SurfaceEventType>).surfaceOp !== undefined
 }
 
+/**
+ * Narrow an event to an append-origin surface event: one that entered the
+ * surface at its own log position and was never itself a replacement copy.
+ *
+ * The model-visible surface deliberately shadows replaced ranges, so it is the
+ * wrong source for a human transcript — a landed replacement would erase
+ * conversation the user already saw. Append-origin events are that transcript's
+ * durable source material; replacement copies stay model-only.
+ * @param event - event to test.
+ * @returns true when the event appended to the surface tail.
+ */
+export function isAppendSurfaceEvent(
+  event: SessionEvent,
+): event is SurfaceEvent & { surfaceOp: 'append' } {
+  return isSurfaceEvent(event) && event.surfaceOp === 'append'
+}
+
+/**
+ * Narrow an event to a surface replacement: a node that shadowed an existing
+ * surface range instead of appending to the tail. The counterpart of
+ * {@link isAppendSurfaceEvent} over the two {@link SurfaceOp} variants.
+ * @param event - event to test.
+ * @returns true when the event replaced a surface range.
+ */
+export function isReplacementSurfaceEvent(
+  event: SessionEvent,
+): event is SurfaceEvent & { surfaceOp: Extract<SurfaceOp, { op: 'replace' }> } {
+  return isSurfaceEvent(event) && event.surfaceOp !== 'append'
+}
+
 /** One replacement operation observed while folding a session surface. */
 export interface SurfaceFoldReplacement {
   /** Seq of the event that replaced the prior surface range. */
@@ -224,8 +254,16 @@ function assertToolResultRewrite(
     }
     const originalRest = { ...original.data } as Record<string, unknown>
     const replacementRest = { ...event.data } as Record<string, unknown>
-    delete originalRest['content']
-    delete replacementRest['content']
+    const originalResult = original.data.message.content[0]
+    const replacementResult = event.data.message.content[0]
+    originalRest['message'] = {
+      ...original.data.message,
+      content: [{ ...originalResult, content: null }],
+    }
+    replacementRest['message'] = {
+      ...event.data.message,
+      content: [{ ...replacementResult, content: null }],
+    }
     if (!isDeepEqualJson(originalRest, replacementRest)) {
       throw new Error('tool/result surface replacement may change only content')
     }
@@ -332,7 +370,7 @@ export class SurfaceManager implements SessionSurface {
   /** Fold events appended since the previous access. */
   private _processDelta(): void {
     for (let i = this._lastProcessedSeq + 1; i < this.log.length; i++) {
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- bounded by the loop condition
+      // oxlint-disable-next-line typescript/no-non-null-assertion -- bounded by the loop condition
       applySurfaceEvent(this._state, this.log[i]!, i, this.log)
       this._lastProcessedSeq = i
     }

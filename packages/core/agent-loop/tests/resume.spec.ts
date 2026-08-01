@@ -1,10 +1,11 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import LlmService from '@deepseek-ai/dsh-llm'
-import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
@@ -76,6 +77,65 @@ function throwUnknown(value: unknown): never {
 }
 
 describe('the session-persistence Agent Note: AgentLoop factory create/resume', () => {
+  it('resumes a session persisted before messages gained identities', async () => {
+    const sessionId = SessionId('pre-identity-resume')
+    const first = await persistentHarness(new MockAdapter([]))
+    await first.ctx.sessionPersistence.create({
+      version: SESSION_FORMAT_VERSION,
+      id: sessionId,
+      createdAt: 1,
+    })
+    await first.ctx.sessionPersistence.append(sessionId, [
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      {
+        type: 'user/message',
+        seq: 1,
+        time: 2,
+        data: { content: [{ type: 'text', text: 'old question' }], source: { kind: 'user' } },
+        surfaceOp: 'append',
+      },
+      { type: 'step/start', seq: 2, time: 3, data: { turn: 1, step: 1 } },
+      {
+        type: 'assistant/message',
+        seq: 3,
+        time: 4,
+        data: {
+          turn: 1,
+          step: 1,
+          content: [{ type: 'text', text: 'old answer' }],
+          provenance: { provider: 'mock', model: 'mock' },
+        },
+        surfaceOp: 'append',
+      },
+      { type: 'step/end', seq: 4, time: 5, data: { turn: 1, step: 1 } },
+      { type: 'turn/end', seq: 5, time: 6, data: { turn: 1, reason: { kind: 'completed' } } },
+    ] as unknown as SessionEvent[])
+    await first.ctx.fiber.dispose()
+
+    const ctx = await mountPersistentHarness(first.root, new MockAdapter([textResponse('new answer')]))
+    const handle = await ctx.agents.resume({
+      resumeSessionId: sessionId,
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    expect(handle.agent.session.deriveMessages()).toMatchObject([
+      { id: `legacy-message:${sessionId}:1`, role: 'user' },
+      { id: `legacy-message:${sessionId}:3`, role: 'assistant' },
+    ])
+
+    handle.agent.followup(createUserMessage({
+      content: [{ type: 'text', text: 'new question' }],
+      source: { kind: 'user' },
+    }))
+    await waitForIdle(ctx, handle.agent)
+    expect(handle.agent.session.deriveMessages()).toHaveLength(4)
+    expect(handle.agent.session.events.at(-1)).toMatchObject({
+      type: 'turn/end',
+      data: { reason: { kind: 'completed' } },
+    })
+    await handle.dispose()
+    await ctx.fiber.dispose()
+  })
+
   it('normalizes a non-Error resume publication failure for rollback and rethrows it', async () => {
     const sessionId = SessionId('unknown-resume-failure-s')
     const root = await persistSession(sessionId)
@@ -146,7 +206,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     const adapter1 = new MockAdapter([textResponse('a')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
     const a1 = (await ctx1.agents.create({ sessionId: SessionId('nocwd-sess') })).agent
-    a1.followup({ content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } })
+    a1.followup(createUserMessage({ content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } }))
     await waitForIdle(ctx1, a1)
     await ctx1.fiber.dispose()
 
@@ -174,7 +234,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     ctx1.on('agent/session-start', (_agent, source) => void sources1.push(source))
     const a1 = (await ctx1.agents.create({ sessionId: SessionId('start-sess') })).agent
     expect(sources1).toEqual(['startup'])
-    a1.followup({ content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } })
+    a1.followup(createUserMessage({ content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } }))
     await waitForIdle(ctx1, a1)
     await ctx1.fiber.dispose()
 
@@ -223,7 +283,8 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
       agentOptions: { provider: 'mock', model: 'mock' },
       setup: async (agentCtx) => {
         expect(agentCtx.agent?.id).toBe(sessionId)
-        expect(agentCtx.agent?.session.events).toHaveLength(2)
+        // The two persisted events plus the end-seed marker.
+        expect(agentCtx.agent?.session.events).toHaveLength(3)
         agentCtx.on('session/created', () => void order.push('setup-listener:session/created'))
         agentCtx.on('agent/created', () => void order.push('setup-listener:agent/created'))
         order.push('setup:start')
@@ -475,9 +536,9 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     const adapter1 = new MockAdapter([textResponse('answer')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
     const a1 = (await ctx1.agents.create({ sessionId: SessionId('inject-sess'), meta: { cwd: '/w' } })).agent
-    a1.followup({ content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } })
+    a1.followup(createUserMessage({ content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } }))
     await waitForIdle(ctx1, a1)
-    a1.inject({ content: [{ type: 'text', text: 'background task 42 finished' }], source: { kind: 'plugin', plugin: 'tool-bash' } })
+    a1.inject(createUserMessage({ content: [{ type: 'text', text: 'background task 42 finished' }], source: { kind: 'plugin', plugin: 'tool-bash' } }))
     await a1.whenIdle()
     await ctx1.fiber.dispose()
 
@@ -503,7 +564,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     const adapter1 = new MockAdapter([textResponse('first answer')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
     const a1 = (await ctx1.agents.create({ sessionId: SessionId('sess-resume'), meta: { cwd: '/w' } })).agent
-    a1.followup({ content: [{ type: 'text', text: 'first question' }], source: { kind: 'user' } })
+    a1.followup(createUserMessage({ content: [{ type: 'text', text: 'first question' }], source: { kind: 'user' } }))
     await waitForIdle(ctx1, a1)
     const events1 = [...a1.session.events]
     const seqs1 = events1.map(e => e.seq)
@@ -525,12 +586,15 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     const a2 = (await ctx2.agents.resume({ resumeSessionId: SessionId('sess-resume') })).agent
     // The resumed session carries the prior history…
     expect(a2.session.id).toBe('sess-resume')
-    expect(a2.session.events.length).toBe(events1.length)
+    // …followed by one end-seed event marking the constructor seed.
+    expect(a2.session.events.length).toBe(events1.length + 1)
+    expect(a2.session.firstLiveSeq).toBe(events1.length)
+    expect(a2.session.events.at(-1)?.type).toBe('session/end-seed')
     const replay = new Session(SessionId('replay'), events1)
     expect(a2.session.deriveMessages()).toEqual(replay.deriveMessages())
 
     // …and a new turn continues numbering (turn 2) with contiguous seqs.
-    a2.followup({ content: [{ type: 'text', text: 'second question' }], source: { kind: 'user' } })
+    a2.followup(createUserMessage({ content: [{ type: 'text', text: 'second question' }], source: { kind: 'user' } }))
     await waitForIdle(ctx2, a2)
     const allSeqs = a2.session.events.map(e => e.seq)
     expect(allSeqs).toEqual(allSeqs.map((_, i) => i)) // 0..N contiguous, no duplicates

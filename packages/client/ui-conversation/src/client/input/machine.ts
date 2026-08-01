@@ -112,7 +112,6 @@ export class InputMachine {
   private inflight: {
     readonly attempt: SubmitAttempt
     readonly controller: AbortController
-    readonly mode: 'queue' | 'steer'
   } | undefined
   private log: Transaction[] = []
   private redoStack: Transaction[] = []
@@ -163,7 +162,7 @@ export class InputMachine {
         this.paste = undefined
         return []
       }
-      case 'enter': return this.onEnter(ev.mode)
+      case 'enter': return this.onEnter()
       case 'adjudicated': return this.onAdjudicated(ev.attempt, ev.outcome)
       case 'adjudication-failed': return this.onAdjudicationFailed(ev.attempt, ev.message)
       case 'submit-settled': return this.onSubmitSettled(ev)
@@ -297,14 +296,23 @@ export class InputMachine {
     return []
   }
 
-  /** Shared chip-insertion transaction: replace [span) with one placeholder occurrence (insert-ref and paste-upgrade both land here). */
-  private replaceSpanWithChip(reference: ReferenceInsert, span: TokenSpan): void {
+  /**
+   * Shared chip-insertion transaction: replace [span) with one placeholder
+   * occurrence (insert-ref and paste-upgrade both land here). A separating
+   * space follows the chip unless one is already next.
+   * @returns the inserted length (placeholder plus optional gap).
+   */
+  private replaceSpanWithChip(reference: ReferenceInsert, span: TokenSpan): number {
     this.pushTxn()
     this.typingRun = undefined
-    this.reconcile({ start: span.start, end: span.end, insertedLength: 1 })
+    const tail = this.draft.slice(span.end)
+    const gap = tail.length === 0 || tail[0] !== ' ' ? ' ' : ''
+    const inserted = PLACEHOLDER + gap
+    this.reconcile({ start: span.start, end: span.end, insertedLength: inserted.length })
     this.withMinted([this.mint(reference, span.start)])
-    this.adopt(this.draft.slice(0, span.start) + PLACEHOLDER + this.draft.slice(span.end))
+    this.adopt(this.draft.slice(0, span.start) + inserted + tail)
     this.watchClaim()
+    return inserted.length
   }
 
   /**
@@ -442,10 +450,10 @@ export class InputMachine {
     if (attempt === undefined || attempt.attemptId !== attemptId) return []
     if (this.phase !== 'plain' && this.phase !== 'claimed') return []
     if (!this.casOk(span) || span.start === span.end) return []
-    this.replaceSpanWithChip(reference, span)
+    const insertedLength = this.replaceSpanWithChip(reference, span)
     this.paste = {
       ...attempt,
-      insertedRange: { start: attempt.insertedRange.start, end: attempt.insertedRange.end + 1 - (span.end - span.start) },
+      insertedRange: { start: attempt.insertedRange.start, end: attempt.insertedRange.end + insertedLength - (span.end - span.start) },
     }
     return []
   }
@@ -453,18 +461,18 @@ export class InputMachine {
   // ---- submit plane ----
 
   /** Mint the next SubmitAttempt and take the in-flight slot. */
-  private beginAttempt(mode: 'queue' | 'steer'): SubmitAttempt {
+  private beginAttempt(): SubmitAttempt {
     const controller = new AbortController()
     this.seq += 1
     const attempt: SubmitAttempt = { seq: this.seq, signal: controller.signal, draftSnapshot: this.draft }
-    this.inflight = { attempt, controller, mode }
+    this.inflight = { attempt, controller }
     return attempt
   }
 
-  private onEnter(mode: 'queue' | 'steer'): InputEffect[] {
+  private onEnter(): InputEffect[] {
     if (this.phase === 'adjudicating' || this.phase === 'submitting') return []
     if (this.phase === 'claimed' && this.claim !== undefined) {
-      const attempt = this.beginAttempt(mode)
+      const attempt = this.beginAttempt()
       this.phase = 'submitting'
       this.paste = undefined
       return [{ type: 'begin-submit', attempt, claim: this.claim, args: argsAfter(this.draft, this.claim.token) }]
@@ -473,11 +481,11 @@ export class InputMachine {
     if (trimmed === '') return []
     this.paste = undefined
     if (trimmed.startsWith('/')) {
-      const attempt = this.beginAttempt(mode)
+      const attempt = this.beginAttempt()
       this.phase = 'adjudicating'
       return [{ type: 'adjudicate', attempt, draft: this.draft }]
     }
-    return [{ type: 'default-sink', draft: this.draft, mode }]
+    return [{ type: 'default-sink', draft: this.draft }]
   }
 
   private onAdjudicated(attempt: SubmitAttempt, outcome: Extract<InputEvent, { type: 'adjudicated' }>['outcome']): InputEffect[] {
@@ -498,7 +506,7 @@ export class InputMachine {
     this.inflight = undefined
     this.phase = 'plain'
     return outcome === undefined
-      ? [{ type: 'default-sink', draft: attempt.draftSnapshot, mode: flight.mode }]
+      ? [{ type: 'default-sink', draft: attempt.draftSnapshot }]
       : []
   }
 

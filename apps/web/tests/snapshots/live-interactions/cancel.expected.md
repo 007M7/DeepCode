@@ -1,21 +1,30 @@
 - banner:
-  - navigation "Session hierarchy":
-    - button "Reply with a one-sentence description" [disabled]
-    - text: · 1 turns
+  - heading "Reply with a one-sentence description" [level=1]
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
-    - tab "Waterfall"
-- text: Reply with a one-sentence description of event sourcing, then stop.
-- paragraph: partial
-- text: 已停止 0 tokens · 1 turns · 1 steps
-- textbox "Message the agent"
-- button "Add attachment":
+- text: Reply with a one-sentence description of event sourcing, then stop. {{clock}}
+- button "Copy":
   - img
-- combobox "Access mode":
-  - option "Read-only" [selected]
-  - option "Read-write"
-- button "选择模型，当前 deepseek-v4-flash":
-  - text: deepseek-v4-flash
+- button "Branch into a new conversation":
+  - img
+- button "Context injection":
+  - img
+  - img
+  - text: Context injection
+- paragraph: partial
+- text: Stopped
+- button "Copy":
+  - img
+- button "Branch into a new conversation":
+  - img
+- text: {{clock}}
+- textbox "Message the agent"
+- button "Commands":
+  - img
+- 'button "Access mode, current: Workspace Write"': Workspace Write
+- button "Select model, current DeepSeek-V4-Flash":
+  - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
+- text: 1 turns · 1 steps Input 0 tok · Output 0 tok

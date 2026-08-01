@@ -1,3 +1,4 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -27,12 +28,13 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('fs tools with-key smoke', () => 
     ctx = await fsHarness(workdir, SYSTEM)
     // agentLoop.create prepares a session with no cwd, so the provider default
     // (config.cwd = workdir) is the workspace.
-    const agent = ctx.agentLoop.create(SessionId('fs-e2e'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
+    const agent = ctx.agentLoop.create(SessionId('fs-e2e'), { provider: 'deepseek-official', model: 'deepseek-v4-flash' })
 
-    agent.followup({ content: [{ type: 'text', text:
+    agent.followup(createUserMessage({
+      content: [{ type: 'text', text:
       'Create a file named note.txt containing exactly the line: status: draft. '
       + 'Then read it back, then edit it to replace the literal word draft with final. '
-      + 'Tell me when done.' }], source: { kind: 'user' } })
+      + 'Tell me when done.' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
 
     // Assert the filesystem effect independently of the model response.
@@ -59,10 +61,11 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('fs tools with-key smoke', () => 
       const handle = await ctx.agents.create({
         sessionId: SessionId(`fs-e2e-cwd-${Date.now()}`),
         meta: { cwd: sessionDir },
-        agentOptions: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+        agentOptions: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
       })
-      handle.agent.followup({ content: [{ type: 'text', text:
-        'Use the write tool to create a file named where.txt containing exactly the line: here. Tell me when done.' }], source: { kind: 'user' } })
+      handle.agent.followup(createUserMessage({
+        content: [{ type: 'text', text:
+        'Use the write tool to create a file named where.txt containing exactly the line: here. Tell me when done.' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, handle.agent)
 
       // The file is in the SESSION dir, not the config dir.

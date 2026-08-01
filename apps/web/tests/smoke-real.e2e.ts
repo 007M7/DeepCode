@@ -7,7 +7,7 @@
 //
 // Selector convention: CSS Modules hash as [hash]_[local], so class-substring
 // selectors are unreliable — anchor on data-* attributes (data-variant /
-// data-clickable / data-sample) or visible text. The one [class*=] use below
+// data-sample) or visible text. The one [class*=] use below
 // (frame/handle) rides local names that survive hashing as suffixes; prefer
 // data-* for anything new.
 //
@@ -20,11 +20,11 @@ import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
-import { REPO_ROOT, connectFreshWorkspace, probeFreePort, requireDist, saveFailureShot } from './support.ts'
+import { REPO_ROOT, connectFreshWorkspace, newEnglishPage, probeFreePort, requireDist, saveFailureShot } from './support.ts'
 
 function waitForReadyLine(child: ChildProcess): Promise<string> {
   return new Promise((resolveReady, reject) => {
@@ -89,8 +89,10 @@ function providerTitle(page: HistoryPage): string | undefined {
 
 function hasAssistantMarker(page: HistoryPage, marker: string): boolean {
   return page.events.some(({ event }) => {
-    if (event.type !== 'assistant/message' || !isRecord(event.data) || !Array.isArray(event.data.content)) return false
-    return event.data.content.some(block =>
+    if (event.type !== 'assistant/message' || !isRecord(event.data) || !isRecord(event.data.message)) return false
+    const content = event.data.message.content
+    if (!Array.isArray(content)) return false
+    return content.some(block =>
       isRecord(block) && block.type === 'text' && typeof block.text === 'string' && block.text.includes(marker))
   })
 }
@@ -161,6 +163,8 @@ describe('dsh web keyless CLI smoke', () => {
         env: {
           ...process.env,
           DEEPSEEK_API_KEY: 'keyless-web-no-call',
+          DSH_HOME: join(sessionsDir, '.dsh'),
+          DSH_AGENTS_HOME: join(sessionsDir, '.agents'),
           TSX_TSCONFIG_PATH: join(REPO_ROOT, 'tsconfig.json'),
         },
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -186,8 +190,12 @@ describe('dsh web keyless CLI smoke', () => {
     mkdirSync(join(workspace, '.git'))
     writeFileSync(join(workspace, 'AGENTS.md'), 'web-workspace-context-probe\n')
 
-    let resolveProviderRequest!: (request: { messages?: { role?: string; content?: string }[] }) => void
-    const providerRequest = new Promise<{ messages?: { role?: string; content?: string }[] }>((resolve) => {
+    interface NativeProviderRequest {
+      messages?: { role?: string; content?: string }[]
+      tools?: { function?: { name?: string } }[]
+    }
+    let resolveProviderRequest!: (request: NativeProviderRequest) => void
+    const providerRequest = new Promise<NativeProviderRequest>((resolve) => {
       resolveProviderRequest = resolve
     })
     const provider = createServer((request, response) => {
@@ -195,7 +203,7 @@ describe('dsh web keyless CLI smoke', () => {
       request.setEncoding('utf8')
       request.on('data', (chunk: string) => { body += chunk })
       request.on('end', () => {
-        resolveProviderRequest(JSON.parse(body) as { messages?: { role?: string; content?: string }[] })
+        resolveProviderRequest(JSON.parse(body) as NativeProviderRequest)
         response.writeHead(200, { 'content-type': 'text/event-stream' })
         response.end([
           'data: {"choices":[{"delta":{"role":"assistant","content":null,"reasoning_content":""}}]}',
@@ -220,6 +228,7 @@ describe('dsh web keyless CLI smoke', () => {
           DEEPSEEK_API_KEY: 'keyless-web-workspace',
           DEEPSEEK_BASE_URL: `http://127.0.0.1:${address.port}`,
           DSH_HOME: join(workspace, '.dsh'),
+          DSH_AGENTS_HOME: join(workspace, '.agents'),
           TSX_TSCONFIG_PATH: join(REPO_ROOT, 'tsconfig.json'),
         },
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -239,6 +248,8 @@ describe('dsh web keyless CLI smoke', () => {
           setTimeout(() => { reject(new Error('provider request not received in 10s')) }, 10_000).unref()
         }),
       ])
+      expect(captured.messages?.some(message =>
+        message.role === 'user' && message.content?.includes('<available_skills>'))).toBe(false)
       const workspaceMessage = captured.messages?.find(message =>
         message.role === 'user' && message.content?.includes('web-workspace-context-probe'))
       expect(workspaceMessage).toMatchInlineSnapshot(`
@@ -254,6 +265,13 @@ describe('dsh web keyless CLI smoke', () => {
           "role": "user",
         }
       `)
+      expect(captured.tools?.map(tool => tool.function?.name)
+        .filter(name => name === 'web_search' || name === 'web_fetch'))
+        .toMatchInlineSnapshot(`
+          [
+            "web_search",
+          ]
+        `)
     } finally {
       const closed = child.exitCode === null
         ? new Promise<void>((resolveClose) => { child.once('close', () => { resolveClose() }) })
@@ -264,6 +282,98 @@ describe('dsh web keyless CLI smoke', () => {
       rmSync(workspace, { recursive: true, force: true })
     }
   })
+
+  it('retries a partial transport failure through the shipped Web composition', async () => {
+    requireDist()
+    const workspace = mkdtempSync(join(tmpdir(), 'dsh-web-retry-'))
+    const promptMarker = 'WEB_RETRY_REQUEST'
+    const recoveredMarker = 'WEB_RETRY_RECOVERED'
+    let mainAttempts = 0
+    const provider = createServer((request, response) => {
+      let body = ''
+      request.setEncoding('utf8')
+      request.on('data', (chunk: string) => { body += chunk })
+      request.on('end', () => {
+        const parsed = JSON.parse(body) as { max_tokens?: number; messages?: unknown[] }
+        const titleRequest = parsed.max_tokens === 64
+        const mainRequest = !titleRequest && body.includes(promptMarker)
+        response.writeHead(200, { 'content-type': 'text/event-stream' })
+        if (!mainRequest) {
+          response.end([
+            'data: {"choices":[{"delta":{"content":"Web retry title"}}]}',
+            'data: {"choices":[{"delta":{"content":""},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}',
+            'data: [DONE]',
+            '',
+          ].join('\n\n'))
+          return
+        }
+        mainAttempts++
+        if (mainAttempts === 1) {
+          response.write('data: {"choices":[{"delta":{"content":"WEB_RETRY_DISCARDED"}}]}\n\n')
+          setTimeout(() => { response.destroy() }, 20)
+          return
+        }
+        response.end([
+          `data: {"choices":[{"delta":{"content":"${recoveredMarker}"}}]}`,
+          'data: {"choices":[{"delta":{"content":""},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}',
+          'data: [DONE]',
+          '',
+        ].join('\n\n'))
+      })
+    })
+    await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', resolve))
+    const address = provider.address()
+    if (address === null || typeof address === 'string') throw new Error('mock provider did not bind a TCP port')
+    const tsxLoader = pathToFileURL(createRequire(join(REPO_ROOT, 'package.json')).resolve('tsx')).href
+    const child = spawn(
+      process.execPath,
+      ['--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web', '--port', '0'],
+      {
+        cwd: workspace,
+        env: {
+          ...process.env,
+          DEEPSEEK_API_KEY: 'keyless-web-retry',
+          DEEPSEEK_BASE_URL: `http://127.0.0.1:${address.port}`,
+          DSH_HOME: join(workspace, '.dsh'),
+          TSX_TSCONFIG_PATH: join(REPO_ROOT, 'tsconfig.json'),
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    )
+    try {
+      const baseUrl = await waitForReadyLine(child)
+      const created = await rpc<{ sessionId: string }>(baseUrl, 'session.create', {})
+      await rpc<{ accepted: true }>(baseUrl, 'session.prompt', {
+        sessionId: created.sessionId,
+        mode: 'queue',
+        content: [{ type: 'text', text: promptMarker }],
+      })
+      let page: HistoryPage | undefined
+      await expect.poll(async () => {
+        page = await history(baseUrl, created.sessionId)
+        return hasAssistantMarker(page, recoveredMarker)
+      }, { timeout: 20_000 }).toBe(true)
+      if (page === undefined) throw new Error('retry history was not observed')
+      const retry = page.events.find(({ event }) => event.type === 'llm/retry')?.event
+      expect(mainAttempts).toBe(2)
+      expect(retry?.data).toMatchObject({
+        turn: 1,
+        step: 1,
+        retry: 1,
+        maxRetries: 2,
+        failure: { code: 'TRANSPORT' },
+      })
+      expect(JSON.stringify(page.events)).toContain('WEB_RETRY_DISCARDED')
+    } finally {
+      const closed = child.exitCode === null
+        ? new Promise<void>((resolveClose) => { child.once('close', () => { resolveClose() }) })
+        : Promise.resolve()
+      if (child.exitCode === null) child.kill('SIGTERM')
+      await closed
+      await new Promise<void>(resolveClose => provider.close(() => { resolveClose() }))
+      rmSync(workspace, { recursive: true, force: true })
+    }
+  }, 30_000)
 
   it('DSH_TOOLS_MODE=code collapses the provider wire tools to run_code with the SDK prompt section', async () => {
     requireDist()
@@ -308,6 +418,7 @@ describe('dsh web keyless CLI smoke', () => {
           DEEPSEEK_BASE_URL: `http://127.0.0.1:${address.port}`,
           DSH_TOOLS_MODE: 'code',
           DSH_HOME: join(workspace, '.dsh'),
+          DSH_AGENTS_HOME: join(workspace, '.agents'),
           TSX_TSCONFIG_PATH: join(REPO_ROOT, 'tsconfig.json'),
         },
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -355,22 +466,32 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     requireDist()
     sessionsDir = mkdtempSync(join(tmpdir(), 'dsh-web-w5-'))
     const port = await probeFreePort()
-    // tsx boot mirrors demo:web — lib/ may be unbuilt in this worktree. cwd is a
-    // temp dir (persistenceRoot is cwd-relative), so tsx needs the repo's loader
-    // and tsconfig paths pointed at explicitly.
+    // tsx boot mirrors demo:web — lib/ may be unbuilt in this worktree. Isolate
+    // the host-level Harness and shared-agent homes inside the temp world; tsx
+    // also needs the repo's loader and tsconfig paths pointed at explicitly.
     const tsxLoader = pathToFileURL(createRequire(join(REPO_ROOT, 'package.json')).resolve('tsx')).href
     child = spawn(
       process.execPath,
-      ['--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web', '--port', String(port)],
+      [
+        '--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web', '--port', String(port),
+        // Pin the in-browser picker: the shipped `-auto` row would resolve to
+        // the native OS chooser on this bind, and no page can drive that.
+        '--config', fileURLToPath(new URL('./pin-browse-picker.overlay.yml', import.meta.url)),
+      ],
       {
         cwd: sessionsDir,
-        env: { ...process.env, TSX_TSCONFIG_PATH: join(REPO_ROOT, 'tsconfig.json') },
+        env: {
+          ...process.env,
+          DSH_HOME: join(sessionsDir, '.dsh'),
+          DSH_AGENTS_HOME: join(sessionsDir, '.agents'),
+          TSX_TSCONFIG_PATH: join(REPO_ROOT, 'tsconfig.json'),
+        },
         stdio: ['ignore', 'pipe', 'pipe'],
       },
     )
     baseUrl = (await waitForReadyLine(child)).replace('0.0.0.0', '127.0.0.1')
     browser = await chromium.launch()
-    page = await browser.newPage({ viewport: { width: 1680, height: 1000 } })
+    page = await newEnglishPage(browser)
     page.on('pageerror', e => pageErrors.push(String(e)))
     await page.goto(baseUrl, { waitUntil: 'load' })
   }, 120_000)
@@ -397,8 +518,18 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
 
   it('2+3 empty-state first send completes a real model round', async () => {
     onTestFailed(() => saveFailureShot(page, 'w5-first-round'))
+    // This scenario spawns its own server against a fresh $DSH_HOME, so the
+    // first-run welcome notice is unacknowledged and its overlay owns pointer
+    // events (the shared scaffold acknowledges it before boot instead). The
+    // notice is anchored structurally, not by its copy: this spec sits in the
+    // client TypeScript program, which does not reference the package that
+    // owns the strings.
+    const welcome = page.locator('[class*="onboardingOverlay"]')
+    await welcome.waitFor({ timeout: 15_000 })
+    await welcome.getByRole('button').click()
+    await welcome.waitFor({ state: 'detached', timeout: 15_000 })
     // Fresh world: connect a Workspace so the composer starts live.
-    await connectFreshWorkspace(page)
+    await connectFreshWorkspace(page, sessionsDir)
     const input = page.locator('textarea').first()
     await input.waitFor({ timeout: 10_000 })
     await screen(page, '02-empty-state')
@@ -438,17 +569,17 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     await screen(page, '04-round-complete')
   }, 150_000)
 
-  it('4 view tabs: Chat / Trajectory / Waterfall all switch', async () => {
+  it('view tabs: Chat and Trajectory switch', async () => {
     onTestFailed(() => saveFailureShot(page, 'w5-tabs'))
     await page.locator('button', { hasText: /Trajectory/i }).first().click()
     await screen(page, '05-trajectory-tab')
-    await page.locator('button', { hasText: /Waterfall/i }).first().click()
-    await screen(page, '06-waterfall-tab')
+    await page.getByLabel('Trajectory timeline').waitFor()
+    await expect.poll(() => page.getByRole('tab', { name: 'Waterfall' }).count()).toBe(0)
     await page.locator('button', { hasText: /^Chat$/i }).first().click()
     await screen(page, '07-back-to-chat')
   })
 
-  it('5 bash differential rendering: tool row click opens the details column', async () => {
+  it('5 bash differential rendering: tool row click leaves the default details column closed', async () => {
     onTestFailed(() => saveFailureShot(page, 'w5-tool-details'))
     const input = page.locator('textarea').first()
     await input.fill('请用 bash 工具运行命令 echo w5marker 然后告诉我结果')
@@ -457,21 +588,17 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     // Bash renders through the third-party sample registration. Match that
     // exact row: other clickable variants (for example Think disclosure)
     // may precede the tool call in document order.
-    const toolRow = page.locator('[data-sample="bash-global"]')
+    const toolRow = page.locator('[data-sample="bash"]')
     await toolRow.waitFor({ timeout: 120_000 })
     await screen(page, '08-bash-round')
     expect(await detailsTrack(page)).toBe(0)
     await toolRow.click()
-    // Selection channel: click writes selection + layout.openDetails.
-    await page.waitForFunction(() => {
-      const frame = document.querySelector('[class*="frame"]')
-      if (frame === null) return false
-      return Number(getComputedStyle(frame).gridTemplateColumns.split(' ').pop()!.replace('px', '')) > 0
-    }, undefined, { timeout: 10_000 })
-    await screen(page, '09-details-open')
+    // Tool rows no longer drive layout.openDetails; the default column stays closed.
+    expect(await detailsTrack(page)).toBe(0)
+    await screen(page, '09-details-closed')
   }, 150_000)
 
-  it('6 sidebar drag widens the column and persists across reload', async () => {
+  it('6 sidebar drag widens the column and resets across reload', async () => {
     onTestFailed(() => saveFailureShot(page, 'w5-drag'))
     const before = await firstTrack(page)
     const handle = page.locator('[class*="handle"]').first()
@@ -486,7 +613,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     await screen(page, '10-sidebar-dragged')
     await page.reload({ waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
-    expect(await firstTrack(page)).toBe(after)
+    expect(await firstTrack(page)).toBe(before)
   })
 
   it('7 dark mode: the body attribute cascades the token sheets', async () => {

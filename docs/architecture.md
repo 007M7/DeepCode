@@ -16,7 +16,7 @@ Harnesses are [Cordis](cordis-primer.md) contexts; packages contribute services,
 |---|---|---|
 | — | [`dsh-scope`](../packages/core/scope/README.md) | scoped-context registrations and shared layer storage (library) |
 | `ctx.sessions` | `dsh-session` | in-memory event-sourced sessions |
-| `ctx.systemPrompt` | `dsh-system-prompt` | ordered prompt sections, tool schemas, and variables |
+| `ctx.systemPrompt` | `dsh-system-prompt` | ordered stable system sections, cache-safe dynamic contexts, tool schemas, and variables |
 | `ctx.tools` | `dsh-tools` | tool registry and [execution pipeline](tool-execution-pipeline.md) |
 | `ctx.agents` | `dsh-agent` | live agents, delegated creation, `agent/*` events, process-local initiator scope |
 | `ctx.agentLoop` | `dsh-agent-loop` | concrete `Agent` driver |
@@ -25,27 +25,31 @@ Harnesses are [Cordis](cordis-primer.md) contexts; packages contribute services,
 
 | ctx key | Package family | Role |
 |---|---|---|
-| `ctx.llm` | [`llm/`](../packages/llm/README.md) | adapter registry and streaming model calls |
-| `ctx.tokenMeter` | [`llm/token-meter`](../packages/llm/token-meter/README.md) | singleton replay-aware request and surface pressure |
+| `ctx.llm` | [`llm/`](../packages/llm/README.md) | adapter registry, streaming model calls |
+| `ctx.tokenMeter` | [`llm/token-meter`](../packages/llm/token-meter/README.md) | replay-aware request and surface pressure |
 | `ctx.bash` | [`bash/`](../packages/bash/README.md) | foreground/background command execution |
-| `ctx.subprocess` | [`subprocess/`](../packages/subprocess/README.md) | managed child-process trees for the bash executors, the LSP host, and the ACP subagent backend |
+| `ctx.subprocess` | [`subprocess/`](../packages/subprocess/README.md) | managed child-process trees for bash, LSP, and ACP subagent backends |
 | `ctx.pty` | [`pty/`](../packages/pty/README.md) | owner-scoped persistent terminal sessions |
 | `ctx.sandbox` | [`sandbox/`](../packages/sandbox/README.md) | same-world process confinement through argv wrapping and per-call policy |
 | `ctx.sandboxPolicy` | [`sandbox/`](../packages/sandbox/README.md) | shared sandbox policy home |
 | `ctx.codeRuntime` | [`code-runtime/`](../packages/code-runtime/README.md) | model-written program execution |
 | `ctx.fs` | [`fs/`](../packages/fs/README.md) | filesystem provider primitives and policy events |
 | `ctx.lsp` | [`lsp/`](../packages/lsp/README.md) | semantic navigation registry |
-| `ctx.skills` | [`skill/`](../packages/skill/README.md) | skill provider registry and progressive disclosure |
+| `ctx.skills` | [`skill/`](../packages/skill/README.md) | skill provider registry, progressive disclosure |
 | `ctx.web` | [`web/`](../packages/web/README.md) | search/fetch provider registries |
-| `ctx.compact`, `ctx.toolResultPrune` | [`compact/`](../packages/compact/README.md)/[`compact-tool-result-prune`](../packages/compact/compact-tool-result-prune/README.md) | summary compaction and optional model-free result pruning |
+| `ctx.compact`, `ctx.toolResultPrune` | [`compact/`](../packages/compact/README.md)/[`compact-tool-result-prune`](../packages/compact/compact-tool-result-prune/README.md) | summary compaction, optional model-free result pruning |
 | `ctx.subagents` | [`subagent/`](../packages/subagent/README.md) | named delegation providers |
 | `ctx.planMode` | [`plan/`](../packages/plan/README.md) | logged plan collaboration state |
-| `ctx.tasks` | [`tasks/`](../packages/tasks/README.md) | background task registry and generic `task_*` controls |
+| `ctx.tasks` | [`tasks/`](../packages/tasks/README.md) | background task registry, generic `task_*` controls |
 | `ctx.workflows` | [`workflow/`](../packages/workflow/README.md) | script-driven multi-agent orchestration |
 | `ctx.goals` | [`goal/`](../packages/goal/README.md) | persisted same-session goals |
 | `ctx.sessionPersistence` | [`session-persistence/`](../packages/session-persistence/README.md) | durable session-log storage |
-| `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | live-preferred exact/filter/trace interface, SQLite FTS backend, workspace-authorized model tools |
-| `ctx.sessionTitle` | [`session-title/`](../packages/session-title/README.md) | log-backed fallbacks and one optional asynchronous provider |
+| `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | live-preferred exact/filter/trace queries over SQLite FTS, workspace-authorized model tools |
+| `ctx.sessionTitle` | [`session-title/`](../packages/session-title/README.md) | log-backed fallbacks, one optional asynchronous provider |
+| `ctx.settings` | [`settings/`](../packages/settings/README.md) | per-plugin user-settings namespaces layered over composition entries |
+| `ctx.credentials` | [`credentials/`](../packages/credentials/README.md) | named secret references resolved per operation, never inlined in configuration |
+| `ctx.directoryPicker` | [`host/directory-picker`](../packages/host/directory-picker/README.md) | GUI-host directory picking (`native`/`browse` interactions) |
+| `ctx.typert` | [`typert/registry`](../packages/typert/registry/README.md) | runtime registry for generated package reflection and live Zod schemas |
 | `ctx.invariants` | [`support/invariants`](../packages/support/invariants/README.md) | package-name-selected registry of package-owned runtime checks |
 
 ## Event
@@ -76,8 +80,8 @@ choose declarative identity and fresh/resume path
   -> enter session + agent -> session/created -> agent/created
   -> enable driving -> agent/session-start(source) -> start driver
 forever:
-  wait for a queued message
-  claim message -> emit agent/status(running) if starting an interval
+  wait for queued occurrence
+  claim (edit/remove end) -> emit agent/status(running) if starting an interval
   open the next-step acceptance window
   -> agent/prompt-submit
     blocked or failed prompt -> close the window without opening a turn
@@ -89,17 +93,18 @@ forever:
     STEP loop:
       agent/step
       drain injected context and steering (steering bypasses prompt-submit)
-      assemble system prompt and tool schemas
+      assemble system prompt and tools
+      materialize changed runtime context as sourced 'user/message'
       snapshot the derived messages (the reconstruction boundary)
       'step/start'
-      agent/request (config only) -> prepare reasoning/default under turn signal -> log request/header -> llm/stream (frozen, registration-bound)
+      agent/request (config only) -> prepare adapter defaults/provenance + context capacity under turn signal -> log request/header (+ request/context on route change) -> llm/stream (frozen, registration-bound)
       'assistant/chunk'
       'assistant/message'
       schedule tool calls by ctx.tools.executionMode:
-        exclusive -> one-call barrier
-        parallel -> rolling pool, <= maxParallelToolCalls in flight; reclassify before start
-        each start -> 'tool/call' -> ordered tools/pre-execute -> concurrent tools/execute
-        each model-order result -> ordered tools/post-execute -> 'tool/result'
+        exclusive -> barrier
+        parallel -> rolling pool, <= maxParallelToolCalls; reclassify-at-start; scheduler failure -> stop starts, drain dispatches
+        start -> 'tool/call' -> ordered tools/pre-execute -> concurrent tools/execute
+        model-order result -> ordered tools/post-execute -> 'tool/result'
       drain accepted tool context and steering
       'step/end'
       continue for tools or steering unless a result concluded the turn
@@ -113,7 +118,7 @@ idle inject:
   do not open a turn or run the model
 ```
 
-Each step assembles ordered prompt sections, tool schemas, and variables; unknown references fail the turn. `dsh-system-prompt` owns identity and persona; the loop supplies `provider`, `model`, and `cwd` ([prompt ownership](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)).
+Each step assembles ordered stable system sections, cache-safe dynamic contexts, tool schemas, and variables; unknown references fail the turn. `dsh-system-prompt` owns identity and persona; the loop supplies `provider`, `model`, and `cwd` ([prompt ownership](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)).
 
 Admission-time and active-turn `inject()` stage for the next step; post-tool `additionalContexts` settles after results. Steering shares that staging boundary and requests another step. Idle `inject()` appends immediately without changing turn numbers; persistence drains eagerly.
 
@@ -125,11 +130,11 @@ Adapter failures close their step before `agent/request-error` receives the exac
 
 Other failures use `agent/error`. Cancellation and disposal beat recovery. Before request-header commit, the turn signal cancels asynchronous model-capability preparation; undispatched tools get synthetic `tool/call`/`ABORTED_BEFORE_DISPATCH` pairs. Effective `cancel(cause)` emits its cause before queue clearing and abort; observers cannot veto; idle calls emit nothing. Durability records user or parent cancellation as `aborted`, teardown as `disposed`; teardown awaits quiescence. The cause affects reporting, not late result-context handling ([decision](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)).
 
-Turn and step events are turn-enclosed; idle injected `user/message` events may sit between turns. Reload closes an interrupted tail with a synthetic turn end. After close, only `agent/error` reports failures. Each turn has one [TurnEndReason](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap).
+Turn and step events are turn-enclosed. Idle `user/message` and standalone `compact/* { turn: null }` consume no turn; their lock-time markers may interleave with injection. Reload synthesizes interrupted turn ends; `session/end-seed` distinguishes stale compaction orphans from live locks. After close, only `agent/error` reports failures. Each turn has one [TurnEndReason](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap).
 
 ### Agent Handles
 
-`ctx.agents` owns live agents and returns `AgentHandle { agent, dispose() }`. Plugins use full `send()` options or `followup()`, `steer()`, and `inject()` presets; `cancel()` and `whenIdle()` control lifecycle. One awaited disposer coordinates teardown ownership.
+`ctx.agents` owns agents, returning `AgentHandle { agent, dispose() }`. Plugins use `send()` or `followup()`, `steer()`, and `inject()` presets; [`reserveTurnAdmission()`](../packages/core/agent/README.md#agent-interface-typests) synchronously reserves idle for durable work without changing queued prompt identity. `cancel()` and `whenIdle()` control lifecycle. Awaited disposal owns teardown.
 
 ### Agent Scope
 
@@ -141,11 +146,11 @@ Each agent owns scoped `agent.ctx`; shared storage overlays its tool, prompt, an
 
 The session log is authoritative. `deriveMessages()` projects model history; raw `assistant/chunk` events preserve replay and UI fidelity. Fork, resume, transcript rendering, telemetry, and persistence derive from this stream.
 
-**Model-visible ⟺ logged**: messages at `step/start` plus the folded `request/header` reconstruct every request; package-owned `dsh-agent-loop/invariant` can assert this through `ctx.invariants` ([reconstructability](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)).
+**Model-visible ⟺ logged**: before `step/start`, the loop appends the full current runtime-context snapshot as a sourced `user/message`, then snapshots derived messages. Those messages and the folded `request/header` reconstruct each request. The header marks adapter defaults so later proposals discard them and re-resolve the route without losing explicit settings. `dsh-agent-loop/invariant` asserts this through `ctx.invariants` ([reconstructability](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)).
 
 Durability is a plugin concern. Backends eagerly drain synchronous `session/event` notifications. `session/flush` barriers precede each request and top-level tool dispatch, then follow `turn/end` before another queued turn or idle observation. `SessionPersistence` stores `SessionEvent` directly and metadata in `SessionHeader`; JSONL defaults to checksummed Zstandard, while SQLite shares the contract ([decision](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md)).
 
-Log-only events may sit between turns. Owners append through `Session`, flushing only for durability. `session/title` relies on eager persistence and lifecycle drains. Latest title wins with provenance; fallback and provider work never delays responses. Such records are fork boundaries, so forks inherit titles ([decision](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)).
+Between turns, owners append log-only events through `Session`, flushing only for durability. `session/title` needs eager persistence and lifecycle drains; manual compaction flushes its bracket before releasing admission. Title work never delays responses; latest wins with provenance. Title records are inherited fork boundaries ([decision](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)).
 
 ### Model Content
 

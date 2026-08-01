@@ -215,7 +215,7 @@ interface ToolRunContext extends ToolExecution {
    * the agent loop. Contexts retain their individual source and metadata and
    * are emitted in call order.
    */
-  deferContext(context: UserMessageData): void
+  deferContext(context: UserMessage): void
   /**
    * Mark a successful final result as terminal for the current agent turn.
    * The marker rides this execution's own result (`concludesTurn` exists only
@@ -329,7 +329,7 @@ interface ToolExecutionSuccess {
   readonly content: ContentBlock[]
   readonly error?: never
   readonly meta?: JsonValue
-  readonly additionalContexts?: UserMessageData[]
+  readonly additionalContexts?: UserMessage[]
   /** The agent loop stops after committing this successful result batch. */
   readonly concludesTurn?: true
 }
@@ -343,7 +343,7 @@ interface ToolExecutionFailure {
   readonly value?: never
   readonly content: ContentBlock[]
   readonly meta?: JsonValue
-  readonly additionalContexts?: UserMessageData[]
+  readonly additionalContexts?: UserMessage[]
   readonly concludesTurn?: never
 }
 ```
@@ -380,9 +380,9 @@ type PreToolDecision =
  * next request, or block by turning corrective feedback into an error result.
  */
 type PostToolDecision =
-  | { kind: 'accept'; content?: ContentBlock[]; value?: never; additionalContexts?: UserMessageData[] }
-  | { kind: 'accept'; value: JsonValue; content?: never; additionalContexts?: UserMessageData[] }
-  | { kind: 'block'; feedback: ContentBlock[]; additionalContexts?: UserMessageData[] }
+  | { kind: 'accept'; content?: ContentBlock[]; value?: never; additionalContexts?: UserMessage[] }
+  | { kind: 'accept'; value: JsonValue; content?: never; additionalContexts?: UserMessage[] }
+  | { kind: 'block'; feedback: ContentBlock[]; additionalContexts?: UserMessage[] }
 ```
 
 Call `next()` for the default or return a decision to short-circuit. Pre-policy may deny or ask; only `allowed-once` proceeds, while a non-grant, missing approval channel or service, or agent-less request becomes a denial. Guards may still impose a final denial. Arguments cannot be rewritten because history, audit, UI, and execution must agree.
@@ -447,8 +447,8 @@ type ObjectJsonSchema = JsonSchemaNode & { type: 'object' }
 How a tool wants its call shown in a UI (an editor tool-call card, a CLI log line), provider-neutral so a tool describes itself without depending on any client protocol. `presentCall`/`presentResult` return a **`card`-tagged render intent** — a discriminated union a UI bridge switches on:
 
 - `ToolCallView` (pending): `{ card: 'generic', title, kind?, rawInput?, content?, locations? }` (the default card; `locations` is `{ path, line? }[]` files the call reads/modifies, for editor follow-along), `{ card: 'terminal', title, description?, cwd? }` (a shell command → a terminal card), or `{ card: 'diff', title, diffs, locations? }` (a file create/modify → an inline diff card; `diffs` is `{ path, oldText, newText }[]`, `oldText: null` for a new file).
-- `ToolResultView` (completed): `{ card: 'generic', title?, content? }`, `{ card: 'terminal', title?, output?, exitCode?, signal? }` (the captured run output + exit; a capable UI shows an exit-status pill, while another may derive a fenced ` ```console ` fallback), or `{ card: 'diff', title?, diffs }` (a completed file mutation → the change to show, typically the applied hunks with context lines computed from the before/after content, or a whole-file diff when there is no before-image). Completed views replace pending views, so mutation tools return a diff result even when it duplicates the call-time snippet.
+- `ToolResultView` (completed): `{ card: 'generic', title?, content? }`, `{ card: 'terminal', title?, output?, exitCode?, signal? }` (the captured run output + exit; a capable UI shows an exit-status pill, while another may derive a fenced ` ```console ` fallback), `{ card: 'diff', title?, diffs }` (a completed file mutation → the change to show, typically the applied hunks with context lines computed from the before/after content, or a whole-file diff when there is no before-image), `{ card: 'search', shape, title?, truncated, total, … }` (a completed discovery search → grouped-by-file matches for `shape: 'matches'` (grep) or a flat path list for `shape: 'paths'` (glob); `truncated`/`total` report whether the inline result was capped so a UI never presents a partial result as complete; the view carries no result text — a UI without a search card falls back to the raw result content), `{ card: 'read', title?, path, offset, lines, totalLines, lang?, content? }` (a completed file read → a line-numbered, optionally syntax-highlighted code view; `offset` is the 1-based first line the window requested, kept even when `lines` is empty; `lang` is a language hint from the extension, and `content` is the envelope-stripped text a UI without read support falls back to), or `{ card: 'web', kind: 'search' | 'fetch', title?, … }` (a completed web retrieval; `kind: 'search'` carries the structured `sources`/`answer?`/`truncated`, `kind: 'fetch'` carries `url`/`statusCode`/`truncated`, and a UI without the `web` capability falls back to the raw result content — the body is not duplicated into the view). Completed views replace pending views, so mutation tools return a diff result even when it duplicates the call-time snippet; a search and a web retrieval have no `card` call-time analogue (their pending state stays a generic card, since the structured result exists only after `execute`).
 
-`ToolCallKind` (`'read' | 'edit' | 'delete' | 'move' | 'search' | 'execute' | 'fetch' | 'other'`) picks an icon on a generic card. `FileLocation` (`{ path, line? }`) and `FileDiff` (`{ path, oldText, newText }`) are the shared file-card vocabulary. The design is pinned in [the render-intent-union Agent Note](../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.md); the TUI and host/client runtime project this neutral vocabulary into their own views.
+`ToolCallKind` (`'read' | 'edit' | 'delete' | 'move' | 'search' | 'execute' | 'fetch' | 'other'`) picks an icon on a generic card. `FileLocation` (`{ path, line? }`), `FileDiff` (`{ path, oldText, newText }`), and `ReadFileLine` (`{ number, text }`, one 1-based numbered line of a read window) are the shared file-card vocabulary. The design is pinned in [the render-intent-union Agent Note](../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.md); the TUI and host/client runtime project this neutral vocabulary into their own views.
 
 The full presentation field docs live in [`packages/core/tools/src/presentation.ts`](../../packages/core/tools/src/presentation.ts). The `bash` schema and executor are on [bash.md](bash.md); generic background controls are on [tasks.md](tasks.md).

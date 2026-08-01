@@ -14,22 +14,27 @@
     {
       "doc": "docs/core-data-structures/core.md",
       "symbol": "AssistantProvenance",
-      "source": "packages/llm/llm/src/types.ts"
+      "source": "packages/llm/llm/src/message.ts"
     },
     {
       "doc": "docs/core-data-structures/core.md",
       "symbol": "Message",
-      "source": "packages/llm/llm/src/types.ts"
+      "source": "packages/llm/llm/src/message.ts"
     },
     {
       "doc": "docs/core-data-structures/core.md",
       "symbol": "MessageSourceMap",
-      "source": "packages/llm/llm/src/types.ts"
+      "source": "packages/llm/llm/src/message.ts"
     },
     {
       "doc": "docs/core-data-structures/core.md",
       "symbol": "FinishReasonMap",
       "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "AdapterRegistrationHandle",
+      "source": "packages/llm/llm/src/index.ts"
     },
     {
       "doc": "docs/core-data-structures/core.md",
@@ -83,6 +88,11 @@
     },
     {
       "doc": "docs/core-data-structures/core.md",
+      "symbol": "LlmCallConfigAdapterDefaults",
+      "source": "packages/llm/llm/src/call-config.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
       "symbol": "SessionEvent",
       "source": "packages/core/session/src/types.ts"
     },
@@ -98,17 +108,22 @@
     },
     {
       "doc": "docs/core-data-structures/core.md",
+      "symbol": "InboxItem",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "InboxAction",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "InboxActionResult",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
       "symbol": "SendOptions",
-      "source": "packages/core/agent/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/core.md",
-      "symbol": "AgentMessageId",
-      "source": "packages/core/agent/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/core.md",
-      "symbol": "AgentMessage",
       "source": "packages/core/agent/src/types.ts"
     },
     {
@@ -189,37 +204,37 @@
     {
       "doc": "docs/core-data-structures/goal.md",
       "symbol": "GoalView",
-      "source": "packages/goal/goal/src/types.ts"
+      "source": "packages/goal/goal/src/domain.ts"
     },
     {
       "doc": "docs/core-data-structures/goal.md",
       "symbol": "GoalSnapshotChangeMeta",
-      "source": "packages/goal/goal/src/types.ts"
+      "source": "packages/goal/goal/src/domain.ts"
     },
     {
       "doc": "docs/core-data-structures/goal.md",
       "symbol": "GoalClearChangeMeta",
-      "source": "packages/goal/goal/src/types.ts"
+      "source": "packages/goal/goal/src/domain.ts"
     },
     {
       "doc": "docs/core-data-structures/goal.md",
       "symbol": "GoalMessageSource",
-      "source": "packages/goal/goal/src/types.ts"
+      "source": "packages/goal/goal/src/domain.ts"
     },
     {
       "doc": "docs/core-data-structures/goal.md",
       "symbol": "CreateGoalRequest",
-      "source": "packages/goal/goal/src/types.ts"
+      "source": "packages/goal/goal/src/domain.ts"
     },
     {
       "doc": "docs/core-data-structures/goal.md",
       "symbol": "EditGoalRequest",
-      "source": "packages/goal/goal/src/types.ts"
+      "source": "packages/goal/goal/src/domain.ts"
     },
     {
       "doc": "docs/core-data-structures/goal.md",
       "symbol": "GoalChanged",
-      "source": "packages/goal/goal/src/types.ts"
+      "source": "packages/goal/goal/src/domain.ts"
     },
     {
       "doc": "docs/core-data-structures/commands.md",
@@ -254,6 +269,11 @@
     {
       "doc": "docs/core-data-structures/system-prompt.md",
       "symbol": "AssembleContext",
+      "source": "packages/core/system-prompt/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/system-prompt.md",
+      "symbol": "PromptContext",
       "source": "packages/core/system-prompt/src/index.ts"
     },
     {
@@ -320,8 +340,8 @@
     },
     {
       "doc": "docs/core-data-structures/session.md",
-      "symbol": "UserMessageData",
-      "source": "packages/core/session/src/types.ts"
+      "symbol": "UserMessage",
+      "source": "packages/llm/llm/src/message.ts"
     },
     {
       "doc": "docs/core-data-structures/session.md",
@@ -331,6 +351,11 @@
     {
       "doc": "docs/core-data-structures/session.md",
       "symbol": "EpochHeader",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.md",
+      "symbol": "RequestContext",
       "source": "packages/core/session/src/types.ts"
     },
     {
@@ -691,6 +716,11 @@
     },
     {
       "doc": "docs/core-data-structures/user-interaction.md",
+      "symbol": "AskUserQuestionIntent",
+      "source": "packages/ui/user-interaction/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/user-interaction.md",
       "symbol": "AskUserQuestionItem",
       "source": "packages/ui/user-interaction/src/types.ts"
     },
@@ -976,7 +1006,17 @@
     },
     {
       "doc": "docs/core-data-structures/skills.md",
+      "symbol": "SkillInvocationPolicy",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.md",
       "symbol": "SkillSummary",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.md",
+      "symbol": "SkillCatalogSnapshot",
       "source": "packages/skill/skill/src/index.ts"
     },
     {
@@ -1001,7 +1041,17 @@
     },
     {
       "doc": "docs/core-data-structures/skills.md",
+      "symbol": "SkillProviderObservation",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.md",
       "symbol": "SkillProvider",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.md",
+      "symbol": "SkillProviderControl",
       "source": "packages/skill/skill/src/index.ts"
     },
     {
@@ -1017,6 +1067,11 @@
     {
       "doc": "docs/core-data-structures/compaction.md",
       "symbol": "CompactionTrigger",
+      "source": "packages/compact/compact/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/compaction.md",
+      "symbol": "ManualCompactionErrorCode",
       "source": "packages/compact/compact/src/index.ts"
     },
     {
@@ -1308,6 +1363,66 @@
       "doc": "docs/core-data-structures/subprocess.md",
       "symbol": "SubprocessCollectedOutputs",
       "source": "packages/subprocess/subprocess/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/settings.md",
+      "symbol": "SettingsNamespace",
+      "source": "packages/settings/settings/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/settings.md",
+      "symbol": "SettingsRegisterOptions",
+      "source": "packages/settings/settings/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/settings.md",
+      "symbol": "SettingsApplies",
+      "source": "packages/settings/settings/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/settings.md",
+      "symbol": "SettingsScope",
+      "source": "packages/settings/settings/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/settings.md",
+      "symbol": "SettingsDescriptor",
+      "source": "packages/settings/settings/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/settings.md",
+      "symbol": "SettingsUpdateSource",
+      "source": "packages/settings/settings/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/credentials.md",
+      "symbol": "CredentialRef",
+      "source": "packages/credentials/credentials/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/credentials.md",
+      "symbol": "ResolvedCredential",
+      "source": "packages/credentials/credentials/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/credentials.md",
+      "symbol": "CredentialInfo",
+      "source": "packages/credentials/credentials/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/settings.md",
+      "symbol": "SettingsDescribeOptions",
+      "source": "packages/settings/settings/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "LlmConfigurableProvider",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/settings.md",
+      "symbol": "SettingsPathOp",
+      "source": "packages/settings/settings/src/index.ts"
     }
   ]
 }

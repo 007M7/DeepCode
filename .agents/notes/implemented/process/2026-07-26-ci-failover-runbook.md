@@ -14,7 +14,7 @@ Each of the three required Linux worker jobs — and the `all checks passed` ver
 
 ### What the in-house pool is
 
-`vm-backup`: one 64-core VM, six always-on systemd-managed runner instances. Check the latest `serial / linux (self-hosted standby)` run before switching: a green standby is verified-yesterday capacity.
+`vm-backup`: one 64-core VM, six always-on systemd-managed runner instances. Its image must preinstall Playwright Chromium's Linux system packages; CI downloads the lockfile-selected browser but never runs `apt` on this persistent shared host. Check the latest `serial / linux (self-hosted standby)` run before switching: its aggregate includes browser replay, so a green standby verifies both ordinary capacity and this browser prerequisite.
 
 ### Switch (any repository writer, ~1 minute, no merge)
 

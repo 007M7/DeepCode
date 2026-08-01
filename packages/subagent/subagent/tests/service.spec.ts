@@ -226,7 +226,7 @@ describe('SubagentService', () => {
     const heard: string[] = []
     ctx.on('subagent/provider-removed', () => { throw new Error('sync boom') })
     // Runtime listeners may return thenables even though the declaration's observable result is void.
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- exercises rejected-listener containment
+    // oxlint-disable-next-line typescript/no-misused-promises -- exercises rejected-listener containment
     ctx.on('subagent/provider-removed', async () => { throw new Error('async boom') })
     ctx.on('subagent/provider-removed', () => { throw { toString: () => { throw new Error('coercion') } } })
     ctx.on('subagent/provider-removed', name => void heard.push(name))

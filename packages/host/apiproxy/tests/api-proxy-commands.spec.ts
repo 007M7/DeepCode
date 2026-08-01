@@ -1,3 +1,4 @@
+import { MessageId, freezeMessage } from '@deepseek-ai/dsh-llm'
 /**
  * Command/skill RPC handlers and the two new frames over createApiProxy:
  * command.list serves the addressed agent's effective catalog (missing
@@ -8,12 +9,12 @@
  * open-time queue snapshot.
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import AgentRegistry, { AgentMessageId } from '@deepseek-ai/dsh-agent'
-import type { Agent, AgentMessage } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { InboxItemId } from '@deepseek-ai/dsh-agent'
+import type { Agent, InboxItem, InboxPlacement } from '@deepseek-ai/dsh-agent'
 import SessionStore from '@deepseek-ai/dsh-session'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
@@ -115,8 +116,16 @@ describe('command.execute', () => {
     const api = createApiProxy(ctx, DEFAULTS)
     const agent = stubAgent(ctx)
     const value = expectOk(await api.commands.execute(request({ sessionId: agent.id, line: '/goal ship it' }), new AbortController().signal))
-    expect(value).toEqual({ matched: true, result: { kind: 'success', text: `goal:${agent.id}` } })
+    expect(value).toMatchObject({ matched: true })
+    expect(value.commandId).toBeTruthy()
     expect(received).toBe(' ship it')
+    // Pure admission on the wire: the outcome rides the durably logged
+    // lifecycle pair instead of the response.
+    const lifecycle = agent.session.events.filter(e => e.type === 'command/run' || e.type === 'command/done')
+    expect(lifecycle).toMatchObject([
+      { type: 'command/run', data: { commandId: value.commandId, name: 'goal', args: ' ship it' } },
+      { type: 'command/done', data: { commandId: value.commandId, kind: 'success', text: `goal:${agent.id}` } },
+    ])
   })
 
   it('returns matched:false when syntax or name does not resolve', async () => {
@@ -171,17 +180,35 @@ describe('skill.list', () => {
   it('lists skills for the session cwd taken from the header', async () => {
     const ctx = await harness()
     const seenCwds: (string | undefined)[] = []
-    ctx.skills.registerProvider({
+    ctx.skills.registerProvider(() => ({
       name: 'probe',
       list: (options) => {
         seenCwds.push(options.cwd)
-        return Promise.resolve([{
-          name: 'commit-helper', description: 'Git commits', whenToUse: 'when committing',
-          source: 'custom', provider: 'probe', rank: 0, locator: null,
-        }])
+        return Promise.resolve([
+          {
+            name: 'commit-helper', description: 'Git commits', whenToUse: 'when committing',
+            invocation: { modelInvocable: true, userInvocable: true },
+            source: 'custom', provider: 'probe', rank: 0, locator: null,
+          },
+          {
+            name: 'user-only', description: 'User-only',
+            invocation: { modelInvocable: false, userInvocable: true },
+            source: 'custom', provider: 'probe', rank: 0, locator: null,
+          },
+          {
+            name: 'model-only', description: 'Model-only',
+            invocation: { modelInvocable: true, userInvocable: false },
+            source: 'custom', provider: 'probe', rank: 0, locator: null,
+          },
+          {
+            name: 'trusted-only', description: 'Trusted-only',
+            invocation: { modelInvocable: false, userInvocable: false },
+            source: 'custom', provider: 'probe', rank: 0, locator: null,
+          },
+        ])
       },
       get: () => Promise.resolve(undefined),
-    })
+    }))
     const api = createApiProxy(ctx, DEFAULTS)
     // No agent is registered for this session: header resolution must not
     // touch (or resume through) the Agent registry.
@@ -210,11 +237,11 @@ describe('skill.list', () => {
 
   it('folds a provider failure into internal', async () => {
     const ctx = await harness()
-    ctx.skills.registerProvider({
+    ctx.skills.registerProvider(() => ({
       name: 'broken',
       list: () => Promise.reject(new Error('directory exploded')),
       get: () => Promise.resolve(undefined),
-    })
+    }))
     const api = createApiProxy(ctx, DEFAULTS)
     const session = ctx.sessions.create(undefined, { meta: { cwd: '/proj' } })
     const response = await api.skills.list(request({ sessionId: session.id }))
@@ -238,74 +265,168 @@ describe('host/commands-changed frame', () => {
 })
 
 /** Build one frozen inbox message for the live `agent/inbox/*` events. */
-function inboxMessage(id: string, text: string, rpcId?: string): AgentMessage {
-  return Object.freeze({
-    id: AgentMessageId(id),
+function inboxMessage(id: string, text: string, rpcId?: string): UserMessage {
+  return freezeMessage({
+    id: MessageId(id),
+    role: 'user',
     content: [{ type: 'text' as const, text }],
     source: rpcId === undefined ? { kind: 'user' as const } : { kind: 'user' as const, rpcId: RpcId(rpcId) },
   })
 }
 
-describe('session/queued frames', () => {
-  it('forwards live enqueue events and replays the snapshot on a later mux open', async () => {
+/** Build one addressable inbox occurrence around a frozen message. */
+function inboxItem(id: string, message: UserMessage, placement: InboxPlacement): InboxItem {
+  return { id: InboxItemId(id), message, placement }
+}
+
+describe('session.updateQueue', () => {
+  it('routes an addressable action and reports a lost claim race', async () => {
+    const ctx = await harness()
+    const agent = stubAgent(ctx)
+    const seen: unknown[] = []
+    agent.updateInbox = (id, action) => {
+      seen.push({ id, action })
+      return id === InboxItemId('present') ? 'applied' : 'not-found'
+    }
+    const api = createApiProxy(ctx, DEFAULTS)
+
+    const applied = await api.sessions.updateQueue({
+      rpcId: RpcId('q-apply'),
+      payload: {
+        sessionId: agent.id,
+        itemId: InboxItemId('present'),
+        action: { kind: 'edit', content: [{ type: 'text', text: 'edited' }] },
+      },
+    })
+    expect(expectOk(applied)).toEqual({ accepted: true })
+    const missing = await api.sessions.updateQueue({
+      rpcId: RpcId('q-missing'),
+      payload: {
+        sessionId: agent.id,
+        itemId: InboxItemId('claimed'),
+        action: { kind: 'remove' },
+      },
+    })
+    expect(expectErr(missing)).toMatchObject({ code: 'queue-item-not-found' })
+    expect(seen).toEqual([
+      { id: 'present', action: { kind: 'edit', content: [{ type: 'text', text: 'edited' }] } },
+      { id: 'claimed', action: { kind: 'remove' } },
+    ])
+  })
+
+  it('rejects a stale occurrence without resuming a cold agent', async () => {
+    const ctx = await harness()
+    const resume = vi.spyOn(ctx.agents, 'resume')
+    const api = createApiProxy(ctx, DEFAULTS)
+    const response = await api.sessions.updateQueue({
+      rpcId: RpcId('q-cold'),
+      payload: {
+        sessionId: 'cold-session' as SessionId,
+        itemId: InboxItemId('stale-item'),
+        action: { kind: 'remove' },
+      },
+    })
+
+    expect(expectErr(response)).toMatchObject({ code: 'queue-item-not-found' })
+    expect(resume).not.toHaveBeenCalled()
+  })
+})
+
+describe('session/queue frames', () => {
+  it('folds nested mutations observed before their outer enqueue', async () => {
+    const ctx = await harness()
+    const agent = stubAgent(ctx)
+    const original = inboxItem('i-edit', inboxMessage('m-edit', 'before'), 'queued')
+    const edited = inboxItem('i-edit', inboxMessage('m-edit', 'after'), 'queued')
+    const removed = inboxItem('i-remove', inboxMessage('m-remove', 'remove me'), 'queued')
+    ctx.on('agent/inbox/enqueue', (subject, item) => {
+      if (subject !== agent) return
+      if (item.id === original.id) ctx.emit('agent/inbox/update', agent, edited)
+      if (item.id === removed.id) ctx.emit('agent/inbox/discard', agent, [removed])
+    })
+    const api = createApiProxy(ctx, DEFAULTS)
+    const live = new AbortController()
+    const collected = collect<MuxFrame>(
+      api.events.mux({ rpcId: RpcId('t-mux-reentrant'), payload: {} }, live.signal), 2, live)
+
+    ctx.emit('agent/inbox/enqueue', agent, original)
+    ctx.emit('agent/inbox/enqueue', agent, removed)
+
+    const liveFrames = (await collected).filter(frame => frame.type === 'session/queue')
+    expect(liveFrames.map(frame => frame.items)).toEqual([
+      [{ id: edited.id, message: edited.message }],
+    ])
+    const replay = new AbortController()
+    const replayFrames = await collect<MuxFrame>(
+      api.events.mux({ rpcId: RpcId('t-mux-reentrant-replay'), payload: {} }, replay.signal), 2, replay)
+    expect(replayFrames.filter(frame => frame.type === 'session/queue')).toEqual(liveFrames)
+  })
+
+  it('publishes complete live snapshots and replays the latest snapshot on reconnect', async () => {
     const ctx = await harness()
     const api = createApiProxy(ctx, DEFAULTS)
     const agent = stubAgent(ctx)
     const live = new AbortController()
     const liveStream = api.events.mux({ rpcId: RpcId('t-mux-live'), payload: {} }, live.signal)
-    // subscribed baseline + 2 queued frames
-    const liveCollected = collect<MuxFrame>(liveStream, 3, live)
+    // subscribed baseline + one queued snapshot; pending steering stays off this wire.
+    const liveCollected = collect<MuxFrame>(liveStream, 2, live)
 
-    const queued = inboxMessage('m-1', 'queued prompt')
-    const steering = inboxMessage('m-2', 'queued prompt')
-    ctx.emit('agent/inbox/enqueue', agent, queued, 'queued')
-    ctx.emit('agent/inbox/enqueue', agent, steering, 'steering')
+    const queued = inboxItem('i-1', inboxMessage('m-1', 'queued prompt'), 'queued')
+    const steering = inboxItem('i-2', inboxMessage('m-2', 'steering prompt'), 'steering')
+    ctx.emit('agent/inbox/enqueue', agent, queued)
+    ctx.emit('agent/inbox/enqueue', agent, steering)
 
-    const liveFrames = (await liveCollected).filter(f => f.type === 'session/queued')
+    const liveFrames = (await liveCollected).filter(f => f.type === 'session/queue')
     expect(liveFrames).toEqual([
-      { type: 'session/queued', sessionId: agent.id, content: queued.content, source: { kind: 'user' }, steering: false },
-      { type: 'session/queued', sessionId: agent.id, content: steering.content, source: { kind: 'user' }, steering: true },
+      {
+        type: 'session/queue',
+        sessionId: agent.id,
+        items: [{ id: queued.id, message: queued.message }],
+      },
     ])
 
-    // A fresh mux connection replays the still-pending entries as its baseline.
+    // A fresh mux connection replays only the current authoritative snapshot.
     const replay = new AbortController()
     const replayFrames = await collect<MuxFrame>(
-      api.events.mux({ rpcId: RpcId('t-mux-replay'), payload: {} }, replay.signal), 3, replay)
-    expect(replayFrames.filter(f => f.type === 'session/queued')).toEqual(liveFrames)
+      api.events.mux({ rpcId: RpcId('t-mux-replay'), payload: {} }, replay.signal), 2, replay)
+    expect(replayFrames.filter(f => f.type === 'session/queue')).toEqual([liveFrames[0]])
   })
 
-  it('retires mirror entries on their terminal dequeue', async () => {
+  it('publishes edits in place in the authoritative order', async () => {
     const ctx = await harness()
     const api = createApiProxy(ctx, DEFAULTS)
     const agent = stubAgent(ctx)
-    const queued = inboxMessage('m-3', 'x')
-    const steering = inboxMessage('m-4', 'x', 'r-1')
-    ctx.emit('agent/inbox/enqueue', agent, queued, 'queued')
-    ctx.emit('agent/inbox/enqueue', agent, steering, 'steering')
-    ctx.emit('agent/inbox/dequeue', agent, queued)
-    ctx.emit('agent/inbox/dequeue', agent, steering)
-
     const abort = new AbortController()
-    const frames = await collect<MuxFrame>(
-      api.events.mux({ rpcId: RpcId('t-mux-after'), payload: {} }, abort.signal), 1, abort)
-    expect(frames.filter(f => f.type === 'session/queued')).toHaveLength(0)
+    const collected = collect<MuxFrame>(
+      api.events.mux({ rpcId: RpcId('t-mux-updates'), payload: {} }, abort.signal), 5, abort)
+    const first = inboxItem('i-a', inboxMessage('m-a', 'a'), 'queued')
+    const second = inboxItem('i-b', inboxMessage('m-b', 'b'), 'queued')
+    const edited = inboxItem('i-b', inboxMessage('m-b', 'b edited'), 'queued')
+    ctx.emit('agent/inbox/enqueue', agent, first)
+    ctx.emit('agent/inbox/enqueue', agent, second)
+    ctx.emit('agent/inbox/update', agent, edited)
+    ctx.emit('agent/inbox/dequeue', agent, edited)
+
+    const frames = (await collected).filter(frame => frame.type === 'session/queue')
+    expect(frames.map(frame => frame.items)).toEqual([
+      [{ id: first.id, message: first.message }],
+      [{ id: first.id, message: first.message }, { id: second.id, message: second.message }],
+      [{ id: first.id, message: first.message }, { id: edited.id, message: edited.message }],
+      [{ id: first.id, message: first.message }],
+    ])
   })
 
-  it('retires mirror entries on a batch discard (cancel path)', async () => {
+  it('publishes an empty snapshot after terminal discard', async () => {
     const ctx = await harness()
     const api = createApiProxy(ctx, DEFAULTS)
     const agent = stubAgent(ctx)
-    const doomed = inboxMessage('m-5', 'doomed')
-    const survivor = inboxMessage('m-6', 'survivor')
-    ctx.emit('agent/inbox/enqueue', agent, doomed, 'queued')
-    ctx.emit('agent/inbox/enqueue', agent, survivor, 'queued')
+    const doomed = inboxItem('i-doomed', inboxMessage('m-5', 'doomed'), 'queued')
+    ctx.emit('agent/inbox/enqueue', agent, doomed)
     ctx.emit('agent/inbox/discard', agent, [doomed])
 
     const abort = new AbortController()
     const frames = await collect<MuxFrame>(
-      api.events.mux({ rpcId: RpcId('t-mux-swept'), payload: {} }, abort.signal), 2, abort)
-    const remaining = frames.filter(f => f.type === 'session/queued')
-    expect(remaining).toHaveLength(1)
-    expect(remaining[0]).toMatchObject({ content: survivor.content })
+      api.events.mux({ rpcId: RpcId('t-mux-swept'), payload: {} }, abort.signal), 1, abort)
+    expect(frames.filter(frame => frame.type === 'session/queue')).toHaveLength(0)
   })
 })

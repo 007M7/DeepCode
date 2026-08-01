@@ -27,7 +27,7 @@ If hooks are missing because dependencies were restored from cache or `postinsta
 node scripts/install-lefthook.mjs
 ```
 
-The wrapper refuses user-owned `core.hooksPath` values. An inherited system, global, or common-repository path requires `DSH_LEFTHOOK_ALLOW_HOOKS_PATH_OVERRIDE=1`; command-scoped and worktree-scoped custom paths must be integrated or removed explicitly.
+The wrapper refuses user-owned `core.hooksPath` values. An inherited system, global, or common-repository path requires `DSH_LEFTHOOK_ALLOW_HOOKS_PATH_OVERRIDE=1`. When Git seeds a new worktree with another registered worktree's marker-backed hook path, the wrapper replaces that copied value with the new worktree's own path; command-scoped and other worktree-scoped paths must be integrated or removed explicitly.
 
 Before enabling worktree config, migrate direct `extensions.*` in a format-0 common config, direct `core.worktree` or `core.bare=true`, and any non-empty dormant `config.worktree`. The common config and every worktree config must be regular files, while the owned hook directory may contain only unaliased regular files.
 
@@ -83,7 +83,7 @@ DEEPSEEK_BASE_URL=https://... # optional
 
 lefthook is configured in `lefthook.yml` as a fast local checkpoint:
 
-- `pre-commit` runs staged-file ESLint fixes, checks the staged diff for whitespace errors, and runs the vendor manifest guard.
+- `pre-commit` applies formatting-only ESLint fixes, validates the staged files with Oxlint and applies its native fixes, regenerates `THIRD_PARTY_NOTICES.md` when a staged file is one of its inputs, checks the staged diff for whitespace errors, and runs the vendor manifest guard.
 - `pre-push` runs only the incremental repository typecheck (`tsc -b` over the root solution, covering both the host and client aggregates).
 
 The vendor manifest guard checks that changes under `vendor/*/src` are staged with the matching `vendor/README.md` manifest update. See `vendor/README.md` before editing vendored code.
@@ -106,8 +106,8 @@ pnpm run test:coverage  # unit tests with per-file coverage gates
 pnpm run test:e2e       # real-API tests; self-skips without DEEPSEEK_API_KEY
 pnpm run check:all      # comprehensive opt-in gate set; not wired to Git hooks
 pnpm run typecheck      # tsc -b over the root solution: emits package/vendor lib/types, checks both aggregates
-pnpm run lint           # eslint .
-pnpm run lint:fix       # eslint . --fix
+pnpm run lint           # oxlint .
+pnpm run lint:fix       # formatting-only ESLint, then oxlint . --fix
 pnpm run doc-typecheck  # compile checked TypeScript snippets in Markdown docs
 pnpm run gen-cordis-catalog     # regenerate docs/cordis-catalog/events.md + services.md from source
 pnpm run verify-cordis-catalog  # fail if either cordis catalog is stale
@@ -143,7 +143,7 @@ The full-screen interactive coding agent needs `DEEPSEEK_API_KEY` in the environ
 pnpm run demo:tui
 ```
 
-The self-referential cordis-agent demo can inspect and modify its live plugin runtime and needs the same credentials:
+The self-referential cordis demo can inspect and modify its live plugin runtime and needs the same credentials (`web` by default, or `acp`):
 
 ```sh
 pnpm run demo:cordis

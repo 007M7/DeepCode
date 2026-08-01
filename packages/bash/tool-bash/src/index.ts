@@ -296,7 +296,9 @@ function presentBashResult(args: unknown, result: ToolResult): ToolResultView | 
   if (isBackground || result.isError) {
     return { card: 'generic', content: [{ type: 'text', text: `\`\`\`console\n${raw.replace(/\n+$/, '')}\n\`\`\`` }] }
   }
-  return { card: 'terminal', output: raw, ...parseExitStatus(raw) }
+  // The exit marker becomes the card's exit pill, so it leaves the output body.
+  const { body, ...exit } = parseExitStatus(raw)
+  return { card: 'terminal', output: body, ...exit }
 }
 
 /**
@@ -374,7 +376,6 @@ export function apply(ctx: Context, config: Config = {}): void {
   if (defaultMode !== undefined && sandboxPolicy === undefined) {
     throw new Error('tool-bash: the mounted bash executor confines but ctx.sandboxPolicy is missing')
   }
-
   /** Resolve the complete standing policy for this call when a confining executor is mounted. */
   const resolveSandboxPolicy = (exec: ToolExecution): SandboxExecutionPolicy | undefined =>
     sandboxPolicy?.resolve(exec.agent === undefined ? {} : { session: exec.agent.session })

@@ -78,7 +78,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-Sources: [`packages/core/session/src/types.ts:261`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:268`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:297`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:329`](../packages/core/session/src/types.ts)
+Sources: [`packages/core/session/src/types.ts:308`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:315`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:344`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:376`](../packages/core/session/src/types.ts)
 
 ## Events
 
@@ -129,12 +129,16 @@ Source: [`packages/ui/user-approval/src/index.ts:55`](../packages/ui/user-approv
 /**
  * The session's approval policy was switched — log-only, durable,
  * replayable, never in the model transcript (the model learns the policy
- * from the prompt section and the narrator's notices). The LAST such
- * event is the session's override ({@link effectiveApprovalPolicy});
- * who asked for it is derivable from position (an event after the log's
- * last `request/header` was a runtime switch by the user).
+ * from the cache-safe runtime-context snapshot). The LAST such
+ * event is the session's override ({@link effectiveApprovalPolicy}).
+ * `source: 'delegation'` marks an override seeded into a child; an absent
+ * source is a runtime switch.
  */
-'approval/policy': { policy: ApprovalPolicy }
+'approval/policy': {
+  policy: ApprovalPolicy
+  /** Marks an override seeded into a child at delegation. */
+  source?: 'delegation'
+}
 ```
 
 Source: [`packages/ui/user-approval/src/index.ts:67`](../packages/ui/user-approval/src/index.ts)
@@ -150,7 +154,7 @@ Source: [`packages/ui/user-approval/src/index.ts:67`](../packages/ui/user-approv
 
 Types: [StreamChunk](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:215`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:229`](../packages/core/session/src/types.ts)
 
 #### `assistant/message` — surface
 
@@ -161,32 +165,71 @@ Source: [`packages/core/session/src/types.ts:215`](../packages/core/session/src/
  * the model output and its accounting travel together (there is no separate
  * usage record). `usage` is absent when the adapter reported none.
  */
-'assistant/message': { turn: number; step: number; content: ContentBlock[]; provenance: AssistantProvenance; usage?: TokenUsage }
+'assistant/message': { turn: number; step: number; message: AssistantMessage; usage?: TokenUsage }
 ```
 
-Types: [ContentBlock](core-data-structures/core.md) · [TokenUsage](core-data-structures/llm-streaming.md)
+Types: [TokenUsage](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:222`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:236`](../packages/core/session/src/types.ts)
+
+### `command/*`
+
+#### `command/done` — log-only
+
+```ts persistence-catalog
+/**
+ * The paired command settled. `kind`/`text` carry the handler's verbatim
+ * outcome (a thrown/aborted handler settles as `kind: 'error'` with the
+ * rendered failure); presentation stays client-computed at render time.
+ */
+'command/done': { commandId: CommandId; kind: 'success' | 'error'; text?: string }
+```
+
+Source: [`packages/ui/commands/src/index.ts:138`](../packages/ui/commands/src/index.ts)
+
+#### `command/run` — log-only
+
+```ts persistence-catalog
+/**
+ * A resolved slash command entered its handler. Log-only (never model
+ * surface); paired with `command/done` by `commandId`, mirroring the
+ * `tool/call`↔`tool/result` pairing. The payload is structured — `name`
+ * and `args` are `parseCommand`'s own split (name and verbatim rawInput,
+ * separator whitespace included), so a consumer (a projection unit
+ * folding its own command records, a rich command card) never re-parses
+ * a line.
+ */
+'command/run': { commandId: CommandId; name: string; args: string; source: CommandSource }
+```
+
+Source: [`packages/ui/commands/src/index.ts:132`](../packages/ui/commands/src/index.ts)
 
 ### `compact/*`
 
 #### `compact/end` — log-only
 
 ```ts persistence-catalog
-/** Marks the end of a compaction — log-only, releases the lock. `error` set if summarization failed. */
-'compact/end': { turn: number; error?: string }
+/**
+ * Marks the end of a compaction — log-only, releases the lock. Its owner
+ * matches `compact/start`; `error` records an unsuccessful attempt.
+ */
+'compact/end': { turn: number | null; error?: string }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:40`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:51`](../packages/compact/compact/src/types.ts)
 
 #### `compact/start` — log-only
 
 ```ts persistence-catalog
-/** Marks the start of a compaction — log-only, holds the lock until `compact/end`. */
-'compact/start': { turn: number }
+/**
+ * Marks the start of a compaction — log-only, holds the lock until
+ * `compact/end`. A numbered owner is strictly enclosed by that open turn;
+ * `null` identifies a standalone manual transaction between turns.
+ */
+'compact/start': { turn: number | null }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:15`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:19`](../packages/compact/compact/src/types.ts)
 
 #### `compact/summary` — log-only
 
@@ -199,6 +242,8 @@ Source: [`packages/compact/compact/src/types.ts:15`](../packages/compact/compact
  */
 'compact/summary': {
   summary: ContentBlock[]
+  /** Complete provider output before the backend's safe summary projection. */
+  rawOutput?: ContentBlock[]
   shadowedRange: { start: number; end: number }
   shadowedSeqs: number[]
   shadowedTokenCount: number
@@ -213,12 +258,14 @@ Source: [`packages/compact/compact/src/types.ts:15`](../packages/compact/compact
   model: string
   /** The generation cap the summarize call sent, when one applied. */
   maxTokens?: number
+  /** Provider-reported token usage for the summarization request, when emitted. */
+  usage?: TokenUsage
 }
 ```
 
-Types: [ContentBlock](core-data-structures/core.md)
+Types: [ContentBlock](core-data-structures/core.md) · [TokenUsage](core-data-structures/llm-streaming.md)
 
-Source: [`packages/compact/compact/src/types.ts:22`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:26`](../packages/compact/compact/src/types.ts)
 
 ### `hook/*`
 
@@ -310,7 +357,7 @@ Source: [`packages/llm/llm-retry/src/index.ts:18`](../packages/llm/llm-retry/src
 'permission/preset': { preset: string }
 ```
 
-Source: [`packages/ui/permission/src/index.ts:36`](../packages/ui/permission/src/index.ts)
+Source: [`packages/ui/permission/src/index.ts:50`](../packages/ui/permission/src/index.ts)
 
 ### `plan/*`
 
@@ -325,9 +372,26 @@ Source: [`packages/ui/permission/src/index.ts:36`](../packages/ui/permission/src
 'plan/mode': { active: boolean }
 ```
 
-Source: [`packages/plan/plan-mode/src/index.ts:40`](../packages/plan/plan-mode/src/index.ts)
+Source: [`packages/plan/plan-mode/src/index.ts:51`](../packages/plan/plan-mode/src/index.ts)
 
 ### `request/*`
+
+#### `request/context` — log-only
+
+```ts persistence-catalog
+/**
+ * Registration-bound context metadata for the route a request resolved to,
+ * appended inside its step beside `request/header` and only when the route
+ * or capacity differs from the last record. It is log-only and deliberately
+ * NOT part of {@link EpochHeader}: capacity is adapter metadata about a
+ * route, not an input the request was built from, so it must not participate
+ * in request reconstruction or header equality. `contextWindow` is absent
+ * when the route's adapter advertises no capacity.
+ */
+'request/context': RequestContext
+```
+
+Source: [`packages/core/session/src/types.ts:279`](../packages/core/session/src/types.ts)
 
 #### `request/header` — log-only
 
@@ -339,7 +403,7 @@ Source: [`packages/plan/plan-mode/src/index.ts:40`](../packages/plan/plan-mode/s
 'request/header': { header: EpochHeader; reason: RequestHeaderReason }
 ```
 
-Source: [`packages/core/session/src/types.ts:257`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:269`](../packages/core/session/src/types.ts)
 
 ### `sandbox/*`
 
@@ -350,16 +414,51 @@ Source: [`packages/core/session/src/types.ts:257`](../packages/core/session/src/
  * The session's sandbox mode was switched — log-only (like `approval/*`;
  * NOT a surface event, carries no `surfaceOp`): durable and replayable,
  * never in the model transcript. The LAST such event is the session's
- * override ({@link effectiveSandboxMode}); who asked for it is derivable
- * from position (an event after the log's last `request/header*` was a
- * runtime switch by the user; see the tool layer's narrator).
+ * override ({@link effectiveSandboxMode}). `source: 'delegation'` marks
+ * an override seeded into a child; an absent source is a runtime switch.
  */
-'sandbox/mode': { mode: SandboxMode }
+'sandbox/mode': {
+  mode: SandboxMode
+  /** Marks an override seeded into a child at delegation. */
+  source?: 'delegation'
+}
 ```
 
-Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:34`](../packages/sandbox/sandbox-policy/src/session-mode.ts)
+Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:33`](../packages/sandbox/sandbox-policy/src/session-mode.ts)
 
 ### `session/*`
+
+#### `session/end-seed` — log-only
+
+```ts persistence-catalog
+/**
+ * Marks the end of a constructor seed. Events before it have smaller seq
+ * values and came from the seed (resume, fork, or replay); this lifecycle
+ * produced none of them. An explicitly supplied empty seed puts the marker
+ * at seq 0, distinguishing an empty resumed session from a fresh session.
+ * This log-only event is the durable projection of
+ * {@link Session.firstLiveSeq}. Its payload is empty — position and `time`
+ * carry the meaning.
+ *
+ * Locate the LAST one in stored history. A seed already ending in one is not
+ * re-marked, so reopening an untouched session does not grow its log per
+ * pickup and the event need not be at the current `firstLiveSeq`.
+ *
+ * `Session`'s constructor is the only legitimate writer. The invariant
+ * companion deliberately constrains nothing here, so a plugin appending one
+ * would silently classify every live bracket before it as seed history.
+ *
+ * An owner of a standalone open/close bracket (`compact/start` …
+ * `compact/end`) reads it because seed history and live work are otherwise
+ * byte-identical: an unmatched opening marker before this event belongs to
+ * an ended lifecycle, whatever ended it. NOT a liveness signal about other
+ * writers — a concurrently live session holds its own boundary elsewhere,
+ * so tolerating concurrent writers needs a signal beyond the log.
+ */
+'session/end-seed': Record<string, never>
+```
+
+Source: [`packages/core/session/src/types.ts:304`](../packages/core/session/src/types.ts)
 
 #### `session/title` — log-only
 
@@ -373,7 +472,7 @@ Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:34`](../packages/s
 
 Types: [SessionTitleEventData](core-data-structures/session-title.md)
 
-Source: [`packages/session-title/session-title/src/index.ts:88`](../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session-title/session-title/src/index.ts:100`](../packages/session-title/session-title/src/index.ts)
 
 #### `session/title-llm-request` — log-only
 
@@ -392,10 +491,10 @@ Source: [`packages/session-title/session-title-llm/src/index.ts:43`](../packages
 
 ```ts persistence-catalog
 /** Steering content injected between steps of a running turn. */
-'steering/message': UserMessageData & { turn: number }
+'steering/message': { turn: number; message: UserMessage }
 ```
 
-Source: [`packages/core/session/src/types.ts:250`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:262`](../packages/core/session/src/types.ts)
 
 ### `step/*`
 
@@ -406,7 +505,7 @@ Source: [`packages/core/session/src/types.ts:250`](../packages/core/session/src/
 'step/end': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:204`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:218`](../packages/core/session/src/types.ts)
 
 #### `step/start` — log-only
 
@@ -415,7 +514,7 @@ Source: [`packages/core/session/src/types.ts:204`](../packages/core/session/src/
 'step/start': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:202`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:216`](../packages/core/session/src/types.ts)
 
 ### `todo/*`
 
@@ -428,7 +527,7 @@ Source: [`packages/core/session/src/types.ts:202`](../packages/core/session/src/
 
 Types: [TodoItem](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:252`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:264`](../packages/core/session/src/types.ts)
 
 ### `tool/*`
 
@@ -445,7 +544,7 @@ Source: [`packages/core/session/src/types.ts:252`](../packages/core/session/src/
 
 Types: [CallId](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:228`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:242`](../packages/core/session/src/types.ts)
 
 #### `tool/code-dispatch` — log-only
 
@@ -512,17 +611,13 @@ Source: [`packages/core/tools/src/code-mode.ts:33`](../packages/core/tools/src/c
 'tool/result': {
   turn: number
   step: number
-  callId: CallId
-  content: ContentBlock[]
-  isError: boolean
+  message: ToolResultMessage
   error?: { name: string; code: string }
   meta?: JsonValue
 }
 ```
 
-Types: [CallId](core-data-structures/core.md) · [ContentBlock](core-data-structures/core.md)
-
-Source: [`packages/core/session/src/types.ts:240`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:254`](../packages/core/session/src/types.ts)
 
 ### `turn/*`
 
@@ -540,7 +635,7 @@ Source: [`packages/core/session/src/types.ts:240`](../packages/core/session/src/
 
 Types: [TurnEndReason](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:200`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:214`](../packages/core/session/src/types.ts)
 
 #### `turn/start` — log-only
 
@@ -553,7 +648,7 @@ Source: [`packages/core/session/src/types.ts:200`](../packages/core/session/src/
 
 Types: [TurnTrigger](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:193`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:207`](../packages/core/session/src/types.ts)
 
 ### `user/*`
 
@@ -568,7 +663,18 @@ Source: [`packages/core/session/src/types.ts:193`](../packages/core/session/src/
  * project their `content` verbatim; `source` tells them apart. An idle
  * injection may append this event between turns without running the model.
  */
-'user/message': UserMessageData
+'user/message': UserMessage
 ```
 
-Source: [`packages/core/session/src/types.ts:213`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:227`](../packages/core/session/src/types.ts)
+
+### `web/*`
+
+#### `web/deepseek-search-llm-request` — log-only
+
+```ts persistence-catalog
+/** Secret-free auxiliary DeepSeek search request recorded before dispatch. */
+'web/deepseek-search-llm-request': DeepSeekSearchLlmRequest
+```
+
+Source: [`packages/web/web-search-deepseek/src/provider.ts:83`](../packages/web/web-search-deepseek/src/provider.ts)

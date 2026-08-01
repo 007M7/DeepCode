@@ -38,7 +38,7 @@
 普通类（不是 Cordis 服务）。通过 `ctx.sessions.create()` 创建。
 
 - `session.append(type, data, opts?)` 会为持久数据和 surface 元数据制作快照并冻结它们，校验标记形态、溯源信息、替换覆盖完整性，以及仅修改内容的单个 `tool/result` 重写，随后同步提交，再在彼此独立的失败收容下通知观察者。对已附加会话的重入追加会被拒绝，运行时检查也覆盖扩宽后的联合类型和已加载日志。
-- `session.deriveMessages()` 对每个新的 surface 条目只做一次增量投影，并返回一个新数组，数组元素引用共享的冻结消息。assistant 投影保留提供方／模型溯源信息及适配器私有回放状态。surface 重写会重建投影；不存在原始日志回退。
+- `session.deriveMessages()` 对每个新的 surface 条目只做一次增量投影，并返回一个新数组，其中包含这些条目存储的完整、带标识且冻结的消息。assistant 消息会在其模型来源中保留提供方／模型溯源信息及适配器私有回放状态。surface 重写会重建投影；不存在原始日志回退。
 - `session.deriveEventMessage(event)` 是重建和请求检查使用的规范逐事件投影。
 - `session.surface` 暴露只读 `SessionSurface` 视图，由会话唯一的增量 surface 管理器所有；每次提交重写，`replaceGeneration` 都会变化。
 - `session.events` 是按追加失效的缓存冻结快照；已接受事件保持深度冻结。
@@ -60,14 +60,17 @@
 - `SessionSurface`：实时只读 `nodes` 和 `replaceGeneration` 投影，由 `session.surface` 暴露；候选校验仍由 `Session` 私有。
 - `foldSurface(events)`：回放规范 surface 契约，得到脱离的当前事件序列与实际替换范围。同一趟处理会拒绝不连续序号、错位或畸形元数据、空或重复溯源信息、来源并非更早事件、无效位置范围，以及没有引用所有已遮蔽 surface 条目的替换。如果一个 `tool/result` 替换修改了当前某个结果的 `content` 之外的任何内容，也会被拒绝；`SurfaceManager` 共享该原子状态转换，但只保留自己的增量序列缓存。
 - `isSurfaceEvent(event)`／`isSurfaceEligibleType(type)`：前者将 `SessionEvent` 收窄为形态完整的 surface 事件；后者在校验种子或已加载日志时，检测缺少标记的可进入 surface 事件。
+- `isAppendSurfaceEvent(event)`／`isReplacementSurfaceEvent(event)`：按标记变体拆分形态完整的 surface 事件。追加来源的事件是人类可读记录（transcript）的持久来源，而该记录并非模型可见的 surface：已落地的替换会遮蔽它所概括的范围，因此从 `session.surface` 投影记录会抹掉读者已经看到的对话。必须准确发送模型所见内容的消费方仍继续读取 `session.surface`。
 
 ### 请求头重建（`request-header.ts`）
 
-`request/header` 记录非历史请求封装的完整规范快照，其原因为 `initial`、`resume` 或 `change`。`foldRequestHeader()` 选择最新快照；旧版增量事件和已移除的 `fallback` 原因会被拒绝。详见[可重建请求 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)。
+`request/header` 记录非历史请求封装的完整规范快照，其原因为 `initial`、`resume` 或 `change`。其可选 `adapterDefaults` 映射会标记由精确模型解析填入的生效 `reasoningEffort` 或 `maxTokens` 值，使下一次请求提议能够将它们与显式对话设置区分开。`foldRequestHeader()` 选择最新快照；旧版增量事件和已移除的 `fallback` 原因会被拒绝。详见[可重建请求 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)。
 
-`user/message` 会将其 `content` 原样呈现为 user-role 消息，无论它是直接人类提示词、合成注入，还是已准入的 Goal Round；带类型的 `source` 是区分三者的唯一通道，并携带各领域专有的持久事实。轮次执行仍由 `turn/start` 与 `turn/end` 包围，而空闲注入可以在轮次之间追加并刷新一条 `user/message`，无需运行模型。
+`request/context` 记录请求所解析到的路由的、绑定注册项的元数据，在其所属步骤内紧随 `request/header` 追加，且仅在提供方、模型或容量与上一条记录不同时追加。`session.requestContext()` 以增量方式归并最新一条，与 `requestHeader()` 保持一致。容量刻意不进入 `EpochHeader`：它是描述路由的适配器元数据，不是构建该请求所依据的输入，因此绝不可进入请求重建或请求头相等性判断：容量变化不构成请求头 `change`。适配器不公布容量的路由仍会被记录，但 `contextWindow` 字段缺失，从而清除较早的已知容量。
 
-`tool/result` 持久保存面向模型的内容、可选内部失败标识和可选呈现元数据。工具成功时的规范 `value` 和便于人类阅读的规范失败消息只存在于执行本地；渲染后的错误内容是回放权威消息。这样会保留现有事件形态，且不改变 `SESSION_FORMAT_VERSION`。
+`user/message` 会直接存储完整的 `UserMessage`，其中包括路由或提示词准入前创建的标识。无论它是直接人类提示词、合成注入，还是已准入的 Goal Round，都会原样呈现其 `content`；带类型的 `source` 是区分三者的唯一通道，并携带各领域专有的持久事实。`assistant/message`、`tool/result` 和 steering（中途引导）对应的 `steering/message` 也会存储完整的消息值。轮次执行仍由 `turn/start` 与 `turn/end` 包围，而空闲注入可以在轮次之间追加并刷新一条 `user/message`，无需运行模型。
+
+`tool/result` 持久保存一条带标识、user-role 的工具结果消息，以及可选内部失败标识和可选呈现元数据。工具成功时的规范 `value` 和便于人类阅读的规范失败消息只存在于执行本地；渲染后的错误内容是回放权威消息。
 
 ### 会话事件词汇（`types.ts`）
 
@@ -100,7 +103,7 @@
 
 #### 模型看到的内容
 
-模型会原样接收 `user/message`、`assistant/message`、`tool/result` 和 `steering/message` surface 条目的投影：每个投影都是一条 user-role 或 assistant-role 消息，其内容块保持不变。提示词封装只改变面向人的呈现；其前缀上下文和请求分隔符已经位于事件内容中。工具调用包含在 assistant 消息内。分片、边界、用量、hook 记录、todo 记录以及其他仅日志事件不会添加消息。
+模型会原样接收 `user/message`、`assistant/message`、`tool/result` 和 `steering/message` surface 条目中的完整消息。其标识、角色、来源和内容块都与创建时确定的值相同；投影不会生成标识。提示词封装只改变面向人的呈现；其前缀上下文和请求分隔符已经位于事件内容中。工具调用包含在 assistant 消息内。分片、边界、用量、hook 记录、todo 记录以及其他仅日志事件不会添加消息。
 
 #### Token 影响
 
@@ -142,5 +145,5 @@
 
 - **会话分支／树**（pi 风格条目树）：除非需要超越基于边界的 `fork()` 能力，否则暂缓。
 - **`fork()` 仅在实时会话的稳定边界处切分**：所选前缀结束时不得有开放轮次，且源会话必须位于存储中；[fork API](../../../.agents/notes/implemented/feature/2026-06-30-session-store-fork-api.md) 不支持对已持久化但未加载的会话进行 fork。
-- **`SESSION_FORMAT_VERSION` 固定为 `0`**：预发布阶段不承诺兼容性；后端会拒绝其他任何版本，首次发布前不提供迁移路径（[政策](../../../AGENTS.md)）。
+- **`SESSION_FORMAT_VERSION` 固定为 `0`**：预发布阶段不承诺广泛兼容性；`Session` 只接受当前 seed 形状，后端会拒绝其他任何版本。范围受限的存储导入升级应由持久化边界负责（[政策](../../../AGENTS.md)、[消息标识机制引入前的消息恢复](../../../.agents/notes/implemented/bug-fix/2026-07-28-load-pre-identity-session-messages.md)）。
 - **`TurnEndReasonMap` 不含 ACP（Agent Client Protocol）命名的 `refusal`／`max_turn_requests` 变体**：受生产方约束；只有当适配器或循环首次产生这些变体时才加入。

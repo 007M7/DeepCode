@@ -11,7 +11,7 @@ import {
   resolveTargetPolicy,
 } from '@deepseek-ai/dsh-compact-basic/src/config.ts'
 import type { CompactionResult } from '@deepseek-ai/dsh-compact'
-import LlmService, { CallId, CONTEXT_WINDOW_EXCEEDED_CODE, LlmAdapter } from '@deepseek-ai/dsh-llm'
+import LlmService, { createUserMessage, CallId, CONTEXT_WINDOW_EXCEEDED_CODE, createToolResultMessage, LlmAdapter , createMessage } from '@deepseek-ai/dsh-llm'
 import type {
   ContentBlock,
   GenerateOptions,
@@ -19,8 +19,9 @@ import type {
   LlmResolvedModelInfo,
   Message,
   StreamChunk,
+  TokenUsage,
 } from '@deepseek-ai/dsh-llm'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
 import { agentEvents, type Agent, type RequestErrorAction } from '@deepseek-ai/dsh-agent'
 import ToolResultPruneService from '@deepseek-ai/dsh-compact-tool-result-prune'
@@ -94,7 +95,10 @@ function summarizedText(input: SummarizationInput): string {
 
 /** A minimal replayed prefix carrying one user message of the given text. */
 function promptInput(text: string): SummarizationInput {
-  return { messages: [{ role: 'user', content: [{ type: 'text', text }] }] }
+  return { messages: [createUserMessage({
+    content: [{ type: 'text', text }],
+    source: { kind: 'plugin', plugin: 'test' },
+  })] }
 }
 
 /** Closed two-message turns followed by one open turn for durable compaction events. */
@@ -102,10 +106,10 @@ function conversation(turns = 4, text = 'fixture '.repeat(40).trim()): Session {
   const session = new Session(SessionId(`conversation-${turns}`))
   for (let turn = 1; turn <= turns; turn += 1) {
     session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
-    session.append('user/message', {
+    session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: `${text} user ${turn}` }],
       source: { kind: 'user' },
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
     session.append('step/start', { turn, step: 1 })
     if (turn === 1) {
       session.append('request/header', {
@@ -114,10 +118,16 @@ function conversation(turns = 4, text = 'fixture '.repeat(40).trim()): Session {
       })
     }
     session.append('assistant/message', {
-      provenance: { provider: MODEL, model: MODEL },
       turn,
       step: 1,
-      content: [{ type: 'text', text: `${text} assistant ${turn}` }],
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: `${text} assistant ${turn}` }],
+        source: {
+          kind: 'model',
+          ...{ provider: MODEL, model: MODEL },
+        },
+      }),
     }, { surfaceOp: 'append' })
     session.append('step/end', { turn, step: 1 })
     session.append('turn/end', { turn, reason: { kind: 'completed' } })
@@ -134,10 +144,10 @@ function toolConversation(): Session {
   for (let turn = 1; turn <= 3; turn += 1) {
     const callId = CallId(`call-${turn}`)
     session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
-    session.append('user/message', {
+    session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: `request ${turn} `.repeat(300) }],
       source: { kind: 'user' },
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
     session.append('step/start', { turn, step: 1 })
     if (turn === 1) {
       session.append('request/header', {
@@ -146,21 +156,29 @@ function toolConversation(): Session {
       })
     }
     session.append('assistant/message', {
-      provenance: { provider: MODEL, model: MODEL },
       turn,
       step: 1,
-      content: [
-        { type: 'text', text: `calling ${turn} `.repeat(300) },
-        { type: 'tool-call', id: callId, name: 'read', arguments: '{}' },
-      ],
+      message: createMessage({
+        role: 'assistant',
+        content: [
+          { type: 'text', text: `calling ${turn} `.repeat(300) },
+          { type: 'tool-call', id: callId, name: 'read', arguments: '{}' },
+        ],
+        source: {
+          kind: 'model',
+          ...{ provider: MODEL, model: MODEL },
+        },
+      }),
     }, { surfaceOp: 'append' })
     session.append('tool/call', { turn, step: 1, callId, name: 'read', arguments: '{}' })
     session.append('tool/result', {
       turn,
       step: 1,
-      callId,
-      content: [{ type: 'text', text: `result ${turn} `.repeat(300) }],
-      isError: false,
+      message: createToolResultMessage({
+        callId,
+        content: [{ type: 'text', text: `result ${turn} `.repeat(300) }],
+        isError: false,
+      }),
     }, { surfaceOp: 'append' })
     session.append('step/end', { turn, step: 1 })
     session.append('turn/end', { turn, reason: { kind: 'completed' } })
@@ -175,10 +193,10 @@ function oversizedToolResult(chars = 3_000, withCompactablePrompt = false): Sess
   const callId = CallId('oversized')
   session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
   if (withCompactablePrompt) {
-    session.append('user/message', {
+    session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'older history '.repeat(200) }],
       source: { kind: 'user' },
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
   }
   session.append('step/start', { turn: 1, step: 1 })
   session.append('request/header', {
@@ -188,16 +206,24 @@ function oversizedToolResult(chars = 3_000, withCompactablePrompt = false): Sess
   session.append('assistant/message', {
     turn: 1,
     step: 1,
-    content: [{ type: 'tool-call', id: callId, name: 'bash', arguments: '{}' }],
-    provenance: { provider: MODEL, model: MODEL },
+    message: createMessage({
+      role: 'assistant',
+      content: [{ type: 'tool-call', id: callId, name: 'bash', arguments: '{}' }],
+      source: {
+        kind: 'model',
+        ...{ provider: MODEL, model: MODEL },
+      },
+    }),
   }, { surfaceOp: 'append' })
   session.append('tool/call', { turn: 1, step: 1, callId, name: 'bash', arguments: '{}' })
   session.append('tool/result', {
     turn: 1,
     step: 1,
-    callId,
-    content: [{ type: 'text', text: 'X'.repeat(chars) }],
-    isError: false,
+    message: createToolResultMessage({
+      callId,
+      content: [{ type: 'text', text: 'X'.repeat(chars) }],
+      isError: false,
+    }),
     meta: { presentation: 'preserved' },
   }, { surfaceOp: 'append' })
   session.append('step/end', { turn: 1, step: 1 })
@@ -208,6 +234,8 @@ function oversizedToolResult(chars = 3_000, withCompactablePrompt = false): Sess
 
 class TestCompactService extends BasicCompactService {
   summary: ContentBlock[] = [{ type: 'text', text: 'small checkpoint' }]
+  rawOutput: ContentBlock[] | undefined
+  usage: TokenUsage | undefined
   summaryProvider = 'summary-provider'
   summaryModel = 'summary-model'
   error: unknown
@@ -218,15 +246,24 @@ class TestCompactService extends BasicCompactService {
     input: SummarizationInput,
     _agent: Agent,
     signal?: AbortSignal,
-  ): Promise<{ summary: ContentBlock[]; provider: string; model: string; maxTokens?: number }> {
+  ): Promise<{
+    summary: ContentBlock[]
+    rawOutput?: ContentBlock[]
+    provider: string
+    model: string
+    maxTokens?: number
+    usage?: TokenUsage
+  }> {
     this.calls.push({ input, signal })
     this.mutateDuringSummary?.()
     if (this.error !== undefined) throw this.error
     return {
       summary: this.summary,
+      ...this.rawOutput === undefined ? {} : { rawOutput: this.rawOutput },
       provider: this.summaryProvider,
       model: this.summaryModel,
       maxTokens: 123,
+      ...this.usage === undefined ? {} : { usage: this.usage },
     }
   }
 }
@@ -539,18 +576,26 @@ describe('pressure measurement and retention', () => {
       reason: 'initial',
     })
     session.append('assistant/message', {
-      provenance: { provider: MODEL, model: MODEL },
       turn: 1,
       step: 1,
-      content: [{ type: 'tool-call', id: callId, name: 'read', arguments: '{}' }],
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'tool-call', id: callId, name: 'read', arguments: '{}' }],
+        source: {
+          kind: 'model',
+          ...{ provider: MODEL, model: MODEL },
+        },
+      }),
     }, { surfaceOp: 'append' })
     session.append('tool/call', { turn: 1, step: 1, callId, name: 'read', arguments: '{}' })
     session.append('tool/result', {
       turn: 1,
       step: 1,
-      callId,
-      content: [{ type: 'text', text: 'result' }],
-      isError: false,
+      message: createToolResultMessage({
+        callId,
+        content: [{ type: 'text', text: 'result' }],
+        isError: false,
+      }),
     }, { surfaceOp: 'append' })
     session.append('step/end', { turn: 1, step: 1 })
     const generation = session.surface.replaceGeneration
@@ -693,18 +738,26 @@ describe('pressure measurement and retention', () => {
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('step/start', { turn: 1, step: 1 })
     session.append('assistant/message', {
-      provenance: { provider: MODEL, model: MODEL },
       turn: 1,
       step: 1,
-      content: [{ type: 'tool-call', id: callId, name: 'read', arguments: '{}' }],
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'tool-call', id: callId, name: 'read', arguments: '{}' }],
+        source: {
+          kind: 'model',
+          ...{ provider: MODEL, model: MODEL },
+        },
+      }),
     }, { surfaceOp: 'append' })
     session.append('tool/call', { turn: 1, step: 1, callId, name: 'read', arguments: '{}' })
     session.append('tool/result', {
       turn: 1,
       step: 1,
-      callId,
-      content: [{ type: 'text', text: 'result' }],
-      isError: false,
+      message: createToolResultMessage({
+        callId,
+        content: [{ type: 'text', text: 'result' }],
+        isError: false,
+      }),
     }, { surfaceOp: 'append' })
     session.append('step/end', { turn: 1, step: 1 })
 
@@ -778,7 +831,7 @@ describe('optional model-free tool-result pruning', () => {
     expect(await compactIfNeeded(compact, session)).not.toBeNull()
     expect(compact.calls).toHaveLength(1)
     const original = session.events.find(event => event.type === 'tool/result')
-    expect(original?.type === 'tool/result' && original.data.content[0])
+    expect(original?.type === 'tool/result' && original.data.message.content[0].content[0])
       .toEqual({ type: 'text', text: 'X'.repeat(3_000) })
     expect(session.events.filter(event =>
       event.type === 'tool/result' && event.surfaceOp !== 'append')).toHaveLength(0)
@@ -788,6 +841,11 @@ describe('optional model-free tool-result pruning', () => {
 describe('compaction region transaction', () => {
   it('lands a framed, replayable checkpoint with exact pricing provenance', async () => {
     const compact = service()
+    compact.rawOutput = [
+      { type: 'reasoning', text: 'private compact thought' },
+      ...compact.summary,
+    ]
+    compact.usage = { inputTokens: 40, outputTokens: 5 }
     const session = conversation(3)
     const before = [...session.surface.nodes]
     const result = await compact.compactRegion(
@@ -808,6 +866,8 @@ describe('compaction region transaction', () => {
       provider: 'summary-provider',
       model: 'summary-model',
       maxTokens: 123,
+      rawOutput: compact.rawOutput,
+      usage: compact.usage,
     })
     const head = session.deriveMessages()[0]!
     expect(head.content[0]?.type).toBe('text')
@@ -897,10 +957,10 @@ describe('compaction region transaction', () => {
   it('rejects a session with no turn boundary at all', async () => {
     const compact = service()
     const session = new Session(SessionId('turnless'))
-    session.append('user/message', {
+    session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'orphan' }],
       source: { kind: 'user' },
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
     const node = session.surface.nodes[0]!
 
     await expect(compact.compactRegion(
@@ -982,10 +1042,10 @@ describe('compaction region transaction', () => {
     const compact = service()
     const session = conversation(2)
     compact.mutateDuringSummary = () => {
-      session.append('user/message', {
+      session.append('user/message', createUserMessage({
         content: [{ type: 'text', text: 'concurrent surface mutation' }],
         source: { kind: 'plugin', plugin: 'test' },
-      }, { surfaceOp: 'append' })
+      }), { surfaceOp: 'append' })
     }
     const nodes = session.surface.nodes
 
@@ -1018,16 +1078,22 @@ describe('compaction region transaction', () => {
     const compact = service()
     const session = new Session(SessionId('model-less-region'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    session.append('user/message', {
+    session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'history '.repeat(100) }],
       source: { kind: 'user' },
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
     session.append('step/start', { turn: 1, step: 1 })
     session.append('assistant/message', {
-      provenance: { provider: 'historical', model: 'historical' },
       turn: 1,
       step: 1,
-      content: [{ type: 'text', text: 'answer '.repeat(100) }],
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'answer '.repeat(100) }],
+        source: {
+          kind: 'model',
+          ...{ provider: 'historical', model: 'historical' },
+        },
+      }),
     }, { surfaceOp: 'append' })
     session.append('step/end', { turn: 1, step: 1 })
     const nodes = session.surface.nodes
@@ -1041,6 +1107,7 @@ describe('compaction region transaction', () => {
 
 class ScriptedAdapter extends LlmAdapter {
   lastOptions: GenerateOptions | undefined
+  usage: TokenUsage | undefined
 
   constructor(
     private readonly blocks: readonly ContentBlock[],
@@ -1061,6 +1128,7 @@ class ScriptedAdapter extends LlmAdapter {
         yield { type: 'block-end', index, block }
       }
     }
+    if (this.usage !== undefined) yield { type: 'usage', usage: this.usage }
     yield { type: 'finish', reason: this.finish }
   }
 }
@@ -1070,7 +1138,14 @@ class ExposedCompactService extends BasicCompactService {
     input: SummarizationInput,
     owner: Agent,
     signal?: AbortSignal,
-  ): Promise<{ summary: ContentBlock[]; provider: string; model: string; maxTokens?: number }> {
+  ): Promise<{
+    summary: ContentBlock[]
+    rawOutput?: ContentBlock[]
+    provider: string
+    model: string
+    maxTokens?: number
+    usage?: TokenUsage
+  }> {
     return this.summarize(input, owner, signal)
   }
 }
@@ -1103,13 +1178,20 @@ describe('default one-shot summarizer', () => {
       maxTokens: 321,
     })
     const session = conversation(1)
+    adapter.usage = { inputTokens: 12, outputTokens: 3 }
     const output = await compact.runSummarize(promptInput('transcript'), agent(session, 'fallback'), SIGNAL)
 
     expect(output).toEqual({
       summary: [{ type: 'text', text: 'public summary' }],
+      rawOutput: [
+        { type: 'reasoning', text: 'private' },
+        { type: 'text', text: 'public summary' },
+        { type: 'tool-call', id: CallId('unexpected'), name: 'x', arguments: '{}' },
+      ],
       provider: MODEL,
       model: MODEL,
       maxTokens: 321,
+      usage: adapter.usage,
     })
     expect(adapter.lastOptions).toMatchObject({
       provider: MODEL,
@@ -1126,7 +1208,10 @@ describe('default one-shot summarizer', () => {
   it('replays the conversation prefix and appends the instruction as the final message', async () => {
     const { adapter, compact } = await summarizerHarness([{ type: 'text', text: 'summary' }])
     const tools = [{ name: 'do_thing', description: 'd', parameters: { type: 'object' } }]
-    const prefix: Message = { role: 'user', content: [{ type: 'text', text: 'earlier turn' }] }
+    const prefix: Message = createUserMessage({
+      content: [{ type: 'text', text: 'earlier turn' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    })
     await compact.runSummarize({
       system: 'REPLAYED SYSTEM',
       tools,
@@ -1139,7 +1224,8 @@ describe('default one-shot summarizer', () => {
     expect(messages[0]).toEqual(prefix)
     const last = messages.at(-1)?.content[0]
     const lastText = last?.type === 'text' ? last.text : ''
-    expect(lastText).toContain('Condense the conversation ABOVE')
+    expect(lastText).toContain('Write concise English engineering prose.')
+    expect(lastText).toContain('numeric values, function signatures, and syntax fragments.')
     expect(lastText).toContain('## Primary Request and Intent')
   })
 
@@ -1162,7 +1248,10 @@ describe('default one-shot summarizer', () => {
     )
     const policyAdapter = new ScriptedAdapter([{ type: 'text', text: 'policy summary' }])
     ctx.llm.registerAdapter(['policy-summary'], policyAdapter)
-    const prefix: Message = { role: 'user', content: [{ type: 'text', text: 'warm prefix' }] }
+    const prefix: Message = createUserMessage({
+      content: [{ type: 'text', text: 'warm prefix' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    })
 
     const output = await compact.runSummarize({
       system: 'WARM SYSTEM',
@@ -1693,6 +1782,7 @@ describe('automatic listener and loader composition', () => {
   it('loads and disposes the real zero-config service stack', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
     const meterFiber = await ctx.plugin(TokenMeterService)
     const compactFiber = await ctx.plugin(BasicCompactService, { auto: false })
 

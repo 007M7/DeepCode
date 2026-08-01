@@ -3,8 +3,8 @@
 import { describe, expect, it } from 'vitest'
 import { Session, SessionId, canonicalHeader, foldRequestHeader, headerEquals } from '@deepseek-ai/dsh-session'
 import type { EpochHeader, SessionEvent } from '@deepseek-ai/dsh-session'
+import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { ToolSchema } from '@deepseek-ai/dsh-llm'
-import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 
 const CONFIG = { provider: 'mock', model: 'm' }
 
@@ -14,9 +14,24 @@ function tool(name: string, description = 'd'): ToolSchema {
 
 describe('canonicalHeader', () => {
   it('normalizes empty optional fields to absence and preserves populated fields', () => {
-    expect(canonicalHeader({ config: CONFIG, system: '', tools: [] })).toEqual({ config: CONFIG })
-    const full = canonicalHeader({ config: CONFIG, system: 's', tools: [tool('a')] })
-    expect(full).toEqual({ config: CONFIG, system: 's', tools: [tool('a')] })
+    expect(canonicalHeader({
+      config: CONFIG,
+      adapterDefaults: {},
+      system: '',
+      tools: [],
+    })).toEqual({ config: CONFIG })
+    const full = canonicalHeader({
+      config: { ...CONFIG, maxTokens: 256_000 },
+      adapterDefaults: { maxTokens: true },
+      system: 's',
+      tools: [tool('a')],
+    })
+    expect(full).toEqual({
+      config: { ...CONFIG, maxTokens: 256_000 },
+      adapterDefaults: { maxTokens: true },
+      system: 's',
+      tools: [tool('a')],
+    })
   })
 })
 
@@ -30,6 +45,14 @@ describe('headerEquals', () => {
       ...base,
       config: { ...base.config, reasoningEffort: ReasoningEffortId('high') },
     })).toBe(false)
+    expect(headerEquals(
+      { ...base, config: { ...base.config, maxTokens: 256_000 } },
+      {
+        ...base,
+        config: { ...base.config, maxTokens: 256_000 },
+        adapterDefaults: { maxTokens: true },
+      },
+    )).toBe(false)
     expect(headerEquals(base, { ...base, system: 'other' })).toBe(false)
     expect(headerEquals(base, { ...base, tools: [] })).toBe(false)
     expect(headerEquals(base, { ...base, tools: [tool('a', 'changed')] })).toBe(false)
@@ -55,7 +78,9 @@ describe('foldRequestHeader', () => {
     const session = new Session(SessionId('fold'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('request/header', { header: { config: CONFIG, system: 'first' }, reason: 'initial' })
-    session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
     session.append('request/header', { header: { config: { provider: 'mock', model: 'other' }, tools: [] }, reason: 'change' })
     expect(foldRequestHeader(session.events)).toEqual({ config: { provider: 'mock', model: 'other' } })
   })
@@ -87,5 +112,62 @@ describe('legacy request-header format', () => {
     expect(() => appendLegacy('request/header', { header: { config: CONFIG }, reason: 'fallback' }))
       .toThrow('unsupported legacy request/header reason "fallback"')
     expect(session.events).toHaveLength(0)
+  })
+})
+
+describe('Session.requestContext', () => {
+  const CAPACITY = { provider: 'mock', model: 'm', contextWindow: 128_000 }
+
+  /** A turn-enclosed capacity record; the invariant rejects one outside a turn. */
+  function seedWith(...records: { provider: string; model: string; contextWindow?: number }[]): SessionEvent[] {
+    const events: SessionEvent[] = [{
+      type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+    }]
+    for (const data of records) {
+      events.push({ type: 'request/context', seq: events.length, time: 1, data })
+    }
+    return events
+  }
+
+  it('reads undefined before any record exists', () => {
+    expect(new Session(SessionId('no-capacity')).requestContext()).toBeUndefined()
+  })
+
+  it('folds a seeded log on first read, taking the last record', () => {
+    // The fold watermark starts at 0 with the seed already in the log, so the
+    // first read must consume the whole seed rather than skip it.
+    const session = new Session(SessionId('seeded-capacity'), seedWith(
+      CAPACITY,
+      { ...CAPACITY, model: 'later', contextWindow: 256_000 },
+    ))
+    expect(session.requestContext()).toEqual({ provider: 'mock', model: 'later', contextWindow: 256_000 })
+  })
+
+  it('advances incrementally across appends and skips unrelated events', () => {
+    const session = new Session(SessionId('incremental-capacity'), seedWith(CAPACITY))
+    expect(session.requestContext()).toEqual(CAPACITY)
+    session.append('todo/write', { todos: [] })
+    expect(session.requestContext()).toEqual(CAPACITY)
+    session.append('request/context', { ...CAPACITY, model: 'next', contextWindow: 64_000 })
+    expect(session.requestContext()).toEqual({ provider: 'mock', model: 'next', contextWindow: 64_000 })
+    session.append('request/context', { provider: 'mock', model: 'unknown' })
+    expect(session.requestContext()).toEqual({ provider: 'mock', model: 'unknown' })
+  })
+
+  it('folds a batch appended between two reads', () => {
+    const session = new Session(SessionId('batched-capacity'), seedWith(CAPACITY))
+    expect(session.requestContext()).toEqual(CAPACITY)
+    session.append('request/context', { ...CAPACITY, contextWindow: 200_000 })
+    session.append('todo/write', { todos: [] })
+    session.append('request/context', { ...CAPACITY, contextWindow: 300_000 })
+    expect(session.requestContext()?.contextWindow).toBe(300_000)
+  })
+
+  it('exposes a frozen record so a reader cannot desync later comparisons', () => {
+    const session = new Session(SessionId('frozen-capacity'), seedWith(CAPACITY))
+    const held = session.requestContext()
+    if (held === undefined) throw new Error('expected a folded capacity record')
+    expect(Object.isFrozen(held)).toBe(true)
+    expect(() => { (held as { contextWindow?: number }).contextWindow = 1 }).toThrow()
   })
 })

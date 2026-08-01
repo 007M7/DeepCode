@@ -54,7 +54,7 @@
 | Round | Round | | 回合、目标回合、Ralph 回合 | 外层策略使用 Round 时，领域层级为 Session > Round > Turn（轮次） > Step（步骤）；Round 是可选的外层策略迭代，并非每个会话轮次都具有的通用层级。Goal Round 与 Ralph Round 均保留英文。一个 Round 承载一个轮次，步骤隶属于该轮次；明确的零步骤轮次仍保持原义。 |
 | schema | schema | | | |
 | schema DSL | schema DSL | | | |
-| seam | seam | | | 与 `extension point` 是不同概念；根据具体语境，可译为`服务边界`或`可替换点` |
+| seam | seam | | 接缝 | 与 `extension point` 是不同概念；根据具体语境，可译为`服务边界`或`可替换点` |
 | skill | skill | skill（技能） | | |
 | spawn | spawn | | | |
 | steering | steering | steering（中途引导） | | |
@@ -74,25 +74,29 @@
 | adapter | 适配器 | | | |
 | adapter contract | 适配器契约 | 适配器契约（adapter contract） | | |
 | append-only | 仅追加 | | | |
-| artifact | 产物 | | | |
+| artifact | 产物 | | 制品 | |
 | backend | 后端 | | | |
 | background task | 后台任务 | | | |
 | block | 块 | | | |
 | build target | 构建目标 | | | |
 | cancel | 取消 | | | |
+| canary test | canary 测试 | | 金丝雀测试 | 本仓库保留 `canary` |
+| capability seam | 能力 seam | | 功能 seam、能力接缝 | 本仓库接口、实现与消费方分离的命名架构概念；普通 `seam` 仍按其词条处理 |
 | feature | 功能 | | 能力 | SDK 产品与工程模型中的可管理产品单元 |
 | feature option | 功能选项 | | variant | 一项 SDK 功能内有限、可选择的实现或配置 |
 | checkpoint | 检查点 | | | |
 | chunk | 分片 | | | |
 | compaction | 压缩 | 压缩（compaction） | | |
 | companion tool | 配套工具 | | | |
+| composition bundle | 组合包 | | | 只约束应用或插件的组合语境，不约束所有 `bundle` |
 | Cordis plugin config | Cordis 插件配置 | | | Cordis 插件公开的 `Config` 对象或配置结构 |
 | config key | 配置键 | | | Cordis 插件配置中的单个字段 |
-| consumer | 消费方 | | | |
+| consumer | 消费方 | | 消费者 | |
 | content block | 内容块 | | | |
 | Cookbook | 实操手册 | | | 文档标题用语 |
 | context | 上下文 | | | |
 | counterpart | 对侧文件 | | 对应物、配对物 | 双语配对语境；泛指"另一侧"时可写「另一侧」 |
+| configurable-provider directory | 可配置提供方目录 | | | llm seam 中 `registerConfigurableProviders()` 维护的目录；沿用 Service Catalog →「服务目录」先例 |
 | context compaction | 上下文压缩 | 上下文压缩（context compaction） | | |
 | contract | 契约 | | | 如：`pairing contract` →`配对契约` |
 | Cordis config entry | Cordis 配置项 | | | 指 `cordis.yml` 插件列表中的一项；插件实现本身写`Cordis 插件` |
@@ -100,6 +104,7 @@
 | coverage | 覆盖率 | | | |
 | crash recovery | 崩溃恢复 | | | |
 | deploy root | 部署根目录 | | | |
+| dormant | 休眠 | | 睡眠、蛰伏 | 指已声明可配置但当前未注册路由的提供方 |
 | durability | 持久性 | | | |
 | feature requirement | 功能依赖 | | | 功能或功能选项通过 `requires` 声明的关系 |
 | ergonomics | 易用性 / 开发体验 | | 人体工学 | API 或面向模型的接口用「易用性」；工具链或开发者工作流用「开发体验」 |
@@ -116,6 +121,7 @@
 | fenced code block | 围栏代码块 | | | 沿用 MDN 中文翻译 |
 | fingerprint | 指纹 | | | 通用内容指纹；双语配对机制使用 sidecar record 记录两侧 blob hash |
 | finish reason | 结束原因 | | | |
+| fold | 折叠区 | | | 配置界面语境：默认收起的字段分区（collapsed →「收起」）|
 | foreground run | 前台运行 | | | |
 | freshness | 新鲜度 | | | 沿用 MDN 中文翻译；在本项目中指译文相对源文的同步状态 |
 | hook | 钩子 | | | |
@@ -145,9 +151,10 @@
 | persistence | 持久化 | | | |
 | pipeline | 流水线 | | | |
 | plugin | 插件 | | | |
+| postmortem | 事故复盘 | 事故复盘（postmortem） | 事后分析、事故记录 | 事故记录与分析文档；目录或路径中的 `postmortem` 保持代码形式 |
 | prompt | 提示词 | | | |
 | provider | 提供方 | | | |
-| provider-neutral | 提供方无关 | | | |
+| provider-neutral | 提供方无关 | | 提供方中立 | |
 | quality gate | 质量门禁 | | | |
 | quiescence | 完全停稳 | | 静默、静止状态 | 指生命周期工作全部结算后的状态 |
 | reasoning | 推理 | 推理（reasoning） | | 需要和 `inference` 区分时保留英文括注 |
@@ -162,10 +169,11 @@
 | serving surface | 对外服务接口 | | | |
 | session | 会话 | | | |
 | session event | 会话事件 | | | |
+| setup card | 设置卡片 | | | 首次运行时代替行卡直接展开的配置卡 |
 | sidecar record | 伴随记录 | | 旁挂记录 | 指与文档同目录的伴随记录文件 |
 | smoke test | 冒烟测试 | | | |
 | snapshot | 快照 | | | |
-| source of truth | 真源 | | | |
+| source of truth | 真源 | | 事实来源、唯一来源 | |
 | spine | 主干 | | | |
 | staged | 暂存 | | | 沿用 git 官方中文翻译 |
 | stale | 陈旧 | | 过期 | 与 `fresh`（`新鲜`）成对；门禁输出中保留英文 `stale` 不翻译；`expired` 才译为`过期` |

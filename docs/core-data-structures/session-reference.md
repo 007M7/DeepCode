@@ -46,7 +46,7 @@ interface PreparedReferencedMessage {
   /** Readable message content after host mention tokens are removed. */
   content: ContentBlock[]
   /** Aggregated untrusted snapshot, absent when the message has no references. */
-  additionalContext?: UserMessageData
+  additionalContext?: UserMessage
 }
 ```
 

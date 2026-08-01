@@ -76,6 +76,13 @@
   overflow: hidden;
   background: var(--dsw-alias-bg-layer-2);
   box-shadow: var(--dsw-shadow-lv3);
+  /* Elevated surface: the scrollbar thumb takes the l2 elevation tokens.
+     Declared on the panel rather than the scrolling `.options` child so the
+     elevation choice sits with the surface; the custom properties inherit
+     down to whichever descendant scrolls (see ui-theme
+     styles/scrollbar.css for the rebinding contract). */
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
 /* Nav rail (figma .Setting-nav 501:29958): 188 wide, pad (12,22,12,0),
@@ -201,4 +208,34 @@
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;
+}
+
+/* First-run stage: keep the product top bar visible, then let onboarding own
+   the complete workspace instead of presenting another settings modal. */
+.onboardingOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+}
+
+/* Mask */
+.onboardingMask {
+  position: absolute;
+  left: 0px;
+  right: 0px;
+  top: 80px;
+  bottom: 0px;
+  background: rgba(0, 0, 0, 0.24);
+  /* Mask-blur */
+  backdrop-filter: blur(2px);
+}
+
+.onboardingStage {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--dsw-alias-bg-layer-1);
 }

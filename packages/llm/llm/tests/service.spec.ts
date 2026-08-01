@@ -15,6 +15,7 @@ import LlmService, {
   ReasoningEffortId,
   resolveRetryPolicy,
   StreamChunk,
+  createMessage,
 } from '@deepseek-ai/dsh-llm'
 import type {
   LlmModelContext,
@@ -59,6 +60,7 @@ class CatalogAdapter extends ScriptedAdapter {
     private readonly models: readonly LlmModelInfo[],
     private readonly contexts: Readonly<Record<string, LlmModelContext>> = {},
     private readonly reasoning: Readonly<Record<string, LlmModelReasoningInfo>> = {},
+    private readonly defaultMaxTokens: Readonly<Record<string, number>> = {},
   ) {
     super(SCRIPT)
   }
@@ -81,6 +83,7 @@ class CatalogAdapter extends ScriptedAdapter {
       name: model,
       ...this.contexts[model] === undefined ? {} : { context: this.contexts[model] },
       ...this.reasoning[model] === undefined ? {} : { reasoning: this.reasoning[model] },
+      ...this.defaultMaxTokens[model] === undefined ? {} : { defaultMaxTokens: this.defaultMaxTokens[model] },
     })
   }
 }
@@ -173,6 +176,26 @@ describe('LlmService', () => {
     const chunks: StreamChunk[] = []
     for await (const chunk of ctx.llm.stream({ provider: 'test-provider', model: 'test-model', messages: [] })) chunks.push(chunk)
     expect(chunks).toEqual(SCRIPT)
+  })
+
+  it('trusts the immutable message creation boundary for direct calls', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    const adapter = new RecordingAdapter(SCRIPT)
+    ctx.llm.registerAdapter(['test-provider'], adapter)
+    const message = createMessage({
+      role: 'user',
+      content: [{ type: 'text', text: 'hello' }],
+      source: { kind: 'user' },
+    })
+
+    for await (const _chunk of ctx.llm.stream({
+      provider: 'test-provider',
+      model: 'test-model',
+      messages: [message],
+    })) { /* drain */ }
+
+    expect(adapter.lastOptions?.messages[0]).toBe(message)
   })
 
   it('captures provider-owned retry policy at registration and defaults omission', async () => {
@@ -735,7 +758,7 @@ describe('LlmService', () => {
         return {
           [Symbol.asyncIterator](): AsyncIterator<StreamChunk> {
             // Third-party adapters can reject with arbitrary values.
-            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+            // oxlint-disable-next-line typescript/prefer-promise-reject-errors
             return { next: () => Promise.reject('plain provider failure') }
           },
         }
@@ -883,7 +906,12 @@ describe('LlmService', () => {
       { id: 'route', name: 'Route' },
       [],
       {},
-      { model: source },
+      {
+        model: source,
+        providerDefault: {
+          efforts: [{ id: ReasoningEffortId('standard'), name: 'Standard' }],
+        },
+      },
     ))
 
     const resolved = await ctx.llm.resolveModelInfo('route', 'model')
@@ -897,7 +925,53 @@ describe('LlmService', () => {
     })
     const explicit = { provider: 'route', model: 'model', reasoningEffort: ReasoningEffortId('ultra') }
     await expect(ctx.llm.resolveCallConfig(explicit)).resolves.toBe(explicit)
+    const providerDefault = { provider: 'route', model: 'providerDefault' }
+    await expect(ctx.llm.resolveCallConfig(providerDefault)).resolves.toBe(providerDefault)
   })
+
+  it('materializes an adapter-owned maxTokens default while preserving an explicit cap', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    ctx.llm.registerAdapter(['route'], new CatalogAdapter(
+      { id: 'route', name: 'Route' },
+      [],
+      {},
+      {},
+      { model: 256_000 },
+    ))
+
+    await expect(ctx.llm.resolveModelInfo('route', 'model')).resolves.toMatchObject({
+      defaultMaxTokens: 256_000,
+    })
+    await expect(ctx.llm.resolveCallConfig({ provider: 'route', model: 'model' })).resolves.toEqual({
+      provider: 'route',
+      model: 'model',
+      maxTokens: 256_000,
+    })
+    const preparedDefault = await ctx.llm.prepareCall({ provider: 'route', model: 'model' })
+    expect(preparedDefault.adapterDefaults).toEqual({ maxTokens: true })
+    const explicit = { provider: 'route', model: 'model', maxTokens: 8_192 }
+    await expect(ctx.llm.resolveCallConfig(explicit)).resolves.toBe(explicit)
+    const preparedExplicit = await ctx.llm.prepareCall(explicit)
+    expect(preparedExplicit.adapterDefaults).toEqual({})
+  })
+
+  it.each([0, 1.5, Number.MAX_SAFE_INTEGER + 1])(
+    'rejects invalid adapter-owned default maxTokens %s',
+    async (defaultMaxTokens) => {
+      const ctx = new Context()
+      await ctx.plugin(LlmService)
+      const adapter = new class extends ScriptedAdapter {
+        override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+          return Promise.resolve({ provider, id: model, name: model, defaultMaxTokens })
+        }
+      }(SCRIPT)
+      ctx.llm.registerAdapter(['route'], adapter)
+
+      await expect(ctx.llm.resolveModelInfo('route', 'model'))
+        .rejects.toMatchObject({ code: 'INVALID_MODEL_MAX_TOKENS' })
+    },
+  )
 
   it.each([
     [{ efforts: [] }, 'empty effort list'],
@@ -1043,6 +1117,8 @@ describe('LlmService', () => {
     ctx.llm.registerAdapter(['route'], adapter)
     const prepared = await ctx.llm.prepareCall({ provider: 'route', model: 'model' })
     expect(Object.isFrozen(prepared.config)).toBe(true)
+    expect(Object.isFrozen(prepared.adapterDefaults)).toBe(true)
+    expect(prepared.adapterDefaults).toEqual({ reasoningEffort: true })
     const stream = prepared.stream({
       ...prepared.config,
       model: 'other',
@@ -1056,6 +1132,48 @@ describe('LlmService', () => {
       ...prepared.config,
       messages: [],
     })).toThrow(expect.objectContaining({ code: 'INVALID_PREPARED_CALL' }))
+  })
+
+  it('reuses one exact-model lookup for prepared config and context metadata', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    let resolutions = 0
+    const source = { contextWindow: 128_000 }
+    const adapter = new class extends ScriptedAdapter {
+      override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+        resolutions += 1
+        return Promise.resolve({
+          provider,
+          id: model,
+          name: model,
+          description: 'Resolved model',
+          context: source,
+          reasoning: model === 'no-default'
+            ? { efforts: [{ id: ReasoningEffortId('high'), name: 'High' }] }
+            : {
+              efforts: [{ id: ReasoningEffortId('high'), name: 'High' }],
+              defaultEffort: ReasoningEffortId('high'),
+            },
+        })
+      }
+    }(SCRIPT)
+    ctx.llm.registerAdapter(['route'], adapter)
+
+    const prepared = await ctx.llm.prepareCall({ provider: 'route', model: 'model' })
+    source.contextWindow = 64_000
+    expect(prepared.config.reasoningEffort).toBe(ReasoningEffortId('high'))
+    expect(prepared.context).toEqual({ contextWindow: 128_000 })
+    expect(Object.isFrozen(prepared.context)).toBe(true)
+    for await (const _chunk of prepared.stream({
+      ...prepared.config,
+      messages: [],
+    })) { /* drain */ }
+    expect(resolutions).toBe(1)
+
+    const noDefault = await ctx.llm.prepareCall({ provider: 'route', model: 'no-default' })
+    expect(noDefault.config).toEqual({ provider: 'route', model: 'no-default' })
+    expect(noDefault.context).toEqual({ contextWindow: 64_000 })
+    expect(resolutions).toBe(2)
   })
 
   it('passes cancellation through exact-model resolution', async () => {
@@ -1195,15 +1313,18 @@ describe('LlmService', () => {
     for await (const _chunk of ctx.llm.stream({
       provider: 'target',
       model: 'new-model',
-      messages: [{
+      messages: [createMessage({
         role: 'assistant',
         content: [{ type: 'text', text: 'old response' }],
-        provenance: { provider: 'historical', model: 'old-model', replayState },
-      }],
+        source: {
+          kind: 'model',
+          ...{ provider: 'historical', model: 'old-model', replayState },
+        },
+      })],
     })) { /* drain */ }
 
-    expect(adapter.lastOptions?.messages[0]?.provenance).toEqual({
-      provider: 'historical', model: 'old-model', replayState,
+    expect(adapter.lastOptions?.messages[0]?.source).toEqual({
+      kind: 'model', provider: 'historical', model: 'old-model', replayState,
     })
   })
 
@@ -1217,14 +1338,21 @@ describe('LlmService', () => {
     for await (const _chunk of ctx.llm.stream({
       provider: 'target',
       model: 'new-model',
-      messages: [{
+      messages: [createMessage({
         role: 'assistant',
         content: [{ type: 'text', text: 'old response' }],
-        provenance: { provider: 'historical', model: 'old-model', replayState: { private: 'state' } },
-      }],
+        source: {
+          kind: 'model',
+          ...{ provider: 'historical', model: 'old-model', replayState: { private: 'state' } },
+        },
+      })],
     })) { /* drain */ }
 
-    expect(target.lastOptions?.messages[0]?.provenance).toEqual({ provider: 'historical', model: 'old-model' })
+    expect(target.lastOptions?.messages[0]?.source).toEqual({
+      kind: 'model',
+      provider: 'historical',
+      model: 'old-model',
+    })
   })
 
   it('preserves immutability while stripping replay state from frozen requests', async () => {
@@ -1236,18 +1364,27 @@ describe('LlmService', () => {
     const options = Object.freeze({
       provider: 'target',
       model: 'new-model',
-      messages: [{
+      messages: [createMessage({
         role: 'assistant' as const,
         content: [{ type: 'text' as const, text: 'old response' }],
-        provenance: { provider: 'historical', model: 'old-model', replayState: { private: 'state' } },
-      }],
+        source: {
+          kind: 'model',
+          provider: 'historical',
+          model: 'old-model',
+          replayState: { private: 'state' },
+        },
+      })],
     })
 
     for await (const _chunk of ctx.llm.stream(options)) { /* drain */ }
 
     expect(target.lastOptions).not.toBe(options)
     expect(Object.isFrozen(target.lastOptions)).toBe(true)
-    expect(target.lastOptions?.messages[0]?.provenance).toEqual({ provider: 'historical', model: 'old-model' })
+    expect(target.lastOptions?.messages[0]?.source).toEqual({
+      kind: 'model',
+      provider: 'historical',
+      model: 'old-model',
+    })
   })
 
   it('creates LlmError with a code for programmatic handling', () => {
@@ -1339,6 +1476,34 @@ describe('LlmService', () => {
     const disposeAgain = ctx.llm.registerAdapter(['m1'], new ScriptedAdapter(SCRIPT))
     expect(ctx.llm.listProviders()).toEqual([{ id: 'm1', name: 'm1' }])
     disposeAgain()
+    expect(ctx.llm.listProviders()).toEqual([])
+  })
+
+  it('refuses to replace routes on a registration that was already released', async () => {
+    // The leak this prevents: the effect's disposer has run, so a route added
+    // afterwards would sit in the registry with nothing left to release it.
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+
+    const handle = ctx.llm.registerAdapter(['m1'], new ScriptedAdapter(SCRIPT))
+    handle()
+    expect(() => { handle.replace(['leaked']) })
+      .toThrow(/disposed adapter registration cannot replace its routes/)
+    expect(ctx.llm.listProviders()).toEqual([])
+  })
+
+  it('still allows an empty route set on a live registration', async () => {
+    // `replace([])` is the settings-section-emptied case: legal, and it must
+    // not be mistaken for disposal by the guard above.
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+
+    const handle = ctx.llm.registerAdapter(['m1'], new ScriptedAdapter(SCRIPT))
+    handle.replace([])
+    expect(ctx.llm.listProviders()).toEqual([])
+    handle.replace(['m2'])
+    expect(ctx.llm.listProviders()).toEqual([{ id: 'm2', name: 'm2' }])
+    handle()
     expect(ctx.llm.listProviders()).toEqual([])
   })
 })

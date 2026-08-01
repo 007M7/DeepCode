@@ -1,3 +1,4 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import {
@@ -8,6 +9,7 @@ import {
 import type { CompactionResult, CompactionTrigger } from '@deepseek-ai/dsh-compact'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { CompactAgentContext } from '@deepseek-ai/dsh-compact'
+import type { ManualCompactAgentContext } from '@deepseek-ai/dsh-compact'
 
 /**
  * A trivial concrete CompactService implementing the abstract contract. The
@@ -22,6 +24,14 @@ class StubCompactService extends CompactService {
   override async compactIfNeeded(
     _agent: CompactAgentContext,
     _trigger: CompactionTrigger,
+    signal: AbortSignal,
+  ): Promise<CompactionResult | null> {
+    this.lastSignal = signal
+    return null
+  }
+
+  override async compactNow(
+    _agent: ManualCompactAgentContext,
     signal: AbortSignal,
   ): Promise<CompactionResult | null> {
     this.lastSignal = signal
@@ -52,10 +62,10 @@ class StubCompactService extends CompactService {
       provider: 'mock',
       model: 'stub',
     })
-    session.append('user/message', {
+    session.append('user/message', createUserMessage({
       content: summary,
       source: COMPACT_CHECKPOINT_SOURCE,
-    }, {
+    }), {
       surfaceOp: { op: 'replace', start, end },
       sourceEventSeqs: [startEvent.seq, summaryEvent.seq, ...shadowedSeqs],
     })
@@ -97,16 +107,22 @@ describe('CompactService seam', () => {
     const svc = new StubCompactService(ctx)
     const session = new Session(SessionId('s'))
     expect(await svc.compactIfNeeded(stubAgent(session), 'pressure', new AbortController().signal)).toBeNull()
+    const signal = new AbortController().signal
+    expect(await svc.compactNow({
+      ...stubAgent(session),
+      reserveTurnAdmission: () => () => undefined,
+    }, signal)).toBeNull()
+    expect(svc.lastSignal).toBe(signal)
   })
 
   it('compact/* events merge into SessionEventMap and are log-only', async () => {
     const ctx = new Context()
     const svc = new StubCompactService(ctx)
     const session = new Session(SessionId('s'))
-    const original = session.append('user/message', {
+    const original = session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'original' }],
       source: { kind: 'user' },
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
 
     const result = await svc.compactRegion(original.seq, original.seq, stubAgent(session, 'm'))
 
@@ -135,10 +151,10 @@ describe('CompactService seam', () => {
     const svc = new StubCompactService(ctx)
     const session = new Session(SessionId('s'))
     const controller = new AbortController()
-    const original = session.append('user/message', {
+    const original = session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'original' }],
       source: { kind: 'user' },
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
 
     await svc.compactRegion(original.seq, original.seq, stubAgent(session, 'm'), controller.signal)
     expect(svc.lastSignal).toBe(controller.signal)

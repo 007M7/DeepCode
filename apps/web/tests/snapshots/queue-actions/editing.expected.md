@@ -1,0 +1,38 @@
+- banner:
+  - heading "Reply with a one-sentence description" [level=1]
+  - tablist:
+    - tab "Chat" [selected]
+    - tab "Trajectory"
+- text: Reply with a one-sentence description of event sourcing, then stop. {{clock}}
+- button "Copy":
+  - img
+- button "Branch into a new conversation":
+  - img
+- button "Context injection":
+  - img
+  - img
+  - text: Context injection
+- paragraph: partial
+- status: Deep diving...
+- button "2 queued messages" [disabled] [expanded]
+- list:
+  - listitem:
+    - text: Queue item to remove
+    - button "Edit queued message":
+      - img
+    - button "Remove queued message":
+      - img
+  - listitem:
+    - textbox "Edit queued message": Edited queue item
+    - button "Save queued message":
+      - img
+    - button "Cancel editing":
+      - img
+- textbox "Message the agent"
+- button "Commands":
+  - img
+- 'button "Access mode, current: Workspace Write"': Workspace Write
+- button "Select model, current DeepSeek-V4-Flash":
+  - text: DeepSeek-V4-Flash
+  - img
+- button "Stop generating"

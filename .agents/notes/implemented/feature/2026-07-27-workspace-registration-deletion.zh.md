@@ -28,7 +28,7 @@ Create 与 delete 会在记录／顺序对可能分叉之前写入持久 `pendin
 
 `WorkspaceManager` 将 `host/workspace-changed` 与 `host/workspace-removed` 都视为有序增量，并在进行中的 `workspace.list` 响应之上回放。成功的一元删除会立即移除行，无需等待本次操作自己的流回显。移除操作具有幂等性；由于 Workspace id 永不复用，进程本地删除标记会拒绝延迟到达的 changed 帧或陈旧基线行。重连仍从 `workspace.list` 刷新；Workspace 增量绝不会剪除会话状态。
 
-删除确认框会保持待处理，直到 React Workspace 投影已经提交目标 id 的移除，因此下一次创建操作不会读到一帧陈旧列表。创建请求进行中会暂停重复名称校验，因为已提交的 `host/workspace-changed` 帧可能先于一元响应发布刚创建的 Workspace；如果请求失败并让表单回到可编辑状态，系统会重新使用最新列表执行校验。
+删除确认框会保持待处理，直到 React Workspace 投影已经提交目标 id 的移除，因此下一次 Workspace 操作不会观察或定位到陈旧列表帧中的内容。
 
 ## 确认交互
 
@@ -50,7 +50,7 @@ Create 与 delete 会在记录／顺序对可能分叉之前写入持久 `pendin
 
 ## Verification
 
-Workspace 包测试固定了仅删除元数据的成功路径、同路径重新注册、未知 id 的幂等行为、表操作失败回滚、明确标记的重启恢复、来源不明损坏的拒绝，以及缓存／表不变量行为。Apiproxy 与载体测试固定了 schema、处理器、`workspace-not-found`、保留会话／文件夹、使用新 id 重新注册，以及已提交的 `host/workspace-removed` 帧。客户端测试固定了一元直接回显、重复移除、延迟到达的 changed 帧，以及删除与进行中基线并发的行为。组件测试固定了确认交互、投影稳定后关闭、待处理状态下抑制重复提交、成功帧先于一元响应、失败、Cancel、Escape 与 Close。浏览器场景会在为不同目录复用已删除名称时，观测每一次瞬时 alert、slot error、console error 与 page error。
+Workspace 包测试固定了仅删除元数据的成功路径、同路径重新注册、未知 id 的幂等行为、表操作失败回滚、明确标记的重启恢复、来源不明损坏的拒绝，以及缓存／表不变量行为。Apiproxy 与载体测试固定了 schema、处理器、`workspace-not-found`、保留会话／文件夹、使用新 id 重新注册，以及已提交的 `host/workspace-removed` 帧。客户端测试固定了一元直接回显、重复移除、延迟到达的 changed 帧，以及删除与进行中基线并发的行为。组件测试固定了确认交互、投影稳定后关闭、成功帧先于一元响应、失败、Cancel、Escape 与 Close。浏览器场景会在为不同目录复用已删除名称时，观测每一次瞬时 alert、slot error、console error 与 page error。
 
 组装后的无密钥 Web 场景会注册一个已有临时项目目录，将持久化会话计入账本，把该会话设为当前会话，在 Chromium 中确认删除，并验证 Workspace 分组消失，而 Ungrouped 保留当前会话。该场景在删除前后检查用户文件和 JSONL 日志，并在刷新后重复验证 UI、目录与日志。
 

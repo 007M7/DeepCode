@@ -19,7 +19,7 @@ import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
   launchWebScaffold, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
-import { connectFreshWorkspace, REPO_ROOT, saveFailureShot } from './support.ts'
+import { connectFreshWorkspace, newEnglishPage, REPO_ROOT, saveFailureShot } from './support.ts'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/fresh-round-trip', import.meta.url))
 const FIXTURE = fileURLToPath(new URL('./snapshots/fresh-round-trip/session.jsonl', import.meta.url))
@@ -46,12 +46,12 @@ describe('web e2e: fresh round trip through the real assembly', () => {
     })
     scaffold.ctx.on('session/event', (_session, event: SessionEvent) => { sessionEvents.push(event) })
     browser = await chromium.launch()
-    page = await browser.newPage({ viewport: { width: 1680, height: 1000 } })
+    page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     // Fresh world: connect a Workspace so the composer scenarios start live.
-    await connectFreshWorkspace(page)
+    await connectFreshWorkspace(page, scaffold.workspaceCwd)
   }, 120_000)
 
   afterAll(async () => {
@@ -103,10 +103,10 @@ describe('web e2e: fresh round trip through the real assembly', () => {
     const bashCall = sessionEvents.find(event => event.type === 'tool/call' && event.data.name === 'bash')
     if (bashCall?.type !== 'tool/call') throw new Error('the replayed turn did not call the bash tool')
     const bashResult = sessionEvents.find(event =>
-      event.type === 'tool/result' && event.data.callId === bashCall.data.callId)
+      event.type === 'tool/result' && event.data.message.source.callId === bashCall.data.callId)
     if (bashResult?.type !== 'tool/result') throw new Error('the bash tool call produced no durable result')
-    expect(bashResult.data.isError).toBe(false)
-    expect(bashResult.data.content.filter(block => block.type === 'text').map(block => block.text).join(''))
+    expect(bashResult.data.message.content[0].isError).toBe(false)
+    expect(bashResult.data.message.content[0].content.filter(block => block.type === 'text').map(block => block.text).join(''))
       .toBe('WEB_E2E_OK\n')
     const turnEnds = sessionEvents.filter(e => e.type === 'turn/end')
     expect(turnEnds.length).toBe(1)
@@ -122,7 +122,7 @@ describe('web e2e: fresh round trip through the real assembly', () => {
     await expect(page.getByRole('textbox').first().isVisible()).resolves.toBe(true)
     expect(await page.getByText('WEB_E2E_OK', { exact: false }).count()).toBeGreaterThanOrEqual(1)
     await page.getByRole('button', {
-      name: '选择模型，当前 DeepSeek-V4-Flash',
+      name: 'Select model, current DeepSeek-V4-Flash',
     }).waitFor({ timeout: 10_000 })
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
