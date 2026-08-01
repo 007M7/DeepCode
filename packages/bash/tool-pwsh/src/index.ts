@@ -58,6 +58,7 @@ interface PwshForegroundResult {
   stderr: { text: string; truncated: boolean; spillPath?: string }
 }
 
+/* jscpd:ignore-start -- minimal mirror of dsh-tool-bash's validation and execute plumbing (Agent Note). */
 function validatePwshArgs(args: PwshToolArgs): void {
   if (args.command.trim().length === 0) {
     throw new Error('invalid command: expected a non-empty string')
@@ -69,6 +70,7 @@ function validatePwshArgs(args: PwshToolArgs): void {
     throw new Error(`invalid timeoutMs: expected a positive number, got ${JSON.stringify(args.timeoutMs)}`)
   }
 }
+/* jscpd:ignore-end */
 
 function pwshDescription(): string {
   return 'Execute a PowerShell command (`pwsh -Command`) and return its stdout/stderr. '
@@ -185,6 +187,10 @@ export function apply(ctx: Context, config: Config = {}): void {
       workdir: { type: 'string', description: 'Working directory for this command. Defaults to the session workspace; a relative path is resolved against it.' },
     },
     output: {
+      // The foreground result wire shape mirrors dsh-tool-bash's by contract —
+      // consumers of one must accept the other (see the pwsh-tool-and-executor
+      // Agent Note).
+      /* jscpd:ignore-start -- deliberate foreground-result schema symmetry with dsh-tool-bash. */
       schema: {
         type: 'object',
         additionalProperties: false,
@@ -217,11 +223,13 @@ export function apply(ctx: Context, config: Config = {}): void {
           },
         },
       },
+      /* jscpd:ignore-end */
       render: (_args, value) => [{
         type: 'text',
         text: renderPwshOutput(value),
       }],
     },
+    /* jscpd:ignore-start -- the foreground execute path mirrors dsh-tool-bash's by design (see the pwsh-tool-and-executor Agent Note). */
     async execute(args: PwshToolArgs, exec) {
       validatePwshArgs(args)
       const workdir = resolveWorkdir(args.workdir, exec)
@@ -239,6 +247,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       }
       return canonicalPwshResult(result)
     },
+    /* jscpd:ignore-end */
     presentCall: (args: PwshToolArgs): TerminalCallView => ({
       card: 'terminal',
       title: args.command,

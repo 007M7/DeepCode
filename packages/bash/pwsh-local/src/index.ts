@@ -22,6 +22,7 @@ import type { BashExecRequest, BashExecSpec, BashProcess, BashProcessRead, BashR
 import type { SubprocessCollect, SubprocessHandle, SubprocessOutputReader, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import { clampTimeout, deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
 
+/* jscpd:ignore-start -- deliberate call-for-call mirror of dsh-bash-local (Agent Note: pwsh-tool-and-executor). */
 /**
  * Model-friendly environment overrides for PowerShell: disable colors and
  * pagers that would garble tool output. `TERM=dumb` is a POSIX concept and is
@@ -312,5 +313,6 @@ export class PwshLocalExecutor extends BashExecutor {
    */
   protected onProcessDone(_proc: BashProcess, _stderr: string): void {}
 }
+/* jscpd:ignore-end */
 
 export default PwshLocalExecutor

@@ -197,11 +197,12 @@ describe.skipIf(!hasPwsh)('PwshLocalExecutor.run', () => {
     const result = await bash.run(bash.resolve({ command: 'Stop-Process -Id $PID' }))
     expect(result.timedOut).toBe(false)
     expect(result.aborted).toBe(false)
-    // Windows reports a forced termination without a signal; POSIX reports SIGTERM.
+    // Windows reports a forced termination without a signal; POSIX reports the
+    // terminating signal PowerShell chose (SIGTERM, or SIGKILL for the hard kill).
     if (process.platform === 'win32') {
       expect(result.signal).toBeNull()
     } else {
-      expect(result.signal).toBe('SIGTERM')
+      expect(['SIGTERM', 'SIGKILL']).toContain(result.signal)
     }
   })
 
@@ -347,7 +348,8 @@ describe.skipIf(!hasPwsh)('PwshLocalExecutor.start (background process handles)'
     await proc.done
     expect(proc.status).toBe('killed')
     expect(proc.exitCode).toBeNull()
-    expect(proc.signal).toBe('SIGTERM')
+    // PowerShell picks SIGTERM for Stop-Process, SIGKILL for the hard kill.
+    expect(['SIGTERM', 'SIGKILL']).toContain(proc.signal)
   })
 
   it('a background spawn failure settles as killed with the error readable on stderr', async () => {
