@@ -1009,7 +1009,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/cordis/repository-plugin/src/index.ts:41`](../packages/cordis/repository-plugin/src/index.ts)
+Source: [`packages/cordis/repository-plugin/src/index.ts:42`](../packages/cordis/repository-plugin/src/index.ts)
 
 ## `@deepseek-ai/dsh-sandbox-local`
 

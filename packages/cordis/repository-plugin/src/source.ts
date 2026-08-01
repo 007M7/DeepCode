@@ -5,15 +5,23 @@
 
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import type { Context, Fiber, Plugin } from 'cordis'
+import type { Context, Fiber, FiberState, Plugin } from 'cordis'
 import type { RepositoryCache } from '@cordisjs/plugin-loader/repository'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 import { PREPARED_ENTRY_FILENAME } from './format.ts'
 
+// Value mirror: Cordis's const enum has no runtime object to import. Keep
+// aligned with `packages/cordis/tool-cordis/src/fiber-state.ts`.
+const FIBER_ACTIVE = 2 as FiberState.ACTIVE
+
 /** Directory under the Harness home containing immutable repository generations. */
 export const DEFAULT_REPOSITORY_CACHE_DIRECTORY = 'repository-plugins'
 
-const GITHUB_SOURCE_PATTERN = /^github:([^/\s#&]+)\/([^/\s#&]+)#([^\s&]+)(?:&path:(\/[^\s&]+))?$/
+// The ref segment excludes `#` so `github:o/r#a#b` fails here — at the config
+// parser, with the syntax the error message promises — instead of inside the
+// cache's pnpm install ('misconfiguration fails loud at the earliest
+// resolvable point').
+const GITHUB_SOURCE_PATTERN = /^github:([^/\s#&]+)\/([^/\s#&]+)#([^\s#&]+)(?:&path:(\/[^\s&]+))?$/
 
 function validPluginPath(path: string): boolean {
   const segments = path.split('/').slice(1)
@@ -67,6 +75,18 @@ export async function loadPreparedRepository(
   try {
     const plugin = await import(/* @vite-ignore */pathToFileURL(filename).href) as Plugin
     const fiber = ctx.plugin(plugin)
+    await fiber
+    // Awaiting a service-gated fiber returns while it is still PENDING (the
+    // generated wrapper injects `skills`/`tools` per its manifest). This
+    // runtime commits the repository configuration transactionally, so a
+    // composition that never provides a required service must reject the
+    // transaction here — not settle ACTIVE with a silently pending child.
+    if (fiber.state !== FIBER_ACTIVE) {
+      const missing = Object.keys(fiber.inject).filter(service => fiber.ctx.get(service) === undefined)
+      /* v8 ignore next 2 -- the 'unknown' arm needs a service to appear after the state read; not deterministically stageable. */
+      const detail = missing.join(', ') || 'unknown'
+      throw new Error(`prepared wrapper did not activate (waiting for services: ${detail})`)
+    }
     return await fiber
   } catch (cause) {
     throw new Error(`failed to load prepared repository Plugin ${JSON.stringify(specifier)} from ${filename}`, { cause })

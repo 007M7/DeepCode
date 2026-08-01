@@ -296,6 +296,7 @@ describe('configured GitHub repository sources', () => {
     for (const source of [
       'github:owner/repository',
       'github:owner/repository#',
+      'github:owner/repository#a#b',
       'https://github.com/owner/repository#ref',
       'github:owner/repository#ref&path:relative/.dsh-plugin',
     ]) {
@@ -350,6 +351,52 @@ describe('configured GitHub repository sources', () => {
     await ctx.fiber.dispose()
   })
 
+  it('swaps generations on a live source-list update and rolls a failed candidate back', async () => {
+    // The headline flow: a personal-config edit reaches this plugin as a
+    // Loader entry.update, which restarts the row's fiber (old cleanup, then
+    // new apply — so the 'already registered' builtin guard must not fire).
+    const roots: Record<string, string> = {}
+    for (const generation of ['one', 'two'] as const) {
+      const root = await temporaryDirectory(`live-${generation}`)
+      await writeSkill(join(root, 'skills'), `live-skill-${generation}`)
+      const directory = await writePlugin(root, `live-fixture-${generation}`, { skills: ['../skills'] })
+      await RepositoryPlugin.prepareDshPlugin(directory)
+      roots[`github:owner/repository#${generation}&path:/.dsh-plugin`] = directory
+    }
+    vi.spyOn(RepositoryCache.prototype, 'resolve').mockImplementation(async (specifier) => {
+      const directory = roots[specifier]
+      if (directory === undefined) throw new Error(`unprepared generation ${specifier}`)
+      return directory
+    })
+
+    // Route the row through the Loader builtin table exactly as a config tree
+    // would; the module itself is the row's plugin.
+    const ctx2 = new Context()
+    await ctx2.plugin(Loader)
+    await ctx2.plugin(SkillService)
+    ctx2.loader.builtins['repository-plugins'] = RepositoryPlugin
+    const entryId = await ctx2.loader.create({
+      name: 'cordis:repository-plugins',
+      config: { repositories: ['github:owner/repository#one'] },
+    })
+    await ctx2.loader.await()
+    await expect(ctx2.skills.get('live-skill-one')).resolves.toMatchObject({ provider: 'repository:live-fixture-one' })
+
+    const entry = ctx2.loader.resolve(entryId)
+    await entry.update({ config: { repositories: ['github:owner/repository#two'] } })
+    await ctx2.loader.await()
+    await expect(ctx2.skills.get('live-skill-one')).resolves.toBeUndefined()
+    await expect(ctx2.skills.get('live-skill-two')).resolves.toMatchObject({ provider: 'repository:live-fixture-two' })
+
+    // A failed candidate (unprepared source) rejects the update and the
+    // transactional Loader restores the previous generation.
+    await expect(entry.update({ config: { repositories: ['github:owner/repository#missing'] } }))
+      .rejects.toThrow('unprepared generation')
+    await ctx2.loader.await()
+    await expect(ctx2.skills.get('live-skill-two')).resolves.toMatchObject({ provider: 'repository:live-fixture-two' })
+    await ctx2.fiber.dispose()
+  })
+
   it('rejects duplicate generations and cleans the builtin after cache preparation fails', async () => {
     const ctx = new Context()
     await ctx.plugin(Loader)
@@ -365,6 +412,28 @@ describe('configured GitHub repository sources', () => {
       repositories: ['github:owner/repository#other'],
     })).rejects.toThrow('prepare failed')
     expect(ctx.loader.builtins[RepositoryPlugin.REPOSITORY_PLUGIN_BUILTIN]).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('rejects a wrapper left pending by a composition without its required services', async () => {
+    // A skills-declaring generation mounted where no skills service exists:
+    // the wrapper fiber stays PENDING, and the transaction must fail loud
+    // instead of committing an ACTIVE row over a silently inert child.
+    const root = await temporaryDirectory('pending-services')
+    await writeSkill(join(root, 'skills'), 'pending-service-skill')
+    const directory = await writePlugin(root, 'pending-service-fixture', { skills: ['../skills'] })
+    await RepositoryPlugin.prepareDshPlugin(directory)
+
+    const ctx = new Context()
+    await ctx.plugin(Loader)
+    // Deliberately NO SkillService.
+    await expect(loadPreparedRepository(ctx, { resolve: async () => directory }, 'github:owner/repository#pending&path:/.dsh-plugin'))
+      .rejects.toMatchObject({
+        message: expect.stringContaining('failed to load prepared repository Plugin') as string,
+        cause: expect.objectContaining({
+          message: expect.stringContaining('waiting for services: skills') as string,
+        }) as Error,
+      })
     await ctx.fiber.dispose()
   })
 

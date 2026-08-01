@@ -323,8 +323,11 @@ export async function watchPersonalPatches(
   const entry = bootstrapIncludes.get(ctx)
   if (entry === undefined) throw new Error(`${binName}: personal config watching requires the root Include entry`)
   const filename = join(dir, PERSONAL_CONFIG_FILENAME)
-  const { patches: _initialPatches, ...includeConfig } = entry.options.config as Include.Config
   return hmr.registerConfig(filename, async () => {
+    // Re-read the include's non-patch options per refresh: a writer that
+    // updates the root Include's other options between refreshes (none exists
+    // today) must not have them silently reverted by a personal reload.
+    const { patches: _previousPatches, ...includeConfig } = entry.options.config as Include.Config
     const personalPatches = loadPersonalPatches(binName, dir) ?? []
     const patches = compose(personalPatches)
     await entry.update({
