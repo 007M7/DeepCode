@@ -30,7 +30,7 @@ Status: implemented
 平台适配器不经 shell，直接调用原生工具：
 
 - macOS：`osascript` 和系统文件夹选择器。
-- Windows：采用 STA 模式的 PowerShell 和 `FolderBrowserDialog`。
+- Windows：采用 STA 模式的 `pwsh`（PowerShell 7），并以 Windows PowerShell 5.1 回退，且始终 DPI aware（见[选择器修复](../bug-fix/2026-08-01-windows-picker-pwsh-dpi.md)）。
 - Linux：使用 `zenity`；Zenity 不可用时回退到 `kdialog`。
 
 ## 考虑过的替代方案

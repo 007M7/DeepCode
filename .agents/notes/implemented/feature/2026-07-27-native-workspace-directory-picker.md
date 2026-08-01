@@ -30,7 +30,7 @@ The native dialog RPC is accepted only from a loopback socket with same-origin b
 Platform adapters invoke native tools without a shell:
 
 - macOS: `osascript` and the system folder chooser.
-- Windows: PowerShell in STA mode and `FolderBrowserDialog`.
+- Windows: `pwsh` (PowerShell 7) in STA mode with a Windows PowerShell 5.1 fallback, always DPI-aware ([picker fix](../bug-fix/2026-08-01-windows-picker-pwsh-dpi.md)).
 - Linux: `zenity`, with `kdialog` as a fallback when Zenity is unavailable.
 
 ## Alternatives considered
