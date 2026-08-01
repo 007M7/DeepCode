@@ -2,6 +2,7 @@
 import type { Context } from 'cordis'
 import { resolveSlotLabel, type BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
@@ -42,7 +43,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 /** Services required by the conversation plugin. */
-export const inject = ['slots', 'layout', 'sessions', 'workspaces', 'locale']
+export const inject = ['slots', 'layout', 'sessions', 'workspaces', 'locale', 'connection']
 
 // Static no-session sources for the composer-bar hooks compartment: module
 // constants so the render side's per-source hook cache (observableHook) keeps
@@ -275,11 +276,12 @@ export function apply(ctx: Context): void {
         },
         openFile: (path) => {
           const cwd = sessions.list.getSnapshot().byId[sessionId]?.cwd
-          // A file inside the workspace opens in a new tab, so a browser that
-          // is not on the Host machine can still see what the agent produced.
-          // Anything outside it has no served URL and falls back to the Host's
-          // own opener, which is loopback-only by the /api trust fence.
-          const url = workspaces.fileUrl(sessionId, cwd, path)
+          // A file inside the workspace opens in a new tab on the transport's
+          // workspace-file origin, so a browser that is not on the Host machine
+          // can still see what the agent produced. Anything outside it has no
+          // served URL and falls back to the Host's own opener, which is
+          // loopback-only by the /api trust fence.
+          const url = (ctx.get('connection') as ConnectionHandle).fileUrl(sessionId, cwd, path)
           if (url !== undefined) {
             window.open(url, '_blank', 'noopener,noreferrer')
             return

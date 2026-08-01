@@ -59,27 +59,25 @@ function get(path: string, init?: RequestInit): Promise<Response> {
 }
 
 describe('workspace file reads', () => {
-  it('serves an active document into an opaque origin', async () => {
+  it('serves a produced document with its own capabilities intact', async () => {
     const response = await get(`${FILES_PATH}/${SESSION}/index.html`)
     expect(response.status).toBe(200)
     expect(await response.text()).toBe('<h1>产物</h1>')
     expect(response.headers.get('content-type')).toBe('text/html; charset=utf-8')
-    // A workspace file is not necessarily agent-authored, and same-origin
-    // script here would pass the browser-trust fence into every RPC method.
-    expect(response.headers.get('content-security-policy')).toContain('sandbox')
-    expect(response.headers.get('content-security-policy')).not.toContain('allow-same-origin')
+    // No isolation header: the listener's own port is the origin boundary, so
+    // a preview keeps localStorage and cookies (see files-server).
+    expect(response.headers.get('content-security-policy')).toBeNull()
     expect(response.headers.get('x-content-type-options')).toBe('nosniff')
     expect(response.headers.get('cache-control')).toBe('no-store')
     expect(response.headers.get('content-disposition')).toBe('inline')
   })
 
-  it('sandboxes SVG too, and leaves inert types unrestricted', async () => {
+  it('types SVG as a standalone document rather than sniffable bytes', async () => {
     const svg = await get(`${FILES_PATH}/${SESSION}/chart.svg`)
     expect(svg.headers.get('content-type')).toBe('image/svg+xml')
-    expect(svg.headers.get('content-security-policy')).toContain('sandbox')
+    expect(svg.headers.get('x-content-type-options')).toBe('nosniff')
     const text = await get(`${FILES_PATH}/${SESSION}/notes.txt`)
     expect(text.headers.get('content-type')).toBe('text/plain; charset=utf-8')
-    expect(text.headers.get('content-security-policy')).toBeNull()
   })
 
   it('serves a workspace rooted at a filesystem root, whose realpath already ends in a separator', async () => {

@@ -10,13 +10,11 @@
  * owns the browser-trust fence ([api-request-trust](./api-request-trust.ts)) —
  * this module is reached only by requests that already passed it.
  *
- * Script-capable documents are served into an opaque origin. A workspace file
- * is not necessarily agent-authored — a read row makes every file in a cloned
- * repository openable — so an active document served same-origin with `/api`
- * reaches the whole RPC surface, the loopback-pinned settings and credential
- * methods included. The sandbox costs a preview its `localStorage` and
- * cookies; restoring those without reopening that hole needs a separate
- * origin, not a weaker header.
+ * Isolation is the listener's, not this module's: these responses carry no
+ * sandbox header because they are served from their own port, and therefore
+ * their own origin ([files-server](./files-server.ts)). A served document
+ * keeps `localStorage`, cookies, and its own `fetch`, while the API stays
+ * cross-origin to it.
  */
 
 import { createReadStream } from 'node:fs'
@@ -58,17 +56,6 @@ const MIME: Record<string, string> = {
 }
 
 const DEFAULT_MIME = 'text/plain; charset=utf-8'
-
-/** Extensions whose top-level navigation can execute script, and so need the sandbox. */
-const SCRIPTABLE = new Set(['.html', '.htm', '.xhtml', '.svg'])
-
-/**
- * The opaque origin an active workspace document runs in. Without it the
- * document is same-origin with `/api` and its script passes the browser-trust
- * fence, which admits every method — including the ones pinned to loopback
- * precisely because they mutate settings and credentials.
- */
-const SANDBOX_CSP = 'sandbox allow-scripts allow-popups allow-modals allow-forms'
 
 /** How the route learns which directory a session may serve from. */
 export interface WorkspaceFileDeps {
@@ -160,7 +147,6 @@ export async function handleWorkspaceFile(
     // Workspace files change under the agent's hands; a cached preview would
     // show the previous turn's output after the next edit.
     'cache-control': 'no-store',
-    ...SCRIPTABLE.has(ext) ? { 'content-security-policy': SANDBOX_CSP } : {},
   })
   if (req.method === 'HEAD') {
     res.end()

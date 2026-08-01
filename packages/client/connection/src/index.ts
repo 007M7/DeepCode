@@ -4,14 +4,13 @@ import z from 'schemastery'
 // Activates the httpServer Context merge used below.
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
-import { FILES_PATH } from '@deepseek-ai/dsh-host-apiproxy/api'
 // The merge-free types subpath: pulling the session package's root into this
 // client-registered program would merge the host `sessions` service over the
 // browser runtime's own.
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { API_PATH } from './api-path.ts'
 import { bridge } from './http-bridge.ts'
-import { handleWorkspaceFile } from './workspace-files.ts'
+import { injectFilesPort, listenForWorkspaceFiles } from './files-server.ts'
 import { assertTrustedAuthority, isTrustedApiRequest } from './api-request-trust.ts'
 
 export { API_PATH } from './api-path.ts'
@@ -74,8 +73,10 @@ const PRIVILEGED_METHODS = new Set([
  * additionally pass it with an empty trust list, which pins them to loopback.
  * @param ctx - Host plugin context.
  * @param config - resolved plugin config (schema defaults applied).
+ * @returns a promise settling once the workspace-file listener is bound and
+ * its port published — the page must never render before it can address one.
  */
-export function apply(ctx: Context, config?: ConnectionConfig): void {
+export async function apply(ctx: Context, config?: ConnectionConfig): Promise<void> {
   // The Loader resolves schema defaults; hand-built test contexts may pass none.
   const trustedHosts = config?.trustedHosts ?? []
   // Config boundary: a malformed entry fails the load loudly here rather than
@@ -108,23 +109,19 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
   // would merge their host-side Context declarations into the browser lane.
   const cwdFor = (sessionId: string): Promise<string | undefined> =>
     ctx.apiProxy.workspaceRootOf(sessionId as SessionId)
-  const filesRoute: WebRoute = {
-    kind: 'prefix',
-    path: FILES_PATH,
-    handler: async (req, res) => {
-      if (!isTrustedApiRequest(req, trustedHosts)) {
-        res.writeHead(403)
-        res.end('forbidden')
-        return
-      }
-      if (req.method !== 'GET' && req.method !== 'HEAD') {
-        // RFC 9110 §15.5.6: a 405 names the methods the resource does support.
-        res.writeHead(405, { allow: 'GET, HEAD' })
-        res.end()
-        return
-      }
-      await handleWorkspaceFile(req, res, { cwdFor })
-    },
-  }
-  ctx.effect(() => ctx.httpServer.register(filesRoute), 'client-connection: /f route')
+  // Workspace files get their own port, and therefore their own origin: an
+  // active document served beside `/api` would reach every method through the
+  // fence below. The listen is awaited inside the effect so the port is known
+  // before the index tap that publishes it can run.
+  await ctx.effect(async () => {
+    const files = await listenForWorkspaceFiles(
+      ctx.httpServer.host, trustedHosts, { cwdFor },
+      (error) => { ctx.logger.error(error) },
+    )
+    const untap = ctx.httpServer.tapIndex(html => injectFilesPort(html, files.port))
+    return async () => {
+      untap()
+      await files.close()
+    }
+  }, 'client-connection: /f listener')
 }

@@ -121,6 +121,7 @@ describe('keyed toolview hole through the real machinery', () => {
 
   it('file-path clicks travel owner openFile → chat inject → the served workspace URL', async () => {
     const b = await bench([toolResult(3, 'c1', 'read', '{"path":"src/a.ts"}')])
+    b.runtime.connection.filesPort = 4321
     const open = vi.spyOn(window, 'open').mockReturnValue(null)
     const view = b.runtime.renderRoot()
     view.getByText('src/a.ts').click()

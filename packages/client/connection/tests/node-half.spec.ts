@@ -15,14 +15,21 @@ import { FILES_PATH } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { API_PATH, apply, inject } from '../src/index.ts'
 
 /** Structural httpServer fake: the plugin only touches register(). */
-function fakeHttpServer(routes: WebRoute[]): Pick<HttpServerService, 'register' | 'tapIndex' | 'port'> {
+function fakeHttpServer(
+  routes: WebRoute[],
+  taps: ((html: string) => string)[] = [],
+): Pick<HttpServerService, 'register' | 'tapIndex' | 'port' | 'host'> {
   return {
     register(route) {
       routes.push(route)
       return () => { routes.splice(routes.indexOf(route), 1) }
     },
-    tapIndex: () => () => {},
+    tapIndex(transform) {
+      taps.push(transform)
+      return () => { taps.splice(taps.indexOf(transform), 1) }
+    },
     port: 0,
+    host: '127.0.0.1',
   }
 }
 
@@ -61,21 +68,39 @@ function fakeApiProxy(workspaces: Record<string, string> = {}): ApiProxy {
 async function mounted(
   config?: { trustedHosts?: string[] },
   workspaces: Record<string, string> = {},
-): Promise<{ routes: WebRoute[]; dispose: () => Promise<void> }> {
+): Promise<{ routes: WebRoute[]; taps: ((html: string) => string)[]; dispose: () => Promise<void> }> {
   const ctx = new Context()
   const routes: WebRoute[] = []
-  ctx.provide('httpServer', fakeHttpServer(routes) as HttpServerService)
+  const taps: ((html: string) => string)[] = []
+  ctx.provide('httpServer', fakeHttpServer(routes, taps) as HttpServerService)
   ctx.provide('apiProxy', fakeApiProxy(workspaces))
   const fiber = ctx.plugin({ inject: [...inject], apply }, config)
   await fiber.await()
-  return { routes, dispose: () => fiber.dispose() }
+  return { routes, taps, dispose: () => fiber.dispose() }
 }
 
-/** The /f route is registered after /api; both are prefix routes on the same server. */
-function filesRoute(routes: WebRoute[]): WebRoute {
-  const route = routes.find(candidate => candidate.path === FILES_PATH)
-  if (route === undefined) throw new Error('the /f route was not registered')
-  return route
+/** One raw GET whose Host header is spoofed (fetch forbids setting it). */
+function statusWithHost(origin: string, path: string, host: string): Promise<number> {
+  const url = new URL(origin)
+  return new Promise((resolve, reject) => {
+    const request = httpRequest(
+      { host: url.hostname, port: url.port, path, method: 'GET', headers: { host } },
+      (response) => {
+        response.resume()
+        response.on('end', () => { resolve(response.statusCode ?? 0) })
+      },
+    )
+    request.on('error', reject)
+    request.end()
+  })
+}
+
+/** The workspace-file origin the node half published into the index page. */
+function filesOrigin(taps: ((html: string) => string)[]): string {
+  const html = taps.reduce((acc, tap) => tap(acc), '<head></head>')
+  const port = /__DSH_FILES_PORT__ = (\d+)/.exec(html)?.[1]
+  if (port === undefined) throw new Error(`no workspace-file port was published: ${html}`)
+  return `http://127.0.0.1:${port}`
 }
 
 describe('connection node half', () => {
@@ -89,11 +114,19 @@ describe('connection node half', () => {
     expect(routes).toHaveLength(0)
   })
 
-  it('registers both transport prefix routes and removes them with the fiber', async () => {
-    const { routes, dispose } = await mounted()
-    expect(routes).toMatchObject([{ kind: 'prefix', path: API_PATH }, { kind: 'prefix', path: FILES_PATH }])
+  it('registers the /api route and publishes a separate workspace-file origin, both removed with the fiber', async () => {
+    const { routes, taps, dispose } = await mounted()
+    // The API keeps one prefix on the shared server; workspace files get a
+    // port of their own, which is the origin boundary between them.
+    expect(routes).toMatchObject([{ kind: 'prefix', path: API_PATH }])
+    const origin = filesOrigin(taps)
+    expect(new URL(origin).port).not.toBe('')
+    expect((await fetch(`${origin}${FILES_PATH}/absent/x.txt`)).status).toBe(404)
     await dispose()
     expect(routes).toHaveLength(0)
+    expect(taps).toHaveLength(0)
+    // Disposal reaches quiescence: the socket is gone, not merely unrouted.
+    await expect(fetch(`${origin}${FILES_PATH}/absent/x.txt`)).rejects.toThrow()
   })
 
   it('refuses an untrusted Host on any /api path before the bridge runs', async () => {
@@ -154,7 +187,7 @@ describe('connection node half', () => {
   })
 })
 
-describe('connection node half: the /f workspace-file route', () => {
+describe('connection node half: the workspace-file origin', () => {
   /** A workspace holding one file, torn down with the returned disposer. */
   async function workspace(): Promise<{ cwd: string; remove: () => Promise<void> }> {
     const cwd = await mkdtemp(join(tmpdir(), 'dsh-node-half-'))
@@ -162,40 +195,35 @@ describe('connection node half: the /f workspace-file route', () => {
     return { cwd, remove: () => rm(cwd, { recursive: true, force: true }) }
   }
 
-  /** HEAD keeps the assertion on the route's decision, not on the byte stream. */
-  function head(url: string, headers: Record<string, string> = { host: '127.0.0.1:3080' }): IncomingMessage {
-    const request = fakeRequest(headers, url)
-    Object.assign(request, { method: 'HEAD' })
-    return request
-  }
-
-  it('applies the same browser-trust fence as /api, and refuses writes', async () => {
-    const { routes, dispose } = await mounted()
-    const untrusted = fakeResponse()
-    await filesRoute(routes).handler(head(`${FILES_PATH}/s-1/index.html`, { host: 'harness.example' }), untrusted.response)
-    expect(untrusted.state.status).toBe(403)
-    expect(untrusted.state.body).toBe('forbidden')
-
-    const written = fakeResponse()
-    const post = fakeRequest({ host: '127.0.0.1:3080' }, `${FILES_PATH}/s-1/index.html`)
-    Object.assign(post, { method: 'POST' })
-    await filesRoute(routes).handler(post, written.response)
-    expect(written.state.status).toBe(405)
-    expect(written.state.headers).toMatchObject({ allow: 'GET, HEAD' })
+  it('applies the same browser-trust fence as /api, refuses writes, and serves nothing else', async () => {
+    const { taps, dispose } = await mounted()
+    const origin = filesOrigin(taps)
+    // Rebound Host: refused before any filesystem work, exactly as on /api.
+    // node's fetch refuses to set Host (a forbidden header), so the spoof goes
+    // through the raw client — the same parse the server really performs.
+    expect(await statusWithHost(origin, `${FILES_PATH}/s-1/index.html`, 'harness.example')).toBe(403)
+    const written = await fetch(`${origin}${FILES_PATH}/s-1/index.html`, { method: 'POST' })
+    expect(written.status).toBe(405)
+    expect(written.headers.get('allow')).toBe('GET, HEAD')
+    // This origin is one route wide: no index, no SPA fallback, no API.
+    expect((await fetch(`${origin}/`)).status).toBe(404)
+    expect((await fetch(`${origin}${API_PATH}/session.list`, { method: 'POST' })).status).toBe(404)
     await dispose()
   })
 
   it('confines reads to the directory the gateway names for that session', async () => {
     const { cwd, remove } = await workspace()
-    const { routes, dispose } = await mounted(undefined, { 's-1': cwd })
-    const served = fakeResponse()
-    await filesRoute(routes).handler(head(`${FILES_PATH}/s-1/index.html`), served.response)
-    expect(served.state.status).toBe(200)
+    const { taps, dispose } = await mounted(undefined, { 's-1': cwd })
+    const origin = filesOrigin(taps)
+    const served = await fetch(`${origin}${FILES_PATH}/s-1/index.html`)
+    expect(served.status).toBe(200)
+    expect(await served.text()).toBe('<h1>ok</h1>')
+    // A served document keeps its own capabilities: the port is the boundary,
+    // so nothing here strips the document of its origin.
+    expect(served.headers.get('content-security-policy')).toBeNull()
     // A session the gateway names no directory for has no workspace to confine
     // against, so there is nothing to serve.
-    const unknown = fakeResponse()
-    await filesRoute(routes).handler(head(`${FILES_PATH}/s-absent/index.html`), unknown.response)
-    expect(unknown.state.status).toBe(404)
+    expect((await fetch(`${origin}${FILES_PATH}/s-absent/index.html`)).status).toBe(404)
     await dispose()
     await remove()
   })

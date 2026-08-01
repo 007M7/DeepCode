@@ -134,9 +134,11 @@ async function bench(snapshot: ConversationSnapshot) {
     startSession: vi.fn(),
     sendSession: vi.fn(),
     openPath: vi.fn(async () => {}),
-    fileUrl: vi.fn((_sessionId: unknown, _cwd: string | undefined, path: string) => `/f/s-1/${path}`),
   }
   ctx.provide('workspaces', workspaces)
+  // The transport face the chat view reads its workspace-file URLs from.
+  const connection = { fileUrl: vi.fn((_s: unknown, _cwd: string | undefined, path: string) => `http://localhost:4321/f/s-1/${path}`) }
+  ctx.provide('connection', connection)
   ctx.provide('layout', layout)
   const locale = new LocaleService(ctx)
   ctx.provide('locale', locale)
@@ -249,7 +251,7 @@ describe('run_code sub-calls through the real chat machinery', () => {
     view.getByText('notes/demo.txt').click()
     expect(b.layout.openDetails).not.toHaveBeenCalled()
     await vi.waitFor(() => {
-      expect(open).toHaveBeenCalledWith('/f/s-1/notes/demo.txt', '_blank', 'noopener,noreferrer')
+      expect(open).toHaveBeenCalledWith('http://localhost:4321/f/s-1/notes/demo.txt', '_blank', 'noopener,noreferrer')
     })
     open.mockRestore()
     view.getByText('List notes').click()

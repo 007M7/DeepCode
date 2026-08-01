@@ -57,17 +57,6 @@ export interface IWorkspaces {
    */
   openPath(path: string): Promise<void>
   /**
-   * URL serving one file out of a session's workspace, for a UI that opens a
-   * produced file in the browser instead of on the Host machine.
-   * @param sessionId - the session whose cwd anchors the path.
-   * @param cwd - that session's working directory, or `undefined` when unknown.
-   * @param path - the path a tool reported (absolute, or relative to `cwd`).
-   * @returns the origin-relative URL, or `undefined` when the path lies
-   * outside the workspace — which this transport never serves, leaving
-   * {@link IWorkspaces.openPath} as the only way to reach it.
-   */
-  fileUrl(sessionId: SessionId, cwd: string | undefined, path: string): string | undefined
-  /**
    * Rename a Workspace.
    * @param workspaceId - target workspace.
    * @param title - the new display title.

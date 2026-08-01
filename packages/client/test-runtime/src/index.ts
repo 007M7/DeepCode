@@ -29,11 +29,13 @@ import type {
 } from '@deepseek-ai/dsh-client-ui-slots'
 import { registerDomSnapshotSerializer } from './snapshot.ts'
 import { TestSessions } from './sessions.ts'
+import { TestConnection } from './connection.ts'
 import { TestWorkspaces } from './workspaces.ts'
 import type { Stabilizer } from './fixtures.ts'
 
 export { domSnapshotSerializer, registerDomSnapshotSerializer } from './snapshot.ts'
 export { FixtureSession, TestSessions } from './sessions.ts'
+export { TestConnection } from './connection.ts'
 export { TestWorkspaces } from './workspaces.ts'
 export { conversationSnapshot, workspaceListState } from './fixtures.ts'
 export type { SessionBehaviorOverrides, SessionFixture, Stabilizer } from './fixtures.ts'
@@ -175,6 +177,8 @@ export class SlotTestRuntime {
   readonly sessions: TestSessions
   /** Workspaces double (list observable, recorded intent actions). */
   readonly workspaces: TestWorkspaces
+  /** The transport double features read as `ctx.connection`. */
+  readonly connection: TestConnection
 
   private readonly stabilizer: Stabilizer = async (fn) => {
     await act(async () => { await fn() })
@@ -195,8 +199,10 @@ export class SlotTestRuntime {
     this.root = new TestRoot(slots, this.stabilizer)
     this.sessions = new TestSessions(this.stabilizer, ctx)
     this.workspaces = new TestWorkspaces(this.stabilizer)
+    this.connection = new TestConnection()
     ctx.provide('sessions', this.sessions)
     ctx.provide('workspaces', this.workspaces)
+    ctx.provide('connection', this.connection)
     // Capturing install: the production renderer does the rendering; the
     // wrapper only takes the host face for storeOf (no machinery copied).
     const renderer = createSlotRenderer()

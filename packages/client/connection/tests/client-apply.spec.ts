@@ -8,10 +8,11 @@ import { apply, type ConnectionHandle } from '../src/client/index.ts'
 import { FixtureApiClient } from '../src/client/fixture.ts'
 import { WebApiClient } from '../src/client/web-api-client.ts'
 
-type Win = { location?: { search: string } }
+type Win = { location?: { search: string; protocol?: string; hostname?: string }; __DSH_FILES_PORT__?: number }
 
 afterEach(() => {
   delete (globalThis as Win).location
+  delete (globalThis as Win).__DSH_FILES_PORT__
 })
 
 async function mount(): Promise<ConnectionHandle> {
@@ -61,5 +62,29 @@ describe('connection client apply', () => {
       globalThis.fetch = original
     }
     expect(seen.some(u => u.includes('/api/'))).toBe(true)
+  })
+
+  it('addresses a workspace file on the port the host published, and only inside the workspace', async () => {
+    const win = globalThis as Win
+    win.location = { search: '', protocol: 'http:', hostname: '192.168.1.5' }
+    win.__DSH_FILES_PORT__ = 4321
+    const handle = await mount()
+    const session = 's-1' as never
+    // Same hostname the page was reached by — a LAN client must reach previews
+    // too — and the published port, which is what makes it another origin.
+    expect(handle.fileUrl(session, '/w/alpha', '/w/alpha/out/a b.html'))
+      .toBe('http://192.168.1.5:4321/f/s-1/out/a%20b.html')
+    // Outside the workspace there is nothing this transport may serve, which
+    // is the signal a caller falls back to openPath on.
+    expect(handle.fileUrl(session, '/w/alpha', '/etc/hosts')).toBeUndefined()
+  })
+
+  it('serves no file URL on a page no host published a port into', async () => {
+    const win = globalThis as Win
+    win.location = { search: '?fixture', protocol: 'http:', hostname: '127.0.0.1' }
+    const handle = await mount()
+    // The keyless fixture lane: no workspace-file origin exists, so the row
+    // falls back to the Host opener instead of opening a dead tab.
+    expect(handle.fileUrl('s-1' as never, '/w', 'a.txt')).toBeUndefined()
   })
 })
