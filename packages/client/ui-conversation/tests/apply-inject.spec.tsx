@@ -218,25 +218,13 @@ describe('conversation slot inject surface', () => {
     await b.runtime.dispose()
   })
 
-  it('openFile (chat view face) opens a workspace file in a tab and falls back to the host opener outside it', async () => {
+  it('openFile (chat view face) resolves against session cwd and calls workspaces.openPath', async () => {
     const b = await bench()
-    // A host that publishes a workspace-file port: previews come from that
-    // origin, which is what keeps them off the API's.
-    b.runtime.connection.filesPort = 4321
-    const open = vi.spyOn(window, 'open').mockReturnValue(null)
     const { injected } = b.chatViewSurface(ROOT)
-    // Inside the session cwd: served on the workspace-file origin, so a browser
-    // anywhere on the network sees the file the agent produced.
     injected.openFile('src/a.ts')
-    expect(open).toHaveBeenCalledWith(`http://localhost:4321/f/${ROOT}/src/a.ts`, '_blank', 'noopener,noreferrer')
-    expect(b.runtime.workspaces.calls.some(c => c.method === 'openPath')).toBe(false)
-    // Outside it there is no served URL, so the Host's own opener answers —
-    // resolved against the session cwd exactly as before.
-    injected.openFile('/etc/hosts')
     await vi.waitFor(() => {
-      expect(b.runtime.workspaces.calls).toContainEqual({ method: 'openPath', args: ['/etc/hosts'] })
+      expect(b.runtime.workspaces.calls).toContainEqual({ method: 'openPath', args: ['/proj/src/a.ts'] })
     })
-    open.mockRestore()
     await b.runtime.dispose()
   })
 

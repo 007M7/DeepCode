@@ -119,17 +119,14 @@ describe('keyed toolview hole through the real machinery', () => {
     await b.runtime.dispose()
   })
 
-  it('file-path clicks travel owner openFile → chat inject → the served workspace URL', async () => {
+  it('file-path clicks travel owner openFile → chat inject → workspaces.openPath', async () => {
     const b = await bench([toolResult(3, 'c1', 'read', '{"path":"src/a.ts"}')])
-    b.runtime.connection.filesPort = 4321
-    const open = vi.spyOn(window, 'open').mockReturnValue(null)
     const view = b.runtime.renderRoot()
     view.getByText('src/a.ts').click()
     expect(b.layout.openDetails).not.toHaveBeenCalled()
     await vi.waitFor(() => {
-      expect(open).toHaveBeenCalledWith(expect.stringContaining('/src/a.ts'), '_blank', 'noopener,noreferrer')
+      expect(b.runtime.workspaces.calls).toContainEqual({ method: 'openPath', args: ['src/a.ts'] })
     })
-    open.mockRestore()
     await b.runtime.dispose()
   })
 

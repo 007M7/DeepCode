@@ -1,9 +1,6 @@
-/** Node half: registers the /api and /f prefix routes over the api gateway and the session workspaces. */
+/** Node half: registers the /api prefix route bridging to the api gateway. */
 import { EventEmitter } from 'node:events'
 import { createServer, request as httpRequest } from 'node:http'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { Context } from 'cordis'
 import { describe, expect, it } from 'vitest'
@@ -11,25 +8,17 @@ import type { AddressInfo } from 'node:net'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { ApiProxy } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { HttpServerService, WebRoute } from '@deepseek-ai/dsh-host-webserver'
-import { FILES_PATH } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { API_PATH, apply, inject } from '../src/index.ts'
 
 /** Structural httpServer fake: the plugin only touches register(). */
-function fakeHttpServer(
-  routes: WebRoute[],
-  taps: ((html: string) => string)[] = [],
-): Pick<HttpServerService, 'register' | 'tapIndex' | 'port' | 'host'> {
+function fakeHttpServer(routes: WebRoute[]): Pick<HttpServerService, 'register' | 'tapIndex' | 'port'> {
   return {
     register(route) {
       routes.push(route)
       return () => { routes.splice(routes.indexOf(route), 1) }
     },
-    tapIndex(transform) {
-      taps.push(transform)
-      return () => { taps.splice(taps.indexOf(transform), 1) }
-    },
+    tapIndex: () => () => {},
     port: 0,
-    host: '127.0.0.1',
   }
 }
 
@@ -60,47 +49,14 @@ function fakeResponse(): { response: ServerResponse; state: { status?: number; b
   return { response, state }
 }
 
-/** The gateway stub: only the session-directory authority the /f route reads. */
-function fakeApiProxy(workspaces: Record<string, string> = {}): ApiProxy {
-  return { workspaceRootOf: async (id: string) => workspaces[id] } as unknown as ApiProxy
-}
-
-async function mounted(
-  config?: { trustedHosts?: string[] },
-  workspaces: Record<string, string> = {},
-): Promise<{ routes: WebRoute[]; taps: ((html: string) => string)[]; dispose: () => Promise<void> }> {
+async function mounted(config?: { trustedHosts?: string[] }): Promise<{ routes: WebRoute[]; dispose: () => Promise<void> }> {
   const ctx = new Context()
   const routes: WebRoute[] = []
-  const taps: ((html: string) => string)[] = []
-  ctx.provide('httpServer', fakeHttpServer(routes, taps) as HttpServerService)
-  ctx.provide('apiProxy', fakeApiProxy(workspaces))
+  ctx.provide('httpServer', fakeHttpServer(routes) as HttpServerService)
+  ctx.provide('apiProxy', {} as unknown as ApiProxy)
   const fiber = ctx.plugin({ inject: [...inject], apply }, config)
   await fiber.await()
-  return { routes, taps, dispose: () => fiber.dispose() }
-}
-
-/** One raw GET whose Host header is spoofed (fetch forbids setting it). */
-function statusWithHost(origin: string, path: string, host: string): Promise<number> {
-  const url = new URL(origin)
-  return new Promise((resolve, reject) => {
-    const request = httpRequest(
-      { host: url.hostname, port: url.port, path, method: 'GET', headers: { host } },
-      (response) => {
-        response.resume()
-        response.on('end', () => { resolve(response.statusCode ?? 0) })
-      },
-    )
-    request.on('error', reject)
-    request.end()
-  })
-}
-
-/** The workspace-file origin the node half published into the index page. */
-function filesOrigin(taps: ((html: string) => string)[]): string {
-  const html = taps.reduce((acc, tap) => tap(acc), '<head></head>')
-  const port = /__DSH_FILES_PORT__ = (\d+)/.exec(html)?.[1]
-  if (port === undefined) throw new Error(`no workspace-file port was published: ${html}`)
-  return `http://127.0.0.1:${port}`
+  return { routes, dispose: () => fiber.dispose() }
 }
 
 describe('connection node half', () => {
@@ -108,25 +64,17 @@ describe('connection node half', () => {
     const routes: WebRoute[] = []
     const ctx = new Context()
     ctx.provide('httpServer', fakeHttpServer(routes) as HttpServerService)
-    ctx.provide('apiProxy', fakeApiProxy())
+    ctx.provide('apiProxy', {} as unknown as ApiProxy)
     const fiber = ctx.plugin({ inject: [...inject], apply }, { trustedHosts: ['harness.internal/path'] })
     await expect(fiber).rejects.toThrow(/not a bare host\[:port\] authority/)
     expect(routes).toHaveLength(0)
   })
 
-  it('registers the /api route and publishes a separate workspace-file origin, both removed with the fiber', async () => {
-    const { routes, taps, dispose } = await mounted()
-    // The API keeps one prefix on the shared server; workspace files get a
-    // port of their own, which is the origin boundary between them.
+  it('registers the /api prefix route and removes it with the fiber', async () => {
+    const { routes, dispose } = await mounted()
     expect(routes).toMatchObject([{ kind: 'prefix', path: API_PATH }])
-    const origin = filesOrigin(taps)
-    expect(new URL(origin).port).not.toBe('')
-    expect((await fetch(`${origin}${FILES_PATH}/absent/x.txt`)).status).toBe(404)
     await dispose()
     expect(routes).toHaveLength(0)
-    expect(taps).toHaveLength(0)
-    // Disposal reaches quiescence: the socket is gone, not merely unrouted.
-    await expect(fetch(`${origin}${FILES_PATH}/absent/x.txt`)).rejects.toThrow()
   })
 
   it('refuses an untrusted Host on any /api path before the bridge runs', async () => {
@@ -184,48 +132,6 @@ describe('connection node half', () => {
     }), declared.response)
     expect(declared.state.status).toBe(404)
     await dispose()
-  })
-})
-
-describe('connection node half: the workspace-file origin', () => {
-  /** A workspace holding one file, torn down with the returned disposer. */
-  async function workspace(): Promise<{ cwd: string; remove: () => Promise<void> }> {
-    const cwd = await mkdtemp(join(tmpdir(), 'dsh-node-half-'))
-    await writeFile(join(cwd, 'index.html'), '<h1>ok</h1>')
-    return { cwd, remove: () => rm(cwd, { recursive: true, force: true }) }
-  }
-
-  it('applies the same browser-trust fence as /api, refuses writes, and serves nothing else', async () => {
-    const { taps, dispose } = await mounted()
-    const origin = filesOrigin(taps)
-    // Rebound Host: refused before any filesystem work, exactly as on /api.
-    // node's fetch refuses to set Host (a forbidden header), so the spoof goes
-    // through the raw client — the same parse the server really performs.
-    expect(await statusWithHost(origin, `${FILES_PATH}/s-1/index.html`, 'harness.example')).toBe(403)
-    const written = await fetch(`${origin}${FILES_PATH}/s-1/index.html`, { method: 'POST' })
-    expect(written.status).toBe(405)
-    expect(written.headers.get('allow')).toBe('GET, HEAD')
-    // This origin is one route wide: no index, no SPA fallback, no API.
-    expect((await fetch(`${origin}/`)).status).toBe(404)
-    expect((await fetch(`${origin}${API_PATH}/session.list`, { method: 'POST' })).status).toBe(404)
-    await dispose()
-  })
-
-  it('confines reads to the directory the gateway names for that session', async () => {
-    const { cwd, remove } = await workspace()
-    const { taps, dispose } = await mounted(undefined, { 's-1': cwd })
-    const origin = filesOrigin(taps)
-    const served = await fetch(`${origin}${FILES_PATH}/s-1/index.html`)
-    expect(served.status).toBe(200)
-    expect(await served.text()).toBe('<h1>ok</h1>')
-    // A served document keeps its own capabilities: the port is the boundary,
-    // so nothing here strips the document of its origin.
-    expect(served.headers.get('content-security-policy')).toBeNull()
-    // A session the gateway names no directory for has no workspace to confine
-    // against, so there is nothing to serve.
-    expect((await fetch(`${origin}${FILES_PATH}/s-absent/index.html`)).status).toBe(404)
-    await dispose()
-    await remove()
   })
 })
 

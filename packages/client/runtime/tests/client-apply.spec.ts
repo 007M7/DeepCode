@@ -26,7 +26,6 @@ async function mount(): Promise<Bench> {
   const bench: Bench = { ctx, api, sinks: undefined, stopped: 0 }
   const handle: ConnectionHandle = {
     api,
-    fileUrl: () => undefined,
     start: (sinks) => {
       bench.sinks = sinks
       return { stop: () => { bench.stopped += 1 } }

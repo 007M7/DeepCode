@@ -1,16 +1,11 @@
-/** Host HTTP bridge for browser-client RPC and workspace-file reads. */
+/** Host HTTP bridge for browser-client RPC. */
 import type { Context } from 'cordis'
 import z from 'schemastery'
 // Activates the httpServer Context merge used below.
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
-// The merge-free types subpath: pulling the session package's root into this
-// client-registered program would merge the host `sessions` service over the
-// browser runtime's own.
-import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { API_PATH } from './api-path.ts'
 import { bridge } from './http-bridge.ts'
-import { injectFilesPort, listenForWorkspaceFiles } from './files-server.ts'
 import { assertTrustedAuthority, isTrustedApiRequest } from './api-request-trust.ts'
 
 export { API_PATH } from './api-path.ts'
@@ -66,17 +61,15 @@ const PRIVILEGED_METHODS = new Set([
 ])
 
 /**
- * Mounts the API gateway and the workspace-file reads under the browser
- * transport prefixes. Every request on either prefix passes the browser-trust
- * fence first (DNS-rebinding and cross-site defense —
- * [api-request-trust](./api-request-trust.ts)); privileged methods
- * additionally pass it with an empty trust list, which pins them to loopback.
+ * Mounts the API gateway under the browser transport prefix. Every request on
+ * the prefix passes the browser-trust fence first (DNS-rebinding and
+ * cross-site defense — [api-request-trust](./api-request-trust.ts));
+ * privileged methods additionally pass it with an empty trust list, which
+ * pins them to loopback.
  * @param ctx - Host plugin context.
  * @param config - resolved plugin config (schema defaults applied).
- * @returns a promise settling once the workspace-file listener is bound and
- * its port published — the page must never render before it can address one.
  */
-export async function apply(ctx: Context, config?: ConnectionConfig): Promise<void> {
+export function apply(ctx: Context, config?: ConnectionConfig): void {
   // The Loader resolves schema defaults; hand-built test contexts may pass none.
   const trustedHosts = config?.trustedHosts ?? []
   // Config boundary: a malformed entry fails the load loudly here rather than
@@ -104,24 +97,4 @@ export async function apply(ctx: Context, config?: ConnectionConfig): Promise<vo
   }
   ctx.effect(() => ctx.httpServer.register(route), 'client-connection: /api route')
 
-  // The gateway is the host's session authority: it answers where a Session's
-  // files live without this package reaching into the core services, which
-  // would merge their host-side Context declarations into the browser lane.
-  const cwdFor = (sessionId: string): Promise<string | undefined> =>
-    ctx.apiProxy.workspaceRootOf(sessionId as SessionId)
-  // Workspace files get their own port, and therefore their own origin: an
-  // active document served beside `/api` would reach every method through the
-  // fence below. The listen is awaited inside the effect so the port is known
-  // before the index tap that publishes it can run.
-  await ctx.effect(async () => {
-    const files = await listenForWorkspaceFiles(
-      ctx.httpServer.host, trustedHosts, { cwdFor },
-      (error) => { ctx.logger.error(error) },
-    )
-    const untap = ctx.httpServer.tapIndex(html => injectFilesPort(html, files.port))
-    return async () => {
-      untap()
-      await files.close()
-    }
-  }, 'client-connection: /f listener')
 }

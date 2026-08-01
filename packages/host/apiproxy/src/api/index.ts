@@ -15,9 +15,6 @@ import type { SettingsApi } from './settings.ts'
 import type { CredentialsApi } from './credentials.ts'
 import type { LlmApi } from './llm.ts'
 import type { ClientResponse, RpcReceipt } from './rpc.ts'
-// The merge-free types subpath: api/ is imported from the browser lane, where
-// the host session service must not merge over the client runtime's own.
-import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
 /** Root interface of the unified API surface. New client-request domain = one new file pair + one field here + one map row. */
 export interface ApiProxy {
@@ -33,17 +30,6 @@ export interface ApiProxy {
   llm: LlmApi
   /** Response entry for server-requests (client-response, echoing their rpcId); not a domain method (four-quadrant model). */
   respond(message: ClientResponse): Promise<RpcReceipt>
-  /**
-   * The directory a Session's files may be read from — the same `cwd` the
-   * session summaries carry, in non-envelope form for an in-process reader.
-   * Not a domain method: it has no wire face, because a browser learns a
-   * Session's cwd from `sessions.view` and a file it may read from the web
-   * transport's own `/f` route, never by asking for a host path.
-   * @param sessionId - the Session to locate.
-   * @returns its absolute working directory, or `undefined` when this host
-   * serves no such Session. Resolving one never resumes an agent.
-   */
-  workspaceRootOf(sessionId: SessionId): Promise<string | undefined>
 }
 
 // ---- Domain interfaces and payload entities ----
@@ -63,9 +49,6 @@ export type { CredentialsApi, CredentialView } from './credentials.ts'
 export type { ConfigurableProviderView, LlmApi } from './llm.ts'
 export type { ApprovalResponsePayload } from './approvals.ts'
 
-// ---- Workspace-file URL shape (the transport's byte-carrying half) ----
-export { FILES_PATH, workspaceFileSegments, workspaceFileUrl, parseWorkspaceFilePath } from './files.ts'
-export type { WorkspaceFileTarget } from './files.ts'
 export type { QuestionResponsePayload } from './questions.ts'
 
 // ---- Message layer: narrow forms (domain-signature view) ----
