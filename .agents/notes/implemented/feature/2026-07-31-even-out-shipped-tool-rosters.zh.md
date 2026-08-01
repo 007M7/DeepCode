@@ -16,7 +16,7 @@ Status: implemented
 
 有两行仍是 surface 专属。`tmux-context` 只在 TUI,因为浏览器 surface 没有终端复用器可描述。`session-reference` 只在 TUI,因为它以 launcher 的进程本地路径驱动共享的 session-query 索引,而浏览器侧边栏会在自己的首次搜索里重建该索引。
 
-**本次改动只做加法。** 两个 surface 都没有任何一行被移除,也没有任何既有行的配置被编辑:执行器、沙箱组合、访问默认值、`tools.mode` 以及 workflow 工具,全都保持原样。对比改动前后的两份目录,读者应当只看到新增,别无其他。
+**本次工具清单决策只做加法。** 两个 surface 均未移除任何工具行，目录对比只会发现新增，别无其他。共享执行器、沙箱组合与访问默认值独立归属[workspace-write 默认值决策](2026-07-31-workspace-write-surface-default.md)。
 
 ### 什么保持不挂,以及为什么
 
@@ -42,7 +42,7 @@ Status: implemented
 
 该尾部还插入了 [`composition-settled.ts`](../../../../apps/cli/tests/fixtures/composition-settled.ts),它在终端字节流上宣告 Loader 激活已 settle。TUI 在自己的 fiber 一启动就渲染,因此在 banner 处敲下的提示词可能在工具行与持久化仍在激活时就抵达循环,从而组装出不完整的目录;把冒烟的首个提示词 gate 在该标记上,正是断言得以确定的原因。
 
-同一份冒烟还从同一份产物上钉住 TUI 未改变的执行姿态:`tool-bash` 只在挂载的执行器确实有更宽模式可升级时才发出 `sandbox_permissions` 升级参数对,因此断言它的**缺席**会在日后有人悄悄给这个 surface 加上沙箱时失败。
+同一份冒烟还根据同一份产物固定 TUI 的执行姿态。那些沙箱 schema 与初始权限断言归[workspace-write 默认值决策](2026-07-31-workspace-write-surface-default.md)所有，独立于本工具清单决策。
 
 [`apps/web/tests/shipped-composition.e2e.ts`](../../../../apps/web/tests/shipped-composition.e2e.ts) 在构建产物 lane 中覆盖 Web surface,断言它的工具目录、它的访问默认值未被触碰,以及 `workspace-write` 的可写根包含临时目录——一个会让沙箱测试说谎的陷阱,当工作区落在 `/tmp` 下时([`roots.ts`](../../../../packages/sandbox/sandbox/src/roots.ts))。
 
@@ -66,4 +66,4 @@ Status: implemented
 
 `apps/cli` 增加五个 workspace 依赖:四个是交付树现在挂载的,外加 `dsh-mcp-client`——它并不被挂载,存在的意义是让已安装的 `dsh` 能挂。
 
-执行相关的一切都没有变。TUI 仍以不受限执行器运行模型的命令且没有批准接缝,Web surface 仍默认 `danger-full-access`。两者都由本次改动中的断言钉住,这让它们变得可见而非被修复——沙箱那个决定仍然悬着。
+执行策略独立于工具清单。[共享 workspace-write 决策](2026-07-31-workspace-write-surface-default.md)拥有两个 surface 的沙箱执行器与默认权限；更改该策略不会增加或移除工具。

@@ -37,6 +37,7 @@
     "apps/web/tests/permission-policy-context.e2e.ts",
     "apps/web/tests/access-confirmation.e2e.ts",
     "apps/web/tests/shipped-composition.e2e.ts",
+    "apps/web/tests/goal-bar.e2e.ts",
     "apps/web/tests/startup-auto-selection.e2e.ts",
     "apps/cli/tests/**/*.ts",
     "examples/*/src/**/*.ts",

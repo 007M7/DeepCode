@@ -1,8 +1,6 @@
 // Bash toolview registrant: third-party posture over the keyed toolview hole
 // (ctx.slots.register + ToolRowProps only — never imports the chat domain).
 // Product chrome matches ToolRow / Think (figma: Bash · {description}).
-// Child sessions keep a scoped badge so session-dimension differentiation stays
-// observable inside the component (no parallel registry).
 //
 // A bash call declares the terminal render intent, so this row renders the
 // command's own output through TerminalBlock — expand-gated exactly like
@@ -64,7 +62,6 @@ export function BashRow({ toolName, block, sessionId, useSessions, inspect, t }:
   const state = model.state === 'ok' && terminal !== null && terminalFailed(terminal)
     ? 'error'
     : model.state
-  const isChild = useSessions(list => list.byId[sessionId]?.parentId !== undefined)
   const status = stateStatus(state, t)
   const [expanded, setExpanded] = useState(false)
   const expandable = terminal !== null
@@ -92,7 +89,7 @@ export function BashRow({ toolName, block, sessionId, useSessions, inspect, t }:
     <div className={css.card}>
       <div
         className={css.root}
-        data-sample={isChild ? 'bash-scoped' : 'bash-global'}
+        data-sample="bash"
         data-variant="bash"
         data-state={state}
         data-expandable={expandable || undefined}
@@ -104,7 +101,6 @@ export function BashRow({ toolName, block, sessionId, useSessions, inspect, t }:
       >
         <span className={css.leading}>{leading}</span>
         {status !== null && <span className={css.visuallyHidden}>{status}</span>}
-        {isChild && <span className={css.scopeBadge}>scoped</span>}
         <span className={css.title}>{model.title}</span>
         <span className={css.sep} aria-hidden />
         {/* The terminal presenter's description is the contractual

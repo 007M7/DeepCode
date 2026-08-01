@@ -70,14 +70,7 @@ describe('web e2e: Full access confirmation', () => {
     const access = page.locator('button[aria-label^="访问模式"]').first()
     await access.waitFor({ timeout: 10_000 })
 
-    // Normalize the starting preset through the real command path. The
-    // shipped web config may already start at Full access.
-    if ((await access.getAttribute('aria-label'))?.endsWith('Full access') === true) {
-      await access.click()
-      await page.getByRole('menuitem', { name: 'Workspace Write' }).click()
-      await expect.poll(() => access.getAttribute('aria-label'), { timeout: 10_000 })
-        .toBe('访问模式，当前：Workspace Write')
-    }
+    expect(await access.getAttribute('aria-label')).toBe('访问模式，当前：Workspace Write')
 
     await access.click()
     await page.getByRole('menuitem', { name: 'Full access' }).click()
