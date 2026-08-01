@@ -16,7 +16,7 @@ The rows that are not surface-specific move into [`base.cordis.yml`](../../../..
 
 Two rows stay surface-specific. `tmux-context` is TUI-only because a browser surface has no terminal multiplexer to describe. `session-reference` is TUI-only because it drives the shared session-query index from the launcher's process-local path, and the browser sidebar reconciles that index on its own first search.
 
-**This change adds only.** No row is removed from either surface and no existing row's configuration is edited: the executors, the sandbox composition, the access defaults, `tools.mode`, and the workflow tool are exactly what they were. A reader comparing the two catalogs before and after should find additions and nothing else.
+**This roster decision adds only.** No tool row is removed from either surface, and a catalog comparison finds additions and nothing else. The shared executors, sandbox composition, and access default are owned independently by the [workspace-write default decision](2026-07-31-workspace-write-surface-default.md).
 
 ### What stays unmounted, and why
 
@@ -42,7 +42,7 @@ The layer that would make MCP a default is the one this repository does not have
 
 That tail also inserts [`composition-settled.ts`](../../../../apps/cli/tests/fixtures/composition-settled.ts), which announces settled Loader activation on the terminal stream. The TUI renders as soon as its own fiber starts, so a prompt typed at the banner can reach the loop while tool rows and persistence are still activating and assemble a partial catalog; gating the smoke's first prompt on that marker is what makes the assertion deterministic.
 
-The same smoke pins the TUI's unchanged execution posture from the same artifact: `tool-bash` emits its `sandbox_permissions` escalation pair only when the mounted executor has wider modes to escalate to, so asserting its **absence** fails if a later change quietly sandboxes this surface.
+The same smoke also pins the TUI execution posture from the same artifact. Those sandbox-schema and initial-permission assertions belong to the [workspace-write default decision](2026-07-31-workspace-write-surface-default.md), independently of this roster.
 
 [`apps/web/tests/shipped-composition.e2e.ts`](../../../../apps/web/tests/shipped-composition.e2e.ts) covers the Web surface in the built lane, asserting its catalog, that its access default is untouched, and that `workspace-write`'s writable roots include the temp directories — a trap that makes sandbox tests lie when the workspace sits under `/tmp` ([`roots.ts`](../../../../packages/sandbox/sandbox/src/roots.ts)).
 
@@ -66,4 +66,4 @@ The same model gets the same tools on both surfaces, and the difference that exi
 
 `apps/cli` gains five workspace dependencies: four the shipped tree now mounts, plus `dsh-mcp-client`, which it does not mount and which exists so an installed `dsh` can.
 
-Nothing about execution changed. The TUI still runs the model's commands through unrestricted executors with no approval seam, and the Web surface still defaults to `danger-full-access`. Both are pinned by assertions in this change, which makes them visible rather than fixed — the sandbox decision is still open.
+Execution policy stays independent of the roster. The [shared workspace-write decision](2026-07-31-workspace-write-surface-default.md) owns both surfaces' sandboxed executors and default permission; changing that policy does not add or remove a tool.

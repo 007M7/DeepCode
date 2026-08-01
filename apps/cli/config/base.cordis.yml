@@ -131,10 +131,41 @@
 - id: subprocess
   name: '@deepseek-ai/dsh-subprocess-local'
 
-- id: bash-local
-  name: '@deepseek-ai/dsh-bash-local'
+# Every shipped product surface starts with the same file-effect boundary.
+# The environment remains an explicit deployment override; otherwise fresh
+# sessions pin workspace-write + ask through the permission service below.
+- id: sandbox
+  name: '@deepseek-ai/dsh-sandbox-local'
+
+- id: sandbox-policy
+  name: '@deepseek-ai/dsh-sandbox-policy'
+  config:
+    mode: !!js process.env.DSH_PERMISSION_MODE ?? 'workspace-write'
+    workspaceRoot: !!js process.cwd()
+
+- id: bash-sandbox
+  name: '@deepseek-ai/dsh-bash-sandbox'
   config:
     timeoutMs: 60000
+
+- id: approval
+  name: '@deepseek-ai/dsh-user-approval'
+  config:
+    policy: !!js "(process.env.DSH_PERMISSION_MODE ?? 'workspace-write') === 'danger-full-access' ? 'never' : 'ask'"
+
+- id: permission
+  name: '@deepseek-ai/dsh-permission'
+  config:
+    presets:
+      read-only:
+        sandbox: read-only
+        approval: ask
+      workspace-write:
+        sandbox: workspace-write
+        approval: ask
+      danger-full-access:
+        sandbox: danger-full-access
+        approval: never
 
 - id: tool-bash
   name: '@deepseek-ai/dsh-tool-bash'
@@ -339,10 +370,10 @@
   config:
     agents: []
 
-# The filesystem provider. `cwd` defaults to the package's `process.cwd()`; the
-# TUI states it explicitly because that value is also the session workspace.
-- id: fs-local
-  name: '@deepseek-ai/dsh-fs-local'
+# The sandboxed filesystem provider. `cwd` defaults to `process.cwd()`; the TUI
+# states it explicitly because that value is also the session workspace.
+- id: fs-sandbox
+  name: '@deepseek-ai/dsh-fs-sandbox'
 
 # The native DeepSeek adapter. No key or endpoint is inlined: both resolve per
 # request from the `llm-deepseek:` settings section over this entry, with the

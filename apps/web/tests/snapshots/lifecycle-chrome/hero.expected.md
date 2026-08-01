@@ -28,7 +28,7 @@
 - textbox "Describe what you want to build"
 - button "Commands":
   - img
-- 'button "Access mode, current: Full access"': Full access
+- 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img

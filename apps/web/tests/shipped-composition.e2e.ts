@@ -10,6 +10,7 @@ import { canonicalPath, writableRoots } from '@deepseek-ai/dsh-sandbox'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import type {} from '@deepseek-ai/dsh-user-approval'
+import type {} from '@deepseek-ai/dsh-permission'
 import { launchWebScaffold, type WebScaffold } from './scaffold.ts'
 
 /**
@@ -63,7 +64,7 @@ afterEach(async () => {
   scaffold = undefined
 })
 
-it('assembles the shipped Web catalog and keeps its access default', async () => {
+it('assembles the shipped Web catalog with the confined access default', async () => {
   scaffold = await launchWebScaffold()
   const names = scaffold.ctx.tools.schemas().map(schema => schema.name).sort()
   expect(names.filter(name => !RIPGREP_TOOLS.includes(name))).toEqual(EXPECTED_TOOLS)
@@ -76,8 +77,7 @@ it('assembles the shipped Web catalog and keeps its access default', async () =>
   expect(writableRoots(scaffold.ctx.sandboxPolicy.resolve({ mode: 'workspace-write' }))).toEqual(
     expect.arrayContaining([canonicalPath('/tmp'), canonicalPath(tmpdir())]),
   )
-  // The Web surface keeps its shipped access default; the base's confined one
-  // reaches the TUI. Pinning both keeps a base change from moving Web silently.
-  expect(scaffold.ctx.sandboxPolicy.defaultMode).toBe('danger-full-access')
-  expect(scaffold.ctx.approval.config.policy).toBe('never')
+  expect(scaffold.ctx.sandboxPolicy.defaultMode).toBe('workspace-write')
+  expect(scaffold.ctx.approval.config.policy).toBe('ask')
+  expect(scaffold.ctx.permission.defaultPreset).toBe('workspace-write')
 }, 120_000)
