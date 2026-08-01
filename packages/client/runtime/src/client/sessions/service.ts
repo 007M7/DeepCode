@@ -388,6 +388,9 @@ export class SessionsService implements ISessions {
    *   cut (the boundary is the first turn/end at or after it; an in-log
    *   anchor in an open turn is unavailable rather than clipped backward),
    *   and whether to increment an inherited durable title before resolving.
+   *   A fractional anchor floors to a real event seq: the frozen nodes of an
+   *   interrupted turn carry flow-ordering seqs between two events, and the
+   *   wire takes integers only.
    * @returns the child session id.
    * @throws {SessionForkError} with the source id.
    * @throws {Error} when a requested child-title rename fails after creation.
@@ -402,7 +405,10 @@ export class SessionsService implements ISessions {
       : undefined
     const result = await this.manager.fork({
       sessionId: opts.sessionId,
-      ...(opts.atSeq === undefined ? {} : { atSeq: opts.atSeq }),
+      // Flooring lands inside the anchor's own turn (every turn opens with a
+      // turn/start), so the host's first-turn/end-at-or-after cut still ends
+      // on that turn — never clipped back to the previous one.
+      ...(opts.atSeq === undefined ? {} : { atSeq: Math.floor(opts.atSeq) }),
     })
     if (!result.ok) throw new SessionForkError(result.error, opts.sessionId)
     this.projectList()
