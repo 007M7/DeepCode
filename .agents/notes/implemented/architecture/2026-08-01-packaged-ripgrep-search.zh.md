@@ -32,3 +32,5 @@ Status: implemented
 - shell 字符串攻击面消失：恶意模式只是惰性 argv 元素，由集成套件钉住；该套件现在也在 Windows 上运行（此前没有系统 `rg` 时它自行跳过）。
 - 加载期失败模式改变：subprocess seam 损坏现在让首次搜索调用失败（`SEARCH_FAILED`），而非通过探针使插件加载失败；二进制缺失是带打包路径的启动失败，而不是 PATH 问题。
 - 集成套件的 fixture 去掉了 Windows 无法表示的文件名（名称含 `"`），保证套件在每个平台都能重放。
+- 重新生成 `THIRD_PARTY_NOTICES.md` 暴露了一个由新依赖带出的潜在生成器 bug：Node 的 `fs.globSync` 返回操作系统原生分隔符，因此在 Windows 上 notices 分层中带 `/` 后缀的 dev 区前缀永远匹配不上，dev-only 包（测试工具、support 叶子）被错分为 runtime。生成器现在在入口处归一化清单路径，notices 与平台无关。
+- `@vscode/ripgrep` 依赖为 runtime 层增加其 MIT 行；pnpm 11 截断的虚拟存储目录名需要在 notices 生成器的元数据查找中增加内容扫描回退。
