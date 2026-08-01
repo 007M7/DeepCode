@@ -33,6 +33,7 @@ const EXPECTED_TUI_TOOLS = [
   'edit',
   'exit_plan_mode',
   'get_goal',
+  'list_agents',
   'ralph',
   'read',
   'send_message',
