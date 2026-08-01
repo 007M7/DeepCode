@@ -42,6 +42,6 @@
 - textbox "Message the agent"
 - button "Commands":
   - img
-- 'button "Access mode, current: Full access"': Full access
+- 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Send message" [disabled]
 - text: 2 turns · 2 steps Context 6% of 128K Cache hit 99% Input 15.6K tok · Output 158 tok
