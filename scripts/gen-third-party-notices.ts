@@ -141,15 +141,22 @@ function workspaceMembers(rel: string): string[] {
   return declared.map(member => String(member))
 }
 
-/** Every workspace manifest, keyed by path, plus the set of workspace package names. */
+/**
+ * Every workspace manifest, keyed by repository-relative path, plus the set of
+ * workspace package names. Paths are normalized to `/` at ingestion: Node's
+ * `fs.globSync` returns OS-native separators, and the area matching in
+ * `tierExternalDeps` compares `/`-suffixed prefixes, so Windows backslashes
+ * would silently push dev-area manifests into the runtime tier.
+ */
 function loadWorkspaceManifests(): { manifests: Map<string, Manifest>; names: Set<string> } {
   const patterns = manifestPatterns(workspaceMembers('pnpm-workspace.yaml'), workspaceMembers('native/landlock-run/pnpm-workspace.yaml'))
   const manifests = new Map<string, Manifest>()
   const names = new Set<string>()
   for (const pattern of patterns) {
     for (const path of globSync(pattern, { cwd: root })) {
-      const manifest = readManifest(path)
-      manifests.set(path, manifest)
+      const normalized = path.replaceAll('\\', '/')
+      const manifest = readManifest(normalized)
+      manifests.set(normalized, manifest)
       if (manifest.name !== undefined) names.add(manifest.name)
     }
   }
