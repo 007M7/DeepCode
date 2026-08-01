@@ -41,7 +41,7 @@ Figma 中的 [subagent 列表](https://www.figma.com/design/jRBBK7zBgcszdVWQ0Fh5
 
 `running` 表示逻辑 child 记录存活于会话语料库中；`inactive` 表示它只存在于持久化存储中。UI 不会把任一值解释为成功、失败、取消、完成状态或可恢复性。`host/session-status` 会就地更新已知活动状态。直接 subagent 的 `host/session-added` 帧会立即把任何已加载的 parent 行翻转为 `hasChildren: true`；受影响分支打开期间，成员、label、mode、diagnostic 与权威快照仍需要通过去抖动的 `subagent.list` 刷新来更新。消息投递时仍以提示词响应为权威依据。
 
-选择一行后，系统会先记录其确切地址，再打开常驻客户端 `Session`。历史分页、事件 fold、工具渲染意图、title、面包屑导航与实时 mux 归并都会复用普通对话机制。目录是一棵 ARIA 树，支持懒加载式 ArrowRight／ArrowLeft 展开与折叠、线性 ArrowUp／ArrowDown 导航、Home／End、Escape 以及焦点恢复。
+选择一行后，系统会先记录其确切地址，再打开常驻客户端 `Session`。历史分页、事件 fold、工具渲染意图、title 与实时 mux 归并都会复用普通对话机制。面包屑导航只会沿 `origin: 'subagent'` 行的父链接逐级回溯，包含第一个普通 owner，并让普通 fork 保持单层。从已寻址 subagent 创建 fork 时，会生成具有直接源谱系的普通 fork，并将其附加到最近拥有 Workspace 的祖先。目录是一棵 ARIA 树，支持懒加载式 ArrowRight／ArrowLeft 展开与折叠、线性 ArrowUp／ArrowDown 导航、Home／End、Escape 以及焦点恢复。
 
 one-shot 行始终会用文案替代输入框，说明执行记录为只读。可继续行仅在 `parentAvailable` 为 false 时如此。启用后，即使 child 正在运行，其 Send 操作也会准入另一个 FIFO 轮次，绝不会变成 Stop。提示词失败会通过普通错误行为保留草稿。
 
@@ -104,7 +104,7 @@ one-shot 行始终会用文案替代输入框，说明执行记录为只读。�
 - 客户端对象测试固定已保留与已恢复的地址、one-shot 只读拒绝、历史路由、可继续提示词路由、已寻址对话不提供取消、屏蔽绑定到 agent 的模型控件、实时活动状态翻转、subagent parent 可展开性翻转与成员刷新。
 - jsdom 测试固定混合 mode 行、点击前的叶子展开控件、diagnostic、后代懒加载展开、直接 parent 地址、键盘行为与两种只读原因。
 - 无密钥的组装 Web 快照包含一个 inactive 的可继续 child、一个 inactive 的 one-shot sibling 和一个持久化 grandchild；它会在不激活的情况下展开、打开持久化历史、准入一条用户 FIFO 后续消息、归并 child mux 事件，并证明 one-shot 历史仍然只读。
-- 侧边栏测试固定 `origin: 'subagent'` 过滤，同时不隐藏普通 fork。
+- 导航测试固定仅含 subagent 的面包屑导航、从 subagent 创建 fork 时的 Workspace 归属，以及 `origin: 'subagent'` 侧边栏过滤，同时不隐藏普通 fork。
 
 ## 后果
 

@@ -65,7 +65,9 @@ export interface SessionSummary {
  * sidebar highlighting and SessionProvider share one fact source).
  */
 export interface SessionListState {
+  /** Host-list order; addressed breadcrumb-only rows are excluded. */
   ids: SessionId[]
+  /** Host rows plus the current addressed subagent route used by navigation. */
   byId: Record<SessionId, SessionSummary>
   current: SessionId | undefined
   /** Arrival lifecycle projected 1:1 from the manager snapshot (see SessionListPhase): empty-with-ready means "truly no sessions". */
@@ -309,9 +311,8 @@ export class SessionsService implements ISessions {
   }
 
   /**
-   * Select a session as current. Unknown ids fail loud instead of navigating
-   * nowhere.
-   * @param id - session id (must exist in the list store).
+   * Select a listed or retained catalog-addressed session as current.
+   * @param id - listed or addressed session id.
    */
   open(id: SessionId): void {
     this.manager.select(id)
@@ -563,9 +564,9 @@ export class SessionsService implements ISessions {
   }
 
   /**
-   * Breadcrumb feed: walk parentId links inside the list store.
+   * Breadcrumb feed: walk subagent parent links inside the list store.
    * @param id - session id.
-   * @returns summaries from root ancestor to the session itself (empty when unknown; a broken link stops the walk).
+   * @returns The ordinary owner plus its subagent route, or only the requested ordinary/fork session.
    */
   ancestry(id: SessionId): SessionSummary[] {
     const { byId } = this.list.getSnapshot()
@@ -575,6 +576,7 @@ export class SessionsService implements ISessions {
       const summary: SessionSummary | undefined = byId[cursor]
       if (summary === undefined || chain.includes(summary)) break
       chain.unshift(summary)
+      if (summary.origin !== 'subagent') break
       cursor = summary.parentId
     }
     return chain
@@ -582,10 +584,9 @@ export class SessionsService implements ISessions {
 
   /**
    * Lazily mint the scope + binding for an eligible session. Eligibility and
-   * prune share one predicate (decision 12): listed on the host — a scope is
-   * born when its session enters the client's view (list mirror row from the
-   * baseline pull, a create() echo, or the session-added frame) and dies with
-   * the prune when the row leaves.
+   * prune share one predicate (decision 12): listed on the host or selected
+   * through a retained subagent address. Breadcrumb-only ancestors remain
+   * summary data and do not keep scopes alive.
    */
   private resolve(id: SessionId): ScopeRecord | undefined {
     const existing = this.scopes.get(id)
@@ -609,9 +610,10 @@ export class SessionsService implements ISessions {
     return record
   }
 
-  /** The one aliveness predicate shared by scope mint and prune: host-listed. */
+  /** The one aliveness predicate shared by scope mint and prune: host-listed or currently addressed. */
   private eligible(id: SessionId): boolean {
-    return this.list.getSnapshot().byId[id] !== undefined
+    const { ids, current } = this.list.getSnapshot()
+    return current === id || ids.includes(id)
   }
 
   /** Project the manager's list snapshot into the store (title derivation is display-only). */
@@ -636,20 +638,29 @@ export class SessionsService implements ISessions {
         ...(entry.origin !== undefined ? { origin: entry.origin } : {}),
       }
     }
-    if (current !== undefined && currentAddress !== undefined && byId[current] === undefined) {
-      const child = subagentsByParent[currentAddress.parentSessionId]?.entries
-        .find(entry => entry.kind === 'child' && entry.id === current)
-      if (child?.kind === 'child') {
-        byId[current] = {
-          id: current,
-          displayTitle: child.label ?? current,
-          parentId: currentAddress.parentSessionId,
-          origin: 'subagent',
-          running: child.activity === 'running',
-          waitingApproval: false,
-          blank: false,
-          updatedAt: 0,
+    if (current !== undefined && currentAddress !== undefined) {
+      const seen = new Set<SessionId>()
+      let address: SubagentAddress | undefined = currentAddress
+      while (address !== undefined && !seen.has(address.childSessionId)) {
+        const childId = address.childSessionId
+        seen.add(childId)
+        if (byId[childId] === undefined) {
+          const child = subagentsByParent[address.parentSessionId]?.entries
+            .find(entry => entry.kind === 'child' && entry.id === childId)
+          if (child?.kind !== 'child') break
+          byId[childId] = {
+            id: childId,
+            displayTitle: child.label ?? childId,
+            parentId: address.parentSessionId,
+            origin: 'subagent',
+            running: child.activity === 'running',
+            waitingApproval: false,
+            blank: false,
+            updatedAt: 0,
+          }
         }
+        if (byId[address.parentSessionId] !== undefined) break
+        address = this.manager.subagentAddress(address.parentSessionId)
       }
     }
     const persisted = this.selection.getSnapshot().sessionId
@@ -668,12 +679,11 @@ export class SessionsService implements ISessions {
       })
     }
     this.list.set({ ids, byId, current, phase, subagentsByParent, currentAddress })
-    this.pruneScopes(byId)
+    this.pruneScopes()
   }
 
   /** Tear down scope + instance for no-longer-eligible sessions off stage; the staged one defers until the stage moves. */
-  private pruneScopes(byId: Record<SessionId, SessionSummary>): void {
-    void byId
+  private pruneScopes(): void {
     for (const [id, record] of this.scopes) {
       if (this.eligible(id)) continue
       if (id === this.watched) {

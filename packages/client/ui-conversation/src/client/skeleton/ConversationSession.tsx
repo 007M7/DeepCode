@@ -17,6 +17,7 @@ function deriveAncestry(list: SessionListState, id: SessionId): readonly Session
     const summary: SessionSummary | undefined = list.byId[cursor]
     if (summary === undefined || chain.includes(summary)) break
     chain.unshift(summary)
+    if (summary.origin !== 'subagent') break
     cursor = summary.parentId
   }
   return chain
@@ -24,7 +25,7 @@ function deriveAncestry(list: SessionListState, id: SessionId): readonly Session
 
 export function ConversationSession({
   sessionId, useSession, useSessions, useInput, inputActions, useStore, actions,
-  renderSlot, views, bindDraftMirror, open, wrapActiveBody, t
+  renderSlot, views, bindDraftMirror, open, wrapActiveBody, t,
 }: ConversationSessionProps) {
   useSyncExternalStore(views.subscribe, views.version)
   const tabs = views.list()

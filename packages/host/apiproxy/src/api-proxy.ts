@@ -1125,6 +1125,20 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     return { id: inspected.meta.id, header: inspected.meta, events: inspected.events }
   }
 
+  /** Resolve the Workspace inherited by a fork without making ordinary loose lineage grouped. */
+  async function forkWorkspace(source: Pick<Session, 'id' | 'header'>): Promise<Workspace | undefined> {
+    const workspaces = ctx.workspace.list()
+    const direct = workspaces.find(workspace => workspace.sessionIds.includes(source.id))
+    if (direct !== undefined || source.header.origin !== 'subagent') return direct
+
+    const lineage = await ctx.sessionQuery.traceSession(source.id)
+    for (const ancestor of lineage.ancestors) {
+      const workspace = workspaces.find(candidate => candidate.sessionIds.includes(ancestor.header.id))
+      if (workspace !== undefined) return workspace
+    }
+    return undefined
+  }
+
   /** Read one transcript cut and optional projection baseline without acquiring an Agent owner. */
   async function historyStateFor(
     sessionId: SessionId,
@@ -1762,6 +1776,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // right after the boundary turn.
         let cut = boundary.seq + 1
         while (cut < events.length && events[cut]?.type !== 'turn/start') cut++
+        let workspace: Workspace | undefined
+        try {
+          workspace = await forkWorkspace(source)
+        } catch (error: unknown) {
+          return err(request, {
+            code: 'internal',
+            message: `failed to resolve fork workspace for session "${sessionId}": ${String(error)}`,
+            details: {},
+          })
+        }
         const childId = `session-${randomUUID()}` as SessionId
         try {
           await ctx.agents.create({
@@ -1782,9 +1806,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             details: {},
           })
         }
-        // Keep the child in the source's Workspace so the list nests it under
-        // its parent; the child is already published if the attach fails.
-        const workspace = ctx.workspace.list().find(w => w.sessionIds.includes(source.id))
+        // An ordinary source keeps its direct Workspace. A subagent source is
+        // not listed there, so its ordinary fork joins the nearest owning
+        // ancestor instead. The child is already published if attach fails.
         if (workspace !== undefined) {
           try {
             await workspace.attachSession(childId)

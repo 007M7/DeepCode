@@ -17,9 +17,11 @@ import {
 import { connectFreshWorkspace, saveFailureShot } from './support.ts'
 
 const BASE_FIXTURE = fileURLToPath(new URL('./snapshots/live-interactions/session.jsonl', import.meta.url))
-const UI_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/ui.expected.md', import.meta.url))
+const AVAILABLE_CHILD_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/ui.expected.md', import.meta.url))
 const TREE_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/tree.expected.md', import.meta.url))
 const SIDEBAR_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/sidebar.expected.md', import.meta.url))
+const UNAVAILABLE_GRANDCHILD_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/nested.expected.md', import.meta.url))
+const FORK_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/fork.expected.md', import.meta.url))
 const MODE = webSnapshotMode()
 const LABEL = 'event-sourcing researcher'
 const ONE_SHOT_LABEL = 'event-sourcing reviewer'
@@ -252,7 +254,8 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     if (scaffold.ctx.agents.get(childId) !== undefined) {
       throw new Error(`viewing the child activated it; API calls: ${apiCalls.join(', ')}`)
     }
-    await page.getByRole('heading', { name: LABEL }).waitFor()
+    const hierarchy = page.getByRole('navigation', { name: 'Session hierarchy' })
+    await hierarchy.getByRole('button', { name: LABEL, disabled: true }).waitFor()
     const sidebar = await captureStableAria(
       page,
       '[role="tree"][aria-label="Sessions"]',
@@ -275,7 +278,7 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
         resolveEnded()
       })
     })
-    const input = page.locator('textarea:enabled').first()
+    const input = page.getByRole('textbox', { name: 'Message the agent' })
     await input.fill(FOLLOWUP)
     await input.press('Enter')
     await ended
@@ -287,9 +290,26 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
   it('matches the settled addressed-conversation aria golden and stays clean', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-subagent-aria'))
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
-    await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
+    await compareOrRefreshGolden(AVAILABLE_CHILD_EXPECTED, snapshot, MODE)
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
+  })
+
+  it('opens an unavailable persisted grandchild after recording the available child', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-subagent-grandchild'))
+    await page.getByRole('button', { name: '1 个子代理' }).click()
+    await page.getByRole('treeitem', { name: new RegExp(NESTED_LABEL) }).click()
+    await page.getByText('父会话当前不在线，重新打开父会话后即可继续发送消息。').waitFor()
+    const hierarchy = page.getByRole('navigation', { name: 'Session hierarchy' })
+    const crumbs = await hierarchy.getByRole('button').allTextContents()
+    expect(crumbs.slice(-2)).toEqual([LABEL, NESTED_LABEL])
+    expect(scaffold.ctx.agents.get(childId)).toBeUndefined()
+    expect(scaffold.ctx.agents.get(grandchildId)).toBeUndefined()
+    await compareOrRefreshGolden(
+      UNAVAILABLE_GRANDCHILD_EXPECTED,
+      await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd),
+      MODE,
+    )
   })
 
   it('opens a one-shot child as permanently read-only history', async () => {
@@ -302,6 +322,33 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     await page.getByRole('treeitem', { name: new RegExp(ONE_SHOT_LABEL) }).click()
     await page.getByText('一次性任务不支持后续消息，可在这里查看完整执行记录。').waitFor()
     expect(scaffold.ctx.agents.get(oneShotId)).toBeUndefined()
+  })
+
+  it('places an ordinary fork from a subagent beside its workspace-owning ancestor', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-subagent-fork'))
+    await page.getByRole('tree', { name: 'Sessions' })
+      .getByRole('treeitem', { name: /Ask a research subagent to/ })
+      .click()
+    await page.getByRole('button', { name: '2 个子代理' }).click()
+    await page.getByRole('treeitem', { name: new RegExp(LABEL) }).click()
+    await page.getByRole('textbox', { name: 'Message the agent' }).waitFor()
+    const forkResponse = page.waitForResponse(response =>
+      new URL(response.url()).pathname === '/api/session.fork')
+    await page.getByRole('button', { name: 'Branch into a new conversation' }).last().click()
+    const forkReceipt = await (await forkResponse).json() as { result: { ok: boolean } }
+    expect(forkReceipt.result).toMatchObject({ ok: true })
+    await expect.poll(
+      () => page.getByRole('tree', { name: 'Sessions' }).getByRole('treeitem').count(),
+      { timeout: 15_000 },
+    ).toBe(3)
+    expect(await page.getByText('Ungrouped', { exact: true }).count()).toBe(0)
+    const hierarchy = page.getByRole('navigation', { name: 'Session hierarchy' })
+    expect(await hierarchy.getByRole('button').count()).toBe(1)
+    await compareOrRefreshGolden(
+      FORK_EXPECTED,
+      await captureStableAria(page, '[role="tree"][aria-label="Sessions"]', scaffold.workspaceCwd),
+      MODE,
+    )
   })
 
   it('cold-resumes the original subagent while its ordinary fork stays active', async () => {

@@ -41,7 +41,7 @@ The header action count includes healthy `kind: 'child'` entries and excludes di
 
 `running` means the logical child record is live in the session corpus; `inactive` means it exists only in persistence. The UI does not translate either value into success, failure, cancellation, completeness, or resumability. `host/session-status` updates known activity in place. A `host/session-added` frame for a direct subagent immediately flips any loaded parent row to `hasChildren: true`; membership, labels, mode, diagnostics, and the authoritative snapshot still require a debounced `subagent.list` refresh while the affected branch is open. A prompt response remains delivery-time authority.
 
-Selecting a row records its exact address before opening the resident client `Session`. History pagination, event folding, tool render intents, titles, breadcrumbs, and live mux reconciliation reuse the ordinary conversation machinery. The catalog is an ARIA tree with lazy ArrowRight/ArrowLeft disclosure, linear ArrowUp/ArrowDown navigation, Home/End, Escape, and focus restoration.
+Selecting a row records its exact address before opening the resident client `Session`. History pagination, event folding, tool render intents, titles, and live mux reconciliation reuse the ordinary conversation machinery. Breadcrumbs follow parent links only through `origin: 'subagent'` rows, include the first ordinary owner, and keep ordinary forks single-level. Forking an addressed subagent creates an ordinary fork with direct source lineage and attaches it to the nearest workspace-owning ancestor. The catalog is an ARIA tree with lazy ArrowRight/ArrowLeft disclosure, linear ArrowUp/ArrowDown navigation, Home/End, Escape, and focus restoration.
 
 A one-shot row always replaces the composer with copy explaining that the execution record is read-only. A continuable row does so only while `parentAvailable` is false. When enabled, its Send action admits another FIFO turn even if the child is currently running; it never becomes Stop. Prompt failures retain the draft through the ordinary error behavior.
 
@@ -104,7 +104,7 @@ The shipped Web composition mounts SQLite session query beside JSONL persistence
 - Client object tests pin retained and restored addresses, one-shot read-only rejection, history routing, continuable prompt routing, no addressed cancellation, suppression of Agent-bound model controls, live activity flips, subagent-parent expandability flips, and membership refresh.
 - jsdom tests pin mixed-mode rows, pre-click leaf disclosure, diagnostics, lazy descendant disclosure, direct-parent addresses, keyboard behavior, and both read-only reasons.
 - The keyless assembled Web snapshot contains an inactive continuable child, an inactive one-shot sibling, and a persisted grandchild; it expands without activation, opens persisted history, admits a human FIFO follow-up, reconciles child mux events, and proves one-shot history remains read-only.
-- Sidebar tests pin `origin: 'subagent'` filtering without hiding ordinary forks.
+- Navigation tests pin subagent-only breadcrumbs, workspace placement for forks created from subagents, and `origin: 'subagent'` sidebar filtering without hiding ordinary forks.
 
 ## Consequences
 

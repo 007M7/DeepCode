@@ -87,6 +87,8 @@ function mount(
     summaryBlank?: boolean
     /** Drop the session's summary row entirely (a session the list has not caught up with). */
     omitSummaryRow?: boolean
+    /** Classify the selected child as a subagent instead of an ordinary fork. */
+    summaryOrigin?: 'subagent'
   } = {},
 ) {
   const root = sid('root')
@@ -94,6 +96,7 @@ function mount(
   const childRow = {
     id: SID, displayTitle: 'Child', parentId: root, cwd: '/projects/one',
     running: false, waitingApproval: false, blank: options.summaryBlank ?? false, updatedAt: 2,
+    ...(options.summaryOrigin === undefined ? {} : { origin: options.summaryOrigin }),
   }
   const listed = options.omitSummaryRow !== true
   const sessions = createSnapshotStore<SessionListState>({
@@ -203,7 +206,7 @@ function mount(
   }
   const view = render(<ConversationRoot {...props} />)
   return {
-    view, chat, sink, retargetWorkspace, session, slotCalls,
+    view, chat, sink, retargetWorkspace, session, slotCalls, open,
     pickerOwner: () => pickerOwner,
     rerender: () => { view.rerender(<ConversationRoot {...props} />) },
   }
@@ -218,8 +221,16 @@ describe('ConversationRoot resident composer', () => {
     expect(b.chat.store.getSnapshot().draft).toBe('ordinary revised')
     fireEvent.keyDown(box, { key: 'Enter' })
     expect(b.sink).toHaveBeenCalledWith('ordinary revised')
-    expect(b.view.getByRole('heading', { name: 'Child', level: 1 })).toBeTruthy()
+    expect((b.view.getByRole('button', { name: 'Child' }) as HTMLButtonElement).disabled).toBe(true)
     expect(b.view.queryByText('Root')).toBeNull()
+  })
+
+  it('shows hierarchy only for subagents and opens their ordinary owner', () => {
+    const b = mount(conversationSnapshot(), undefined, undefined, { summaryOrigin: 'subagent' })
+    const root = b.view.getByRole('button', { name: 'Root' })
+    expect((b.view.getByRole('button', { name: 'Child' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(root)
+    expect(b.open).toHaveBeenCalledWith(sid('root'))
   })
 
   it('active phase: fixed header outside the scrollport; sticky composer seat inside it', () => {

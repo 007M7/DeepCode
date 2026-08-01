@@ -362,17 +362,72 @@ describe('slot-store scope prune hook', () => {
 })
 
 describe('ancestry', () => {
-  it('walks parentId links root-first including self; broken links stop the walk', async () => {
+  it('walks only subagent lineage and includes its first ordinary owner', async () => {
     const b = bench()
     await feedList(b, [
       { id: 'root', cwd: '/w/app' },
-      { id: 'mid', parentId: 'root' },
-      { id: 'leaf', parentId: 'mid' },
-      { id: 'orphan', parentId: 'ghost' },
+      { id: 'fork', parentId: 'root' },
+      { id: 'child', parentId: 'fork', origin: 'subagent' },
+      { id: 'grandchild', parentId: 'child', origin: 'subagent' },
+      { id: 'orphan', parentId: 'ghost', origin: 'subagent' },
     ])
-    expect(b.svc.ancestry(sid('leaf')).map(s => s.id)).toEqual(['root', 'mid', 'leaf'])
+    expect(b.svc.ancestry(sid('fork')).map(s => s.id)).toEqual(['fork'])
+    expect(b.svc.ancestry(sid('child')).map(s => s.id)).toEqual(['fork', 'child'])
+    expect(b.svc.ancestry(sid('grandchild')).map(s => s.id)).toEqual(['fork', 'child', 'grandchild'])
     expect(b.svc.ancestry(sid('orphan')).map(s => s.id)).toEqual(['orphan'])
     expect(b.svc.ancestry(sid('ghost'))).toEqual([])
+  })
+
+  it('retains a cold nested subagent route without retaining ancestor scopes', async () => {
+    const b = bench()
+    b.api.onSubagentList = (payload) => {
+      const { parentSessionId } = payload as { parentSessionId: SessionId }
+      if (parentSessionId === sid('root')) {
+        return Promise.resolve(ok({
+          entries: [{
+            kind: 'child', id: sid('child'), mode: 'continuable', label: 'Child',
+            activity: 'inactive', hasChildren: true,
+          }] as never[],
+          parentAvailable: true,
+        }))
+      }
+      if (parentSessionId === sid('child')) {
+        return Promise.resolve(ok({
+          entries: [{
+            kind: 'child', id: sid('grandchild'), mode: 'continuable', label: 'Grandchild',
+            activity: 'inactive', hasChildren: false,
+          }] as never[],
+          parentAvailable: false,
+        }))
+      }
+      return Promise.resolve(ok({ entries: [], parentAvailable: false }))
+    }
+    await feedList(b, [
+      { id: 'root' },
+      { id: 'child', parentId: 'root', origin: 'subagent' },
+      { id: 'grandchild', parentId: 'child', origin: 'subagent' },
+    ])
+    await b.svc.refreshSubagents(sid('root'))
+    b.svc.openSubagent({
+      parentSessionId: sid('root'), childSessionId: sid('child'), mode: 'continuable',
+    })
+    await b.svc.refreshSubagents(sid('child'))
+    b.svc.openSubagent({
+      parentSessionId: sid('child'), childSessionId: sid('grandchild'), mode: 'continuable',
+    })
+
+    await feedList(b, [{ id: 'root' }])
+    const list = b.svc.list.getSnapshot()
+    expect(list.ids).toEqual([sid('root')])
+    expect(b.svc.ancestry(sid('grandchild')).map(summary => summary.id))
+      .toEqual([sid('root'), sid('child'), sid('grandchild')])
+    expect(b.svc.binding(sid('child'))).toBeUndefined()
+
+    b.svc.open(sid('child'))
+    expect(b.svc.list.getSnapshot().current).toBe(sid('child'))
+    expect(b.svc.subagentAddress(sid('child'))).toEqual({
+      parentSessionId: sid('root'), childSessionId: sid('child'), mode: 'continuable',
+    })
   })
 })
 

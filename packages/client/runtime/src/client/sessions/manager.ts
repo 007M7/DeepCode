@@ -127,14 +127,14 @@ export class SessionManager {
   // ---- Selection ----
 
   /**
-   * Select a listed Session.
-   * @param sessionId - listed Session id.
+   * Select a listed Session or a retained catalog-addressed child.
+   * @param sessionId - listed or catalog-addressed Session id.
    */
   select(sessionId: SessionId): void {
-    if (!this.summaries.some(summary => summary.sessionId === sessionId)) {
+    const address = this.addresses.get(sessionId)
+    if (!this.summaries.some(summary => summary.sessionId === sessionId) && address === undefined) {
       throw new Error(`sessions.select: unknown session ${sessionId}`)
     }
-    const address = this.addresses.get(sessionId)
     this.sessions.get(sessionId)?.configureSubagent(
       address,
       address === undefined

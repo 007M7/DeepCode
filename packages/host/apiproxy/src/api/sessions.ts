@@ -274,7 +274,8 @@ export interface SessionsApi {
    * target and `parentSessionId` lineage; the seed prefix carries the source
    * title. Reading the source uses attached state or persistence inspection
    * without acquiring an Agent. Workspace attachment follows the source
-   * directly when it belongs to one.
+   * directly, or the nearest
+   * workspace-owning ancestor when the source is a subagent.
    */
   fork(request: RpcRequest<{ sessionId: SessionId; atSeq?: number }>):
   Promise<RpcResponse<{ sessionId: SessionId }>>
