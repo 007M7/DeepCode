@@ -625,13 +625,15 @@ export class SessionsService implements ISessions {
       while (address !== undefined && !seen.has(address.childSessionId)) {
         const childId = address.childSessionId
         seen.add(childId)
-        if (byId[childId] === undefined) {
-          const child = subagentsByParent[address.parentSessionId]?.entries
-            .find(entry => entry.kind === 'child' && entry.id === childId)
-          if (child?.kind !== 'child') break
+        const child = subagentsByParent[address.parentSessionId]?.entries
+          .find(entry => entry.kind === 'child' && entry.id === childId)
+        if (child?.kind !== 'child') break
+        const displayTitle = child.label ?? childId
+        const summary = byId[childId]
+        if (summary === undefined) {
           byId[childId] = {
             id: childId,
-            displayTitle: child.label ?? childId,
+            displayTitle,
             parentId: address.parentSessionId,
             origin: 'subagent',
             running: child.activity === 'running',
@@ -639,8 +641,11 @@ export class SessionsService implements ISessions {
             blank: false,
             updatedAt: 0,
           }
+        } else if (summary.displayTitle !== displayTitle) {
+          byId[childId] = { ...summary, displayTitle }
         }
-        if (byId[address.parentSessionId] !== undefined) break
+        const parent = byId[address.parentSessionId]
+        if (parent !== undefined && parent.origin !== 'subagent') break
         address = this.manager.navigationAddress(address.parentSessionId)
       }
     }

@@ -68,15 +68,78 @@ function relativeTime(updatedAt: number | undefined, now: number): string | unde
   return `${Math.floor(diff / (365 * day))}年`
 }
 
+/** Aggregate the complete subagent-only descendant subtree from flat summaries. */
+function summarizeDescendants(
+  sessionId: SessionId,
+  summaries: Readonly<Record<SessionId, SessionSummary>>,
+): { count: number; running: boolean } {
+  let count = 0
+  let running = false
+  for (const summary of Object.values(summaries)) {
+    if (summary.origin !== 'subagent') continue
+    const seen = new Set<SessionId>()
+    let current: SessionSummary | undefined = summary
+    while (current?.origin === 'subagent' && current.parentId !== undefined
+      && !seen.has(current.id)) {
+      seen.add(current.id)
+      if (current.parentId === sessionId) {
+        count += 1
+        running ||= summary.running
+        break
+      }
+      current = summaries[current.parentId]
+    }
+  }
+  return { count, running }
+}
+
+/** Render the known direct-child shape while its authoritative catalog hydrates. */
+function CatalogLoadingRows({
+  parentSessionId,
+  summaries,
+  level,
+}: {
+  parentSessionId: SessionId
+  summaries: Readonly<Record<SessionId, SessionSummary>>
+  level: number
+}) {
+  const children = Object.values(summaries).filter(summary => (
+    summary.origin === 'subagent' && summary.parentId === parentSessionId
+  ))
+  if (children.length === 0) return <div className={css.notice}>正在加载子代理…</div>
+  return children.map(summary => (
+    <div key={summary.id} className={css.node}>
+      <div
+        role="treeitem"
+        aria-disabled="true"
+        aria-level={level}
+        aria-label="正在加载子代理"
+        className={`${css.row} ${css.disabled} ${css.loadingRow}`}
+      >
+        <span className={css.disclosureSpace} />
+        <StateDot state={summary.running ? 'ongoing' : 'done'} />
+        <span className={css.content}>
+          <span className={css.label}>正在加载子代理…</span>
+        </span>
+      </div>
+    </div>
+  ))
+}
+
 /** Render one catalog level and recurse only through explicitly expanded rows. */
 function CatalogRows({
   parentSessionId, catalog, catalogs, summaries, expanded, level, now,
   openChild, refresh, toggleBranch, closeCatalog,
 }: CatalogRowsProps) {
+  const emptyLoading = catalog.state === 'loading' && catalog.entries.length === 0
   return (
     <>
-      {catalog.state === 'loading' && catalog.entries.length === 0 && (
-        <div className={css.notice}>正在加载子代理…</div>
+      {emptyLoading && (
+        <CatalogLoadingRows
+          parentSessionId={parentSessionId}
+          summaries={summaries}
+          level={level}
+        />
       )}
       {catalog.state === 'error' && (
         <div className={css.error}>
@@ -118,7 +181,8 @@ function CatalogRows({
         const childCatalog = catalogs[entry.id]
         const isExpanded = expanded.has(entry.id)
         const knownLeaf = !entry.hasChildren
-        const emptyLoading = childCatalog?.state === 'loading' && childCatalog.entries.length === 0
+        const childLoading = childCatalog === undefined
+          || (childCatalog.state === 'loading' && childCatalog.entries.length === 0)
         const summary = summaries[entry.id]
         const label = entry.label ?? entry.id
         const mode = entry.mode === 'one-shot' ? '一次性' : '可继续'
@@ -186,25 +250,35 @@ function CatalogRows({
                 {time !== undefined && <span className={css.time}>{time}</span>}
               </div>
             </div>
-            {isExpanded && childCatalog !== undefined && !knownLeaf && (
+            {isExpanded && !knownLeaf && (
               <div
                 role="group"
                 className={css.children}
-                aria-busy={emptyLoading || undefined}
+                aria-busy={childLoading || undefined}
               >
-                <CatalogRows
-                  parentSessionId={entry.id}
-                  catalog={childCatalog}
-                  catalogs={catalogs}
-                  summaries={summaries}
-                  expanded={expanded}
-                  level={level + 1}
-                  now={now}
-                  openChild={openChild}
-                  refresh={refresh}
-                  toggleBranch={toggleBranch}
-                  closeCatalog={closeCatalog}
-                />
+                {childCatalog === undefined
+                  ? (
+                    <CatalogLoadingRows
+                      parentSessionId={entry.id}
+                      summaries={summaries}
+                      level={level + 1}
+                    />
+                  )
+                  : (
+                    <CatalogRows
+                      parentSessionId={entry.id}
+                      catalog={childCatalog}
+                      catalogs={catalogs}
+                      summaries={summaries}
+                      expanded={expanded}
+                      level={level + 1}
+                      now={now}
+                      openChild={openChild}
+                      refresh={refresh}
+                      toggleBranch={toggleBranch}
+                      closeCatalog={closeCatalog}
+                    />
+                  )}
               </div>
             )}
           </div>
@@ -233,6 +307,10 @@ export function SubagentCatalogAction({
   const setCatalogOpenRef = useRef(setCatalogOpen)
   setCatalogOpenRef.current = setCatalogOpen
   const healthy = catalog?.entries.filter(entry => entry.kind === 'child') ?? []
+  const descendants = summarizeDescendants(sessionId, summaries)
+  // The catalog can arrive before the session-list baseline; never undercount
+  // the already-visible direct rows during that short bootstrap window.
+  const descendantCount = Math.max(healthy.length, descendants.count)
 
   const observeCatalog = (parentSessionId: SessionId, next: boolean): void => {
     if (next) observedCatalogs.current.add(parentSessionId)
@@ -341,6 +419,7 @@ export function SubagentCatalogAction({
         className={css.trigger}
         aria-haspopup="tree"
         aria-expanded={open}
+        aria-label={`${descendantCount} 个子代理${descendants.running ? '，正在运行' : ''}`}
         onClick={() => { changeOpen(!open) }}
         onKeyDown={(event) => {
           if (event.key !== 'ArrowDown') return
@@ -349,7 +428,10 @@ export function SubagentCatalogAction({
           queueMicrotask(() => { focusAt(0) })
         }}
       >
-        <span>{healthy.length} 个子代理</span>
+        <span className={css.activitySlot}>
+          {descendants.running && <StateDot state="ongoing" />}
+        </span>
+        <span className={css.count}>{descendantCount} 个子代理</span>
         <IconChevronDownOutline14 className={open ? css.triggerOpen : undefined} />
       </button>
       {open && (

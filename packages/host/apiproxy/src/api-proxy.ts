@@ -1880,7 +1880,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         try {
           const entries = await ctx.subagents.listChildren(request.payload.parentSessionId, signal)
           return ok(request, {
-            entries,
+            entries: entries.map(entry => entry.kind === 'child'
+              ? {
+                ...entry,
+                activity: ctx.agents.get(entry.id)?.status === 'running' ? 'running' : 'inactive',
+              }
+              : entry),
             parentAvailable: ctx.agents.get(request.payload.parentSessionId) !== undefined,
           })
         } catch (error: unknown) {

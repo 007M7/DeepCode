@@ -362,6 +362,45 @@ describe('slot-store scope prune hook', () => {
 })
 
 describe('catalog-addressed navigation', () => {
+  it('uses catalog labels for a listed addressed route', async () => {
+    const b = bench()
+    b.api.onSubagentList = (payload) => {
+      const { parentSessionId } = payload as { parentSessionId: SessionId }
+      if (parentSessionId === sid('root')) {
+        return Promise.resolve(ok({
+          entries: [{
+            kind: 'child', id: sid('child'), mode: 'continuable', label: 'Child',
+            activity: 'inactive', hasChildren: true,
+          }] as never[],
+          parentAvailable: true,
+        }))
+      }
+      if (parentSessionId === sid('child')) {
+        return Promise.resolve(ok({
+          entries: [{
+            kind: 'child', id: sid('grandchild'), mode: 'continuable', label: 'Grandchild',
+            activity: 'inactive', hasChildren: false,
+          }] as never[],
+          parentAvailable: false,
+        }))
+      }
+      return Promise.resolve(ok({ entries: [], parentAvailable: false }))
+    }
+    await feedList(b, [
+      { id: 'root' },
+      { id: 'child', cwd: '/summary-child', parentId: 'root', origin: 'subagent' },
+      { id: 'grandchild', cwd: '/summary-grandchild', parentId: 'child', origin: 'subagent' },
+    ])
+    await b.svc.refreshSubagents(sid('root'))
+    await b.svc.refreshSubagents(sid('child'))
+    b.svc.openSubagent({
+      parentSessionId: sid('child'), childSessionId: sid('grandchild'), mode: 'continuable',
+    })
+
+    expect(b.svc.list.getSnapshot().byId[sid('child')]?.displayTitle).toBe('Child')
+    expect(b.svc.list.getSnapshot().byId[sid('grandchild')]?.displayTitle).toBe('Grandchild')
+  })
+
   it('projects a directly opened descendant route without retaining ancestor scopes or addresses', async () => {
     const b = bench()
     b.api.onSubagentList = (payload) => {

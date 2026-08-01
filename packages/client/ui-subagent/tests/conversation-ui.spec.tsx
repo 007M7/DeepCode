@@ -84,6 +84,54 @@ function summary(id: SessionId, updatedAt: number): SessionSummary {
 }
 
 describe('SubagentCatalogAction', () => {
+  it('aggregates live descendant activity onto the closed trigger', () => {
+    const summaries: Record<SessionId, SessionSummary> = {
+      [CHILD]: {
+        ...summary(CHILD, Date.now()),
+        parentId: PARENT,
+        origin: 'subagent',
+      },
+      [GRANDCHILD]: {
+        ...summary(GRANDCHILD, Date.now()),
+        parentId: CHILD,
+        origin: 'subagent',
+        running: true,
+      },
+      ['child-2' as SessionId]: {
+        ...summary('child-2' as SessionId, Date.now()),
+        parentId: PARENT,
+        origin: 'subagent',
+      },
+    }
+    const view = render(<SubagentCatalogAction {...props(catalog(), {}, summaries)} />)
+
+    const trigger = screen.getByRole('button', { name: '3 个子代理，正在运行' })
+    expect(trigger.querySelector('[data-state="ongoing"]')).not.toBeNull()
+
+    view.rerender(<SubagentCatalogAction {...props(catalog(), {}, {
+      ...summaries,
+      [GRANDCHILD]: { ...summaries[GRANDCHILD]!, running: false },
+    })} />)
+    expect(screen.getByRole('button', { name: '3 个子代理' })
+      .querySelector('[data-state="ongoing"]')).toBeNull()
+  })
+
+  it('does not aggregate subagents reached through an ordinary fork', () => {
+    const fork = 'fork' as SessionId
+    const forkChild = 'fork-child' as SessionId
+    render(<SubagentCatalogAction {...props(catalog(), {}, {
+      [CHILD]: { ...summary(CHILD, 1), parentId: PARENT, origin: 'subagent' },
+      ['child-2' as SessionId]: {
+        ...summary('child-2' as SessionId, 1), parentId: PARENT, origin: 'subagent',
+      },
+      [fork]: { ...summary(fork, 1), parentId: PARENT },
+      [forkChild]: { ...summary(forkChild, 1), parentId: fork, origin: 'subagent', running: true },
+    })} />)
+
+    const trigger = screen.getByRole('button', { name: '2 个子代理' })
+    expect(trigger.querySelector('[data-state="ongoing"]')).toBeNull()
+  })
+
   it('renders healthy counts, stable rows, diagnostics, and catalog-addressed navigation', () => {
     const input = props(catalog())
     render(<SubagentCatalogAction {...input} />)
@@ -237,29 +285,54 @@ describe('SubagentCatalogAction', () => {
     expect(input.setCatalogOpen).toHaveBeenCalledWith(CHILD, false)
   })
 
-  it('shows initial descendant loading status without drawing its branch', () => {
-    const loading = props(catalog(), {
-      [CHILD]: catalog({ entries: [], state: 'loading' }),
-    })
-    const view = render(<SubagentCatalogAction {...loading} />)
+  it('shows known descendant rows while their catalog loads', () => {
+    const secondGrandchild = 'grandchild-2' as SessionId
+    const summaries = {
+      [GRANDCHILD]: {
+        ...summary(GRANDCHILD, 1), parentId: CHILD, origin: 'subagent' as const,
+      },
+      [secondGrandchild]: {
+        ...summary(secondGrandchild, 1), parentId: CHILD, origin: 'subagent' as const,
+        running: true,
+      },
+    }
+    const deferred = props(catalog(), {}, summaries)
+    const view = render(<SubagentCatalogAction {...deferred} />)
     fireEvent.click(screen.getByRole('button', { name: /2 个子代理/ }))
     fireEvent.click(screen.getByRole('button', { name: '展开 worker 的下级子代理' }))
 
-    expect(loading.setCatalogOpen).toHaveBeenCalledWith(CHILD, true)
+    expect(deferred.setCatalogOpen).toHaveBeenCalledWith(CHILD, true)
     expect(screen.getByRole('group').getAttribute('aria-busy')).toBe('true')
-    expect(screen.getByText('正在加载子代理…')).toBeTruthy()
+    const loadingRows = screen.getAllByRole('treeitem', { name: '正在加载子代理' })
+    expect(loadingRows).toHaveLength(2)
+    expect(loadingRows.every(row => row.getAttribute('aria-level') === '2')).toBe(true)
+    expect(loadingRows[1]?.querySelector('[data-state="ongoing"]')).not.toBeNull()
+
+    const loading = props(catalog(), {
+      [CHILD]: catalog({ entries: [], state: 'loading' }),
+    }, summaries)
+    view.rerender(<SubagentCatalogAction {...loading} />)
+    expect(screen.getAllByRole('treeitem', { name: '正在加载子代理' })).toHaveLength(2)
 
     const ready = props(catalog(), {
       [CHILD]: catalog({
-        entries: [{
-          kind: 'child', id: GRANDCHILD, mode: 'continuable',
-          label: 'indexer', activity: 'inactive', hasChildren: false,
-        }],
+        entries: [
+          {
+            kind: 'child', id: GRANDCHILD, mode: 'continuable',
+            label: 'indexer', activity: 'inactive', hasChildren: false,
+          },
+          {
+            kind: 'child', id: secondGrandchild, mode: 'one-shot',
+            label: 'critic', activity: 'running', hasChildren: false,
+          },
+        ],
       }),
-    })
+    }, summaries)
     view.rerender(<SubagentCatalogAction {...ready} />)
     expect(screen.getByRole('group').getAttribute('aria-busy')).toBeNull()
     expect(screen.getByRole('treeitem', { name: /indexer/ })).toBeTruthy()
+    expect(screen.getByRole('treeitem', { name: /critic/ })).toBeTruthy()
+    expect(screen.queryByRole('treeitem', { name: '正在加载子代理' })).toBeNull()
   })
 
   it('uses ArrowRight and ArrowLeft for branch disclosure', async () => {

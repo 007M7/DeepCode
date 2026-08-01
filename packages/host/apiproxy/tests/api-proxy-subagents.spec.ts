@@ -17,6 +17,7 @@ function request<P>(payload: P): RpcRequest<P> {
 
 function bench(options: {
   parentLive?: boolean
+  childStatus?: 'idle' | 'running'
   entries?: object[]
   followupError?: Error
   listError?: Error
@@ -24,8 +25,14 @@ function bench(options: {
   historyParent?: SessionId
 } = {}) {
   const parent = { id: PARENT }
-  const getAgent = vi.fn((id: SessionId) =>
-    options.parentLive !== false && id === PARENT ? parent : undefined)
+  const child = options.childStatus === undefined
+    ? undefined
+    : { id: CHILD, status: options.childStatus }
+  const getAgent = vi.fn((id: SessionId) => {
+    if (options.parentLive !== false && id === PARENT) return parent
+    if (id === CHILD) return child
+    return undefined
+  })
   const listChildren = vi.fn(() => options.listError === undefined
     ? Promise.resolve(options.entries ?? [
       {
@@ -90,6 +97,19 @@ describe('subagent gateway', () => {
       },
     })
     expect(listChildren).toHaveBeenCalledWith(PARENT, undefined)
+  })
+
+  it('derives catalog activity from the live child Agent rather than Session residency', async () => {
+    const residentIdle = bench({ childStatus: 'idle', entries: [{
+      kind: 'child', id: CHILD, mode: 'continuable', label: 'worker',
+      activity: 'running', hasChildren: false,
+    }] })
+    expect((await residentIdle.api.subagents.list(request({ parentSessionId: PARENT }))).result)
+      .toMatchObject({ ok: true, value: { entries: [{ activity: 'inactive' }] } })
+
+    const running = bench({ childStatus: 'running' })
+    expect((await running.api.subagents.list(request({ parentSessionId: PARENT }))).result)
+      .toMatchObject({ ok: true, value: { entries: [{ activity: 'running' }] } })
   })
 
   it('reads a healthy direct child without looking up or activating any Agent', async () => {

@@ -341,6 +341,9 @@ describe('subagent catalogs', () => {
       rpcId: 'child-detached' as never,
       payload: { type: 'host/session-removed', sessionId: S2 },
     })
+    expect(manager.getListSnapshot().items.find(item => item.sessionId === S2)).toMatchObject({
+      origin: 'subagent', parentSessionId: S1, running: false,
+    })
     expect(manager.get(S2).getSnapshot()).toMatchObject({
       removed: false,
       subagent: {
@@ -465,6 +468,65 @@ describe('subagent catalogs', () => {
     await manager.refreshSubagents(root)
     expect(manager.getListSnapshot().subagentsByParent[root]?.entries).toMatchObject([
       { kind: 'child', id: S1, hasChildren: false },
+    ])
+  })
+
+  it('replays status frames over an older in-flight catalog response', async () => {
+    const api = new FakeApiClient()
+    const root = 'fk-root' as SessionId
+    const response = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
+    api.onSubagentList = () => response.promise
+    const manager = new SessionManager(api)
+    const refresh = manager.refreshSubagents(root)
+
+    manager.handleHostEnvelope({
+      rpcId: 'child-stopped' as never,
+      payload: { type: 'host/session-status', sessionId: S1, running: false },
+    })
+    manager.handleHostEnvelope({
+      rpcId: 'child-started' as never,
+      payload: { type: 'host/session-status', sessionId: S2, running: true },
+    })
+    response.resolve(ok({
+      entries: [
+        {
+          kind: 'child', id: S1, mode: 'continuable', label: 'stopped',
+          activity: 'running', hasChildren: false,
+        },
+        {
+          kind: 'child', id: S2, mode: 'continuable', label: 'started',
+          activity: 'inactive', hasChildren: false,
+        },
+      ] as never[],
+      parentAvailable: true,
+    }))
+    await refresh
+
+    expect(manager.getListSnapshot().subagentsByParent[root]?.entries).toMatchObject([
+      { kind: 'child', id: S1, activity: 'inactive' },
+      { kind: 'child', id: S2, activity: 'running' },
+    ])
+  })
+
+  it('marks a detached catalog child inactive without requiring a selected address', async () => {
+    const api = new FakeApiClient()
+    api.onSubagentList = () => Promise.resolve(ok({
+      entries: [{
+        kind: 'child', id: S2, mode: 'continuable', label: 'worker',
+        activity: 'running', hasChildren: false,
+      }] as never[],
+      parentAvailable: true,
+    }))
+    const manager = new SessionManager(api)
+    await manager.refreshSubagents(S1)
+
+    manager.handleHostEnvelope({
+      rpcId: 'child-detached' as never,
+      payload: { type: 'host/session-removed', sessionId: S2 },
+    })
+
+    expect(manager.getListSnapshot().subagentsByParent[S1]?.entries).toMatchObject([
+      { kind: 'child', id: S2, activity: 'inactive' },
     ])
   })
 })

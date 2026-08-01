@@ -17,6 +17,17 @@
   cursor: pointer;
 }
 
+.count {
+  margin: 0 5px;
+}
+
+.activitySlot {
+  display: inline-flex;
+  flex: none;
+  width: 10px;
+  height: 10px;
+}
+
 .trigger:hover,
 .trigger:focus-visible {
   color: var(--dsw-alias-label-secondary);
@@ -109,6 +120,10 @@
 
 .disabled:hover {
   background: transparent;
+}
+
+.loadingRow {
+  cursor: default;
 }
 
 .disclosure,

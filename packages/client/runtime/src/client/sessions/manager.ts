@@ -58,6 +58,7 @@ export interface SubagentCatalogSnapshot extends SubagentCatalog {
 interface CatalogInflight {
   readonly promise: Promise<void>
   readonly expandableRows: Set<SessionId>
+  readonly activityRows: Map<SessionId, 'running' | 'inactive'>
 }
 
 type SessionListMutation =
@@ -288,6 +289,7 @@ export class SessionManager {
     if (existing !== undefined) return existing.promise
     const previous = this.catalogs.get(parentSessionId)
     const expandableRows = new Set<SessionId>()
+    const activityRows = new Map<SessionId, 'running' | 'inactive'>()
     this.catalogs.set(parentSessionId, {
       entries: previous?.entries ?? [],
       parentAvailable: previous?.parentAvailable ?? false,
@@ -301,7 +303,7 @@ export class SessionManager {
         if (result.ok) {
           this.catalogs.set(parentSessionId, {
             ...result.value,
-            entries: this.withExpandableRows(result.value.entries, expandableRows),
+            entries: this.withCatalogMutations(result.value.entries, expandableRows, activityRows),
             state: 'ready',
             error: null,
           })
@@ -311,7 +313,9 @@ export class SessionManager {
           }
         } else {
           this.catalogs.set(parentSessionId, {
-            entries: this.withExpandableRows(previous?.entries ?? [], expandableRows),
+            entries: this.withCatalogMutations(
+              previous?.entries ?? [], expandableRows, activityRows,
+            ),
             parentAvailable: previous?.parentAvailable ?? false,
             state: 'error',
             error: result.error,
@@ -320,7 +324,9 @@ export class SessionManager {
       } catch (error: unknown) {
         const folded = transportError<never>(error)
         this.catalogs.set(parentSessionId, {
-          entries: this.withExpandableRows(previous?.entries ?? [], expandableRows),
+          entries: this.withCatalogMutations(
+            previous?.entries ?? [], expandableRows, activityRows,
+          ),
           parentAvailable: previous?.parentAvailable ?? false,
           state: 'error',
           error: folded.ok ? null : folded.error,
@@ -330,7 +336,7 @@ export class SessionManager {
         this.notifier.markDirty()
       }
     })()
-    this.catalogInflight.set(parentSessionId, { promise: operation, expandableRows })
+    this.catalogInflight.set(parentSessionId, { promise: operation, expandableRows, activityRows })
     return operation
   }
 
@@ -651,19 +657,22 @@ export class SessionManager {
         return
       }
       case 'host/session-removed': {
-        this.recordMutation({ kind: 'remove', sessionId: frame.sessionId })
-        if (this.addresses.has(frame.sessionId)) {
+        const summary = this.summaries.find(candidate => candidate.sessionId === frame.sessionId)
+        const durableSubagent = summary?.origin === 'subagent' || this.addresses.has(frame.sessionId)
+        this.recordMutation(durableSubagent
+          ? { kind: 'status', sessionId: frame.sessionId, running: false }
+          : { kind: 'remove', sessionId: frame.sessionId })
+        this.updateCatalogActivity(frame.sessionId, false)
+        if (durableSubagent) {
           // An Activation detaching is not durable child deletion:
-          // keep the addressed conversation usable and return its catalog row
-          // to the inactive state.
+          // keep its lineage and conversation while returning it to idle.
           this.sessions.get(frame.sessionId)?.handleRunning(false)
-          this.updateCatalogActivity(frame.sessionId, false)
         } else {
           this.sessions.get(frame.sessionId)?.handleRemoved()
         }
         this.pendingBuffers.delete(frame.sessionId) // a removed session's buffered frames must not replay on a future instantiation
         this.waitingApprovals.delete(frame.sessionId) // a removed session cannot wait on anyone
-        this.projectionStores.delete(frame.sessionId) // removed sessions drop their projection rows with the instance
+        if (!durableSubagent) this.projectionStores.delete(frame.sessionId)
         return
       }
       case 'host/session-status': {
@@ -725,11 +734,14 @@ export class SessionManager {
     this.catalogDebounce.set(parentSessionId, timer)
   }
 
-  /** Flip a listed child's coarse activity in place from the shared Host frame. */
+  /** Apply one Agent-driver transition to loaded and in-flight catalogs. */
   private updateCatalogActivity(childSessionId: SessionId, running: boolean): void {
+    const activity = running ? 'running' as const : 'inactive' as const
+    for (const inflight of this.catalogInflight.values()) {
+      inflight.activityRows.set(childSessionId, activity)
+    }
     let changed = false
     for (const [parentSessionId, catalog] of this.catalogs) {
-      const activity = running ? 'running' as const : 'inactive' as const
       if (!catalog.entries.some(entry =>
         entry.kind === 'child' && entry.id === childSessionId && entry.activity !== activity)) continue
       const entries = catalog.entries.map((entry) => {
@@ -764,14 +776,22 @@ export class SessionManager {
     if (changed) this.notifier.markDirty()
   }
 
-  /** Fold request-local positive row mutations into one catalog result before publication. */
-  private withExpandableRows(
+  /** Fold request-local row mutations into one catalog result before publication. */
+  private withCatalogMutations(
     entries: SubagentCatalog['entries'],
     expandableRows: ReadonlySet<SessionId>,
+    activityRows: ReadonlyMap<SessionId, 'running' | 'inactive'>,
   ): SubagentCatalog['entries'] {
-    return entries.map(entry => entry.kind === 'child' && expandableRows.has(entry.id)
-      ? { ...entry, hasChildren: true }
-      : entry)
+    return entries.map((entry) => {
+      if (entry.kind !== 'child') return entry
+      const activity = activityRows.get(entry.id)
+      if (!expandableRows.has(entry.id) && activity === undefined) return entry
+      return {
+        ...entry,
+        ...expandableRows.has(entry.id) ? { hasChildren: true } : {},
+        ...activity === undefined ? {} : { activity },
+      }
+    })
   }
 
   private buildListSnapshot(): SessionListSnapshot {
