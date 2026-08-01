@@ -4,7 +4,7 @@
  * session-scoped surface keys off — migrated here from ui-layout per the
  * slot-parity design), Agent scope tree (mintScope pattern: no-op plugin
  * Fiber + ctx.extend scope tag; one scope per session, agent id === session
- * id), stable SessionBinding cache, ancestry walk.
+ * id), stable SessionBinding cache, breadcrumb-route projection.
  *
  * Scope lifecycle is stage-driven: a scope is minted lazily on first
  * resolution (pure — resolution has no side effects and is render-safe);
@@ -206,7 +206,7 @@ export interface SessionProvideDescriptor {
   resolve(binding: SessionBinding): SessionProvideContribution
 }
 
-/** Root sessions service: list store, current selection, object-layer manager, scope tree, bindings, ancestry. */
+/** Root sessions service: list store, current selection, object-layer manager, scope tree, bindings, and breadcrumb routes. */
 export class SessionsService implements ISessions {
   /**
    * The wire schema's own result bound, re-exposed for presentation plugins as
@@ -564,25 +564,6 @@ export class SessionsService implements ISessions {
   }
 
   /**
-   * Breadcrumb feed: walk subagent parent links inside the list store.
-   * @param id - session id.
-   * @returns The ordinary owner plus its subagent route, or only the requested ordinary/fork session.
-   */
-  ancestry(id: SessionId): SessionSummary[] {
-    const { byId } = this.list.getSnapshot()
-    const chain: SessionSummary[] = []
-    let cursor: SessionId | undefined = id
-    while (cursor !== undefined) {
-      const summary: SessionSummary | undefined = byId[cursor]
-      if (summary === undefined || chain.includes(summary)) break
-      chain.unshift(summary)
-      if (summary.origin !== 'subagent') break
-      cursor = summary.parentId
-    }
-    return chain
-  }
-
-  /**
    * Lazily mint the scope + binding for an eligible session. Eligibility and
    * prune share one predicate (decision 12): listed on the host or selected
    * through a retained subagent address. Breadcrumb-only ancestors remain
@@ -660,7 +641,7 @@ export class SessionsService implements ISessions {
           }
         }
         if (byId[address.parentSessionId] !== undefined) break
-        address = this.manager.subagentAddress(address.parentSessionId)
+        address = this.manager.navigationAddress(address.parentSessionId)
       }
     }
     const persisted = this.selection.getSnapshot().sessionId

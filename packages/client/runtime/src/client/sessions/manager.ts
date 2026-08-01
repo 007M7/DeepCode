@@ -55,6 +55,11 @@ export interface SubagentCatalogSnapshot extends SubagentCatalog {
   error: RpcError | null
 }
 
+interface CatalogInflight {
+  readonly promise: Promise<void>
+  readonly expandableRows: Set<SessionId>
+}
+
 type SessionListMutation =
   | { kind: 'upsert'; summary: SessionSummary }
   | { kind: 'remove'; sessionId: SessionId }
@@ -94,7 +99,7 @@ export class SessionManager {
   private listMutations: SessionListMutation[] | null = null
   private readonly addresses = new Map<SessionId, SubagentAddress>()
   private readonly catalogs = new Map<SessionId, SubagentCatalogSnapshot>()
-  private readonly catalogInflight = new Map<SessionId, Promise<void>>()
+  private readonly catalogInflight = new Map<SessionId, CatalogInflight>()
   private readonly openCatalogs = new Set<SessionId>()
   private readonly catalogDebounce = new Map<SessionId, ReturnType<typeof setTimeout>>()
 
@@ -131,10 +136,11 @@ export class SessionManager {
    * @param sessionId - listed or catalog-addressed Session id.
    */
   select(sessionId: SessionId): void {
-    const address = this.addresses.get(sessionId)
+    const address = this.navigationAddress(sessionId)
     if (!this.summaries.some(summary => summary.sessionId === sessionId) && address === undefined) {
       throw new Error(`sessions.select: unknown session ${sessionId}`)
     }
+    if (address !== undefined) this.addresses.set(sessionId, address)
     this.sessions.get(sessionId)?.configureSubagent(
       address,
       address === undefined
@@ -176,6 +182,23 @@ export class SessionManager {
    */
   subagentAddress(sessionId: SessionId): SubagentAddress | undefined {
     return this.addresses.get(sessionId)
+  }
+
+  /**
+   * Resolve an address for breadcrumb navigation without retaining transport authority.
+   * @param sessionId - possible child id in an already-loaded catalog.
+   * @returns A retained or catalog-derived direct-parent address.
+   */
+  navigationAddress(sessionId: SessionId): SubagentAddress | undefined {
+    const retained = this.addresses.get(sessionId)
+    if (retained !== undefined) return retained
+    for (const [parentSessionId, catalog] of this.catalogs) {
+      const child = catalog.entries.find(entry => entry.kind === 'child' && entry.id === sessionId)
+      if (child?.kind === 'child') {
+        return { parentSessionId, childSessionId: sessionId, mode: child.mode }
+      }
+    }
+    return undefined
   }
 
   // ---- Instance management ----
@@ -262,8 +285,9 @@ export class SessionManager {
    */
   refreshSubagents(parentSessionId: SessionId): Promise<void> {
     const existing = this.catalogInflight.get(parentSessionId)
-    if (existing !== undefined) return existing
+    if (existing !== undefined) return existing.promise
     const previous = this.catalogs.get(parentSessionId)
+    const expandableRows = new Set<SessionId>()
     this.catalogs.set(parentSessionId, {
       entries: previous?.entries ?? [],
       parentAvailable: previous?.parentAvailable ?? false,
@@ -277,6 +301,7 @@ export class SessionManager {
         if (result.ok) {
           this.catalogs.set(parentSessionId, {
             ...result.value,
+            entries: this.withExpandableRows(result.value.entries, expandableRows),
             state: 'ready',
             error: null,
           })
@@ -286,7 +311,7 @@ export class SessionManager {
           }
         } else {
           this.catalogs.set(parentSessionId, {
-            entries: previous?.entries ?? [],
+            entries: this.withExpandableRows(previous?.entries ?? [], expandableRows),
             parentAvailable: previous?.parentAvailable ?? false,
             state: 'error',
             error: result.error,
@@ -295,7 +320,7 @@ export class SessionManager {
       } catch (error: unknown) {
         const folded = transportError<never>(error)
         this.catalogs.set(parentSessionId, {
-          entries: previous?.entries ?? [],
+          entries: this.withExpandableRows(previous?.entries ?? [], expandableRows),
           parentAvailable: previous?.parentAvailable ?? false,
           state: 'error',
           error: folded.ok ? null : folded.error,
@@ -305,7 +330,7 @@ export class SessionManager {
         this.notifier.markDirty()
       }
     })()
-    this.catalogInflight.set(parentSessionId, operation)
+    this.catalogInflight.set(parentSessionId, { promise: operation, expandableRows })
     return operation
   }
 
@@ -717,8 +742,14 @@ export class SessionManager {
     if (changed) this.notifier.markDirty()
   }
 
-  /** Mark a loaded parent row expandable after one direct subagent publishes. */
+  /** Preserve and project a positive expandability hint after one direct subagent publishes. */
   private markCatalogParentExpandable(parentSessionId: SessionId): void {
+    this.applyCatalogParentExpandable(parentSessionId)
+    for (const inflight of this.catalogInflight.values()) inflight.expandableRows.add(parentSessionId)
+  }
+
+  /** Apply one positive expandability hint to every loaded catalog containing that unique row id. */
+  private applyCatalogParentExpandable(parentSessionId: SessionId): void {
     let changed = false
     for (const [catalogParentId, catalog] of this.catalogs) {
       if (!catalog.entries.some(entry =>
@@ -731,6 +762,16 @@ export class SessionManager {
       this.catalogs.set(catalogParentId, { ...catalog, entries })
     }
     if (changed) this.notifier.markDirty()
+  }
+
+  /** Fold request-local positive row mutations into one catalog result before publication. */
+  private withExpandableRows(
+    entries: SubagentCatalog['entries'],
+    expandableRows: ReadonlySet<SessionId>,
+  ): SubagentCatalog['entries'] {
+    return entries.map(entry => entry.kind === 'child' && expandableRows.has(entry.id)
+      ? { ...entry, hasChildren: true }
+      : entry)
   }
 
   private buildListSnapshot(): SessionListSnapshot {

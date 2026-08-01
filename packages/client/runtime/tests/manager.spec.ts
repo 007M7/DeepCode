@@ -426,6 +426,47 @@ describe('subagent catalogs', () => {
       { kind: 'child', id: S2, hasChildren: false },
     ])
   })
+
+  it('preserves a live expandability hint across only the older in-flight catalog response', async () => {
+    const api = new FakeApiClient()
+    const root = 'fk-root' as SessionId
+    const response = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
+    api.onSubagentList = () => response.promise
+    const manager = new SessionManager(api)
+    const refresh = manager.refreshSubagents(root)
+
+    manager.handleHostEnvelope({
+      rpcId: 'nested-subagent' as never,
+      payload: {
+        type: 'host/session-added', sessionId: 'fk-grandchild' as SessionId,
+        parentSessionId: S1, origin: 'subagent', blank: false,
+      },
+    })
+    response.resolve(ok({
+      entries: [{
+        kind: 'child', id: S1, mode: 'continuable', label: 'parent',
+        activity: 'inactive', hasChildren: false,
+      }] as never[],
+      parentAvailable: true,
+    }))
+    await refresh
+
+    expect(manager.getListSnapshot().subagentsByParent[root]?.entries).toMatchObject([
+      { kind: 'child', id: S1, hasChildren: true },
+    ])
+
+    api.onSubagentList = () => Promise.resolve(ok({
+      entries: [{
+        kind: 'child', id: S1, mode: 'continuable', label: 'parent',
+        activity: 'inactive', hasChildren: false,
+      }] as never[],
+      parentAvailable: true,
+    }))
+    await manager.refreshSubagents(root)
+    expect(manager.getListSnapshot().subagentsByParent[root]?.entries).toMatchObject([
+      { kind: 'child', id: S1, hasChildren: false },
+    ])
+  })
 })
 
 describe('remaining branches', () => {

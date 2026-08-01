@@ -2,7 +2,6 @@
 
 import { useEffect, useSyncExternalStore, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { shallowEqual } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionId, SessionListState, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConversationSessionSlotProps } from '../contract/slots.ts'
 import css from './ConversationRoot.module.css'
@@ -10,17 +9,33 @@ import css from './ConversationRoot.module.css'
 /** Full props composed from the strict session slot contract. */
 export type ConversationSessionProps = ConversationSessionSlotProps
 
-function deriveAncestry(list: SessionListState, id: SessionId): readonly SessionSummary[] {
-  const chain: SessionSummary[] = []
+interface Breadcrumb {
+  readonly id: SessionId
+  readonly displayTitle: string
+}
+
+function deriveAncestry(list: SessionListState, id: SessionId): readonly Breadcrumb[] {
+  const chain: Breadcrumb[] = []
+  const seen = new Set<SessionId>()
   let cursor: SessionId | undefined = id
   while (cursor !== undefined) {
+    if (seen.has(cursor)) break
+    seen.add(cursor)
     const summary: SessionSummary | undefined = list.byId[cursor]
-    if (summary === undefined || chain.includes(summary)) break
-    chain.unshift(summary)
+    if (summary === undefined) break
+    chain.unshift({ id: summary.id, displayTitle: summary.displayTitle })
     if (summary.origin !== 'subagent') break
     cursor = summary.parentId
   }
   return chain
+}
+
+function equalBreadcrumbs(left: readonly Breadcrumb[], right: readonly Breadcrumb[]): boolean {
+  return left.length === right.length
+    && left.every((item, index) => {
+      const other = right.at(index)
+      return other !== undefined && item.id === other.id && item.displayTitle === other.displayTitle
+    })
 }
 
 export function ConversationSession({
@@ -31,7 +46,7 @@ export function ConversationSession({
   const tabs = views.list()
   const activeId = useStore(s => s.view) ?? 'chat'
   const active = tabs.find(view => view.id === activeId) ?? tabs[0]
-  const ancestry = useSessions(s => deriveAncestry(s, sessionId), shallowEqual)
+  const ancestry = useSessions(s => deriveAncestry(s, sessionId), equalBreadcrumbs)
   const composerPhase = useSession(s => s.composerPhase)
   const blank = useSession(s => s.blank)
   const inputState = useInput(s => s)

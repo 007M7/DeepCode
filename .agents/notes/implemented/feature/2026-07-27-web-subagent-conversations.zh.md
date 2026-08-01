@@ -39,7 +39,7 @@ Figma 中的 [subagent 列表](https://www.figma.com/design/jRBBK7zBgcszdVWQ0Fh5
 
 页头操作的计数包含健康的 `kind: 'child'` 条目，不包含 diagnostic。只有在完整响应为空后，才不显示该操作。每个健康行都携带读取时的 `hasChildren` 提示，该值只根据持久化 `origin: 'subagent'` 的直接谱系 header 派生；正常的健康与 diagnostic subagent 候选都会携带该标记，而普通 fork 不会。该预查不读取任何后代事件日志，展开后仍以描述符支撑的目录为权威依据。UI 会在交互前就省略已知叶子节点的展开控件；该提示不承诺 child 会一直是叶子。树会呈现可继续与 one-shot 行；one-shot 的可选 label 缺失时，回退到其会话 id。损坏、不受支持或不可用的候选仍以禁用的 diagnostic 行显示。
 
-`running` 表示逻辑 child 记录存活于会话语料库中；`inactive` 表示它只存在于持久化存储中。UI 不会把任一值解释为成功、失败、取消、完成状态或可恢复性。`host/session-status` 会就地更新已知活动状态。直接 subagent 的 `host/session-added` 帧会立即把任何已加载的 parent 行翻转为 `hasChildren: true`；受影响分支打开期间，成员、label、mode、diagnostic 与权威快照仍需要通过去抖动的 `subagent.list` 刷新来更新。消息投递时仍以提示词响应为权威依据。
+`running` 表示逻辑 child 记录存活于会话语料库中；`inactive` 表示它只存在于持久化存储中。UI 不会把任一值解释为成功、失败、取消、完成状态或可恢复性。`host/session-status` 会就地更新已知活动状态。直接 subagent 的 `host/session-added` 帧会立即把任何已加载的 parent 行翻转为 `hasChildren: true`，并使这项正向提示不被更早发起但尚未完成的目录响应覆盖；受影响分支打开期间，成员、label、mode、diagnostic 与权威快照仍需要通过去抖动的 `subagent.list` 刷新来更新。消息投递时仍以提示词响应为权威依据。
 
 选择一行后，系统会先记录其确切地址，再打开常驻客户端 `Session`。历史分页、事件 fold、工具渲染意图、title 与实时 mux 归并都会复用普通对话机制。面包屑导航只会沿 `origin: 'subagent'` 行的父链接逐级回溯，包含第一个普通 owner，并让普通 fork 保持单层。从已寻址 subagent 创建 fork 时，会生成具有直接源谱系的普通 fork，并将其附加到最近拥有 Workspace 的祖先。目录是一棵 ARIA 树，支持懒加载式 ArrowRight／ArrowLeft 展开与折叠、线性 ArrowUp／ArrowDown 导航、Home／End、Escape 以及焦点恢复。
 
@@ -65,7 +65,7 @@ one-shot 行始终会用文案替代输入框，说明执行记录为只读。�
 
 ## 客户端对象层与呈现
 
-不依赖 React 的运行时负责目录、单次并发刷新、保留的地址、可用性提示与传输选择。再次选择已知 child 时会保留其地址，避免导航静默切换到普通会话 API。恢复的导航会持久化包含 mode 的完整地址。
+不依赖 React 的运行时负责目录、单次并发刷新、保留的地址、可用性提示与传输选择。再次选择已知 child 时会保留其地址，避免导航静默切换到普通会话 API。缺失的中间面包屑地址可以从已加载的祖先目录恢复，但在用户选择该面包屑之前不会保留为传输地址，也不会创建 scope。恢复的导航会持久化包含 mode 的完整地址。
 
 目录通过标准 `useSessions` 快照传递。组件局部状态负责菜单可见性、已展开分支与焦点。`ui-conversation` 声明通用页头操作列表 slot，并通过其编辑器链分发当前对话快照；其中没有 subagent 专用的接管标记。`@deepseek-ai/dsh-client-ui-subagent` 注册目录操作，并根据普通 owner props 选择按原因区分的只读编辑器。组件只接收派生 props 与回调，绝不接收 `ctx`。
 
