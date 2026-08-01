@@ -57,6 +57,8 @@ describe('native directory picker', () => {
     const script = run.mock.calls[0]?.[1].at(-1)
     expect(script).toContain("$ErrorActionPreference = 'Stop'")
     expect(script).toContain('SetProcessDPIAware')
+    // Description renders as a bottom strip (modern) / unthemed box (classic); never set it.
+    expect(script).not.toContain('Description')
     run.mockResolvedValueOnce({ stdout: '', stderr: '' })
     await expect(pickNativeDirectory(signal(), { platform: 'win32', run })).resolves.toBeNull()
     run.mockRejectedValueOnce(failure(1, 'Add-Type failed'))

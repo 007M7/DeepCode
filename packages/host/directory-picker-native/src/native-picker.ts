@@ -68,14 +68,15 @@ export async function pickNativeDirectory(
     // PowerShell 5.1's FolderBrowserDialog is hardwired to the legacy
     // SHBrowseForFolder tree; prefer pwsh and fall back only when it is absent.
     // Both hosts spawn DPI-unaware, so the script opts the process into system
-    // DPI awareness before any window is created.
+    // DPI awareness before any window is created. No Description is set: the
+    // modern dialog renders it as a bottom strip and the classic dialog as an
+    // unthemed box.
     const script = [
       "$ErrorActionPreference = 'Stop'",
       "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class DpiAware { [DllImport(\"user32.dll\")] public static extern bool SetProcessDPIAware(); }'",
       '[DpiAware]::SetProcessDPIAware() | Out-Null',
       'Add-Type -AssemblyName System.Windows.Forms',
       '$dialog = New-Object System.Windows.Forms.FolderBrowserDialog',
-      "$dialog.Description = 'Select Workspace Directory'",
       '$dialog.ShowNewFolderButton = $true',
       '$result = $dialog.ShowDialog()',
       'if ($result -eq [System.Windows.Forms.DialogResult]::OK) {',

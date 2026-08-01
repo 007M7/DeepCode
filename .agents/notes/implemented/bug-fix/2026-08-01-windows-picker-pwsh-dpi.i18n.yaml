@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-01-windows-picker-pwsh-dpi.md
-2026-08-01-windows-picker-pwsh-dpi.md: 2c90821be3e4800d624cb2f54dcd6661756784bc
-2026-08-01-windows-picker-pwsh-dpi.zh.md: ff8a535af396ed5ede51cbd3c69c1944d28ce95e
+2026-08-01-windows-picker-pwsh-dpi.md: 0ca413f575b5e2805f29b899e638844916e72573
+2026-08-01-windows-picker-pwsh-dpi.zh.md: 6842acfc1e1bd9f3342a2bedb878fe2df40449df

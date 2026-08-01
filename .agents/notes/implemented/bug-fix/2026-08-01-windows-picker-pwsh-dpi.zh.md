@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-`packages/host/directory-picker-native` 的 win32 分支现在先启动 `pwsh.exe`（PowerShell 7），仅当 pwsh 缺失（`ENOENT`）时才回退到 `powershell.exe`（Windows PowerShell 5.1），与 Zenity→KDialog 的回退方式一致。PowerShell 7 的 WinForms `FolderBrowserDialog` 支持 `AutoUpgradeEnabled`（.NET Core 3.0 加入；.NET Framework 没有），呈现现代资源管理器风格文件夹选择器。两个运行时执行完全相同的脚本，脚本在任何窗口存在前调用 `SetProcessDPIAware()`（user32），因此无论由哪个宿主服务，对话框都系统 DPI aware。两个运行时都显式保留 `-STA`；回退维持 seam 的取消／失败契约（取消返回 `null`，其余为可重试错误）。宿主边界、RPC 信任与取消决策仍归[选择器功能 Note](../feature/2026-07-27-native-workspace-directory-picker.md)所有。
+`packages/host/directory-picker-native` 的 win32 分支现在先启动 `pwsh.exe`（PowerShell 7），仅当 pwsh 缺失（`ENOENT`）时才回退到 `powershell.exe`（Windows PowerShell 5.1），与 Zenity→KDialog 的回退方式一致。PowerShell 7 的 WinForms `FolderBrowserDialog` 支持 `AutoUpgradeEnabled`（.NET Core 3.0 加入；.NET Framework 没有），呈现现代资源管理器风格文件夹选择器。两个运行时执行完全相同的脚本，脚本在任何窗口存在前调用 `SetProcessDPIAware()`（user32），因此无论由哪个宿主服务，对话框都系统 DPI aware。脚本不设置 `Description`：.NET 10 的现代 `FolderBrowserDialog` 会把它渲染成文件夹输入框上方的一条底带，5.1 经典对话框则渲染成未主题化的色块，因此该属性被整体移除。两个运行时都显式保留 `-STA`；回退维持 seam 的取消／失败契约（取消返回 `null`，其余为可重试错误）。宿主边界、RPC 信任与取消决策仍归[选择器功能 Note](../feature/2026-07-27-native-workspace-directory-picker.md)所有。
 
 ## 考虑过的替代方案
 
