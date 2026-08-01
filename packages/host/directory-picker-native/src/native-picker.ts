@@ -64,8 +64,15 @@ export async function pickNativeDirectory(
   }
 
   if (platform === 'win32') {
+    // PowerShell 7 renders the modern IFileDialog folder picker, while Windows
+    // PowerShell 5.1's FolderBrowserDialog is hardwired to the legacy
+    // SHBrowseForFolder tree; prefer pwsh and fall back only when it is absent.
+    // Both hosts spawn DPI-unaware, so the script opts the process into system
+    // DPI awareness before any window is created.
     const script = [
       "$ErrorActionPreference = 'Stop'",
+      "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class DpiAware { [DllImport(\"user32.dll\")] public static extern bool SetProcessDPIAware(); }'",
+      '[DpiAware]::SetProcessDPIAware() | Out-Null',
       'Add-Type -AssemblyName System.Windows.Forms',
       '$dialog = New-Object System.Windows.Forms.FolderBrowserDialog',
       "$dialog.Description = 'Select Workspace Directory'",
@@ -76,6 +83,13 @@ export async function pickNativeDirectory(
       '  [Console]::WriteLine($dialog.SelectedPath)',
       '}',
     ].join('; ')
+    try {
+      const result = await run('pwsh.exe', ['-NoProfile', '-STA', '-Command', script], signal)
+      return outputPath(result.stdout)
+    } catch (error: unknown) {
+      rethrowIfAborted(signal, error)
+      if (!isMissingCommand(error)) throw error
+    }
     const result = await run('powershell.exe', ['-NoProfile', '-STA', '-Command', script], signal)
     return outputPath(result.stdout)
   }

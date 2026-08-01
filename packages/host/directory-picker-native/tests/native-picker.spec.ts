@@ -46,19 +46,53 @@ describe('native directory picker', () => {
     await expect(pickNativeDirectory(signal(), { platform: 'darwin', run })).rejects.toBe(reason)
   })
 
-  it('uses the Windows STA folder dialog and maps empty output to cancellation', async () => {
+  it('prefers pwsh for the Windows folder dialog and maps empty output to cancellation', async () => {
     const run = vi.fn<DirectoryPickerRunner>(async () => ({ stdout: 'C:\\work\\project\r\n', stderr: '' }))
     await expect(pickNativeDirectory(signal(), { platform: 'win32', run })).resolves.toBe('C:\\work\\project')
     expect(run).toHaveBeenCalledWith(
-      'powershell.exe',
+      'pwsh.exe',
       expect.arrayContaining(['-NoProfile', '-STA', '-Command']),
       expect.any(AbortSignal),
     )
-    expect(run.mock.calls[0]?.[1].at(-1)).toContain("$ErrorActionPreference = 'Stop'")
+    const script = run.mock.calls[0]?.[1].at(-1)
+    expect(script).toContain("$ErrorActionPreference = 'Stop'")
+    expect(script).toContain('SetProcessDPIAware')
     run.mockResolvedValueOnce({ stdout: '', stderr: '' })
     await expect(pickNativeDirectory(signal(), { platform: 'win32', run })).resolves.toBeNull()
     run.mockRejectedValueOnce(failure(1, 'Add-Type failed'))
     await expect(pickNativeDirectory(signal(), { platform: 'win32', run })).rejects.toThrow('command failed')
+  })
+
+  it('falls back to Windows PowerShell 5.1 only when pwsh is missing', async () => {
+    const run = vi.fn<DirectoryPickerRunner>()
+      .mockRejectedValueOnce(failure('ENOENT'))
+      .mockResolvedValueOnce({ stdout: 'C:\\work\\fallback\r\n', stderr: '' })
+    await expect(pickNativeDirectory(signal(), { platform: 'win32', run })).resolves.toBe('C:\\work\\fallback')
+    expect(run.mock.calls.map(call => call[0])).toEqual(['pwsh.exe', 'powershell.exe'])
+    // Both runtimes execute the identical script, so DPI awareness holds either way.
+    expect(run.mock.calls[0]?.[1].at(-1)).toBe(run.mock.calls[1]?.[1].at(-1))
+
+    const cancelled = vi.fn<DirectoryPickerRunner>()
+      .mockRejectedValueOnce(failure('ENOENT'))
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+    await expect(pickNativeDirectory(signal(), { platform: 'win32', run: cancelled })).resolves.toBeNull()
+
+    const failed = vi.fn<DirectoryPickerRunner>()
+      .mockRejectedValueOnce(failure('ENOENT'))
+      .mockRejectedValueOnce(failure(2))
+    await expect(pickNativeDirectory(signal(), { platform: 'win32', run: failed })).rejects.toThrow('command failed')
+
+    const brokenPwsh = vi.fn<DirectoryPickerRunner>(async () => { throw failure(7) })
+    await expect(pickNativeDirectory(signal(), { platform: 'win32', run: brokenPwsh })).rejects.toThrow('command failed')
+    expect(brokenPwsh).toHaveBeenCalledOnce()
+  })
+
+  it('does not fall back when the caller aborted the pwsh spawn', async () => {
+    const abort = new AbortController()
+    abort.abort(new Error('closed'))
+    const run = vi.fn<DirectoryPickerRunner>(async () => { throw failure('ENOENT') })
+    await expect(pickNativeDirectory(abort.signal, { platform: 'win32', run })).rejects.toThrow('command failed')
+    expect(run).toHaveBeenCalledOnce()
   })
 
   it('runs the default command adapter without a shell and preserves command failures', async () => {
@@ -67,7 +101,7 @@ describe('native directory picker', () => {
     })
     await expect(pickNativeDirectory(signal(), { platform: 'win32' })).resolves.toBe('C:\\work\\default')
     const [command, args, options] = execFileMock.mock.calls[0]!
-    expect(command).toBe('powershell.exe')
+    expect(command).toBe('pwsh.exe')
     expect(args).toEqual(expect.arrayContaining(['-NoProfile', '-STA', '-Command']))
     expect(options.encoding).toBe('utf8')
     expect(options.windowsHide).toBe(true)
