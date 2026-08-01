@@ -155,6 +155,8 @@ export interface AppCLIEntryOptions {
   workspaceRoot?: string
   /** Extra authorities for the /api browser-trust fence (`host` or `host:port`), appended to the derived LAN IP literals. */
   trustedHosts?: string[]
+  /** Surface setup registered after Loader installation and before any config-tree entry mounts. */
+  prepare?: (ctx: Context) => Promise<void> | void
 }
 
 /**
@@ -180,8 +182,8 @@ export class AppCLIEntry {
   constructor(private readonly options: AppCLIEntryOptions) {}
 
   /**
-   * Run the boot chain: patch composition → Loader include boot (dev row
-   * before await) → fail-loud triple.
+   * Run the boot chain: patch composition → Loader installation → surface
+   * preparation → config-tree boot (dev row before await) → fail-loud triple.
    * @returns the settled root context and the listening port.
    */
   async run(): Promise<{ ctx: Context; port: number }> {
@@ -246,7 +248,7 @@ export class AppCLIEntry {
     if (telemetryPatch !== undefined) this.patches.push(telemetryPatch)
   }
 
-  /** Shared Loader boot; the dev HMR row mounts before await so the activation audit covers it. */
+  /** Shared Loader boot; surface preparation precedes the tree, and the dev HMR row precedes the activation audit. */
   private async bootTree(): Promise<void> {
     // One include of the shared base with every overlay as a sibling patch
     // list: patches never cross an include boundary, so nesting them would
@@ -260,6 +262,7 @@ export class AppCLIEntry {
       ...this.patches,
     ]
     this.ctx = await boot('dsh', resolve(this.options.configPath), patches, async (ctx) => {
+      await this.options.prepare?.(ctx)
       if (this.options.dev) await ctx.loader.create({ name: '@deepseek-ai/dsh-client-hmr' })
     })
   }

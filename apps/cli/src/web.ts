@@ -9,6 +9,7 @@
 import { fileURLToPath } from 'node:url'
 import type { Context } from 'cordis'
 import { addHarnessSourceSection, resolveConfigPath } from '@deepseek-ai/dsh-app-boot'
+import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tool-bash'
 import { AppCLIEntry } from './app-cli-entry.ts'
@@ -22,6 +23,10 @@ const DSH_WEB_URL = 'DSH_WEB_URL' as const
 const DSH_WEB_MODE = 'DSH_WEB_MODE' as const
 
 type WebMode = 'production' | 'development'
+
+// Display-only mirror of the webserver schema's loopback host: the address the
+// local URL always prints. Not a source of truth — the schema is.
+const LOOPBACK_HOST = '127.0.0.1'
 
 /** Model-visible orientation and acceptance boundary for sessions created through `dsh web`. */
 function webSurfacePrompt(webUrl: string, mode: WebMode): string {
@@ -40,36 +45,50 @@ function webSurfacePrompt(webUrl: string, mode: WebMode): string {
     + 'Do not start a replacement server unless the user asks; if one is needed, use a managed background task and verify its exact URL.'
 }
 
+/** Resolve the canonical loopback URL from the active Web server. */
+function localWebUrl(ctx: Context): string {
+  const port = ctx.get('httpServer')?.port
+  if (port === undefined) throw new Error('dsh web: httpServer service missing while resolving Web runtime')
+  return `http://${LOOPBACK_HOST}:${String(port)}`
+}
+
 /**
- * Add launcher-owned source, Web-surface orientation, and the shell-visible
- * canonical URL after the shared config tree settles. The request header logs
- * the model-visible sections; each bash execution receives the same URL through
- * the managed environment.
- * @param ctx - settled Web application context.
+ * Register the launcher-owned prompt and shell runtime context before the
+ * shared config tree mounts. The earlier injections install the prompt
+ * sections and managed Bash contributor when their owning services activate;
+ * dynamic values read the bound server only when consumed.
+ * @param ctx - Web root context with Loader installed but no config tree mounted.
  * @param sourceRoot - absolute checkout root resolved from the launcher module.
- * @param webUrl - canonical loopback URL printed by this Web process.
  * @param mode - whether this process mounted the client-plugin HMR receiver.
  */
-export function installWebPromptContext(ctx: Context, sourceRoot: string, webUrl: string, mode: WebMode): void {
-  const systemPrompt = ctx.get('systemPrompt')
-  if (systemPrompt === undefined) throw new Error('dsh web: systemPrompt service missing after settled boot')
-  const bashEnv = ctx.get('bashEnv')
-  if (bashEnv === undefined) throw new Error('dsh web: bashEnv service missing after settled boot')
-  addHarnessSourceSection(ctx, sourceRoot)
-  systemPrompt.section({ name: 'app:web-surface', order: -98, text: webSurfacePrompt(webUrl, mode) })
-  bashEnv.register({
-    name: 'web-runtime',
-    variables: {
-      [DSH_WEB_URL]: { description: 'Canonical local URL of the DeepSeek Harness Web GUI serving this session.' },
-      [DSH_WEB_MODE]: { description: 'Web runtime mode: production, or development when the client-plugin HMR receiver is active.' },
-    },
-    resolve: () => ({ [DSH_WEB_URL]: webUrl, [DSH_WEB_MODE]: mode }),
+export function prepareWebRuntimeContext(ctx: Context, sourceRoot: string, mode: WebMode): void {
+  ctx.inject(['systemPrompt'], (promptCtx) => {
+    addHarnessSourceSection(promptCtx, sourceRoot)
+    promptCtx.systemPrompt.section({
+      name: 'app:web-surface',
+      order: -98,
+      text: () => webSurfacePrompt(localWebUrl(promptCtx), mode),
+    })
+  })
+  ctx.inject(['bashEnv'], (runtimeCtx) => {
+    runtimeCtx.bashEnv.register({
+      name: 'web-runtime',
+      variables: {
+        [DSH_WEB_URL]: { description: 'Canonical local URL of the DeepSeek Harness Web GUI serving this session.' },
+        [DSH_WEB_MODE]: { description: 'Web runtime mode: production, or development when the client-plugin HMR receiver is active.' },
+      },
+      resolve: () => ({ [DSH_WEB_URL]: localWebUrl(runtimeCtx), [DSH_WEB_MODE]: mode }),
+    })
   })
 }
 
-// Display-only mirror of the webserver schema's loopback host: the address the
-// local URL always prints. Not a source of truth — the schema is.
-const LOOPBACK_HOST = '127.0.0.1'
+/**
+ * Fail a settled Web boot whose composition omitted the managed Bash environment registry.
+ * @param ctx - settled Web application context.
+ */
+export function assertWebRuntimeContext(ctx: Context): void {
+  if (ctx.get('bashEnv') === undefined) throw new Error('dsh web: bashEnv service missing after settled boot')
+}
 
 /**
  * Serve the browser UI from the shipped config tree. `host`/`port` are passed
@@ -91,20 +110,21 @@ export async function runWeb(
   trustedHosts: string[] | undefined,
   config?: string,
 ): Promise<void> {
+  const mode: WebMode = dev ? 'development' : 'production'
   const entry = new AppCLIEntry({
     configPath: BASE_CONFIG,
     overlayPath: WEB_OVERLAY,
     ...config !== undefined && { extraOverlayPath: resolveConfigPath(config, undefined) },
     dev,
+    prepare: (ctx) => { prepareWebRuntimeContext(ctx, SOURCE_ROOT, mode) },
     ...host !== undefined && { host },
     ...port !== undefined && { port },
     ...workspaceRoot !== undefined && { workspaceRoot },
     ...trustedHosts !== undefined && { trustedHosts },
   })
   const { ctx, port: boundPort } = await entry.run()
-  const localUrl = `http://${LOOPBACK_HOST}:${boundPort}`
-  const mode: WebMode = dev ? 'development' : 'production'
-  installWebPromptContext(ctx, SOURCE_ROOT, localUrl, mode)
+  assertWebRuntimeContext(ctx)
+  const resolvedLocalWebUrl = localWebUrl(ctx)
 
   let exiting = false
   const shutdown = (code: number): void => {
@@ -121,5 +141,5 @@ export async function runWeb(
   // The entry's boot-time snapshot, not a fresh sample: the printed LAN URL
   // must name an address the /api trust fence was configured with.
   const lanCandidate = entry.lanAddresses[0]
-  console.log(`dsh web: ${localUrl}${lanCandidate === undefined ? '' : ` (LAN: http://${lanCandidate}:${boundPort})`}`)
+  console.log(`dsh web: ${resolvedLocalWebUrl}${lanCandidate === undefined ? '' : ` (LAN: http://${lanCandidate}:${boundPort})`}`)
 }
