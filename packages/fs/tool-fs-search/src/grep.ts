@@ -45,6 +45,10 @@ export interface GrepToolCaps {
   maxMetaBytes: number
   /** Cap on the complete raw `rg` stdout the tool will parse. */
   rawOutputMaxBytes: number
+  /** Terminate-escalation grace period (ms) for the search process. */
+  graceMs: number
+  /** Cap on the retained stderr diagnostic tail. */
+  stderrMaxBytes: number
   /** Cooperative tool-call budget (ms) attached as `ToolDefinition.timeoutMs`. */
   timeoutMs: number
 }
@@ -265,7 +269,7 @@ export function presentGrepResult(
  * Register the `grep` tool and its system-prompt guidance.
  *
  * @param ctx - the plugin context; registrations are effects scoped to it, and
- *   execution uses its `bash` service.
+ *   execution uses its `subprocess` service.
  * @param caps - the deployment's resolved grep caps (plugin config after defaulting).
  */
 export function applyGrepTool(ctx: Context, caps: GrepToolCaps): void {
@@ -315,7 +319,7 @@ export function applyGrepTool(ctx: Context, caps: GrepToolCaps): void {
     },
     async execute(args, exec) {
       const input = parseGrepArgs(args)
-      const run = await runRipgrep(ctx, exec, 'grep', buildGrepCommand(input), caps.rawOutputMaxBytes)
+      const run = await runRipgrep(ctx, exec, 'grep', buildGrepCommand(input), caps.rawOutputMaxBytes, caps.graceMs, caps.stderrMaxBytes)
       if (run.noMatches) return { matches: [] }
 
       const all: GrepMatch[] = []

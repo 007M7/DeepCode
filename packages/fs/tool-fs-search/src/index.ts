@@ -30,7 +30,7 @@ import type { Context } from 'cordis'
 import z from 'schemastery'
 import { GLOB_MAX_RESULTS, applyGlobTool } from './glob.ts'
 import { GREP_MAX_LINE_BYTES, GREP_MAX_MATCHES, applyGrepTool } from './grep.ts'
-import { RAW_OUTPUT_MAX_BYTES, SEARCH_META_MAX_BYTES, SEARCH_TIMEOUT_MS } from './search-core.ts'
+import { RAW_OUTPUT_MAX_BYTES, SEARCH_GRACE_MS, SEARCH_META_MAX_BYTES, SEARCH_STDERR_MAX_BYTES, SEARCH_TIMEOUT_MS } from './search-core.ts'
 
 export { GLOB_MAX_RESULTS, GLOB_VCS_EXCLUDES, applyGlobTool, buildGlobCommand, formatGlobOutput, parseGlobArgs, presentGlobCall, presentGlobResult, sampleAcrossTopLevel } from './glob.ts'
 export type { GlobInput, GlobSample, GlobToolCaps } from './glob.ts'
@@ -49,7 +49,9 @@ export {
 export type { GrepInput, GrepToolCaps } from './grep.ts'
 export {
   RAW_OUTPUT_MAX_BYTES,
+  SEARCH_GRACE_MS,
   SEARCH_META_MAX_BYTES,
+  SEARCH_STDERR_MAX_BYTES,
   SEARCH_TIMEOUT_MS,
   SearchError,
   previewLine,
@@ -58,7 +60,6 @@ export {
   trySaveFormattedResult,
 } from './search-core.ts'
 export type { GrepMatch, RipgrepRun, SearchErrorCode } from './search-core.ts'
-export { singleQuote } from './shell-quote.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'tool-fs-search'
@@ -80,6 +81,10 @@ export interface Config {
   searchMetaMaxBytes?: number
   /** Max complete raw `rg` stdout bytes a search will parse; larger raw output fails with `SEARCH_RAW_OUTPUT_OVERFLOW`. */
   rawOutputMaxBytes?: number
+  /** Terminate-escalation grace period (ms) for one search process, handed to the subprocess seam. */
+  graceMs?: number
+  /** Max bytes retained for one search's stderr diagnostic tail (never surfaced to the model). */
+  stderrMaxBytes?: number
   /** Cooperative tool-call timeout budget (ms) on both tools, enforced by `@deepseek-ai/dsh-timeout-policy` through `exec.signal`. */
   timeoutMs?: number
 }
@@ -91,6 +96,8 @@ export const Config: z<Config> = z.object({
   grepMaxLineBytes: z.number().default(GREP_MAX_LINE_BYTES),
   searchMetaMaxBytes: z.number().default(SEARCH_META_MAX_BYTES),
   rawOutputMaxBytes: z.number().default(RAW_OUTPUT_MAX_BYTES),
+  graceMs: z.number().default(SEARCH_GRACE_MS),
+  stderrMaxBytes: z.number().default(SEARCH_STDERR_MAX_BYTES),
   timeoutMs: z.number().default(SEARCH_TIMEOUT_MS),
 })
 
@@ -121,12 +128,16 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   assertPositiveInteger('grepMaxLineBytes', resolved.grepMaxLineBytes)
   assertPositiveInteger('searchMetaMaxBytes', resolved.searchMetaMaxBytes)
   assertPositiveInteger('rawOutputMaxBytes', resolved.rawOutputMaxBytes)
+  assertPositiveInteger('graceMs', resolved.graceMs)
+  assertPositiveInteger('stderrMaxBytes', resolved.stderrMaxBytes)
   assertPositiveInteger('timeoutMs', resolved.timeoutMs)
   applyGlobTool(ctx, {
     sampleOverCapGlobResults: resolved.sampleOverCapGlobResults,
     maxResults: resolved.globMaxResults,
     maxMetaBytes: resolved.searchMetaMaxBytes,
     rawOutputMaxBytes: resolved.rawOutputMaxBytes,
+    graceMs: resolved.graceMs,
+    stderrMaxBytes: resolved.stderrMaxBytes,
     timeoutMs: resolved.timeoutMs,
   })
   applyGrepTool(ctx, {
@@ -134,6 +145,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     maxLineBytes: resolved.grepMaxLineBytes,
     maxMetaBytes: resolved.searchMetaMaxBytes,
     rawOutputMaxBytes: resolved.rawOutputMaxBytes,
+    graceMs: resolved.graceMs,
+    stderrMaxBytes: resolved.stderrMaxBytes,
     timeoutMs: resolved.timeoutMs,
   })
 }

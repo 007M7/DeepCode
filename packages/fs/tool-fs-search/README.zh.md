@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-**面向模型的文件系统发现工具**（`glob`、`grep`）由 **打包的 ripgrep 二进制**（`@vscode/ripgrep`）支持，而不是由 `ctx.fs` 提供方方法或系统 `rg` 安装支持。注册是无条件的：二进制随 npm 依赖一起交付，因此没有加载期可用性探针。每次调用都通过 `ctx.subprocess` seam 以固定 argv 向量 spawn 该二进制（模型控制的值是普通 argv 元素——不存在 shell 层，因此无需引号），解析原始 `rg` 输出，并返回相对于工作目录的规范值。本包注入 `tools`、`systemPrompt` 和 `subprocess`，有意**不**注入 `fs`；格式化结果 spill 为可选功能，因此机会性读取 `ctx.spillStore`，调用方式为 `ctx.get()`。
+**面向模型的文件系统发现工具**（`glob`、`grep`）由 **打包的 ripgrep 二进制**（`@vscode/ripgrep`）支持，而不是由 `ctx.fs` 提供方方法或系统 `rg` 安装支持。注册是无条件的：二进制随 npm 依赖一起交付，因此没有加载期可用性探针。每次调用都通过 `ctx.subprocess` seam 以固定 argv 向量 spawn 该二进制（前缀 `--no-config`，使宿主的 `RIPGREP_CONFIG_PATH` 无法向不受约束的 spawn 注入 `--pre` 预处理器；模型控制的值是普通 argv 元素——不存在 shell 层，因此无需引号），解析原始 `rg` 输出，并返回相对于工作目录的规范值。本包注入 `tools`、`systemPrompt` 和 `subprocess`，有意**不**注入 `fs`；格式化结果 spill 为可选功能，因此机会性读取 `ctx.spillStore`，调用方式为 `ctx.get()`。
 
 ```ts ignore-check
 // A deployment chooses how over-cap glob pages are selected.
@@ -30,6 +30,8 @@ await ctx.plugin(LocalSpillStore)                           // @deepseek-ai/dsh-
 | `grepMaxLineBytes` | `2000` | 每条匹配行预览的字节上限；截断会保留 UTF-8 边界，并标记为 `(line truncated)`。 |
 | `rawOutputMaxBytes` | `20000000` | 搜索将解析的完整原始 `rg` stdout 上限（与 Claude Code 的 ripgrep 原始 buffer 相同）；更大的原始输出以 `SEARCH_RAW_OUTPUT_OVERFLOW` 失败。 |
 | `timeoutMs` | `30000` | 附加到两个工具定义上的协作式工具调用预算，由 `@deepseek-ai/dsh-timeout-policy` 通过 `exec.signal` 强制执行；subprocess seam 的终止升级提供硬终止。 |
+| `graceMs` | `3000` | subprocess seam 在 `timeoutMs` 之外授予的终止升级宽限期；超过后搜索以 `SEARCH_ABORTED` 失败。 |
+| `stderrMaxBytes` | `65536` | `rg` stderr 的诊断尾部预算，经 subprocess seam 的 collect 形态捕获；lossy 读取只保留尾部（标记 `[stderr truncated]`）。 |
 
 ## 工具
 
@@ -42,7 +44,7 @@ await ctx.plugin(LocalSpillStore)                           // @deepseek-ai/dsh-
 
 ## 两类预算、两类产物
 
-原始 `rg` stdout 是内部传输细节。每次搜索从 subprocess seam 请求 `rawOutputMaxBytes` 的 collect 模式 stdout 预算，且只解析完整保留的 stdout；如果 seam 仍报告 lossy 读取，搜索会以 `SEARCH_RAW_OUTPUT_OVERFLOW` 失败，并要求模型缩小查询。成功的 `glob` 在 `{ root, paths }` 中保留所显示的搜索根及所有已取得路径；启用采样时，借助 `root`，原生渲染器能以显式的相对或绝对搜索路径为根，按该根下的条目分组，而不是按其工作目录前缀分组。`grep` 保留所有已取得的 `{ path, lineNumber, line }`，并将其存入 `{ matches }`。内联条目和每行预览上限只应用于原生渲染器。直接接口调用的逻辑结果超过内联上限时，后置策略会尽力通过 `ctx.spillStore.saveText()` 保存完整格式化预览，并只把呈现替换为配置指定的页面与 locator。嵌套 Code 分派会跳过 spill，因为其完整规范值不会进入模型上下文。spill 缺失/失败时保留内联页面，并报告完整结果无法保存，绝不会成为 `isError`。
+原始 `rg` stdout 与 stderr 是内部传输细节。每次搜索从 subprocess seam 请求 collect 模式预算——`rawOutputMaxBytes` 内的完整 stdout 与 `stderrMaxBytes` 的诊断尾部——两条流都不产生 spill 文件（工具从不读取原始 spill 路径）。如果 seam 仍报告 lossy stdout 读取，搜索会以 `SEARCH_RAW_OUTPUT_OVERFLOW` 失败，并要求模型缩小查询；lossy stderr 读取只把诊断摘录标记为 `[stderr truncated]`。成功的 `glob` 在 `{ root, paths }` 中保留所显示的搜索根及所有已取得路径；启用采样时，借助 `root`，原生渲染器能以显式的相对或绝对搜索路径为根，按该根下的条目分组，而不是按其工作目录前缀分组。`grep` 保留所有已取得的 `{ path, lineNumber, line }`，并将其存入 `{ matches }`。内联条目和每行预览上限只应用于原生渲染器。直接接口调用的逻辑结果超过内联上限时，后置策略会尽力通过 `ctx.spillStore.saveText()` 保存完整格式化预览，并只把呈现替换为配置指定的页面与 locator。嵌套 Code 分派会跳过 spill，因为其完整规范值不会进入模型上下文。spill 缺失/失败时保留内联页面，并报告完整结果无法保存，绝不会成为 `isError`。
 
 ## 错误
 

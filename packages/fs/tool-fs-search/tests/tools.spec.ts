@@ -291,6 +291,8 @@ describe('config validation', () => {
     ['grepMaxMatches', { grepMaxMatches: -1 }],
     ['grepMaxLineBytes', { grepMaxLineBytes: 1.5 }],
     ['rawOutputMaxBytes', { rawOutputMaxBytes: 0 }],
+    ['graceMs', { graceMs: 0 }],
+    ['stderrMaxBytes', { stderrMaxBytes: -1 }],
     ['timeoutMs', { timeoutMs: -100 }],
   ] as const)('rejects a non-positive or fractional %s at load', async (name, config) => {
     const ctx = new Context()
@@ -372,16 +374,30 @@ describe('workdir derivation and signal forwarding', () => {
     expect(subprocess.spawns[1]?.cwd).toBe(process.cwd())
   })
 
-  it('spawns the packaged ripgrep binary with the fixed argv and budgeted collect streams', async () => {
-    const { ctx, subprocess } = await setup({ config: { rawOutputMaxBytes: 1234 } })
+  it('spawns the packaged ripgrep binary with --no-config, the fixed argv, and budgeted collect streams', async () => {
+    const { ctx, subprocess } = await setup({
+      config: { rawOutputMaxBytes: 1234, graceMs: 5000, stderrMaxBytes: 4096 },
+    })
     subprocess.handler = () => runResult('', { exitCode: 1 })
     await call(ctx, 'grep', { pattern: 'needle' })
     const spec = subprocess.spawns[0]
-    expect(spec?.argv[0]).toBe(rgPath)
-    expect(spec?.argv).toEqual([rgPath, '--json', '--regexp=needle'])
+    // --no-config keeps a host RIPGREP_CONFIG_PATH from injecting a
+    // preprocessor into this unconfined spawn.
+    expect(spec?.argv).toEqual([rgPath, '--no-config', '--json', '--regexp=needle'])
     expect(spec?.stdio.stdin).toBe('ignore')
-    // stdout gets the tool's parse budget; stderr is a diagnostic excerpt.
+    // stdout gets the tool's parse budget; stderr is a diagnostic excerpt;
+    // both are the seam's diagnostic-tail shape (no spill files requested).
     expect((spec?.stdio.stdout as { maxBytes: number }).maxBytes).toBe(1234)
+    expect((spec?.stdio.stderr as { maxBytes: number }).maxBytes).toBe(4096)
+    expect(spec?.graceMs).toBe(5_000)
+  })
+
+  it('defaults the stderr tail budget and grace period when the config omits them', async () => {
+    const { ctx, subprocess } = await setup()
+    subprocess.handler = () => runResult('', { exitCode: 1 })
+    await call(ctx, 'grep', { pattern: 'needle' })
+    const spec = subprocess.spawns[0]
+    expect((spec?.stdio.stderr as { maxBytes: number }).maxBytes).toBe(64 * 1024)
     expect(spec?.graceMs).toBe(3_000)
   })
 
@@ -430,7 +446,7 @@ describe('workdir derivation and signal forwarding', () => {
     const controller = new AbortController()
     controller.abort()
     const exec = { signal: controller.signal, name: 'glob', callId: CallId('direct-pre-abort') } as unknown as ToolExecution
-    await expect(runRipgrep(ctx, exec, 'glob', ['--files'], 1_000_000)).rejects
+    await expect(runRipgrep(ctx, exec, 'glob', ['--files'], 1_000_000, 3_000, 64 * 1024)).rejects
       .toMatchObject({ name: 'SearchError', code: 'SEARCH_ABORTED' })
   })
 
@@ -487,20 +503,6 @@ describe('exit semantics and failure classification', () => {
     subprocess.handler = () => runResult('', { exitCode: 2, stderr: { text: 'rg: error parsing glob \'[\': unclosed character class' } })
     const result = await call(ctx, 'glob', { pattern: '[' })
     expect(result.error).toMatchObject({ info: { code: 'SEARCH_INVALID_PATTERN' } })
-  })
-
-  it('a failed ripgrep launch classifies as SEARCH_FAILED naming ripgrep', async () => {
-    const { ctx, subprocess } = await setup()
-    subprocess.handler = () => runResult('', { exitCode: 127, stderr: { text: 'sh: rg: command not found' } })
-    const result = await call(ctx, 'glob', { pattern: '*' })
-    expect(result.error).toMatchObject({ info: { code: 'SEARCH_FAILED' } })
-    expect(text(result)).toContain('requires ripgrep (rg)')
-    // The same classification holds from either evidence alone: the 127 exit
-    // with silent stderr, or a shell's command-not-found text on another exit.
-    subprocess.handler = () => runResult('', { exitCode: 127 })
-    expect(text(await call(ctx, 'glob', { pattern: '*' }))).toContain('requires ripgrep (rg)')
-    subprocess.handler = () => runResult('', { exitCode: 2, stderr: { text: 'sh: rg: command not found' } })
-    expect(text(await call(ctx, 'grep', { pattern: 'x' }))).toContain('requires ripgrep (rg)')
   })
 
   it('other nonzero exits are SEARCH_FAILED carrying the stderr excerpt', async () => {
@@ -682,7 +684,7 @@ describe('glob results', () => {
     subprocess.handler = () => runResult('sub/a.ts\n')
     const result = await call(ctx, 'glob', { pattern: '*.ts', path: 'sub' })
     expect(result.isError).toBe(false)
-    expect(subprocess.spawns[0]?.argv).toEqual([rgPath, '--files', '--glob=*.ts', '--sort=modified', '--no-ignore', '--hidden',
+    expect(subprocess.spawns[0]?.argv).toEqual([rgPath, '--no-config', '--files', '--glob=*.ts', '--sort=modified', '--no-ignore', '--hidden',
       '--glob=!**/.git', '--glob=!**/.git/**',
       '--glob=!**/.svn', '--glob=!**/.svn/**',
       '--glob=!**/.hg', '--glob=!**/.hg/**',

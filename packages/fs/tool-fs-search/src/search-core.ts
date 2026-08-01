@@ -44,15 +44,13 @@ export const SEARCH_TIMEOUT_MS = 30_000
 
 /**
  * Default cap in bytes on the retained stderr tail of one search run — a
- * diagnostic excerpt only (the tool never reads `stderr.spillPath`).
+ * diagnostic excerpt only (the tool never reads a stderr spill path, and the
+ * collect disposition requests none).
  */
-const SEARCH_STDERR_MAX_BYTES = 64 * 1024
-
-/** Default whole-stream spill cap for search output (the subprocess seam requires an explicit budget). */
-const SEARCH_SPILL_MAX_BYTES = 64 * 1024 * 1024
+export const SEARCH_STDERR_MAX_BYTES = 64 * 1024
 
 /** Default terminate grace period for a search process (ms). */
-const SEARCH_GRACE_MS = 3_000
+export const SEARCH_GRACE_MS = 3_000
 
 /**
  * Default cap in bytes on one search's serialized `presentationMeta` (the
@@ -110,7 +108,7 @@ export interface RipgrepRun {
 
 /**
  * The retained stderr tail as a diagnostic excerpt, with a truncation note when
- * the subprocess seam dropped bytes (the tool never reads `stderr.spillPath`).
+ * the subprocess seam dropped bytes.
  */
 function stderrExcerpt(stderrText: string, truncated: boolean): string {
   const text = stderrText.trim()
@@ -118,14 +116,15 @@ function stderrExcerpt(stderrText: string, truncated: boolean): string {
   return truncated ? `${text} [stderr truncated]` : text
 }
 
-/** Classify a nonzero-exit `rg` run into the search error vocabulary (invalid pattern vs missing `rg` vs everything else). */
+/**
+ * Classify a nonzero-exit `rg` run into the search error vocabulary. There is
+ * no shell layer, so an exit 127 or shell "command not found" text cannot
+ * occur — a launch failure rejects at spawn (see {@link runRipgrep}).
+ */
 function classifyRunFailure(toolName: string, exitCode: number, stderrText: string, stderrTruncated: boolean): SearchError {
   const stderr = stderrExcerpt(stderrText, stderrTruncated)
   if (/regex parse error|error parsing glob/i.test(stderr)) {
     return new SearchError(`${toolName} pattern rejected by ripgrep: ${stderr}`, 'SEARCH_INVALID_PATTERN')
-  }
-  if (exitCode === 127 || /command not found/i.test(stderr)) {
-    return new SearchError(`${toolName} requires ripgrep (rg) to launch${stderr.length > 0 ? `: ${stderr}` : ''}`, 'SEARCH_FAILED')
   }
   return new SearchError(`${toolName} search failed (exit ${exitCode})${stderr.length > 0 ? `: ${stderr}` : ''}`, 'SEARCH_FAILED')
 }
@@ -163,6 +162,13 @@ function completeStdout(toolName: string, stdout: SubprocessOutputRead, rawOutpu
  * (`@deepseek-ai/dsh-timeout-policy`) and caller cancellation terminate the
  * process tree.
  *
+ * The spawn is unconfined (a plain `ctx.subprocess` call), so `--no-config`
+ * is prepended: a host `RIPGREP_CONFIG_PATH` (or `rg.conf` next to the
+ * binary) can otherwise inject `--pre` and make ripgrep execute an arbitrary
+ * preprocessor for every matched file. The collect dispositions are the
+ * seam's diagnostic-tail shape (no spill files): the tools never read a raw
+ * spill path, and truncated stdout fails as `SEARCH_RAW_OUTPUT_OVERFLOW`.
+ *
  * Exit semantics are tool-owned: exit 0 is success with results, exit 1 is
  * success with zero results (`noMatches`), anything else throws a
  * {@link SearchError} (abort/timeout → `SEARCH_ABORTED`, invalid pattern →
@@ -176,6 +182,8 @@ function completeStdout(toolName: string, stdout: SubprocessOutputRead, rawOutpu
  * @param toolName - `glob` or `grep`, used in error messages.
  * @param argv - the ripgrep arguments (every model value an unquoted argv element; no shell layer exists).
  * @param rawOutputMaxBytes - cap on the complete raw stdout the tool will parse.
+ * @param graceMs - the seam's terminate-escalation grace period.
+ * @param stderrMaxBytes - cap on the retained stderr diagnostic tail.
  * @returns the complete stdout, the zero-result flag, and the resolved workdir.
  */
 export async function runRipgrep(
@@ -184,6 +192,8 @@ export async function runRipgrep(
   toolName: string,
   argv: readonly string[],
   rawOutputMaxBytes: number,
+  graceMs: number,
+  stderrMaxBytes: number,
 ): Promise<RipgrepRun> {
   if (exec.signal.aborted) {
     throw new SearchError(`${toolName} was aborted before completion (tool timeout or caller cancellation)`, 'SEARCH_ABORTED')
@@ -191,16 +201,16 @@ export async function runRipgrep(
   const cwd = exec.agent?.session.header.cwd
   const workdir = cwd ?? process.cwd()
   const collect = (maxBytes: number): SubprocessCollect =>
-    ({ maxBytes, spill: { maxBytes: SEARCH_SPILL_MAX_BYTES } })
+    ({ maxBytes })
   const handle = ctx.subprocess.spawn({
-    argv: [rgPath, ...argv],
+    argv: [rgPath, '--no-config', ...argv],
     cwd: workdir,
     stdio: {
       stdin: 'ignore',
       stdout: collect(rawOutputMaxBytes),
-      stderr: collect(SEARCH_STDERR_MAX_BYTES),
+      stderr: collect(stderrMaxBytes),
     },
-    graceMs: SEARCH_GRACE_MS,
+    graceMs,
     signal: exec.signal,
   } satisfies SubprocessSpawnSpec)
   let outcome: SubprocessOutcome
