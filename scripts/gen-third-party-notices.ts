@@ -172,8 +172,13 @@ type VirtualManifest = Manifest & { license?: string; repository?: string | { ur
  * long names (a peer-suffixed name past the length limit becomes
  * `<prefix>_<hash>`), so a content scan falls back over the whole store when
  * the prefix misses.
+ *
+ * @param virtual - the `.pnpm` virtual store directory to scan.
+ * @param name - the external package name, exactly as `node_modules` spells it.
+ * @returns the parsed manifest, or `undefined` when neither the prefix match
+ *   nor the content scan finds the package's `package.json`.
  */
-function virtualManifest(virtual: string, name: string): VirtualManifest | undefined {
+export function virtualManifest(virtual: string, name: string): VirtualManifest | undefined {
   const prefix = `${name.replace('/', '+')}@`
   const entry = readdirSync(virtual).find(dir => dir.startsWith(prefix))
   if (entry !== undefined) {

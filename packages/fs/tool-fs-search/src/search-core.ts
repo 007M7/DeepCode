@@ -21,11 +21,10 @@
 
 import { isAbsolute, relative, sep } from 'node:path'
 import type { Context } from 'cordis'
-import { rgPath } from '@vscode/ripgrep'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import { ItemRetainer, TextRetainer } from '@deepseek-ai/dsh-retention'
 import type { RetainedItems } from '@deepseek-ai/dsh-retention'
-import type { SubprocessCollect, SubprocessOutcome, SubprocessOutputRead, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
+import type { SubprocessHandle, SubprocessOutcome, SubprocessOutputRead, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import type { SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 
@@ -154,6 +153,26 @@ function completeStdout(toolName: string, stdout: SubprocessOutputRead, rawOutpu
   )
 }
 
+let rgPathPromise: Promise<string> | undefined
+
+/**
+ * The packaged ripgrep binary path, resolved lazily once per process.
+ *
+ * `@vscode/ripgrep` resolves its platform package (`@vscode/ripgrep-<platform>
+ * -<arch>`) at module evaluation, so a static import would turn a missing or
+ * corrupt platform package (`pnpm install --omit=optional`, partial install)
+ * into a failure of the whole Loader composition. Resolving at the call
+ * boundary keeps that failure at the first search call as `SEARCH_FAILED` —
+ * the package's documented no-load-time-probe contract.
+ *
+ * @returns the packaged binary's absolute path; the memoized promise rejects
+ *   when the platform package cannot be resolved.
+ */
+export function resolveRgPath(): Promise<string> {
+  rgPathPromise ??= import('@vscode/ripgrep').then(module => module.rgPath)
+  return rgPathPromise
+}
+
 /**
  * Run the packaged ripgrep binary with a plain argv vector and return its
  * complete raw stdout. The working directory is the calling agent's session
@@ -173,9 +192,12 @@ function completeStdout(toolName: string, stdout: SubprocessOutputRead, rawOutpu
  * success with zero results (`noMatches`), anything else throws a
  * {@link SearchError} (abort/timeout → `SEARCH_ABORTED`, invalid pattern →
  * `SEARCH_INVALID_PATTERN`, the rest → `SEARCH_FAILED` /
- * `SEARCH_RAW_OUTPUT_OVERFLOW`). A spawn REJECTION — the seam's
- * infrastructure failures — is translated into `SEARCH_FAILED` with the
- * original as `cause`; a pre-aborted signal becomes `SEARCH_ABORTED`.
+ * `SEARCH_RAW_OUTPUT_OVERFLOW`). Both launch-time failure domains are
+ * classified: a synchronous throw at spawn CREATION (a NUL in argv, an abort
+ * racing the pre-check, a rejected `@vscode/ripgrep` resolution) and a
+ * rejection of `handle.done` (the seam's infrastructure failures) both become
+ * `SEARCH_FAILED` with the original as `cause` — an abort already observed by
+ * creation time becomes `SEARCH_ABORTED` instead.
  *
  * @param ctx - the plugin context; execution uses its `subprocess` service.
  * @param exec - the tool-execution context; supplies the session cwd and the abort signal.
@@ -200,19 +222,31 @@ export async function runRipgrep(
   }
   const cwd = exec.agent?.session.header.cwd
   const workdir = cwd ?? process.cwd()
-  const collect = (maxBytes: number): SubprocessCollect =>
-    ({ maxBytes })
-  const handle = ctx.subprocess.spawn({
-    argv: [rgPath, '--no-config', ...argv],
-    cwd: workdir,
-    stdio: {
-      stdin: 'ignore',
-      stdout: collect(rawOutputMaxBytes),
-      stderr: collect(stderrMaxBytes),
-    },
-    graceMs,
-    signal: exec.signal,
-  } satisfies SubprocessSpawnSpec)
+  let handle: SubprocessHandle
+  try {
+    handle = ctx.subprocess.spawn({
+      argv: [await resolveRgPath(), '--no-config', ...argv],
+      cwd: workdir,
+      stdio: {
+        stdin: 'ignore',
+        stdout: { maxBytes: rawOutputMaxBytes },
+        stderr: { maxBytes: stderrMaxBytes },
+      },
+      graceMs,
+      signal: exec.signal,
+    } satisfies SubprocessSpawnSpec)
+  } catch (error: unknown) {
+    // Node's spawn() throws synchronously for a NUL in argv, and the local
+    // impl can throw synchronously when the signal aborts between the check
+    // above and this call (or when the platform-package resolution rejects).
+    // The static narrowing that proves this re-check "always false" cannot
+    // see AbortSignal state changes.
+    // oxlint-disable-next-line typescript/no-unnecessary-condition
+    if (exec.signal.aborted) {
+      throw new SearchError(`${toolName} was aborted before completion (tool timeout or caller cancellation)`, 'SEARCH_ABORTED')
+    }
+    throw new SearchError(`${toolName} could not start its search command (ripgrep launch failed)`, 'SEARCH_FAILED', { cause: error })
+  }
   let outcome: SubprocessOutcome
   try {
     outcome = await handle.done

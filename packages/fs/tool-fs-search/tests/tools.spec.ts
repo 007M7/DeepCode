@@ -32,6 +32,7 @@ import {
   presentGrepCall,
   presentGrepResult,
   previewLine,
+  resolveRgPath,
   runRipgrep,
   sampleAcrossTopLevel,
   toWorkdirRelative,
@@ -466,6 +467,48 @@ describe('workdir derivation and signal forwarding', () => {
     expect(result.isError).toBe(true)
     expect(result.error).toMatchObject({ info: { name: 'SearchError', code: 'SEARCH_FAILED' } })
     expect(text(result)).toContain('could not start')
+  })
+
+  it('classifies a synchronous spawn-creation throw as SEARCH_FAILED', async () => {
+    // Node's spawn() throws synchronously for a NUL in argv, and the local
+    // impl can throw synchronously for other invalid specs. Creation-time
+    // failures must join the error vocabulary instead of escaping raw.
+    const { ctx, subprocess } = await setup()
+    subprocess.handler = () => { throw new Error('spawn ERR_INVALID_ARG_VALUE') }
+
+    const result = await call(ctx, 'grep', { pattern: 'x' })
+
+    expect(result.isError).toBe(true)
+    expect(result.error).toMatchObject({ info: { name: 'SearchError', code: 'SEARCH_FAILED' } })
+    expect(text(result)).toContain('could not start')
+  })
+
+  it('classifies a synchronous spawn-creation throw after an abort as SEARCH_ABORTED', async () => {
+    // The local impl can throw synchronously when the signal aborts between
+    // the pre-spawn check and the spawn call; no process was launched, so the
+    // abort is the reportable cause.
+    const { ctx, subprocess } = await setup()
+    const controller = new AbortController()
+    subprocess.handler = () => {
+      controller.abort('timeout')
+      throw new Error('aborted during spawn')
+    }
+
+    const result = await call(ctx, 'glob', { pattern: '*' }, { signal: controller.signal })
+
+    expect(result.isError).toBe(true)
+    expect(result.error).toMatchObject({ info: { name: 'SearchError', code: 'SEARCH_ABORTED' } })
+    expect(text(result)).toContain('aborted before completion')
+  })
+
+  it('resolves the packaged ripgrep path lazily, once per process', async () => {
+    // The module must not touch @vscode/ripgrep at load (a missing platform
+    // package would otherwise fail the whole composition), and repeated
+    // resolution reuses the first result. The resolution-failure path is
+    // pinned separately in rg-path.spec.ts.
+    await setup()
+    expect(await resolveRgPath()).toBe(rgPath)
+    expect(resolveRgPath()).toBe(resolveRgPath())
   })
 
   it('rejects when the subprocess implementation drops a requested collect stream', async () => {
