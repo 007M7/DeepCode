@@ -1,16 +1,15 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type {
   SessionId, SessionListState, SessionSummary, SubagentCatalogSnapshot,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import {
   SubagentCatalogAction, type SubagentCatalogActionProps,
 } from '../src/client/SubagentCatalogAction.tsx'
-import {
-  SubagentReadOnlyComposer, type SubagentReadOnlyComposerProps,
-} from '../src/client/SubagentReadOnlyComposer.tsx'
-import { zh, type SubagentKey } from '../src/client/locales.ts'
+import { SubagentReadOnlyComposer } from '../src/client/SubagentReadOnlyComposer.tsx'
+import { zh } from '../src/client/locales.ts'
 
 afterEach(() => {
   cleanup()
@@ -20,6 +19,7 @@ afterEach(() => {
 const PARENT = 'parent' as SessionId
 const CHILD = 'child' as SessionId
 const GRANDCHILD = 'grandchild' as SessionId
+const t: SubagentCatalogActionProps['t'] = makeTranslate(zh)
 
 function catalog(over: Partial<SubagentCatalogSnapshot> = {}): SubagentCatalogSnapshot {
   return {
@@ -66,15 +66,6 @@ function props(
   function useSessions<T>(select: (snapshot: SessionListState) => T): T {
     return select(state)
   }
-  // The zh dictionary is the source of truth for this spec's assertions:
-  // the stub interpolates `{name}` params like the locale service does.
-  const t = ((key: SubagentKey, params?: Record<string, unknown>): string => {
-    let text: string = zh[key]
-    for (const [name, value] of Object.entries(params ?? {})) {
-      text = text.replaceAll(`{${name}}`, String(value))
-    }
-    return text
-  }) as SubagentCatalogActionProps['t']
   return {
     sessionId: PARENT,
     useSessions,
@@ -484,9 +475,6 @@ describe('SubagentCatalogAction', () => {
 })
 
 describe('SubagentReadOnlyComposer', () => {
-  // The zh dictionary is the source of truth for this spec's assertions.
-  const t = ((key: SubagentKey): string => zh[key]) as SubagentReadOnlyComposerProps['t']
-
   it('explains the exact missing-parent recovery path', () => {
     render(<SubagentReadOnlyComposer matched={{ reason: 'parent-unavailable' }} t={t} />)
     expect(screen.getByRole('status').textContent).toContain('父会话当前不在线')
