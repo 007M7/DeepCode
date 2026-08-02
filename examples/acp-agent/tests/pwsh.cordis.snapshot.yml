@@ -27,7 +27,7 @@
     workspaceContext: false
     skills:
       enabled: false
-    toolTasks: false
+# task_output/task_kill stay mounted so background pwsh runs are readable and killable.
     goals: false
     # The pwsh tool replaces the bundle's bash tool in this composition.
     toolBash: false

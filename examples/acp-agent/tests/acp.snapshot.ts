@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import { readFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { mkdir, utimes, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { homedir } from 'node:os'
@@ -168,6 +169,9 @@ const SCENARIOS: Scenario[] = [
     pinsHeader: true,
     headerClass: 'pwsh',
     configPath: PWSH_CONFIG,
+    // The composition boots the real pwsh executor; hosts without a `pwsh`
+    // binary skip the run (fixtures stay guarded).
+    pwshOnly: true,
   },
   { name: 'todo-write', hasModelTurn: true, recorded: true },
   {
@@ -431,11 +435,16 @@ const SCENARIOS: Scenario[] = [
   },
 ]
 
+// Hosts without a `pwsh` binary skip the pwsh-tool-turn run (its fixtures
+// stay guarded); the probe follows the executor's own resolution.
+const hasPwsh = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '$true'], { encoding: 'utf8' }).status === 0
+
 defineAcpSnapshotSuite({
   agent: AGENT,
   snapshotsDir: SNAPSHOTS_DIR,
   scenarios: SCENARIOS,
   mode: snapshotModeFromEnv(process.env.DSH_SNAPSHOT),
+  hasPwsh,
 })
 
 it('packed ACP fixture retains every chunk row kind without changing the logical session', () => {
