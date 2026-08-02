@@ -41,6 +41,18 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 /** Dictionary namespace owned by this plugin (shell chrome + General copy). */
 const NS = 'settings'
 
+function isLoopbackHostname(hostname: string): boolean {
+  if (hostname === 'localhost' || hostname === '[::1]') return true
+  const parts = hostname.split('.')
+  return parts.length === 4
+    && parts[0] === '127'
+    && parts.every(part => /^\d{1,3}$/.test(part) && Number(part) <= 255)
+}
+
+function welcomePersistence(): 'host' | 'memory' {
+  return typeof location === 'undefined' || isLoopbackHostname(location.hostname) ? 'host' : 'memory'
+}
+
 /**
  * Required services (cordis fiber inject). The target slots are declared by
  * ui-settings' apply, whose activation order relative to this one is NOT
@@ -61,7 +73,7 @@ export function apply(ctx: ClientContext): void {
   // locale/change re-registration wiring.
   const t = ctx.locale.bind(NS)
   const connection = ctx.get('connection') as ConnectionHandle
-  const welcomeController = new WelcomeNoticeStore(connection.api)
+  const welcomeController = new WelcomeNoticeStore(connection.api, welcomePersistence())
   const useWelcomeSnapshot = bindSnapshotSelector(welcomeController.store)
   const welcomeInjected = (): WelcomeNoticeInjected => ({
     controller: welcomeController,

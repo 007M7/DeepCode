@@ -1,6 +1,6 @@
 /** Ownerless-copy registrations: the four seats, the dictionaries, thunked labels, and HMR recovery. */
 import { Context } from 'cordis'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
@@ -15,6 +15,8 @@ import { WELCOME_NOTICE_SETTINGS_NAMESPACE } from '../src/onboarding-copy.ts'
 // The service reads its initial locale from the browser; these specs assert
 // the shipped Chinese copy, so they state the browser they assume.
 usePinnedBrowserLanguages('zh-CN')
+
+afterEach(() => { vi.unstubAllGlobals() })
 
 /** The five seats this plugin fills (slot name → expected component). */
 const SEATS = [
@@ -157,6 +159,20 @@ describe('ui-settings-general apply', () => {
     await vi.waitFor(() => { expect(b.settingsDescribe).toHaveBeenCalledTimes(2) })
     b.ctx.emit('connection/reset')
     await vi.waitFor(() => { expect(b.settingsDescribe).toHaveBeenCalledTimes(3) })
+  })
+
+  it('keeps remote welcome acknowledgement process-local', async () => {
+    vi.stubGlobal('location', { hostname: '192.0.2.20' })
+    const b = await bench()
+    declare(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const entry = b.slots.entries('settings.onboarding')[0]!
+    const { controller } = (entry.inject as unknown as () => WelcomeNoticeInjected)()
+
+    await controller.load()
+    await expect(controller.acknowledge()).resolves.toBe(true)
+    expect(controller.store.getSnapshot()).toMatchObject({ status: 'ready', acknowledged: true })
+    expect(b.settingsDescribe).not.toHaveBeenCalled()
   })
 
   it('re-registers after an HMR collapse of the declaring chain (stale disposers must not block)', async () => {
