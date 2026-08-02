@@ -34,6 +34,17 @@ export const ENV_OVERRIDES = {
   GIT_PAGER: 'cat',
 } as const
 
+/**
+ * UTF-8 I/O pinning prepended to every command. The subprocess collector
+ * decodes output bytes as UTF-8, but Windows PowerShell 5.1 (the last-resort
+ * executable fallback) writes the console/OEM code page by default, which
+ * garbles non-ASCII output; pwsh 7 defaults to UTF-8 and is unaffected. The
+ * statements ride on line 1 after `; ` separators so PowerShell error line
+ * numbers stay accurate.
+ */
+export const ENCODING_PREAMBLE =
+  '[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [System.Text.UTF8Encoding]::new($false); '
+
 /** Default SIGTERM→SIGKILL grace period (the `graceMs` config). */
 const DEFAULT_GRACE_MS = 3_000
 
@@ -197,7 +208,7 @@ export class PwshLocalExecutor extends BashExecutor {
     const collect = (maxBytes: number): SubprocessCollect =>
       ({ maxBytes, spill: { maxBytes: this.config.maxSpillBytes } })
     return {
-      argv: [this.pwshPath, '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', spec.command],
+      argv: [this.pwshPath, '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', `${ENCODING_PREAMBLE}${spec.command}`],
       cwd: spec.workdir,
       stdio: {
         stdin: spec.stdin !== undefined ? { data: spec.stdin } : 'ignore',
@@ -307,7 +318,10 @@ export class PwshLocalExecutor extends BashExecutor {
 
   /**
    * Settlement hook for subclasses that attach execution facts to a process.
-   * The base implementation is intentionally empty.
+   * The base implementation is intentionally empty. Mirrored from
+   * `dsh-bash-local` (whose sandboxing subclass consumes the same hook); it is
+   * the declared seam for a future pwsh-confining subclass and has no consumer
+   * in this package yet.
    * @param _proc - the settled process handle.
    * @param _stderr - the process's retained stderr tail used by subclasses for settlement classification.
    */

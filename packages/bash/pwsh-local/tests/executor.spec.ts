@@ -15,13 +15,17 @@ import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import { PwshLocalExecutor, candidatePwshPaths, resolvePwshPath } from '@deepseek-ai/dsh-pwsh-local'
+import { PwshLocalExecutor, ENCODING_PREAMBLE, candidatePwshPaths, resolvePwshPath } from '@deepseek-ai/dsh-pwsh-local'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
+import SubprocessService from '@deepseek-ai/dsh-subprocess'
+import type { SubprocessHandle, SubprocessOutputReader, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import type { BashProcess } from '@deepseek-ai/dsh-bash'
 
 const spillDir = mkdtempSync(join(tmpdir(), 'dsh-pwsh-exec-spec-'))
 
-const hasPwsh = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '$true'], { encoding: 'utf8' }).status === 0
+// The probe follows the executor's own resolution (Program Files installs on
+// Windows are found even when bare `pwsh` is not on PATH).
+const hasPwsh = spawnSync(resolvePwshPath(), ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '$true'], { encoding: 'utf8' }).status === 0
 
 /** Normalize PowerShell's platform line endings (CRLF on Windows, LF elsewhere). */
 const lf = (text: string): string => text.replace(/\r\n/g, '\n')
@@ -107,6 +111,42 @@ describe('resolvePwshPath and candidatePwshPaths (pure, every platform)', () => 
     // PATH-resolution fallback.
     expect(resolvePwshPath(undefined, { ProgramFiles: join(dir, 'missing'), PATH: join(dir, 'empty'), SystemRoot: join(dir, 'no-windows') }, 'win32'))
       .toBe('pwsh')
+  })
+})
+
+describe('spawn construction (pure, every platform)', () => {
+  /** A subprocess service that records spawn specs and settles instantly. */
+  class CapturingSubprocessService extends SubprocessService {
+    specs: SubprocessSpawnSpec[] = []
+    private readonly reader: SubprocessOutputReader = {
+      readFrom: () => ({ text: '', lossy: false, nextOffset: 0 }),
+    }
+    override spawn(spec: SubprocessSpawnSpec): SubprocessHandle {
+      this.specs.push(spec)
+      return {
+        pid: -1,
+        stdin: undefined,
+        stdout: undefined,
+        stderr: undefined,
+        collected: { stdout: this.reader, stderr: this.reader },
+        done: Promise.resolve({ exitCode: 0, signal: null }),
+        terminate: () => {},
+        waitForExit: async () => true,
+      }
+    }
+  }
+
+  it('runs every command as ONE argv element under the UTF-8 encoding preamble', async () => {
+    const ctx = new Context()
+    const subprocess = new CapturingSubprocessService(ctx)
+    await ctx.plugin(PwshLocalExecutor)
+    await ctx.bash.run(ctx.bash.resolve({ command: 'Write-Output 你好' }))
+    expect(subprocess.specs).toHaveLength(1)
+    const { argv } = subprocess.specs[0]!
+    expect(argv.slice(0, 5)).toEqual([expect.any(String), '-NoLogo', '-NoProfile', '-NonInteractive', '-Command'])
+    expect(argv[5]).toBe(`${ENCODING_PREAMBLE}Write-Output 你好`)
+    expect(ENCODING_PREAMBLE).toContain('[Console]::OutputEncoding')
+    expect(ENCODING_PREAMBLE).toContain('$OutputEncoding')
   })
 })
 
