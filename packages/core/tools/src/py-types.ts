@@ -21,6 +21,17 @@ import type { ToolSdkSchema } from './ts-types.ts'
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 /**
+ * Whether a schema value carries a trackable reference identity for the render
+ * walk's cycle detection. Both plain objects AND functions qualify: a function
+ * has `typeof 'function'` yet can carry own properties (`oneOf`, `items`) and
+ * reference itself, so a post-validation getter returning a self-referential
+ * function would otherwise bypass the object-only guard and loop forever.
+ */
+function hasIdentity(value: unknown): value is object {
+  return (typeof value === 'object' && value !== null) || typeof value === 'function'
+}
+
+/**
  * Python hard keywords: reserved everywhere, so a tool or field named
  * ``class`` or ``lambda`` is legal on the wire but not as an attribute
  * (``tools.class`` would be a SyntaxError in the model program) and not as a
@@ -175,6 +186,11 @@ function pyScalar(value: JsonSchemaScalar): string {
   return String(value)
 }
 
+/** Whether a value is a JSON scalar `Literal[...]` can spell (a re-read getter may return anything). */
+function isPyScalar(value: unknown): value is JsonSchemaScalar {
+  return value === null || typeof value === 'boolean' || typeof value === 'number' || typeof value === 'string'
+}
+
 /**
  * Render a validated scalar `const`/`enum` as `Literal[...]`, falling back to
  * the broad type. Deliberately deviates from PEP 586, which restricts `Literal`
@@ -185,12 +201,18 @@ function pyScalar(value: JsonSchemaScalar): string {
  */
 function renderConstrainedScalar(node: Record<string, unknown>, broad: string, state: RenderState): string {
   if (Object.hasOwn(node, 'const')) {
+    // Re-read at render time: a stateful getter validated as a scalar can now
+    // return anything. A non-scalar would spell `Literal[[object Object]]`
+    // (invalid Python), so degrade to the broad type per the contract.
+    if (!isPyScalar(node.const)) return broad
     state.typing.add('Literal')
-    return `Literal[${pyScalar(node.const as JsonSchemaScalar)}]`
+    return `Literal[${pyScalar(node.const)}]`
   }
   if (Object.hasOwn(node, 'enum')) {
+    const raw = node.enum
+    if (!Array.isArray(raw) || !raw.every(isPyScalar)) return broad
     state.typing.add('Literal')
-    return `Literal[${(node.enum as JsonSchemaScalar[]).map(pyScalar).join(', ')}]`
+    return `Literal[${raw.map(pyScalar).join(', ')}]`
   }
   return broad
 }
@@ -222,15 +244,20 @@ function renderType(schema: unknown, className: string, state: RenderState): str
   const newFrame = (schema: unknown, className: string, validated: boolean): Frame =>
     ({ schema, className, phase: 'start', children: [], childIndex: 0, childTypes: [], entries: [], validated })
   const frames: Frame[] = [newFrame(schema, className, false)]
-  // Ancestor schemas by object identity — the frame stack IS the DFS path, so
-  // this set holds exactly the current node's ancestors. A stateful getter can
-  // mutate the graph after validation (an `items`/property that validated as a
-  // scalar but returns an ancestor at render time); without this, the walk
+  // Ancestor schemas by reference identity — the frame stack IS the DFS path,
+  // so this set holds exactly the current node's ancestors. A stateful getter
+  // can mutate the graph after validation (an `items`/property that validated
+  // as a scalar but returns an ancestor at render time); without this, the walk
   // would push frames forever. A repeated ancestor degrades to `Any` per the
   // never-throw contract. Distinct nodes in a legitimately deep chain are all
-  // different objects, so this stays O(1) per push and O(depth) memory.
+  // different references, so this stays O(1) per push and O(depth) memory.
+  // Both objects and functions are tracked (see {@link hasIdentity}). Out of
+  // scope: a getter fabricating a FRESH node per read never repeats an ancestor
+  // and is locally indistinguishable from a legitimately unbounded-depth schema
+  // (which this module supports), so cycle detection is the reachable best
+  // defense rather than a depth cap that would break the legitimate case.
   const activeSchemas = new Set<object>()
-  if (typeof schema === 'object' && schema !== null) activeSchemas.add(schema)
+  if (hasIdentity(schema)) activeSchemas.add(schema)
   let result: string | undefined
   // The no-throw contract must hold across the WHOLE walk, not just the root
   // validation: a hostile stateful getter (a `type` that returns a scalar on
@@ -243,7 +270,7 @@ function renderType(schema: unknown, className: string, state: RenderState): str
      ts-types.ts's renderSupportedSchema; the two sibling renderers keep symmetric shapes. */
   const finish = (type: string): void => {
     const popped = frames.pop()
-    if (popped !== undefined && typeof popped.schema === 'object' && popped.schema !== null) {
+    if (popped !== undefined && hasIdentity(popped.schema)) {
       activeSchemas.delete(popped.schema)
     }
     const parent = frames.at(-1)
@@ -265,9 +292,9 @@ function renderType(schema: unknown, className: string, state: RenderState): str
           frame.childIndex++
           // A child schema already on the active path is a cycle a post-
           // validation mutation introduced; degrade it to `Any` rather than
-          // recurse forever. A fresh object joins the path (finish removes it);
-          // a non-object child carries no identity to track.
-          if (typeof child.schema === 'object' && child.schema !== null) {
+          // recurse forever. A fresh reference joins the path (finish removes
+          // it); a value with no reference identity carries none to track.
+          if (hasIdentity(child.schema)) {
             if (activeSchemas.has(child.schema)) {
               state.typing.add('Any')
               frame.childTypes.push('Any')

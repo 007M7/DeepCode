@@ -181,6 +181,62 @@ describe('jsonSchemaToPy', () => {
     expect(out).toBe('list[Any]')
   })
 
+  it('degrades to Any when a stateful getter returns a self-referential function as a child', () => {
+    // A function has typeof 'function' yet can carry own props and reference
+    // itself; the cycle guard must track it too, or the walk loops forever.
+    let itemReads = 0
+    const root: Record<string, unknown> = { type: 'array' }
+    const fn = Object.assign(function () {}, {}) as Record<string, unknown> & (() => void)
+    ;(fn as Record<string, unknown>).oneOf = [fn]
+    Object.defineProperty(root, 'items', {
+      enumerable: true,
+      get() {
+        itemReads += 1
+        return itemReads <= 1 ? { type: 'string' } : fn
+      },
+    })
+    let out: string | undefined
+    expect(() => { out = jsonSchemaToPy(root) }).not.toThrow()
+    expect(out).toBe('list[Any]')
+  })
+
+  it('degrades to the broad type when a const getter re-reads as a non-scalar', () => {
+    // `const` validates as a string, then returns an object at render time.
+    // A naive spelling would emit Literal[[object Object]] (invalid Python);
+    // the render must fall back to the broad type instead.
+    let reads = 0
+    const schema: Record<string, unknown> = { type: 'string' }
+    Object.defineProperty(schema, 'const', {
+      enumerable: true,
+      get() {
+        reads += 1
+        return reads <= 1 ? 'fixed' : {}
+      },
+    })
+    let out: string | undefined
+    expect(() => { out = jsonSchemaToPy(schema) }).not.toThrow()
+    expect(out).toBe('str')
+    expect(out).not.toContain('object Object')
+  })
+
+  it('degrades to the broad type when an enum getter re-reads as a non-scalar array', () => {
+    // `enum` validates as scalars, then returns an array containing an object
+    // at render time; the render must fall back to the broad type.
+    let reads = 0
+    const schema: Record<string, unknown> = { type: 'string' }
+    Object.defineProperty(schema, 'enum', {
+      enumerable: true,
+      get() {
+        reads += 1
+        return reads <= 1 ? ['a', 'b'] : [{}]
+      },
+    })
+    let out: string | undefined
+    expect(() => { out = jsonSchemaToPy(schema) }).not.toThrow()
+    expect(out).toBe('str')
+    expect(out).not.toContain('object Object')
+  })
+
   it('emits exact digits for a beyond-safe-range integer literal', () => {
     // Python integers are arbitrary-precision, so the emitted digits ARE the
     // value the model programs against. `String(2 ** 60)` prints the rounded
