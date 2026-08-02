@@ -599,5 +599,7 @@ describe('goal tool state transitions', () => {
       },
       roundsStarted: 0,
     })
+    expect(blocked.concludesTurn).toBeUndefined()
+    expect(blocked.additionalContexts).toBeUndefined()
   })
 })

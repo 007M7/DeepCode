@@ -283,10 +283,13 @@ function substituteString(text: string, corpus: string): string {
   while (true) {
     const open = text.indexOf(FROM_REQUEST_OPEN, cursor)
     if (open === -1) return result + text.slice(cursor)
-    const close = text.indexOf(FROM_REQUEST_CLOSE, open + FROM_REQUEST_OPEN.length)
+    let close = text.indexOf(FROM_REQUEST_CLOSE, open + FROM_REQUEST_OPEN.length)
     if (close === -1) {
       throw new Error(`llm-replay: fromRequest placeholder is unterminated in ${JSON.stringify(text)}`)
     }
+    // The last two braces of a consecutive `}` run terminate the placeholder,
+    // so a pattern may end with a brace quantifier like `[0-9a-f]{4}`.
+    while (text[close + FROM_REQUEST_CLOSE.length] === '}') close += 1
     const pattern = text.slice(open + FROM_REQUEST_OPEN.length, close)
     result += text.slice(cursor, open) + resolveFromRequest(pattern, corpus)
     cursor = close + FROM_REQUEST_CLOSE.length
@@ -313,7 +316,10 @@ function substituteValue(value: unknown, corpus: string): unknown {
  * Scenario sidecars use this to script arguments no static file can know,
  * such as a randomly minted goal id the model must echo back. A pattern that
  * matches nothing, an invalid pattern, and an unterminated placeholder each
- * fail loud. Patterns cannot contain `}}` — the first `}}` ends the placeholder.
+ * fail loud. The last two braces of a consecutive `}` run terminate the
+ * placeholder, so a pattern may end with a brace quantifier but cannot
+ * contain `}}` followed by further pattern content. Derived entries pass
+ * through the same resolution as sidecar entries.
  * @param entry - the scripted entry about to replay.
  * @param messages - the live request messages searched by the placeholders.
  * @returns the entry itself when no placeholder appears, else a resolved deep copy.

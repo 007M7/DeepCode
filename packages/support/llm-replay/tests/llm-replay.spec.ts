@@ -350,6 +350,12 @@ describe('installLlmReplay (through the real LlmService)', () => {
       expect(delta).toMatchObject({ argumentsDelta: '{"goal_id":"goal-42ab"}' })
     })
 
+    it('keeps a trailing brace quantifier inside the pattern (terminator is the run tail)', async () => {
+      const streamed = await streamScripted('{"goal_id":"{{fromRequest:goal-[0-9a-z]{4}}}"}')
+      const delta = streamed.find(chunk => chunk.type === 'tool-call-delta')
+      expect(delta).toMatchObject({ argumentsDelta: '{"goal_id":"goal-42ab"}' })
+    })
+
     it('fails loud when a placeholder matches nothing in the request', async () => {
       await expect(streamScripted('{"goal_id":"{{fromRequest:task-[0-9]+}}"}'))
         .rejects.toThrow(/fromRequest.*matched nothing/)
