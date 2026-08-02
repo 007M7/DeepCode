@@ -290,6 +290,23 @@ async function wheelUntilMounted(page: Page, selector: string, deltaY: number): 
   throw new Error(`selector did not mount during transcript wheel: ${selector}`)
 }
 
+async function wheelUntilVisible(page: Page, selector: string, deltaY: number): Promise<void> {
+  const target = page.locator(selector)
+  for (let attempt = 0; attempt < 32; attempt += 1) {
+    if (await target.count() > 0 && await target.evaluate((row) => {
+      const host = row.closest<HTMLElement>('[data-conversation-scroll]')
+      if (host === null) return false
+      const viewport = host.getBoundingClientRect()
+      const composer = host.querySelector<HTMLElement>('[data-composer-seat]')
+      const visibleBottom = composer?.getBoundingClientRect().top ?? viewport.bottom
+      const rect = row.getBoundingClientRect()
+      return rect.bottom > viewport.top && rect.top < visibleBottom
+    })) return
+    await wheelTranscript(page, deltaY)
+  }
+  throw new Error(`selector did not become visible during transcript wheel: ${selector}`)
+}
+
 function visibleFlowAnchor(page: Page): Promise<FlowAnchor> {
   return page.locator('[data-conversation-scroll]').evaluate((host) => {
     const rows = [...host.querySelectorAll<HTMLElement>('[data-chat-anchor-key]')]
@@ -542,8 +559,7 @@ describe('web e2e: long Chat scroll contract', () => {
 
       const liveRowSelector = `[data-chat-call-id="${LIVE_TOOL_CALL_ID}"] [data-sample="bash-global"]`
       const liveRow = world.page.locator(liveRowSelector)
-      await liveRow.scrollIntoViewIfNeeded()
-      await nextPaint(world.page)
+      await wheelUntilVisible(world.page, liveRowSelector, -300)
       const toolAnchor = await liveRow.evaluate((row) => {
         const flow = row.closest<HTMLElement>('[data-chat-anchor-key]')
         const host = row.closest<HTMLElement>('[data-conversation-scroll]')

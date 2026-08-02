@@ -157,6 +157,56 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
   return { set, ChatView, props, openDetails, openFile, loadOlder, inspectCall, chatScroll, forkAt, setSelection }
 }
 
+function installScrollMetrics(element: HTMLElement, initialHeight: number, clientHeight: number) {
+  let scrollHeight = initialHeight
+  let scrollTop = 0
+  Object.defineProperty(element, 'scrollHeight', { configurable: true, get: () => scrollHeight })
+  Object.defineProperty(element, 'clientHeight', { configurable: true, get: () => clientHeight })
+  Object.defineProperty(element, 'scrollTop', {
+    configurable: true,
+    get: () => scrollTop,
+    set: (value: number) => { scrollTop = Math.max(0, Math.min(value, scrollHeight - clientHeight)) },
+  })
+  return {
+    setHeight: (value: number) => {
+      scrollHeight = value
+      scrollTop = Math.max(0, Math.min(scrollTop, scrollHeight - clientHeight))
+    },
+    setLayout: (height: number, top: number) => {
+      scrollHeight = height
+      scrollTop = Math.max(0, Math.min(top, scrollHeight - clientHeight))
+    },
+  }
+}
+
+/** Simulate the browser order: reader input precedes the host scroll event. */
+function readerScroll(element: HTMLElement, top: number): void {
+  fireEvent.wheel(element, { deltaY: top < element.scrollTop ? -120 : 120 })
+  element.scrollTop = top
+  fireEvent.scroll(element)
+}
+
+/** Settle test-installed metrics at the owned floor before reader input. */
+function settleAtBottom(element: HTMLElement): void {
+  element.scrollTop = element.scrollHeight - element.clientHeight
+  fireEvent.scroll(element)
+}
+
+function installAnimationFrameQueue() {
+  let callbacks: FrameRequestCallback[] = []
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    callbacks.push(callback)
+    return callbacks.length
+  })
+  return {
+    flush: () => {
+      const frame = callbacks
+      callbacks = []
+      act(() => { frame.forEach((callback) => { callback(performance.now()) }) })
+    },
+  }
+}
+
 describe('chat-flow derivation', () => {
   it('groups consecutive tool results and keeps stable keys', () => {
     const nodes: ConversationNode[] = [
@@ -269,15 +319,14 @@ describe('ChatView', () => {
     )
     Object.defineProperty(scroller, 'scrollHeight', { value: 800, writable: true })
     Object.defineProperty(scroller, 'clientHeight', { value: 200, writable: true })
-    scroller.scrollTop = 50
-    fireEvent.scroll(scroller)
+    settleAtBottom(scroller)
+    readerScroll(scroller, 50)
     fireEvent.click(view.getByText('加载更早'))
     // The reader moves after the request starts; this, not the click-time
     // row, is the intent the arriving page must preserve.
     firstTop = -200
     nextTop = 60
-    scroller.scrollTop = 90
-    fireEvent.scroll(scroller)
+    readerScroll(scroller, 90)
     Object.defineProperty(scroller, 'scrollHeight', { value: 1300, writable: true })
     nextTop = 560
     act(() => { h.set({ nodes: [assistant(2, 'older'), user(9, 'first visible'), user(10, 'next visible')] }) })
@@ -662,19 +711,21 @@ describe('ChatView', () => {
     // jsdom has no layout: fake the metrics the anchor math reads.
     Object.defineProperty(scroller, 'scrollHeight', { value: 1000, writable: true })
     Object.defineProperty(scroller, 'clientHeight', { value: 400, writable: true })
+    settleAtBottom(scroller)
     const anchored = view.container.querySelector('[data-chat-flow-key="n5"]') as HTMLDivElement
     let anchoredTop = 100
     vi.spyOn(anchored, 'getBoundingClientRect').mockImplementation(
       () => ({ top: anchoredTop, bottom: anchoredTop + 40 } as DOMRect),
     )
-    scroller.scrollTop = 80
-    fireEvent.scroll(scroller)
+    readerScroll(scroller, 80)
     // Arm the paging anchor, then deliver an older page (head seq decreases).
     fireEvent.click(view.getByText('加载更早'))
     Object.defineProperty(scroller, 'scrollHeight', { value: 1600, writable: true })
     anchoredTop = 700
     act(() => { h.set({ nodes: [user(1, 'old'), assistant(2, 'b'), user(5, 'later'), assistant(6, 'a')] }) })
     expect(scroller.scrollTop).toBe(680) // reader offset 80 + the anchored row's 600px shift
+    fireEvent.scroll(scroller) // delayed event from the semantic correction stays reader-owned
+    expect(scroller.scrollTop).toBe(680)
     // A new trailing user bubble (own words) force-scrolls to the bottom.
     act(() => { h.set({ nodes: [user(1, 'old'), assistant(2, 'b'), user(5, 'later'), assistant(6, 'a'), user(9, 'mine')] }) })
     expect(scroller.scrollTop).toBe(1600)
@@ -695,8 +746,8 @@ describe('ChatView', () => {
     try {
       Object.defineProperty(scroller, 'scrollHeight', { value: 700, writable: true })
       Object.defineProperty(scroller, 'clientHeight', { value: 200, writable: true })
-      scroller.scrollTop = 80
-      fireEvent.scroll(scroller)
+      settleAtBottom(scroller)
+      readerScroll(scroller, 80)
       fireEvent.click(view.getByText('加载更早'))
       // Total height grows by 500, but only 300 belongs before the call row.
       Object.defineProperty(scroller, 'scrollHeight', { value: 1_200, writable: true })
@@ -723,8 +774,8 @@ describe('ChatView', () => {
     try {
       Object.defineProperty(scroller, 'scrollHeight', { value: 700, writable: true })
       Object.defineProperty(scroller, 'clientHeight', { value: 200, writable: true })
-      scroller.scrollTop = 80
-      fireEvent.scroll(scroller)
+      settleAtBottom(scroller)
+      readerScroll(scroller, 80)
       fireEvent.click(view.getByText('加载更早'))
       Object.defineProperty(scroller, 'scrollHeight', { value: 1_200, writable: true })
       prepended = true
@@ -742,8 +793,8 @@ describe('ChatView', () => {
     const scroller = view.container.querySelector('[class*="scroll"]') as HTMLDivElement
     Object.defineProperty(scroller, 'scrollHeight', { value: 800, writable: true })
     Object.defineProperty(scroller, 'clientHeight', { value: 200, writable: true })
-    scroller.scrollTop = 50
-    fireEvent.scroll(scroller)
+    settleAtBottom(scroller)
+    readerScroll(scroller, 50)
     fireEvent.click(view.getByText('加载更早'))
     fireEvent.click(view.getByLabelText('回到底部'))
     Object.defineProperty(scroller, 'scrollHeight', { value: 1_300, writable: true })
@@ -758,8 +809,8 @@ describe('ChatView', () => {
     const scroller = view.container.querySelector('[class*="scroll"]') as HTMLDivElement
     Object.defineProperty(scroller, 'scrollHeight', { value: 1000, writable: true })
     Object.defineProperty(scroller, 'clientHeight', { value: 300, writable: true })
-    scroller.scrollTop = 100 // far from bottom
-    fireEvent.scroll(scroller)
+    settleAtBottom(scroller)
+    readerScroll(scroller, 100) // far from bottom
     const backButton = view.getByLabelText('回到底部')
     expect(backButton).toBeTruthy()
     // Streaming growth must NOT drag a scrolled-away reader down.
@@ -769,6 +820,253 @@ describe('ChatView', () => {
     expect(scroller.scrollTop).toBe(1000)
     // At the bottom again: follow re-arms and the button unmounts.
     expect(view.queryByLabelText('回到底部')).toBeNull()
+  })
+
+  it('re-pins a UA layout scroll after the bottom write has settled', () => {
+    let notify: (() => void) | undefined
+    class ResizeObserverStub {
+      constructor(callback: ResizeObserverCallback) {
+        notify = () => { callback([], this as unknown as ResizeObserver) }
+      }
+
+      observe = vi.fn()
+      disconnect = vi.fn()
+    }
+    vi.stubGlobal('ResizeObserver', ResizeObserverStub)
+    const h = makeHarness({ nodes: [user(1, 'q'), assistant(2, 'a')] })
+    const view = render(<h.ChatView {...h.props} />)
+    const scroller = view.container.querySelector('[class*="scroll"]') as HTMLDivElement
+    const metrics = installScrollMetrics(scroller, 1_000, 300)
+    settleAtBottom(scroller)
+    readerScroll(scroller, 100)
+    fireEvent.click(view.getByLabelText('回到底部'))
+    expect(scroller.scrollTop).toBe(700)
+    fireEvent.scroll(scroller) // delivery from the completed bottom write
+
+    // A stream-finalization shrink can clamp scrollTop before Markdown reflow
+    // restores the taller layout. The eventual UA scroll has no reader input
+    // and must restore ownership even though it differs from the old target.
+    fireEvent.wheel(scroller, { deltaY: 120 }) // no-op wheel at the physical bottom
+    metrics.setLayout(1_040, 500)
+    fireEvent.scroll(scroller)
+    expect(scroller.scrollTop).toBe(740)
+    expect(view.queryByLabelText('回到底部')).toBeNull()
+    expect(h.chatScroll.read()).toBeNull()
+
+    metrics.setHeight(1_200)
+    act(() => { notify?.() })
+    expect(scroller.scrollTop).toBe(900)
+  })
+
+  it('keeps a reader gesture active until its small scrolls cross the follow threshold', () => {
+    let notify: (() => void) | undefined
+    class ResizeObserverStub {
+      constructor(callback: ResizeObserverCallback) {
+        notify = () => { callback([], this as unknown as ResizeObserver) }
+      }
+
+      observe = vi.fn()
+      disconnect = vi.fn()
+    }
+    vi.stubGlobal('ResizeObserver', ResizeObserverStub)
+    const h = makeHarness({ nodes: [user(1, 'q'), assistant(2, 'a')] })
+    const view = render(<h.ChatView {...h.props} />)
+    const scroller = view.container.querySelector('[class*="scroll"]') as HTMLDivElement
+    const metrics = installScrollMetrics(scroller, 1_000, 300)
+    settleAtBottom(scroller)
+    readerScroll(scroller, 100)
+    fireEvent.click(view.getByLabelText('回到底部'))
+
+    fireEvent.wheel(scroller, { deltaY: -120 })
+    scroller.scrollTop = 695
+    fireEvent.scroll(scroller)
+    expect(view.queryByLabelText('回到底部')).toBeNull()
+    scroller.scrollTop = 680
+    fireEvent.scroll(scroller)
+    expect(view.queryByLabelText('回到底部')).toBeNull()
+    scroller.scrollTop = 650
+    fireEvent.scroll(scroller)
+    metrics.setHeight(1_200)
+    act(() => { notify?.() })
+    expect(scroller.scrollTop).toBe(650)
+    expect(view.getByLabelText('回到底部')).toBeTruthy()
+    expect(h.chatScroll.read()?.scrollTop).toBe(650)
+  })
+
+  it('keeps the first wheel baseline when browser scroll events coalesce', () => {
+    const h = makeHarness({ nodes: [user(1, 'q'), assistant(2, 'a')] })
+    const view = render(<h.ChatView {...h.props} />)
+    const scroller = view.container.querySelector('[class*="scroll"]') as HTMLDivElement
+    installScrollMetrics(scroller, 1_000, 300)
+    scroller.scrollTop = 700
+    fireEvent.scroll(scroller)
+
+    fireEvent.wheel(scroller, { deltaY: -120 })
+    scroller.scrollTop = 650
+    fireEvent.wheel(scroller, { deltaY: -120 })
+    fireEvent.scroll(scroller)
+    expect(scroller.scrollTop).toBe(650)
+    expect(view.getByLabelText('回到底部')).toBeTruthy()
+  })
+
+  it('uses the last delivered top when compositor scrolling precedes passive wheel delivery', () => {
+    const h = makeHarness({ nodes: [user(1, 'q'), assistant(2, 'a')] })
+    const view = render(<h.ChatView {...h.props} />)
+    const scroller = view.container.querySelector('[class*="scroll"]') as HTMLDivElement
+    installScrollMetrics(scroller, 1_000, 300)
+    settleAtBottom(scroller)
+
+    // Chromium's compositor can update scrollTop before passive wheel
+    // listeners run; the main-thread scroll event is still pending here.
+    scroller.scrollTop = 500
+    fireEvent.wheel(scroller, { deltaY: -200 })
+    fireEvent.scroll(scroller)
+    expect(view.getByLabelText('回到底部')).toBeTruthy()
+  })
+
+  it('separates a small reader delta from layout growth before the gesture begins', () => {
+    let notify: (() => void) | undefined
+    class ResizeObserverStub {
+      constructor(callback: ResizeObserverCallback) {
+        notify = () => { callback([], this as unknown as ResizeObserver) }
+      }
+
+      observe = vi.fn()
+      disconnect = vi.fn()
+    }
+    vi.stubGlobal('ResizeObserver', ResizeObserverStub)
+    const frames = installAnimationFrameQueue()
+    const h = makeHarness({ nodes: [user(1, 'q'), assistant(2, 'a')] })
+    const view = render(<h.ChatView {...h.props} />)
+    const scroller = view.container.querySelector('[class*="scroll"]') as HTMLDivElement
+    const metrics = installScrollMetrics(scroller, 1_000, 300)
+    scroller.scrollTop = 700
+    fireEvent.scroll(scroller)
+
+    metrics.setHeight(1_040)
+    fireEvent.wheel(scroller, { deltaY: -120 })
+    scroller.scrollTop = 695
+    fireEvent.scroll(scroller)
+    expect(view.queryByLabelText('回到底部')).toBeNull()
+    act(() => { notify?.() })
+    expect(scroller.scrollTop).toBe(695)
+    frames.flush()
+    frames.flush()
+    expect(scroller.scrollTop).toBe(740)
+    expect(view.queryByLabelText('回到底部')).toBeNull()
+  })
+
+  it('does not treat an active-gesture tail clamp as reader movement', () => {
+    const frames = installAnimationFrameQueue()
+    const h = makeHarness({ nodes: [user(1, 'q'), assistant(2, 'a')] })
+    const view = render(<h.ChatView {...h.props} />)
+    const scroller = view.container.querySelector('[class*="scroll"]') as HTMLDivElement
+    const metrics = installScrollMetrics(scroller, 1_000, 300)
+    settleAtBottom(scroller)
+
+    fireEvent.wheel(scroller, { deltaY: -5 })
+    scroller.scrollTop = 695
+    fireEvent.scroll(scroller)
+    metrics.setHeight(800) // floor 500 clamps the active gesture's old top
+    fireEvent.scroll(scroller)
+    expect(view.queryByLabelText('回到底部')).toBeNull()
+
+    scroller.scrollTop = 400
+    fireEvent.scroll(scroller)
+    expect(view.getByLabelText('回到底部')).toBeTruthy()
+    metrics.setHeight(600) // floor 300 clamps while reading in the same gesture
+    fireEvent.scroll(scroller)
+    expect(view.getByLabelText('回到底部')).toBeTruthy()
+    metrics.setHeight(200) // a non-scrollable floor clamps to zero, never negative
+    fireEvent.scroll(scroller)
+    expect(view.getByLabelText('回到底部')).toBeTruthy()
+    frames.flush()
+    frames.flush()
+  })
+
+  it('does not arm transcript ownership while a nested overflow consumes the wheel', () => {
+    const h = makeHarness({ nodes: [user(1, 'q'), assistant(2, 'a')] })
+    const view = render(<h.ChatView {...h.props} />)
+    const scroller = view.container.querySelector('[class*="scroll"]') as HTMLDivElement
+    const metrics = installScrollMetrics(scroller, 1_000, 300)
+    const nested = document.createElement('div')
+    nested.style.overflowY = 'auto'
+    Object.defineProperty(nested, 'scrollHeight', { value: 400, configurable: true })
+    Object.defineProperty(nested, 'clientHeight', { value: 100, configurable: true })
+    Object.defineProperty(nested, 'scrollTop', { value: 200, writable: true, configurable: true })
+    scroller.appendChild(nested)
+
+    scroller.scrollTop = 700
+    fireEvent.scroll(scroller)
+    fireEvent.wheel(nested, { deltaY: -120 })
+    metrics.setLayout(1_000, 500)
+    fireEvent.scroll(scroller)
+    expect(scroller.scrollTop).toBe(700)
+    expect(view.queryByLabelText('回到底部')).toBeNull()
+
+    nested.scrollTop = 0
+    fireEvent.wheel(nested, { deltaY: -120 })
+    scroller.scrollTop = 500
+    fireEvent.scroll(scroller)
+    expect(scroller.scrollTop).toBe(500)
+    expect(view.getByLabelText('回到底部')).toBeTruthy()
+
+    nested.scrollTop = 300
+    nested.addEventListener('wheel', (event) => {
+      event.preventDefault()
+      scroller.scrollTop = 700
+    }, { once: true })
+    fireEvent.wheel(nested, { deltaY: 120 })
+    fireEvent.scroll(scroller)
+    expect(scroller.scrollTop).toBe(700)
+    expect(view.queryByLabelText('回到底部')).toBeNull()
+  })
+
+  it('uses host navigation keys without stealing editing keys', async () => {
+    const h = makeHarness({ nodes: [user(1, 'q'), assistant(2, 'a')] })
+    const view = render(<h.ChatView {...h.props} />)
+    const scroller = view.container.querySelector('[class*="scroll"]') as HTMLDivElement
+    const metrics = installScrollMetrics(scroller, 1_000, 300)
+    const button = document.createElement('button')
+    const link = document.createElement('a')
+    link.href = '#target'
+    const textarea = document.createElement('textarea')
+    scroller.append(button, link, textarea)
+    scroller.scrollTop = 700
+    fireEvent.scroll(scroller)
+
+    fireEvent.keyDown(button, { key: 'PageUp' })
+    scroller.scrollTop = 500
+    fireEvent.scroll(scroller)
+    expect(view.getByLabelText('回到底部')).toBeTruthy()
+
+    fireEvent.click(view.getByLabelText('回到底部'))
+    fireEvent.keyDown(link, { key: ' ', shiftKey: true })
+    scroller.scrollTop = 500
+    fireEvent.scroll(scroller)
+    expect(view.getByLabelText('回到底部')).toBeTruthy()
+    fireEvent.click(view.getByLabelText('回到底部'))
+
+    fireEvent.keyDown(textarea, { key: 'ArrowUp' })
+    metrics.setLayout(1_000, 500)
+    fireEvent.scroll(scroller)
+    expect(scroller.scrollTop).toBe(700)
+    expect(view.queryByLabelText('回到底部')).toBeNull()
+
+    fireEvent.keyDown(textarea, { key: 'PageUp' })
+    scroller.scrollTop = 500
+    fireEvent.scroll(scroller)
+    expect(view.getByLabelText('回到底部')).toBeTruthy()
+    fireEvent.click(view.getByLabelText('回到底部'))
+
+    fireEvent.keyDown(textarea, { key: 'Tab' })
+    // Chromium runs microtasks before the default Tab focus transition. The
+    // provenance must survive that checkpoint until focusin consumes it.
+    await Promise.resolve()
+    fireEvent.focusIn(button)
+    scroller.scrollTop = 500
+    fireEvent.scroll(scroller)
+    expect(view.getByLabelText('回到底部')).toBeTruthy()
   })
 
   it('one ResizeObserver owns pinned dynamic-height follow and ignores growth while away', () => {
@@ -793,8 +1091,7 @@ describe('ChatView', () => {
     Object.defineProperty(scroller, 'scrollHeight', { value: 1_200, writable: true })
     act(() => { notify?.() })
     expect(scroller.scrollTop).toBe(1_200)
-    scroller.scrollTop = 200
-    fireEvent.scroll(scroller)
+    readerScroll(scroller, 200)
     Object.defineProperty(scroller, 'scrollHeight', { value: 1_400, writable: true })
     act(() => { notify?.() })
     expect(scroller.scrollTop).toBe(200)
@@ -802,16 +1099,27 @@ describe('ChatView', () => {
   })
 
   it('entering the at-bottom threshold does not snap the remaining scroll distance', () => {
+    const frames = installAnimationFrameQueue()
     const h = makeHarness({ nodes: [user(1, 'q'), assistant(2, 'a')] })
     const view = render(<h.ChatView {...h.props} />)
     const scroller = view.container.querySelector('[class*="scroll"]') as HTMLDivElement
     Object.defineProperty(scroller, 'scrollHeight', { value: 1000, writable: true })
     Object.defineProperty(scroller, 'clientHeight', { value: 300, writable: true })
+    settleAtBottom(scroller)
     // Inside FOLLOW_THRESHOLD (24) but not flush with the floor — the chrome
     // re-render from setAtBottom must not force scrollTop to scrollHeight.
-    scroller.scrollTop = 690 // distance-to-bottom = 10
-    fireEvent.scroll(scroller)
+    readerScroll(scroller, 690) // distance-to-bottom = 10
     expect(view.queryByLabelText('回到底部')).toBeNull()
+    expect(scroller.scrollTop).toBe(690)
+    frames.flush()
+    frames.flush()
+    expect(scroller.scrollTop).toBe(690)
+    const button = document.createElement('button')
+    scroller.appendChild(button)
+    fireEvent.keyDown(button, { key: 'Tab' })
+    fireEvent.focusIn(button) // visible focus target: no host scroll follows
+    frames.flush()
+    frames.flush()
     expect(scroller.scrollTop).toBe(690)
   })
 
@@ -827,8 +1135,7 @@ describe('ChatView', () => {
       const view = render(<h.ChatView {...h.props} />, { container: host })
       // Open jump uses the host, not the local .scroll node.
       expect(host.scrollTop).toBe(2000)
-      host.scrollTop = 100
-      fireEvent.scroll(host)
+      readerScroll(host, 100)
       expect(view.getByLabelText('回到底部')).toBeTruthy()
       fireEvent.click(view.getByLabelText('回到底部'))
       expect(host.scrollTop).toBe(2000)
@@ -860,14 +1167,15 @@ describe('ChatView', () => {
       const view = render(<h.ChatView {...h.props} />, { container: host })
       expect(host.scrollTop).toBe(2000)
       // Reader scrolls up; the position is recorded continuously.
-      host.scrollTop = 100
-      fireEvent.scroll(host)
+      readerScroll(host, 100)
       // View-tab switch away and back: the view unmounts, then remounts.
       view.rerender(<div />)
       anchorTop = 560
       host.scrollTop = 0
       view.rerender(<h.ChatView {...h.props} />)
       expect(host.scrollTop).toBe(580) // approximate 100 + the row's 480px reflow shift
+      fireEvent.scroll(host) // delayed semantic-restore event remains away from bottom
+      expect(host.scrollTop).toBe(580)
       // The restored position is above the floor: follow stays disarmed.
       expect(view.getByLabelText('回到底部')).toBeTruthy()
     } finally {

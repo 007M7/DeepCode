@@ -38,6 +38,68 @@ import { MessageItem, PendingSteeringBubble } from './MessageItem.tsx'
 import css from './ChatView.module.css'
 
 const FOLLOW_THRESHOLD = 24
+const POINTER_CANCEL_GRACE_FRAMES = 8
+
+type VerticalDirection = -1 | 0 | 1
+
+interface ReaderGesture {
+  /** Reader-created distance from the followed floor, excluding layout growth. */
+  awayDistance: number
+  /** Incremented by each qualifying input or host movement. */
+  epoch: number
+  /** Pointer gestures remain live through their pressed phase. */
+  held: boolean
+  /** Latest host position, used to reject no-op input events. */
+  lastTop: number
+  /** Primary pointer that owns a held direct-manipulation gesture. */
+  pointerId: number | null
+}
+
+/** Whether this element can consume a vertical gesture in the given direction. */
+function canScrollVertically(element: HTMLElement, direction: VerticalDirection): boolean {
+  if (direction === 0) return element.scrollHeight > element.clientHeight + 1
+  if (direction < 0) return element.scrollTop > 1
+  return element.scrollTop + element.clientHeight < element.scrollHeight - 1
+}
+
+/** A nested overflow owner keeps wheel/key input away from the transcript. */
+function nestedOwnsVerticalScroll(
+  target: EventTarget | null,
+  scrollport: HTMLElement,
+  direction: VerticalDirection,
+): boolean {
+  let current = target instanceof HTMLElement ? target : null
+  while (current !== null && current !== scrollport) {
+    const style = getComputedStyle(current)
+    const scrollable = style.overflowY === 'auto' || style.overflowY === 'scroll' || style.overflowY === 'overlay'
+    if (scrollable && current.scrollHeight > current.clientHeight + 1) {
+      if (canScrollVertically(current, direction)) return true
+      if (style.overscrollBehaviorY === 'contain' || style.overscrollBehaviorY === 'none') return true
+    }
+    current = current.parentElement
+  }
+  return false
+}
+
+/** Vertical scrolling keys and their expected host direction. */
+function keyDirection(event: globalThis.KeyboardEvent): VerticalDirection | null {
+  if (event.key === 'ArrowUp' || event.key === 'PageUp' || event.key === 'Home') return -1
+  if (event.key === 'ArrowDown' || event.key === 'PageDown' || event.key === 'End') return 1
+  if (event.key === ' ' || event.key === 'Spacebar') return event.shiftKey ? -1 : 1
+  return null
+}
+
+/** Whether the focused control, rather than its scroll ancestor, owns this key. */
+function consumesScrollKey(event: globalThis.KeyboardEvent): boolean {
+  const target = event.target
+  if (!(target instanceof HTMLElement)) return false
+  const editable = target.isContentEditable || target.closest('input, textarea, select') !== null
+  if (event.key === ' ' || event.key === 'Spacebar') {
+    return editable || target.closest('button, [role="button"], [role="menuitem"]') !== null
+  }
+  if (event.key === 'PageUp' || event.key === 'PageDown') return false
+  return editable || target.closest('[role="tab"], [role="menuitem"], [role="listbox"], [role="option"], [role="slider"], [role="spinbutton"]') !== null
+}
 
 /** Active column host when present; otherwise the view-local scroller. */
 function scrollerOf(from: HTMLElement): HTMLElement {
@@ -335,8 +397,19 @@ export function ChatView({
 
   const listRef = useRef<HTMLDivElement | null>(null)
   const columnRef = useRef<HTMLDivElement | null>(null)
-  const atBottomRef = useRef(true)
-  const [atBottom, setAtBottom] = useState(true)
+  /** Reader-owned follow intent, distinct from transient bottom geometry. */
+  const bottomOwnedRef = useRef(true)
+  const [bottomOwned, setBottomOwned] = useState(true)
+  /** Distance created by reader movement while follow ownership is retained. */
+  const readerAwayRef = useRef(0)
+  /** Last scrollTop delivered or written on the main thread. */
+  const observedTopRef = useRef(0)
+  /** Only an observable reader input may let scroll geometry change follow intent. */
+  const readerGestureRef = useRef<ReaderGesture | null>(null)
+  const finishReaderGestureRef = useRef<(gesture: ReaderGesture) => void>(() => {})
+  const scheduleReaderGestureEndRef = useRef<(gesture: ReaderGesture) => void>(() => {})
+  const schedulePointerCancelEndRef = useRef<(gesture: ReaderGesture) => void>(() => {})
+  const followRef = useRef<(() => void) | null>(null)
   /** Paging anchor: semantic row/position at click, updated by reader scrolls
    * while the request is pending and restored after the prepend lands. */
   const anchorRef = useRef<PagingAnchor | null>(null)
@@ -355,12 +428,115 @@ export function ChatView({
   const lastSteeringId = pendingSteering[pendingSteering.length - 1]?.id ?? null
   const followSig = `${openState}:${firstSeq}:${lastKey}:${nodes.length}:${running ? 1 : 0}:${runningCalls.length}:${lastSteeringId ?? ''}`
 
-  const toBottom = (el: HTMLElement): void => {
-    anchorRef.current = null
+  const writeBottom = (el: HTMLElement): void => {
     el.scrollTop = el.scrollHeight
-    atBottomRef.current = true
-    setAtBottom(true)
+    observedTopRef.current = el.scrollTop
+    readerAwayRef.current = 0
     chatScroll.save(null)
+  }
+
+  const cancelReaderGesture = (): void => {
+    readerGestureRef.current = null
+  }
+
+  const toBottom = (el: HTMLElement): void => {
+    cancelReaderGesture()
+    anchorRef.current = null
+    bottomOwnedRef.current = true
+    setBottomOwned(true)
+    writeBottom(el)
+  }
+
+  const recordReaderPosition = (local: HTMLElement, el: HTMLElement, ownsBottom?: boolean): boolean => {
+    const nextOwnsBottom = ownsBottom
+      ?? el.scrollHeight - el.scrollTop - el.clientHeight <= FOLLOW_THRESHOLD + 1
+    bottomOwnedRef.current = nextOwnsBottom
+    setBottomOwned(nextOwnsBottom)
+    const position = nextOwnsBottom ? null : scrollPosition(local, el)
+    if (nextOwnsBottom) {
+      anchorRef.current = null
+      chatScroll.save(null)
+    } else {
+      if (anchorRef.current !== null && position !== null) {
+        anchorRef.current = { key: position.anchorKey, top: position.anchorTop }
+      }
+      if (position !== null) chatScroll.save(position)
+    }
+    return nextOwnsBottom
+  }
+
+  finishReaderGestureRef.current = (gesture) => {
+    if (readerGestureRef.current !== gesture) return
+    readerGestureRef.current = null
+    const local = listRef.current
+    if (local === null) return
+    const el = scrollerOf(local)
+    const physicalAway = Math.max(0, el.scrollHeight - el.scrollTop - el.clientHeight)
+    if (bottomOwnedRef.current && Math.abs(physicalAway - readerAwayRef.current) > 1) {
+      followRef.current?.()
+    }
+  }
+
+  // A wheel tick, smooth keyboard scroll, or touch fling can span multiple
+  // scroll events. End only after two animation frames without new movement;
+  // a held pointer keeps the gesture alive across slower frames.
+  scheduleReaderGestureEndRef.current = (gesture) => {
+    const epoch = gesture.epoch
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (readerGestureRef.current === gesture && gesture.epoch === epoch && !gesture.held) {
+          finishReaderGestureRef.current(gesture)
+        }
+      })
+    })
+  }
+
+  schedulePointerCancelEndRef.current = (gesture) => {
+    const epoch = gesture.epoch
+    let frames = POINTER_CANCEL_GRACE_FRAMES
+    const waitForScroll = (): void => {
+      requestAnimationFrame(() => {
+        if (readerGestureRef.current !== gesture || gesture.epoch !== epoch) return
+        frames -= 1
+        if (frames > 0) waitForScroll()
+        else finishReaderGestureRef.current(gesture)
+      })
+    }
+    waitForScroll()
+  }
+
+  const armReaderGesture = (
+    startTop: number,
+    startBottom: number,
+    held = false,
+    pointerId: number | null = null,
+  ): ReaderGesture => {
+    const current = readerGestureRef.current
+    const persistentAway = bottomOwnedRef.current
+      ? readerAwayRef.current
+      : Math.max(0, startBottom - startTop)
+    const gesture = current ?? {
+      awayDistance: persistentAway,
+      epoch: 0,
+      held: false,
+      lastTop: startTop,
+      pointerId: null,
+    }
+    gesture.epoch += 1
+    if (held) {
+      gesture.held = true
+      gesture.pointerId = pointerId
+    }
+    readerGestureRef.current = gesture
+    scheduleReaderGestureEndRef.current(gesture)
+    return gesture
+  }
+
+  followRef.current = () => {
+    const local = listRef.current
+    if (local !== null && bottomOwnedRef.current && readerGestureRef.current === null) {
+      writeBottom(scrollerOf(local))
+    }
   }
 
   useLayoutEffect(() => {
@@ -377,15 +553,21 @@ export function ChatView({
       if (saved === null) {
         toBottom(el)
       } else {
+        cancelReaderGesture()
         el.scrollTop = saved.scrollTop
         const row = anchorElement(local, saved.anchorKey)
         if (row !== null) el.scrollTop += flowTop(row, el) - saved.anchorTop
         const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= FOLLOW_THRESHOLD + 1
-        atBottomRef.current = isAtBottom
-        setAtBottom(isAtBottom)
-        const normalized = isAtBottom ? null : scrollPosition(local, el)
-        if (isAtBottom) chatScroll.save(null)
-        else if (normalized !== null) chatScroll.save(normalized)
+        if (isAtBottom) {
+          toBottom(el)
+        } else {
+          observedTopRef.current = el.scrollTop
+          readerAwayRef.current = 0
+          bottomOwnedRef.current = false
+          setBottomOwned(false)
+          const normalized = scrollPosition(local, el)
+          if (normalized !== null) chatScroll.save(normalized)
+        }
       }
       firstSeqRef.current = firstSeq
       lastKeyRef.current = lastKey
@@ -400,7 +582,16 @@ export function ChatView({
       const anchor = anchorRef.current
       anchorRef.current = null
       const row = anchorElement(local, anchor.key)
+      cancelReaderGesture()
       if (row !== null) el.scrollTop += flowTop(row, el) - anchor.top
+      observedTopRef.current = el.scrollTop
+      const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= FOLLOW_THRESHOLD + 1
+      readerAwayRef.current = 0
+      bottomOwnedRef.current = isAtBottom
+      setBottomOwned(isAtBottom)
+      const normalized = isAtBottom ? null : scrollPosition(local, el)
+      if (isAtBottom) chatScroll.save(null)
+      else if (normalized !== null) chatScroll.save(normalized)
       firstSeqRef.current = firstSeq
       /* v8 ignore next -- ?? arm: a prepend adds nodes, so the flow list here is never empty. */
       lastKeyRef.current = lastKey
@@ -419,8 +610,9 @@ export function ChatView({
     lastSteeringIdRef.current = lastSteeringId
     followSigRef.current = followSig
     // Follow new flow content while pinned; do NOT re-pin on every render
-    // merely because atBottomRef is true (scroll threshold → setState → snap).
-    if (appendedUser || appendedSteering || (tipMoved && atBottomRef.current)) toBottom(el)
+    // merely because bottomOwnedRef is true (scroll threshold → setState → snap).
+    if (appendedUser || appendedSteering
+      || (tipMoved && bottomOwnedRef.current && readerGestureRef.current === null)) toBottom(el)
   })
 
   const onScrollRef = useRef(() => {})
@@ -429,43 +621,210 @@ export function ChatView({
     /* v8 ignore next -- ref-null guard: the handler only fires while mounted. */
     if (local === null) return
     const el = scrollerOf(local)
-    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= FOLLOW_THRESHOLD + 1
-    atBottomRef.current = isAtBottom
-    setAtBottom(isAtBottom)
-    const position = isAtBottom ? null : scrollPosition(local, el)
-    if (isAtBottom) {
-      anchorRef.current = null
-    } else if (anchorRef.current !== null && position !== null) {
-      anchorRef.current = { key: position.anchorKey, top: position.anchorTop }
+    const gesture = readerGestureRef.current
+    if (gesture !== null) {
+      const previousTop = gesture.lastTop
+      // A tail shrink can clamp the old scrollTop to the new physical floor
+      // before its scroll event arrives. Exclude that forced portion while
+      // retaining any reader movement beyond the clamp.
+      const currentFloor = Math.max(0, el.scrollHeight - el.clientHeight)
+      const baselineTop = Math.min(previousTop, currentFloor)
+      const deltaTop = el.scrollTop - baselineTop
+      gesture.lastTop = el.scrollTop
+      if (Math.abs(deltaTop) > 0.5) {
+        gesture.awayDistance = Math.max(0, gesture.awayDistance - deltaTop)
+        if (bottomOwnedRef.current) {
+          readerAwayRef.current = gesture.awayDistance
+          if (!recordReaderPosition(local, el, gesture.awayDistance <= FOLLOW_THRESHOLD + 1)) {
+            readerAwayRef.current = 0
+          }
+        } else {
+          // Only reader motion toward the floor may reclaim follow ownership;
+          // shrink/clamp or an upward gesture must preserve reading mode.
+          const ownsBottom = recordReaderPosition(local, el, deltaTop > 0
+            ? undefined
+            : false)
+          if (ownsBottom) {
+            const physicalAway = Math.max(0, el.scrollHeight - el.scrollTop - el.clientHeight)
+            gesture.awayDistance = physicalAway
+            readerAwayRef.current = physicalAway
+          } else {
+            readerAwayRef.current = 0
+          }
+        }
+      } else if (!bottomOwnedRef.current && Math.abs(el.scrollTop - previousTop) > 0.5) {
+        recordReaderPosition(local, el, false)
+      }
+      gesture.epoch += 1
+      scheduleReaderGestureEndRef.current(gesture)
+      observedTopRef.current = el.scrollTop
+      return
     }
-    // Continuous save (unmount happens after ref detach, so saving there is
-    // too late); pinned-to-bottom clears so a remount keeps following.
-    if (isAtBottom) chatScroll.save(null)
-    else if (position !== null) chatScroll.save(position)
+
+    if (bottomOwnedRef.current) {
+      anchorRef.current = null
+      const distance = el.scrollHeight - el.scrollTop - el.clientHeight
+      if (Math.abs(distance) > 1) writeBottom(el)
+      else {
+        readerAwayRef.current = 0
+        chatScroll.save(null)
+      }
+      observedTopRef.current = el.scrollTop
+      return
+    }
+
+    // A layout/programmatic event while reading may update the saved semantic
+    // position, but cannot silently reclaim or release bottom ownership.
+    const position = scrollPosition(local, el)
+    if (position !== null) chatScroll.save(position)
+    observedTopRef.current = el.scrollTop
   }
 
-  // Bind scroll to the resolved scrollport (host or local) once per mount.
+  // Bind scroll and its reader-input provenance to the resolved scrollport.
   useEffect(() => {
     const local = listRef.current
     /* v8 ignore next -- ref-null guard: effect runs after the list node commits. */
     if (local === null) return
     const el = scrollerOf(local)
-    const onScroll = (): void => { onScrollRef.current() }
-    el.addEventListener('scroll', onScroll, { passive: true })
-    return () => { el.removeEventListener('scroll', onScroll) }
-  }, [])
+    let wheelStartTop = el.scrollTop
+    let wheelStartBottom = el.scrollHeight - el.clientHeight
+    let wheelCanMoveHost = false
+    let directPointer: {
+      id: number
+      lastY: number
+      startBottom: number
+      startTop: number
+      target: EventTarget | null
+    } | null = null
+    let tabStart: { bottom: number; top: number } | null = null
+    let tabClearTimer: ReturnType<typeof setTimeout> | null = null
 
-  // The ref starts null and is assigned every render, so the placeholder
-  // initializer a function initial value would need never exists.
-  const followRef = useRef<(() => void) | null>(null)
-  followRef.current = () => {
-    const local = listRef.current
-    if (local !== null && atBottomRef.current) {
-      const el = scrollerOf(local)
-      el.scrollTop = el.scrollHeight
-      chatScroll.save(null)
+    const clearTabStart = (): void => {
+      tabStart = null
+      if (tabClearTimer !== null) {
+        clearTimeout(tabClearTimer)
+        tabClearTimer = null
+      }
     }
-  }
+
+    const onScroll = (): void => { onScrollRef.current() }
+    const onWheelCapture = (event: WheelEvent): void => {
+      // Passive wheel delivery may observe compositor-updated geometry before
+      // the main-thread scroll event. The last delivered/written top remains
+      // the authoritative pre-input baseline.
+      wheelStartTop = observedTopRef.current
+      wheelStartBottom = el.scrollHeight - el.clientHeight
+      const direction: VerticalDirection = event.deltaY < 0 ? -1 : 1
+      wheelCanMoveHost = event.deltaY !== 0 && (direction < 0
+        ? wheelStartTop > 1
+        : wheelStartTop < wheelStartBottom - 1)
+    }
+    const onWheel = (event: WheelEvent): void => {
+      if (event.ctrlKey || event.deltaY === 0) return
+      const direction: VerticalDirection = event.deltaY < 0 ? -1 : 1
+      if (!wheelCanMoveHost) return
+      if (nestedOwnsVerticalScroll(event.target, el, direction)) return
+      armReaderGesture(wheelStartTop, wheelStartBottom)
+    }
+    const onKeyDown = (event: globalThis.KeyboardEvent): void => {
+      if (event.key === 'Tab') {
+        if (event.defaultPrevented) clearTabStart()
+        return
+      }
+      if (event.defaultPrevented) return
+      if (!(event.target instanceof Node) || !el.contains(event.target)) return
+      const direction = keyDirection(event)
+      if (direction === null) return
+      if (consumesScrollKey(event)) return
+      if (!canScrollVertically(el, direction)) return
+      if (nestedOwnsVerticalScroll(event.target, el, direction)) return
+      armReaderGesture(el.scrollTop, el.scrollHeight - el.clientHeight)
+    }
+    const onTabKeyCapture = (event: globalThis.KeyboardEvent): void => {
+      if (event.key !== 'Tab' || event.altKey || event.ctrlKey || event.metaKey) return
+      const start = { bottom: el.scrollHeight - el.clientHeight, top: el.scrollTop }
+      tabStart = start
+      if (tabClearTimer !== null) clearTimeout(tabClearTimer)
+      // The browser's default Tab focus and focus-induced scroll happen after
+      // keydown propagation but before the next task. A microtask would clear
+      // this provenance before focusin can consume it.
+      tabClearTimer = setTimeout(() => {
+        if (tabStart === start) tabStart = null
+        tabClearTimer = null
+      }, 0)
+    }
+    const onFocusIn = (): void => {
+      const start = tabStart
+      clearTabStart()
+      if (start !== null) armReaderGesture(start.top, start.bottom)
+    }
+    const onPointerDown = (event: PointerEvent): void => {
+      if (!event.isPrimary) return
+      if (event.pointerType === 'mouse') {
+        // Native scrollbar/track events target the scrollport; ordinary flow
+        // controls target their own element and must not pause follow.
+        if (event.button === 0 && event.target === el) {
+          armReaderGesture(el.scrollTop, el.scrollHeight - el.clientHeight, true, event.pointerId)
+        }
+        return
+      }
+      directPointer = {
+        id: event.pointerId,
+        lastY: event.clientY,
+        startBottom: el.scrollHeight - el.clientHeight,
+        startTop: el.scrollTop,
+        target: event.target,
+      }
+    }
+    const onPointerMove = (event: PointerEvent): void => {
+      const pointer = directPointer
+      if (pointer === null || event.pointerId !== pointer.id) return
+      const delta = pointer.lastY - event.clientY
+      pointer.lastY = event.clientY
+      if (Math.abs(delta) < 2) return
+      const direction: VerticalDirection = delta < 0 ? -1 : 1
+      if (!canScrollVertically(el, direction)) return
+      if (nestedOwnsVerticalScroll(pointer.target, el, direction)) return
+      armReaderGesture(pointer.startTop, pointer.startBottom, true, pointer.id)
+    }
+    const releasePointer = (event: PointerEvent, cancelled: boolean): void => {
+      if (!event.isPrimary) return
+      if (directPointer?.id === event.pointerId) directPointer = null
+      const gesture = readerGestureRef.current
+      if (gesture === null || !gesture.held || gesture.pointerId !== event.pointerId) return
+      gesture.held = false
+      gesture.pointerId = null
+      gesture.epoch += 1
+      if (cancelled) schedulePointerCancelEndRef.current(gesture)
+      else scheduleReaderGestureEndRef.current(gesture)
+    }
+    const onPointerUp = (event: PointerEvent): void => { releasePointer(event, false) }
+    const onPointerCancel = (event: PointerEvent): void => { releasePointer(event, true) }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    el.addEventListener('wheel', onWheelCapture, { capture: true, passive: true })
+    el.addEventListener('wheel', onWheel, { passive: true })
+    el.addEventListener('focusin', onFocusIn)
+    el.addEventListener('pointerdown', onPointerDown, { passive: true })
+    window.addEventListener('keydown', onTabKeyCapture, { capture: true })
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('pointermove', onPointerMove, { passive: true })
+    window.addEventListener('pointerup', onPointerUp, { passive: true })
+    window.addEventListener('pointercancel', onPointerCancel, { passive: true })
+    return () => {
+      cancelReaderGesture()
+      clearTabStart()
+      el.removeEventListener('scroll', onScroll)
+      el.removeEventListener('wheel', onWheelCapture, true)
+      el.removeEventListener('wheel', onWheel)
+      el.removeEventListener('focusin', onFocusIn)
+      el.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onTabKeyCapture, true)
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('pointermove', onPointerMove)
+      window.removeEventListener('pointerup', onPointerUp)
+      window.removeEventListener('pointercancel', onPointerCancel)
+    }
+  }, [])
   // Streaming, tool disclosures, and other flow changes resize the column;
   // the sticky composer resizes outside it. This observer owns ChatView's
   // dynamic-height follow decisions and writes only while the reader is pinned.
@@ -494,6 +853,7 @@ export function ChatView({
       const el = scrollerOf(local)
       const row = pagingAnchor(local, el)
       if (row !== null && row.dataset.chatAnchorKey !== undefined) {
+        cancelReaderGesture()
         anchorRef.current = {
           key: row.dataset.chatAnchorKey,
           top: flowTop(row, el),
@@ -611,7 +971,7 @@ export function ChatView({
             <PendingSteeringBubble key={item.id} content={item.content} t={t} />
           ))}
         </div>
-        {!atBottom && (
+        {!bottomOwned && (
           <div className={css.toBottomSlot}>
             <button
               type="button"
