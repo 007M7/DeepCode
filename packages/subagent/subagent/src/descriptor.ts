@@ -12,6 +12,10 @@
  * omits `subagentDepth` — cold resume trusts the persisted header's
  * `delegationDepth` as the monotone floor — and `outputSchema`, which belongs
  * to one activation's result contract rather than durable child composition.
+ * Per-activation knobs such as `maxTokens` are omitted for the same reason as
+ * `outputSchema`: they budget one activation and, on cold resume, no parent
+ * exists to inherit them from, so the resumed activation runs under the
+ * deployment defaults rather than restoring a stale budget.
  *
  * @module @deepseek-ai/dsh-subagent/descriptor
  */
