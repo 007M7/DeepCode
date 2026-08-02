@@ -350,6 +350,23 @@ describe('dsh-tool-subagent-report', () => {
     expect(ctx.agents.list().map(agent => agent.id)).toEqual([parent.id])
   })
 
+  it('accepts a report into a host-disposing but still-registered parent', async () => {
+    const { ctx } = await setup()
+    const parentHandle = await ctx.agents.create({
+      sessionId: SessionId('disposing-parent'),
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    const { child } = await startChild(ctx, parentHandle.agent)
+    // Host-owned disposal starts asynchronously; the parent stays registered
+    // until quiescence, and registry presence — not disposal state — is the
+    // acceptance gate (pins the README contract).
+    const disposing = parentHandle.dispose()
+    const accepted = await callReport(ctx, child, 'during-close')
+    expect(accepted.isError).toBe(false)
+    await disposing
+    expect((await callReport(ctx, child, 'after-close')).isError).toBe(true)
+  })
+
   it('keeps the namespace plugin shape and validates its default', () => {
     expect('default' in tool).toBe(false)
     expect(tool.name).toBe('tool-subagent-report')
