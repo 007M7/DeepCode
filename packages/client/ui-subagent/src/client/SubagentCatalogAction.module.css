@@ -173,17 +173,28 @@
 }
 
 .summary,
-.time {
+.metrics {
   color: var(--dsw-alias-label-tertiary);
   font-size: 11px;
   line-height: 16px;
 }
 
-.time {
+.metrics {
+  display: grid;
+  grid-template-rows: 18px 16px;
   flex: none;
-  margin-top: 16px;
   font-variant-numeric: tabular-nums;
+  text-align: right;
   white-space: nowrap;
+}
+
+.metricToken {
+  grid-row: 1;
+  line-height: 18px;
+}
+
+.metricDuration {
+  grid-row: 2;
 }
 
 .children {

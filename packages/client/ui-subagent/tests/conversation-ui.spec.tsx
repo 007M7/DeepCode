@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type {
   SessionId, SessionListState, SessionSummary, SubagentCatalogSnapshot,
@@ -240,7 +240,7 @@ describe('SubagentCatalogAction', () => {
     })
   })
 
-  it('ticks active duration by seconds and freezes inactive rows', async () => {
+  it('shows durable token totals, ticks active duration by seconds, and freezes inactive rows', async () => {
     const now = 2_000_000_000_000
     vi.useFakeTimers()
     vi.setSystemTime(now)
@@ -249,6 +249,26 @@ describe('SubagentCatalogAction', () => {
       ['finished', 'inactive', 3_723_000, undefined, now - 60_000],
       ['interrupted', 'inactive', 2_000, now - 7_000, now - 3_000],
     ] as const
+    const usageById = {
+      running: {
+        uncachedInputTokens: 1_000,
+        outputTokens: 200,
+        cacheReadTokens: 3_000,
+        cacheWriteTokens: 400,
+      },
+      finished: {
+        uncachedInputTokens: 123,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+      },
+      interrupted: {
+        uncachedInputTokens: 123_000_000,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+      },
+    } as const
     const entries = rows.map(([id, activity]) => ({
       kind: 'child' as const,
       id: id as SessionId,
@@ -269,6 +289,7 @@ describe('SubagentCatalogAction', () => {
             settledMs,
             ...(activeSince === undefined ? {} : { activeSince }),
           },
+          tokenUsage: usageById[id],
         },
       }]
     })) as Record<SessionId, SessionSummary>
@@ -276,14 +297,19 @@ describe('SubagentCatalogAction', () => {
     render(<SubagentCatalogAction {...input} />)
     fireEvent.click(screen.getByRole('button', { name: /3 个子代理/ }))
 
-    expect(screen.getByRole('treeitem', { name: /running.*1分10秒/ })).toBeTruthy()
-    expect(screen.getByRole('treeitem', { name: /finished.*1小时02分03秒/ })).toBeTruthy()
-    expect(screen.getByRole('treeitem', { name: /interrupted.*6秒/ })).toBeTruthy()
+    const runningRow = screen.getByRole('treeitem', { name: /running.*4\.6K tok · 1分10秒/ })
+    const runningMetrics = within(runningRow)
+    const tokenMetric = runningMetrics.getByText('4.6K tok')
+    const durationMetric = runningMetrics.getByText('1分10秒')
+    expect(tokenMetric.parentElement).toBe(durationMetric.parentElement)
+    expect(tokenMetric.nextElementSibling).toBe(durationMetric)
+    expect(screen.getByRole('treeitem', { name: /finished.*123 tok · 1小时02分03秒/ })).toBeTruthy()
+    expect(screen.getByRole('treeitem', { name: /interrupted.*123M tok · 6秒/ })).toBeTruthy()
 
     await vi.advanceTimersByTimeAsync(1_000)
-    expect(screen.getByRole('treeitem', { name: /running.*1分11秒/ })).toBeTruthy()
-    expect(screen.getByRole('treeitem', { name: /finished.*1小时02分03秒/ })).toBeTruthy()
-    expect(screen.getByRole('treeitem', { name: /interrupted.*6秒/ })).toBeTruthy()
+    expect(screen.getByRole('treeitem', { name: /running.*4\.6K tok · 1分11秒/ })).toBeTruthy()
+    expect(screen.getByRole('treeitem', { name: /finished.*123 tok · 1小时02分03秒/ })).toBeTruthy()
+    expect(screen.getByRole('treeitem', { name: /interrupted.*123M tok · 6秒/ })).toBeTruthy()
   })
 
   it('lazily expands and collapses descendant catalogs with direct-parent navigation', () => {
