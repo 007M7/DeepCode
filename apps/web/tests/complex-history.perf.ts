@@ -50,6 +50,7 @@ const COMPARISON_TURNS = 8
 const COMPARISON_DELTA_COUNT = 24
 const COMPARISON_TOOL_INTERVAL = 3
 const SOAK_TURNS = 100
+const POST_SOAK_RENDER_TURN = SOAK_TURNS + 1
 const SOAK_DELTA_COUNT = 8
 const SOAK_TOOL_INTERVAL = 10
 const SOAK_CHECKPOINT_INTERVAL = 10
@@ -105,6 +106,15 @@ interface Measurement {
 interface MutationProbeResult {
   readonly batches: number
   readonly records: number
+}
+
+interface UserRenderProbeResult {
+  readonly trustedClick: boolean
+  readonly sendToDomMs: number
+  readonly sendToPaintMs: number
+  readonly domToPaintMs: number
+  readonly mutationBatches: number
+  readonly mutationRecords: number
 }
 
 interface RetainedBrowserState {
@@ -608,6 +618,168 @@ async function stopMutationProbe(page: Page): Promise<MutationProbeResult> {
   })
 }
 
+async function startUserRenderProbe(
+  page: Page,
+  marker: string,
+): Promise<void> {
+  const send = page.getByRole('button', { name: 'Send message', exact: true })
+  await send.waitFor({ timeout: 15_000 })
+  await expect.poll(() => send.isEnabled(), { timeout: 15_000 }).toBe(true)
+  await page.evaluate((expectedMarker) => {
+    const target = document.querySelector('[data-conversation-scroll]')
+    if (target === null) throw new Error('user render probe target is unavailable')
+    const probe: {
+      sendAt?: number
+      domAt?: number
+      paintAt?: number
+      trustedClick?: boolean
+      batches: number
+      records: number
+      observer?: MutationObserver
+      pollForMarker?: () => void
+    } = { batches: 0, records: 0 }
+    const transcriptContainsMarker = (): boolean => {
+      // The composer projects the draft into a backdrop and hidden sizing
+      // mirror; only a matching text node outside that card proves delivery.
+      const walker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT)
+      for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+        if (!node.textContent?.includes(expectedMarker)) continue
+        const parent = node.parentElement
+        if (parent !== null && parent.closest('[data-composer-card]') === null) return true
+      }
+      return false
+    }
+    const markDomVisible = (): void => {
+      if (
+        probe.sendAt === undefined
+        || probe.domAt !== undefined
+        || !transcriptContainsMarker()
+      ) return
+      probe.domAt = globalThis.performance.now()
+      // The second callback runs only after a render opportunity for the DOM
+      // insertion observed before the first callback.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          probe.paintAt = globalThis.performance.now()
+          observer.disconnect()
+        })
+      })
+    }
+    const pollForMarker = (): void => {
+      markDomVisible()
+      if (probe.domAt === undefined) requestAnimationFrame(pollForMarker)
+    }
+    const observer = new MutationObserver((records) => {
+      if (probe.sendAt === undefined) return
+      probe.batches += 1
+      probe.records += records.length
+      markDomVisible()
+    })
+    probe.observer = observer
+    probe.pollForMarker = pollForMarker
+    observer.observe(target, {
+      attributes: true,
+      attributeFilter: ['data-streaming'],
+      characterData: true,
+      childList: true,
+      subtree: true,
+    })
+    Reflect.set(globalThis, '__dshPerfUserRenderProbe', probe)
+  }, marker)
+  await send.evaluate((button) => {
+    button.addEventListener('click', (event) => {
+      const probe = Reflect.get(globalThis, '__dshPerfUserRenderProbe') as
+        | { sendAt?: number; trustedClick?: boolean; pollForMarker?: () => void }
+        | undefined
+      if (probe?.pollForMarker === undefined) throw new Error('user render probe was not started')
+      probe.trustedClick = event.isTrusted
+      probe.sendAt = globalThis.performance.now()
+      requestAnimationFrame(probe.pollForMarker)
+    }, { capture: true, once: true })
+  })
+}
+
+async function triggerUserRenderProbe(page: Page): Promise<void> {
+  const send = page.getByRole('button', { name: 'Send message', exact: true })
+  await send.click()
+}
+
+async function stopUserRenderProbe(
+  page: Page,
+  marker: string,
+): Promise<UserRenderProbeResult> {
+  try {
+    await page.waitForFunction(() => {
+      const probe = Reflect.get(globalThis, '__dshPerfUserRenderProbe') as
+        | { paintAt?: number }
+        | undefined
+      return probe?.paintAt !== undefined
+    }, undefined, { timeout: 15_000 })
+  } catch (error) {
+    const diagnostic = await page.evaluate((expectedMarker) => {
+      const probe = Reflect.get(globalThis, '__dshPerfUserRenderProbe') as
+        | {
+          sendAt?: number
+          domAt?: number
+          paintAt?: number
+          trustedClick?: boolean
+          batches: number
+          records: number
+        }
+        | undefined
+      const target = document.querySelector('[data-conversation-scroll]')
+      let markerOutsideComposer = false
+      if (target !== null) {
+        const walker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT)
+        for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+          if (!node.textContent?.includes(expectedMarker)) continue
+          const parent = node.parentElement
+          if (parent !== null && parent.closest('[data-composer-card]') === null) {
+            markerOutsideComposer = true
+            break
+          }
+        }
+      }
+      return {
+        probe,
+        markerOutsideComposer,
+        markerInComposer: document.querySelector('[data-composer-card]')
+          ?.textContent?.includes(expectedMarker) ?? false,
+      }
+    }, marker)
+    throw new Error(`user render probe timed out: ${JSON.stringify(diagnostic)}`, { cause: error })
+  }
+  return page.evaluate(() => {
+    const probe = Reflect.get(globalThis, '__dshPerfUserRenderProbe') as
+      | {
+        sendAt?: number
+        domAt?: number
+        paintAt?: number
+        trustedClick?: boolean
+        batches: number
+        records: number
+      }
+      | undefined
+    Reflect.deleteProperty(globalThis, '__dshPerfUserRenderProbe')
+    if (
+      probe?.trustedClick !== true
+      || probe.sendAt === undefined
+      || probe.domAt === undefined
+      || probe.paintAt === undefined
+    ) {
+      throw new Error('user render probe did not observe a trusted click, DOM insertion, and paint')
+    }
+    return {
+      trustedClick: probe.trustedClick,
+      sendToDomMs: probe.domAt - probe.sendAt,
+      sendToPaintMs: probe.paintAt - probe.sendAt,
+      domToPaintMs: probe.paintAt - probe.domAt,
+      mutationBatches: probe.batches,
+      mutationRecords: probe.records,
+    }
+  })
+}
+
 async function stableCount(
   locator: Locator,
   accepts: (count: number) => boolean,
@@ -887,6 +1059,77 @@ async function continueConversation(
   }
 }
 
+async function measurePostSoakUserRender(
+  world: PerformanceWorld,
+  cdp: CDPSession,
+): Promise<object> {
+  const spec = soakTurn(POST_SOAK_RENDER_TURN)
+  if (spec.toolResultMarker !== undefined) {
+    throw new Error('post-soak render probe must remain a text-only turn')
+  }
+  const composer = world.page.locator('textarea:enabled').last()
+  const composerFill = await measure(cdp, async () => {
+    await composer.fill(spec.prompt)
+    await expect.poll(() => composer.inputValue()).toBe(spec.prompt)
+    return (await composer.inputValue()).length
+  })
+  expect(composerFill.value).toBe(spec.prompt.length)
+
+  const eventStart = world.sessionEvents.length
+  await startUserRenderProbe(world.page, spec.userMarker)
+  const browserBefore = await chromiumMetrics(cdp)
+  const fullTurnStarted = performance.now()
+  const settled = world.scaffold.whenTurnSettled(60_000)
+  await triggerUserRenderProbe(world.page)
+  const browserTiming = await stopUserRenderProbe(world.page, spec.userMarker)
+  const browserAfter = await chromiumMetrics(cdp)
+  const browserAfterPaintSample = metricDelta(
+    browserBefore,
+    browserAfter,
+    performance.now() - fullTurnStarted,
+  )
+  await world.page.getByText(spec.firstMarker, { exact: false }).last().waitFor({ timeout: 15_000 })
+  const settledSessionId = await settled
+  await expect.poll(
+    () => world.page.locator('[data-streaming="true"]').count(),
+    { timeout: 15_000 },
+  ).toBe(0)
+  await world.page.getByText(spec.doneMarker, { exact: false }).last().waitFor({ timeout: 15_000 })
+  const fullTurnMs = performance.now() - fullTurnStarted
+
+  const turnEvents = world.sessionEvents.slice(eventStart)
+  const chunks = turnEvents.filter(event => event.type === 'assistant/chunk')
+  const user = turnEvents.find(
+    event => event.type === 'user/message' && event.data.source.kind === 'user',
+  )
+  if (user?.type !== 'user/message') throw new Error('post-soak render probe did not log its user message')
+  expect(user.data.content
+    .filter(block => block.type === 'text')
+    .map(block => block.text)
+    .join('')).toBe(spec.prompt)
+  expect(chunks).toHaveLength(spec.deltas.length + 4)
+  expect(turnEvents.filter(event => event.type === 'tool/call')).toHaveLength(0)
+  expect(turnEvents.filter(event => event.type === 'tool/result')).toHaveLength(0)
+  expect(world.scaffold.ctx.agents.get(settledSessionId)).toBeDefined()
+  expect(await conversationTurns(world.page)).toBe(POST_SOAK_RENDER_TURN)
+
+  return {
+    ordinal: POST_SOAK_RENDER_TURN,
+    resultingTurns: POST_SOAK_RENDER_TURN,
+    promptChars: spec.prompt.length,
+    composerFill: composerFill.measurement,
+    trustedClick: browserTiming.trustedClick,
+    sendToDomMs: rounded(browserTiming.sendToDomMs),
+    sendToPaintMs: rounded(browserTiming.sendToPaintMs),
+    domToPaintMs: rounded(browserTiming.domToPaintMs),
+    mutationBatchesThroughPaint: browserTiming.mutationBatches,
+    mutationRecordsThroughPaint: browserTiming.mutationRecords,
+    browserAfterPaintSample,
+    fullTurnMs: rounded(fullTurnMs),
+    persistedChunks: chunks.length,
+  }
+}
+
 function average(values: readonly number[]): number {
   return rounded(values.reduce((sum, value) => sum + value, 0) / values.length)
 }
@@ -1142,11 +1385,12 @@ describe('manual web performance: complex workspace and history', () => {
     }
   })
 
-  it('reports one hundred continuously generated turns with retained checkpoints', async () => {
+  it('reports one hundred generated turns and the next user-message paint', async () => {
     const world = await launchPerformanceWorld({
       browser,
-      replay: performanceReplayOverride(SOAK_TURNS, soakTurn),
+      replay: performanceReplayOverride(POST_SOAK_RENDER_TURN, soakTurn),
     })
+    let testFailure: unknown
     try {
       await world.page.goto(world.scaffold.baseUrl, { waitUntil: 'load' })
       await world.page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
@@ -1160,6 +1404,7 @@ describe('manual web performance: complex workspace and history', () => {
         checkpointInterval: SOAK_CHECKPOINT_INTERVAL,
       })
       expect(conversation.toolTurns).toBe(SOAK_TURNS / SOAK_TOOL_INTERVAL)
+      const postSoakUserRender = await measurePostSoakUserRender(world, cdp)
       const { turns, ...retained } = conversation
       console.info(`WEB_PERF_RESULT ${JSON.stringify({
         scenario: 'continuous-100-turn-soak',
@@ -1167,11 +1412,23 @@ describe('manual web performance: complex workspace and history', () => {
         replayContextWindow: PERF_REPLAY_CONTEXT_WINDOW,
         ...retained,
         windows: summarizeTurnWindows(turns, SOAK_CHECKPOINT_INTERVAL),
+        postSoakUserRender,
       }, null, 2)}`)
       expect(world.tripwire.warnings).toEqual([])
       expect(world.tripwire.pageErrors).toEqual([])
+    } catch (error) {
+      testFailure = error
+      throw error
     } finally {
-      await closePerformanceWorld(world)
+      try {
+        await closePerformanceWorld(world)
+      } catch (cleanupError) {
+        if (testFailure === undefined) throw cleanupError
+        throw new AggregateError(
+          [testFailure, cleanupError],
+          'continuous conversation performance test and teardown failed',
+        )
+      }
     }
   })
 })
