@@ -88,25 +88,29 @@ describe('pickWin32Directory', () => {
   it('services an abort by closing the dialog thread windows until the worker reports', async () => {
     const { worker, internals, close } = harness()
     const controller = new AbortController()
-    const picked = pickWin32Directory(controller.signal, internals)
+    // Attach the expectation BEFORE driving the race: on a fast host the
+    // close budget can exhaust (and reject) between waitFor ticks, and a
+    // rejection with no listener yet would count as unhandled.
+    const picked = expect(pickWin32Directory(controller.signal, internals)).rejects.toThrow('native directory picker aborted')
     worker.post({ kind: 'showing', threadId: 99 })
     controller.abort()
     await vi.waitFor(() =>{  expect(close).toHaveBeenCalledWith(99) })
     worker.post({ kind: 'done', path: null })
-    await expect(picked).rejects.toThrow('native directory picker aborted')
+    await picked
   })
 
   it('starts the close service on the showing notice when the abort came first', async () => {
     const closeFailures = vi.fn(async () => { throw new Error('window not there yet') })
     const { worker, internals } = harness({ closeThreadWindows: closeFailures })
     const controller = new AbortController()
-    const picked = pickWin32Directory(controller.signal, internals)
+    // Attached before the race for the same unhandled-rejection reason above.
+    const picked = expect(pickWin32Directory(controller.signal, internals)).rejects.toThrow('native directory picker aborted')
     controller.abort()
     expect(closeFailures).not.toHaveBeenCalled()
     worker.post({ kind: 'showing', threadId: 12 })
     await vi.waitFor(() =>{  expect(closeFailures.mock.calls.length).toBeGreaterThan(1) })
     worker.post({ kind: 'done', path: null })
-    await expect(picked).rejects.toThrow('native directory picker aborted')
+    await picked
   })
 
   it('terminates an unresponsive worker after the close budget', async () => {
