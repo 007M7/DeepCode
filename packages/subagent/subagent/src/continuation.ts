@@ -42,7 +42,6 @@ import type { ContinuableCreateRequest, ContinuableCreateSpec, SubagentStartRequ
 import type { ActivationObserver } from './lifecycle.ts'
 import { SubagentError } from './error.ts'
 import type SubagentActivationSetupRegistry from './activation-setup-registry.ts'
-import type { ActivationSetupTransaction } from './activation-setup-registry.ts'
 
 /** Attribution for a model coordinator's follow-up to one of its children. */
 export interface CoordinatorMessageSource {
@@ -800,10 +799,9 @@ export class SubagentContinuationManager {
     // `AgentRegistry.enter()` is the authoritative collision boundary for an id
     // some other owner holds — a duplicate would reject there with rollback.
     inputs.signal.throwIfAborted()
-    let setupTransaction!: ActivationSetupTransaction
     const setup = (childCtx: Context): void => {
       applyChildComposition(childCtx, inputs.composition)
-      setupTransaction = this.setupRegistry.apply(childCtx)
+      const setupTransaction = this.setupRegistry.apply(childCtx)
       // Validate and freeze the batch inside the creation callback, before the
       // factory can publish the session: a revoked contribution must reject
       // the create/resume call pre-publication, so no persisted session is
