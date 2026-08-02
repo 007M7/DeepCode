@@ -7,7 +7,7 @@
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import { deferRegistration } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
+import { isLoopbackHostname, type ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 // Type-only: pulls the shell's SlotMap merges (trigger/header/section/item).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
@@ -40,14 +40,6 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 /** Dictionary namespace owned by this plugin (shell chrome + General copy). */
 const NS = 'settings'
-
-function isLoopbackHostname(hostname: string): boolean {
-  if (hostname === 'localhost' || hostname === '[::1]') return true
-  const parts = hostname.split('.')
-  return parts.length === 4
-    && parts[0] === '127'
-    && parts.every(part => /^\d{1,3}$/.test(part) && Number(part) <= 255)
-}
 
 function welcomePersistence(): 'host' | 'memory' {
   return typeof location === 'undefined' || isLoopbackHostname(location.hostname) ? 'host' : 'memory'

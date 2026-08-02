@@ -9,6 +9,8 @@ import { ConnectionController, type ConnectionConfig, type ConnectionSinks, type
 import { FixtureApiClient } from './fixture.ts'
 import { WebApiClient } from './web-api-client.ts'
 
+export { isLoopbackHostname } from '../loopback-hostname.ts'
+
 // ---- Contract re-exports (browser-safe apiproxy channels + core types) ----
 export type {
   ApiProxy, SessionsApi, SessionSearchItem, SessionSummary, HostApi, EventsApi, MuxFrame, HostFrame,
