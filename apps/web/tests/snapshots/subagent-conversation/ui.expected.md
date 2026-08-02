@@ -3,8 +3,8 @@
     - button "Ask a research subagent to"
     - text: /
     - button "event-sourcing researcher" [disabled]
-  - button "1 个子代理":
-    - text: 1 个子代理
+  - button "1 subagents":
+    - text: 1 subagents
     - img
   - tablist:
     - tab "Chat" [selected]
