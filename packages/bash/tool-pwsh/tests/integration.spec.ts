@@ -4,7 +4,7 @@
  * process. These verify the world — actual commands run, stdout/stderr come
  * back, exit codes render, timeouts abort, background tasks settle through the
  * generic task runtime, and per-session cwd resolution works. The suite
- * self-skips when no `pwsh` is on PATH (a CI accommodation for hosts without
+ * self-skips when no usable `pwsh` resolves (a CI accommodation for hosts without
  * PowerShell); the fake-executor suite (tools.spec.ts) carries the coverage
  * gate.
  */

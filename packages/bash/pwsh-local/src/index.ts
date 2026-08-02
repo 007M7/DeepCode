@@ -13,14 +13,13 @@
  * @module @deepseek-ai/dsh-pwsh-local
  */
 
-import { existsSync } from 'node:fs'
-import { join } from 'node:path'
 import { Context } from 'cordis'
 import z from 'schemastery'
 import { BashExecutor } from '@deepseek-ai/dsh-bash'
 import type { BashExecRequest, BashExecSpec, BashProcess, BashProcessRead, BashRunResult, CollectedOutput } from '@deepseek-ai/dsh-bash'
 import type { SubprocessCollect, SubprocessHandle, SubprocessOutputReader, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import { clampTimeout, deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
+import { resolvePwshPath } from './resolve.ts'
 
 /* jscpd:ignore-start -- deliberate call-for-call mirror of dsh-bash-local (Agent Note: pwsh-tool-and-executor). */
 /**
@@ -77,53 +76,9 @@ export interface Config {
 /** The shape after schemastery applied the defaults (cwd/pwshPath have none). */
 type ResolvedConfig = Required<Omit<Config, 'cwd' | 'pwshPath'>> & Pick<Config, 'cwd' | 'pwshPath'>
 
-/**
- * Well-known Windows PowerShell install locations plus PATH entries, newest
- * first. Explicitly parameterized (env) so resolution is a pure function of
- * its inputs on every platform.
- * @param env - the environment to probe; defaults to the process environment.
- * @returns candidate `pwsh` executable paths in resolution order.
- */
-export function candidatePwshPaths(env: NodeJS.ProcessEnv = process.env): string[] {
-  const programFiles = env.ProgramFiles ?? 'C:\\Program Files'
-  const systemRoot = env.SystemRoot ?? 'C:\\Windows'
-  const candidates = [
-    join(programFiles, 'PowerShell', '7', 'pwsh.exe'),
-  ]
-  // Microsoft Store installs (and any user-added location) live on PATH;
-  // entries may carry surrounding quotes from `setx`-style definitions.
-  for (const entry of (env.PATH ?? '').split(';')) {
-    const trimmed = entry.trim().replace(/^"|"$/g, '')
-    if (trimmed.length === 0) continue
-    candidates.push(join(trimmed, 'pwsh.exe'))
-  }
-  // Windows PowerShell 5.1 remains the last-resort fallback on legacy hosts.
-  candidates.push(join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'))
-  return candidates
-}
-
-/**
- * Resolve the pwsh executable this executor spawns.
- * @param configured - an explicit `pwshPath` config value, trusted as-is.
- * @param env - the environment to probe on Windows; defaults to the process environment.
- * @param platform - the platform to resolve for; defaults to the process platform.
- * @returns the first existing well-known location on Windows (PowerShell 7
- *   install, a PATH entry such as the Microsoft Store install, then Windows
- *   PowerShell 5.1), else `pwsh` for PATH resolution.
- */
-export function resolvePwshPath(
-  configured?: string,
-  env: NodeJS.ProcessEnv = process.env,
-  platform: NodeJS.Platform = process.platform,
-): string {
-  if (configured !== undefined && configured.length > 0) return configured
-  if (platform === 'win32') {
-    for (const candidate of candidatePwshPaths(env)) {
-      if (existsSync(candidate)) return candidate
-    }
-  }
-  return 'pwsh'
-}
+// Resolution lives in its own dependency-free module so the repository's
+// coverage-gate probe shares the exact definition the suites use.
+export { candidatePwshPaths, resolvePwshPath } from './resolve.ts'
 
 /** Project a settled collect-mode reader into the final CollectedOutput shape. */
 function finalOutput(reader: SubprocessOutputReader): CollectedOutput {

@@ -3,8 +3,8 @@
  * service plus a REAL pwsh executable, exercised through the executor seam
  * (`resolve` → `run`/`start`). These verify the world — actual PowerShell
  * runs, output capture, truncation and spill, deadlines, kill escalation, and
- * the background-handle contract. The suite self-skips when no `pwsh` is on
- * PATH (a CI accommodation for hosts without PowerShell); the pure unit tests
+ * the background-handle contract. The suite self-skips when no usable `pwsh`
+ * resolves (a CI accommodation for hosts without PowerShell); the pure unit tests
  * (config validation, executable resolution) run on every platform. PowerShell
  * writes CRLF on Windows, so exact text assertions normalize line endings.
  */

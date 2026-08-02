@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import tsconfigPaths from 'vite-tsconfig-paths'
+import { resolvePwshPath } from './packages/bash/pwsh-local/src/resolve.ts'
 import { defineConfig } from 'vitest/config'
 import { vitestExecArgv } from './vitest.shared.ts'
 import { COVERAGE_EXEMPT_ENV, coverageExemptHeavySuites } from './scripts/coverage-exempt.ts'
@@ -44,11 +45,10 @@ const windowsCoverageExclusions = process.platform === 'win32'
 // self-skip without a real pwsh (executor.spec.ts hasPwsh), leaving this file
 // far below per-file 100% on pwsh-less hosts; the exemption keeps those hosts
 // green while CI runners ship pwsh and still enforce the full bar. The probe
-// is deliberately PATH-only (narrower than the suites' resolvePwshPath): a
-// win32 host where only install-location pwsh or 5.1 resolves forfeits the
-// exemption while the suites still run, so the gate can only get stricter,
-// never falsely green.
-const pwshCoverageExclusions = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '$true'], { encoding: 'utf8' }).status === 0
+// runs the suites' own resolution (the dependency-free resolve.ts module),
+// so the exemption is active exactly when the suites skip — a mismatched
+// narrower probe could exempt the file on hosts whose suites actually run.
+const pwshCoverageExclusions = spawnSync(resolvePwshPath(), ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '$true'], { encoding: 'utf8' }).status === 0
   ? []
   : ['packages/bash/pwsh-local/src/index.ts']
 
