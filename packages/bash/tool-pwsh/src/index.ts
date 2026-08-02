@@ -276,6 +276,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       return canonicalPwshResult(result)
     },
     /* jscpd:ignore-end */
+    /* jscpd:ignore-start -- the background call card mirrors presentBashCall's by design (Agent Note). */
     presentCall: (args: PwshToolArgs): TerminalCallView | GenericCallView => {
       // Background acknowledgements carry no terminal exit status; the generic
       // card mirrors the bash tool's background presentation.
@@ -295,6 +296,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         ...args.workdir !== undefined ? { cwd: args.workdir } : {},
       }
     },
+    /* jscpd:ignore-end */
     presentResult: (_args: unknown, result: ToolResult): ToolResultView | undefined => {
       const block = result.content.length === 1 ? result.content[0] : undefined
       if (block === undefined || block.type !== 'text') return undefined
