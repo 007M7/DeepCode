@@ -1106,6 +1106,19 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       if (error instanceof SubagentSessionOwnership) {
         return { error: subagentOwnershipError(error.sessionId) }
       }
+      // A concurrent parent `enter()` can win the identity between the
+      // pre-resume published re-check and `ctx.agents.resume` publication;
+      // the ID-collision rejection falls through here. Re-classify that
+      // raced published winner into the stable ownership error, mirroring
+      // ensureSession's `.catch`.
+      const live = ctx.agents.get(sessionId)
+      if (live !== undefined && hasSubagentOwner(live.session, live)) {
+        return { error: subagentOwnershipError(sessionId) }
+      }
+      const attached = ctx.sessions.get(sessionId)
+      if (attached !== undefined && hasSubagentOwner(attached, undefined)) {
+        return { error: subagentOwnershipError(sessionId) }
+      }
       // The internal details slot is contractually {}; the reason rides the message.
       return { error: { code: 'internal', message: `resume failed for session "${sessionId}": ${String(error)}`, details: {} } }
     }
