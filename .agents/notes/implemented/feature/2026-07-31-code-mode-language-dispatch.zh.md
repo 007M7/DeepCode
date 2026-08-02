@@ -17,7 +17,7 @@ Code Mode 只生成一种 SDK 形态：TypeScript。`ToolRegistry` 为 `tools:sd
 - `SDK_RENDERERS`（index.ts）把语言映射到它的 `tools:sdk` 渲染器——`typescript → renderToolsSdk`、`python → renderToolsSdkPy`。`tools:sdk` 段读取所加载运行时的语言并选出渲染器；`requireCodeRuntime` 拒绝其语言不在表中的 `mode: code`/`both` 运行时，并列出已知语言。
 - `RUN_CODE_FLAVORS`（code-mode.ts）把语言映射到它那两条面向模型的 `run_code` 字符串（工具 `description` 与 `code` 参数描述），使一种语言的 SDK 段与它的传输 schema 始终一致。
 
-两张表在使用前都以 `Object.hasOwn` 读取，这样名为 `toString`/`constructor` 的语言不会把继承自 `Object.prototype` 的成员解析成渲染器。两个守卫的可达性不同：`SDK_RENDERERS` 的段内守卫不可达,因为 `requireCodeRuntime` 已在同一回调更早处校验过同一张 `const` 表(它带 `/* v8 ignore */`);而 `RUN_CODE_FLAVORS` 的守卫是主要的、可公开到达的拒绝路径——在语言有渲染器却无 flavor 表项的运行时下读 `ctx.tools.schemas()` 即到达,且有测试覆盖。schema 发射通过 `peekRuntime()` 而非 `requireRuntime()` 读取运行时:`undefined`(无运行时,即永不喂给模型的 doc-catalog schema 采集)降级到 TypeScript flavor,而挂载了未知语言则 fail loud——这不是下方被否决的静默回退,那指的是为真实运行时发出错误语言的 SDK。新增一门后端语言就是两条表项加它的渲染器——不动 `agent-loop`,也不动注册表结构。
+两张表在使用前都以 `Object.hasOwn` 读取，这样名为 `toString`/`constructor` 的语言不会把继承自 `Object.prototype` 的成员解析成渲染器。两个守卫的可达性不同：`SDK_RENDERERS` 的段内守卫不可达，因为 `requireCodeRuntime` 已在同一回调更早处校验过同一张 `const` 表（它带 `/* v8 ignore */`）；而 `RUN_CODE_FLAVORS` 的守卫是主要的、可公开到达的拒绝路径——在语言有渲染器却无 flavor 表项的运行时下读 `ctx.tools.schemas()` 即到达，且有测试覆盖。schema 发射通过 `peekRuntime()` 而非 `requireRuntime()` 读取运行时：`undefined`（无运行时，即永不喂给模型的 doc-catalog schema 采集）降级到 TypeScript flavor，而挂载了未知语言则 fail loud——这不是下方被否决的静默回退，那指的是为真实运行时发出错误语言的 SDK。新增一门后端语言就是两条表项加它的渲染器——不动 `agent-loop`，也不动注册表结构。
 
 `code-mode.ts` 只依赖运行时 seam（`@deepseek-ai/dsh-code-runtime`），绝不依赖具体后端；分发在运行时按 `runtime.language` 进行。因此工具层独立于协议和后端 PR 落地——它只需要 seam 的 `language` 字段，而该字段已在 master 上。
 
@@ -33,4 +33,4 @@ Code Mode 只生成一种 SDK 形态：TypeScript。`ToolRegistry` 为 `tools:sd
 
 ## Consequences
 
-新增一门后端语言就是一条表项加它的渲染器，不动 `agent-loop`，也不动注册表结构。两张表（`SDK_RENDERERS`、`RUN_CODE_FLAVORS`）必须同步：某语言只在其一而不在另一是潜在的不一致，`Object.hasOwn` 守卫会把它变成一次 loud failure，而不是错误语言的 prompt。工具层不依赖任何具体后端，因此它能先于 Python 协议和后端在 master 上落地并可测；代价是在该后端发布前无法真正端到端跑一个 `python` 运行时，故本 PR 的覆盖是 unit 级（渲染器输出与分发/拒绝路径），而非真实的 Python 运行。
+新增一门后端语言就是两条表项——一个 `SDK_RENDERERS` 渲染器加一个 `RUN_CODE_FLAVORS` 表项——再加渲染器本身，不动 `agent-loop`，也不动注册表结构。两张表（`SDK_RENDERERS`、`RUN_CODE_FLAVORS`）必须同步：某语言只在其一而不在另一是潜在的不一致，`Object.hasOwn` 守卫会把它变成一次 loud failure，而不是错误语言的 prompt。工具层不依赖任何具体后端，因此它能先于 Python 协议和后端在 master 上落地并可测；代价是在该后端发布前无法真正端到端跑一个 `python` 运行时，故本 PR 的覆盖是 unit 级（渲染器输出与分发/拒绝路径），而非真实的 Python 运行。

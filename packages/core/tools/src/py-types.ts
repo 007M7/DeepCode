@@ -121,9 +121,20 @@ function camelCase(raw: string): string {
 }
 
 /** Reserve a unique class name, suffixing a counter on collision after CamelCase sanitization. */
+/**
+ * Reserve a unique class name from a base, suffixing `2`, `3`, … on collision.
+ * The base is capped at {@link MAX_CLASS_NAME_BASE} first: child class names
+ * derive from their parent's allocated name (`ParentChild`), so an unbounded
+ * schema of single-field objects would otherwise grow each name by one field
+ * per level and the sum of all names to Θ(depth²). Capping the base keeps each
+ * name — and the total emitted text — linear in depth; the collision counter
+ * still makes truncated bases unique.
+ */
+const MAX_CLASS_NAME_BASE = 120
 function allocateClassName(base: string, state: RenderState): string {
-  let name = base
-  for (let n = 2; state.usedClassNames.has(name); n++) name = `${base}${n}`
+  const capped = base.length > MAX_CLASS_NAME_BASE ? base.slice(0, MAX_CLASS_NAME_BASE) : base
+  let name = capped
+  for (let n = 2; state.usedClassNames.has(name); n++) name = `${capped}${n}`
   state.usedClassNames.add(name)
   return name
 }
@@ -202,6 +213,12 @@ function renderType(schema: unknown, className: string, state: RenderState): str
     ({ schema, className, phase: 'start', children: [], childIndex: 0, childTypes: [], entries: [], validated })
   const frames: Frame[] = [newFrame(schema, className, false)]
   let result: string | undefined
+  // The no-throw contract must hold across the WHOLE walk, not just the root
+  // validation: a hostile stateful getter (a `type` that returns a scalar on
+  // the first read and throws on a later one) reaches the render phase past
+  // validation. Any throw here degrades to `Any`, discarding classes this call
+  // partially emitted so no broken declaration escapes.
+  const classFloor = state.classes.length
   /* jscpd:ignore-start -- the explicit-stack walk skeleton deliberately parallels
      ts-types.ts's renderSupportedSchema; the two sibling renderers keep symmetric shapes. */
   const finish = (type: string): void => {
@@ -211,114 +228,115 @@ function renderType(schema: unknown, className: string, state: RenderState): str
     else parent.childTypes.push(type)
   }
 
-  while (frames.length > 0) {
-    const frame = frames.at(-1)
-    /* v8 ignore next -- the loop condition guarantees a current frame. */
-    if (frame === undefined) break
+  try {
+    while (frames.length > 0) {
+      const frame = frames.at(-1)
+      /* v8 ignore next -- the loop condition guarantees a current frame. */
+      if (frame === undefined) break
 
-    if (frame.phase === 'children') {
-      if (frame.childIndex < frame.children.length) {
-        const child = frame.children[frame.childIndex]
-        /* v8 ignore next -- childIndex is bounded by children.length. */
-        if (child === undefined) throw new Error('missing python render child')
-        frame.childIndex++
-        frames.push(newFrame(child.schema, child.className, true))
-        continue
-      }
-      if (frame.kind === 'oneOf') {
-        finish(frame.childTypes.join(' | '))
-        continue
-      }
-      /* jscpd:ignore-end */
-      if (frame.kind === 'array') {
+      if (frame.phase === 'children') {
+        if (frame.childIndex < frame.children.length) {
+          const child = frame.children[frame.childIndex]
+          /* v8 ignore next -- childIndex is bounded by children.length. */
+          if (child === undefined) throw new Error('missing python render child')
+          frame.childIndex++
+          frames.push(newFrame(child.schema, child.className, true))
+          continue
+        }
+        if (frame.kind === 'oneOf') {
+          finish(frame.childTypes.join(' | '))
+          continue
+        }
+        /* jscpd:ignore-end */
+        if (frame.kind === 'array') {
         // `list[A | B]` needs no parentheses in Python. Array frames always
         // schedule exactly one child, so its type is present.
         /* v8 ignore next -- the ?? arm needs a childless array frame, which start never builds. */
-        finish(`list[${frame.childTypes[0] ?? 'Any'}]`)
+          finish(`list[${frame.childTypes[0] ?? 'Any'}]`)
+          continue
+        }
+        // typeddict: assemble AFTER the children so any nested class this one
+        // references is already declared (declaration order = reference order).
+        const node = frame.node
+        const name = frame.allocated
+        /* v8 ignore next -- typeddict frames always set node and allocated at start. */
+        if (node === undefined || name === undefined) throw new Error('missing typeddict frame state')
+        const required = new Set(Array.isArray(node.required) ? node.required.filter((n): n is string => typeof n === 'string') : [])
+        const lines = [`class ${name}(TypedDict):`]
+        for (let index = 0; index < frame.entries.length; index++) {
+          const entry = frame.entries[index]
+          const fieldType = frame.childTypes[index]
+          /* v8 ignore next -- entries and childTypes correspond one-to-one. */
+          if (entry === undefined || fieldType === undefined) throw new Error('missing typeddict field type')
+          const [field, fieldSchema] = entry
+          // The parent node passed assertSupportedJsonSchema, so every property
+          // value is a validated schema node (an object).
+          const description = describe(fieldSchema as object)
+          if (description !== undefined) lines.push(`${pad(1)}# ${description}`)
+          if (required.has(field)) {
+            lines.push(`${pad(1)}${field}: ${fieldType}`)
+          } else {
+            state.typing.add('NotRequired')
+            lines.push(`${pad(1)}${field}: NotRequired[${fieldType}]`)
+          }
+        }
+        // TypedDict syntax cannot express openness, so an open object states it
+        // in-band: the annotation is advisory either way, and Code Mode omits
+        // the native schemas, making this line the model's only signal that
+        // extra keys are accepted.
+        if (node.additionalProperties !== false) {
+          lines.push(`${pad(1)}# Additional keys beyond those declared are allowed.`)
+        }
+        // A closed empty object still needs a class body (`pass`) to be valid
+        // Python; the declared emptiness is the information.
+        if (lines.length === 1) lines.push(`${pad(1)}pass`)
+        state.classes.push(lines.join('\n'))
+        finish(name)
         continue
       }
-      // typeddict: assemble AFTER the children so any nested class this one
-      // references is already declared (declaration order = reference order).
-      const node = frame.node
-      const name = frame.allocated
-      /* v8 ignore next -- typeddict frames always set node and allocated at start. */
-      if (node === undefined || name === undefined) throw new Error('missing typeddict frame state')
-      const required = new Set(Array.isArray(node.required) ? node.required.filter((n): n is string => typeof n === 'string') : [])
-      const lines = [`class ${name}(TypedDict):`]
-      for (let index = 0; index < frame.entries.length; index++) {
-        const entry = frame.entries[index]
-        const fieldType = frame.childTypes[index]
-        /* v8 ignore next -- entries and childTypes correspond one-to-one. */
-        if (entry === undefined || fieldType === undefined) throw new Error('missing typeddict field type')
-        const [field, fieldSchema] = entry
-        // The parent node passed assertSupportedJsonSchema, so every property
-        // value is a validated schema node (an object).
-        const description = describe(fieldSchema as object)
-        if (description !== undefined) lines.push(`${pad(1)}# ${description}`)
-        if (required.has(field)) {
-          lines.push(`${pad(1)}${field}: ${fieldType}`)
-        } else {
-          state.typing.add('NotRequired')
-          lines.push(`${pad(1)}${field}: NotRequired[${fieldType}]`)
+
+      frame.phase = 'children'
+      // Validate the WHOLE tree once at the root frame (the assertion walks it
+      // with an explicit stack); child frames are inside that validated tree, so
+      // re-asserting them would make a deep schema quadratic.
+      if (!frame.validated) {
+        try {
+          assertSupportedJsonSchema(frame.schema)
+        } catch {
+          state.typing.add('Any')
+          finish('Any')
+          continue
         }
       }
-      // TypedDict syntax cannot express openness, so an open object states it
-      // in-band: the annotation is advisory either way, and Code Mode omits
-      // the native schemas, making this line the model's only signal that
-      // extra keys are accepted.
-      if (node.additionalProperties !== false) {
-        lines.push(`${pad(1)}# Additional keys beyond those declared are allowed.`)
+      const node = frame.schema as Record<string, unknown>
+      if (Object.hasOwn(node, 'oneOf')) {
+        frame.kind = 'oneOf'
+        frame.children = (node.oneOf as unknown[]).map((branch, index) => ({ schema: branch, className: `${frame.className}${index + 1}` }))
+        continue
       }
-      // A closed empty object still needs a class body (`pass`) to be valid
-      // Python; the declared emptiness is the information.
-      if (lines.length === 1) lines.push(`${pad(1)}pass`)
-      state.classes.push(lines.join('\n'))
-      finish(name)
-      continue
-    }
-
-    frame.phase = 'children'
-    // Validate the WHOLE tree once at the root frame (the assertion walks it
-    // with an explicit stack); child frames are inside that validated tree, so
-    // re-asserting them would make a deep schema quadratic.
-    if (!frame.validated) {
-      try {
-        assertSupportedJsonSchema(frame.schema)
-      } catch {
+      if (!Object.hasOwn(node, 'type')) {
         state.typing.add('Any')
         finish('Any')
         continue
       }
-    }
-    const node = frame.schema as Record<string, unknown>
-    if (Object.hasOwn(node, 'oneOf')) {
-      frame.kind = 'oneOf'
-      frame.children = (node.oneOf as unknown[]).map((branch, index) => ({ schema: branch, className: `${frame.className}${index + 1}` }))
-      continue
-    }
-    if (!Object.hasOwn(node, 'type')) {
-      state.typing.add('Any')
-      finish('Any')
-      continue
-    }
-    switch (node.type) {
-      case 'string': finish(renderConstrainedScalar(node, 'str', state)); break
-      case 'number': finish(renderConstrainedScalar(node, 'float', state)); break
-      case 'integer': finish(renderConstrainedScalar(node, 'int', state)); break
-      case 'boolean': finish(renderConstrainedScalar(node, 'bool', state)); break
-      case 'null': finish('None'); break
-      case 'array': {
-        if (!Object.hasOwn(node, 'items')) {
-          state.typing.add('Any')
-          finish('list[Any]')
+      switch (node.type) {
+        case 'string': finish(renderConstrainedScalar(node, 'str', state)); break
+        case 'number': finish(renderConstrainedScalar(node, 'float', state)); break
+        case 'integer': finish(renderConstrainedScalar(node, 'int', state)); break
+        case 'boolean': finish(renderConstrainedScalar(node, 'bool', state)); break
+        case 'null': finish('None'); break
+        case 'array': {
+          if (!Object.hasOwn(node, 'items')) {
+            state.typing.add('Any')
+            finish('list[Any]')
+            break
+          }
+          // An array of objects names its item type after the array field.
+          frame.kind = 'array'
+          frame.children = [{ schema: node.items, className: frame.className }]
           break
         }
-        // An array of objects names its item type after the array field.
-        frame.kind = 'array'
-        frame.children = [{ schema: node.items, className: frame.className }]
-        break
-      }
-      case 'object': {
+        case 'object': {
         // A missing `properties` is an empty property map, exactly as the
         // unified validator and the TS renderer read it — NOT an unknown
         // shape. assertSupportedJsonSchema already rejected a non-object
@@ -326,43 +344,50 @@ function renderType(schema: unknown, className: string, state: RenderState): str
         // left is omission. The openness of the resulting empty object is
         // decided below, so a closed empty object still declares an empty
         // TypedDict rather than a permissive `dict[str, Any]`.
-        const entries = Object.entries((node.properties ?? {}) as Record<string, unknown>)
-        // An empty `className` marks the context-free `jsonSchemaToPy` entry:
-        // there is no naming context to declare into, so degrade. A field
-        // name that is not a legal Python attribute is inexpressible as a
-        // class-syntax `TypedDict` field, so such an object degrades whole.
-        // A leading-double-underscore non-dunder field (`__token`) would be
-        // NAME-MANGLED inside class syntax (`_ClassName__token`), describing a
-        // different JSON key than the registered schema — degrade like any
-        // other inexpressible field name.
-        if (className === '' || !entries.every(([name]) => IDENTIFIER.test(name) && !RESERVED.has(name) && !(name.startsWith('__') && !name.endsWith('__')))) {
-          state.typing.add('Any')
-          finish('dict[str, Any]')
+          const entries = Object.entries((node.properties ?? {}) as Record<string, unknown>)
+          // An empty `className` marks the context-free `jsonSchemaToPy` entry:
+          // there is no naming context to declare into, so degrade. A field
+          // name that is not a legal Python attribute is inexpressible as a
+          // class-syntax `TypedDict` field, so such an object degrades whole.
+          // A leading-double-underscore non-dunder field (`__token`) would be
+          // NAME-MANGLED inside class syntax (`_ClassName__token`), describing a
+          // different JSON key than the registered schema — degrade like any
+          // other inexpressible field name.
+          if (className === '' || !entries.every(([name]) => IDENTIFIER.test(name) && !RESERVED.has(name) && !(name.startsWith('__') && !name.endsWith('__')))) {
+            state.typing.add('Any')
+            finish('dict[str, Any]')
+            break
+          }
+          // An OPEN empty object is any dict; a CLOSED empty object declares an
+          // empty TypedDict so "no keys accepted" survives into the SDK.
+          if (entries.length === 0 && node.additionalProperties !== false) {
+            state.typing.add('Any')
+            finish('dict[str, Any]')
+            break
+          }
+          frame.kind = 'typeddict'
+          frame.node = node
+          frame.allocated = allocateClassName(frame.className, state)
+          state.typing.add('TypedDict')
+          frame.entries = entries
+          // frame.allocated was assigned two statements up; the ?? arm is for the type system only.
+          /* v8 ignore next -- allocated is always set before children are built. */
+          frame.children = entries.map(([field, child]) => ({ schema: child, className: `${frame.allocated ?? ''}${camelCase(field)}` }))
           break
         }
-        // An OPEN empty object is any dict; a CLOSED empty object declares an
-        // empty TypedDict so "no keys accepted" survives into the SDK.
-        if (entries.length === 0 && node.additionalProperties !== false) {
+        /* v8 ignore next 4 -- assertSupportedJsonSchema narrowed this closed type union. */
+        default: {
           state.typing.add('Any')
-          finish('dict[str, Any]')
-          break
+          finish('Any')
         }
-        frame.kind = 'typeddict'
-        frame.node = node
-        frame.allocated = allocateClassName(frame.className, state)
-        state.typing.add('TypedDict')
-        frame.entries = entries
-        // frame.allocated was assigned two statements up; the ?? arm is for the type system only.
-        /* v8 ignore next -- allocated is always set before children are built. */
-        frame.children = entries.map(([field, child]) => ({ schema: child, className: `${frame.allocated ?? ''}${camelCase(field)}` }))
-        break
-      }
-      /* v8 ignore next 4 -- assertSupportedJsonSchema narrowed this closed type union. */
-      default: {
-        state.typing.add('Any')
-        finish('Any')
       }
     }
+  } catch {
+    // A render-phase throw (a stateful getter that passed validation) degrades
+    // the whole node to `Any`; drop any classes this call had begun emitting.
+    state.classes.length = classFloor
+    state.typing.add('Any')
+    return 'Any'
   }
   /* v8 ignore next -- every root frame produces one expression. */
   return result ?? 'Any'

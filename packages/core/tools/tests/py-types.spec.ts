@@ -51,6 +51,68 @@ describe('jsonSchemaToPy', () => {
     expect(jsonSchemaToPy({ type: 'string', enum: [] })).toBe('Any')
   })
 
+  it('degrades to Any when a stateful getter throws in the render phase after passing validation', () => {
+    // A hostile `type` getter returns a scalar on the validation read, then
+    // throws on the render read. The no-throw contract must still hold across
+    // the whole walk, degrading the node to Any rather than escaping.
+    let reads = 0
+    const schema = {
+      get type() {
+        reads += 1
+        if (reads <= 1) return 'string'
+        throw new Error('stateful getter')
+      },
+    }
+    expect(() => jsonSchemaToPy(schema)).not.toThrow()
+    expect(jsonSchemaToPy(schema)).toBe('Any')
+  })
+
+  it('rolls back partial class declarations when a nested render-phase throw degrades a tool', () => {
+    // The throwing field must not leave a half-emitted TypedDict in the output.
+    let reads = 0
+    const hostileField = {
+      get type() {
+        reads += 1
+        if (reads <= 1) return 'string'
+        throw new Error('stateful getter')
+      },
+    }
+    const tool: ToolSdkSchema = {
+      name: 'hostile',
+      description: 'Has a field whose getter throws on the render read.',
+      parameters: { type: 'object', additionalProperties: false, properties: { bad: hostileField as never }, required: ['bad'] },
+      output: { type: 'string' },
+    }
+    const text = renderToolsSdkPy([tool])
+    // The whole args render degrades to Any (a render-phase throw unwinds the
+    // entire renderType call); no partial TypedDict for it is declared.
+    expect(text).toContain('async def hostile(self, args: Any) -> str: ...')
+    expect(text).not.toContain('class HostileArgs(TypedDict):')
+  })
+
+  it('keeps class names and total output linear for a deep single-field object chain', () => {
+    // Child class names derive from their parent's; without a cap the sum of
+    // names is Theta(depth^2). Bound it so a deep schema stays linear.
+    const depth = 4000
+    let schema: Record<string, unknown> = { type: 'string' }
+    for (let i = 0; i < depth; i++) {
+      schema = { type: 'object', additionalProperties: false, properties: { inner: schema }, required: ['inner'] }
+    }
+    const tool: ToolSdkSchema = {
+      name: 'deep',
+      description: 'Deeply nested single-field chain.',
+      parameters: schema,
+      output: { type: 'string' },
+    }
+    const text = renderToolsSdkPy([tool])
+    // No emitted class name exceeds the cap plus a short collision suffix, so
+    // total text is O(depth) rather than O(depth^2) (a quadratic 4000-deep
+    // chain would be tens of MB).
+    const longestClassName = [...text.matchAll(/^class (\w+)\(TypedDict\):/gm)].reduce((max, m) => Math.max(max, m[1]?.length ?? 0), 0)
+    expect(longestClassName).toBeLessThanOrEqual(140)
+    expect(text.length).toBeLessThan(depth * 400)
+  })
+
   it('emits exact digits for a beyond-safe-range integer literal', () => {
     // Python integers are arbitrary-precision, so the emitted digits ARE the
     // value the model programs against. `String(2 ** 60)` prints the rounded
