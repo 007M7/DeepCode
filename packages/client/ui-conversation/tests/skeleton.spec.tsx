@@ -68,7 +68,7 @@ const workspaceState = (items: readonly WorkspaceView[]): WorkspaceListState => 
 
 function conversationSnapshot(overrides: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
   return {
-    sessionId: SID, nodes: [], partial: null, runningCalls: [], codeDispatches: new Map(),
+    sessionId: SID, nodes: [], turnEnds: new Map(), partial: null, runningCalls: [], codeDispatches: new Map(),
     pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
     openState: 'open', openError: null, hasMore: false, loadingOlder: false,
     promptError: null, blank: false, subagent: null, lastAgentError: null,

@@ -4,9 +4,10 @@
 // view groups them into tool rows through its keyed toolview slot (figma
 // step-summary flow). Shared by finalized nodes and the streaming partial;
 // the turn-level loading dots live in the chat view's tail, not here.
-// Finalized turn-tail content (text) nodes append IconActions once streaming
-// ends (`time` is omitted for mid-turn narration); Think / tool-head-only
-// nodes stay chrome-free.
+// Finalized content (text) nodes append IconActions once streaming ends
+// (`time` is omitted for mid-turn narration); their branch action is present
+// only when the node is also the completed turn's transcript tail. Think /
+// tool-head-only nodes stay chrome-free.
 
 import { memo, useMemo } from 'react'
 import type { AssistantBlock } from '@deepseek-ai/dsh-client-runtime/client'
@@ -28,7 +29,7 @@ export interface AssistantMarkdownProps {
   time?: number | undefined
   /** Event sequence used as the fork boundary; omitted while streaming. */
   seq?: number | undefined
-  /** Fork the session through the turn containing this finalized message. */
+  /** Fork the session through this finalized message's completed turn. */
   onFork?: ((seq: number) => void) | undefined
   /** The owning view's locale seat, passed down as a plain prop. */
   t: ChatViewSlotProps['t']

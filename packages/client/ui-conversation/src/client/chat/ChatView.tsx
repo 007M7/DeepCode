@@ -30,7 +30,7 @@ import type {
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
-import { assistantActionsSeqs, deriveChatFlow, type ChatFlowItem } from './chat-flow.ts'
+import { assistantActionsSeqs, deriveChatFlow, messageBranchSeqs, type ChatFlowItem } from './chat-flow.ts'
 import { AssistantMarkdown } from './AssistantMarkdown.tsx'
 import { GenericCommandCard } from './GenericCommandCard.tsx'
 import { GenericToolCard } from './GenericToolCard.tsx'
@@ -236,6 +236,7 @@ export function ChatView({
   useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, inspectCall, chatScroll, forkAt, t,
 }: ChatViewSlotProps) {
   const nodes = useSession(s => s.nodes)
+  const turnEnds = useSession(s => s.turnEnds)
   // Workspace root off the session list row: path summaries display relative to it.
   const cwd = useSessions(s => s.byId[sessionId]?.cwd)
   const running = useSession(s => s.running)
@@ -252,6 +253,7 @@ export function ChatView({
   // Only the last content assistant of each turn owns IconActions; mid-turn
   // text (before tools) omits `time` so AssistantMarkdown stays chrome-free.
   const actionSeqs = useMemo(() => assistantActionsSeqs(nodes), [nodes])
+  const branchSeqs = useMemo(() => messageBranchSeqs(nodes, turnEnds), [nodes, turnEnds])
 
   const listRef = useRef<HTMLDivElement | null>(null)
   const atBottomRef = useRef(true)
@@ -401,7 +403,7 @@ export function ChatView({
           interrupted={node.interrupted}
           time={actionSeqs.has(node.seq) ? node.time : undefined}
           seq={node.seq}
-          onFork={forkAt}
+          onFork={branchSeqs.has(node.seq) ? forkAt : undefined}
           t={t}
         />
       )
@@ -416,7 +418,7 @@ export function ChatView({
         key={item.key}
         node={node}
         retryActive={node.kind === 'model-retry' && node.seq === activeRetry}
-        onFork={forkAt}
+        {...branchSeqs.has(node.seq) ? { onFork: forkAt } : {}}
         t={t}
       />
     )

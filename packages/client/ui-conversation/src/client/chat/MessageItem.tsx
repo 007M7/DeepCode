@@ -26,7 +26,7 @@ export interface MessageItemProps {
     | TurnErrorNode
     | UnknownSurfaceNode
   retryActive?: boolean
-  /** Fork the session through the turn containing this message (user-bubble branch action). */
+  /** Fork through this message's completed turn when it is the transcript tail. */
   onFork?: (seq: number) => void
   /** The owning view's locale seat, passed down as a plain prop. */
   t: ChatViewSlotProps['t']

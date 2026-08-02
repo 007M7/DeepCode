@@ -36,12 +36,14 @@ describe('MessageItem arms', () => {
     // Same-day clock: construct "today at 14:24" so the label stays `HH:mm`.
     const now = new Date()
     const time = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 14, 24).getTime()
+    const onFork = vi.fn()
     render(
       <MessageItem t={t} node={{
         kind: 'user', seq: 1, time,
         content: [{ type: 'text', text: 'hello bubble' }] as never,
         source: null,
       }}
+      onFork={onFork}
       />,
     )
     expect(screen.getByText('14:24')).toBeTruthy()
@@ -50,6 +52,8 @@ describe('MessageItem arms', () => {
     expect(screen.queryByRole('button', { name: '编辑' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '复制' }))
     expect(writeText).toHaveBeenCalledWith('hello bubble')
+    fireEvent.click(screen.getByRole('button', { name: '在新对话中分支' }))
+    expect(onFork).toHaveBeenCalledWith(1)
   })
 
   it('user copy falls back to execCommand when clipboard.writeText is unavailable', () => {
@@ -410,12 +414,15 @@ describe('small branch tails', () => {
     })
     const now = new Date()
     const time = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 14, 24).getTime()
+    const onFork = vi.fn()
     const settled = render(
       <AssistantMarkdown
         t={t}
         blocks={[{ kind: 'text', text: 'answer body' }, { kind: 'reasoning', text: 'hidden' }]}
         streaming={false}
         time={time}
+        seq={3}
+        onFork={onFork}
       />,
     )
     expect(settled.getByText('14:24')).toBeTruthy()
@@ -423,6 +430,8 @@ describe('small branch tails', () => {
     expect(settled.getByRole('button', { name: '在新对话中分支' })).toBeTruthy()
     fireEvent.click(settled.getByRole('button', { name: '复制' }))
     expect(writeText).toHaveBeenCalledWith('answer body')
+    fireEvent.click(settled.getByRole('button', { name: '在新对话中分支' }))
+    expect(onFork).toHaveBeenCalledWith(3)
     settled.unmount()
 
     const thinkOnly = render(

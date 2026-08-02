@@ -17,7 +17,7 @@ export interface MessageIconActionsProps {
   time: number
   /** Clock before icons (user) or after (assistant). */
   clock: 'start' | 'end'
-  /** Fork the session at this message. */
+  /** Fork the session at this message; omission hides the branch action. */
   onBranch?: (() => void) | undefined
   /** Parent layout class composed onto the actions row. */
   className?: string | undefined
@@ -50,11 +50,13 @@ export function MessageIconActions({
           <IconCopyOutline16 />
         </button>
       </Tooltip>
-      <Tooltip label={t('message.branch')} side="bottom">
-        <button type="button" className={css.action} aria-label={t('message.branch')} onClick={onBranch}>
-          <IconBranchOutline16 />
-        </button>
-      </Tooltip>
+      {onBranch !== undefined && (
+        <Tooltip label={t('message.branch')} side="bottom">
+          <button type="button" className={css.action} aria-label={t('message.branch')} onClick={onBranch}>
+            <IconBranchOutline16 />
+          </button>
+        </Tooltip>
+      )}
       {clock === 'end' ? clockEl : null}
     </div>
   )
