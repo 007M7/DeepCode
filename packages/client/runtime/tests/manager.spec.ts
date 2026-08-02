@@ -620,7 +620,7 @@ describe('subagent catalogs', () => {
     await trailing.promise
 
     const rootCalls = api.callsOf('subagent.list')
-      .filter((call: { parentSessionId: SessionId }) => call.parentSessionId === root)
+      .filter(call => (call as { parentSessionId: SessionId }).parentSessionId === root)
     expect(rootCalls).toHaveLength(3)
     expect(manager.getListSnapshot().subagentsByParent[root]?.parentAvailable).toBe(false)
     expect(manager.get(S2).getSnapshot().subagent).toMatchObject({ parentAvailable: false })
