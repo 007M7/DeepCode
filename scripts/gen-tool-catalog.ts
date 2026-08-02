@@ -19,6 +19,7 @@ import GoalService from '@deepseek-ai/dsh-goal'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
 import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
+import * as BashEnvPlugin from '@deepseek-ai/dsh-bash-env'
 import { PwshLocalExecutor } from '@deepseek-ai/dsh-pwsh-local'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
@@ -196,6 +197,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
     writes: ['tool/call', 'tool/result'],
     async mount(ctx) {
       await ctx.plugin(LocalSubprocessService)
+      await ctx.plugin(BashEnvPlugin)
       await ctx.plugin(LocalBashExecutor)
       await ctx.plugin(ToolBash)
     },
@@ -213,6 +215,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       // mounts the pwsh-local implementation so the inject resolves without
       // executing anything (registration never spawns a process).
       await ctx.plugin(LocalSubprocessService)
+      await ctx.plugin(BashEnvPlugin)
       await ctx.plugin(PwshLocalExecutor)
       await ctx.plugin(ToolPwsh)
     },
