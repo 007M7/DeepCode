@@ -1066,12 +1066,20 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   }
 
   async function agentFor(sessionId: SessionId): Promise<{ agent: Agent } | { error: RpcError }> {
-    const attached = ctx.sessions.get(sessionId)
     const live = ctx.agents.get(sessionId)
-    if (attached !== undefined && hasSubagentOwner(attached, live)) {
+    if (live !== undefined) {
+      // Fence the live agent's own session rather than trusting a
+      // "registered ⇒ attached-store" invariant: a registered subagent whose
+      // session is ever absent from the attached store must still not be
+      // handed out through generic Host routing (ensureSession's `.catch`
+      // already fences `live.session`; this is the same check on the fast path).
+      if (hasSubagentOwner(live.session, live)) return { error: subagentOwnershipError(sessionId) }
+      return { agent: live }
+    }
+    const attached = ctx.sessions.get(sessionId)
+    if (attached !== undefined && hasSubagentOwner(attached, undefined)) {
       return { error: subagentOwnershipError(sessionId) }
     }
-    if (live !== undefined) return { agent: live }
     let resume = resumes.get(sessionId)
     if (resume === undefined) {
       resume = (async () => {
