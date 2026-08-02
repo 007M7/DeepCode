@@ -387,6 +387,33 @@ describe('session/queue frames', () => {
     expect(replayFrames.filter(frame => frame.type === 'session/queue')).toEqual(liveFrames)
   })
 
+  it('expires unmatched mutations after the synchronous re-entry window', async () => {
+    const ctx = await harness()
+    const agent = stubAgent(ctx)
+    const api = createApiProxy(ctx, DEFAULTS)
+    const original = inboxItem('i-stale-edit', inboxMessage('m-stale-edit', 'original'), 'queued')
+    const staleEdit = inboxItem('i-stale-edit', inboxMessage('m-stale-edit', 'stale edit'), 'queued')
+    const staleTerminal = inboxItem('i-stale-terminal', inboxMessage('m-stale-terminal', 'keep me'), 'queued')
+
+    ctx.emit('agent/inbox/update', agent, staleEdit)
+    ctx.emit('agent/inbox/discard', agent, [staleTerminal])
+    await Promise.resolve()
+    ctx.emit('agent/inbox/enqueue', agent, original)
+    ctx.emit('agent/inbox/enqueue', agent, staleTerminal)
+
+    const replay = new AbortController()
+    const frames = await collect<MuxFrame>(
+      api.events.mux({ rpcId: RpcId('t-mux-expired-unseen'), payload: {} }, replay.signal), 2, replay)
+    expect(frames.filter(frame => frame.type === 'session/queue')).toEqual([{
+      type: 'session/queue',
+      sessionId: agent.id,
+      items: [
+        { id: original.id, placement: original.placement, message: original.message },
+        { id: staleTerminal.id, placement: staleTerminal.placement, message: staleTerminal.message },
+      ],
+    }])
+  })
+
   it('publishes complete live snapshots and replays the latest snapshot on reconnect', async () => {
     const ctx = await harness()
     const api = createApiProxy(ctx, DEFAULTS)
