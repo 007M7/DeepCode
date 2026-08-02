@@ -1017,9 +1017,9 @@ describe('tool-owned UI presentation (presentCall / presentResult)', () => {
     // not renderResult output, so a generic fenced card, no terminal output/exit.
     const out = ctx.tools.get('bash')!.presentResult!(
       { command: 'x', description: 'x' },
-      { content: [{ type: 'text', text: 'command aborted' }], isError: true },
+      { content: [{ type: 'text', text: 'tool call aborted' }], isError: true },
     )
-    expect(out).toEqual({ card: 'generic', content: [{ type: 'text', text: '```console\ncommand aborted\n```' }] })
+    expect(out).toEqual({ card: 'generic', content: [{ type: 'text', text: '```console\ntool call aborted\n```' }] })
   })
 
   it('bash presentResult: leaves a non-text (unexpected) result untouched → undefined (UI keeps raw content)', async () => {

@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path'
 import { homedir } from 'node:os'
 import { expect, it } from 'vitest'
 import { defineAcpSnapshotSuite, type Scenario, type SnapshotSuiteOptions } from '@deepseek-ai/dsh-acp-snapshot'
+import { resolvePwshPath } from '@deepseek-ai/dsh-pwsh-local'
 import { decodeStorageRecord } from '@deepseek-ai/dsh-session'
 
 /**
@@ -170,7 +171,9 @@ const SCENARIOS: Scenario[] = [
     headerClass: 'pwsh',
     configPath: PWSH_CONFIG,
     // The composition boots the real pwsh executor; hosts without a `pwsh`
-    // binary skip the run (fixtures stay guarded).
+    // binary skip the run (fixtures stay guarded). The recorded turn writes
+    // PWSH_OK via [Console]::Out.Write so the fixture carries no platform
+    // newline and one recording replays on every host.
     pwshOnly: true,
   },
   { name: 'todo-write', hasModelTurn: true, recorded: true },
@@ -435,9 +438,10 @@ const SCENARIOS: Scenario[] = [
   },
 ]
 
-// Hosts without a `pwsh` binary skip the pwsh-tool-turn run (its fixtures
-// stay guarded); a bare `pwsh` probe keeps this suite dependency-light.
-const hasPwsh = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '$true'], { encoding: 'utf8' }).status === 0
+// Hosts without a usable PowerShell skip the pwsh-tool-turn run (its fixtures
+// stay guarded); the probe follows the executor's own resolution so a Windows
+// host with only an install-location pwsh still runs the scenario.
+const hasPwsh = spawnSync(resolvePwshPath(), ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '$true'], { encoding: 'utf8' }).status === 0
 
 defineAcpSnapshotSuite({
   agent: AGENT,
