@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process'
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { defineConfig } from 'vitest/config'
 import { vitestExecArgv } from './vitest.shared.ts'
@@ -38,6 +39,18 @@ const windowsCoverageExclusions = process.platform === 'win32'
       'packages/ui/tui/src/index.ts',
     ]
   : []
+
+// Mirrors windowsCoverageExclusions: pwsh-local's run/start/lifecycle suites
+// self-skip without a real pwsh (executor.spec.ts hasPwsh), leaving this file
+// far below per-file 100% on pwsh-less hosts; the exemption keeps those hosts
+// green while CI runners ship pwsh and still enforce the full bar. The probe
+// is deliberately PATH-only (narrower than the suites' resolvePwshPath): a
+// win32 host where only install-location pwsh or 5.1 resolves forfeits the
+// exemption while the suites still run, so the gate can only get stricter,
+// never falsely green.
+const pwshCoverageExclusions = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '$true'], { encoding: 'utf8' }).status === 0
+  ? []
+  : ['packages/bash/pwsh-local/src/index.ts']
 
 const testIncludes = [
   'packages/*/*/tests/**/*.spec.{ts,tsx}',
@@ -203,6 +216,7 @@ export default defineConfig({
         'packages/ui/tui/src/index.ts',
         ...windowsUnsupportedPackages.map(path => `${path}/src/**/*.ts`),
         ...windowsCoverageExclusions,
+        ...pwshCoverageExclusions,
       ],
       // 100% or it doesn't merge (docs/testing.md: excessive tests are welcome).
       // Per-file so a well-covered big file can't subsidize a bare one.
