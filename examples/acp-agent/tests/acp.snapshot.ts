@@ -436,7 +436,7 @@ const SCENARIOS: Scenario[] = [
 ]
 
 // Hosts without a `pwsh` binary skip the pwsh-tool-turn run (its fixtures
-// stay guarded); the probe follows the executor's own resolution.
+// stay guarded); a bare `pwsh` probe keeps this suite dependency-light.
 const hasPwsh = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '$true'], { encoding: 'utf8' }).status === 0
 
 defineAcpSnapshotSuite({
