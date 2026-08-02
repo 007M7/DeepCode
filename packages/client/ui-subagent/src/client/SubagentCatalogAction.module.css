@@ -173,15 +173,17 @@
 }
 
 .summary,
-.time {
+.metrics {
   color: var(--dsw-alias-label-tertiary);
   font-size: 11px;
   line-height: 16px;
 }
 
-.time {
+.metrics {
   flex: none;
   margin-top: 16px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .children {

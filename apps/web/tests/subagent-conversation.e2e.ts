@@ -149,6 +149,7 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
         data: { turn: 1, reason: { kind: 'completed' } },
       },
     ] as SessionEvent[])
+    await scaffold.ctx.sessionProjectionCache.coldSnapshot(oneShotId)
     grandchildId = sessionId('recorded-grandchild')
     const authoredAt = Date.now()
     await scaffold.ctx.sessionPersistence.create({
@@ -192,6 +193,7 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
         data: { turn: 1, reason: { kind: 'completed' } },
       },
     ] as SessionEvent[])
+    await scaffold.ctx.sessionProjectionCache.coldSnapshot(grandchildId)
     expect(scaffold.ctx.agents.get(childId)).toBeUndefined()
     expect(scaffold.ctx.agents.get(oneShotId)).toBeUndefined()
     expect(scaffold.ctx.agents.get(grandchildId)).toBeUndefined()
@@ -246,6 +248,10 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
       name: `展开 ${ONE_SHOT_LABEL} 的下级子代理`,
     }).count()).toBe(0)
     await page.getByRole('button', { name: `展开 ${LABEL} 的下级子代理` }).click()
+    const childRow = page.getByRole('treeitem', { name: new RegExp(LABEL) })
+    const childLabel = await childRow.getAttribute('aria-label')
+    await page.waitForTimeout(1_100)
+    expect(await childRow.getAttribute('aria-label')).toBe(childLabel)
     await page.getByRole('treeitem', { name: new RegExp(NESTED_LABEL) }).waitFor({ timeout: 15_000 })
     expect(scaffold.ctx.agents.get(childId)).toBeUndefined()
     expect(scaffold.ctx.agents.get(grandchildId)).toBeUndefined()

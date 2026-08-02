@@ -2,13 +2,16 @@ import {
   useEffect, useRef, useState, type KeyboardEvent, type MouseEvent,
 } from 'react'
 import type {
-  SessionId, SessionListState, SessionSummary, SubagentAddress, SubagentCatalogSnapshot,
+  SessionId, SessionListState, SessionProjectionMap, SessionSummary, SubagentAddress,
+  SubagentCatalogSnapshot,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import {
   IconChevronDownOutline14, IconChevronRightOutline14, IconRefreshOutline14, StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type {} from '@deepseek-ai/dsh-subagent/client'
+import type {} from '@deepseek-ai/dsh-token-meter/client'
 import css from './SubagentCatalogAction.module.css'
 
 type CatalogEntry = SubagentCatalogSnapshot['entries'][number]
@@ -53,19 +56,53 @@ function treeItems(root: HTMLDivElement | null): HTMLElement[] {
     : Array.from(root.querySelectorAll<HTMLElement>('[role="treeitem"]:not([aria-disabled="true"])'))
 }
 
-/** Compact trailing activity time for a catalog row. */
-function relativeTime(updatedAt: number | undefined, now: number): string | undefined {
-  if (updatedAt === undefined) return undefined
-  const minute = 60_000
-  const hour = 60 * minute
-  const day = 24 * hour
-  const diff = Math.max(0, now - updatedAt)
-  if (diff < minute) return '刚刚'
-  if (diff < hour) return `${Math.floor(diff / minute)}分钟`
-  if (diff < day) return `${Math.floor(diff / hour)}小时`
-  if (diff < 30 * day) return `${Math.floor(diff / day)}天`
-  if (diff < 365 * day) return `${Math.floor(diff / (30 * day))}个月`
-  return `${Math.floor(diff / (365 * day))}年`
+/** Compact token count shared in shape with the conversation stats strip. */
+function formatTokens(value: number): string {
+  const scaled = (next: number): string => next >= 100
+    ? String(Math.round(next))
+    : String(Math.round(next * 10) / 10)
+  if (value < 1_000) return String(value)
+  if (value < 1_000_000) return `${scaled(value / 1_000)}K`
+  return `${scaled(value / 1_000_000)}M`
+}
+
+/** Sum the four disjoint durable provider-usage buckets. */
+function tokenTotal(
+  usage: SessionProjectionMap['tokenUsage'] | undefined,
+): number | undefined {
+  return usage === undefined
+    ? undefined
+    : usage.uncachedInputTokens + usage.outputTokens
+      + usage.cacheReadTokens + usage.cacheWriteTokens
+}
+
+/** Exact whole-second active-turn duration for one catalog row. */
+function activityDuration(
+  timing: SessionProjectionMap['subagentTiming'] | undefined,
+  activity: 'running' | 'inactive',
+  updatedAt: number | undefined,
+  now: number,
+): number | undefined {
+  if (timing === undefined) return undefined
+  if (timing.activeSince === undefined) return timing.settledMs
+  const end = activity === 'running' ? now : updatedAt ?? timing.activeSince
+  return timing.settledMs + Math.max(0, end - timing.activeSince)
+}
+
+/** Format a non-negative duration to seconds without dropping larger units. */
+function formatDuration(ms: number): string {
+  const totalSeconds = Math.floor(Math.max(0, ms) / 1_000)
+  const seconds = totalSeconds % 60
+  const totalMinutes = Math.floor(totalSeconds / 60)
+  const minutes = totalMinutes % 60
+  const hours = Math.floor(totalMinutes / 60)
+  if (hours > 0) {
+    return `${hours}小时${String(minutes).padStart(2, '0')}分${String(seconds).padStart(2, '0')}秒`
+  }
+  if (totalMinutes > 0) {
+    return `${totalMinutes}分${String(seconds).padStart(2, '0')}秒`
+  }
+  return `${seconds}秒`
 }
 
 /** Aggregate the complete subagent-only descendant subtree from flat summaries. */
@@ -190,7 +227,17 @@ function CatalogRows({
         const secondary = [summary?.title, mode, activity]
           .filter(value => value !== undefined)
           .join(' · ')
-        const time = relativeTime(summary?.updatedAt, now)
+        const totalTokens = tokenTotal(summary?.projectionValues?.tokenUsage)
+        const durationMs = activityDuration(
+          summary?.projectionValues?.subagentTiming,
+          entry.activity,
+          summary?.updatedAt,
+          now,
+        )
+        const metrics = [
+          totalTokens === undefined ? undefined : `${formatTokens(totalTokens)} tok`,
+          durationMs === undefined ? undefined : formatDuration(durationMs),
+        ].filter(value => value !== undefined).join(' · ')
 
         const open = (): void => {
           openChild({ parentSessionId, childSessionId: entry.id, mode: entry.mode })
@@ -222,7 +269,7 @@ function CatalogRows({
               role="treeitem"
               tabIndex={0}
               aria-level={level}
-              aria-label={[label, secondary, time].filter(value => value !== undefined).join(' ')}
+              aria-label={[label, secondary, metrics].filter(value => value !== '').join(' ')}
               {...knownLeaf ? {} : { 'aria-expanded': isExpanded }}
               className={css.row}
               onClick={open}
@@ -247,7 +294,7 @@ function CatalogRows({
                   <span className={css.label}>{label}</span>
                   <span className={css.summary}>{secondary}</span>
                 </span>
-                {time !== undefined && <span className={css.time}>{time}</span>}
+                {metrics !== '' && <span className={css.metrics}>{metrics}</span>}
               </div>
             </div>
             {isExpanded && !knownLeaf && (
@@ -300,6 +347,7 @@ export function SubagentCatalogAction({
   const summaries = useSessions(state => state.byId)
   const catalog = catalogs[sessionId]
   const [open, setOpen] = useState(false)
+  const [now, setNow] = useState(() => Date.now())
   const [expanded, setExpanded] = useState<ReadonlySet<SessionId>>(() => new Set())
   const rootRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -328,7 +376,10 @@ export function SubagentCatalogAction({
 
   const changeOpen = (next: boolean, restoreFocus = false): void => {
     setOpen(next)
-    if (next) observeCatalog(sessionId, true)
+    if (next) {
+      setNow(Date.now())
+      observeCatalog(sessionId, true)
+    }
     else closeAllCatalogs()
     if (restoreFocus) queueMicrotask(() => { triggerRef.current?.focus() })
   }
@@ -367,6 +418,12 @@ export function SubagentCatalogAction({
     document.addEventListener('pointerdown', closeOutside)
     return () => { document.removeEventListener('pointerdown', closeOutside) }
   }, [open])
+
+  useEffect(() => {
+    if (!open || !descendants.running) return
+    const timer = setInterval(() => { setNow(Date.now()) }, 1_000)
+    return () => { clearInterval(timer) }
+  }, [open, descendants.running])
 
   useEffect(() => () => {
     for (const parentSessionId of observedCatalogs.current) {
@@ -443,7 +500,7 @@ export function SubagentCatalogAction({
             summaries={summaries}
             expanded={expanded}
             level={1}
-            now={Date.now()}
+            now={now}
             openChild={openChild}
             refresh={refresh}
             toggleBranch={toggleBranch}

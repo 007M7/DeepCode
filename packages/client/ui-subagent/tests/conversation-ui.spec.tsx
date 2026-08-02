@@ -11,6 +11,7 @@ import { SubagentReadOnlyComposer } from '../src/client/SubagentReadOnlyComposer
 
 afterEach(() => {
   cleanup()
+  vi.useRealTimers()
   vi.restoreAllMocks()
 })
 
@@ -217,42 +218,56 @@ describe('SubagentCatalogAction', () => {
     })
   })
 
-  it('renders compact activity times across every unit and clamps future timestamps', () => {
+  it('shows durable token totals, ticks active duration by seconds, and freezes inactive rows', async () => {
     const now = 2_000_000_000_000
-    vi.spyOn(Date, 'now').mockReturnValue(now)
-    const minute = 60_000
-    const hour = 60 * minute
-    const day = 24 * hour
+    vi.useFakeTimers()
+    vi.setSystemTime(now)
     const rows = [
-      ['future', now + minute],
-      ['minutes', now - 2 * minute],
-      ['hours', now - 2 * hour],
-      ['days', now - 2 * day],
-      ['months', now - 60 * day],
-      ['years', now - 2 * 365 * day],
+      ['running', 'running', 65_000, now - 5_000, now],
+      ['finished', 'inactive', 3_723_000, undefined, now - 60_000],
+      ['interrupted', 'inactive', 2_000, now - 7_000, now - 3_000],
     ] as const
-    const entries = rows.map(([id]) => ({
+    const entries = rows.map(([id, activity]) => ({
       kind: 'child' as const,
       id: id as SessionId,
       mode: 'continuable' as const,
       label: id,
-      activity: 'inactive' as const,
+      activity,
       hasChildren: false,
     }))
-    const summaries = Object.fromEntries(rows.map(([id, updatedAt]) => [
-      id,
-      summary(id as SessionId, updatedAt),
-    ])) as Record<SessionId, SessionSummary>
+    const summaries = Object.fromEntries(rows.map(([id, activity, settledMs, activeSince, updatedAt]) => {
+      const childId = id as SessionId
+      return [id, {
+        ...summary(childId, updatedAt),
+        parentId: PARENT,
+        origin: 'subagent' as const,
+        running: activity === 'running',
+        projectionValues: {
+          subagentTiming: {
+            settledMs,
+            ...(activeSince === undefined ? {} : { activeSince }),
+          },
+          tokenUsage: {
+            uncachedInputTokens: 1_000,
+            outputTokens: 200,
+            cacheReadTokens: 3_000,
+            cacheWriteTokens: 400,
+          },
+        },
+      }]
+    })) as Record<SessionId, SessionSummary>
     const input = props(catalog({ entries }), {}, summaries)
     render(<SubagentCatalogAction {...input} />)
-    fireEvent.click(screen.getByRole('button', { name: /6 个子代理/ }))
+    fireEvent.click(screen.getByRole('button', { name: /3 个子代理/ }))
 
-    expect(screen.getByRole('treeitem', { name: /future.*刚刚/ })).toBeTruthy()
-    expect(screen.getByRole('treeitem', { name: /minutes.*2分钟/ })).toBeTruthy()
-    expect(screen.getByRole('treeitem', { name: /hours.*2小时/ })).toBeTruthy()
-    expect(screen.getByRole('treeitem', { name: /days.*2天/ })).toBeTruthy()
-    expect(screen.getByRole('treeitem', { name: /months.*2个月/ })).toBeTruthy()
-    expect(screen.getByRole('treeitem', { name: /years.*2年/ })).toBeTruthy()
+    expect(screen.getByRole('treeitem', { name: /running.*4\.6K tok · 1分10秒/ })).toBeTruthy()
+    expect(screen.getByRole('treeitem', { name: /finished.*4\.6K tok · 1小时02分03秒/ })).toBeTruthy()
+    expect(screen.getByRole('treeitem', { name: /interrupted.*4\.6K tok · 6秒/ })).toBeTruthy()
+
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(screen.getByRole('treeitem', { name: /running.*4\.6K tok · 1分11秒/ })).toBeTruthy()
+    expect(screen.getByRole('treeitem', { name: /finished.*4\.6K tok · 1小时02分03秒/ })).toBeTruthy()
+    expect(screen.getByRole('treeitem', { name: /interrupted.*4\.6K tok · 6秒/ })).toBeTruthy()
   })
 
   it('lazily expands and collapses descendant catalogs with direct-parent navigation', () => {

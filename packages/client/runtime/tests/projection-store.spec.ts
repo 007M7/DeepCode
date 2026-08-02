@@ -86,6 +86,17 @@ describe('ProjectionValueStore semantics', () => {
     const store = new ProjectionValueStore()
     expect(store.faceOf('test/marks')).toBe(store.faceOf('test/marks'))
   })
+
+  it('publishes one reference-stable whole-value snapshot until a row changes', () => {
+    const store = new ProjectionValueStore()
+    const empty = store.values()
+    expect(store.values()).toBe(empty)
+    store.apply('test/marks', { marks: ['a'] }, 1)
+    const populated = store.values()
+    expect(populated).toEqual({ 'test/marks': { marks: ['a'] } })
+    expect(populated).not.toBe(empty)
+    expect(store.values()).toBe(populated)
+  })
 })
 
 describe('Session tail-page seeding', () => {
@@ -165,6 +176,36 @@ describe('manager frame routing', () => {
     })
     await Promise.resolve()
     expect(manager.getListSnapshot().items[0]?.title).toBeUndefined()
+  })
+
+  it('projects every retained value into list rows with stable snapshot identity', async () => {
+    const api = new FakeApiClient()
+    const manager = new SessionManager(api)
+    api.onList = () => Promise.resolve(ok({
+      items: [{
+        sessionId: sid('s1'), updatedAt: 1, running: false, blank: false,
+        projections: {
+          asOfSeq: 2,
+          values: { 'test/marks': { marks: ['baseline'] } },
+        },
+      }],
+    }) as never)
+    await manager.refreshList()
+    const baseline = manager.getListSnapshot().items[0]?.projectionValues
+    expect(baseline).toEqual({ 'test/marks': { marks: ['baseline'] } })
+    expect(manager.getListSnapshot().items[0]?.projectionValues).toBe(baseline)
+
+    manager.handleMuxEnvelope({
+      rpcId: 'p2' as never,
+      payload: {
+        type: 'session/projection', sessionId: sid('s1'), key: 'test/marks',
+        value: { marks: ['live'] }, seq: 3,
+      } as never,
+    })
+    await Promise.resolve()
+    expect(manager.getListSnapshot().items[0]?.projectionValues)
+      .toEqual({ 'test/marks': { marks: ['live'] } })
+    expect(manager.getListSnapshot().items[0]?.projectionValues).not.toBe(baseline)
   })
 
   it('drops the projection store with the removed session', async () => {
