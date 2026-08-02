@@ -12,7 +12,6 @@ import type { PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-cl
 import { NS } from './locales.ts'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-subagent/client'
-import type {} from '@deepseek-ai/dsh-token-meter/client'
 import css from './SubagentCatalogAction.module.css'
 
 type CatalogEntry = SubagentCatalogSnapshot['entries'][number]
@@ -60,36 +59,18 @@ function treeItems(root: HTMLDivElement | null): HTMLElement[] {
     : Array.from(root.querySelectorAll<HTMLElement>('[role="treeitem"]:not([aria-disabled="true"])'))
 }
 
-/** Compact token count shared in shape with the conversation stats strip. */
-function formatTokens(value: number): string {
-  const scaled = (next: number): string => next >= 100
-    ? String(Math.round(next))
-    : String(Math.round(next * 10) / 10)
-  if (value < 1_000) return String(value)
-  if (value < 1_000_000) return `${scaled(value / 1_000)}K`
-  return `${scaled(value / 1_000_000)}M`
-}
-
-/** Sum the four disjoint durable provider-usage buckets. */
-function tokenTotal(
-  usage: SessionProjectionMap['tokenUsage'] | undefined,
-): number | undefined {
-  return usage === undefined
-    ? undefined
-    : usage.uncachedInputTokens + usage.outputTokens
-      + usage.cacheReadTokens + usage.cacheWriteTokens
-}
-
 /** Exact whole-second active-turn duration for one catalog row. */
 function activityDuration(
-  timing: SessionProjectionMap['subagentTiming'] | undefined,
+  summary: SessionSummary | undefined,
   activity: 'running' | 'inactive',
-  updatedAt: number | undefined,
   now: number,
 ): number | undefined {
+  if (summary === undefined) return undefined
+  const timing: SessionProjectionMap['subagentTiming'] | undefined
+    = summary.projectionValues?.subagentTiming
   if (timing === undefined) return undefined
   if (timing.activeSince === undefined) return timing.settledMs
-  const end = activity === 'running' ? now : updatedAt ?? timing.activeSince
+  const end = activity === 'running' ? now : summary.updatedAt
   return timing.settledMs + Math.max(0, end - timing.activeSince)
 }
 
@@ -241,22 +222,14 @@ function CatalogRows({
         const secondary = [summary?.title, mode, activity]
           .filter(value => value !== undefined)
           .join(' · ')
-        const totalTokens = tokenTotal(summary?.projectionValues?.tokenUsage)
         const durationMs = activityDuration(
-          summary?.projectionValues?.subagentTiming,
+          summary,
           entry.activity,
-          summary?.updatedAt,
           now,
         )
-        const tokenMetric = totalTokens === undefined
-          ? undefined
-          : `${formatTokens(totalTokens)} tok`
-        const durationMetric = durationMs === undefined
+        const duration = durationMs === undefined
           ? undefined
           : formatDuration(durationMs, t)
-        const metrics = [tokenMetric, durationMetric]
-          .filter(value => value !== undefined)
-          .join(' · ')
 
         const open = (): void => {
           openChild({ parentSessionId, childSessionId: entry.id, mode: entry.mode })
@@ -288,7 +261,9 @@ function CatalogRows({
               role="treeitem"
               tabIndex={0}
               aria-level={level}
-              aria-label={[label, secondary, metrics].filter(value => value !== '').join(' ')}
+              aria-label={[label, secondary, duration]
+                .filter(value => value !== undefined)
+                .join(' ')}
               {...knownLeaf ? {} : { 'aria-expanded': isExpanded }}
               className={css.row}
               onClick={open}
@@ -313,12 +288,7 @@ function CatalogRows({
                   <span className={css.label}>{label}</span>
                   <span className={css.summary}>{secondary}</span>
                 </span>
-                {metrics !== '' && (
-                  <span className={css.metrics}>
-                    {tokenMetric !== undefined && <span className={css.metricToken}>{tokenMetric}</span>}
-                    {durationMetric !== undefined && <span className={css.metricDuration}>{durationMetric}</span>}
-                  </span>
-                )}
+                {duration !== undefined && <span className={css.time}>{duration}</span>}
               </div>
             </div>
             {isExpanded && !knownLeaf && (

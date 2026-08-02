@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import { Context } from 'cordis'
+import SessionStore from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import SubagentService from '../src/index.ts'
 import { subagentTimingProjectionDefinition } from '../src/projection.ts'
 
 function event(type: SessionEvent['type'], seq: number, time: number): SessionEvent {
@@ -13,6 +17,16 @@ function fold(events: SessionEvent[]) {
 }
 
 describe('subagent timing projection', () => {
+  it('registers with the optional session projection registry', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(SubagentService)
+
+    expect(ctx.sessionProjections.snapshot(ctx.sessions.create()).values.subagentTiming)
+      .toEqual({ settledMs: 0 })
+  })
+
   it('resets inherited seed timing at the child descriptor and sums later completed turns', () => {
     expect(fold([
       event('turn/start', 0, 100),
@@ -42,6 +56,18 @@ describe('subagent timing projection', () => {
       initial,
       event('assistant/chunk', 0, 1),
     )).toBe(initial)
+    expect(subagentTimingProjectionDefinition.apply(
+      initial,
+      event('turn/end', 1, 2),
+    )).toBe(initial)
+    const descriptor = subagentTimingProjectionDefinition.apply(
+      initial,
+      event('subagent/descriptor', 2, 3),
+    )
+    expect(subagentTimingProjectionDefinition.apply(
+      descriptor,
+      event('turn/end', 3, 4),
+    )).toBe(descriptor)
     expect(fold([
       event('turn/start', 0, 100),
       event('turn/end', 1, 200),

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type {
   SessionId, SessionListState, SessionSummary, SubagentCatalogSnapshot,
@@ -240,7 +240,7 @@ describe('SubagentCatalogAction', () => {
     })
   })
 
-  it('shows durable token totals, ticks active duration by seconds, and freezes inactive rows', async () => {
+  it('ticks active duration by seconds and freezes inactive rows', async () => {
     const now = 2_000_000_000_000
     vi.useFakeTimers()
     vi.setSystemTime(now)
@@ -269,12 +269,6 @@ describe('SubagentCatalogAction', () => {
             settledMs,
             ...(activeSince === undefined ? {} : { activeSince }),
           },
-          tokenUsage: {
-            uncachedInputTokens: 1_000,
-            outputTokens: 200,
-            cacheReadTokens: 3_000,
-            cacheWriteTokens: 400,
-          },
         },
       }]
     })) as Record<SessionId, SessionSummary>
@@ -282,19 +276,14 @@ describe('SubagentCatalogAction', () => {
     render(<SubagentCatalogAction {...input} />)
     fireEvent.click(screen.getByRole('button', { name: /3 个子代理/ }))
 
-    const runningRow = screen.getByRole('treeitem', { name: /running.*4\.6K tok · 1分10秒/ })
-    const runningMetrics = within(runningRow)
-    const tokenMetric = runningMetrics.getByText('4.6K tok')
-    const durationMetric = runningMetrics.getByText('1分10秒')
-    expect(tokenMetric.parentElement).toBe(durationMetric.parentElement)
-    expect(tokenMetric.nextElementSibling).toBe(durationMetric)
-    expect(screen.getByRole('treeitem', { name: /finished.*4\.6K tok · 1小时02分03秒/ })).toBeTruthy()
-    expect(screen.getByRole('treeitem', { name: /interrupted.*4\.6K tok · 6秒/ })).toBeTruthy()
+    expect(screen.getByRole('treeitem', { name: /running.*1分10秒/ })).toBeTruthy()
+    expect(screen.getByRole('treeitem', { name: /finished.*1小时02分03秒/ })).toBeTruthy()
+    expect(screen.getByRole('treeitem', { name: /interrupted.*6秒/ })).toBeTruthy()
 
     await vi.advanceTimersByTimeAsync(1_000)
-    expect(screen.getByRole('treeitem', { name: /running.*4\.6K tok · 1分11秒/ })).toBeTruthy()
-    expect(screen.getByRole('treeitem', { name: /finished.*4\.6K tok · 1小时02分03秒/ })).toBeTruthy()
-    expect(screen.getByRole('treeitem', { name: /interrupted.*4\.6K tok · 6秒/ })).toBeTruthy()
+    expect(screen.getByRole('treeitem', { name: /running.*1分11秒/ })).toBeTruthy()
+    expect(screen.getByRole('treeitem', { name: /finished.*1小时02分03秒/ })).toBeTruthy()
+    expect(screen.getByRole('treeitem', { name: /interrupted.*6秒/ })).toBeTruthy()
   })
 
   it('lazily expands and collapses descendant catalogs with direct-parent navigation', () => {
