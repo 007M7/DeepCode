@@ -122,6 +122,9 @@ function camelCase(raw: string): string {
   return /^[A-Za-z]/.test(joined) ? joined : `Tool${joined}`
 }
 
+/** Class-name base cap keeping each emitted name — and total text — linear in schema depth. */
+const MAX_CLASS_NAME_BASE = 120
+
 /**
  * Reserve a unique class name from a base, suffixing `2`, `3`, … on collision.
  * The base is capped at {@link MAX_CLASS_NAME_BASE} first: child class names
@@ -133,7 +136,6 @@ function camelCase(raw: string): string {
  * `2`, so a deep chain sharing one capped base stays O(1) per allocation
  * (amortized) instead of Θ(depth²) in time.
  */
-const MAX_CLASS_NAME_BASE = 120
 function allocateClassName(base: string, state: RenderState): string {
   const capped = base.length > MAX_CLASS_NAME_BASE ? base.slice(0, MAX_CLASS_NAME_BASE) : base
   let name = capped
@@ -220,6 +222,15 @@ function renderType(schema: unknown, className: string, state: RenderState): str
   const newFrame = (schema: unknown, className: string, validated: boolean): Frame =>
     ({ schema, className, phase: 'start', children: [], childIndex: 0, childTypes: [], entries: [], validated })
   const frames: Frame[] = [newFrame(schema, className, false)]
+  // Ancestor schemas by object identity — the frame stack IS the DFS path, so
+  // this set holds exactly the current node's ancestors. A stateful getter can
+  // mutate the graph after validation (an `items`/property that validated as a
+  // scalar but returns an ancestor at render time); without this, the walk
+  // would push frames forever. A repeated ancestor degrades to `Any` per the
+  // never-throw contract. Distinct nodes in a legitimately deep chain are all
+  // different objects, so this stays O(1) per push and O(depth) memory.
+  const activeSchemas = new Set<object>()
+  if (typeof schema === 'object' && schema !== null) activeSchemas.add(schema)
   let result: string | undefined
   // The no-throw contract must hold across the WHOLE walk, not just the root
   // validation: a hostile stateful getter (a `type` that returns a scalar on
@@ -231,7 +242,10 @@ function renderType(schema: unknown, className: string, state: RenderState): str
   /* jscpd:ignore-start -- the explicit-stack walk skeleton deliberately parallels
      ts-types.ts's renderSupportedSchema; the two sibling renderers keep symmetric shapes. */
   const finish = (type: string): void => {
-    frames.pop()
+    const popped = frames.pop()
+    if (popped !== undefined && typeof popped.schema === 'object' && popped.schema !== null) {
+      activeSchemas.delete(popped.schema)
+    }
     const parent = frames.at(-1)
     if (parent === undefined) result = type
     else parent.childTypes.push(type)
@@ -249,6 +263,18 @@ function renderType(schema: unknown, className: string, state: RenderState): str
           /* v8 ignore next -- childIndex is bounded by children.length. */
           if (child === undefined) throw new Error('missing python render child')
           frame.childIndex++
+          // A child schema already on the active path is a cycle a post-
+          // validation mutation introduced; degrade it to `Any` rather than
+          // recurse forever. A fresh object joins the path (finish removes it);
+          // a non-object child carries no identity to track.
+          if (typeof child.schema === 'object' && child.schema !== null) {
+            if (activeSchemas.has(child.schema)) {
+              state.typing.add('Any')
+              frame.childTypes.push('Any')
+              continue
+            }
+            activeSchemas.add(child.schema)
+          }
           frames.push(newFrame(child.schema, child.className, true))
           continue
         }

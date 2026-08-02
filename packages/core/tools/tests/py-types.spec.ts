@@ -144,6 +144,43 @@ describe('jsonSchemaToPy', () => {
     expect(text).toContain('class FooArgsPhase3(TypedDict):')
   })
 
+  it('degrades to Any instead of looping when a stateful getter introduces a cycle after validation', () => {
+    // `items` validates as a scalar, then returns the root schema at render
+    // time — a cycle a post-validation mutation introduced. The walk must
+    // degrade to Any rather than push frames forever.
+    let itemReads = 0
+    const root: Record<string, unknown> = { type: 'array' }
+    Object.defineProperty(root, 'items', {
+      enumerable: true,
+      get() {
+        itemReads += 1
+        return itemReads <= 1 ? { type: 'string' } : root
+      },
+    })
+    let out: string | undefined
+    expect(() => { out = jsonSchemaToPy(root) }).not.toThrow()
+    // list[...] of a self-cycle: the inner cycle degrades to Any.
+    expect(out).toBe('list[Any]')
+  })
+
+  it('degrades to Any when a stateful getter returns a non-object child at render time', () => {
+    // `items` validates as a scalar node, then returns a bare string (a
+    // non-object) at render. The walk must handle a non-object child without
+    // tracking identity and degrade it, not throw.
+    let itemReads = 0
+    const root: Record<string, unknown> = { type: 'array' }
+    Object.defineProperty(root, 'items', {
+      enumerable: true,
+      get() {
+        itemReads += 1
+        return itemReads <= 1 ? { type: 'string' } : 'not-a-schema-object'
+      },
+    })
+    let out: string | undefined
+    expect(() => { out = jsonSchemaToPy(root) }).not.toThrow()
+    expect(out).toBe('list[Any]')
+  })
+
   it('emits exact digits for a beyond-safe-range integer literal', () => {
     // Python integers are arbitrary-precision, so the emitted digits ARE the
     // value the model programs against. `String(2 ** 60)` prints the rounded
