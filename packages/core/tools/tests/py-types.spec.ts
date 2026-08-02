@@ -200,10 +200,9 @@ describe('jsonSchemaToPy', () => {
     expect(out).toBe('list[Any]')
   })
 
-  it('degrades to the broad type when a const getter re-reads as a non-scalar', () => {
-    // `const` validates as a string, then returns an object at render time.
-    // A naive spelling would emit Literal[[object Object]] (invalid Python);
-    // the render must fall back to the broad type instead.
+  it('degrades a const that snapshots as a non-scalar to the broad type', () => {
+    // The single snapshot read returns an object (validation read returned a
+    // scalar); the check must degrade rather than spell Literal[[object Object]].
     let reads = 0
     const schema: Record<string, unknown> = { type: 'string' }
     Object.defineProperty(schema, 'const', {
@@ -219,22 +218,116 @@ describe('jsonSchemaToPy', () => {
     expect(out).not.toContain('object Object')
   })
 
-  it('degrades to the broad type when an enum getter re-reads as a non-scalar array', () => {
-    // `enum` validates as scalars, then returns an array containing an object
-    // at render time; the render must fall back to the broad type.
+  it('snapshots const with one read so a third-read switch cannot spell a non-scalar', () => {
+    // A getter returning 'fixed' on the validation AND check reads but an
+    // object on a third read would defeat a separate check-read/spell-read.
+    // The render snapshots once, so it either spells the checked value or
+    // degrades — never Literal[[object Object]].
+    let reads = 0
+    const schema: Record<string, unknown> = { type: 'string' }
+    Object.defineProperty(schema, 'const', {
+      enumerable: true,
+      get() {
+        reads += 1
+        return reads <= 2 ? 'fixed' : {}
+      },
+    })
+    let out: string | undefined
+    expect(() => { out = jsonSchemaToPy(schema) }).not.toThrow()
+    expect(out === 'str' || out === 'Literal["fixed"]').toBe(true)
+    expect(out).not.toContain('object Object')
+  })
+
+  it('degrades to the broad type when an enum getter re-reads as a non-array', () => {
+    // A validated enum array that re-reads as a non-array must degrade, not
+    // spread a non-iterable or spell a bad literal.
     let reads = 0
     const schema: Record<string, unknown> = { type: 'string' }
     Object.defineProperty(schema, 'enum', {
       enumerable: true,
       get() {
         reads += 1
-        return reads <= 1 ? ['a', 'b'] : [{}]
+        return reads <= 1 ? ['a'] : 'not-an-array'
       },
     })
     let out: string | undefined
     expect(() => { out = jsonSchemaToPy(schema) }).not.toThrow()
     expect(out).toBe('str')
+  })
+
+  it('degrades to the broad type when an enum getter re-reads as an empty array', () => {
+    // A validated non-empty enum that re-reads as [] would spell Literal[] — a
+    // Python SyntaxError that breaks the whole SDK. Require non-empty at render.
+    let reads = 0
+    const schema: Record<string, unknown> = { type: 'string' }
+    Object.defineProperty(schema, 'enum', {
+      enumerable: true,
+      get() {
+        reads += 1
+        return reads <= 1 ? ['a'] : []
+      },
+    })
+    let out: string | undefined
+    expect(() => { out = jsonSchemaToPy(schema) }).not.toThrow()
+    expect(out).toBe('str')
+    expect(out).not.toContain('Literal[]')
+  })
+
+  it('degrades the broad type when an enum element is an accessor that re-reads as a non-scalar', () => {
+    // `[...raw]` reads each element exactly once; the validation read saw a
+    // scalar, the spread read returns an object. The snapshot's every(isPyScalar)
+    // check must degrade rather than spell Literal[[object Object]].
+    let elemReads = 0
+    const arr: unknown[] = []
+    Object.defineProperty(arr, '0', {
+      enumerable: true,
+      configurable: true,
+      get() {
+        elemReads += 1
+        return elemReads <= 1 ? 'a' : {}
+      },
+    })
+    arr.length = 1
+    const schema = { type: 'string', enum: arr }
+    let out: string | undefined
+    expect(() => { out = jsonSchemaToPy(schema) }).not.toThrow()
+    expect(out).toBe('str')
     expect(out).not.toContain('object Object')
+  })
+
+  it('spells a const re-read as null with None, not the JS string "null"', () => {
+    let reads = 0
+    const schema: Record<string, unknown> = { type: 'string' }
+    Object.defineProperty(schema, 'const', {
+      enumerable: true,
+      get() {
+        reads += 1
+        return reads <= 1 ? 'fixed' : null
+      },
+    })
+    let out: string | undefined
+    expect(() => { out = jsonSchemaToPy(schema) }).not.toThrow()
+    // Either the checked value spells, or a null re-read spells None — never "null".
+    expect(out === 'Literal["fixed"]' || out === 'Literal[None]').toBe(true)
+    expect(out).not.toContain('Literal[null]')
+  })
+
+  it('degrades a oneOf that re-reads as an empty array to Any, not an empty string', () => {
+    // oneOf validates as two branches, then returns [] at render; a naive join
+    // would produce '' (a missing type). Degrade to Any instead.
+    let reads = 0
+    const schema: Record<string, unknown> = {}
+    Object.defineProperty(schema, 'oneOf', {
+      enumerable: true,
+      get() {
+        reads += 1
+        return reads <= 1 ? [{ type: 'string' }, { type: 'number' }] : []
+      },
+    })
+    let out: string | undefined
+    expect(() => { out = jsonSchemaToPy(schema) }).not.toThrow()
+    expect(out).toBe('Any')
+    expect(out).not.toBe('')
   })
 
   it('emits exact digits for a beyond-safe-range integer literal', () => {

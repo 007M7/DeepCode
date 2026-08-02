@@ -161,10 +161,11 @@ function allocateClassName(base: string, state: RenderState): string {
 }
 
 /**
- * Render one validated scalar as Python literal text (`True`/`False`,
- * JSON-quoted strings, bare numbers). `null` cannot reach here: the `null`
- * type renders directly as `None`, and the unified validator rejects a null
- * `const`/`enum` entry on every other scalar type.
+ * Render one validated scalar as Python literal text (`True`/`False`, `None`,
+ * JSON-quoted strings, bare numbers). A validated `const`/`enum` never carries
+ * a bare `null` on a non-`null` scalar type, but a post-validation stateful
+ * getter can re-read one as `null`, so `null` is spelled `None` rather than the
+ * JS `String(null)` = `"null"`.
  *
  * A beyond-safe-range integral number takes `BigInt` digits rather than
  * `String`: Python integers are arbitrary-precision, so the emitted digits ARE
@@ -179,6 +180,7 @@ function allocateClassName(base: string, state: RenderState): string {
 function pyScalar(value: JsonSchemaScalar): string {
   if (value === true) return 'True'
   if (value === false) return 'False'
+  if (value === null) return 'None'
   if (typeof value === 'string') return JSON.stringify(value)
   if (typeof value === 'number' && Number.isInteger(value) && !Number.isSafeInteger(value)) {
     return BigInt(value).toString()
@@ -201,18 +203,24 @@ function isPyScalar(value: unknown): value is JsonSchemaScalar {
  */
 function renderConstrainedScalar(node: Record<string, unknown>, broad: string, state: RenderState): string {
   if (Object.hasOwn(node, 'const')) {
-    // Re-read at render time: a stateful getter validated as a scalar can now
-    // return anything. A non-scalar would spell `Literal[[object Object]]`
-    // (invalid Python), so degrade to the broad type per the contract.
-    if (!isPyScalar(node.const)) return broad
+    // Snapshot the value with ONE read: a stateful getter can return different
+    // values across reads, so a separate check-read and spell-read could still
+    // pass the check and then spell a non-scalar (`Literal[[object Object]]`).
+    const value = node.const
+    if (!isPyScalar(value)) return broad
     state.typing.add('Literal')
-    return `Literal[${pyScalar(node.const)}]`
+    return `Literal[${pyScalar(value)}]`
   }
   if (Object.hasOwn(node, 'enum')) {
     const raw = node.enum
-    if (!Array.isArray(raw) || !raw.every(isPyScalar)) return broad
+    // `[...raw]` reads each element exactly once (elements may be accessor
+    // properties that change between reads); then check and spell that
+    // snapshot. Require non-empty: an emptied re-read would spell `Literal[]`,
+    // a Python SyntaxError that breaks the whole SDK.
+    const values: unknown[] | undefined = Array.isArray(raw) ? [...(raw as unknown[])] : undefined
+    if (values === undefined || values.length === 0 || !values.every(isPyScalar)) return broad
     state.typing.add('Literal')
-    return `Literal[${raw.map(pyScalar).join(', ')}]`
+    return `Literal[${values.map(pyScalar).join(', ')}]`
   }
   return broad
 }
@@ -372,8 +380,17 @@ function renderType(schema: unknown, className: string, state: RenderState): str
       }
       const node = frame.schema as Record<string, unknown>
       if (Object.hasOwn(node, 'oneOf')) {
+        // Snapshot the branches with ONE read (a getter can change them
+        // between reads). A re-read that is not a non-empty array would join to
+        // `''` (or drop branches), so degrade to `Any` instead.
+        const branches = node.oneOf
+        if (!Array.isArray(branches) || branches.length === 0) {
+          state.typing.add('Any')
+          finish('Any')
+          continue
+        }
         frame.kind = 'oneOf'
-        frame.children = (node.oneOf as unknown[]).map((branch, index) => ({ schema: branch, className: `${frame.className}${index + 1}` }))
+        frame.children = (branches as unknown[]).map((branch, index) => ({ schema: branch, className: `${frame.className}${index + 1}` }))
         continue
       }
       if (!Object.hasOwn(node, 'type')) {
