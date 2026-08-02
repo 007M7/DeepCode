@@ -54,4 +54,5 @@ Append-only; newly visible content follows the reusable request prefix and does 
 ## Known Limitations and Deferred Work
 
 - **A pending question blocks the tool call until the human answers** — the tool declares no `timeout-policy` budget; cancellation rides the turn's `exec.signal` only.
+- **Delegated subagents cannot ask the user** — `ask_user_question` rejects calls from a delegated subagent with `DELEGATED_CALLER`; a child that needs a decision must delegate the question to the top-level agent.
 - **Native answers render as JSON text** — the canonical value remains structured, but the model-facing result uses compact JSON rather than a richer content-block vocabulary.

@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import SessionStore from '@deepseek-ai/dsh-session'
 import UserInteractionService, {
   UserInteractionError,
   type AskUserQuestionRequest,
@@ -82,6 +84,39 @@ describe('UserInteractionService', () => {
     await expect(ctx.userInteraction.ask({ questions: [] }))
       .rejects.toMatchObject({ name: 'UserInteractionError', code: 'EMPTY_QUESTIONS' })
     expect(p.ask).not.toHaveBeenCalled()
+  })
+
+  it('rejects a delegated subagent before reaching the provider', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(UserInteractionService)
+    const p = { ask: vi.fn(async () => ({ answers: [] })) }
+    ctx.userInteraction.registerProvider(p)
+    const session = ctx.sessions.create(undefined, { meta: { delegationDepth: 1 } })
+    const agent = { session } as unknown as Agent
+
+    await expect(ctx.userInteraction.ask({
+      questions: [{ id: 'confirm', question: 'Proceed?' }],
+      agent,
+    })).rejects.toMatchObject({ name: 'UserInteractionError', code: 'DELEGATED_CALLER' })
+    expect(p.ask).not.toHaveBeenCalled()
+  })
+
+  it('still reaches the provider for a top-level agent (delegationDepth 0)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(UserInteractionService)
+    const p = provider('yes')
+    ctx.userInteraction.registerProvider(p)
+    const session = ctx.sessions.create(undefined, { meta: { delegationDepth: 0 } })
+    const agent = { session } as unknown as Agent
+
+    const result = await ctx.userInteraction.ask({
+      questions: [{ id: 'confirm', question: 'Proceed?' }],
+      agent,
+    })
+
+    expect(result).toEqual({ answers: [{ id: 'confirm', selected: ['yes'] }] })
   })
 
   it('rejects an intent whose approve label names none of its own options', async () => {

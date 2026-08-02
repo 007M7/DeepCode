@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import SessionStore from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import UserInteractionService, { type AskUserQuestionRequest } from '@deepseek-ai/dsh-user-interaction'
@@ -201,6 +202,7 @@ describe('ask_user_question tool', () => {
 
   it('passes optional header and agent through to the user-interaction request', async () => {
     const ctx = await setup()
+    await ctx.plugin(SessionStore)
     const seen: AskUserQuestionRequest[] = []
     ctx.userInteraction.registerProvider({
       async ask(request) {
@@ -208,7 +210,8 @@ describe('ask_user_question tool', () => {
         return { answers: [{ id: 'continue', selected: ['ok'] }] }
       },
     })
-    const agent = { id: 'main' } as unknown as Agent
+    const session = ctx.sessions.create(undefined, { meta: { delegationDepth: 0 } })
+    const agent = { session } as unknown as Agent
 
     const result = await ctx.tools.execute({
       signal: testToolSignal,
@@ -236,6 +239,34 @@ describe('ask_user_question tool', () => {
       isError: true,
       error: { info: { name: 'UserInteractionError', code: 'NO_PROVIDER' } },
     })
+  })
+
+  it('rejects a delegated subagent with a structured DELEGATED_CALLER error', async () => {
+    const ctx = await setup()
+    await ctx.plugin(SessionStore)
+    const seen: AskUserQuestionRequest[] = []
+    ctx.userInteraction.registerProvider({
+      async ask(request) {
+        seen.push(request)
+        return { answers: [{ id: 'continue', selected: ['ok'] }] }
+      },
+    })
+    const session = ctx.sessions.create(undefined, { meta: { delegationDepth: 1 } })
+    const agent = { session } as unknown as Agent
+
+    const result = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('ask-delegated'),
+      name: 'ask_user_question',
+      arguments: { questions: [{ id: 'continue', question: 'Continue?' }] },
+      agent,
+    })
+
+    expect(result).toMatchObject({
+      isError: true,
+      error: { info: { name: 'UserInteractionError', code: 'DELEGATED_CALLER' } },
+    })
+    expect(seen).toHaveLength(0)
   })
 
   it('returns a structured error for empty question batches', async () => {

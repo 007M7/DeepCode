@@ -18,7 +18,7 @@ Abstract user-interaction seam. It owns `ctx.userInteraction`, the service a mod
 - `AskUserQuestionIntent` — `{ kind: 'plan-review', approve }`; the tagged presentation intent below.
 - `AskUserQuestionAnswer` — `{ answers: [{ id, selected, custom? }] }`.
 - `UserInteractionProvider` — UI implementation with `ask(request)`.
-- `UserInteractionError` — `HarnessError` subclass with codes such as `EMPTY_QUESTIONS`, `BAD_INTENT`, `NO_PROVIDER`, `DUPLICATE_PROVIDER`, and `ASK_ABORTED`.
+- `UserInteractionError` — `HarnessError` subclass with codes such as `EMPTY_QUESTIONS`, `BAD_INTENT`, `NO_PROVIDER`, `DUPLICATE_PROVIDER`, `ASK_ABORTED`, and `DELEGATED_CALLER`.
 
 When an answer includes `custom`, `selected` is empty; custom text is an override rather than a supplement to selected choices. A UI may preserve a skipped item as `{ id, selected: [] }`, keeping the existing answer shape while retaining other answers in the batch.
 
@@ -32,7 +32,7 @@ This is the interface package. Model-facing consumers such as `@deepseek-ai/dsh-
 
 ## Model Experience
 
-Indirectly, through `dsh-tool-ask-user`, which retains a successful provider answer as compact JSON or one of these failures: `Error: ask_user_question was aborted before the user answered`, `Error: ask_user_question requires at least one question`, `Error: no user-interaction provider is registered`, or `Error: <message>`. Waiting for the human adds no tokens.
+Indirectly, through `dsh-tool-ask-user`, which retains a successful provider answer as compact JSON or one of these failures: `Error: ask_user_question was aborted before the user answered`, `Error: ask_user_question requires at least one question`, `Error: ask_user_question is unavailable to delegated subagents; delegate the question to the top-level agent`, `Error: no user-interaction provider is registered`, or `Error: <message>`. Waiting for the human adds no tokens.
 
 #### KV Cache effect
 

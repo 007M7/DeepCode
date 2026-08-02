@@ -77,8 +77,15 @@ export class UserInteractionService extends Service {
   /**
    * Ask the active UI provider and wait for the user's answer.
    *
+   * Human-interaction requests are only valid from a top-level agent: a
+   * delegated subagent has no human answerer in its own context, so asking
+   * there would block forever. This mirrors the goal tools' top-level-only
+   * authority (`create_goal` rejects non-top-level agents).
+   *
    * @param request Questions, owner agent, and abort signal.
    * @returns The answer chosen or typed by the human.
+   * @throws {UserInteractionError} code `DELEGATED_CALLER` when the calling
+   *   agent is a delegated subagent (`session.header.delegationDepth > 0`).
    */
   async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer> {
     if (request.signal?.aborted) {
@@ -86,6 +93,11 @@ export class UserInteractionService extends Service {
     }
     if (request.questions.length === 0) {
       throw new UserInteractionError('ask_user_question requires at least one question', 'EMPTY_QUESTIONS')
+    }
+    if ((request.agent?.session.header.delegationDepth ?? 0) > 0) {
+      throw new UserInteractionError(
+        'ask_user_question is unavailable to delegated subagents; delegate the question to the top-level agent',
+        'DELEGATED_CALLER')
     }
     // A presentation intent asserts two things the types cannot: that the
     // named approve label is one of this question's own options, and that a

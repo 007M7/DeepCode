@@ -18,7 +18,7 @@
 - `AskUserQuestionIntent`：`{ kind: 'plan-review', approve }`；即下文的带标签呈现意图。
 - `AskUserQuestionAnswer`：`{ answers: [{ id, selected, custom? }] }`。
 - `UserInteractionProvider`：包含 `ask(request)` 的 UI 实现。
-- `UserInteractionError`：`HarnessError` 的子类，包含 `EMPTY_QUESTIONS`、`BAD_INTENT`、`NO_PROVIDER`、`DUPLICATE_PROVIDER` 和 `ASK_ABORTED` 等代码。
+- `UserInteractionError`：`HarnessError` 的子类，包含 `EMPTY_QUESTIONS`、`BAD_INTENT`、`NO_PROVIDER`、`DUPLICATE_PROVIDER`、`ASK_ABORTED` 和 `DELEGATED_CALLER` 等代码。
 
 当回答包含 `custom` 时，`selected` 为空；自定义文本是所选选项的替代，而不是补充。UI 可以把跳过的条目保留为 `{ id, selected: [] }`，既维持现有回答形态，也保留该批次中的其他回答。
 
@@ -32,7 +32,7 @@
 
 ## 模型体验
 
-间接地，通过 `dsh-tool-ask-user`：它会将成功的提供方回答保留为紧凑 JSON，或返回以下失败之一：`Error: ask_user_question was aborted before the user answered`、`Error: ask_user_question requires at least one question`、`Error: no user-interaction provider is registered` 或 `Error: <message>`。等待人类回答不会增加 token。
+间接地，通过 `dsh-tool-ask-user`：它会将成功的提供方回答保留为紧凑 JSON，或返回以下失败之一：`Error: ask_user_question was aborted before the user answered`、`Error: ask_user_question requires at least one question`、`Error: ask_user_question is unavailable to delegated subagents; delegate the question to the top-level agent`、`Error: no user-interaction provider is registered` 或 `Error: <message>`。等待人类回答不会增加 token。
 
 #### KV Cache 影响
 
