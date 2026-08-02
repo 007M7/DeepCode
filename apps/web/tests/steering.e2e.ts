@@ -48,7 +48,8 @@ describe('web e2e: mid-turn steering lands durably and visibly', () => {
   const sessionEvents: SessionEvent[] = []
 
   beforeAll(async () => {
-    // The slower replay keeps the Queue action available until the recorded question barrier arrives.
+    // The 100 ms replay pace is test-only headroom that keeps the Queue action
+    // available until the recorded question barrier arrives, not a product timing contract.
     scaffold = await launchWebScaffold(MODE === 'record' ? {} : { replayFixture: FIXTURE, paceMs: 100 })
     scaffold.ctx.on('session/event', (_session, event) => { sessionEvents.push(event) })
     browser = await chromium.launch()
