@@ -776,10 +776,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   })
 
   /**
-   * Per-session queued-occurrence mirror serving the mux-open queue snapshot
-   * (the same refresh-recovery baseline as pending questions). Each terminal
-   * queue event retires one matching occurrence, so repeated sends of the same
-   * identified message remain visible until every occurrence is claimed.
+   * Per-session pending-occurrence mirror serving live and mux-open
+   * `session/queue` snapshots. It carries both queued and steering placements.
+   * Each terminal inbox event retires one matching occurrence, so repeated
+   * sends of the same identified message remain visible until every occurrence
+   * is claimed.
    */
   const queuedMirror = new Map<SessionId, InboxItem[]>()
   type UnseenQueueEvent =
