@@ -13,7 +13,7 @@ tools:
   mode: native   # native (default) | code | both
 ```
 
-`native` 以函数定义的形式贡献可见工具。`code` 贡献保留的 `run_code` 传输和生成的 `tools:sdk` 段；`both` 同时贡献两种形式。不能注册、遮蔽、限制或移除该保留传输。非原生模式要求所加载 `ctx.codeRuntime` 的 `language` 有已注册的 SDK 渲染器（TypeScript 经 [`dsh-code-runtime-worker`](../../code-runtime/code-runtime-worker/README.md)，Python 经 `dsh-code-runtime-python`）；没有渲染器的运行时语言会让提示词组装响亮失败；如果 `systemPrompt.toolOrder` 条目指向当前模式未贡献的工具，系统会拒绝组装提示词。`system-prompt/assemble` 监听器可以替换注册表贡献；它返回的组装结果具有权威性，因此该监听器负责保留可用的 Code Mode 协议。
+`native` 以函数定义的形式贡献可见工具。`code` 贡献保留的 `run_code` 传输和生成的 `tools:sdk` 段；`both` 同时贡献两种形式。不能注册、遮蔽、限制或移除该保留传输。非原生模式要求所加载 `ctx.codeRuntime` 的 `language` 有已注册的 SDK 渲染器——TypeScript 经 [`dsh-code-runtime-worker`](../../code-runtime/code-runtime-worker/README.md) 交付；Python 渲染器内置，驱动任何报告 `language: 'python'` 的运行时（第一方 `dsh-code-runtime-python` 后端另行交付）。没有渲染器的运行时语言会让提示词组装响亮失败；如果 `systemPrompt.toolOrder` 条目指向当前模式未贡献的工具，系统会拒绝组装提示词。`system-prompt/assemble` 监听器可以替换注册表贡献；它返回的组装结果具有权威性，因此该监听器负责保留可用的 Code Mode 协议。
 
 ### 公开 API
 
@@ -145,7 +145,7 @@ agent loop 将连续的 `parallel` 调用归入有界滚动池，并把每个 `e
 
 #### 模型看到的内容
 
-Code Mode 会公开生成的 [`run_code` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tools)、下方 SDK 说明，以及按所加载运行时语言生成的精确 SDK 块（TypeScript 的 `declare const tools` 块，或 Python 的 `tools` 声明）。`both` 会同时公开普通 schema 与此 Code Mode 接口。说明与 SDK 块随所加载运行时的语言切换；下方展示 TypeScript 风格（经 [`dsh-code-runtime-worker`](../../code-runtime/code-runtime-worker/README.md)），Python 风格（经 `dsh-code-runtime-python`）形状相同，只是换成 Python 语法（`await tools.name(args)`、异体名用下标访问、`print(...)` 与顶层 `return`）。
+Code Mode 会公开生成的 [`run_code` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tools)、下方 SDK 说明，以及按所加载运行时语言生成的精确 SDK 块（TypeScript 的 `declare const tools` 块，或 Python 的 `tools` 声明）。`both` 会同时公开普通 schema 与此 Code Mode 接口。说明与 SDK 块随所加载运行时的语言切换；下方展示 TypeScript 风格（经 [`dsh-code-runtime-worker`](../../code-runtime/code-runtime-worker/README.md)），Python 风格（用于任何报告 `language: 'python'` 的运行时）形状相同，只是换成 Python 语法（`await tools.name(args)`、异体名用下标访问、`print(...)` 与顶层 `return`）。
 
 ##### Code Mode SDK 说明
 
@@ -190,6 +190,6 @@ The available tools:
 - **`tools/pre-execute` 有意不允许改写 `exec.arguments`**：否则日志记录和呈现的参数会与实际运行内容失去同步；改写设计记录在[拟议的 Agent Note](../../../.agents/notes/proposed/feature/2026-06-30-pre-tool-input-rewrite.md)中。
 - **调用方定义的 subagent 与工作流结构化输出仍要求对象根**：这是消费方层面的守卫；共享 schema 词汇和工具输出支持任意 JSON 根。
 - **定义上的 `timeoutMs` 仅为声明**：注册表绝不会强制执行截止时间；要强制执行，必须使用 `@deepseek-ai/dsh-timeout-policy` 包装层。
-- **Code Mode 的 SDK 语言跟随唯一加载的运行时，且呈现模式在服务内统一**：`mode: code`/`both` 会拒绝组装提示词，除非 `ctx.codeRuntime.language` 有已注册的 SDK 渲染器（`typescript` 经 worker 后端，`python` 经 python 后端）；作用域限制／遮蔽仍会选择每个 agent 的可见绑定，但不能让一个工具仅使用 Native、另一个仅使用 Code，且单个运行时把语言固定为服务级（[语言分发 Agent Note](../../../.agents/notes/implemented/feature/2026-07-31-code-mode-language-dispatch.md) 负责说明为何暂缓逐 agent 切换语言）。
+- **Code Mode 的 SDK 语言跟随唯一加载的运行时，且呈现模式在服务内统一**：`mode: code`/`both` 会拒绝组装提示词，除非 `ctx.codeRuntime.language` 有已注册的 SDK 渲染器（`typescript` 经 worker 后端，`python` 用于任何报告该语言的运行时）；作用域限制／遮蔽仍会选择每个 agent 的可见绑定，但不能让一个工具仅使用 Native、另一个仅使用 Code，且单个运行时把语言固定为服务级（[语言分发 Agent Note](../../../.agents/notes/implemented/feature/2026-07-31-code-mode-language-dispatch.md) 负责说明为何暂缓逐 agent 切换语言）。
 - **Code Mode 中间值只存在于执行局部，且没有字节上限**：这些规范的类型化值无法从会话回放重建，并可能耗尽进程或 worker 内存；只有外层 `run_code` 输出受 worker 可配置的硬上限约束。每个子调用的持久日志副本则确实有上限：`tools/code-dispatch-log` waterfall 允许 spill 策略把过大的 `tool/code-dispatch` 内容替换为预览加定位符（[原理](../../../.agents/notes/implemented/feature/2026-07-26-code-dispatch-log-spill.md)）。
 - **每次运行都会获得全新的 `run_code` 状态**：MVP 不采用持久 REPL 风格内核（跨调用状态不会出现在日志中）；参见 [Code Mode Agent Note](../../../.agents/notes/implemented/feature/2026-06-15-code-mode.md)。

@@ -62,6 +62,8 @@ function pad(indent: number): string {
 interface RenderState {
   readonly classes: string[]
   readonly usedClassNames: Set<string>
+  /** Next collision counter per capped base, so allocation is amortized O(1) instead of rescanning from `2`. */
+  readonly nextClassCounter: Map<string, number>
   readonly typing: Set<string>
 }
 
@@ -120,21 +122,27 @@ function camelCase(raw: string): string {
   return /^[A-Za-z]/.test(joined) ? joined : `Tool${joined}`
 }
 
-/** Reserve a unique class name, suffixing a counter on collision after CamelCase sanitization. */
 /**
  * Reserve a unique class name from a base, suffixing `2`, `3`, … on collision.
  * The base is capped at {@link MAX_CLASS_NAME_BASE} first: child class names
  * derive from their parent's allocated name (`ParentChild`), so an unbounded
  * schema of single-field objects would otherwise grow each name by one field
  * per level and the sum of all names to Θ(depth²). Capping the base keeps each
- * name — and the total emitted text — linear in depth; the collision counter
- * still makes truncated bases unique.
+ * name — and the total emitted text — linear in depth. Collisions resume from
+ * the per-base counter in `state.nextClassCounter` rather than rescanning from
+ * `2`, so a deep chain sharing one capped base stays O(1) per allocation
+ * (amortized) instead of Θ(depth²) in time.
  */
 const MAX_CLASS_NAME_BASE = 120
 function allocateClassName(base: string, state: RenderState): string {
   const capped = base.length > MAX_CLASS_NAME_BASE ? base.slice(0, MAX_CLASS_NAME_BASE) : base
   let name = capped
-  for (let n = 2; state.usedClassNames.has(name); n++) name = `${capped}${n}`
+  if (state.usedClassNames.has(name)) {
+    let n = state.nextClassCounter.get(capped) ?? 2
+    while (state.usedClassNames.has(`${capped}${n}`)) n++
+    name = `${capped}${n}`
+    state.nextClassCounter.set(capped, n + 1)
+  }
   state.usedClassNames.add(name)
   return name
 }
@@ -219,6 +227,7 @@ function renderType(schema: unknown, className: string, state: RenderState): str
   // validation. Any throw here degrades to `Any`, discarding classes this call
   // partially emitted so no broken declaration escapes.
   const classFloor = state.classes.length
+  const typingFloor = new Set(state.typing)
   /* jscpd:ignore-start -- the explicit-stack walk skeleton deliberately parallels
      ts-types.ts's renderSupportedSchema; the two sibling renderers keep symmetric shapes. */
   const finish = (type: string): void => {
@@ -383,9 +392,19 @@ function renderType(schema: unknown, className: string, state: RenderState): str
       }
     }
   } catch {
-    // A render-phase throw (a stateful getter that passed validation) degrades
-    // the whole node to `Any`; drop any classes this call had begun emitting.
+    // Reached by a render-phase throw the root validation could not catch:
+    // either a hostile stateful getter (a `type` that passes validation then
+    // throws on a later read) OR one of this module's own v8-ignored internal
+    // invariant errors (`missing python render child` etc.). Both degrade the
+    // whole node to `Any` — an internal renderer bug thus surfaces as a lost
+    // type rather than a loud crash during prompt assembly, the deliberate
+    // trade for the never-throw contract. Roll back the classes and typing
+    // symbols the discarded subtree added so the import line still lists
+    // exactly the symbols the surviving output uses; `usedClassNames`/counter
+    // retention is harmless (conservative uniqueness).
     state.classes.length = classFloor
+    state.typing.clear()
+    for (const symbol of typingFloor) state.typing.add(symbol)
     state.typing.add('Any')
     return 'Any'
   }
@@ -409,7 +428,7 @@ export function jsonSchemaToPy(schema: unknown): string {
   // A throwaway state whose class collector never escapes: an object with
   // properties has nowhere to declare its TypedDict and degrades to
   // dict[str, Any]. renderToolsSdkPy drives the named-TypedDict path.
-  return renderType(schema, '', { classes: [], usedClassNames: new Set(), typing: new Set() })
+  return renderType(schema, '', { classes: [], usedClassNames: new Set(), nextClassCounter: new Map(), typing: new Set() })
 }
 
 /** The fixed model-facing usage contract rendered above the declarations. */
@@ -441,7 +460,7 @@ The available tools:`
  */
 export function renderToolsSdkPy(schemas: ToolSdkSchema[]): string {
   const sorted = [...schemas].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
-  const state: RenderState = { classes: [], usedClassNames: new Set(), typing: new Set(['Protocol']) }
+  const state: RenderState = { classes: [], usedClassNames: new Set(), nextClassCounter: new Map(), typing: new Set(['Protocol']) }
   const inlineMembers: string[] = []
   const subscriptMembers: string[] = []
   for (const schema of sorted) {

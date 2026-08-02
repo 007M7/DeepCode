@@ -54,7 +54,10 @@ describe('jsonSchemaToPy', () => {
   it('degrades to Any when a stateful getter throws in the render phase after passing validation', () => {
     // A hostile `type` getter returns a scalar on the validation read, then
     // throws on the render read. The no-throw contract must still hold across
-    // the whole walk, degrading the node to Any rather than escaping.
+    // the whole walk, degrading the node to Any rather than escaping. Assert
+    // the FIRST call's result: within it, root validation reads `type` once
+    // and the render phase reads it again (the throw), so this exercises the
+    // render-phase catch, not the validation-catch path.
     let reads = 0
     const schema = {
       get type() {
@@ -63,8 +66,9 @@ describe('jsonSchemaToPy', () => {
         throw new Error('stateful getter')
       },
     }
-    expect(() => jsonSchemaToPy(schema)).not.toThrow()
-    expect(jsonSchemaToPy(schema)).toBe('Any')
+    let first: string | undefined
+    expect(() => { first = jsonSchemaToPy(schema) }).not.toThrow()
+    expect(first).toBe('Any')
   })
 
   it('rolls back partial class declarations when a nested render-phase throw degrades a tool', () => {
@@ -88,6 +92,10 @@ describe('jsonSchemaToPy', () => {
     // entire renderType call); no partial TypedDict for it is declared.
     expect(text).toContain('async def hostile(self, args: Any) -> str: ...')
     expect(text).not.toContain('class HostileArgs(TypedDict):')
+    // The import line lists only symbols the surviving output uses: the
+    // discarded subtree's TypedDict/NotRequired must not leak into it.
+    expect(text).not.toContain('TypedDict')
+    expect(text).toContain('from typing import Any, Protocol')
   })
 
   it('keeps class names and total output linear for a deep single-field object chain', () => {
@@ -111,6 +119,29 @@ describe('jsonSchemaToPy', () => {
     const longestClassName = [...text.matchAll(/^class (\w+)\(TypedDict\):/gm)].reduce((max, m) => Math.max(max, m[1]?.length ?? 0), 0)
     expect(longestClassName).toBeLessThanOrEqual(140)
     expect(text.length).toBeLessThan(depth * 400)
+  })
+
+  it('skips an already-taken counter suffix when a sibling object occupies it', () => {
+    // `phase` and `Phase` both CamelCase to the base `FooArgsPhase`; `phase2`
+    // independently allocates `FooArgsPhase2` first. When `Phase` collides, the
+    // counter's first candidate `FooArgsPhase2` is already taken, so the scan
+    // must advance to `FooArgsPhase3` (exercises the collision-skip loop).
+    const obj = (field: string) => ({ type: 'object' as const, additionalProperties: false, properties: { [field]: { type: 'string' } } })
+    const tool: ToolSdkSchema = {
+      name: 'foo',
+      description: 'Sibling objects with colliding class bases.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: { phase: obj('a'), phase2: obj('b'), Phase: obj('c') },
+        required: ['phase', 'phase2', 'Phase'],
+      },
+      output: { type: 'string' },
+    }
+    const text = renderToolsSdkPy([tool])
+    expect(text).toContain('class FooArgsPhase(TypedDict):')
+    expect(text).toContain('class FooArgsPhase2(TypedDict):')
+    expect(text).toContain('class FooArgsPhase3(TypedDict):')
   })
 
   it('emits exact digits for a beyond-safe-range integer literal', () => {
