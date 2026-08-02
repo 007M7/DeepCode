@@ -290,16 +290,7 @@ export class SessionManager {
    */
   refreshSubagents(parentSessionId: SessionId): Promise<void> {
     const existing = this.catalogInflight.get(parentSessionId)
-    if (existing !== undefined) {
-      // A refresh requested while a pull is in flight must not be silently
-      // coalesced into it: the in-flight response was requested before the
-      // triggering change (a membership frame or an opened menu), so it can
-      // never contain that change. Queue one trailing refresh that runs after
-      // the pull settles; without it the change stays invisible until an
-      // unrelated later trigger (reselection, menu reopen, reconnect).
-      this.catalogStale.add(parentSessionId)
-      return existing.promise
-    }
+    if (existing !== undefined) return existing.promise
     const previous = this.catalogs.get(parentSessionId)
     const expandableRows = new Set<SessionId>()
     const activityRows = new Map<SessionId, 'running' | 'inactive'>()
@@ -774,11 +765,18 @@ export class SessionManager {
     for (const session of this.sessions.values()) void session.resync()
   }
 
-  /** Debounce membership refetches while one parent catalog is open. */
+  /** Debounce membership refetches while one parent catalog is selected or open. */
   private scheduleCatalogRefresh(parentSessionId: SessionId): void {
     if (this.catalogDebounce.has(parentSessionId)) return
     const timer = setTimeout(() => {
       this.catalogDebounce.delete(parentSessionId)
+      // The in-flight response predates the membership frame that scheduled
+      // this callback. Queue one post-settlement pull instead of treating an
+      // ordinary overlapping read as evidence that catalog membership changed.
+      if (this.catalogInflight.has(parentSessionId)) {
+        this.catalogStale.add(parentSessionId)
+        return
+      }
       void this.refreshSubagents(parentSessionId)
     }, 50)
     this.catalogDebounce.set(parentSessionId, timer)

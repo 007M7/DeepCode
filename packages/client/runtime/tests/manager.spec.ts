@@ -530,6 +530,22 @@ describe('subagent catalogs', () => {
     ])
   })
 
+  it('coalesces overlapping catalog reads without scheduling a trailing pull', async () => {
+    const api = new FakeApiClient()
+    const root = 'fk-root' as SessionId
+    const first = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
+    api.onSubagentList = () => first.promise
+    const manager = new SessionManager(api)
+
+    const refresh = manager.refreshSubagents(root)
+    expect(manager.refreshSubagents(root)).toBe(refresh)
+    api.onSubagentList = () => Promise.resolve(ok({ entries: [], parentAvailable: true }))
+    first.resolve(ok({ entries: [], parentAvailable: true }))
+    await refresh
+
+    expect(api.callsOf('subagent.list')).toHaveLength(1)
+  })
+
   it('runs one trailing catalog refresh for a membership change coalesced into an in-flight pull', async () => {
     vi.useFakeTimers()
     try {
@@ -538,8 +554,7 @@ describe('subagent catalogs', () => {
       const first = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
       const second = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
       api.onSubagentList = () => first.promise
-      const manager = new SessionManager(api)
-      manager.setSubagentCatalogOpen(root, true)
+      const manager = new SessionManager(api, root)
       const refresh = manager.refreshSubagents(root)
 
       // A membership frame arrives while the pull is in flight; the debounced
