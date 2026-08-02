@@ -51,285 +51,6 @@ describe('jsonSchemaToPy', () => {
     expect(jsonSchemaToPy({ type: 'string', enum: [] })).toBe('Any')
   })
 
-  it('degrades to Any when a stateful getter throws in the render phase after passing validation', () => {
-    // A hostile `type` getter returns a scalar on the validation read, then
-    // throws on the render read. The no-throw contract must still hold across
-    // the whole walk, degrading the node to Any rather than escaping. Assert
-    // the FIRST call's result: within it, root validation reads `type` once
-    // and the render phase reads it again (the throw), so this exercises the
-    // render-phase catch, not the validation-catch path.
-    let reads = 0
-    const schema = {
-      get type() {
-        reads += 1
-        if (reads <= 1) return 'string'
-        throw new Error('stateful getter')
-      },
-    }
-    let first: string | undefined
-    expect(() => { first = jsonSchemaToPy(schema) }).not.toThrow()
-    expect(first).toBe('Any')
-  })
-
-  it('rolls back partial class declarations when a nested render-phase throw degrades a tool', () => {
-    // The throwing field must not leave a half-emitted TypedDict in the output.
-    let reads = 0
-    const hostileField = {
-      get type() {
-        reads += 1
-        if (reads <= 1) return 'string'
-        throw new Error('stateful getter')
-      },
-    }
-    const tool: ToolSdkSchema = {
-      name: 'hostile',
-      description: 'Has a field whose getter throws on the render read.',
-      parameters: { type: 'object', additionalProperties: false, properties: { bad: hostileField as never }, required: ['bad'] },
-      output: { type: 'string' },
-    }
-    const text = renderToolsSdkPy([tool])
-    // The whole args render degrades to Any (a render-phase throw unwinds the
-    // entire renderType call); no partial TypedDict for it is declared.
-    expect(text).toContain('async def hostile(self, args: Any) -> str: ...')
-    expect(text).not.toContain('class HostileArgs(TypedDict):')
-    // The import line lists only symbols the surviving output uses: the
-    // discarded subtree's TypedDict/NotRequired must not leak into it.
-    expect(text).not.toContain('TypedDict')
-    expect(text).toContain('from typing import Any, Protocol')
-  })
-
-  it('keeps class names and total output linear for a deep single-field object chain', () => {
-    // Child class names derive from their parent's; without a cap the sum of
-    // names is Theta(depth^2). Bound it so a deep schema stays linear.
-    const depth = 4000
-    let schema: Record<string, unknown> = { type: 'string' }
-    for (let i = 0; i < depth; i++) {
-      schema = { type: 'object', additionalProperties: false, properties: { inner: schema }, required: ['inner'] }
-    }
-    const tool: ToolSdkSchema = {
-      name: 'deep',
-      description: 'Deeply nested single-field chain.',
-      parameters: schema,
-      output: { type: 'string' },
-    }
-    const text = renderToolsSdkPy([tool])
-    // No emitted class name exceeds the cap plus a short collision suffix, so
-    // total text is O(depth) rather than O(depth^2) (a quadratic 4000-deep
-    // chain would be tens of MB).
-    const longestClassName = [...text.matchAll(/^class (\w+)\(TypedDict\):/gm)].reduce((max, m) => Math.max(max, m[1]?.length ?? 0), 0)
-    expect(longestClassName).toBeLessThanOrEqual(140)
-    expect(text.length).toBeLessThan(depth * 400)
-  })
-
-  it('skips an already-taken counter suffix when a sibling object occupies it', () => {
-    // `phase` and `Phase` both CamelCase to the base `FooArgsPhase`; `phase2`
-    // independently allocates `FooArgsPhase2` first. When `Phase` collides, the
-    // counter's first candidate `FooArgsPhase2` is already taken, so the scan
-    // must advance to `FooArgsPhase3` (exercises the collision-skip loop).
-    const obj = (field: string) => ({ type: 'object' as const, additionalProperties: false, properties: { [field]: { type: 'string' } } })
-    const tool: ToolSdkSchema = {
-      name: 'foo',
-      description: 'Sibling objects with colliding class bases.',
-      parameters: {
-        type: 'object',
-        additionalProperties: false,
-        properties: { phase: obj('a'), phase2: obj('b'), Phase: obj('c') },
-        required: ['phase', 'phase2', 'Phase'],
-      },
-      output: { type: 'string' },
-    }
-    const text = renderToolsSdkPy([tool])
-    expect(text).toContain('class FooArgsPhase(TypedDict):')
-    expect(text).toContain('class FooArgsPhase2(TypedDict):')
-    expect(text).toContain('class FooArgsPhase3(TypedDict):')
-  })
-
-  it('degrades to Any instead of looping when a stateful getter introduces a cycle after validation', () => {
-    // `items` validates as a scalar, then returns the root schema at render
-    // time — a cycle a post-validation mutation introduced. The walk must
-    // degrade to Any rather than push frames forever.
-    let itemReads = 0
-    const root: Record<string, unknown> = { type: 'array' }
-    Object.defineProperty(root, 'items', {
-      enumerable: true,
-      get() {
-        itemReads += 1
-        return itemReads <= 1 ? { type: 'string' } : root
-      },
-    })
-    let out: string | undefined
-    expect(() => { out = jsonSchemaToPy(root) }).not.toThrow()
-    // list[...] of a self-cycle: the inner cycle degrades to Any.
-    expect(out).toBe('list[Any]')
-  })
-
-  it('degrades to Any when a stateful getter returns a non-object child at render time', () => {
-    // `items` validates as a scalar node, then returns a bare string (a
-    // non-object) at render. The walk must handle a non-object child without
-    // tracking identity and degrade it, not throw.
-    let itemReads = 0
-    const root: Record<string, unknown> = { type: 'array' }
-    Object.defineProperty(root, 'items', {
-      enumerable: true,
-      get() {
-        itemReads += 1
-        return itemReads <= 1 ? { type: 'string' } : 'not-a-schema-object'
-      },
-    })
-    let out: string | undefined
-    expect(() => { out = jsonSchemaToPy(root) }).not.toThrow()
-    expect(out).toBe('list[Any]')
-  })
-
-  it('degrades to Any when a stateful getter returns a self-referential function as a child', () => {
-    // A function has typeof 'function' yet can carry own props and reference
-    // itself; the cycle guard must track it too, or the walk loops forever.
-    let itemReads = 0
-    const root: Record<string, unknown> = { type: 'array' }
-    const fn = Object.assign(function () {}, {}) as Record<string, unknown> & (() => void)
-    ;(fn as Record<string, unknown>).oneOf = [fn]
-    Object.defineProperty(root, 'items', {
-      enumerable: true,
-      get() {
-        itemReads += 1
-        return itemReads <= 1 ? { type: 'string' } : fn
-      },
-    })
-    let out: string | undefined
-    expect(() => { out = jsonSchemaToPy(root) }).not.toThrow()
-    expect(out).toBe('list[Any]')
-  })
-
-  it('degrades a const that snapshots as a non-scalar to the broad type', () => {
-    // The single snapshot read returns an object (validation read returned a
-    // scalar); the check must degrade rather than spell Literal[[object Object]].
-    let reads = 0
-    const schema: Record<string, unknown> = { type: 'string' }
-    Object.defineProperty(schema, 'const', {
-      enumerable: true,
-      get() {
-        reads += 1
-        return reads <= 1 ? 'fixed' : {}
-      },
-    })
-    let out: string | undefined
-    expect(() => { out = jsonSchemaToPy(schema) }).not.toThrow()
-    expect(out).toBe('str')
-    expect(out).not.toContain('object Object')
-  })
-
-  it('snapshots const with one read so a third-read switch cannot spell a non-scalar', () => {
-    // A getter returning 'fixed' on the validation AND check reads but an
-    // object on a third read would defeat a separate check-read/spell-read.
-    // The render snapshots once, so it either spells the checked value or
-    // degrades — never Literal[[object Object]].
-    let reads = 0
-    const schema: Record<string, unknown> = { type: 'string' }
-    Object.defineProperty(schema, 'const', {
-      enumerable: true,
-      get() {
-        reads += 1
-        return reads <= 2 ? 'fixed' : {}
-      },
-    })
-    let out: string | undefined
-    expect(() => { out = jsonSchemaToPy(schema) }).not.toThrow()
-    expect(out === 'str' || out === 'Literal["fixed"]').toBe(true)
-    expect(out).not.toContain('object Object')
-  })
-
-  it('degrades to the broad type when an enum getter re-reads as a non-array', () => {
-    // A validated enum array that re-reads as a non-array must degrade, not
-    // spread a non-iterable or spell a bad literal.
-    let reads = 0
-    const schema: Record<string, unknown> = { type: 'string' }
-    Object.defineProperty(schema, 'enum', {
-      enumerable: true,
-      get() {
-        reads += 1
-        return reads <= 1 ? ['a'] : 'not-an-array'
-      },
-    })
-    let out: string | undefined
-    expect(() => { out = jsonSchemaToPy(schema) }).not.toThrow()
-    expect(out).toBe('str')
-  })
-
-  it('degrades to the broad type when an enum getter re-reads as an empty array', () => {
-    // A validated non-empty enum that re-reads as [] would spell Literal[] — a
-    // Python SyntaxError that breaks the whole SDK. Require non-empty at render.
-    let reads = 0
-    const schema: Record<string, unknown> = { type: 'string' }
-    Object.defineProperty(schema, 'enum', {
-      enumerable: true,
-      get() {
-        reads += 1
-        return reads <= 1 ? ['a'] : []
-      },
-    })
-    let out: string | undefined
-    expect(() => { out = jsonSchemaToPy(schema) }).not.toThrow()
-    expect(out).toBe('str')
-    expect(out).not.toContain('Literal[]')
-  })
-
-  it('degrades the broad type when an enum element is an accessor that re-reads as a non-scalar', () => {
-    // `[...raw]` reads each element exactly once; the validation read saw a
-    // scalar, the spread read returns an object. The snapshot's every(isPyScalar)
-    // check must degrade rather than spell Literal[[object Object]].
-    let elemReads = 0
-    const arr: unknown[] = []
-    Object.defineProperty(arr, '0', {
-      enumerable: true,
-      configurable: true,
-      get() {
-        elemReads += 1
-        return elemReads <= 1 ? 'a' : {}
-      },
-    })
-    arr.length = 1
-    const schema = { type: 'string', enum: arr }
-    let out: string | undefined
-    expect(() => { out = jsonSchemaToPy(schema) }).not.toThrow()
-    expect(out).toBe('str')
-    expect(out).not.toContain('object Object')
-  })
-
-  it('spells a const re-read as null with None, not the JS string "null"', () => {
-    let reads = 0
-    const schema: Record<string, unknown> = { type: 'string' }
-    Object.defineProperty(schema, 'const', {
-      enumerable: true,
-      get() {
-        reads += 1
-        return reads <= 1 ? 'fixed' : null
-      },
-    })
-    let out: string | undefined
-    expect(() => { out = jsonSchemaToPy(schema) }).not.toThrow()
-    // Either the checked value spells, or a null re-read spells None — never "null".
-    expect(out === 'Literal["fixed"]' || out === 'Literal[None]').toBe(true)
-    expect(out).not.toContain('Literal[null]')
-  })
-
-  it('degrades a oneOf that re-reads as an empty array to Any, not an empty string', () => {
-    // oneOf validates as two branches, then returns [] at render; a naive join
-    // would produce '' (a missing type). Degrade to Any instead.
-    let reads = 0
-    const schema: Record<string, unknown> = {}
-    Object.defineProperty(schema, 'oneOf', {
-      enumerable: true,
-      get() {
-        reads += 1
-        return reads <= 1 ? [{ type: 'string' }, { type: 'number' }] : []
-      },
-    })
-    let out: string | undefined
-    expect(() => { out = jsonSchemaToPy(schema) }).not.toThrow()
-    expect(out).toBe('Any')
-    expect(out).not.toBe('')
-  })
-
   it('emits exact digits for a beyond-safe-range integer literal', () => {
     // Python integers are arbitrary-precision, so the emitted digits ARE the
     // value the model programs against. `String(2 ** 60)` prints the rounded
@@ -547,6 +268,43 @@ describe('renderToolsSdkPy', () => {
     // Both sanitize to `MyToolArgs`; the second collides and gets a suffix.
     expect(text).toContain('class MyToolArgs(TypedDict):')
     expect(text).toContain('class MyToolArgs2(TypedDict):')
+  })
+
+  it('caps class-name length so a deep single-field chain stays linear', () => {
+    // Child class names derive from their parent's, so without a cap the sum of
+    // names would be Theta(depth^2). MAX_CLASS_NAME_BASE (120) bounds each name.
+    const depth = 4000
+    let schema: Record<string, unknown> = { type: 'string' }
+    for (let i = 0; i < depth; i++) {
+      schema = { type: 'object', additionalProperties: false, properties: { inner: schema }, required: ['inner'] }
+    }
+    const tool: ToolSdkSchema = { name: 'deep', description: 'Deep chain.', parameters: schema, output: { type: 'string' } }
+    const text = renderToolsSdkPy([tool])
+    const longestClassName = [...text.matchAll(/^class (\w+)\(TypedDict\):/gm)].reduce((max, m) => Math.max(max, m[1]?.length ?? 0), 0)
+    expect(longestClassName).toBeLessThanOrEqual(140)
+    expect(text.length).toBeLessThan(depth * 400)
+  })
+
+  it('skips an already-taken counter suffix when a sibling object occupies it', () => {
+    // `phase` and `Phase` both CamelCase to base `FooArgsPhase`; `phase2`
+    // independently takes `FooArgsPhase2`, so `Phase`'s collision scan must
+    // advance to `FooArgsPhase3` (exercises the collision-skip loop).
+    const obj = (field: string) => ({ type: 'object' as const, additionalProperties: false, properties: { [field]: { type: 'string' } } })
+    const tool: ToolSdkSchema = {
+      name: 'foo',
+      description: 'Sibling objects with colliding class bases.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: { phase: obj('a'), phase2: obj('b'), Phase: obj('c') },
+        required: ['phase', 'phase2', 'Phase'],
+      },
+      output: { type: 'string' },
+    }
+    const text = renderToolsSdkPy([tool])
+    expect(text).toContain('class FooArgsPhase(TypedDict):')
+    expect(text).toContain('class FooArgsPhase2(TypedDict):')
+    expect(text).toContain('class FooArgsPhase3(TypedDict):')
   })
 
   it('references the named TypedDict from a reserved/subscript tool too', () => {

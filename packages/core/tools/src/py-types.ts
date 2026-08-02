@@ -21,17 +21,6 @@ import type { ToolSdkSchema } from './ts-types.ts'
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 /**
- * Whether a schema value carries a trackable reference identity for the render
- * walk's cycle detection. Both plain objects AND functions qualify: a function
- * has `typeof 'function'` yet can carry own properties (`oneOf`, `items`) and
- * reference itself, so a post-validation getter returning a self-referential
- * function would otherwise bypass the object-only guard and loop forever.
- */
-function hasIdentity(value: unknown): value is object {
-  return (typeof value === 'object' && value !== null) || typeof value === 'function'
-}
-
-/**
  * Python hard keywords: reserved everywhere, so a tool or field named
  * ``class`` or ``lambda`` is legal on the wire but not as an attribute
  * (``tools.class`` would be a SyntaxError in the model program) and not as a
@@ -67,8 +56,8 @@ function pad(indent: number): string {
 /**
  * Collector threaded through {@link renderType}: the emitted `TypedDict` class
  * declarations (nested classes precede the parent that references them), the
- * class names already taken (for collision suffixing), and the `typing`
- * symbols the render actually used.
+ * class names already taken (for collision suffixing), a per-base collision
+ * counter, and the `typing` symbols the render actually used.
  */
 interface RenderState {
   readonly classes: string[]
@@ -161,11 +150,10 @@ function allocateClassName(base: string, state: RenderState): string {
 }
 
 /**
- * Render one validated scalar as Python literal text (`True`/`False`, `None`,
- * JSON-quoted strings, bare numbers). A validated `const`/`enum` never carries
- * a bare `null` on a non-`null` scalar type, but a post-validation stateful
- * getter can re-read one as `null`, so `null` is spelled `None` rather than the
- * JS `String(null)` = `"null"`.
+ * Render one validated scalar as Python literal text (`True`/`False`,
+ * JSON-quoted strings, bare numbers). `null` cannot reach here: the `null`
+ * type renders directly as `None`, and the unified validator rejects a null
+ * `const`/`enum` entry on every other scalar type.
  *
  * A beyond-safe-range integral number takes `BigInt` digits rather than
  * `String`: Python integers are arbitrary-precision, so the emitted digits ARE
@@ -180,17 +168,11 @@ function allocateClassName(base: string, state: RenderState): string {
 function pyScalar(value: JsonSchemaScalar): string {
   if (value === true) return 'True'
   if (value === false) return 'False'
-  if (value === null) return 'None'
   if (typeof value === 'string') return JSON.stringify(value)
   if (typeof value === 'number' && Number.isInteger(value) && !Number.isSafeInteger(value)) {
     return BigInt(value).toString()
   }
   return String(value)
-}
-
-/** Whether a value is a JSON scalar `Literal[...]` can spell (a re-read getter may return anything). */
-function isPyScalar(value: unknown): value is JsonSchemaScalar {
-  return value === null || typeof value === 'boolean' || typeof value === 'number' || typeof value === 'string'
 }
 
 /**
@@ -203,24 +185,12 @@ function isPyScalar(value: unknown): value is JsonSchemaScalar {
  */
 function renderConstrainedScalar(node: Record<string, unknown>, broad: string, state: RenderState): string {
   if (Object.hasOwn(node, 'const')) {
-    // Snapshot the value with ONE read: a stateful getter can return different
-    // values across reads, so a separate check-read and spell-read could still
-    // pass the check and then spell a non-scalar (`Literal[[object Object]]`).
-    const value = node.const
-    if (!isPyScalar(value)) return broad
     state.typing.add('Literal')
-    return `Literal[${pyScalar(value)}]`
+    return `Literal[${pyScalar(node.const as JsonSchemaScalar)}]`
   }
   if (Object.hasOwn(node, 'enum')) {
-    const raw = node.enum
-    // `[...raw]` reads each element exactly once (elements may be accessor
-    // properties that change between reads); then check and spell that
-    // snapshot. Require non-empty: an emptied re-read would spell `Literal[]`,
-    // a Python SyntaxError that breaks the whole SDK.
-    const values: unknown[] | undefined = Array.isArray(raw) ? [...(raw as unknown[])] : undefined
-    if (values === undefined || values.length === 0 || !values.every(isPyScalar)) return broad
     state.typing.add('Literal')
-    return `Literal[${values.map(pyScalar).join(', ')}]`
+    return `Literal[${(node.enum as JsonSchemaScalar[]).map(pyScalar).join(', ')}]`
   }
   return broad
 }
@@ -231,9 +201,10 @@ function renderConstrainedScalar(node: Record<string, unknown>, broad: string, s
  * needs. `className` is the name to give an object node with properties (and
  * the prefix for its nested objects). Handles every unified schema construct —
  * `oneOf` (→ `X | Y`), `const`/`enum` (→ `Literal[...]`), `integer` (→ `int`),
- * `null` (→ `None`) — and degrades malformed or unsupported inputs to `Any`
- * without throwing. {@link jsonSchemaToPy} is the context-free entry point;
- * this is the collecting core.
+ * `null` (→ `None`) — and degrades an unsupported or malformed schema to `Any`
+ * without throwing, the same trusted-after-validation stance as the sibling
+ * {@link ./ts-types.ts | ts-types} renderer. {@link jsonSchemaToPy} is the
+ * context-free entry point; this is the collecting core.
  */
 function renderType(schema: unknown, className: string, state: RenderState): string {
   interface Frame {
@@ -247,46 +218,28 @@ function renderType(schema: unknown, className: string, state: RenderState): str
     childTypes: string[]
     entries: [string, unknown][]
     allocated?: string
-    validated: boolean
   }
-  const newFrame = (schema: unknown, className: string, validated: boolean): Frame =>
-    ({ schema, className, phase: 'start', children: [], childIndex: 0, childTypes: [], entries: [], validated })
-  const frames: Frame[] = [newFrame(schema, className, false)]
-  // Ancestor schemas by reference identity — the frame stack IS the DFS path,
-  // so this set holds exactly the current node's ancestors. A stateful getter
-  // can mutate the graph after validation (an `items`/property that validated
-  // as a scalar but returns an ancestor at render time); without this, the walk
-  // would push frames forever. A repeated ancestor degrades to `Any` per the
-  // never-throw contract. Distinct nodes in a legitimately deep chain are all
-  // different references, so this stays O(1) per push and O(depth) memory.
-  // Both objects and functions are tracked (see {@link hasIdentity}). Out of
-  // scope: a getter fabricating a FRESH node per read never repeats an ancestor
-  // and is locally indistinguishable from a legitimately unbounded-depth schema
-  // (which this module supports), so cycle detection is the reachable best
-  // defense rather than a depth cap that would break the legitimate case.
-  const activeSchemas = new Set<object>()
-  if (hasIdentity(schema)) activeSchemas.add(schema)
-  let result: string | undefined
-  // The no-throw contract must hold across the WHOLE walk, not just the root
-  // validation: a hostile stateful getter (a `type` that returns a scalar on
-  // the first read and throws on a later one) reaches the render phase past
-  // validation. Any throw here degrades to `Any`, discarding classes this call
-  // partially emitted so no broken declaration escapes.
-  const classFloor = state.classes.length
-  const typingFloor = new Set(state.typing)
-  /* jscpd:ignore-start -- the explicit-stack walk skeleton deliberately parallels
-     ts-types.ts's renderSupportedSchema; the two sibling renderers keep symmetric shapes. */
-  const finish = (type: string): void => {
-    const popped = frames.pop()
-    if (popped !== undefined && hasIdentity(popped.schema)) {
-      activeSchemas.delete(popped.schema)
-    }
-    const parent = frames.at(-1)
-    if (parent === undefined) result = type
-    else parent.childTypes.push(type)
-  }
-
+  const newFrame = (schema: unknown, className: string): Frame =>
+    ({ schema, className, phase: 'start', children: [], childIndex: 0, childTypes: [], entries: [] })
   try {
+    // Validate the WHOLE tree once, then trust it — the same contract the
+    // sibling ts-types renderer follows at a typed same-process seam. Every
+    // node past this point is a validated JSON-schema node, so the walk reads
+    // its fields without re-checking. An unsupported or malformed schema throws
+    // here (before anything is emitted) and degrades to `Any`, the Python
+    // counterpart of the TS flavor's `unknown`.
+    assertSupportedJsonSchema(schema)
+    const frames: Frame[] = [newFrame(schema, className)]
+    let result: string | undefined
+    /* jscpd:ignore-start -- the explicit-stack walk skeleton deliberately parallels
+       ts-types.ts's renderSupportedSchema; the two sibling renderers keep symmetric shapes. */
+    const finish = (type: string): void => {
+      frames.pop()
+      const parent = frames.at(-1)
+      if (parent === undefined) result = type
+      else parent.childTypes.push(type)
+    }
+
     while (frames.length > 0) {
       const frame = frames.at(-1)
       /* v8 ignore next -- the loop condition guarantees a current frame. */
@@ -298,19 +251,7 @@ function renderType(schema: unknown, className: string, state: RenderState): str
           /* v8 ignore next -- childIndex is bounded by children.length. */
           if (child === undefined) throw new Error('missing python render child')
           frame.childIndex++
-          // A child schema already on the active path is a cycle a post-
-          // validation mutation introduced; degrade it to `Any` rather than
-          // recurse forever. A fresh reference joins the path (finish removes
-          // it); a value with no reference identity carries none to track.
-          if (hasIdentity(child.schema)) {
-            if (activeSchemas.has(child.schema)) {
-              state.typing.add('Any')
-              frame.childTypes.push('Any')
-              continue
-            }
-            activeSchemas.add(child.schema)
-          }
-          frames.push(newFrame(child.schema, child.className, true))
+          frames.push(newFrame(child.schema, child.className))
           continue
         }
         if (frame.kind === 'oneOf') {
@@ -319,9 +260,9 @@ function renderType(schema: unknown, className: string, state: RenderState): str
         }
         /* jscpd:ignore-end */
         if (frame.kind === 'array') {
-        // `list[A | B]` needs no parentheses in Python. Array frames always
-        // schedule exactly one child, so its type is present.
-        /* v8 ignore next -- the ?? arm needs a childless array frame, which start never builds. */
+          // `list[A | B]` needs no parentheses in Python. Array frames always
+          // schedule exactly one child, so its type is present.
+          /* v8 ignore next -- the ?? arm needs a childless array frame, which start never builds. */
           finish(`list[${frame.childTypes[0] ?? 'Any'}]`)
           continue
         }
@@ -366,31 +307,10 @@ function renderType(schema: unknown, className: string, state: RenderState): str
       }
 
       frame.phase = 'children'
-      // Validate the WHOLE tree once at the root frame (the assertion walks it
-      // with an explicit stack); child frames are inside that validated tree, so
-      // re-asserting them would make a deep schema quadratic.
-      if (!frame.validated) {
-        try {
-          assertSupportedJsonSchema(frame.schema)
-        } catch {
-          state.typing.add('Any')
-          finish('Any')
-          continue
-        }
-      }
       const node = frame.schema as Record<string, unknown>
       if (Object.hasOwn(node, 'oneOf')) {
-        // Snapshot the branches with ONE read (a getter can change them
-        // between reads). A re-read that is not a non-empty array would join to
-        // `''` (or drop branches), so degrade to `Any` instead.
-        const branches = node.oneOf
-        if (!Array.isArray(branches) || branches.length === 0) {
-          state.typing.add('Any')
-          finish('Any')
-          continue
-        }
         frame.kind = 'oneOf'
-        frame.children = (branches as unknown[]).map((branch, index) => ({ schema: branch, className: `${frame.className}${index + 1}` }))
+        frame.children = (node.oneOf as unknown[]).map((branch, index) => ({ schema: branch, className: `${frame.className}${index + 1}` }))
         continue
       }
       if (!Object.hasOwn(node, 'type')) {
@@ -416,13 +336,11 @@ function renderType(schema: unknown, className: string, state: RenderState): str
           break
         }
         case 'object': {
-        // A missing `properties` is an empty property map, exactly as the
-        // unified validator and the TS renderer read it — NOT an unknown
-        // shape. assertSupportedJsonSchema already rejected a non-object
-        // `properties` (degraded to `Any` above), so the only non-map case
-        // left is omission. The openness of the resulting empty object is
-        // decided below, so a closed empty object still declares an empty
-        // TypedDict rather than a permissive `dict[str, Any]`.
+          // A missing `properties` is an empty property map, exactly as the
+          // unified validator and the TS renderer read it — NOT an unknown
+          // shape. The openness of the resulting empty object is decided below,
+          // so a closed empty object still declares an empty TypedDict rather
+          // than a permissive `dict[str, Any]`.
           const entries = Object.entries((node.properties ?? {}) as Record<string, unknown>)
           // An empty `className` marks the context-free `jsonSchemaToPy` entry:
           // there is no naming context to declare into, so degrade. A field
@@ -461,25 +379,16 @@ function renderType(schema: unknown, className: string, state: RenderState): str
         }
       }
     }
+    /* v8 ignore next -- every root frame produces one expression. */
+    return result ?? 'Any'
   } catch {
-    // Reached by a render-phase throw the root validation could not catch:
-    // either a hostile stateful getter (a `type` that passes validation then
-    // throws on a later read) OR one of this module's own v8-ignored internal
-    // invariant errors (`missing python render child` etc.). Both degrade the
-    // whole node to `Any` — an internal renderer bug thus surfaces as a lost
-    // type rather than a loud crash during prompt assembly, the deliberate
-    // trade for the never-throw contract. Roll back the classes and typing
-    // symbols the discarded subtree added so the import line still lists
-    // exactly the symbols the surviving output uses; `usedClassNames`/counter
-    // retention is harmless (conservative uniqueness).
-    state.classes.length = classFloor
-    state.typing.clear()
-    for (const symbol of typingFloor) state.typing.add(symbol)
+    // An unsupported or malformed schema failed validation (before any
+    // emission), or an unreachable internal invariant tripped. Either degrades
+    // the node to `Any` rather than crashing prompt assembly — the Python
+    // counterpart of the TS flavor's `unknown` fallback.
     state.typing.add('Any')
     return 'Any'
   }
-  /* v8 ignore next -- every root frame produces one expression. */
-  return result ?? 'Any'
 }
 
 /**
@@ -488,10 +397,10 @@ function renderType(schema: unknown, className: string, state: RenderState): str
  * to `dict[str, Any]`: naming a `TypedDict` requires the render context that
  * {@link renderToolsSdkPy} supplies), `const`/`enum` (→ `Literal[...]`),
  * `oneOf` (→ union), `string`/`number`/`integer`/`boolean`/`null`, `array`
- * (`items` → `list[T]`) — and returns `Any` for anything else, without
- * throwing. Type annotations in the emitted SDK are advisory: Python does not
- * enforce them at runtime, matching the TS flavor's advisory-type stance.
- * @param schema - the JSON-Schema node (any shape; hostile inputs degrade).
+ * (`items` → `list[T]`) — and returns `Any` for an unsupported or malformed
+ * schema, matching the TS flavor's `unknown` fallback. Type annotations in the
+ * emitted SDK are advisory: Python does not enforce them at runtime.
+ * @param schema - the JSON-Schema node.
  * @returns the Python type text.
  */
 export function jsonSchemaToPy(schema: unknown): string {

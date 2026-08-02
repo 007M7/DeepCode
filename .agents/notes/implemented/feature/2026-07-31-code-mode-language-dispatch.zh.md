@@ -25,6 +25,8 @@ Code Mode 只生成一种 SDK 形态：TypeScript。`ToolRegistry` 为 `tools:sd
 
 `py-types.ts` 渲染 `jsonSchemaToTs` 所覆盖的同一套统一工具 schema 词汇，目标为 Python：`jsonSchemaToPy` 为每个 JSON-schema 节点发出一个类型表达式，`renderToolsSdkPy` 为每个可见工具的参数与规范输出装配具名 `TypedDict`，再加一个带用法说明的 `tools` 对象，与 TypeScript 形态等价。不支持的原始构造在装配时降级而非抛错，与 TypeScript 渲染器的契约一致。输出是确定性的——工具按字典序排列，工具集不变时文本逐字节相同——因此 prompt 保持 prefix-cache 友好。
 
+`renderType` 先用 `assertSupportedJsonSchema` 整树校验一次、随后信任它，用单个 `try/catch` 把整个遍历兜住并降级为 `Any`——与姊妹渲染器 `ts-types` 在这个 typed 同进程 seam 上采取的"校验后信任"姿态一致（[Trust TypeScript at typed same-process seams](../../../../AGENTS.md)）。它有意不设任何针对"访问器在多次读取间变值"的防御（校验后成环、`const`/`enum` 的 TOCTOU、自引用函数）：输入是已通过校验的第一方 `defineTool` 对象字面量，这类输入不可达，而在此加逐形态守卫会为静态接口所禁止的值破坏与 `ts-types`（没有这类守卫）的对称。`jsonSchemaToPy(schema: unknown)` 接受 `unknown` 并对畸形 schema 返回 `Any`——TypeScript 形态 `unknown` 的对应物——但它的契约是"降级不支持的 schema",而非"扛住对抗性的可变 schema"。
+
 ## Alternatives considered
 
 - **在 `ToolRegistry` 上加一个 `language` 配置字段。** 那样部署方就会有两处命名语言（所加载的运行时与 tools 配置）且可能相互矛盾；所加载的运行时是唯一真相来源，故注册表读取它而不复制它。
