@@ -193,7 +193,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
     pkg: '@deepseek-ai/dsh-tool-bash',
     dir: 'tool-bash',
     source: 'packages/bash/tool-bash/src/index.ts',
-    requires: ['ctx.tools', 'ctx.bash', 'ctx.tasks at call time for run_in_background'],
+    requires: ['ctx.tools', 'ctx.bash', 'ctx.bashEnv', 'ctx.tasks at call time for run_in_background'],
     writes: ['tool/call', 'tool/result'],
     async mount(ctx) {
       await ctx.plugin(LocalSubprocessService)
@@ -208,7 +208,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
     pkg: '@deepseek-ai/dsh-tool-pwsh',
     dir: 'tool-pwsh',
     source: 'packages/bash/tool-pwsh/src/index.ts',
-    requires: ['ctx.tools', 'ctx.bash', 'ctx.systemPrompt'],
+    requires: ['ctx.tools', 'ctx.bash', 'ctx.bashEnv', 'ctx.tasks at call time for run_in_background'],
     writes: ['tool/call', 'tool/result'],
     async mount(ctx) {
       // The pwsh tool consumes the bash executor seam; the schema harvest
@@ -220,7 +220,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolPwsh)
     },
     note:
-      'The pwsh tool is the PowerShell-dialect consumer of the bash executor seam for Windows compositions (a PowerShell executor such as `@deepseek-ai/dsh-pwsh-local` backs `ctx.bash`); minimal by design — foreground only, no sandbox escalation, native `C:\\...` paths and `$env:NAME` variables.',
+      'The pwsh tool is the PowerShell-dialect consumer of the bash executor seam for Windows compositions (a PowerShell executor such as `@deepseek-ai/dsh-pwsh-local` backs `ctx.bash`); it mirrors the bash tool call-for-call minus the sandbox surface — `run_in_background` runs register with the generic `ctx.tasks` runtime and are collected/stopped through the `task_*` tools, and the managed `DSH_*` environment comes from `@deepseek-ai/dsh-bash-env`. Each call runs in a fresh process (no persistent PTY session; ConPTY is roadmap work), with native `C:\\...` paths and `$env:NAME` variables.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-cordis',
