@@ -304,7 +304,7 @@ function CatalogRows({
 /**
  * Render the current session's direct catalog and lazily expanded descendants.
  * @param props - session standard props plus catalog navigation actions.
- * @returns The action only after a non-empty catalog arrives.
+ * @returns The action while the catalog is pending or summaries establish descendants.
  */
 export function SubagentCatalogAction({
   sessionId, useSessions, openChild, refresh, setCatalogOpen, t,
@@ -326,6 +326,18 @@ export function SubagentCatalogAction({
   const descendantCount = Math.max(healthy.length, descendants.count)
   const totalCountKey = descendantCount === 1 ? 'count.total.one' : 'count.total.other'
   const runningCountKey = descendantCount === 1 ? 'count.running.one' : 'count.running.other'
+  // Session summaries can announce membership before the descriptor-backed catalog catches up.
+  // Keep that entry point visible through disabled loading rows; only catalog rows are navigable.
+  const summaryBackedLoading = descendants.count > 0
+    && (catalog === undefined || (catalog.state === 'ready' && catalog.entries.length === 0))
+  const presentedCatalog: SubagentCatalogSnapshot | undefined = summaryBackedLoading
+    ? {
+      entries: [],
+      parentAvailable: catalog?.parentAvailable ?? false,
+      state: 'loading',
+      error: null,
+    }
+    : catalog
 
   const observeCatalog = (parentSessionId: SessionId, next: boolean): void => {
     if (next) observedCatalogs.current.add(parentSessionId)
@@ -390,7 +402,8 @@ export function SubagentCatalogAction({
     observedCatalogs.current.clear()
   }, [])
 
-  const visible = catalog !== undefined && (catalog.state !== 'ready' || catalog.entries.length > 0)
+  const visible = presentedCatalog !== undefined
+    && (presentedCatalog.state !== 'ready' || presentedCatalog.entries.length > 0)
   useEffect(() => {
     if (visible || !open) return
     setOpen(false)
@@ -453,7 +466,7 @@ export function SubagentCatalogAction({
         <div className={css.menu} role="tree" aria-label={t('tree.aria')}>
           <CatalogRows
             parentSessionId={sessionId}
-            catalog={catalog}
+            catalog={presentedCatalog}
             catalogs={catalogs}
             summaries={summaries}
             expanded={expanded}

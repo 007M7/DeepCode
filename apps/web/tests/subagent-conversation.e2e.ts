@@ -20,6 +20,7 @@ import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './suppor
 const BASE_FIXTURE = fileURLToPath(new URL('./snapshots/live-interactions/session.jsonl', import.meta.url))
 const AVAILABLE_CHILD_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/ui.expected.md', import.meta.url))
 const TREE_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/tree.expected.md', import.meta.url))
+const STALE_CATALOG_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/stale-catalog.expected.md', import.meta.url))
 const SIDEBAR_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/sidebar.expected.md', import.meta.url))
 const UNAVAILABLE_GRANDCHILD_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/nested.expected.md', import.meta.url))
 const FORK_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/fork.expected.md', import.meta.url))
@@ -237,6 +238,59 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     }
     if (failures.length === 1) throw failures[0]
     if (failures.length > 1) throw new AggregateError(failures, 'subagent Web teardown failed')
+  })
+
+  it('keeps known descendants reachable across a stale empty catalog response', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-subagent-stale-catalog'))
+    const pattern = '**/api/subagent.list'
+    let firstClaimed = false
+    let emptyDelivered = false
+    let trailingRequested = false
+    let releaseCatalog = (): void => {}
+    const catalogHeld = new Promise<void>((resolve) => { releaseCatalog = resolve })
+    await page.route(pattern, async (route) => {
+      if (firstClaimed) {
+        const response = await route.fetch()
+        trailingRequested = true
+        await catalogHeld
+        await route.fulfill({ response })
+        return
+      }
+      firstClaimed = true
+      const response = await route.fetch()
+      const body = await response.json() as {
+        result: { ok: true; value: { entries: unknown[] } } | { ok: false }
+      }
+      if (body.result.ok) body.result.value.entries = []
+      await route.fulfill({ response, json: body })
+      emptyDelivered = true
+    })
+
+    const warningStart = tripwire.warnings.length
+    try {
+      await page.reload({ waitUntil: 'load' })
+      await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+      await expect.poll(() => emptyDelivered, { timeout: 15_000 }).toBe(true)
+      await page.getByRole('button', { name: '3 subagents' }).waitFor({ timeout: 15_000 })
+      acknowledgeReloadConnectionLoss(tripwire, warningStart)
+
+      await page.getByRole('button', { name: '3 subagents' }).click()
+      await expect.poll(() => trailingRequested, { timeout: 15_000 }).toBe(true)
+      const tree = page.getByRole('tree', { name: 'Subagent sessions' })
+      await tree.getByRole('treeitem', { name: 'Loading subagents' }).first().waitFor()
+      expect(await tree.getByRole('treeitem', { name: 'Loading subagents' }).count()).toBe(2)
+      await compareOrRefreshGolden(
+        STALE_CATALOG_EXPECTED,
+        await captureStableAria(page, '[role="tree"][aria-label="Subagent sessions"]', scaffold.workspaceCwd),
+        MODE,
+      )
+      releaseCatalog()
+      await tree.getByRole('treeitem', { name: new RegExp(LABEL) }).waitFor({ timeout: 15_000 })
+      await tree.press('Escape')
+    } finally {
+      releaseCatalog()
+      await page.unroute(pattern)
+    }
   })
 
   it('expands a persisted grandchild progressively without activating either level', async () => {

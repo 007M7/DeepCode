@@ -423,6 +423,32 @@ describe('SubagentCatalogAction', () => {
     expect(failed.refresh).toHaveBeenCalledWith(PARENT)
   })
 
+  it('keeps known descendants reachable while their catalog is absent or stale-empty', () => {
+    const second = 'child-2' as SessionId
+    const summaries = {
+      [CHILD]: {
+        ...summary(CHILD, 1), parentId: PARENT, origin: 'subagent' as const,
+      },
+      [second]: {
+        ...summary(second, 1), parentId: PARENT, origin: 'subagent' as const, running: true,
+      },
+    }
+    const absent = props(undefined, {}, summaries)
+    const view = render(<SubagentCatalogAction {...absent} />)
+
+    const trigger = screen.getByRole('button', { name: '2 个子代理，正在运行' })
+    fireEvent.click(trigger)
+    expect(absent.setCatalogOpen).toHaveBeenCalledWith(PARENT, true)
+    expect(screen.getAllByRole('treeitem', { name: '正在加载子代理' })).toHaveLength(2)
+    expect(absent.openChild).not.toHaveBeenCalled()
+
+    const staleEmpty = props(catalog({ entries: [] }), {}, summaries)
+    view.rerender(<SubagentCatalogAction {...staleEmpty} />)
+    expect(screen.getByRole('button', { name: '2 个子代理，正在运行' })).toBeTruthy()
+    expect(screen.getAllByRole('treeitem', { name: '正在加载子代理' })).toHaveLength(2)
+    expect(staleEmpty.openChild).not.toHaveBeenCalled()
+  })
+
   it('renders empty loading and fallback error states without focusable rows', async () => {
     const loading = props(catalog({ entries: [], state: 'loading' }))
     const view = render(<SubagentCatalogAction {...loading} />)
