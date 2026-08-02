@@ -101,6 +101,8 @@ export class SessionManager {
   private readonly addresses = new Map<SessionId, SubagentAddress>()
   private readonly catalogs = new Map<SessionId, SubagentCatalogSnapshot>()
   private readonly catalogInflight = new Map<SessionId, CatalogInflight>()
+  /** Catalog owners whose membership changed while a pull was in flight: one trailing refresh after it settles. */
+  private readonly catalogStale = new Set<SessionId>()
   private readonly openCatalogs = new Set<SessionId>()
   private readonly catalogDebounce = new Map<SessionId, ReturnType<typeof setTimeout>>()
 
@@ -286,7 +288,16 @@ export class SessionManager {
    */
   refreshSubagents(parentSessionId: SessionId): Promise<void> {
     const existing = this.catalogInflight.get(parentSessionId)
-    if (existing !== undefined) return existing.promise
+    if (existing !== undefined) {
+      // A refresh requested while a pull is in flight must not be silently
+      // coalesced into it: the in-flight response was requested before the
+      // triggering change (a membership frame or an opened menu), so it can
+      // never contain that change. Queue one trailing refresh that runs after
+      // the pull settles; without it the change stays invisible until an
+      // unrelated later trigger (reselection, menu reopen, reconnect).
+      this.catalogStale.add(parentSessionId)
+      return existing.promise
+    }
     const previous = this.catalogs.get(parentSessionId)
     const expandableRows = new Set<SessionId>()
     const activityRows = new Map<SessionId, 'running' | 'inactive'>()
@@ -333,6 +344,10 @@ export class SessionManager {
         })
       } finally {
         this.catalogInflight.delete(parentSessionId)
+        // Re-arm the trailing pull before the dirty notify: the response the
+        // caller observed predates the stale-marking change, so the follow-up
+        // refresh is the only carrier of that change.
+        if (this.catalogStale.delete(parentSessionId)) void this.refreshSubagents(parentSessionId)
         this.notifier.markDirty()
       }
     })()

@@ -529,6 +529,64 @@ describe('subagent catalogs', () => {
       { kind: 'child', id: S2, activity: 'inactive' },
     ])
   })
+
+  it('runs one trailing catalog refresh for a membership change coalesced into an in-flight pull', async () => {
+    vi.useFakeTimers()
+    try {
+      const api = new FakeApiClient()
+      const root = 'fk-root' as SessionId
+      const first = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
+      const second = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
+      api.onSubagentList = () => first.promise
+      const manager = new SessionManager(api)
+      manager.setSubagentCatalogOpen(root, true)
+      const refresh = manager.refreshSubagents(root)
+
+      // A membership frame arrives while the pull is in flight; the debounced
+      // refresh it schedules fires 50ms later and is coalesced into the pull —
+      // which was requested before the new child existed. The stale mark must
+      // queue one trailing pull carrying the change.
+      manager.handleHostEnvelope({
+        rpcId: 'child-added' as never,
+        payload: {
+          type: 'host/session-added', sessionId: S2, parentSessionId: root, blank: false,
+        },
+      })
+      await vi.advanceTimersByTimeAsync(50)
+      api.onSubagentList = () => second.promise
+      first.resolve(ok({
+        entries: [{
+          kind: 'child', id: S1, mode: 'continuable', label: 'older',
+          activity: 'inactive', hasChildren: false,
+        }] as never[],
+        parentAvailable: true,
+      }))
+      await refresh
+      // The trailing pull is already in flight (kicked synchronously in finally).
+      second.resolve(ok({
+        entries: [
+          {
+            kind: 'child', id: S1, mode: 'continuable', label: 'older',
+            activity: 'inactive', hasChildren: false,
+          },
+          {
+            kind: 'child', id: S2, mode: 'continuable', label: 'new child',
+            activity: 'inactive', hasChildren: false,
+          },
+        ] as never[],
+        parentAvailable: true,
+      }))
+      await second.promise
+
+      expect(api.callsOf('subagent.list')).toHaveLength(2)
+      expect(manager.getListSnapshot().subagentsByParent[root]?.entries).toMatchObject([
+        { kind: 'child', id: S1, label: 'older' },
+        { kind: 'child', id: S2, label: 'new child' },
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
 
 describe('remaining branches', () => {
