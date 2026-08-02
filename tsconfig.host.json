@@ -195,6 +195,7 @@
     { "path": "./packages/plan/plan-mode" },
     { "path": "./packages/guard/repeat-tool-guard" },
     { "path": "./packages/cordis/tool-cordis" },
+    { "path": "./packages/cordis/repository-plugin" },
     { "path": "./packages/hooks/hook-protocol" },
     { "path": "./packages/hooks/hooks-claude" },
     { "path": "./packages/hooks/hooks-codex" },

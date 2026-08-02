@@ -43,6 +43,7 @@
     "@deepseek-ai/dsh-pty": "workspace:*",
     "@deepseek-ai/dsh-pty-local": "workspace:*",
     "@deepseek-ai/dsh-repeat-tool-guard": "workspace:*",
+    "@deepseek-ai/dsh-repository-plugin": "workspace:*",
     "@deepseek-ai/dsh-sandbox-local": "workspace:*",
     "@deepseek-ai/dsh-sandbox-policy": "workspace:^",
     "@deepseek-ai/dsh-scope": "workspace:*",

@@ -28,8 +28,10 @@ import {
   loadOverlayPatches,
   loadPersonalPatches,
   resolveConfigPath,
+  watchPersonalPatches,
 } from '@deepseek-ai/dsh-app-boot'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
+import type { PatchOptions } from '@cordisjs/plugin-include'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { configHasTelemetryRow, resolveTelemetryPatch } from './app-cli-entry.ts'
 import { SESSION_QUERY_SQLITE_PATH_KEY } from '@deepseek-ai/dsh-session-query-sqlite'
@@ -201,15 +203,16 @@ export async function runTui(
   // presence is checked against the tree actually booting, so a
   // --config-replace tree is judged on its own rows, not the shipped base's.
   const telemetryPatch = resolveTelemetryPatch(process.env.DSH_TELEMETRY_DISABLED, configHasTelemetryRow(bootConfig))
-  const patches = [
+  const composePatches = (personalPatches: PatchOptions[]): PatchOptions[] => [
     ...replaceTree ? [] : [
       ...loadOverlayPatches(NAME, TUI_OVERLAY),
       ...resolvedConfig === undefined
-        ? loadPersonalPatches(NAME) ?? []
+        ? personalPatches
         : loadOverlayPatches(NAME, resolveConfigPath(resolvedConfig, undefined)),
     ],
     ...telemetryPatch === undefined ? [] : [telemetryPatch],
   ]
+  const patches = composePatches(loadPersonalPatches(NAME) ?? [])
   const queryIndexPath = join(tmpdir(), SESSION_QUERY_DB)
   const ctx = await boot(
     NAME,
@@ -246,6 +249,14 @@ export async function runTui(
       }
     },
   )
+  // The shipped tree includes HMR and keeps personal config live. An explicit
+  // --config tree replaces the personal overlay (so there is nothing to keep
+  // live), and a --config-replace or HMR-less tree remains a valid composition
+  // that still receives the startup overlay but deliberately has no hidden
+  // watcher.
+  if (resolvedConfig === undefined && !replaceTree && ctx.get('hmr') !== undefined) {
+    await watchPersonalPatches(ctx, { binName: NAME, compose: composePatches })
+  }
   app.current = ctx
   addHarnessSourceSection(ctx, SOURCE_ROOT)
   if (showFirstRunWelcome) {
