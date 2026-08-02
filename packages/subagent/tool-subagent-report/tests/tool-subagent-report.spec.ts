@@ -327,6 +327,15 @@ describe('dsh-tool-subagent-report', () => {
       return dispose
     })
 
+    // No session may be announced for the rejected child: the setup
+    // validation must reject inside the creation callback, before the factory
+    // publishes — a post-publication rejection would persist a resumable
+    // ghost that `list_agents` surfaces and `send_message` can resurrect.
+    // The parent was created inside setup(), so any later announcement is the
+    // rejected child's.
+    const announced: SessionId[] = []
+    const listener = (session: { id: SessionId }): void => { announced.push(session.id) }
+    const removeListener = ctx.on('session/created', listener)
     await expect(ctx.subagents.startContinuable({
       provider: 'spawn',
       label: 'racing child',
@@ -336,6 +345,8 @@ describe('dsh-tool-subagent-report', () => {
       },
       signal: testSignal,
     })).rejects.toMatchObject({ code: 'ACTIVATION_SETUP_REVOKED' })
+    removeListener()
+    expect(announced).toEqual([])
     expect(ctx.agents.list().map(agent => agent.id)).toEqual([parent.id])
   })
 

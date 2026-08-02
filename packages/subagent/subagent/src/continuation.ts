@@ -804,6 +804,16 @@ export class SubagentContinuationManager {
     const setup = (childCtx: Context): void => {
       applyChildComposition(childCtx, inputs.composition)
       setupTransaction = this.setupRegistry.apply(childCtx)
+      // Validate and freeze the batch inside the creation callback, before the
+      // factory can publish the session: a revoked contribution must reject
+      // the create/resume call pre-publication, so no persisted session is
+      // ever left behind for a child the manager rejects — rollback only
+      // disposes the live handle, and the persistence seam has no delete, so
+      // a post-publication rejection would leave a resumable ghost child.
+      // Committing here also means a later contribution removal releases the
+      // installation instead of invalidating a child already being established.
+      setupTransaction.assertIntact()
+      setupTransaction.commit()
     }
     const observer = this.host.observeActivation(provider, childId, parent)
     const { create } = inputs
@@ -842,7 +852,6 @@ export class SubagentContinuationManager {
     try {
       inputs.signal.throwIfAborted()
       this.assertAdmitting(parent)
-      setupTransaction.assertIntact()
       this.acquireOwnership(parent, childId)
       // Every accepted id leaves the inbox exactly once, through dequeue or
       // discard. Clearing it there is what lets `stateOf()` distinguish a truly
@@ -860,8 +869,9 @@ export class SubagentContinuationManager {
         for (const item of items) activation.accepted.delete(item.message.id)
         this.wake(activation)
       })
-      // Resident setup revokes live from here instead of invalidating creation.
-      setupTransaction.commit()
+      // Setup already validated and committed inside the creation callback;
+      // revocations from here on are immediate live revocation, never
+      // creation invalidation.
       // Publish the start edge before any turn can run, so observers see this
       // epoch before its first request.
       observer.start(handle.agent)
