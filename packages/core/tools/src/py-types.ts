@@ -125,6 +125,11 @@ function camelCase(raw: string): string {
 /** Class-name base cap keeping each emitted name — and total text — linear in schema depth. */
 const MAX_CLASS_NAME_BASE = 120
 
+/** Cap a class-name base at {@link MAX_CLASS_NAME_BASE} (see the callers for why capping keeps the render linear). */
+function capClassNameBase(base: string): string {
+  return base.length > MAX_CLASS_NAME_BASE ? base.slice(0, MAX_CLASS_NAME_BASE) : base
+}
+
 /**
  * Reserve a unique class name from a base, suffixing `2`, `3`, … on collision.
  * The base is capped at {@link MAX_CLASS_NAME_BASE} first: child class names
@@ -137,7 +142,7 @@ const MAX_CLASS_NAME_BASE = 120
  * (amortized) instead of Θ(depth²) in time.
  */
 function allocateClassName(base: string, state: RenderState): string {
-  const capped = base.length > MAX_CLASS_NAME_BASE ? base.slice(0, MAX_CLASS_NAME_BASE) : base
+  const capped = capClassNameBase(base)
   let name = capped
   if (state.usedClassNames.has(name)) {
     let n = state.nextClassCounter.get(capped) ?? 2
@@ -158,8 +163,7 @@ function allocateClassName(base: string, state: RenderState): string {
  * The bounded base plus the collision counter still yields unique names.
  */
 function childClassName(base: string, segment: string): string {
-  const joined = `${base}${segment}`
-  return joined.length > MAX_CLASS_NAME_BASE ? joined.slice(0, MAX_CLASS_NAME_BASE) : joined
+  return capClassNameBase(`${base}${segment}`)
 }
 
 /**

@@ -485,15 +485,17 @@ describe('renderToolsSdkPy', () => {
   })
 
   it('names a deep oneOf-of-object chain in linear time (bounded propagated class names)', () => {
-    // Every level is a oneOf whose first branch is a closed empty object (a
-    // named TypedDict) and recurses. Propagating the full ancestor path as the
-    // class name and slicing it in allocateClassName at every level would be
-    // Theta(depth^2); childClassName caps the propagated base so it stays
-    // linear. The quadratic path at this depth exceeds the 5s default.
+    // Every level is a oneOf whose SECOND branch is a named object (a closed
+    // empty TypedDict) and whose first branch recurses — so every level has an
+    // object node, each propagating a class name one segment longer. Without a
+    // propagation cap, allocateClassName slices an ever-longer rope at every
+    // level → Theta(depth^2) (~9.5s at this depth, past the 5s default);
+    // childClassName caps the base so it stays linear (~ms). Assertions are
+    // shape-based but the depth is the tripwire: a regression times out.
     const depth = 60000
     let deep: Record<string, unknown> = { type: 'object', additionalProperties: false, properties: {} }
     for (let i = 0; i < depth; i++) {
-      deep = { oneOf: [deep, { type: 'null' }] }
+      deep = { oneOf: [deep, { type: 'object', additionalProperties: false, properties: {} }] }
     }
     const tool: ToolSdkSchema = { name: 'deep', description: 'Deep oneOf-object chain.', parameters: { type: 'object', additionalProperties: false, properties: { root: deep }, required: ['root'] }, output: { type: 'string' } }
     const text = renderToolsSdkPy([tool])
