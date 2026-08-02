@@ -75,7 +75,7 @@ export function apply(ctx: ClientContext): void {
     scope.effect(() => scope.slots.register({
       name: 'conversation.input.dock',
       id: 'goal',
-      order: 0,
+      order: 10,
       locale: NS,
       inject: (sessionId): GoalBarActions => ({
         onEdit: async (objective) => {

@@ -1,10 +1,18 @@
-/* GoalBar: the first standalone card in the composer context stack (Figma
-   9:939). Its 752px column matches Todo and the Queue panel. */
+/* GoalBar: the second standalone card in the composer context stack (Figma
+   1236:32276). Its 752px column matches Todo and the Queue panel. */
 
 .dock {
   box-sizing: border-box;
-  width: 100%;
-  padding: 0 44px;
+  width: calc(
+    100% -
+    var(--dsh-composer-side-clearance) -
+    var(--dsh-composer-side-clearance) -
+    var(--dsh-composer-dock-inset) -
+    var(--dsh-composer-dock-inset) -
+    var(--dsh-composer-dock-inset) -
+    var(--dsh-composer-dock-inset)
+  );
+  margin: 0 auto;
 }
 
 .bar {
