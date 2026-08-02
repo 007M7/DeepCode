@@ -159,7 +159,8 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
     const settled = scaffold.whenTurnSettled()
     await input.fill(PROMPT)
     const observeTurn = async () => {
-      if (MODE !== 'record') await page.setViewportSize({ width: 640, height: 1000 })
+      const originalViewport = page.viewportSize() ?? { width: 1680, height: 1000 }
+      if (MODE !== 'record') await page.setViewportSize({ width: 480, height: 1000 })
       try {
         await input.press('Enter')
         if (MODE !== 'record') {
@@ -167,11 +168,11 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
           await expect.poll(async () => await liveTail.evaluate(element => (
             element.scrollWidth > element.clientWidth
               && element.scrollLeft >= element.scrollWidth - element.clientWidth - 1
-          )), { timeout: 10_000 }).toBe(true)
+          )), { timeout: 10_000, interval: 10 }).toBe(true)
         }
         return await settled
       } finally {
-        if (MODE !== 'record') await page.setViewportSize({ width: 1680, height: 1000 })
+        if (MODE !== 'record') await page.setViewportSize(originalViewport)
       }
     }
     const sessionId = await observeTurn()

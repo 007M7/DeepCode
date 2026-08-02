@@ -5,7 +5,8 @@
 // Enter / Space, icon→chevron hover preview). The collapsed row is always
 // one line; every row with body, output, or a card material (terminal, diff,
 // read, search, web) is expandable; the summary stays inline while open,
-// except Think, whose body opens with the same first line and would repeat it.
+// except Think, where the running collapsed row follows the latest line at its
+// scroll end and the summary yields while open to avoid repeating the body.
 // The expanded body — an IN/OUT gutter-labeled card (figma 1249:35657) for
 // text input/output, the run_code program through CodeBlock, or a card
 // primitive (TerminalBlock, DiffBlock, ReadBlock, SearchBlock, WebBlock) for a
