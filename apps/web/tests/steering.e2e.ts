@@ -1,7 +1,7 @@
-// Web e2e scenario: queue a message while the first response streams, strictly
-// transfer that exact occurrence to steering through QueueDock, then prove it
-// is logged, rendered, and obeyed. The following question tool supplies a
-// deterministic pending-steering snapshot before the step can drain.
+// Web e2e scenarios for both steering entry points: QueueDock strictly
+// transfers one queued occurrence, while the complementary composer gestures
+// choose Queue or Steer. The question tool supplies a deterministic pending-
+// steering snapshot before the step can drain.
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
@@ -18,13 +18,10 @@ import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './suppor
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/steering', import.meta.url))
 const FIXTURE = join(SNAPSHOT_DIR, 'session.jsonl')
-// Two goldens for the two distinct states this interaction produces: the
-// mid-turn moment (steer ACCEPTED but deliberately invisible — the loop
-// drains steering at the step boundary, so no steering text exists while
-// the question still blocks the step) and the settled transcript (plain
-// bubble in place, final reply obeying it). The pair pins the timing
-// semantics visually: if the client ever starts rendering pending steers
-// eagerly, the mid-steer golden flips first.
+// Two goldens pin the transient Host projection and its durable handoff: the
+// mid-turn state renders accepted steering from session/queue while the
+// question blocks admission, then the settled state renders the same message
+// from steering/message beside the reply that obeys it.
 const MID_EXPECTED = join(SNAPSHOT_DIR, 'mid-steer.expected.md')
 const SETTLED_EXPECTED = join(SNAPSHOT_DIR, 'settled.expected.md')
 const MODE = webSnapshotMode()
@@ -90,18 +87,17 @@ describe('web e2e: mid-turn steering lands durably and visibly', () => {
     const steerButton = queuedRow.getByRole('button', { name: 'Steer queued message' })
     await expect.poll(() => steerButton.isEnabled(), { timeout: 10_000 }).toBe(true)
     await steerButton.click({ timeout: 10_000 })
-    await expect.poll(() => page.getByText(STEER, { exact: true }).count(), { timeout: 10_000 }).toBe(0)
+    const pendingSteering = page.locator('[data-pending-steering]').filter({ hasText: STEER })
+    await pendingSteering.waitFor({ timeout: 10_000 })
 
-    // The blocked composer is the mid-turn barrier: the tool cannot finish
-    // this step, so the accepted steering remains pending and invisible.
+    // The blocked composer keeps steering pending long enough to observe the
+    // Host-authoritative mirror before the loop admits it durably.
     const composer = page.locator('[data-question-key]')
     await composer.waitFor({ timeout: MODE === 'record' ? 120_000 : 30_000 })
 
     if (MODE !== 'record') {
-      // Mid-turn golden: the converted steer is pending in the loop but the
-      // loop drains steering only at the step boundary, so no Queue row or
-      // steering/message bubble renders while the question still blocks.
-      expect(await page.getByText(STEER, { exact: true }).count()).toBe(0)
+      expect(await page.getByText(STEER, { exact: true }).count()).toBe(1)
+      expect(await pendingSteering.count()).toBe(1)
       expect(await page.getByRole('button', { name: 'Edit queued message' }).count()).toBe(0)
       const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
       await compareOrRefreshGolden(MID_EXPECTED, snapshot, MODE)
@@ -137,6 +133,7 @@ describe('web e2e: mid-turn steering lands durably and visibly', () => {
     // Visible: the plain steering bubble plus the reply that obeys it
     // (steer text + final reply each contain the marker word).
     await expect.poll(() => page.getByText(STEER, { exact: true }).count(), { timeout: 15_000 }).toBe(1)
+    expect(await pendingSteering.count()).toBe(0)
     await expect.poll(() => page.getByText('BANANA', { exact: false }).count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(2)
     expect(await page.locator('[data-question-key]').count()).toBe(0)
     // Settled golden: steer text between the question round trip and the
@@ -150,4 +147,121 @@ describe('web e2e: mid-turn steering lands durably and visibly', () => {
   it.skipIf(MODE === 'record')('keeps the fixture inventory closed', async () => {
     await assertFixtureInventory(SNAPSHOT_DIR, ['session.jsonl', 'mid-steer.expected.md', 'settled.expected.md'])
   })
+})
+
+describe('web e2e: composer shortcut steers directly', () => {
+  let scaffold: WebScaffold
+  let browser: Browser
+  let page: Page
+  let tripwire: ReturnType<typeof watchConsole>
+  const sessionEvents: SessionEvent[] = []
+
+  beforeAll(async () => {
+    scaffold = await launchWebScaffold({ replayFixture: FIXTURE, paceMs: 100 })
+    scaffold.ctx.on('session/event', (_session, event) => { sessionEvents.push(event) })
+    browser = await chromium.launch()
+    page = await newEnglishPage(browser)
+    tripwire = watchConsole(page)
+    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+    await connectFreshWorkspace(page, scaffold.workspaceCwd)
+  }, 120_000)
+
+  afterAll(async () => {
+    await browser?.close()
+    await scaffold?.close()
+  })
+
+  it.skipIf(MODE === 'record')('uses Cmd+Enter without creating a Queue row', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-composer-steering'))
+    expect(fixtureUserPrompts(await readFile(FIXTURE, 'utf8'))).toEqual([PROMPT])
+    const input = page.locator('textarea').first()
+    await input.waitFor({ timeout: 10_000 })
+    const settled = scaffold.whenTurnSettled(30_000)
+    await input.fill(PROMPT)
+    await input.press('Enter')
+    await page.getByRole('button', { name: 'Stop generating' }).waitFor({ timeout: 10_000 })
+
+    await input.fill(STEER)
+    await input.press('Meta+Enter')
+    await expect.poll(() => input.inputValue(), { timeout: 5_000 }).toBe('')
+    expect(await page.locator('[data-queue-dock]').count()).toBe(0)
+
+    const composer = page.locator('[data-question-key]')
+    await composer.waitFor({ timeout: 30_000 })
+    const pendingSteering = page.locator('[data-pending-steering]').filter({ hasText: STEER })
+    await pendingSteering.waitFor({ timeout: 10_000 })
+    await composer.getByRole('radio', { name: 'Yes' }).click()
+    await composer.getByRole('radio', { name: 'Yes' }).press('Enter')
+    await settled
+
+    const steerEvents = sessionEvents.filter(event => event.type === 'steering/message')
+    expect(steerEvents).toHaveLength(1)
+    expect((steerEvents[0] as SessionEvent & { data: { turn: number } }).data.turn).toBe(1)
+    await expect.poll(() => page.getByText(STEER, { exact: true }).count(), { timeout: 15_000 }).toBe(1)
+    expect(await pendingSteering.count()).toBe(0)
+    await expect.poll(() => page.getByText('BANANA', { exact: false }).count(), { timeout: 10_000 })
+      .toBeGreaterThanOrEqual(2)
+    expect(tripwire.pageErrors).toEqual([])
+    expect(tripwire.warnings).toEqual([])
+  }, 90_000)
+})
+
+describe('web e2e: composer shortcut follows the swapped busy behavior', () => {
+  let scaffold: WebScaffold
+  let browser: Browser
+  let page: Page
+  let tripwire: ReturnType<typeof watchConsole>
+  const sessionEvents: SessionEvent[] = []
+
+  beforeAll(async () => {
+    scaffold = await launchWebScaffold({ replayFixture: FIXTURE, paceMs: 100 })
+    scaffold.ctx.on('session/event', (_session, event) => { sessionEvents.push(event) })
+    browser = await chromium.launch()
+    page = await newEnglishPage(browser)
+    tripwire = watchConsole(page)
+    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+    await connectFreshWorkspace(page, scaffold.workspaceCwd)
+  }, 120_000)
+
+  afterAll(async () => {
+    await browser?.close()
+    await scaffold?.close()
+  })
+
+  it.skipIf(MODE === 'record')('queues Cmd+Enter when plain Enter is configured to Steer', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-composer-swapped-shortcut'))
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Settings' })
+    await dialog.getByRole('button', { name: 'Queue' }).click()
+    await page.getByRole('menuitem', { name: 'Steer' }).click()
+    await dialog.getByRole('button', { name: 'Steer' }).waitFor({ timeout: 10_000 })
+    await page.keyboard.press('Escape')
+
+    const input = page.locator('textarea').first()
+    const settled = scaffold.whenTurnSettled(30_000)
+    await input.fill(PROMPT)
+    await input.press('Enter')
+    await page.getByRole('button', { name: 'Stop generating' }).waitFor({ timeout: 10_000 })
+
+    const queuedText = 'Queued by the complementary Cmd+Enter shortcut.'
+    await input.fill(queuedText)
+    await input.press('Meta+Enter')
+    const queuedRow = page.locator('[data-queue-dock]').getByRole('listitem').filter({ hasText: queuedText })
+    await queuedRow.getByText(queuedText, { exact: true }).waitFor({ timeout: 10_000 })
+    expect(await page.locator('[data-pending-steering]').filter({ hasText: queuedText }).count()).toBe(0)
+    expect(sessionEvents.filter(event => event.type === 'steering/message')).toHaveLength(0)
+
+    // Remove the asserted Queue row, then finish the recorded question turn
+    // so replay teardown still proves that every fixture call was consumed.
+    await queuedRow.getByRole('button', { name: 'Remove queued message' }).click()
+    const composer = page.locator('[data-question-key]')
+    await composer.waitFor({ timeout: 30_000 })
+    await composer.getByRole('radio', { name: 'Yes' }).click()
+    await composer.getByRole('radio', { name: 'Yes' }).press('Enter')
+    await settled
+    expect(tripwire.pageErrors).toEqual([])
+    expect(tripwire.warnings).toEqual([])
+  }, 90_000)
 })

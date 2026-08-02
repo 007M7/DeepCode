@@ -54,6 +54,7 @@ export const muxFrameSchema = z.discriminatedUnion('type', [
     sessionId: sessionIdSchema,
     items: z.array(z.object({
       id: inboxItemIdSchema,
+      placement: z.union([z.literal('queued'), z.literal('steering')]),
       message: messageSchema,
     })),
   }),

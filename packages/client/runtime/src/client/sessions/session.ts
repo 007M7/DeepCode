@@ -446,6 +446,9 @@ export class Session implements SessionFace {
       case 'session/queue': {
         this.queued = frame.items.map(item => ({
           id: item.id,
+          messageId: item.message.id,
+          placement: item.placement,
+          content: item.message.content,
           preview: queuePreviewOf(item.message.content),
           text: queueTextOf(item.message.content),
         }))

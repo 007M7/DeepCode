@@ -169,17 +169,19 @@ function projectUserText(text: string): ReactNode {
 
 /** Right-aligned bubble shared by user and steering rows (steering has no actions). */
 function UserStyleBubble({
-  content, actions, t,
+  content, actions, pending = false, t,
 }: {
   content: readonly unknown[]
   /** Optional IconActions (or similar) below the bubble; receives the joined text. */
   actions?: (text: string) => ReactNode
+  /** Whether this is the Host-authoritative pre-admission steering projection. */
+  pending?: boolean
   t: ChatViewSlotProps['t']
 }): ReactNode {
   const { text, rest } = contentText(content)
   const truncated = (total: number): string => t('json.truncated', { total })
   return (
-    <div className={css.userRow}>
+    <div className={css.userRow} data-pending-steering={pending || undefined}>
       <div className={css.bubble}>
         {projectUserText(text)}
         {rest.map((block, i) => <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />)}
@@ -187,6 +189,19 @@ function UserStyleBubble({
       {actions?.(text)}
     </div>
   )
+}
+
+/**
+ * Render one Host-authoritative pending steering item with the same visual
+ * language as its eventual durable transcript node.
+ * @param props - Pending message content and conversation translator.
+ * @returns the pending steering bubble.
+ */
+export function PendingSteeringBubble({ content, t }: {
+  content: readonly unknown[]
+  t: ChatViewSlotProps['t']
+}): ReactNode {
+  return <UserStyleBubble content={content} pending t={t} />
 }
 
 export const MessageItem = memo(function MessageItem({

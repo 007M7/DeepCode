@@ -4,6 +4,7 @@
 // string here (narrow to real brands when convenient).
 
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
+import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { LlmRetryEventData } from '@deepseek-ai/dsh-llm-retry/types'
 import type { TodoItem } from '@deepseek-ai/dsh-session/types'
@@ -104,6 +105,8 @@ export interface AssistantMessageNode {
 /** A steering message injected mid-turn. */
 export interface SteeringMessageNode {
   kind: 'steering'
+  /** Stable identity shared with its pre-admission inbox occurrence. */
+  messageId: MessageId
   seq: number
   /** Unix epoch ms from the source session event. */
   time: number
@@ -271,9 +274,15 @@ export interface RunningToolCall {
 }
 
 
-/** One independently addressable row from the transient queue snapshot. */
+/** One transient inbox occurrence from the authoritative `session/queue` snapshot. */
 export interface QueuedMessage {
   readonly id: InboxItemId
+  /** Stable message identity used for transient-to-durable steering handoff. */
+  readonly messageId: MessageId
+  /** Agent-resolved placement; only queued rows accept queue mutations. */
+  readonly placement: 'queued' | 'steering'
+  /** Complete content used to render pending steering before it becomes durable. */
+  readonly content: readonly ContentBlock[]
   readonly preview: string
   /** Complete editable text; null when the message contains non-text blocks. */
   readonly text: string | null
@@ -332,7 +341,7 @@ export interface ConversationSnapshot {
    */
   codeDispatches: ReadonlyMap<string, readonly CodeSubCall[]>
   pending: readonly PendingInteraction[]
-  /** Authoritative transient inbox snapshot, replaced after every host-side change. */
+  /** Authoritative transient inbox snapshot, including queued and steering placements. */
   queue: readonly QueuedMessage[]
   running: boolean
   /**

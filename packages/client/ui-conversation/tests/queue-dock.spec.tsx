@@ -23,7 +23,11 @@ const SID = 's1' as SessionId
 const iid = (id: string): QueueItemId => id as QueueItemId
 
 function row(id: string, text: string | null, preview = text ?? '[image]'): QueuedMessage {
-  return { id: iid(id), preview, text }
+  return {
+    id: iid(id), messageId: `message-${id}` as never, placement: 'queued',
+    content: text === null ? [{ type: 'image', data: 'x' } as never] : [{ type: 'text', text }],
+    preview, text,
+  }
 }
 
 function snapshotWith(queue: QueuedMessage[]): ConversationSnapshot {
@@ -80,6 +84,14 @@ function kitFor(snapshot: ConversationSnapshot, injected: Partial<QueueDockInjec
 describe('QueueDock', () => {
   it('renders null while the queue is empty', () => {
     const snap = snapshotWith([])
+    const source = liveSession(snap)
+    const { container } = render(<QueueDock {...kitFor(snap)} useSession={source.useSession} />)
+    expect(container.innerHTML).toBe('')
+  })
+
+  it('leaves pending steering to the conversation flow', () => {
+    const steering = { ...row('s-1', 'interrupt'), placement: 'steering' as const }
+    const snap = snapshotWith([steering])
     const source = liveSession(snap)
     const { container } = render(<QueueDock {...kitFor(snap)} useSession={source.useSession} />)
     expect(container.innerHTML).toBe('')

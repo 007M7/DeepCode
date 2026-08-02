@@ -22,6 +22,7 @@ interface QueueFixture {
   id: string
   body: string
   content?: ContentBlock[]
+  placement?: 'queued' | 'steering'
 }
 
 /** Build one authoritative queue snapshot. */
@@ -31,6 +32,7 @@ function queueFrame(items: QueueFixture[]): MuxFrame {
     sessionId: SID,
     items: items.map(item => ({
       id: iid(item.id),
+      placement: item.placement ?? 'queued',
       message: createUserMessage({
         content: item.content ?? text(item.body),
         source: { kind: 'user', rpcId: rid(`rpc-${item.id}`) } as never,
@@ -49,8 +51,14 @@ describe('queue snapshot intake', () => {
     session.handleMuxEnvelope(rid('env-1'), queueFrame([
       { id: 'q-1', body: '第一条  排队\n消息' },
     ]))
-    expect(session.getSnapshot().queue).toEqual([
-      { id: 'q-1', preview: '第一条 排队 消息', text: '第一条  排队\n消息' },
+    const queue = session.getSnapshot().queue
+    expect(typeof queue[0]?.messageId).toBe('string')
+    expect(queue).toMatchObject([
+      {
+        id: 'q-1', placement: 'queued',
+        content: [{ type: 'text', text: '第一条  排队\n消息' }],
+        preview: '第一条 排队 消息', text: '第一条  排队\n消息',
+      },
     ])
   })
 
@@ -61,8 +69,14 @@ describe('queue snapshot intake', () => {
       body: '',
       content: [{ type: 'text', text: 'hi' }, { type: 'image', data: 'x' } as never],
     }]))
-    expect(session.getSnapshot().queue).toEqual([
-      { id: 'q-image', preview: 'hi [image]', text: null },
+    const queue = session.getSnapshot().queue
+    expect(typeof queue[0]?.messageId).toBe('string')
+    expect(queue).toMatchObject([
+      {
+        id: 'q-image', placement: 'queued',
+        content: [{ type: 'text', text: 'hi' }, { type: 'image', data: 'x' }],
+        preview: 'hi [image]', text: null,
+      },
     ])
   })
 
@@ -85,8 +99,14 @@ describe('queue snapshot intake', () => {
     session.handleMuxEnvelope(rid('env-5'), queueFrame([
       { id: 'q-2', body: 'two edited' },
     ]))
-    expect(session.getSnapshot().queue).toEqual([
-      { id: 'q-2', preview: 'two edited', text: 'two edited' },
+    const queue = session.getSnapshot().queue
+    expect(typeof queue[0]?.messageId).toBe('string')
+    expect(queue).toMatchObject([
+      {
+        id: 'q-2', placement: 'queued',
+        content: [{ type: 'text', text: 'two edited' }],
+        preview: 'two edited', text: 'two edited',
+      },
     ])
     session.handleMuxEnvelope(rid('env-6'), queueFrame([]))
     expect(session.getSnapshot().queue).toEqual([])
@@ -98,6 +118,21 @@ describe('queue snapshot intake', () => {
     const before = session.getSnapshot().queue
     session.handleAgentError('unrelated')
     expect(session.getSnapshot().queue).toBe(before)
+  })
+
+  it('retains steering placement and complete content in the same authoritative snapshot', () => {
+    const session = makeSession()
+    session.handleMuxEnvelope(rid('env-steering'), queueFrame([
+      { id: 'q-next', body: 'later' },
+      { id: 's-now', body: 'interrupt now', placement: 'steering' },
+    ]))
+
+    expect(session.getSnapshot().queue.map(item => ({
+      id: item.id, placement: item.placement, content: item.content,
+    }))).toEqual([
+      { id: 'q-next', placement: 'queued', content: text('later') },
+      { id: 's-now', placement: 'steering', content: text('interrupt now') },
+    ])
   })
 })
 
