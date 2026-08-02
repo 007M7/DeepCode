@@ -14,6 +14,8 @@ While a session exists, `ConversationRoot` always supplies a `wrapActiveBody` ow
 
 Session stats live on `'conversation.composer.dock'` (above `'conversation.input.dock'`). The InputBar textarea, when inside the host, chains `wheel` with `{ passive: false }`: while the capped textarea can still scroll in that direction it keeps the native gesture; only at its own edge does it `preventDefault` and apply `deltaY` to the host.
 
+Chat history prepend follows reader intent through stable rendered node/call identities rather than whole-scrollport height deltas. `ChatView` records the first visible `data-chat-anchor-key` and its top relative to the scrollport when paging starts, reselects the currently visible stable anchor after every reader scroll while the request is in flight, and compensates by that row's post-prepend rectangle delta. Reaching the bottom or appending the reader's own message cancels the paging anchor, so a late page cannot pull the view away from the newest content. ChatView's single `ResizeObserver` owns bottom-follow decisions for column and sticky-composer height changes: it follows streaming, tool disclosure, and draft resize only while bottom ownership remains pinned, without a second per-chunk scroll write.
+
 ## Alternatives considered
 
 **Sticky header and sticky composer inside one column scrollport.** Rejected for the header: it must occupy the top as fixed layout chrome, not participate in the scrollport's sticky layer.
@@ -26,4 +28,4 @@ Session stats live on `'conversation.composer.dock'` (above `'conversation.input
 
 ## Consequences
 
-Wheel over the footer scrolls the transcript; the visible layout is a fixed header, scrolling transcript, and sticky bottom composer. Stats appear on every active view tab. Nested view scrollers under the host are suppressed so sticky Turn headers in Trajectory stick to the column host. Hero → active keeps the same textarea DOM node (assembled slash-flow snapshot) and the InputHub draft.
+Wheel over the footer scrolls the transcript; the visible layout is a fixed header, scrolling transcript, and sticky bottom composer. Stats appear on every active view tab. Nested view scrollers under the host are suppressed so sticky Turn headers in Trajectory stick to the column host. Concurrent history, streaming, tool expansion, and composer reflow cannot overwrite a reader's newer scroll decision. Hero → active keeps the same textarea DOM node (assembled slash-flow snapshot) and the InputHub draft.

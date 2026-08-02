@@ -14,6 +14,8 @@ Status: implemented
 
 会话统计挂在 `'conversation.composer.dock'`（位于 `'conversation.input.dock'` 之上）。InputBar 的 textarea 在宿主内以 `{ passive: false }` 链式处理 `wheel`：在限高 textarea 仍能沿该方向滚动时保留原生手势；仅在自身边缘才 `preventDefault` 并将 `deltaY` 施加到宿主。
 
+Chat 历史前插通过稳定的已渲染 node／call 身份跟随读者意图，而不是使用整个滚动容器的高度差。分页开始时，`ChatView` 记录第一个可见的 `data-chat-anchor-key` 及其相对滚动容器的顶部位置；请求在途期间，每次读者滚动都会重新选择当前可见的稳定锚点；页面到达后则按该行矩形的前后差值补偿。到达底部或追加读者自己的消息会取消分页锚点，因此迟到的页面不能把视图从最新内容拉走。`ChatView` 的单个 `ResizeObserver` 统一负责消息列与 sticky 编辑器高度变化的贴底跟随决策：只有在仍贴底时才跟随流式输出、工具展开与草稿尺寸变化，且每个 chunk 不会触发第二次滚动写入。
+
 ## Alternatives considered
 
 **标题栏与编辑器都在同一列滚动容器内 sticky。** 标题栏否决：它必须作为固定布局 chrome 占据顶部，而不是参与滚动容器的 sticky 层。
@@ -26,4 +28,4 @@ Status: implemented
 
 ## Consequences
 
-在页脚上滚轮会滚动 transcript；可见布局是固定标题栏、可滚动 transcript 与 sticky 底部编辑器。统计出现在每一个活跃视图标签上。宿主下的嵌套视图 scroller 被抑制，因而 Trajectory 的 sticky Turn 标题贴在列宿主上。hero → active 保持同一 textarea DOM 节点（assembled slash-flow 快照）以及 InputHub 草稿。
+在页脚上滚轮会滚动 transcript；可见布局是固定标题栏、可滚动 transcript 与 sticky 底部编辑器。统计出现在每一个活跃视图标签上。宿主下的嵌套视图 scroller 被抑制，因而 Trajectory 的 sticky Turn 标题贴在列宿主上。并发历史加载、流式输出、工具展开与编辑器重排都不能覆盖读者更新的滚动决定。hero → active 保持同一 textarea DOM 节点（assembled slash-flow 快照）以及 InputHub 草稿。
