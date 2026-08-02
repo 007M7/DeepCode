@@ -59,6 +59,8 @@ interface CatalogInflight {
   readonly promise: Promise<void>
   readonly expandableRows: Set<SessionId>
   readonly activityRows: Map<SessionId, 'running' | 'inactive'>
+  /** Removal-time invalidation replayed over the response this request predates. */
+  parentAvailableOverride: false | undefined
 }
 
 type SessionListMutation =
@@ -101,6 +103,8 @@ export class SessionManager {
   private readonly addresses = new Map<SessionId, SubagentAddress>()
   private readonly catalogs = new Map<SessionId, SubagentCatalogSnapshot>()
   private readonly catalogInflight = new Map<SessionId, CatalogInflight>()
+  /** Catalog owners whose membership changed while a pull was in flight: one trailing refresh after it settles. */
+  private readonly catalogStale = new Set<SessionId>()
   private readonly openCatalogs = new Set<SessionId>()
   private readonly catalogDebounce = new Map<SessionId, ReturnType<typeof setTimeout>>()
 
@@ -301,22 +305,26 @@ export class SessionManager {
       try {
         const { result } = await this.api.subagents.list({ parentSessionId })
         if (result.ok) {
+          const parentAvailable = this.catalogInflight.get(parentSessionId)?.parentAvailableOverride
+            ?? result.value.parentAvailable
           this.catalogs.set(parentSessionId, {
             ...result.value,
             entries: this.withCatalogMutations(result.value.entries, expandableRows, activityRows),
+            parentAvailable,
             state: 'ready',
             error: null,
           })
           for (const [childId, address] of this.addresses) {
             if (address.parentSessionId !== parentSessionId) continue
-            this.sessions.get(childId)?.handleSubagentParentAvailable(result.value.parentAvailable)
+            this.sessions.get(childId)?.handleSubagentParentAvailable(parentAvailable)
           }
         } else {
           this.catalogs.set(parentSessionId, {
             entries: this.withCatalogMutations(
               previous?.entries ?? [], expandableRows, activityRows,
             ),
-            parentAvailable: previous?.parentAvailable ?? false,
+            parentAvailable: this.catalogInflight.get(parentSessionId)?.parentAvailableOverride
+              ?? previous?.parentAvailable ?? false,
             state: 'error',
             error: result.error,
           })
@@ -327,16 +335,26 @@ export class SessionManager {
           entries: this.withCatalogMutations(
             previous?.entries ?? [], expandableRows, activityRows,
           ),
-          parentAvailable: previous?.parentAvailable ?? false,
+          parentAvailable: this.catalogInflight.get(parentSessionId)?.parentAvailableOverride
+            ?? previous?.parentAvailable ?? false,
           state: 'error',
           error: folded.ok ? null : folded.error,
         })
       } finally {
         this.catalogInflight.delete(parentSessionId)
+        // Re-arm the trailing pull before the dirty notify: the response the
+        // caller observed predates the stale-marking change, so the follow-up
+        // refresh is the only carrier of that change.
+        if (this.catalogStale.delete(parentSessionId)) void this.refreshSubagents(parentSessionId)
         this.notifier.markDirty()
       }
     })()
-    this.catalogInflight.set(parentSessionId, { promise: operation, expandableRows, activityRows })
+    this.catalogInflight.set(parentSessionId, {
+      promise: operation,
+      expandableRows,
+      activityRows,
+      parentAvailableOverride: undefined,
+    })
     return operation
   }
 
@@ -673,6 +691,29 @@ export class SessionManager {
         this.pendingBuffers.delete(frame.sessionId) // a removed session's buffered frames must not replay on a future instantiation
         this.waitingApprovals.delete(frame.sessionId) // a removed session cannot wait on anyone
         if (!durableSubagent) this.projectionStores.delete(frame.sessionId)
+        // A pull already in flight was requested before this removal and can
+        // carry the pre-removal parentAvailable:true, which would resurrect
+        // the writable editor this invalidation just closed. Replay false over
+        // that response and queue one trailing refresh so the post-removal
+        // host truth converges.
+        const inflightCatalog = this.catalogInflight.get(frame.sessionId)
+        if (inflightCatalog !== undefined) {
+          inflightCatalog.parentAvailableOverride = false
+          this.catalogStale.add(frame.sessionId)
+        }
+        // The removed session can no longer be the delivery owner of its
+        // catalog: invalidate availability immediately. Removal schedules no
+        // catalog refresh, and without this an addressed child keeps a
+        // writable editor against a dead continuation owner until an
+        // unrelated refresh (or forever, for a closed menu).
+        const ownedCatalog = this.catalogs.get(frame.sessionId)
+        if (ownedCatalog !== undefined && ownedCatalog.parentAvailable) {
+          this.catalogs.set(frame.sessionId, { ...ownedCatalog, parentAvailable: false })
+        }
+        for (const [childId, address] of this.addresses) {
+          if (address.parentSessionId !== frame.sessionId) continue
+          this.sessions.get(childId)?.handleSubagentParentAvailable(false)
+        }
         return
       }
       case 'host/session-status': {
@@ -724,11 +765,18 @@ export class SessionManager {
     for (const session of this.sessions.values()) void session.resync()
   }
 
-  /** Debounce membership refetches while one parent catalog is open. */
+  /** Debounce membership refetches while one parent catalog is selected or open. */
   private scheduleCatalogRefresh(parentSessionId: SessionId): void {
     if (this.catalogDebounce.has(parentSessionId)) return
     const timer = setTimeout(() => {
       this.catalogDebounce.delete(parentSessionId)
+      // The in-flight response predates the membership frame that scheduled
+      // this callback. Queue one post-settlement pull instead of treating an
+      // ordinary overlapping read as evidence that catalog membership changed.
+      if (this.catalogInflight.has(parentSessionId)) {
+        this.catalogStale.add(parentSessionId)
+        return
+      }
       void this.refreshSubagents(parentSessionId)
     }, 50)
     this.catalogDebounce.set(parentSessionId, timer)

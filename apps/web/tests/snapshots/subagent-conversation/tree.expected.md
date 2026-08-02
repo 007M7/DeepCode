@@ -1,8 +1,8 @@
-- tree "子代理会话":
-  - treeitem "event-sourcing researcher Explain event sourcing in one · 可继续 · 当前未运行 7.9K tok · 2秒" [expanded] [level=1]:
-    - button "收起 event-sourcing researcher 的下级子代理":
+- tree "Subagent sessions":
+  - treeitem "event-sourcing researcher Explain event sourcing in one · continuable · not running 7.9K tok · {{duration}}" [expanded] [level=1]:
+    - button "Collapse event-sourcing researcher descendants":
       - img
-    - text: event-sourcing researcher Explain event sourcing in one · 可继续 · 当前未运行 7.9K tok · 2秒
+    - text: event-sourcing researcher Explain event sourcing in one · continuable · not running 7.9K tok · {{duration}}
   - group:
-    - treeitem "example editor 可继续 · 当前未运行 0 tok · 0秒" [level=2]
-  - treeitem "event-sourcing reviewer 一次性 · 当前未运行 0 tok · 0秒" [level=1]
+    - treeitem "example editor continuable · not running 0 tok · {{duration}}" [level=2]
+  - treeitem "event-sourcing reviewer one-shot · not running 0 tok · {{duration}}" [level=1]

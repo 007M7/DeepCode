@@ -20,6 +20,7 @@ import type {
   Agent,
   AgentHandle,
   AgentOptions,
+  AgentSetupCommit,
   CreateAgentOptions,
 } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
@@ -42,7 +43,6 @@ import type { ContinuableCreateRequest, ContinuableCreateSpec, SubagentStartRequ
 import type { ActivationObserver } from './lifecycle.ts'
 import { SubagentError } from './error.ts'
 import type SubagentActivationSetupRegistry from './activation-setup-registry.ts'
-import type { ActivationSetupTransaction } from './activation-setup-registry.ts'
 
 /** Attribution for a model coordinator's follow-up to one of its children. */
 export interface CoordinatorMessageSource {
@@ -800,10 +800,9 @@ export class SubagentContinuationManager {
     // `AgentRegistry.enter()` is the authoritative collision boundary for an id
     // some other owner holds — a duplicate would reject there with rollback.
     inputs.signal.throwIfAborted()
-    let setupTransaction!: ActivationSetupTransaction
-    const setup = (childCtx: Context): void => {
+    const setup = (childCtx: Context): AgentSetupCommit => {
       applyChildComposition(childCtx, inputs.composition)
-      setupTransaction = this.setupRegistry.apply(childCtx)
+      return this.setupRegistry.apply(childCtx)
     }
     const observer = this.host.observeActivation(provider, childId, parent)
     const { create } = inputs
@@ -842,7 +841,6 @@ export class SubagentContinuationManager {
     try {
       inputs.signal.throwIfAborted()
       this.assertAdmitting(parent)
-      setupTransaction.assertIntact()
       this.acquireOwnership(parent, childId)
       // Every accepted id leaves the inbox exactly once, through dequeue or
       // discard. Clearing it there is what lets `stateOf()` distinguish a truly
@@ -860,8 +858,8 @@ export class SubagentContinuationManager {
         for (const item of items) activation.accepted.delete(item.message.id)
         this.wake(activation)
       })
-      // Resident setup revokes live from here instead of invalidating creation.
-      setupTransaction.commit()
+      // Agent creation committed setup at its publication boundary;
+      // revocations from here on are immediate live revocation.
       // Publish the start edge before any turn can run, so observers see this
       // epoch before its first request.
       observer.start(handle.agent)

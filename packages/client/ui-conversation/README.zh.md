@@ -14,6 +14,8 @@
 
 已记录的非用户消息渲染为默认折叠的 `上下文注入` 展开项。它通过包内部的 `DisclosureRow` 与 `ToolRow` 共享 Tool calls 标题栏的几何与交互，同时保留上下文语义：展开内容区的高度会随内容自适应，最大为 141px，超出后滚动，并以内联 JSON 展示 `content` 和 `source`，且不会合成工具状态、摘要或键控 toolview 分发（[决策](../../../.agents/notes/implemented/feature/2026-07-30-web-context-injection-disclosure.md)）。
 
+Think 行默认保持折叠，并在不展开思维链的情况下暴露实时推理吞吐：当 reasoning block 是流式尾部时，摘要从结算后的首行切换到最新的非空行，其单行滚动区会随每个 delta 追到行内末端。展开该行会移除移动摘要，让完整 reasoning 进入普通页面流，因此页面阅读不会与内部跟随器争夺滚动；结算后恢复左对齐的稳定首行摘要（[决策](../../../.agents/notes/implemented/feature/2026-08-02-web-thinking-tail-scroll.md)）。
+
 通用工具行把内置的 bash、read、search、write、edit 和 run_code 名称归入专用视觉变体。文件系统变体会渲染 edit 图标和路径摘要；该路径是悬停下划线链接，点击后通过宿主操作系统的默认应用打开文件（`host.openPath`，相对路径相对会话 cwd 解析）。工具行不再是整行点击目标，也不会打开 details 面板。code 变体以模型撰写的 `description` 作摘要，展开后显示程序本身；其已记录的子调用经由同一个键控 toolview 空位渲染为始终可见的嵌套行（自定义注册和 GenericToolCard fallback 原样适用于子行）。Cordis 生命周期工具复用这些通用变体，同时以统一的 Cordis 强调色呈现 `Inspect`、`Mount temporary Plugin` 和 `Unmount temporary Plugin`；mount 行保留 code 变体的可展开源码渲染。
 
 声明 `terminal` 渲染意图的工具调用，会在两个对话渲染点上都通过 ui-primitives 的 `TerminalBlock` 内联渲染其命令输出。`contract/terminal-card-model.ts` 是从快照的 `callView`／`resultView` 对推导的唯一位置，因此两个渲染点不可能在命令、cwd 或退出状态上产生分歧；对任何其他 card 标签——包括当前客户端版本不认识的标签——它返回 null，落回通用路径。因此两个渲染点也都显示卡片的运行状态点，它与工具行行首图标承载同一套 `StateDot` 语义，所以一行与其自身的卡片对同一条命令的状态总是一致。多行命令的每一行各占一个提示行，状态点只在第一行为整次调用标记一次——退出状态属于整次调用，因此每行一枚就会声称一个 bash 并不报告的逐行结果。键控的 `BashRow` 把卡片常驻在摘要行下方；由于工具行已不再是详情面板的点击目标，卡片的复制与展开控件就是该行唯一的交互。渲染点兜底行则保持其既有的展开控件。行的上限是 `CHAT_TERMINAL_MAX_LINES`（8），面板为 16，正是这一点让摘要面保持有界——面板仍是单次调用的阅读面。内联输出按渲染意图开放——终端卡片与 web 卡片，各有自己的上限；通用工具的内容仍然只在面板中呈现（[决策](../../../.agents/notes/implemented/feature/2026-07-28-web-terminal-card.md)）。

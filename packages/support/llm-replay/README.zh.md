@@ -12,6 +12,8 @@ fixture 就是持久化的会话日志（`<scenario>/session.jsonl`）。其 `as
 
 有两种失败模式无法仅根据 `assistant/chunk` 重建：在产生任何分片前直接抛出异常（例如 HTTP 401，此时日志只有 `turn/end {error}` 而没有分片），以及取消或挂起（差异在时序，而非分片内容）。需要这些行为的场景可提供伴随文件（`<scenario>/replay.override.json`）：它可以替换派生脚本（裸 `ReplayEntry[]`），也可以增补派生脚本（`{ patches: [{ at, entry }] }`：保留所有从 JSONL 派生的调用，只替换指定的从 0 开始计数的调用索引；当 `at` 等于派生长度时，则在注入瞬态异常后的重试位置追加一次调用）。补丁索引不得重复。文件加载时会校验覆写文档、每个补丁和条目，以及每个分片的判别标签。`hang` 条目可以指定 `readyFile`；当前缀分片到达循环后、开始等待取消前，回放会写入这个空标记，使外部驱动程序无需观察展示层更新即可确定性地取消。
 
+脚本字符串可以内嵌 `{{fromRequest:<regex>}}`，用来填入静态伴随文件不可能预知的值——例如模型必须原样回填到 `update_goal` 的随机生成 goal id。回放时每个占位符针对实时请求解析：语料是请求消息的所有字符串叶子按换行拼接的结果，取该模式在语料中的最后一次匹配，用其第一个捕获组（无捕获组时用整个匹配）原位替换。模式匹配不到内容、模式非法、占位符未闭合都会明确报错。连续右花括号串的最后两个花括号才是占位符结束符，因此模式可以以花括号量词收尾（如 `[0-9a-f]{4}`），但不能在 `}}` 之后还有后续模式内容。解析作用于所有脚本条目，包括从已记录 JSONL 派生的条目——若录制文本本身合法地含有该字面量标记，需改用不含标记的伴随文件表达。
+
 ## 嵌套 agent：每会话键控
 
 父 agent 委托给进程内 subagent（子 agent）的场景会记录多个日志：父会话使用 `session.jsonl`，每个子会话各使用一个日志（`session.1.jsonl` 等）。每个 agent 都在同一上下文中作为独立的 `Session` 运行，因此回放必须为每个 agent 提供各自的脚本。
@@ -55,7 +57,7 @@ fixture 就是持久化的会话日志（`<scenario>/session.jsonl`）。其 `as
 - `installLlmReplay(ctx, config)`：安装已配置回放适配器或 catch-all `llm/stream` 监听器；返回 `ReplayHandle`（包含用于保证 HMR（热模块替换）安全的 `dispose()`，以及清理阶段执行的 `assertConsumed()` 检查；后者确保每个已记录脚本都绑定到实时会话，且每个已绑定游标都已耗尽，从而将场景静默驱动的模型调用少于记录数转换为明确诊断）。在测试中使用它，可以不通过 Loader 或 env var 驱动回放。
 - `loadSessionScripts(config)`：解析场景的有序的 `SessionScript[]`（主会话 + 子会话），准备按首次调用顺序绑定到实时会话。
 - `loadReplayScript(config)`：只解析主会话的 `ReplayEntry[]`（如果伴随文件存在，则使用经校验的替换或补丁；否则从 JSONL 派生；fixture 缺失时明确报错）。
-- `deriveReplayScript(events)` / `parseSessionLog(text)` / `parseSessionHeader(text)`：将已记录会话日志转换为脚本并读取其 header `id`/`createdAt` 的纯辅助工具。派生分组必须以 `finish` 分片结束；没有该分片的分组是 `stream()` 抛出异常的指纹，必须改用 override sidecar 表达。
+- `deriveReplayScript(events)` / `parseSessionLog(text)` / `parseSessionHeader(text)` / `resolveScriptedEntry(entry, messages)`：将已记录会话日志转换为脚本、读取其 header `id`/`createdAt`、并针对单次实时请求解析 `{{fromRequest:...}}` 占位符的纯辅助工具。派生分组必须以 `finish` 分片结束；没有该分片的分组是 `stream()` 抛出异常的指纹，必须改用 override sidecar 表达。
 - 类型 `ReplayEntry` / `ReplayOverrideDoc` / `ReplayOverridePatch` / `SessionScript` / `ReplayConfig` / `ReplayProviderConfig` / `ReplayModelConfig` / `ReplayHandle` / `Config`。
 
 ## 插件导出形态
