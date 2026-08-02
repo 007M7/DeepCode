@@ -36,7 +36,7 @@
 
 ## UI presentation
 
-工具拥有自己的 `presentCall`/`presentResult` 呈现意图。调用是携带命令、描述与可选 cwd 的 `terminal` 卡；完成的结果是以 `console` 围栏包裹渲染输出的 `generic` 卡。bash 工具那种带解析退出状态 pill 的 terminal 卡在 pwsh 侧暂无对应——PowerShell 感知的呈现属于路线图工作。这些 presenter 是纯函数且可重放。
+工具拥有自己的 `presentCall`/`presentResult` 呈现意图。前台调用是携带命令、描述与可选 cwd 的 `terminal` 卡；`run_in_background` 调用是携带原始命令的 `generic` 卡，镜像 bash 工具的后台呈现。完成的结果是以 `console` 围栏包裹渲染输出的 `generic` 卡。bash 工具那种带解析退出状态 pill 的 terminal 卡在 pwsh 侧暂无对应——PowerShell 感知的呈现属于路线图工作。这些 presenter 是纯函数且可重放。
 
 ## Model Experience
 

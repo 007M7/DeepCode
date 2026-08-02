@@ -36,7 +36,7 @@ When `run_in_background` is true, this plugin preflights `ctx.tasks.start()` bef
 
 ## UI presentation
 
-The tool owns its `presentCall`/`presentResult` render intent. A call is a `terminal` card carrying command, description, and optional cwd; a completed result is a `generic` card with the rendered output in a `console` fence. The bash tool's terminal card with its parsed exit-status pill has no pwsh counterpart yet — a PowerShell-aware presentation is roadmap work. These presenters are pure and replay-safe.
+The tool owns its `presentCall`/`presentResult` render intent. A foreground call is a `terminal` card carrying command, description, and optional cwd; a `run_in_background` call is a `generic` card with the raw command, mirroring the bash tool's background presentation. A completed result is a `generic` card with the rendered output in a `console` fence. The bash tool's terminal card with its parsed exit-status pill has no pwsh counterpart yet — a PowerShell-aware presentation is roadmap work. These presenters are pure and replay-safe.
 
 ## Model Experience
 

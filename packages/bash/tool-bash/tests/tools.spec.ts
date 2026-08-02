@@ -305,7 +305,7 @@ describe('bash tool', () => {
     expect(text(result)).toMatch(/ENOENT/)
   })
 
-  it('surfaces foreground aborts as isError', async () => {
+  it('surfaces foreground aborts as the structured TOOL_ABORTED error', async () => {
     const ctx = await setup()
     const controller = new AbortController()
     const pending = ctx.tools.execute({
@@ -317,7 +317,10 @@ describe('bash tool', () => {
     setTimeout(() => { controller.abort() }, 50)
     const result = await pending
     expect(result.isError).toBe(true)
-    expect(text(result)).toMatch(/aborted/)
+    expect(result.error).toMatchObject({
+      message: 'tool call aborted',
+      info: { name: 'AbortError', code: TOOL_ABORTED },
+    })
   })
 
   // Type and required-key violations are rejected by the harness

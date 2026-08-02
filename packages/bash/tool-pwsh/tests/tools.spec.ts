@@ -537,6 +537,22 @@ describe('UI presentation', () => {
       .toMatchObject({ cwd: 'C:\\work' })
   })
 
+  it('a background pending call renders the generic card like the bash tool', async () => {
+    const { ctx } = await setup()
+    const definition = ctx.tools.get('pwsh')
+    expect(definition?.presentCall?.({
+      command: 'Start-Sleep -Seconds 60',
+      description: 'long wait',
+      run_in_background: true,
+    })).toEqual({
+      card: 'generic',
+      title: 'Start-Sleep -Seconds 60',
+      kind: 'execute',
+      rawInput: 'Start-Sleep -Seconds 60',
+      content: [{ type: 'text', text: 'long wait' }],
+    })
+  })
+
   it('presentResult falls back to undefined for multi-block or non-text content', async () => {
     const { ctx } = await setup()
     const definition = ctx.tools.get('pwsh')
