@@ -51,5 +51,6 @@
 - **后台 spawn 失败提示只投递一次**——subprocess 服务不会为从未运行的进程缓冲输出，因此执行器只把 `spawn failed: …` 注入一次 `readOutput()` 增量；丢弃该增量的读取方无法恢复它。
 - **Windows 终止不报告信号**——被强制终止的进程以退出码 1、`signal: null` 结束，因此基于信号的状态分类（POSIX `killed`）在 Windows 上不适用；`kill()` 发起的停止仍会直接盖上 `killed`。
 - **编码 preamble 位于命令之前**——PowerShell 要求 `param(...)`、`#requires` 与 `using namespace`/`using assembly` 语句位于脚本最顶部，因此以其中一种开头的命令无法在 UTF-8 输出 preamble 下运行。`param(...)` 脚本可包进 `& { … }`（param 块可以合法地位于脚本块开头）；`using` 语句与 `#requires` 在命令内没有变通办法（`#requires` 在 `-Command` 中无论位置如何都不生效）——此类脚本请改从文件运行。
+- **Windows PowerShell 5.1 下的非 ASCII stdin 可能被错误解码**——preamble 只固定输出编码；`[Console]::InputEncoding` 保持主机默认，因为在重定向 stdin 下设置它会抛出异常。pwsh 7 默认 UTF-8，不受影响。
 
 清理启发式与 spill 保留的注意事项由 [`dsh-subprocess-local`](../../subprocess/subprocess-local/README.md) 持有，它拥有这些机制。
