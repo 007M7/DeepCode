@@ -12,6 +12,8 @@
     var(--dsh-composer-side-clearance) -
     var(--dsh-composer-side-clearance) -
     var(--dsh-composer-dock-inset) -
+    var(--dsh-composer-dock-inset) -
+    var(--dsh-composer-dock-inset) -
     var(--dsh-composer-dock-inset)
   );
   max-width: calc(

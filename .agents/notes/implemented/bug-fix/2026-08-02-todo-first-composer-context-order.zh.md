@@ -12,13 +12,13 @@ composer 上下文堆栈将 Goal 渲染在 Todo 之前，但 Harness 设计稿�
 
 `conversation.input.dock` 列表采用统一的产品顺序，升序依次为 Todo `0`、Goal `10`、Queue `20`，随后是位于列表外的 composer bar。注册顺序仍是语义真源；渲染器不会硬编码已知组件 id，也不会使用 CSS 修正它们的顺序。
 
-Todo、Goal 与可见的 Queue 面板共用 800px composer 宽度上限内的 752px 卡片列。Queue 保留 776px 包装层，并在两侧各留 12px 透明内缩，因为该包装层负责与 composer 重叠。Todo 是独立卡片，而非包装层，因此其最大宽度会直接扣除两层内缩，使左右边缘与 Goal 和 Queue 面板一致。
+Todo、Goal 与可见的 Queue 面板共用 800px composer 宽度上限内的 752px 卡片列。Queue 保留 776px 包装层，并在两侧各留 12px 透明内缩，因为该包装层负责与 composer 重叠。Todo 是独立卡片，而非包装层，因此其响应式宽度和最大宽度都会直接扣除两层内缩。Goal 使用相同的响应式卡片列，并将内层横条的宽度上限设为 752px，从而在低于桌面宽度上限时也保持边缘对齐。
 
 [composer 堆栈契约](2026-07-30-composer-context-stack-order.md)继续规定卡片间距，以及仅限 Queue 与 composer 重叠。本决策只取代该记录中 Goal 优先的顺序。
 
 ## 验证
 
-Todo 与 Goal 的注册测试分别固定顺序 `0` 和 `10`；Queue 仍固定为 `20`。无密钥 Queue 浏览器场景同时渲染三个面板，记录 Todo–Goal–Queue 的无障碍顺序，并在桌面视口下比较其可见边界框，随后再执行 Queue 变更。
+Todo 与 Goal 的注册测试分别固定顺序 `0` 和 `10`；Queue 仍固定为 `20`。无密钥 Queue 浏览器场景同时渲染三个面板，记录 Todo–Goal–Queue 的无障碍顺序，并在 1680px 桌面基线和低于宽度上限的 640px 视口下比较其可见边界框，随后再执行 Queue 变更。
 
 ## 考虑过的替代方案
 

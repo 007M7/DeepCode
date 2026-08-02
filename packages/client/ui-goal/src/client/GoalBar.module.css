@@ -3,8 +3,16 @@
 
 .dock {
   box-sizing: border-box;
-  width: 100%;
-  padding: 0 44px;
+  width: calc(
+    100% -
+    var(--dsh-composer-side-clearance) -
+    var(--dsh-composer-side-clearance) -
+    var(--dsh-composer-dock-inset) -
+    var(--dsh-composer-dock-inset) -
+    var(--dsh-composer-dock-inset) -
+    var(--dsh-composer-dock-inset)
+  );
+  margin: 0 auto;
 }
 
 .bar {

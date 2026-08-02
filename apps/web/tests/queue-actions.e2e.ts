@@ -173,7 +173,7 @@ describe('web e2e: queue row actions', () => {
     await expect.poll(() => page.locator('[data-queue-dock]').count()).toBe(0)
   }, 120_000)
 
-  it.skipIf(MODE === 'record')('orders Todo before Goal and Queue on one desktop card column', async () => {
+  it.skipIf(MODE === 'record')('orders Todo before Goal and Queue on one responsive card column', async () => {
     overrideDir = await mkdtemp(join(tmpdir(), 'dsh-web-context-layout-'))
     const readyFile = join(overrideDir, '.hang-ready')
     const overridePath = join(overrideDir, 'replay.override.json')
@@ -222,18 +222,24 @@ describe('web e2e: queue row actions', () => {
     )
     await compareOrRefreshGolden(LAYOUT_EXPECTED, layoutSnapshot, MODE)
 
-    const queuePanelBox = await page.locator('[data-queue-dock] > div').boundingBox()
-    const todoBox = await page.locator('[data-testid="todo-panel"]').boundingBox()
-    const goalBox = await page.locator('[data-goal-bar] > div').boundingBox()
-    expect(queuePanelBox).not.toBeNull()
-    expect(todoBox).not.toBeNull()
-    expect(goalBox).not.toBeNull()
-    expect(todoBox!.y).toBeLessThan(goalBox!.y)
-    expect(goalBox!.y).toBeLessThan(queuePanelBox!.y)
-    expect(todoBox!.x).toBeCloseTo(goalBox!.x, 1)
-    expect(todoBox!.x).toBeCloseTo(queuePanelBox!.x, 1)
-    expect(todoBox!.width).toBeCloseTo(goalBox!.width, 1)
-    expect(todoBox!.width).toBeCloseTo(queuePanelBox!.width, 1)
+    const expectAlignedContextPanels = async () => {
+      const queuePanelBox = await page.locator('[data-queue-dock] > div').boundingBox()
+      const todoBox = await page.locator('[data-testid="todo-panel"]').boundingBox()
+      const goalBox = await page.locator('[data-goal-bar] > div').boundingBox()
+      expect(queuePanelBox).not.toBeNull()
+      expect(todoBox).not.toBeNull()
+      expect(goalBox).not.toBeNull()
+      expect(todoBox!.y).toBeLessThan(goalBox!.y)
+      expect(goalBox!.y).toBeLessThan(queuePanelBox!.y)
+      expect(todoBox!.x).toBeCloseTo(goalBox!.x, 1)
+      expect(todoBox!.x).toBeCloseTo(queuePanelBox!.x, 1)
+      expect(todoBox!.width).toBeCloseTo(goalBox!.width, 1)
+      expect(todoBox!.width).toBeCloseTo(queuePanelBox!.width, 1)
+    }
+    await expectAlignedContextPanels()
+    await page.setViewportSize({ width: 640, height: 1000 })
+    await expectAlignedContextPanels()
+    await page.setViewportSize({ width: 1680, height: 1000 })
 
     await queueHeader.click()
     const removeButtons = page.getByRole('button', { name: 'Remove queued message' })
