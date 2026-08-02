@@ -31,9 +31,9 @@ import { renderToolsSdkPy } from './py-types.ts'
  * `ctx.codeRuntime.language` in this table when assembling the `tools:sdk`
  * section under a non-native mode; a runtime whose language is not a key
  * fails the assembly loudly (same idiom as `toolOrder` violations). Adding a
- * new backend language is two table entries — a renderer here and a
- * {@link RUN_CODE_FLAVORS} entry for its `run_code` schema strings — plus the
- * renderer itself.
+ * new backend language is two table entries — an entry here and a
+ * `RUN_CODE_FLAVORS` entry in `code-mode.ts` for its `run_code` schema strings
+ * — plus the renderer function this table points at.
  */
 const SDK_RENDERERS: Record<string, (schemas: ToolSdkSchema[]) => string> = {
   typescript: renderToolsSdk,
