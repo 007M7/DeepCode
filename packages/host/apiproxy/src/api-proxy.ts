@@ -1114,14 +1114,15 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       if (error instanceof SubagentSessionOwnership) {
         return { error: subagentOwnershipError(error.sessionId) }
       }
-      // A concurrent parent `enter()` can win the identity between the
-      // pre-resume published re-check and `ctx.agents.resume` publication;
-      // the ID-collision rejection falls through here. Re-classify that
-      // raced published winner into the stable ownership error, mirroring
-      // ensureSession's `.catch`.
+      // A concurrent publish can win the identity between the pre-resume
+      // re-check and `ctx.agents.resume` publication; the ID-collision
+      // rejection falls through here. Mirror ensureSession's `.catch` in
+      // full: classify a subagent-owned winner into the stable ownership
+      // error, and hand a clean plain-agent winner straight back.
       const live = ctx.agents.get(sessionId)
-      if (live !== undefined && hasSubagentOwner(live.session, live)) {
-        return { error: subagentOwnershipError(sessionId) }
+      if (live !== undefined) {
+        if (hasSubagentOwner(live.session, live)) return { error: subagentOwnershipError(sessionId) }
+        return { agent: live }
       }
       const attached = ctx.sessions.get(sessionId)
       if (attached !== undefined && hasSubagentOwner(attached, undefined)) {
