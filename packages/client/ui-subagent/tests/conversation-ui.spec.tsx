@@ -7,7 +7,10 @@ import type {
 import {
   SubagentCatalogAction, type SubagentCatalogActionProps,
 } from '../src/client/SubagentCatalogAction.tsx'
-import { SubagentReadOnlyComposer } from '../src/client/SubagentReadOnlyComposer.tsx'
+import {
+  SubagentReadOnlyComposer, type SubagentReadOnlyComposerProps,
+} from '../src/client/SubagentReadOnlyComposer.tsx'
+import { zh, type SubagentKey } from '../src/client/locales.ts'
 
 afterEach(() => {
   cleanup()
@@ -63,12 +66,22 @@ function props(
   function useSessions<T>(select: (snapshot: SessionListState) => T): T {
     return select(state)
   }
+  // The zh dictionary is the source of truth for this spec's assertions:
+  // the stub interpolates `{name}` params like the locale service does.
+  const t = ((key: SubagentKey, params?: Record<string, unknown>): string => {
+    let text = zh[key]
+    for (const [name, value] of Object.entries(params ?? {})) {
+      text = text.replaceAll(`{${name}}`, String(value))
+    }
+    return text
+  }) as SubagentCatalogActionProps['t']
   return {
     sessionId: PARENT,
     useSessions,
     openChild: vi.fn(),
     refresh: vi.fn(),
     setCatalogOpen: vi.fn(),
+    t,
   } as unknown as SubagentCatalogActionProps
 }
 
@@ -453,13 +466,16 @@ describe('SubagentCatalogAction', () => {
 })
 
 describe('SubagentReadOnlyComposer', () => {
+  // The zh dictionary is the source of truth for this spec's assertions.
+  const t = ((key: SubagentKey): string => zh[key]) as SubagentReadOnlyComposerProps['t']
+
   it('explains the exact missing-parent recovery path', () => {
-    render(<SubagentReadOnlyComposer matched={{ reason: 'parent-unavailable' }} />)
+    render(<SubagentReadOnlyComposer matched={{ reason: 'parent-unavailable' }} t={t} />)
     expect(screen.getByRole('status').textContent).toContain('父会话当前不在线')
   })
 
   it('explains that one-shot histories never accept follow-ups', () => {
-    render(<SubagentReadOnlyComposer matched={{ reason: 'one-shot' }} />)
+    render(<SubagentReadOnlyComposer matched={{ reason: 'one-shot' }} t={t} />)
     expect(screen.getByRole('status').textContent).toContain('一次性任务不支持后续消息')
   })
 })
