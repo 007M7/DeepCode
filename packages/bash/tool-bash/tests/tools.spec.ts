@@ -191,6 +191,7 @@ async function setupSandboxed(withApproval = false) {
   await ctx.plugin(SandboxPolicyService, {})
   await ctx.plugin(RecordingSandboxExecutor)
   if (withApproval) await ctx.plugin(ApprovalService)
+  await ctx.plugin(BashEnvPlugin)
   await ctx.plugin(ToolBash)
   return { ctx, bash: ctx.bash as RecordingSandboxExecutor }
 }
@@ -393,6 +394,7 @@ describe('bash tool', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(LocalSubprocessService)
     await ctx.plugin(LocalBashExecutor, {})
+    await ctx.plugin(BashEnvPlugin)
     const fiber = await ctx.plugin(ToolBash)
     expect(ctx.tools.schemas()).toHaveLength(1)
     expect((await ctx.systemPrompt.assemble()).sections.map(s => s.name)).toEqual(['harness:identity', 'deployment:persona', 'tool:bash'])
