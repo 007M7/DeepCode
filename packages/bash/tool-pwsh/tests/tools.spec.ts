@@ -2,10 +2,11 @@
  * Consumer-surface tests for the `pwsh` tool over a FAKE bash executor,
  * exercised through `ctx.tools.execute()` so nothing bypasses the tool
  * registry. The fake executor makes every seam outcome scriptable — output
- * text, truncation, timeout, abort, nonzero exits — so these tests verify the
- * schema, argument validation, workdir derivation, managed `DSH_*` collection,
- * abort translation, canonical result projection, rendering, and the UI
- * presenters. Real-pwsh behavior is pinned separately in integration.spec.ts.
+ * text, truncation, timeout, abort, nonzero exits, background handles — so
+ * these tests verify the schema, argument validation, workdir derivation,
+ * managed `DSH_*` collection, abort translation, canonical result projection,
+ * rendering, background task wiring, and the UI presenters. Real-pwsh behavior
+ * is pinned separately in integration.spec.ts.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -15,23 +16,33 @@ import { tmpdir } from 'node:os'
 import { join, resolve as resolvePath } from 'node:path'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { TOOL_ABORTED, TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
+import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
+import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import { BashExecutor } from '@deepseek-ai/dsh-bash'
 import type { BashExecRequest, BashExecSpec, BashProcess, BashRunResult } from '@deepseek-ai/dsh-bash'
 import * as ToolPwsh from '@deepseek-ai/dsh-tool-pwsh'
+import * as BashEnvPlugin from '@deepseek-ai/dsh-bash-env'
+import type { BashProcessRead } from '@deepseek-ai/dsh-bash'
+import { processOutcome } from '../src/background.ts'
+import { renderPwshProcessRead } from '../src/render.ts'
 
 const testToolSignal = new AbortController().signal
 
 /**
  * A scriptable fake executor: `resolve()` mirrors the real defaulting, `run()`
- * returns the armed script, `start()` throws — the pwsh tool must NEVER create
- * a background task.
+ * returns the armed foreground script, `start()` returns the armed background
+ * handle.
  */
 class FakeBash extends BashExecutor {
   requests: BashExecRequest[] = []
   specs: BashExecSpec[] = []
   startCalls = 0
   handler: (spec: BashExecSpec) => BashRunResult = () => runResult('')
+  backgroundHandler: (spec: BashExecSpec) => BashProcess = () => fakeProcess('bg-ok\n')
 
   override resolve(request: BashExecRequest): BashExecSpec {
     this.requests.push(request)
@@ -53,9 +64,10 @@ class FakeBash extends BashExecutor {
     return this.handler(spec)
   }
 
-  override start(): BashProcess {
+  override start(spec: BashExecSpec): BashProcess {
     this.startCalls++
-    throw new Error('the pwsh tool must never start a background task')
+    this.specs.push(spec)
+    return this.backgroundHandler(spec)
   }
 }
 
@@ -73,38 +85,117 @@ function runResult(stdout: string, overrides?: Partial<BashRunResult>): BashRunR
   }
 }
 
-async function setup(config: Partial<ToolPwsh.Config> = {}) {
+/** A settled successful background handle; overrides script failure shapes. */
+function fakeProcess(delta = 'bg-ok\n'): BashProcess {
+  let consumed = false
+  return {
+    status: 'completed',
+    exitCode: 0,
+    signal: null,
+    done: Promise.resolve(),
+    readOutput: () => {
+      if (consumed) return { delta: '', lossy: false }
+      consumed = true
+      return { delta, lossy: false }
+    },
+    kill: () => false,
+  }
+}
+
+/** A running background handle whose kill() settles it as killed (like a real task_kill). */
+function killableProcess(): BashProcess {
+  let resolveDone: () => void = () => {}
+  const done = new Promise<void>((resolve) => { resolveDone = resolve })
+  const proc: BashProcess = {
+    status: 'running',
+    exitCode: null,
+    signal: null,
+    done,
+    readOutput: () => ({ delta: '', lossy: false }),
+    kill: () => {
+      if (proc.status !== 'running') return false
+      proc.status = 'killed'
+      proc.signal = 'SIGTERM'
+      resolveDone()
+      return true
+    },
+  }
+  return proc
+}
+
+async function setup(toolConfig: Partial<ToolPwsh.Config> = {}, dshHome?: string) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
+  await ctx.plugin(AgentRegistry)
+  await ctx.plugin(BashEnvPlugin, dshHome === undefined ? {} : { dshHome })
   await ctx.plugin(FakeBash)
-  await ctx.plugin(ToolPwsh, config)
+  await ctx.plugin(ToolPwsh, toolConfig)
   const bash = ctx.bash as FakeBash
   return { ctx, bash }
 }
 
-/** A stand-in agent whose session header carries the given cwd and id. */
-const agent = (cwd?: string, id = 'session-1') => ({ session: { header: { id, ...cwd !== undefined ? { cwd } : {} } } })
+/** Full harness: the generic task runtime + its control surface, then the pwsh tool. */
+async function setupWithTasks(toolConfig: Partial<ToolPwsh.Config> = {}, dshHome?: string) {
+  const ctx = new Context()
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(ToolRegistry)
+  await ctx.plugin(AgentRegistry)
+  await ctx.plugin(LocalTaskService)
+  await ctx.plugin(ToolTasks)
+  await ctx.plugin(BashEnvPlugin, dshHome === undefined ? {} : { dshHome })
+  await ctx.plugin(FakeBash)
+  await ctx.plugin(ToolPwsh, toolConfig)
+  const bash = ctx.bash as FakeBash
+  return { ctx, bash }
+}
+
+/**
+ * Build a fake {@link Agent} with the shared agent/session identity, give it a
+ * dedicated lifecycle fiber for `Agent.ctx`, and register it in `ctx.agents`.
+ */
+function registerFakeAgent(ctx: Context, sessionId: string): Agent {
+  const scopeFiber = ctx.plugin(() => {})
+  const id = SessionId(sessionId)
+  const agent = {
+    id,
+    ctx: scopeFiber.ctx,
+    session: { id, header: { version: 0, id, createdAt: 0 } },
+  } as unknown as Agent
+  ctx.agents.register(agent)
+  return agent
+}
 
 let callCounter = 0
-function call(
-  ctx: Context,
-  name: string,
-  args: unknown,
-  options: { agent?: object; signal?: AbortSignal } = {},
-) {
+function call(ctx: Context, name: string, args: unknown, agent?: Agent) {
   return ctx.tools.execute({
     signal: testToolSignal,
     callId: CallId(`call-${++callCounter}`),
     name,
     arguments: args,
-    ...options.agent ? { agent: options.agent as never } : {},
-    ...options.signal ? { signal: options.signal } : {},
+    ...agent ? { agent } : {},
   })
 }
 
 function text(result: { content: { type: string; text?: string }[] }): string {
   return result.content.filter(b => b.type === 'text').map(b => b.text).join('')
+}
+
+async function callUntilText(
+  ctx: Context,
+  name: string,
+  args: unknown,
+  expected: string,
+  timeoutMs = 5_000,
+): Promise<Awaited<ReturnType<typeof call>>> {
+  const deadline = Date.now() + timeoutMs
+  let last: Awaited<ReturnType<typeof call>> | undefined
+  while (Date.now() < deadline) {
+    last = await call(ctx, name, args)
+    if (text(last).includes(expected)) return last
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
+  throw new Error(`tool output did not include ${JSON.stringify(expected)}; last text ${JSON.stringify(last === undefined ? '' : text(last))}`)
 }
 
 describe('registration', () => {
@@ -118,10 +209,12 @@ describe('registration', () => {
       description: { type: 'string' },
       timeoutMs: { type: 'number' },
       workdir: { type: 'string' },
+      run_in_background: { type: 'boolean' },
     })
     expect(schema?.parameters.required).toEqual(['command', 'description'])
     const prompt = renderPrompt(await ctx.systemPrompt.assemble())
-    expect(prompt).toContain('Check the [exit code: N] marker on every pwsh result')
+    expect(prompt).toContain('Non-zero exits are reported as `[exit code: N]` markers')
+    expect(prompt).toContain('without a signal marker')
   })
 
   it('stays pending until ctx.bash exists (inject)', async () => {
@@ -136,6 +229,7 @@ describe('registration', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
+    await ctx.plugin(BashEnvPlugin)
     await ctx.plugin(FakeBash)
     const fiber = await ctx.plugin(ToolPwsh)
     expect(ctx.tools.schemas()).toHaveLength(1)
@@ -157,13 +251,15 @@ describe('argument validation', () => {
 describe('execution through the bash seam', () => {
   it('forwards command, session cwd, timeout, and managed DSH_* environment', async () => {
     const dshHome = mkdtempSync(join(tmpdir(), 'dsh-tool-pwsh-home-'))
-    const { ctx, bash } = await setup({ dshHome })
+    const { ctx, bash } = await setup({}, dshHome)
     bash.handler = () => runResult('hi\n')
+    const agent = registerFakeAgent(ctx, 'session-1')
+    Object.assign(agent.session.header, { cwd: '/sessions/s1' })
     const result = await call(ctx, 'pwsh', {
       command: 'Write-Output hi',
       description: 'say hi',
       timeoutMs: 1234,
-    }, { agent: agent('/sessions/s1') })
+    }, agent)
     expect(result.isError).toBe(false)
     const request = bash.requests[0]
     expect(request?.command).toBe('Write-Output hi')
@@ -180,9 +276,11 @@ describe('execution through the bash seam', () => {
   it('resolves a relative workdir against the session cwd, absolute ones verbatim', async () => {
     const { ctx, bash } = await setup()
     bash.handler = () => runResult('ok\n')
-    await call(ctx, 'pwsh', { command: 'pwd', description: 'cwd', workdir: 'sub/dir' }, { agent: agent('/sessions/s1') })
+    const agent = registerFakeAgent(ctx, 'session-cwd')
+    Object.assign(agent.session.header, { cwd: '/sessions/s1' })
+    await call(ctx, 'pwsh', { command: 'pwd', description: 'cwd', workdir: 'sub/dir' }, agent)
     expect(bash.requests[0]?.workdir).toBe(resolvePath('/sessions/s1', 'sub/dir'))
-    await call(ctx, 'pwsh', { command: 'pwd', description: 'cwd', workdir: resolvePath('/abs/path') }, { agent: agent('/sessions/s1') })
+    await call(ctx, 'pwsh', { command: 'pwd', description: 'cwd', workdir: resolvePath('/abs/path') }, agent)
     expect(bash.requests[1]?.workdir).toBe(resolvePath('/abs/path'))
   })
 
@@ -202,7 +300,12 @@ describe('execution through the bash seam', () => {
     const { ctx, bash } = await setup()
     const controller = new AbortController()
     bash.handler = () => runResult('ok\n')
-    await call(ctx, 'pwsh', { command: 'Write-Output ok', description: 'ok' }, { signal: controller.signal })
+    await ctx.tools.execute({
+      signal: controller.signal,
+      callId: CallId('call-signal'),
+      name: 'pwsh',
+      arguments: { command: 'Write-Output ok', description: 'ok' },
+    })
     expect(bash.requests[0]?.signal).toBe(controller.signal)
   })
 
@@ -229,19 +332,60 @@ describe('execution through the bash seam', () => {
     expect(text(result)).toBe('out\n[stderr]\nerr\n[exit code: 2]')
   })
 
-  it('renders the truncation tail, the exit marker, and a timeout marker from the executor streams', async () => {
+  it('renders a clean exit without a marker and an empty body as (no output)', async () => {
+    const { ctx, bash } = await setup()
+    bash.handler = () => runResult('hi\n')
+    const clean = await call(ctx, 'pwsh', { command: 'Write-Output hi', description: 'say hi' })
+    expect(text(clean)).toBe('hi\n')
+
+    bash.handler = () => runResult('')
+    const empty = await call(ctx, 'pwsh', { command: 'Write-Output -NoNewline ""', description: 'nothing' })
+    expect(text(empty)).toBe('(no output)')
+  })
+
+  it('renders stderr-only output without a stdout prefix', async () => {
+    const { ctx, bash } = await setup()
+    bash.handler = () => runResult('', {
+      stderr: { text: 'err\n', truncated: false },
+      exitCode: 1,
+    })
+    const result = await call(ctx, 'pwsh', { command: 'fail', description: 'fail' })
+    expect(text(result)).toBe('[stderr]\nerr\n[exit code: 1]')
+  })
+
+  it('inserts the separating newline before the stderr section when stdout lacks one', async () => {
+    const { ctx, bash } = await setup()
+    bash.handler = () => runResult('out', {
+      stderr: { text: 'err\n', truncated: false },
+      exitCode: 1,
+    })
+    const result = await call(ctx, 'pwsh', { command: 'fail', description: 'fail' })
+    expect(text(result)).toBe('out\n[stderr]\nerr\n[exit code: 1]')
+  })
+
+  it('renders the truncation notice with the spill path, then markers', async () => {
     const { ctx, bash } = await setup()
     bash.handler = () => runResult('tail', {
       stdout: { text: 'tail', truncated: true, spillPath: '/spill/out.log' },
       stderr: { text: '', truncated: false },
     })
     const result = await call(ctx, 'pwsh', { command: 'noisy', description: 'noise' })
-    expect(text(result)).toBe('tail\n[exit code: 0]')
+    expect(text(result)).toBe('tail\n[output truncated; full output: /spill/out.log]')
 
     bash.handler = () => runResult('', { timedOut: true, exitCode: null, signal: 'SIGTERM', timeoutMs: 500 })
     const timedOut = await call(ctx, 'pwsh', { command: 'slow', description: 'slow' })
     // A timeout kill carries both facts, mirroring the bash tool's markers.
-    expect(text(timedOut)).toBe('[timed out after 500ms]\n[killed by signal: SIGTERM]')
+    expect(text(timedOut)).toBe('(no output)\n[timed out after 500ms]\n[killed by signal: SIGTERM]')
+  })
+
+  it('renders the truncation notice with (unavailable) when no spill path exists', async () => {
+    const { ctx, bash } = await setup()
+    bash.handler = () => runResult('tail', {
+      stdout: { text: 'tail', truncated: true },
+      stderr: { text: '', truncated: false },
+    })
+    const result = await call(ctx, 'pwsh', { command: 'noisy', description: 'noise' })
+    expect(text(result)).toBe('tail\n[output truncated; full output: (unavailable)]')
   })
 
   it('translates an aborted run into the TOOL_ABORTED HarnessError', async () => {
@@ -251,14 +395,123 @@ describe('execution through the bash seam', () => {
     expect(result.isError).toBe(true)
     expect(result.error).toMatchObject({ info: { name: 'AbortError', code: TOOL_ABORTED } })
   })
+})
 
-  it('never starts a background task', async () => {
-    const { ctx, bash } = await setup()
-    bash.handler = () => runResult('ok\n')
-    await call(ctx, 'pwsh', { command: 'Write-Output ok', description: 'ok' })
-    bash.handler = () => runResult('', { exitCode: 1 })
-    await call(ctx, 'pwsh', { command: 'missing', description: 'missing' })
+describe('background execution through the task runtime', () => {
+  it('run_in_background acks with the task id, readable through the REAL task_output tool', async () => {
+    const { ctx } = await setupWithTasks()
+    const started = await call(ctx, 'pwsh', { command: 'Write-Output bg-ok', description: 'test command', run_in_background: true })
+    expect(started.isError).toBe(false)
+    if (started.isError) throw new Error('expected background pwsh success')
+    expect(started.value).toEqual({ kind: 'background', taskId: 'pwsh-1' })
+    expect(text(started)).toBe('started background task pwsh-1')
+
+    const read = await callUntilText(ctx, 'task_output', { task_id: 'pwsh-1' }, 'bg-ok')
+    expect(text(read)).toContain('bg-ok')
+    // A later read reports the terminal outcome in the generic status line.
+    const final = await callUntilText(ctx, 'task_output', { task_id: 'pwsh-1' }, '[status: completed, exit code: 0]')
+    expect(final.isError).toBe(false)
+  })
+
+  it('a running background task is killable through the REAL task_kill tool', async () => {
+    const { ctx, bash } = await setupWithTasks()
+    bash.backgroundHandler = () => killableProcess()
+    await call(ctx, 'pwsh', { command: 'Start-Sleep -Seconds 60', description: 'test command', run_in_background: true })
+
+    const killed = await call(ctx, 'task_kill', { task_id: 'pwsh-1' })
+    expect(text(killed)).toBe('requested cancellation of task pwsh-1')
+    // The cancel reached the process handle; the task settles as killed with
+    // the signal detail mapped by processOutcome.
+    const final = await call(ctx, 'task_output', { task_id: 'pwsh-1', wait: true })
+    expect(text(final)).toContain('[status: killed, signal: SIGTERM]')
+  })
+
+  it('a background task started by an agent is registered with that agent as owner', async () => {
+    const { ctx } = await setupWithTasks()
+    const agent = registerFakeAgent(ctx, 'sess-owner')
+    const started = await call(ctx, 'pwsh', { command: 'Start-Sleep -Seconds 60', description: 'test command', run_in_background: true }, agent)
+    expect(text(started)).toBe('started background task pwsh-1')
+
+    const anon = await call(ctx, 'task_output', { task_id: 'pwsh-1' })
+    expect(anon.isError).toBe(true)
+    expect(text(anon)).toMatch(/belongs to another session/)
+
+    const killed = await call(ctx, 'task_kill', { task_id: 'pwsh-1' }, agent)
+    expect(killed.isError).toBe(false)
+    await call(ctx, 'task_output', { task_id: 'pwsh-1', wait: true }, agent) // await settlement — no orphan
+  })
+
+  it('fails loud when the task runtime is not loaded', async () => {
+    const { ctx } = await setup() // no LocalTaskService / ToolTasks
+    const result = await call(ctx, 'pwsh', { command: 'Start-Sleep -Seconds 60', description: 'test command', run_in_background: true })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('background tasks unavailable: load @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks')
+  })
+
+  it('a pre-aborted call is skipped before the process starts', async () => {
+    const { ctx, bash } = await setupWithTasks()
+    const controller = new AbortController()
+    controller.abort()
+    const result = await ctx.tools.execute({
+      callId: CallId('call-pre-aborted'),
+      name: 'pwsh',
+      arguments: { command: 'Start-Sleep -Seconds 60', description: 'test command', run_in_background: true },
+      signal: controller.signal,
+    })
+    expect(result.isError).toBe(true)
+    expect(result.error).toEqual({
+      message: 'tool call aborted before dispatch',
+      info: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH },
+    })
     expect(bash.startCalls).toBe(0)
+  })
+
+  it('never spawns the process when tasks.start preflight throws (no orphan, by construction)', async () => {
+    // With no control surface, task preflight fails before the executor can spawn.
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(LocalTaskService)
+    await ctx.plugin(BashEnvPlugin)
+    await ctx.plugin(FakeBash)
+    await ctx.plugin(ToolPwsh)
+    const bash = ctx.bash as FakeBash
+
+    const result = await call(ctx, 'pwsh', { command: 'Start-Sleep -Seconds 60', description: 'test command', run_in_background: true })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('no control surface is attached')
+    // Declare-then-execute: the failed preflight means no process ever ran.
+    expect(bash.startCalls).toBe(0)
+  })
+
+  it('enableRunInBackground: false removes the parameter and flips the description', async () => {
+    const { ctx } = await setup({ enableRunInBackground: false })
+    const schema = ctx.tools.schemas().find(s => s.name === 'pwsh')!
+    expect(Object.keys(schema.parameters.properties as Record<string, unknown>))
+      .toEqual(['command', 'description', 'timeoutMs', 'workdir'])
+    expect(schema.description).toContain('Background execution is not available')
+    expect(schema.description).not.toContain('run_in_background')
+
+    // Schema omission is advertising; execution must also enforce the opt-out.
+    const forced = await call(ctx, 'pwsh', { command: 'Write-Output hi', description: 'test command', run_in_background: true })
+    expect(forced.isError).toBe(true)
+    expect(text(forced)).toContain('run_in_background is disabled for this deployment')
+    const foreground = await call(ctx, 'pwsh', { command: 'Write-Output hi', description: 'test command' })
+    expect(foreground.isError).toBe(false)
+  })
+
+  it('applies the built-in background default when apply() receives a bare config', async () => {
+    // Bypasses the schemastery defaults on purpose: apply() must stand on its
+    // own `?? true` fallback when embedded programmatically without the schema.
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(BashEnvPlugin)
+    await ctx.plugin(FakeBash)
+    ToolPwsh.apply(ctx, {})
+    const schema = ctx.tools.schemas()[0]!
+    expect(schema.parameters.properties).toHaveProperty('run_in_background')
+    expect(schema.description).toContain('task_output')
   })
 })
 
@@ -267,11 +520,11 @@ describe('UI presentation', () => {
     const { ctx, bash } = await setup()
     bash.handler = () => runResult('hi\n')
     const args = { command: 'Write-Output hi', description: 'say hi' }
-    const result = await call(ctx, 'pwsh', args, { agent: agent('/w') })
+    const result = await call(ctx, 'pwsh', args)
     const view = ctx.tools.get('pwsh')?.presentResult?.(args, result)
     expect(view).toEqual({
       card: 'generic',
-      content: [{ type: 'text', text: '```console\nhi\n[exit code: 0]\n```' }],
+      content: [{ type: 'text', text: '```console\nhi\n```' }],
     })
   })
 
@@ -292,5 +545,77 @@ describe('UI presentation', () => {
     expect(definition?.presentResult?.(args, multi as never)).toBeUndefined()
     const image = { content: [{ type: 'image' as const, text: 'a' }], isError: false }
     expect(definition?.presentResult?.(args, image as never)).toBeUndefined()
+  })
+})
+
+describe('renderPwshProcessRead', () => {
+  const base: BashProcessRead = { delta: 'out\n', lossy: false }
+
+  it('returns the delta verbatim for a lossless read', () => {
+    expect(renderPwshProcessRead(base)).toBe('out\n')
+    expect(renderPwshProcessRead({ delta: '', lossy: false })).toBe('')
+  })
+
+  it('appends the loss notice with the available spill paths', () => {
+    expect(renderPwshProcessRead({ ...base, lossy: true, stdoutSpillPath: 'C:\\spill\\out.log' }))
+      .toBe('out\n[some output was dropped from memory; full output: C:\\spill\\out.log]')
+    expect(renderPwshProcessRead({
+      ...base,
+      lossy: true,
+      stdoutSpillPath: 'C:\\spill\\out.log',
+      stderrSpillPath: 'C:\\spill\\err.log',
+    }))
+      .toBe('out\n[some output was dropped from memory; full output: C:\\spill\\out.log, C:\\spill\\err.log]')
+  })
+
+  it('reports (unavailable) when a lossy read has no safe spill path', () => {
+    expect(renderPwshProcessRead({ ...base, lossy: true }))
+      .toBe('out\n[some output was dropped from memory; full output: (unavailable)]')
+  })
+
+  it('an empty lossy delta is the notice alone', () => {
+    expect(renderPwshProcessRead({ delta: '', lossy: true, stderrSpillPath: 'C:\\spill\\err.log' }))
+      .toBe('[some output was dropped from memory; full output: C:\\spill\\err.log]')
+  })
+
+  it('inserts the separating newline only when the delta lacks one', () => {
+    expect(renderPwshProcessRead({ delta: 'tail', lossy: true }))
+      .toBe('tail\n[some output was dropped from memory; full output: (unavailable)]')
+    expect(renderPwshProcessRead({ delta: 'tail\n', lossy: true }))
+      .toBe('tail\n[some output was dropped from memory; full output: (unavailable)]')
+  })
+})
+
+describe('processOutcome', () => {
+  function settled(over: Partial<BashProcess>): BashProcess {
+    return {
+      status: 'completed',
+      exitCode: 0,
+      signal: null,
+      done: Promise.resolve(),
+      readOutput: () => ({ delta: '', lossy: false }),
+      kill: () => false,
+      ...over,
+    }
+  }
+
+  it('maps a signal-killed process to killed with the signal detail', () => {
+    expect(processOutcome(settled({ status: 'killed', signal: 'SIGTERM' })))
+      .toEqual({ status: 'killed', detail: 'signal: SIGTERM' })
+  })
+
+  it('maps a killed process without a recorded signal (kill raced exit / spawn failure)', () => {
+    expect(processOutcome(settled({ status: 'killed', exitCode: null })))
+      .toEqual({ status: 'killed', detail: 'killed before exit' })
+  })
+
+  it('maps a completed process to its exit code', () => {
+    expect(processOutcome(settled({ exitCode: 3 })))
+      .toEqual({ status: 'completed', detail: 'exit code: 3' })
+  })
+
+  it('defensively reads a null exit code as 0 (handle shapes from other executors)', () => {
+    expect(processOutcome(settled({ exitCode: null })))
+      .toEqual({ status: 'completed', detail: 'exit code: 0' })
   })
 })

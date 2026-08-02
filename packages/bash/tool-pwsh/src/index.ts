@@ -4,38 +4,48 @@
  * `@deepseek-ai/dsh-pwsh-local`) backs `ctx.bash`; the tool contract is
  * PowerShell-dialect: native `C:\...` paths and `$env:NAME` variables.
  *
- * Minimal by design: no background tasks, no sandbox escalation — this is the
- * "works on my Windows machine" profile until the full bash-tool feature set
- * gets a PowerShell twin.
+ * Behavior mirrors `dsh-tool-bash` call-for-call minus the sandbox surface:
+ * foreground and `run_in_background` execution (background handles register
+ * with the generic `ctx.tasks` runtime), the managed `DSH_*` environment
+ * through the shared `bash-env` registry, and the bash marker/truncation
+ * rendering story. UI presentation stays on the existing generic/terminal
+ * cards; a pwsh-specific rendering twin is roadmap work.
  *
  * @module @deepseek-ai/dsh-tool-pwsh
  */
 
 import { isAbsolute, resolve as resolvePath } from 'node:path'
-import { Context } from 'cordis'
+import type { Context } from 'cordis'
 import z from 'schemastery'
 import { defineTool, TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
-import type { TerminalCallView, ToolExecution, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
+import type { TerminalCallView, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-system-prompt'
-import { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-bash'
-import type { BashRunResult, DshEnvironment } from '@deepseek-ai/dsh-bash'
-import { DSH_HOME_ENV, resolveDshHome } from '@deepseek-ai/dsh-paths'
+import type {} from '@deepseek-ai/dsh-tasks'
+import type {} from '@deepseek-ai/dsh-bash-env'
+import type { BashRunResult } from '@deepseek-ai/dsh-bash'
+import { processOutcome } from './background.ts'
+import { renderPwshProcessRead, renderPwshResult } from './render.ts'
+
+declare module '@deepseek-ai/dsh-tasks' {
+  interface TaskKindMap {
+    pwsh: 'pwsh'
+  }
+}
 
 export const name = 'tool-pwsh'
-export const inject = ['tools', 'bash', 'systemPrompt']
+export const inject = ['tools', 'bash', 'systemPrompt', 'bashEnv']
 
-/** Plugin config (currently empty; kept as a schema so deployments can grow it). */
+/** Configuration for the pwsh tool. */
 export interface Config {
-  /** DeepSeek Harness home directory exposed as `DSH_HOME`; defaults to `$DSH_HOME` or `~/.dsh`. */
-  dshHome?: string
+  /** Expose `run_in_background` (default true); disabled calls are also rejected. */
+  enableRunInBackground?: boolean
 }
 
 /** Runtime configuration schema for the pwsh tool plugin. */
 export const Config: z<Config> = z.object({
-  dshHome: z.string(),
+  enableRunInBackground: z.boolean().default(true),
 })
 
 /** Parsed tool args; execute validates value constraints absent from ParameterSchemaSpec. */
@@ -44,6 +54,7 @@ interface PwshToolArgs {
   description: string
   timeoutMs?: number
   workdir?: string
+  run_in_background?: boolean
 }
 
 /** The canonical foreground result of one pwsh call (the `output.schema` value shape). */
@@ -72,12 +83,18 @@ function validatePwshArgs(args: PwshToolArgs): void {
 }
 /* jscpd:ignore-end */
 
-function pwshDescription(): string {
+function pwshDescription(backgroundEnabled: boolean): string {
+  const background = backgroundEnabled
+    ? 'Set `run_in_background: true` for long-running commands: the call returns a task id immediately; read its output with `task_output` and stop it with `task_kill`.'
+    : 'Background execution is not available; long-running commands must finish within the timeout.'
   return 'Execute a PowerShell command (`pwsh -Command`) and return its stdout/stderr. '
     + 'Each call runs in a fresh pwsh process: no state (cwd, variables, functions) persists between calls — '
     + 'pass `workdir` instead of using `cd`. Paths use native Windows form (`C:\\...`); read environment '
     + 'variables with `$env:NAME`. Non-zero exits are reported as `[exit code: N]`. '
-    + 'Long output is truncated to its tail; the full output is saved to a file whose path is reported when available.'
+    + 'Current harness environment facts are exposed through managed `$env:DSH_*` variables; inspect them when needed. '
+    + 'Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. '
+    + 'On Windows a force-killed command settles as `[exit code: 1]` without a signal marker — treat it as an interruption, not a command failure. '
+    + background
 }
 
 /**
@@ -93,32 +110,7 @@ function resolveWorkdir(modelWorkdir: string | undefined, exec: { agent?: Agent 
   return modelWorkdir
 }
 
-/**
- * The model-facing text of one foreground pwsh result: stdout, a marked
- * stderr section, then the applicable timeout, signal, and exit markers —
- * each separated by a newline only when the accumulated text lacks one, so a
- * trailing newline in stdout never produces a blank line.
- *
- * @param value - the canonical foreground result (the schema-derived value shape).
- * @returns the model-facing text.
- */
-function renderPwshOutput(value: RenderablePwshOutput): string {
-  let rendered = value.stdout.text
-  const marker = (line: string): void => {
-    rendered += rendered.length > 0 && !rendered.endsWith('\n') ? `\n${line}` : line
-  }
-  if (value.stderr.text.length > 0) marker(`[stderr]\n${value.stderr.text}`)
-  if (value.timedOut) marker(`[timed out after ${value.timeoutMs}ms]`)
-  if (value.signal !== null) marker(`[killed by signal: ${value.signal}]`)
-  if (value.exitCode !== null) marker(`[exit code: ${value.exitCode}]`)
-  return rendered
-}
-
-/**
- * Detach the executor DTO from readonly seam interfaces into plain JSON data.
- * @param result - the executor's run outcome.
- * @returns the canonical foreground result the tool returns and renders.
- */
+/** Detach the executor DTO from readonly seam interfaces into plain JSON data. */
 function canonicalPwshResult(result: BashRunResult): PwshForegroundResult {
   const output = (stream: BashRunResult['stdout']) => ({
     text: stream.text,
@@ -132,48 +124,32 @@ function canonicalPwshResult(result: BashRunResult): PwshForegroundResult {
     timedOut: result.timedOut,
     aborted: result.aborted,
     timeoutMs: result.timeoutMs,
+    /* jscpd:ignore-start -- the canonical projection and background-handle shape mirror dsh-tool-bash's by design (Agent Note). */
     stdout: output(result.stdout),
     stderr: output(result.stderr),
   }
 }
 
-/** The rendered fields of a foreground result — the schema-derived value shape (no `kind`, plain-string signal). */
-interface RenderablePwshOutput {
-  exitCode: number | null
-  signal: string | null
-  timedOut: boolean
-  timeoutMs: number
-  stdout: { text: string }
-  stderr: { text: string }
-}
-
-/**
- * The managed `DSH_*` snapshot for one pwsh call: the harness home, a shell
- * marker, and the session identity when an agent is present.
- */
-function collectDshEnv(exec: ToolExecution, dshHome: string): DshEnvironment {
-  const values: Record<string, string> = {
-    [DSH_HOME_ENV]: dshHome,
-    [`${DSH_ENV_PREFIX}SHELL`]: '1',
-  }
-  if (exec.agent !== undefined) {
-    values[`${DSH_ENV_PREFIX}SESSION_ID`] = exec.agent.session.header.id
-  }
-  return values
-}
+/** Canonical background-handle properties shared by the pwsh output union. */
+const BACKGROUND_OUTPUT_PROPERTIES = {
+  kind: { type: 'string', required: true, const: 'background' },
+  taskId: { type: 'string', required: true },
+} as const
+/* jscpd:ignore-end */
 
 export function apply(ctx: Context, config: Config = {}): void {
-  const dshHome = resolveDshHome(config.dshHome)
+  const backgroundEnabled = config.enableRunInBackground ?? true
 
   ctx.systemPrompt.section({
     name: 'tool:pwsh',
     order: 105,
-    text: 'Check the [exit code: N] marker on every pwsh result; investigate failures before moving on.',
+    text: 'Non-zero exits are reported as `[exit code: N]` markers; investigate failures before moving on. '
+      + 'On Windows a killed process settles as `[exit code: 1]` without a signal marker; treat a bare exit 1 after an interruption as a termination, not a command failure.',
   })
 
   ctx.tools.register(defineTool({
     name: 'pwsh',
-    description: pwshDescription(),
+    description: pwshDescription(backgroundEnabled),
     parameters: {
       command: { type: 'string', required: true, description: 'The PowerShell command to execute.' },
       description: {
@@ -185,59 +161,111 @@ export function apply(ctx: Context, config: Config = {}): void {
       },
       timeoutMs: { type: 'number', description: 'Timeout in milliseconds. The executor applies its configured default and cap, and kills the command on expiry.' },
       workdir: { type: 'string', description: 'Working directory for this command. Defaults to the session workspace; a relative path is resolved against it.' },
+      ...backgroundEnabled ? {
+        run_in_background: { type: 'boolean' as const, description: 'Run in the background and return a task id immediately (collect with task_output, stop with task_kill). No timeout applies.' },
+      } : {},
     },
     output: {
       // The foreground result wire shape mirrors dsh-tool-bash's by contract —
       // consumers of one must accept the other (see the pwsh-tool-and-executor
       // Agent Note).
-      /* jscpd:ignore-start -- deliberate foreground-result schema symmetry with dsh-tool-bash. */
+      /* jscpd:ignore-start -- deliberate result-schema symmetry with dsh-tool-bash. */
       schema: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          kind: { type: 'string', required: true, const: 'foreground' },
-          exitCode: { required: true, oneOf: [{ type: 'integer' }, { type: 'null' }] },
-          signal: { required: true, oneOf: [{ type: 'string' }, { type: 'null' }] },
-          timedOut: { type: 'boolean', required: true },
-          aborted: { type: 'boolean', required: true },
-          timeoutMs: { type: 'number', required: true },
-          stdout: {
+        oneOf: [
+          {
             type: 'object',
             additionalProperties: false,
-            required: true,
-            properties: {
-              text: { type: 'string', required: true },
-              truncated: { type: 'boolean', required: true },
-              spillPath: { type: 'string' },
-            },
+            properties: BACKGROUND_OUTPUT_PROPERTIES,
           },
-          stderr: {
+          {
             type: 'object',
             additionalProperties: false,
-            required: true,
             properties: {
-              text: { type: 'string', required: true },
-              truncated: { type: 'boolean', required: true },
-              spillPath: { type: 'string' },
+              kind: { type: 'string', required: true, const: 'foreground' },
+              exitCode: { required: true, oneOf: [{ type: 'integer' }, { type: 'null' }] },
+              signal: { required: true, oneOf: [{ type: 'string' }, { type: 'null' }] },
+              timedOut: { type: 'boolean', required: true },
+              aborted: { type: 'boolean', required: true },
+              timeoutMs: { type: 'number', required: true },
+              stdout: {
+                type: 'object',
+                additionalProperties: false,
+                required: true,
+                properties: {
+                  text: { type: 'string', required: true },
+                  truncated: { type: 'boolean', required: true },
+                  spillPath: { type: 'string' },
+                },
+              },
+              stderr: {
+                type: 'object',
+                additionalProperties: false,
+                required: true,
+                properties: {
+                  text: { type: 'string', required: true },
+                  truncated: { type: 'boolean', required: true },
+                  spillPath: { type: 'string' },
+                },
+              },
             },
           },
-        },
+        ],
       },
       /* jscpd:ignore-end */
       render: (_args, value) => [{
         type: 'text',
-        text: renderPwshOutput(value),
+        text: value.kind === 'background'
+          ? `started background task ${value.taskId}`
+          : renderPwshResult(value),
       }],
     },
-    /* jscpd:ignore-start -- the foreground execute path mirrors dsh-tool-bash's by design (see the pwsh-tool-and-executor Agent Note). */
+    /* jscpd:ignore-start -- the execute path mirrors dsh-tool-bash's by design (see the pwsh-tool-and-executor Agent Note). */
     async execute(args: PwshToolArgs, exec) {
       validatePwshArgs(args)
       const workdir = resolveWorkdir(args.workdir, exec)
-      const result = await ctx.bash.run(ctx.bash.resolve({
+      const request = {
         command: args.command,
         ...workdir !== undefined ? { workdir } : {},
         ...args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {},
-        dshEnv: collectDshEnv(exec, dshHome),
+        dshEnv: ctx.bashEnv.collect(exec),
+      }
+      if (args.run_in_background === true) {
+        // Undeclared keys are allowed, so schema omission also needs enforcement.
+        if (!backgroundEnabled) {
+          throw new Error('run_in_background is disabled for this deployment (enableRunInBackground: false)')
+        }
+        const tasks = ctx.get('tasks')
+        if (tasks === undefined) {
+          throw new Error('background tasks unavailable: load @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks')
+        }
+        // The caller owns cancellation until ctx.tasks commits detached ownership.
+        /* v8 ignore start -- the bash twin's branch is exercised by its sandbox-approval mid-call abort;
+           pwsh has no approval surface, and the tool registry's pre-dispatch abort check intercepts
+           already-aborted signals first, so this mirror-only guard has no reachable trigger. */
+        if (exec.signal.aborted) {
+          const error = new HarnessError('tool call aborted', TOOL_ABORTED)
+          error.name = 'AbortError'
+          throw error
+        }
+        /* v8 ignore end */
+        // Task preflight finishes before the starter can spawn a process.
+        const id = tasks.start({
+          kind: 'pwsh',
+          label: args.command,
+          ...exec.agent ? { owner: exec.agent } : {},
+          run: () => {
+            const proc = ctx.bash.start(ctx.bash.resolve(request))
+            return {
+              cancel: () => void proc.kill(),
+              done: proc.done.then(() => processOutcome(proc)),
+              readOutput: () => renderPwshProcessRead(proc.readOutput()),
+            }
+          },
+        })
+        return { kind: 'background' as const, taskId: id }
+      }
+      const result = await ctx.bash.run(ctx.bash.resolve({
+        ...request,
         signal: exec.signal,
       }))
       if (result.aborted) {

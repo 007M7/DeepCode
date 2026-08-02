@@ -2,10 +2,11 @@
  * Integration tests: the REAL `@deepseek-ai/dsh-pwsh-local` executor plus the
  * `pwsh` tool, exercised through `ctx.tools.execute()` with a real PowerShell
  * process. These verify the world — actual commands run, stdout/stderr come
- * back, exit codes render, timeouts abort, and per-session cwd resolution
- * works. The suite self-skips when no `pwsh` is on PATH (a CI accommodation
- * for hosts without PowerShell); the fake-executor suite (tools.spec.ts)
- * carries the coverage gate.
+ * back, exit codes render, timeouts abort, background tasks settle through the
+ * generic task runtime, and per-session cwd resolution works. The suite
+ * self-skips when no `pwsh` is on PATH (a CI accommodation for hosts without
+ * PowerShell); the fake-executor suite (tools.spec.ts) carries the coverage
+ * gate.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -17,13 +18,18 @@ import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
+import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
+import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
-import { PwshLocalExecutor } from '@deepseek-ai/dsh-pwsh-local'
+import { PwshLocalExecutor, resolvePwshPath } from '@deepseek-ai/dsh-pwsh-local'
 import * as ToolPwsh from '@deepseek-ai/dsh-tool-pwsh'
+import * as BashEnvPlugin from '@deepseek-ai/dsh-bash-env'
 
 const testToolSignal = new AbortController().signal
 
-const hasPwsh = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '$true'], { encoding: 'utf8' }).status === 0
+// The probe follows the executor's own resolution (Program Files installs on
+// Windows are found even when bare `pwsh` is not on PATH).
+const hasPwsh = spawnSync(resolvePwshPath(), ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '$true'], { encoding: 'utf8' }).status === 0
 
 /** Normalize PowerShell's platform line endings (CRLF on Windows, LF elsewhere). */
 const lf = (text: string): string => text.replace(/\r\n/g, '\n')
@@ -54,7 +60,10 @@ describe.skipIf(!hasPwsh)('pwsh tool over the real pwsh executor', () => {
     ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
+    await ctx.plugin(LocalTaskService)
+    await ctx.plugin(ToolTasks)
     await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(BashEnvPlugin)
     await ctx.plugin(PwshLocalExecutor, { timeoutMs: 20_000, graceMs: 200 })
     await ctx.plugin(ToolPwsh)
   })
@@ -65,12 +74,12 @@ describe.skipIf(!hasPwsh)('pwsh tool over the real pwsh executor', () => {
 
   const agent = () => ({ session: { header: { id: 'session-int', cwd: dir } } })
 
-  it('runs a command and returns stdout with the exit marker', async () => {
+  it('runs a command and returns stdout with no marker on a clean exit', async () => {
     const result = await call('pwsh', { command: 'Write-Output hi', description: 'say hi' }, agent())
     expect(result.isError).toBe(false)
     if (result.isError) throw new Error('expected pwsh success')
     expect(result.value).toMatchObject({ kind: 'foreground', exitCode: 0 })
-    expect(lf(text(result))).toBe('hi\n[exit code: 0]')
+    expect(lf(text(result))).toBe('hi\n')
   })
 
   it('returns stderr in a marked section and a nonzero exit as a marker, not an error', async () => {
@@ -88,7 +97,7 @@ describe.skipIf(!hasPwsh)('pwsh tool over the real pwsh executor', () => {
       description: 'read greeting',
     }, agent())
     expect(result.isError).toBe(false)
-    expect(lf(text(result))).toBe('hello pwsh\n[exit code: 0]')
+    expect(lf(text(result))).toBe('hello pwsh\n')
   })
 
   it('a per-call timeout kills the run and reports the timed-out marker, not an error', async () => {
@@ -115,5 +124,31 @@ describe.skipIf(!hasPwsh)('pwsh tool over the real pwsh executor', () => {
     const result = await pending
     expect(result.isError).toBe(true)
     expect(result.error).toMatchObject({ info: { name: 'AbortError', code: TOOL_ABORTED } })
+  })
+
+  it('a background run settles through the REAL task_output tool', async () => {
+    const started = await call('pwsh', {
+      command: 'Start-Sleep -Milliseconds 300; Write-Output bg-done',
+      description: 'background greeting',
+      run_in_background: true,
+    })
+    expect(started.isError).toBe(false)
+    if (started.isError) throw new Error('expected background pwsh success')
+    expect(started.value).toMatchObject({ kind: 'background' })
+    const taskId = (started.value as { taskId: string }).taskId
+
+    // The output delta and the terminal status can land in separate reads
+    // (Windows flushes the child pipe at exit), so collect incrementally —
+    // the same two-step shape as the bash background suite.
+    const deadline = Date.now() + 10_000
+    let output = ''
+    while (Date.now() < deadline) {
+      const read = await call('task_output', { task_id: taskId })
+      output += text(read)
+      if (output.includes('bg-done') && output.includes('[status: completed, exit code: 0]')) break
+      await new Promise(resolve => setTimeout(resolve, 50))
+    }
+    expect(output).toContain('bg-done')
+    expect(output).toContain('[status: completed, exit code: 0]')
   })
 })

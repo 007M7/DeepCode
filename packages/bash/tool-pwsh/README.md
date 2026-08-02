@@ -2,13 +2,13 @@
 
 English | [中文](README.zh.md)
 
-The model-facing `pwsh` tool registered over the `ctx.bash` executor seam. Intended for Windows compositions where a PowerShell executor (e.g. `@deepseek-ai/dsh-pwsh-local`) backs `ctx.bash`; the tool contract is PowerShell-dialect: native `C:\...` paths and `$env:NAME` variables. Minimal by design — no background tasks, no sandbox escalation, no persistent shell: this is the "works on my Windows machine" profile until the full bash-tool feature set gets a PowerShell twin.
+The model-facing `pwsh` tool registered over the `ctx.bash` executor seam. Intended for Windows compositions where a PowerShell executor (e.g. `@deepseek-ai/dsh-pwsh-local`) backs `ctx.bash`; the tool contract is PowerShell-dialect: native `C:\...` paths and `$env:NAME` variables. Behavior mirrors `dsh-tool-bash` call-for-call minus the sandbox surface — foreground and `run_in_background` execution through the generic task runtime, the managed `DSH_*` environment through the shared `bash-env` registry, and the bash marker/truncation rendering story (a clean exit produces no marker).
 
-Requires a loaded executor implementation; the plugin stays pending until `ctx.bash` exists (`inject: ['tools', 'bash', 'systemPrompt']`).
+Requires a loaded executor implementation and the `bash-env` plugin; the tool stays pending until both exist (`inject: ['tools', 'bash', 'systemPrompt', 'bashEnv']`).
 
-The package root exposes only the Cordis plugin contract (`name`, `inject`, `Config`, `apply`) plus the pure `renderPwshOutput` helper and its result type; execution and presentation remain implementation details covered by same-package tests.
+The package root exposes only the Cordis plugin contract (`name`, `inject`, `Config`, `apply`); result rendering (`src/render.ts`) and background-task adaptation (`src/background.ts`) mirror the bash tool's structure and stay reachable through the package's `./src/*` export.
 
-The plugin also contributes the `tool:pwsh` prompt section (order 105): check the `[exit code: N]` marker on every result and investigate failures before moving on.
+The plugin also contributes the `tool:pwsh` prompt section (order 105): non-zero exits are reported as `[exit code: N]` markers, and Windows interruption settles as exit 1 without a signal marker.
 
 ## Tools
 
@@ -20,20 +20,23 @@ The plugin also contributes the `tool:pwsh` prompt section (order 105): check th
 | `description` | string (required) | One-line, active-voice summary of the command (5-10 words), for UI/log display only — no effect on execution. |
 | `timeoutMs` | number | Timeout override in milliseconds. The executor applies its configured default and cap. |
 | `workdir` | string | Working directory for this call. Defaults to the calling agent's session cwd (`session.header.cwd`) so each session runs in its own workspace; a relative `workdir` is resolved against that same identity. |
+| `run_in_background` | boolean | Return a task id immediately; no timeout applies. |
 
 `command`, `workdir`, and `timeoutMs` are resolved against the executor's config defaults via `ctx.bash.resolve()` before execution. The workdir default is applied in the tool layer from the calling agent's `session.header.cwd` BEFORE `resolve()` — the per-session cwd must come from `exec.agent`, since N sessions share one executor; only when no session cwd is available does the executor fall back to its own config / `process.cwd()`.
 
 ### Managed shell environment
 
-Every call receives a freshly collected trusted `DSH_*` environment. `DSH_HOME` is the absolute Harness home resolved by [`@deepseek-ai/dsh-paths`](../../util/paths/README.md) (`dshHome` config, then ambient `$DSH_HOME`, then `~/.dsh`) and `DSH_SHELL=1` identifies the managed child. Agent calls additionally receive `DSH_SESSION_ID=agent.session.header.id`. The snapshot passes through the dedicated `BashExecRequest.dshEnv` channel; `process.env` is never modified.
+Every foreground and background model pwsh call receives a freshly collected trusted `DSH_*` environment through the shared [`dsh-bash-env`](../bash-env/) registry: `DSH_HOME` (the absolute Harness home), `DSH_SHELL=1`, the agent's `DSH_SESSION_ID`, and `DSH_SESSION_JSONL` when the active persistence backend locates one. Plugins contributing `DSH_*` facts to `ctx.bashEnv` apply to pwsh calls exactly as they do to bash calls. The snapshot passes through the dedicated `BashExecRequest.dshEnv` channel; `process.env` is never modified. The description teaches the generic `$env:DSH_*` convention rather than naming persistence-specific variables.
 
-Result text contains stdout, an optional `[stderr]` section, then applicable timeout, signal, and exit-code markers: `[timed out after <timeoutMs>ms]`, `[killed by signal: <signal>]`, and `[exit code: N]`, each separated by a newline only when the accumulated text lacks one. Nonzero exit remains a model-interpreted result rather than `isError`. Only infrastructure failures — spawn errors and aborts (`tool call aborted`) — produce `isError`.
+Result text contains stdout, an optional `[stderr]` section, then applicable truncation, timeout, signal, and exit markers. A clean exit (0, no signal) produces no marker; an empty body renders as `(no output)`. Truncation links a safe complete spill file or reports it unavailable. Timeout is reported independently of final exit status; nonzero exit remains a model-interpreted result rather than `isError`. Windows reports forced termination as exit 1 without a signal, so `[killed by signal: …]` is POSIX-only there. Only infrastructure failures — spawn errors and aborts (`tool call aborted`) — produce `isError`.
 
-The canonical success is `{ kind: 'foreground', ...BashRunResult }` for a completed foreground process. Programmatic consumers use the typed fields without parsing the rendered text.
+The canonical success is `{ kind: 'foreground', ...BashRunResult }` for a completed foreground process or `{ kind: 'background', taskId }` for a published task. The renderer preserves exactly `started background task <id>` for background acks; programmatic consumers use the typed fields without parsing the rendered text.
+
+When `run_in_background` is true, this plugin preflights `ctx.tasks.start()` before spawning, registers the calling agent as owner, and adapts the returned `BashProcess` handle into generic cancel/done/incremental-output hooks. The task runtime owns ids, cross-session isolation, completion notices, waiting, and disposal cleanup; this plugin only maps pwsh exit facts into task output and outcome detail. `enableRunInBackground: false` removes the parameter and rejects a forced background call at execution time.
 
 ## UI presentation
 
-The tool owns its `presentCall`/`presentResult` render intent. A call is a `terminal` card carrying command, description, and optional cwd; a completed result is a `generic` card with the rendered output in a `console` fence. These presenters are pure and replay-safe.
+The tool owns its `presentCall`/`presentResult` render intent. A call is a `terminal` card carrying command, description, and optional cwd; a completed result is a `generic` card with the rendered output in a `console` fence. The bash tool's terminal card with its parsed exit-status pill has no pwsh counterpart yet — a PowerShell-aware presentation is roadmap work. These presenters are pure and replay-safe.
 
 ## Model Experience
 
@@ -46,7 +49,7 @@ Every request in this plugin's registration scope contains the pwsh guidance bel
 ##### Pwsh guidance
 
 ```markdown
-Check the [exit code: N] marker on every pwsh result; investigate failures before moving on.
+Non-zero exits are reported as `[exit code: N]` markers; investigate failures before moving on. On Windows a killed process settles as `[exit code: 1]` without a signal marker; treat a bare exit 1 after an interruption as a termination, not a command failure.
 ```
 
 #### Token effect
@@ -75,7 +78,7 @@ Prefix-stable while visibility and the tool definition are unchanged. A restrict
 
 #### What the model sees
 
-The renderer emits the data-dependent stdout tail, then optional `[stderr]` and the stderr tail. Conditional lines are exactly `[timed out after <timeoutMs>ms]`, `[killed by signal: <signal>]`, and `[exit code: <exitCode>]`.
+The renderer emits the data-dependent stdout tail, then optional `[stderr]` and the stderr tail. Conditional lines are exactly `[output truncated; full output: <path>]`, `[timed out after <timeoutMs>ms]`, `[killed by signal: <signal>]`, and `[exit code: <exitCode>]` (nonzero exits only); an empty body renders as `(no output)`.
 
 #### Token effect
 
@@ -85,11 +88,25 @@ Zero result tokens before a call. Output is bounded per stream, while each emitt
 
 Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
+### Background result
+
+#### What the model sees
+
+A background start renders exactly `started background task <id>`; subsequent reads and status flow through the generic `task_output`/`task_kill` tools, including the lossy-read spill notice when in-memory truncation dropped unread bytes.
+
+#### Token effect
+
+The ack is a fixed short line; task output is bounded per read.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
+
 ### Tool errors
 
 #### What the model sees
 
-Validation and infrastructure failures are normalized as `Error: <message>`. This package's stable messages are `invalid command: expected a non-empty string`, `invalid description: expected a non-empty string`, `invalid timeoutMs: expected a positive number, got <value>`, and `tool call aborted`.
+Validation and infrastructure failures are normalized as `Error: <message>`. This package's stable messages are `invalid command: expected a non-empty string`, `invalid description: expected a non-empty string`, `invalid timeoutMs: expected a positive number, got <value>`, `run_in_background is disabled for this deployment (enableRunInBackground: false)`, `background tasks unavailable: load @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks`, and `tool call aborted`.
 
 #### Token effect
 
@@ -101,7 +118,8 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 ## Known Limitations and Deferred Work
 
-- **Foreground-only** — no `run_in_background`; long-running work must stay within the executor timeout or wait for the bash-tool twin.
-- **No sandbox escalation** — `sandbox_permissions`/`justification` are absent; a confining composition denies through the executor, and escalation waits for the full twin.
+- **No sandbox escalation** — `sandbox_permissions`/`justification` are absent; escalation waits for a Windows-confining executor (the bash tool's sandbox surface is not mirrored).
+- **No persistent shell or PTY** — every call starts a fresh `pwsh -Command`; the PTY backends are Linux/macOS-only today, and a Windows ConPTY persistent shell is roadmap work.
 - **PowerShell-dialect contract** — the model must write PowerShell (native paths, `$env:` variables), not bash; there is no dialect translation.
-- **Windows-default roadmap deferred** — defaulting Windows hosts to `pwsh` over `bash`, and pwsh TUI/GUI rendering support, are planned separately and deliberately not part of this package yet.
+- **Generic UI presentation** — results use the generic card; a PowerShell-aware terminal card with exit-status pill is roadmap work.
+- **Session-cwd identity is not canonicalized** — the workdir base is the session header cwd as-is, unlike the bash tool's sandbox-root-canonicalized identity; only the sandbox-less case applies here.
