@@ -28,6 +28,7 @@ The package root exports the default and named `PwshLocalExecutor` plugin, its `
 The Windows counterpart of `dsh-bash-local`, deliberately mirroring its semantics call-for-call:
 
 - **Spawn per call, no shell state** — every call is a fresh non-interactive `pwsh -Command` (deterministic; no profile files). The `-NoLogo -NoProfile -NonInteractive` flags disable startup banners, profile loading, and prompts that would garble tool output.
+- **UTF-8 I/O pinned** — every command runs with `[Console]::OutputEncoding` and `$OutputEncoding` set to UTF-8 first, so the Windows PowerShell 5.1 fallback (or any host whose console code page is not UTF-8) cannot garble non-ASCII output: the subprocess collector decodes bytes as UTF-8. pwsh 7 defaults to UTF-8 and is unaffected.
 - **Executable resolution** — `resolvePwshPath` prefers an explicit `pwshPath`, then on Windows probes PowerShell 7's install location, every PATH entry (Microsoft Store installs; surrounding quotes stripped), and Windows PowerShell 5.1 as a legacy last resort, checking `existsSync` on each; elsewhere it falls back to a bare `pwsh` resolved through PATH. Resolution is a pure function of `(configured, env, platform)` and happens once at construction.
 - **Configured budgets over managed groups** — `resolve()` fills `workdir`/`timeoutMs`/`stdoutMaxBytes` from config, and every spawn hands the service explicit byte caps, spill cap, and `graceMs`. Tree termination (taskkill on Windows, process-group signals on POSIX), the post-exit pipe-drain grace, tail-keep truncation, and bounded spill files are [`dsh-subprocess-local`](../../subprocess/subprocess-local/README.md) mechanics. A foreground `BashExecRequest.stdoutMaxBytes` can raise stdout's capture budget for one trusted caller; stderr and background runs still use `maxOutputBytes`.
 - **Timeout and cancel classification** — `run()` fuses its config-clamped timeout with the caller's signal through one deadline; only the executor's own timeout reports `timedOut`, an upstream cancel reports `aborted`, and a self-terminated command reports neither ([timeout-library Agent Note](../../../.agents/notes/implemented/architecture/2026-07-06-timeout-deadline-library.md)). Windows reports forced termination as exit 1 without a signal, so signal-stamped facts (`signal`, `killed` status) are POSIX-only there; the timeout/abort classification is platform-independent.
@@ -36,7 +37,7 @@ The Windows counterpart of `dsh-bash-local`, deliberately mirroring its semantic
 
 ## Model Experience
 
-Indirectly, through `dsh-tool-pwsh`, which renders this executor's bounded stdout/stderr tails, background-process deltas, spill-file paths, and infrastructure failures.
+Indirectly, through `dsh-tool-pwsh`, which renders this executor's bounded stdout/stderr tails, background-process deltas (through the generic task runtime), spill-file paths, and infrastructure failures.
 
 #### KV Cache effect
 

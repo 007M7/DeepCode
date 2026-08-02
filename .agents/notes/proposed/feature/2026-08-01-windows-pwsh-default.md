@@ -6,17 +6,16 @@ English | [中文](2026-08-01-windows-pwsh-default.zh.md)
 
 ## Problem
 
-The harness's shipped execution profile is bash-first on every platform. Windows hosts must install a bash shim (WSL or Git-Bash) or fall back to the POSIX-only `dsh-bash-local` behavior; the model-facing bash tool teaches the bash dialect, and the TUI/Web surfaces render terminal output in bash-shaped expectations. The first Windows-native foundation shipped in the [pwsh executor and tool decision](../../implemented/feature/2026-08-01-pwsh-tool-and-executor.md): a PowerShell implementation of the `ctx.bash` seam and a minimal `pwsh` tool — but nothing yet defaults Windows hosts to them.
+The harness's shipped execution profile is bash-first on every platform. Windows hosts must install a bash shim (WSL or Git-Bash) or fall back to the POSIX-only `dsh-bash-local` behavior; the model-facing bash tool teaches the bash dialect, and the TUI/Web surfaces render terminal output in bash-shaped expectations. The first Windows-native foundation shipped in the [pwsh executor and tool decision](../../implemented/feature/2026-08-01-pwsh-tool-and-executor.md): a PowerShell implementation of the `ctx.bash` seam and a parity `pwsh` tool — but nothing yet defaults Windows hosts to them.
 
 ## Proposal
 
-Three follow-up stages, each independently shippable:
+Two follow-up stages, each independently shippable. The former stage 2 (bash-tool parity twin) shipped with the [pwsh tool bash parity decision](../../implemented/feature/2026-08-02-pwsh-tool-bash-parity.md): `tool-pwsh` now mirrors `tool-bash` for foreground and background work minus the sandbox surface, shares the `DSH_*` environment through `dsh-bash-env`, and carries a keyless application snapshot of its assembled surface.
 
 1. **Windows default composition** — the shipped CLI compositions mount `dsh-pwsh-local` as the `ctx.bash` executor and `dsh-tool-pwsh` as the model-facing shell tool on Windows hosts (bash unmounted there), while POSIX hosts keep the bash stack. This is a composition/roster decision in `base.cordis.yml` and the surface overlays, gated by platform; it makes the shipped Windows experience PowerShell-native end to end.
-2. **Bash-tool parity twin** — `tool-pwsh` grows the bash tool's missing surface where Windows workflows prove it: `run_in_background` through the generic task runtime, and the persistence-side `DSH_SESSION_JSONL` environment fact. Sandbox escalation stays out until a Windows-confining executor exists.
-3. **pwsh TUI/GUI rendering** — the TUI and Web surfaces render pwsh output with PowerShell-aware presentation (native path display, `$env:` facts), the counterpart of the bash terminal cards. This is where terminal/console rendering conventions get a PowerShell twin.
+2. **pwsh TUI/GUI rendering** — the TUI and Web surfaces render pwsh output with PowerShell-aware presentation (native path display, `$env:` facts), the counterpart of the bash terminal cards. This is where terminal/console rendering conventions get a PowerShell twin.
 
-The stages are deliberately sequenced: composition first (a Windows user gets PowerShell without choosing), then tool parity, then rendering. Nothing in this proposal changes POSIX behavior.
+The stages are deliberately sequenced: composition first (a Windows user gets PowerShell without choosing), then rendering. Nothing in this proposal changes POSIX behavior.
 
 ## Alternatives considered
 
@@ -31,11 +30,10 @@ The stages are deliberately sequenced: composition first (a Windows user gets Po
 - A Windows host running the shipped `dsh` TUI/Web gets `pwsh` as its shell tool and PowerShell as the `ctx.bash` executor without configuration, and `bash` is absent from the model-visible roster there.
 - POSIX hosts are byte-for-byte unaffected (same roster, same executor).
 - The shipped-composition e2es assert the platform-gated roster on both families.
-- Stage 2 lands with task-runtime integration tests; stage 3 lands with TUI/Web rendering snapshots for pwsh output.
+- Stage 1 lands with the keyless pwsh-tool snapshot already in place from the parity change; stage 2 lands with TUI/Web rendering snapshots for pwsh output.
 
 ## Risks
 
 - **Bash-dependent composition rows** — any shipped plugin that assumes `bash` semantics (hook bridges executing shell hooks, workspace tooling) must be audited per stage; the audit may force a staged rollout rather than one switch.
-- **Tool-behavior drift** — a minimal `tool-pwsh` that never grows parity invites models to write bash-shaped commands; the prompt guidance and dialect contract mitigate this only if the twin keeps pace.
 - **Windows CI coverage gap** — unit coverage runs on Linux; Windows-only regressions in the pwsh stack surface through the Windows build/static lane and e2es, which must be extended per stage rather than assumed.
-- **Rendering conventions** — a PowerShell twin for terminal cards is a UI design decision with snapshot surface; deferring it (stage 3) keeps stage 1 shippable without UI churn.
+- **Rendering conventions** — a PowerShell twin for terminal cards is a UI design decision with snapshot surface; deferring it (stage 2) keeps stage 1 shippable without UI churn.

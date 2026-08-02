@@ -192,7 +192,19 @@ export interface GoalConfig {
 
 Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`GoalDomainConfig`](#deepseek-aidsh-goal) · [`InvariantConfig`](#deepseek-aidsh-invariants) · [`SessionTitleConfig`](#deepseek-aidsh-session-title) · [`SkillLocal`](../packages/skill/skill-local/src/index.ts) · [`SkillRegistryConfig`](#deepseek-aidsh-skill) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt) · [`toolBash`](../packages/bash/tool-bash/src/index.ts) · [`toolGoal`](../packages/goal/tool-goal/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`toolSkill`](../packages/skill/tool-skill/src/index.ts) · [`toolTasks`](../packages/tasks/tool-tasks/src/index.ts) · [`workspaceContext`](../packages/context/workspace-context/src/index.ts)
 
-Source: [`packages/examples/agent-spine-demo/src/index.ts:89`](../packages/examples/agent-spine-demo/src/index.ts)
+Source: [`packages/examples/agent-spine-demo/src/index.ts:90`](../packages/examples/agent-spine-demo/src/index.ts)
+
+## `@deepseek-ai/dsh-bash-env`
+
+```ts config-catalog
+/** Plugin config (all optional — the built-in facts resolve without defaults). */
+export interface Config {
+  /** DeepSeek Harness home directory exposed as `DSH_HOME`; defaults to `$DSH_HOME` or `~/.dsh`. */
+  dshHome?: string
+}
+```
+
+Source: [`packages/bash/bash-env/src/index.ts:29`](../packages/bash/bash-env/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-local`
 
@@ -991,7 +1003,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/bash/pwsh-local/src/index.ts:44`](../packages/bash/pwsh-local/src/index.ts)
+Source: [`packages/bash/pwsh-local/src/index.ts:55`](../packages/bash/pwsh-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-repeat-tool-guard`
 
@@ -1692,19 +1704,17 @@ Source: [`packages/llm/token-meter/src/types.ts:12`](../packages/llm/token-meter
 
 ## `@deepseek-ai/dsh-tool-bash`
 
-Requires: `tools` · `bash` · `systemPrompt`
+Requires: `tools` · `bash` · `systemPrompt` · `bashEnv`
 
 ```ts config-catalog
-/** Configuration for the bash tool and its managed child environment. */
+/** Configuration for the bash tool. */
 export interface Config {
   /** Expose `run_in_background` (default true); disabled calls are also rejected. */
   enableRunInBackground?: boolean
-  /** DeepSeek Harness home directory exposed as `DSH_HOME`; defaults to `$DSH_HOME` or `~/.dsh`. */
-  dshHome?: string
 }
 ```
 
-Source: [`packages/bash/tool-bash/src/index.ts:41`](../packages/bash/tool-bash/src/index.ts)
+Source: [`packages/bash/tool-bash/src/index.ts:34`](../packages/bash/tool-bash/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-bash-persistent`
 
@@ -1844,17 +1854,17 @@ Source: [`packages/pty/tool-pty/src/index.ts:35`](../packages/pty/tool-pty/src/i
 
 ## `@deepseek-ai/dsh-tool-pwsh`
 
-Requires: `tools` · `bash` · `systemPrompt`
+Requires: `tools` · `bash` · `systemPrompt` · `bashEnv`
 
 ```ts config-catalog
-/** Plugin config (currently empty; kept as a schema so deployments can grow it). */
+/** Configuration for the pwsh tool. */
 export interface Config {
-  /** DeepSeek Harness home directory exposed as `DSH_HOME`; defaults to `$DSH_HOME` or `~/.dsh`. */
-  dshHome?: string
+  /** Expose `run_in_background` (default true); disabled calls are also rejected. */
+  enableRunInBackground?: boolean
 }
 ```
 
-Source: [`packages/bash/tool-pwsh/src/index.ts:31`](../packages/bash/tool-pwsh/src/index.ts)
+Source: [`packages/bash/tool-pwsh/src/index.ts:41`](../packages/bash/tool-pwsh/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-ralph`
 
