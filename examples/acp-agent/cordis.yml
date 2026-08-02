@@ -96,11 +96,17 @@
   config:
     providerName: fork
 
+# Continuable background children are selected per delegation tool. The
+# separately loaded follow-up tool registers the one global `send_message`.
+- id: tool-subagent-control
+  name: '@deepseek-ai/dsh-tool-subagent-control'
+
 - id: tool-subagent
   name: '@deepseek-ai/dsh-tool-subagent'
   config:
     provider: spawn
     toolName: subagent
+    backgroundMode: continuable
     maxDepth: 1
 
 - id: tool-subagent-fork
@@ -108,6 +114,7 @@
   config:
     provider: fork
     toolName: subagent_fork
+    backgroundMode: continuable
     maxDepth: 1
 
 

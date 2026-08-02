@@ -13,12 +13,11 @@
  * (`@deepseek-ai/dsh-subagent-spawn`, `-fork`, `-acp`) and the model-facing
  * consumer (`@deepseek-ai/dsh-tool-subagent`) are separate packages.
  *
- * Scope: the seam stays collection-agnostic — a run is started and its
- * `result` awaited, whether the consumer blocks on it (foreground) or
- * registers it as a `ctx.tasks` background task (the generic runtime owns
- * ids/polling/stop; this seam gains nothing task-shaped). Steering
- * ({@link SubagentRun.sendMessage}) is part of the contract but intentionally
- * unused.
+ * Public operations express caller intent: `start` returns one ready owned run,
+ * `startContinuable` starts a Task-backed durable child, and `followup` routes
+ * later content without exposing whether the child is live. Provider resume
+ * dispatch stays private because only the continuation manager holds the
+ * resolved descriptor and authorization facts.
  *
  * Same-process providers are trusted typed collaborators. Requests, provider
  * descriptors, results, and lifecycle payloads are borrowed immutable values;
@@ -33,30 +32,57 @@ import { Context, Service } from 'cordis'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import { assertObjectJsonSchema } from '@deepseek-ai/dsh-tools'
-import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {
   SubagentCapabilities,
   SubagentProvider,
+  SubagentProviderResumeRequest,
+  SubagentProviderStartRequest,
   SubagentResult,
   SubagentRun,
   SubagentStartRequest,
 } from './types.ts'
 import { SubagentRunId } from './types.ts'
+import { SubagentError } from './error.ts'
+import SubagentContinuationManager from './continuation.ts'
+import type {
+  ContinuableStart,
+  ContinuableStartSpec,
+  SubagentFollowupOptions,
+  SubagentFollowupResult,
+} from './continuation.ts'
 
 export * from './out-of-process.ts'
 export { SubagentRunId } from './types.ts'
 export type {
   SubagentCapabilities,
+  SubagentContinuation,
   SubagentProvider,
+  SubagentProviderResumeRequest,
+  SubagentProviderStartRequest,
   SubagentResult,
   SubagentRun,
   SubagentStartRequest,
   SubagentStopReason,
   SubagentStopReasonMap,
 } from './types.ts'
+export {
+  foldSubagentDescriptor,
+  snapshotSubagentDescriptor,
+  SUBAGENT_DESCRIPTOR_VERSION,
+} from './descriptor.ts'
+export type { SubagentDescriptorData, SubagentDescriptorInput } from './descriptor.ts'
+export { SubagentError } from './error.ts'
+export { settleRun } from './continuation.ts'
+export type {
+  ContinuableStart,
+  ContinuableStartSpec,
+  CoordinatorMessageSource,
+  SubagentFollowupOptions,
+  SubagentFollowupResult,
+} from './continuation.ts'
 
 declare module '@deepseek-ai/dsh-agent' {
   interface AgentOptions {
@@ -169,20 +195,56 @@ export interface SubagentRunEndInfo {
   readonly lastAssistantMessage?: ContentBlock[]
 }
 
-/** Typed error for provider lookup, registration, and capability failures. */
-export class SubagentError extends HarnessError {
-  constructor(message: string, code: string, options?: ErrorOptions) {
-    super(message, code, options)
-    this.name = 'SubagentError'
-  }
-}
-
-/** Named provider registry and capability-checked start surface. */
+/** Named provider registry with raw and Task-backed continuation operations. */
 export class SubagentService extends Service {
   private providers = new Map<string, SubagentProvider>()
+  private continuations: SubagentContinuationManager | undefined
 
   constructor(ctx: Context) {
     super(ctx, 'subagents')
+    ctx.inject(['tasks', 'agents'], (childCtx: Context) => {
+      const manager = new SubagentContinuationManager(
+        childCtx,
+        (name, request) => this.startProvider(name, request),
+        request => this.resumeProvider(request),
+      )
+      this.continuations = manager
+      childCtx.effect(() => () => {
+        /* v8 ignore else -- one injected binding owns the slot until its fiber disposes. */
+        if (this.continuations === manager) this.continuations = undefined
+      }, 'subagents.continuationBinding()')
+    })
+  }
+
+  /**
+   * Start one durable continuable child through a Task-backed initial
+   * activation.
+   * @param spec - provider, Task label, and delegation request.
+   * @returns the stable child id and initial activation Task id.
+   */
+  startContinuable(spec: ContinuableStartSpec): ContinuableStart {
+    return this.requireContinuations().startContinuable(spec)
+  }
+
+  /**
+   * Follow up with a continuable child. A live child is steered and fulfillment
+   * confirms request admission; an idle child immediately returns a fresh Task
+   * whose descriptor lookup, authorization, and cold resume may later fail.
+   * @param parent - live direct parent authorizing the operation.
+   * @param childId - durable child session id.
+   * @param content - user-role content to deliver.
+   * @param options - durable attribution and caller cancellation; aborting a
+   *   live-delivery wait cancels the shared activation and awaits quiescence.
+   * @returns the existing steered Task or newly started Task.
+   * @throws when continuation services are unavailable or live delivery is not admitted.
+   */
+  followup(
+    parent: Agent,
+    childId: SessionId,
+    content: ContentBlock[],
+    options: SubagentFollowupOptions,
+  ): Promise<SubagentFollowupResult> {
+    return this.requireContinuations().followup(parent, childId, content, options)
   }
 
   /**
@@ -236,17 +298,64 @@ export class SubagentService extends Service {
    * @param request - child prompt, parent, signal, and optional capabilities.
    * @returns the ready holder-owned run.
    */
-  async start(name: string, request: SubagentStartRequest): Promise<SubagentRun> {
+  async start(name: string, request: SubagentStartRequest & { readonly continuation?: never }): Promise<SubagentRun> {
+    return this.startProvider(name, request)
+  }
+
+  /** Validate and dispatch one ordinary or service-resolved provider start. */
+  private async startProvider(
+    name: string,
+    request: SubagentProviderStartRequest,
+  ): Promise<SubagentRun> {
+    const provider = this.expectProvider(name)
+    this.assertCapabilities(provider, request)
+    assertSubagentMaxDepth(request.maxDepth)
+    if (request.outputSchema !== undefined) assertObjectJsonSchema(request.outputSchema)
+    if (request.continuation !== undefined && provider.resume === undefined) {
+      throw new SubagentError(
+        `subagent provider "${provider.name}" does not support continuable children (no resume capability)`,
+        'UNSUPPORTED_CAPABILITY',
+      )
+    }
+
+    return this.observeRun(name, request.parent, await provider.start(request))
+  }
+
+  /** Dispatch one authorized provider resume and observe its run lifecycle. */
+  private async resumeProvider(request: SubagentProviderResumeRequest): Promise<SubagentRun> {
+    const name = request.descriptor.provider
+    const provider = this.expectProvider(name)
+    if (provider.resume === undefined) {
+      throw new SubagentError(
+        `subagent provider "${provider.name}" does not support resuming persisted children (no resume capability)`,
+        'UNSUPPORTED_CAPABILITY',
+      )
+    }
+    return this.observeRun(name, request.parent, await provider.resume(request))
+  }
+
+  /** Look up a provider for dispatch or fail loud. */
+  private expectProvider(name: string): SubagentProvider {
     const provider = this.providers.get(name)
     if (provider === undefined) {
       throw new SubagentError(`no subagent provider registered for "${name}"`, 'NO_PROVIDER')
     }
-    this.assertCapabilities(provider, request)
-    assertSubagentMaxDepth(request.maxDepth)
-    if (request.outputSchema !== undefined) assertObjectJsonSchema(request.outputSchema)
+    return provider
+  }
 
-    const parent = request.parent
-    const run = await provider.start(request)
+  /** Resolve the optional Task-backed continuation runtime or fail loud. */
+  private requireContinuations(): SubagentContinuationManager {
+    if (this.continuations === undefined) {
+      throw new SubagentError(
+        'continuable subagents require the tasks and agents services',
+        'CONTINUATION_UNAVAILABLE',
+      )
+    }
+    return this.continuations
+  }
+
+  /** Emit the start/end lifecycle pair for one accepted run and return it. */
+  private observeRun(name: string, parent: Agent, run: SubagentRun): SubagentRun {
     const runId = SubagentRunId(randomUUID())
     const lifecycleIdentity = {
       runId,

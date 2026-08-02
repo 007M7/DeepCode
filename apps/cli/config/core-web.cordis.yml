@@ -25,6 +25,9 @@
 - id: plan-mode
   disabled: true
 
+- id: tool-subagent-control
+  disabled: true
+
 - id: tool-subagent
   disabled: true
 

@@ -43,7 +43,7 @@ bash seam（[能力 seam](../architecture/2026-06-13-capability-seams.md)）在�
 ### 两类可选能力，两种发现方式
 
 - **启动时功能**（`outputSchema`、`depthLimit`、`toolFilter`、`persona`）挂在静态的 `provider.capabilities` 描述符上。服务在委派之前检查每个被请求的功能，如果提供方不支持则**大声拒绝**（`SubagentError('UNSUPPORTED_CAPABILITY')`），绝不接受后静默忽略。这些功能必须在 run 存在之前检查，因此不能是运行时方法。
-- **运行时功能**（通过 `sendMessage` 进行 steering、通过 `resume` 进行后续对话）是 `SubagentRun` 上的**可选方法**。方法的存在本身即为能力，TypeScript 类型收窄即为发现机制：消费方不经收窄就无法调用不存在的方法，因此不存在静默降级路径，也不需要额外的 flags 对象来保持同步。
+- **运行时功能**是在其所属 seam 上定义的可选方法：提供确认语义的在线投递对应 `SubagentRun.steer`，持久化重建对应 `SubagentProvider.resume`。方法的存在本身即为能力，TypeScript 类型收窄即为发现机制，因此不需要可能与实现失同步的独立 flags 对象。
 
 ### Fork 与 fresh 是独立后端，而非一个 flag
 

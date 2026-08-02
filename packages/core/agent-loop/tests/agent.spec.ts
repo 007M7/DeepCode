@@ -50,10 +50,11 @@ describe('Agent', () => {
     }])).toBeUndefined()
     expect(call('inject', [message('context')])).toBeUndefined()
     expect(call('followup', [message('followup')])).toBeUndefined()
-    expect(call('steer', [message('steering')])).toBeUndefined()
+    const receipt = agent.steer(message('steering'))
     await agent.whenIdle()
 
     expect(adapter.requests).toHaveLength(3)
+    expect(await receipt.outcome).toEqual({ status: 'admitted', turn: 3, step: 1 })
   })
 
   it('idle inject() appends context without opening a turn or requesting a flush', async () => {

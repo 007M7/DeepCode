@@ -516,6 +516,23 @@ Source: [`packages/core/session/src/types.ts:218`](../packages/core/session/src/
 
 Source: [`packages/core/session/src/types.ts:216`](../packages/core/session/src/types.ts)
 
+### `subagent/*`
+
+#### `subagent/descriptor` — log-only
+
+```ts persistence-catalog
+/**
+ * Durable declared composition of a continuable subagent child, appended
+ * once by the establishing provider inside the child's initial turn,
+ * before its first request. Log-only: it carries no `surfaceOp`, never
+ * enters model history, and the append-only log retains it when
+ * compaction replaces surface history.
+ */
+'subagent/descriptor': SubagentDescriptorData
+```
+
+Source: [`packages/subagent/subagent/src/descriptor.ts:32`](../packages/subagent/subagent/src/descriptor.ts)
+
 ### `todo/*`
 
 #### `todo/write` — log-only

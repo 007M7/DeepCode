@@ -41,6 +41,9 @@ const DEPTH_TWO_CONFIG = fileURLToPath(new URL('../depth-two.cordis.yml', import
 const SESSION_SANDBOX_ROOT_CONFIG = fileURLToPath(new URL('../session-sandbox-root.cordis.yml', import.meta.url))
 const RETRY_CONFIG = fileURLToPath(new URL('../retry.cordis.yml', import.meta.url))
 const SESSION_TITLE_CONFIG = fileURLToPath(new URL('../session-title.cordis.yml', import.meta.url))
+const SUBAGENT_DURABILITY_FAILURE_CONFIG = fileURLToPath(
+  new URL('../subagent-durability-failure.cordis.yml', import.meta.url),
+)
 const LSP_CONFIG = fileURLToPath(new URL('./lsp.cordis.yml', import.meta.url))
 const WEB_CONFIG = fileURLToPath(new URL('../web.cordis.yml', import.meta.url))
 const FS_SEARCH_CONFIG = fileURLToPath(new URL('./fs-search.cordis.yml', import.meta.url))
@@ -213,6 +216,16 @@ const SCENARIOS: Scenario[] = [
   { name: 'subagent-multi', hasModelTurn: true, recorded: true },
   { name: 'subagent-fork', hasModelTurn: true, recorded: true },
   { name: 'subagent-mixed', hasModelTurn: true, recorded: true },
+  // Authored continuable-subagent transcript: a background delegation returns
+  // both the durable subagent id and its task id, a failed final durability
+  // confirmation reaches task_output with its diagnosis, and send_message to
+  // an unknown subagent id starts a follow-up task that settles unavailable.
+  {
+    name: 'subagent-continuable',
+    hasModelTurn: true,
+    recorded: false,
+    configPath: SUBAGENT_DURABILITY_FAILURE_CONFIG,
+  },
   {
     name: 'subagent-depth-two-rejection',
     hasModelTurn: true,

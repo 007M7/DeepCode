@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-This package is the shared run driver for the two in-process providers. Spawn passes no session seed; fork passes the parent's completed-turn prefix. Everything else—depth, child creation, optional child customization, result reading, cancellation, and disposal—has one implementation here.
+This package is the shared run driver for the two in-process providers. Spawn passes no session seed; fork passes the parent's completed-turn prefix. Everything else—depth, child creation and cold resume, optional child customization, result reading, cancellation, confirmed steering, and disposal—has one implementation here.
 
 ## Start contract
 
@@ -11,20 +11,27 @@ This package is the shared run driver for the two in-process providers. Spawn pa
 The driver follows this sequence:
 
 1. Validate the parent depth and optional absolute `maxDepth`, then derive child depth as parent depth plus one and persist it in the child session header.
-2. Call `parent.ctx.agents.create` directly, passing the required request signal into the factory's creation transaction.
-3. During that transaction's unpublished setup window, install the requested persona, tool restriction, and structured-output runtime.
+2. Call `parent.ctx.agents.create` directly, passing the required request signal into the factory's creation transaction. A continuable request publishes exactly `request.continuation.sessionId` instead of an internally minted id.
+3. During that transaction's unpublished setup window, install the requested persona, tool restriction, structured-output runtime, and — for a continuable request — the prepended one-shot `agent/prompt-submit` contribution. It appends the `subagent/descriptor` event before downstream prompt admission can block or throw; allowed admission opens the initial turn afterward, while the final required checkpoint persists the descriptor even when no turn opens.
 4. Publish the child, retain the returned `AgentHandle`, and drive one task with `child.followup(prompt)` followed by `child.whenIdle()`.
-5. Read the child's own last assistant message and latest message-triggered turn reason, excluding any fork seed and later between-turn records.
+5. For a continuable start or resume, call `child.ctx.sessions.flush(child.session)` again before returning the result and require its participation result to be `true`. This final confirmation retries events retained after a failed turn checkpoint; if no listener participates or any listener fails, `result` rejects with `SubagentError.code === 'DURABILITY_FAILED'`, retains the checkpoint failure as `cause`, and names the resumability risk in its message. Activation cancellation during this await owns the unpublished result even when the completed turn was already recorded or the checkpoint subsequently fails. Foreground runs keep the loop's best-effort checkpoint behavior.
+6. Read the child's own last assistant message and latest message-triggered turn reason, excluding any fork seed and later plugin-owned between-turn records.
 
 The child gets the parent's working-directory/session lineage and inherits the parent provider, model, and output-token cap unless `request.agentOptions` overrides them. It gets a fresh flat registration scope: parent ownership does not import parent tool restrictions or establish an authority subset.
 
 When the optional sandbox-policy or approval service is composed, the driver snapshots the parent's explicit session override before child creation and appends a source-tagged event during unpublished setup, after any fork history and before session publication. It never copies deployment defaults or one-shot grants; later child switches still win. See the [policy-inheritance decision](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md).
+
+## Cold resume
+
+`resumeInProcessRun(request): Promise<SubagentRun>` reconstructs a persisted continuable child under the live parent's scope: `parent.ctx.agents.resume` loads the child's own transcript through persistence (a fork child's log already contains its seed prefix, so resume never re-forks current parent history), the descriptor's persona and tool filter are reapplied in the unpublished setup window, and the descriptor's `agentProvider`/`agentModel` become the runtime options. The persisted header stays authoritative for lineage and the delegation-depth floor. The activation's result boundary is the resumed log length: only this follow-up turn's output becomes the run result. Publication, final durability confirmation, abort handoff, and disposal follow the same contract as a continuable start.
 
 ## Cancellation and ownership
 
 The required request signal covers both startup and the live run. Before publication, `AgentCreationTransaction` observes it, rolls back, and rejects. The factory detaches that creation-only listener before returning; the driver immediately checks the signal once more before installing a minimal live-run listener, closing the handoff race. After publication, abort cancels the child.
 
 After fulfillment, the caller owns the run. Provider-plugin unload does not revoke it. `dispose()` removes the live abort listener, records cancellation, and delegates to the returned `AgentHandle.dispose()`, whose memoized quiescence transaction stops the loop, removes the agent and session, and unwinds scoped registrations. Cancellation owns every non-completed in-flight outcome and reports `aborted`; an already-completed turn remains completed.
+
+Runs expose confirmed `steer`: a synchronous status check prevents the Agent-level idle fallback from starting an untracked turn, then the run submits through `Agent.steer()` and awaits that exact message's receipt. Fulfillment means a committed child request snapshot admitted the message; terminal turn policy, cancellation, disposal, or a settlement race rejects instead. A synchronously visible structured capture is rejected before submission because its terminal outcome is already authoritative. The run never falls through from rejected live delivery to a later queued turn or cold resume.
 
 ## Spawn and fork inputs
 
@@ -110,5 +117,4 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 ## Known Limitations and Deferred Work
 
-- **Runs expose no `sendMessage`/`resume`** — the optional runtime capabilities are absent on in-process runs.
 - **Structured capture accepts the `defineTool` schema subset only** — unsupported JSON Schema constructs fail before the child is created; a provider needing a broader schema vocabulary requires a different runtime.

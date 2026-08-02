@@ -743,8 +743,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/** Emit `session/created` exactly once for an {@link enter}ed session (with\n * the carrier {@link enter} captured). Separate from {@link enter} so the\n * caller can yield the detach disposer first (rollback safety — see\n * {@link enter}).\n * @param session - the entered session to announce to listeners.\n * @throws if the session is not live or its announcement already began,\n *   including a reentrant call from a creation listener. */',
       },
       {
-        signature: 'async flush(session: Session): Promise<void>',
-        jsDoc: '/**\n * Dispatch the awaited `session/flush` durability checkpoint for `session`,\n * with the carrier captured at {@link enter}. THE flush entry point: the\n * store owns the carrier, so callers (the loop\'s turn-end checkpoint, idle\n * injection, teardown drains) must come through here rather than dispatch a\n * raw `ctx.parallel(\'session/flush\', …)` — one owner, one spelling, and the\n * scoped-dispatch invariant can pin it.\n * @param session - the session whose buffered events must reach durable storage.\n * @returns resolves when every flush listener has settled; after all settle,\n *   rejects with the first registered listener failure if any listener failed.\n */',
+        signature: 'async flush(session: Session): Promise<boolean>',
+        jsDoc: '/**\n * Dispatch the awaited `session/flush` durability checkpoint for `session`,\n * with the carrier captured at {@link enter}. THE flush entry point: the\n * store owns the carrier, so callers (the loop\'s turn-end checkpoint, idle\n * injection, teardown drains) must come through here rather than dispatch a\n * raw `ctx.parallel(\'session/flush\', …)` — one owner, one spelling, and the\n * scoped-dispatch invariant can pin it.\n * @param session - the session whose buffered events must reach durable storage.\n * @returns whether at least one durability listener participated, after every\n *   listener has settled successfully.\n * @throws the first registered listener failure after every listener settles.\n */',
       },
       {
         signature: 'get(id: SessionId): Session | undefined',
@@ -882,8 +882,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'subagents',
-    summary: 'Named provider registry and capability-checked start surface.',
+    summary: 'Named provider registry with raw and Task-backed continuation operations.',
     methods: [
+      {
+        signature: 'startContinuable(spec: ContinuableStartSpec): ContinuableStart',
+        jsDoc: '/**\n * Start one durable continuable child through a Task-backed initial\n * activation.\n * @param spec - provider, Task label, and delegation request.\n * @returns the stable child id and initial activation Task id.\n */',
+      },
+      {
+        signature: 'followup( parent: Agent, childId: SessionId, content: ContentBlock[], options: SubagentFollowupOptions, ): Promise<SubagentFollowupResult>',
+        jsDoc: '/**\n * Follow up with a continuable child. A live child is steered and fulfillment\n * confirms request admission; an idle child immediately returns a fresh Task\n * whose descriptor lookup, authorization, and cold resume may later fail.\n * @param parent - live direct parent authorizing the operation.\n * @param childId - durable child session id.\n * @param content - user-role content to deliver.\n * @param options - durable attribution and caller cancellation; aborting a\n *   live-delivery wait cancels the shared activation and awaits quiescence.\n * @returns the existing steered Task or newly started Task.\n * @throws when continuation services are unavailable or live delivery is not admitted.\n */',
+      },
       {
         signature: 'registerProvider(provider: SubagentProvider): () => void',
         jsDoc: '/**\n * Register a provider under its name. Registration is effect-scoped and HMR\n * safe; removing a provider blocks new starts but does not revoke runs that\n * were already returned to their holders.\n * @param provider - the trusted provider implementation.\n * @returns the exact Cordis effect disposer.\n */',
@@ -897,7 +905,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * List registered provider names in insertion order.\n * @returns the registered names.\n */',
       },
       {
-        signature: 'async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>',
+        signature: 'async start(name: string, request: SubagentStartRequest & { readonly continuation?: never }): Promise<SubagentRun>',
         jsDoc: '/**\n * Establish a ready child on the named provider. Capability and semantic\n * checks run before delegation. Provider ownership lasts until its promise\n * fulfills; a rejection therefore has no run for the caller to dispose and\n * emits no run lifecycle events.\n * @param name - the provider to use.\n * @param request - child prompt, parent, signal, and optional capabilities.\n * @returns the ready holder-owned run.\n */',
       },
     ],
@@ -1398,7 +1406,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'session/flush',
     mode: 'parallel',
     signature: '\'session/flush\'(this: Scoped<Session>, session: Session): Promise<void> | void',
-    jsDoc: '/**\n * Awaited parallel durability checkpoint: every listener runs and the\n * caller awaits all of them, with no waterfall veto. Dispatch through\n * {@link SessionStore.flush}. Scope-filtered dispatch\n * (`@deepseek-ai/dsh-scope`) reuses the session\'s owner scope.\n * @param session - the session whose buffered events must reach durable storage.\n * @dshScopeScan unsupported\n * @mode parallel\n */',
+    jsDoc: '/**\n * Awaited parallel durability checkpoint: every listener runs and the\n * caller awaits all of them, with no waterfall veto. Scope-filtered dispatch\n * (`@deepseek-ai/dsh-scope`) reuses the session\'s owner scope.\n * @param session - the session whose buffered events must reach durable storage.\n * @dshScopeScan unsupported\n * @mode parallel\n */',
     summary: 'Awaited parallel durability checkpoint: every listener runs and the caller awaits all of them, with no waterfall veto.',
   },
   {
@@ -1565,7 +1573,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'Agent',
-    declaration: 'export interface Agent {\n    readonly id: SessionId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly acceptsNextStep: boolean;\n    readonly ctx: Context;\n    send(message: UserMessage, options: SendOptions): void;\n    reserveTurnAdmission(): (() => void) | undefined;\n    updateInbox(id: InboxItemId, action: InboxAction): InboxActionResult;\n    cancel(cause: AgentCancelCause, options?: CancelOptions): void;\n    whenIdle(): Promise<void>;\n    followup(message: UserMessage): void;\n    steer(message: UserMessage): void;\n    inject(message: UserMessage): void;\n}',
+    declaration: 'export interface Agent {\n    readonly id: SessionId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly acceptsNextStep: boolean;\n    readonly ctx: Context;\n    send(message: UserMessage, options: SendOptions): void;\n    reserveTurnAdmission(): (() => void) | undefined;\n    updateInbox(id: InboxItemId, action: InboxAction): InboxActionResult;\n    cancel(cause: AgentCancelCause, options?: CancelOptions): void;\n    whenIdle(): Promise<void>;\n    followup(message: UserMessage): void;\n    steer(message: UserMessage): SteeringReceipt;\n    inject(message: UserMessage): void;\n}',
   },
   {
     name: 'AgentCancelCause',
@@ -1782,6 +1790,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ContentBlockType',
     declaration: 'export type ContentBlockType = keyof ContentBlockMap;',
+  },
+  {
+    name: 'ContinuableStart',
+    declaration: 'export interface ContinuableStart {\n    readonly childId: SessionId;\n    readonly taskId: TaskId;\n}',
+  },
+  {
+    name: 'ContinuableStartSpec',
+    declaration: 'export interface ContinuableStartSpec {\n    readonly provider: string;\n    readonly label: string;\n    readonly request: Omit<SubagentStartRequest, \'signal\'>;\n}',
   },
   {
     name: 'CreateAgentOptions',
@@ -2640,6 +2656,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SpillSource {\n    toolName: string;\n    callId: CallId;\n    label: string;\n}',
   },
   {
+    name: 'SteeringOutcome',
+    declaration: 'export type SteeringOutcome = {\n    readonly status: \'admitted\';\n    readonly turn: number;\n    readonly step: number;\n} | {\n    readonly status: \'rejected\';\n};',
+  },
+  {
+    name: 'SteeringReceipt',
+    declaration: 'export interface SteeringReceipt {\n    readonly outcome: Promise<SteeringOutcome>;\n}',
+  },
+  {
     name: 'StorageForms',
     declaration: 'export interface StorageForms {\n}',
   },
@@ -2652,8 +2676,32 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SubagentCapabilities {\n    readonly outputSchema: boolean;\n    readonly depthLimit: boolean;\n    readonly toolFilter: boolean;\n    readonly persona: boolean;\n}',
   },
   {
+    name: 'SubagentContinuation',
+    declaration: 'export interface SubagentContinuation {\n    readonly sessionId: SessionId;\n    readonly descriptor: SubagentDescriptorData;\n}',
+  },
+  {
+    name: 'SubagentDescriptorData',
+    declaration: 'export interface SubagentDescriptorData {\n    readonly version: number;\n    readonly provider: string;\n    readonly agentProvider?: string;\n    readonly agentModel?: string;\n    readonly persona?: string;\n    readonly toolFilter?: ToolRestriction;\n}',
+  },
+  {
+    name: 'SubagentFollowupOptions',
+    declaration: 'export interface SubagentFollowupOptions {\n    readonly source: MessageSource;\n    readonly signal: AbortSignal;\n}',
+  },
+  {
+    name: 'SubagentFollowupResult',
+    declaration: 'export type SubagentFollowupResult = {\n    readonly route: \'steered\';\n    readonly taskId: TaskId;\n} | {\n    readonly route: \'started\';\n    readonly taskId: TaskId;\n};',
+  },
+  {
     name: 'SubagentProvider',
-    declaration: 'export interface SubagentProvider {\n    readonly name: string;\n    readonly capabilities: SubagentCapabilities;\n    readonly inheritsParentContext: boolean;\n    start(request: SubagentStartRequest): Promise<SubagentRun>;\n}',
+    declaration: 'export interface SubagentProvider {\n    readonly name: string;\n    readonly capabilities: SubagentCapabilities;\n    readonly inheritsParentContext: boolean;\n    start(request: SubagentProviderStartRequest): Promise<SubagentRun>;\n    resume?(request: SubagentProviderResumeRequest): Promise<SubagentRun>;\n}',
+  },
+  {
+    name: 'SubagentProviderResumeRequest',
+    declaration: 'export interface SubagentProviderResumeRequest {\n    readonly sessionId: SessionId;\n    readonly prompt: ContentBlock[];\n    readonly source: MessageSource;\n    readonly parent: Agent;\n    readonly signal: AbortSignal;\n    readonly descriptor: SubagentDescriptorData;\n}',
+  },
+  {
+    name: 'SubagentProviderStartRequest',
+    declaration: 'export interface SubagentProviderStartRequest extends SubagentStartRequest {\n    readonly continuation?: SubagentContinuation | undefined;\n}',
   },
   {
     name: 'SubagentResult',
@@ -2661,7 +2709,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubagentRun',
-    declaration: 'export interface SubagentRun {\n    readonly id: SessionId;\n    readonly localAgent: Agent | undefined;\n    readonly result: Promise<SubagentResult>;\n    dispose(): Promise<void>;\n    sendMessage?(content: ContentBlock[]): void;\n    resume?(content: ContentBlock[]): Promise<SubagentRun>;\n}',
+    declaration: 'export interface SubagentRun {\n    readonly id: SessionId;\n    readonly localAgent: Agent | undefined;\n    readonly result: Promise<SubagentResult>;\n    dispose(): Promise<void>;\n    steer?(content: ContentBlock[], source: MessageSource): Promise<void>;\n}',
   },
   {
     name: 'SubagentStartRequest',

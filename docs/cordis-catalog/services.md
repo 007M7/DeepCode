@@ -1635,10 +1635,11 @@ announce(session: Session): void
  * raw `ctx.parallel('session/flush', …)` — one owner, one spelling, and the
  * scoped-dispatch invariant can pin it.
  * @param session - the session whose buffered events must reach durable storage.
- * @returns resolves when every flush listener has settled; after all settle,
- *   rejects with the first registered listener failure if any listener failed.
+ * @returns whether at least one durability listener participated, after every
+ *   listener has settled successfully.
+ * @throws the first registered listener failure after every listener settles.
  */
-async flush(session: Session): Promise<void>
+async flush(session: Session): Promise<boolean>
 
 /**
  * Look up a live session.
@@ -1672,7 +1673,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:765`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:764`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 
@@ -1948,9 +1949,31 @@ Source: [`packages/storage/storage-domain/src/index.ts:69`](../../packages/stora
 
 ## `ctx.subagents` — `SubagentService`
 
-Named provider registry and capability-checked start surface.
+Named provider registry with raw and Task-backed continuation operations.
 
 ```ts cordis-catalog
+/**
+ * Start one durable continuable child through a Task-backed initial
+ * activation.
+ * @param spec - provider, Task label, and delegation request.
+ * @returns the stable child id and initial activation Task id.
+ */
+startContinuable(spec: ContinuableStartSpec): ContinuableStart
+
+/**
+ * Follow up with a continuable child. A live child is steered and fulfillment
+ * confirms request admission; an idle child immediately returns a fresh Task
+ * whose descriptor lookup, authorization, and cold resume may later fail.
+ * @param parent - live direct parent authorizing the operation.
+ * @param childId - durable child session id.
+ * @param content - user-role content to deliver.
+ * @param options - durable attribution and caller cancellation; aborting a
+ *   live-delivery wait cancels the shared activation and awaits quiescence.
+ * @returns the existing steered Task or newly started Task.
+ * @throws when continuation services are unavailable or live delivery is not admitted.
+ */
+followup( parent: Agent, childId: SessionId, content: ContentBlock[], options: SubagentFollowupOptions, ): Promise<SubagentFollowupResult>
+
 /**
  * Register a provider under its name. Registration is effect-scoped and HMR
  * safe; removing a provider blocks new starts but does not revoke runs that
@@ -1982,12 +2005,12 @@ list(): string[]
  * @param request - child prompt, parent, signal, and optional capabilities.
  * @returns the ready holder-owned run.
  */
-async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
+async start(name: string, request: SubagentStartRequest & { readonly continuation?: never }): Promise<SubagentRun>
 ```
 
-Types: [SubagentProvider](../core-data-structures/subagent.md) · [SubagentRun](../core-data-structures/subagent.md) · [SubagentStartRequest](../core-data-structures/subagent.md)
+Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [ContinuableStart](../core-data-structures/subagent.md) · [ContinuableStartSpec](../core-data-structures/subagent.md) · [SessionId](../core-data-structures/core.md) · [SubagentFollowupOptions](../core-data-structures/subagent.md) · [SubagentFollowupResult](../core-data-structures/subagent.md) · [SubagentProvider](../core-data-structures/subagent.md) · [SubagentRun](../core-data-structures/subagent.md) · [SubagentStartRequest](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:181`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:199`](../../packages/subagent/subagent/src/index.ts)
 
 ## `ctx.subprocess` — `SubprocessService` (abstract seam)
 

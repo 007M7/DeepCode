@@ -76,5 +76,7 @@ export function apply(ctx: Context): void {
 
   // Before each request, persist everything committed by the preceding step;
   // the first step's call is an intentional no-op beyond any prompt intake.
-  ctx.on('agent/step', (agent): Promise<void> => ctx.sessions.flush(agent.session))
+  ctx.on('agent/step', async (agent): Promise<void> => {
+    await ctx.sessions.flush(agent.session)
+  })
 }

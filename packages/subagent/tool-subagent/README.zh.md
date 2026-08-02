@@ -10,7 +10,7 @@
 
 前台调用会让执行信号贯穿启动和执行，等待 `run.result`，并且在返回前总会等待 `run.dispose()`。只有 `completed` 会返回规范值 `{ kind: 'foreground', runId, output: JsonValue[] }`，并渲染为相同的最终文本；中止、拒绝、token 上限和其他失败都会变成出错的工具结果，不包含局部输出。
 
-设置 `run_in_background: true` 后，工具会在启动提供方前注册父级拥有的任务，并返回规范值 `{ kind: 'background', taskId }`，渲染为 `started background subagent task <id>`。任务拥有的信号覆盖待处理的启动阶段，以及启动调用返回后的子 agent。`task_kill` 和所有者 dispose（资源释放）会中止它。结算会等待启动回滚或子 agent dispose，然后把完成的最终文本映射为完成、中止映射为 `killed`、其他失败映射为 `failed`。任务不提供增量读取；通用任务工具负责后续状态、收集、取消和通知。见[后台 subagent Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-07-08-background-subagent-tasks.md)。
+设置 `run_in_background: true` 后，由 `backgroundMode` 选择路由。`one-shot` 会注册普通的父级所有 Task，并返回规范值 `{ kind: 'background', taskId }`；即使提供方支持恢复，也会渲染为 `started background subagent task <id>`。`continuable` 要求 `provider.resume`，调用 `ctx.subagents.startContinuable()`，并返回 `{ kind: 'background', taskId, subagentId }`，渲染为 `started subagent <childId> as task <taskId>`。启动可继续工作不要求加载可选的全局 `send_message` 工具。两条路由都使用 Task 所有的信号，只在启动回滚或 run dispose（资源释放）之后结算，并把完成的最终文本映射为完成、中止映射为 `killed`、其他失败映射为 `failed`。通用任务工具负责后续状态、收集、取消和通知。见[后台 subagent Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-07-08-background-subagent-tasks.md)、[可继续后台 subagent Agent Note](../../../.agents/notes/implemented/feature/2026-07-21-continuable-background-subagents.md)和[服务合并 Agent Note](../../../.agents/notes/implemented/simplification/2026-07-26-merge-subagent-control-service.md)。
 
 `toolFilter` 会改变子 agent 的全局工具层，但不是从父级派生的权限上限。见 [agent 作用域的安全非目标](../../../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md#security-and-authority-are-non-goals)。
 
@@ -21,6 +21,7 @@
 | `provider`（必填） | 提供方名称（`spawn`、`fork`、`acp` 等）。 |
 | `toolName` | 面向模型的名称，默认 `subagent`；每个已加载实例必须不同。 |
 | `enableRunInBackground` | 公开后台模式，默认 `true`；禁用时也会拒绝强制后台调用。 |
+| `backgroundMode` | 后台生命周期策略，默认 `one-shot`。`continuable` 要求提供方支持恢复并返回持久化子 agent ID；它不要求加载后续消息工具。 |
 | `agentOptions` | 传给具体提供方的子 agent `provider`、`model` 和正整数 `maxTokens`；进程内提供方会用显式值覆盖继承的父级选项。 |
 | `persona` | 每个子 agent 独立的 persona；要求提供方具备 `persona` 能力。 |
 | `toolFilter` | 每个子 agent 独立的全局工具限制；要求提供方具备 `toolFilter` 能力。 |
@@ -64,7 +65,7 @@
 
 #### 模型看到的内容
 
-启动时原样返回 `started background subagent task <id>`。通用任务接口提供后续状态、最终输出、取消响应和通知。
+在已配置的 continuable 模式下，启动时精确返回 `started subagent <childId> as task <taskId>`；在已配置的 one-shot 模式下，则返回 `started background subagent task <id>`。通用任务接口提供后续状态、最终输出、取消响应和通知；独立加载的 `send_message` 工具会把后续消息交付给可继续子 agent。
 
 #### Token 影响
 

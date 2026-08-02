@@ -1,4 +1,7 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import { CallId } from '@deepseek-ai/dsh-llm'
@@ -6,13 +9,17 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
 import { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
+import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import type { SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
+import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
+import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import * as mock from './scripted-provider.ts'
 import * as tool from '../src/index.ts'
-import { runOutcome, settleRun } from '../src/index.ts'
 import { SessionId } from '@deepseek-ai/dsh-session'
 
 const testToolSignal = new AbortController().signal
@@ -61,6 +68,21 @@ function text(result: { content: { type: string; text?: string }[] }): string {
 }
 
 describe('dsh-tool-subagent', () => {
+  it('rejects continuable background policy when the configured provider cannot resume', async () => {
+    let failure: unknown
+    try {
+      await setup({
+        provider: 'mock',
+        backgroundMode: 'continuable',
+      })
+    } catch (error: unknown) {
+      failure = error
+    }
+    expect(String(failure)).toContain(
+      'provider "mock" does not support `backgroundMode: continuable`',
+    )
+  })
+
   it('registers a `subagent` tool that delegates to the configured provider and returns its output', async () => {
     const ctx = await setup({ provider: 'mock' }, { reply: 'child says hi' })
     const result = await callSubagent(ctx, { description: 'do a thing', prompt: 'go research X' })
@@ -646,6 +668,47 @@ describe('dsh-tool-subagent background mode', () => {
     return ctx
   }
 
+  it('keeps a resumable provider one-shot when backgroundMode selects one-shot', async () => {
+    const ctx = await backgroundSetup({ provider: 'mock' })
+    const parent = ownerAgent(ctx, 'sess-parent')
+    let resumeCalls = 0
+    ctx.subagents.registerProvider({
+      name: 'resumable',
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+      inheritsParentContext: false,
+      start: async request => ({
+        id: SessionId('one-shot-child'),
+        localAgent: undefined,
+        result: Promise.resolve({
+          output: [{ type: 'text', text: 'one-shot answer' }],
+          stopReason: request.signal.aborted ? 'aborted' : 'completed',
+        }),
+        dispose: () => Promise.resolve(),
+      }),
+      resume: async () => {
+        resumeCalls += 1
+        throw new Error('one-shot policy must not resume')
+      },
+    })
+    tool.apply(ctx, {
+      provider: 'resumable',
+      toolName: 'subagent_resumable',
+      backgroundMode: 'one-shot',
+      maxDepth: 'provider-managed',
+    })
+
+    const started = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('resumable-one-shot'),
+      name: 'subagent_resumable',
+      arguments: { description: 'work', prompt: 'go', run_in_background: true },
+      agent: parent,
+    })
+
+    expect(text(started)).toBe('started background subagent task subagent-1')
+    expect(resumeCalls).toBe(0)
+  })
+
   it('returns a task id immediately and the answer is collected through task_output', async () => {
     const ctx = await backgroundSetup({ provider: 'mock', agentOptions: { model: 'child-model' } }, { reply: 'background answer' })
     const parent = ownerAgent(ctx, 'sess-parent')
@@ -808,59 +871,56 @@ describe('dsh-tool-subagent background mode', () => {
     expect(text(killed)).toBe('(no new output)\n[status: killed]')
   })
 
-  it('runOutcome maps the stop-reason vocabulary onto task outcomes', () => {
-    const output = [{ type: 'text' as const, text: 'partial' }]
-    expect(runOutcome({ output, stopReason: 'completed' })).toEqual({ status: 'completed', output: 'partial' })
-    expect(runOutcome({ output, stopReason: 'aborted' })).toEqual({ status: 'killed' })
-    expect(runOutcome({ output, stopReason: 'error' })).toEqual({ status: 'failed', detail: 'error' })
-    expect(runOutcome({ output, stopReason: 'max-tokens' })).toEqual({ status: 'failed', detail: 'max-tokens' })
-    expect(runOutcome({ output, stopReason: 'refusal' })).toEqual({ status: 'failed', detail: 'refusal' })
-    // Merge-extensible: an unknown reason is failed-with-detail, never success.
-    expect(runOutcome({ output, stopReason: 'paused' as never })).toEqual({ status: 'failed', detail: 'paused' })
+})
+
+describe('dsh-tool-subagent continuable background mode', () => {
+  const roots: string[] = []
+  afterEach(() => {
+    for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
   })
 
-  it('settleRun disposes the run before reporting, on both result paths', async () => {
-    const order: string[] = []
-    const completed = await settleRun({
-      id: SessionId('child-1'),
-      localAgent: undefined,
-      result: Promise.resolve({ output: [{ type: 'text' as const, text: 'ok' }], stopReason: 'completed' as const }),
-      dispose() { order.push('dispose'); return Promise.resolve() },
-    })
-    order.push('reported')
-    expect(completed).toEqual({ status: 'completed', output: 'ok' })
-    expect(order).toEqual(['dispose', 'reported'])
+  /** Boot the real continuable stack without any model-facing follow-up adapter. */
+  async function continuableSetup() {
+    const ctx = new Context()
+    await mountAgentLoopTestDependencies(ctx)
+    const root = mkdtempSync(path.join(tmpdir(), 'dsh-tool-subagent-continuable-'))
+    roots.push(root)
+    await ctx.plugin(JsonlSessionPersistence, { root })
+    await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(SubagentService)
+    await ctx.plugin(SubagentSpawn, { providerName: 'spawn' })
+    await ctx.plugin(LocalTaskService)
+    await ctx.plugin(ToolTasks, {})
+    await ctx.plugin(tool, { provider: 'spawn', backgroundMode: 'continuable' })
+    ctx.llm.registerAdapter(['mock'], new MockAdapter([
+      textResponse('continuable answer'),
+    ]))
+    const parent = ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
+    return { ctx, parent }
+  }
 
-    // An infrastructure rejection still disposes and reports failed.
-    let disposed = false
-    const failed = await settleRun({
-      id: SessionId('child-2'),
-      localAgent: undefined,
-      result: Promise.reject(new Error('transport gone')),
-      dispose() { disposed = true; return Promise.resolve() },
-    })
-    expect(failed).toEqual({ status: 'failed', detail: 'Error: transport gone' })
-    expect(disposed).toBe(true)
+  it('starts a continuable child and returns both ids without send_message', async () => {
+    const { ctx, parent } = await continuableSetup()
+    const schema = ctx.tools.schemas().find(s => s.name === 'subagent')!
+    expect(schema.description).not.toContain('send_message')
 
-    const disposeFailed = await settleRun({
-      id: SessionId('child-3'),
-      localAgent: undefined,
-      result: Promise.resolve({ output: [], stopReason: 'completed' }),
-      dispose: () => Promise.reject(new Error('reap failed')),
-    })
-    expect(disposeFailed).toEqual({ status: 'failed', detail: 'dispose failed: Error: reap failed' })
-
-    const bothFailed = await settleRun({
-      id: SessionId('child-4'),
-      localAgent: undefined,
-      result: Promise.reject(new Error('result failed')),
-      dispose: () => Promise.reject(new Error('reap failed')),
-    })
-    expect(bothFailed).toEqual({
-      status: 'failed',
-      detail: 'Error: result failed; dispose failed: Error: reap failed',
-    })
+    const started = await callSubagent(
+      ctx,
+      { description: 'continuable work', prompt: 'dig in', run_in_background: true },
+      { agent: parent },
+    )
+    expect(started.isError).toBe(false)
+    const match = /^started subagent (\S+) as task (\S+)$/.exec(text(started))
+    expect(match).not.toBeNull()
+    const [, childId, taskId] = match!
+    const snapshot = await ctx.tasks.wait(taskId as never, 5_000, parent)
+    expect(snapshot.status).toBe('completed')
+    expect(ctx.tasks.read(taskId as never, parent).text).toBe('continuable answer')
+    // The child id names a durable session that outlives the settled Task.
+    const loaded = await ctx.sessionPersistence.load(SessionId(childId!))
+    expect(loaded.events.some(event => event.type === 'subagent/descriptor')).toBe(true)
   })
+
 })
 
 describe('background preflight failure (no orphaned child, by construction)', () => {

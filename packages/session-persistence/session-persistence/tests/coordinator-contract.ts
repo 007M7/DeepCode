@@ -719,7 +719,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         await ctx.plugin(Object.assign((inner: Context) => {
           reuse = inner.sessions.create(SessionId('abandoned'), { meta: { cwd: WORK } })
         }, { inject: ['sessions'] }))
-        await expect(ctx.sessions.flush(reuse)).resolves.toBeUndefined()
+        await expect(ctx.sessions.flush(reuse)).resolves.toBe(true)
         reuse.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
         reuse.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
         await ctx.sessions.flush(reuse)
@@ -796,7 +796,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         // A live session with that id arrives and claims it (cursor 0 matches
         // trivially), persisting its seed.
         const live = ctx.sessions.create(SessionId('lazy-claim'), { seed: oneTurnLog(), meta: { cwd: WORK } })
-        await expect(ctx.sessions.flush(live)).resolves.toBeUndefined()
+        await expect(ctx.sessions.flush(live)).resolves.toBe(true)
         const loaded = await ctx.sessionPersistence.load(SessionId('lazy-claim'))
         // Seeded 0-5 plus the constructor's end-seed event at 6.
         expect(loaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6])

@@ -160,6 +160,27 @@
       }
     },
     {
+      "name": "send_message",
+      "description": "Send a follow-up message to a background subagent by its subagent id. If it is still working, the message joins its current task; if it has finished, this starts a new task that continues the same subagent conversation. Either way the response arrives through the returned task id — collect it with `task_output`. A failure means the message was NOT delivered.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "subagent_id": {
+            "type": "string",
+            "description": "The subagent id returned when the background subagent was started."
+          },
+          "message": {
+            "type": "string",
+            "description": "The message to deliver to the subagent."
+          }
+        },
+        "required": [
+          "subagent_id",
+          "message"
+        ]
+      }
+    },
+    {
       "name": "session_event_read",
       "description": "Read one full unabridged event and optional neighboring raw-event summaries from an authorized session.",
       "parameters": {
@@ -381,7 +402,7 @@
     },
     {
       "name": "subagent",
-      "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) and return its final result. Use this to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent runs to completion and you receive only its final answer, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. Set `run_in_background: true` to return a task id; collect with `task_output` and stop with `task_kill`.",
+      "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) and return its final result. Use this to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent runs to completion and you receive only its final answer, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. Set `run_in_background: true` to start a continuable background subagent: you receive its stable subagent id and current task id; collect the result with `task_output` and stop it with `task_kill`.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -395,7 +416,7 @@
           },
           "run_in_background": {
             "type": "boolean",
-            "description": "Run as a background task and return its id; collect with task_output or stop with task_kill."
+            "description": "Run as a continuable background subagent and return its subagent and task ids; collect with task_output or stop with task_kill."
           }
         },
         "required": [
@@ -406,7 +427,7 @@
     },
     {
       "name": "subagent_fork",
-      "description": "Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn), returning only its final result. Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive only its final answer, not its intermediate steps. Set `run_in_background: true` to return a task id; collect with `task_output` and stop with `task_kill`.",
+      "description": "Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn), returning only its final result. Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive only its final answer, not its intermediate steps. Set `run_in_background: true` to start a continuable background subagent: you receive its stable subagent id and current task id; collect the result with `task_output` and stop it with `task_kill`.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -420,7 +441,7 @@
           },
           "run_in_background": {
             "type": "boolean",
-            "description": "Run as a background task and return its id; collect with task_output or stop with task_kill."
+            "description": "Run as a continuable background subagent and return its subagent and task ids; collect with task_output or stop with task_kill."
           }
         },
         "required": [

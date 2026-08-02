@@ -28,6 +28,7 @@ import * as WebSearchExa from '@deepseek-ai/dsh-web-search-exa'
 import * as WebFetchLocal from '@deepseek-ai/dsh-web-fetch-local'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import type { SubagentProvider } from '@deepseek-ai/dsh-subagent'
+import * as ToolSubagentControl from '@deepseek-ai/dsh-tool-subagent-control'
 import SkillService from '@deepseek-ai/dsh-skill'
 import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
 import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
@@ -106,6 +107,7 @@ function registerCatalogSubagentProvider(ctx: Context, name: string): void {
     capabilities: { outputSchema: true, depthLimit: true, toolFilter: true, persona: true },
     inheritsParentContext: false,
     start: () => Promise.reject(new Error('tool-catalog provider cannot start a child')),
+    resume: () => Promise.reject(new Error('tool-catalog provider cannot resume a child')),
   }
   ctx.subagents.registerProvider(provider)
 }
@@ -378,6 +380,21 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped example agents load this package once per subagent backend, so the model additionally sees `subagent_fork` (bound to the fork backend) with an identical schema — see `apps/cli/config/base.cordis.yml` and `examples/acp-agent/cordis.yml`.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-subagent-control',
+    dir: 'tool-subagent-control',
+    source: 'packages/subagent/tool-subagent-control/src/index.ts',
+    requires: ['ctx.tools', 'ctx.subagents'],
+    writes: ['tool/call', 'tool/result', 'child session events through ctx.subagents'],
+    async mount(ctx) {
+      await ctx.plugin(SubagentService)
+      await ctx.plugin(LocalTaskService)
+      await ctx.plugin(AgentRegistry)
+      await ctx.plugin(ToolSubagentControl)
+    },
+    note:
+      'The one globally named follow-up tool over continuable background subagents: provider-bound `tool-subagent` instances register distinct delegation tools, while this package registers `send_message` once.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-tasks',

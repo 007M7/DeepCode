@@ -38,7 +38,7 @@
 | `ctx.skills` | [`skill/`](../packages/skill/README.md) | skill（技能）提供方注册表和渐进式披露 |
 | `ctx.web` | [`web/`](../packages/web/README.md) | 搜索与抓取提供方注册表 |
 | `ctx.compact`，`ctx.toolResultPrune` | [`compact/`](../packages/compact/README.md)/[`compact-tool-result-prune`](../packages/compact/compact-tool-result-prune/README.md) | 摘要压缩（compaction）和可选的无模型结果裁剪 |
-| `ctx.subagents` | [`subagent/`](../packages/subagent/README.md) | 具名委托提供方 |
+| `ctx.subagents` | [`subagent/`](../packages/subagent/README.md) | 具名委托提供方，以及可选的由 Task 支撑的继续执行与 steer-or-resume 路由 |
 | `ctx.planMode` | [`plan/`](../packages/plan/README.md) | 落日志的 plan 协作状态 |
 | `ctx.tasks` | [`tasks/`](../packages/tasks/README.md) | 后台任务注册表和通用 `task_*` 控制 |
 | `ctx.workflows` | [`workflow/`](../packages/workflow/README.md) | 脚本驱动的多 agent 编排 |
@@ -92,11 +92,12 @@ forever:
       append prompt + additional contexts as separate 'user/message' events
     STEP loop:
       agent/step
-      drain injected context and steering (steering bypasses prompt-submit)
       assemble system prompt and tools
       materialize changed runtime context as sourced 'user/message'
+      drain injected context and provisional steering (steering bypasses prompt-submit)
       snapshot the derived messages (the reconstruction boundary)
       'step/start'
+      admit the drained steering receipts
       agent/request (config only) -> prepare adapter defaults/provenance + context capacity under turn signal -> log request/header (+ request/context on route change) -> llm/stream (frozen, registration-bound)
       'assistant/chunk'
       'assistant/message'
@@ -105,10 +106,10 @@ forever:
         parallel -> rolling pool, <= maxParallelToolCalls; reclassify-at-start; scheduler failure -> stop starts, drain dispatches
         start -> 'tool/call' -> ordered tools/pre-execute -> concurrent tools/execute
         model-order result -> ordered tools/post-execute -> 'tool/result'
-      drain accepted tool context and steering
+      drain accepted tool context after all results; keep steering provisional
       'step/end'
-      continue for tools or steering unless a result concluded the turn
-      otherwise agent/turn-stopping -> drain -> continue only for steering
+      continue for tools or steering unless a result concluded the turn and rejects pending steering
+      otherwise agent/turn-stopping -> drain context -> continue only for steering
     close the next-step acceptance window
     'turn/end' -> agent/settled
   start the next waking queued message, or emit agent/status(idle)
@@ -120,7 +121,7 @@ idle inject:
 
 每个步骤都会组装有序的稳定系统提示词片段、缓存安全的动态上下文、工具 schema 和变量；未知引用会使该轮次失败。`dsh-system-prompt` 负责身份和角色设定；循环提供 `provider`、`model` 和 `cwd`（[提示词归属](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)）。
 
-接纳期间和活跃轮次内的 `inject()` 会为下一步骤暂存；工具执行后的 `additionalContexts` 会在结果记录完毕后落定。steering 与其共用这一暂存边界，并请求再执行一个步骤。空闲状态下的 `inject()` 会立即追加，且不改变轮次编号；持久化层会尽快排空。
+接纳期间和活跃轮次内的 `inject()` 会为下一步骤暂存；工具执行期间的注入和工具执行后的 `additionalContexts` 会在结果记录完毕后落定。steering 与其共用 outbox，但在请求接纳前始终处于待准入状态。`steer()` 会返回归属于该消息的回执：`agent/step` 和异步提示词组装成功后，循环提交稳定批次、捕获请求历史并开启 `step/start`，再将其回执解析为已准入并附带轮次与步骤；后续消息继续等待。结束轮次的工具结果、广义取消、dispose（资源释放），以及已领取 idle-steering 消息却从未开启步骤的轮次，都会拒绝受影响的回执；`cancel(..., { keepInbox: true })` 和非终止型路由则保留待处理投递。空闲状态下的 `inject()` 会立即追加，且不改变轮次编号；持久化层会尽快排空。
 
 裁剪先于摘要；溢出重试必须取得持久进展。`agent/request-error` 可以在失败步骤与轮次关闭之间授权一个重试轮次；取消优先。适配器拥有的 `retryPolicy` 使 normal mode 保持有界；always mode 先委托专门恢复，再持续重试直至成功或取消（[压缩](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)、[重试基础](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)、[提供方策略](../.agents/notes/implemented/feature/2026-07-24-provider-retry-policies.md)）。
 
@@ -134,7 +135,7 @@ idle inject:
 
 ### Agent 句柄
 
-`ctx.agents` 拥有 agent，返回 `AgentHandle { agent, dispose() }`。插件使用 `send()`，或使用 `followup()`、`steer()` 和 `inject()` 预设；[`reserveTurnAdmission()`](../packages/core/agent/README.md#agent-interface-typests) 为持久工作同步预留空闲状态，同时不改变排队提示词身份。`cancel()` 与 `whenIdle()` 控制生命周期。需等待完成的资源释放负责拆卸。
+`ctx.agents` 拥有 agent，返回 `AgentHandle { agent, dispose() }`。插件使用 `send()` 或 `followup()`、带回执的 `steer()` 和 `inject()` 预设；[`reserveTurnAdmission()`](../packages/core/agent/README.md#agent-interface-typests) 为持久工作同步预留空闲状态，同时不改变排队提示词身份。需要确认请求准入时应等待 steering 回执；尽力执行的 UI steering 可以忽略它。`cancel()` 与 `whenIdle()` 控制生命周期。调用方、工厂和消费方通过同一个需等待完成的 disposer 共同拥有拆卸过程。
 
 ### Agent 作用域
 

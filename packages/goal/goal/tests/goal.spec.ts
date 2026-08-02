@@ -50,7 +50,7 @@ function stubAgentForSession(session: Session): StubAgent {
     send: () => {},
     updateInbox: () => 'not-found',
     followup: () => {},
-    steer: () => {},
+    steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
     inject(input) {
       if (shouldDefer) deferred.push(input)
       else appendInjection(session, input)

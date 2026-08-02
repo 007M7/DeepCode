@@ -120,6 +120,28 @@ describe('in-process structured output', () => {
     await run.dispose()
   })
 
+  it('confirmed steering rejects delivery once the structured result is captured', async () => {
+    const { ctx, parent } = await setup([
+      toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 7 }),
+    ])
+    // oxlint-disable-next-line prefer-const -- single assignment follows listener registration so pre-fulfillment events remain guardable.
+    let run: Awaited<ReturnType<typeof ctx.subagents.start>> | undefined
+    let delivery: Promise<void> | undefined
+    ctx.on('session/event', (session, event) => {
+      if (session.header.parentSession === undefined || run === undefined
+        || event.type !== 'tool/result' || delivery !== undefined) return
+      delivery = run.steer?.([{ type: 'text', text: 'one more thing' }], { kind: 'user' })
+      void delivery?.catch(() => undefined)
+    })
+    run = await ctx.subagents.start('spawn', structuredRequest(parent))
+    const result = await run.result
+    if (delivery === undefined) throw new Error('structured result did not submit steering')
+    await expect(delivery)
+      .rejects.toThrow(/already reported its structured result; the message was not delivered/)
+    expect(result.structured).toEqual({ answer: 7 })
+    await run.dispose()
+  })
+
   it('denies tool calls that FOLLOW the capture in the same response — terminal means terminal', async () => {
     // One model response carrying structured_output FIRST and a side-effecting
     // call after it: the continuation veto only fires at step end, so without

@@ -1,19 +1,23 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { type Agent } from '@deepseek-ai/dsh-agent'
 
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import { carrierKeyOf } from '@deepseek-ai/dsh-scope'
 import SubagentService, {
+  foldSubagentDescriptor,
+  snapshotSubagentDescriptor,
+  SUBAGENT_DESCRIPTOR_VERSION,
   SubagentError,
   assertSubagentMaxDepth,
   type SubagentCapabilities,
   type SubagentProvider,
+  type SubagentProviderStartRequest,
   type SubagentResult,
   type SubagentRun,
   type SubagentStartRequest,
 } from '@deepseek-ai/dsh-subagent'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 
 function fakeParent(id = 'parent-1'): Agent {
   return { id: SessionId(id) } as unknown as Agent
@@ -34,6 +38,7 @@ function baseRequest(overrides: Partial<SubagentStartRequest> = {}): SubagentSta
 class StubProvider implements SubagentProvider {
   readonly inheritsParentContext = false
   startCount = 0
+  lastRequest: SubagentProviderStartRequest | undefined
 
   constructor(
     readonly name: string,
@@ -44,8 +49,9 @@ class StubProvider implements SubagentProvider {
     },
   ) {}
 
-  async start(request: SubagentStartRequest): Promise<SubagentRun> {
+  async start(request: SubagentProviderStartRequest): Promise<SubagentRun> {
     this.startCount += 1
+    this.lastRequest = request
     return {
       id: SessionId(`child:${this.name}:${request.parent.id}`),
       localAgent: undefined,
@@ -97,6 +103,30 @@ describe('SubagentService', () => {
       .toThrow(expect.objectContaining({ code: 'DUPLICATE_PROVIDER' }))
     await expect(subagents.start('missing', baseRequest()))
       .rejects.toMatchObject({ code: 'NO_PROVIDER' })
+  })
+
+  it('borrows ordinary start requests and exposes no provider continuation operations', async () => {
+    const { subagents } = await service()
+    const provider = new StubProvider('one-shot')
+    subagents.registerProvider(provider)
+    const request = baseRequest()
+    await subagents.start('one-shot', request)
+
+    expect(provider.lastRequest).toBe(request)
+    expectTypeOf<SubagentProviderStartRequest>()
+      .not.toExtend<Parameters<SubagentService['start']>[1]>()
+    expect('resume' in subagents).toBe(false)
+  })
+
+  it('rejects Task-backed continuation operations when their runtime services are absent', async () => {
+    const { subagents } = await service()
+    expect(() => {
+      subagents.startContinuable({
+        provider: 'unused',
+        label: 'work',
+        request: baseRequest(),
+      })
+    }).toThrow(expect.objectContaining({ code: 'CONTINUATION_UNAVAILABLE' }))
   })
 
   it.each([
@@ -245,5 +275,72 @@ describe('SubagentService', () => {
     expect(error).toBeInstanceOf(HarnessError)
     expect(error.name).toBe('SubagentError')
     expect(error.code).toBe('NO_PROVIDER')
+  })
+})
+
+describe('subagent descriptors', () => {
+  const event = (data: unknown): SessionEvent<'subagent/descriptor'> => ({
+    type: 'subagent/descriptor',
+    data,
+  } as unknown as SessionEvent<'subagent/descriptor'>)
+
+  it('omits absent fields, recovers a complete payload, and rejects unsupported versions', () => {
+    expect(foldSubagentDescriptor([])).toBeUndefined()
+    const minimal = snapshotSubagentDescriptor({ provider: 'spawn' })
+    expect(minimal).toEqual({
+      version: SUBAGENT_DESCRIPTOR_VERSION,
+      provider: 'spawn',
+    })
+    expect(foldSubagentDescriptor([event(minimal)])).toEqual(minimal)
+    const complete = {
+      version: SUBAGENT_DESCRIPTOR_VERSION,
+      provider: 'spawn',
+      agentProvider: 'deepseek',
+      agentModel: 'chat',
+      persona: 'reviewer',
+      toolFilter: { allow: ['read'], deny: ['bash'] },
+    }
+    expect(snapshotSubagentDescriptor({
+      provider: complete.provider,
+      agentProvider: complete.agentProvider,
+      agentModel: complete.agentModel,
+      persona: complete.persona,
+      toolFilter: complete.toolFilter,
+    })).toEqual(complete)
+    expect(foldSubagentDescriptor([event(complete)])).toEqual(complete)
+    expect(foldSubagentDescriptor([
+      event({ version: SUBAGENT_DESCRIPTOR_VERSION, provider: 'spawn', toolFilter: { allow: ['read'] } }),
+    ])).toMatchObject({ toolFilter: { allow: ['read'] } })
+    expect(foldSubagentDescriptor([
+      event({ version: SUBAGENT_DESCRIPTOR_VERSION, provider: 'spawn', toolFilter: { deny: ['bash'] } }),
+    ])).toMatchObject({ toolFilter: { deny: ['bash'] } })
+    expect(foldSubagentDescriptor([
+      event({ version: SUBAGENT_DESCRIPTOR_VERSION + 1, provider: 'spawn' }),
+    ])).toBeUndefined()
+    expect(() => snapshotSubagentDescriptor({
+      provider: 'spawn',
+      toolFilter: { deny: [Symbol('not-json')] as unknown as string[] },
+    })).toThrow('not losslessly JSON-serializable')
+  })
+
+  it.each([
+    ['string payload', 'invalid', 'payload must be an object'],
+    ['null payload', null, 'payload must be an object'],
+    ['array payload', [], 'payload must be an object'],
+    ['missing version', { provider: 'spawn' }, 'version must be a number'],
+    ['string version', { version: '1', provider: 'spawn' }, 'version must be a number'],
+    ['unknown payload field', { version: 1, provider: 'spawn', extra: true }, 'payload has unknown field "extra"'],
+    ['missing provider', { version: 1 }, 'provider must be a string'],
+    ['invalid provider', { version: 1, provider: 7 }, 'provider must be a string'],
+    ['invalid agent provider', { version: 1, provider: 'spawn', agentProvider: 7 }, 'agentProvider must be a string'],
+    ['invalid agent model', { version: 1, provider: 'spawn', agentModel: [] }, 'agentModel must be a string'],
+    ['invalid persona', { version: 1, provider: 'spawn', persona: {} }, 'persona must be a string'],
+    ['non-object tool filter', { version: 1, provider: 'spawn', toolFilter: [] }, 'toolFilter must be an object'],
+    ['unknown tool-filter field', { version: 1, provider: 'spawn', toolFilter: { except: ['bash'] } }, 'toolFilter has unknown field "except"'],
+    ['empty tool filter', { version: 1, provider: 'spawn', toolFilter: {} }, 'toolFilter must declare allow and/or deny'],
+    ['non-array allow list', { version: 1, provider: 'spawn', toolFilter: { allow: 'read' } }, 'toolFilter.allow must be an array of strings'],
+    ['non-string deny item', { version: 1, provider: 'spawn', toolFilter: { deny: [7] } }, 'toolFilter.deny must be an array of strings'],
+  ])('rejects a malformed persisted descriptor: %s', (_case, data, detail) => {
+    expect(() => foldSubagentDescriptor([event(data)])).toThrow(detail)
   })
 })
