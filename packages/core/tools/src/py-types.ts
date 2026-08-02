@@ -14,7 +14,7 @@
  */
 
 import { assertSupportedJsonSchema } from './json-schema.ts'
-import type { JsonSchemaScalar } from './json-schema.ts'
+import type { JsonSchemaNode, JsonSchemaScalar } from './json-schema.ts'
 import type { ToolSdkSchema } from './ts-types.ts'
 
 /** Property names that are valid bare Python identifiers; anything else is subscripted. */
@@ -183,14 +183,14 @@ function pyScalar(value: JsonSchemaScalar): string {
  * the stub is advisory prompt text, only required to parse — and keeping the
  * exact value communicates the constraint to the model.
  */
-function renderConstrainedScalar(node: Record<string, unknown>, broad: string, state: RenderState): string {
-  if (Object.hasOwn(node, 'const')) {
+function renderConstrainedScalar(node: JsonSchemaNode, broad: string, state: RenderState): string {
+  if (node.const !== undefined) {
     state.typing.add('Literal')
-    return `Literal[${pyScalar(node.const as JsonSchemaScalar)}]`
+    return `Literal[${pyScalar(node.const)}]`
   }
-  if (Object.hasOwn(node, 'enum')) {
+  if (node.enum !== undefined) {
     state.typing.add('Literal')
-    return `Literal[${(node.enum as JsonSchemaScalar[]).map(pyScalar).join(', ')}]`
+    return `Literal[${node.enum.map(pyScalar).join(', ')}]`
   }
   return broad
 }
@@ -208,18 +208,22 @@ function renderConstrainedScalar(node: Record<string, unknown>, broad: string, s
  */
 function renderType(schema: unknown, className: string, state: RenderState): string {
   interface Frame {
-    schema: unknown
+    // A validated JSON-schema node past the root `assertSupportedJsonSchema`
+    // (the root frame's schema is asserted before any frame is built), so the
+    // walk reads its fields without casts — the same typed-frame shape as the
+    // sibling ts-types renderer.
+    schema: JsonSchemaNode
     className: string
     phase: 'start' | 'children'
     kind?: 'oneOf' | 'array' | 'typeddict'
-    node?: Record<string, unknown>
-    children: { schema: unknown; className: string }[]
+    node?: JsonSchemaNode
+    children: { schema: JsonSchemaNode; className: string }[]
     childIndex: number
     childTypes: string[]
-    entries: [string, unknown][]
+    entries: [string, JsonSchemaNode][]
     allocated?: string
   }
-  const newFrame = (schema: unknown, className: string): Frame =>
+  const newFrame = (schema: JsonSchemaNode, className: string): Frame =>
     ({ schema, className, phase: 'start', children: [], childIndex: 0, childTypes: [], entries: [] })
   try {
     // Validate the WHOLE tree once, then trust it — the same contract the
@@ -272,7 +276,7 @@ function renderType(schema: unknown, className: string, state: RenderState): str
         const name = frame.allocated
         /* v8 ignore next -- typeddict frames always set node and allocated at start. */
         if (node === undefined || name === undefined) throw new Error('missing typeddict frame state')
-        const required = new Set(Array.isArray(node.required) ? node.required.filter((n): n is string => typeof n === 'string') : [])
+        const required = new Set(node.required)
         const lines = [`class ${name}(TypedDict):`]
         for (let index = 0; index < frame.entries.length; index++) {
           const entry = frame.entries[index]
@@ -281,8 +285,8 @@ function renderType(schema: unknown, className: string, state: RenderState): str
           if (entry === undefined || fieldType === undefined) throw new Error('missing typeddict field type')
           const [field, fieldSchema] = entry
           // The parent node passed assertSupportedJsonSchema, so every property
-          // value is a validated schema node (an object).
-          const description = describe(fieldSchema as object)
+          // value is a validated schema node.
+          const description = describe(fieldSchema)
           if (description !== undefined) lines.push(`${pad(1)}# ${description}`)
           if (required.has(field)) {
             lines.push(`${pad(1)}${field}: ${fieldType}`)
@@ -307,13 +311,13 @@ function renderType(schema: unknown, className: string, state: RenderState): str
       }
 
       frame.phase = 'children'
-      const node = frame.schema as Record<string, unknown>
-      if (Object.hasOwn(node, 'oneOf')) {
+      const node = frame.schema
+      if (node.oneOf !== undefined) {
         frame.kind = 'oneOf'
-        frame.children = (node.oneOf as unknown[]).map((branch, index) => ({ schema: branch, className: `${frame.className}${index + 1}` }))
+        frame.children = node.oneOf.map((branch, index) => ({ schema: branch, className: `${frame.className}${index + 1}` }))
         continue
       }
-      if (!Object.hasOwn(node, 'type')) {
+      if (node.type === undefined) {
         state.typing.add('Any')
         finish('Any')
         continue
@@ -325,7 +329,7 @@ function renderType(schema: unknown, className: string, state: RenderState): str
         case 'boolean': finish(renderConstrainedScalar(node, 'bool', state)); break
         case 'null': finish('None'); break
         case 'array': {
-          if (!Object.hasOwn(node, 'items')) {
+          if (node.items === undefined) {
             state.typing.add('Any')
             finish('list[Any]')
             break
@@ -341,7 +345,7 @@ function renderType(schema: unknown, className: string, state: RenderState): str
           // shape. The openness of the resulting empty object is decided below,
           // so a closed empty object still declares an empty TypedDict rather
           // than a permissive `dict[str, Any]`.
-          const entries = Object.entries((node.properties ?? {}) as Record<string, unknown>)
+          const entries = Object.entries(node.properties ?? {})
           // An empty `className` marks the context-free `jsonSchemaToPy` entry:
           // there is no naming context to declare into, so degrade. A field
           // name that is not a legal Python attribute is inexpressible as a
