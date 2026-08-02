@@ -2025,11 +2025,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'InboxAction',
-    declaration: 'export type InboxAction = {\n    readonly kind: \'edit\';\n    readonly content: ContentBlock[];\n} | {\n    readonly kind: \'remove\';\n};',
+    declaration: 'export type InboxAction = {\n    readonly kind: \'edit\';\n    readonly content: ContentBlock[];\n} | {\n    readonly kind: \'remove\';\n} | {\n    readonly kind: \'steer\';\n};',
   },
   {
     name: 'InboxActionResult',
-    declaration: 'export type InboxActionResult = \'applied\' | \'not-found\';',
+    declaration: 'export type InboxActionResult = \'applied\' | \'not-found\' | \'steer-unavailable\';',
   },
   {
     name: 'InboxItemId',

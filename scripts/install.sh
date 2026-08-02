@@ -215,7 +215,7 @@ fi
 
 # pnpm is the only dependency we offer to install for you.
 if command -v pnpm >/dev/null 2>&1; then
-  info "pnpm $(pnpm --version 2>/dev/null) ... ok"
+  info "pnpm $(pnpm --version) ... ok"
 else
   warn "pnpm is not installed."
   if confirm "Install pnpm now?" Y; then

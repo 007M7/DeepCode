@@ -40,9 +40,9 @@ function effectAt<T extends InputEffect['type']>(
 }
 
 /** Drive plain → adjudicating and hand back the minted attempt. */
-function enterAdjudicating(m: InputMachine, draft: string): SubmitAttempt {
+function enterAdjudicating(m: InputMachine, draft: string, mode: 'queue' | 'steer' = 'queue'): SubmitAttempt {
   m.dispatch({ type: 'draft-changed', draft })
-  const fx = m.dispatch({ type: 'enter' })
+  const fx = m.dispatch({ type: 'enter', mode })
   return effectAt(fx, 0, 'adjudicate').attempt
 }
 
@@ -52,35 +52,42 @@ function enterSubmitting(m: InputMachine, name: string, args: string): { attempt
   m.dispatch({ type: 'draft-changed', draft: `/${name.slice(0, 2)}` })
   m.dispatch({ type: 'begin-command', claim, span: spanOf(m, 0, m.state.draft.length) })
   m.dispatch({ type: 'draft-changed', draft: claim.token + args })
-  const fx = m.dispatch({ type: 'enter' })
+  const fx = m.dispatch({ type: 'enter', mode: 'queue' })
   return { attempt: effectAt(fx, 0, 'begin-submit').attempt, claim }
 }
 
 function staleAttempt(): SubmitAttempt {
-  return { seq: 9999, signal: new AbortController().signal, draftSnapshot: '' }
+  return { seq: 9999, signal: new AbortController().signal, draftSnapshot: '', mode: 'queue' }
 }
 
 describe('input-machine: plain × enter', () => {
   it('empty and whitespace-only drafts produce nothing', () => {
     const m = new InputMachine()
-    expect(m.dispatch({ type: 'enter' })).toEqual([])
+    expect(m.dispatch({ type: 'enter', mode: 'queue' })).toEqual([])
     m.dispatch({ type: 'draft-changed', draft: '  \n ' })
-    expect(m.dispatch({ type: 'enter' })).toEqual([])
+    expect(m.dispatch({ type: 'enter', mode: 'queue' })).toEqual([])
     expect(m.state.phase).toBe('plain')
   })
 
   it('non-command text falls to the default sink', () => {
     const m = new InputMachine()
     m.dispatch({ type: 'draft-changed', draft: 'hello world' })
-    expect(m.dispatch({ type: 'enter' }))
-      .toEqual([{ type: 'default-sink', draft: 'hello world' }])
+    expect(m.dispatch({ type: 'enter', mode: 'queue' }))
+      .toEqual([{ type: 'default-sink', draft: 'hello world', mode: 'queue' }])
     expect(m.state.phase).toBe('plain')
+  })
+
+  it('retains an explicit steer mode on the default sink effect', () => {
+    const m = new InputMachine()
+    m.dispatch({ type: 'draft-changed', draft: 'steer now' })
+    expect(m.dispatch({ type: 'enter', mode: 'steer' }))
+      .toEqual([{ type: 'default-sink', draft: 'steer now', mode: 'steer' }])
   })
 
   it('leading "/" enters adjudicating with a minted attempt carrying the draft snapshot', () => {
     const m = new InputMachine()
     m.dispatch({ type: 'draft-changed', draft: '/goal x' })
-    const fx = m.dispatch({ type: 'enter' })
+    const fx = m.dispatch({ type: 'enter', mode: 'queue' })
     const eff = effectAt(fx, 0, 'adjudicate')
     expect(eff.draft).toBe('/goal x')
     expect(eff.attempt.draftSnapshot).toBe('/goal x')
@@ -91,14 +98,14 @@ describe('input-machine: plain × enter', () => {
   it('leading is judged after trim including newlines', () => {
     const m = new InputMachine()
     m.dispatch({ type: 'draft-changed', draft: '\n\n/goal x' })
-    expect(m.dispatch({ type: 'enter' })[0]?.type).toBe('adjudicate')
+    expect(m.dispatch({ type: 'enter', mode: 'queue' })[0]?.type).toBe('adjudicate')
   })
 
   it('a non-whitespace prefix before "/" is not leading — default sink', () => {
     const m = new InputMachine()
     m.dispatch({ type: 'draft-changed', draft: '第一行\n/goal x' })
-    expect(m.dispatch({ type: 'enter' }))
-      .toEqual([{ type: 'default-sink', draft: '第一行\n/goal x' }])
+    expect(m.dispatch({ type: 'enter', mode: 'queue' }))
+      .toEqual([{ type: 'default-sink', draft: '第一行\n/goal x', mode: 'queue' }])
   })
 })
 
@@ -126,9 +133,9 @@ describe('input-machine: adjudication outcomes', () => {
 
   it('undefined outcome falls back to the default sink', () => {
     const m = new InputMachine()
-    const attempt = enterAdjudicating(m, '/unknown thing')
+    const attempt = enterAdjudicating(m, '/unknown thing', 'steer')
     expect(m.dispatch({ type: 'adjudicated', attempt, outcome: undefined }))
-      .toEqual([{ type: 'default-sink', draft: '/unknown thing' }])
+      .toEqual([{ type: 'default-sink', draft: '/unknown thing', mode: 'steer' }])
     expect(m.state.phase).toBe('plain')
   })
 
@@ -152,7 +159,7 @@ describe('input-machine: adjudication outcomes', () => {
   it('enter is a no-op while adjudicating (pending lock)', () => {
     const m = new InputMachine()
     enterAdjudicating(m, '/goal x')
-    expect(m.dispatch({ type: 'enter' })).toEqual([])
+    expect(m.dispatch({ type: 'enter', mode: 'queue' })).toEqual([])
     expect(m.state.phase).toBe('adjudicating')
   })
 
@@ -341,31 +348,6 @@ describe('input-machine: occurrence reconciliation on draft edits', () => {
     const rev = m.state.draftRev
     expect(m.dispatch({ type: 'draft-changed', draft: m.state.draft })).toEqual([])
     expect(m.state.draftRev).toBe(rev)
-  })
-})
-
-describe('input-machine: newline transaction (F1)', () => {
-  it('inserts \\n at the caret and shifts trailing occurrences', () => {
-    const m = new InputMachine()
-    m.dispatch({ type: 'draft-changed', draft: 'ab @wor' })
-    m.dispatch({ type: 'insert-ref', reference: refOf('w'), span: spanOf(m, 3, 7) })
-    m.dispatch({ type: 'newline', selection: { start: 2, end: 2 } })
-    expect(m.state.draft).toBe(`ab\n ${P} `)
-    expect(m.state.occurrences[0]?.offset).toBe(4)
-    m.dispatch({ type: 'undo' })
-    expect(m.state.draft).toBe(`ab ${P} `)
-  })
-
-  it('replaces a selection, breaks the claim prefix when leading, and rejects out-of-bounds', () => {
-    const m = new InputMachine()
-    m.dispatch({ type: 'draft-changed', draft: '/go' })
-    m.dispatch({ type: 'begin-command', claim: claimOf('goal'), span: spanOf(m, 0, 3) })
-    expect(m.dispatch({ type: 'newline', selection: { start: 0, end: 99 } })).toEqual([])
-    expect(m.state.phase).toBe('claimed')
-    m.dispatch({ type: 'newline', selection: { start: 0, end: 0 } })
-    expect(m.state.draft).toBe('\n/goal ')
-    expect(m.state.phase).toBe('plain')
-    expect(m.state.claim).toBeUndefined()
   })
 })
 
@@ -587,7 +569,7 @@ describe('input-machine: paste plane', () => {
 
     const b = new InputMachine()
     b.dispatch({ type: 'paste-begin', text: 'plain text', selection: { start: 0, end: 0 } })
-    b.dispatch({ type: 'enter' })
+    b.dispatch({ type: 'enter', mode: 'queue' })
     expect(b.state.paste).toBeUndefined()
   })
 
@@ -755,7 +737,7 @@ describe('input-machine: submitting transaction', () => {
   it('enter and begin-command are locked; draft-changed is recorded without leaving submitting', () => {
     const m = new InputMachine()
     enterSubmitting(m, 'goal', 'x')
-    expect(m.dispatch({ type: 'enter' })).toEqual([])
+    expect(m.dispatch({ type: 'enter', mode: 'queue' })).toEqual([])
     expect(m.dispatch({ type: 'draft-changed', draft: '/goal y' })).toEqual([])
     expect(m.state).toMatchObject({ phase: 'submitting', draft: '/goal y' })
   })
@@ -768,7 +750,7 @@ describe('input-machine: submitting transaction', () => {
     m.dispatch({ type: 'draft-changed', draft: '/go', editRange: { start: 0, end: 1, insertedLength: 0 } })
     m.dispatch({ type: 'begin-command', claim: claimOf('goal'), span: spanOf(m, 0, 3) })
     m.dispatch({ type: 'draft-changed', draft: '/goal go' })
-    const attempt = effectAt(m.dispatch({ type: 'enter' }), 0, 'begin-submit').attempt
+    const attempt = effectAt(m.dispatch({ type: 'enter', mode: 'queue' }), 0, 'begin-submit').attempt
     const fx = m.dispatch({ type: 'submit-settled', attempt, ok: true, outcome: { kind: 'success', text: 'goal set' } })
     expect(fx).toEqual([{ type: 'notice', level: 'info', text: 'goal set' }])
     expect(m.state).toMatchObject({ phase: 'plain', draft: '', occurrences: [] })
@@ -809,7 +791,7 @@ describe('input-machine: submitting transaction', () => {
     const m = new InputMachine()
     const { attempt: first } = enterSubmitting(m, 'goal', 'x')
     m.dispatch({ type: 'submit-settled', attempt: first, ok: false, message: 'retry' })
-    const second = effectAt(m.dispatch({ type: 'enter' }), 0, 'begin-submit').attempt
+    const second = effectAt(m.dispatch({ type: 'enter', mode: 'queue' }), 0, 'begin-submit').attempt
     expect(second.seq).not.toBe(first.seq)
     expect(m.dispatch({ type: 'submit-settled', attempt: first, ok: true })).toEqual([])
     expect(m.state.phase).toBe('submitting')

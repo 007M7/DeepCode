@@ -256,6 +256,27 @@ export class ReactLoopAgent implements Agent {
         emitAgentEvent(this.loopCtx, this, 'agent/inbox/discard', [pending.item])
         return 'applied'
       }
+      case 'steer': {
+        if (!this.acceptsNextStep) return 'steer-unavailable'
+        this.queued.splice(queuedIndex, 1)
+        const item: InboxItem = Object.freeze({
+          id: InboxItemId(randomUUID()),
+          message: pending.item.message,
+          placement: 'steering',
+        })
+        this.outbox.push({
+          message: item.message,
+          steering: true,
+          item,
+          ...pending.delivery === undefined ? {} : { delivery: pending.delivery },
+        })
+        // Publish the replacement only after it is owned by the outbox. Its
+        // enqueue precedes the old occurrence's discard so reentrant
+        // cancellation can terminally account for both occurrences.
+        emitAgentEvent(this.loopCtx, this, 'agent/inbox/enqueue', item)
+        emitAgentEvent(this.loopCtx, this, 'agent/inbox/discard', [pending.item])
+        return 'applied'
+      }
       default:
         /* v8 ignore next -- InboxAction is a closed discriminated union. */
         return assertNever(action)
