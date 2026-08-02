@@ -36,6 +36,7 @@ async function setup() {
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(LocalSubprocessService)
   ;(ctx.subprocess as LocalSubprocessService).internals = { spillDir }
+  await ctx.plugin(BashEnvPlugin)
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000, graceMs: 200 })
   await ctx.plugin(ToolBash)
   return ctx
@@ -51,6 +52,7 @@ async function setupWithTasks() {
   await ctx.plugin(ToolTasks)
   await ctx.plugin(LocalSubprocessService)
   ;(ctx.subprocess as LocalSubprocessService).internals = { spillDir }
+  await ctx.plugin(BashEnvPlugin)
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000, graceMs: 200 })
   await ctx.plugin(ToolBash)
   return ctx
