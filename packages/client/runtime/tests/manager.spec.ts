@@ -587,6 +587,30 @@ describe('subagent catalogs', () => {
       vi.useRealTimers()
     }
   })
+
+  it('invalidates catalog availability when the owning parent is removed', async () => {
+    const api = new FakeApiClient()
+    const root = 'fk-root' as SessionId
+    api.onSubagentList = () => Promise.resolve(ok({
+      entries: [{
+        kind: 'child', id: S2, mode: 'continuable', label: 'worker',
+        activity: 'inactive', hasChildren: false,
+      }] as never[],
+      parentAvailable: true,
+    }))
+    const manager = new SessionManager(api)
+    await manager.refreshSubagents(root)
+    manager.selectSubagent({ parentSessionId: root, childSessionId: S2, mode: 'continuable' })
+    expect(manager.get(S2).getSnapshot().subagent).toMatchObject({ parentAvailable: true })
+
+    manager.handleHostEnvelope({
+      rpcId: 'parent-removed' as never,
+      payload: { type: 'host/session-removed', sessionId: root },
+    })
+
+    expect(manager.getListSnapshot().subagentsByParent[root]?.parentAvailable).toBe(false)
+    expect(manager.get(S2).getSnapshot().subagent).toMatchObject({ parentAvailable: false })
+  })
 })
 
 describe('remaining branches', () => {

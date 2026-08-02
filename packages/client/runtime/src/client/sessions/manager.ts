@@ -688,6 +688,19 @@ export class SessionManager {
         this.pendingBuffers.delete(frame.sessionId) // a removed session's buffered frames must not replay on a future instantiation
         this.waitingApprovals.delete(frame.sessionId) // a removed session cannot wait on anyone
         if (!durableSubagent) this.projectionStores.delete(frame.sessionId)
+        // The removed session can no longer be the delivery owner of its
+        // catalog: invalidate availability immediately. Removal schedules no
+        // catalog refresh, and without this an addressed child keeps a
+        // writable editor against a dead continuation owner until an
+        // unrelated refresh (or forever, for a closed menu).
+        const ownedCatalog = this.catalogs.get(frame.sessionId)
+        if (ownedCatalog !== undefined && ownedCatalog.parentAvailable) {
+          this.catalogs.set(frame.sessionId, { ...ownedCatalog, parentAvailable: false })
+        }
+        for (const [childId, address] of this.addresses) {
+          if (address.parentSessionId !== frame.sessionId) continue
+          this.sessions.get(childId)?.handleSubagentParentAvailable(false)
+        }
         return
       }
       case 'host/session-status': {
