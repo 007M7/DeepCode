@@ -252,6 +252,11 @@ describe('ChatView', () => {
   })
 
   it('renders Host-pending steering at the flow tail and hands off to the durable node', () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
     const pending = {
       id: 'steer-occurrence' as never,
       messageId: 'steer-message' as never,
@@ -273,6 +278,11 @@ describe('ChatView', () => {
 
     expect(view.getByText('interrupt now').closest('[data-pending-steering]')).not.toBeNull()
     expect(view.queryByText('later')).toBeNull()
+    const pendingBubble = view.getByText('interrupt now').closest('[data-pending-steering]')
+    expect(pendingBubble).not.toBeNull()
+    fireEvent.click(within(pendingBubble as HTMLElement).getByRole('button', { name: '复制' }))
+    expect(writeText).toHaveBeenCalledWith('interrupt now')
+    expect(within(pendingBubble as HTMLElement).queryByRole('button', { name: '在新对话中分支' })).toBeNull()
     expect(view.getByRole('status').compareDocumentPosition(view.getByText('interrupt now'))
       & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
 
@@ -291,6 +301,11 @@ describe('ChatView', () => {
     })
     expect(view.getAllByText('interrupt now')).toHaveLength(1)
     expect(view.container.querySelector('[data-pending-steering]')).toBeNull()
+    expect(view.getAllByRole('button', { name: '复制' })).toHaveLength(2)
+    const branchButtons = view.getAllByRole('button', { name: '在新对话中分支' })
+    expect(branchButtons).toHaveLength(2)
+    fireEvent.click(branchButtons[1]!)
+    expect(h.forkAt).toHaveBeenCalledWith(2)
 
     act(() => { h.set({ queue: [queued] }) })
     expect(view.getAllByText('interrupt now')).toHaveLength(1)

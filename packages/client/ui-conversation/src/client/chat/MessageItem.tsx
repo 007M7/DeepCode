@@ -1,6 +1,6 @@
-// MessageItem: simple chat nodes — user bubble (right-aligned, with
-// clock + copy / branch IconActions), steering (same bubble, no actions),
-// context injection, compaction marker, retry disclosure, and
+// MessageItem: simple chat nodes — user and consumed-steering bubbles
+// (right-aligned, with clock + copy / branch IconActions), pending steering
+// (copy only), context injection, compaction marker, retry disclosure, and
 // unknown-surface JSON rows.
 
 import { memo, useEffect, useMemo, useState } from 'react'
@@ -167,7 +167,7 @@ function projectUserText(text: string): ReactNode {
   return <>{parts}</>
 }
 
-/** Right-aligned bubble shared by user and steering rows (steering has no actions). */
+/** Right-aligned bubble shared by user and steering rows. */
 function UserStyleBubble({
   content, actions, pending = false, t,
 }: {
@@ -201,7 +201,22 @@ export function PendingSteeringBubble({ content, t }: {
   content: readonly unknown[]
   t: ChatViewSlotProps['t']
 }): ReactNode {
-  return <UserStyleBubble content={content} pending t={t} />
+  return (
+    <UserStyleBubble
+      content={content}
+      pending
+      t={t}
+      actions={text => (
+        <MessageIconActions
+          text={text}
+          clock="start"
+          showBranch={false}
+          className={css.actions}
+          t={t}
+        />
+      )}
+    />
+  )
 }
 
 export const MessageItem = memo(function MessageItem({
@@ -210,6 +225,7 @@ export const MessageItem = memo(function MessageItem({
   const truncated = (total: number): string => t('json.truncated', { total })
   switch (node.kind) {
     case 'user':
+    case 'steering':
       return (
         <UserStyleBubble
           content={node.content}
@@ -226,8 +242,6 @@ export const MessageItem = memo(function MessageItem({
           )}
         />
       )
-    case 'steering':
-      return <UserStyleBubble content={node.content} t={t} />
     case 'context':
       return (
         <ContextInjectionRow content={node.content} source={node.source} t={t} />

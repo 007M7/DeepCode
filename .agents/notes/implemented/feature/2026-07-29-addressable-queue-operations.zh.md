@@ -18,7 +18,7 @@ Web 队列能够渲染待处理消息，但无法编辑或删除其中某一行�
 
 **Queue 寻址要求普通会话的 Agent 存活。** `session.updateQueue` 只查询已挂载的 Agent 注册表，绝不恢复冷会话：`InboxItemId` 属于进程本地标识，无法在重启或资源释放后继续指向工作。由会话支撑的 subagent 会在访问 inbox 前返回 `agent-busy`，并保留其继续执行 owner；对于普通会话，Agent 缺失和单次入队项已被驱动器认领这两种情况都返回 `queue-item-not-found`。
 
-**Web 操作只面向 Queue。** Host 从 `session/queue` 中排除待处理 steering；steering 消费后仍沿用既有的持久 transcript（文本记录）路径。QueueDock 在队列为空时隐藏，只有一个待处理项时直接渲染该行，存在两个或更多待处理项时则默认收起为可展开或收起完整列表的 `"<n> 条排队消息"` 表头。表头暴露 `aria-expanded` 和 `aria-controls`；展开后的列表以 180px 为高度上限，并可滚动。存在进行中的编辑或变更时，列表行会保持可见；队列清空后，下一次出现队列时会恢复默认收起状态。可见行暴露编辑、删除以及仅在运行期间可用的严格 steering 操作。UI 从运行时 `SessionFace` 契约派生队列行与变更类型，而不是导入连接插件，因此插件仍通过服务和快照协作。仅当所有内容块都是文本时才提供编辑功能；编辑器不能静默丢弃非文本块。编辑中的行只展示保存和取消操作，对应的键盘操作分别是 Enter 和 Escape。删除会移除对应的精确入队项；严格 steering 会保留每个内容块，并且只通过权威快照退役该行。Web 停止操作会保留待处理 Queue 工作；只有在被中断轮次达到完全停稳后，AgentLoop 才认领下一个可唤醒入队项，其出队事件会退役该行，无需浏览器重发。[Web Queue steering 操作](2026-07-30-web-queue-steer-action.md)负责定义严格转移契约。
+**Web 操作只面向 Queue。** 带 placement 的 `session/queue` 会同时携带 queued 和待处理 steering；QueueDock 只选择 queued 项，ChatView 则投影 steering，并在消费后沿用既有的持久 transcript（文本记录）路径。QueueDock 在队列为空时隐藏，只有一个待处理项时直接渲染该行，存在两个或更多待处理项时则默认收起为可展开或收起完整列表的 `"<n> 条排队消息"` 表头。表头暴露 `aria-expanded` 和 `aria-controls`；展开后的列表以 180px 为高度上限，并可滚动。存在进行中的编辑或变更时，列表行会保持可见；队列清空后，下一次出现队列时会恢复默认收起状态。可见行暴露编辑、删除以及仅在运行期间可用的严格 steering 操作。UI 从运行时 `SessionFace` 契约派生队列行与变更类型，而不是导入连接插件，因此插件仍通过服务和快照协作。仅当所有内容块都是文本时才提供编辑功能；编辑器不能静默丢弃非文本块。编辑中的行只展示保存和取消操作，对应的键盘操作分别是 Enter 和 Escape。删除会移除对应的精确入队项；严格 steering 会保留每个内容块，并且只通过权威快照退役该行。Web 停止操作会保留待处理 Queue 工作；只有在被中断轮次达到完全停稳后，AgentLoop 才认领下一个可唤醒入队项，其出队事件会退役该行，无需浏览器重发。[Web Queue steering 操作](2026-07-30-web-queue-steer-action.md)负责定义严格转移与待处理投影契约。
 
 ## 考虑过的替代方案
 

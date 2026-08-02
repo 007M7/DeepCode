@@ -36,7 +36,7 @@ todo 两个面就是在该形状上的两个注册项，都是普通注册方插
 
 `QueueDock` 是 `order: 20` 的末端 input-dock 条目。队列为空时隐藏；只有一个待处理项时直接渲染该行；存在两个或更多待处理项时，默认收起为 `"<n> 条排队消息"` 表头，其按钮可展开或收起完整列表。表头暴露 `aria-expanded` 和 `aria-controls`；展开后的列表以 180px 为高度上限，并可滚动。存在进行中的编辑或变更时，列表行会保持可见；队列清空后，下一次出现队列时会恢复默认收起状态。每条可见行仍是单行预览，并提供针对精确单次入队项的编辑、删除和严格 steering（中途引导）操作；steering 窗口不可用时，Queue 单次入队项会留在原处并显示失败。
 
-Host 带 placement 的 `session/queue` 快照也会携带待处理 steering。QueueDock 会将其过滤掉，ChatView 则把它投影为会话流末尾的用户样式气泡。Host 会等持久 `steering/message` 进入 mux 流之后再退役 steering，ChatView 则按两份投影共享的 `MessageId` 去重；气泡交接时因而不会产生空档或重复，重连也能从同一权威恢复待处理状态。
+Host 带 placement 的 `session/queue` 快照也会携带待处理 steering。QueueDock 会将其过滤掉，ChatView 则把它投影为会话流末尾带复制操作的用户样式气泡；消息尚未进入持久轮次，因此不显示 fork。Host 会等持久 `steering/message` 进入 mux 流之后再退役 steering，ChatView 则按两份投影共享的 `MessageId` 去重；气泡交接时因而不会产生空档或重复，会从持久节点恢复复制与 fork 操作，并能在重连后从同一权威恢复。
 
 键盘消息提交会根据所寻址会话的运行状态解析投递方式。空闲时，Enter 和 Cmd/Ctrl+Enter 都执行普通 Queue 发送。运行期间，浏览器持久化的 General Settings 偏好会把普通 Enter 分配为 `Queue`（默认值）或 `Steer`，Cmd/Ctrl+Enter 则执行另一种行为；Shift+Enter 仍然换行。该偏好只影响繁忙态下这对手势，发送按钮与非键盘提交操作仍使用 Queue。Composer Steer 复用现有尽力而为的 `session.prompt(mode: 'steer')` 契约：如果当前 next-step 窗口在接纳前关闭，AgentLoop 会把消息接纳为下一条唤醒 Queue 轮次，不显示失败，也不会丢失草稿事务。
 
