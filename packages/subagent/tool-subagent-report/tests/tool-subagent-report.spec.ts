@@ -327,6 +327,15 @@ describe('dsh-tool-subagent-report', () => {
       return dispose
     })
 
+    // No session may be announced for the rejected child: the setup
+    // validation must reject inside the creation callback, before the factory
+    // publishes — a post-publication rejection would persist a resumable
+    // ghost that `list_agents` surfaces and `send_message` can resurrect.
+    // The parent was created inside setup(), so any later announcement is the
+    // rejected child's.
+    const announced: SessionId[] = []
+    const listener = (session: { id: SessionId }): void => { announced.push(session.id) }
+    const removeListener = ctx.on('session/created', listener)
     await expect(ctx.subagents.startContinuable({
       provider: 'spawn',
       label: 'racing child',
@@ -336,7 +345,54 @@ describe('dsh-tool-subagent-report', () => {
       },
       signal: testSignal,
     })).rejects.toMatchObject({ code: 'ACTIVATION_SETUP_REVOKED' })
+    removeListener()
+    expect(announced).toEqual([])
     expect(ctx.agents.list().map(agent => agent.id)).toEqual([parent.id])
+  })
+
+  it('rolls back materialization when setup revocation lands before publication', async () => {
+    const { ctx, parent } = await setup({ load: false })
+    const self: { revoke?: () => void } = {}
+    let installed = false
+    self.revoke = ctx.subagents.registerContinuableSetup(() => {
+      installed = true
+      queueMicrotask(() => { self.revoke?.() })
+      return () => { installed = false }
+    })
+    const announced: SessionId[] = []
+    const removeListener = ctx.on('session/created', (session) => { announced.push(session.id) })
+
+    await expect(ctx.subagents.startContinuable({
+      provider: 'spawn',
+      label: 'revoked child',
+      request: {
+        prompt: [{ type: 'text', text: 'revoked child' }],
+        parent,
+      },
+      signal: testSignal,
+    })).rejects.toMatchObject({ code: 'ACTIVATION_SETUP_REVOKED' })
+    removeListener()
+    expect(installed).toBe(false)
+    expect(announced).toEqual([])
+    expect(ctx.agents.list().map(agent => agent.id)).toEqual([parent.id])
+    expect(ctx.sessions.list()).toEqual([parent.session])
+  })
+
+  it('accepts a report into a host-disposing but still-registered parent', async () => {
+    const { ctx } = await setup()
+    const parentHandle = await ctx.agents.create({
+      sessionId: SessionId('disposing-parent'),
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    const { child } = await startChild(ctx, parentHandle.agent)
+    // Host-owned disposal starts asynchronously; the parent stays registered
+    // until quiescence, and registry presence — not disposal state — is the
+    // acceptance gate (pins the README contract).
+    const disposing = parentHandle.dispose()
+    const accepted = await callReport(ctx, child, 'during-close')
+    expect(accepted.isError).toBe(false)
+    await disposing
+    expect((await callReport(ctx, child, 'after-close')).isError).toBe(true)
   })
 
   it('keeps the namespace plugin shape and validates its default', () => {

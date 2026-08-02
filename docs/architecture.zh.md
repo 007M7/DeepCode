@@ -76,7 +76,7 @@ waterfall（瀑布式事件）是环绕中间件：监听器通过 `next()` 委�
 
 ```text
 choose declarative identity and fresh/resume path
-  -> prepare private session + agent.ctx -> await unpublished setup
+  -> prepare private session + agent.ctx -> await unpublished setup -> invoke optional synchronous setup commit
   -> enter session + agent -> session/created -> agent/created
   -> enable driving -> agent/session-start(source) -> start driver
 forever:
@@ -141,7 +141,7 @@ idle inject:
 
 ### Agent 作用域
 
-每个 agent 都拥有作用域化的 `agent.ctx`；共享存储会将其工具、提示词和命令条目叠加到全局条目之上，同时保留各领域视图（[决策](../.agents/notes/implemented/architecture/2026-07-12-scoped-layers-store.md)）。作用域监听器会过滤分派；贡献都会在撤销时等待清理完成。`CreateAgentOptions.setup(agentCtx)` 在发布前完成组合。类型化解析器从合并后的 `Events` 和 `scopeTarget` 推导载体检查（[语义门禁](../.agents/notes/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md)）。详情见 [agent 作用域](../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md)和 [subagent 组合](../.agents/notes/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md)。`AgentLoop` 在 `ctx.agents.withInitiator()` 内运行；私有编排会派生 `agent.session`，但轮次、步骤、信号、cwd 和权限仍保持显式（[决策](../.agents/notes/implemented/architecture/2026-07-15-agent-initiator-scope.md)）。
+每个 agent 都拥有作用域化的 `agent.ctx`；共享存储会将其工具、提示词和命令条目叠加到全局条目之上，同时保留各领域视图（[决策](../.agents/notes/implemented/architecture/2026-07-12-scoped-layers-store.md)）。作用域监听器会过滤分派；贡献都会在撤销时等待清理完成。`CreateAgentOptions.setup(agentCtx)` 在发布前完成组合，并可返回一个同步提交操作；所有 setup 的 await 均完成后，工厂会在进入注册表前立即调用该操作。类型化解析器从合并后的 `Events` 和 `scopeTarget` 推导载体检查（[语义门禁](../.agents/notes/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md)）。详情见 [agent 作用域](../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md)和 [subagent 组合](../.agents/notes/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md)。`AgentLoop` 在 `ctx.agents.withInitiator()` 内运行；私有编排会派生 `agent.session`，但轮次、步骤、信号、cwd 和权限仍保持显式（[决策](../.agents/notes/implemented/architecture/2026-07-15-agent-initiator-scope.md)）。
 
 ## 状态
 

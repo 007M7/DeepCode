@@ -18,6 +18,15 @@ import { SubagentCatalogAction, type SubagentCatalogInjected } from './SubagentC
 import {
   SubagentReadOnlyComposer, type SubagentReadOnlyMatch,
 } from './SubagentReadOnlyComposer.tsx'
+import type {} from '@deepseek-ai/dsh-client-locale/client'
+import { en, NS, zh, type SubagentKey } from './locales.ts'
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** Subagent catalog and read-only composer copy. */
+    'subagent': SubagentKey
+  }
+}
 
 export type {
   SubagentCatalogActionProps, SubagentCatalogInjected,
@@ -27,7 +36,7 @@ export type {
 } from './SubagentReadOnlyComposer.tsx'
 
 /** Required services for references, conversation slots, and session navigation. */
-export const inject = ['slash', 'sessions', 'conversation', 'slots']
+export const inject = ['slash', 'sessions', 'conversation', 'slots', 'locale']
 
 /** Claim the composer for one-shot history or an unavailable continuation owner. */
 function selectReadOnlySubagent(owner: ComposerChainProps): SubagentReadOnlyMatch | null {
@@ -42,6 +51,7 @@ function selectReadOnlySubagent(owner: ComposerChainProps): SubagentReadOnlyMatc
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
+  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-subagent: dictionaries')
   const sessions = ctx.sessions
   // Child labels live on the session list (parentId lineage + displayTitle),
   // not the conversation snapshot — the list store is the zero-RPC candidate feed.
@@ -98,6 +108,7 @@ export function apply(ctx: ClientContext): void {
       name: 'conversation.session.header.actions',
       id: 'subagent-catalog',
       order: 10,
+      locale: NS,
       inject: catalogActions,
     }, SubagentCatalogAction),
     'ui-subagent: lazy descendant catalog action',
@@ -106,6 +117,7 @@ export function apply(ctx: ClientContext): void {
     () => ctx.slots.register({
       name: 'conversation.composer',
       priority: -10,
+      locale: NS,
       select: selectReadOnlySubagent,
     }, SubagentReadOnlyComposer),
     'ui-subagent: read-only addressed composer',
