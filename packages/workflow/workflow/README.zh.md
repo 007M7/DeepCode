@@ -34,7 +34,7 @@
 - `INVALID_ARGUMENT` / `UNSUPPORTED_OPTION` / `UNSUPPORTED_SCHEMA`：钩子调用违反引擎契约；
 - `AGENT_CAP` / `ITEM_CAP`：超过已配置的安全上限；
 - `AGENT_START`：提供方的异步启动调用被拒绝；
-- `AGENT_RESULT`：已就绪子 agent 的结果因基础设施故障而拒绝；
+- `AGENT_RESULT`：已发布子 agent 的结果因基础设施故障而拒绝；
 - `RESULT_UNSERIALIZABLE`：脚本/worker 值不是普通 JSON 数据；
 - `CANCELLED`：取消会接管该运行，待处理和未来的钩子都会拒绝。
 

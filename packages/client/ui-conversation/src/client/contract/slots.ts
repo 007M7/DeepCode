@@ -3,7 +3,7 @@ import type { ReactNode, RefObject } from 'react'
 import type {
   InjectFace, MaybeSnapshotSelectorHook, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore, SnapshotSelectorHook,
 } from '@deepseek-ai/dsh-client-ui-slots'
-import type { CommandNode, ConversationSnapshot, ObservableSnapshot, PendingInteraction, PendingWait, ToolCallBlock, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { CommandNode, ConversationSnapshot, ObservableSnapshot, PendingInteraction, PendingWait, SessionId, ToolCallBlock, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ComposerKeyboard, EditSelection, InputActions, InputNotice, InputState } from '../input/contract.ts'
 import type { createChatStore } from '../stores.ts'
@@ -17,6 +17,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * remounted when the current session id changes.
      */
     'conversation.session': { kind: 'single'; scope: 'session'; owner: ConversationSessionOwnerProps }
+    /** Session-header actions contributed by feature plugins. */
+    'conversation.session.header.actions': { kind: 'list'; scope: 'session'; owner: ConversationHeaderActionOwnerProps }
     /**
      * The conversation view ring: one list entry per view tab (chat here;
      * trajectory/waterfall from ui-trajectory), rendered one-at-a-time by
@@ -135,6 +137,9 @@ export interface ConversationSessionOwnerProps {
   wrapActiveBody?: (view: ReactNode) => ReactNode
 }
 
+/** Header actions derive their state from the standard session/global kit. */
+export interface ConversationHeaderActionOwnerProps {}
+
 /**
  * The input-region slot currency (plan §1.4): dock/left/right entries read
  * the conversation snapshot and the live input state as owner props (both
@@ -244,6 +249,8 @@ export interface ConversationSessionInjected {
   }
   /** Bind the input machine's draft persistence mirror to the session store. */
   bindDraftMirror: (write: (text: string) => void) => () => void
+  /** Select a real Session through the runtime navigation owner. */
+  open: (sessionId: SessionId) => void
 }
 
 /**
@@ -329,6 +336,8 @@ export type ComposerBarProps =
  */
 export interface ComposerChainProps {
   interactions: readonly PendingInteraction[]
+  /** Current conversation facts for feature-owned takeover selectors. */
+  session: ConversationSnapshot | undefined
 }
 
 /**
@@ -350,9 +359,10 @@ export type ConversationSlotProps =
 /** Full strict-session content props: per-session store, view ring, callbacks, and the locale seat. */
 export type ConversationSessionSlotProps =
   PropsRuntime<'conversation.session'>
-  & PropsRenderSlots<'conversation.view'>
+  & PropsRenderSlots<'conversation.view' | 'conversation.session.header.actions'>
   & PropsStore<ChatStore>
   & ConversationSessionInjected
+  & PropsLocale<'conversation'>
 
 /** The pending approval carrier the owner dispatches into the composer chain. */
 export type ApprovalWait = PendingWait<'approval'>

@@ -26,7 +26,7 @@ function snapshotOf(overrides: Partial<ConversationSnapshot> = {}): Conversation
     sessionId: SID, nodes: [], partial: null, runningCalls: [], codeDispatches: new Map(),
     pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
     openState: 'open', openError: null, hasMore: false, loadingOlder: false,
-    promptError: null, blank: false, lastAgentError: null,
+    promptError: null, blank: false, subagent: null, lastAgentError: null,
     ...overrides,
   }
 }
@@ -41,6 +41,7 @@ interface BenchOptions {
   permissions?: { options: { value: string; name: string; description?: string }[]; currentValue: string }
   draft?: string
   running?: boolean
+  subagent?: Exclude<ConversationSnapshot['subagent'], null>
   disabled?: boolean
   promptError?: ConversationSnapshot['promptError']
   variant?: 'hero' | 'composer'
@@ -76,6 +77,7 @@ function bench(over?: BenchOptions) {
   if (over?.draft !== undefined && over.draft !== '') shell.setDraft(over.draft)
   const session = createSnapshotStore<ConversationSnapshot>(snapshotOf({
     running: over?.running ?? false,
+    subagent: over?.subagent ?? null,
     removed: over?.disabled ?? false,
     promptError: over?.promptError ?? null,
   }))
@@ -94,6 +96,7 @@ function bench(over?: BenchOptions) {
     useSession: bindSnapshotSelector(session),
     useSessions: bindSnapshotSelector(createSnapshotStore({
       ids: [], byId: {}, current: undefined, phase: 'ready',
+      subagentsByParent: {}, currentAddress: undefined,
     })),
     useWorkspaces: bindSnapshotSelector(createSnapshotStore({
       items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
@@ -123,8 +126,9 @@ function bench(over?: BenchOptions) {
   const view = render(<InputBar {...props} />)
   const textarea = view.container.querySelector('textarea')!
   // aria-label (not role name): title carries the same label and would double-match.
+  const stopping = over?.running === true && over.subagent === undefined
   const button = view.container.querySelector<HTMLButtonElement>(
-    `button[aria-label="${over?.running === true ? '停止生成' : '发送消息'}"]`,
+    `button[aria-label="${stopping ? '停止生成' : '发送消息'}"]`,
   )!
   return { view, textarea, button, props, sink, shell, wiring: shell, session, stop, slotCalls, menuLauncher }
 }
@@ -205,6 +209,38 @@ describe('running and lock semantics (queue cut 1)', () => {
     expect(button.getAttribute('aria-label')).toBe('停止生成')
     fireEvent.click(button)
     expect(stop).toHaveBeenCalledTimes(1)
+  })
+
+  it('running subagent primary admits a follow-up instead of exposing Stop', () => {
+    const { button, sink, stop } = bench({
+      running: true,
+      draft: '后续消息',
+      subagent: {
+        address: {
+          parentSessionId: 'parent' as SessionId,
+          childSessionId: SID,
+          mode: 'continuable',
+        },
+        parentAvailable: true,
+      },
+    })
+    expect(button.getAttribute('aria-label')).toBe('发送消息')
+    fireEvent.click(button)
+    expect(sink).toHaveBeenCalledWith('后续消息')
+    expect(stop).not.toHaveBeenCalled()
+
+    const empty = bench({
+      running: true,
+      subagent: {
+        address: {
+          parentSessionId: 'parent' as SessionId,
+          childSessionId: SID,
+          mode: 'continuable',
+        },
+        parentAvailable: true,
+      },
+    })
+    expect(empty.button.disabled).toBe(true)
   })
 
   it('disabled (session removed) locks the textarea and chrome', () => {

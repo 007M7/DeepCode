@@ -279,7 +279,7 @@ describe('PersistenceCoordinator eager writes', () => {
       const barriers = [ctx.sessions.flush(session), ctx.sessions.flush(session)]
       appendGate.resolve(true)
 
-      await expect(Promise.all(barriers)).resolves.toEqual([undefined, undefined])
+      await expect(Promise.all(barriers)).resolves.toEqual([true, true])
       expect(backend.appendAttempts).toBe(2)
       expect(backend.store.get(session.id)?.events.map(event => event.seq)).toEqual([0, 1])
     } finally {
@@ -353,7 +353,7 @@ describe('PersistenceCoordinator stored identity', () => {
       expect(loaded.events.map(event => event.type)).toEqual(['turn/start', 'turn/end'])
 
       const resumed = ctx.sessions.create(id, { seed: loaded.events, meta: loaded.meta })
-      await expect(ctx.sessions.flush(resumed)).resolves.toBeUndefined()
+      await expect(ctx.sessions.flush(resumed)).resolves.toBe(true)
     } finally {
       loadGate.resolve(true)
       await fiber.dispose()
@@ -592,7 +592,7 @@ describe('PersistenceCoordinator retirement', () => {
       const reuseFlush = ctx.sessions.flush(reuse)
 
       loadGate.resolve(true)
-      await expect(reuseFlush).resolves.toBeUndefined()
+      await expect(reuseFlush).resolves.toBe(true)
     } finally {
       loadGate.resolve(true)
       await backendFiber.dispose()

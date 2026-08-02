@@ -122,6 +122,11 @@ export interface LaunchOptions {
    */
   replayFixture?: string
   /**
+   * Recorded child logs assigned in child creation order. Each child owns its
+   * own positional replay cursor across initial and continuation turns.
+   */
+  replayChildFixtures?: string[]
+  /**
    * Optional replay.override.json sidecar (whole-script replacement or
    * `{ patches }` augmentation) for throw/hang scenarios not expressible as
    * recorded chunks; replay/refresh only.
@@ -328,6 +333,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
         file: options.replayFixture,
         providers: REPLAY_PROVIDERS,
         ...(options.replayOverride === undefined ? {} : { overrideFile: options.replayOverride }),
+        ...(options.replayChildFixtures === undefined ? {} : { childFiles: options.replayChildFixtures }),
         ...(options.paceMs === undefined ? {} : { paceMs: options.paceMs }),
       })
     }

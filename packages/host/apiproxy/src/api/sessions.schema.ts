@@ -53,6 +53,7 @@ export const sessionSummarySchema = z.object({
   running: z.boolean(),
   blank: z.boolean(),
   parentSessionId: sessionIdSchema.optional(),
+  origin: z.literal('subagent').optional(),
   cwd: z.string().optional(),
   projections: z.lazy(() => sessionProjectionsBlockSchema).optional(),
 }) as unknown as z.ZodType<Wire<SessionSummary>>
@@ -194,10 +195,10 @@ export const toolEventViewSchema = z.discriminatedUnion('for', [
 ]) as unknown as z.ZodType<ToolEventView>
 
 /** One session.history item: the session event plus its optional host-computed tool view. */
-export const historyEntrySchema = z.object({
+export const historyEntrySchema: z.ZodType<Wire<HistoryEntry>> = z.object({
   event: sessionEventSchema,
   view: toolEventViewSchema.optional(),
-}) satisfies z.ZodType<Wire<HistoryEntry>>
+}) as unknown as z.ZodType<Wire<HistoryEntry>>
 
 /**
  * Projection baseline passthrough: `values` stays a wide record — each value
@@ -211,11 +212,11 @@ export const sessionProjectionsBlockSchema = z.object({
 }) as unknown as z.ZodType<SessionProjectionsBlock>
 
 /** session.history response value (projections rides the tail page only). */
-export const sessionHistoryValueSchema = z.object({
+export const sessionHistoryValueSchema: z.ZodType<Wire<ResponseValue<'session.history'>>> = z.object({
   events: z.array(historyEntrySchema),
   hasMore: z.boolean(),
   projections: sessionProjectionsBlockSchema.optional(),
-}) satisfies z.ZodType<Wire<ResponseValue<'session.history'>>>
+})
 
 /** session.models request payload. */
 export const sessionModelsRequestSchema = z.object({

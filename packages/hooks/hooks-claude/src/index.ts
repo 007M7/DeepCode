@@ -31,10 +31,9 @@ import {
   type MatcherGroup,
   type MergedHookOutcome,
 } from '@deepseek-ai/dsh-hook-protocol'
-// Side-effect type import: pulls in the `subagent/start` + `subagent/end` event
-// declarations (declaration-merged into cordis `Events` by dsh-subagent) so the
-// SubagentStart/SubagentStop listeners below type-check.
-import type {} from '@deepseek-ai/dsh-subagent'
+// Pulls in the declaration-merged subagent events and the identity pairing their
+// start/end edges.
+import type { SubagentRunId } from '@deepseek-ai/dsh-subagent'
 import { parseClaudeConfig, type ClaudeHookConfig } from './config.ts'
 
 export const name = 'hooks-claude'
@@ -119,6 +118,11 @@ export function apply(ctx: Context, config: Config): void {
   // Emit-shaped points run detached, so track their chains; disposal aborts
   // active hooks and drains continuations before resolving.
   const detached = createDetachedRuns()
+  // Only the start edge guarantees registry access. Retain each local child
+  // through its paired end so stop hooks keep the session workspace after the
+  // handle unregisters the agent. Every retained entry relies on that paired
+  // end; a producer that can omit it must provide another release edge.
+  const subagentChildren = new Map<SubagentRunId, Agent>()
   ctx.effect(() => () => detached.drain(), 'hooks-claude: drain detached hook runs')
 
   /**
@@ -276,6 +280,7 @@ export function apply(ctx: Context, config: Config): void {
   // use the live child's workspace and the generic agent-type matcher subject.
   ctx.on('subagent/start', (info) => {
     const child = ctx.get('agents')?.get(info.id)
+    if (child !== undefined) subagentChildren.set(info.runId, child)
     detached.track(runPoint('SubagentStart', SUBAGENT_TYPE, subagentPayload(ctx, 'SubagentStart', info, child), { ...child ? { agent: child } : {}, signal: detached.signal })
       .then((merged) => {
         const context = contextFrom(merged)
@@ -284,10 +289,8 @@ export function apply(ctx: Context, config: Config): void {
       .catch((error: unknown) => { ctx.logger.warn(`hooks-claude: SubagentStart hook failed: ${String(error)}`) }))
   })
   ctx.on('subagent/end', (info) => {
-    // Look up the child (still recoverable: `subagent/end` fires from the service's detached
-    // `.then` before the tool caller's `await run.result` disposes it) so the hook runs in the
-    // child's cwd, not the server default.
-    const child = ctx.get('agents')?.get(info.id)
+    const child = subagentChildren.get(info.runId) ?? ctx.get('agents')?.get(info.id)
+    subagentChildren.delete(info.runId)
     detached.track(runPoint('SubagentStop', SUBAGENT_TYPE, subagentPayload(ctx, 'SubagentStop', info, child), { ...child ? { agent: child } : {}, signal: detached.signal }))
   })
 }

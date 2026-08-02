@@ -1,5 +1,6 @@
 - banner:
-  - 'heading "Plan a small change: add" [level=1]'
+  - navigation "Session hierarchy":
+    - 'button "Plan a small change: add" [disabled]'
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"

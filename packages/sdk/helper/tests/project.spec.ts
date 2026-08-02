@@ -204,6 +204,17 @@ describe('SdkProject and ProjectEditSession', () => {
     expect(project.cordis.entry('llm-deepseek')?.config).not.toHaveProperty('models')
   })
 
+  it.each(['spawn', 'fork'] as const)('mounts Task controls for %s subagents', async (option) => {
+    const project = await createCommitted([selection('subagent', [option])])
+    expect(project.cordis.entry('tasks')?.name).toBe('@deepseek-ai/dsh-tasks-local')
+    expect(project.cordis.entry('tool-tasks')?.name).toBe('@deepseek-ai/dsh-tool-tasks')
+    expect(project.packageManifest().dependencies).toMatchObject({
+      '@deepseek-ai/dsh-tasks-local': '^0.0.1',
+      '@deepseek-ai/dsh-tool-tasks': '^0.0.1',
+    })
+    expect(project.packageManifest().dependencies).not.toHaveProperty('@deepseek-ai/dsh-tasks')
+  })
+
   it('round-trips embed app projects without a front-door Cordis config entry', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-embed-app-'))
     temporary.push(root)

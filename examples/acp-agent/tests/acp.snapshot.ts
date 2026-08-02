@@ -41,6 +41,9 @@ const DEPTH_TWO_CONFIG = fileURLToPath(new URL('../depth-two.cordis.yml', import
 const SESSION_SANDBOX_ROOT_CONFIG = fileURLToPath(new URL('../session-sandbox-root.cordis.yml', import.meta.url))
 const RETRY_CONFIG = fileURLToPath(new URL('../retry.cordis.yml', import.meta.url))
 const SESSION_TITLE_CONFIG = fileURLToPath(new URL('../session-title.cordis.yml', import.meta.url))
+const SUBAGENT_DURABILITY_FAILURE_CONFIG = fileURLToPath(
+  new URL('../subagent-durability-failure.cordis.yml', import.meta.url),
+)
 const LSP_CONFIG = fileURLToPath(new URL('./lsp.cordis.yml', import.meta.url))
 const WEB_CONFIG = fileURLToPath(new URL('../web.cordis.yml', import.meta.url))
 const FS_SEARCH_CONFIG = fileURLToPath(new URL('./fs-search.cordis.yml', import.meta.url))
@@ -249,6 +252,50 @@ const SCENARIOS: Scenario[] = [
   { name: 'subagent-multi', hasModelTurn: true, recorded: true },
   { name: 'subagent-fork', hasModelTurn: true, recorded: true },
   { name: 'subagent-mixed', hasModelTurn: true, recorded: true },
+  // Authored continuable-subagent transcript: a background delegation returns
+  // only the durable subagent id, two send_message calls queue as later FIFO
+  // turns on that same child (the parent is never woken with their output),
+  // send_message to an unknown subagent id fails without delivering, and the
+  // child's retained handle is disposed child-first at teardown despite a
+  // failed final durability confirmation.
+  {
+    name: 'subagent-continuable',
+    hasModelTurn: true,
+    recorded: false,
+    pinsChildToolSchemas: [1],
+    configPath: SUBAGENT_DURABILITY_FAILURE_CONFIG,
+  },
+  // The in-process child is published before its first follow-up fails. The
+  // foreground tool retains both that run-result failure and an independent
+  // published-handle disposal failure.
+  {
+    name: 'subagent-published-run-failure',
+    env: { DSH_SUBAGENT_PUBLISHED_FAILURE: '1' },
+    hasModelTurn: true,
+    recorded: false,
+    overridden: true,
+    configPath: SUBAGENT_DURABILITY_FAILURE_CONFIG,
+  },
+  // Authored child-to-parent transcript: the child calls its scope-local
+  // `report`, quiet delivery reaches the idle parent without waking it, and a
+  // later parent turn consumes the logged report.
+  {
+    name: 'subagent-report',
+    hasModelTurn: true,
+    recorded: false,
+    pinsChildToolSchemas: [1],
+  },
+  // Authored durable-catalog transcript: the snapshot-only lifecycle marker
+  // fences the second parent turn behind the child's Activation end, so
+  // `list_agents` deterministically reads the persisted child as complete.
+  // The tool itself executes for real against the control service, session
+  // query, and JSONL persistence; the marker is not model-visible.
+  {
+    name: 'subagent-list-agents',
+    hasModelTurn: true,
+    recorded: false,
+    pinsChildToolSchemas: [1],
+  },
   {
     name: 'subagent-depth-two-rejection',
     hasModelTurn: true,

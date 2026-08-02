@@ -71,6 +71,16 @@ export interface RpcErrorDetailsMap {
   'credential-rejected': { ref: string }
   'title-invalid': { sessionId: SessionId }
   'fork-unavailable': { sessionId: SessionId }
+  'subagent-parent-unavailable': { parentSessionId: SessionId }
+  'subagent-not-found': { parentSessionId: SessionId; childSessionId: SessionId }
+  'subagent-catalog-diagnostic': {
+    parentSessionId: SessionId
+    childSessionId: SessionId
+    reason: 'corrupt' | 'unsupported' | 'unavailable'
+  }
+  'subagent-not-resumable': { childSessionId: SessionId }
+  'subagent-unauthorized': { childSessionId: SessionId }
+  'subagent-delivery-unavailable': { childSessionId: SessionId }
   'internal': {}
 }
 

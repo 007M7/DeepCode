@@ -57,6 +57,8 @@ interface Config {
 
 统一的 `send()` 原语按（`target` × `wakeup`）路由内容与来源；`followup`/`steer`/`inject` 是它的固定预设别名。`next-turn` 项加入排队 FIFO，除非 `wakeup: false`，否则会唤醒驱动器；接纳发生在任何轮次开启之前。`reserveTurnAdmission()` 可以为独立持久操作同步保留该空闲边界：已获接纳的唤醒工作拥有优先权，之后发送的项保留普通队列身份与 FIFO 位置，释放会重新启用同一驱动器路径，`whenIdle()` 会等待预留结束，但 teardown 不会等待它。循环在 `agent/prompt-submit` 之前打开一个私有的 next-step 接收窗口，并在 `turn/end` 之前关闭它。在该窗口内，`steer()` 与 `inject()` 会暂存到同一个 outbox；接纳获准后会开启轮次，记录提示词及其返回的 `additionalContexts`，再于首次请求前排空暂存输入。接纳被阻止或失败时，不会写入提示词或钩子生成的上下文。之后，仅含调用方暂存上下文的批次会采用空闲注入的立即追加行为，而 steering（中途引导）及与其一同暂存的上下文则继续待处理，以供重试或之后获准的提示词使用。窗口之外，steering 会成为唤醒驱动器的排队提示词，而注入会立即追加 `user/message`，不开启轮次也不运行模型。
 
+`steer()` 会把一次性准入回执附着到其准确的已接收消息。`agent/step` 和异步提示词组装成功后，循环把稳定的待处理批次提交为 `steering/message`、捕获派生历史并开启 `step/start`；只有此时，每个回执才会解析为 `admitted`，并附带轮次与步骤。之后到达的消息继续待处理。空闲 steering 会进入普通 FIFO，并以其最终轮次的首次请求作为相同准入边界。结束轮次的工具结果、广义取消、dispose（资源释放），或已领取 idle-steering 消息却从未到达请求的轮次，会把受影响回执解析为 `rejected`；`cancel(..., { keepInbox: true })` 和非终止型路由会保留待处理投递。活跃轮次内的 `inject()` 仍会在所有工具结果后提交，包括被中断批次中已最终确认的上下文；steering 则保持待准入，直到请求接纳它。
+
 每次 FIFO 接受项时都会铸造一个 `InboxItemId`，并通过 `agent/inbox/enqueue` 发布完整的单次入队项。`updateInbox()` 持有同步 queued 项边界：编辑会冻结替换内容，但不改变消息标识或位置；移除会发布 discard。编辑会发布 `agent/inbox/update`；steering 项和已被认领的项会返回 `not-found`。认领操作会发布 `agent/inbox/dequeue`，并在提示词接纳前不可逆地移除实时寻址标识，因此竞态中的更新无法改写持久历史；`cancel()` 在不带 `keepInbox` 时会发布 `agent/inbox/discard`。
 
 ### 循环生命周期（`agent.ts`）
