@@ -54,6 +54,8 @@ flowchart LR
   cfg --> plugin_tui_approval
   plugin_tui_permission["permission<br/>@deepseek-ai/dsh-permission"]
   cfg --> plugin_tui_permission
+  plugin_tui_bash_env["bash-env<br/>@deepseek-ai/dsh-bash-env"]
+  cfg --> plugin_tui_bash_env
   plugin_tui_tool_bash["tool-bash<br/>@deepseek-ai/dsh-tool-bash"]
   cfg --> plugin_tui_tool_bash
   plugin_tui_tool_tasks["tool-tasks<br/>@deepseek-ai/dsh-tool-tasks"]
@@ -165,6 +167,7 @@ flowchart LR
 | `bash-sandbox` | `@deepseek-ai/dsh-bash-sandbox` |
 | `approval` | `@deepseek-ai/dsh-user-approval` |
 | `permission` | `@deepseek-ai/dsh-permission` |
+| `bash-env` | `@deepseek-ai/dsh-bash-env` |
 | `tool-bash` | `@deepseek-ai/dsh-tool-bash` |
 | `tool-tasks` | `@deepseek-ai/dsh-tool-tasks` |
 | `fs-policy` | `@deepseek-ai/dsh-fs-policy` |

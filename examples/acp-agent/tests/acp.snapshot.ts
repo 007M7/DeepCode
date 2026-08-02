@@ -154,6 +154,12 @@ const SCENARIOS: Scenario[] = [
     configPath: PTY_CONFIG,
   },
   { name: 'bash-tool-turn', hasModelTurn: true, recorded: true },
+  // The pwsh-tool-turn scenario is NOT registered yet: its overlay
+  // (pwsh.cordis.yml / pwsh.cordis.snapshot.yml) swaps the bundle's bash tool
+  // for the PowerShell twin, so its header class needs its own prompt/tool
+  // sidecars and a recorded transcript. Both require a keyed environment
+  // (`test:snapshot:record`); the composition ships so the scenario can be
+  // registered and recorded in one keyed pass.
   { name: 'todo-write', hasModelTurn: true, recorded: true },
   {
     name: 'skill-load',
