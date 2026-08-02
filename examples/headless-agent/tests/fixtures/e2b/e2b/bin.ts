@@ -22,7 +22,7 @@ const owner: Agent = {
   acceptsNextStep: false,
   ctx: ownerFiber.ctx,
   followup() {},
-  steer() {},
+  steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
   inject() {},
   send() {},
   cancel() {},

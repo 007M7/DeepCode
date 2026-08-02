@@ -86,7 +86,7 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
         acceptsNextStep: false,
         ctx,
         followup() {},
-        steer() {},
+        steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
         inject() {},
         send() {},
         cancel() {},
