@@ -147,6 +147,9 @@ importers:
       '@deepseek-ai/dsh-app-boot':
         specifier: workspace:^
         version: link:../../packages/ui/app-boot
+      '@deepseek-ai/dsh-bash-env':
+        specifier: workspace:^
+        version: link:../../packages/bash/bash-env
       '@deepseek-ai/dsh-bash-local':
         specifier: workspace:^
         version: link:../../packages/bash/bash-local
@@ -590,6 +593,9 @@ importers:
       '@deepseek-ai/dsh-bash':
         specifier: workspace:*
         version: link:../packages/bash/bash
+      '@deepseek-ai/dsh-bash-env':
+        specifier: workspace:*
+        version: link:../packages/bash/bash-env
       '@deepseek-ai/dsh-bash-local':
         specifier: workspace:*
         version: link:../packages/bash/bash-local
@@ -674,6 +680,9 @@ importers:
       '@deepseek-ai/dsh-pty-local':
         specifier: workspace:*
         version: link:../packages/pty/pty-local
+      '@deepseek-ai/dsh-pwsh-local':
+        specifier: workspace:*
+        version: link:../packages/bash/pwsh-local
       '@deepseek-ai/dsh-repeat-tool-guard':
         specifier: workspace:*
         version: link:../packages/guard/repeat-tool-guard
@@ -791,6 +800,9 @@ importers:
       '@deepseek-ai/dsh-tool-pty':
         specifier: workspace:*
         version: link:../packages/pty/tool-pty
+      '@deepseek-ai/dsh-tool-pwsh':
+        specifier: workspace:*
+        version: link:../packages/bash/tool-pwsh
       '@deepseek-ai/dsh-tool-ralph':
         specifier: workspace:*
         version: link:../packages/workflow/tool-ralph
@@ -895,6 +907,37 @@ importers:
         specifier: ^4.0.0-rc.7
         version: link:../../../vendor/cordis
 
+  packages/bash/bash-env:
+    dependencies:
+      schemastery:
+        specifier: ^3.18.0
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../../core/agent
+      '@deepseek-ai/dsh-bash':
+        specifier: workspace:^
+        version: link:../bash
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../support/invariants
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
+      '@deepseek-ai/dsh-paths':
+        specifier: workspace:^
+        version: link:../../util/paths
+      '@deepseek-ai/dsh-session-persistence':
+        specifier: workspace:^
+        version: link:../../session-persistence/session-persistence
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:^
+        version: link:../../core/tools
+      cordis:
+        specifier: ^4.0.0-rc.7
+        version: link:../../../vendor/cordis
+
   packages/bash/bash-local:
     dependencies:
       schemastery:
@@ -954,7 +997,7 @@ importers:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-bash':
         specifier: workspace:^
@@ -973,7 +1016,7 @@ importers:
         version: link:../../util/timeout
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/bash/tool-bash:
     dependencies:
@@ -993,6 +1036,9 @@ importers:
       '@deepseek-ai/dsh-bash':
         specifier: workspace:^
         version: link:../bash
+      '@deepseek-ai/dsh-bash-env':
+        specifier: workspace:^
+        version: link:../bash-env
       '@deepseek-ai/dsh-bash-local':
         specifier: workspace:^
         version: link:../bash-local
@@ -1002,9 +1048,6 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
-      '@deepseek-ai/dsh-paths':
-        specifier: workspace:^
-        version: link:../../util/paths
       '@deepseek-ai/dsh-sandbox':
         specifier: workspace:^
         version: link:../../sandbox/sandbox
@@ -1014,9 +1057,6 @@ importers:
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../../core/session
-      '@deepseek-ai/dsh-session-persistence':
-        specifier: workspace:^
-        version: link:../../session-persistence/session-persistence
       '@deepseek-ai/dsh-session-persistence-jsonl':
         specifier: workspace:^
         version: link:../../session-persistence/session-persistence-jsonl
@@ -1049,7 +1089,7 @@ importers:
     dependencies:
       schemastery:
         specifier: ^3.18.0
-        version: 3.18.0
+        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
@@ -1057,33 +1097,42 @@ importers:
       '@deepseek-ai/dsh-bash':
         specifier: workspace:^
         version: link:../bash
+      '@deepseek-ai/dsh-bash-env':
+        specifier: workspace:^
+        version: link:../bash-env
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
-      '@deepseek-ai/dsh-paths':
+      '@deepseek-ai/dsh-loader-smoke':
         specifier: workspace:^
-        version: link:../../util/paths
+        version: link:../../support/loader-smoke
       '@deepseek-ai/dsh-pwsh-local':
         specifier: workspace:^
         version: link:../pwsh-local
-      '@deepseek-ai/dsh-session-persistence':
-        specifier: workspace:^
-        version: link:../../session-persistence/session-persistence
       '@deepseek-ai/dsh-subprocess-local':
         specifier: workspace:^
         version: link:../../subprocess/subprocess-local
       '@deepseek-ai/dsh-system-prompt':
         specifier: workspace:^
         version: link:../../core/system-prompt
+      '@deepseek-ai/dsh-tasks':
+        specifier: workspace:^
+        version: link:../../tasks/tasks
+      '@deepseek-ai/dsh-tasks-local':
+        specifier: workspace:^
+        version: link:../../tasks/tasks-local
+      '@deepseek-ai/dsh-tool-tasks':
+        specifier: workspace:^
+        version: link:../../tasks/tool-tasks
       '@deepseek-ai/dsh-tools':
         specifier: workspace:^
         version: link:../../core/tools
       cordis:
         specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+        version: link:../../../vendor/cordis
 
   packages/client/connection:
     dependencies:
@@ -2748,6 +2797,9 @@ importers:
       '@deepseek-ai/dsh-agent-loop':
         specifier: workspace:^
         version: link:../../core/agent-loop
+      '@deepseek-ai/dsh-bash-env':
+        specifier: workspace:^
+        version: link:../../bash/bash-env
       '@deepseek-ai/dsh-bash-local':
         specifier: workspace:^
         version: link:../../bash/bash-local
@@ -6302,6 +6354,9 @@ importers:
       '@deepseek-ai/dsh-bash':
         specifier: workspace:^
         version: link:../../packages/bash/bash
+      '@deepseek-ai/dsh-bash-env':
+        specifier: workspace:^
+        version: link:../../packages/bash/bash-env
       '@deepseek-ai/dsh-bash-local':
         specifier: workspace:^
         version: link:../../packages/bash/bash-local
