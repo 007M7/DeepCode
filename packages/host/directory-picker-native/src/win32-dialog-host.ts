@@ -20,7 +20,7 @@ import type { Win32DialogWorkerData } from './win32-dialog-worker.ts'
 export function spawnDialogWorker(data: Win32DialogWorkerData): Worker {
   /* v8 ignore next 3 -- the built-output arm: tests always run unbuilt (src/) */
   if (!import.meta.url.endsWith('.ts')) {
-    return new Worker(fileURLToPath(new URL('./win32-dialog-worker.cjs', import.meta.url)), { workerData: data })
+    return new Worker(fileURLToPath(new URL('./worker.cjs', import.meta.url)), { workerData: data })
   }
   const workerEntry = new URL('./win32-dialog-worker.ts', import.meta.url)
   const bootstrap = [
