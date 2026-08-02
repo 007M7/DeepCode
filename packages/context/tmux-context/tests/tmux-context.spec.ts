@@ -100,7 +100,7 @@ function sessionAgent(session: Session, id = 'agent'): Agent {
     acceptsNextStep: true,
     ctx: new Context(),
     followup: () => {},
-    steer: () => {},
+    steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
     updateInbox: () => 'not-found',
     inject(input) {
       session.append('user/message', input, { surfaceOp: 'append' })

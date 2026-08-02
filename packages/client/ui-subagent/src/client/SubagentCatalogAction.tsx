@@ -1,0 +1,456 @@
+import {
+  useEffect, useRef, useState, type KeyboardEvent, type MouseEvent,
+} from 'react'
+import type {
+  SessionId, SessionListState, SessionSummary, SubagentAddress, SubagentCatalogSnapshot,
+} from '@deepseek-ai/dsh-client-runtime/client'
+import {
+  IconChevronDownOutline14, IconChevronRightOutline14, IconRefreshOutline14, StateDot,
+} from '@deepseek-ai/dsh-client-ui-primitives'
+import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import css from './SubagentCatalogAction.module.css'
+
+type CatalogEntry = SubagentCatalogSnapshot['entries'][number]
+type Catalogs = SessionListState['subagentsByParent']
+
+/** Business actions supplied by the slot registration. */
+export interface SubagentCatalogInjected {
+  openChild: (address: SubagentAddress) => void
+  refresh: (parentSessionId: SessionId) => void
+  setCatalogOpen: (parentSessionId: SessionId, open: boolean) => void
+}
+
+/** Full props for the session-header catalog action. */
+export type SubagentCatalogActionProps =
+  PropsRuntime<'conversation.session.header.actions'> & SubagentCatalogInjected
+
+interface CatalogRowsProps {
+  parentSessionId: SessionId
+  catalog: SubagentCatalogSnapshot
+  catalogs: Catalogs
+  summaries: Readonly<Record<SessionId, SessionSummary>>
+  expanded: ReadonlySet<SessionId>
+  level: number
+  now: number
+  openChild: (address: SubagentAddress) => void
+  refresh: (parentSessionId: SessionId) => void
+  toggleBranch: (childSessionId: SessionId) => void
+  closeCatalog: () => void
+}
+
+function diagnosticReason(entry: Extract<CatalogEntry, { kind: 'diagnostic' }>): string {
+  switch (entry.reason) {
+    case 'corrupt': return '会话记录损坏'
+    case 'unsupported': return '子代理记录版本不受支持'
+    case 'unavailable': return '会话记录暂不可用'
+  }
+}
+
+function treeItems(root: HTMLDivElement | null): HTMLElement[] {
+  return root === null
+    ? []
+    : Array.from(root.querySelectorAll<HTMLElement>('[role="treeitem"]:not([aria-disabled="true"])'))
+}
+
+/** Compact trailing activity time for a catalog row. */
+function relativeTime(updatedAt: number | undefined, now: number): string | undefined {
+  if (updatedAt === undefined) return undefined
+  const minute = 60_000
+  const hour = 60 * minute
+  const day = 24 * hour
+  const diff = Math.max(0, now - updatedAt)
+  if (diff < minute) return '刚刚'
+  if (diff < hour) return `${Math.floor(diff / minute)}分钟`
+  if (diff < day) return `${Math.floor(diff / hour)}小时`
+  if (diff < 30 * day) return `${Math.floor(diff / day)}天`
+  if (diff < 365 * day) return `${Math.floor(diff / (30 * day))}个月`
+  return `${Math.floor(diff / (365 * day))}年`
+}
+
+/** Aggregate the complete subagent-only descendant subtree from flat summaries. */
+function summarizeDescendants(
+  sessionId: SessionId,
+  summaries: Readonly<Record<SessionId, SessionSummary>>,
+): { count: number; running: boolean } {
+  let count = 0
+  let running = false
+  for (const summary of Object.values(summaries)) {
+    if (summary.origin !== 'subagent') continue
+    const seen = new Set<SessionId>()
+    let current: SessionSummary | undefined = summary
+    while (current?.origin === 'subagent' && current.parentId !== undefined
+      && !seen.has(current.id)) {
+      seen.add(current.id)
+      if (current.parentId === sessionId) {
+        count += 1
+        running ||= summary.running
+        break
+      }
+      current = summaries[current.parentId]
+    }
+  }
+  return { count, running }
+}
+
+/** Render the known direct-child shape while its authoritative catalog hydrates. */
+function CatalogLoadingRows({
+  parentSessionId,
+  summaries,
+  level,
+}: {
+  parentSessionId: SessionId
+  summaries: Readonly<Record<SessionId, SessionSummary>>
+  level: number
+}) {
+  const children = Object.values(summaries).filter(summary => (
+    summary.origin === 'subagent' && summary.parentId === parentSessionId
+  ))
+  if (children.length === 0) return <div className={css.notice}>正在加载子代理…</div>
+  return children.map(summary => (
+    <div key={summary.id} className={css.node}>
+      <div
+        role="treeitem"
+        aria-disabled="true"
+        aria-level={level}
+        aria-label="正在加载子代理"
+        className={`${css.row} ${css.disabled} ${css.loadingRow}`}
+      >
+        <span className={css.disclosureSpace} />
+        <StateDot state={summary.running ? 'ongoing' : 'done'} />
+        <span className={css.content}>
+          <span className={css.label}>正在加载子代理…</span>
+        </span>
+      </div>
+    </div>
+  ))
+}
+
+/** Render one catalog level and recurse only through explicitly expanded rows. */
+function CatalogRows({
+  parentSessionId, catalog, catalogs, summaries, expanded, level, now,
+  openChild, refresh, toggleBranch, closeCatalog,
+}: CatalogRowsProps) {
+  const emptyLoading = catalog.state === 'loading' && catalog.entries.length === 0
+  return (
+    <>
+      {emptyLoading && (
+        <CatalogLoadingRows
+          parentSessionId={parentSessionId}
+          summaries={summaries}
+          level={level}
+        />
+      )}
+      {catalog.state === 'error' && (
+        <div className={css.error}>
+          <span>{catalog.error?.message ?? '无法加载子代理'}</span>
+          <button
+            type="button"
+            className={css.refresh}
+            onClick={() => { refresh(parentSessionId) }}
+          >
+            <IconRefreshOutline14 />
+            重试
+          </button>
+        </div>
+      )}
+      {catalog.entries.map((entry) => {
+        if (entry.kind === 'diagnostic') {
+          const reason = diagnosticReason(entry)
+          return (
+            <div key={entry.id} className={css.node}>
+              <div
+                role="treeitem"
+                aria-disabled="true"
+                aria-level={level}
+                aria-label={`${entry.id} ${reason}`}
+                className={`${css.row} ${css.disabled}`}
+                title={reason}
+              >
+                <span className={css.disclosureSpace} />
+                <StateDot state="error" />
+                <span className={css.content}>
+                  <span className={css.label}>{entry.id}</span>
+                  <span className={css.summary}>{reason}</span>
+                </span>
+              </div>
+            </div>
+          )
+        }
+
+        const childCatalog = catalogs[entry.id]
+        const isExpanded = expanded.has(entry.id)
+        const knownLeaf = !entry.hasChildren
+        const childLoading = childCatalog === undefined
+          || (childCatalog.state === 'loading' && childCatalog.entries.length === 0)
+        const summary = summaries[entry.id]
+        const label = entry.label ?? entry.id
+        const mode = entry.mode === 'one-shot' ? '一次性' : '可继续'
+        const activity = entry.activity === 'running' ? '正在运行' : '当前未运行'
+        const secondary = [summary?.title, mode, activity]
+          .filter(value => value !== undefined)
+          .join(' · ')
+        const time = relativeTime(summary?.updatedAt, now)
+
+        const open = (): void => {
+          openChild({ parentSessionId, childSessionId: entry.id, mode: entry.mode })
+          closeCatalog()
+        }
+        const handleKey = (event: KeyboardEvent<HTMLDivElement>): void => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            event.stopPropagation()
+            open()
+          } else if (
+            (event.key === 'ArrowRight' && !knownLeaf && !isExpanded)
+            || (event.key === 'ArrowLeft' && isExpanded)
+          ) {
+            event.preventDefault()
+            event.stopPropagation()
+            toggleBranch(entry.id)
+          }
+        }
+        const toggle = (event: MouseEvent<HTMLButtonElement>): void => {
+          event.preventDefault()
+          event.stopPropagation()
+          toggleBranch(entry.id)
+        }
+
+        return (
+          <div key={entry.id} className={css.node}>
+            <div
+              role="treeitem"
+              tabIndex={0}
+              aria-level={level}
+              aria-label={[label, secondary, time].filter(value => value !== undefined).join(' ')}
+              {...knownLeaf ? {} : { 'aria-expanded': isExpanded }}
+              className={css.row}
+              onClick={open}
+              onKeyDown={handleKey}
+            >
+              {knownLeaf
+                ? <span className={css.disclosureSpace} />
+                : (
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    className={`${css.disclosure} ${isExpanded ? css.disclosureOpen : ''}`}
+                    aria-label={`${isExpanded ? '收起' : '展开'} ${label} 的下级子代理`}
+                    onClick={toggle}
+                  >
+                    <IconChevronRightOutline14 />
+                  </button>
+                )}
+              <div className={css.clickarea}>
+                <StateDot state={entry.activity === 'running' ? 'ongoing' : 'done'} />
+                <span className={css.content}>
+                  <span className={css.label}>{label}</span>
+                  <span className={css.summary}>{secondary}</span>
+                </span>
+                {time !== undefined && <span className={css.time}>{time}</span>}
+              </div>
+            </div>
+            {isExpanded && !knownLeaf && (
+              <div
+                role="group"
+                className={css.children}
+                aria-busy={childLoading || undefined}
+              >
+                {childCatalog === undefined
+                  ? (
+                    <CatalogLoadingRows
+                      parentSessionId={entry.id}
+                      summaries={summaries}
+                      level={level + 1}
+                    />
+                  )
+                  : (
+                    <CatalogRows
+                      parentSessionId={entry.id}
+                      catalog={childCatalog}
+                      catalogs={catalogs}
+                      summaries={summaries}
+                      expanded={expanded}
+                      level={level + 1}
+                      now={now}
+                      openChild={openChild}
+                      refresh={refresh}
+                      toggleBranch={toggleBranch}
+                      closeCatalog={closeCatalog}
+                    />
+                  )}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </>
+  )
+}
+
+/**
+ * Render the current session's direct catalog and lazily expanded descendants.
+ * @param props - session standard props plus catalog navigation actions.
+ * @returns The action only after a non-empty catalog arrives.
+ */
+export function SubagentCatalogAction({
+  sessionId, useSessions, openChild, refresh, setCatalogOpen,
+}: SubagentCatalogActionProps) {
+  const catalogs = useSessions(state => state.subagentsByParent)
+  const summaries = useSessions(state => state.byId)
+  const catalog = catalogs[sessionId]
+  const [open, setOpen] = useState(false)
+  const [expanded, setExpanded] = useState<ReadonlySet<SessionId>>(() => new Set())
+  const rootRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const observedCatalogs = useRef(new Set<SessionId>())
+  const setCatalogOpenRef = useRef(setCatalogOpen)
+  setCatalogOpenRef.current = setCatalogOpen
+  const healthy = catalog?.entries.filter(entry => entry.kind === 'child') ?? []
+  const descendants = summarizeDescendants(sessionId, summaries)
+  // The catalog can arrive before the session-list baseline; never undercount
+  // the already-visible direct rows during that short bootstrap window.
+  const descendantCount = Math.max(healthy.length, descendants.count)
+
+  const observeCatalog = (parentSessionId: SessionId, next: boolean): void => {
+    if (next) observedCatalogs.current.add(parentSessionId)
+    else observedCatalogs.current.delete(parentSessionId)
+    setCatalogOpen(parentSessionId, next)
+  }
+
+  const closeAllCatalogs = (): void => {
+    for (const parentSessionId of observedCatalogs.current) {
+      setCatalogOpen(parentSessionId, false)
+    }
+    observedCatalogs.current.clear()
+    setExpanded(new Set())
+  }
+
+  const changeOpen = (next: boolean, restoreFocus = false): void => {
+    setOpen(next)
+    if (next) observeCatalog(sessionId, true)
+    else closeAllCatalogs()
+    if (restoreFocus) queueMicrotask(() => { triggerRef.current?.focus() })
+  }
+
+  const closeBranch = (root: SessionId): void => {
+    const closing = new Set<SessionId>()
+    const visit = (parentSessionId: SessionId): void => {
+      if (closing.has(parentSessionId) || !expanded.has(parentSessionId)) return
+      closing.add(parentSessionId)
+      const branch = catalogs[parentSessionId]
+      for (const entry of branch?.entries ?? []) {
+        if (entry.kind === 'child') visit(entry.id)
+      }
+    }
+    visit(root)
+    for (const parentSessionId of closing) observeCatalog(parentSessionId, false)
+    setExpanded(current => new Set([...current].filter(id => !closing.has(id))))
+  }
+
+  const toggleBranch = (childSessionId: SessionId): void => {
+    if (expanded.has(childSessionId)) {
+      closeBranch(childSessionId)
+      return
+    }
+    setExpanded(current => new Set(current).add(childSessionId))
+    observeCatalog(childSessionId, true)
+  }
+
+  useEffect(() => {
+    if (!open) return
+    const closeOutside = (event: PointerEvent): void => {
+      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) {
+        changeOpen(false)
+      }
+    }
+    document.addEventListener('pointerdown', closeOutside)
+    return () => { document.removeEventListener('pointerdown', closeOutside) }
+  }, [open])
+
+  useEffect(() => () => {
+    for (const parentSessionId of observedCatalogs.current) {
+      setCatalogOpenRef.current(parentSessionId, false)
+    }
+    observedCatalogs.current.clear()
+  }, [])
+
+  const visible = catalog !== undefined && (catalog.state !== 'ready' || catalog.entries.length > 0)
+  useEffect(() => {
+    if (visible || !open) return
+    setOpen(false)
+    closeAllCatalogs()
+  }, [visible, open])
+
+  if (!visible) return null
+
+  const focusAt = (index: number): void => {
+    const items = treeItems(rootRef.current)
+    if (items.length === 0) return
+    items[(index + items.length) % items.length]?.focus()
+  }
+
+  const navigate = (event: KeyboardEvent<HTMLDivElement>): void => {
+    const items = treeItems(rootRef.current)
+    const index = items.indexOf(document.activeElement as HTMLElement)
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      changeOpen(false, true)
+    } else if (event.key === 'Home') {
+      event.preventDefault()
+      focusAt(0)
+    } else if (event.key === 'End') {
+      event.preventDefault()
+      focusAt(items.length - 1)
+    } else if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      focusAt(index + 1)
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      focusAt(index < 0 ? items.length - 1 : index - 1)
+    }
+  }
+
+  return (
+    <div className={css.root} ref={rootRef} onKeyDown={navigate}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className={css.trigger}
+        aria-haspopup="tree"
+        aria-expanded={open}
+        aria-label={`${descendantCount} 个子代理${descendants.running ? '，正在运行' : ''}`}
+        onClick={() => { changeOpen(!open) }}
+        onKeyDown={(event) => {
+          if (event.key !== 'ArrowDown') return
+          event.preventDefault()
+          if (!open) changeOpen(true)
+          queueMicrotask(() => { focusAt(0) })
+        }}
+      >
+        <span className={css.activitySlot}>
+          {descendants.running && <StateDot state="ongoing" />}
+        </span>
+        <span className={css.count}>{descendantCount} 个子代理</span>
+        <IconChevronDownOutline14 className={open ? css.triggerOpen : undefined} />
+      </button>
+      {open && (
+        <div className={css.menu} role="tree" aria-label="子代理会话">
+          <CatalogRows
+            parentSessionId={sessionId}
+            catalog={catalog}
+            catalogs={catalogs}
+            summaries={summaries}
+            expanded={expanded}
+            level={1}
+            now={Date.now()}
+            openChild={openChild}
+            refresh={refresh}
+            toggleBranch={toggleBranch}
+            closeCatalog={() => { changeOpen(false) }}
+          />
+        </div>
+      )}
+    </div>
+  )
+}

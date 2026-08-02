@@ -23,6 +23,7 @@ import type {
 import type { ConvViewProps, ViewTab } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { ConversationSession, type ConversationSessionProps } from '@deepseek-ai/dsh-client-ui-conversation/src/client/skeleton/ConversationSession.tsx'
 import { createChatStore } from '@deepseek-ai/dsh-client-ui-conversation/src/client/stores.ts'
+import { zh as conversationZh } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-trajectory/client'
 import { apply as nodeApply } from '@deepseek-ai/dsh-client-ui-trajectory'
 import type { TrajectoryTurnModel } from '../src/client/layout.ts'
@@ -35,6 +36,11 @@ import { deriveTrajectoryTimeline } from '../src/client/timeline.ts'
 
 const SID = 's1' as SessionId
 
+// Stub of the conversation package's standard locale seat (this spec mounts
+// its ConversationSession chrome); answers from the zh dictionary and falls
+// back to the key like the real chain.
+const tConversation: ConversationSessionProps['t'] =
+  key => (conversationZh as Record<string, string>)[key] ?? key
 afterEach(cleanup)
 // The chat store persists under its declared key; clear so one case's active
 // view cannot rehydrate into the next.
@@ -112,7 +118,7 @@ function fakeSession(nodes: ConversationSnapshot['nodes']) {
 /** Empty sessions-list hook; breadcrumbs therefore fall back to the raw id. */
 function emptySessions() {
   const store = createSnapshotStore<SessionListState>(
-    { ids: [], byId: {}, current: undefined, phase: 'ready' })
+    { ids: [], byId: {}, current: undefined, phase: 'ready', subagentsByParent: {}, currentAddress: undefined })
   return bindSnapshotSelector(store)
 }
 
@@ -213,6 +219,7 @@ function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES
   return render(
     <ConversationSession
       sessionId={SID}
+      t={tConversation}
       SessionProvider={({ children }) => children(SID)}
       useSession={useSession}
       useSessions={emptySessions()}
@@ -229,6 +236,7 @@ function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES
       useInput={bindSnapshotSelector(createSnapshotStore({ draft: '', draftRev: 0, phase: 'plain', queue: [] })) as never}
       inputActions={{ setDraft: vi.fn(), submit: vi.fn() }}
       bindDraftMirror={() => () => {}}
+      open={vi.fn()}
     />,
   )
 }

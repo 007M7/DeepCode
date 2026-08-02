@@ -103,6 +103,31 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
         return { rpcId: request.rpcId, result: { ok: true, value: { accepted: true as const } } }
       },
     },
+    subagents: {
+      async list(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { entries: [], parentAvailable: false } } }
+      },
+      async history(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { events: [], hasMore: false } } }
+      },
+      async prompt(request, signal) {
+        if (request.payload.content.some(block => block.type === 'text' && block.text === 'hang')) {
+          if (!signal.aborted) {
+            await new Promise<void>((resolve) => {
+              signal.addEventListener('abort', () => { resolve() }, { once: true })
+            })
+          }
+          return {
+            rpcId: request.rpcId,
+            result: { ok: false, error: { code: 'cancelled' as const, message: 'aborted', details: {} } },
+          }
+        }
+        return {
+          rpcId: request.rpcId,
+          result: { ok: true, value: { messageId: 'message-1' as never } },
+        }
+      },
+    },
     host: {
       async describe(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { version: 'v', cwd: '/w', attachedSessions: 0 } } }
@@ -386,6 +411,23 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     }
   })
 
+  it('round-trips the subagent domain through the wire form', async () => {
+    const c = client()
+    expect((await c.subagents.list({ parentSessionId: 'parent' as never })).result)
+      .toEqual({ ok: true, value: { entries: [], parentAvailable: false } })
+    expect((await c.subagents.history({
+      parentSessionId: 'parent' as never,
+      childSessionId: 'child' as never,
+      mode: 'one-shot',
+    })).result).toEqual({ ok: true, value: { events: [], hasMore: false } })
+    expect((await c.subagents.prompt({
+      parentSessionId: 'parent' as never,
+      childSessionId: 'child' as never,
+      mode: 'continuable',
+      content: [],
+    })).result).toEqual({ ok: true, value: { messageId: 'message-1' } })
+  })
+
   it('keeps caller and connection aborts on command.execute', async () => {
     const api = fakeApi()
     const started = Promise.withResolvers<AbortSignal>()
@@ -448,6 +490,34 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
       result: { error?: { code: string } }
     }
     expect(parsed.rpcId).toBe('r-search-sig')
+    expect(parsed.result.error?.code).toBe('cancelled')
+  })
+
+  it('propagates the carrier Request signal into subagent.prompt', async () => {
+    const handler = toFetchHandler(fakeApi())
+    const controller = new AbortController()
+    const body = JSON.stringify({
+      type: 'client-request',
+      rpcId: 'r-subagent-sig',
+      method: 'subagent.prompt',
+      payload: {
+        parentSessionId: 'parent',
+        childSessionId: 'child',
+        mode: 'continuable',
+        content: [{ type: 'text', text: 'hang' }],
+      },
+    })
+    const pending = handler.fetch(new Request(
+      'http://x/api/subagent.prompt',
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body, signal: controller.signal },
+    ))
+    controller.abort()
+    const response = await pending
+    const parsed = await response.json() as {
+      rpcId: string
+      result: { error?: { code: string } }
+    }
+    expect(parsed.rpcId).toBe('r-subagent-sig')
     expect(parsed.result.error?.code).toBe('cancelled')
   })
 

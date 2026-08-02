@@ -68,7 +68,11 @@ export class ModelService extends Service {
     const actx = sessions.scope(sessionId)
     if (actx === undefined) throw new Error(`ui-model: session "${String(sessionId)}" resolved no scope`)
     const connection = this.ctx.get('connection') as ConnectionHandle
-    const directory = new ModelDirectory(connection.api.sessions, sessionId)
+    const directory = new ModelDirectory(
+      connection.api.sessions,
+      sessionId,
+      () => sessions.subagentAddress(sessionId) === undefined,
+    )
     live.directories.set(sessionId, directory)
     actx.effect(() => () => {
       directory.dispose()

@@ -35,7 +35,7 @@ const ESCAPE = "globalThis.constructor.constructor('return process')()"
 /** One controllable child run: the test (or auto mode) settles it. */
 interface ControlledRun {
   request: SubagentStartRequest
-  /** Fulfill the provider's async start with a ready child. */
+  /** Fulfill the provider's async start with a published child. */
   publish(): void
   /** Reject the provider's async start before ownership transfer. */
   rejectStart(error: unknown): void

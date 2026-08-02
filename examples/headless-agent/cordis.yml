@@ -86,11 +86,21 @@
   config:
     providerName: fork
 
+# Continuable background children are selected per delegation tool. The
+# separately loaded control registers global `send_message`; `report` is
+# installed only in continuable child scopes.
+- id: tool-subagent-control
+  name: '@deepseek-ai/dsh-tool-subagent-control'
+
+- id: tool-subagent-report
+  name: '@deepseek-ai/dsh-tool-subagent-report'
+
 - id: tool-subagent
   name: '@deepseek-ai/dsh-tool-subagent'
   config:
     provider: spawn
     toolName: subagent
+    backgroundMode: continuable
     maxDepth: 1
 
 - id: tool-subagent-fork
@@ -98,6 +108,7 @@
   config:
     provider: fork
     toolName: subagent_fork
+    backgroundMode: continuable
     maxDepth: 1
 
 # The worker-thread workflow engine fans a model-written JavaScript script's

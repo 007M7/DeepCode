@@ -43,6 +43,19 @@ export const name = 'acp'
 /** The bridge creates and owns agents; every other concern is carried by the agent composition. */
 export const inject = ['agents']
 
+/**
+ * The single continuable-subagent teardown the bridge needs. Declared
+ * structurally so this package does not depend on the subagent seam for one
+ * shutdown hook; an absent service means nothing continuable was materialized.
+ */
+interface ContinuableDrain {
+  /**
+   * Close admission below exact host-owned parents, then dispose only their
+   * continuable descendants child-first.
+   */
+  drainContinuableDescendants(parents: readonly Agent[]): Promise<void>
+}
+
 /** Preserve invalid-parameter detail in the SDK wire error message. */
 function invalidParams(detail: string): RequestError {
   return RequestError.invalidParams(undefined, detail)
@@ -326,10 +339,38 @@ export function apply(ctx: Context, config: AcpConfig): void {
     closed = true
     const records = [...sessions.values()]
     sessions.clear()
-    quiescing = Promise.all(records.map(async (record) => {
+    // Stop the bridge's own work before any await: a descendant drain can block
+    // on persistence or scoped cleanup, and the top-level agents must not keep
+    // running model and tool calls for its whole duration.
+    for (const record of records) {
+      record.agent.cancel({ kind: 'user' })
       settlePrompt(record, 'cancelled')
-      await record.dispose()
-    })).then(() => {})
+    }
+    quiescing = (async () => {
+      // Continuable subagents outlive the turn that started them, and their
+      // Activations own descendant teardown. Drain only these sessions' forests
+      // child-first BEFORE disposing the top-level agents, so no descendant is
+      // left holding a runtime its owner already released and another frontend
+      // sharing this Context remains live.
+      // Read the one teardown method structurally: the bridge needs no other
+      // part of the subagent seam, so it does not depend on that package.
+      const subagents = ctx.get('subagents') as ContinuableDrain | undefined
+      if (subagents !== undefined) {
+        try {
+          await subagents.drainContinuableDescendants(records.map(record => record.agent))
+        } catch (error: unknown) {
+          logger.warn(`acp: continuable subagent teardown failed: ${String(error)}`)
+        }
+      }
+      const disposals = await Promise.allSettled(records.map(record => record.dispose()))
+      const failures: unknown[] = []
+      for (const result of disposals) {
+        if (result.status === 'rejected') failures.push(result.reason as unknown)
+      }
+      if (failures.length > 0) {
+        throw new AggregateError(failures, `ACP agent teardown failed for ${failures.length} session(s)`)
+      }
+    })()
     return quiescing
   }
 

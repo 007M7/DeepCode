@@ -4,7 +4,7 @@
 
 抽象的持久会话持久化 seam（`ctx.sessionPersistence`）。它定义持久化后端做什么：持久存储、重新加载和列出会话，而不规定如何实现。它与 `dsh-bash` 功能 seam 模板一致（见[功能 seam](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)）：本包提供抽象服务，同级包提供具体实现，消费方注入接口。
 
-持久化单元就是现有 `SessionEvent`（事件溯源模型：日志是唯一真源），因此不存在并行的「持久消息」类型。不可回放的对话状态元数据（格式版本、cwd、血缘、种子边界、委托深度）作为 `SessionHeader` 单独传输，该类型归 `dsh-session` 所有，并在此重新导出。
+持久化单元就是现有 `SessionEvent`（事件溯源模型：日志是唯一真源），因此不存在并行的「持久消息」类型。不可回放的对话状态元数据（格式版本、cwd、血缘、种子边界、origin、委托深度）作为 `SessionHeader` 单独传输，该类型归 `dsh-session` 所有，并在此重新导出。
 
 ## 服务 API（`ctx.sessionPersistence`）
 
@@ -62,7 +62,7 @@
 
 ## 元数据与位置类型
 
-从 `dsh-session` 重新导出：`SessionHeader`（不可变会话元数据：`version`、`id`、`createdAt`、`cwd?`、`parentSession?`、`seedLength?`、`delegationDepth?`）。`SessionLocation` 是 `{ readonly kind: string; readonly path: string }`；其 path 是绝对后端目标，不证明产物已存在或包含未 flush 轮次。
+从 `dsh-session` 重新导出：`SessionHeader`（不可变会话元数据：`version`、`id`、`createdAt`、`cwd?`、`parentSession?`、`seedLength?`、`origin?`、`delegationDepth?`）。`SessionLocation` 是 `{ readonly kind: string; readonly path: string }`；其 path 是绝对后端目标，不证明产物已存在或包含未 flush 轮次。
 
 ## 模型体验
 

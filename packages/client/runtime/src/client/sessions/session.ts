@@ -6,7 +6,7 @@ import type { LlmRetryEventData } from '@deepseek-ai/dsh-llm-retry/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
   HistoryEntry, IApiClient, InboxItemId, MuxFrame, QueueAction, RpcError,
-  RpcId, RpcResult, SessionId, ToolEventView,
+  RpcId, RpcResponse, RpcResult, SessionId, SubagentAddress, ToolEventView,
 } from '@deepseek-ai/dsh-client-connection/client'
 // Value import from the inline-safe wire layer (not the connection plugin):
 // plugin-to-plugin value imports are a bundle purity error.
@@ -34,6 +34,10 @@ const MAX_RETRY_DELAY_MS = 2_147_483_647
 
 /** Manager-owned observers of a Session object's local state edges. */
 export interface SessionOptions {
+  /** Catalog-discovered address selecting non-activating subagent transport. */
+  address?: SubagentAddress
+  /** Whether the exact direct parent Agent was live at the latest catalog read. */
+  parentAvailable?: boolean
   /**
    * First ACCEPTED prompt on a blank session (fires at most once, on the
    * prompt RPC's success response): the manager mirrors the blank→false flip
@@ -119,6 +123,8 @@ export class Session implements SessionFace {
   private dispatchesRev = 0
   private dispatchesCache: { rev: number; value: ReadonlyMap<string, readonly CodeSubCall[]> } | null = null
   private running = false
+  private address: SubagentAddress | undefined
+  private parentAvailable = false
   /**
    * Sticky send marker, private input of the composerPhase derivation: set
    * synchronously before prompt()'s first await, never reset — the blank →
@@ -174,6 +180,8 @@ export class Session implements SessionFace {
     private readonly options: SessionOptions = {},
   ) {
     this.projections = options.projections ?? new ProjectionValueStore()
+    this.address = options.address
+    this.parentAvailable = options.parentAvailable ?? false
     this.snapshotCache = this.buildSnapshot()
   }
 
@@ -213,7 +221,21 @@ export class Session implements SessionFace {
     this.notifier.markDirty()
     let result: RpcResult<{ accepted: true }>
     try {
-      result = (await this.api.sessions.prompt({ sessionId: this.sessionId, mode, content })).result
+      if (this.address === undefined) {
+        result = (await this.api.sessions.prompt({ sessionId: this.sessionId, mode, content })).result
+      } else if (this.address.mode === 'one-shot') {
+        result = {
+          ok: false,
+          error: {
+            code: 'subagent-not-resumable',
+            message: 'one-shot subagent conversations are read-only',
+            details: { childSessionId: this.address.childSessionId },
+          },
+        }
+      } else {
+        const routed = (await this.api.subagents.prompt({ ...this.address, content })).result
+        result = routed.ok ? { ok: true, value: { accepted: true } } : routed
+      }
     } catch (error) {
       result = transportError(error)
     }
@@ -253,6 +275,19 @@ export class Session implements SessionFace {
    * @returns the cancel result.
    */
   async cancel(): Promise<RpcResult<{ accepted: true }>> {
+    if (this.address !== undefined) {
+      const result: RpcResult<{ accepted: true }> = {
+        ok: false,
+        error: {
+          code: 'subagent-delivery-unavailable',
+          message: 'subagent activation cancellation is unavailable',
+          details: { childSessionId: this.address.childSessionId },
+        },
+      }
+      this.promptError = { op: 'stop', error: result.error }
+      this.notifier.markDirty()
+      return result
+    }
     let result: RpcResult<{ accepted: true }>
     try {
       result = (await this.api.sessions.cancel({ sessionId: this.sessionId })).result
@@ -318,9 +353,7 @@ export class Session implements SessionFace {
     this.loadingOlder = true
     this.notifier.markDirty()
     try {
-      const { result } = await this.api.sessions.history({
-        sessionId: this.sessionId, beforeSeq: this.baseSeq, maxMessages: PAGE_MESSAGES,
-      })
+      const { result } = await this.history({ beforeSeq: this.baseSeq, maxMessages: PAGE_MESSAGES })
       if (!result.ok) return // keep the window as-is; do not overwrite openError (open already succeeded)
       const older = result.value.events
       if (older.length === 0) {
@@ -480,6 +513,32 @@ export class Session implements SessionFace {
   }
 
   /**
+   * Install or clear the catalog-discovered transport address. A changed
+   * address rebuilds an already-open window through its new history route.
+   * @param address - direct parent/child address, or undefined for ordinary transport.
+   * @param parentAvailable - latest exact-parent availability hint.
+   */
+  configureSubagent(address: SubagentAddress | undefined, parentAvailable = false): void {
+    const same = this.address?.parentSessionId === address?.parentSessionId
+      && this.address?.childSessionId === address?.childSessionId
+      && this.address?.mode === address?.mode
+    this.address = address
+    this.parentAvailable = parentAvailable
+    if (!same && this.openState !== 'cold') void this.resync()
+    else this.notifier.markDirty()
+  }
+
+  /**
+   * Update only the parent availability hint from a catalog refresh.
+   * @param available - whether the exact direct parent is live.
+   */
+  handleSubagentParentAvailable(available: boolean): void {
+    if (this.parentAvailable === available) return
+    this.parentAvailable = available
+    this.notifier.markDirty()
+  }
+
+  /**
    * Blank-bit relay from the authoritative summary source (list baseline and
    * the session-added frame). Monotone: once any signal (local first send,
    * running flip, an earlier summary) cleared it, a stale true never
@@ -533,7 +592,7 @@ export class Session implements SessionFace {
     this.openError = null
     this.notifier.markDirty()
     try {
-      let { result } = await this.api.sessions.history({ sessionId: this.sessionId, maxMessages: PAGE_MESSAGES })
+      let { result } = await this.history({ maxMessages: PAGE_MESSAGES })
       if (generation !== this.openGeneration) return
       if (!result.ok) {
         this.openState = 'error'
@@ -544,7 +603,7 @@ export class Session implements SessionFace {
       // Gap detection (§D.3-4): baseline past the window tail and liveBuffer did not cover it -> pull the tail page once more.
       const tailSeq = this.windowTailSeq()
       if (this.subscribedLastSeq !== null && tailSeq !== null && this.subscribedLastSeq > tailSeq) {
-        result = (await this.api.sessions.history({ sessionId: this.sessionId, maxMessages: PAGE_MESSAGES })).result
+        result = (await this.history({ maxMessages: PAGE_MESSAGES })).result
         if (generation !== this.openGeneration) return
         if (result.ok) this.installWindow(result.value.events, result.value.hasMore, result.value.projections)
       }
@@ -621,7 +680,7 @@ export class Session implements SessionFace {
     this.stitching = true
     const generation = this.openGeneration
     try {
-      const { result } = await this.api.sessions.history({ sessionId: this.sessionId, maxMessages: PAGE_MESSAGES })
+      const { result } = await this.history({ maxMessages: PAGE_MESSAGES })
       // Failure or superseded by a full resync: drop — the resync path rebuilds and clears the buffer itself.
       if (result.ok && generation === this.openGeneration && this.openState === 'open') {
         this.installWindow(result.value.events, result.value.hasMore, result.value.projections)
@@ -888,6 +947,9 @@ export class Session implements SessionFace {
       codeDispatches: this.dispatchesCache.value,
       queue: this.queueCache.value,
       running: this.running,
+      subagent: this.address === undefined
+        ? null
+        : { address: this.address, parentAvailable: this.parentAvailable },
       composerPhase: derivePhase(
         // Command lifecycle nodes are not conversation: running /permission
         // or /plan on a fresh session keeps the hero (the client mirror of
@@ -904,6 +966,17 @@ export class Session implements SessionFace {
       blank: this.blankBit,
       lastAgentError: this.lastAgentError,
     }
+  }
+
+  /** Select ordinary or addressed history transport from the stored browser fact. */
+  private history(payload: { beforeSeq?: number; maxMessages?: number }): Promise<RpcResponse<{
+    events: HistoryEntry[]
+    hasMore: boolean
+    projections?: ProjectionsBaseline
+  }>> {
+    return this.address === undefined
+      ? this.api.sessions.history({ sessionId: this.sessionId, ...payload })
+      : this.api.subagents.history({ ...this.address, ...payload })
   }
 }
 

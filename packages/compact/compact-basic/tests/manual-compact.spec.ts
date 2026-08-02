@@ -217,7 +217,7 @@ function detachedService(): { ctx: Context; compact: GatedCompactService; flushe
   let flushes = 0
   vi.spyOn(ctx.sessions, 'flush').mockImplementation(() => {
     flushes += 1
-    return Promise.resolve()
+    return Promise.resolve(false)
   })
   return { ctx, compact: new GatedCompactService(ctx, { auto: false }), flushes: () => flushes }
 }
@@ -730,7 +730,7 @@ describe('compactNow transaction and failure classification', () => {
     const { ctx, compact } = detachedService()
     const controller = new AbortController()
     const reason = new Error('cancelled during flush')
-    const flushGate = Promise.withResolvers<undefined>()
+    const flushGate = Promise.withResolvers<boolean>()
     const flush = vi.spyOn(ctx.sessions, 'flush').mockReturnValueOnce(flushGate.promise)
     const session = closedConversation(2)
     let released = 0
@@ -750,7 +750,7 @@ describe('compactNow transaction and failure classification', () => {
     expect(settled).toBe(false)
     expect(released).toBe(0)
 
-    flushGate.resolve(undefined)
+    flushGate.resolve(false)
     await expect(running).rejects.toBe(reason)
     expect(released).toBe(1)
   })

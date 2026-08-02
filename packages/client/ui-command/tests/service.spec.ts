@@ -37,6 +37,7 @@ interface BenchOptions {
   /** Scripted catalog per list payload; default serves the fixed catalogs by session. */
   commands?: (payload: { sessionId: SessionId }) => Promise<{ commands: CommandDescriptor[] }>
   execute?: (payload: { sessionId: SessionId; line: string }) => Promise<ExecuteValue>
+  addressed?: SessionId
 }
 
 async function bench(opts: BenchOptions = {}) {
@@ -67,11 +68,14 @@ async function bench(opts: BenchOptions = {}) {
       return () => { registered.delete(key) }
     },
   })
-  // Real scope tags behind a fake sessions face (scope/scopeOf are all the service reads).
+  // Real scope tags behind a fake sessions face.
   const scopes = new Map<SessionId, { ctx: Context; fiber: { dispose(): Promise<void> } }>()
   ctx.provide('sessions', {
     scope: (id: SessionId) => scopes.get(id)?.ctx,
     scopeOf: (c: Context) => scopeOf(c),
+    subagentAddress: (id: SessionId) => id === opts.addressed
+      ? { parentSessionId: sid('parent'), childSessionId: id, mode: 'continuable' as const }
+      : undefined,
   })
   ctx.provide('connection', { api })
   /** Notices the fake conversation face collected (runDetached routing). */
@@ -154,6 +158,12 @@ describe('registration', () => {
 })
 
 describe('candidates', () => {
+  it('does not fetch Agent-bound commands for an addressed child', async () => {
+    const b = await bench({ addressed: sid('child') })
+    await expect(b.warm(proj('child'))).resolves.toBeUndefined()
+    expect(b.listCalls).toEqual([])
+  })
+
   it('pulls the session catalog; prefix filter and hint mapping apply', async () => {
     const { source, listCalls } = await bench()
     const list = await source.candidates(proj('s1'), req('g'))

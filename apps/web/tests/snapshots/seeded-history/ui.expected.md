@@ -1,5 +1,6 @@
 - banner:
-  - heading "Use the read tool twice" [level=1]
+  - navigation "Session hierarchy":
+    - button "Use the read tool twice" [disabled]
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"

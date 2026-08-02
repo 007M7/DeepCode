@@ -1,5 +1,6 @@
 - banner:
-  - heading "Reply with the single word" [level=1]
+  - navigation "Session hierarchy":
+    - button "Reply with the single word" [disabled]
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"

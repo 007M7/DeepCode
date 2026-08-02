@@ -36,6 +36,11 @@ import { hostFrameSchema, muxFrameSchema, askUserQuestionItemSchema } from '../s
 import { approvalRequestIdSchema, approvalResponsePayloadSchema } from '../src/api/approvals.schema.ts'
 import { askUserQuestionAnswerSchema, questionResponsePayloadSchema } from '../src/api/questions.schema.ts'
 import { goalEditRequestSchema } from '../src/api/goals.schema.ts'
+import {
+  subagentHistoryRequestSchema, subagentHistoryValueSchema, subagentListEntrySchema,
+  subagentListRequestSchema, subagentListValueSchema, subagentPromptRequestSchema,
+  subagentPromptValueSchema,
+} from '../src/api/subagents.schema.ts'
 
 describe('RpcId', () => {
   it('brands a raw string at zero runtime cost', () => {
@@ -75,6 +80,12 @@ describe('rpcErrorSchema', () => {
     expect(rpcErrorSchema.parse({ code: 'command-error', message: 'm', details: {} }).code).toBe('command-error')
     expect(rpcErrorSchema.parse({ code: 'unknown-command', message: 'm', details: {} }).code).toBe('unknown-command')
     expect(rpcErrorSchema.parse({ code: 'title-invalid', message: 'm', details: { sessionId: 's' } }).code).toBe('title-invalid')
+    expect(rpcErrorSchema.parse({ code: 'subagent-parent-unavailable', message: 'm', details: { parentSessionId: 'p' } }).code).toBe('subagent-parent-unavailable')
+    expect(rpcErrorSchema.parse({ code: 'subagent-not-found', message: 'm', details: { parentSessionId: 'p', childSessionId: 'c' } }).code).toBe('subagent-not-found')
+    expect(rpcErrorSchema.parse({ code: 'subagent-catalog-diagnostic', message: 'm', details: { parentSessionId: 'p', childSessionId: 'c', reason: 'corrupt' } }).code).toBe('subagent-catalog-diagnostic')
+    expect(rpcErrorSchema.parse({ code: 'subagent-not-resumable', message: 'm', details: { childSessionId: 'c' } }).code).toBe('subagent-not-resumable')
+    expect(rpcErrorSchema.parse({ code: 'subagent-unauthorized', message: 'm', details: { childSessionId: 'c' } }).code).toBe('subagent-unauthorized')
+    expect(rpcErrorSchema.parse({ code: 'subagent-delivery-unavailable', message: 'm', details: { childSessionId: 'c' } }).code).toBe('subagent-delivery-unavailable')
     expect(rpcErrorSchema.parse({ code: 'internal', message: 'm', details: {} }).code).toBe('internal')
   })
 
@@ -130,7 +141,13 @@ describe('sessions domain schemas', () => {
     expect(sessionIdSchema.parse('s1')).toBe('s1')
     expect(() => sessionIdSchema.parse('')).toThrow()
     expect(sessionSummarySchema.parse({ sessionId: 's1', updatedAt: 1, running: false, blank: true })).toMatchObject({ sessionId: 's1', blank: true })
-    expect(sessionSummarySchema.parse({ sessionId: 's1', updatedAt: 1, running: true, blank: false, parentSessionId: 'p', cwd: '/x' }).cwd).toBe('/x')
+    expect(sessionSummarySchema.parse({
+      sessionId: 's1', updatedAt: 1, running: true, blank: false,
+      parentSessionId: 'p', origin: 'subagent', cwd: '/x',
+    })).toMatchObject({ origin: 'subagent', cwd: '/x' })
+    expect(() => sessionSummarySchema.parse({
+      sessionId: 's1', updatedAt: 1, running: false, blank: false, origin: 'fork',
+    })).toThrow()
     // blank is mandatory: a summary without it fails the parse.
     expect(() => sessionSummarySchema.parse({ sessionId: 's1', updatedAt: 1, running: false })).toThrow()
     const event = sessionEventSchema.parse({
@@ -269,6 +286,45 @@ describe('sessions domain schemas', () => {
     expect(sessionCancelValueSchema.parse({ accepted: true }).accepted).toBe(true)
     expect(sessionUpdateQueueValueSchema.parse({ accepted: true }).accepted).toBe(true)
     expect(contentBlockSchema.parse({ type: 'text', text: 'x', extra: 1 })).toMatchObject({ extra: 1 })
+  })
+})
+
+describe('subagent domain schemas', () => {
+  it('validates the direct catalog and addressed history pair', () => {
+    const child = {
+      kind: 'child', id: 'c', mode: 'continuable', label: 'worker',
+      activity: 'running', hasChildren: true,
+    }
+    const oneShot = {
+      kind: 'child', id: 'o', mode: 'one-shot', activity: 'inactive', hasChildren: false,
+    }
+    const diagnostic = { kind: 'diagnostic', id: 'bad', reason: 'unsupported' }
+    expect(subagentListEntrySchema.parse(child)).toEqual(child)
+    expect(subagentListEntrySchema.parse(oneShot)).toEqual(oneShot)
+    expect(subagentListEntrySchema.parse(diagnostic)).toEqual(diagnostic)
+    expect(() => subagentListEntrySchema.parse({
+      kind: 'child', id: 'missing', mode: 'one-shot', activity: 'inactive',
+    })).toThrow()
+    expect(subagentListRequestSchema.parse({ parentSessionId: 'p' })).toEqual({ parentSessionId: 'p' })
+    expect(subagentListValueSchema.parse({
+      entries: [child, oneShot, diagnostic], parentAvailable: true,
+    }).entries).toHaveLength(3)
+    expect(subagentHistoryRequestSchema.parse({
+      parentSessionId: 'p', childSessionId: 'c', mode: 'continuable', beforeSeq: 4, maxMessages: 2,
+    }).beforeSeq).toBe(4)
+    expect(() => subagentHistoryRequestSchema.parse({
+      parentSessionId: 'p', childSessionId: 'c', mode: 'continuable', maxMessages: 0,
+    })).toThrow()
+    expect(subagentHistoryValueSchema.parse({ events: [], hasMore: false }).hasMore).toBe(false)
+  })
+
+  it('validates continuable prompt content and the accepted inbox identity', () => {
+    expect(subagentPromptRequestSchema.parse({
+      parentSessionId: 'p', childSessionId: 'c', mode: 'continuable',
+      content: [{ type: 'text', text: '继续' }],
+    }).childSessionId).toBe('c')
+    expect(subagentPromptValueSchema.parse({ messageId: 'm1' }).messageId).toBe('m1')
+    expect(() => subagentPromptValueSchema.parse({ route: 'started', taskId: 't2' })).toThrow()
   })
 })
 
@@ -459,7 +515,7 @@ describe('events frame schemas', () => {
 
   it('accepts every host frame branch', () => {
     const frames = [
-      { type: 'host/session-added', sessionId: 's', blank: true, parentSessionId: 'p' },
+      { type: 'host/session-added', sessionId: 's', blank: true, parentSessionId: 'p', origin: 'subagent' },
       { type: 'host/session-added', sessionId: 's', blank: true },
       { type: 'host/session-removed', sessionId: 's' },
       { type: 'host/session-status', sessionId: 's', running: true },
@@ -473,6 +529,9 @@ describe('events frame schemas', () => {
       { type: 'stream/error', error: { code: 'internal', message: 'm', details: {} } },
     ]
     for (const frame of frames) expect(hostFrameSchema.parse(frame)).toMatchObject({ type: frame.type })
+    expect(() => hostFrameSchema.parse({
+      type: 'host/session-added', sessionId: 's', blank: true, origin: 'fork',
+    })).toThrow()
   })
 })
 
