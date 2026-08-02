@@ -107,7 +107,11 @@ export async function readHostSource(
     throwIfAborted(signal)
     throw new Error(`source "${filePath}" could not be read: ${messageOf(error)}`, { cause: error })
   }
-  if (bytes > maxDocumentBytes) throw new Error(`source "${filePath}" exceeds the ${maxDocumentBytes}-byte limit`)
+  if (bytes > maxDocumentBytes) {
+    throw new Error(
+      `source "${filePath}" exceeds the ${maxDocumentBytes}-byte limit; reading stopped after ${bytes} bytes`,
+    )
+  }
   throwIfAborted(signal)
   return {
     fileUrl: fs.fileUrl(target),

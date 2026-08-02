@@ -345,6 +345,47 @@ describe('LocalPtySession readiness and output', () => {
     await operation.done
   })
 
+  it('retains a canceled send when the pre-write inspection rejects while its signal is in flight', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const session = makeSession(terminal, inspector, config())
+    await initialize(session, terminal)
+
+    const failed = Promise.withResolvers<{ processGroupId: number; inputWaiting: boolean }>()
+    terminal.inspectForeground = async () => await failed.promise
+    const uncanceled = session.startSend({ text: 'plain failure', submit: true })
+    failed.reject(new Error('inspect failed before write'))
+    await expect(uncanceled.done).rejects.toThrow('inspect failed before write')
+
+    terminal.inspectForeground = FakeTerminal.prototype.inspectForeground.bind(terminal)
+    const inspection = Promise.withResolvers<{ processGroupId: number; inputWaiting: boolean }>()
+    terminal.inspectForeground = async () => await inspection.promise
+    const signalGate = Promise.withResolvers<undefined>()
+    terminal.signalForeground = async (signal) => {
+      await signalGate.promise
+      inspector.signalGroup(456, signal)
+      return 456
+    }
+    const controller = new AbortController()
+    const operation = session.startSend({ text: 'must stay owned', submit: true, signal: controller.signal })
+    controller.abort()
+    inspection.reject(new Error('transient inspection failure'))
+    await Promise.resolve()
+    await Promise.resolve()
+
+    // The slot stays reserved while the cancellation's foreground signal is in flight.
+    expect(() => session.startSend({ text: 'successor', submit: true })).toThrow('active send')
+    terminal.inspectForeground = async () => ({ processGroupId: 456, inputWaiting: false })
+    signalGate.resolve(undefined)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(inspector.groups).toContainEqual([456, 'SIGINT'])
+
+    terminal.emitData('\x1b]133;D;130\x07dsh> ')
+    await vi.advanceTimersByTimeAsync(10)
+    await operation.done
+  })
+
   it('retains a canceled send until asynchronous foreground signalling settles', async () => {
     vi.useFakeTimers()
     const terminal = new FakeTerminal()
@@ -1176,6 +1217,24 @@ describe('LocalPtySession bounds, signals, and teardown', () => {
   })
 
   it('settles a closing send when provider termination cancels inspection', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const session = new LocalPtySession(terminal, config())
+    await initialize(session, terminal)
+    const write = Promise.withResolvers<undefined>()
+    terminal.write = async () => { await write.promise }
+    const writeOperation = session.startSend({ text: 'pending write', submit: true })
+    await Promise.resolve()
+    await Promise.resolve()
+    await session.close('pending write')
+    expect((await writeOperation.done).waitReason).toBe('session_exit')
+    // The rejection lands after close released the send; it must stay contained.
+    write.reject(new Error('write rejected during close'))
+    await Promise.resolve()
+    await Promise.resolve()
+  })
+
+  it('settles a closing send when provider termination cancels a pending inspection', async () => {
     vi.useFakeTimers()
     const terminal = new FakeTerminal()
     const session = new LocalPtySession(terminal, config())

@@ -77,6 +77,11 @@ export class LocalSubprocessService extends SubprocessService {
     signal?.throwIfAborted()
     const environment = childEnv(env)
     const absolute = isAbsolute(command)
+    if (!absolute && (command.includes('/') || (process.platform === 'win32' && command.includes('\\')))) {
+      throw new Error(
+        `subprocess-local: command ${JSON.stringify(command)} is a relative path; use an absolute path or a bare PATH name`,
+      )
+    }
     const candidates = absolute ? [command] : this.executableCandidates(command, environment)
     for (const candidate of candidates) {
       signal?.throwIfAborted()

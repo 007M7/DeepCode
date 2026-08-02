@@ -162,6 +162,11 @@ export class LocalPtySession implements PtyBackendSession {
   private readonly outputEnded = Promise.withResolvers<void>()
   private readonly completion: Promise<void>
   private statusValue: PtySessionStatus = { kind: 'running' }
+  // TODO(pty-send-state-consolidation): Fold the per-send fields below
+  // (active/activeTimer/activeDeadlineTimer/activeAbort/interrupting/
+  // activeWrite/pollingReady/polling) into one send-lifecycle owner; the
+  // cancellation/readiness interplay now has enough pinned tests to carry
+  // that refactor safely.
   private active: LocalSendOperation | undefined
   private activeTimer: NodeJS.Timeout | undefined
   private activeDeadlineTimer: NodeJS.Timeout | undefined
@@ -220,7 +225,14 @@ export class LocalPtySession implements PtyBackendSession {
   startSend(request: PtySendRequest): PtySendOperation {
     if (this.closing) throw new Error('PTY session is closing')
     if (this.statusValue.kind === 'exited') throw new Error('PTY session has exited')
-    if (this.active !== undefined) throw new PtyError('PTY session already has an active send or draining provider operation', 'SEND_ACTIVE')
+    if (this.active !== undefined) {
+      const draining = this.activeWrite !== undefined
+        ? ' or draining provider write'
+        : this.interrupting !== undefined
+          ? ' or draining foreground interrupt'
+          : ''
+      throw new PtyError(`PTY session already has an active send${draining}`, 'SEND_ACTIVE')
+    }
     if (request.signal?.aborted === true) throw new Error('PTY send aborted before write')
 
     const operation = new LocalSendOperation(
@@ -246,8 +258,22 @@ export class LocalPtySession implements PtyBackendSession {
   }
 
   private async beginSend(operation: LocalSendOperation, request: PtySendRequest): Promise<void> {
+    let foreground: SubprocessTerminalForeground | undefined
     try {
-      const foreground = await this.terminal.inspectForeground()
+      foreground = await this.terminal.inspectForeground()
+    } catch (error: unknown) {
+      // A pre-write inspection failure while cancellation owns the slot must not
+      // release it: interruptOnce's in-flight foreground signal could land on a
+      // successor's foreground group. The interrupt path's post-signal tail
+      // resumes polling, whose guarded catch propagates a persistent failure.
+      // A retained settled operation implies that same in-flight interrupt, so
+      // this guard admits only an unsettled active send.
+      if (this.active === operation && !this.closing && this.interrupting !== operation) {
+        this.failActive(error)
+      }
+      return
+    }
+    try {
       if (this.active !== operation || this.closing || this.interrupting === operation) return
       operation.setInitialForeground(foreground)
       const input = `${request.text}${request.submit ? '\r' : ''}`

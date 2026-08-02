@@ -32,6 +32,10 @@ describe('LocalSubprocessService', () => {
       PATH: relative(process.cwd(), dirname(process.execPath)) || '.',
     })).toBe(process.execPath)
     await expect(ctx.subprocess.resolveExecutable('')).rejects.toThrow('must be non-empty')
+    await expect(ctx.subprocess.resolveExecutable('./bin/tsserver'))
+      .rejects.toThrow('is a relative path')
+    await expect(ctx.subprocess.resolveExecutable('node_modules/.bin/server'))
+      .rejects.toThrow('is a relative path')
     await expect(ctx.subprocess.resolveExecutable('dsh-command-that-does-not-exist', { PATH: '' }))
       .rejects.toThrow('was not found on PATH')
     await expect(ctx.subprocess.resolveExecutable('/dsh-absolute-command-that-does-not-exist'))
@@ -61,6 +65,8 @@ describe('LocalSubprocessService', () => {
         .toEqual(['/explicit/tool.EXE'])
       expect(candidates('tool.exe', {})).toEqual([resolve(process.cwd(), 'tool.exe')])
       expect(candidates('tool', { PATH: '/bin' })).toHaveLength(4)
+      await expect(ctx.subprocess.resolveExecutable(String.raw`bin\server.exe`))
+        .rejects.toThrow('is a relative path')
     } finally {
       platform.mockRestore()
       await fiber.dispose()

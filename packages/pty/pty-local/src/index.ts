@@ -82,6 +82,9 @@ function spawnArgv(ctx: Context, config: ResolvedConfig, spec: PtyBackendSpawnSp
   }).argv
 }
 
+// TODO(pty-initialize-race-home): Fold this outer abort race into
+// LocalPtySession.initialize when the send-state consolidation lands; the
+// session already owns the send lifecycle the race protects.
 async function initializeSession(session: LocalPtySession, signal?: AbortSignal): Promise<void> {
   if (signal === undefined) {
     await session.initialize(signal)

@@ -24,7 +24,14 @@ function signalName(number: number | undefined): NodeJS.Signals | null {
   return null
 }
 
-/** A local terminal whose process-session ownership stays below the PTY backend. */
+/**
+ * A local terminal whose process-session ownership stays below the PTY backend.
+ * The seam's terminate() promise — no write, inspection, or signal in flight
+ * after settlement — holds here without operation tracking only because every
+ * handle call completes synchronously under the hood (node-pty write, ps-based
+ * inspection). A first genuinely asynchronous step in any handle call must add
+ * the tracking a remote provider needs.
+ */
 export class LocalTerminalHandle implements SubprocessTerminalHandle {
   readonly pid: number
   readonly output = new PassThrough()

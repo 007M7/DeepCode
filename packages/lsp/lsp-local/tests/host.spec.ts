@@ -156,10 +156,10 @@ describe('readHostSource', () => {
     await expect(readSource('.')).rejects.toThrow(/not a regular file/)
   })
 
-  it('rejects an oversized source', async () => {
+  it('rejects an oversized source and reports the observed lower bound', async () => {
     await writeFile(join(ws, 'big.ts'), 'x'.repeat(100))
     await expect(readSource('big.ts', 10)).rejects.toMatchObject({
-      message: 'source "big.ts" exceeds the 10-byte limit',
+      message: 'source "big.ts" exceeds the 10-byte limit; reading stopped after 100 bytes',
     })
   })
 

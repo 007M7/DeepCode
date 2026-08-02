@@ -193,7 +193,11 @@ export interface SubprocessHandle {
   waitForExit(signal?: AbortSignal): Promise<boolean>
 }
 
-/** Signals supported by the terminal-process primitive. */
+/**
+ * Signals supported by the terminal-process primitive. Kept member-identical
+ * to `PtySignal` in `@deepseek-ai/dsh-pty` without a cross-seam dependency;
+ * change both together.
+ */
 export type SubprocessTerminalSignal = 'SIGINT' | 'SIGTERM' | 'SIGKILL' | 'SIGTSTP' | 'SIGHUP'
 
 /** A fully specified terminal-process spawn. */
