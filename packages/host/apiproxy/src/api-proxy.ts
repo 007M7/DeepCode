@@ -1017,8 +1017,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
   /** Whether the session's own suffix carries the durable subagent discriminator. */
   function hasSubagentDescriptor(session: Pick<Session, 'events' | 'header'>): boolean {
-    const ownStart = session.header.seedLength ?? 0
-    return session.events.slice(ownStart).some(event => event.type === 'subagent/descriptor')
+    const events = session.events
+    // Indexed scan from the own-suffix start: slicing copies the whole suffix
+    // on every Agent-bound RPC, including each `session.prompt` on long
+    // transcripts.
+    for (let index = session.header.seedLength ?? 0; index < events.length; index += 1) {
+      if (events[index]?.type === 'subagent/descriptor') return true
+    }
+    return false
   }
 
   /**
