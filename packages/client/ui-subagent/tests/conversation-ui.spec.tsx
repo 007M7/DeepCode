@@ -69,7 +69,7 @@ function props(
   // The zh dictionary is the source of truth for this spec's assertions:
   // the stub interpolates `{name}` params like the locale service does.
   const t = ((key: SubagentKey, params?: Record<string, unknown>): string => {
-    let text = zh[key]
+    let text: string = zh[key]
     for (const [name, value] of Object.entries(params ?? {})) {
       text = text.replaceAll(`{${name}}`, String(value))
     }
