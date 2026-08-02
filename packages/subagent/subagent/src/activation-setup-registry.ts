@@ -123,6 +123,10 @@ export class SubagentActivationSetupRegistry {
         // Dispose that escaped record and invalidate the provisioning batch.
         if (isRemoved(registration)) this.release(installation)
       }
+      // Register the scope-disposal release inside the same try so the
+      // setup-rollback catch also covers a hypothetical effect-registration
+      // throw; today effect() cannot reject on a live unpublished scope.
+      childCtx.effect(() => () => { this.releaseChild(childCtx) }, 'subagents.activationSetup()')
     } catch (error: unknown) {
       // Keep the installer failure authoritative, but attempt every rollback.
       try {
@@ -133,7 +137,6 @@ export class SubagentActivationSetupRegistry {
       }
       throw error
     }
-    childCtx.effect(() => () => { this.releaseChild(childCtx) }, 'subagents.activationSetup()')
     return {
       assertIntact: () => {
         if (!state.invalidated) return
