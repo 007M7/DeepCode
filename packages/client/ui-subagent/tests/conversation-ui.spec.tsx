@@ -167,6 +167,24 @@ describe('SubagentCatalogAction', () => {
     expect(input.setCatalogOpen).toHaveBeenLastCalledWith(PARENT, false)
   })
 
+  it('selects singular count keys for one descendant', () => {
+    const base = props(catalog({
+      entries: [{
+        kind: 'child', id: CHILD, mode: 'continuable', label: 'worker',
+        activity: 'running', hasChildren: false,
+      }],
+    }), {}, {
+      [CHILD]: {
+        ...summary(CHILD, Date.now()), parentId: PARENT, origin: 'subagent', running: true,
+      },
+    })
+    const translate = vi.fn(base.t)
+    render(<SubagentCatalogAction {...base} t={translate} />)
+
+    expect(translate).toHaveBeenCalledWith('count.running.one', { count: 1 })
+    expect(translate).toHaveBeenCalledWith('count.total.one', { count: 1 })
+  })
+
   it('supports trigger/menu keyboard traversal, Escape focus restore, and outside close', async () => {
     const input = props(catalog())
     render(<SubagentCatalogAction {...input} />)

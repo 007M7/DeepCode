@@ -324,6 +324,8 @@ export function SubagentCatalogAction({
   // The catalog can arrive before the session-list baseline; never undercount
   // the already-visible direct rows during that short bootstrap window.
   const descendantCount = Math.max(healthy.length, descendants.count)
+  const totalCountKey = descendantCount === 1 ? 'count.total.one' : 'count.total.other'
+  const runningCountKey = descendantCount === 1 ? 'count.running.one' : 'count.running.other'
 
   const observeCatalog = (parentSessionId: SessionId, next: boolean): void => {
     if (next) observedCatalogs.current.add(parentSessionId)
@@ -432,7 +434,7 @@ export function SubagentCatalogAction({
         className={css.trigger}
         aria-haspopup="tree"
         aria-expanded={open}
-        aria-label={t(descendants.running ? 'count.running' : 'count.total', { count: descendantCount })}
+        aria-label={t(descendants.running ? runningCountKey : totalCountKey, { count: descendantCount })}
         onClick={() => { changeOpen(!open) }}
         onKeyDown={(event) => {
           if (event.key !== 'ArrowDown') return
@@ -444,7 +446,7 @@ export function SubagentCatalogAction({
         <span className={css.activitySlot}>
           {descendants.running && <StateDot state="ongoing" />}
         </span>
-        <span className={css.count}>{t('count.total', { count: descendantCount })}</span>
+        <span className={css.count}>{t(totalCountKey, { count: descendantCount })}</span>
         <IconChevronDownOutline14 className={open ? css.triggerOpen : undefined} />
       </button>
       {open && (

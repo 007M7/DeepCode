@@ -331,7 +331,7 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
 
   it('opens an unavailable persisted grandchild after recording the available child', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-subagent-grandchild'))
-    await page.getByRole('button', { name: '1 subagents' }).click()
+    await page.getByRole('button', { name: '1 subagent' }).click()
     await page.getByRole('treeitem', { name: new RegExp(NESTED_LABEL) }).click()
     await page.getByText('The parent session is offline; reopen it to continue sending messages.').waitFor()
     const hierarchy = page.getByRole('navigation', { name: 'Session hierarchy' })
