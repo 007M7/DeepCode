@@ -2445,8 +2445,15 @@ registerProvider(provider: UserInteractionProvider): () => void
 /**
  * Ask the active UI provider and wait for the user's answer.
  *
+ * Human-interaction requests are only valid from a top-level agent: a
+ * delegated subagent has no human answerer in its own context, so asking
+ * there would block forever. This mirrors the goal tools' top-level-only
+ * authority (`create_goal` rejects non-top-level agents).
+ *
  * @param request Questions, owner agent, and abort signal.
  * @returns The answer chosen or typed by the human.
+ * @throws {UserInteractionError} code `DELEGATED_CALLER` when the calling
+ *   agent is a delegated subagent (`session.header.delegationDepth > 0`).
  */
 async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>
 ```

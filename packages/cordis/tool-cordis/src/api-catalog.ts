@@ -1114,7 +1114,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>',
-        jsDoc: '/**\n * Ask the active UI provider and wait for the user\'s answer.\n *\n * @param request Questions, owner agent, and abort signal.\n * @returns The answer chosen or typed by the human.\n */',
+        jsDoc: '/**\n * Ask the active UI provider and wait for the user\'s answer.\n *\n * Human-interaction requests are only valid from a top-level agent: a\n * delegated subagent has no human answerer in its own context, so asking\n * there would block forever. This mirrors the goal tools\' top-level-only\n * authority (`create_goal` rejects non-top-level agents).\n *\n * @param request Questions, owner agent, and abort signal.\n * @returns The answer chosen or typed by the human.\n * @throws {UserInteractionError} code `DELEGATED_CALLER` when the calling\n *   agent is a delegated subagent (`session.header.delegationDepth > 0`).\n */',
       },
     ],
   },
