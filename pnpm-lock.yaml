@@ -3643,6 +3643,9 @@ importers:
       '@deepseek-ai/dsh-native-command':
         specifier: workspace:^
         version: link:../../util/native-command
+      koffi:
+        specifier: ^3.1.0
+        version: 3.1.1
     devDependencies:
       '@deepseek-ai/dsh-client-runtime':
         specifier: workspace:^
@@ -3665,6 +3668,9 @@ importers:
       react:
         specifier: ^18.2.0
         version: 18.3.1
+      tsx:
+        specifier: ^4.19.2
+        version: 4.22.4
 
   packages/host/webserver:
     dependencies:

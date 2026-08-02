@@ -1,6 +1,7 @@
 /** Cross-platform native single-directory chooser behind the native backend's capability. */
 
 import { runNativeCommand, type NativeCommandRunner } from '@deepseek-ai/dsh-native-command'
+import { pickWin32Directory } from './win32-dialog.ts'
 
 /** Testable command boundary; native implementations never invoke a shell. */
 export type DirectoryPickerRunner = NativeCommandRunner
@@ -9,6 +10,8 @@ export type DirectoryPickerRunner = NativeCommandRunner
 export interface DirectoryPickerInternals {
   platform?: NodeJS.Platform
   run?: DirectoryPickerRunner
+  /** Replaces the in-process Win32 dialog (`pickWin32Directory`) for deterministic tests. */
+  pickWin32Dialog?: (signal: AbortSignal) => Promise<string | null>
 }
 
 function outputPath(stdout: string): string | null {
@@ -64,13 +67,26 @@ export async function pickNativeDirectory(
   }
 
   if (platform === 'win32') {
-    // PowerShell 7 renders the modern IFileDialog folder picker, while Windows
-    // PowerShell 5.1's FolderBrowserDialog is hardwired to the legacy
-    // SHBrowseForFolder tree; prefer pwsh and fall back only when it is absent.
-    // Both hosts spawn DPI-unaware, so the script opts the process into system
-    // DPI awareness before any window is created. No Description is set: the
-    // modern dialog renders it as a bottom strip and the classic dialog as an
-    // unthemed box.
+    // Primary: the in-process koffi-backed IFileOpenDialog worker — the modern
+    // picker with per-monitor-v2 DPI, no PowerShell dependency, and abort
+    // support. Any non-abort failure (koffi unavailable, ancient Windows, COM
+    // refusal) falls back to the PowerShell chain below.
+    const pickDialog = internals.pickWin32Dialog ?? pickWin32Directory
+    try {
+      return await pickDialog(signal)
+    } catch (error: unknown) {
+      rethrowIfAborted(signal, error)
+    }
+
+    // PowerShell fallback: PowerShell 7 renders the modern IFileDialog folder
+    // picker, while Windows PowerShell 5.1's FolderBrowserDialog is hardwired
+    // to the legacy SHBrowseForFolder tree. Prefer pwsh, but ANY pwsh failure
+    // falls back to 5.1 (which every Windows ships): a resolvable pwsh can
+    // still be unable to deliver the dialog — PowerShell 6 has no WinForms,
+    // so its Add-Type exits 1, not ENOENT. Both hosts spawn DPI-unaware, so
+    // the script opts the process into system DPI awareness before any window
+    // is created. No Description is set: the modern dialog renders it as a
+    // bottom strip and the classic dialog as an unthemed box.
     const script = [
       "$ErrorActionPreference = 'Stop'",
       "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class DpiAware { [DllImport(\"user32.dll\")] public static extern bool SetProcessDPIAware(); }'",
@@ -89,7 +105,6 @@ export async function pickNativeDirectory(
       return outputPath(result.stdout)
     } catch (error: unknown) {
       rethrowIfAborted(signal, error)
-      if (!isMissingCommand(error)) throw error
     }
     const result = await run('powershell.exe', ['-NoProfile', '-STA', '-Command', script], signal)
     return outputPath(result.stdout)

@@ -73,6 +73,10 @@ const coverageExemptExcludes = coverageExemptRaw === '1'
 // that worker threads cannot isolate reliably under aggregate gate contention.
 // Keep the narrow exception in forks while the rest of the inventory avoids per-file processes.
 const processBoundTests = [
+  // Spawns a nested worker that blocks in a native modal dialog on win32;
+  // under the threads pool the dialog thread outlives the test worker and
+  // wedges pool teardown, while a fork contains it.
+  'packages/host/directory-picker-native/tests/win32-dialog.spec.ts',
   'packages/subprocess/subprocess-local/tests/spawn.spec.ts',
   'packages/context/time-context/tests/time-context.spec.ts',
   'packages/llm/llm-pi-ai/tests/adapter.spec.ts',
