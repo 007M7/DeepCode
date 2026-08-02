@@ -2,8 +2,9 @@
 // section switching, both close paths), the Appearance preference row (the
 // real theme gesture — click 深色 and the whole cascade runs: ThemeService preference -> localStorage dsh.theme
 // -> theme/change -> ui-layout's presenter -> body attribute -> alias token)
-// and the Language row (settings-scoped localization + persisted dsh.locale),
-// plus Permission as the persisted default for subsequently created sessions.
+// the Language row (settings-scoped localization + persisted dsh.locale),
+// the busy-state Enter preference, plus Permission as the persisted default
+// for subsequently created sessions.
 // Zero model calls: everything is pure client + persistence state on a blank
 // frame, so there is no fixture and a stray stream would fail loud on the
 // open llm seam.
@@ -178,6 +179,32 @@ describe('web e2e: settings modal and General preferences', () => {
     // dark OS scheme, leaving the shared page in the light default.
     await page.getByRole('dialog', { name: '设置' }).getByRole('button', { name: '浅色' }).click()
     await expect.poll(async () => (await readState()).attr, { timeout: 5_000 }).toBe(false)
+    await page.keyboard.press('Escape')
+    expect(tripwire.pageErrors).toEqual([])
+  }, 90_000)
+
+  it('persists the busy-state Enter behavior across reload and restores Queue', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-settings-enter-behavior'))
+    await page.getByRole('button', { name: '设置', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: '设置' })
+    await dialog.waitFor({ timeout: 10_000 })
+    await dialog.getByRole('button', { name: '排队发送' }).click()
+    await page.getByRole('menuitem', { name: '插话发送' }).click()
+    await dialog.getByRole('button', { name: '插话发送' }).waitFor({ timeout: 10_000 })
+    expect(await page.evaluate(() => localStorage.getItem('dsh.conversation.busyEnter'))).toBe('steer')
+    await page.keyboard.press('Escape')
+
+    const warningStart = tripwire.warnings.length
+    await page.reload({ waitUntil: 'load' })
+    await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+    acknowledgeReloadConnectionLoss(tripwire, warningStart)
+    await page.getByRole('button', { name: '设置', exact: true }).click()
+    const reloaded = page.getByRole('dialog', { name: '设置' })
+    await reloaded.getByRole('button', { name: '插话发送' }).waitFor({ timeout: 10_000 })
+    await reloaded.getByRole('button', { name: '插话发送' }).click()
+    await page.getByRole('menuitem', { name: '排队发送' }).click()
+    await reloaded.getByRole('button', { name: '排队发送' }).waitFor({ timeout: 10_000 })
+    expect(await page.evaluate(() => localStorage.getItem('dsh.conversation.busyEnter'))).toBe('queue')
     await page.keyboard.press('Escape')
     expect(tripwire.pageErrors).toEqual([])
   }, 90_000)

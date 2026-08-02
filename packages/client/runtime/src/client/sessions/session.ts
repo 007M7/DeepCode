@@ -446,6 +446,9 @@ export class Session implements SessionFace {
       case 'session/queue': {
         this.queued = frame.items.map(item => ({
           id: item.id,
+          messageId: item.message.id,
+          placement: item.placement,
+          content: item.message.content,
           preview: queuePreviewOf(item.message.content),
           text: queueTextOf(item.message.content),
         }))
@@ -647,7 +650,18 @@ export class Session implements SessionFace {
     this.events.push(event)
     this.views.push(view)
     this.transcript.append(event, view)
+    this.handoffPendingSteering(event)
     this.applyEventSideEffects(event, view)
+  }
+
+  /** Retire the first matching live steering occurrence when its durable event takes over. */
+  private handoffPendingSteering(event: SessionEvent): void {
+    if (event.type !== 'steering/message') return
+    const index = this.queued.findIndex(item =>
+      item.placement === 'steering' && item.messageId === event.data.message.id)
+    if (index === -1) return
+    this.queued = this.queued.filter((_item, candidate) => candidate !== index)
+    this.queueRev++
   }
 
   /** Land a live session/event (open/repair in flight -> buffer; overlapping seq -> drop;

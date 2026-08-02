@@ -1,6 +1,6 @@
-/* Todo strip in the composer context stack (Figma 9:959): tip surface,
-   14px radius, status icons + secondary item labels. It shares the composer
-   card geometry and adds the dock inset on both sides. */
+/* Todo strip in the composer context stack (Figma 1236:32276): tip surface,
+   14px radius, status icons + secondary item labels. Its visible card aligns
+   with the GoalBar and the Queue panel inside their shared dock column. */
 
 .root {
   box-sizing: border-box;
@@ -12,10 +12,14 @@
     var(--dsh-composer-side-clearance) -
     var(--dsh-composer-side-clearance) -
     var(--dsh-composer-dock-inset) -
+    var(--dsh-composer-dock-inset) -
+    var(--dsh-composer-dock-inset) -
     var(--dsh-composer-dock-inset)
   );
   max-width: calc(
     var(--dsh-composer-card-max-width) -
+    var(--dsh-composer-dock-inset) -
+    var(--dsh-composer-dock-inset) -
     var(--dsh-composer-dock-inset) -
     var(--dsh-composer-dock-inset)
   );

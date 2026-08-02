@@ -23,6 +23,8 @@
       - img
     - button "Remove queued message":
       - img
+    - button "Steer queued message":
+      - img
   - listitem:
     - textbox "Edit queued message": Edited queue item
     - button "Save queued message":
