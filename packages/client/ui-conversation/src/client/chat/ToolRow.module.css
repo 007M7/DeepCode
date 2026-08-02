@@ -84,6 +84,11 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+/* Live reasoning follows its one-line summary to the inline end. */
+.summary[data-follow-end] {
+  text-overflow: clip;
+}
+
 /* File-tool path: same geometry as .summary; hover underline + pointer. */
 .fileLink {
   flex: 1 1 auto;

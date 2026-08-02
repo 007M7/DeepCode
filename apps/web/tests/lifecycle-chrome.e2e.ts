@@ -158,8 +158,23 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
     }
     const settled = scaffold.whenTurnSettled()
     await input.fill(PROMPT)
-    await input.press('Enter')
-    const sessionId = await settled
+    const observeTurn = async () => {
+      if (MODE !== 'record') await page.setViewportSize({ width: 640, height: 1000 })
+      try {
+        await input.press('Enter')
+        if (MODE !== 'record') {
+          const liveTail = page.locator('[data-variant="think"][data-state="running"] [data-follow-end]')
+          await expect.poll(async () => await liveTail.evaluate(element => (
+            element.scrollWidth > element.clientWidth
+              && element.scrollLeft >= element.scrollWidth - element.clientWidth - 1
+          )), { timeout: 10_000 }).toBe(true)
+        }
+        return await settled
+      } finally {
+        if (MODE !== 'record') await page.setViewportSize({ width: 1680, height: 1000 })
+      }
+    }
+    const sessionId = await observeTurn()
     if (MODE === 'record') {
       await recordFixture(scaffold, sessionId, FIXTURE)
     }

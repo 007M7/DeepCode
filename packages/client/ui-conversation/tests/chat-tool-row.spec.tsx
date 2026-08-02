@@ -320,6 +320,42 @@ describe('ToolRow', () => {
 })
 
 describe('ThinkRow', () => {
+  it('follows the latest streaming line, scrolls to its end, then restores the settled first line', () => {
+    const view = render(
+      <AssistantMarkdown
+        t={t}
+        blocks={[{ kind: 'reasoning', text: 'Inspect the session\nNewest reasoning tokens' }]}
+        streaming
+      />,
+    )
+    const summary = view.getByText('Newest reasoning tokens')
+    Object.defineProperties(summary, {
+      scrollWidth: { configurable: true, value: 300 },
+      clientWidth: { configurable: true, value: 100 },
+    })
+
+    view.rerender(
+      <AssistantMarkdown
+        t={t}
+        blocks={[{ kind: 'reasoning', text: 'Inspect the session\nNewest reasoning tokens keep arriving' }]}
+        streaming
+      />,
+    )
+    expect(summary.scrollLeft).toBe(200)
+    expect(summary.getAttribute('data-follow-end')).toBe('true')
+
+    view.rerender(
+      <AssistantMarkdown
+        t={t}
+        blocks={[{ kind: 'reasoning', text: 'Inspect the session\nNewest reasoning tokens keep arriving\n' }]}
+        streaming={false}
+      />,
+    )
+    expect(view.getByText('Inspect the session')).toBeTruthy()
+    expect(summary.scrollLeft).toBe(0)
+    expect(summary.hasAttribute('data-follow-end')).toBe(false)
+  })
+
   it('expands from either Think or the reasoning summary', () => {
     const view = render(
       <AssistantMarkdown
