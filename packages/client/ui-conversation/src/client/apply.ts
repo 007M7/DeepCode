@@ -1,6 +1,6 @@
 /** Registers the conversation components, shared store, and service callbacks. */
 import type { Context } from 'cordis'
-import { resolveSlotLabel, type BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
+import { deferRegistration, resolveSlotLabel, type BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
@@ -16,7 +16,10 @@ import { createChatStore } from './stores.ts'
 import { ConversationService } from './service.ts'
 import type { IConversation } from './service.ts'
 import { InputHub } from './input/hub.ts'
+import { ComposerSubmissionPolicy } from './input/submission-policy.ts'
 import { InputBar } from './skeleton/InputBar.tsx'
+import { EnterBehaviorRow } from './settings/EnterBehaviorRow.tsx'
+import type { EnterBehaviorRowInjected } from './settings/EnterBehaviorRow.tsx'
 import { ChatView } from './chat/ChatView.tsx'
 import { StatsLine } from './chat/StatsLine.tsx'
 import { bashToolviewSample } from './toolviews/bash-sample.tsx'
@@ -93,6 +96,22 @@ export function apply(ctx: Context): void {
 
   // Apply-time construction keeps store identity bound to this fiber.
   const chatStore = createChatStore()
+  const submissionPolicy = new ComposerSubmissionPolicy()
+
+  ctx.effect(() => {
+    const row = deferRegistration(ctx.slots, 'settings.general.item', EnterBehaviorRow, () =>
+      ctx.slots.register({
+        name: 'settings.general.item',
+        id: 'composer-enter',
+        order: 20,
+        locale: NS,
+        inject: (): EnterBehaviorRowInjected => ({
+          hooks: { busyEnter: submissionPolicy.busyEnter },
+          setBusyEnter: (behavior) => { submissionPolicy.setBusyEnter(behavior) },
+        }),
+      }, EnterBehaviorRow))
+    return () => { row.dispose() }
+  }, 'ui-conversation: Enter behavior settings row')
 
   // Chat scroll offsets by session, surviving view switches (the chat view
   // unmounts under the tab ring). Deliberately not persisted: a fresh page
@@ -203,6 +222,8 @@ export function apply(ctx: Context): void {
       if (sessionId === undefined) {
         return {
           keyboard: undefined,
+          resolveSubmitMode: (running, gesture, steeringAvailable) =>
+            submissionPolicy.resolve(running, gesture, steeringAvailable),
           toggleCommandMenu: undefined,
           stop: undefined,
           command: undefined,
@@ -213,6 +234,8 @@ export function apply(ctx: Context): void {
       const slash = inputHub.slash(sessionId)
       return {
         keyboard: shell,
+        resolveSubmitMode: (running, gesture, steeringAvailable) =>
+          submissionPolicy.resolve(running, gesture, steeringAvailable),
         toggleCommandMenu: slash === undefined
           ? undefined
           : (selection) => {

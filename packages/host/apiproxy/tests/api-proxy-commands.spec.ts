@@ -291,13 +291,14 @@ function inboxItem(id: string, message: UserMessage, placement: InboxPlacement):
 }
 
 describe('session.updateQueue', () => {
-  it('routes an addressable action and reports a lost claim race', async () => {
+  it('routes addressable actions and reports strict steer races', async () => {
     const ctx = await harness()
     const agent = stubAgent(ctx)
     const seen: unknown[] = []
     agent.updateInbox = (id, action) => {
       seen.push({ id, action })
-      return id === InboxItemId('present') ? 'applied' : 'not-found'
+      if (id === InboxItemId('present')) return 'applied'
+      return id === InboxItemId('closed') ? 'steer-unavailable' : 'not-found'
     }
     const api = createApiProxy(ctx, DEFAULTS)
 
@@ -319,9 +320,22 @@ describe('session.updateQueue', () => {
       },
     })
     expect(expectErr(missing)).toMatchObject({ code: 'queue-item-not-found' })
+    const closed = await api.sessions.updateQueue({
+      rpcId: RpcId('q-closed'),
+      payload: {
+        sessionId: agent.id,
+        itemId: InboxItemId('closed'),
+        action: { kind: 'steer' },
+      },
+    })
+    expect(expectErr(closed)).toMatchObject({
+      code: 'steer-unavailable',
+      details: { itemId: 'closed' },
+    })
     expect(seen).toEqual([
       { id: 'present', action: { kind: 'edit', content: [{ type: 'text', text: 'edited' }] } },
       { id: 'claimed', action: { kind: 'remove' } },
+      { id: 'closed', action: { kind: 'steer' } },
     ])
   })
 
@@ -365,12 +379,39 @@ describe('session/queue frames', () => {
 
     const liveFrames = (await collected).filter(frame => frame.type === 'session/queue')
     expect(liveFrames.map(frame => frame.items)).toEqual([
-      [{ id: edited.id, message: edited.message }],
+      [{ id: edited.id, placement: edited.placement, message: edited.message }],
     ])
     const replay = new AbortController()
     const replayFrames = await collect<MuxFrame>(
       api.events.mux({ rpcId: RpcId('t-mux-reentrant-replay'), payload: {} }, replay.signal), 2, replay)
     expect(replayFrames.filter(frame => frame.type === 'session/queue')).toEqual(liveFrames)
+  })
+
+  it('expires unmatched mutations after the synchronous re-entry window', async () => {
+    const ctx = await harness()
+    const agent = stubAgent(ctx)
+    const api = createApiProxy(ctx, DEFAULTS)
+    const original = inboxItem('i-stale-edit', inboxMessage('m-stale-edit', 'original'), 'queued')
+    const staleEdit = inboxItem('i-stale-edit', inboxMessage('m-stale-edit', 'stale edit'), 'queued')
+    const staleTerminal = inboxItem('i-stale-terminal', inboxMessage('m-stale-terminal', 'keep me'), 'queued')
+
+    ctx.emit('agent/inbox/update', agent, staleEdit)
+    ctx.emit('agent/inbox/discard', agent, [staleTerminal])
+    await Promise.resolve()
+    ctx.emit('agent/inbox/enqueue', agent, original)
+    ctx.emit('agent/inbox/enqueue', agent, staleTerminal)
+
+    const replay = new AbortController()
+    const frames = await collect<MuxFrame>(
+      api.events.mux({ rpcId: RpcId('t-mux-expired-unseen'), payload: {} }, replay.signal), 2, replay)
+    expect(frames.filter(frame => frame.type === 'session/queue')).toEqual([{
+      type: 'session/queue',
+      sessionId: agent.id,
+      items: [
+        { id: original.id, placement: original.placement, message: original.message },
+        { id: staleTerminal.id, placement: staleTerminal.placement, message: staleTerminal.message },
+      ],
+    }])
   })
 
   it('publishes complete live snapshots and replays the latest snapshot on reconnect', async () => {
@@ -379,8 +420,8 @@ describe('session/queue frames', () => {
     const agent = stubAgent(ctx)
     const live = new AbortController()
     const liveStream = api.events.mux({ rpcId: RpcId('t-mux-live'), payload: {} }, live.signal)
-    // subscribed baseline + one queued snapshot; pending steering stays off this wire.
-    const liveCollected = collect<MuxFrame>(liveStream, 2, live)
+    // subscribed baseline + one snapshot per accepted inbox occurrence.
+    const liveCollected = collect<MuxFrame>(liveStream, 3, live)
 
     const queued = inboxItem('i-1', inboxMessage('m-1', 'queued prompt'), 'queued')
     const steering = inboxItem('i-2', inboxMessage('m-2', 'steering prompt'), 'steering')
@@ -392,7 +433,15 @@ describe('session/queue frames', () => {
       {
         type: 'session/queue',
         sessionId: agent.id,
-        items: [{ id: queued.id, message: queued.message }],
+        items: [{ id: queued.id, placement: 'queued', message: queued.message }],
+      },
+      {
+        type: 'session/queue',
+        sessionId: agent.id,
+        items: [
+          { id: queued.id, placement: 'queued', message: queued.message },
+          { id: steering.id, placement: 'steering', message: steering.message },
+        ],
       },
     ])
 
@@ -400,7 +449,88 @@ describe('session/queue frames', () => {
     const replay = new AbortController()
     const replayFrames = await collect<MuxFrame>(
       api.events.mux({ rpcId: RpcId('t-mux-replay'), payload: {} }, replay.signal), 2, replay)
-    expect(replayFrames.filter(f => f.type === 'session/queue')).toEqual([liveFrames[0]])
+    expect(replayFrames.filter(f => f.type === 'session/queue')).toEqual([liveFrames[1]])
+  })
+
+  it('publishes the durable steering event before retiring its transient row', async () => {
+    const ctx = await harness()
+    const api = createApiProxy(ctx, DEFAULTS)
+    const agent = stubAgent(ctx)
+    const abort = new AbortController()
+    const collected = collect<MuxFrame>(
+      api.events.mux({ rpcId: RpcId('t-steering-order'), payload: {} }, abort.signal), 5, abort)
+    const steering = inboxItem('i-steering', inboxMessage('m-steering', 'interrupt now'), 'steering')
+
+    agent.session.append('turn/start', {
+      turn: 1,
+      trigger: { kind: 'message', source: { kind: 'user' } },
+    })
+    ctx.emit('agent/inbox/enqueue', agent, steering)
+    ctx.emit('agent/inbox/dequeue', agent, steering)
+    agent.session.append('steering/message', {
+      turn: 1,
+      message: steering.message,
+    }, { surfaceOp: 'append' })
+
+    const frames = await collected
+    expect(frames.map(frame => frame.type)).toEqual([
+      'session/subscribed',
+      'session/event',
+      'session/queue',
+      'session/event',
+      'session/queue',
+    ])
+    expect(frames[2]).toMatchObject({
+      type: 'session/queue',
+      items: [{ id: steering.id, placement: 'steering' }],
+    })
+    expect(frames[3]).toMatchObject({
+      type: 'session/event',
+      event: { type: 'steering/message', data: { message: { id: steering.message.id } } },
+    })
+    expect(frames[4]).toMatchObject({ type: 'session/queue', items: [] })
+  })
+
+  it('retains claimed steering in re-entrant snapshots until its durable event', async () => {
+    const ctx = await harness()
+    const api = createApiProxy(ctx, DEFAULTS)
+    const agent = stubAgent(ctx)
+    const steering = inboxItem('i-steering', inboxMessage('m-steering', 'interrupt now'), 'steering')
+    const queued = inboxItem('i-reentrant', inboxMessage('m-reentrant', 'later'), 'queued')
+    ctx.on('agent/inbox/dequeue', (subject, item) => {
+      if (subject === agent && item.id === steering.id) ctx.emit('agent/inbox/enqueue', agent, queued)
+    })
+    const abort = new AbortController()
+    const collected = collect<MuxFrame>(
+      api.events.mux({ rpcId: RpcId('t-steering-reentrant-order'), payload: {} }, abort.signal), 6, abort)
+
+    agent.session.append('turn/start', {
+      turn: 1,
+      trigger: { kind: 'message', source: { kind: 'user' } },
+    })
+    ctx.emit('agent/inbox/enqueue', agent, steering)
+    ctx.emit('agent/inbox/dequeue', agent, steering)
+    agent.session.append('steering/message', {
+      turn: 1,
+      message: steering.message,
+    }, { surfaceOp: 'append' })
+
+    const frames = await collected
+    expect(frames[3]).toMatchObject({
+      type: 'session/queue',
+      items: [
+        { id: steering.id, placement: 'steering' },
+        { id: queued.id, placement: 'queued' },
+      ],
+    })
+    expect(frames[4]).toMatchObject({
+      type: 'session/event',
+      event: { type: 'steering/message', data: { message: { id: steering.message.id } } },
+    })
+    expect(frames[5]).toMatchObject({
+      type: 'session/queue',
+      items: [{ id: queued.id, placement: 'queued' }],
+    })
   })
 
   it('publishes edits in place in the authoritative order', async () => {
@@ -420,10 +550,16 @@ describe('session/queue frames', () => {
 
     const frames = (await collected).filter(frame => frame.type === 'session/queue')
     expect(frames.map(frame => frame.items)).toEqual([
-      [{ id: first.id, message: first.message }],
-      [{ id: first.id, message: first.message }, { id: second.id, message: second.message }],
-      [{ id: first.id, message: first.message }, { id: edited.id, message: edited.message }],
-      [{ id: first.id, message: first.message }],
+      [{ id: first.id, placement: first.placement, message: first.message }],
+      [
+        { id: first.id, placement: first.placement, message: first.message },
+        { id: second.id, placement: second.placement, message: second.message },
+      ],
+      [
+        { id: first.id, placement: first.placement, message: first.message },
+        { id: edited.id, placement: edited.placement, message: edited.message },
+      ],
+      [{ id: first.id, placement: first.placement, message: first.message }],
     ])
   })
 

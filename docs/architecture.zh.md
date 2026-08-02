@@ -123,6 +123,8 @@ idle inject:
 
 接纳期间和活跃轮次内的 `inject()` 会为下一步骤暂存；工具执行期间的注入和工具执行后的 `additionalContexts` 会在结果记录完毕后落定。steering 与其共用 outbox，但在请求接纳前始终处于待准入状态。`steer()` 会返回归属于该消息的回执：`agent/step` 和异步提示词组装成功后，循环提交稳定批次、捕获请求历史并开启 `step/start`，再将其回执解析为已准入并附带轮次与步骤；后续消息继续等待。结束轮次的工具结果、广义取消、dispose（资源释放），以及已领取 idle-steering 消息却从未开启步骤的轮次，都会拒绝受影响的回执；`cancel(..., { keepInbox: true })` 和非终止型路由则保留待处理投递。空闲状态下的 `inject()` 会立即追加，且不改变轮次编号；持久化层会尽快排空。
 
+驱动器认领之前，`updateInbox()` 可以编辑或移除 queued 单次入队项，也可以严格地把其不可变消息转移到开放的 next-step 窗口。该转移会结束 queued 单次入队项，并接受一个新的 steering 单次入队项；窗口关闭时 Queue 保持不变。直接调用 `steer()` 时，对新提交的输入仍采用尽力而为的语义，并在窗口之外回退为会唤醒 agent 的后续轮次（[决策](../.agents/notes/implemented/feature/2026-07-30-web-queue-steer-action.md)）。
+
 裁剪先于摘要；溢出重试必须取得持久进展。`agent/request-error` 可以在失败步骤与轮次关闭之间授权一个重试轮次；取消优先。适配器拥有的 `retryPolicy` 使 normal mode 保持有界；always mode 先委托专门恢复，再持续重试直至成功或取消（[压缩](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)、[重试基础](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)、[提供方策略](../.agents/notes/implemented/feature/2026-07-24-provider-retry-policies.md)）。
 
 ### 失败边界

@@ -129,6 +129,7 @@ export interface SessionModels {
 export type QueueAction =
   | { kind: 'edit'; content: ContentBlock[] }
   | { kind: 'remove' }
+  | { kind: 'steer' }
 
 /** Session list entry (v1 builds no index: list does readdir+stat). */
 export interface SessionSummary {
@@ -285,7 +286,7 @@ export interface SessionsApi {
   Promise<RpcResponse<{ accepted: true; command?: { kind: 'success'; text?: string } }>>
 
   /**
-   * Edits or removes one pending queued occurrence on an ordinary session.
+   * Edits, removes, or strictly steers one pending queued occurrence on an ordinary session.
    * Session-backed subagents reject with `agent-busy`.
    */
   updateQueue(request: RpcRequest<{ sessionId: SessionId; itemId: InboxItemId; action: QueueAction }>):

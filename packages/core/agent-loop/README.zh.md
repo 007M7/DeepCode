@@ -59,7 +59,7 @@ interface Config {
 
 `steer()` 会把一次性准入回执附着到其准确的已接收消息。`agent/step` 和异步提示词组装成功后，循环把稳定的待处理批次提交为 `steering/message`、捕获派生历史并开启 `step/start`；只有此时，每个回执才会解析为 `admitted`，并附带轮次与步骤。之后到达的消息继续待处理。空闲 steering 会进入普通 FIFO，并以其最终轮次的首次请求作为相同准入边界。结束轮次的工具结果、广义取消、dispose（资源释放），或已领取 idle-steering 消息却从未到达请求的轮次，会把受影响回执解析为 `rejected`；`cancel(..., { keepInbox: true })` 和非终止型路由会保留待处理投递。活跃轮次内的 `inject()` 仍会在所有工具结果后提交，包括被中断批次中已最终确认的上下文；steering 则保持待准入，直到请求接纳它。
 
-每次 FIFO 接受项时都会铸造一个 `InboxItemId`，并通过 `agent/inbox/enqueue` 发布完整的单次入队项。`updateInbox()` 持有同步 queued 项边界：编辑会冻结替换内容，但不改变消息标识或位置；移除会发布 discard。编辑会发布 `agent/inbox/update`；steering 项和已被认领的项会返回 `not-found`。认领操作会发布 `agent/inbox/dequeue`，并在提示词接纳前不可逆地移除实时寻址标识，因此竞态中的更新无法改写持久历史；`cancel()` 在不带 `keepInbox` 时会发布 `agent/inbox/discard`。
+每次 FIFO 接受项时都会铸造一个 `InboxItemId`，并通过 `agent/inbox/enqueue` 发布完整的单次入队项。`updateInbox()` 持有同步 queued 项边界：编辑会冻结替换内容，但不改变消息标识或位置；移除会发布 discard；严格 steering 会把不可变消息作为新的 steering 单次入队项转移到开放的 next-step 窗口。窗口关闭时返回 `steer-unavailable`，且不做任何变更；待处理 steering 和已被认领的项会返回 `not-found`。认领操作会发布 `agent/inbox/dequeue`，并在提示词接纳前不可逆地移除实时寻址标识，因此竞态中的更新无法改写持久历史；`cancel()` 在不带 `keepInbox` 时会发布 `agent/inbox/discard`。
 
 ### 循环生命周期（`agent.ts`）
 
