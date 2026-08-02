@@ -21,6 +21,9 @@
   - img
   - text: Ask question waiting
 - status: Deep diving...
+- text: "Interjection: include the word BANANA in your final reply."
+- button "Copy":
+  - img
 - region "Ready to continue?":
   - text: Checkpoint
   - heading "Ready to continue?" [level=2]

@@ -32,10 +32,12 @@ export type ToolEventView =
   | { for: 'call'; view: ToolCallView }
   | { for: 'result'; view: ToolResultView }
 
-/** One pending queued occurrence in an authoritative queue snapshot. */
+/** One pending inbox occurrence in the authoritative `session/queue` snapshot. */
 export interface QueuedInboxItem {
-  /** Agent-owned occurrence identity used by queue mutations. */
+  /** Agent-owned occurrence identity; queue mutations address only `queued` items. */
   id: InboxItemId
+  /** Agent-resolved FIFO placement; clients render queued and steering items on different surfaces. */
+  placement: 'queued' | 'steering'
   /** Complete pending message; it is not durable until the Agent claims it. */
   message: Message
 }
@@ -71,11 +73,12 @@ export type MuxFrame =
   | { type: 'question/requested'; sessionId: SessionId; questions: AskUserQuestionItem[] }
   | { type: 'question/resolved'; sessionId: SessionId; questionRpcId: RpcId; outcome: 'answered' | 'cancelled' }
   /**
-   * Complete transient queue state after every enqueue, mutation, claim, or
+   * Complete transient inbox state after every enqueue, mutation, claim, or
    * discard. Pending work is not model-visible and therefore has no durable
    * session event; the whole snapshot makes edit, deletion, cancel, and
-   * reconnect converge through one authoritative signal. Pending steering is
-   * outside this Web queue projection.
+   * reconnect converge through one authoritative signal. `session/queue`
+   * covers both resolved placements: queued items render
+   * in QueueDock, while pending steering renders at the conversation tail.
    */
   | { type: 'session/queue'; sessionId: SessionId; items: QueuedInboxItem[] }
   /**

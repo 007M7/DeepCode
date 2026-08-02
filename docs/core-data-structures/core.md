@@ -516,11 +516,12 @@ interface InboxItem {
 type InboxAction =
   | { readonly kind: 'edit'; readonly content: ContentBlock[] }
   | { readonly kind: 'remove' }
+  | { readonly kind: 'steer' }
 ```
 
 ```ts type-equiv
 /** Result of applying an inbox action at the synchronous ownership boundary. */
-type InboxActionResult = 'applied' | 'not-found'
+type InboxActionResult = 'applied' | 'not-found' | 'steer-unavailable'
 ```
 
 ```ts type-equiv
@@ -546,7 +547,7 @@ interface SendOptions {
 }
 ```
 
-The fixed-preset aliases own `target` and `wakeup`; their already identified `UserMessage` carries role, content, and provenance. Its `MessageId` remains stable when an edit replaces the message content, while the enclosing `InboxItemId` identifies one accepted occurrence across `agent/inbox/enqueue`, `agent/inbox/update`, and its terminal dequeue or discard. Injection bypasses the FIFOs and never appears on those events.
+The fixed-preset aliases own `target` and `wakeup`; their already identified `UserMessage` carries role, content, and provenance. Its `MessageId` remains stable when an edit replaces content or strict steer transfers the immutable message. The original queued occurrence ends and strict steer accepts a new steering occurrence with a distinct `InboxItemId`. Injection bypasses the FIFOs and never appears on inbox lifecycle events.
 
 ```ts type-equiv
 /** Options for {@link Agent.cancel}. */
@@ -633,10 +634,13 @@ interface Agent {
   /**
    * Mutate one still-pending queued occurrence synchronously. Editing preserves
    * the message identity and queue position; removal publishes its terminal
-   * discard. Steering occurrences and driver-claimed items return `not-found`.
+   * discard. Steer strictly transfers the message into the current next-step
+   * window, or returns `steer-unavailable` without changing the queued
+   * occurrence. Steering occurrences and driver-claimed items return
+   * `not-found`.
    * @param id - independently addressable queued occurrence.
-   * @param action - edit or remove operation.
-   * @returns whether the pending occurrence was found and updated.
+   * @param action - edit, remove, or strict steer operation.
+   * @returns the applied outcome or the reason no mutation occurred.
    */
   updateInbox(id: InboxItemId, action: InboxAction): InboxActionResult
 

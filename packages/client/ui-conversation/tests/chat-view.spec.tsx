@@ -217,7 +217,7 @@ describe('chat-flow derivation', () => {
       kind: 'assistant', seq: 4.1, time: 4_100, turn: 1, step: 2,
       blocks: [{ kind: 'reasoning', text: 'bad path' }], interrupted: true,
     }
-    const nodes = [
+    const nodes: ConversationNode[] = [
       user(1, 'first'),
       assistant(2, 'answer before tools'),
       toolResult(3, 'a'),
@@ -225,9 +225,14 @@ describe('chat-flow derivation', () => {
       user(6, 'second'),
       assistant(7, 'clean tail', 2),
       user(10, 'user-only tail'),
+      {
+        kind: 'steering', messageId: 'steering-tail' as never,
+        seq: 13, time: 13_000, turn: 4,
+        content: [{ type: 'text', text: 'steering tail' }], source: null,
+      },
     ]
-    const seqs = messageBranchSeqs(nodes, new Map([[1, 5], [2, 8], [3, 11]]))
-    expect([...seqs]).toEqual([7, 10])
+    const seqs = messageBranchSeqs(nodes, new Map([[1, 5], [2, 8], [3, 11], [4, 14]]))
+    expect([...seqs]).toEqual([7, 10, 13])
   })
 })
 
@@ -267,6 +272,92 @@ describe('ChatView', () => {
     expect(view.getByText('running tools')).toBeTruthy()
     expect(view.getAllByText('Bash')).toHaveLength(2)
     expect(view.getByText('run a')).toBeTruthy()
+  })
+
+  it('renders Host-pending steering at the flow tail and hands off to the durable node', () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+    const pending = {
+      id: 'steer-occurrence' as never,
+      messageId: 'steer-message' as never,
+      placement: 'steering' as const,
+      content: [{ type: 'text' as const, text: 'interrupt now' }],
+      preview: 'interrupt now',
+      text: 'interrupt now',
+    }
+    const queued = {
+      id: 'queued-occurrence' as never,
+      messageId: 'queued-message' as never,
+      placement: 'queued' as const,
+      content: [{ type: 'text' as const, text: 'later' }],
+      preview: 'later',
+      text: 'later',
+    }
+    const h = makeHarness({ nodes: [assistant(1, 'working')], queue: [queued, pending], running: true })
+    const view = render(<h.ChatView {...h.props} />)
+
+    expect(view.getByText('interrupt now').closest('[data-pending-steering]')).not.toBeNull()
+    expect(view.queryByText('later')).toBeNull()
+    const pendingBubble = view.getByText('interrupt now').closest('[data-pending-steering]')
+    expect(pendingBubble).not.toBeNull()
+    fireEvent.click(within(pendingBubble as HTMLElement).getByRole('button', { name: '复制' }))
+    expect(writeText).toHaveBeenCalledWith('interrupt now')
+    expect(within(pendingBubble as HTMLElement).queryByRole('button', { name: '在新对话中分支' })).toBeNull()
+    expect(view.getByRole('status').compareDocumentPosition(view.getByText('interrupt now'))
+      & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
+
+    act(() => {
+      h.set({
+        queue: [queued],
+        nodes: [
+          assistant(1, 'working'),
+          {
+            kind: 'steering', messageId: pending.messageId,
+            seq: 2, time: 2_000, turn: 1,
+            content: [{ type: 'text', text: 'interrupt now' }], source: null,
+          },
+        ],
+      })
+    })
+    expect(view.getAllByText('interrupt now')).toHaveLength(1)
+    expect(view.container.querySelector('[data-pending-steering]')).toBeNull()
+    expect(view.getAllByRole('button', { name: '复制' })).toHaveLength(2)
+    expect(view.queryByRole('button', { name: '在新对话中分支' })).toBeNull()
+
+    act(() => {
+      h.set({ running: false, turnEnds: new Map([[1, 3]]) })
+    })
+    const branchButtons = view.getAllByRole('button', { name: '在新对话中分支' })
+    expect(branchButtons).toHaveLength(1)
+    fireEvent.click(branchButtons[0]!)
+    expect(h.forkAt).toHaveBeenCalledWith(2)
+  })
+
+  it('keeps a later pending occurrence visible when it reuses a durable MessageId', () => {
+    const pending = {
+      id: 'steer-occurrence-later' as never,
+      messageId: 'shared-steer-message' as never,
+      placement: 'steering' as const,
+      content: [{ type: 'text' as const, text: 'same steering' }],
+      preview: 'same steering',
+      text: 'same steering',
+    }
+    const h = makeHarness({
+      queue: [pending],
+      nodes: [{
+        kind: 'steering', messageId: pending.messageId,
+        seq: 2, time: 2_000, turn: 1,
+        content: pending.content, source: null,
+      }],
+      running: true,
+    })
+    const view = render(<h.ChatView {...h.props} />)
+
+    expect(view.getAllByText('same steering')).toHaveLength(2)
+    expect(view.container.querySelectorAll('[data-pending-steering]')).toHaveLength(1)
   })
 
   it('animates only the latest unresolved model retry', () => {

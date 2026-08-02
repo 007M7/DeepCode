@@ -22,7 +22,7 @@ SlotsService 分别为 renderer 提供 `useSessions` 与 `useWorkspaces` 的裸 
 
 ## 待处理队列投影
 
-`ConversationSnapshot.queue` 是 Host 提供的权威瞬态 Queue 快照；待处理 steering（中途引导）不进入此投影。每行都携带其 `InboxItemId`、所有内容块均为文本时的完整可编辑文本，以及扁平化预览。`session/queue` 会整体替换该投影；重连缓冲只保留最新快照，持久轮次事件和 running 状态变化都不会猜测某个项已被认领。`Session.updateQueue()` 发送编辑／移除操作，不进行乐观更新，因此下一份 Host 快照是唯一可见的提交结果，认领竞态则会返回 `queue-item-not-found`。
+`ConversationSnapshot.queue` 是 Host 提供的权威瞬态 inbox 快照，携带 queued 与待处理 steering（中途引导）单次入队项及其已解析 placement。每行都携带其 `InboxItemId`、稳定的 `MessageId`、所有内容块均为文本时的完整可编辑文本，以及扁平化预览。`session/queue` 会整体替换该投影；已接纳的实时 `steering/message` 事件则只退役第一个匹配的当前 steering 单次入队项，让持久节点能在下一份 Host 快照之前接管，而历史回放绝不会消费后来复用同一 `MessageId` 的单次入队项。重连缓冲只保留最新快照，普通持久轮次事件和 running 状态变化都不会猜测某个项已被认领。`Session.updateQueue()` 发送编辑、移除和严格 steering 操作，不进行乐观更新；认领与窗口关闭竞态分别会返回 `queue-item-not-found` 和 `steer-unavailable`。
 
 ## 面向人的 transcript（文本记录）
 

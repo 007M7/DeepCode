@@ -46,6 +46,7 @@ export interface RpcErrorDetailsMap {
   'directory-picker-unavailable': { capability: string }
   'agent-busy': { reason: string }
   'queue-item-not-found': { itemId: InboxItemId }
+  'steer-unavailable': { itemId: InboxItemId }
   /** A known slash command reported a usage/state error; the message is the command's own text. */
   'command-error': {}
   /** A leading-/ prompt named no registered command; the message names the token. */

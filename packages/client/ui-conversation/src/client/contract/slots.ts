@@ -7,6 +7,7 @@ import type { CommandNode, ConversationSnapshot, ObservableSnapshot, PendingInte
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ComposerKeyboard, EditSelection, InputActions, InputNotice, InputState } from '../input/contract.ts'
 import type { createChatStore } from '../stores.ts'
+import type { ComposerSubmitGesture, InputSubmitMode } from './composer-submission.ts'
 import type { CallId, SelectionTarget, ViewTab } from './views.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -285,6 +286,12 @@ export interface ComposerBarOwnerProps {
 export interface ComposerBarInjected {
   /** The InputBar-exclusive keyboard/DOM command face (decision 20 private plane); absent with the session. */
   keyboard: ComposerKeyboard | undefined
+  /** Resolve one keyboard submission gesture against the current running state and persisted preference. */
+  resolveSubmitMode: (
+    running: boolean,
+    gesture: ComposerSubmitGesture,
+    steeringAvailable: boolean,
+  ) => InputSubmitMode
   /** Toggle the shared slash menu with only its command source; absent without ui-slash or a session. */
   toggleCommandMenu: ((selection: EditSelection) => void) | undefined
   /** Cancel the in-flight turn; absent with the session. */

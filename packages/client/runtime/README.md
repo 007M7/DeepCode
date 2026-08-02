@@ -22,7 +22,7 @@ SlotsService gives the renderer separate bare observables for `useSessions` and 
 
 ## Pending queue projection
 
-`ConversationSnapshot.queue` is the Host's authoritative transient Queue snapshot; pending steering stays outside this projection. Each row carries its `InboxItemId`, complete editable text when every content block is text, and a flattened preview. `session/queue` replaces the whole projection; reconnect buffering retains only the latest snapshot, and neither durable turn events nor running-status changes guess that an item was claimed. `Session.updateQueue()` sends edit/remove operations without optimistic mutation, so the next Host snapshot is the sole visible commit and a claim race can surface `queue-item-not-found`.
+`ConversationSnapshot.queue` is the Host's authoritative transient inbox snapshot and carries both queued and pending-steering occurrences with their resolved placement. Each row carries its `InboxItemId`, stable `MessageId`, complete editable text when every content block is text, and a flattened preview. `session/queue` replaces the whole projection, while an accepted live `steering/message` event retires only the first matching current steering occurrence so the durable node can take over before the following Host snapshot; history replay never consumes a later occurrence that reused the same `MessageId`. Reconnect buffering retains only the latest snapshot, and neither ordinary durable turn events nor running-status changes guess that an item was claimed. `Session.updateQueue()` sends edit, remove, and strict-steer operations without optimistic mutation; claim and closed-window races surface `queue-item-not-found` and `steer-unavailable`.
 
 ## The human transcript
 

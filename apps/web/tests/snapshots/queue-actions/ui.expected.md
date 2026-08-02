@@ -20,6 +20,8 @@
       - img
     - button "Remove queued message":
       - img
+    - button "Steer queued message":
+      - img
 - textbox "Message the agent"
 - button "Commands":
   - img

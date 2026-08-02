@@ -1,5 +1,5 @@
-// Shared IconActions chrome for user and assistant messages: copy live,
-// branch wired through onBranch, date-aware clock.
+// Shared IconActions chrome for user, steering, and assistant messages: copy
+// live, optional branch wiring, and an optional date-aware clock.
 
 import { useCallback } from 'react'
 import {
@@ -13,12 +13,14 @@ import css from './MessageIconActions.module.css'
 export interface MessageIconActionsProps {
   /** Plain text the copy action writes. */
   text: string
-  /** Unix epoch ms for the clock label. */
-  time: number
+  /** Unix epoch ms for the clock label; omitted for transient messages. */
+  time?: number | undefined
   /** Clock before icons (user) or after (assistant). */
   clock: 'start' | 'end'
   /** Fork the session at this message; omission hides the branch action. */
   onBranch?: (() => void) | undefined
+  /** Additional branch visibility gate for transient message chrome; defaults to true. */
+  showBranch?: boolean | undefined
   /** Parent layout class composed onto the actions row. */
   className?: string | undefined
   /** The owning view's locale seat, passed down as a plain prop. */
@@ -31,13 +33,13 @@ export interface MessageIconActionsProps {
  * @returns The actions row element.
  */
 export function MessageIconActions({
-  text, time, clock, onBranch, className, t,
+  text, time, clock, onBranch, showBranch = true, className, t,
 }: MessageIconActionsProps) {
   const day = useCalendarDay()
   const onCopy = useCallback(() => {
     void writeClipboard(text)
   }, [text])
-  const clockEl = (
+  const clockEl = time === undefined ? null : (
     <span className={clock === 'start' ? css.timeStart : css.timeEnd}>
       {formatMessageClock(time, t, day)}
     </span>
@@ -50,7 +52,7 @@ export function MessageIconActions({
           <IconCopyOutline16 />
         </button>
       </Tooltip>
-      {onBranch !== undefined && (
+      {showBranch && onBranch !== undefined && (
         <Tooltip label={t('message.branch')} side="bottom">
           <button type="button" className={css.action} aria-label={t('message.branch')} onClick={onBranch}>
             <IconBranchOutline16 />
