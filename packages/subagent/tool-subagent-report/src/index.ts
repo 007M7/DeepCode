@@ -88,7 +88,7 @@ export function installReportTool(
  * @param config - deployment scheduling policy.
  */
 export function apply(ctx: Context, config: Config = {}): void {
-  const { reportDelivery = 'quiet' } = Config(config)
+  const { reportDelivery } = Config(config)
   ctx.subagents.registerContinuableSetup(childCtx =>
     installReportTool(childCtx, ctx, reportDelivery))
 }
