@@ -12,8 +12,6 @@
 - text: Explain event sourcing in one sentence. {{clock}}
 - button "Copy":
   - img
-- button "Branch into a new conversation":
-  - img
 - button "Context injection":
   - img
   - img
@@ -29,8 +27,6 @@
   - img
 - text: {{clock}} Now give the same explanation to a human reader. {{clock}}
 - button "Copy":
-  - img
-- button "Branch into a new conversation":
   - img
 - button "Think The user is asking for a one-sentence description of event sourcing. This is a straightforward knowledge question that doesn't require any skill loading or tool calls.":
   - img

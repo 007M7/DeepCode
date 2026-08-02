@@ -7,8 +7,6 @@
 - text: Reply with a one-sentence description of event sourcing, then stop. {{clock}}
 - button "Copy":
   - img
-- button "Branch into a new conversation":
-  - img
 - button "Context injection":
   - img
   - img
@@ -21,8 +19,6 @@
   - img
 - text: {{clock}} Edited queue item {{clock}}
 - button "Copy":
-  - img
-- button "Branch into a new conversation":
   - img
 - paragraph: partial
 - status: Deep diving...

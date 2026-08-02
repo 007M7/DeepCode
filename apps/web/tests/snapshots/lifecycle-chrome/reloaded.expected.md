@@ -7,8 +7,6 @@
 - text: Reply with the single word LIGHTHOUSE and stop. {{clock}}
 - button "Copy":
   - img
-- button "Branch into a new conversation":
-  - img
 - button "Context injection":
   - img
   - img
