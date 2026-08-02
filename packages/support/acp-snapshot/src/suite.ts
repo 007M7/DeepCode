@@ -40,6 +40,11 @@ const SYSTEM_PROMPT_SNAPSHOT = 'system-prompt.expected.md'
 /** The structured tool-schema snapshot beside its owning header pin. */
 const TOOL_SCHEMAS_SNAPSHOT = 'tool-schemas.expected.json'
 
+/** Return the dedicated tool-schema sidecar for one child fixture index. */
+function childToolSchemasSnapshot(index: number): string {
+  return `tool-schemas.${index}.expected.json`
+}
+
 /** The optional full Windows-native stdout transcript. */
 const WINDOWS_STDOUT_SNAPSHOT = 'stdout.expected.windows.jsonl'
 
@@ -100,6 +105,13 @@ export interface Scenario {
    * declare the same {@link expectedHeaderChanges}; meaningless off a pin.
    */
   toolSchemasSource?: string
+  /**
+   * Child fixture indices whose own schema sequence is pinned separately,
+   * where `1` names `session.1.jsonl` and
+   * `tool-schemas.1.expected.json`. The class pin still owns every other
+   * request-header field.
+   */
+  pinsChildToolSchemas?: readonly number[]
   /**
    * How many changed `request/header` snapshots this PINNING scenario's primary
    * fixture legitimately carries (default 0). Their full prompt text is kept in
@@ -1008,6 +1020,8 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           cwdAliases: result.cwdAliases,
         }
 
+        const childSchemaPins = new Set(scenario.pinsChildToolSchemas ?? [])
+
         // Record writes live model fixtures; keyless refresh writes every comparable replayed
         // fixture. Pinning JSONL keeps prefixes but moves prompts and schemas into sidecars.
         const scrub = scenario.pinsHeader === true
@@ -1080,6 +1094,18 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
             claimSharedSnapshot(schemaClaims, schemaPath, scenario.name, toolSchemasSnapshot)
             await writeFile(schemaPath, toolSchemasSnapshot)
           }
+          for (const index of childSchemaPins) {
+            const log = result.sessionLogs[index]
+            expect(log, `${mode}: no child session log at index ${index} to snapshot schemas from`)
+              .toBeDefined()
+            const schemaSets = normalizedToolSchemas((log as HarvestedLog).content, ctx)
+            expect(schemaSets.length, `${mode}: child ${index} produced no tool schemas to snapshot`)
+              .toBeGreaterThan(0)
+            await writeFile(join(dir, childToolSchemasSnapshot(index)), formatToolSchemasSnapshot(
+              schemaSets[0] as unknown[],
+              schemaSets.slice(1),
+            ))
+          }
         }
 
         for (const expected of stdoutExpectedVariants(scenario)) {
@@ -1133,7 +1159,14 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           header,
           pinnedSchemaSets[index] as unknown[],
         ))
+        const childPinnedSchemas = new Map<number, unknown[][]>()
+        for (const index of childSchemaPins) {
+          const sidecar = await readFile(join(dir, childToolSchemasSnapshot(index)), 'utf8')
+          const parsed = parseToolSchemasSnapshot(sidecar)
+          childPinnedSchemas.set(index, [parsed.initial, ...parsed.changes])
+        }
         for (const [logIndex, log] of result.sessionLogs.entries()) {
+          const childSchemas = childPinnedSchemas.get(logIndex)
           const expectedChanges = scenario.pinsHeader === true && logIndex === 0
             ? scenario.expectedHeaderChanges ?? 0
             : 0
@@ -1146,8 +1179,15 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
             .toBe(headers.length)
           expect(schemaSets.length, `session ${log.id}: every request/header must carry an array-valued tools field`)
             .toBe(headers.length)
+          if (childSchemas !== undefined) {
+            expect(childSchemas.length, `session ${log.id}: ${childToolSchemasSnapshot(logIndex)} has an unexpected tool-schema count`)
+              .toBe(schemaSets.length)
+          }
           for (const [k, header] of headers.entries()) {
-            const expected = expectedChanges > 0 ? pinnedHeaders[k] : pinnedHeaders[0]
+            const classPin = expectedChanges > 0 ? pinnedHeaders[k] : pinnedHeaders[0]
+            const expected = childSchemas === undefined
+              ? classPin
+              : { ...classPin as Record<string, unknown>, tools: childSchemas[k] }
             expect(header, `session ${log.id}: request/header #${k + 1} diverged from the pinned (${pinningScenario.name}) header`)
               .toEqual(expected)
             if (expectedChanges === 0) {
@@ -1185,8 +1225,16 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
 
     it('every registered scenario has its required fixture files', async () => {
       // Every scenario needs input, stdout, a primary session fixture, and matching optional sidecars.
-      for (const { name, overridden, pinsNativeWindowsStdout } of scenarios) {
+      for (const { name, overridden, pinsNativeWindowsStdout, pinsChildToolSchemas } of scenarios) {
         const dir = join(snapshotsDir, name)
+        const declaredChildPins = new Set(pinsChildToolSchemas ?? [])
+        const childSidecars = (await readdir(dir, { withFileTypes: true }))
+          .filter(entry => entry.isFile())
+          .map(entry => /^tool-schemas\.([1-9]\d*)\.expected\.json$/.exec(entry.name))
+          .filter((match): match is RegExpExecArray => match !== null)
+          .map(match => Number(match[1]))
+        expect(new Set(childSidecars), `${name}: child tool-schema sidecars must match \`pinsChildToolSchemas\``)
+          .toEqual(declaredChildPins)
         expect(existsSync(join(dir, 'input.json')), `${name}/input.json`).toBe(true)
         expect(existsSync(join(dir, 'stdout.expected.jsonl')), `${name}/stdout.expected.jsonl`).toBe(true)
         expect(
@@ -1267,6 +1315,26 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
       })))
       assertUniqueSnapshotContents('system-prompt', prompts)
       assertUniqueSnapshotContents('tool-schema', schemas)
+    })
+
+    it('every declared child tool-schema sidecar is canonical and names a real child', async () => {
+      for (const scenario of scenarios) {
+        const pins = scenario.pinsChildToolSchemas ?? []
+        if (pins.length === 0) continue
+        const dir = join(snapshotsDir, scenario.name)
+        const files = await sessionFixtures(dir)
+        for (const index of pins) {
+          expect(files[index], `${scenario.name}: child schema pin ${index} must name an existing session.<n>.jsonl fixture`)
+            .toBeDefined()
+          const file = childToolSchemasSnapshot(index)
+          const sidecar = await readFile(join(dir, file), 'utf8')
+          const parsed = parseToolSchemasSnapshot(sidecar)
+          expect(sidecar, `${scenario.name}/${file} must use canonical JSON formatting`)
+            .toBe(formatToolSchemasSnapshot(parsed.initial, parsed.changes))
+          expect(parsed.initial.length, `${scenario.name}/${file} must pin at least one schema`)
+            .toBeGreaterThan(0)
+        }
+      }
     })
 
     it('every committed JSONL has valid tool results and canonical fixture storage', async () => {

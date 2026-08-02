@@ -8,7 +8,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { LlmRetryEventData } from '@deepseek-ai/dsh-llm-retry/types'
 import type { TodoItem } from '@deepseek-ai/dsh-session/types'
 import type {
-  InboxItemId, RpcError, SessionId, ToolCallView, ToolResultView,
+  InboxItemId, RpcError, SessionId, SubagentAddress, ToolCallView, ToolResultView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type { PendingInteraction } from './pending.ts'
 export type { TodoItem }
@@ -335,6 +335,11 @@ export interface ConversationSnapshot {
   /** Authoritative transient inbox snapshot, replaced after every host-side change. */
   queue: readonly QueuedMessage[]
   running: boolean
+  /**
+   * Catalog-discovered continuation address. Its parent availability controls
+   * human input; null means ordinary session transport.
+   */
+  subagent: { address: SubagentAddress; parentAvailable: boolean } | null
   /** Input-area shape (see {@link ComposerPhase}); derived here, switched on by consumers. */
   composerPhase: ComposerPhase
   /** Set after host/session-removed; the UI grays out and disables input. */

@@ -35,7 +35,7 @@ Committed-message output intentionally trades token-by-token latency for a clean
 
 ## Lifecycle
 
-Client disconnect and Cordis disposal share one memoized teardown. The bridge first rejects new sessions and prompts, settles pending prompts, then disposes all owned agent handles in parallel and awaits their loop/session cleanup. An ACP-only plugin reload therefore leaves no orphan agent.
+Client disconnect and Cordis disposal share one memoized teardown. The bridge first rejects new sessions and prompts, settles pending prompts, then drains continuable descendants only below this connection's exact owned Agents before disposing those handles in parallel and awaiting every result before reporting any failure. Other frontends sharing the Context retain their continuable forests and admission. An ACP-only plugin reload therefore leaves no orphan agent.
 
 ## Running
 

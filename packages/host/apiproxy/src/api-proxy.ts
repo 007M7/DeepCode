@@ -18,6 +18,8 @@ import { isAppendSurfaceEvent, lastActivityTime } from '@deepseek-ai/dsh-session
 import type { Session, SessionEvent, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { SessionQueryError, type SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
+import { SubagentError } from '@deepseek-ai/dsh-subagent'
+import type { SubagentListEntry as CatalogSubagentListEntry } from '@deepseek-ai/dsh-subagent'
 import type { Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
 import {
   workspaceDomainState, workspaceRecord, WorkspaceId as brandWorkspaceId,
@@ -28,7 +30,8 @@ import type {} from '@deepseek-ai/dsh-tools'
 import type {
   ApiProxy, CredentialView, GoalRef, HistoryEntry, HostFrame, ModelCatalogFailure, ModelProviderGroup,
   ModelReasoning, MuxFrame, QuestionResponsePayload, SessionProjectionsBlock, SessionSearchItem,
-  SessionSummary, SettingsNamespaceView, ToolEventView, WorkspaceId, WorkspaceView,
+  SessionSummary, SettingsNamespaceView, SubagentAddress, ToolEventView,
+  WorkspaceId, WorkspaceView,
 } from './api/index.ts'
 import {
   SESSION_SEARCH_RESULT_LIMIT,
@@ -270,6 +273,19 @@ function sessionBlank(session: Session): boolean {
   return !session.events.some(event => event.type === 'turn/start')
 }
 
+/** Shared Session-header projection for list baselines and creation frames. */
+function sessionListFields(header: SessionHeader): {
+  parentSessionId?: SessionId
+  origin?: 'subagent'
+  cwd?: string
+} {
+  return {
+    ...header.parentSession === undefined ? {} : { parentSessionId: header.parentSession },
+    ...header.origin === undefined ? {} : { origin: header.origin },
+    ...header.cwd === undefined ? {} : { cwd: header.cwd },
+  }
+}
+
 /** SessionSummary projection for attached (in-memory) sessions. */
 function summarize(session: Session, running: boolean): SessionSummary {
   return {
@@ -279,8 +295,7 @@ function summarize(session: Session, running: boolean): SessionSummary {
     updatedAt: lastActivityTime(session.events) ?? session.header.createdAt,
     running,
     blank: sessionBlank(session),
-    ...session.header.parentSession === undefined ? {} : { parentSessionId: session.header.parentSession },
-    ...session.header.cwd === undefined ? {} : { cwd: session.header.cwd },
+    ...sessionListFields(session.header),
   }
 }
 
@@ -315,6 +330,7 @@ async function summarizeCold(
     // cold session is served as not-blank (its log holds its conversation).
     blank: false,
     ...meta.parentSession === undefined ? {} : { parentSessionId: meta.parentSession },
+    ...meta.origin === undefined ? {} : { origin: meta.origin },
     /* v8 ignore next -- the empty arm needs a cwd-less meta, but list()
     filters those out (legacy logs are not served); the conditional mirrors
     summarize() shape. */
@@ -462,6 +478,23 @@ function backscanArgs(events: readonly SessionEvent[], callId: string): { name: 
   return undefined
 }
 
+/** Render one detached history page through the same presenter path as ordinary history. */
+function historyPage(
+  ctx: Context,
+  events: readonly SessionEvent[],
+  beforeSeq: number | undefined,
+  maxMessages: number | undefined,
+): { events: HistoryEntry[]; hasMore: boolean } {
+  const page = paginate(events, beforeSeq, maxMessages ?? DEFAULT_MAX_MESSAGES)
+  return {
+    events: page.events.map((event) => {
+      const view = viewFor(ctx, event, callId => backscanArgs(page.events, callId))
+      return { event, ...view === undefined ? {} : { view } }
+    }),
+    hasMore: page.hasMore,
+  }
+}
+
 /**
  * The projection baseline for one history tail page: the registry's
  * watermark-cache snapshot — one fully synchronous read (no await between the
@@ -471,10 +504,10 @@ function backscanArgs(events: readonly SessionEvent[], callId: string): { name: 
  * registry). An absent registry means the deployment has no projection seam:
  * the whole block is absent and clients treat every key as capability-absent.
  */
-function projectionsFor(ctx: Context, agent: Agent): SessionProjectionsBlock | undefined {
+function projectionsFor(ctx: Context, session: Session): SessionProjectionsBlock | undefined {
   const registry = ctx.get('sessionProjections')
   if (registry === undefined) return undefined
-  return registry.snapshot(agent.session)
+  return registry.snapshot(session)
 }
 
 /**
@@ -499,11 +532,119 @@ function listProjectionsFor(ctx: Context, meta: SessionHeader, session: Session 
   }
 }
 
+/** Projection baseline for a detached history tail without Agent activation. */
+function detachedProjectionsFor(
+  ctx: Context,
+  events: readonly SessionEvent[],
+): SessionProjectionsBlock | undefined {
+  const registry = ctx.get('sessionProjections')
+  if (registry === undefined) return undefined
+  return registry.restore({}, events, 0).snapshot
+}
+
+/** Map continuation admission failures without exposing provider details. */
+function subagentPromptError(
+  request: RpcRequest<{ childSessionId: SessionId }>,
+  error: unknown,
+  signal: AbortSignal,
+): RpcResponse<never> {
+  const childSessionId = request.payload.childSessionId
+  if (signal.aborted) {
+    return err(request, { code: 'cancelled', message: 'subagent prompt was cancelled', details: {} })
+  }
+  if (error instanceof SubagentError) {
+    switch (error.code) {
+      case 'NOT_RESUMABLE':
+        return err(request, {
+          code: 'subagent-not-resumable',
+          message: 'subagent cannot be resumed',
+          details: { childSessionId },
+        })
+      case 'UNAUTHORIZED':
+        return err(request, {
+          code: 'subagent-unauthorized',
+          message: 'subagent does not belong to this parent',
+          details: { childSessionId },
+        })
+      case 'DRAINING':
+      case 'ACTIVATION_CLOSING':
+      case 'CONTINUATION_UNAVAILABLE':
+      case 'PERSISTENCE_UNAVAILABLE':
+        return err(request, {
+          code: 'subagent-delivery-unavailable',
+          message: 'subagent follow-up is temporarily unavailable',
+          details: { childSessionId },
+        })
+      default:
+        break
+    }
+  }
+  return err(request, { code: 'internal', message: 'subagent prompt failed', details: {} })
+}
+
+/** Verify one address and mode against the complete direct-child catalog. */
+async function catalogChild(
+  ctx: Context,
+  address: SubagentAddress,
+  signal?: AbortSignal,
+): Promise<{
+  entry?: Extract<CatalogSubagentListEntry, { kind: 'child' }>
+  error?: RpcError
+}> {
+  const { parentSessionId, childSessionId, mode } = address
+  try {
+    const entries = await ctx.subagents.listChildren(parentSessionId, signal)
+    const entry = entries.find(candidate => candidate.id === childSessionId)
+    if (entry === undefined || (entry.kind === 'child' && entry.mode !== mode)) {
+      return {
+        error: {
+          code: 'subagent-not-found',
+          message: `session "${childSessionId}" is not a ${mode} direct child of "${parentSessionId}"`,
+          details: { parentSessionId, childSessionId },
+        },
+      }
+    }
+    if (entry.kind === 'diagnostic') {
+      return {
+        error: {
+          code: 'subagent-catalog-diagnostic',
+          message: `subagent "${childSessionId}" is ${entry.reason}`,
+          details: { parentSessionId, childSessionId, reason: entry.reason },
+        },
+      }
+    }
+    return { entry }
+  } catch (error: unknown) {
+    if (signal?.aborted
+      || (error instanceof SubagentError && error.code === 'CANCELLED')
+      || (error instanceof SessionQueryError && error.code === 'SESSION_QUERY_ABORTED')) {
+      return { error: { code: 'cancelled', message: 'subagent catalog read was cancelled', details: {} } }
+    }
+    if (error instanceof SessionQueryError && error.code === 'SESSION_QUERY_SESSION_NOT_FOUND') {
+      return {
+        error: {
+          code: 'subagent-not-found',
+          message: `parent session "${parentSessionId}" was not found`,
+          details: { parentSessionId, childSessionId },
+        },
+      }
+    }
+    return { error: { code: 'internal', message: 'subagent catalog read failed', details: {} } }
+  }
+}
+
 /**
  * Thrown by the cold-resume path when the id names no servable session
  * (absent from the store, or a pre-project legacy log without a cwd).
  */
 class SessionNotFound extends Error {}
+
+/** Session identity whose lifecycle belongs to subagent routing, not generic Host resume. */
+class SubagentSessionOwnership extends Error {
+  constructor(readonly sessionId: SessionId) {
+    super(`session "${sessionId}" is a subagent session; use subagent delivery`)
+  }
+}
 
 /** Requested identity already belongs to a session with another project cwd. */
 class SessionCwdConflict extends Error {
@@ -874,28 +1015,70 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     })
   }
 
+  /** Whether the session's own suffix carries the durable subagent discriminator. */
+  function hasSubagentDescriptor(session: Pick<Session, 'events' | 'header'>): boolean {
+    const ownStart = session.header.seedLength ?? 0
+    return session.events.slice(ownStart).some(event => event.type === 'subagent/descriptor')
+  }
+
   /**
-   * Gate the cold path on the store: an id absent from it, or naming a legacy
-   * log without a cwd (pre-release stance: not served, no compatibility), is
-   * not-found before any resume is attempted. With the gate passed, a later
-   * resume failure is genuinely internal. No persistence configured skips the
-   * gate — resume itself then fails loud with its own diagnostic.
+   * Generic Host interaction cannot claim a durably classified subagent or an
+   * Agent created through its live parent. The runtime-owner arm also covers
+   * descriptor-less child publication windows and older stored headers.
    */
-  async function assertServable(sessionId: SessionId): Promise<void> {
+  function hasSubagentOwner(
+    session: Pick<Session, 'events' | 'header'>,
+    agent: Agent | undefined,
+  ): boolean {
+    if (session.header.origin === 'subagent' || hasSubagentDescriptor(session)) return true
+    const parentId = session.header.parentSession
+    if (parentId === undefined || agent === undefined) return false
+    const parent = ctx.agents.get(parentId)
+    return parent !== undefined && ctx.agents.isOwnedBy(agent.id, parent)
+  }
+
+  /** Stable generic-Host error for an identity reserved to subagent routing. */
+  function subagentOwnershipError(sessionId: SessionId): RpcError {
+    return {
+      code: 'agent-busy',
+      message: `session "${sessionId}" is owned by subagent routing`,
+      details: { reason: 'use subagent delivery for this child session' },
+    }
+  }
+
+  /** Inspect one cold served session without repairing, resuming, or publishing it. */
+  async function inspectServable(sessionId: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
     const persistence = ctx.get('sessionPersistence')
-    if (persistence === undefined) return
+    if (persistence === undefined) {
+      throw new Error('session persistence is not configured (load a dsh-session-persistence backend)')
+    }
     const meta = (await persistence.list()).find(m => m.id === sessionId)
     if (meta === undefined || meta.cwd === undefined) throw new SessionNotFound(`session "${sessionId}" not found`)
+    const inspected = await persistence.inspect(sessionId)
+    if (inspected.meta.cwd === undefined) throw new SessionNotFound(`session "${sessionId}" not found`)
+    return inspected
   }
 
   async function agentFor(sessionId: SessionId): Promise<{ agent: Agent } | { error: RpcError }> {
+    const attached = ctx.sessions.get(sessionId)
     const live = ctx.agents.get(sessionId)
+    if (attached !== undefined && hasSubagentOwner(attached, live)) {
+      return { error: subagentOwnershipError(sessionId) }
+    }
     if (live !== undefined) return { agent: live }
     let resume = resumes.get(sessionId)
     if (resume === undefined) {
       resume = (async () => {
         try {
-          await assertServable(sessionId)
+          const inspected = await inspectServable(sessionId)
+          if (hasSubagentOwner({ header: inspected.meta, events: inspected.events }, undefined)) {
+            throw new SubagentSessionOwnership(sessionId)
+          }
+          const publishedSession = ctx.sessions.get(sessionId)
+          const publishedAgent = ctx.agents.get(sessionId)
+          if (publishedSession !== undefined && hasSubagentOwner(publishedSession, publishedAgent)) {
+            throw new SubagentSessionOwnership(sessionId)
+          }
           const handle = await ctx.agents.resume({
             resumeSessionId: sessionId,
             agentOptions,
@@ -914,8 +1097,64 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       if (error instanceof SessionNotFound) {
         return { error: { code: 'session-not-found', message: error.message, details: { sessionId } } }
       }
+      if (error instanceof SubagentSessionOwnership) {
+        return { error: subagentOwnershipError(error.sessionId) }
+      }
       // The internal details slot is contractually {}; the reason rides the message.
       return { error: { code: 'internal', message: `resume failed for session "${sessionId}": ${String(error)}`, details: {} } }
+    }
+  }
+
+  type SessionReadState = {
+    id: SessionId
+    header: SessionHeader
+    events: SessionEvent[]
+  }
+
+  /** Read one stable session prefix without acquiring an Agent owner. */
+  async function readSessionState(sessionId: SessionId): Promise<SessionReadState> {
+    const attached = ctx.sessions.get(sessionId)
+    if (attached !== undefined) {
+      return {
+        id: attached.id,
+        header: attached.header,
+        events: [...attached.events],
+      }
+    }
+    const inspected = await inspectServable(sessionId)
+    return { id: inspected.meta.id, header: inspected.meta, events: inspected.events }
+  }
+
+  /** Resolve the Workspace inherited by a fork without making ordinary loose lineage grouped. */
+  async function forkWorkspace(source: Pick<Session, 'id' | 'header'>): Promise<Workspace | undefined> {
+    const workspaces = ctx.workspace.list()
+    const direct = workspaces.find(workspace => workspace.sessionIds.includes(source.id))
+    if (direct !== undefined || source.header.origin !== 'subagent') return direct
+
+    const lineage = await ctx.sessionQuery.traceSession(source.id)
+    for (const ancestor of lineage.ancestors) {
+      const workspace = workspaces.find(candidate => candidate.sessionIds.includes(ancestor.header.id))
+      if (workspace !== undefined) return workspace
+    }
+    return undefined
+  }
+
+  /** Read one transcript cut and optional projection baseline without acquiring an Agent owner. */
+  async function historyStateFor(
+    sessionId: SessionId,
+    includeProjections: boolean,
+  ): Promise<{ events: SessionEvent[]; projections?: SessionProjectionsBlock }> {
+    const attached = ctx.sessions.get(sessionId)
+    if (attached !== undefined) {
+      const events = [...attached.events]
+      const projections = includeProjections ? projectionsFor(ctx, attached) : undefined
+      return { events, ...projections === undefined ? {} : { projections } }
+    }
+    const inspected = await inspectServable(sessionId)
+    const projections = includeProjections ? detachedProjectionsFor(ctx, inspected.events) : undefined
+    return {
+      events: inspected.events,
+      ...projections === undefined ? {} : { projections },
     }
   }
 
@@ -924,16 +1163,24 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     let creation = sessionCreations.get(sessionId)
     if (creation === undefined) {
       creation = (async () => {
+        const attached = ctx.sessions.get(sessionId)
         const live = ctx.agents.get(sessionId)
+        if (attached !== undefined && hasSubagentOwner(attached, live)) {
+          throw new SubagentSessionOwnership(sessionId)
+        }
         if (live !== undefined) return live
 
         const persistence = checkPersistedIdentity ? ctx.get('sessionPersistence') : undefined
         const stored = persistence === undefined
           ? undefined
           : (await persistence.list()).find(header => header.id === sessionId)
-        if (stored !== undefined) {
+        if (persistence !== undefined && stored !== undefined) {
           if (stored.cwd !== cwd) {
             throw new SessionCwdConflict(sessionId, cwd, stored.cwd)
+          }
+          const inspected = await persistence.inspect(sessionId)
+          if (hasSubagentOwner({ header: inspected.meta, events: inspected.events }, undefined)) {
+            throw new SubagentSessionOwnership(sessionId)
           }
           return (await ctx.agents.resume({
             resumeSessionId: sessionId,
@@ -957,7 +1204,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // Another Host entry path may have published the same identity while
         // this operation crossed an asynchronous persistence/filesystem step.
         const live = ctx.agents.get(sessionId)
-        if (live !== undefined) return live
+        if (live !== undefined) {
+          if (hasSubagentOwner(live.session, live)) throw new SubagentSessionOwnership(sessionId)
+          return live
+        }
+        const attached = ctx.sessions.get(sessionId)
+        if (attached !== undefined && hasSubagentOwner(attached, undefined)) {
+          throw new SubagentSessionOwnership(sessionId)
+        }
         throw error
       }).finally(() => {
         sessionCreations.delete(sessionId)
@@ -965,6 +1219,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       sessionCreations.set(sessionId, creation)
     }
     const agent = await creation
+    if (hasSubagentOwner(agent.session, agent)) throw new SubagentSessionOwnership(sessionId)
     if (agent.session.header.cwd !== cwd) {
       throw new SessionCwdConflict(sessionId, cwd, agent.session.header.cwd)
     }
@@ -1364,6 +1619,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               },
             })
           }
+          if (error instanceof SubagentSessionOwnership) {
+            return err(request, subagentOwnershipError(error.sessionId))
+          }
           return err(request, {
             code: 'internal',
             message: `failed to create session "${sessionId}": ${String(error)}`,
@@ -1386,25 +1644,24 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       async history(request) {
         const { sessionId, beforeSeq, maxMessages } = request.payload
-        const found = await agentFor(sessionId)
-        if ('error' in found) return err(request, found.error)
-        // Everything below the resume above is synchronous: the page slice,
-        // the seq read, and the projection walk see one un-torn session state.
-        const page = paginate(found.agent.session.events, beforeSeq, maxMessages ?? DEFAULT_MAX_MESSAGES)
-        // Views are computed against the registry at pagination time; result
-        // pairing scans within the page only (message-boundary pagination keeps
-        // a call and its result on one page — a cross-page miss soft-falls).
-        const entries: HistoryEntry[] = page.events.map((event) => {
-          const view = viewFor(ctx, event, callId => backscanArgs(page.events, callId))
-          return { event, ...view === undefined ? {} : { view } }
-        })
-        // Baseline rider: tail page only — loadOlder (beforeSeq present) is
-        // the one path that never needs a fresh projection baseline.
-        const projections = beforeSeq === undefined ? projectionsFor(ctx, found.agent) : undefined
+        let state: { events: SessionEvent[]; projections?: SessionProjectionsBlock }
+        try {
+          state = await historyStateFor(sessionId, beforeSeq === undefined)
+        } catch (error: unknown) {
+          if (error instanceof SessionNotFound) {
+            return err(request, { code: 'session-not-found', message: error.message, details: { sessionId } })
+          }
+          return err(request, {
+            code: 'internal',
+            message: `history unavailable for session "${sessionId}": ${String(error)}`,
+            details: {},
+          })
+        }
+        const page = historyPage(ctx, state.events, beforeSeq, maxMessages)
         return ok(request, {
-          events: entries,
+          events: page.events,
           hasMore: page.hasMore,
-          ...projections === undefined ? {} : { projections },
+          ...state.projections === undefined ? {} : { projections: state.projections },
         })
       },
 
@@ -1479,9 +1736,19 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       async fork(request) {
         const { sessionId, atSeq } = request.payload
-        const found = await agentFor(sessionId)
-        if ('error' in found) return err(request, found.error)
-        const source = found.agent.session
+        let source: SessionReadState
+        try {
+          source = await readSessionState(sessionId)
+        } catch (error: unknown) {
+          if (error instanceof SessionNotFound) {
+            return err(request, { code: 'session-not-found', message: error.message, details: { sessionId } })
+          }
+          return err(request, {
+            code: 'internal',
+            message: `fork source unavailable for session "${sessionId}": ${String(error)}`,
+            details: {},
+          })
+        }
         const events = source.events
         // An in-log anchor belongs to the turn containing it and must never
         // clip backward to an earlier completed turn. Omitted and past-end
@@ -1509,6 +1776,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // right after the boundary turn.
         let cut = boundary.seq + 1
         while (cut < events.length && events[cut]?.type !== 'turn/start') cut++
+        let workspace: Workspace | undefined
+        try {
+          workspace = await forkWorkspace(source)
+        } catch (error: unknown) {
+          return err(request, {
+            code: 'internal',
+            message: `failed to resolve fork workspace for session "${sessionId}": ${String(error)}`,
+            details: {},
+          })
+        }
         const childId = `session-${randomUUID()}` as SessionId
         try {
           await ctx.agents.create({
@@ -1529,9 +1806,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             details: {},
           })
         }
-        // Keep the child in the source's Workspace so the list nests it under
-        // its parent; the child is already published if the attach fails.
-        const workspace = ctx.workspace.list().find(w => w.sessionIds.includes(source.id))
+        // An ordinary source keeps its direct Workspace. A subagent source is
+        // not listed there, so its ordinary fork joins the nearest owning
+        // ancestor instead. The child is already published if attach fails.
         if (workspace !== undefined) {
           try {
             await workspace.attachSession(childId)
@@ -1567,6 +1844,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       updateQueue(request) {
         const { sessionId, itemId, action } = request.payload
         const agent = ctx.agents.get(sessionId)
+        if (agent !== undefined && hasSubagentOwner(agent.session, agent)) {
+          return Promise.resolve(err(request, subagentOwnershipError(sessionId)))
+        }
         if (agent === undefined || agent.updateInbox(itemId, action) === 'not-found') {
           return Promise.resolve(err(request, {
             code: 'queue-item-not-found',
@@ -1587,8 +1867,116 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             details: { sessionId },
           }))
         }
+        if (hasSubagentOwner(agent.session, agent)) {
+          return Promise.resolve(err(request, subagentOwnershipError(sessionId)))
+        }
         agent.cancel({ kind: 'user' }, { keepInbox: true })
         return Promise.resolve(ok(request, { accepted: true as const }))
+      },
+    },
+
+    subagents: {
+      async list(request, signal) {
+        try {
+          const entries = await ctx.subagents.listChildren(request.payload.parentSessionId, signal)
+          return ok(request, {
+            entries: entries.map(entry => entry.kind === 'child'
+              ? {
+                ...entry,
+                activity: ctx.agents.get(entry.id)?.status === 'running' ? 'running' : 'inactive',
+              }
+              : entry),
+            parentAvailable: ctx.agents.get(request.payload.parentSessionId) !== undefined,
+          })
+        } catch (error: unknown) {
+          if (signal?.aborted
+            || (error instanceof SubagentError && error.code === 'CANCELLED')
+            || (error instanceof SessionQueryError && error.code === 'SESSION_QUERY_ABORTED')) {
+            return err(request, {
+              code: 'cancelled',
+              message: 'subagent catalog read was cancelled',
+              details: {},
+            })
+          }
+          return err(request, {
+            code: 'internal',
+            message: 'subagent catalog read failed',
+            details: {},
+          })
+        }
+      },
+
+      async history(request, signal) {
+        const {
+          parentSessionId, childSessionId, mode, beforeSeq, maxMessages,
+        } = request.payload
+        const verified = await catalogChild(ctx, {
+          parentSessionId, childSessionId, mode,
+        }, signal)
+        if (verified.error !== undefined) return err(request, verified.error)
+        try {
+          const snapshot = await ctx.sessionQuery.readSession(childSessionId)
+          signal?.throwIfAborted()
+          if (snapshot.session.parentSession !== parentSessionId) {
+            return err(request, {
+              code: 'subagent-unauthorized',
+              message: 'subagent parent changed during history read',
+              details: { childSessionId },
+            })
+          }
+          const page = historyPage(ctx, snapshot.events, beforeSeq, maxMessages)
+          const projections = beforeSeq === undefined
+            ? detachedProjectionsFor(ctx, snapshot.events)
+            : undefined
+          return ok(request, { ...page, ...projections === undefined ? {} : { projections } })
+        } catch (error: unknown) {
+          if (signal?.aborted
+            || (error instanceof SessionQueryError && error.code === 'SESSION_QUERY_ABORTED')) {
+            return err(request, {
+              code: 'cancelled',
+              message: 'subagent history read was cancelled',
+              details: {},
+            })
+          }
+          if (error instanceof SessionQueryError
+            && error.code === 'SESSION_QUERY_SESSION_NOT_FOUND') {
+            return err(request, {
+              code: 'subagent-not-found',
+              message: 'subagent disappeared during history read',
+              details: { parentSessionId, childSessionId },
+            })
+          }
+          return err(request, {
+            code: 'internal',
+            message: 'subagent history read failed',
+            details: {},
+          })
+        }
+      },
+
+      async prompt(request, signal) {
+        const { parentSessionId, childSessionId, content } = request.payload
+        const parent = ctx.agents.get(parentSessionId)
+        if (parent === undefined) {
+          return err(request, {
+            code: 'subagent-parent-unavailable',
+            message: `parent session "${parentSessionId}" is not live`,
+            details: { parentSessionId },
+          })
+        }
+        const verified = await catalogChild(ctx, {
+          parentSessionId, childSessionId, mode: 'continuable',
+        }, signal)
+        if (verified.error !== undefined) return err(request, verified.error)
+        try {
+          const messageId = await ctx.subagents.followup(parent, childSessionId, content, {
+            source: { kind: 'user', rpcId: request.rpcId },
+            signal,
+          })
+          return ok(request, { messageId })
+        } catch (error: unknown) {
+          return subagentPromptError(request, error, signal)
+        }
       },
     },
 
@@ -2162,9 +2550,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               // Derived at frame time like summarize(); a just-created session
               // has run no turn yet, so this is constantly true in practice.
               blank: sessionBlank(session),
-              ...session.header.parentSession === undefined ? {} : { parentSessionId: session.header.parentSession },
-              // cwd rides the frame so the client list needs no refresh to group the new session.
-              ...session.header.cwd === undefined ? {} : { cwd: session.header.cwd },
+              // Including cwd lets the client group the new session without refreshing the list.
+              ...sessionListFields(session.header),
             }))
           }),
           ctx.on('session/disposed', (session: Session) => {

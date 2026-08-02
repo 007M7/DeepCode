@@ -93,7 +93,13 @@ async function bench() {
   ctx.provide('conversation', {})
   ctx.provide('locale', new LocaleService(ctx))
   const scopes = new Map<SessionId, Context>()
-  ctx.provide('sessions', { scope: (id: SessionId) => scopes.get(id) })
+  const addressed = new Set<SessionId>()
+  ctx.provide('sessions', {
+    scope: (id: SessionId) => scopes.get(id),
+    subagentAddress: (id: SessionId) => addressed.has(id)
+      ? { parentSessionId: sid('parent'), childSessionId: id, mode: 'continuable' as const }
+      : undefined,
+  })
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
   await ctx.plugin(function probe() {}).await()
@@ -108,6 +114,7 @@ async function bench() {
     seat: () => seats.get('conversation.input.model')!,
     hostCurrent: () => current,
     setHostCurrent: (target: ModelTarget) => { current = target },
+    address: (id: SessionId) => { addressed.add(id) },
   }
 }
 
@@ -213,5 +220,31 @@ describe('ui-model dual entry', () => {
   it('an unknown session fails loud at the seat inject', async () => {
     const b = await bench()
     expect(() => b.seat().inject!(sid('ghost'))).toThrow(/resolved no scope/)
+  })
+
+  it('withholds both model entries from addressed subagent sessions without Agent-bound RPCs', async () => {
+    const b = await bench()
+    b.mint('child')
+    b.address(sid('child'))
+
+    expect(b.contribution().available(projection('child'))).toBe(false)
+    await expect(b.contribution().ui.options(
+      projection('child'),
+      new AbortController().signal,
+    )).rejects.toThrow(/unavailable for addressed subagent/)
+
+    const face = b.seat().inject!(sid('child'))
+    expect(face.available).toBe(false)
+    face.load()
+    await expect(face.select({ provider: 'deepseek', model: 'deepseek-v4-pro' })).resolves.toBe(false)
+    await expect(b.ctx.models.directoryFor(sid('child')).load())
+      .rejects.toThrow(/unavailable for addressed subagent/)
+    await expect(b.ctx.models.directoryFor(sid('child')).select({
+      provider: 'deepseek',
+      model: 'deepseek-v4-pro',
+    })).rejects.toThrow(/unavailable for addressed subagent/)
+    b.ctx.emit('connection/reset')
+    await Promise.resolve()
+    expect(b.calls).toEqual({ models: 0, select: 0 })
   })
 })

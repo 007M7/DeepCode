@@ -179,7 +179,7 @@ function stubAgent(cwd?: string, seed: SessionEvent[] = []): Agent {
     status: 'idle',
     acceptsNextStep: false,
     followup: () => {},
-    steer: () => {},
+    steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
     inject(input) {
       session.append('user/message', input, { surfaceOp: 'append' })
     },

@@ -93,7 +93,7 @@ bash seam 暴露 `resolve`、`run` 和 `start`。`start(spec)` 返回一个 `Bas
 
 对于后台 bash，`dsh-tool-bash` 将调用方 agent 注册为所有者。其钩子将 `kill()` 映射为取消，将 `done` 映射为 completed 或 killed 的 `TaskOutcome`，并将 `readOutput()` 映射为进程的有界增量输出，以及溢出文件与沙箱通知。通用任务工具拥有 id、状态行、列表、等待和完成通知。
 
-对于后台 subagent，`dsh-tool-subagent` 创建由任务拥有的 `AbortController`，并在任务 starter 内启动提供方。无论提供方就绪前后，取消都会中止同一个 signal。`done` 同时等待子运行结果和子运行释放，将已完成输出映射为最终结果，将中止映射为 `killed`，并将其他停止原因或基础设施失败映射为 `failed`。中间子历史保留在子会话中，不通过 `readOutput()` 暴露。
+对于后台 subagent，`dsh-tool-subagent` 创建由任务拥有的 `AbortController`，并在任务 starter 内启动提供方。无论提供方发布前后，取消都会中止同一个 signal。`done` 同时等待子运行结果和子运行释放，将已完成输出映射为最终结果，将中止映射为 `killed`，并将其他停止原因或基础设施失败映射为 `failed`。中间子历史保留在子会话中，不通过 `readOutput()` 暴露。
 
 ## 备选方案
 

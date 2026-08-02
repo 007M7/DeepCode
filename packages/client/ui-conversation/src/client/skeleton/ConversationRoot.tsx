@@ -153,7 +153,7 @@ export function ConversationRoot({
   const phase = settling ? 'settling' : hero ? 'hero' : 'active'
   const composer = renderSlotChain(
     'conversation.composer',
-    { interactions: pending },
+    { interactions: pending, session },
     { fallback: composerBar, overlay: true },
   )
 
