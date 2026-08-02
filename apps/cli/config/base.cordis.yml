@@ -347,7 +347,9 @@
 # chat, at each search; its Messages endpoint is separate from the
 # chat-completions endpoint, so it takes its own base-URL override. Fetch stays
 # disabled and no fetch provider is mounted: that provider defers SSRF
-# protection and the model would choose the request target.
+# protection and the model would choose the request target. Search is a full
+# auxiliary model request with server-side retrieval, so this shipped DeepSeek
+# route gets 60s while the provider-neutral tool default remains 30s.
 - id: web
   name: '@deepseek-ai/dsh-web'
   config:
@@ -363,6 +365,7 @@
   name: '@deepseek-ai/dsh-tool-web'
   config:
     fetch: false
+    searchTimeoutMs: 60000
 
 # ── rows every surface mounts, whose values each overlay states ──────────────
 
