@@ -588,6 +588,44 @@ describe('subagent catalogs', () => {
     }
   })
 
+  it('does not let a stale in-flight pull resurrect a removed parent\'s availability', async () => {
+    const api = new FakeApiClient()
+    const root = 'fk-root' as SessionId
+    const child = () => ({
+      kind: 'child' as const, id: S2, mode: 'continuable' as const, label: 'worker',
+      activity: 'inactive' as const, hasChildren: false,
+    })
+    const first = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
+    api.onSubagentList = () => first.promise
+    const manager = new SessionManager(api)
+    const refresh = manager.refreshSubagents(root)
+    first.resolve(ok({ entries: [child()] as never[], parentAvailable: true }))
+    await refresh
+    manager.selectSubagent({ parentSessionId: root, childSessionId: S2, mode: 'continuable' })
+
+    // The removal lands while a second pull is in flight: the invalidation
+    // must survive the pre-removal ok response, so one trailing pull runs.
+    const mid = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
+    api.onSubagentList = () => mid.promise
+    const midRefresh = manager.refreshSubagents(root)
+    manager.handleHostEnvelope({
+      rpcId: 'parent-removed-mid-pull' as never,
+      payload: { type: 'host/session-removed', sessionId: root },
+    })
+    const trailing = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
+    api.onSubagentList = () => trailing.promise
+    mid.resolve(ok({ entries: [child()] as never[], parentAvailable: true }))
+    await midRefresh
+    trailing.resolve(ok({ entries: [child()] as never[], parentAvailable: false }))
+    await trailing.promise
+
+    const rootCalls = api.callsOf('subagent.list')
+      .filter((call: { parentSessionId: SessionId }) => call.parentSessionId === root)
+    expect(rootCalls).toHaveLength(3)
+    expect(manager.getListSnapshot().subagentsByParent[root]?.parentAvailable).toBe(false)
+    expect(manager.get(S2).getSnapshot().subagent).toMatchObject({ parentAvailable: false })
+  })
+
   it('invalidates catalog availability when the owning parent is removed', async () => {
     const api = new FakeApiClient()
     const root = 'fk-root' as SessionId

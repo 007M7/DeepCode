@@ -688,6 +688,11 @@ export class SessionManager {
         this.pendingBuffers.delete(frame.sessionId) // a removed session's buffered frames must not replay on a future instantiation
         this.waitingApprovals.delete(frame.sessionId) // a removed session cannot wait on anyone
         if (!durableSubagent) this.projectionStores.delete(frame.sessionId)
+        // A pull already in flight was requested before this removal and can
+        // carry the pre-removal parentAvailable:true, which would resurrect
+        // the writable editor this invalidation just closed. Queue one
+        // trailing refresh so the post-removal host truth converges.
+        if (this.catalogInflight.has(frame.sessionId)) this.catalogStale.add(frame.sessionId)
         // The removed session can no longer be the delivery owner of its
         // catalog: invalidate availability immediately. Removal schedules no
         // catalog refresh, and without this an addressed child keeps a
