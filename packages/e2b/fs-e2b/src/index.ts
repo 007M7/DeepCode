@@ -232,7 +232,13 @@ export class E2BFileSystem extends FileSystem {
     await this.requireRegular(target, signal)
     let stream: ReadableStream<Uint8Array>
     try {
-      stream = await sandbox.files.read(String(target.targetKey), { format: 'stream', ...signalOpts(signal) })
+      // The pinned SDK's stream overload lies for empty files: content-length 0
+      // returns '' instead of a ReadableStream.
+      const read = await sandbox.files.read(String(target.targetKey), { format: 'stream', ...signalOpts(signal) }) as
+        ReadableStream<Uint8Array> | string
+      stream = typeof read === 'string'
+        ? new ReadableStream<Uint8Array>({ start(controller) { controller.close() } })
+        : read
     } catch (error: unknown) {
       throw mapError(error, 'read', target.displayPath, signal)
     }

@@ -1,6 +1,12 @@
 # POC overlay: keep the advanced headless agent and model-facing tools, but
 # place its filesystem and process substrate in one short-lived E2B sandbox;
 # the generic Bash, PTY, and LSP consumers compose above them.
+#
+# One-world invariant: e2b.cwd, sandbox-policy.workspaceRoot, and bash-local's
+# default workdir (implicit host process.cwd()) must all name the same remote
+# directory. Only e2b.cwd is created at sandbox open; dropping its !!js line
+# falls back to /home/user/workspace while Bash and PTY keep targeting the
+# host path, so every tool call fails with a remote spawn error.
 - id: base
   name: '@cordisjs/plugin-include'
   config:

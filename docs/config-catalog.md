@@ -1813,6 +1813,20 @@ export interface Config {
 
 Source: [`packages/subagent/subagent-spawn/src/index.ts:25`](../packages/subagent/subagent-spawn/src/index.ts)
 
+## `@deepseek-ai/dsh-subprocess-e2b`
+
+Requires: `e2b`
+
+```ts config-catalog
+/** Configuration for the E2B subprocess adapter. */
+export interface Config {
+  /** Remote status/liveness poll cadence in milliseconds; each tick is one control-plane request. */
+  pollMs?: number
+}
+```
+
+Source: [`packages/e2b/subprocess-e2b/src/index.ts:24`](../packages/e2b/subprocess-e2b/src/index.ts)
+
 ## `@deepseek-ai/dsh-system-prompt`
 
 ```ts config-catalog

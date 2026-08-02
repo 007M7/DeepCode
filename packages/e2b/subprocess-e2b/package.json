@@ -32,6 +32,9 @@
     "@deepseek-ai/dsh-subprocess": "^0.0.1",
     "cordis": "^4.0.0-rc.7"
   },
+  "dependencies": {
+    "schemastery": "^3.18.0"
+  },
   "devDependencies": {
     "@deepseek-ai/dsh-e2b": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",

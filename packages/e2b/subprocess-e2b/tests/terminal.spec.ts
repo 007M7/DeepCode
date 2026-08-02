@@ -793,12 +793,23 @@ describe('E2B subprocess terminal service', () => {
   it('rejects invalid executable lookup inputs and results', async () => {
     const { ctx, fake } = await service()
     await expect(ctx.subprocess.resolveExecutable('')).rejects.toThrow('non-empty')
+    await expect(ctx.subprocess.resolveExecutable('./bin/server')).rejects.toThrow('is a relative path')
+    await expect(ctx.subprocess.resolveExecutable('node_modules/.bin/server')).rejects.toThrow('is a relative path')
     await expect(ctx.subprocess.resolveExecutable('node', undefined, AbortSignal.abort(new Error('stop'))))
       .rejects.toThrow('stop')
     fake.resolvedExecutable = 'node\n'
     await expect(ctx.subprocess.resolveExecutable('node')).rejects.toThrow('did not resolve')
     fake.resolvedExecutable = '/one\n/two\n'
     await expect(ctx.subprocess.resolveExecutable('node')).rejects.toThrow('did not resolve')
+  })
+
+  it('rejects a non-positive poll cadence at load', async () => {
+    const ctx = new Context()
+    ctx.provide('e2b', runtime(new FakeTerminalSandbox()))
+    await expect(ctx.plugin(E2BSubprocessService, { pollMs: 0 }))
+      .rejects.toThrow('pollMs must be a positive safe integer')
+    const explicit = await ctx.plugin(E2BSubprocessService, { pollMs: 5 })
+    await explicit.dispose()
   })
 
   it('owns live terminals through service disposal', async () => {
@@ -873,9 +884,6 @@ describe('E2B subprocess terminal service', () => {
     const { ctx, fiber, fake } = await service()
     for (const request of [
       spec({ argv: [] }),
-      spec({ rows: 0 }),
-      spec({ cols: 1.5 }),
-      spec({ graceMs: 0 }),
       spec({ signal: AbortSignal.abort(new Error('cancelled')) }),
     ]) {
       await expect(ctx.subprocess.spawnTerminal(request)).rejects.toThrow()

@@ -1,3 +1,6 @@
+# One-world invariant (same pairing as examples/headless-agent/e2b.cordis.yml):
+# e2b.cwd and sandbox-policy.workspaceRoot must name the same remote directory,
+# which is also bash-local's implicit default workdir.
 - id: e2b
   name: '@deepseek-ai/dsh-e2b'
   config:

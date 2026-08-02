@@ -149,7 +149,7 @@ class FakeRemote {
         }
         return this.info(path)
       },
-      read: async (path: string, options: { format: 'bytes' | 'stream'; signal?: AbortSignal }): Promise<Uint8Array | ReadableStream<Uint8Array>> => {
+      read: async (path: string, options: { format: 'bytes' | 'stream'; signal?: AbortSignal }): Promise<Uint8Array | ReadableStream<Uint8Array> | string> => {
         this.checkAbort(options)
         if (this.nextReadError !== undefined) {
           const error = this.nextReadError
@@ -158,6 +158,8 @@ class FakeRemote {
         }
         const data = this.followed(path).node.data
         if (options.format === 'bytes') return data.slice()
+        // Pinned-SDK fidelity: a content-length-0 response returns '' even in stream format.
+        if (data.length === 0 && this.streamChunks === undefined) return ''
         const chunks = this.streamChunks ?? [data.slice()]
         return new ReadableStream<Uint8Array>({
           start: (controller) => {
@@ -373,6 +375,15 @@ describe('E2BFileSystem identity, metadata, and reads', () => {
     let initiallyBuffered = ''
     for await (const chunk of await fs.streamText(target)) initiallyBuffered += chunk
     expect(initiallyBuffered).toBe('€')
+  })
+
+  it('streams an empty file even though the pinned SDK returns a non-stream value', async () => {
+    const remote = new FakeRemote()
+    remote.file('/workspace/empty.txt', '')
+    const { fs } = await setup(remote)
+    let streamed = ''
+    for await (const chunk of await fs.streamText(await fs.resolve('empty.txt'))) streamed += chunk
+    expect(streamed).toBe('')
   })
 
   it('cancels a remote stream when its consumer stops early', async () => {

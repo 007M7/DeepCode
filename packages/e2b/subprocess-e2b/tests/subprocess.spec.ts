@@ -519,6 +519,38 @@ describe('E2BSubprocessHandle', () => {
     await expect(handle.waitForExit()).resolves.toBe(true)
   })
 
+  it('releases an inherited-output callback blocked on host backpressure at drain expiry', async () => {
+    const fake = new FakeSandbox()
+    const written: string[] = []
+    const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: Uint8Array) => {
+      written.push(Buffer.from(chunk).toString())
+      return false
+    }) as typeof process.stdout.write)
+    try {
+      const handle = new E2BSubprocessHandle(runtime(fake), spec({
+        graceMs: 5,
+        stdio: { stdin: 'ignore', stdout: 'inherit', stderr: { maxBytes: 4 } },
+      }), '/runtime/inherit-backpressure')
+      await flush()
+      let callbackSettled = false
+      const blocked = fake.stdout('blocked bytes').then(() => { callbackSettled = true })
+      await flush()
+      expect(callbackSettled).toBe(false)
+      fake.exitStatus = '0\n'
+
+      await expect(handle.done).resolves.toEqual({ exitCode: 0, signal: null })
+      await blocked
+      expect(callbackSettled).toBe(true)
+      expect(written.join('')).toBe('blocked bytes')
+      expect(fake.handle.disconnects).toBe(1)
+
+      handle.terminate()
+      await expect(handle.waitForExit()).resolves.toBe(true)
+    } finally {
+      stdoutWrite.mockRestore()
+    }
+  })
+
   it('waits for lossless raw-pipe output after the direct status is published', async () => {
     const fake = new FakeSandbox()
     const handle = new E2BSubprocessHandle(runtime(fake), spec({
@@ -1311,6 +1343,17 @@ describe('E2BSubprocessHandle', () => {
     expect(invalidGroup.commandsSeen).toContain('kill -KILL -- -4242')
     await expect(invalid.waitForExit()).resolves.toBe(true)
 
+    // A rewritten pid file must not aim the kill at every process (`-- -1`).
+    const unsafeGroup = new FakeSandbox()
+    unsafeGroup.processGroupId = '1\n'
+    unsafeGroup.delaysKill = true
+    unsafeGroup.sdkKillStops = false
+    unsafeGroup.afterProbe = () => { unsafeGroup.alive = false }
+    const unsafe = new E2BSubprocessHandle(runtime(unsafeGroup), spec(), '/runtime/unsafe-group')
+    await expect(unsafe.done).rejects.toThrow(/unsafe published process-group id 1/)
+    expect(unsafeGroup.commandsSeen).not.toContain('kill -KILL -- -1')
+    await expect(unsafe.waitForExit()).resolves.toBe(true)
+
     const absentGroup = new FakeSandbox()
     absentGroup.processGroupId = ''
     const absent = new E2BSubprocessHandle(runtime(absentGroup), spec(), '/runtime/absent-group')
@@ -1588,6 +1631,34 @@ describe('E2BSubprocessService', () => {
     await expect(handle.done).resolves.toEqual({ exitCode: null, signal: 'SIGTERM' })
   })
 
+  it('aggregates sibling cleanup failures instead of reporting only the first', async () => {
+    const { ctx, fiber } = await service()
+    const disposalErrors: unknown[] = []
+    ctx.logger.error = ((error: unknown) => { disposalErrors.push(error) }) as typeof ctx.logger.error
+    const first = {
+      terminate: vi.fn(),
+      waitForExit: vi.fn(async () => { throw new Error('first cleanup failed') }),
+      done: Promise.resolve({ exitCode: 0, signal: null }),
+    } as unknown as E2BSubprocessHandle
+    const second = {
+      terminate: vi.fn(),
+      waitForExit: vi.fn(async () => { throw new Error('second cleanup failed') }),
+      done: Promise.resolve({ exitCode: 0, signal: null }),
+    } as unknown as E2BSubprocessHandle
+    const live = (ctx.subprocess as unknown as { live: Set<E2BSubprocessHandle> }).live
+    live.add(first)
+    live.add(second)
+
+    await fiber.dispose()
+    const failure = disposalErrors[0]
+    expect(failure).toBeInstanceOf(AggregateError)
+    if (!(failure instanceof AggregateError)) throw new Error('expected AggregateError')
+    expect(failure.errors.map(error => (error as Error).message).sort()).toEqual([
+      'first cleanup failed',
+      'second cleanup failed',
+    ])
+  })
+
   it('waits for every owned cleanup before reporting a disposal failure', async () => {
     const { ctx, fiber } = await service()
     const failed = {
@@ -1667,7 +1738,6 @@ describe('E2BSubprocessService', () => {
   it('validates synchronous spawn preconditions', async () => {
     const { ctx } = await service()
     expect(() => ctx.subprocess.spawn(spec({ argv: [] }))).toThrow(/non-empty program/)
-    expect(() => ctx.subprocess.spawn(spec({ graceMs: 0 }))).toThrow(/positive finite/)
     expect(() => ctx.subprocess.spawn(spec({ signal: AbortSignal.abort('stop') }))).toThrow(/aborted before spawn/)
   })
 

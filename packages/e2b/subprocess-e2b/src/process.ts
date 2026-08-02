@@ -21,8 +21,8 @@ import type {
 import type E2BSandboxService from '@deepseek-ai/dsh-e2b'
 import { bootstrapEnvironment, readRemoteEnvironment, serializeRemoteEnvironment } from './environment.ts'
 import { E2BBase64Decoder, E2B_OUTPUT_COMPLETE_FRAME, E2BOutputReader } from './output.ts'
+import { asError, commandOpts, signalRemoteGroups, waitTick } from './remote.ts'
 
-const GROUP_POLL_MS = 20
 const OUTPUT_ENCODER_SOURCE = [
   '(async () => {',
   '  for await (const chunk of process.stdin) {',
@@ -46,10 +46,6 @@ function hasSpill(mode: SubprocessOutputMode): mode is SubprocessCollect & { spi
 
 function isValidProcessId(value: number): boolean {
   return Number.isSafeInteger(value) && value > 0
-}
-
-function asError(error: unknown): Error {
-  return error instanceof Error ? error : new Error(String(error))
 }
 
 class DeferredStdin extends Writable {
@@ -142,28 +138,6 @@ function commandText(spec: SubprocessSpawnSpec, paths: RemotePaths): string {
   return bootstrap
 }
 
-function commandOpts(
-  envs: Record<string, string>,
-  signal: AbortSignal | undefined,
-): { envs: Record<string, string>; signal?: AbortSignal } {
-  return { envs: e2bControlEnvs(envs), ...(signal === undefined ? {} : { signal }) }
-}
-
-function waitTick(signal?: AbortSignal): Promise<boolean> {
-  if (signal?.aborted === true) return Promise.resolve(false)
-  return new Promise<boolean>((resolve) => {
-    const timer = setTimeout(() => {
-      signal?.removeEventListener('abort', onAbort)
-      resolve(true)
-    }, GROUP_POLL_MS)
-    const onAbort = (): void => {
-      clearTimeout(timer)
-      resolve(false)
-    }
-    signal?.addEventListener('abort', onAbort, { once: true })
-  })
-}
-
 const WAIT_ABORTED = Symbol('wait aborted')
 
 function waitWithSignal<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T | typeof WAIT_ABORTED> {
@@ -194,6 +168,8 @@ export class E2BSubprocessHandle implements SubprocessHandle {
   private readonly stdoutDecoder = new E2BBase64Decoder()
   private readonly stderrDecoder = new E2BBase64Decoder()
   private readonly terminationController = new AbortController()
+  /** Releases output waits that survive the command outcome, so blocked SDK callbacks settle. */
+  private readonly outputReleased = new AbortController()
   private readonly stdoutReader: E2BOutputReader | undefined
   private readonly stderrReader: E2BOutputReader | undefined
   private readonly paths: RemotePaths
@@ -212,11 +188,13 @@ export class E2BSubprocessHandle implements SubprocessHandle {
    * @param runtime - Shared E2B sandbox owner.
    * @param spec - Fully resolved subprocess request.
    * @param stateDir - Remote directory retaining process identity, status, and valid spills.
+   * @param pollMs - Remote status/liveness poll cadence.
    */
   constructor(
     private readonly runtime: E2BSandboxService,
     private readonly spec: SubprocessSpawnSpec,
     readonly stateDir: string,
+    private readonly pollMs = 20,
   ) {
     this.paths = {
       pid: posix.join(stateDir, 'pid'),
@@ -318,7 +296,7 @@ export class E2BSubprocessHandle implements SubprocessHandle {
     const processGroupId = this.remotePid > 0 ? this.remotePid : handle.pid
     while (await this.groupAlive(sandbox, processGroupId, signal)) {
       this.throwTerminationFailure()
-      if (!await waitTick(signal)) return false
+      if (!await waitTick(this.pollMs, signal)) return false
     }
     this.throwTerminationFailure()
     if (signal?.aborted === true) return false
@@ -483,19 +461,21 @@ export class E2BSubprocessHandle implements SubprocessHandle {
     await new Promise<void>((resolve, reject) => {
       const onDrain = (): void => { cleanup(); resolve() }
       const onClose = (): void => { cleanup(); resolve() }
-      const onTermination = (): void => { cleanup(); resolve() }
+      const onRelease = (): void => { cleanup(); resolve() }
       const onError = (error: Error): void => { cleanup(); reject(error) }
       const cleanup = (): void => {
         target.removeListener('drain', onDrain)
         target.removeListener('close', onClose)
         target.removeListener('error', onError)
-        this.terminationController.signal.removeEventListener('abort', onTermination)
+        this.terminationController.signal.removeEventListener('abort', onRelease)
+        this.outputReleased.signal.removeEventListener('abort', onRelease)
       }
       target.once('drain', onDrain)
       target.once('close', onClose)
       target.once('error', onError)
-      this.terminationController.signal.addEventListener('abort', onTermination, { once: true })
-      if (this.terminationController.signal.aborted) onTermination()
+      this.terminationController.signal.addEventListener('abort', onRelease, { once: true })
+      this.outputReleased.signal.addEventListener('abort', onRelease, { once: true })
+      if (this.terminationController.signal.aborted || this.outputReleased.signal.aborted) onRelease()
     })
   }
 
@@ -514,9 +494,14 @@ export class E2BSubprocessHandle implements SubprocessHandle {
         if (!/^[1-9][0-9]*$/.test(value) || !Number.isSafeInteger(pid)) {
           throw new Error(`subprocess-e2b: remote wrapper published invalid process-group id ${JSON.stringify(value)}`)
         }
+        // A same-UID sandbox process can rewrite this file; refuse ids whose
+        // negative form addresses every process (`kill -- -1`) or init's group.
+        if (pid <= 1) {
+          throw new Error(`subprocess-e2b: unsafe published process-group id ${pid}`)
+        }
         return pid
       }
-      const settled = await Promise.race([commandSettled, waitTick().then(() => false)])
+      const settled = await Promise.race([commandSettled, waitTick(this.pollMs).then(() => false)])
       if (settled) throw new Error('subprocess-e2b: remote command exited before publishing its process-group id')
     }
   }
@@ -545,13 +530,16 @@ export class E2BSubprocessHandle implements SubprocessHandle {
         this.outputDrainExpired = true
         this.stdoutReader?.invalidateSpill()
         this.stderrReader?.invalidateSpill()
+        // Release inherited-output waits so a callback blocked on host
+        // backpressure cannot keep the disconnected SDK settlement pending.
+        this.outputReleased.abort(new Error('subprocess-e2b: output drain grace expired'))
         await handle.disconnect()
         return { exitCode, signal: null }
       }
       if (completed !== undefined) return this.commandOutcome(completed)
       // TODO(e2b-status-watch): Replace collect/inherit control-plane polling
       // when E2B can observe direct-command exit independently of descendant-held output.
-      completed = await Promise.race([settlement, waitTick().then(() => undefined)])
+      completed = await Promise.race([settlement, waitTick(this.pollMs).then(() => undefined)])
     }
   }
 
@@ -622,7 +610,7 @@ export class E2BSubprocessHandle implements SubprocessHandle {
   private async terminateGroup(sandbox: Sandbox, handle: CommandHandle, processGroupId: number): Promise<void> {
     this.terminationSignal = 'SIGTERM'
     try {
-      await this.signalGroup(sandbox, processGroupId, 'TERM')
+      await signalRemoteGroups(sandbox, this.controlEnvs, [processGroupId], 'TERM')
       if (await this.waitForGroupExit(sandbox, processGroupId)) {
         this.markQuiescent()
         return
@@ -637,7 +625,7 @@ export class E2BSubprocessHandle implements SubprocessHandle {
 
   private async forceKillGroup(sandbox: Sandbox, handle: CommandHandle, processGroupId: number): Promise<void> {
     try {
-      await this.signalGroup(sandbox, processGroupId, 'KILL')
+      await signalRemoteGroups(sandbox, this.controlEnvs, [processGroupId], 'KILL')
     } catch (_processGroupKillFailure) {
       // SDK kill and the final liveness probe remain independent cleanup paths.
     }
@@ -654,28 +642,13 @@ export class E2BSubprocessHandle implements SubprocessHandle {
     const deadline = Date.now() + this.spec.graceMs
     while (await this.groupAlive(sandbox, processGroupId)) {
       if (Date.now() >= deadline) return false
-      await waitTick()
+      await waitTick(this.pollMs)
     }
     return true
   }
 
   private throwTerminationFailure(): void {
     if (this.terminationFailure !== undefined) throw this.terminationFailure
-  }
-
-  private async signalGroup(sandbox: Sandbox, pid: number, signal: 'TERM' | 'KILL'): Promise<boolean> {
-    // TODO(e2b-pgid-identity): Prefer an atomic identity-bound group signal if E2B adds one;
-    // a userspace identity precheck cannot close the numeric-PGID reuse race.
-    try {
-      await sandbox.commands.run(
-        `kill -${signal} -- -${pid}`,
-        commandOpts(this.controlEnvs, undefined),
-      )
-      return true
-    } catch (error: unknown) {
-      if (error instanceof CommandExitError || error instanceof SandboxNotFoundError) return false
-      throw error
-    }
   }
 
   private async groupAlive(sandbox: Sandbox, pid: number, signal?: AbortSignal): Promise<boolean> {

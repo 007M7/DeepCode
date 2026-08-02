@@ -7,6 +7,7 @@
 import { randomUUID } from 'node:crypto'
 import { posix } from 'node:path'
 import { Context } from 'cordis'
+import z from 'schemastery'
 import { SubprocessService } from '@deepseek-ai/dsh-subprocess'
 import type {
   SubprocessHandle,
@@ -16,30 +17,53 @@ import type {
 } from '@deepseek-ai/dsh-subprocess'
 import { e2bControlEnvs, quoteE2BShellArg } from '@deepseek-ai/dsh-e2b'
 import { E2BSubprocessHandle } from './process.ts'
+import { asError, signalOpts } from './remote.ts'
 import { spawnE2BTerminal } from './terminal.ts'
 
-function signalOpts(signal: AbortSignal | undefined): { signal?: AbortSignal } {
-  return signal === undefined ? {} : { signal }
+/** Configuration for the E2B subprocess adapter. */
+export interface Config {
+  /** Remote status/liveness poll cadence in milliseconds; each tick is one control-plane request. */
+  pollMs?: number
+}
+
+interface SchemaResolvedConfig extends Config {
+  pollMs: number
+}
+
+interface TerminalSetup {
+  done: Promise<void>
+  controller: AbortController
 }
 
 /** E2B command manager registered as `ctx.subprocess`. */
 export class E2BSubprocessService extends SubprocessService {
   static inject = ['e2b']
 
+  static Config: z<Config> = z.object({
+    pollMs: z.number().default(20),
+  })
+
   private readonly live = new Set<E2BSubprocessHandle>()
   private readonly terminals = new Set<SubprocessTerminalHandle>()
-  private readonly terminalSetups = new Map<Promise<void>, AbortController>()
+  private readonly terminalSetups = new Set<TerminalSetup>()
+  private readonly pollMs: number
   private disposing = false
 
   /** Create the E2B subprocess service and bind its disposal policy. */
-  constructor(ctx: Context) {
+  constructor(ctx: Context, config: Config) {
     super(ctx)
+    // Schemastery fills pollMs before construction; the type does not encode that step.
+    const { pollMs } = config as SchemaResolvedConfig
+    if (!Number.isSafeInteger(pollMs) || pollMs <= 0) {
+      throw new Error('subprocess-e2b: pollMs must be a positive safe integer')
+    }
+    this.pollMs = pollMs
     ctx.effect(() => async () => {
       this.disposing = true
-      for (const controller of this.terminalSetups.values()) {
-        controller.abort(new Error('subprocess-e2b: service disposed during terminal setup'))
+      for (const setup of this.terminalSetups) {
+        setup.controller.abort(new Error('subprocess-e2b: service disposed during terminal setup'))
       }
-      await Promise.all([...this.terminalSetups.keys()])
+      await Promise.all([...this.terminalSetups].map(setup => setup.done))
       const handles = [...this.live]
       const terminals = [...this.terminals]
       const pending: Promise<unknown>[] = []
@@ -54,9 +78,11 @@ export class E2BSubprocessService extends SubprocessService {
         pending.push(terminal.terminate().then(() => { this.terminals.delete(terminal) }))
       }
       const outcomes = await Promise.allSettled(pending)
-      for (const outcome of outcomes) {
-        if (outcome.status === 'rejected') throw outcome.reason
-      }
+      const failures = outcomes.flatMap<unknown>(outcome => outcome.status === 'rejected'
+        ? [outcome.reason as unknown]
+        : [])
+      if (failures.length === 1) throw asError(failures[0])
+      if (failures.length > 1) throw new AggregateError(failures, 'subprocess-e2b: teardown failed')
     }, 'e2b subprocess teardown')
   }
 
@@ -77,6 +103,11 @@ export class E2BSubprocessService extends SubprocessService {
       signal?.throwIfAborted()
       return command
     }
+    if (command.includes('/')) {
+      throw new Error(
+        `subprocess-e2b: command ${JSON.stringify(command)} is a relative path; use an absolute path or a bare PATH name`,
+      )
+    }
     const path = env?.PATH
     const prefix = path === undefined ? '' : `PATH=${quoteE2BShellArg(path)} `
     const result = await sandbox.commands.run(
@@ -88,6 +119,7 @@ export class E2BSubprocessService extends SubprocessService {
     if (executable.includes('\n') || (!posix.isAbsolute(executable) && !executable.includes('/'))) {
       throw new Error(`subprocess-e2b: executable ${JSON.stringify(command)} did not resolve to one absolute path`)
     }
+    // A relative result comes from a relative PATH entry; the lookup ran with the shared cwd.
     return posix.resolve(this.ctx.e2b.cwd, executable)
   }
 
@@ -98,14 +130,11 @@ export class E2BSubprocessService extends SubprocessService {
     if (program === undefined || program.length === 0) {
       throw new Error('invalid argv: expected a non-empty program name at argv[0]')
     }
-    if (!Number.isFinite(spec.graceMs) || spec.graceMs <= 0) {
-      throw new Error('subprocess-e2b: graceMs must be a positive finite number')
-    }
     if (spec.signal?.aborted === true) {
       throw new Error(`aborted before spawn: ${String(spec.signal.reason)}`)
     }
     const stateDir = posix.join(this.ctx.e2b.runtimeRoot, 'processes', randomUUID())
-    const handle = new E2BSubprocessHandle(this.ctx.e2b, spec, stateDir)
+    const handle = new E2BSubprocessHandle(this.ctx.e2b, spec, stateDir, this.pollMs)
     this.live.add(handle)
     const release = async (): Promise<void> => {
       await handle.waitForExit()
@@ -124,24 +153,20 @@ export class E2BSubprocessService extends SubprocessService {
     if (program === undefined || program.length === 0) {
       throw new Error('subprocess-e2b: terminal argv must contain a program')
     }
-    for (const [name, value] of [['rows', spec.rows], ['cols', spec.cols], ['graceMs', spec.graceMs]] as const) {
-      if (!Number.isSafeInteger(value) || value <= 0) {
-        throw new Error(`subprocess-e2b: terminal ${name} must be a positive safe integer`)
-      }
-    }
     spec.signal?.throwIfAborted()
     const stateDir = posix.join(this.ctx.e2b.runtimeRoot, 'terminals', randomUUID())
-    const setup = Promise.withResolvers<void>()
-    const setupController = new AbortController()
+    const done = Promise.withResolvers<void>()
+    const setup: TerminalSetup = { done: done.promise, controller: new AbortController() }
     const setupSignal = spec.signal === undefined
-      ? setupController.signal
-      : AbortSignal.any([spec.signal, setupController.signal])
-    this.terminalSetups.set(setup.promise, setupController)
+      ? setup.controller.signal
+      : AbortSignal.any([spec.signal, setup.controller.signal])
+    this.terminalSetups.add(setup)
     try {
       const terminal = await spawnE2BTerminal(
         this.ctx.e2b,
         { ...spec, signal: setupSignal },
         stateDir,
+        this.pollMs,
       )
       this.terminals.add(terminal)
       // oxlint-disable-next-line typescript/no-unnecessary-condition -- Remote allocation yields to disposal.
@@ -159,8 +184,8 @@ export class E2BSubprocessService extends SubprocessService {
       })
       return terminal
     } finally {
-      this.terminalSetups.delete(setup.promise)
-      setup.resolve()
+      this.terminalSetups.delete(setup)
+      done.resolve()
     }
   }
 }
