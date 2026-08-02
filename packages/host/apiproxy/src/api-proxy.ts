@@ -2253,9 +2253,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     },
 
     commands: {
-      // Both methods address one session's agent (agentFor keeps its
-      // resume-on-miss: clients only send a sessionId for a published
-      // session, and resume restores an existing entity).
+      // Both methods address one session's agent. agentFor resumes on miss
+      // and fences every subagent-owned identity with `agent-busy`; the
+      // api/commands.ts module contract owns that fence's wording, so this
+      // comment only notes the routing shape: clients send a sessionId for a
+      // published session, and resume restores an existing entity.
       async list(request) {
         // Missing service = the deployment omitted dsh-commands from its
         // composition, not an empty catalog: fail loud instead of serving [].
