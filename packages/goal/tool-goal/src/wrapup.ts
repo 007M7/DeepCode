@@ -24,7 +24,7 @@ export function renderWrapupContext(objective: string, blockedReason?: string): 
       + 'verified, and point to the concrete results (files, commits, or other artifacts). '
       + GROUNDING
       + 'Note anything the user should review or do next. Address the user directly. Do not '
-      + 'call any more tools.\n'
+      + "call any more tools in this run; further work waits for the user's next instruction.\n"
       + '</goal_complete>'
     : '<goal_blocked>\n'
       + heading
@@ -34,7 +34,8 @@ export function renderWrapupContext(objective: string, blockedReason?: string): 
       + 'blocking condition and what you tried, and say exactly what you need from the user to '
       + 'continue. '
       + GROUNDING
-      + 'Address the user directly. Do not call any more tools.\n'
+      + 'Address the user directly. Do not call any more tools in this run; further work '
+      + "waits for the user's next instruction.\n"
       + '</goal_blocked>'
   return [{ type: 'text', text }]
 }

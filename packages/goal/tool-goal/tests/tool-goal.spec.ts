@@ -377,7 +377,7 @@ describe('goal tool state transitions', () => {
     if (block?.type !== 'text') throw new Error('expected one text wrap-up block')
     expect(block.text).toContain('<goal_complete>')
     expect(block.text).toContain('"pause cleanly"')
-    expect(block.text).toContain('Do not call any more tools.')
+    expect(block.text).toContain("Do not call any more tools in this run; further work waits for the user's next instruction.")
   })
 
   it('completes without a wrap-up instruction under direct human authority', async () => {
@@ -578,7 +578,7 @@ describe('goal tool state transitions', () => {
     if (block?.type !== 'text') throw new Error('expected one text wrap-up block')
     expect(block.text).toContain('<goal_blocked>')
     expect(block.text).toContain('The required credential is still unavailable.')
-    expect(block.text).toContain('Do not call any more tools.')
+    expect(block.text).toContain("Do not call any more tools in this run; further work waits for the user's next instruction.")
   })
 
   it('lets direct human authority block before the model threshold', async () => {
