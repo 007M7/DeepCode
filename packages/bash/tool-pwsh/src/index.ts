@@ -18,7 +18,7 @@ import { isAbsolute, resolve as resolvePath } from 'node:path'
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import { defineTool, TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
-import type { TerminalCallView, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
+import type { GenericCallView, TerminalCallView, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -276,12 +276,25 @@ export function apply(ctx: Context, config: Config = {}): void {
       return canonicalPwshResult(result)
     },
     /* jscpd:ignore-end */
-    presentCall: (args: PwshToolArgs): TerminalCallView => ({
-      card: 'terminal',
-      title: args.command,
-      description: args.description,
-      ...args.workdir !== undefined ? { cwd: args.workdir } : {},
-    }),
+    presentCall: (args: PwshToolArgs): TerminalCallView | GenericCallView => {
+      // Background acknowledgements carry no terminal exit status; the generic
+      // card mirrors the bash tool's background presentation.
+      if (args.run_in_background === true) {
+        return {
+          card: 'generic',
+          title: args.command,
+          kind: 'execute',
+          rawInput: args.command,
+          content: [{ type: 'text', text: args.description }],
+        }
+      }
+      return {
+        card: 'terminal',
+        title: args.command,
+        description: args.description,
+        ...args.workdir !== undefined ? { cwd: args.workdir } : {},
+      }
+    },
     presentResult: (_args: unknown, result: ToolResult): ToolResultView | undefined => {
       const block = result.content.length === 1 ? result.content[0] : undefined
       if (block === undefined || block.type !== 'text') return undefined
