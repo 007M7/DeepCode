@@ -140,7 +140,7 @@ async function inspectChild(
       return { kind: 'diagnostic', id: childId, reason: 'corrupt' }
     }
     // The length-one branch proves this exact-read sequence exists.
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    // oxlint-disable-next-line typescript/no-non-null-assertion
     const seq = descriptorSeqs[0]!
     const window = await runListingQuery(
       () => query.readEvent({ sessionId: childId, seq }, signal),
