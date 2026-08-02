@@ -54,8 +54,7 @@
         "**/*.ts"
       ],
       "ignoreDependencies": [
-        "@deepseek-ai/.+",
-        "@cordisjs/.+"
+        "@deepseek-ai/.+"
       ]
     },
     "packages/util/home": {
@@ -629,8 +628,7 @@
         "tests/**/*.ts"
       ],
       "ignoreDependencies": [
-        "@deepseek-ai/.+",
-        "@cordisjs/.+"
+        "@deepseek-ai/.+"
       ]
     },
     "packages/client/modules": {

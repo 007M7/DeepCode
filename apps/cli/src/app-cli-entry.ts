@@ -1,6 +1,6 @@
 /**
  * AppCLIEntry — the pre-cordis boot glue the config-tree dsh surfaces share
- * for the Web/headless surface.
+ * (`dsh web` and `dsh -p`; the TUI composes dsh-app-boot directly).
  * Everything here is what must exist before the Loader runs: the patch
  * composition over the shipped base and surface overlay (profile json + CLI
  * flags + the resolved frontend dist), and the fail-loud activation audit after the tree
@@ -16,7 +16,13 @@ import { join, resolve } from 'node:path'
 import { Context } from 'cordis'
 import type { PatchOptions } from '@cordisjs/plugin-include'
 import yaml from 'js-yaml'
-import { boot, installFailLoud, loadOverlayPatches, loadPersonalPatches } from '@deepseek-ai/dsh-app-boot'
+import {
+  boot,
+  installFailLoud,
+  loadOverlayPatches,
+  loadPersonalPatches,
+  watchPersonalPatches,
+} from '@deepseek-ai/dsh-app-boot'
 // Empty type import carries the httpServer Context merge for the port read below.
 import type {} from '@deepseek-ai/dsh-host-webserver'
 
@@ -140,8 +146,10 @@ export interface AppCLIEntryOptions {
    * `$DSH_HOME/config.yaml` overlay is applied instead.
    */
   extraOverlayPath?: string
-  /** Whether to append the HMR row (the whole prod/dev difference; web surface only). */
+  /** Whether to append client-bundle HMR (the Web surface's prod/dev difference). */
   dev: boolean
+  /** Whether `$DSH_HOME/config.yaml` remains live after the initial boot. */
+  watchPersonalConfig: boolean
   /** --host when explicitly passed; undefined keeps the yml engineering default. */
   host?: string
   /**
@@ -235,11 +243,12 @@ export class AppCLIEntry {
     // user config. Workspace knowledge stays here.
     put('webserver', 'distIndex', this.resolveDistIndex())
 
-    this.patches = [...overrides.entries()].map(([id, bag]) => {
+    const generated = [...overrides.entries()].map(([id, bag]) => {
       const yml = rows.get(id)
       if (yml === undefined) throw new Error(`dsh: patch target row "${id}" not found in ${this.options.configPath}`)
       return { id, config: { ...(yml.config ?? {}) as Record<string, unknown>, ...bag } }
     })
+    this.patches = generated
 
     // Telemetry opt-out: a row can only be turned off at the patch layer
     // (config cannot disable an entry), and the switch must hold BEFORE the
@@ -254,17 +263,30 @@ export class AppCLIEntry {
     // list: patches never cross an include boundary, so nesting them would
     // silently stop reaching base rows. The surface overlay applies first, then
     // this entry's profile-json and CLI-flag patches, which therefore win.
-    const patches = [
+    const compose = (overlay: PatchOptions[]): PatchOptions[] => [
       ...loadOverlayPatches('dsh', this.options.overlayPath),
-      ...this.options.extraOverlayPath === undefined
-        ? loadPersonalPatches('dsh') ?? []
-        : loadOverlayPatches('dsh', this.options.extraOverlayPath),
+      ...overlay,
       ...this.patches,
     ]
+    // An explicit --config overlay REPLACES the personal overlay, so there is
+    // then no personal layer to keep live — the watcher is personal-only.
+    const watchPersonal = this.options.watchPersonalConfig && this.options.extraOverlayPath === undefined
+    const patches = compose(
+      this.options.extraOverlayPath === undefined
+        ? loadPersonalPatches('dsh') ?? []
+        : loadOverlayPatches('dsh', this.options.extraOverlayPath),
+    )
     this.ctx = await boot('dsh', resolve(this.options.configPath), patches, async (ctx) => {
       await this.options.prepare?.(ctx)
+      // Config-only HMR for the personal overlay: module reload stays off for
+      // this surface (web.cordis.yml disables the shared `hmr` row until its
+      // reload lifecycle is tested), so this row watches no module roots.
+      if (watchPersonal) await ctx.loader.create({ name: '@cordisjs/plugin-hmr', config: { root: [] } })
       if (this.options.dev) await ctx.loader.create({ name: '@deepseek-ai/dsh-client-hmr' })
     })
+    if (watchPersonal) {
+      await watchPersonalPatches(this.ctx, { binName: 'dsh', compose })
+    }
   }
 
   /** Install the diagnostic for plugin rejections that happen after settled boot. */

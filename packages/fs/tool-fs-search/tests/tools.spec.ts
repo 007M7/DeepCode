@@ -40,6 +40,13 @@ import {
 
 const testToolSignal = new AbortController().signal
 
+/**
+ * Normalize a POSIX-style test path to the platform separator: the sampler and
+ * the workdir-relative display conversion group by `node:path.sep`, so
+ * `/`-literal paths would collapse into per-path groups on Windows.
+ */
+const w = (path: string): string => path.replaceAll('/', sep)
+
 /** One scripted collect-mode stream, returned by `readFrom(0)` after settlement. */
 interface ScriptedStream {
   text: string
@@ -621,24 +628,24 @@ describe('raw output acquisition', () => {
 
 describe('cross-directory sampling', () => {
   it('gives every top-level entry a slot before any entry gets a second', () => {
-    const paths = ['v/a', 'v/b', 'v/c', 'v/d', 'src/e', 'guide/f']
+    const paths = ['v/a', 'v/b', 'v/c', 'v/d', 'src/e', 'guide/f'].map(w)
     // The head of 3 would be all `v/`; the sample reaches all three entries.
-    expect(sampleAcrossTopLevel(paths, 3)).toEqual({ items: ['v/a', 'src/e', 'guide/f'], shown: 3, total: 3 })
+    expect(sampleAcrossTopLevel(paths, 3)).toEqual({ items: ['v/a', 'src/e', 'guide/f'].map(w), shown: 3, total: 3 })
     // Extra slots go round again — to the only entry with paths left — and the
     // page stays grouped by entry rather than interleaved.
-    expect(sampleAcrossTopLevel(paths, 5)).toEqual({ items: ['v/a', 'v/b', 'v/c', 'src/e', 'guide/f'], shown: 3, total: 3 })
+    expect(sampleAcrossTopLevel(paths, 5)).toEqual({ items: ['v/a', 'v/b', 'v/c', 'src/e', 'guide/f'].map(w), shown: 3, total: 3 })
   })
 
   it('hands an exhausted entry the remaining slots go to entries that still have paths', () => {
-    const paths = ['solo/a', 'many/b', 'many/c', 'many/d']
-    expect(sampleAcrossTopLevel(paths, 3)).toEqual({ items: ['solo/a', 'many/b', 'many/c'], shown: 2, total: 2 })
+    const paths = ['solo/a', 'many/b', 'many/c', 'many/d'].map(w)
+    expect(sampleAcrossTopLevel(paths, 3)).toEqual({ items: ['solo/a', 'many/b', 'many/c'].map(w), shown: 2, total: 2 })
   })
 
   it('does not rescan exhausted entries while filling a skewed page', () => {
     const singletonCount = 12_500
     const paths = [
-      ...Array.from({ length: singletonCount }, (_, index) => `group-${index}/only`),
-      ...Array.from({ length: singletonCount }, (_, index) => `late/${index}`),
+      ...Array.from({ length: singletonCount }, (_, index) => `group-${index}${sep}only`),
+      ...Array.from({ length: singletonCount }, (_, index) => `late${sep}${index}`),
     ]
     expect(sampleAcrossTopLevel(paths, paths.length - 1)).toMatchObject({
       shown: singletonCount + 1,
@@ -648,15 +655,15 @@ describe('cross-directory sampling', () => {
   }, 500)
 
   it('reports the entries it could not reach when the page is smaller than the top level', () => {
-    const paths = ['a/1', 'b/1', 'c/1', 'd/1']
-    expect(sampleAcrossTopLevel(paths, 2)).toEqual({ items: ['a/1', 'b/1'], shown: 2, total: 4 })
+    const paths = ['a/1', 'b/1', 'c/1', 'd/1'].map(w)
+    expect(sampleAcrossTopLevel(paths, 2)).toEqual({ items: ['a/1', 'b/1'].map(w), shown: 2, total: 4 })
   })
 
   it('groups an absolute path by its first real name, not by its empty root segment', () => {
     // Paths outside the workdir stay absolute; without stripping the leading
     // separator every one of them would collapse into a single empty group.
-    expect(sampleAcrossTopLevel(['/out/a', '/out/b', '/away/c', '/away/d'], 2))
-      .toEqual({ items: ['/out/a', '/away/c'], shown: 2, total: 2 })
+    expect(sampleAcrossTopLevel(['/out/a', '/out/b', '/away/c', '/away/d'].map(w), 2))
+      .toEqual({ items: ['/out/a', '/away/c'].map(w), shown: 2, total: 2 })
   })
 
   it('reproduces the modification-time-ordered head for a flat result', () => {
@@ -669,15 +676,15 @@ describe('cross-directory sampling', () => {
       'workspace/vendor/b.ts',
       'workspace/source/c.ts',
       'workspace/guides/d.md',
-    ], 3, 'workspace')).toEqual({
-      items: ['workspace/vendor/a.ts', 'workspace/source/c.ts', 'workspace/guides/d.md'],
+    ].map(w), 3, 'workspace')).toEqual({
+      items: ['workspace/vendor/a.ts', 'workspace/source/c.ts', 'workspace/guides/d.md'].map(w),
       shown: 3,
       total: 3,
     })
-    expect(sampleAcrossTopLevel(['./vendor/a.ts', './src/b.ts'], 2, '.'))
-      .toEqual({ items: ['./vendor/a.ts', './src/b.ts'], shown: 2, total: 2 })
-    expect(sampleAcrossTopLevel(['/vendor/a.ts', '/src/b.ts'], 2, '/'))
-      .toEqual({ items: ['/vendor/a.ts', '/src/b.ts'], shown: 2, total: 2 })
+    expect(sampleAcrossTopLevel(['./vendor/a.ts', './src/b.ts'].map(w), 2, '.'))
+      .toEqual({ items: ['./vendor/a.ts', './src/b.ts'].map(w), shown: 2, total: 2 })
+    expect(sampleAcrossTopLevel(['/vendor/a.ts', '/src/b.ts'].map(w), 2, w('/')))
+      .toEqual({ items: ['/vendor/a.ts', '/src/b.ts'].map(w), shown: 2, total: 2 })
     const rooted = [
       ['root', 'a', 'one'].join(sep),
       ['root', 'a', 'two'].join(sep),
@@ -685,8 +692,8 @@ describe('cross-directory sampling', () => {
     ]
     expect(sampleAcrossTopLevel(rooted, 2, 'root'))
       .toEqual({ items: [rooted[0], rooted[2]], shown: 2, total: 2 })
-    expect(sampleAcrossTopLevel(['other/a.ts'], 1, 'src'))
-      .toEqual({ items: ['other/a.ts'], shown: 1, total: 1 })
+    expect(sampleAcrossTopLevel(['other/a.ts'].map(w), 1, 'src'))
+      .toEqual({ items: ['other/a.ts'].map(w), shown: 1, total: 1 })
     expect(sampleAcrossTopLevel(['src'], 1, 'src'))
       .toEqual({ items: ['src'], shown: 1, total: 1 })
   })
@@ -767,9 +774,9 @@ describe('glob results', () => {
     // freshly-unpacked subtree first, and a head-of-3 reads like the entire
     // workspace. The sample reaches every top-level entry instead.
     const { ctx, subprocess } = await setup({ config: { globMaxResults: 3 } })
-    subprocess.handler = () => runResult(['vendor/a.ts', 'vendor/b.ts', 'vendor/c.ts', 'src/d.ts', 'guide/e.md', 'top.txt'].join('\n'))
+    subprocess.handler = () => runResult(['vendor/a.ts', 'vendor/b.ts', 'vendor/c.ts', 'src/d.ts', 'guide/e.md', 'top.txt'].map(w).join('\n'))
     const result = await call(ctx, 'glob', { pattern: '*' }, { agent: agent('/w') })
-    expect(text(result)).toBe('vendor/a.ts\nsrc/d.ts\nguide/e.md\n\n'
+    expect(text(result)).toBe(['vendor/a.ts', 'src/d.ts', 'guide/e.md'].map(w).join('\n') + '\n\n'
       + '(Showing 3 of 6 paths, sampled across 3 of the 4 top-level entries this pattern matched '
       + 'instead of taken in modification-time order. Narrow path to inspect a specific subtree. '
       + 'The complete result could not be saved; narrow pattern or path to see more.)')
@@ -792,9 +799,9 @@ describe('glob results', () => {
       'workspace/vendor/b.ts',
       'workspace/source/c.ts',
       'workspace/guides/d.md',
-    ].join('\n'))
-    const result = await call(ctx, 'glob', { pattern: '*', path: 'workspace' }, { agent: agent('/w') })
-    expect(text(result)).toContain('workspace/vendor/a.ts\nworkspace/source/c.ts\nworkspace/guides/d.md')
+    ].map(w).join('\n'))
+    const result = await call(ctx, 'glob', { pattern: '*', path: w('workspace') }, { agent: agent('/w') })
+    expect(text(result)).toContain(['workspace/vendor/a.ts', 'workspace/source/c.ts', 'workspace/guides/d.md'].map(w).join('\n'))
     expect(text(result)).toContain('sampled across 3 of the 3 top-level entries')
   })
 
@@ -805,17 +812,17 @@ describe('glob results', () => {
       '/w/workspace/vendor/b.ts',
       '/w/workspace/source/c.ts',
       '/w/workspace/guides/d.md',
-    ].join('\n'))
-    const result = await call(ctx, 'glob', { pattern: '*', path: '/w/workspace' }, { agent: agent('/w') })
-    expect(text(result)).toContain('workspace/vendor/a.ts\nworkspace/source/c.ts\nworkspace/guides/d.md')
+    ].map(w).join('\n'))
+    const result = await call(ctx, 'glob', { pattern: '*', path: w('/w/workspace') }, { agent: agent(w('/w')) })
+    expect(text(result)).toContain(['workspace/vendor/a.ts', 'workspace/source/c.ts', 'workspace/guides/d.md'].map(w).join('\n'))
     expect(text(result)).toContain('sampled across 3 of the 3 top-level entries')
   })
 
   it('drops the narrowing hint when the sample reaches every top-level entry', async () => {
     const { ctx, subprocess } = await setup({ config: { globMaxResults: 3 } })
-    subprocess.handler = () => runResult(['vendor/a.ts', 'vendor/b.ts', 'vendor/c.ts', 'src/d.ts'].join('\n'))
+    subprocess.handler = () => runResult(['vendor/a.ts', 'vendor/b.ts', 'vendor/c.ts', 'src/d.ts'].map(w).join('\n'))
     expect(text(await call(ctx, 'glob', { pattern: '*' }, { agent: agent('/w') })))
-      .toBe('vendor/a.ts\nvendor/b.ts\nsrc/d.ts\n\n'
+      .toBe(['vendor/a.ts', 'vendor/b.ts', 'src/d.ts'].map(w).join('\n') + '\n\n'
         + '(Showing 3 of 4 paths, sampled across 2 of the 2 top-level entries this pattern matched '
         + 'instead of taken in modification-time order. '
         + 'The complete result could not be saved; narrow pattern or path to see more.)')

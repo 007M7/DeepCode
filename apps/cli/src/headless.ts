@@ -78,6 +78,7 @@ export async function runHeadless(task: string): Promise<void> {
     configPath: fileURLToPath(new URL('../config/base.cordis.yml', import.meta.url)),
     overlayPath: fileURLToPath(new URL('../config/web.cordis.yml', import.meta.url)),
     dev: false,
+    watchPersonalConfig: false,
     port: 0,
   })
   const { ctx, port } = await entry.run()

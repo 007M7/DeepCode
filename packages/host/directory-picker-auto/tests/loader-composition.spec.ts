@@ -167,7 +167,7 @@ describe('real Loader composition', () => {
     const { ctx, configPath } = await loadComposition('127.0.0.1')
 
     const backendEntry = [...ctx.loader.entries()].find(entry => entry.options.name === NATIVE)!
-    ctx.loader.remove(backendEntry.id)
+    await ctx.loader.remove(backendEntry.id)
     const autoEntry = [...ctx.loader.entries()].find(entry => entry.options.name === AUTO)!
     await expect(autoEntry.fiber!.dispose()).resolves.not.toThrow()
     expect(entryNames(ctx)).not.toContain(NATIVE)
