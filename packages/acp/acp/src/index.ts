@@ -368,7 +368,15 @@ export function apply(ctx: Context, config: AcpConfig): void {
         if (result.status === 'rejected') failures.push(result.reason as unknown)
       }
       if (failures.length > 0) {
-        throw new AggregateError(failures, `ACP agent teardown failed for ${failures.length} session(s)`)
+        // The only production consumer logs this error through `String`, which
+        // renders the message alone — without the joined reasons, per-session
+        // disposal failures would vanish from operational logs. Join them like
+        // the subagent seam's own aggregate disposal messages.
+        const detail = failures.map(failure => String(failure)).join('; ')
+        throw new AggregateError(
+          failures,
+          `ACP agent teardown failed for ${failures.length} session(s): ${detail}`,
+        )
       }
     })()
     return quiescing

@@ -131,7 +131,8 @@ describe('ACP connection ownership', () => {
 
     releaseSecond.resolve(undefined)
     await vi.waitFor(() => {
-      expect(warnings.some(warning => warning.includes('ACP agent teardown failed for 1 session(s)'))).toBe(true)
+      expect(warnings.some(warning =>
+        warning.includes('ACP agent teardown failed for 1 session(s): Error: first session cleanup failed'))).toBe(true)
       expect(harness!.ctx.agents.get(SessionId(first.sessionId))).toBeUndefined()
       expect(harness!.ctx.agents.get(SessionId(second.sessionId))).toBeUndefined()
     })
