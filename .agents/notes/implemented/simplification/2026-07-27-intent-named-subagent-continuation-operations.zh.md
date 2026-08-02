@@ -18,7 +18,7 @@ Status: implemented
 
 调用方请求与提供方请求相互分离。`SubagentStartRequest` 只包含调用方提供的启动数据；`SubagentProviderStartRequest` 则加入由服务解析的继续执行状态。普通 `start()` 在分发给提供方之前会清除该状态。`SubagentProviderResumeRequest` 仍属于提供方 seam，但 `SubagentService.resume()` 不对外公开：继续执行管理器加载描述符、对 parent 进行鉴权，并调用由服务持有的私有提供方启动与恢复闭包。提供方分发仍会经过相同的功能检查和 run 生命周期观测，而无需将其变成调用方操作。
 
-`SessionStore.flush(session)` 返回 `Promise<boolean>`。至少一个作用域内的持久性监听器成功参与后，它解析为 `true`；监听器快照为空时解析为 `false`；所有监听器结算后，如有失败，则以注册顺序最靠前的监听器错误拒绝。普通检查点可以忽略该布尔值。可继续提供方在最终结果边界要求该值为 `true`，并将 `false` 或拒绝映射为 `DURABILITY_FAILED`。
+`SessionStore.flush(session)` 返回 `Promise<boolean>`。至少一个作用域内的持久性监听器成功参与后，它解析为 `true`；监听器快照为空时解析为 `false`；所有监听器结算后，如有失败，则以注册顺序最靠前的监听器错误拒绝。普通检查点可以忽略该布尔值。可继续提供方在最终结果边界要求该值为 `true`，并将 `false` 或拒绝映射为 `DURABILITY_FAILED`。**已被取代**：激活化记录 [2026-07-28-continuable-subagent-conversations](../feature/2026-07-28-continuable-subagent-conversations.zh.md) 规定延续管理器把最终 `flush()` 作为 best-effort 屏障并有意忽略布尔值——监听器参与度无法识别持久化后端；拒绝只记日志，不改变生命周期结果或宿主 drain 结果。
 
 ## 已考虑的替代方案
 
