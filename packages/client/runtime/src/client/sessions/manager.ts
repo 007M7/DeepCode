@@ -59,6 +59,8 @@ interface CatalogInflight {
   readonly promise: Promise<void>
   readonly expandableRows: Set<SessionId>
   readonly activityRows: Map<SessionId, 'running' | 'inactive'>
+  /** Removal-time invalidation replayed over the response this request predates. */
+  parentAvailableOverride: false | undefined
 }
 
 type SessionListMutation =
@@ -312,22 +314,26 @@ export class SessionManager {
       try {
         const { result } = await this.api.subagents.list({ parentSessionId })
         if (result.ok) {
+          const parentAvailable = this.catalogInflight.get(parentSessionId)?.parentAvailableOverride
+            ?? result.value.parentAvailable
           this.catalogs.set(parentSessionId, {
             ...result.value,
             entries: this.withCatalogMutations(result.value.entries, expandableRows, activityRows),
+            parentAvailable,
             state: 'ready',
             error: null,
           })
           for (const [childId, address] of this.addresses) {
             if (address.parentSessionId !== parentSessionId) continue
-            this.sessions.get(childId)?.handleSubagentParentAvailable(result.value.parentAvailable)
+            this.sessions.get(childId)?.handleSubagentParentAvailable(parentAvailable)
           }
         } else {
           this.catalogs.set(parentSessionId, {
             entries: this.withCatalogMutations(
               previous?.entries ?? [], expandableRows, activityRows,
             ),
-            parentAvailable: previous?.parentAvailable ?? false,
+            parentAvailable: this.catalogInflight.get(parentSessionId)?.parentAvailableOverride
+              ?? previous?.parentAvailable ?? false,
             state: 'error',
             error: result.error,
           })
@@ -338,7 +344,8 @@ export class SessionManager {
           entries: this.withCatalogMutations(
             previous?.entries ?? [], expandableRows, activityRows,
           ),
-          parentAvailable: previous?.parentAvailable ?? false,
+          parentAvailable: this.catalogInflight.get(parentSessionId)?.parentAvailableOverride
+            ?? previous?.parentAvailable ?? false,
           state: 'error',
           error: folded.ok ? null : folded.error,
         })
@@ -351,7 +358,12 @@ export class SessionManager {
         this.notifier.markDirty()
       }
     })()
-    this.catalogInflight.set(parentSessionId, { promise: operation, expandableRows, activityRows })
+    this.catalogInflight.set(parentSessionId, {
+      promise: operation,
+      expandableRows,
+      activityRows,
+      parentAvailableOverride: undefined,
+    })
     return operation
   }
 
@@ -690,9 +702,14 @@ export class SessionManager {
         if (!durableSubagent) this.projectionStores.delete(frame.sessionId)
         // A pull already in flight was requested before this removal and can
         // carry the pre-removal parentAvailable:true, which would resurrect
-        // the writable editor this invalidation just closed. Queue one
-        // trailing refresh so the post-removal host truth converges.
-        if (this.catalogInflight.has(frame.sessionId)) this.catalogStale.add(frame.sessionId)
+        // the writable editor this invalidation just closed. Replay false over
+        // that response and queue one trailing refresh so the post-removal
+        // host truth converges.
+        const inflightCatalog = this.catalogInflight.get(frame.sessionId)
+        if (inflightCatalog !== undefined) {
+          inflightCatalog.parentAvailableOverride = false
+          this.catalogStale.add(frame.sessionId)
+        }
         // The removed session can no longer be the delivery owner of its
         // catalog: invalidate availability immediately. Removal schedules no
         // catalog refresh, and without this an addressed child keeps a

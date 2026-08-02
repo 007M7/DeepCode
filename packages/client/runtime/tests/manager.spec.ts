@@ -588,7 +588,7 @@ describe('subagent catalogs', () => {
     }
   })
 
-  it('does not let a stale in-flight pull resurrect a removed parent\'s availability', async () => {
+  it('keeps removal invalidation across a stale success and failed trailing pull', async () => {
     const api = new FakeApiClient()
     const root = 'fk-root' as SessionId
     const child = () => ({
@@ -616,8 +616,16 @@ describe('subagent catalogs', () => {
     api.onSubagentList = () => trailing.promise
     mid.resolve(ok({ entries: [child()] as never[], parentAvailable: true }))
     await midRefresh
-    trailing.resolve(ok({ entries: [child()] as never[], parentAvailable: false }))
-    await trailing.promise
+    expect(manager.getListSnapshot().subagentsByParent[root]?.parentAvailable).toBe(false)
+    expect(manager.get(S2).getSnapshot().subagent).toMatchObject({ parentAvailable: false })
+
+    trailing.resolve(err({ code: 'internal', message: 'trailing pull failed', details: {} }))
+    await vi.waitFor(() => {
+      expect(manager.getListSnapshot().subagentsByParent[root]).toMatchObject({
+        state: 'error',
+        parentAvailable: false,
+      })
+    })
 
     const rootCalls = api.callsOf('subagent.list')
       .filter(call => (call as { parentSessionId: SessionId }).parentSessionId === root)
