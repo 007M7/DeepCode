@@ -1,6 +1,6 @@
-// MessageItem: simple chat nodes — user bubble (right-aligned, with
-// clock + copy / branch IconActions), steering (same bubble, no actions),
-// context injection, compaction marker, retry disclosure, and
+// MessageItem: simple chat nodes — user and consumed-steering bubbles
+// (right-aligned, with clock + copy / branch IconActions), pending steering
+// (copy only), context injection, compaction marker, retry disclosure, and
 // unknown-surface JSON rows.
 
 import { memo, useEffect, useMemo, useState } from 'react'
@@ -167,19 +167,21 @@ function projectUserText(text: string): ReactNode {
   return <>{parts}</>
 }
 
-/** Right-aligned bubble shared by user and steering rows (steering has no actions). */
+/** Right-aligned bubble shared by user and steering rows. */
 function UserStyleBubble({
-  content, actions, t,
+  content, actions, pending = false, t,
 }: {
   content: readonly unknown[]
   /** Optional IconActions (or similar) below the bubble; receives the joined text. */
   actions?: (text: string) => ReactNode
+  /** Whether this is the Host-authoritative pre-admission steering projection. */
+  pending?: boolean
   t: ChatViewSlotProps['t']
 }): ReactNode {
   const { text, rest } = contentText(content)
   const truncated = (total: number): string => t('json.truncated', { total })
   return (
-    <div className={css.userRow}>
+    <div className={css.userRow} data-pending-steering={pending || undefined}>
       <div className={css.bubble}>
         {projectUserText(text)}
         {rest.map((block, i) => <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />)}
@@ -189,12 +191,41 @@ function UserStyleBubble({
   )
 }
 
+/**
+ * Render one Host-authoritative pending steering item with the same visual
+ * language as its eventual durable transcript node.
+ * @param props - Pending message content and conversation translator.
+ * @returns the pending steering bubble.
+ */
+export function PendingSteeringBubble({ content, t }: {
+  content: readonly unknown[]
+  t: ChatViewSlotProps['t']
+}): ReactNode {
+  return (
+    <UserStyleBubble
+      content={content}
+      pending
+      t={t}
+      actions={text => (
+        <MessageIconActions
+          text={text}
+          clock="start"
+          showBranch={false}
+          className={css.actions}
+          t={t}
+        />
+      )}
+    />
+  )
+}
+
 export const MessageItem = memo(function MessageItem({
   node, retryActive = false, onFork, t,
 }: MessageItemProps) {
   const truncated = (total: number): string => t('json.truncated', { total })
   switch (node.kind) {
     case 'user':
+    case 'steering':
       return (
         <UserStyleBubble
           content={node.content}
@@ -211,8 +242,6 @@ export const MessageItem = memo(function MessageItem({
           )}
         />
       )
-    case 'steering':
-      return <UserStyleBubble content={node.content} t={t} />
     case 'context':
       return (
         <ContextInjectionRow content={node.content} source={node.source} t={t} />

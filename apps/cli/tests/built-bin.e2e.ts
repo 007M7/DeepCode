@@ -94,6 +94,13 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       expect(stdout).toContain('model: deepseek-v4-pro')
       expect(stdout).toContain('cwd: !!js process.cwd()')
       expect(stdout).toContain("name: '@deepseek-ai/dsh-tui'")
+      expect(stdout).toContain([
+        '- id: tool-web',
+        "  name: '@deepseek-ai/dsh-tool-web'",
+        '  config:',
+        '    fetch: false',
+        '    searchTimeoutMs: 60000',
+      ].join('\n'))
       // Provenance comment separators name each section's source file.
       expect(stdout).toContain('# == base.cordis.yml')
       expect(stdout).toContain('# == base.cordis.yml, patched by tui.cordis.yml')

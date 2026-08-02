@@ -37,6 +37,7 @@ async function bench() {
   await runtime.root.declare({
     'conversation': { kind: 'single', scope: 'session-maybe' },
     'details': { kind: 'single', scope: 'session' },
+    'settings.general.item': { kind: 'list', scope: 'root' },
   }, (_p: { renderSlot?: unknown }) => null)
 
   const feature = await runtime.mount({ inject: [...inject], apply })
@@ -85,6 +86,7 @@ describe('apply wiring', () => {
     // The hero workspace picker hole rides the conversation entry's children
     // declaration (the empty-state occupant is gone).
     expect(b.slots.spec('conversation.hero.workspace')).toEqual({ kind: 'single', scope: 'root' })
+    expect(b.slots.entries('settings.general.item').map(entry => entry.options.id)).toEqual(['composer-enter'])
     await b.runtime.dispose()
   })
 
@@ -112,6 +114,7 @@ describe('apply wiring', () => {
     expect(b.slots.entries('conversation.chat.toolview')).toHaveLength(0)
     expect(b.slots.spec('conversation.chat.toolview')).toBeUndefined()
     expect(b.slots.entries('details')).toHaveLength(0)
+    expect(b.slots.entries('settings.general.item')).toHaveLength(0)
     expect(b.runtime.ctx.get('conversation')).toBeUndefined()
     await b.runtime.dispose()
   })

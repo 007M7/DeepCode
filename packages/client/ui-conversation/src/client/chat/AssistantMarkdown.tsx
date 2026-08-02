@@ -39,6 +39,13 @@ function firstLine(text: string): string {
   return nl === -1 ? text : text.slice(0, nl)
 }
 
+/** Latest non-blank reasoning line while the block is still streaming. */
+function latestLine(text: string): string {
+  const visible = text.trimEnd()
+  const nl = visible.lastIndexOf('\n')
+  return nl === -1 ? visible : visible.slice(nl + 1)
+}
+
 /** Joined text blocks for the copy action (reasoning / tool heads stay out). */
 function copyText(blocks: readonly AssistantBlock[]): string {
   const parts: string[] = []
@@ -61,7 +68,7 @@ function ThinkRow({ text, running, t }: { text: string; running: boolean; t: Ass
       variant="think"
       icon={<IconThinkOutline14 size={14} />}
       title="Think"
-      summary={firstLine(text)}
+      summary={running ? latestLine(text) : firstLine(text)}
       body={text}
       state={running ? 'running' : 'ok'}
     />

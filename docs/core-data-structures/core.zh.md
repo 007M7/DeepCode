@@ -524,11 +524,12 @@ interface InboxItem {
 type InboxAction =
   | { readonly kind: 'edit'; readonly content: ContentBlock[] }
   | { readonly kind: 'remove' }
+  | { readonly kind: 'steer' }
 ```
 
 ```ts type-equiv
 /** Result of applying an inbox action at the synchronous ownership boundary. */
-type InboxActionResult = 'applied' | 'not-found'
+type InboxActionResult = 'applied' | 'not-found' | 'steer-unavailable'
 ```
 
 ```ts type-equiv
@@ -554,7 +555,7 @@ interface SendOptions {
 }
 ```
 
-固定预设的别名方法自带 `target` 与 `wakeup`；其已有标识的 `UserMessage` 会携带角色、内容与 provenance。编辑替换消息内容时，其 `MessageId` 保持稳定；外层 `InboxItemId` 则在 `agent/inbox/enqueue`、`agent/inbox/update` 及终态 dequeue 或 discard 之间标识同一次入队。注入绕过两个 FIFO，从不出现在这些事件中。
+固定预设的别名方法自带 `target` 与 `wakeup`；其已有标识的 `UserMessage` 会携带角色、内容与 provenance。编辑替换内容或严格 steering（中途引导）转移不可变消息时，其 `MessageId` 都保持稳定。原 queued 单次入队项会结束，严格 steering 则接受一个具有不同 `InboxItemId` 的新 steering 单次入队项。注入绕过两个 FIFO，从不出现在 inbox 生命周期事件中。
 
 ```ts type-equiv
 /** Options for {@link Agent.cancel}. */
@@ -641,10 +642,13 @@ interface Agent {
   /**
    * Mutate one still-pending queued occurrence synchronously. Editing preserves
    * the message identity and queue position; removal publishes its terminal
-   * discard. Steering occurrences and driver-claimed items return `not-found`.
+   * discard. Steer strictly transfers the message into the current next-step
+   * window, or returns `steer-unavailable` without changing the queued
+   * occurrence. Steering occurrences and driver-claimed items return
+   * `not-found`.
    * @param id - independently addressable queued occurrence.
-   * @param action - edit or remove operation.
-   * @returns whether the pending occurrence was found and updated.
+   * @param action - edit, remove, or strict steer operation.
+   * @returns the applied outcome or the reason no mutation occurred.
    */
   updateInbox(id: InboxItemId, action: InboxAction): InboxActionResult
 
