@@ -20,6 +20,7 @@ import type {
   Agent,
   AgentHandle,
   AgentOptions,
+  AgentSetupCommit,
   CreateAgentOptions,
 } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
@@ -799,19 +800,9 @@ export class SubagentContinuationManager {
     // `AgentRegistry.enter()` is the authoritative collision boundary for an id
     // some other owner holds — a duplicate would reject there with rollback.
     inputs.signal.throwIfAborted()
-    const setup = (childCtx: Context): void => {
+    const setup = (childCtx: Context): AgentSetupCommit => {
       applyChildComposition(childCtx, inputs.composition)
-      const setupTransaction = this.setupRegistry.apply(childCtx)
-      // Validate and freeze the batch inside the creation callback, before the
-      // factory can publish the session: a revoked contribution must reject
-      // the create/resume call pre-publication, so no persisted session is
-      // ever left behind for a child the manager rejects — rollback only
-      // disposes the live handle, and the persistence seam has no delete, so
-      // a post-publication rejection would leave a resumable ghost child.
-      // Committing here also means a later contribution removal releases the
-      // installation instead of invalidating a child already being established.
-      setupTransaction.assertIntact()
-      setupTransaction.commit()
+      return this.setupRegistry.apply(childCtx)
     }
     const observer = this.host.observeActivation(provider, childId, parent)
     const { create } = inputs
@@ -867,9 +858,8 @@ export class SubagentContinuationManager {
         for (const item of items) activation.accepted.delete(item.message.id)
         this.wake(activation)
       })
-      // Setup already validated and committed inside the creation callback;
-      // revocations from here on are immediate live revocation, never
-      // creation invalidation.
+      // Agent creation committed setup at its publication boundary;
+      // revocations from here on are immediate live revocation.
       // Publish the start edge before any turn can run, so observers see this
       // epoch before its first request.
       observer.start(handle.agent)

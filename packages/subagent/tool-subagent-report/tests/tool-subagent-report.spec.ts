@@ -350,6 +350,34 @@ describe('dsh-tool-subagent-report', () => {
     expect(ctx.agents.list().map(agent => agent.id)).toEqual([parent.id])
   })
 
+  it('rolls back materialization when setup revocation lands before publication', async () => {
+    const { ctx, parent } = await setup({ load: false })
+    const self: { revoke?: () => void } = {}
+    let installed = false
+    self.revoke = ctx.subagents.registerContinuableSetup(() => {
+      installed = true
+      queueMicrotask(() => { self.revoke?.() })
+      return () => { installed = false }
+    })
+    const announced: SessionId[] = []
+    const removeListener = ctx.on('session/created', (session) => { announced.push(session.id) })
+
+    await expect(ctx.subagents.startContinuable({
+      provider: 'spawn',
+      label: 'revoked child',
+      request: {
+        prompt: [{ type: 'text', text: 'revoked child' }],
+        parent,
+      },
+      signal: testSignal,
+    })).rejects.toMatchObject({ code: 'ACTIVATION_SETUP_REVOKED' })
+    removeListener()
+    expect(installed).toBe(false)
+    expect(announced).toEqual([])
+    expect(ctx.agents.list().map(agent => agent.id)).toEqual([parent.id])
+    expect(ctx.sessions.list()).toEqual([parent.session])
+  })
+
   it('accepts a report into a host-disposing but still-registered parent', async () => {
     const { ctx } = await setup()
     const parentHandle = await ctx.agents.create({

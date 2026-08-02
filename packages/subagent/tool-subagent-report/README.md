@@ -58,7 +58,6 @@ Append-only; the report follows the parent's reusable request prefix. Waking del
 
 ## Known Limitations and Deferred Work
 
-- **Setup revocation can follow lower-level Session publication** — the final revocation check runs after `ctx.agents.create()` or `ctx.agents.resume()` returns, by which point that call has already published its Agent and Session. Revocation in this window rolls back the handle and prevents the subagent Activation start edge, but may leave a persisted Session. Closing this gap requires a future Agent-creation setup transaction seam before lower-level publication.
 - **A parent whose host-owned disposal already started can still accept** — `AgentHandle.dispose()` cancels, awaits quiescence, and only then unwinds the scope and leaves the registry; it exposes no signal for "disposal started." A report accepted in that window is appended to the parent's transcript, but that parent will not act on it in this process. A continuation-manager-owned parent rejects forest teardown through the manager's admission boundary.
 - **Acceptance is weaker than durable delivery** — there is no durable mailbox, idempotency key, delivery receipt, retry protocol, or exactly-once claim. A process failure after one side recorded acceptance leaves the outcome ambiguous, and an external retry may duplicate the report.
 - **A staged quiet report is not immediately reconstructable** — acceptance returns its stable `MessageId`, but the parent Session reconstructs the framed content only after pending context reaches its ordinary log boundary.
