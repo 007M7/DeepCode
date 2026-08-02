@@ -1,5 +1,6 @@
 - banner:
-  - heading "workspace" [level=1]
+  - navigation "Session hierarchy":
+    - button "workspace" [disabled]
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"

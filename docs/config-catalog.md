@@ -27,7 +27,7 @@ export interface AcpConfig {
 
 Depends on: `Stream` (`@agentclientprotocol/sdk`)
 
-Source: [`packages/acp/acp/src/index.ts:57`](../packages/acp/acp/src/index.ts)
+Source: [`packages/acp/acp/src/index.ts:70`](../packages/acp/acp/src/index.ts)
 
 ## `@deepseek-ai/dsh-acp-demo`
 
@@ -503,7 +503,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/hooks/hooks-claude/src/index.ts:46`](../packages/hooks/hooks-claude/src/index.ts)
+Source: [`packages/hooks/hooks-claude/src/index.ts:45`](../packages/hooks/hooks-claude/src/index.ts)
 
 ## `@deepseek-ai/dsh-hooks-codex`
 
@@ -532,7 +532,7 @@ Source: [`packages/hooks/hooks-codex/src/index.ts:44`](../packages/hooks/hooks-c
 
 ## `@deepseek-ai/dsh-host-apiproxy`
 
-Requires: `agents` · `directoryPicker` · `llm` · `sessions` · `tools` · `userInteraction` · `workspace`
+Requires: `agents` · `directoryPicker` · `llm` · `sessions` · `subagents` · `sessionQuery` · `tools` · `userInteraction` · `workspace`
 
 ```ts config-catalog
 /** Gateway plugin config: host-level agent routing and Workspace creation root. */
@@ -867,7 +867,7 @@ export interface StreamableHttpConfig {
 }
 ```
 
-Source: [`packages/mcp/mcp-client/src/index.ts:93`](../packages/mcp/mcp-client/src/index.ts)
+Source: [`packages/mcp/mcp-client/src/index.ts:96`](../packages/mcp/mcp-client/src/index.ts)
 
 ## `@deepseek-ai/dsh-permission`
 
@@ -994,6 +994,22 @@ export interface Config {
 ```
 
 Source: [`packages/guard/repeat-tool-guard/src/index.ts:28`](../packages/guard/repeat-tool-guard/src/index.ts)
+
+## `@deepseek-ai/dsh-repository-plugin`
+
+Requires: `loader`
+
+```ts config-catalog
+/** Repository Plugin runtime and source-list configuration. */
+export interface Config {
+  /** GitHub repository sources with explicit refs and optional `.dsh-plugin` subpaths. */
+  repositories?: string[]
+  /** Persistent generation cache; defaults to `$DSH_HOME/cache/repository-plugins`. */
+  cacheDir?: string
+}
+```
+
+Source: [`packages/cordis/repository-plugin/src/index.ts:42`](../packages/cordis/repository-plugin/src/index.ts)
 
 ## `@deepseek-ai/dsh-sandbox-local`
 
@@ -1312,6 +1328,10 @@ Requires: `skills`
 ```ts config-catalog
 /** Local filesystem skill provider configuration. */
 export interface Config {
+  /** Unique provider name. Defaults to `local`. */
+  providerName?: string
+  /** Whether project and user roots are included around custom roots. */
+  includeDefaultRoots?: boolean
   /** DeepSeek Harness config root. Defaults to `$DSH_HOME` or `~/.dsh`. */
   dshHome?: string
   /** Shared agent config root. Defaults to `$DSH_AGENTS_HOME` or `~/.agents`. */
@@ -1330,7 +1350,7 @@ export interface Config {
   watchMaxProjects?: number
   /** Whether watched symbolic links follow their target files. */
   watchFollowSymlinks?: boolean
-  /** Bundled skill root; defaults to `$DSH_BUNDLED_SKILL_DIR`, otherwise mounts none. */
+  /** Bundled skill root; defaults to `$DSH_BUNDLED_SKILL_DIR` when default roots are included, otherwise mounts none. */
   bundledSkillDir?: string
 }
 ```
@@ -1497,7 +1517,7 @@ export interface Config {
 export type PermissionPolicy = 'allow' | 'reject'
 ```
 
-Source: [`packages/subagent/subagent-acp/src/index.ts:21`](../packages/subagent/subagent-acp/src/index.ts)
+Source: [`packages/subagent/subagent-acp/src/index.ts:26`](../packages/subagent/subagent-acp/src/index.ts)
 
 ## `@deepseek-ai/dsh-subagent-dsh-sdk`
 
@@ -1562,7 +1582,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/subagent/subagent-fork/src/index.ts:25`](../packages/subagent/subagent-fork/src/index.ts)
+Source: [`packages/subagent/subagent-fork/src/index.ts:31`](../packages/subagent/subagent-fork/src/index.ts)
 
 ## `@deepseek-ai/dsh-subagent-spawn`
 
@@ -1576,7 +1596,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/subagent/subagent-spawn/src/index.ts:20`](../packages/subagent/subagent-spawn/src/index.ts)
+Source: [`packages/subagent/subagent-spawn/src/index.ts:25`](../packages/subagent/subagent-spawn/src/index.ts)
 
 ## `@deepseek-ai/dsh-system-prompt`
 
@@ -1874,6 +1894,12 @@ export interface Config {
    */
   enableRunInBackground?: boolean
   /**
+   * Background execution policy (default `one-shot`). `continuable` requires a
+   * provider with the `prepareContinuable` capability and returns the durable
+   * child id; follow-up adapters remain independently optional.
+   */
+  backgroundMode?: 'one-shot' | 'continuable'
+  /**
    * Agent options applied to every child; omitted fields use child-loop defaults.
    */
   agentOptions?: AgentOptions
@@ -1908,7 +1934,26 @@ export interface Config {
 
 Depends on: [`AgentOptions`](core-data-structures/core.md)
 
-Source: [`packages/subagent/tool-subagent/src/index.ts:24`](../packages/subagent/tool-subagent/src/index.ts)
+Source: [`packages/subagent/tool-subagent/src/index.ts:25`](../packages/subagent/tool-subagent/src/index.ts)
+
+## `@deepseek-ai/dsh-tool-subagent-report`
+
+Requires: `subagents` · `tools`
+
+```ts config-catalog
+/** Config: how accepted reports are scheduled on the parent. */
+export interface Config {
+  /**
+   * Parent scheduling (default `quiet`). `quiet` adds context without waking;
+   * `wakeup` creates one ordinary later parent turn.
+   */
+  reportDelivery?: SubagentReportDelivery
+}
+```
+
+Depends on: [`SubagentReportDelivery`](core-data-structures/subagent.md)
+
+Source: [`packages/subagent/tool-subagent-report/src/index.ts:22`](../packages/subagent/tool-subagent-report/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-tasks`
 
@@ -2327,6 +2372,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-tasks-local` ([`packages/tasks/tasks-local/src/index.ts`](../packages/tasks/tasks-local/src/index.ts))
 - `@deepseek-ai/dsh-timeout-policy` — requires `tools` ([`packages/timeout/timeout-policy/src/index.ts`](../packages/timeout/timeout-policy/src/index.ts))
 - `@deepseek-ai/dsh-tool-ask-user` — requires `tools` · `userInteraction` ([`packages/ui/tool-ask-user/src/index.ts`](../packages/ui/tool-ask-user/src/index.ts))
+- `@deepseek-ai/dsh-tool-subagent-control` — requires `tools` · `subagents` ([`packages/subagent/tool-subagent-control/src/index.ts`](../packages/subagent/tool-subagent-control/src/index.ts))
 - `@deepseek-ai/dsh-tool-todo` — requires `tools` ([`packages/todo/tool-todo/src/index.ts`](../packages/todo/tool-todo/src/index.ts))
 - `@deepseek-ai/dsh-typert-registry` ([`packages/typert/registry/src/index.ts`](../packages/typert/registry/src/index.ts))
 - `@deepseek-ai/dsh-user-interaction` ([`packages/ui/user-interaction/src/index.ts`](../packages/ui/user-interaction/src/index.ts))

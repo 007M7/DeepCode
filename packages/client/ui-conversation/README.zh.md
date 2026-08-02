@@ -10,6 +10,8 @@
 
 视图环本身就是 slot：会话注册声明 `'conversation.view'` 列表 slot（Session scope），并将其列在 `children` 表中；ConversationRoot 通过 renderSlot share 渲染活跃配置项（`only: <active id>`）；视图标签页从环账本的注册选项（`id`／`order`／`label`）投影而来。聊天视图是该包（package）自身的环配置项；其他插件（ui-trajectory）通过普通的 `ctx.slots.register` 贡献标签页。先前包内的视图注册表（`registerView`／`ViewEntry`／`ConversationViewMap` 及 chrome 附加表）已退役，逐视图 chrome 则被拆入视图组件自身。
 
+会话页头会在标题旁声明并渲染 Session scope 的 `'conversation.session.header.actions'` 列表，使功能插件无需进入骨架即可贡献控件。编辑器链的 currency 包含当前对话 `session`；ui-subagent 会选取 one-shot 或 parent 不可用的已寻址会话，并按原因显示只读文案，而普通 InputBar 会让所有已寻址 child 仅保留 Send，因为继续执行服务不公开逐 Activation 取消操作，`session.cancel` 也会绕过其所有权。
+
 已记录的非用户消息渲染为默认折叠的 `上下文注入` 展开项。它通过包内部的 `DisclosureRow` 与 `ToolRow` 共享 Tool calls 标题栏的几何与交互，同时保留上下文语义：展开内容区的高度会随内容自适应，最大为 141px，超出后滚动，并以内联 JSON 展示 `content` 和 `source`，且不会合成工具状态、摘要或键控 toolview 分发（[决策](../../../.agents/notes/implemented/feature/2026-07-30-web-context-injection-disclosure.md)）。
 
 通用工具行把内置的 bash、read、search、write、edit 和 run_code 名称归入专用视觉变体。文件系统变体会渲染 edit 图标和路径摘要；该路径是悬停下划线链接，点击后通过宿主操作系统的默认应用打开文件（`host.openPath`，相对路径相对会话 cwd 解析）。工具行不再是整行点击目标，也不会打开 details 面板。code 变体以模型撰写的 `description` 作摘要，展开后显示程序本身；其已记录的子调用经由同一个键控 toolview 空位渲染为始终可见的嵌套行（自定义注册和 GenericToolCard fallback 原样适用于子行）。Cordis 生命周期工具复用这些通用变体，同时以统一的 Cordis 强调色呈现 `Inspect`、`Mount temporary Plugin` 和 `Unmount temporary Plugin`；mount 行保留 code 变体的可展开源码渲染。

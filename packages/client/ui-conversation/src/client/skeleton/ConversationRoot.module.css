@@ -1,4 +1,4 @@
-/* Conversation column skeleton: header (session title + tabs) over the view
+/* Conversation column skeleton: header (breadcrumb row only for subagents not fork + tabs) over the view
    area, composer InputBar at the bottom. Column width/squeeze is layout's;
    this fills its cell. Figma: Header 39:27730 (83px two-row), tabs 13px with
    a 3px active bar. */
@@ -26,21 +26,62 @@
 .titleRow {
   display: flex;
   align-items: center;
+  gap: 10px;
   min-height: 32px;
 }
-
-.sessionTitle {
+.crumbs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   min-width: 0;
-  max-width: 100%;
   overflow: hidden;
-  margin: 0;
-  padding: 4px 8px;
+  white-space: nowrap;
+}
+
+.crumbSeg {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.crumbSep {
+  /* figma: "/" separators are 14px caption gray (75:7903), one tint lighter than crumb text. */
+  color: var(--dsw-alias-label-caption);
   font-size: 14px;
   line-height: 20px;
-  font-weight: 500;
-  color: var(--dsw-alias-label-primary);
+}
+
+.crumb {
+  max-width: 220px;
+  overflow: hidden;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-tertiary);
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
+}
+
+.crumb:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.crumbCurrent {
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+  cursor: default;
+}
+
+.headerActions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
 }
 
 /* figma Tab_Group 34:11441: 35px strip, gap 36, pad-left 8, tabs bottom-aligned. */

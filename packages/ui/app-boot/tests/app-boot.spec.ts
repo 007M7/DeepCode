@@ -325,6 +325,22 @@ describe('boot', () => {
     }
   })
 
+  it('disposes partial host setup and labels non-Error preparation failures', async () => {
+    const dir = tmp()
+    const failure = 42
+    let disposed = false
+    const task = boot(NAME, join(dir, 'cordis.yml'), undefined, (ctx) => {
+      ctx.effect(() => () => { disposed = true })
+      throw failure
+    })
+
+    await expect(task).rejects.toMatchObject({
+      message: `${NAME}: host preparation failed: ${failure}`,
+      cause: failure,
+    })
+    expect(disposed).toBe(true)
+  })
+
   it('exposes dshHomePath to Loader config expressions', async () => {
     const dir = tmp()
     const dshHome = join(dir, 'home')
@@ -375,7 +391,37 @@ describe('boot', () => {
   it('rejects (never exits 0 half-empty) when a config names a plugin that cannot be imported', async () => {
     const dir = tmp()
     writeFileSync(join(dir, 'cordis.yml'), '- id: ghost\n  name: ./missing.mjs\n')
-    await expect(boot(NAME, join(dir, 'cordis.yml'))).rejects.toThrow(`${NAME}: plugin(s) failed to load: ./missing.mjs`)
+    await expect(boot(NAME, join(dir, 'cordis.yml'))).rejects.toThrow(
+      `${NAME}: plugin tree failed to load: failed to apply loader entry`,
+    )
+  })
+
+  it('appends the deepest cause with its original stack to the load failure', async () => {
+    const dir = tmp()
+    writeFileSync(join(dir, 'failing.mjs'), [
+      'export function apply() {',
+      "  const failure = new Error('pinned activation failure')",
+      "  failure.stack = 'Error: pinned activation failure\\n    at failing-fixture'",
+      '  throw failure',
+      '}',
+      '',
+    ].join('\n'))
+    writeFileSync(join(dir, 'cordis.yml'), '- id: failing\n  name: ./failing.mjs\n')
+    await expect(boot(NAME, join(dir, 'cordis.yml'))).rejects.toThrow(new RegExp([
+      String.raw`failed to apply loader entry failing \(\./failing\.mjs\): pinned activation failure\n`,
+      String.raw`Error: pinned activation failure\n {4}at failing-fixture$`,
+    ].join('')))
+  })
+
+  it('falls back to the deepest cause message when its stack was erased', async () => {
+    const dir = tmp()
+    const deepest = new Error('stackless deep failure')
+    delete (deepest as { stack?: string }).stack
+    await expect(boot(NAME, join(dir, 'cordis.yml'), undefined, () => {
+      throw new Error('wrapped setup failure', { cause: deepest })
+    })).rejects.toThrow(
+      `${NAME}: host preparation failed: wrapped setup failure\nstackless deep failure`,
+    )
   })
 
   it('reports a pending real Loader fiber and the service unresolved in its own context', async () => {

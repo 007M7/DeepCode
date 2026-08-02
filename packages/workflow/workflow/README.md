@@ -34,7 +34,7 @@ Same-process event payloads are borrowed immutable values. Every listener is ind
 - `INVALID_ARGUMENT` / `UNSUPPORTED_OPTION` / `UNSUPPORTED_SCHEMA` — a hook call violates the engine contract.
 - `AGENT_CAP` / `ITEM_CAP` — configured safety limits were exceeded.
 - `AGENT_START` — the provider's async start rejected.
-- `AGENT_RESULT` — a ready child's result rejected with an infrastructure fault.
+- `AGENT_RESULT` — a published child's result rejected with an infrastructure fault.
 - `RESULT_UNSERIALIZABLE` — a script/worker value is not plain JSON data.
 - `CANCELLED` — cancellation owns the run and pending/future hooks reject.
 

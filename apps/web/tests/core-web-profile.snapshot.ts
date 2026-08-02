@@ -72,6 +72,7 @@ describe('core Web profile', () => {
         "tools": [
           "bash",
           "str_replace_editor",
+          "list_agents",
         ],
       }
     `)

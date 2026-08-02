@@ -78,6 +78,7 @@ const REPLAY_SCENARIOS: Scenario[] = [
     env: { DSH_PERMISSION_MODE: 'never' },
     configPath: AGENT.configPath,
     workspaceParent: tmpdir(),
+    pinsChildToolSchemas: [1],
     prepareWorkspace: (cwd) => {
       writeFileSync(join(cwd, 'seed.txt'), 'prepared at runtime')
     },
@@ -89,7 +90,7 @@ const REPLAY_SCENARIOS: Scenario[] = [
 
 const RECORD_SCENARIOS: Scenario[] = [
   { name: 'rec-pin', hasModelTurn: true, recorded: true, pinsHeader: true },
-  { name: 'rec-child', hasModelTurn: true, recorded: true },
+  { name: 'rec-child', hasModelTurn: true, recorded: true, pinsChildToolSchemas: [1] },
   // recorded:false in record mode → registered but skipped (never re-recorded).
   { name: 'rec-skip', hasModelTurn: true, recorded: false, overridden: true },
 ]
@@ -118,6 +119,7 @@ function staleRefreshFixtures(dir: string): void {
   writeFileSync(join(dir, 'plain-turn', 'stdout.expected.jsonl'), 'stale stdout\n')
   writeFileSync(join(dir, 'pin-turn', 'system-prompt.expected.md'), 'STALE PROMPT\n')
   writeFileSync(join(dir, 'pin-turn', 'tool-schemas.expected.json'), '{"initial":[{"name":"stale"}],"changes":[]}\n')
+  writeFileSync(join(dir, 'plain-turn', 'tool-schemas.1.expected.json'), '{"initial":[{"name":"stale-child"}],"changes":[]}\n')
 
   const plainBehaviorFile = join(dir, 'plain-turn', 'behavior.json')
   const plainBehavior = JSON.parse(readFileSync(plainBehaviorFile, 'utf8')) as Record<string, unknown>
@@ -180,6 +182,9 @@ describe('defineAcpSnapshotSuite: refresh write-back', () => {
     const schemas = readFileSync(join(refreshDir, 'pin-turn', 'tool-schemas.expected.json'), 'utf8')
     expect(schemas).toContain('"description": "D1"')
     expect(schemas).not.toContain('"name":"stale"')
+    const childSchemas = readFileSync(join(refreshDir, 'plain-turn', 'tool-schemas.1.expected.json'), 'utf8')
+    expect(childSchemas).toContain('"name": "child-only"')
+    expect(childSchemas).not.toContain('stale-child')
 
     const pinSession = readFileSync(join(refreshDir, 'pin-turn', 'session.jsonl'), 'utf8')
     expect(pinSession).toContain('"cwd":"{{cwd}}"')
@@ -192,6 +197,8 @@ describe('defineAcpSnapshotSuite: record inventory write-back', () => {
     expect(fixture).toContain('"type":"session"')
     expect(fixture).toContain('"cwd":"{{cwd}}"')
     expect(() => readFileSync(join(recordDir, 'rec-child', 'session.2.jsonl'), 'utf8')).toThrow()
+    expect(readFileSync(join(recordDir, 'rec-child', 'tool-schemas.1.expected.json'), 'utf8'))
+      .toContain('"name": "t1"')
   })
 })
 

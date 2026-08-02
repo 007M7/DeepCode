@@ -398,7 +398,9 @@ export class BasicCompactService extends CompactService {
         {
           owner: null,
           stability: 'selected-span',
-          flush: () => this.ctx.sessions.flush(agent.session),
+          flush: async () => {
+            await this.ctx.sessions.flush(agent.session)
+          },
         },
         signal,
       )

@@ -40,7 +40,7 @@ function stubAgent(ctx: Context, id: string): { agent: Agent; session: Session }
     send: () => {},
     updateInbox: () => 'not-found',
     followup: () => {},
-    steer: () => {},
+    steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
     inject(input) { appendInjection(session, input) },
     reserveTurnAdmission: () => undefined,
     cancel() { status = 'idle' },

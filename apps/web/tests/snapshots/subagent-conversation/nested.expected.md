@@ -1,0 +1,18 @@
+- banner:
+  - navigation "Session hierarchy":
+    - button "Ask a research subagent to"
+    - text: /
+    - button "event-sourcing researcher"
+    - text: /
+    - button "example editor" [disabled]
+  - tablist:
+    - tab "Chat" [selected]
+    - tab "Trajectory"
+- text: Give one concrete event sourcing example. {{clock}}
+- button "Copy":
+  - img
+- button "Branch into a new conversation":
+  - img
+- status:
+  - strong: 此子代理暂时只读
+  - text: 父会话当前不在线，重新打开父会话后即可继续发送消息。

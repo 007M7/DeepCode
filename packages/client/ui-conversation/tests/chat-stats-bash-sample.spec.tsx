@@ -34,7 +34,7 @@ function snapshotBase(): ConversationSnapshot {
   return {
     sessionId: SID, nodes: [], partial: null, runningCalls: [], codeDispatches: new Map(),
     pending: [], queue: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
-    hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
+    hasMore: false, loadingOlder: false, promptError: null, blank: false, subagent: null, lastAgentError: null,
   }
 }
 
@@ -248,6 +248,8 @@ describe('bash sample row', () => {
       },
       current: undefined,
       phase: 'ready',
+      subagentsByParent: {},
+      currentAddress: undefined,
     })
   }
 

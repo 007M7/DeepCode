@@ -7,7 +7,9 @@
  * so the host-reported current target is the single fact both surfaces echo
  * — a switch made in either entry is what the other shows next. Failures
  * ride each entry's own retry surface (popup shell error/retry; seat menu
- * inline error) without forking the state.
+ * inline error) without forking the state. Addressed subagent sessions expose
+ * neither entry because those Agent-bound RPCs would activate persisted
+ * history outside the direct-parent continuation seam.
  */
 import type { ModelTarget, SessionModels } from '@deepseek-ai/dsh-client-connection/client'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
@@ -119,14 +121,23 @@ export function apply(ctx: ClientContext): void {
   ctx.inject(['command', 'models'], (scope: ClientContext) => {
     const command = scope.get('command') as CommandServiceContract
     const models = scope.models
+    const sessions = scope.sessions
     scope.effect(() => command.register({
       name: 'model',
       description: t('command.description'),
-      available: () => true,
+      available: session => sessions.subagentAddress(session.sessionId) === undefined,
       ui: {
         kind: 'popupSelect',
-        options: async session => optionsOf(await models.directoryFor(session.sessionId).load(), t),
+        options: async (session) => {
+          if (sessions.subagentAddress(session.sessionId) !== undefined) {
+            throw new Error('model selection is unavailable for addressed subagent sessions')
+          }
+          return optionsOf(await models.directoryFor(session.sessionId).load(), t)
+        },
         onSelect: async (option, session) => {
+          if (sessions.subagentAddress(session.sessionId) !== undefined) {
+            throw new Error('model selection is unavailable for addressed subagent sessions')
+          }
           const directory = models.directoryFor(session.sessionId)
           const target = targetOf(directory.store.getSnapshot(), option.id)
           if (target === undefined) {
@@ -143,15 +154,22 @@ export function apply(ctx: ClientContext): void {
   // conversation service's presence is the registration-safe signal.
   ctx.inject(['slots', 'conversation', 'models'], (scope: ClientContext) => {
     const models = scope.models
+    const sessions = scope.sessions
     scope.effect(() => scope.slots.register({
       name: 'conversation.input.model',
       locale: NS,
       inject: (sessionId): ModelSelectInjected => {
         const directory = models.directoryFor(sessionId)
+        const available = sessions.subagentAddress(sessionId) === undefined
         return {
+          available,
           directory: directory.store,
-          load: () => { directory.load().catch(() => { /* surfaced on the store */ }) },
-          select: (target: ModelTarget) => directory.select(target).then(() => true, () => false),
+          load: () => {
+            if (available) directory.load().catch(() => { /* surfaced on the store */ })
+          },
+          select: (target: ModelTarget) => available
+            ? directory.select(target).then(() => true, () => false)
+            : Promise.resolve(false),
         }
       },
     }, ModelSelect), 'ui-model: composer model seat registration')

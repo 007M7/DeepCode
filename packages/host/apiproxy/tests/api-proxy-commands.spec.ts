@@ -99,6 +99,17 @@ describe('command.list', () => {
     expect(error.code).toBe('internal')
     expect(error.message).toContain('command registry')
   })
+
+  it('does not route a live subagent through the generic command domain', async () => {
+    const ctx = await harness()
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/proj', origin: 'subagent' } })
+    const agent = { id: session.id, session, status: 'idle', ctx } as Agent
+    ctx.agents.register(agent)
+    const api = createApiProxy(ctx, DEFAULTS)
+
+    const error = expectErr(await api.commands.list(request({ sessionId: agent.id })))
+    expect(error).toMatchObject({ code: 'agent-busy' })
+  })
 })
 
 describe('command.execute', () => {
@@ -142,7 +153,7 @@ describe('command.execute', () => {
     const api = createApiProxy(ctx, DEFAULTS)
     const missing = expectErr(await api.commands.execute(
       request({ sessionId: 'session-nope' as SessionId, line: '/x' }), new AbortController().signal))
-    expect(missing.code).toBe('internal') // no persistence configured: resume fails loud past the gate
+    expect(missing.code).toBe('internal') // Cold Agent-bound access fails loud when persistence is absent.
 
     const bare = await harness({ commands: false })
     const bareApi = createApiProxy(bare, DEFAULTS)

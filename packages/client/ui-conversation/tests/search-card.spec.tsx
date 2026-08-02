@@ -370,7 +370,10 @@ describe('DetailsPanel Output section (search)', () => {
     localStorage.clear()
     const chat = createChatStore().create()
     if (selection !== null) chat.actions.select(selection)
-    const sessions = createSnapshotStore<SessionListState>({ ids: [], byId: {}, current: undefined, phase: 'ready' })
+    const sessions = createSnapshotStore<SessionListState>({
+      ids: [], byId: {}, current: undefined, phase: 'ready',
+      subagentsByParent: {}, currentAddress: undefined,
+    })
     const workspaces = createSnapshotStore<WorkspaceListState>({
       items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
@@ -397,7 +400,7 @@ describe('DetailsPanel Output section (search)', () => {
       sessionId: SID, nodes: [], partial: null, runningCalls: [], codeDispatches: new Map(),
       pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
       openState: 'open', openError: null, hasMore: false, loadingOlder: false,
-      promptError: null, blank: false, lastAgentError: null, ...over,
+      promptError: null, blank: false, subagent: null, lastAgentError: null, ...over,
     }
   }
 

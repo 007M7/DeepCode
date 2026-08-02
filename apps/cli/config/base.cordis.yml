@@ -22,6 +22,13 @@
   config:
     root: ['.']
 
+# `$DSH_HOME/config.yaml` replaces this row's config to select exact GitHub
+# repository Plugin generations. The app registers the DSH-owned runtime even
+# when the list is empty so a later personal-config edit can load
+# transactionally; one-shot headless runs consume the startup value only.
+- id: repository-plugins
+  name: '@deepseek-ai/dsh-repository-plugin'
+
 - id: llm
   name: '@deepseek-ai/dsh-llm'
 
@@ -250,17 +257,31 @@
   config:
     providerName: fork
 
+# Continuable background children are selected per delegation tool. The
+# separately loaded follow-up tool registers the one global `send_message`.
+- id: tool-subagent-control
+  name: '@deepseek-ai/dsh-tool-subagent-control'
+
+- id: tool-subagent-list-agents
+  name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+
 - id: tool-subagent
   name: '@deepseek-ai/dsh-tool-subagent'
   config:
     provider: spawn
     toolName: subagent
+    backgroundMode: continuable
 
 - id: tool-subagent-fork
   name: '@deepseek-ai/dsh-tool-subagent'
   config:
     provider: fork
     toolName: subagent_fork
+    backgroundMode: continuable
+
+# Optional direct-child return channel; absent from roots and one-shot agents.
+- id: tool-subagent-report
+  name: '@deepseek-ai/dsh-tool-subagent-report'
 
 - id: workflow-workerthread
   name: '@deepseek-ai/dsh-workflow-workerthread'
@@ -308,12 +329,6 @@
   config:
     subagentProvider: spawn
     maxRounds: 64
-
-- id: tool-session-query
-  name: '@deepseek-ai/dsh-tool-session-query'
-  config:
-    maxSearchResults: 100
-    searchTimeoutMs: 30000
 
 - id: tool-str-replace-editor
   name: '@deepseek-ai/dsh-tool-str-replace-editor'
