@@ -6,7 +6,7 @@ English | [中文](2026-08-02-pwsh-tool-bash-parity.zh.md)
 
 ## Problem
 
-The first Windows-native foundation shipped `dsh-tool-pwsh` as a deliberately minimal profile — foreground only, no background tasks, no managed-environment parity beyond three hardcoded `DSH_*` keys, and a marker story ("always `[exit code: N]`") that diverged from the bash tool's rendering without being declared. Review of that change found the model-visible contract drifting from the implementation: the description promised spill-path reporting the renderer never performed, the README claimed exports that did not exist and rendering the tool did not do, and the tool's own tests pinned the lossy behavior. The minimal profile also left the `DSH_*` contributor seam duplicated-by-absence: plugins contributing environment facts to `ctx.bashEnv` had no effect on pwsh calls.
+The first Windows-native foundation shipped `dsh-tool-pwsh` as a deliberately minimal profile — foreground only (a fresh process per call; no persistent PTY session), no managed-environment parity beyond three hardcoded `DSH_*` keys, and a marker story ("always `[exit code: N]`") that diverged from the bash tool's rendering without being declared. Review of that change found the model-visible contract drifting from the implementation: the description promised spill-path reporting the renderer never performed, the README claimed exports that did not exist and rendering the tool did not do, and the tool's own tests pinned the lossy behavior. The minimal profile also left the `DSH_*` contributor seam duplicated-by-absence: plugins contributing environment facts to `ctx.bashEnv` had no effect on pwsh calls.
 
 ## Decision
 
