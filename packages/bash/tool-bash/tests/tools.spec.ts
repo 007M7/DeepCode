@@ -20,6 +20,7 @@ import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import SandboxPolicyService from '@deepseek-ai/dsh-sandbox-policy'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
+import * as BashEnvPlugin from '@deepseek-ai/dsh-bash-env'
 import { processOutcome } from '../src/background.ts'
 import { renderProcessRead, renderResult } from '../src/render.ts'
 
@@ -281,6 +282,7 @@ describe('bash tool', () => {
     await ctx.plugin(LocalSubprocessService)
     ;(ctx.subprocess as LocalSubprocessService).internals = { spillDir }
     await ctx.plugin(LocalBashExecutor, { maxOutputBytes: 100, graceMs: 200 })
+    await ctx.plugin(BashEnvPlugin)
     await ctx.plugin(ToolBash)
     const result = await call(ctx, 'bash', { command: 'for i in $(seq 1 100); do printf "line-%04d\\n" $i; done', description: 'test command' })
     expect(text(result)).toContain('[output truncated; full output: ')
@@ -403,6 +405,7 @@ describe('bash tool', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     // inject: ['tools', 'bash'] keeps the plugin pending until bash exists.
+    await ctx.plugin(BashEnvPlugin)
     await ctx.plugin(ToolBash)
     expect(ctx.tools.schemas()).toHaveLength(0)
     await ctx.plugin(LocalSubprocessService)
@@ -493,6 +496,7 @@ describe('background execution through the task runtime', () => {
     await ctx.plugin(LocalTaskService)
     await ctx.plugin(ToolTasks)
     await ctx.plugin(CountingStartExecutor)
+    await ctx.plugin(BashEnvPlugin)
     await ctx.plugin(ToolBash)
 
     const controller = new AbortController()
@@ -520,6 +524,7 @@ describe('background execution through the task runtime', () => {
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(LocalTaskService)
     await ctx.plugin(CountingStartExecutor)
+    await ctx.plugin(BashEnvPlugin)
     await ctx.plugin(ToolBash)
 
     const result = await call(ctx, 'bash', { command: 'sleep 60', description: 'test command', run_in_background: true })
@@ -534,6 +539,7 @@ describe('background execution through the task runtime', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(BashEnvPlugin)
     await ctx.plugin(LocalBashExecutor, {})
     await ctx.plugin(ToolBash, { enableRunInBackground: false })
 
@@ -568,6 +574,7 @@ describe('sandbox escalation through the generic task producer', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(RecordingSandboxExecutor)
+    await ctx.plugin(BashEnvPlugin)
     await expect(ctx.plugin(ToolBash)).rejects.toThrow('tool-bash: the mounted bash executor confines but ctx.sandboxPolicy is missing')
   })
 
@@ -1097,8 +1104,9 @@ describe('the model-facing bash tool builds its request from named args only (no
     }
     await ctx.plugin(LocalTaskService)
     await ctx.plugin(ToolTasks)
+    await ctx.plugin(BashEnvPlugin, { dshHome: recordingDshHome })
     await ctx.plugin(RecordingBashExecutor)
-    await ctx.plugin(ToolBash, { dshHome: recordingDshHome })
+    await ctx.plugin(ToolBash)
     return { ctx, bash: ctx.bash as RecordingBashExecutor }
   }
 
