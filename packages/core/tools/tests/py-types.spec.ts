@@ -471,16 +471,52 @@ describe('renderToolsSdkPy', () => {
 
   it('renders a deeply nested oneOf chain in linear time (no per-level re-materialization)', () => {
     // Each level is a two-branch oneOf whose first branch recurses; joining the
-    // accumulated union string at every level would be Theta(depth^2). The `+`
-    // (ConsString) concatenation keeps it linear, like the array arm.
-    const depth = 20000
+    // accumulated union string at every level would be Theta(depth^2). At this
+    // depth the quadratic path (~100,000^2 char copies) blows past vitest's 5s
+    // default, so this fails loud on a regression; the `+`/ConsString path is
+    // milliseconds. (Guard the depth explicitly so the assertions stay exact.)
+    const depth = 100000
     let deep: Record<string, unknown> = { type: 'string' }
     for (let i = 0; i < depth; i++) deep = { oneOf: [deep, { type: 'null' }] }
     const type = jsonSchemaToPy(deep)
-    // depth levels of ` | None` appended to the innermost `str`.
     expect(type.startsWith('str | None')).toBe(true)
     expect(type.endsWith(' | None')).toBe(true)
     expect(type.length).toBe('str'.length + ' | None'.length * depth)
+  })
+
+  it('names a deep oneOf-of-object chain in linear time (bounded propagated class names)', () => {
+    // Every level is a oneOf whose first branch is a closed empty object (a
+    // named TypedDict) and recurses. Propagating the full ancestor path as the
+    // class name and slicing it in allocateClassName at every level would be
+    // Theta(depth^2); childClassName caps the propagated base so it stays
+    // linear. The quadratic path at this depth exceeds the 5s default.
+    const depth = 60000
+    let deep: Record<string, unknown> = { type: 'object', additionalProperties: false, properties: {} }
+    for (let i = 0; i < depth; i++) {
+      deep = { oneOf: [deep, { type: 'null' }] }
+    }
+    const tool: ToolSdkSchema = { name: 'deep', description: 'Deep oneOf-object chain.', parameters: { type: 'object', additionalProperties: false, properties: { root: deep }, required: ['root'] }, output: { type: 'string' } }
+    const text = renderToolsSdkPy([tool])
+    // No emitted class name exceeds the cap (plus a short collision suffix).
+    const longest = [...text.matchAll(/^class (\w+)\(TypedDict\):/gm)].reduce((max, m) => Math.max(max, m[1]?.length ?? 0), 0)
+    expect(longest).toBeLessThanOrEqual(140)
+    expect(text).toContain('class Tools(Protocol):')
+  })
+
+  it('caps the class name for a tool whose name exceeds the base length limit', () => {
+    // The root class base is `${CamelCase(name)}Args`; a very long tool name
+    // makes it exceed MAX_CLASS_NAME_BASE, so allocateClassName caps it.
+    const longName = `x_${'a'.repeat(200)}`
+    const tool: ToolSdkSchema = {
+      name: longName,
+      description: 'Long name.',
+      parameters: { type: 'object', additionalProperties: false, properties: { f: { type: 'string' } }, required: ['f'] },
+      output: { type: 'string' },
+    }
+    const text = renderToolsSdkPy([tool])
+    const longest = [...text.matchAll(/^class (\w+)\(TypedDict\):/gm)].reduce((max, m) => Math.max(max, m[1]?.length ?? 0), 0)
+    expect(longest).toBeLessThanOrEqual(140)
+    expect(text).toContain('class Tools(Protocol):')
   })
 
   it('emits pass for a subscript-only tool set (comments are not statements)', () => {

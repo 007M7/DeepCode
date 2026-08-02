@@ -150,6 +150,19 @@ function allocateClassName(base: string, state: RenderState): string {
 }
 
 /**
+ * Append a child-name segment to a parent class-name base, capping the result
+ * at {@link MAX_CLASS_NAME_BASE}. Capping AT PROPAGATION (not only inside
+ * {@link allocateClassName}) keeps each level O(1): a deep `oneOf`- or
+ * object-chain would otherwise carry an ever-growing ConsString down the tree
+ * and re-materialize it (via `.length`/`.slice`) at every level — Θ(depth²).
+ * The bounded base plus the collision counter still yields unique names.
+ */
+function childClassName(base: string, segment: string): string {
+  const joined = `${base}${segment}`
+  return joined.length > MAX_CLASS_NAME_BASE ? joined.slice(0, MAX_CLASS_NAME_BASE) : joined
+}
+
+/**
  * Render one validated scalar as Python literal text (`True`/`False`,
  * JSON-quoted strings, bare numbers). `null` cannot reach here: the `null`
  * type renders directly as `None`, and the unified validator rejects a null
@@ -259,12 +272,12 @@ function renderType(schema: unknown, className: string, state: RenderState): str
           continue
         }
         if (frame.kind === 'oneOf') {
-          // Concatenate with `+` (not `Array.join`): V8 builds a lazy
-          // ConsString, so a deep oneOf chain materializes once at the root
-          // instead of re-materializing the accumulated string at every level
-          // (which `join` would, making it Θ(depth²)). This matches the array
-          // arm's template-literal laziness and ts-types' composable-document
-          // approach — the whole walk stays linear in schema depth.
+          // Concatenate incrementally (template literal, not `Array.join`): V8
+          // builds a lazy ConsString, so a deep oneOf chain materializes once
+          // at the root instead of re-materializing the accumulated string at
+          // every level (which `join` would, making it Θ(depth²)). This matches
+          // the array arm's template-literal laziness and ts-types' composable-
+          // document approach — the whole walk stays linear in schema depth.
           let union = ''
           for (const [index, childType] of frame.childTypes.entries()) {
             union = index === 0 ? childType : `${union} | ${childType}`
@@ -324,7 +337,7 @@ function renderType(schema: unknown, className: string, state: RenderState): str
       const node = frame.schema
       if (node.oneOf !== undefined) {
         frame.kind = 'oneOf'
-        frame.children = node.oneOf.map((branch, index) => ({ schema: branch, className: `${frame.className}${index + 1}` }))
+        frame.children = node.oneOf.map((branch, index) => ({ schema: branch, className: childClassName(frame.className, `${index + 1}`) }))
         continue
       }
       if (node.type === undefined) {
@@ -383,7 +396,7 @@ function renderType(schema: unknown, className: string, state: RenderState): str
           frame.entries = entries
           // frame.allocated was assigned two statements up; the ?? arm is for the type system only.
           /* v8 ignore next -- allocated is always set before children are built. */
-          frame.children = entries.map(([field, child]) => ({ schema: child, className: `${frame.allocated ?? ''}${camelCase(field)}` }))
+          frame.children = entries.map(([field, child]) => ({ schema: child, className: childClassName(frame.allocated ?? '', camelCase(field)) }))
           break
         }
         /* v8 ignore next 4 -- assertSupportedJsonSchema narrowed this closed type union. */
