@@ -1065,17 +1065,24 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     return inspected
   }
 
-  async function agentFor(sessionId: SessionId): Promise<{ agent: Agent } | { error: RpcError }> {
+  /**
+   * Resolve one live registered identity through the subagent-ownership
+   * fence: subagent-owned agents answer `agent-busy`, plain agents pass.
+   * Fences the live agent's own session rather than trusting a
+   * "registered ⇒ attached-store" invariant — a registered subagent whose
+   * session is ever absent from the attached store must still not be handed
+   * out through generic Host routing. `undefined` means no live agent.
+   */
+  function fencedLiveAgent(sessionId: SessionId): { agent: Agent } | { error: RpcError } | undefined {
     const live = ctx.agents.get(sessionId)
-    if (live !== undefined) {
-      // Fence the live agent's own session rather than trusting a
-      // "registered ⇒ attached-store" invariant: a registered subagent whose
-      // session is ever absent from the attached store must still not be
-      // handed out through generic Host routing (ensureSession's `.catch`
-      // already fences `live.session`; this is the same check on the fast path).
-      if (hasSubagentOwner(live.session, live)) return { error: subagentOwnershipError(sessionId) }
-      return { agent: live }
-    }
+    if (live === undefined) return undefined
+    if (hasSubagentOwner(live.session, live)) return { error: subagentOwnershipError(sessionId) }
+    return { agent: live }
+  }
+
+  async function agentFor(sessionId: SessionId): Promise<{ agent: Agent } | { error: RpcError }> {
+    const fenced = fencedLiveAgent(sessionId)
+    if (fenced !== undefined) return fenced
     const attached = ctx.sessions.get(sessionId)
     if (attached !== undefined && hasSubagentOwner(attached, undefined)) {
       return { error: subagentOwnershipError(sessionId) }
@@ -1119,11 +1126,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       // rejection falls through here. Mirror ensureSession's `.catch` in
       // full: classify a subagent-owned winner into the stable ownership
       // error, and hand a clean plain-agent winner straight back.
-      const live = ctx.agents.get(sessionId)
-      if (live !== undefined) {
-        if (hasSubagentOwner(live.session, live)) return { error: subagentOwnershipError(sessionId) }
-        return { agent: live }
-      }
+      const fenced = fencedLiveAgent(sessionId)
+      if (fenced !== undefined) return fenced
       const attached = ctx.sessions.get(sessionId)
       if (attached !== undefined && hasSubagentOwner(attached, undefined)) {
         return { error: subagentOwnershipError(sessionId) }
