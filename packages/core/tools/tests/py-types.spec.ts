@@ -217,6 +217,40 @@ describe('renderToolsSdkPy', () => {
     expect(text.indexOf('class WorkflowArgs(TypedDict):')).toBeLessThan(text.indexOf('class Tools(Protocol):'))
   })
 
+  it('renders a oneOf of object branches as a union of named TypedDicts declared before the parent', () => {
+    const tool: ToolSdkSchema = {
+      name: 'act',
+      description: 'Union output.',
+      parameters: { type: 'object', additionalProperties: false, properties: {} },
+      output: {
+        oneOf: [
+          { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean' } }, required: ['ok'] },
+          { type: 'object', additionalProperties: false, properties: { err: { type: 'string' } }, required: ['err'] },
+        ],
+      },
+    }
+    const text = renderToolsSdkPy([tool])
+    // Each object branch becomes its own named class (`${base}Output1/2`),
+    // declared before the protocol references the union.
+    expect(text).toContain('class ActOutput1(TypedDict):')
+    expect(text).toContain('class ActOutput2(TypedDict):')
+    expect(text).toContain('-> ActOutput1 | ActOutput2')
+    expect(text.indexOf('class ActOutput1(TypedDict):')).toBeLessThan(text.indexOf('class Tools(Protocol):'))
+    expect(text.indexOf('class ActOutput2(TypedDict):')).toBeLessThan(text.indexOf('class Tools(Protocol):'))
+  })
+
+  it('degrades a context-free oneOf of object branches to a union of dict[str, Any]', () => {
+    // jsonSchemaToPy has no naming context, so each object branch degrades
+    // rather than declaring a class.
+    const type = jsonSchemaToPy({
+      oneOf: [
+        { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean' } }, required: ['ok'] },
+        { type: 'string' },
+      ],
+    })
+    expect(type).toBe('dict[str, Any] | str')
+  })
+
   it('suffixes a counter when two tools CamelCase to the same class base', () => {
     const a: ToolSdkSchema = {
       name: 'my-tool',

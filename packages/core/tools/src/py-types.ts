@@ -154,7 +154,14 @@ function pyScalar(value: JsonSchemaScalar): string {
   return String(value)
 }
 
-/** Render a validated scalar `const`/`enum` as `Literal[...]`, falling back to the broad type. */
+/**
+ * Render a validated scalar `const`/`enum` as `Literal[...]`, falling back to
+ * the broad type. Deliberately deviates from PEP 586, which restricts `Literal`
+ * parameters to int/bool/str/bytes/enum/None: a number `const`/`enum` emits a
+ * float literal (`Literal[1.5]`) a strict checker would reject. Harmless here —
+ * the stub is advisory prompt text, only required to parse — and keeping the
+ * exact value communicates the constraint to the model.
+ */
 function renderConstrainedScalar(node: Record<string, unknown>, broad: string, state: RenderState): string {
   if (Object.hasOwn(node, 'const')) {
     state.typing.add('Literal')
