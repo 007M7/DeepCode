@@ -5,7 +5,6 @@
   ],
   "ignoreBinaries": [
     "bwrap",
-    "pwsh",
     "python3",
     "sandbox-exec",
     "taskkill"
