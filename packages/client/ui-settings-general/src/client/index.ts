@@ -7,7 +7,8 @@
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import { deferRegistration } from '@deepseek-ai/dsh-client-ui-slots'
-import { isLoopbackHostname, type ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
+import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
+import { isLoopbackHostname } from '@deepseek-ai/dsh-client-connection/loopback-hostname'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 // Type-only: pulls the shell's SlotMap merges (trigger/header/section/item).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
