@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type {
   SessionId, SessionListState, SessionSummary, SubagentCatalogSnapshot,
@@ -282,7 +282,12 @@ describe('SubagentCatalogAction', () => {
     render(<SubagentCatalogAction {...input} />)
     fireEvent.click(screen.getByRole('button', { name: /3 个子代理/ }))
 
-    expect(screen.getByRole('treeitem', { name: /running.*4\.6K tok · 1分10秒/ })).toBeTruthy()
+    const runningRow = screen.getByRole('treeitem', { name: /running.*4\.6K tok · 1分10秒/ })
+    const runningMetrics = within(runningRow)
+    const tokenMetric = runningMetrics.getByText('4.6K tok')
+    const durationMetric = runningMetrics.getByText('1分10秒')
+    expect(tokenMetric.parentElement).toBe(durationMetric.parentElement)
+    expect(tokenMetric.nextElementSibling).toBe(durationMetric)
     expect(screen.getByRole('treeitem', { name: /finished.*4\.6K tok · 1小时02分03秒/ })).toBeTruthy()
     expect(screen.getByRole('treeitem', { name: /interrupted.*4\.6K tok · 6秒/ })).toBeTruthy()
 

@@ -248,10 +248,15 @@ function CatalogRows({
           summary?.updatedAt,
           now,
         )
-        const metrics = [
-          totalTokens === undefined ? undefined : `${formatTokens(totalTokens)} tok`,
-          durationMs === undefined ? undefined : formatDuration(durationMs, t),
-        ].filter(value => value !== undefined).join(' · ')
+        const tokenMetric = totalTokens === undefined
+          ? undefined
+          : `${formatTokens(totalTokens)} tok`
+        const durationMetric = durationMs === undefined
+          ? undefined
+          : formatDuration(durationMs, t)
+        const metrics = [tokenMetric, durationMetric]
+          .filter(value => value !== undefined)
+          .join(' · ')
 
         const open = (): void => {
           openChild({ parentSessionId, childSessionId: entry.id, mode: entry.mode })
@@ -308,7 +313,12 @@ function CatalogRows({
                   <span className={css.label}>{label}</span>
                   <span className={css.summary}>{secondary}</span>
                 </span>
-                {metrics !== '' && <span className={css.metrics}>{metrics}</span>}
+                {metrics !== '' && (
+                  <span className={css.metrics}>
+                    {tokenMetric !== undefined && <span className={css.metricToken}>{tokenMetric}</span>}
+                    {durationMetric !== undefined && <span className={css.metricDuration}>{durationMetric}</span>}
+                  </span>
+                )}
               </div>
             </div>
             {isExpanded && !knownLeaf && (
