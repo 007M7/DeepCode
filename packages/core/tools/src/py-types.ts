@@ -259,7 +259,17 @@ function renderType(schema: unknown, className: string, state: RenderState): str
           continue
         }
         if (frame.kind === 'oneOf') {
-          finish(frame.childTypes.join(' | '))
+          // Concatenate with `+` (not `Array.join`): V8 builds a lazy
+          // ConsString, so a deep oneOf chain materializes once at the root
+          // instead of re-materializing the accumulated string at every level
+          // (which `join` would, making it Θ(depth²)). This matches the array
+          // arm's template-literal laziness and ts-types' composable-document
+          // approach — the whole walk stays linear in schema depth.
+          let union = ''
+          for (const [index, childType] of frame.childTypes.entries()) {
+            union = index === 0 ? childType : `${union} | ${childType}`
+          }
+          finish(union)
           continue
         }
         /* jscpd:ignore-end */

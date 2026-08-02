@@ -469,6 +469,20 @@ describe('renderToolsSdkPy', () => {
     expect(type.length).toBe('list['.length * 20000 + 'str'.length + ']'.repeat(20000).length)
   })
 
+  it('renders a deeply nested oneOf chain in linear time (no per-level re-materialization)', () => {
+    // Each level is a two-branch oneOf whose first branch recurses; joining the
+    // accumulated union string at every level would be Theta(depth^2). The `+`
+    // (ConsString) concatenation keeps it linear, like the array arm.
+    const depth = 20000
+    let deep: Record<string, unknown> = { type: 'string' }
+    for (let i = 0; i < depth; i++) deep = { oneOf: [deep, { type: 'null' }] }
+    const type = jsonSchemaToPy(deep)
+    // depth levels of ` | None` appended to the innermost `str`.
+    expect(type.startsWith('str | None')).toBe(true)
+    expect(type.endsWith(' | None')).toBe(true)
+    expect(type.length).toBe('str'.length + ' | None'.length * depth)
+  })
+
   it('emits pass for a subscript-only tool set (comments are not statements)', () => {
     const t: ToolSdkSchema = {
       name: 'my-exotic.tool',
