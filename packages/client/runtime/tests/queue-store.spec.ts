@@ -5,7 +5,8 @@
  */
 import { describe, expect, it } from 'vitest'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
+import type { ContentBlock, UserMessage } from '@deepseek-ai/dsh-llm/types'
+import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
   InboxItemId, MuxFrame, RpcId, SessionId,
 } from '@deepseek-ai/dsh-client-connection/client'
@@ -23,6 +24,7 @@ interface QueueFixture {
   body: string
   content?: ContentBlock[]
   placement?: 'queued' | 'steering'
+  message?: UserMessage
 }
 
 /** Build one authoritative queue snapshot. */
@@ -33,7 +35,7 @@ function queueFrame(items: QueueFixture[]): MuxFrame {
     items: items.map(item => ({
       id: iid(item.id),
       placement: item.placement ?? 'queued',
-      message: createUserMessage({
+      message: item.message ?? createUserMessage({
         content: item.content ?? text(item.body),
         source: { kind: 'user', rpcId: rid(`rpc-${item.id}`) } as never,
       }),
@@ -133,6 +135,40 @@ describe('queue snapshot intake', () => {
       { id: 'q-next', placement: 'queued', content: text('later') },
       { id: 's-now', placement: 'steering', content: text('interrupt now') },
     ])
+  })
+
+  it('hands off exactly one current occurrence when live steering becomes durable', async () => {
+    const session = makeSession()
+    await session.open()
+    const message = createUserMessage({
+      content: text('same message'),
+      source: { kind: 'user' },
+    })
+    session.handleMuxEnvelope(rid('env-same-id'), queueFrame([
+      { id: 's-first', body: '', placement: 'steering', message },
+      { id: 's-second', body: '', placement: 'steering', message },
+    ]))
+    const durable = {
+      seq: 0,
+      time: 1_700_000_000_000,
+      type: 'steering/message',
+      surfaceOp: 'append',
+      data: { turn: 1, message },
+    } as SessionEvent
+
+    session.handleMuxEnvelope(rid('env-durable'), {
+      type: 'session/event', sessionId: SID, event: durable,
+    })
+    expect(session.getSnapshot().queue.map(item => item.id)).toEqual(['s-second'])
+    expect(session.getSnapshot().nodes.filter(node => node.kind === 'steering')).toHaveLength(1)
+
+    session.handleMuxEnvelope(rid('env-reused-id'), queueFrame([
+      { id: 's-later', body: '', placement: 'steering', message },
+    ]))
+    session.handleMuxEnvelope(rid('env-replayed-durable'), {
+      type: 'session/event', sessionId: SID, event: durable,
+    })
+    expect(session.getSnapshot().queue.map(item => item.id)).toEqual(['s-later'])
   })
 })
 

@@ -25,6 +25,11 @@ const FIXTURE = join(SNAPSHOT_DIR, 'session.jsonl')
 const MID_EXPECTED = join(SNAPSHOT_DIR, 'mid-steer.expected.md')
 const SETTLED_EXPECTED = join(SNAPSHOT_DIR, 'settled.expected.md')
 const MODE = webSnapshotMode()
+// The question composer replaces the textarea, so fill → Queue row → Steer
+// must finish inside the first replay chunk window. At 15 ms that window is
+// shorter than Playwright's round trips; 100 ms supplies test-only headroom,
+// while larger values lengthen all three replay scenarios linearly.
+const REPLAY_PACE_MS = 100
 
 const PROMPT = 'Use the ask_user_question tool to ask me exactly one question with id "checkpoint", question "Ready to continue?", header "Checkpoint", and options labeled "Yes" and "No". After I answer, reply with one short sentence acknowledging my answer and stop.'
 const STEER = 'Interjection: include the word BANANA in your final reply.'
@@ -48,9 +53,9 @@ describe('web e2e: mid-turn steering lands durably and visibly', () => {
   const sessionEvents: SessionEvent[] = []
 
   beforeAll(async () => {
-    // The 100 ms replay pace is test-only headroom that keeps the Queue action
-    // available until the recorded question barrier arrives, not a product timing contract.
-    scaffold = await launchWebScaffold(MODE === 'record' ? {} : { replayFixture: FIXTURE, paceMs: 100 })
+    scaffold = await launchWebScaffold(MODE === 'record'
+      ? {}
+      : { replayFixture: FIXTURE, paceMs: REPLAY_PACE_MS })
     scaffold.ctx.on('session/event', (_session, event) => { sessionEvents.push(event) })
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
@@ -89,6 +94,8 @@ describe('web e2e: mid-turn steering lands durably and visibly', () => {
     await expect.poll(() => steerButton.isEnabled(), { timeout: 10_000 }).toBe(true)
     await steerButton.click({ timeout: 10_000 })
     const pendingSteering = page.locator('[data-pending-steering]').filter({ hasText: STEER })
+    // A timeout while the Queue row remains means strict steer lost to a
+    // closing window (`steer-unavailable`); inspect replay pacing first.
     await pendingSteering.waitFor({ timeout: 10_000 })
 
     // The blocked composer keeps steering pending long enough to observe the
@@ -158,7 +165,7 @@ describe('web e2e: composer shortcut steers directly', () => {
   const sessionEvents: SessionEvent[] = []
 
   beforeAll(async () => {
-    scaffold = await launchWebScaffold({ replayFixture: FIXTURE, paceMs: 100 })
+    scaffold = await launchWebScaffold({ replayFixture: FIXTURE, paceMs: REPLAY_PACE_MS })
     scaffold.ctx.on('session/event', (_session, event) => { sessionEvents.push(event) })
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
@@ -216,7 +223,7 @@ describe('web e2e: composer shortcut follows the swapped busy behavior', () => {
   const sessionEvents: SessionEvent[] = []
 
   beforeAll(async () => {
-    scaffold = await launchWebScaffold({ replayFixture: FIXTURE, paceMs: 100 })
+    scaffold = await launchWebScaffold({ replayFixture: FIXTURE, paceMs: REPLAY_PACE_MS })
     scaffold.ctx.on('session/event', (_session, event) => { sessionEvents.push(event) })
     browser = await chromium.launch()
     page = await newEnglishPage(browser)

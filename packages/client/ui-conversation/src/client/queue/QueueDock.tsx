@@ -32,6 +32,7 @@ export function QueueDock({ useSession, updateQueue, notify, t }: QueueDockProps
   const inbox = useSession(s => s.queue)
   const queue = useMemo(() => inbox.filter(row => row.placement === 'queued'), [inbox])
   const running = useSession(s => s.running)
+  const queueMutable = useSession(s => s.subagent === null)
   const [editing, setEditing] = useState<{ id: QueueItemId; text: string } | null>(null)
   const [busy, setBusy] = useState<QueueItemId | null>(null)
   const [collapsed, setCollapsed] = useState(true)
@@ -39,12 +40,12 @@ export function QueueDock({ useSession, updateQueue, notify, t }: QueueDockProps
 
   useEffect(() => {
     if (queue.length === 0 && !collapsed) setCollapsed(true)
-    if (editing !== null && !queue.some(row => row.id === editing.id)) setEditing(null)
-  }, [collapsed, editing, queue])
+    if (editing !== null && (!queueMutable || !queue.some(row => row.id === editing.id))) setEditing(null)
+  }, [collapsed, editing, queue, queueMutable])
 
   if (queue.length === 0) return null
 
-  const interactionActive = editing !== null || busy !== null
+  const interactionActive = queueMutable && (editing !== null || busy !== null)
   const expanded = !collapsed || interactionActive
   const listVisible = queue.length === 1 || expanded
 
@@ -116,7 +117,7 @@ export function QueueDock({ useSession, updateQueue, notify, t }: QueueDockProps
                   />
                 )
                 : <span className={css.preview}>{row.preview}</span>}
-              <div className={css.actions}>
+              {queueMutable && <div className={css.actions}>
                 {editing?.id === row.id
                   ? (
                     <>
@@ -190,7 +191,7 @@ export function QueueDock({ useSession, updateQueue, notify, t }: QueueDockProps
                       </button>
                     </>
                   )}
-              </div>
+              </div>}
             </li>
           ))}
         </ul>

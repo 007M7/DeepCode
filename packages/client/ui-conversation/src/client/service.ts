@@ -34,7 +34,7 @@ export interface IConversation {
    * Apply one edit, remove, or strict steer operation to a pending queue occurrence.
    * @param itemId - agent-owned inbox occurrence identity.
    * @param action - requested queue operation.
-   * @returns completion; business failures reject.
+   * @returns completion; converged strict-steer races resolve, while other failures reject.
    */
   updateQueue(itemId: QueueItemId, action: QueueAction): Promise<void>
   /**
@@ -82,6 +82,10 @@ export class ConversationService extends Service implements IConversation {
     const session = this.scopedSession('updateQueue')
     const result = await session.updateQueue(itemId, action)
     if (!result.ok) {
+      if (
+        action.kind === 'steer'
+        && (result.error.code === 'steer-unavailable' || result.error.code === 'queue-item-not-found')
+      ) return
       throw new Error(`conversation.updateQueue failed: ${result.error.code}: ${result.error.message}`)
     }
   }

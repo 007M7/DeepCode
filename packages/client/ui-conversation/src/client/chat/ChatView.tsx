@@ -249,10 +249,10 @@ export function ChatView({
   const selectedCallId = useStore(s => s.selection?.callId)
 
   const items = useMemo(() => deriveChatFlow(nodes), [nodes])
-  const pendingSteering = useMemo(() => {
-    const durable = new Set(nodes.flatMap(node => node.kind === 'steering' ? [node.messageId] : []))
-    return inbox.filter(item => item.placement === 'steering' && !durable.has(item.messageId))
-  }, [inbox, nodes])
+  const pendingSteering = useMemo(
+    () => inbox.filter(item => item.placement === 'steering'),
+    [inbox],
+  )
   const activeRetry = useMemo(() => activeRetrySeq(nodes, running), [nodes, running])
   // Only the last content assistant of each turn owns IconActions; mid-turn
   // text (before tools) omits `time` so AssistantMarkdown stays chrome-free.

@@ -305,11 +305,34 @@ describe('QueueDock', () => {
     expect(rendered.getByLabelText('插话发送').getAttribute('title')).toBe('仅运行中可插话发送')
   })
 
-  it('keeps the row and reports a strict steer race', async () => {
+  it('renders a session-backed subagent Queue without unsupported actions', () => {
+    const snap = {
+      ...snapshotWith([row('i-subagent', 'pending child follow-up')]),
+      subagent: {
+        address: {
+          parentSessionId: 'parent' as SessionId,
+          childSessionId: SID,
+          mode: 'continuable' as const,
+        },
+        parentAvailable: true,
+      },
+    }
+    const source = liveSession(snap)
+    const view = render(
+      <QueueDock {...kitFor(snap)} useSession={source.useSession} />,
+    )
+
+    expect(view.getByText('pending child follow-up')).toBeTruthy()
+    expect(view.queryByLabelText('编辑排队消息')).toBeNull()
+    expect(view.queryByLabelText('删除排队消息')).toBeNull()
+    expect(view.queryByLabelText('插话发送')).toBeNull()
+  })
+
+  it('keeps the row and reports a genuine steer failure', async () => {
     const snap = snapshotWith([row('i-steer-race', 'pending steer')])
     const source = liveSession(snap)
     const notify = vi.fn()
-    const updateQueue = vi.fn(() => Promise.reject(new Error('steer unavailable')))
+    const updateQueue = vi.fn(() => Promise.reject(new Error('transport failed')))
     const { getByLabelText, getByText } = render(
       <QueueDock {...kitFor(snap, { updateQueue, notify })} useSession={source.useSession} />,
     )
@@ -318,7 +341,7 @@ describe('QueueDock', () => {
     await waitFor(() => {
       expect(notify).toHaveBeenCalledWith(
         'error',
-        '插话失败：当前回复已结束，或这条消息已经开始发送。',
+        '插话发送失败，请重试。',
       )
     })
     expect(getByText('pending steer')).toBeTruthy()

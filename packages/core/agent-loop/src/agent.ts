@@ -264,7 +264,12 @@ export class ReactLoopAgent implements Agent {
           message: pending.item.message,
           placement: 'steering',
         })
-        this.outbox.push({ message: item.message, steering: true, item })
+        this.outbox.push({
+          message: item.message,
+          steering: true,
+          item,
+          ...pending.delivery === undefined ? {} : { delivery: pending.delivery },
+        })
         // Publish the replacement only after it is owned by the outbox. Its
         // enqueue precedes the old occurrence's discard so reentrant
         // cancellation can terminally account for both occurrences.

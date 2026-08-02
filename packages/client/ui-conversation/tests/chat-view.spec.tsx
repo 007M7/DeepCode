@@ -288,7 +288,7 @@ describe('ChatView', () => {
 
     act(() => {
       h.set({
-        queue: [queued, pending],
+        queue: [queued],
         nodes: [
           assistant(1, 'working'),
           {
@@ -306,9 +306,30 @@ describe('ChatView', () => {
     expect(branchButtons).toHaveLength(2)
     fireEvent.click(branchButtons[1]!)
     expect(h.forkAt).toHaveBeenCalledWith(2)
+  })
 
-    act(() => { h.set({ queue: [queued] }) })
-    expect(view.getAllByText('interrupt now')).toHaveLength(1)
+  it('keeps a later pending occurrence visible when it reuses a durable MessageId', () => {
+    const pending = {
+      id: 'steer-occurrence-later' as never,
+      messageId: 'shared-steer-message' as never,
+      placement: 'steering' as const,
+      content: [{ type: 'text' as const, text: 'same steering' }],
+      preview: 'same steering',
+      text: 'same steering',
+    }
+    const h = makeHarness({
+      queue: [pending],
+      nodes: [{
+        kind: 'steering', messageId: pending.messageId,
+        seq: 2, time: 2_000, turn: 1,
+        content: pending.content, source: null,
+      }],
+      running: true,
+    })
+    const view = render(<h.ChatView {...h.props} />)
+
+    expect(view.getAllByText('same steering')).toHaveLength(2)
+    expect(view.container.querySelectorAll('[data-pending-steering]')).toHaveLength(1)
   })
 
   it('animates only the latest unresolved model retry', () => {

@@ -179,8 +179,11 @@ describe('addressable inbox operations', () => {
 
     const idle = waitForIdle(ctx, agent)
     send(agent, 'open the turn')
+    const receipt = agent.steer(createUserMessage({
+      content: [{ type: 'text', text: 'steer this message' }],
+      source: { kind: 'user' },
+    }))
     await entered.promise
-    send(agent, 'steer this message')
     const queued = enqueued.find(item => inboxText(item) === 'steer this message')!
 
     expect(agent.updateInbox(queued.id, { kind: 'steer' })).toBe('applied')
@@ -194,6 +197,7 @@ describe('addressable inbox operations', () => {
     expect(agent.session.events.flatMap(event =>
       event.type === 'steering/message' ? [event.data.message] : [],
     )).toEqual([queued.message])
+    expect(await receipt.outcome).toEqual({ status: 'admitted', turn: 1, step: 1 })
     expect(agent.updateInbox(queued.id, { kind: 'steer' })).toBe('not-found')
   })
 

@@ -27,10 +27,15 @@ export class ComposerSubmissionPolicy {
    * Resolve one keyboard gesture without changing state.
    * @param running - whether the addressed agent currently reports busy.
    * @param gesture - plain Enter or the Cmd/Ctrl-accelerated chord.
-   * @returns Queue outside busy state; otherwise the preferred mode or its opposite.
+   * @param steeringAvailable - whether this session transport supports steering.
+   * @returns Queue outside steer-capable busy state; otherwise the preferred mode or its opposite.
    */
-  resolve(running: boolean, gesture: ComposerSubmitGesture): InputSubmitMode {
-    if (!running) return 'queue'
+  resolve(
+    running: boolean,
+    gesture: ComposerSubmitGesture,
+    steeringAvailable: boolean,
+  ): InputSubmitMode {
+    if (!running || !steeringAvailable) return 'queue'
     const preferred = this.busyEnter.getSnapshot()
     if (gesture === 'enter') return preferred
     return preferred === 'queue' ? 'steer' : 'queue'

@@ -108,8 +108,8 @@ function bench(over?: BenchOptions) {
     useInput: bindSnapshotSelector(shell.state),
     inputActions: shell.actions,
     keyboard: shell,
-    resolveSubmitMode: (running, gesture) => {
-      if (!running) return 'queue'
+    resolveSubmitMode: (running, gesture, steeringAvailable) => {
+      if (!running || !steeringAvailable) return 'queue'
       const preferred = over?.busyEnter ?? 'queue'
       return gesture === 'enter' ? preferred : preferred === 'queue' ? 'steer' : 'queue'
     },
@@ -269,6 +269,24 @@ describe('running and lock semantics (queue cut 1)', () => {
       },
     })
     expect(empty.button.disabled).toBe(true)
+  })
+
+  it('keeps both running subagent Enter gestures on Queue transport', () => {
+    const subagent = {
+      address: {
+        parentSessionId: 'parent' as SessionId,
+        childSessionId: SID,
+        mode: 'continuable' as const,
+      },
+      parentAvailable: true,
+    }
+    const plain = bench({ running: true, busyEnter: 'steer', draft: 'plain', subagent })
+    fireEvent.keyDown(plain.textarea, { key: 'Enter' })
+    expect(plain.sink).toHaveBeenCalledWith('plain', 'queue')
+
+    const accelerated = bench({ running: true, draft: 'accelerated', subagent })
+    fireEvent.keyDown(accelerated.textarea, { key: 'Enter', metaKey: true })
+    expect(accelerated.sink).toHaveBeenCalledWith('accelerated', 'queue')
   })
 
   it('disabled (session removed) locks the textarea and chrome', () => {

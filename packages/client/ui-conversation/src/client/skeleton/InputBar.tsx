@@ -181,7 +181,11 @@ export function InputBar({
     e.preventDefault()
     if (e.repeat) return // held-down Enter must not machine-gun sends
     if (locked || machineBusy) return
-    keyboard.submit(resolveSubmitMode(running, e.ctrlKey || e.metaKey ? 'accelerated' : 'enter'))
+    keyboard.submit(resolveSubmitMode(
+      running,
+      e.ctrlKey || e.metaKey ? 'accelerated' : 'enter',
+      subagent === null,
+    ))
   }
 
   const onChange = (e: ChangeEvent<HTMLTextAreaElement>): void => {

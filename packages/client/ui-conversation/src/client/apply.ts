@@ -222,7 +222,8 @@ export function apply(ctx: Context): void {
       if (sessionId === undefined) {
         return {
           keyboard: undefined,
-          resolveSubmitMode: (running, gesture) => submissionPolicy.resolve(running, gesture),
+          resolveSubmitMode: (running, gesture, steeringAvailable) =>
+            submissionPolicy.resolve(running, gesture, steeringAvailable),
           toggleCommandMenu: undefined,
           stop: undefined,
           command: undefined,
@@ -233,7 +234,8 @@ export function apply(ctx: Context): void {
       const slash = inputHub.slash(sessionId)
       return {
         keyboard: shell,
-        resolveSubmitMode: (running, gesture) => submissionPolicy.resolve(running, gesture),
+        resolveSubmitMode: (running, gesture, steeringAvailable) =>
+          submissionPolicy.resolve(running, gesture, steeringAvailable),
         toggleCommandMenu: slash === undefined
           ? undefined
           : (selection) => {
