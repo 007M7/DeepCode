@@ -1202,12 +1202,15 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           ? undefined
           : (await persistence.list()).find(header => header.id === sessionId)
         if (persistence !== undefined && stored !== undefined) {
-          if (stored.cwd !== cwd) {
-            throw new SessionCwdConflict(sessionId, cwd, stored.cwd)
-          }
           const inspected = await persistence.inspect(sessionId)
+          // Ownership first: explicit-id adoption of a session-backed
+          // subagent must answer `agent-busy` regardless of the requested
+          // cwd (the api/commands.ts contract), not a cwd conflict.
           if (hasSubagentOwner({ header: inspected.meta, events: inspected.events }, undefined)) {
             throw new SubagentSessionOwnership(sessionId)
+          }
+          if (inspected.meta.cwd !== cwd) {
+            throw new SessionCwdConflict(sessionId, cwd, inspected.meta.cwd)
           }
           return (await ctx.agents.resume({
             resumeSessionId: sessionId,
