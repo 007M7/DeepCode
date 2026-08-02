@@ -35,7 +35,7 @@ export const ENV_OVERRIDES = {
 } as const
 
 /**
- * UTF-8 I/O pinning prepended to every command. The subprocess collector
+ * UTF-8 output pinning prepended to every command. The subprocess collector
  * decodes output bytes as UTF-8, but Windows PowerShell 5.1 (the last-resort
  * executable fallback) writes the console/OEM code page by default, which
  * garbles non-ASCII output; pwsh 7 defaults to UTF-8 and is unaffected. The
@@ -67,8 +67,9 @@ export interface Config {
   graceMs?: number
   /**
    * Explicit pwsh executable. When omitted, well-known Windows install
-   * locations are probed first (PowerShell 7, then Windows PowerShell 5.1),
-   * falling back to a bare `pwsh` resolved through PATH.
+   * locations and PATH entries are probed in order (PowerShell 7 install,
+   * PATH entries such as the Microsoft Store install, then Windows
+   * PowerShell 5.1), falling back to a bare `pwsh` resolved through PATH.
    */
   pwshPath?: string
 }

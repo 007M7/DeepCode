@@ -28,7 +28,7 @@
 作为 `dsh-bash-local` 的 Windows 对应物，逐调用地镜像其语义：
 
 - **每次调用新建进程，无 shell 状态**——每次调用都是全新的非交互 `pwsh -Command`（确定性；不加载 profile 文件）。`-NoLogo -NoProfile -NonInteractive` 关闭启动横幅、profile 加载与会干扰工具输出的提示符。
-- **UTF-8 I/O 固定**——每条命令都先以 UTF-8 设置 `[Console]::OutputEncoding` 与 `$OutputEncoding`，因此 Windows PowerShell 5.1 兜底（或任何控制台代码页非 UTF-8 的主机）不会破坏非 ASCII 输出：subprocess collector 以 UTF-8 解码字节。pwsh 7 默认为 UTF-8，不受影响。
+- **UTF-8 输出固定**——每条命令都先以 UTF-8 设置 `[Console]::OutputEncoding` 与 `$OutputEncoding`，因此 Windows PowerShell 5.1 兜底（或任何控制台代码页非 UTF-8 的主机）不会破坏非 ASCII 输出：subprocess collector 以 UTF-8 解码字节。输入编码保持宿主默认；pwsh 7 默认为 UTF-8，不受影响。
 - **可执行文件解析**——`resolvePwshPath` 优先显式 `pwshPath`，然后在 Windows 上依次探测 PowerShell 7 安装位置、每个 PATH 条目（Microsoft Store 安装；剥离两端引号）以及作为遗留兜底的 Windows PowerShell 5.1，逐一检查 `existsSync`；其他平台回退为通过 PATH 解析的裸 `pwsh`。解析是 `(configured, env, platform)` 的纯函数，在构造时执行一次。
 - **受管进程组之上的配置预算**——`resolve()` 从配置填充 `workdir`/`timeoutMs`/`stdoutMaxBytes`，每次 spawn 都向服务提供显式字节上限、spill 上限与 `graceMs`。进程树终止（Windows 用 taskkill，POSIX 用进程组信号）、退出后管道排空宽限、保尾截断与有界 spill 文件是 [`dsh-subprocess-local`](../../subprocess/subprocess-local/README.md) 的机制。前台 `BashExecRequest.stdoutMaxBytes` 可为单个受信调用方提高 stdout 捕获预算；stderr 与后台运行仍使用 `maxOutputBytes`。
 - **超时与取消分类**——`run()` 通过一个 deadline 融合配置夹取的超时与调用方信号；只有执行器自身超时报告 `timedOut`，上游取消报告 `aborted`，自我终止的命令两者都不报告（见 [timeout 库 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-06-timeout-deadline-library.md)）。Windows 将强制终止报告为退出码 1 且无信号，因此基于信号的实情（`signal`、`killed` 状态）在那里仅限 POSIX；超时/取消分类与平台无关。
@@ -50,5 +50,6 @@
 - **命令字符串是 PowerShell 文本**——`-Command` 域没有 shell 引号层，但面向模型的命令由 PowerShell 自己解析，因此 PowerShell 语法错误是命令失败，而非启动失败。
 - **后台 spawn 失败提示只投递一次**——subprocess 服务不会为从未运行的进程缓冲输出，因此执行器只把 `spawn failed: …` 注入一次 `readOutput()` 增量；丢弃该增量的读取方无法恢复它。
 - **Windows 终止不报告信号**——被强制终止的进程以退出码 1、`signal: null` 结束，因此基于信号的状态分类（POSIX `killed`）在 Windows 上不适用；`kill()` 发起的停止仍会直接盖上 `killed`。
+- **编码 preamble 位于命令之前**——PowerShell 要求 `param(...)` 与 `using namespace`/`using assembly` 语句位于脚本最顶部，因此以其中一种开头的命令无法在 UTF-8 输出 preamble 下运行；请先用无操作语句（或 `& { … }`）开头。
 
 清理启发式与 spill 保留的注意事项由 [`dsh-subprocess-local`](../../subprocess/subprocess-local/README.md) 持有，它拥有这些机制。
