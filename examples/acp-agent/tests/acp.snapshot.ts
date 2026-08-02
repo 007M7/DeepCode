@@ -44,6 +44,7 @@ const SESSION_TITLE_CONFIG = fileURLToPath(new URL('../session-title.cordis.yml'
 const LSP_CONFIG = fileURLToPath(new URL('./lsp.cordis.yml', import.meta.url))
 const WEB_CONFIG = fileURLToPath(new URL('../web.cordis.yml', import.meta.url))
 const FS_SEARCH_CONFIG = fileURLToPath(new URL('./fs-search.cordis.yml', import.meta.url))
+const PWSH_CONFIG = fileURLToPath(new URL('./pwsh.cordis.yml', import.meta.url))
 const SNAPSHOTS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
 const PACKED_CHUNKS_SOURCE = 'hook-cc-pretool-deny'
 
@@ -154,12 +155,17 @@ const SCENARIOS: Scenario[] = [
     configPath: PTY_CONFIG,
   },
   { name: 'bash-tool-turn', hasModelTurn: true, recorded: true },
-  // The pwsh-tool-turn scenario is NOT registered yet: its overlay
-  // (pwsh.cordis.yml / pwsh.cordis.snapshot.yml) swaps the bundle's bash tool
-  // for the PowerShell twin, so its header class needs its own prompt/tool
-  // sidecars and a recorded transcript. Both require a keyed environment
-  // (`test:snapshot:record`); the composition ships so the scenario can be
-  // registered and recorded in one keyed pass.
+  // The pwsh overlay (pwsh.cordis.yml / pwsh.cordis.snapshot.yml) swaps the
+  // bundle's bash tool for the PowerShell twin, so its header class pins its
+  // own prompt/tool sidecars and a recorded transcript.
+  {
+    name: 'pwsh-tool-turn',
+    hasModelTurn: true,
+    recorded: true,
+    pinsHeader: true,
+    headerClass: 'pwsh',
+    configPath: PWSH_CONFIG,
+  },
   { name: 'todo-write', hasModelTurn: true, recorded: true },
   {
     name: 'skill-load',
