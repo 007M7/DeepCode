@@ -34,7 +34,7 @@ export interface InputBarError {
 export type InputBarProps = ComposerBarProps
 
 export function InputBar({
-  useSession, useInput, inputActions, keyboard, toggleCommandMenu, stop, command, t,
+  useSession, useInput, inputActions, keyboard, resolveSubmitMode, toggleCommandMenu, stop, command, t,
   renderSlot, useNotices, useLexicon, useMenuLauncher,
   useProjection, sessionId, variant, disabled: inert = false, placeholder, accessory, overlay, leftItems, rightItems, footer,
 }: InputBarProps) {
@@ -178,23 +178,14 @@ export function InputBar({
       e.preventDefault()
       return
     }
-    if (e.ctrlKey || e.metaKey) {
-      // Newline as a machine transaction (the machine owns undo history; an
-      // execCommand write would fork a second, browser-owned history).
-      e.preventDefault()
-      if (!machineBusy && !locked) {
-        const el = e.currentTarget
-        const sel = selectionOf(el)
-        keyboard.newline(sel)
-        const caret = sel.start + 1
-        requestAnimationFrame(() => { el.setSelectionRange(caret, caret) })
-      }
-      return
-    }
     e.preventDefault()
     if (e.repeat) return // held-down Enter must not machine-gun sends
     if (locked || machineBusy) return
-    inputActions.submit()
+    keyboard.submit(resolveSubmitMode(
+      running,
+      e.ctrlKey || e.metaKey ? 'accelerated' : 'enter',
+      subagent === null,
+    ))
   }
 
   const onChange = (e: ChangeEvent<HTMLTextAreaElement>): void => {

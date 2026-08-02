@@ -156,6 +156,106 @@ describe('addressable inbox operations', () => {
         : ''))
       .toEqual(['keep me'])
   })
+
+  it('strictly transfers a queued occurrence into the open turn', async () => {
+    const adapter = new MockAdapter([textResponse('done')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('queue-to-steer'), { provider: 'mock', model: 'mock' })
+    const entered = Promise.withResolvers<undefined>()
+    const decision = Promise.withResolvers<{ kind: 'allow' }>()
+    ctx.on('agent/prompt-submit', async () => {
+      entered.resolve(undefined)
+      return decision.promise
+    })
+
+    const enqueued: InboxItem[] = []
+    const discarded: InboxItem[] = []
+    ctx.on('agent/inbox/enqueue', (subject, item) => {
+      if (subject === agent) enqueued.push(item)
+    })
+    ctx.on('agent/inbox/discard', (subject, items) => {
+      if (subject === agent) discarded.push(...items)
+    })
+
+    const idle = waitForIdle(ctx, agent)
+    send(agent, 'open the turn')
+    const receipt = agent.steer(createUserMessage({
+      content: [{ type: 'text', text: 'steer this message' }],
+      source: { kind: 'user' },
+    }))
+    await entered.promise
+    const queued = enqueued.find(item => inboxText(item) === 'steer this message')!
+
+    expect(agent.updateInbox(queued.id, { kind: 'steer' })).toBe('applied')
+    const steering = enqueued.find(item => item.placement === 'steering')!
+    expect(steering.id).not.toBe(queued.id)
+    expect(steering.message).toBe(queued.message)
+    expect(discarded).toEqual([queued])
+
+    decision.resolve({ kind: 'allow' })
+    await idle
+    expect(agent.session.events.flatMap(event =>
+      event.type === 'steering/message' ? [event.data.message] : [],
+    )).toEqual([queued.message])
+    expect(await receipt.outcome).toEqual({ status: 'admitted', turn: 1, step: 1 })
+    expect(agent.updateInbox(queued.id, { kind: 'steer' })).toBe('not-found')
+  })
+
+  it('keeps a queued occurrence when the next-step window is closed', () => {
+    const ctx = new Context()
+    const session = new Session(SessionId('queue-to-steer-closed'))
+    const agent = new ReactLoopAgent(ctx, session.id, {}, session)
+    const enqueued: InboxItem[] = []
+    const discarded: InboxItem[] = []
+    ctx.on('agent/inbox/enqueue', (_subject, item) => { enqueued.push(item) })
+    ctx.on('agent/inbox/discard', (_subject, items) => { discarded.push(...items) })
+
+    agent.send(
+      createUserMessage({ content: [{ type: 'text', text: 'stay queued' }], source: { kind: 'user' } }),
+      { target: 'next-turn', wakeup: false },
+    )
+    const queued = enqueued[0]!
+    expect(agent.updateInbox(queued.id, { kind: 'steer' })).toBe('steer-unavailable')
+    expect(discarded).toEqual([])
+    expect(agent.updateInbox(queued.id, { kind: 'remove' })).toBe('applied')
+  })
+
+  it('accounts for both occurrences when steering enqueue cancels reentrantly', async () => {
+    const adapter = new MockAdapter([textResponse('unused')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('queue-to-steer-cancel'), { provider: 'mock', model: 'mock' })
+    const entered = Promise.withResolvers<undefined>()
+    const decision = Promise.withResolvers<{ kind: 'allow' }>()
+    ctx.on('agent/prompt-submit', async () => {
+      entered.resolve(undefined)
+      return decision.promise
+    })
+
+    const enqueued: InboxItem[] = []
+    const discarded: InboxItem[] = []
+    ctx.on('agent/inbox/enqueue', (subject, item) => {
+      if (subject !== agent) return
+      enqueued.push(item)
+      if (item.placement === 'steering') agent.cancel({ kind: 'user' })
+    })
+    ctx.on('agent/inbox/discard', (subject, items) => {
+      if (subject === agent) discarded.push(...items)
+    })
+
+    const idle = waitForIdle(ctx, agent)
+    send(agent, 'open the turn')
+    await entered.promise
+    send(agent, 'cancel during conversion')
+    const queued = enqueued.find(item => inboxText(item) === 'cancel during conversion')!
+
+    expect(agent.updateInbox(queued.id, { kind: 'steer' })).toBe('applied')
+    const steering = enqueued.find(item => item.placement === 'steering')!
+    expect(discarded).toEqual([steering, queued])
+
+    decision.resolve({ kind: 'allow' })
+    await idle
+    expect(agent.session.events.some(event => event.type === 'steering/message')).toBe(false)
+  })
 })
 
 describe('assistant replay provenance', () => {

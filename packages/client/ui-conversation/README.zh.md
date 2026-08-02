@@ -34,7 +34,11 @@
 
 todo 两个面就是在该形状上的两个注册项，都是普通注册方插件，`inject: ['slots', 'conversation']`。`TodoRow` 占用 `'conversation.chat.toolview'` 的 `todo_write` key，摘要该次调用「试图写入」的内容（从其 args 解析出 `<已完成>/<总数> 已完成 · <进行中条目>`；模型 JSON 残缺或形状不对时回落到通用摘要；非 ok 执行状态保留通用状态点，使被取消的调用绝不读成一次已完成的更新）。`TodoDock` 以 `order: 0` 占用 `'conversation.input.dock'` 列表 slot（位于 Goal 与 Queue 之前），是计划条：它经 `useProjection` 读取 host 计算的 `todos` 投影（站立计划：其后没有更晚 `turn/start` 的最近一次 `todo/write`）并渲染 `TodoPanel`，后者接收纯列表，在列表为空时自我隐藏；列表非空时面板初始折叠，表头显示标题加 `"<已完成>/<总数> tasks · <n> in progress"`（状态图标为 figma 的勾选／进行中／虚线未开始一组）。选取由 dock 适配器负责，因此面板保持为其 props 的纯函数；站立列表放在此处而非行内，行才能保持单行。输入区 composer 链隐藏的一切（例如 ui-question 对 `conversation.composer` 的接管）也会隐藏整个 dock，包括这条计划条。
 
-`QueueDock` 是 `order: 20` 的末端 input-dock 条目。队列为空时隐藏；只有一个待处理项时直接渲染该行；存在两个或更多待处理项时，默认收起为 `"<n> 条排队消息"` 表头，其按钮可展开或收起完整列表。表头暴露 `aria-expanded` 和 `aria-controls`；展开后的列表以 180px 为高度上限，并可滚动。存在进行中的编辑或变更时，列表行会保持可见；队列清空后，下一次出现队列时会恢复默认收起状态。每条可见行仍是单行预览，并提供针对精确单次入队项的编辑和删除操作。
+`QueueDock` 是 `order: 20` 的末端 input-dock 条目。队列为空时隐藏；只有一个待处理项时直接渲染该行；存在两个或更多待处理项时，默认收起为 `"<n> 条排队消息"` 表头，其按钮可展开或收起完整列表。表头暴露 `aria-expanded` 和 `aria-controls`；展开后的列表以 180px 为高度上限，并可滚动。存在进行中的编辑或变更时，列表行会保持可见；队列清空后，下一次出现队列时会恢复默认收起状态。普通会话中的每条可见行仍是单行预览，并提供针对精确单次入队项的编辑、删除和严格 steering（中途引导）操作；已寻址 subagent 则保留只读行，因为其继续执行传输不提供 Queue 变更。如果严格 steering 输给已关闭的窗口，原单次入队项会留在 Queue 中正常投递；如果驱动器已经认领该项，正常投递就已开始。这两种已收敛的竞态都不显示失败，传输和未知错误仍会显示。
+
+Host 带 placement 的 `session/queue` 快照也会携带待处理 steering。QueueDock 会将其过滤掉，ChatView 则把它投影为会话流末尾带复制操作的用户样式气泡；消息尚未进入持久轮次，因此不显示 fork。Host 会等持久 `steering/message` 进入 mux 流之后再退役 steering。客户端运行时接纳该实时事件时，会在发布快照前退役第一个匹配的当前 steering 单次入队项；历史事件无法隐藏后来复用同一 `MessageId` 的单次入队项。气泡交接时因而不会产生空档或重复，会从持久节点恢复复制与 fork 操作，并能在重连后从同一权威恢复。
+
+键盘消息提交会根据所寻址会话的运行状态和 steering 能力解析投递方式。空闲时，Enter 和 Cmd/Ctrl+Enter 都执行普通 Queue 发送。主会话运行期间，浏览器持久化的 General Settings 偏好会把普通 Enter 分配为 `Queue`（默认值）或 `Steer`，Cmd/Ctrl+Enter 则执行另一种行为；Shift+Enter 仍然换行。已寻址 subagent 即使正在运行，也会让这两个手势都使用其仅支持 Queue 的继续执行传输。该偏好只影响支持 steering 的繁忙态手势对，发送按钮与非键盘提交操作仍使用 Queue。Composer Steer 复用现有尽力而为的 `session.prompt(mode: 'steer')` 契约：如果当前 next-step 窗口在接纳前关闭，AgentLoop 会把消息接纳为下一条唤醒 Queue 轮次，不显示失败，也不会丢失草稿事务。
 
 逐 Session UI 状态中的选择与活跃视图位于已声明的聊天 store（`stores.ts` `createChatStore`）中；InputHub 拥有输入区状态机，并将草稿镜像到该 store 以便持久化。apply 将同一个 store handle 传给严格限定于会话的子树、聊天视图和详情注册，因此每个会话内共享一个实例，框架拥有其生命周期。组件保持纯粹：框架标准工具包提供 `useSession`／`sessionId`、全局 `useSessions`／`useWorkspaces`，以及输入状态机的 `useInput`／`inputActions`；store 表层与 inject factory 提供其余状态和回调。
 
@@ -62,5 +66,5 @@ todo 两个面就是在该形状上的两个注册项，都是普通注册方插
 - **others 工具行的闪光图标是手绘近似版本**：无法在本地导出设计字形的矢量几何；等到存在精确导出后再将其提升到 ui-primitives。
 - **审批面板的「始终允许此类」暂缓**：持久授权需要授权存储设计；今天只能回答允许一次／拒绝。
 - **TodoPanel 将过长条目截成单行省略号**：figma 条没有换行或展开入口，完整文本无法在行内读完。
-- **Queue 编辑仅支持文本**：包含非文本块的行仍显示扁平化预览，但由于内联编辑器无法保留这些块，其编辑控件会被禁用。文本行进入编辑模式后，删除会替换为保存和取消；Enter 保存，Escape 取消。QueueDock 不提供立即发送控件。
-- **Web 仅暴露待处理 Queue**：composer 与 `conversation.send` 从不提交 `mode:'steer'`。Host 不会把待处理 steering（中途引导）纳入 Queue 快照。已消费的 `steering/message` 仍会折叠进持久 transcript（文本记录），并以无「插话」徽章的普通气泡呈现，因此从外部／Host 提交的 steering 在回放时仍能如实呈现。
+- **Queue 编辑仅支持文本**：包含非文本块的行仍显示扁平化预览，但由于内联编辑器无法保留这些块，其编辑控件会被禁用。文本行进入编辑模式后，删除和严格 steering（中途引导）操作会被保存和取消取代；Enter 保存，Escape 取消。
+- **Queue 严格 steering 会保留完整消息**：Agent 运行期间，steering 操作会以原子方式把所寻址的 Queue 单次入队项转移到当前 next-step 窗口。包含混合内容的行仍可使用此操作，因为它会转发不可变消息，而非文本投影。带 placement 的 Host 快照会在会话流末尾渲染待处理 steering，直到已消费的 `steering/message` 折叠进持久 transcript（文本记录），因此立即展示、重连和回放共享同一个线性权威。

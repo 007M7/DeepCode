@@ -776,10 +776,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   })
 
   /**
-   * Per-session queued-occurrence mirror serving the mux-open queue snapshot
-   * (the same refresh-recovery baseline as pending questions). Each terminal
-   * queue event retires one matching occurrence, so repeated sends of the same
-   * identified message remain visible until every occurrence is claimed.
+   * Per-session pending-occurrence mirror serving live and mux-open
+   * `session/queue` snapshots. It carries both queued and steering placements.
+   * Each terminal inbox event retires one matching occurrence, so repeated
+   * sends of the same identified message remain visible until every occurrence
+   * is claimed.
    */
   const queuedMirror = new Map<SessionId, InboxItem[]>()
   type UnseenQueueEvent =
@@ -818,29 +819,28 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       sessionId,
       items: items.map(item => ({
         id: item.id,
+        placement: item.placement,
         message: item.message,
       })),
     })
   }
   ctx.effect(() => {
-    const retire = (agent: Agent, item: InboxItem): boolean => {
-      const entries = queuedMirror.get(agent.id)
-      if (entries === undefined) {
-        rememberUnseen(agent.id, item.id, { kind: 'terminal' })
-        return false
-      }
-      const index = entries.findIndex(entry => entry.id === item.id)
-      if (index === -1) {
-        rememberUnseen(agent.id, item.id, { kind: 'terminal' })
-        return false
-      }
+    const retireKnown = (sessionId: SessionId, itemId: InboxItemId): boolean => {
+      const entries = queuedMirror.get(sessionId)
+      if (entries === undefined) return false
+      const index = entries.findIndex(entry => entry.id === itemId)
+      if (index === -1) return false
       entries.splice(index, 1)
-      if (entries.length === 0) queuedMirror.delete(agent.id)
+      if (entries.length === 0) queuedMirror.delete(sessionId)
       return true
+    }
+    const retire = (agent: Agent, item: InboxItem): boolean => {
+      if (retireKnown(agent.id, item.id)) return true
+      rememberUnseen(agent.id, item.id, { kind: 'terminal' })
+      return false
     }
     const disposers = [
       ctx.on('agent/inbox/enqueue', (agent: Agent, item: InboxItem) => {
-        if (item.placement !== 'queued') return
         const unseen = takeUnseen(agent.id, item.id)
         if (unseen?.kind === 'terminal') return
         let entries = queuedMirror.get(agent.id)
@@ -866,7 +866,24 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         publishQueue(agent.id)
       }),
       ctx.on('agent/inbox/dequeue', (agent: Agent, item: InboxItem) => {
-        if (retire(agent, item)) publishQueue(agent.id)
+        if (item.placement === 'steering') {
+          // AgentLoop appends the durable steering/message synchronously after
+          // this claim. Retain and retire the mirror row in the following
+          // microtask so any re-entrant snapshot and the Host's linear mux
+          // stream keep it visible until the durable event exists.
+          const present = queuedMirror.get(agent.id)?.some(entry => entry.id === item.id) === true
+          if (!present) {
+            retire(agent, item)
+            return
+          }
+          queueMicrotask(() => {
+            if (retireKnown(agent.id, item.id)) publishQueue(agent.id)
+          })
+        } else if (retire(agent, item)) {
+          // Queued claims have no durable same-message handoff to order.
+          // Publish retirement synchronously as before.
+          publishQueue(agent.id)
+        }
       }),
       ctx.on('agent/inbox/discard', (agent: Agent, items: InboxItem[]) => {
         let changed = false
@@ -1847,10 +1864,25 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         if (agent !== undefined && hasSubagentOwner(agent.session, agent)) {
           return Promise.resolve(err(request, subagentOwnershipError(sessionId)))
         }
-        if (agent === undefined || agent.updateInbox(itemId, action) === 'not-found') {
+        if (agent === undefined) {
           return Promise.resolve(err(request, {
             code: 'queue-item-not-found',
             message: 'queued item is no longer pending',
+            details: { itemId },
+          }))
+        }
+        const result = agent.updateInbox(itemId, action)
+        if (result === 'not-found') {
+          return Promise.resolve(err(request, {
+            code: 'queue-item-not-found',
+            message: 'queued item is no longer pending',
+            details: { itemId },
+          }))
+        }
+        if (result === 'steer-unavailable') {
+          return Promise.resolve(err(request, {
+            code: 'steer-unavailable',
+            message: 'current turn no longer accepts steering',
             details: { itemId },
           }))
         }
@@ -2494,6 +2526,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             sessionId,
             items: items.map(item => ({
               id: item.id,
+              placement: item.placement,
               message: item.message,
             })),
           }))

@@ -74,7 +74,8 @@ function materializeNode(
       }
     case 'steering/message':
       return {
-        kind: 'steering', seq: event.seq, time: event.time, turn: event.data.turn,
+        kind: 'steering', messageId: event.data.message.id,
+        seq: event.seq, time: event.time, turn: event.data.turn,
         content: event.data.message.content, source: event.data.message.source,
       }
     case 'tool/result': {
