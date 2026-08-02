@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-07-21-continuable-background-subagents.md) | 中文
 
-本记录中的服务放置与提供方功能策略已由[将 subagent 控制合并到 subagent 服务](../simplification/2026-07-26-merge-subagent-control-service.md)和[以意图命名的 subagent 继续执行操作](../simplification/2026-07-27-intent-named-subagent-continuation-operations.md)取代。继续执行、持久化、Task、路由、授权和持久性语义仍然有效。
+本记录已由[可继续的 subagent](2026-07-28-continuable-subagent-conversations.md)取代——后者以一个持久 Session 加至多一个进程内 Activation（驻留期）替换了其基于 Task 的 activation 模型、路由、取消和持久性语义。其服务放置与提供方功能策略此前已由[将 subagent 控制合并到 subagent 服务](../simplification/2026-07-26-merge-subagent-control-service.md)和[以意图命名的 subagent 继续执行操作](../simplification/2026-07-27-intent-named-subagent-continuation-operations.md)取代。仅持久 child 会话与 descriptor 的设计依据仍然有效。
 
 ## 问题
 
@@ -27,7 +27,7 @@ durable child Session
 
 前台委派保持一次性行为。继续执行覆盖后台的进程内 spawn 和 fork child。每个 `tool-subagent` 实例都会选择 `backgroundMode: 'one-shot' | 'continuable'`；配置为可继续模式时，所挂载提供方必须具备 `resume` 功能，而可恢复的提供方仍可采用一次性后台策略。在下述 ACP（Agent Client Protocol）后续工作完成前，ACP child 仍保持一次性行为。
 
-`ctx.subagents` 是唯一的公开服务。普通 `start` 不感知 child 集合、Task 与持久化：它校验提供方功能、分发一次激活、观察 run 生命周期，并返回由持有方负责的 run。注入的内部继续执行管理器负责管理稳定的 child id、描述符持久化与查找、由 Task 支撑的激活，以及通过 `startContinuable` 和 `followup` 进行的路由；管理器解析继续执行状态后，提供方的 start 与 resume 分发通过私有闭包进行。按提供方绑定的 `@deepseek-ai/dsh-tool-subagent` 插件及面向用户的适配器调用这些意图操作来处理可继续后台工作；前台和一次性后台委派使用普通 `start`。全局命名的模型工具是 `@deepseek-ai/dsh-tool-subagent-control` 中的可选轻量适配器，它是否存在不会决定是否启动可继续工作。parent 到 child 的枚举与 `list_agents` 属于单独的持久化目录提案。
+`ctx.subagents` 是唯一的公开服务。普通 `start` 不感知 child 集合、Activation 与持久化：它校验提供方功能、解析一次性描述符、分发一个 run、观察 run 生命周期，并返回由持有方负责的 run。注入的内部继续执行管理器负责管理稳定的 child id、可继续描述符持久化与查找、Activation 生命周期，以及通过 `startContinuable` 和 `followup` 进行的路由；管理器自行组合 child 之前，提供方通过私有闭包提供准备数据。按提供方绑定的 `@deepseek-ai/dsh-tool-subagent` 插件及面向用户的适配器调用这些意图操作来处理可继续后台工作；前台和一次性后台委派使用普通 `start`。全局命名的模型工具是 `@deepseek-ai/dsh-tool-subagent-control` 中的可选轻量适配器，它是否存在不会决定是否启动可继续工作。parent 到 child 的枚举、一次性／可继续模式共享的描述符身份与 `list_agents` 属于[持久化 subagent 目录](2026-07-22-durable-subagent-catalog-and-list-agents.md)。
 
 ### Task 与取消的所有权
 
@@ -73,7 +73,7 @@ durable child Session
 
 继续执行管理器在创建 Task 前，通过 seam 的 `snapshotSubagentDescriptor()`（基于 [`snapshotJsonValue`](../../../../packages/core/session/src/json.ts) 构建）对每项描述符输入建立快照；这一边界与 Agent 消息现有的分离式无损 JSON 边界一致。作用于 child 作用域的 setup contribution——由进程内驱动前置安装的一次性 `agent/prompt-submit` 监听器——会在下游 prompt admission 能够阻止请求或抛出异常之前追加一个对模型隐藏的 `subagent/descriptor` 事件。admission 获准后才会开启 child 的初始轮次；admission 被拒绝时，描述符会作为轮次前的仅日志事实保留，并由该 activation 最终的必需检查点持久化。该事件不携带 `surfaceOp`，不进入模型历史，并在压缩替换 surface 历史时继续保留。只有在加载已知 child id 对应的 child 会话后，能在该 child 自身的后缀中（`seedLength` 之后，因此 fork seed 不会泄露祖先的描述符）得到受支持的描述符，且会话 header 将调用方标识为直接 parent 时，该 id 才可恢复。
 
-版本化描述符（[descriptor.ts](../../../../packages/subagent/subagent/src/descriptor.ts) 中的 `SUBAGENT_DESCRIPTOR_VERSION`）包含 subagent 提供方名称、已解析的 child `agentOptions.provider` 和 `agentOptions.model`，以及可选的 `persona` 与 `toolFilter`。它不会对可通过声明合并扩展的 `AgentOptions` 对象建立快照：与此无关的扩展值不会仅因无法表示为 JSON 而导致继续执行失败。描述符会特意省略 `subagentDepth`；从持久化存储恢复时，系统依赖持久化 header 中的 `delegationDepth`，而不根据描述符重建深度。`outputSchema` 属于单次激活的结果契约，不属于持久化 child 组合配置。child header 仍是 child id、`cwd`、`parentSession`、`seedLength` 和 `delegationDepth` 的权威信息，持久化 child transcript 则负责保存 fork seed 和后续历史。[`delegationDepthOf()`](../../../../packages/subagent/subagent/src/index.ts) 会在 header 值和运行时值中取最大值，因此重建后的运行时选项可以加深持久化值，但绝不能降低它，恢复后的 child 无法重新获得顶层委派预算。
+版本化描述符的可继续分支（[descriptor.ts](../../../../packages/subagent/subagent/src/descriptor.ts) 中的 `SUBAGENT_DESCRIPTOR_VERSION`）携带 `mode: 'continuable'`、subagent 提供方名称、已解析的 child `agentOptions.provider` 和 `agentOptions.model`，以及可选的 `persona` 与 `toolFilter`。它不会对可通过声明合并扩展的 `AgentOptions` 对象建立快照：与此无关的扩展值不会仅因无法表示为 JSON 而导致继续执行失败。描述符会特意省略 `subagentDepth`；从持久化存储恢复时，系统依赖持久化 header 中的 `delegationDepth`，而不根据描述符重建深度。`outputSchema` 属于单次激活的结果契约，不属于持久化 child 组合配置。child header 仍是 child id、`cwd`、`parentSession`、`seedLength` 和 `delegationDepth` 的权威信息，持久化 child transcript 则负责保存 fork seed 和后续历史。[`delegationDepthOf()`](../../../../packages/subagent/subagent/src/index.ts) 会在 header 值和运行时值中取最大值，因此重建后的运行时选项可以加深持久化值，但绝不能降低它，恢复后的 child 无法重新获得顶层委派预算。
 
 从持久化存储恢复不能依赖 `SubagentRun` 的可选方法，因为该 run 已被 dispose，并且进程重启后不会保留。run 表示一次可 dispose 的激活，只暴露作用于当前激活的操作。`SubagentRun.steer?()` 这一名称明确指代提供确认语义且仅适用于在线消息的功能，以免该功能与服务编排或面向模型的工具混淆。
 

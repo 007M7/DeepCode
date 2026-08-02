@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import { createUserMessage, CallId, type ContentBlock, type GenerateOptions  } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, CallId, type ContentBlock, type GenerateOptions } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -8,7 +8,10 @@ import InvariantService from '@deepseek-ai/dsh-invariants'
 import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
 import * as AgentInvariant from '@deepseek-ai/dsh-agent/invariant'
 import * as AgentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
-import SubagentService, { type SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
+import SubagentService, {
+  type ResolvedSubagentStartRequest,
+  type SubagentStartRequest,
+} from '@deepseek-ai/dsh-subagent'
 import type { Config as ToolConfig, ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import { defineContentToolFixture, RUN_CODE_NAME } from '@deepseek-ai/dsh-tools'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
@@ -69,7 +72,7 @@ async function setup(script: Script, options: SetupOptions = {}) {
     name: 'spawn',
     capabilities: { outputSchema: true, depthLimit: true, toolFilter: false, persona: false },
     inheritsParentContext: false,
-    start: (request: SubagentStartRequest) => startInProcessRun(request, {}),
+    start: (request: ResolvedSubagentStartRequest) => startInProcessRun(request, {}),
   })
   ctx.llm.registerAdapter(['mock'], adapter)
   const parent = ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
@@ -78,6 +81,7 @@ async function setup(script: Script, options: SetupOptions = {}) {
 
 function structuredRequest(parent: SubagentStartRequest['parent'], extra?: Partial<SubagentStartRequest>): SubagentStartRequest {
   return {
+    label: 'produce the answer',
     prompt: [{ type: 'text', text: 'produce the answer' }],
     parent,
     signal: new AbortController().signal,
@@ -117,28 +121,6 @@ describe('in-process structured output', () => {
     await run.result
     // The structured tool marks its successful result as turn-concluding.
     expect(adapter.requests.length).toBe(1)
-    await run.dispose()
-  })
-
-  it('confirmed steering rejects delivery once the structured result is captured', async () => {
-    const { ctx, parent } = await setup([
-      toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 7 }),
-    ])
-    // oxlint-disable-next-line prefer-const -- single assignment follows listener registration so pre-fulfillment events remain guardable.
-    let run: Awaited<ReturnType<typeof ctx.subagents.start>> | undefined
-    let delivery: Promise<void> | undefined
-    ctx.on('session/event', (session, event) => {
-      if (session.header.parentSession === undefined || run === undefined
-        || event.type !== 'tool/result' || delivery !== undefined) return
-      delivery = run.steer?.([{ type: 'text', text: 'one more thing' }], { kind: 'user' })
-      void delivery?.catch(() => undefined)
-    })
-    run = await ctx.subagents.start('spawn', structuredRequest(parent))
-    const result = await run.result
-    if (delivery === undefined) throw new Error('structured result did not submit steering')
-    await expect(delivery)
-      .rejects.toThrow(/already reported its structured result; the message was not delivered/)
-    expect(result.structured).toEqual({ answer: 7 })
     await run.dispose()
   })
 

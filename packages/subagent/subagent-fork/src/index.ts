@@ -12,12 +12,13 @@ import z from 'schemastery'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {
+  ContinuableCreateRequest,
+  ContinuableCreateSpec,
+  ResolvedSubagentStartRequest,
   SubagentCapabilities,
   SubagentProvider,
-  SubagentProviderResumeRequest,
-  SubagentProviderStartRequest,
 } from '@deepseek-ai/dsh-subagent'
-import { resumeInProcessRun, startInProcessRun } from '@deepseek-ai/dsh-subagent-inprocess'
+import { startInProcessRun } from '@deepseek-ai/dsh-subagent-inprocess'
 
 export const name = 'subagent-fork'
 // `tools` is deliberately NOT injected — same rationale as subagent-spawn: the
@@ -64,7 +65,7 @@ class ForkProvider implements SubagentProvider {
 
   constructor(readonly name: string) {}
 
-  start(request: SubagentProviderStartRequest) {
+  start(request: ResolvedSubagentStartRequest) {
     const seed = completedTurnPrefix(request.parent)
     return startInProcessRun(request, {
       // Only pass a seed when there's a completed turn to inherit; an empty seed
@@ -73,11 +74,12 @@ class ForkProvider implements SubagentProvider {
     })
   }
 
-  resume(request: SubagentProviderResumeRequest) {
-    // Cold resume loads the child's OWN persisted transcript, which already
-    // contains the completed-turn prefix captured at initial creation; it
-    // never forks the parent's newer history again.
-    return resumeInProcessRun(request)
+  prepareContinuable(request: ContinuableCreateRequest): Promise<ContinuableCreateSpec> {
+    // The fork prefix is captured ONCE, at creation: it becomes part of the
+    // child's own durable transcript, so a later cold resume replays that
+    // prefix instead of re-forking the parent's newer history.
+    const seed = completedTurnPrefix(request.parent)
+    return Promise.resolve(seed.length > 0 ? { seed } : {})
   }
 }
 

@@ -22,7 +22,11 @@ export interface GoalRef {
   readonly revision: number
 }
 
-/** Goal-domain unary methods (every mutation resolves the session's agent and applies one CAS-guarded verb). */
+/**
+ * Goal-domain unary methods. Every mutation resolves an ordinary session's
+ * Agent and applies one CAS-guarded verb; session-backed subagents reject with
+ * `agent-busy`.
+ */
 export interface GoalsApi {
   /** Create and arm a goal. */
   create(request: RpcRequest<{ sessionId: SessionId; objective: string; maxGoalRounds?: number }>):

@@ -1096,12 +1096,7 @@
     },
     {
       "doc": "docs/core-data-structures/subagent.md",
-      "symbol": "SubagentProviderStartRequest",
-      "source": "packages/subagent/subagent/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/subagent.md",
-      "symbol": "SubagentContinuation",
+      "symbol": "ResolvedSubagentStartRequest",
       "source": "packages/subagent/subagent/src/types.ts"
     },
     {
@@ -1111,17 +1106,37 @@
     },
     {
       "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "SubagentReportMessageSource",
+      "source": "packages/subagent/subagent/src/continuation.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "SubagentReportDelivery",
+      "source": "packages/subagent/subagent/src/continuation.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "SubagentReportOptions",
+      "source": "packages/subagent/subagent/src/continuation.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
       "symbol": "SubagentFollowupOptions",
       "source": "packages/subagent/subagent/src/continuation.ts"
     },
     {
       "doc": "docs/core-data-structures/subagent.md",
-      "symbol": "SubagentFollowupResult",
+      "symbol": "ContinuableStart",
       "source": "packages/subagent/subagent/src/continuation.ts"
     },
     {
       "doc": "docs/core-data-structures/subagent.md",
-      "symbol": "SubagentProviderResumeRequest",
+      "symbol": "ContinuableCreateRequest",
+      "source": "packages/subagent/subagent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "ContinuableCreateSpec",
       "source": "packages/subagent/subagent/src/types.ts"
     },
     {

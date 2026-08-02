@@ -1,0 +1,8 @@
+- tree "子代理会话":
+  - treeitem "event-sourcing researcher Explain event sourcing in one · 可继续 · 当前未运行 刚刚" [expanded] [level=1]:
+    - button "收起 event-sourcing researcher 的下级子代理":
+      - img
+    - text: event-sourcing researcher Explain event sourcing in one · 可继续 · 当前未运行 刚刚
+  - group:
+    - treeitem "example editor 可继续 · 当前未运行 刚刚" [level=2]
+  - treeitem "event-sourcing reviewer 一次性 · 当前未运行 刚刚" [level=1]

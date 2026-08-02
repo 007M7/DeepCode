@@ -89,7 +89,7 @@ class ChildRpcBridge implements ChildPort {
     return new RpcChildHandle(this.post, callId, entry, childId)
   }
 
-  /** The host established a ready child; releases the `startAgent` await. */
+  /** The host established a published child; releases the `startAgent` await. */
   onChildStarted(callId: number, childId: string): void {
     this.pending.get(callId)?.started.resolve(childId)
   }

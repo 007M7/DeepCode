@@ -38,12 +38,12 @@ A new package group `packages/subagent/`:
 
 ### The primitive: async `start → SubagentRun`
 
-A provider exposes `start(request) → Promise<SubagentRun>`. Fulfillment publishes a ready child and transfers its run handle to the caller. One signal covers cancellation before and after readiness; `dispose()` cancels remaining work and awaits quiescence. A rejected start cleans partial resources and emits no lifecycle event. `start` is transport-neutral; `spawn` names only the fresh in-process backend.
+A provider exposes `start(request) → Promise<SubagentRun>`. Fulfillment publishes a child and transfers its run handle to the caller. Work that fails before publication rejects `start()`, while prompt, turn, cancellation, and infrastructure outcomes after publication settle through `run.result` without hiding the child id. One signal covers cancellation before and after publication; `dispose()` cancels remaining work and awaits quiescence. A rejected start cleans unpublished resources and emits no lifecycle event, while a post-publication result failure closes the published lifecycle pair. `start` is transport-neutral; `spawn` names only the fresh in-process backend.
 
 ### Two kinds of optional capability, discovered two ways
 
 - **Start-time features** (`outputSchema`, `depthLimit`, `toolFilter`, `persona`) ride on a static `provider.capabilities` descriptor. The service checks every requested one BEFORE delegating and **rejects loud** (`SubagentError('UNSUPPORTED_CAPABILITY')`) if the provider lacks it — never accepted-then-ignored. They must be checked before a run exists, which is why they cannot be runtime methods.
-- **Runtime features** are optional methods at their owning seams: confirmed live delivery is `SubagentRun.steer`, while persisted reconstruction is `SubagentProvider.resume`. Method presence is the capability and TypeScript narrowing is the discovery mechanism, so no separate flags object can drift from the implementation.
+- **Continuable creation** is the optional `SubagentProvider.prepareContinuable` method; presence is the capability and TypeScript narrowing is the discovery mechanism, so no separate flag can drift from the implementation. The continuation manager owns later delivery and cold resume directly through `AgentHandle`, while one-shot `SubagentRun` has no steering or resume operation, as refined by [continuable subagents](2026-07-28-continuable-subagent-conversations.md).
 
 ### Fork vs. fresh are separate backends, not a flag
 
@@ -55,7 +55,7 @@ Each subagent runs in its **own `Session`** (own id, `parentSession` lineage), p
 
 ### Synchronous collect (first cut)
 
-`dsh-tool-subagent` passes its execution signal to `start()`, awaits the child result, and disposes the run in `finally`. Non-completed outcomes become error results rather than successful partial output. This foreground consumer does not use the run's optional steering method.
+`dsh-tool-subagent` passes its execution signal to `start()`, awaits the child result, and disposes the run before reporting. Non-completed outcomes become error results rather than successful partial output, and independent result and disposal rejections retain both diagnostics.
 
 ### Provider selection is config, not model-facing
 

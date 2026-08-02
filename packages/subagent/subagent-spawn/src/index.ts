@@ -9,12 +9,12 @@
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import type {
+  ContinuableCreateSpec,
+  ResolvedSubagentStartRequest,
   SubagentCapabilities,
   SubagentProvider,
-  SubagentProviderResumeRequest,
-  SubagentProviderStartRequest,
 } from '@deepseek-ai/dsh-subagent'
-import { resumeInProcessRun, startInProcessRun } from '@deepseek-ai/dsh-subagent-inprocess'
+import { startInProcessRun } from '@deepseek-ai/dsh-subagent-inprocess'
 
 export const name = 'subagent-spawn'
 // `tools` is deliberately not injected: the child factory already provides it during setup,
@@ -45,17 +45,17 @@ class SpawnProvider implements SubagentProvider {
 
   constructor(readonly name: string) {}
 
-  start(request: SubagentProviderStartRequest) {
+  start(request: ResolvedSubagentStartRequest) {
     // Fresh child: no seed. The shared driver mints ids, stamps cwd/lineage/
     // depth, drives the one-shot (including the structured capture when the
     // request carries an outputSchema), and maps the result.
     return startInProcessRun(request, {})
   }
 
-  resume(request: SubagentProviderResumeRequest) {
-    // Cold resume reconstructs the persisted child from its own transcript
-    // under the live parent scope; the shared driver drives the follow-up turn.
-    return resumeInProcessRun(request)
+  prepareContinuable(): Promise<ContinuableCreateSpec> {
+    // A spawned child starts fresh, so it contributes no seed; the continuation
+    // manager owns every later operation on it.
+    return Promise.resolve({})
   }
 }
 

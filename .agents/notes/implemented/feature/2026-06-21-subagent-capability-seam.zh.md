@@ -38,12 +38,12 @@ bash seam（[能力 seam](../architecture/2026-06-13-capability-seams.md)）在�
 
 ### 原语：异步 `start → SubagentRun`
 
-提供方暴露 `start(request) → Promise<SubagentRun>`。完成时发布一个就绪的子 agent 并将其运行句柄转交给调用方。一个信号覆盖就绪前后的取消；`dispose()`（资源释放）取消剩余工作并等待完全停稳。启动失败时清理部分资源，不发出生命周期事件。`start` 与传输方式无关；`spawn` 仅指代全新的进程内后端。
+提供方暴露 `start(request) → Promise<SubagentRun>`。完成时发布一个子 agent，并将其运行句柄转交给调用方。发布前失败的工作会拒绝 `start()`，而发布后的提示词、轮次、取消与基础设施结果会通过 `run.result` 结算，且不会隐藏 child id。同一个信号覆盖发布前后的取消；`dispose()`（资源释放）取消剩余工作并等待完全停稳。启动被拒绝时会清理未发布资源，且不发出生命周期事件；发布后的结果失败则会结束已经发布的生命周期事件对。`start` 与传输方式无关；`spawn` 仅指代全新的进程内后端。
 
 ### 两类可选能力，两种发现方式
 
 - **启动时功能**（`outputSchema`、`depthLimit`、`toolFilter`、`persona`）挂在静态的 `provider.capabilities` 描述符上。服务在委派之前检查每个被请求的功能，如果提供方不支持则**大声拒绝**（`SubagentError('UNSUPPORTED_CAPABILITY')`），绝不接受后静默忽略。这些功能必须在 run 存在之前检查，因此不能是运行时方法。
-- **运行时功能**是在其所属 seam 上定义的可选方法：提供确认语义的在线投递对应 `SubagentRun.steer`，持久化重建对应 `SubagentProvider.resume`。方法的存在本身即为能力，TypeScript 类型收窄即为发现机制，因此不需要可能与实现失同步的独立 flags 对象。
+- **可继续创建**使用可选的 `SubagentProvider.prepareContinuable` 方法；方法是否存在本身即为能力，TypeScript 类型收窄即为发现机制，因此不需要可能与实现失同步的独立 flag。继续执行管理器直接通过 `AgentHandle` 负责后续投递与从持久化存储恢复，而一次性 `SubagentRun` 没有 steering 或 resume 操作，具体由[可继续 subagent](2026-07-28-continuable-subagent-conversations.md)细化。
 
 ### Fork 与 fresh 是独立后端，而非一个 flag
 
@@ -55,7 +55,7 @@ bash seam（[能力 seam](../architecture/2026-06-13-capability-seams.md)）在�
 
 ### 同步收集（首版）
 
-`dsh-tool-subagent` 将其执行信号传给 `start()`，等待子 agent 结果，并在 `finally` 中 dispose 该 run。非完成态的结果变为错误结果，而非成功的部分输出。这个前台消费方不使用 run 的可选 steering 方法。
+`dsh-tool-subagent` 将其执行信号传给 `start()`，等待子 agent 结果，并在报告前 dispose 该 run。非完成态的结果变为错误结果，而非成功的部分输出；相互独立的结果与 dispose rejection 会保留两项 diagnostic。
 
 ### 提供方选择是配置，不面向模型
 

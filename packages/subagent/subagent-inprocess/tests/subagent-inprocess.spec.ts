@@ -2,17 +2,16 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { type Agent, type AgentOptions } from '@deepseek-ai/dsh-agent'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
 import * as AgentInvariant from '@deepseek-ai/dsh-agent/invariant'
 import * as AgentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
-import SubagentService, { SUBAGENT_DESCRIPTOR_VERSION, SubagentError } from '@deepseek-ai/dsh-subagent'
-import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
-import { maxTokensResponse, MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
-import { resumeInProcessRun, startInProcessRun } from '../src/index.ts'
+import SubagentService, { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
+import { maxTokensResponse, MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+import { startInProcessRun } from '../src/index.ts'
 
 type Script = ConstructorParameters<typeof MockAdapter>[0]
 
@@ -36,22 +35,16 @@ async function setup(script: Script, parentOptions: Partial<AgentOptions> = {}) 
 }
 
 function request(parent: Agent, signal = new AbortController().signal) {
-  return { prompt: [{ type: 'text' as const, text: 'child task' }], parent, signal }
-}
-
-function continuableRequest(parent: Agent) {
-  const sessionId = SessionId('continuable-child')
   return {
-    ...request(parent),
-    continuation: {
-      sessionId,
-      descriptor: {
-        version: SUBAGENT_DESCRIPTOR_VERSION,
-        provider: 'spawn',
-        agentProvider: 'mock',
-        agentModel: 'mock',
-      },
-    },
+    label: 'child task',
+    prompt: [{ type: 'text' as const, text: 'child task' }],
+    parent,
+    signal,
+    descriptor: snapshotSubagentDescriptor({
+      mode: 'one-shot',
+      provider: 'test',
+      label: 'child task',
+    }),
   }
 }
 
@@ -88,110 +81,7 @@ describe('startInProcessRun', () => {
     await run.dispose()
   })
 
-  it('rejects a continuable child when no durability listener is registered', async () => {
-    const { parent } = await setup([textResponse('driver answer')])
-
-    const run = await startInProcessRun(continuableRequest(parent), {})
-    const caught: unknown = await run.result.catch((error: unknown) => error)
-
-    expect(caught).toBeInstanceOf(SubagentError)
-    const durabilityError = caught as SubagentError
-    expect(durabilityError.code).toBe('DURABILITY_FAILED')
-    expect(durabilityError.message).toContain('required durability checkpoint has no registered listener')
-    await run.dispose()
-  })
-
-  it('rejects when the durability listener disappears before final confirmation', async () => {
-    const { ctx, parent } = await setup([textResponse('driver answer')])
-    let flushes = 0
-    let detach = (): void => {}
-    detach = ctx.on('session/flush', (session) => {
-      if (session.header.parentSession === undefined) return
-      flushes++
-      if (flushes === 1) detach()
-    })
-
-    const run = await startInProcessRun(continuableRequest(parent), {})
-    const caught: unknown = await run.result.catch((error: unknown) => error)
-
-    expect(caught).toBeInstanceOf(SubagentError)
-    const durabilityError = caught as SubagentError
-    expect(durabilityError.code).toBe('DURABILITY_FAILED')
-    expect(durabilityError.message).toContain('required durability checkpoint has no registered listener')
-    expect(flushes).toBe(1)
-    await run.dispose()
-  })
-
-  it('requires a final durability checkpoint for a continuable child', async () => {
-    const { ctx, parent } = await setup([textResponse('driver answer')])
-    const failure = new Error('disk full')
-    let flushes = 0
-    ctx.on('session/flush', (session) => {
-      if (session.header.parentSession === undefined) return
-      flushes++
-      throw failure
-    })
-
-    const run = await startInProcessRun(continuableRequest(parent), {})
-    const caught: unknown = await run.result.catch((error: unknown) => error)
-    expect(caught).toBeInstanceOf(SubagentError)
-    const durabilityError = caught as SubagentError
-    expect(durabilityError.code).toBe('DURABILITY_FAILED')
-    expect(durabilityError.cause).toBe(failure)
-    expect(durabilityError.message).toContain(
-      'the latest child state was not confirmed persisted and may be unavailable or stale on resume: disk full',
-    )
-    expect(flushes).toBe(2)
-    await run.dispose()
-  })
-
-  it('completes a continuable child when the final checkpoint retries a transient flush failure', async () => {
-    const { ctx, parent } = await setup([textResponse('driver answer')])
-    let flushes = 0
-    ctx.on('session/flush', (session) => {
-      if (session.header.parentSession === undefined) return
-      flushes++
-      if (flushes === 1) throw new Error('temporary append failure')
-    })
-
-    const run = await startInProcessRun(continuableRequest(parent), {})
-    await expect(run.result).resolves.toMatchObject({ stopReason: 'completed' })
-    expect(flushes).toBe(2)
-    await run.dispose()
-  })
-
-  it.each([
-    { checkpoint: 'succeeds', failure: undefined },
-    { checkpoint: 'fails', failure: new Error('disk full') },
-  ])('lets cancellation own the result when the final durability checkpoint $checkpoint', async ({ failure }) => {
-    const { ctx, parent } = await setup([textResponse('driver answer')])
-    const checkpointStarted = Promise.withResolvers<undefined>()
-    const releaseCheckpoint = Promise.withResolvers<undefined>()
-    let flushes = 0
-    ctx.on('session/flush', async (session) => {
-      if (session.header.parentSession === undefined) return
-      flushes++
-      if (flushes !== 2) return
-      checkpointStarted.resolve(undefined)
-      await releaseCheckpoint.promise
-      if (failure !== undefined) throw failure
-    })
-    const controller = new AbortController()
-
-    const run = await startInProcessRun({
-      ...continuableRequest(parent),
-      signal: controller.signal,
-    }, {})
-    await checkpointStarted.promise
-    controller.abort()
-    releaseCheckpoint.resolve(undefined)
-
-    await expect(run.result).resolves.toMatchObject({ stopReason: 'aborted' })
-    expect(flushes).toBe(2)
-    await run.dispose()
-  })
-
-  it('keeps foreground runs best-effort when their turn checkpoint fails', async () => {
+  it('does not add a final durability checkpoint to a foreground run', async () => {
     const { ctx, parent } = await setup([textResponse('driver answer')])
     let flushes = 0
     ctx.on('session/flush', (session) => {
@@ -206,6 +96,40 @@ describe('startInProcessRun', () => {
     await run.dispose()
   })
 
+  it('keeps published run and handle disposal failures on separate channels', async () => {
+    const { ctx, parent } = await setup([])
+    const runError = new Error('published run failed')
+    const disposalError = new Error('published handle disposal failed')
+    const beforeAgents = ctx.agents.list().length
+    const beforeSessions = ctx.sessions.list().length
+    const parentWithFailedDisposal = {
+      options: parent.options,
+      session: parent.session,
+      ctx: {
+        get: () => undefined,
+        agents: {
+          create: async (options: Parameters<typeof ctx.agents.create>[0]) => {
+            const handle = await ctx.agents.create(options)
+            handle.agent.followup = () => { throw runError }
+            return {
+              ...handle,
+              dispose: async () => {
+                await handle.dispose()
+                throw disposalError
+              },
+            }
+          },
+        },
+      },
+    } as unknown as Agent
+
+    const run = await startInProcessRun(request(parentWithFailedDisposal), {})
+    expect(ctx.agents.get(run.id)).toBeDefined()
+    await expect(run.result).rejects.toBe(runError)
+    await expect(run.dispose()).rejects.toBe(disposalError)
+    expect(ctx.agents.list()).toHaveLength(beforeAgents)
+    expect(ctx.sessions.list()).toHaveLength(beforeSessions)
+  })
   it('reports the message-turn outcome when a later non-message turn completes during flush', async () => {
     const { ctx, parent } = await setup([maxTokensResponse('partial answer')])
     let injected = false
@@ -251,13 +175,16 @@ describe('startInProcessRun', () => {
     await run.dispose()
   })
 
-  it('persists the child depth in its session header', async () => {
+  it('persists the child origin and depth in its session header', async () => {
     const { ctx, parent } = await setup([textResponse('child answer')])
     const run = await startInProcessRun(request(parent), {})
     await run.result
     // The recursion budget is durable session data, not only runtime options —
     // a depth that lived only in AgentOptions would reset to 0 on resume.
-    expect(ctx.agents.get(run.id)!.session.header.delegationDepth).toBe(1)
+    expect(ctx.agents.get(run.id)!.session.header).toMatchObject({
+      origin: 'subagent',
+      delegationDepth: 1,
+    })
     await run.dispose()
   })
 
@@ -336,69 +263,18 @@ describe('startInProcessRun', () => {
     expect(ctx.sessions.list()).toHaveLength(beforeSessions)
   })
 
-  it('rejects an already-aborted resume before publication', async () => {
-    const { parent } = await setup([])
-    const controller = new AbortController()
-    controller.abort('too late')
-    await expect(resumeInProcessRun({
-      sessionId: SessionId('resumed-child'),
-      prompt: [{ type: 'text', text: 'continue' }],
-      source: { kind: 'user' },
-      parent,
-      signal: controller.signal,
-      descriptor: { version: SUBAGENT_DESCRIPTOR_VERSION, provider: 'spawn' },
-    })).rejects.toThrow('aborted before child publication')
-  })
-
-  it('resumes without inventing undeclared agent model options', async () => {
-    const childId = SessionId('resumed-child')
-    let flushes = 0
-    const child = {
-      id: childId,
-      options: {},
-      session: new Session(childId),
-      status: 'idle',
-      acceptsNextStep: false,
-      ctx: {
-        sessions: {
-          flush: () => {
-            flushes++
-            return Promise.resolve(true)
-          },
-        },
-      } as unknown as Context,
-      send(): void {},
-      reserveTurnAdmission: () => undefined,
-      updateInbox: () => 'not-found',
-      followup(): void {},
-      steer() { return { outcome: Promise.resolve({ status: 'rejected' as const }) } },
-      inject(): void {},
-      cancel(): void {},
-      whenIdle: () => Promise.resolve(),
-    } as Agent
-    let resumedOptions: unknown
-    const parent = {
-      ctx: {
-        agents: {
-          resume: (options: { agentOptions: unknown }) => {
-            resumedOptions = options.agentOptions
-            return Promise.resolve({ agent: child, dispose: () => Promise.resolve() })
-          },
-        },
-      },
-    } as unknown as Agent
-
-    const run = await resumeInProcessRun({
-      sessionId: childId,
-      prompt: [{ type: 'text', text: 'continue' }],
-      source: { kind: 'plugin', plugin: 'test-coordinator' },
-      parent,
-      signal: new AbortController().signal,
-      descriptor: { version: SUBAGENT_DESCRIPTOR_VERSION, provider: 'spawn' },
-    })
-    expect(resumedOptions).toEqual({})
+  it('stamps only the resolved depth when neither parent nor request declares a model route', async () => {
+    // The one-shot analogue of the deleted resume coverage ("resumes without
+    // inventing undeclared agent model options"): a bare parent with no request
+    // agentOptions yields a child whose options carry ONLY the stamped depth —
+    // no provider/model is fabricated, so the child's turn errors for want of a
+    // route rather than silently adopting one.
+    const { ctx } = await setup([])
+    const parent = ctx.agentLoop.create(SessionId('routeless-parent'), {})
+    const run = await startInProcessRun(request(parent), {})
+    const child = ctx.agents.get(run.id)!
+    expect(child.options).toEqual({ subagentDepth: 1 })
     await expect(run.result).resolves.toMatchObject({ stopReason: 'error' })
-    expect(flushes).toBe(1)
     await run.dispose()
   })
 
@@ -433,7 +309,7 @@ describe('startInProcessRun', () => {
     expect(ctx.sessions.list()).toHaveLength(beforeSessions)
   })
 
-  it('closes the abort handoff after the factory detaches its creation listener', async () => {
+  it('treats abort after factory publication as a cancelled run with an id', async () => {
     const { ctx, parent } = await setup([])
     const controller = new AbortController()
     const beforeAgents = ctx.agents.list().length
@@ -449,116 +325,18 @@ describe('startInProcessRun', () => {
           create: async (options: Parameters<typeof ctx.agents.create>[0]) => {
             const handle = await ctx.agents.create(options)
             // `create()` has detached its creation-only listener, but the
-            // provider continuation has not installed its live-run listener.
+            // published run has not installed its live listener yet.
             controller.abort('handoff race')
             return handle
           },
         },
       },
     } as unknown as Agent
-    await expect(startInProcessRun(request(parentWithAbortAtHandoff, controller.signal), {}))
-      .rejects.toThrow('aborted before child publication')
+    const run = await startInProcessRun(request(parentWithAbortAtHandoff, controller.signal), {})
+    expect(ctx.agents.get(run.id)).toBeDefined()
+    await expect(run.result).resolves.toEqual({ output: [], stopReason: 'aborted' })
+    await run.dispose()
     expect(ctx.agents.list()).toHaveLength(beforeAgents)
     expect(ctx.sessions.list()).toHaveLength(beforeSessions)
-  })
-
-  it('confirmed steering rejects a settled child instead of queueing an untracked turn', async () => {
-    const { ctx, parent } = await setup([textResponse('done')])
-    const run = await startInProcessRun(request(parent), {})
-    await run.result
-    await expect(run.steer!([{ type: 'text', text: 'late' }], { kind: 'user' }))
-      .rejects.toThrow(/not running; the message was not delivered/)
-    const child = ctx.agents.get(run.id)!
-    expect(child.session.events.some(event => event.type === 'steering/message')).toBe(false)
-    await run.dispose()
-  })
-
-  it('confirmed steering rejects when a concluding tool prevents request admission', async () => {
-    const { ctx, parent } = await setup([toolCallResponse('c1', 'finalize', {})])
-    const enteredTool = Promise.withResolvers<undefined>()
-    const releaseTool = Promise.withResolvers<undefined>()
-    ctx.tools.register(defineContentToolFixture({
-      name: 'finalize',
-      description: 'Finish the child run.',
-      parameters: {},
-      async execute(_args, exec) {
-        enteredTool.resolve(undefined)
-        await releaseTool.promise
-        exec.concludeTurn()
-        return [{ type: 'text', text: 'final' }]
-      },
-    }))
-    const run = await startInProcessRun(request(parent), {})
-    const child = ctx.agents.get(run.id)!
-    await enteredTool.promise
-
-    const delivery = run.steer!([{ type: 'text', text: 'terminal race' }], { kind: 'user' })
-    releaseTool.resolve(undefined)
-    await expect(delivery).rejects.toThrow(/stopped before steering admission; the message was not delivered/)
-    await run.result
-    expect(child.session.events.some(event => event.type === 'steering/message')).toBe(false)
-    await run.dispose()
-  })
-
-  it('confirmed steering fulfills only after the next request snapshot admits it', async () => {
-    const { ctx, parent, adapter } = await setup([textResponse('first'), textResponse('second')])
-    const enteredStopping = Promise.withResolvers<undefined>()
-    const releaseStopping = Promise.withResolvers<undefined>()
-    let held = false
-    ctx.on('agent/turn-stopping', (agent) => {
-      if (agent.session.header.parentSession === undefined || held) return
-      held = true
-      enteredStopping.resolve(undefined)
-      return releaseStopping.promise
-    })
-
-    const run = await startInProcessRun(request(parent), {})
-    const child = ctx.agents.get(run.id)!
-    await enteredStopping.promise
-
-    let settled = false
-    const delivery = run.steer!([{ type: 'text', text: 'after the first step' }], { kind: 'user' })
-      .then(() => { settled = true })
-    await Promise.resolve()
-    expect(settled).toBe(false)
-    releaseStopping.resolve(undefined)
-    await delivery
-
-    const result = await run.result
-    expect(adapter.requests).toHaveLength(2)
-    expect(JSON.stringify(adapter.requests[1]?.messages)).toContain('after the first step')
-    expect((result.output[0] as { text?: string }).text).toBe('second')
-    const steering = child.session.events.find(event => event.type === 'steering/message')
-    expect(steering?.type === 'steering/message' && steering.data.message.source).toEqual({ kind: 'user' })
-    await run.dispose()
-  })
-
-  it('carries steering from a non-terminal flush window into a tracked next turn', async () => {
-    const { ctx, parent, adapter } = await setup([textResponse('first'), textResponse('second')])
-    const enteredFlush = Promise.withResolvers<undefined>()
-    const releaseFlush = Promise.withResolvers<undefined>()
-    let held = false
-    ctx.on('session/flush', (session) => {
-      if (session.header.parentSession === undefined || held) return
-      if (!session.events.some(event => event.type === 'turn/end')) return
-      held = true
-      enteredFlush.resolve(undefined)
-      return releaseFlush.promise
-    })
-
-    const run = await startInProcessRun(request(parent), {})
-    const child = ctx.agents.get(run.id)!
-    await enteredFlush.promise
-    expect(child.status).toBe('running')
-
-    const delivery = run.steer!([{ type: 'text', text: 'next tracked turn' }], { kind: 'user' })
-    releaseFlush.resolve(undefined)
-    await delivery
-    const result = await run.result
-    expect(adapter.requests).toHaveLength(2)
-    expect(child.session.events.filter(event => event.type === 'turn/start')).toHaveLength(2)
-    expect(child.session.events.some(event => event.type === 'steering/message')).toBe(false)
-    expect((result.output[0] as { text?: string }).text).toBe('second')
-    await run.dispose()
   })
 })

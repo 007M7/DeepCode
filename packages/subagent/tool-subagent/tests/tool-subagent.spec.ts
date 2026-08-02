@@ -68,7 +68,7 @@ function text(result: { content: { type: string; text?: string }[] }): string {
 }
 
 describe('dsh-tool-subagent', () => {
-  it('rejects continuable background policy when the configured provider cannot resume', async () => {
+  it('rejects continuable background policy when the provider cannot prepare continuable children', async () => {
     let failure: unknown
     try {
       await setup({
@@ -412,6 +412,61 @@ describe('dsh-tool-subagent', () => {
     expect(disposed).toHaveBeenCalledTimes(1)
   })
 
+  it('preserves independent foreground result and disposal failures', async () => {
+    const disposed = vi.fn()
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(SubagentService)
+    ctx.subagents.registerProvider({
+      name: 'spy',
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+      inheritsParentContext: false,
+      start: async () => ({
+        id: SessionId('spy-child'),
+        localAgent: undefined,
+        result: Promise.reject(new Error('published run failed')),
+        dispose: async () => {
+          disposed()
+          throw new Error('published handle disposal failed')
+        },
+      }),
+    })
+    await ctx.plugin(tool, { provider: 'spy', maxDepth: 'provider-managed' })
+
+    const result = await callSubagent(ctx, { description: 'd', prompt: 'p' })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('published run failed')
+    expect(text(result)).toContain('published handle disposal failed')
+    expect(disposed).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports a foreground disposal failure after a completed result', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(SubagentService)
+    ctx.subagents.registerProvider({
+      name: 'spy',
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+      inheritsParentContext: false,
+      start: async () => ({
+        id: SessionId('spy-child'),
+        localAgent: undefined,
+        result: Promise.resolve({
+          output: [{ type: 'text', text: 'completed before disposal' }],
+          stopReason: 'completed',
+        }),
+        dispose: () => Promise.reject(new Error('published handle disposal failed')),
+      }),
+    })
+    await ctx.plugin(tool, { provider: 'spy', maxDepth: 'provider-managed' })
+
+    const result = await callSubagent(ctx, { description: 'd', prompt: 'p' })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('published handle disposal failed')
+  })
+
   it('passes the tool abort signal as the provider cancellation channel', async () => {
     const cancelled = vi.fn()
     const ctx = new Context()
@@ -668,10 +723,10 @@ describe('dsh-tool-subagent background mode', () => {
     return ctx
   }
 
-  it('keeps a resumable provider one-shot when backgroundMode selects one-shot', async () => {
+  it('keeps a continuable-capable provider one-shot when backgroundMode selects one-shot', async () => {
     const ctx = await backgroundSetup({ provider: 'mock' })
     const parent = ownerAgent(ctx, 'sess-parent')
-    let resumeCalls = 0
+    let prepareCalls = 0
     ctx.subagents.registerProvider({
       name: 'resumable',
       capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
@@ -685,9 +740,9 @@ describe('dsh-tool-subagent background mode', () => {
         }),
         dispose: () => Promise.resolve(),
       }),
-      resume: async () => {
-        resumeCalls += 1
-        throw new Error('one-shot policy must not resume')
+      prepareContinuable: async () => {
+        prepareCalls += 1
+        throw new Error('one-shot policy must not prepare a continuable child')
       },
     })
     tool.apply(ctx, {
@@ -706,7 +761,7 @@ describe('dsh-tool-subagent background mode', () => {
     })
 
     expect(text(started)).toBe('started background subagent task subagent-1')
-    expect(resumeCalls).toBe(0)
+    expect(prepareCalls).toBe(0)
   })
 
   it('returns a task id immediately and the answer is collected through task_output', async () => {
@@ -899,10 +954,13 @@ describe('dsh-tool-subagent continuable background mode', () => {
     return { ctx, parent }
   }
 
-  it('starts a continuable child and returns both ids without send_message', async () => {
+  it('starts a continuable child and returns only its durable id, creating no Task', async () => {
     const { ctx, parent } = await continuableSetup()
     const schema = ctx.tools.schemas().find(s => s.name === 'subagent')!
-    expect(schema.description).not.toContain('send_message')
+    // Continuable delegation has no Task, so the schema promises no collection.
+    expect(schema.description).not.toContain('task_output')
+    expect(schema.description).not.toContain('task_kill')
+    expect(schema.description).toContain('send_message')
 
     const started = await callSubagent(
       ctx,
@@ -910,15 +968,19 @@ describe('dsh-tool-subagent continuable background mode', () => {
       { agent: parent },
     )
     expect(started.isError).toBe(false)
-    const match = /^started subagent (\S+) as task (\S+)$/.exec(text(started))
+    const match = /^started subagent (\S+)$/.exec(text(started))
     expect(match).not.toBeNull()
-    const [, childId, taskId] = match!
-    const snapshot = await ctx.tasks.wait(taskId as never, 5_000, parent)
-    expect(snapshot.status).toBe('completed')
-    expect(ctx.tasks.read(taskId as never, parent).text).toBe('continuable answer')
-    // The child id names a durable session that outlives the settled Task.
+    const [, childId] = match!
+    // No Task was created for the continuable child.
+    expect(ctx.tasks.list(parent)).toEqual([])
+
+    await vi.waitFor(() => {
+      expect(ctx.agents.get(SessionId(childId!))).toBeUndefined()
+    }, { timeout: 5_000 })
+    // The child id names a durable session carrying its continuation descriptor.
     const loaded = await ctx.sessionPersistence.load(SessionId(childId!))
     expect(loaded.events.some(event => event.type === 'subagent/descriptor')).toBe(true)
+    expect(loaded.events.some(event => event.type === 'assistant/message')).toBe(true)
   })
 
 })
@@ -1000,6 +1062,7 @@ describe('depth budget configuration', () => {
   it('defaults maxDepth to 3 and forwards it in the start request', async () => {
     const { ctx, requests } = await captureSetup()
     await callSubagent(ctx, { description: 'd', prompt: 'p' })
+    expect(requests[0]?.label).toBe('d')
     expect(requests[0]?.maxDepth).toBe(3)
     expect(requests[0]?.toolFilter).toBeUndefined()
   })

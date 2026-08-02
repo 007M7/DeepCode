@@ -216,7 +216,7 @@ roots(): Agent[]
 
 Types: [Agent](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:216`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:217`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.approval` — `ApprovalService`
 
@@ -1673,7 +1673,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:764`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:767`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 
@@ -1949,30 +1949,91 @@ Source: [`packages/storage/storage-domain/src/index.ts:69`](../../packages/stora
 
 ## `ctx.subagents` — `SubagentService`
 
-Named provider registry with raw and Task-backed continuation operations.
+Named provider registry with one-shot runs, durable discovery, and continuable-child operations.
 
 ```ts cordis-catalog
 /**
- * Start one durable continuable child through a Task-backed initial
- * activation.
- * @param spec - provider, Task label, and delegation request.
- * @returns the stable child id and initial activation Task id.
+ * Establish one durable continuable child and deliver its initial prompt.
+ * Resolves when the child's inbox accepts that prompt, without waiting for the
+ * turn to start or for the message to reach the Session log; any earlier
+ * failure rejects with no ids and rolls back the child entirely.
+ * @param spec - provider, delegation request, and caller cancellation.
+ * @returns the durable child id and the accepted prompt's message id.
+ * @throws when continuation services are unavailable or materialization fails.
  */
-startContinuable(spec: ContinuableStartSpec): ContinuableStart
+async startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart>
 
 /**
- * Follow up with a continuable child. A live child is steered and fulfillment
- * confirms request admission; an idle child immediately returns a fresh Task
- * whose descriptor lookup, authorization, and cold resume may later fail.
- * @param parent - live direct parent authorizing the operation.
+ * Deliver one later message to a continuable child as its next FIFO turn. A
+ * resident child's Agent inbox accepts it directly (waking a `waiting`
+ * Activation), while an absent one is cold-resumed from its persisted
+ * Session. The Agent inbox is the only queue, so every accepted message has
+ * one observable order.
+ * @param parent - the exact live direct parent authorizing this delivery.
  * @param childId - durable child session id.
  * @param content - user-role content to deliver.
- * @param options - durable attribution and caller cancellation; aborting a
- *   live-delivery wait cancels the shared activation and awaits quiescence.
- * @returns the existing steered Task or newly started Task.
- * @throws when continuation services are unavailable or live delivery is not admitted.
+ * @param options - durable provenance and caller cancellation, which stops the
+ *   operation only before inbox acceptance.
+ * @returns the accepted message's inbox id.
+ * @throws when continuation services are unavailable, parent authority is
+ *   rejected, or the message was not admitted.
  */
-followup( parent: Agent, childId: SessionId, content: ContentBlock[], options: SubagentFollowupOptions, ): Promise<SubagentFollowupResult>
+async followup( parent: Agent, childId: SessionId, content: ContentBlock[], options: SubagentFollowupOptions, ): Promise<MessageId>
+
+/**
+ * Deliver selected content from one live continuable child to its durable
+ * direct parent. The child is the authority credential; callers cannot name a
+ * recipient. Reporting does not conclude the child's turn or Activation.
+ * @param child - exact live reporting child.
+ * @param content - selected model-facing content.
+ * @param options - parent scheduling and pre-acceptance cancellation.
+ * @returns the stable identity of the parent-accepted message.
+ * @throws when continuation services are unavailable, sender authorization
+ *   fails, or the direct parent is not live.
+ */
+async reportFrom( child: Agent, content: ContentBlock[], options: SubagentReportOptions, ): Promise<MessageId>
+
+/**
+ * Compose one deployment capability into every continuable child's
+ * unpublished creation context on fresh creation and cold resume. Grants wait
+ * for the next Activation; removing the contribution revokes every resident
+ * installation immediately.
+ * @param contribution - synchronous child-scope installer.
+ * @returns the exact Cordis effect disposer.
+ */
+registerContinuableSetup(contribution: ContinuableSetupContribution): () => void
+
+/**
+ * Close continuable admission below exact live parent Agents, stop only their
+ * visible descendant Activations synchronously, then await admitted scoped
+ * materializations and release those forests child-first. The scoped cutoff
+ * lasts until each exact parent leaves the registry; unrelated parent trees
+ * remain live.
+ * @param parents - exact host-owned parent Agents entering teardown.
+ * @returns once every retained descendant Activation released its `AgentHandle`.
+ * @throws an aggregate error after all branches settle when any failed.
+ */
+async drainContinuableDescendants(parents: readonly Agent[]): Promise<void>
+
+/**
+ * Enumerate the parent's direct session-backed subagents from the
+ * live-preferred session corpus without loading or resuming an Agent. Session
+ * query supplies lineage, candidate order, event reads, and live state; this
+ * service interprets descriptor mode, activity, and per-child diagnostics
+ * without consulting Agent registrations, Activations, or providers.
+ *
+ * The trace and exact descriptor read receive `signal`; the full event-list
+ * read has no signal parameter, so the scan rechecks cancellation around
+ * every await and between candidates. Query rejections that settle after an
+ * abort become a stable `SubagentError` with code `CANCELLED`.
+ * @param parentSessionId - parent session whose direct children are listed.
+ * @param signal - caller-owned cancellation forwarded where supported and
+ *   observed around every query await.
+ * @returns children and per-child diagnostics in stable trace order.
+ * @throws {@link SubagentError} when session query is unavailable or the
+ *   caller cancels the scan.
+ */
+listChildren(parentSessionId: SessionId, signal?: AbortSignal): Promise<SubagentListEntry[]>
 
 /**
  * Register a provider under its name. Registration is effect-scoped and HMR
@@ -1997,20 +2058,21 @@ getProvider(name: string): SubagentProvider | undefined
 list(): string[]
 
 /**
- * Establish a ready child on the named provider. Capability and semantic
+ * Establish a published child on the named provider. Capability and semantic
  * checks run before delegation. Provider ownership lasts until its promise
  * fulfills; a rejection therefore has no run for the caller to dispose and
- * emits no run lifecycle events.
+ * emits no run lifecycle events. Post-publication turn and infrastructure
+ * failures settle through the returned run.
  * @param name - the provider to use.
- * @param request - child prompt, parent, signal, and optional capabilities.
- * @returns the ready holder-owned run.
+ * @param request - child label, prompt, parent, signal, and optional capabilities.
+ * @returns the published holder-owned run.
  */
-async start(name: string, request: SubagentStartRequest & { readonly continuation?: never }): Promise<SubagentRun>
+async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [ContinuableStart](../core-data-structures/subagent.md) · [ContinuableStartSpec](../core-data-structures/subagent.md) · [SessionId](../core-data-structures/core.md) · [SubagentFollowupOptions](../core-data-structures/subagent.md) · [SubagentFollowupResult](../core-data-structures/subagent.md) · [SubagentProvider](../core-data-structures/subagent.md) · [SubagentRun](../core-data-structures/subagent.md) · [SubagentStartRequest](../core-data-structures/subagent.md)
+Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [ContinuableSetupContribution](../core-data-structures/subagent.md) · [ContinuableStart](../core-data-structures/subagent.md) · [ContinuableStartSpec](../core-data-structures/subagent.md) · [MessageId](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md) · [SubagentFollowupOptions](../core-data-structures/subagent.md) · [SubagentListEntry](../core-data-structures/subagent.md) · [SubagentProvider](../core-data-structures/subagent.md) · [SubagentReportOptions](../core-data-structures/subagent.md) · [SubagentRun](../core-data-structures/subagent.md) · [SubagentStartRequest](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:199`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:163`](../../packages/subagent/subagent/src/index.ts)
 
 ## `ctx.subprocess` — `SubprocessService` (abstract seam)
 

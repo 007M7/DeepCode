@@ -113,6 +113,20 @@ export class FakeApiClient implements IApiClient {
     cancel: (payload: unknown) => this.record('session.cancel', payload, this.onCancel(payload)),
   }
 
+  readonly subagents: IApiClient['subagents'] = {
+    list: (payload: unknown) => this.record('subagent.list', payload, Promise.resolve(ok({
+      entries: [],
+      parentAvailable: true,
+    }))),
+    history: (payload: unknown) => this.record('subagent.history', payload, Promise.resolve(ok({
+      events: [],
+      hasMore: false,
+    }))),
+    prompt: (payload: unknown) => this.record('subagent.prompt', payload, Promise.resolve(ok({
+      messageId: 'fake-message' as never,
+    }))),
+  }
+
   readonly host: IApiClient['host'] = {
     describe: payload => this.record('host.describe', payload, this.onDescribe(payload)),
     pickDirectory: payload => this.record('host.pickDirectory', payload, this.onPickDirectory(payload)),

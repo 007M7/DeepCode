@@ -364,6 +364,36 @@ describe('session creation and Workspace membership', () => {
 })
 
 describe('Host Workspace increments', () => {
+  it('projects subagent origin in attached summaries and creation increments', async () => {
+    const { api, ctx } = await harness()
+    const abort = new AbortController()
+    const stream: AsyncIterator<RpcRequest<HostFrame>> =
+      api.events.host(request({}), abort.signal)[Symbol.asyncIterator]()
+    const pending = nextHostFrame(stream)
+    const childId = SessionId('session-subagent-child')
+
+    ctx.sessions.create(childId, {
+      meta: {
+        cwd: '/tmp',
+        parentSession: SessionId('session-parent'),
+        origin: 'subagent',
+      },
+    })
+
+    expect(await pending).toMatchObject({
+      payload: {
+        type: 'host/session-added',
+        sessionId: childId,
+        parentSessionId: 'session-parent',
+        origin: 'subagent',
+      },
+    })
+    expect(expectOk(await api.sessions.list(request({}))).items).toContainEqual(
+      expect.objectContaining({ sessionId: childId, origin: 'subagent' }),
+    )
+    abort.abort()
+  })
+
   it('streams committed Workspace and Session increments after empty baselines', async () => {
     const { api } = await harness()
     expect(expectOk(await api.workspace.list(request({}))).items).toEqual([])

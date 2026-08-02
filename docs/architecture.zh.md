@@ -38,7 +38,7 @@
 | `ctx.skills` | [`skill/`](../packages/skill/README.md) | skill（技能）提供方注册表和渐进式披露 |
 | `ctx.web` | [`web/`](../packages/web/README.md) | 搜索与抓取提供方注册表 |
 | `ctx.compact`，`ctx.toolResultPrune` | [`compact/`](../packages/compact/README.md)/[`compact-tool-result-prune`](../packages/compact/compact-tool-result-prune/README.md) | 摘要压缩（compaction）和可选的无模型结果裁剪 |
-| `ctx.subagents` | [`subagent/`](../packages/subagent/README.md) | 具名委托提供方，以及可选的由 Task 支撑的继续执行与 steer-or-resume 路由 |
+| `ctx.subagents` | [`subagent/`](../packages/subagent/README.md) | 具名委托提供方和由 Activation 支撑的继续执行 |
 | `ctx.planMode` | [`plan/`](../packages/plan/README.md) | 落日志的 plan 协作状态 |
 | `ctx.tasks` | [`tasks/`](../packages/tasks/README.md) | 后台任务注册表和通用 `task_*` 控制 |
 | `ctx.workflows` | [`workflow/`](../packages/workflow/README.md) | 脚本驱动的多 agent 编排 |

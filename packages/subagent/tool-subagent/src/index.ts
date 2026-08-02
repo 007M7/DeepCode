@@ -36,9 +36,9 @@ export interface Config {
    */
   enableRunInBackground?: boolean
   /**
-   * Background execution policy (default `one-shot`). `continuable` requires
-   * a provider with persisted resume support and returns both child and Task
-   * ids; follow-up adapters remain independently optional.
+   * Background execution policy (default `one-shot`). `continuable` requires a
+   * provider with the `prepareContinuable` capability and returns the durable
+   * child id; follow-up adapters remain independently optional.
    */
   backgroundMode?: 'one-shot' | 'continuable'
   /**
@@ -134,6 +134,47 @@ function stopReasonError(result: SubagentResult): string | undefined {
   }
 }
 
+type ForegroundToolResult = {
+  readonly kind: 'foreground'
+  readonly runId: SubagentRun['id']
+  readonly output: JsonValue[]
+}
+
+/**
+ * Collect and release one foreground run without letting disposal replace an
+ * independent result failure.
+ */
+async function settleForegroundRun(run: SubagentRun): Promise<ForegroundToolResult> {
+  const [execution] = await Promise.allSettled([
+    run.result.then((result): ForegroundToolResult => {
+      const error = stopReasonError(result)
+      if (error !== undefined) {
+        // The registry converts this throw to isError; partial output is not success.
+        throw new Error(error)
+      }
+      return {
+        kind: 'foreground',
+        runId: run.id,
+        // Content blocks already cross durable JSON boundaries elsewhere;
+        // the registry performs the authoritative lossless snapshot here.
+        output: result.output as unknown as JsonValue[],
+      }
+    }),
+  ])
+  const [disposal] = await Promise.allSettled([Promise.resolve().then(() => run.dispose())])
+  if (execution.status === 'rejected') {
+    if (disposal.status === 'rejected') {
+      throw new AggregateError(
+        [execution.reason, disposal.reason],
+        `subagent run failed: ${String(execution.reason)}; dispose failed: ${String(disposal.reason)}`,
+      )
+    }
+    throw execution.reason
+  }
+  if (disposal.status === 'rejected') throw disposal.reason
+  return execution.value
+}
+
 /**
  * Model-facing wording from the provider's conversation-history descriptor
  * ({@link SubagentProvider.inheritsParentContext}).
@@ -197,7 +238,7 @@ export function apply(ctx: Context, config: Config): void {
     const wording = providerWording(provider.inheritsParentContext)
     const backgroundEnabled = config.enableRunInBackground !== false
     const continuable = (config.backgroundMode ?? 'one-shot') === 'continuable'
-    if (continuable && provider.resume === undefined) {
+    if (continuable && provider.prepareContinuable === undefined) {
       throw new Error(
         `tool-subagent: provider "${provider.name}" does not support \`backgroundMode: continuable\``,
       )
@@ -205,10 +246,12 @@ export function apply(ctx: Context, config: Config): void {
     disposeTool = ctx.tools.register(defineTool({
       name: config.toolName ?? 'subagent',
       description: wording.description + (backgroundEnabled
+        // The return channel is a separately installed capability this package
+        // cannot observe, so this describes only this call's result.
         ? continuable
-          ? ' Set `run_in_background: true` to start a continuable background subagent: you receive its'
-          + ' stable subagent id and current task id; collect the result with `task_output` and stop it with'
-          + ' `task_kill`.'
+          ? ' Set `run_in_background: true` to start a background subagent that keeps its conversation:'
+          + ' you receive only its subagent id, never its result, and it works on its own. Use this for'
+          + ' work whose result you do not need returned by this call; `send_message` sends it more work.'
           : ' Set `run_in_background: true` to return a task id; collect with `task_output` and stop with `task_kill`.'
         : ''),
       parameters: {
@@ -226,8 +269,8 @@ export function apply(ctx: Context, config: Config): void {
           run_in_background: {
             type: 'boolean' as const,
             description: continuable
-              ? 'Run as a continuable background subagent and return its subagent and task ids; '
-              + 'collect with task_output or stop with task_kill.'
+              ? 'Run as a background subagent that keeps its conversation and return only its subagent id. '
+              + 'This call never returns its result; send it more work with send_message.'
               : 'Run as a background task and return its id; collect with task_output or stop with task_kill.',
           },
         } : {},
@@ -241,7 +284,14 @@ export function apply(ctx: Context, config: Config): void {
               properties: {
                 kind: { type: 'string', required: true, const: 'background' },
                 taskId: { type: 'string', required: true },
-                subagentId: { type: 'string' },
+              },
+            },
+            {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                kind: { type: 'string', required: true, const: 'continuable' },
+                subagentId: { type: 'string', required: true },
               },
             },
             {
@@ -258,10 +308,10 @@ export function apply(ctx: Context, config: Config): void {
         render: (_args, value) => [{
           type: 'text',
           text: value.kind === 'background'
-            ? value.subagentId === undefined
-              ? `started background subagent task ${value.taskId}`
-              : `started subagent ${value.subagentId} as task ${value.taskId}`
-            : outputValueText(value.output),
+            ? `started background subagent task ${value.taskId}`
+            : value.kind === 'continuable'
+              ? `started subagent ${value.subagentId}`
+              : outputValueText(value.output),
         }],
       },
       async execute(args, exec) {
@@ -273,6 +323,7 @@ export function apply(ctx: Context, config: Config): void {
 
         const maxDepth = typeof config.maxDepth === 'number' ? config.maxDepth : undefined
         const request = {
+          label: args.description,
           prompt: [{ type: 'text', text: args.prompt }] as ContentBlock[],
           parent,
           ...config.agentOptions !== undefined ? { agentOptions: config.agentOptions } : {},
@@ -288,16 +339,15 @@ export function apply(ctx: Context, config: Config): void {
             throw new Error('run_in_background is disabled for this tool instance (enableRunInBackground: false)')
           }
           if (continuable) {
-            const started = ctx.subagents.startContinuable({
+            // Resolves at inbox acceptance: the child owns its own turns from
+            // there, so this call neither waits for nor collects a result.
+            const started = await ctx.subagents.startContinuable({
               provider: config.provider,
               label: args.description,
               request,
+              signal: exec.signal,
             })
-            return {
-              kind: 'background' as const,
-              taskId: started.taskId,
-              subagentId: started.childId,
-            }
+            return { kind: 'continuable' as const, subagentId: started.childId }
           }
           const tasks = ctx.get('tasks')
           if (tasks === undefined) {
@@ -328,25 +378,7 @@ export function apply(ctx: Context, config: Config): void {
           ...request,
           signal: exec.signal,
         })
-
-        try {
-          const result = await run.result
-          const error = stopReasonError(result)
-          if (error !== undefined) {
-            // The registry converts this throw to isError; partial output is not success.
-            throw new Error(error)
-          }
-          return {
-            kind: 'foreground' as const,
-            runId: run.id,
-            // Content blocks already cross durable JSON boundaries elsewhere;
-            // the registry performs the authoritative lossless snapshot here.
-            output: result.output as unknown as JsonValue[],
-          }
-        } finally {
-          // Dispose before returning so no child session outlives the call.
-          await run.dispose()
-        }
+        return settleForegroundRun(run)
       },
     }))
   }

@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-07-26-merge-subagent-control-service.md) | 中文
 
-公开操作集合由[以意图命名的 subagent 继续执行操作](2026-07-27-intent-named-subagent-continuation-operations.md)进一步细化。
+公开操作集合由[以意图命名的 subagent 继续执行操作](2026-07-27-intent-named-subagent-continuation-operations.md)进一步细化，并由[可继续的 subagent](../feature/2026-07-28-continuable-subagent-conversations.md)再次细化——后者保留这一个合并后的服务，同时移除提供方 `resume` 派发和基于 Task 的继续执行生命周期。
 
 ## 问题
 
@@ -30,7 +30,7 @@ Status: implemented
 
 **注册继续执行访问入口，或检查后续操作工具。** 注册表可以告诉委派工具继续执行接口是否存在，但启动具备持久性的工作不需要任何后续操作适配器。这样的注册表会把 UI 组合编码进执行策略，并以另一个名称重新建立插件间依赖关系。
 
-**将底层启动与可继续启动合并为一个方法。** `start` 上的标志会使该方法返回就绪的 run，或立即返回 Task 和 child 标识，从而削弱简单的所有权边界。保留 `startContinuable` 改动更小，也能明确保留两项契约。
+**将底层启动与可继续启动合并为一个方法。** `start` 上的标志会使该方法返回已发布的一次性 run，或立即返回 Task 和 child 标识，从而削弱简单的所有权边界。保留 `startContinuable` 改动更小，也能明确保留两项契约。
 
 ## 影响
 

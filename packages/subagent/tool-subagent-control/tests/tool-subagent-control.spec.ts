@@ -10,8 +10,6 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn'
-import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
-import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import * as tool from '../src/index.ts'
 
@@ -31,8 +29,6 @@ async function setup(script: ConstructorParameters<typeof MockAdapter>[0]) {
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(SubagentService)
   await ctx.plugin(SubagentSpawn, { providerName: 'spawn' })
-  await ctx.plugin(LocalTaskService)
-  await ctx.plugin(ToolTasks, {})
   await ctx.plugin(tool)
   const adapter = new MockAdapter(script)
   ctx.llm.registerAdapter(['mock'], adapter)
@@ -61,6 +57,13 @@ function callTool(
   })
 }
 
+/** Wait until a child's Activation released its handle. */
+async function waitNoActivation(ctx: Context, childId: SessionId): Promise<void> {
+  await vi.waitFor(() => {
+    expect(ctx.agents.get(childId)).toBeUndefined()
+  }, { timeout: 5_000 })
+}
+
 describe('dsh-tool-subagent-control', () => {
   it('registers send_message once, globally, with the two required parameters', async () => {
     const { ctx } = await setup([])
@@ -68,90 +71,64 @@ describe('dsh-tool-subagent-control', () => {
     expect(schemas).toHaveLength(1)
     const props = (schemas[0]!.parameters as { properties?: Record<string, unknown> }).properties ?? {}
     expect(Object.keys(props).sort()).toEqual(['message', 'subagent_id'])
-    expect(schemas[0]!.description).toContain('task_output')
+    // The continuable path has no Task, so the schema must not promise one.
+    expect(schemas[0]!.description).not.toContain('task_output')
+    expect(schemas[0]!.description).not.toContain('task id')
+    // Follow-up ordering is model-visible: it cannot redirect the open turn.
+    expect(schemas[0]!.description).toContain('next turn')
   })
 
-  it('cold-resumes a settled child and renders the started route with its task id', async () => {
+  it('cold-resumes a settled child and reports the queued next turn', async () => {
     const { ctx, parent } = await setup([textResponse('first answer'), textResponse('second answer')])
-    const started = ctx.subagents.startContinuable({
+    const started = await ctx.subagents.startContinuable({
       provider: 'spawn',
-      label: 'work',
+      label: 'child task',
       request: { prompt: [{ type: 'text', text: 'child task' }], parent },
+      signal: testToolSignal,
     })
-    await ctx.tasks.wait(started.taskId, 5_000, parent)
+    await waitNoActivation(ctx, started.childId)
 
     const result = await callTool(ctx, 'send_message', {
       subagent_id: started.childId,
       message: 'and then?',
     }, parent)
+
     expect(result.isError).toBe(false)
-    expect(text(result)).toBe(`message started task subagent-2 continuing subagent ${started.childId}`)
-    const collected = await callTool(ctx, 'task_output', { task_id: 'subagent-2', wait: true }, parent)
-    expect(text(collected)).toBe('second answer\n[status: completed]')
+    expect(text(result)).toBe(`message queued as the next turn for subagent ${started.childId}`)
+    await waitNoActivation(ctx, started.childId)
+
     const loaded = await ctx.sessionPersistence.load(started.childId)
-    const followUp = loaded.events.findLast(event =>
-      event.type === 'user/message',
-    )
+    const followUp = loaded.events.findLast(event => event.type === 'user/message')
+    // Durable provenance records the calling agent without granting authority.
     expect(followUp?.type === 'user/message' && followUp.data.source).toEqual({
       kind: 'coordinator',
       senderSessionId: parent.id,
     })
   })
 
-  it('renders the steered route when the child is still running', async () => {
-    // Script the child's single turn as two steps: the steer joins mid-turn.
-    const { ctx, parent } = await setup([])
-    let steered: string | undefined
-    let source: unknown
-    // Reach past the tool into the subagent service to fake a running route
-    // deterministically: the tool is a thin adapter, so its steered wording is
-    // what this test pins.
-    ctx.subagents.followup = async (agent, _childId, message, options) => {
-      steered = (message[0] as { text: string }).text
-      source = options.source
-      return { route: 'steered', taskId: ctx.tasks.list(agent)[0]?.id ?? ('subagent-9' as never) }
-    }
+  it('queues behind an open turn instead of joining it', async () => {
+    const { ctx, parent, adapter } = await setup([textResponse('first'), textResponse('second')])
+    const started = await ctx.subagents.startContinuable({
+      provider: 'spawn',
+      label: 'long work',
+      request: { prompt: [{ type: 'text', text: 'long work' }], parent },
+      signal: testToolSignal,
+    })
+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
+
     const result = await callTool(ctx, 'send_message', {
-      subagent_id: 'some-child',
+      subagent_id: started.childId,
       message: 'also consider Y',
     }, parent)
     expect(result.isError).toBe(false)
-    expect(steered).toBe('also consider Y')
-    expect(source).toEqual({ kind: 'coordinator', senderSessionId: parent.id })
-    expect(text(result)).toBe('message delivered to running task subagent-9')
-  })
 
-  it('cancels a pending live-delivery wait when the tool signal aborts', async () => {
-    const { ctx, parent, adapter } = await setup(['hang'])
-    const started = ctx.subagents.startContinuable({
-      provider: 'spawn',
-      label: 'hung work',
-      request: { prompt: [{ type: 'text', text: 'wait' }], parent },
-    })
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
-    const deliveryStarted: PromiseWithResolvers<void> = Promise.withResolvers()
-    const followup = ctx.subagents.followup.bind(ctx.subagents)
-    ctx.subagents.followup = (agent, childId, message, options) => {
-      const delivery = followup(agent, childId, message, options)
-      deliveryStarted.resolve()
-      return delivery
-    }
-
-    const controller = new AbortController()
-    const execution = callTool(ctx, 'send_message', {
-      subagent_id: started.childId,
-      message: 'follow up',
-    }, parent, controller.signal)
-    await deliveryStarted.promise
-    controller.abort('parent tool cancelled')
-
-    const result = await execution
-    expect(result.isError).toBe(true)
-    expect(result.error?.info?.code).toBe('CANCELLED')
-    expect(ctx.agents.get(started.childId)).toBeUndefined()
-    const snapshot = await ctx.tasks.wait(started.taskId, 5_000, parent)
-    expect(snapshot.status).toBe('killed')
+    await waitNoActivation(ctx, started.childId)
     const loaded = await ctx.sessionPersistence.load(started.childId)
+    const prompts = loaded.events.flatMap(event => event.type === 'user/message'
+      ? event.data.content.flatMap(block => block.type === 'text' ? [block.text] : [])
+      : [])
+    // A follow-up is its own later turn, never steering inside the first one.
+    expect(prompts).toEqual(['long work', 'also consider Y'])
     expect(loaded.events.some(event => event.type === 'steering/message')).toBe(false)
   })
 
@@ -161,17 +138,27 @@ describe('dsh-tool-subagent-control', () => {
       subagent_id: 'no-such-child',
       message: 'hello?',
     }, parent)
-    // Unknown ids start a Task whose failure carries the unavailable detail;
-    // synchronous rejections (ownership conflicts) become isError results.
-    if (result.isError) {
-      expect(text(result)).toContain('not delivered')
-    } else {
-      const taskId = text(result).match(/task (\S+) /)?.[1]
-      expect(taskId).toBeDefined()
-      const snapshot = await ctx.tasks.wait(taskId as never, 5_000, parent)
-      expect(snapshot.status).toBe('failed')
-      expect(snapshot.detail).toContain('unavailable')
-    }
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('unavailable')
+  })
+
+  it('rejects a caller that is not the child\'s durable direct parent', async () => {
+    const { ctx, parent } = await setup([textResponse('first')])
+    const started = await ctx.subagents.startContinuable({
+      provider: 'spawn',
+      label: 'child task',
+      request: { prompt: [{ type: 'text', text: 'child task' }], parent },
+      signal: testToolSignal,
+    })
+    await waitNoActivation(ctx, started.childId)
+    const stranger = ctx.agentLoop.create(SessionId('stranger'), { provider: 'mock', model: 'mock' })
+
+    const result = await callTool(ctx, 'send_message', {
+      subagent_id: started.childId,
+      message: 'mine now',
+    }, stranger)
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('another parent session')
   })
 
   it('fails loud when invoked without a calling agent', async () => {
@@ -186,7 +173,6 @@ describe('dsh-tool-subagent-control', () => {
     await mountAgentLoopTestDependencies(ctx)
     await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(SubagentService)
-    await ctx.plugin(LocalTaskService)
     const fiber = await ctx.plugin(tool)
     expect(ctx.tools.schemas().some(schema => schema.name === 'send_message')).toBe(true)
     await fiber.dispose()

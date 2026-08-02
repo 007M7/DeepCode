@@ -4,6 +4,8 @@ Status: implemented
 
 [English](2026-07-27-intent-named-subagent-continuation-operations.md) | 中文
 
+本记录命名的 `followup` 操作由[可继续的 subagent](../feature/2026-07-28-continuable-subagent-conversations.md)保留，但后者以已接受的 `MessageId` 替换其基于 Task 的返回值，保留裸 `Agent` 参数作为准确的实时直属父级权限，并以 `prepareContinuable` 替换提供方 `resume` 派发。
+
 ## 问题
 
 将可继续 child 的编排合并到 `ctx.subagents` 后，提供方分发与调用方意图共存于同一个公开服务中。`resume(name, request)` 接受描述符、已鉴权的 parent、持久化 child id 与激活信号，而只有内部继续执行管理器才能正确解析这些数据。`sendMessage(...)` 暴露的是传输层措辞，而不是 `Agent` 已采用的 `followup` 意图；它还将来源与信号拆成独立参数，扩大了操作接口，而每个调用方都必须以原子方式同时使用二者。

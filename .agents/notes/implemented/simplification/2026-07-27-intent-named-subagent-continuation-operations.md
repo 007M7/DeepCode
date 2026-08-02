@@ -4,6 +4,8 @@ Status: implemented
 
 English | [中文](2026-07-27-intent-named-subagent-continuation-operations.zh.md)
 
+The `followup` operation this record names is retained by [Continuable subagents](../feature/2026-07-28-continuable-subagent-conversations.md), which replaces its Task-backed return value with the accepted `MessageId`, retains its bare `Agent` parameter as exact live-direct-parent authority, and replaces provider `resume` dispatch with `prepareContinuable`.
+
 ## Problem
 
 Merging continuable-child orchestration into `ctx.subagents` left provider dispatch and caller intent on the same public service. `resume(name, request)` accepted a descriptor, authorized parent, durable child id, and activation signal that only the internal continuation manager could resolve correctly. `sendMessage(...)` exposed transport wording rather than the `followup` intent already used by `Agent`, and its separate source and signal parameters widened an operation every caller had to use atomically.

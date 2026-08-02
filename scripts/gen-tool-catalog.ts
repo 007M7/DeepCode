@@ -11,7 +11,9 @@ import { basename, resolve } from 'node:path'
 import { Context } from 'cordis'
 import type { ToolSchema } from '@deepseek-ai/dsh-llm'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
-import SessionStore from '@deepseek-ai/dsh-session'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import { createScope } from '@deepseek-ai/dsh-scope'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionQuerySqlite from '@deepseek-ai/dsh-session-query-sqlite'
 import GoalService from '@deepseek-ai/dsh-goal'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -29,6 +31,8 @@ import * as WebFetchLocal from '@deepseek-ai/dsh-web-fetch-local'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import type { SubagentProvider } from '@deepseek-ai/dsh-subagent'
 import * as ToolSubagentControl from '@deepseek-ai/dsh-tool-subagent-control'
+import * as ToolSubagentListAgents from '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+import * as ToolSubagentReport from '@deepseek-ai/dsh-tool-subagent-report'
 import SkillService from '@deepseek-ai/dsh-skill'
 import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
 import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
@@ -107,9 +111,30 @@ function registerCatalogSubagentProvider(ctx: Context, name: string): void {
     capabilities: { outputSchema: true, depthLimit: true, toolFilter: true, persona: true },
     inheritsParentContext: false,
     start: () => Promise.reject(new Error('tool-catalog provider cannot start a child')),
-    resume: () => Promise.reject(new Error('tool-catalog provider cannot resume a child')),
+    // Declared so consumers configured for continuable background mode mount.
+    prepareContinuable: () => Promise.reject(new Error('tool-catalog provider cannot prepare a child')),
   }
   ctx.subagents.registerProvider(provider)
+}
+
+/** Minted child-scope keys for packages whose tools are never global. */
+const catalogChildScopes = new WeakMap<Context, Agent>()
+
+/**
+ * Install one scope-local tool package into an agent-like child scope for
+ * schema harvest, without starting a model, Agent loop, or persistence backend.
+ * @param ctx - catalog context owning the scope.
+ * @param mountScoped - package installer for the scoped context.
+ */
+async function mountCatalogChildScope(
+  ctx: Context,
+  mountScoped: (childCtx: Context) => void,
+): Promise<void> {
+  const key = { id: SessionId('tool-catalog-child') } as Agent
+  await ctx.plugin(Object.assign((inner: Context) => {
+    mountScoped(createScope(inner, key).ctx)
+  }, { inject: ['tools', 'systemPrompt', 'subagents'] }))
+  catalogChildScopes.set(ctx, key)
 }
 
 /**
@@ -122,8 +147,12 @@ interface ToolPackage {
   pkg: string
   /** The `packages/<group>/<dir>` leaf name — matched by the completeness guard. */
   dir: string
-  /** Repo-relative source path linked from the catalog entry. */
-  source: string
+  /**
+   * Repo-relative implementation source linked per harvested tool. Packages
+   * whose tools share one plugin may use a string; split plugins map each tool
+   * name to its own source.
+   */
+  source: string | Readonly<Record<string, string>>
   /** Services or owning runtime surfaces the package requires at execution time. */
   requires: string[]
   /** Session events or other visible state the tools write or affect. */
@@ -133,6 +162,8 @@ interface ToolPackage {
   /** Plug the injected seams + the tool plugin onto a context that already
    * carries `systemPrompt` + `tools`. */
   mount: (ctx: Context) => Promise<void>
+  /** Agent-like scope key whose tool view is catalogued instead of the global view. */
+  scope?: (ctx: Context) => Agent
   /**
    * Config for the caller's `ToolRegistry` mount. The registry itself ships a
    * model-facing tool (`run_code`, registered under a non-native `mode`), so
@@ -384,17 +415,42 @@ const TOOL_PACKAGES: ToolPackage[] = [
   {
     pkg: '@deepseek-ai/dsh-tool-subagent-control',
     dir: 'tool-subagent-control',
-    source: 'packages/subagent/tool-subagent-control/src/index.ts',
-    requires: ['ctx.tools', 'ctx.subagents'],
+    source: {
+      list_agents: 'packages/subagent/tool-subagent-control/src/list-agents.ts',
+      send_message: 'packages/subagent/tool-subagent-control/src/index.ts',
+    },
+    requires: ['ctx.tools', 'ctx.subagents', 'ctx.sessionQuery (list_agents only)'],
     writes: ['tool/call', 'tool/result', 'child session events through ctx.subagents'],
     async mount(ctx) {
       await ctx.plugin(SubagentService)
       await ctx.plugin(LocalTaskService)
       await ctx.plugin(AgentRegistry)
+      await ctx.plugin(SessionStore)
+      await ctx.plugin(SessionQuerySqlite, { path: ':memory:' })
       await ctx.plugin(ToolSubagentControl)
+      await ctx.plugin(ToolSubagentListAgents)
     },
     note:
-      'The one globally named follow-up tool over continuable background subagents: provider-bound `tool-subagent` instances register distinct delegation tools, while this package registers `send_message` once.',
+      'The globally named control tools over continuable background subagents: provider-bound `tool-subagent` instances register distinct delegation tools, while this package registers `send_message` once, plus `list_agents` from its separately loaded `/list-agents` plugin (which additionally requires session query).',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-subagent-report',
+    dir: 'tool-subagent-report',
+    source: 'packages/subagent/tool-subagent-report/src/index.ts',
+    requires: ['ctx.subagents', 'a live continuable in-process child Agent'],
+    writes: ['tool/call', 'tool/result', 'a user-role message in the direct parent session'],
+    async mount(ctx) {
+      await ctx.plugin(AgentRegistry)
+      await ctx.plugin(SubagentService)
+      await mountCatalogChildScope(ctx, (childCtx) => {
+        ToolSubagentReport.installReportTool(childCtx, ctx, 'quiet')
+      })
+    },
+    scope: ctx => catalogChildScopes.get(ctx) as Agent,
+    note:
+      'Registered per continuable in-process child rather than globally, so this schema is visible only '
+      + 'inside such a child and survives its global `toolFilter`. The parent-facing `send_message` tool '
+      + 'is installed independently.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-tasks',
@@ -459,7 +515,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
 /** One package's contribution to the catalog: its schemas plus attribution. */
 interface CatalogPackage {
   pkg: string
-  source: string
+  sources: Readonly<Record<string, string>>
   requires: string[]
   writes: string[]
   shippedNames?: string[]
@@ -511,10 +567,13 @@ export async function collectToolCatalog(packages: ToolPackage[] = TOOL_PACKAGES
       await ctx.plugin(SystemPrompt)
       await ctx.plugin(ToolRegistry, entry.toolsConfig ?? {})
       await entry.mount(ctx)
-      const schemas = ctx.tools.schemas().sort((a, b) => a.name.localeCompare(b.name))
+      const schemas = ctx.tools.schemas(entry.scope?.(ctx)).sort((a, b) => a.name.localeCompare(b.name))
       catalog.push({
         pkg: entry.pkg,
-        source: entry.source,
+        sources: Object.fromEntries(schemas.map(schema => [
+          schema.name,
+          toolSource(entry, schema.name),
+        ])),
         requires: entry.requires,
         writes: entry.writes,
         schemas,
@@ -526,6 +585,18 @@ export async function collectToolCatalog(packages: ToolPackage[] = TOOL_PACKAGES
     }
   }
   return catalog
+}
+
+/** Resolve one harvested tool to the plugin source that registered it. */
+function toolSource(entry: ToolPackage, toolName: string): string {
+  if (typeof entry.source === 'string') return entry.source
+  const source = entry.source[toolName]
+  if (source === undefined) {
+    throw new Error(
+      `gen-tool-catalog: ${entry.pkg} has no source mapping for harvested tool ${toolName}`,
+    )
+  }
+  return source
 }
 
 /** Render one tool's entry: name, description, JSON-Schema parameters, source. */
@@ -570,7 +641,11 @@ export function render(catalog: ToolCatalog): string {
   ]
   for (const entry of catalog) {
     lines.push(`## \`${entry.pkg}\``, '')
-    for (const schema of entry.schemas) lines.push(...renderTool(schema, entry.source))
+    for (const schema of entry.schemas) {
+      // Collection validated that every harvested schema has a source.
+      const source = entry.sources[schema.name] as string
+      lines.push(...renderTool(schema, source))
+    }
     if (entry.note) lines.push(entry.note, '')
   }
   return lines.join('\n')

@@ -97,9 +97,17 @@
     providerName: fork
 
 # Continuable background children are selected per delegation tool. The
-# separately loaded follow-up tool registers the one global `send_message`.
+# separately loaded control package registers the global `send_message`; its
+# list plugin registers `list_agents` and requires the app's session query.
+# `report` is installed only in continuable child scopes.
 - id: tool-subagent-control
   name: '@deepseek-ai/dsh-tool-subagent-control'
+
+- id: tool-subagent-list-agents
+  name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+
+- id: tool-subagent-report
+  name: '@deepseek-ai/dsh-tool-subagent-report'
 
 - id: tool-subagent
   name: '@deepseek-ai/dsh-tool-subagent'

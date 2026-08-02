@@ -18,6 +18,8 @@ export interface SessionListEntry {
   /** Empty-log bit mirrored from the summary; lists hide blank sessions (filtering stays with the consumer). */
   blank: boolean
   parentSessionId?: SessionId
+  /** Coarse durable origin for navigation filtering; not a continuation capability. */
+  origin?: 'subagent'
   cwd?: string
   /** An approval question is pending on this session (mux-frame derived; the sidebar's amber dot). */
   waitingApproval: boolean

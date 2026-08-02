@@ -96,6 +96,8 @@ describe('tails', () => {
       byId: { [sid]: { id: sid, title: 'r', displayTitle: 'r', running: false, waitingApproval: false, blank: false, updatedAt: 0 } },
       current: undefined,
       phase: 'ready',
+      subagentsByParent: {},
+      currentAddress: undefined,
     })
     const props = (block: RunningToolCall | ToolResultNode) => ({
       callId: 'c1', toolName: 'bash', block, openFile: vi.fn(),

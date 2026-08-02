@@ -260,19 +260,19 @@ Skill registry definitions and approval policies are readonly same-process contr
 
 Skill still validates external skill files and parsed provider output, routes catalogs through the calling agent's tool view, and disposes registrations exactly. Approval still resolves policy, observes cancellation, routes `approval/request` by `request.agent`, records the durable audit pair, and contains answerer and post-commit observer failures.
 
-## Subagents: readiness is the start promise
+## Subagents: publication is the start promise
 
-Subagent startup has one ownership transfer. The provider owns partial resources until its start promise fulfills with a ready published run; the caller owns the returned run and must dispose it.
+Subagent startup has one ownership transfer. The provider owns unpublished resources until its start promise fulfills with a published run; the caller owns the returned run and must dispose it.
 
 ### The service contract has one cancellation channel
 
-`SubagentProvider.start()` and `SubagentService.start()` return `Promise<SubagentRun>`. The promise fulfills only after the backend has established the child it promises, so callers and `subagent/start` observers never need a second `run.started` readiness promise.
+`SubagentProvider.start()` and `SubagentService.start()` return `Promise<SubagentRun>`. The promise fulfills after the backend crosses its publication boundary, so callers and `subagent/start` observers never need a second `run.started` promise. Provider work that fails before publication rejects `start()`; prompt, turn, cancellation, and infrastructure outcomes after publication settle through `SubagentRun.result` without hiding the child id, as required by the [durable catalog decision](../feature/2026-07-22-durable-subagent-catalog-and-list-agents.md).
 
-`SubagentStartRequest.signal` is required. Aborting it requests cancellation during startup and after readiness. `SubagentRun.dispose()` also requests cancellation and awaits quiescence. There is no separate public `run.cancel()` channel.
+`SubagentStartRequest.signal` is required. Aborting it requests cancellation during startup and across the published run's remaining readiness or turn work. `SubagentRun.dispose()` also requests cancellation and awaits quiescence. There is no separate public `run.cancel()` channel.
 
-Optional `SubagentRun.steer()` supports a live backend that can confirm steering admission. Optional `SubagentProvider.resume()` returns `Promise<SubagentRun>` because a reconstructed child has the same asynchronous readiness boundary.
+Continuable conversations use their separate creation and follow-up operations and have no `SubagentRun`; their manager owns each resident `AgentHandle`.
 
-The service validates provider capabilities and request semantics before calling the provider. A provider rejection cleans any partial resources before the rejection escapes and emits no `subagent/start`/`subagent/end` pair. After fulfillment, the service attaches result observation, emits scoped start, and returns the run. Provider removal prevents later starts but does not revoke a run already accepted by the provider.
+The service validates provider capabilities and request semantics before calling the provider. A provider rejection cleans unpublished resources before the rejection escapes and emits no `subagent/start`/`subagent/end` pair. After fulfillment, the service attaches result observation, emits scoped start, and returns the run; a post-publication result rejection closes that pair. Provider removal prevents later starts but does not revoke a run already accepted by the provider.
 
 ### In-process providers reuse the core transaction
 
@@ -318,7 +318,7 @@ The design is enforced at types, runtime escape points, generated contracts, and
 
 ### Types make the ordinary path hard to misuse
 
-Readonly contracts describe borrowed same-process values. `Scoped<T>` marks event receivers, `agentEvents()` fuses carrier and subject, tool inputs omit registry-owned tokens, and subagent async return types expose readiness directly.
+Readonly contracts describe borrowed same-process values. `Scoped<T>` marks event receivers, `agentEvents()` fuses carrier and subject, tool inputs omit registry-owned tokens, and subagent async return types expose publication and settlement directly.
 
 TypeScript cannot govern JavaScript casts, direct Cordis dispatch, process messages, or durable files, so runtime enforcement remains at those escape points.
 
@@ -356,7 +356,7 @@ Parallel sentinels can all mirror whether one operation is live. One transaction
 
 ### Keep synchronous subagent start plus `run.started`
 
-This splits provider acceptance from readiness and forces every consumer to register a partial run, attach result observation, await readiness, and clean up readiness failure. An async start promise makes provider-to-caller ownership transfer the readiness boundary itself.
+This splits provider acceptance from publication and forces every consumer to register a partial run, attach result observation, await publication, and clean up publication failure. An async start promise keeps provider-to-caller ownership transfer at publication; the existing result promise owns any remaining readiness instead of adding another lifecycle promise.
 
 ### Restore selected prompt or tool contributions after assembly
 
@@ -378,7 +378,7 @@ The implementation is smaller and its proof follows the same shape as its owners
 - Durable, queued, model, worker, process, and wire values are owned at their real boundary; typed same-process values follow readonly contracts.
 - ToolRegistry's presentation, lookup, and execution resolve the same live view before expert assembly transforms, and committed results have one immutable observation point.
 - Registry contributions are deterministic inputs, while the trusted assembly waterfall owns the final model-visible composition.
-- Subagent start returns only a ready run, required signals cancel pending or live work, and disposal reaches the backend's quiescence contract.
+- Subagent start returns only a published run, required signals cancel pending or live work, and disposal reaches the backend's quiescence contract.
 - Worker/process result precedence and cleanup remain correct under death, late messages, and bounded teardown.
 
 ### Costs and limits

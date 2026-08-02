@@ -67,6 +67,10 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     })
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+    // The frame mounts before the asynchronous session-list baseline lands.
+    // Search must target the settled seeded row, not the startup input that
+    // the ready projection replaces.
+    await page.getByText('1 session', { exact: true }).waitFor({ timeout: 30_000 })
   }, 120_000)
 
   afterAll(async () => {

@@ -4,7 +4,7 @@ Status: implemented
 
 English | [中文](2026-07-26-merge-subagent-control-service.zh.md)
 
-The public operation set is refined by [Intent-named subagent continuation operations](2026-07-27-intent-named-subagent-continuation-operations.md).
+The public operation set is refined by [Intent-named subagent continuation operations](2026-07-27-intent-named-subagent-continuation-operations.md) and again by [Continuable subagents](../feature/2026-07-28-continuable-subagent-conversations.md), which keeps the single merged service while removing provider `resume` dispatch and the Task-backed continuation lifecycle.
 
 ## Problem
 
@@ -30,7 +30,7 @@ Each `@deepseek-ai/dsh-tool-subagent` instance selects `backgroundMode: 'one-sho
 
 **Register continuation access or inspect the follow-up tool.** A registry could tell the delegation tool whether a continuation surface exists, but starting durable work does not require any follow-up adapter. Such a registry would encode UI composition into execution policy and recreate the sibling dependency under another name.
 
-**Merge raw and continuable starts into one method.** A flag on `start` would return either a ready run or immediate Task and child identities, weakening a simple ownership boundary. Keeping `startContinuable` is the smaller change and preserves both contracts explicitly.
+**Merge raw and continuable starts into one method.** A flag on `start` would return either a published one-shot run or immediate Task and child identities, weakening a simple ownership boundary. Keeping `startContinuable` is the smaller change and preserves both contracts explicitly.
 
 ## Consequences
 

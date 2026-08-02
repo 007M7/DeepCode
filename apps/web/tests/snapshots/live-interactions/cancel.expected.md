@@ -1,5 +1,6 @@
 - banner:
-  - heading "Reply with a one-sentence description" [level=1]
+  - navigation "Session hierarchy":
+    - button "Reply with a one-sentence description" [disabled]
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"

@@ -54,6 +54,10 @@ Session 对象会在事件 wire 边界依据生产方的完整字段契约，验
 
 每个常驻 `Session` 都拥有一个 `modelSelection` 快照，其中包含当前提供方/模型目标、按提供方分组的目录、逐提供方失败记录，以及 `idle`／`loading`／`ready`／`selecting`／`error` 状态。历史记录会建立或刷新当前目标，打开选择器会刷新目录；选择失败会保留上一个目标和可用分组。目录与选择操作共用单调递增的代次，因此较旧响应无法覆盖较新的选择。重连重建会恢复 Host 报告的目标，同时不替换未变化的选择子结构。
 
+## 已寻址的 subagent 对话
+
+`SessionListState.subagentsByParent` 携带直接持久化目录，`currentAddress` 则记录所选 child 从目录得到的 `{parentSessionId, childSessionId}`。只有这份已记录地址能选择 subagent 传输；单凭谱系仍然不足，因为普通 fork 同样具有 `parentId`。已寻址的 Session 通过 `subagent.history` 加载和重连，通过 `subagent.prompt` 发送，绝不调用普通取消，并在刷新期间及通过普通选择路径重复选择同一 child 时，把地址与所选会话一同持久化。列表还会投影 header 的粗粒度 `origin: 'subagent'` 分类供导航过滤；传输的权威依据仍是已记录地址，而不是 `origin`。目录读取为 single-flight；Host 基线与 `host/session-status` 都根据 child Agent driver 状态推导活动状态，读取期间收到的状态帧会在该读取的响应之上回放。按 origin 分类的 `host/session-added` 会立即把任何已加载的直接 parent 行标记为 `hasChildren: true`，并在该 parent 被选中或其目录打开时触发一次去抖动的重拉。parent 可用性会传播到 `ConversationSnapshot.subagent`，使呈现层可以把编辑器替换为只读说明，而不激活 parent。
+
 ## 模型体验
 
 无，因为会话对象层会选择后续 Host 请求使用的提供方/模型路由，但不添加任何模型可见内容。

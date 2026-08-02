@@ -1910,6 +1910,19 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         return ok(request, { accepted: true as const })
       },
     },
+    subagents: {
+      list: request => ok(request, { entries: [], parentAvailable: true }),
+      history: (request) => {
+        const log = logs.get(request.payload.childSessionId) ?? []
+        return Promise.resolve(ok(
+          request,
+          pageOf(log, request.payload.beforeSeq, request.payload.maxMessages ?? 50),
+        ))
+      },
+      prompt: request => Promise.resolve(ok(request, {
+        messageId: `fixture-message-${request.payload.childSessionId}` as never,
+      })),
+    },
     host: {
       describe: request => ok(request, { version: '0.0.0-fixture', cwd: '/tmp/fixture', attachedSessions }),
       // Deterministic native pick: the keyless lanes drive the full
@@ -2420,6 +2433,9 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'session.prompt': return this.api.sessions.prompt(request)
       case 'session.updateQueue': return this.api.sessions.updateQueue(request)
       case 'session.cancel': return this.api.sessions.cancel(request)
+      case 'subagent.list': return this.api.subagents.list(request)
+      case 'subagent.history': return this.api.subagents.history(request)
+      case 'subagent.prompt': return this.api.subagents.prompt(request, signal)
       case 'host.describe': return this.api.host.describe(request)
       case 'host.pickDirectory': return this.api.host.pickDirectory(request, new AbortController().signal)
       case 'host.listDirectory': return this.api.host.listDirectory(request, new AbortController().signal)
