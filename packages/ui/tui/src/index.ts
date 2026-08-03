@@ -973,6 +973,19 @@ export function createTuiChat(
     void shutdown(true)
   }
 
+  /** Cancel the active turn or standalone compaction, preserving work queued behind compaction. */
+  const cancelActive = (): boolean => {
+    if (agent.status === 'running') {
+      agent.cancel({ kind: 'user' })
+      return true
+    }
+    if (compacting !== undefined) {
+      agent.cancel({ kind: 'user' }, { keepInbox: true })
+      return true
+    }
+    return false
+  }
+
   /** Swap the palette and all derived themes for the given terminal color scheme. */
   const applyColorScheme = (scheme: TerminalColorScheme): void => {
     if (scheme === currentScheme) return
@@ -1033,8 +1046,8 @@ export function createTuiChat(
     chat.addChild(new Text(palette.bold(palette.accent('Keyboard shortcuts')), 0, 0))
     chat.addChild(new Text([
       'Enter send • Shift/Alt+Enter newline • Up/Down prompt history',
-      'Esc cancel turn • Ctrl+O cycle cards (collapse/expand/hide) • Ctrl+R toggle reasoning • Ctrl+L redraw',
-      'Ctrl+C cancel while running; clear input or exit while idle • Ctrl+D exit',
+      'Esc cancel active work • Ctrl+O cycle cards (collapse/expand/hide) • Ctrl+R toggle reasoning • Ctrl+L redraw',
+      'Ctrl+C cancel active work; clear input or exit while idle • Ctrl+D exit',
       '',
       ...commandLines,
       '/skill:<name> [instructions] — load a skill into the conversation',
@@ -1518,14 +1531,12 @@ export function createTuiChat(
       ui.requestRender(true)
       return { consume: true }
     }
-    if (matchesKey(data, Key.escape) && agent.status === 'running') {
-      agent.cancel({ kind: 'user' })
+    if (matchesKey(data, Key.escape) && cancelActive()) {
       return { consume: true }
     }
     if (matchesKey(data, Key.ctrl('c'))) {
-      if (agent.status === 'running') {
-        agent.cancel({ kind: 'user' })
-      } else if (editor.getText() !== '') {
+      if (cancelActive()) return { consume: true }
+      if (editor.getText() !== '') {
         editor.setText('')
       } else {
         requestExit()
@@ -1533,7 +1544,9 @@ export function createTuiChat(
       return { consume: true }
     }
     if (matchesKey(data, Key.ctrl('d'))) {
-      if (agent.status === 'running') appendNotice('Cancel the active turn before exiting.', 'warning')
+      if (agent.status === 'running' || compacting !== undefined) {
+        appendNotice('Cancel active work before exiting.', 'warning')
+      }
       else requestExit()
       return { consume: true }
     }

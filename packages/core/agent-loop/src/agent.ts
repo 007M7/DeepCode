@@ -35,6 +35,12 @@ import { executeToolCalls } from './tool-calls.ts'
 
 type Phase =
   | { kind: 'idle'; lastTurn: number }
+  | {
+    kind: 'maintenance'
+    abort: AbortController
+    lastTurn: number
+    wakeRequested: boolean
+  }
   | { kind: 'collecting'; abort: AbortController; lastTurn: number }
   | { kind: 'running'; abort: AbortController; turn: number; step: number }
 
@@ -57,7 +63,7 @@ function requestProposal(header: EpochHeader): LlmCallConfig {
 export class ReactLoopAgent implements Agent {
   readonly inbox: Inbox
   private phase: Phase
-  private driverDone: Promise<void> = Promise.resolve()
+  private activityDone: Promise<void> = Promise.resolve()
 
   /** The agent-scoped registration boundary; the lifecycle owner unwinds it after the driver exits. */
   readonly scope: Scope
@@ -85,7 +91,7 @@ export class ReactLoopAgent implements Agent {
   }
 
   get status(): AgentStatus {
-    return this.phase.kind === 'idle' ? 'idle' : 'running'
+    return this.phase.kind === 'idle' || this.phase.kind === 'maintenance' ? 'idle' : 'running'
   }
 
   /** Commit a phase and publish its externally visible status transition. */
@@ -99,7 +105,7 @@ export class ReactLoopAgent implements Agent {
   }
 
   send(message: UserMessage, target: InboxTarget, wakeup: boolean): void {
-    // Waking input cannot join an aborted pre-step or turn, so it starts the next turn.
+    // Waking input cannot join an aborted activity, so it starts the next turn.
     const wakingAfterAbort = wakeup && this.phase.kind !== 'idle' && this.phase.abort.signal.aborted
     const resolvedTarget = wakingAfterAbort ? 'next-turn' : target
     this.inbox.splice(resolvedTarget, Infinity, 0, [message])
@@ -119,15 +125,44 @@ export class ReactLoopAgent implements Agent {
   }
 
   cancel(cause: AgentCancelCause, options: CancelOptions = {}): void {
-    if (!options.keepInbox) this.inbox.clear()
+    if (!options.keepInbox) {
+      this.inbox.clear()
+      if (this.phase.kind === 'maintenance') this.phase.wakeRequested = false
+    }
     if (this.phase.kind !== 'idle') this.phase.abort.abort(cause)
   }
 
-  /** Reserve a driver before deferring idle pre-step processing. */
+  runMaintenance<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    if (this.phase.kind !== 'idle') throw new Error(`agent "${this.id}" already has active work`)
+    const done = Promise.withResolvers<void>()
+    const maintenance: Phase = {
+      kind: 'maintenance',
+      abort: new AbortController(),
+      lastTurn: this.phase.lastTurn,
+      wakeRequested: false,
+    }
+    this.setPhase(maintenance)
+    this.activityDone = done.promise
+    return (async () => {
+      try {
+        return await task(maintenance.abort.signal)
+      } finally {
+        this.setPhase({ kind: 'idle', lastTurn: maintenance.lastTurn })
+        if (maintenance.wakeRequested) this.scheduleKick()
+        done.resolve()
+      }
+    })()
+  }
+
+  /** Schedule one driver, or remember its wake behind maintenance. */
   private scheduleKick(): void {
+    if (this.phase.kind === 'maintenance') {
+      if (!this.phase.abort.signal.aborted) this.phase.wakeRequested = true
+      return
+    }
     if (this.phase.kind !== 'idle') return
     const driver = Promise.withResolvers<void>()
-    this.driverDone = driver.promise
+    this.activityDone = driver.promise
     this.setPhase({ kind: 'collecting', abort: new AbortController(), lastTurn: this.phase.lastTurn })
     queueMicrotask(() => {
       this.loopCtx.agents.withInitiator(this, () => this.kick()).then(driver.resolve, driver.reject)
@@ -135,10 +170,10 @@ export class ReactLoopAgent implements Agent {
   }
 
   async whenIdle(): Promise<void> {
-    let driver: Promise<void>
+    let activity: Promise<void>
     do {
-      await (driver = this.driverDone)
-    } while (driver !== this.driverDone)
+      await (activity = this.activityDone)
+    } while (activity !== this.activityDone)
   }
 
   /** Report one failure at its live boundary, then preserve it for driver containment. */
@@ -184,7 +219,7 @@ export class ReactLoopAgent implements Agent {
 
   /** Claimed input stays unowned until `turn/start` commits. */
   private async turn(): Promise<boolean> {
-    if (this.phase.kind === 'idle') {
+    if (this.phase.kind === 'idle' || this.phase.kind === 'maintenance') {
       this.throwError(new Error(`agent "${this.id}": turn without driver reservation`))
     }
     const abort = this.phase.kind === 'collecting' ? this.phase.abort : new AbortController()

@@ -100,9 +100,9 @@ export interface Agent {
 
   /**
    * Clear queued and steering work — unless `keepInbox` — and abort the active
-   * turn. The first cause wins for the active turn. Idle cancellation is a
-   * no-op and does not arm later work.
-   * @param cause - the stable caller intent carried by the current turn signal.
+   * turn or between-turn task. The first cause wins for that activity. With no
+   * active activity, cancellation is a no-op and does not arm later work.
+   * @param cause - the stable caller intent carried by the active operation signal.
    * @param options - cancellation options; `keepInbox` preserves pending work.
    */
   cancel(cause: AgentCancelCause, options?: CancelOptions): void
@@ -114,6 +114,17 @@ export interface Agent {
    * @returns fulfillment after no scheduled or active driver remains.
    */
   whenIdle(): Promise<void>
+
+  /**
+   * Run one non-turn maintenance task from the true idle phase. The task starts
+   * synchronously after claiming that phase; later waking input remains in the
+   * inbox until the task settles, while public status stays `idle`.
+   * `whenIdle()` follows both the task and any waking work released behind it.
+   * @param task - operation whose fulfillment or rejection is preserved, with a signal aborted by {@link cancel}.
+   * @throws synchronously when turn-driving or another maintenance task already owns the agent.
+   * @returns the task promise.
+   */
+  runMaintenance<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T>
 
   /**
    * Route identified input to an inbox boundary and optionally wake the driver.

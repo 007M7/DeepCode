@@ -365,43 +365,53 @@ export class BasicCompactService extends CompactService {
    * Force one useful idle-session compaction below the pressure threshold, and
    * resolve only after its standalone marker pair is durably checkpointed.
    * @param agent - idle agent whose next-turn admission this call reserves.
-   * @param signal - command-owned cancellation forwarded to summarization.
+   * @param signal - cancellation scoped to this compaction request.
    * @returns the committed result, or `null` when no safe useful range exists.
    */
-  override async compactNow(
-    agent: Agent,
-    signal: AbortSignal,
-  ): Promise<CompactionResult | null> {
+  override compactNow(agent: Agent, signal: AbortSignal): Promise<CompactionResult | null> {
     signal.throwIfAborted()
-    const releaseTurnAdmission = agent.reserveTurnAdmission()
-    if (releaseTurnAdmission === undefined) {
+    try {
+      return agent.runMaintenance(async (agentSignal) => {
+        const operationSignal = AbortSignal.any([agentSignal, signal])
+        try {
+          operationSignal.throwIfAborted()
+          const range = selectCompactableRange(
+            agent.session,
+            this.ctx.tokenMeter.measure(agent.session),
+            0,
+          )
+          if (range === null) return null
+          return await compactSurfaceRegion(
+            this.regionDependencies(),
+            agent.session,
+            range.start,
+            range.end,
+            agent,
+            {
+              owner: null,
+              stability: 'selected-span',
+              flush: () => this.ctx.sessions.flush(agent.session),
+            },
+            operationSignal,
+          )
+        } catch (error: unknown) {
+          if (agentSignal.aborted && operationSignal.reason === agentSignal.reason) {
+            throw new ManualCompactionError(
+              'cancelled',
+              'manual compaction was cancelled',
+              { cause: error },
+            )
+          }
+          operationSignal.throwIfAborted()
+          throw error
+        }
+      })
+    } catch (error: unknown) {
       throw new ManualCompactionError(
         'busy',
         'manual compaction requires an idle agent with no waking queued work',
+        { cause: error },
       )
-    }
-    try {
-      const range = selectCompactableRange(
-        agent.session,
-        this.ctx.tokenMeter.measure(agent.session),
-        0,
-      )
-      if (range === null) return null
-      return await compactSurfaceRegion(
-        this.regionDependencies(),
-        agent.session,
-        range.start,
-        range.end,
-        agent,
-        {
-          owner: null,
-          stability: 'selected-span',
-          flush: () => this.ctx.sessions.flush(agent.session),
-        },
-        signal,
-      )
-    } finally {
-      releaseTurnAdmission()
     }
   }
 
