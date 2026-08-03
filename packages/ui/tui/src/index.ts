@@ -105,6 +105,7 @@ import {
 } from './components/transcript.ts'
 import {
   compactTargetLabel,
+  DetailsDialog,
   diagnosticMeter,
   formatDiagnosticCount,
   formatDiagnosticNumber,
@@ -113,6 +114,7 @@ import {
   StatusCardComponent,
   PromptContextComponent,
   targetLabel,
+  type DetailsSelection,
   type StatusCardRow,
 } from './components/dialogs.ts'
 import {
@@ -337,6 +339,10 @@ export function createTuiChat(
   let toolsVisibility: ToolCardVisibility = 'collapsed'
   let streaming: StreamingAssistantComponent | undefined
   let completedStreaming: StreamingAssistantComponent | undefined
+  // Assistant step components in model order per turn, for hidden-mode folding:
+  // with tool cards hidden, a turn keeps one Assistant header and later steps
+  // render as headerless continuations (see applyTurnFolding).
+  const assistantSteps = new Map<number, StreamingAssistantComponent[]>()
   let runningStatus: RunningStatus | undefined
   let fadingStatus: FadingStatus | undefined
   /**
@@ -646,6 +652,35 @@ export function createTuiChat(
     return card
   }
 
+  /**
+   * Re-derive hidden-mode folding for one turn: the first step with a visible
+   * body owns the turn's single Assistant header, every other step renders as a
+   * headerless continuation (empty ones render nothing). Any other visibility
+   * restores the per-step headers.
+   */
+  const applyTurnFolding = (turn: number): void => {
+    const steps = assistantSteps.get(turn)
+    if (steps === undefined) return
+    let headerSeen = false
+    for (const step of steps) {
+      if (toolsVisibility !== 'hidden') {
+        step.setFoldedContinuation(false)
+      } else if (!headerSeen && step.hasVisibleBody()) {
+        headerSeen = true
+        step.setFoldedContinuation(false)
+      } else {
+        step.setFoldedContinuation(true)
+      }
+    }
+  }
+
+  const registerAssistantStep = (component: StreamingAssistantComponent): void => {
+    const steps = assistantSteps.get(component.position.turn) ?? []
+    steps.push(component)
+    assistantSteps.set(component.position.turn, steps)
+    applyTurnFolding(component.position.turn)
+  }
+
   const removeStreaming = (current: StreamingAssistantComponent | undefined): void => {
     if (current === undefined) return
     for (const child of [current, current.timing]) {
@@ -653,6 +688,15 @@ export function createTuiChat(
       /* v8 ignore next -- streaming components and their timing footers are retained only while attached to the chat. */
       if (index >= 0) chat.children.splice(index, 1)
     }
+    const steps = assistantSteps.get(current.position.turn)
+    /* v8 ignore next -- every attached streaming component is registered in the fold map. */
+    if (steps === undefined) return
+    const index = steps.indexOf(current)
+    /* v8 ignore next -- registration precedes attachment, so the component is present until this removal. */
+    if (index < 0) return
+    steps.splice(index, 1)
+    // A retracted step may have owned the turn's hidden-mode header.
+    applyTurnFolding(current.position.turn)
   }
 
   /**
@@ -691,6 +735,7 @@ export function createTuiChat(
       palette,
       mdTheme,
     )
+    registerAssistantStep(streaming)
     chat.addChild(streaming)
     chat.addChild(streaming.timing)
   }
@@ -754,12 +799,22 @@ export function createTuiChat(
         startAssistantStep(event.data)
         break
       case 'assistant/chunk':
-        if (options.renderChunks) streaming?.update(event.data.chunk)
+        if (options.renderChunks && streaming !== undefined) {
+          streaming.update(event.data.chunk)
+          // The first streamed text/reasoning may make this step the turn's
+          // hidden-mode header owner (or a continuation with a visible body).
+          applyTurnFolding(streaming.position.turn)
+        }
         break
       case 'assistant/message':
         completedStreaming = undefined
-        if (streaming === undefined || !chat.children.includes(streaming)) startAssistantStep(event.data)
-        streaming?.settle(event.data.message.content)
+        // A settled component stays attached but never absorbs a later message
+        // of the same step; both the live and replay paths start a new one.
+        if (streaming === undefined || streaming.isSettled() || !chat.children.includes(streaming)) startAssistantStep(event.data)
+        if (streaming !== undefined) {
+          streaming.settle(event.data.message.content)
+          applyTurnFolding(streaming.position.turn)
+        }
         break
       case 'llm/retry': {
         retractFailedStreaming()
@@ -870,6 +925,7 @@ export function createTuiChat(
     toolCards.clear()
     allToolCards.clear()
     contextCards.clear()
+    assistantSteps.clear()
     streaming = undefined
     todo.update([])
     const transcriptCalls = transcriptToolCallIds(agent.session)
@@ -979,30 +1035,97 @@ export function createTuiChat(
   // same reason.
   ui.queryTerminalColorScheme({ timeoutMs: 2000 }).catch(() => {})
 
-  const toggleTools = (): void => {
-    // The cycle order puts the two common reading modes adjacent: preview ->
-    // full detail -> conversation-only, then back to the preview default.
-    toolsVisibility = toolsVisibility === 'collapsed' ? 'expanded'
-      : toolsVisibility === 'expanded' ? 'hidden' : 'collapsed'
+  const setToolsVisibility = (next: ToolCardVisibility): void => {
+    toolsVisibility = next
     for (const card of allToolCards) card.setVisibility(toolsVisibility)
     // Context cards carry injected instructions rather than tool traffic, so
     // they never hide: the hidden phase reads as their collapsed preview.
     for (const card of contextCards) card.setExpanded(toolsVisibility === 'expanded')
+    // Hidden mode folds each turn's steps into one assistant message; other
+    // modes restore the per-step Assistant headers.
+    for (const turn of assistantSteps.keys()) applyTurnFolding(turn)
     appendNotice(toolsVisibility === 'hidden' ? 'Tool cards hidden.' : `Tool and context cards ${toolsVisibility}.`)
   }
 
-  const toggleReasoning = (): void => {
-    showReasoning = !showReasoning
+  const toggleTools = (): void => {
+    // The cycle order puts the two common reading modes adjacent: preview ->
+    // full detail -> conversation-only, then back to the preview default.
+    setToolsVisibility(toolsVisibility === 'collapsed' ? 'expanded'
+      : toolsVisibility === 'expanded' ? 'hidden' : 'collapsed')
+  }
+
+  const setReasoning = (show: boolean): void => {
+    showReasoning = show
     const activeStreaming = streaming
     rebuildTranscript(false)
     /* v8 ignore next -- the non-streaming command path is covered; this branch preserves an active stream across rebuild. */
     if (activeStreaming !== undefined) {
       streaming = activeStreaming
       streaming.setShowReasoning(showReasoning)
+      registerAssistantStep(activeStreaming)
       chat.addChild(activeStreaming)
       chat.addChild(activeStreaming.timing)
     }
     appendNotice(`Reasoning blocks ${showReasoning ? 'shown' : 'hidden'}.`)
+  }
+
+  const toggleReasoning = (): void => { setReasoning(!showReasoning) }
+
+  // The selector and the argument grammar mutate the same closure state the
+  // Ctrl+O cycle and Ctrl+R toggle drive, so every entry converges.
+  let detailsOverlay: TuiOverlaySession | undefined
+  const showDetailsSelector = (): void => {
+    void detailsOverlay?.close()
+    const session = overlayManager.open({
+      create: () => new DetailsDialog(
+        toolsVisibility,
+        showReasoning,
+        palette,
+        // Each Tab applies immediately; one dimension changes per call.
+        (selection: DetailsSelection) => {
+          if (selection.showReasoning !== showReasoning) setReasoning(selection.showReasoning)
+          if (selection.visibility !== toolsVisibility) setToolsVisibility(selection.visibility)
+        },
+        () => { void session.close() },
+      ),
+      options: { width: resolved.detailsDialogWidth, anchor: 'center', margin: 1 },
+    })
+    detailsOverlay = session
+    void session.closed.then(() => {
+      if (detailsOverlay === session) detailsOverlay = undefined
+    })
+    requestRender()
+  }
+
+  // `/details` names the same transcript-detail state the Ctrl+O cycle and
+  // Ctrl+R toggle mutate, so a user can jump to a mode without cycling.
+  const runDetails = (rawInput: string): CommandResult => {
+    const tokens = rawInput.split(/\s+/u).filter(token => token !== '')
+    if (tokens.length === 0) {
+      showDetailsSelector()
+      return { kind: 'success' }
+    }
+    let visibility: ToolCardVisibility | undefined
+    let reasoning: boolean | undefined
+    for (let token = tokens.shift(); token !== undefined; token = tokens.shift()) {
+      if (token === 'collapsed' || token === 'expanded' || token === 'hidden') {
+        visibility = token
+      } else if (token === 'reasoning') {
+        const value = tokens[0]
+        if (value === 'on' || value === 'off') {
+          tokens.shift()
+          reasoning = value === 'on'
+        } else {
+          reasoning = !showReasoning
+        }
+      } else {
+        return { kind: 'error', text: `Unknown /details argument "${token}". Usage: /details [collapsed|expanded|hidden] [reasoning [on|off]]` }
+      }
+    }
+    // Reasoning first: its transcript rebuild would drop the visibility notice.
+    if (reasoning !== undefined) setReasoning(reasoning)
+    if (visibility !== undefined) setToolsVisibility(visibility)
+    return { kind: 'success' }
   }
 
   const showHelp = (): void => {
@@ -1189,6 +1312,12 @@ export function createTuiChat(
       name: 'clear',
       description: 'Clear the transcript view (session history is unchanged)',
       handler: () => { chat.clear(); requestRender(); return { kind: 'success' } },
+    })
+    commandCtx.commands.register({
+      name: 'details',
+      description: 'Select tool-card visibility and reasoning display',
+      input: { hint: '[collapsed|expanded|hidden] [reasoning [on|off]]' },
+      handler: ({ rawInput }) => runDetails(rawInput),
     })
     commandCtx.commands.register({
       name: 'palette',
@@ -1529,7 +1658,6 @@ export function createTuiChat(
     if (event.type === 'tool/result') fileSearch.invalidate()
     recordEventUsage(tokens, event)
     if (event.type === 'turn/start' && runningStatus !== undefined) runningStatus.turn = event.data.turn
-    if (event.type === 'assistant/message' && streaming?.isSettled()) streaming = undefined
     // Track live standalone compaction state.
     if (event.type === 'compact/start' && event.data.turn === null) {
       if (compacting === undefined) {
