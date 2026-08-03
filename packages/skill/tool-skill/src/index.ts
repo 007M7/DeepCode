@@ -154,14 +154,14 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
   })
   ctx.tools.register(skillTool)
-  const registeredSkillTool = ctx.tools.get(skillTool.name)
-  /* v8 ignore next 3 -- register() publishes synchronously or throws; this guards future registry drift. */
-  if (registeredSkillTool === undefined) {
-    throw new Error('dsh-tool-skill: registered skill tool is not visible in the global registry')
-  }
 
   // Register after the tool so reverse teardown removes guidance first. Exact definition
   // identity prevents a scoped shadow merely named `skill` from inheriting this catalog.
+  //
+  // The comparison is against the definition this plugin registered, not against
+  // a lookup of its own name: `register()` files into the CALLING context's
+  // scope, so a plugin mounted inside an agent preset registers for that agent
+  // alone and an unscoped lookup correctly finds nothing.
   ctx.on('agent/pre-step', async (
     { agent, signal },
     next,
@@ -169,7 +169,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     const decision = await next()
     if (decision.kind === 'reject') return decision
     signal.throwIfAborted()
-    const toolVisible = ctx.tools.get(skillTool.name, agent) === registeredSkillTool
+    const toolVisible = ctx.tools.get(skillTool.name, agent) === skillTool
     const snapshot = toolVisible
       ? await ctx.skills.snapshot({ cwd: agent.session.header.cwd, signal })
       : { skills: [], complete: true }

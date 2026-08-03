@@ -633,6 +633,27 @@ class SubagentSessionOwnership extends Error {
 }
 
 /** Requested identity already belongs to a session with another project cwd. */
+/**
+ * The requested preset differs from the one this session already runs.
+ *
+ * A session's composition is fixed at creation: its history was produced under
+ * that preset's tools, so adopting the identity under a different one would
+ * replay tool calls the rebuilt agent cannot make. Naming a different preset
+ * is therefore a caller error rather than a switch.
+ */
+class AgentPresetConflict extends Error {
+  constructor(
+    readonly sessionId: SessionId,
+    readonly requestedPreset: string,
+    readonly existingPreset: string | undefined,
+  ) {
+    super(
+      `session "${sessionId}" already runs agent preset ${JSON.stringify(existingPreset)}; `
+      + `requested ${JSON.stringify(requestedPreset)}. A session's preset is fixed at creation.`,
+    )
+  }
+}
+
 class SessionCwdConflict extends Error {
   constructor(
     readonly sessionId: SessionId,
@@ -743,6 +764,25 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     const agent = agentCtx.agent
     if (agent === undefined) throw new Error('api-proxy: agent setup has no scoped agent')
     targetFor(agent)
+  }
+
+  /**
+   * Reject an attempt to run an existing session under a different preset.
+   *
+   * A caller that names no preset always adopts the session as it is, so the
+   * common paths — reconnecting, resuming, retrying a create — are unaffected.
+   * @param sessionId - the identity being adopted.
+   * @param requested - the preset the request named, if any.
+   * @param existing - the preset the session was created under, if any.
+   * @throws when both are present and differ.
+   */
+  function assertPresetUnchanged(
+    sessionId: SessionId,
+    requested: string | undefined,
+    existing: string | undefined,
+  ): void {
+    if (requested === undefined || requested === existing) return
+    throw new AgentPresetConflict(sessionId, requested, existing)
   }
 
   /**
@@ -1172,6 +1212,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           if (inspected.meta.cwd !== cwd) {
             throw new SessionCwdConflict(sessionId, cwd, inspected.meta.cwd)
           }
+          assertPresetUnchanged(sessionId, presetId, inspected.meta.agentPreset)
           // The stored preset wins over anything the request names: a resumed
           // session's history was produced under that composition, and
           // rebuilding it differently would replay tool calls the model can no
@@ -1218,6 +1259,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     }
     const agent = await creation
     if (hasSubagentOwner(agent.session, agent)) throw new SubagentSessionOwnership(sessionId)
+    // Beside the cwd check for the same reason, and after the await so it
+    // covers every path that yields a live agent — freshly created, adopted
+    // live, resumed from disk, or recovered by the concurrent-creation catch.
+    assertPresetUnchanged(sessionId, presetId, agent.session.header.agentPreset)
     if (agent.session.header.cwd !== cwd) {
       throw new SessionCwdConflict(sessionId, cwd, agent.session.header.cwd)
     }
@@ -1649,6 +1694,17 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         try {
           await ensureSession(sessionId, cwd, request.payload.sessionId !== undefined, requestedPreset)
         } catch (error: unknown) {
+          if (error instanceof AgentPresetConflict) {
+            return err(request, {
+              code: 'agent-preset-conflict',
+              message: error.message,
+              details: {
+                sessionId: error.sessionId,
+                requestedPreset: error.requestedPreset,
+                ...error.existingPreset === undefined ? {} : { existingPreset: error.existingPreset },
+              },
+            })
+          }
           if (error instanceof UnknownPresetError) {
             return err(request, {
               code: 'agent-preset-not-found',

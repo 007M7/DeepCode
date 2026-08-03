@@ -10,12 +10,19 @@
 
 import { networkInterfaces } from 'node:os'
 import { fileURLToPath } from 'node:url'
+import { dshHomePath } from '@deepseek-ai/dsh-paths'
 import type { Context } from 'cordis'
 import type { PatchOptions } from '@cordisjs/plugin-include'
 import { addHarnessSourceSection } from '@deepseek-ai/dsh-app-boot'
 import { runProfile } from './profile-boot.ts'
 
 const SOURCE_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
+
+/** Shipped agent-preset root: beside this app's own config, in both source and built layouts. */
+const SHIPPED_PRESET_ROOT = fileURLToPath(new URL('../config/agent-presets/', import.meta.url))
+
+/** Harness-home directory holding locally authored agent presets. */
+const USER_PRESET_DIR = '.agent-presets'
 
 /** The webserver schema's all-interfaces bind literal: gates LAN-authority derivation. */
 const ALL_INTERFACES_HOST = '0.0.0.0'
@@ -96,6 +103,16 @@ function deriveWebFlagPatches(
   // inserts the client-hmr row), never pass-throughs of composed values.
   put('web-runtime', 'mode', flags.dev ? 'development' : 'production')
   put('web-runtime', 'lanAddresses', lanAddresses)
+  // The agent-preset roots are an assembly fact, like the values above: the
+  // shipped set sits beside this app's config and the user's own under the
+  // Harness home, and neither location is something a patch author chooses.
+  // Only patched when the composed tree actually mounts the roster.
+  if (rows.has('agent-presets')) {
+    put('agent-presets', 'roots', [
+      { path: SHIPPED_PRESET_ROOT, trust: 'system' },
+      { path: dshHomePath(USER_PRESET_DIR), trust: 'user' },
+    ])
+  }
   const patches = [...overrides.entries()].map(([id, bag]): PatchOptions => {
     const composed = rows.get(id)
     if (composed === undefined) throw new Error(`dsh: patch target row "${id}" not found in the web profile composition`)

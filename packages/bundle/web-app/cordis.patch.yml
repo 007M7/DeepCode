@@ -189,3 +189,122 @@
 
     - id: ui-trajectory
       name: '@deepseek-ai/dsh-client-ui-trajectory'
+
+# ── the agent plane moves behind agent presets ─────────────────────────────
+#
+# Every row below composes what ONE agent contributes to the host registries:
+# its tools, its prompt sections, its delegation backends. The base keeps them
+# for the TUI, which is single-session and composes its agent process-wide; the
+# Web surface disables them here and lets each session mount a preset instead.
+#
+# Disabling rather than deleting is deliberate: the base is shared, and a row
+# absent from a surface overlay would silently reappear the day someone reorders
+# the composition.
+
+- id: tool-bash
+  disabled: true
+
+- id: tool-tasks
+  disabled: true
+
+- id: tasks
+  disabled: true
+
+- id: tool-fs
+  disabled: true
+
+- id: tool-fs-search
+  disabled: true
+
+- id: tool-str-replace-editor
+  disabled: true
+
+- id: skill
+  disabled: true
+
+- id: skill-local
+  disabled: true
+
+- id: tool-skill
+  disabled: true
+
+- id: goal
+  disabled: true
+
+- id: goal-session
+  disabled: true
+
+- id: command-goal
+  disabled: true
+
+- id: tool-goal
+  disabled: true
+
+- id: plan-mode
+  disabled: true
+
+- id: token-meter
+  disabled: true
+
+- id: compact-basic
+  disabled: true
+
+- id: command-compact
+  disabled: true
+
+- id: tool-result-prune
+  disabled: true
+
+- id: subagent
+  disabled: true
+
+- id: subagent-spawn
+  disabled: true
+
+- id: subagent-fork
+  disabled: true
+
+- id: tool-subagent-control
+  disabled: true
+
+- id: tool-subagent-list-agents
+  disabled: true
+
+- id: tool-subagent
+  disabled: true
+
+- id: tool-subagent-fork
+  disabled: true
+
+- id: tool-subagent-report
+  disabled: true
+
+- id: workflow-workerthread
+  disabled: true
+
+- id: tool-workflow
+  disabled: true
+
+- id: tool-ralph
+  disabled: true
+
+- id: workspace-context
+  disabled: true
+
+- id: tool-todo
+  disabled: true
+
+- id: tool-web
+  disabled: true
+
+# The preset roster. `.system` ships with the deployment and is read-only;
+# `$DSH_HOME/.agent-presets` is where a person — or an agent — authors their own, and
+# carries the same trust as shell access because a preset IS a composition.
+# `roots` is an assembly fact, not user config: the shipped preset directory
+# ships beside this file, so AppCLIEntry resolves it and patches it in — the
+# same treatment `distIndex` gets on the webserver row.
+- insert:
+    - id: agent-presets
+      name: '@deepseek-ai/dsh-agent-presets'
+      config:
+        default: standard

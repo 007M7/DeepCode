@@ -32,6 +32,7 @@ import { expect } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import Include, { type PatchOptions } from '@cordisjs/plugin-include'
+import Group from '@cordisjs/plugin-group'
 import { scrubRequestHeaders } from '@deepseek-ai/dsh-acp-snapshot'
 import { assertEntriesLoaded, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import { dshHomePath } from '@deepseek-ai/dsh-paths'
@@ -76,6 +77,8 @@ const BASE_PATCH_PATH = join(REPO_ROOT, 'packages/bundle/base/cordis.patch.yml')
 const WEB_PATCH_PATH = join(REPO_ROOT, 'packages/bundle/web-app/cordis.patch.yml')
 /** The installation anchor whose dependency surface the profile module fallback mirrors. */
 const INSTALL_ANCHOR = join(REPO_ROOT, 'apps/cli/package.json')
+/** The deployment's own agent-preset root, shipped beside the app's config. */
+const SHIPPED_PRESET_DIR = join(REPO_ROOT, 'apps/cli/config/agent-presets')
 
 // Replay publishes the provider catalog the gateway routes to (providers
 // mode, never catch-all: with llm-deepseek disabled no adapter exists, so a
@@ -256,6 +259,18 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     ...basePatches,
     ...surfacePatches,
     ...extraOverlayPatches,
+    // The roster's `roots` is an assembly fact AppCLIEntry resolves and patches
+    // in, exactly like `distIndex` on the webserver row — the shipped preset
+    // directory sits beside the composition that names it, and no config author
+    // chooses it. This lane boots the shipped tree WITHOUT AppCLIEntry, so it
+    // has to supply the same fact or the roster resolves nothing and every
+    // session composes an agent with no tools, no persona, and no token meter.
+    // Only the shipped root: a developer's own `~/.dsh/.agent-presets` must not be
+    // able to change a golden.
+    {
+      id: 'agent-presets',
+      config: { default: 'standard', roots: [{ path: SHIPPED_PRESET_DIR, trust: 'system' }] },
+    },
     { id: 'session-persistence-jsonl', config: { root: persistenceRoot } },
     { id: 'session-query-sqlite', config: { path: ':memory:', openAt: 'first-search' } },
     // storage-json's yml root is anchored to the real $DSH_HOME; pin the row
@@ -343,6 +358,11 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     ctx.provide('dshHomePath', dshHomePath)
     await ctx.plugin(Loader)
     ctx.loader.builtins.include = Include
+    // `cordis:group` beside it, exactly as `boot()` registers it: a group row is
+    // how a preset gives one `isolate` realm to a provider and its consumers,
+    // and a preset resolving package names from its own directory cannot reach
+    // `@cordisjs/plugin-group` by name.
+    ctx.loader.builtins.group = Group
     // The shipped CLI deliberately has no dependency on this opt-in package.
     // Keep the Loader row real without broadening the product installation.
     if (options.cordisTools === true) ctx.loader.builtins['tool-cordis'] = ToolCordis

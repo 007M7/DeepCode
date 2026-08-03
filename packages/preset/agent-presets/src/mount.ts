@@ -41,11 +41,28 @@ interface MountedTree {
  */
 const mounted = new WeakMap<object, MountedTree>()
 
-/** Include subclass whose only addition is publishing its tree and fiber for the audit. */
+/**
+ * Include subclass that publishes its tree and fiber for the audit, and never
+ * writes to the file it read.
+ */
 class PresetTree extends Include {
   constructor(ctx: Context, config: Include.Config) {
     super(ctx, config)
     mounted.set(config, { tree: this, fiber: ctx.fiber })
+  }
+
+  /**
+   * A preset is an input, never a persistence target.
+   *
+   * The Loader writes a tree back through this method whenever it decides the
+   * config changed — a plugin self-disposing is enough, and tearing an agent
+   * down disposes its whole subtree. Inherited, that rewrites the preset file
+   * with whatever the dying tree held, which in practice means truncating a
+   * shipped composition to `[]` the first time a session ends. Persisting a
+   * preset is also meaningless: nothing here is user state, and the same file
+   * backs every session that names it.
+   */
+  override write(): void {
   }
 }
 

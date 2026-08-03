@@ -229,6 +229,9 @@ importers:
         specifier: ^18.2.0
         version: 18.3.1(react@18.3.1)
     devDependencies:
+      '@cordisjs/plugin-group':
+        specifier: workspace:^
+        version: link:../../vendor/group
       '@deepseek-ai/dsh-client-modules':
         specifier: workspace:^
         version: link:../../packages/client/modules
