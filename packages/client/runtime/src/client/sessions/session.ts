@@ -654,11 +654,16 @@ export class Session implements SessionFace {
     this.applyEventSideEffects(event, view)
   }
 
-  /** Retire the first matching live steering occurrence when its durable event takes over. */
+  /** Retire the first matching live steering occurrence when its durable message takes over. */
   private handoffPendingSteering(event: SessionEvent): void {
-    if (event.type !== 'steering/message') return
+    const message = event.type === 'user/message'
+      ? event.data
+      : event.type === 'steering/message'
+        ? event.data.message
+        : undefined
+    if (message === undefined) return
     const index = this.queued.findIndex(item =>
-      item.placement === 'steering' && item.messageId === event.data.message.id)
+      item.placement === 'steering' && item.messageId === message.id)
     if (index === -1) return
     this.queued = this.queued.filter((_item, candidate) => candidate !== index)
     this.queueRev++

@@ -72,7 +72,9 @@ export function apply(ctx: Context, config: Config): void {
   const instructionVersions: InstructionVersionCache = new WeakMap()
   const projectionLifecycle = new AbortController()
   ctx.effect(
-    () => () =>{  projectionLifecycle.abort(new Error('workspace-context disposed')); },
+    () => () => {
+      projectionLifecycle.abort(new Error('workspace-context disposed'))
+    },
     'workspace-context.projectionLifecycle',
   )
   // Emit listeners are not awaited, so each projection must compose against the

@@ -216,7 +216,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
 
     const agent = scaffold.ctx.agents.get(SessionId(SEED_ID))
     if (agent === undefined) throw new Error('seeded session did not attach an agent')
-    agent.inject(createUserMessage({
+    agent.session.append('user/message', createUserMessage({
       content: [{
         type: 'text',
         text: '<system-reminder>\n'
@@ -235,7 +235,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
           digest: 'context-injection-browser-snapshot',
         }],
       },
-    }))
+    }), { surfaceOp: 'append' })
     await page.getByRole('button', { name: 'Context injection' }).waitFor({ timeout: 10_000 })
   }, 60_000)
 
@@ -357,13 +357,13 @@ describe('web e2e: seeded history renders through cold resume', () => {
     await compareOrRefreshGolden(COMMAND_ROW_EXPECTED, snapshot, MODE)
   }, 60_000)
 
-  it.skipIf(MODE === 'record')('fits short injected context without a scrollport', async () => {
+  it.skipIf(MODE === 'record')('fits short logged context without a scrollport', async () => {
     const agent = scaffold.ctx.agents.get(SessionId(SEED_ID))
     if (agent === undefined) throw new Error('seeded session did not attach an agent')
-    agent.inject(createUserMessage({
+    agent.session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'Short injected context.' }],
       source: { kind: 'plugin', plugin: 'fixture' },
-    }))
+    }), { surfaceOp: 'append' })
 
     const disclosures = page.getByRole('button', { name: 'Context injection' })
     await expect.poll(() => disclosures.count(), { timeout: 10_000 }).toBe(2)

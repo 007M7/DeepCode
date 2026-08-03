@@ -168,6 +168,32 @@ describe('queue snapshot intake', () => {
     })
     expect(session.getSnapshot().queue.map(item => item.id)).toEqual(['s-later'])
   })
+
+  it('hands off live steering when the agent claims it as a user message', async () => {
+    const session = makeSession()
+    await session.open()
+    const message = createUserMessage({
+      content: text('claimed steering'),
+      source: { kind: 'user' },
+    })
+    session.handleMuxEnvelope(rid('env-claimed'), queueFrame([
+      { id: 's-claimed', body: '', placement: 'steering', message },
+    ]))
+
+    session.handleMuxEnvelope(rid('env-user-message'), {
+      type: 'session/event',
+      sessionId: SID,
+      event: {
+        seq: 0,
+        time: 1_700_000_000_000,
+        type: 'user/message',
+        surfaceOp: 'append',
+        data: message,
+      },
+    })
+
+    expect(session.getSnapshot().queue).toEqual([])
+  })
 })
 
 describe('queue operation transport', () => {

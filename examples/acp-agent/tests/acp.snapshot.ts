@@ -320,12 +320,13 @@ const SCENARIOS: Scenario[] = [
   // tool/code-dispatch events. Each overlay composes and pins its own header class.
   { name: 'code-mode-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'code', configPath: CODE_MODE_CONFIG },
   // A nested fs dispatch inside run_code discovers workspace instructions. The
-  // injected user/message must follow the outer result while retaining workspace
-  // provenance, which proves Code Mode carries deferred tool context end to end.
+  // projection enters the inbox after the outer result and becomes model-visible
+  // on the following step, retaining workspace provenance end to end.
   {
     name: 'code-mode-workspace-context',
     hasModelTurn: true,
-    recorded: true,
+    recorded: false,
+    overridden: true,
     pinsHeader: true,
     headerClass: 'code-workspace-context',
     systemPromptSource: 'code-mode-turn',
