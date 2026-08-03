@@ -461,16 +461,6 @@
     },
     {
       "doc": "docs/core-data-structures/session-query.md",
-      "symbol": "LogicalSessionSource",
-      "source": "packages/session-query/session-query/src/corpus.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/session-query.md",
-      "symbol": "LogicalProjectionResult",
-      "source": "packages/session-query/session-query/src/corpus.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/session-query.md",
       "symbol": "SessionEventRecord",
       "source": "packages/session-query/session-query/src/types.ts"
     },

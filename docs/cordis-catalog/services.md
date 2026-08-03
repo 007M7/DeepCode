@@ -1463,23 +1463,6 @@ async readTitleSnapshot( sessionId: SessionId, signal?: AbortSignal, ): Promise<
 async readTitleSnapshots( sessionIds: readonly SessionId[], signal?: AbortSignal, ): Promise<SessionTitleObservationResult[]>
 
 /**
- * Project unique logical sessions synchronously from one cancellable corpus
- * observation.
- *
- * Each source is a borrowed raw log without replay validation or cloning, so
- * a batch summary costs one bounded read per persisted session instead of a
- * full validated copy; the projector must clone anything it retains beyond
- * its own call. Results preserve first-occurrence input order. Operational
- * failures stay isolated per session, while cancellation rejects the
- * complete operation.
- * @param sessionIds - live or persisted session ids to observe.
- * @param project - synchronous fold that owns/clones every retained value.
- * @param signal - optional cancellation shared by all source reads.
- * @returns one fulfilled or rejected result per unique requested id.
- */
-async projectSessions<Value>( sessionIds: readonly SessionId[], project: (source: LogicalSessionSource) => Value, signal?: AbortSignal, ): Promise<LogicalProjectionResult<Value>[]>
-
-/**
  * List lightweight raw-log event records for one logical session.
  * @param sessionId - live-preferred session id to read.
  * @returns event records in ascending seq order.
@@ -1529,9 +1512,9 @@ async traceEvent(request: SessionEventTraceRequest, signal?: AbortSignal): Promi
 async readEvent(request: SessionEventReadRequest, signal?: AbortSignal): Promise<SessionEventWindow>
 ```
 
-Types: [LogicalProjectionResult](../core-data-structures/session-query.md) · [LogicalSessionSource](../core-data-structures/session-query.md) · [SessionEventReadRequest](../core-data-structures/session-query.md) · [SessionEventRecord](../core-data-structures/session-query.md) · [SessionEventResultFilter](../core-data-structures/session-query.md) · [SessionEventSearchDocument](../core-data-structures/session-query.md) · [SessionEventSearchPage](../core-data-structures/session-query.md) · [SessionEventSearchRequest](../core-data-structures/session-query.md) · [SessionEventTraceObservation](../core-data-structures/session-query.md) · [SessionEventTraceRequest](../core-data-structures/session-query.md) · [SessionEventWindow](../core-data-structures/session-query.md) · [SessionId](../core-data-structures/core.md) · [SessionLineageTrace](../core-data-structures/session-query.md) · [SessionLogSnapshot](../core-data-structures/session-query.md) · [SessionRecord](../core-data-structures/session-query.md) · [SessionResultFilter](../core-data-structures/session-query.md) · [SessionSearchExecContext](../core-data-structures/session-query.md) · [SessionSearchHit](../core-data-structures/session-query.md) · [SessionSearchPage](../core-data-structures/session-query.md) · [SessionSearchRequest](../core-data-structures/session-query.md) · [SessionSurfaceSnapshot](../core-data-structures/session-query.md) · [SessionTitleObservation](../core-data-structures/session-query.md) · [SessionTitleObservationResult](../core-data-structures/session-query.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
+Types: [SessionEventReadRequest](../core-data-structures/session-query.md) · [SessionEventRecord](../core-data-structures/session-query.md) · [SessionEventResultFilter](../core-data-structures/session-query.md) · [SessionEventSearchDocument](../core-data-structures/session-query.md) · [SessionEventSearchPage](../core-data-structures/session-query.md) · [SessionEventSearchRequest](../core-data-structures/session-query.md) · [SessionEventTraceObservation](../core-data-structures/session-query.md) · [SessionEventTraceRequest](../core-data-structures/session-query.md) · [SessionEventWindow](../core-data-structures/session-query.md) · [SessionId](../core-data-structures/core.md) · [SessionLineageTrace](../core-data-structures/session-query.md) · [SessionLogSnapshot](../core-data-structures/session-query.md) · [SessionRecord](../core-data-structures/session-query.md) · [SessionResultFilter](../core-data-structures/session-query.md) · [SessionSearchExecContext](../core-data-structures/session-query.md) · [SessionSearchHit](../core-data-structures/session-query.md) · [SessionSearchPage](../core-data-structures/session-query.md) · [SessionSearchRequest](../core-data-structures/session-query.md) · [SessionSurfaceSnapshot](../core-data-structures/session-query.md) · [SessionTitleObservation](../core-data-structures/session-query.md) · [SessionTitleObservationResult](../core-data-structures/session-query.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
 
-Source: [`packages/session-query/session-query/src/index.ts:82`](../../packages/session-query/session-query/src/index.ts)
+Source: [`packages/session-query/session-query/src/index.ts:81`](../../packages/session-query/session-query/src/index.ts)
 
 ## `ctx.sessionReferences` — `SessionReferenceService`
 

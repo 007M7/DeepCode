@@ -84,25 +84,6 @@ type SessionTitleObservationResult =
   }
 ```
 
-`projectSessions` 在同一实时优先语料库上批量执行任意同步折叠：每个 `LogicalSessionSource` 都是借用的原始日志——从不做回放验证，也从不克隆——仅在投影函数调用期间有效，因此一次批量摘要对每个持久化会话只需一次有界读取。每个 `LogicalProjectionResult` 按唯一请求 id 结算，其失败隔离与取消规则与批量标题读取一致。
-
-```ts type-equiv
-/** Borrowed source visible only during one synchronous batch projection. */
-interface LogicalSessionSource {
-  /** Header selected with `events`; callers must clone retained output. */
-  readonly header: SessionHeader
-  /** Raw events selected with `header`; valid only for the projection call. */
-  readonly events: readonly SessionEvent[]
-}
-```
-
-```ts type-equiv
-/** One source-projection result in a batch logical-corpus observation. */
-type LogicalProjectionResult<Value> =
-  | { sessionId: SessionId; status: 'fulfilled'; value: Value }
-  | { sessionId: SessionId; status: 'rejected'; reason: unknown }
-```
-
 ```ts type-equiv
 /** Lightweight metadata for one event within a logical session. */
 interface SessionEventRecord {

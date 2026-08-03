@@ -683,10 +683,6 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Fold titles for unique sessions from one cancellable corpus observation.\n *\n * Results preserve first-occurrence input order. Operational failures stay\n * isolated per session, while cancellation rejects the complete operation.\n * @param sessionIds - live or persisted session ids to observe.\n * @param signal - optional cancellation shared by all source reads.\n * @returns one fulfilled or rejected result per unique requested id.\n */',
       },
       {
-        signature: 'async projectSessions<Value>( sessionIds: readonly SessionId[], project: (source: LogicalSessionSource) => Value, signal?: AbortSignal, ): Promise<LogicalProjectionResult<Value>[]>',
-        jsDoc: '/**\n * Project unique logical sessions synchronously from one cancellable corpus\n * observation.\n *\n * Each source is a borrowed raw log without replay validation or cloning, so\n * a batch summary costs one bounded read per persisted session instead of a\n * full validated copy; the projector must clone anything it retains beyond\n * its own call. Results preserve first-occurrence input order. Operational\n * failures stay isolated per session, while cancellation rejects the\n * complete operation.\n * @param sessionIds - live or persisted session ids to observe.\n * @param project - synchronous fold that owns/clones every retained value.\n * @param signal - optional cancellation shared by all source reads.\n * @returns one fulfilled or rejected result per unique requested id.\n */',
-      },
-      {
         signature: 'async listEvents(sessionId: SessionId): Promise<SessionEventRecord[]>',
         jsDoc: '/**\n * List lightweight raw-log event records for one logical session.\n * @param sessionId - live-preferred session id to read.\n * @returns event records in ascending seq order.\n */',
       },
@@ -2126,14 +2122,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'LlmResolvedModelInfo',
     declaration: 'export interface LlmResolvedModelInfo extends LlmModelInfo {\n    context?: LlmModelContext;\n    defaultMaxTokens?: number;\n    reasoning?: LlmModelReasoningInfo;\n}',
-  },
-  {
-    name: 'LogicalProjectionResult',
-    declaration: 'export type LogicalProjectionResult<Value> = {\n    sessionId: SessionId;\n    status: \'fulfilled\';\n    value: Value;\n} | {\n    sessionId: SessionId;\n    status: \'rejected\';\n    reason: unknown;\n};',
-  },
-  {
-    name: 'LogicalSessionSource',
-    declaration: 'export interface LogicalSessionSource {\n    readonly header: SessionHeader;\n    readonly events: readonly SessionEvent[];\n}',
   },
   {
     name: 'ManualCompactAgentContext',

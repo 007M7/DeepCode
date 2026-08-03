@@ -1,16 +1,17 @@
 /**
  * Session-resume sub-controller for the interactive chat channel: the
- * `/resume` selector, one batch summary projection that tolerates a corrupt
+ * `/resume` selector, one metadata-plus-title scan that tolerates a corrupt
  * neighbor, the pre-handoff preflight, and the terminal handoff itself.
  * @module @deepseek-ai/dsh-tui/chat/resume
  */
 
+import { stat } from 'node:fs/promises'
 import type { TUI } from '@earendil-works/pi-tui'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import { errorChain } from '@deepseek-ai/dsh-llm'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {
-  LogicalSessionSource,
   SessionQueryService,
   SessionRecord,
 } from '@deepseek-ai/dsh-session-query'
@@ -66,51 +67,70 @@ export function createResumeController(deps: ResumeControllerDeps): ResumeContro
   const workspaceLabel = (cwd: string | undefined): string =>
     runtime.formatCwd?.(cwd) ?? formatCwd(cwd)
 
-  /** Summarize one record from a borrowed source, retaining only the record and derived scalars. */
+  /** Summarize one record from metadata and its batch-folded title. */
   const summarize = (
     record: SessionRecord,
-    source: LogicalSessionSource,
-    providers: ReadonlySet<string>,
+    title: string | undefined,
+    lastActivityAt: number | undefined,
   ): ResumeCandidate => summarizeResumeCandidate(
     record,
-    source,
+    title,
+    lastActivityAt,
     agent.session.id,
     agent.session.header.cwd,
-    providers,
     workspaceLabel,
   )
 
-  /** The disabled fallback row for a session whose log cannot be summarized. */
-  const unreadableCandidate = (record: SessionRecord, error: unknown): ResumeCandidate => ({
+  /** The disabled fallback row for a session whose title read failed. */
+  const unreadableCandidate = (
+    record: SessionRecord,
+    lastActivityAt: number | undefined,
+    error: unknown,
+  ): ResumeCandidate => ({
     record,
     title: 'Unreadable session',
-    lastActivityAt: record.header.createdAt,
-    lastTurn: 'log unavailable',
+    lastActivityAt: lastActivityAt ?? record.header.createdAt,
     currentWorkspace: record.header.cwd === agent.session.header.cwd,
     workspaceLabel: workspaceLabel(record.header.cwd),
     disabledReason: `session cannot be loaded: ${errorChain(error)}`,
   })
 
-  /** Build one exact candidate from a live-preferred read that replay-validates a persisted log. */
-  const readResumeCandidate = async (
-    record: SessionRecord,
-    providers: ReadonlySet<string>,
-  ): Promise<ResumeCandidate> => {
+  /**
+   * Metadata-only activity time: a live session's last in-memory event time,
+   * otherwise the persisted artifact's mtime. Never reads a log, so browsing
+   * cost stays independent of log size; any append (including bookkeeping)
+   * moves it.
+   */
+  const lastActivityAt = async (record: SessionRecord): Promise<number | undefined> => {
+    const live = ctx.sessions.get(record.header.id)
+    if (live !== undefined) return live.events.at(-1)?.time
+    const location = ctx.get('sessionPersistence')?.locate(record.header)
+    if (location === undefined) return undefined
     try {
-      const readQuery = sessionQuery()
-      /* v8 ignore start -- caller proves the optional service before mapping records */
-      if (readQuery === undefined) throw new Error('session query is unavailable')
-      /* v8 ignore stop */
-      const snapshot = await readQuery.readSession(record.header.id)
-      return summarize(record, { header: snapshot.session, events: snapshot.events }, providers)
-    } catch (error: unknown) {
-      return unreadableCandidate(record, error)
+      return (await stat(location.path)).mtimeMs
+    } catch {
+      // Only a just-deleted or never-materialized artifact fails stat; the row falls back to created-at.
+      return undefined
     }
+  }
+
+  /** The latest logged provider/model route, for the preflight availability check. */
+  const resumeRoute = (events: readonly SessionEvent[]): { provider: string; model: string } | undefined => {
+    const header = events.findLast(item => item.type === 'request/header')
+    if (header?.type === 'request/header') {
+      return { provider: header.data.header.config.provider, model: header.data.header.config.model }
+    }
+    const assistant = events.findLast(item => item.type === 'assistant/message')
+    return assistant?.type === 'assistant/message'
+      ? { provider: assistant.data.message.source.provider, model: assistant.data.message.source.model }
+      : undefined
   }
 
   /**
    * Re-read every mutable precondition immediately before terminal handoff and
-   * resolve the exact identity and workspace the host will re-exec into.
+   * resolve the exact identity and workspace the host will re-exec into. This
+   * is where the one chosen log is fully read, replay-validated, and checked
+   * for a currently-available route — the listing never does any of that.
    */
   const preflightResume = async (sessionId: SessionId): Promise<{ id: SessionId; cwd: string }> => {
     const query = sessionQuery()
@@ -121,17 +141,24 @@ export function createResumeController(deps: ResumeControllerDeps): ResumeContro
     if (initialStatus !== 'idle') throw new Error(`Resume requires an idle agent (status: ${initialStatus}).`)
     const record = (await query.listSessions()).find(candidate => candidate.header.id === sessionId)
     if (record === undefined) throw new Error(`Session "${sessionId}" is no longer available.`)
-    const candidate = await readResumeCandidate(
-      record,
-      new Set(ctx.llm.listProviders().map(provider => provider.id)),
-    )
+    const candidate = summarize(record, undefined, undefined)
     if (candidate.disabledReason !== undefined) throw new Error(candidate.disabledReason)
-    const cwd = candidate.record.header.cwd
+    let events: readonly SessionEvent[]
+    try {
+      events = (await query.readSession(record.header.id)).events
+    } catch (error: unknown) {
+      throw new Error(`session cannot be loaded: ${errorChain(error)}`)
+    }
+    const route = resumeRoute(events)
+    if (route !== undefined && !ctx.llm.listProviders().some(provider => provider.id === route.provider)) {
+      throw new Error(`session is complete, but route is currently unavailable (${route.provider}/${route.model})`)
+    }
+    const cwd = record.header.cwd
     /* v8 ignore next -- summarizeResumeCandidate disables a cwd-less record, so the check above already rejected it */
     if (cwd === undefined) throw new Error(`Session "${sessionId}" has no recorded workspace to resume in.`)
     const finalStatus = deps.agentStatus()
     if (finalStatus !== 'idle') throw new Error(`Resume requires an idle agent (status: ${finalStatus}).`)
-    return { id: candidate.record.header.id, cwd }
+    return { id: record.header.id, cwd }
   }
 
   const handoffResume = async (candidate: ResumeCandidate, overlay: TuiOverlaySession): Promise<void> => {
@@ -235,30 +262,25 @@ export function createResumeController(deps: ResumeControllerDeps): ResumeContro
       const scanStale = (): boolean =>
         deps.isDisposed() || scan !== resumeScan || scanAbort.signal.aborted
       const scanCandidates = async (): Promise<void> => {
+        // Every workspace in the store is listed; the picker owns the
+        // current-workspace/all-workspaces scope split over the whole set.
         const records = await listQuery.listSessions(scanAbort.signal)
         if (scanStale()) return
-        // Every workspace in the store is summarized; the picker owns the
-        // current-workspace/all-workspaces scope split over the whole set.
-        const providers = new Set(ctx.llm.listProviders().map(provider => provider.id))
-        // One bounded batch projection over borrowed logs: unlike a
-        // per-candidate readSession, it lists persistence once and skips
-        // replay validation and log cloning, bounding memory by what each
-        // summary retains. A corrupt neighbor degrades to one disabled row.
-        const recordById = new Map(records.map(record => [record.header.id, record]))
-        const listedRecord = (id: SessionId): SessionRecord => {
-          const record = recordById.get(id)
-          /* v8 ignore next 2 -- projection ids come from this map; the corpus verifies each loaded header id */
-          if (record === undefined) throw new Error(`resume scan returned unlisted session "${id}"`)
-          return record
-        }
-        const results = await listQuery.projectSessions(
-          records.map(record => record.header.id),
-          source => summarize(listedRecord(source.header.id), source, providers),
-          scanAbort.signal,
-        )
-        const candidates = results.map(result => result.status === 'fulfilled'
-          ? result.value
-          : unreadableCandidate(listedRecord(result.sessionId), result.reason))
+        // Rows need only metadata, an mtime, and the batch-folded title — the
+        // one per-log read the selector performs. A corrupt neighbor degrades
+        // to one disabled row.
+        const [titles, activity] = await Promise.all([
+          listQuery.readTitleSnapshots(records.map(record => record.header.id), scanAbort.signal),
+          Promise.all(records.map(record => lastActivityAt(record))),
+        ])
+        const candidates = records.map((record, index) => {
+          const title = titles[index]
+          /* v8 ignore next 2 -- readTitleSnapshots returns one result per unique listed id in input order */
+          if (title === undefined || title.sessionId !== record.header.id) throw new Error(`resume scan misaligned at "${record.header.id}"`)
+          return title.status === 'fulfilled'
+            ? summarize(record, title.value.title?.title, activity[index])
+            : unreadableCandidate(record, activity[index], title.reason)
+        })
         candidates.sort((a, b) => b.lastActivityAt - a.lastActivityAt
           || a.record.header.id.localeCompare(b.record.header.id))
         if (scanStale()) return
@@ -266,9 +288,10 @@ export function createResumeController(deps: ResumeControllerDeps): ResumeContro
         picker?.setCandidates(candidates)
         deps.requestRender()
       }
-      // One catch covers both stages, so a projection failure cannot strand
-      // the overlay on its loading placeholder; an aborted scan's rejection
-      // stays silent because the user already dismissed the picker.
+      // One catch covers listing, titles, and mtimes, so a scan failure
+      // cannot strand the overlay on its loading placeholder; an aborted
+      // scan's rejection stays silent because the user already dismissed the
+      // picker.
       void scanCandidates().catch((error: unknown) => {
         if (scanStale()) return
         void session.close()

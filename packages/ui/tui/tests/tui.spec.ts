@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -280,16 +280,19 @@ describe('goodbye message and /resume', () => {
     { type: 'turn/end', seq: 6, time: time + 6, data: { turn: 1, reason } },
     { type: 'session/title', seq: 7, time: time + 7, data: { title, messageSeqs: [1], source: { kind: 'fallback' } } },
   ]
-  /** Derive the selector's batch projection from a fake per-session readSession. */
-  const projectViaReadSession = (
+  /** Derive the selector's batch title read from a fake per-session readSession. */
+  const titlesViaReadSession = (
     readSession: (id: SessionId) => Promise<{ session: SessionHeader; events: SessionEvent[] }>,
-  ) => (
-    ids: readonly SessionId[],
-    project: (source: { header: SessionHeader; events: readonly SessionEvent[] }) => unknown,
-  ) => Promise.all(ids.map(async (sessionId) => {
+  ) => (ids: readonly SessionId[]) => Promise.all(ids.map(async (sessionId) => {
     try {
       const snapshot = await readSession(sessionId)
-      return { sessionId, status: 'fulfilled', value: project({ header: snapshot.session, events: snapshot.events }) }
+      const titleEvent = snapshot.events.findLast(event => event.type === 'session/title')
+      const title = titleEvent?.type === 'session/title' ? { title: titleEvent.data.title } : undefined
+      return {
+        sessionId,
+        status: 'fulfilled',
+        value: { session: snapshot.session, ...title === undefined ? {} : { title } },
+      }
     } catch (reason) {
       return { sessionId, status: 'rejected', reason }
     }
@@ -451,7 +454,7 @@ describe('goodbye message and /resume', () => {
     result.terminal.send('\x1b[6~')
     await tick()
     const rendered = result.terminal.output.slice(result.terminal.output.lastIndexOf('Resume session'))
-    expect(rendered).toContain('❯ Paged 3')
+    expect(rendered).toContain('❯ Paged 5')
     result.terminal.send('\x1b[5~')
     await tick()
     expect(result.terminal.output.slice(result.terminal.output.lastIndexOf('Resume session')))
@@ -484,26 +487,53 @@ describe('goodbye message and /resume', () => {
     await dispose(result)
   })
 
-  it.each([
-    [{ kind: 'aborted' }, 'cancelled'],
-    [{ kind: 'error', step: 1, message: 'failed' }, 'error'],
-    [{ kind: 'disposed' }, 'disposed'],
-    [{ kind: 'max-tokens' }, 'max tokens'],
-    [{ kind: 'interrupted' }, 'interrupted'],
-    [{ kind: 'future-result' } as unknown as TurnEndReason, 'unknown result'],
-  ] as const)('renders the last turn result %s', async (reason, label) => {
-    const target = header(`turn-${label}`, 10, '/workspace')
+  it('orders rows by artifact mtime without reading logs for the timestamp', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-resume-mtime-'))
+    const stale = join(dir, 'stale.log')
+    const fresh = join(dir, 'fresh.log')
+    await writeFile(stale, 'x')
+    await writeFile(fresh, 'x')
+    await utimes(stale, new Date(1000), new Date(60_000))
+    await utimes(fresh, new Date(1000), new Date(120_000))
+    // Creation order contradicts mtime order, so the sort proves its source.
+    const createdLate = header('created-late-touched-early', 50, '/workspace')
+    const createdEarly = header('created-early-touched-late', 40, '/workspace')
+    const gone = header('artifact-gone', 30, '/workspace')
+    const goneTwin = header('artifact-gone-twin', 30, '/workspace')
+    const paths = new Map([
+      [createdLate.id, stale],
+      [createdEarly.id, fresh],
+      [gone.id, join(dir, 'missing.log')],
+      [goneTwin.id, join(dir, 'missing-twin.log')],
+    ])
+    const titles = new Map([
+      [createdLate.id, 'Touched early'],
+      [createdEarly.id, 'Touched late'],
+      [gone.id, 'Artifact gone'],
+      [goneTwin.id, 'Artifact gone twin'],
+    ])
     const result = await setup({
       cwd: '/workspace',
       sessionPersistence: {
-        list: async () => [target],
-        load: async () => ({ meta: target, events: resumeEvents(`Turn ${label}`, 'deepseek-official', 100, reason) }),
+        list: async () => [createdLate, createdEarly, gone, goneTwin],
+        load: async id => ({
+          meta: [createdLate, createdEarly, gone, goneTwin].find(target => target.id === id)!,
+          events: resumeEvents(titles.get(id)!),
+        }),
+        locate: meta => ({ kind: 'jsonl', path: paths.get(meta.id)! }),
       },
     })
     result.terminal.send('/resume')
     result.terminal.send('\r')
     await tick(); await tick()
-    expect(result.terminal.output).toContain(`turn 1: ${label}`)
+    const rendered = result.terminal.output.slice(result.terminal.output.lastIndexOf('Resume session'))
+    expect(rendered).toContain(new Date(120_000).toISOString())
+    expect(rendered.indexOf('Touched late')).toBeLessThan(rendered.indexOf('Touched early'))
+    // A missing artifact falls back to the header's creation time; equal
+    // times tie-break by id.
+    expect(rendered).toContain(new Date(gone.createdAt).toISOString())
+    expect(rendered.indexOf('artifact-gone')).toBeLessThan(rendered.indexOf('artifact-gone-twin'))
+    await rm(dir, { recursive: true, force: true })
     await dispose(result)
   })
 
@@ -537,7 +567,7 @@ describe('goodbye message and /resume', () => {
             queryCtx = child
             child.provide('sessionQuery', {
               listSessions: async () => { listCalls++; return [] },
-              projectSessions: async () => [],
+              readTitleSnapshots: async () => [],
             } as never)
           },
         })
@@ -579,7 +609,7 @@ describe('goodbye message and /resume', () => {
             persisted: true,
           }]),
           readSession,
-          projectSessions: projectViaReadSession(readSession),
+          readTitleSnapshots: titlesViaReadSession(readSession),
         } as never)
       },
     })
@@ -617,7 +647,7 @@ describe('goodbye message and /resume', () => {
         ctx.provide('tools', { get: () => undefined } as never)
         ctx.provide('sessionQuery', {
           listSessions: () => ++calls === 1 ? first.promise : Promise.resolve([]),
-          projectSessions: async () => [],
+          readTitleSnapshots: async () => [],
         } as never)
       },
     })
@@ -686,7 +716,7 @@ describe('goodbye message and /resume', () => {
         ctx.provide('tools', { get: () => undefined } as never)
         ctx.provide('sessionQuery', {
           listSessions: (signal?: AbortSignal) => { scanSignal = signal; return listing.promise },
-          projectSessions: async () => { projections += 1; return [] },
+          readTitleSnapshots: async () => { projections += 1; return [] },
         } as never)
       },
     })
@@ -698,7 +728,7 @@ describe('goodbye message and /resume', () => {
     await tick()
     expect(scanSignal?.aborted).toBe(true)
     // A signal-ignoring backend can still fulfill after dismissal: the stale
-    // scan must neither project nor report.
+    // scan must neither read titles nor report.
     listing.resolve([])
     await tick()
     expect(projections).toBe(0)
@@ -706,14 +736,14 @@ describe('goodbye message and /resume', () => {
     await dispose(result)
   })
 
-  it('drops a projection that settles after the picker was dismissed', async () => {
+  it('drops a title read that settles after the picker was dismissed', async () => {
     const projecting = Promise.withResolvers<never[]>()
     const result = await setup({
       async configureContext(ctx) {
         ctx.provide('tools', { get: () => undefined } as never)
         ctx.provide('sessionQuery', {
           listSessions: async () => [],
-          projectSessions: () => projecting.promise,
+          readTitleSnapshots: () => projecting.promise,
         } as never)
       },
     })
@@ -730,20 +760,20 @@ describe('goodbye message and /resume', () => {
   })
 
   it('closes the loading picker and reports a scan that fails after listing', async () => {
-    const target = header('projection-explodes', 10, '/workspace')
+    const target = header('titles-explode', 10, '/workspace')
     const result = await setup({
       async configureContext(ctx) {
         ctx.provide('tools', { get: () => undefined } as never)
         ctx.provide('sessionQuery', {
           listSessions: () => Promise.resolve([{ header: target, live: false, persisted: true }]),
-          projectSessions: () => Promise.reject(new Error('projection exploded')),
+          readTitleSnapshots: () => Promise.reject(new Error('titles exploded')),
         } as never)
       },
     })
     result.terminal.send('/resume')
     result.terminal.send('\r')
     await tick(); await tick()
-    expect(result.terminal.output).toContain('Resume session scan failed: projection exploded')
+    expect(result.terminal.output).toContain('Resume session scan failed: titles exploded')
     expect(result.terminal.stopped).toBe(0)
     await dispose(result)
   })
@@ -762,7 +792,7 @@ describe('goodbye message and /resume', () => {
         ctx.provide('sessionQuery', {
           listSessions: () => listing.promise,
           readSession,
-          projectSessions: projectViaReadSession(readSession),
+          readTitleSnapshots: titlesViaReadSession(readSession),
         } as never)
       },
     })
@@ -818,11 +848,12 @@ describe('goodbye message and /resume', () => {
     result.terminal.send('\r')
     await tick(); await tick()
     expect(result.terminal.output).toContain('Missing adapter')
-    expect(result.terminal.output).toContain('absent-provider/model-1')
+    // Rows carry no route: availability surfaces only at Enter-time preflight.
+    expect(result.terminal.output).not.toContain('absent-provider/model-1')
     expect(result.terminal.output).toContain('Unreadable session')
     result.terminal.send('Missing adapter')
     result.terminal.send('\r')
-    await tick()
+    await tick(); await tick()
     expect(result.terminal.output).toContain('route is currently unavailable')
     expect(result.terminal.stopped).toBe(0)
     await dispose(result)
@@ -847,7 +878,7 @@ describe('goodbye message and /resume', () => {
             persisted: true,
           }]),
           readSession,
-          projectSessions: projectViaReadSession(readSession),
+          readTitleSnapshots: titlesViaReadSession(readSession),
         } as never)
       },
     })
@@ -862,10 +893,45 @@ describe('goodbye message and /resume', () => {
     await dispose(result)
   })
 
+  it('rechecks record liveness at preflight rather than trusting the listed row', async () => {
+    const target = header('turns-live', 10, '/workspace')
+    const handoff = vi.fn<NonNullable<TuiRuntime['handoffResume']>>()
+    let listings = 0
+    const result = await setup({
+      cwd: '/workspace',
+      handoffResume: handoff,
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        const readSession = () => Promise.resolve({
+          session: target,
+          events: resumeEvents('Turns live'),
+        })
+        ctx.provide('sessionQuery', {
+          listSessions: () => Promise.resolve([{
+            header: target,
+            live: ++listings > 1,
+            persisted: true,
+          }]),
+          readSession,
+          readTitleSnapshots: titlesViaReadSession(readSession),
+        } as never)
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.terminal.send('Turns live')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(result.terminal.output).toContain('session is already live in this runtime')
+    expect(handoff).not.toHaveBeenCalled()
+    await dispose(result)
+  })
+
   it('falls back to assistant provenance and header creation time for sparse logs', async () => {
     const assistantOnly = header('assistant-route', 20, '/workspace')
     const empty = header('empty-log', 10, '/workspace')
-    const events = resumeEvents('Assistant route', 'deepseek-official')
+    const events = resumeEvents('Assistant route', 'absent-provider')
       .filter(event => event.type !== 'request/header')
       .map((event, seq) => ({ ...event, seq })) as SessionEvent[]
     const result = await setup({
@@ -880,8 +946,23 @@ describe('goodbye message and /resume', () => {
     result.terminal.send('/resume')
     result.terminal.send('\r')
     await tick(); await tick()
-    expect(result.terminal.output).toContain('deepseek-official/model-1')
+    // Without a persisted artifact to stat, listing falls back to creation time.
     expect(result.terminal.output).toContain(new Date(empty.createdAt).toISOString())
+    // The preflight route fold falls back to assistant provenance when the
+    // log carries no request header.
+    result.terminal.send('Assistant route')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(result.terminal.output).toContain('route is currently unavailable')
+    // The failed preflight closed the picker; reopen and pick the routeless
+    // log, which passes the route check — only the absent host stops it.
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.terminal.send('empty-log')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(result.terminal.output).toContain('cannot hand it off in place')
     await dispose(result)
   })
 
@@ -975,7 +1056,7 @@ describe('goodbye message and /resume', () => {
         ctx.provide('sessionQuery', {
           listSessions: () => ++listings === 1 ? Promise.resolve([record]) : secondListing.promise,
           readSession,
-          projectSessions: projectViaReadSession(readSession),
+          readTitleSnapshots: titlesViaReadSession(readSession),
         } as never)
       },
     })
@@ -1013,7 +1094,7 @@ describe('goodbye message and /resume', () => {
             persisted: true,
           }]),
           readSession,
-          projectSessions: projectViaReadSession(readSession),
+          readTitleSnapshots: titlesViaReadSession(readSession),
         } as never)
       },
     })
@@ -1409,10 +1490,6 @@ describe('pi-tui chat lifecycle and transcript', () => {
     })
     expect(result.terminal.output).toContain('Goal restored (active) with automatic continuation disarmed')
     expect(result.terminal.output).toContain('/goal resume')
-    result.terminal.send('/resume')
-    result.terminal.send('\r')
-    await tick(); await tick()
-    expect(result.terminal.output).toContain('goal active')
     await dispose(result)
   })
 
