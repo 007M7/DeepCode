@@ -1,6 +1,7 @@
 # Agent Note: TUI diff 卡片重复打印文件路径
 
 Status: implemented
+Archived: 2026-07-31
 
 [English](2026-07-27-tui-diff-card-redundant-path-header.md) | 中文
 

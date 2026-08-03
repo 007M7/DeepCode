@@ -185,6 +185,7 @@ describe('TUI config', () => {
     expect(resolveTuiConfig(undefined)).toEqual({
       showReasoning: true,
       maxToolOutputLines: 6,
+      maxDiffEditLength: 1000,
       maxQuestionOptions: 8,
       maxModelOptions: 8,
       maxResumeOptions: 8,
@@ -210,6 +211,7 @@ describe('TUI config', () => {
     expect(resolveTuiConfig({
       showReasoning: false,
       maxToolOutputLines: 2,
+      maxDiffEditLength: 12,
       maxQuestionOptions: 3,
       maxModelOptions: 4,
       maxResumeOptions: 5,
@@ -227,6 +229,7 @@ describe('TUI config', () => {
     })).toEqual({
       showReasoning: false,
       maxToolOutputLines: 2,
+      maxDiffEditLength: 12,
       maxQuestionOptions: 3,
       maxModelOptions: 4,
       maxResumeOptions: 5,
@@ -4675,7 +4678,11 @@ describe('tool cards and surface replay', () => {
       presentCall: () => ({
         card: 'diff',
         title: 'Edit src/only.ts',
-        diffs: [{ path: 'src/only.ts', oldText: 'old', newText: 'new' }],
+        diffs: [{
+          path: 'src/only.ts',
+          oldText: 'my: my-MM\nne: ne-NP\nnl: nl-NL\nnb: no-NO\npa: pa-Guru-IN\npl: pl-PL\npt_pt: pt-PT',
+          newText: 'my: my-MM\nne: ne-NP\nnl: nl-NL\nnb: nb-NO\npa: pa-Guru-IN\npl: pl-PL\npt_pt: pt-PT',
+        }],
       }),
     },
     scatteredDiff: {
@@ -5029,7 +5036,7 @@ describe('tool cards and surface replay', () => {
   })
 
   it('names a single-file diff in the body once, under a fixed Tool header', async () => {
-    const result = await setup({ tools })
+    const result = await setup({ tools, config: { maxToolOutputLines: 20 } })
     appendUser(result.session, 'edit one file')
     appendAssistant(result.session, [
       { type: 'text', text: 'Editing' },
@@ -5045,9 +5052,123 @@ describe('tool cards and surface replay', () => {
     expect(output).toContain('Tool / singleDiff')
     expect(output).not.toContain('Edit src/only.ts')
     expect(output.split('src/only.ts').length - 1).toBe(1)
-    expect(output).toContain('- old')
-    expect(output).toContain('+ new')
-    expect(output).toContain('· 1 file')
+    expect(output).toContain('  my: my-MM')
+    expect(output).not.toContain('- my: my-MM')
+    expect(output).not.toContain('+ my: my-MM')
+    expect(output).toContain('- nb: no-NO')
+    expect(output).toContain('+ nb: nb-NO')
+    expect(output).toContain('└ +1 -1 · 1 file')
+    await dispose(result)
+  })
+
+  it('renders an empty create without a synthetic added row', async () => {
+    const emptyCreate: Record<string, ToolDefinition> = {
+      emptyCreate: {
+        name: 'emptyCreate',
+        description: '',
+        parameters: {},
+        output: UNUSED_TOOL_OUTPUT,
+        execute: async () => [],
+        presentCall: () => ({
+          card: 'diff',
+          title: 'Write empty.txt',
+          diffs: [{ path: 'empty.txt', oldText: null, newText: '' }],
+        }),
+      },
+    }
+    const result = await setup({
+      tools: emptyCreate,
+      config: { maxToolOutputLines: 20, theme: { color: false } },
+    })
+    appendAssistant(result.session, [
+      { type: 'tool-call', id: 'empty-create' as never, name: 'emptyCreate', arguments: '{}' },
+    ])
+    result.session.append('tool/call', {
+      turn: 1,
+      step: 1,
+      callId: 'empty-create' as never,
+      name: 'emptyCreate',
+      arguments: '{}',
+    })
+    await tick()
+    const rows = result.terminal.output.split('\n').map(row => row.trim())
+    expect(result.terminal.output).toContain('empty.txt')
+    expect(result.terminal.output).toContain('└ +0 -0 · 1 file')
+    expect(rows).not.toContain('+')
+    await dispose(result)
+  })
+
+  it('bounds and caches exact diff comparison before whole-side fallback', async () => {
+    let oldTextReads = 0
+    let newText = 'new one\nnew two'
+    const boundedDiff = {
+      path: 'bounded.txt',
+      get oldText() {
+        oldTextReads += 1
+        return 'old one\nold two'
+      },
+      get newText() { return newText },
+    }
+    const boundedView = {
+      card: 'diff' as const,
+      title: 'Edit bounded.txt',
+      diffs: [boundedDiff],
+    }
+    const bounded: Record<string, ToolDefinition> = {
+      bounded: {
+        name: 'bounded',
+        description: '',
+        parameters: {},
+        output: UNUSED_TOOL_OUTPUT,
+        execute: async () => [],
+        presentCall: () => boundedView,
+        presentResult: () => {
+          newText = 'settled one\nsettled two'
+          return boundedView
+        },
+      },
+    }
+    const result = await setup({
+      tools: bounded,
+      config: {
+        maxToolOutputLines: 20,
+        maxDiffEditLength: 1,
+        theme: { color: false },
+      },
+    })
+    appendAssistant(result.session, [
+      { type: 'tool-call', id: 'bounded-diff' as never, name: 'bounded', arguments: '{}' },
+    ])
+    result.session.append('tool/call', {
+      turn: 1,
+      step: 1,
+      callId: 'bounded-diff' as never,
+      name: 'bounded',
+      arguments: '{}',
+    })
+    await tick()
+    expect(result.terminal.output).toContain('[exact line diff omitted: >1 changed lines]')
+    expect(result.terminal.output).toContain('- old one')
+    expect(result.terminal.output).toContain('+ new one')
+    expect(result.terminal.output).toContain('└ +2 -2 · 1 file · approximate')
+    const readsAfterFirstRender = oldTextReads
+    expect(readsAfterFirstRender).toBeGreaterThan(0)
+    result.session.append('tool/result', {
+      turn: 1,
+      step: 1,
+      message: createToolResultMessage({
+        callId: 'bounded-diff' as never,
+        content: [{ type: 'text', text: 'done' }],
+        isError: false,
+      }),
+    }, { surfaceOp: 'append' })
+    await tick()
+    expect(result.terminal.output).toContain('+ settled one')
+    expect(oldTextReads).toBeGreaterThan(readsAfterFirstRender)
+    const readsAfterResult = oldTextReads
+    result.terminal.resize(87)
+    await tick()
+    expect(oldTextReads).toBe(readsAfterResult)
     await dispose(result)
   })
 
