@@ -15,6 +15,7 @@ import {
   ProcessTerminal,
   matchesKey,
   visibleWidth,
+  type Component,
   type EditorTheme,
   type SlashCommand,
   type TerminalColorScheme,
@@ -289,6 +290,23 @@ interface FadingStatus {
   timer: ReturnType<typeof setInterval>
 }
 
+/** Width/height adapter for a modal component rendered inside the base TUI flow. */
+class InlineModalComponent extends Container {
+  constructor(
+    component: Component,
+    private readonly width: number,
+    private readonly maxHeight: number,
+  ) {
+    super()
+    this.addChild(component)
+  }
+
+  override render(width: number): string[] {
+    const lines = super.render(Math.max(1, Math.min(width, this.width)))
+    return lines.slice(0, Math.max(1, this.maxHeight))
+  }
+}
+
 /** Lifecycle handle for a mounted interactive terminal channel. */
 export interface TuiController {
   /** Stop rendering, restore the terminal, and reject pending questions. */
@@ -316,6 +334,7 @@ export function createTuiChat(
   const ui = new TUI(runtime.terminal, resolved.showHardwareCursor)
   const chat = new Container()
   const todoContainer = new Container()
+  const questionContainer = new Container()
   const inputTemplate = parseTuiPromptTemplate(displayInlineText(resolved.theme.inputPrompt))
   const renderInputPrompt = (): string => renderTuiPromptTemplate(inputTemplate, valueName => ctx.tuiPrompt.get(valueName))
   const initialInputPrompt = renderInputPrompt()
@@ -480,6 +499,7 @@ export function createTuiChat(
   ui.addChild(todoContainer)
   ui.addChild(compactionStatusLine)
   ui.addChild(promptContext)
+  ui.addChild(questionContainer)
   ui.addChild(editor)
   ui.setFocus(editor)
   const updateTerminalTitle = (): void => {
@@ -529,14 +549,32 @@ export function createTuiChat(
     }),
     theme: () => extensionTheme,
     display: displayText,
-    show: (component, options) => ui.showOverlay(component, options === undefined
-      ? undefined
-      : {
-        ...options,
-        ...typeof options.margin === 'object'
-          ? { margin: { ...options.margin } }
-          : {},
-      }),
+    show: (component, options, placement) => {
+      if (placement === 'overlay') {
+        return ui.showOverlay(component, options === undefined
+          ? undefined
+          : {
+            ...options,
+            ...typeof options.margin === 'object'
+              ? { margin: { ...options.margin } }
+              : {},
+          })
+      }
+      const modal = new InlineModalComponent(
+        component,
+        resolved.questionDialogWidth,
+        resolved.questionDialogMaxHeight,
+      )
+      questionContainer.clear()
+      questionContainer.addChild(modal)
+      ui.setFocus(component)
+      return {
+        hide(): void {
+          questionContainer.clear()
+          ui.setFocus(editor)
+        },
+      }
+    },
     invalidate: requestRender,
     reportError: (error) => {
       const message = errorChain(error)
@@ -956,6 +994,14 @@ export function createTuiChat(
     overlayManager,
     requestRender,
     isDisposed,
+    questionMaxHeight: () => {
+      const width = runtime.terminal.columns
+      const editorRows = editor.render(width).length
+      return Math.max(1, Math.min(
+        resolved.questionDialogMaxHeight,
+        runtime.terminal.rows - editorRows,
+      ))
+    },
   })
 
   const resume = createResumeController({

@@ -49,6 +49,8 @@ const CHECKPOINTS = [
   'details-selector',
   'untrusted-controls',
   'question-dialog',
+  'question-dialog-detail-paged',
+  'question-dialog-paged',
   'question-dialog-single-option',
   'question-dialog-validation',
   'surface-before-compaction',
@@ -786,9 +788,13 @@ describe('TUI terminal-state snapshots', () => {
           id: 'coverage',
           header: 'Coverage',
           question: 'Which advanced TUI states belong in the required matrix?',
+          detail: `Review the complete plan ${'including every required checkpoint '.repeat(12)}visible plan tail`,
           multiSelect: true,
           options: [
-            { label: 'Code Mode', description: 'run_code programs and captured output' },
+            {
+              label: 'Code Mode',
+              description: `run_code programs and captured output ${'with complete wrapped detail '.repeat(12)}visible tail`,
+            },
             { label: 'Workflows', description: 'phases and parallel agents' },
             { label: 'Cordis tools', description: 'inspect, mount, and unmount' },
             { label: 'Compaction', description: 'surface replacement and reflow' },
@@ -802,6 +808,14 @@ describe('TUI terminal-state snapshots', () => {
     const rejected = expect(answer).rejects.toMatchObject({ code: 'ASK_ABORTED' })
     await harness.terminal.waitForFrame(beforeQuestion)
     await checkpoint('question-dialog', harness.terminal)
+
+    await renderAfter(harness, () => { harness.terminal.send('\x1b[6~') })
+    await checkpoint('question-dialog-detail-paged', harness.terminal)
+
+    await renderAfter(harness, () => {
+      for (let page = 0; page < 30; page += 1) harness.terminal.send('\x1b[6~')
+    })
+    await checkpoint('question-dialog-paged', harness.terminal)
 
     await renderAfter(harness, () => { harness.terminal.send('\r') })
     await checkpoint('question-dialog-validation', harness.terminal)
