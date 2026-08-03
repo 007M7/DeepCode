@@ -138,6 +138,23 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-trajectory'))
     await page.getByRole('tab', { name: 'Trajectory' }).click()
     await page.waitForTimeout(100)
+    const overlayLayout = await page.getByRole('table').evaluate((table) => {
+      const host = table.closest('[data-conversation-scroll]')
+      const seat = host?.querySelector('[data-composer-seat]') ?? null
+      const pane = table.parentElement
+      return {
+        hostPosition: host === null ? null : getComputedStyle(host).position,
+        paneOverflowX: pane === null ? null : getComputedStyle(pane).overflowX,
+        paneScrollableWidth: pane === null ? null : pane.scrollWidth - pane.clientWidth,
+        seatPosition: seat === null ? null : getComputedStyle(seat).position,
+      }
+    })
+    expect(overlayLayout).toEqual({
+      hostPosition: 'relative',
+      paneOverflowX: 'hidden',
+      paneScrollableWidth: 0,
+      seatPosition: 'absolute',
+    })
     expect({
       pageErrors: tripwire.pageErrors,
       slotErrors,
@@ -153,6 +170,8 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     await page.locator('tr[data-kind="tool"]').first().click()
     const details = page.getByRole('complementary', { name: 'Event details' })
     await expect.poll(() => details.count(), { timeout: 10_000 }).toBe(1)
+    expect(await details.getByRole('tabpanel').evaluate(panel => getComputedStyle(panel).overflowX))
+      .toBe('hidden')
     await page.evaluate(() => { document.body.setAttribute('data-ds-dark-theme', '') })
     const darkSummarySurfaces = await details.getByRole('heading', { name: 'Payload' }).evaluate(heading => ({
       heading: getComputedStyle(heading).backgroundColor,

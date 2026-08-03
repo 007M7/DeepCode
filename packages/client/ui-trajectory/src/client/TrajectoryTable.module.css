@@ -15,7 +15,8 @@
 .tablePane {
   flex: 1;
   min-width: 0;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding-bottom: var(--dsh-trajectory-bottom-clearance, 0px);
   container: trajectory-table / inline-size;
 }
@@ -28,7 +29,7 @@
   );
 
   width: 100%;
-  min-width: 480px;
+  min-width: 0;
   border-spacing: 0;
   table-layout: fixed;
   color: var(--dsw-alias-label-primary);
@@ -905,7 +906,8 @@
 .detailBody {
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding-bottom: var(--dsh-trajectory-bottom-clearance, 0px);
   scrollbar-gutter: stable;
 }
