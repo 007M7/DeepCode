@@ -7,8 +7,9 @@
 - text: Reply with the single word LIGHTHOUSE and stop. {{clock}}
 - button "Copy":
   - img
-- button "Branch into a new conversation":
+- button "Branch into a new conversation" [disabled]:
   - img
+- text: Available only on the last message of a completed turn
 - button "Context injection":
   - img
   - img
