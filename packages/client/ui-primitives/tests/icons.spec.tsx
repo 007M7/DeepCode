@@ -36,7 +36,7 @@ describe('ic_ds_ icon set', () => {
     expect(svg.classList.contains('x')).toBe(true)
   })
 
-  it('native defaults: 14-glyphs default 14, 16-glyphs default 16, 20-glyphs default 20', () => {
+  it('each glyph defaults to its own drawn size, not one set-wide default', () => {
     const api = render(<IconApiOutline14 />)
     expect(api.container.querySelector('svg')!.getAttribute('width')).toBe('14')
     const folder = render(<IconFolderClose16 />)
