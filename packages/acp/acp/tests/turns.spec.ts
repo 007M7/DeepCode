@@ -31,11 +31,13 @@ describe('ACP prompt lifecycle', () => {
     harness = undefined
   })
 
-  it('maps a max-token turn without losing its committed text', async () => {
+  it('maps a max-token turn to end_turn without losing its committed text', async () => {
     harness = await makeBridgeHarness({ script: [maxTokensResponse('cut off')] })
     const sessionId = await newSession(harness)
     const result = await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] })
-    expect(result.stopReason).toBe('max_tokens')
+    // A token-limit turn ending is not a prompt-level stop reason (README):
+    // the prompt settles at whole-agent idle with end_turn.
+    expect(result.stopReason).toBe('end_turn')
     await vi.waitFor(() => { expect(messageText(harness!)).toBe('cut off') })
   })
 

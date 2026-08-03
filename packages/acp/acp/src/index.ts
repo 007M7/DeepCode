@@ -92,6 +92,8 @@ interface SessionRecord {
     reject: (error: Error) => void
     messageId: string
     turn: number | undefined
+    /** The correlated turn's ending, set at turn/end and settled at whole-agent idle. */
+    endReason: TurnEndReason | undefined
   } | undefined
 }
 
@@ -171,11 +173,12 @@ export function apply(ctx: Context, config: AcpConfig): void {
       const inflight = record.inflight
       if (inflight !== undefined && event.type === 'turn/end' && inflight.turn === event.data.turn) {
         if (event.data.reason.kind === 'error') {
+          // Model failures surface immediately as prompt errors; ordinary
+          // endings wait for whole-agent idle below.
           record.inflight = undefined
           rejectFromError(inflight, event.data.reason)
         } else {
-          record.inflight = undefined
-          inflight.resolve(turnEndToStopReason(event.data.reason))
+          inflight.endReason = event.data.reason
         }
       }
     }
@@ -282,7 +285,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           // failure (invalid input) must free the slot again or the session
           // would reject every later prompt as already in flight.
           const inflight: NonNullable<SessionRecord['inflight']> = {
-            resolve, reject, messageId: message.id, turn: undefined,
+            resolve, reject, messageId: message.id, turn: undefined, endReason: undefined,
           }
           record.inflight = inflight
           try {
@@ -297,12 +300,21 @@ export function apply(ctx: Context, config: AcpConfig): void {
             throw internalError(`prompt was not queued: ${detail}`)
           }
           /* v8 ignore stop */
-          // A turnless slot settles only at quiescence: admission discarded
-          // the prompt before it could open a turn.
+          // Settlement waits for whole-agent idle: a correlated turn/end arms
+          // `endReason`, while a turnless slot (admission discarded the
+          // prompt) stays cancelled. Other producers may run further turns
+          // before quiescence; the prompt settles only when the agent stops.
           void record.agent.whenIdle().then(() => {
             if (record.inflight !== inflight) return
             record.inflight = undefined
-            inflight.resolve('cancelled')
+            const end = inflight.endReason
+            if (end === undefined) {
+              inflight.resolve('cancelled')
+            } else {
+              // Token-limit and other non-terminal endings are not prompt-level
+              // stop reasons (see README); only normal quiescence reports end_turn.
+              inflight.resolve(end.kind === 'max-tokens' ? 'end_turn' : turnEndToStopReason(end))
+            }
           })
         })
         return { stopReason }
