@@ -138,6 +138,23 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-trajectory'))
     await page.getByRole('tab', { name: 'Trajectory' }).click()
     await page.waitForTimeout(100)
+    const overlayLayout = await page.getByRole('table').evaluate((table) => {
+      const host = table.closest('[data-conversation-scroll]')
+      const seat = host?.querySelector('[data-composer-seat]') ?? null
+      const pane = table.parentElement
+      return {
+        hostPosition: host === null ? null : getComputedStyle(host).position,
+        paneOverflowX: pane === null ? null : getComputedStyle(pane).overflowX,
+        paneScrollableWidth: pane === null ? null : pane.scrollWidth - pane.clientWidth,
+        seatPosition: seat === null ? null : getComputedStyle(seat).position,
+      }
+    })
+    expect(overlayLayout).toEqual({
+      hostPosition: 'relative',
+      paneOverflowX: 'hidden',
+      paneScrollableWidth: 0,
+      seatPosition: 'absolute',
+    })
     expect({
       pageErrors: tripwire.pageErrors,
       slotErrors,
@@ -153,6 +170,8 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     await page.locator('tr[data-kind="tool"]').first().click()
     const details = page.getByRole('complementary', { name: 'Event details' })
     await expect.poll(() => details.count(), { timeout: 10_000 }).toBe(1)
+    expect(await details.getByRole('tabpanel').evaluate(panel => getComputedStyle(panel).overflowX))
+      .toBe('hidden')
     await page.evaluate(() => { document.body.setAttribute('data-ds-dark-theme', '') })
     const darkSummarySurfaces = await details.getByRole('heading', { name: 'Payload' }).evaluate(heading => ({
       heading: getComputedStyle(heading).backgroundColor,
@@ -162,6 +181,17 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     await page.evaluate(() => { document.body.removeAttribute('data-ds-dark-theme') })
     await page.getByRole('tab', { name: 'Result' }).click()
     await expect.poll(() => page.getByText('NAVIGATION_OK', { exact: false }).count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(1)
+    const assistantSpan = page.locator('[data-timeline-span="message"][data-assistant-timing="true"]').first()
+    await assistantSpan.hover()
+    const timingTooltip = page.getByRole('tooltip')
+    await timingTooltip.waitFor({ timeout: 5_000 })
+    await expect.poll(() => timingTooltip.textContent(), { timeout: 5_000 }).toMatch(/TTFT .* Decoding/)
+    const assistantTimingStyle = await assistantSpan.evaluate(node => ({
+      background: getComputedStyle(node).backgroundImage,
+      ttft: getComputedStyle(node).getPropertyValue('--trajectory-assistant-ttft'),
+    }))
+    expect(assistantTimingStyle.background).toContain('linear-gradient')
+    expect(assistantTimingStyle.ttft).toMatch(/%$/)
     const snapshot = (await captureStableAria(page, '[class*="viewArea"]', scaffold.workspaceCwd))
       .split(SEED_ID).join('{{seededId}}')
     await compareOrRefreshGolden(TRAJECTORY_EXPECTED, snapshot, MODE)

@@ -391,6 +391,11 @@ export interface FailLoudProcess {
   on(event: 'unhandledRejection', handler: (err: unknown) => void): unknown
   off(event: 'unhandledRejection', handler: (err: unknown) => void): unknown
   stderr: { write(chunk: string): unknown }
+  /**
+   * Terminate the process. Callers treat this as the end of the run, as
+   * `process.exit` is; a fake that returns lets the caller continue, which only
+   * a test observes.
+   */
   exit(code: number): void
 }
 
@@ -422,23 +427,80 @@ async function observeLoaderRejectionCheckpoint(reasons: readonly unknown[]): Pr
 }
 
 /**
+ * How long {@link installFailLoud} waits for its `release` hook before exiting
+ * anyway. A wedged disposer must delay the fatal exit, never cancel it.
+ */
+export const FAIL_LOUD_RELEASE_TIMEOUT_MS = 2_000
+
+/**
  * Install before boot to turn a late unhandled plugin-init rejection into one
  * labelled stderr diagnostic and `exit(1)`. A rejection already included by
  * {@link assertEntriesActivated} is ignored during its process checkpoint;
  * every other rejection remains fatal. Stdout remains untouched for ACP; the
  * returned function removes the handler.
+ *
+ * The Loader mounts entries concurrently, so a surface that owns the terminal
+ * can already hold it when a sibling entry rejects. Exiting straight from the
+ * handler would strand raw mode, bracketed paste, and the keyboard protocol on
+ * the user's shell, and leave an in-flight terminal query's reply to land as
+ * literal text at the next prompt. `release` is the terminal owner's chance to
+ * hand it back; it is awaited under {@link FAIL_LOUD_RELEASE_TIMEOUT_MS}, whose
+ * timer stays referenced so a never-settling disposer cannot let Node reach an
+ * empty event loop and exit 0 instead of failing.
+ *
+ * The diagnostic is written before the release so a hanging or failing disposer
+ * cannot swallow the reason. The handler stays installed while the release runs
+ * — removing it would let a second concurrent rejection become uncaught and kill
+ * the process mid-teardown, stranding exactly the terminal state this restores —
+ * so a latch keeps the first rejection the reported one and lets later
+ * rejections (including the release's own) fall through to the pending exit.
  * @param binName - the diagnostic prefix on the fatal-failure line.
  * @param proc - the process slice to register on; tests inject a fake.
+ * @param release - optional teardown awaited before exit, used by a
+ *   terminal-owning surface to restore the terminal. Its own failure is
+ *   swallowed because the pending fatal exit already owns the outcome.
  * @returns the uninstaller that removes the rejection handler.
  */
-export function installFailLoud(binName: string, proc: FailLoudProcess = process): () => void {
+export function installFailLoud(
+  binName: string,
+  proc: FailLoudProcess = process,
+  release?: () => Promise<void> | void,
+): () => void {
+  let exiting = false
   const handler = (err: unknown): void => {
     if (assembledActivationRejections.has(err)) return
+    // A release in flight already owns the exit. Swallow later rejections
+    // (teardown's own included) rather than reporting a second failure over the
+    // real one or letting Node kill the process before the terminal is back.
+    if (exiting) return
+    exiting = true
     proc.stderr.write(`${binName}: fatal load failure: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`)
-    proc.exit(1)
+    if (release === undefined) {
+      proc.exit(1)
+      return
+    }
+    void (async () => {
+      // Definitely assigned: the timeout promise's executor runs synchronously
+      // while the race is being constructed, before the first await.
+      let timer!: ReturnType<typeof setTimeout>
+      try {
+        await Promise.race([
+          (async () => release())(),
+          new Promise<void>((resolve) => {
+            timer = setTimeout(resolve, FAIL_LOUD_RELEASE_TIMEOUT_MS)
+          }),
+        ])
+      } catch {
+        // The terminal release failed; the fatal exit below is the outcome that
+        // matters, and no reporter runs after it.
+      }
+      clearTimeout(timer)
+      proc.exit(1)
+    })()
   }
+  const uninstall = (): void => void proc.off('unhandledRejection', handler)
   proc.on('unhandledRejection', handler)
-  return () => void proc.off('unhandledRejection', handler)
+  return uninstall
 }
 
 /**

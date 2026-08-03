@@ -2,7 +2,7 @@
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import * as primitives from '@deepseek-ai/dsh-client-ui-primitives'
-import { IconApiOutline14, IconFolderClose16, IconSendOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconApiOutline14, IconArchiveOutline20, IconFolderClose16, IconSendOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 
 afterEach(cleanup)
 
@@ -14,8 +14,8 @@ const icons = Object.fromEntries(
 const iconNames = Object.keys(icons)
 
 describe('ic_ds_ icon set', () => {
-  it('exports the full P-I set (45 deepsuite + 14 figma extracts + the hand-authored sparkle)', () => {
-    expect(iconNames.length).toBe(60)
+  it('exports the full P-I set (45 deepsuite + 15 figma extracts + the hand-authored sparkle)', () => {
+    expect(iconNames.length).toBe(61)
   })
 
   it.each(iconNames)('%s renders an svg with currentColor fills and no hardcoded palette', (name) => {
@@ -36,11 +36,13 @@ describe('ic_ds_ icon set', () => {
     expect(svg.classList.contains('x')).toBe(true)
   })
 
-  it('native defaults: 14-glyphs default 14, 16-glyphs default 16', () => {
+  it('each glyph defaults to its own drawn size, not one set-wide default', () => {
     const api = render(<IconApiOutline14 />)
     expect(api.container.querySelector('svg')!.getAttribute('width')).toBe('14')
     const folder = render(<IconFolderClose16 />)
     expect(folder.container.querySelector('svg')!.getAttribute('width')).toBe('16')
+    const archive = render(<IconArchiveOutline20 />)
+    expect(archive.container.querySelector('svg')!.getAttribute('width')).toBe('20')
   })
 })
 

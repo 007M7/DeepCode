@@ -92,6 +92,8 @@ Provider additions and removals also emit `subagent/provider-added` and `subagen
 
 Continuable children do not create `SubagentRun` or Tasks. The continuation manager directly owns one process-local Activation and retained `AgentHandle` per resident child Session, uses the Agent inbox as the only FIFO, and cold-resumes from the durable descriptor. Exact live direct-parent identity authorizes parent-to-child delivery. Exact live child identity authorizes reports; the manager derives the recipient from durable `parentSession`, and `MessageSource` remains provenance rather than authority.
 
+When `ctx.sessionProjections` is available, the service registers `subagentTiming`. The projection resets at each descriptor so a fork seed's ancestor work cannot enter the child's total, then accumulates `turn/start` → `turn/end` active time and retains same-cut `active.since` and `active.through` bounds for an open turn. While that turn remains open, `active.through` follows the latest folded event, giving an inactive consumer a conservative crash bound without mixing in newer session metadata.
+
 `registerContinuableSetup()` lets optional packages add child-scoped capabilities without teaching the continuation manager their names. Contributions install synchronously before Activation publication, roll back with failed setup, and are released with the child scope. New grants wait for the next Activation, while contribution removal revokes every resident installation immediately.
 
 ## Collection model

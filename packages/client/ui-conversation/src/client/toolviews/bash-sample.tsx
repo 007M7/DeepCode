@@ -2,8 +2,10 @@
 // (ctx.slots.register + ToolRowProps only — never imports the chat domain).
 // Product chrome matches ToolRow / Think (figma: Bash · {description}).
 //
-// A bash call declares the terminal render intent, so this row renders the
-// command's own output through TerminalBlock — expand-gated exactly like
+// A bash call normally declares the terminal render intent, so this row renders
+// the command's own output through TerminalBlock. Execution failures that
+// settle without terminal material use the bounded generic IN/OUT fallback —
+// both are expand-gated exactly like
 // ToolRow's unified interaction: collapsed by default, the whole summary row
 // is the toggle (click / Enter / Space, icon→chevron hover preview; the
 // summary stays inline while open),
@@ -48,7 +50,7 @@ function stateStatus(state: ToolRowState, t: BashRowProps['t']): string | null {
 
 /**
  * Bash row: icon + Bash · {description} in the shared ToolRow chrome, the
- * whole row toggling the command's terminal card (ToolRow's unified
+ * whole row toggling the command's terminal or generic error card (ToolRow's unified
  * expand interaction, replicated locally per the registrant posture).
  */
 export function BashRow({ toolName, block, sessionId, useSessions, inspect, t }: BashRowProps) {
@@ -64,7 +66,13 @@ export function BashRow({ toolName, block, sessionId, useSessions, inspect, t }:
     : model.state
   const status = stateStatus(state, t)
   const [expanded, setExpanded] = useState(false)
-  const expandable = terminal !== null
+  // Execution failures (for example cancellation before the process reports a
+  // terminal result) use the generic presenter. Keep their recorded args and
+  // full error reachable instead of collapsing the row to the first line.
+  const genericError = terminal === null
+    && model.state === 'error'
+    && (model.body !== null || model.output !== null)
+  const expandable = terminal !== null || genericError
   const open = expanded && expandable
   const failureLine = model.state === 'error' ? model.errorSummary : null
   const toggleExpand = () => {
@@ -109,16 +117,40 @@ export function BashRow({ toolName, block, sessionId, useSessions, inspect, t }:
           {failureLine ?? terminal?.description ?? model.summary}
         </span>
       </div>
-      {terminal !== null && open && (
+      {open && (
         /* Same hover-Inspect posture as ToolRow's expanded body, replicated
            locally per the registrant posture. */
         <div className={css.bodyWrap}>
-          <TerminalBlock
-            {...terminal.card}
-            maxLines={Infinity}
-            labels={terminalBlockLabels(t)}
-            className={css.terminal}
-          />
+          {terminal !== null
+            ? (
+              <TerminalBlock
+                {...terminal.card}
+                maxLines={Infinity}
+                labels={terminalBlockLabels(t)}
+                className={css.terminal}
+              />
+            )
+            : (
+              <div className={css.ioCard}>
+                {model.body !== null && (
+                  <div className={css.ioSection}>
+                    <span className={css.ioLabel}>IN</span>
+                    <span className={css.ioText}>{model.body}</span>
+                  </div>
+                )}
+                {model.body !== null && model.output !== null && (
+                  <span className={css.ioDivider} aria-hidden />
+                )}
+                {model.output !== null && (
+                  <div className={css.ioSection}>
+                    <span className={css.ioLabel}>OUT</span>
+                    <span className={css.ioText} data-error>
+                      {model.output}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
           {inspect !== undefined && (
             <button type="button" className={css.inspectButton} onClick={inspect}>
               <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
