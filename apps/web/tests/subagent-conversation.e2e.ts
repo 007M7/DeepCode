@@ -108,7 +108,8 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     childId = started.childId
     await waitForAgentToSettle(scaffold, childId)
     oneShotId = sessionId('recorded-one-shot')
-    const oneShotAt = Date.now()
+    const oneShotDurationMs = 192 * 24 * 60 * 60 * 1_000
+    const oneShotAt = Date.now() - oneShotDurationMs
     await scaffold.ctx.sessionPersistence.create({
       version: SESSION_FORMAT_VERSION,
       id: oneShotId,
@@ -146,7 +147,7 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
       {
         type: 'turn/end',
         seq: 3,
-        time: oneShotAt + 3,
+        time: oneShotAt + oneShotDurationMs,
         data: { turn: 1, reason: { kind: 'completed' } },
       },
     ] as SessionEvent[])
@@ -200,12 +201,12 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     expect(scaffold.ctx.agents.get(grandchildId)).toBeUndefined()
     await expect(scaffold.ctx.subagents.listChildren(parent.id)).resolves.toMatchObject([
       {
-        kind: 'child', id: childId, mode: 'continuable', label: LABEL,
-        activity: 'inactive', hasChildren: true,
-      },
-      {
         kind: 'child', id: oneShotId, mode: 'one-shot',
         label: ONE_SHOT_LABEL, activity: 'inactive', hasChildren: false,
+      },
+      {
+        kind: 'child', id: childId, mode: 'continuable', label: LABEL,
+        activity: 'inactive', hasChildren: true,
       },
     ])
     await expect(scaffold.ctx.subagents.listChildren(childId)).resolves.toMatchObject([
@@ -301,6 +302,9 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     expect(await page.getByRole('button', {
       name: `Expand ${ONE_SHOT_LABEL} descendants`,
     }).count()).toBe(0)
+    const oneShotRow = page.getByRole('treeitem', { name: new RegExp(ONE_SHOT_LABEL) })
+    expect(await oneShotRow.getByText('~6mo 12d', { exact: true }).count()).toBe(1)
+    expect(await oneShotRow.getAttribute('aria-label')).toContain('192d 00h 00m 00s')
     await page.getByRole('button', { name: `Expand ${LABEL} descendants` }).click()
     const childRow = page.getByRole('treeitem', { name: new RegExp(LABEL) })
     const childLabel = await childRow.getAttribute('aria-label')

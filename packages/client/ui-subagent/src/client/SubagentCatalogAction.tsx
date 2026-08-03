@@ -76,16 +76,54 @@ function activityDuration(
   return timing.settledMs + Math.max(0, end - timing.active.since)
 }
 
-/** Format a non-negative duration to seconds without dropping larger units. */
-function formatDuration(ms: number, t: TranslateNS<typeof NS>): string {
+interface DurationParts {
+  seconds: number
+  minutes: number
+  hours: number
+  days: number
+  totalMinutes: number
+  totalHours: number
+}
+
+function splitDuration(ms: number): DurationParts {
   const totalSeconds = Math.floor(Math.max(0, ms) / 1_000)
-  const seconds = totalSeconds % 60
   const totalMinutes = Math.floor(totalSeconds / 60)
-  const minutes = totalMinutes % 60
-  const hours = Math.floor(totalMinutes / 60)
-  if (hours > 0) {
+  const totalHours = Math.floor(totalMinutes / 60)
+  return {
+    seconds: totalSeconds % 60,
+    minutes: totalMinutes % 60,
+    hours: totalHours % 24,
+    days: Math.floor(totalHours / 24),
+    totalMinutes,
+    totalHours,
+  }
+}
+
+/** Format a duration with decreasing visual precision at larger scales. */
+function formatDuration(ms: number, t: TranslateNS<typeof NS>): string {
+  const { seconds, minutes, hours, days, totalMinutes, totalHours } = splitDuration(ms)
+  if (days >= 365) {
+    const years = Math.floor(days / 365)
+    const months = Math.floor((days % 365) / 30)
+    return months === 0
+      ? t('duration.years', { years })
+      : t('duration.yearsMonths', { years, months })
+  }
+  if (days >= 30) {
+    const months = Math.floor(days / 30)
+    const remainingDays = days % 30
+    return remainingDays === 0
+      ? t('duration.months', { months })
+      : t('duration.monthsDays', { months, days: remainingDays })
+  }
+  if (days > 0) {
+    return hours === 0
+      ? t('duration.days', { days })
+      : t('duration.daysHours', { days, hours })
+  }
+  if (totalHours > 0) {
     return t('duration.hours', {
-      hours,
+      hours: totalHours,
       minutes: String(minutes).padStart(2, '0'),
       seconds: String(seconds).padStart(2, '0'),
     })
@@ -97,6 +135,19 @@ function formatDuration(ms: number, t: TranslateNS<typeof NS>): string {
     })
   }
   return t('duration.seconds', { seconds })
+}
+
+/** Preserve exact whole seconds for hover and accessible naming. */
+function formatExactDuration(ms: number, t: TranslateNS<typeof NS>): string {
+  const { seconds, minutes, hours, days } = splitDuration(ms)
+  return days === 0
+    ? formatDuration(ms, t)
+    : t('duration.exactDays', {
+      days,
+      hours: String(hours).padStart(2, '0'),
+      minutes: String(minutes).padStart(2, '0'),
+      seconds: String(seconds).padStart(2, '0'),
+    })
 }
 
 /** Aggregate the complete subagent-only descendant subtree from flat summaries. */
@@ -231,7 +282,10 @@ function CatalogRows({
         )
         const duration = durationMs === undefined
           ? undefined
-          : formatDuration(durationMs, t)
+          : {
+            compact: formatDuration(durationMs, t),
+            exact: formatExactDuration(durationMs, t),
+          }
 
         const open = (): void => {
           openChild({ parentSessionId, childSessionId: entry.id, mode: entry.mode })
@@ -263,7 +317,7 @@ function CatalogRows({
               role="treeitem"
               tabIndex={0}
               aria-level={level}
-              aria-label={[label, secondary, duration]
+              aria-label={[label, secondary, duration?.exact]
                 .filter(value => value !== undefined)
                 .join(' ')}
               {...knownLeaf ? {} : { 'aria-expanded': isExpanded }}
@@ -290,7 +344,14 @@ function CatalogRows({
                   <span className={css.label}>{label}</span>
                   <span className={css.summary}>{secondary}</span>
                 </span>
-                {duration !== undefined && <span className={css.time}>{duration}</span>}
+                {duration !== undefined && (
+                  <span
+                    className={css.time}
+                    title={t('duration.exactTitle', { duration: duration.exact })}
+                  >
+                    {duration.compact}
+                  </span>
+                )}
               </div>
             </div>
             {isExpanded && !knownLeaf && (
