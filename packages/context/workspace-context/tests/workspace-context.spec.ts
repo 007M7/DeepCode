@@ -7,7 +7,7 @@ import Loader from '@cordisjs/plugin-loader'
 import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 import LlmService, { createUserMessage, CallId, type Message, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, SESSION_FORMAT_VERSION, type SessionEvent, type UserMessage } from '@deepseek-ai/dsh-session'
-import AgentRegistry, { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents, assembleContextFor, type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { FileSystem, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {
@@ -1086,6 +1086,131 @@ describe('workspace context request injection', () => {
     }
   })
 
+  it('restores a compacted baseline during prompt assembly before another filesystem touch', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'repo rule')
+      const ctx = new Context()
+      await ctx.plugin(SystemPrompt)
+      await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
+      const agent = stubAgent(root)
+      await composeBaselinePrefix(ctx, agent)
+      const baseline = baselineEvents(agent)[0]
+      expect(baseline).toBeDefined()
+
+      agent.session.append('user/message', createUserMessage({
+        content: [{ type: 'text', text: 'compacted summary' }],
+        source: { kind: 'plugin', plugin: 'compact' },
+      }), {
+        surfaceOp: { op: 'replace', start: baseline!.seq, end: baseline!.seq },
+        sourceEventSeqs: [baseline!.seq],
+      })
+
+      await ctx.systemPrompt.assemble(assembleContextFor(agent))
+
+      expect(baselineEvents(agent)).toHaveLength(2)
+      expect(blocksText(agent.session.deriveMessages().at(-1)?.content)).toContain('repo rule')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('retries a re-injected baseline when its queued step closes before the message becomes durable', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'repo rule')
+      const ctx = new Context()
+      await ctx.plugin(SystemPrompt)
+      await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
+      const agent = stubAgent(root)
+      await composeBaselinePrefix(ctx, agent)
+      const baseline = baselineEvents(agent)[0]
+      expect(baseline).toBeDefined()
+      agent.session.append('user/message', createUserMessage({
+        content: [{ type: 'text', text: 'compacted summary' }],
+        source: { kind: 'plugin', plugin: 'compact' },
+      }), {
+        surfaceOp: { op: 'replace', start: baseline!.seq, end: baseline!.seq },
+        sourceEventSeqs: [baseline!.seq],
+      })
+      const queued: UserMessage[] = []
+      const queuedAgent: Agent = {
+        ...agent,
+        inject(input) { queued.push(input) },
+      }
+
+      await ctx.systemPrompt.assemble(assembleContextFor(queuedAgent, testToolSignal))
+      await ctx.systemPrompt.assemble(assembleContextFor(queuedAgent, testToolSignal))
+      expect(queued).toHaveLength(1)
+
+      ctx.emit('session/event', agent.session, {
+        type: 'step/end', seq: 999, time: 0, data: { turn: 1, step: 1 },
+      })
+      await ctx.systemPrompt.assemble(assembleContextFor(queuedAgent, testToolSignal))
+
+      expect(queued).toHaveLength(2)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('includes a re-injected baseline in the first real request after a between-step replacement', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    const ctx = new Context()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'first post-compaction request rule')
+      const adapter = new MockAdapter([textResponse('first'), textResponse('second')])
+      await ctx.plugin(LlmService)
+      await ctx.plugin(SessionStore)
+      await ctx.plugin(SystemPrompt)
+      await ctx.plugin(ToolRegistry)
+      await ctx.plugin(AgentRegistry)
+      await ctx.plugin(LocalFileSystem, { cwd: '/' })
+      await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
+      await ctx.plugin(AgentLoop, { agents: [] })
+      ctx.llm.registerAdapter(['mock'], adapter)
+      ctx.on('agent/step', (subject, turn) => {
+        if (turn !== 2) return
+        const baseline = baselineEvents(subject).find(event => subject.session.surface.nodes.includes(event.seq))
+        if (baseline === undefined) throw new Error('first turn did not retain its workspace baseline')
+        subject.session.append('user/message', createUserMessage({
+          content: [{ type: 'text', text: 'compacted summary' }],
+          source: { kind: 'plugin', plugin: 'compact' },
+        }), {
+          surfaceOp: { op: 'replace', start: baseline.seq, end: baseline.seq },
+          sourceEventSeqs: [baseline.seq],
+        })
+      })
+      const agent = ctx.agentLoop.create(
+        SessionId('workspace-context-post-compact'),
+        { provider: 'mock', model: 'mock' },
+        { cwd: root },
+      )
+
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'first' }], source: { kind: 'user' } }))
+      await agent.whenIdle()
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'second' }], source: { kind: 'user' } }))
+      await agent.whenIdle()
+
+      expect(adapter.requests).toHaveLength(2)
+      expect(adapter.requests[1]?.messages.map(message => blocksText(message.content)).join('\n'))
+        .toContain('first post-compaction request rule')
+      expect(baselineEvents(agent)).toHaveLength(2)
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
   it('recomposes the baseline from current files when a resumed session edited it offline', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
@@ -1669,6 +1794,38 @@ describe('workspace context request injection', () => {
       await composeBaselinePrefix(ctx, agent)
 
       expectNoDerivedMessages(agent)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('cleans up its prompt-assembly listener when the plugin fiber is disposed', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'repo rule')
+      const ctx = new Context()
+      await ctx.plugin(SystemPrompt)
+      await ctx.plugin(LocalFileSystem, { cwd: '/' })
+      const fiber = await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
+      const agent = stubAgent(root)
+      await composeBaselinePrefix(ctx, agent)
+      const baseline = baselineEvents(agent)[0]
+      expect(baseline).toBeDefined()
+      agent.session.append('user/message', createUserMessage({
+        content: [{ type: 'text', text: 'compacted summary' }],
+        source: { kind: 'plugin', plugin: 'compact' },
+      }), {
+        surfaceOp: { op: 'replace', start: baseline!.seq, end: baseline!.seq },
+        sourceEventSeqs: [baseline!.seq],
+      })
+      await fiber.dispose()
+
+      await ctx.systemPrompt.assemble(assembleContextFor(agent, testToolSignal))
+
+      expect(baselineEvents(agent)).toHaveLength(1)
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })

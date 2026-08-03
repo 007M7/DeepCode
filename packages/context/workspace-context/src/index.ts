@@ -1,7 +1,8 @@
 /**
  * Workspace instruction loader for AGENTS.md-compatible files.
  *
- * Baseline instructions enter durable context before the first request; successful fs
+ * Baseline instructions enter durable context before the first request and are
+ * restored during prompt assembly when compaction removes them. Successful fs
  * tool touches reconcile nested, changed, and removed instructions through
  * `tools/post-execute` for the next model request. Plugin lifecycle reads use
  * the optional `ctx.fs` provider, so providerless products mount it as a no-op.
@@ -12,6 +13,7 @@
 import type { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-system-prompt'
 import type { PostToolDecision, ToolExecution, ToolExecutionResult, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 import { Config, resolveConfig, type ResolvedConfig } from './config.ts'
 import { loadBaselineInstructionSet } from './files.ts'
@@ -44,13 +46,19 @@ export type {
 export { renderWorkspaceContext } from './render.ts'
 export type { RenderedWorkspaceContext, TruncatedInstruction } from './render.ts'
 
-function hasVisibleBaseline(agent: Agent): boolean {
-  return agent.session.surface.nodes.some((seq) => {
-    const event = agent.session.events[seq]
+function hasVisibleBaseline(session: Agent['session']): boolean {
+  return session.surface.nodes.some((seq) => {
+    const event = session.events[seq]
     return event?.type === 'user/message'
       && event.data.source.kind === 'workspace-instructions'
       && event.data.source.baseline === true
   })
+}
+
+function hasBaselineHistory(agent: Agent): boolean {
+  return agent.session.events.some(event => event.type === 'user/message'
+    && event.data.source.kind === 'workspace-instructions'
+    && event.data.source.baseline === true)
 }
 
 export function apply(ctx: Context, config: Config): void {
@@ -60,6 +68,10 @@ export function apply(ctx: Context, config: Config): void {
   const instructionVersions: InstructionVersionCache = new WeakMap()
   const pendingVersionUpdates = new Map<ToolExecutionToken, InstructionVersionUpdate[]>()
   const baselineLoaded = new WeakSet<object>()
+  // Settled means this generation needed no new baseline; queued covers the
+  // interval before an injected baseline becomes a durable surface event.
+  const baselineSettledGeneration = new WeakMap<object, number>()
+  const baselineQueuedGeneration = new WeakMap<object, number>()
   // Sessions whose lifecycle start this mount witnessed. A startup or resume
   // emits agent/session-start before the first step; a hot remount attaches to
   // an already-live session and never sees it. Resumes always re-compose the
@@ -78,17 +90,29 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.on('session/event', (session, event) => {
     observeInstructionSessionEvent(session, event, pendingNestedChanges, instructionVersions)
+    if (event.type === 'user/message'
+      && event.data.source.kind === 'workspace-instructions'
+      && event.data.source.baseline === true) baselineQueuedGeneration.delete(session)
+    if ((event.type === 'step/end' || event.type === 'turn/end')
+      && !hasVisibleBaseline(session)) baselineQueuedGeneration.delete(session)
   })
 
-  ctx.on('agent/step', async (agent: Agent, _turn, _step, signal): Promise<void> => {
-    if (baselineLoaded.has(agent.session)) return
+  const prepareBaseline = async (
+    agent: Agent,
+    signal: AbortSignal | undefined,
+    keepVisibleBaseline: boolean,
+  ): Promise<void> => {
     if (resolved.maxBytes <= 0 || !Number.isFinite(resolved.maxBytes)) {
       baselineLoaded.add(agent.session)
+      baselineSettledGeneration.set(agent.session, agent.session.surface.replaceGeneration)
+      baselineQueuedGeneration.delete(agent.session)
       return
     }
     const fileSystem = ctx.get('fs')
     if (fileSystem === undefined) {
       baselineLoaded.add(agent.session)
+      baselineSettledGeneration.set(agent.session, agent.session.surface.replaceGeneration)
+      baselineQueuedGeneration.delete(agent.session)
       return
     }
     /* v8 ignore next -- normal agents carry an absolute session cwd. */
@@ -101,7 +125,7 @@ export function apply(ctx: Context, config: Config): void {
       maxSourceBytes: resolved.maxSourceBytes,
       instructionFileCandidates: resolved.instructionFileCandidates,
       localInstructionFileCandidates: resolved.localInstructionFileCandidates,
-      signal,
+      ...signal === undefined ? {} : { signal },
     }, fileSystem)
     const baseline = baselineInstructionState(instructions?.included ?? [])
     baselineSessions.add(agent.session)
@@ -113,15 +137,16 @@ export function apply(ctx: Context, config: Config): void {
       pendingNestedChanges,
       instructionVersions,
       fileSystem,
-      { includeBaselineScopes: false, signal },
+      { includeBaselineScopes: false, ...signal === undefined ? {} : { signal } },
     )
     if (update !== undefined) {
       agent.inject(update.context)
       applyInstructionVersionUpdates(agent.session, update.versionUpdates, instructionVersions)
     }
-    const keepVisibleBaseline = !lifecycleWitnessed.has(agent.session) && hasVisibleBaseline(agent)
     if (!keepVisibleBaseline && instructions !== undefined && instructions.rendered.text.length > 0) {
       const baselineMessage = workspaceContextMessage(instructions.rendered.text)
+      baselineSettledGeneration.delete(agent.session)
+      baselineQueuedGeneration.set(agent.session, agent.session.surface.replaceGeneration)
       agent.inject(createUserMessage({
         content: baselineMessage.content,
         source: {
@@ -130,8 +155,30 @@ export function apply(ctx: Context, config: Config): void {
           changes: [...baseline.changes.values()],
         },
       }))
+    } else {
+      baselineSettledGeneration.set(agent.session, agent.session.surface.replaceGeneration)
+      baselineQueuedGeneration.delete(agent.session)
     }
     baselineLoaded.add(agent.session)
+  }
+
+  ctx.on('agent/step', async (agent: Agent, _turn, _step, signal): Promise<void> => {
+    if (baselineLoaded.has(agent.session)) return
+    const keepVisibleBaseline = !lifecycleWitnessed.has(agent.session) && hasVisibleBaseline(agent.session)
+    await prepareBaseline(agent, signal, keepVisibleBaseline)
+  })
+
+  ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
+    const assembled = await next()
+    const agent = context.agent
+    if (agent === undefined
+      || !baselineLoaded.has(agent.session)
+      || hasVisibleBaseline(agent.session)
+      || baselineSettledGeneration.get(agent.session) === agent.session.surface.replaceGeneration
+      || baselineQueuedGeneration.get(agent.session) === agent.session.surface.replaceGeneration
+      || !hasBaselineHistory(agent)) return assembled
+    await prepareBaseline(agent, context.signal, false)
+    return assembled
   })
 
   ctx.on('tools/post-execute', async (
