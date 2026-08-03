@@ -1,8 +1,7 @@
 /**
- * Native picker tier selection and the execFile adapter: the in-process
- * dialog primary, the pwsh → Windows PowerShell 5.1 fallback chain (any
- * non-abort pwsh failure cascades), the abort-never-falls-through rule, and
- * the triple-miss AggregateError carrying the dialog/pwsh/5.1 causes.
+ * Native picker tier selection and the execFile adapter: the Win32 dialog
+ * primary (failures surface as-is, no fallback tier), the abort rule, and
+ * the POSIX command tiers (osascript, Zenity → KDialog).
  */
 
 type ExecFileCallback = (
@@ -30,7 +29,7 @@ function failure(code: string | number, stderr = ''): Error {
 
 const signal = () => new AbortController().signal
 
-/** The PowerShell chain is reachable only when the in-process dialog fails. */
+/** A Win32 dialog that always fails — the no-fallback case. */
 const noDialog = async (): Promise<string | null> => { throw new Error('dialog unavailable') }
 
 describe('native directory picker', () => {
@@ -56,7 +55,7 @@ describe('native directory picker', () => {
     await expect(pickNativeDirectory(signal(), { platform: 'darwin', run })).rejects.toBe(reason)
   })
 
-  it('prefers the in-process Win32 dialog and never spawns PowerShell when it answers', async () => {
+  it('uses the Win32 dialog and never spawns a command when it answers', async () => {
     const run = vi.fn<DirectoryPickerRunner>()
     const pickWin32Dialog = vi.fn(async (): Promise<string | null> => 'C:\\work\\selected')
     await expect(pickNativeDirectory(signal(), { platform: 'win32', run, pickWin32Dialog })).resolves.toBe('C:\\work\\selected')
@@ -65,55 +64,11 @@ describe('native directory picker', () => {
     expect(run).not.toHaveBeenCalled()
   })
 
-  it('falls back to pwsh when the dialog is unavailable and maps empty output to cancellation', async () => {
-    const run = vi.fn<DirectoryPickerRunner>(async () => ({ stdout: 'C:\\work\\project\r\n', stderr: '' }))
-    await expect(pickNativeDirectory(signal(), { platform: 'win32', run, pickWin32Dialog: noDialog })).resolves.toBe('C:\\work\\project')
-    expect(run).toHaveBeenCalledWith(
-      'pwsh.exe',
-      expect.arrayContaining(['-NoProfile', '-STA', '-Command']),
-      expect.any(AbortSignal),
-    )
-    const script = run.mock.calls[0]?.[1].at(-1)
-    expect(script).toContain("$ErrorActionPreference = 'Stop'")
-    expect(script).toContain('SetProcessDPIAware')
-    // Description renders as a bottom strip (modern) / unthemed box (classic); never set it.
-    expect(script).not.toContain('Description')
-    run.mockResolvedValueOnce({ stdout: '', stderr: '' })
-    await expect(pickNativeDirectory(signal(), { platform: 'win32', run, pickWin32Dialog: noDialog })).resolves.toBeNull()
-  })
-
-  it('falls back to Windows PowerShell 5.1 whenever pwsh cannot deliver the dialog', async () => {
+  it('surfaces the Win32 dialog failure with no fallback', async () => {
     const run = vi.fn<DirectoryPickerRunner>()
-      .mockRejectedValueOnce(failure('ENOENT'))
-      .mockResolvedValueOnce({ stdout: 'C:\\work\\fallback\r\n', stderr: '' })
-    await expect(pickNativeDirectory(signal(), { platform: 'win32', run, pickWin32Dialog: noDialog })).resolves.toBe('C:\\work\\fallback')
-    expect(run.mock.calls.map(call => call[0])).toEqual(['pwsh.exe', 'powershell.exe'])
-    // Both runtimes execute the identical script, so DPI awareness holds either way.
-    expect(run.mock.calls[0]?.[1].at(-1)).toBe(run.mock.calls[1]?.[1].at(-1))
-
-    // A resolvable pwsh that cannot deliver the dialog (PowerShell 6: no
-    // WinForms, Add-Type exits 1 - not ENOENT) reaches 5.1 all the same.
-    const pwsh6 = vi.fn<DirectoryPickerRunner>()
-      .mockRejectedValueOnce(failure(1, "Cannot load assembly 'System.Windows.Forms'"))
-      .mockResolvedValueOnce({ stdout: 'C:\\work\\legacy\r\n', stderr: '' })
-    await expect(pickNativeDirectory(signal(), { platform: 'win32', run: pwsh6, pickWin32Dialog: noDialog })).resolves.toBe('C:\\work\\legacy')
-    expect(pwsh6.mock.calls.map(call => call[0])).toEqual(['pwsh.exe', 'powershell.exe'])
-
-    const cancelled = vi.fn<DirectoryPickerRunner>()
-      .mockRejectedValueOnce(failure('ENOENT'))
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-    await expect(pickNativeDirectory(signal(), { platform: 'win32', run: cancelled, pickWin32Dialog: noDialog })).resolves.toBeNull()
-
-    // Triple miss: the surfaced AggregateError carries all three causes,
-    // including the otherwise-lost in-process dialog failure.
-    const failed = vi.fn<DirectoryPickerRunner>()
-      .mockRejectedValueOnce(failure('ENOENT'))
-      .mockRejectedValueOnce(failure(2))
-    const tripleMiss = await pickNativeDirectory(signal(), { platform: 'win32', run: failed, pickWin32Dialog: noDialog })
-      .then(() => { throw new Error('expected rejection') }, (error: unknown) => error as AggregateError)
-    expect(tripleMiss.message).toContain('the in-process dialog and both PowerShell hosts failed')
-    expect((tripleMiss.errors[0] as Error).message).toBe('dialog unavailable')
-    expect((tripleMiss.errors[2] as Error).message).toContain('command failed')
+    await expect(pickNativeDirectory(signal(), { platform: 'win32', run, pickWin32Dialog: noDialog }))
+      .rejects.toThrow('dialog unavailable')
+    expect(run).not.toHaveBeenCalled()
   })
 
   it('wires the real Win32 dialog as the default tier', async () => {
@@ -127,52 +82,38 @@ describe('native directory picker', () => {
     expect(run).not.toHaveBeenCalled()
   })
 
-  it('does not fall back when the caller aborted the dialog or the pwsh spawn', async () => {
+  it('does not fall back when the caller aborted the dialog', async () => {
     const abort = new AbortController()
     abort.abort(new Error('closed'))
     const run = vi.fn<DirectoryPickerRunner>()
     await expect(pickNativeDirectory(abort.signal, { platform: 'win32', run, pickWin32Dialog: noDialog })).rejects.toThrow('dialog unavailable')
     expect(run).not.toHaveBeenCalled()
-
-    const liveThenAborted = new AbortController()
-    const abortingRun = vi.fn<DirectoryPickerRunner>(async () => {
-      liveThenAborted.abort(new Error('closed'))
-      throw failure('ENOENT')
-    })
-    await expect(pickNativeDirectory(liveThenAborted.signal, { platform: 'win32', run: abortingRun, pickWin32Dialog: noDialog }))
-      .rejects.toThrow('command failed')
-    expect(abortingRun).toHaveBeenCalledOnce()
   })
 
   it('runs the default command adapter without a shell and preserves command failures', async () => {
     execFileMock.mockImplementationOnce((_command, _args, _options, callback) => {
-      callback(null, 'C:\\work\\default\r\n', '')
+      callback(null, '/home/test/project\n', '')
     })
-    await expect(pickNativeDirectory(signal(), { platform: 'win32', pickWin32Dialog: noDialog })).resolves.toBe('C:\\work\\default')
+    await expect(pickNativeDirectory(signal(), { platform: 'linux' })).resolves.toBe('/home/test/project')
     const [command, args, options] = execFileMock.mock.calls[0]!
-    expect(command).toBe('pwsh.exe')
-    expect(args).toEqual(expect.arrayContaining(['-NoProfile', '-STA', '-Command']))
+    expect(command).toBe('zenity')
+    expect(args).toEqual(expect.arrayContaining(['--file-selection', '--directory']))
     expect(options.encoding).toBe('utf8')
     expect(options.windowsHide).toBe(true)
     expect(options.signal).toBeInstanceOf(AbortSignal)
 
-    // Both chain tiers fail: pwsh's code-7 failure now reaches 5.1, whose
-    // failure is the one the caller sees.
-    const pwshError = Object.assign(new Error('pwsh failed'), { code: 7 })
-    const commandError = Object.assign(new Error('powershell failed'), { code: 7 })
+    // A non-cancellation command failure surfaces as-is with its cause and
+    // captured stdio attached; no tier masks or rewraps it.
     execFileMock.mockImplementationOnce((_command, _args, _options, callback) => {
-      callback(pwshError, '', 'no WinForms')
+      callback(Object.assign(new Error('zenity failed'), { code: 7 }), 'partial output', 'failure details')
     })
-    execFileMock.mockImplementationOnce((_command, _args, _options, callback) => {
-      callback(commandError, 'partial output', 'failure details')
-    })
-    const surfaced = await pickNativeDirectory(signal(), { platform: 'win32', pickWin32Dialog: noDialog })
-      .then(() => { throw new Error('expected rejection') }, (error: unknown) => error as AggregateError)
-    expect(surfaced.errors[2]).toMatchObject({
-      message: 'powershell failed', cause: commandError, code: 7,
+    const surfaced = await pickNativeDirectory(signal(), { platform: 'linux' })
+      .then(() => { throw new Error('expected rejection') }, (error: unknown) => error as Error)
+    expect(surfaced).toMatchObject({
+      message: 'zenity failed', code: 7,
       stdout: 'partial output', stderr: 'failure details',
     })
-    expect(execFileMock.mock.calls.map(call => call[0])).toEqual(['pwsh.exe', 'pwsh.exe', 'powershell.exe'])
+    expect((surfaced as { cause?: unknown }).cause).toBeInstanceOf(Error)
   })
 
   it('uses the current process platform when no platform override is supplied', async () => {
@@ -182,6 +123,11 @@ describe('native directory picker', () => {
     const pickWin32Dialog = async (): Promise<string | null> => 'C:\\default\\platform'
     const expected = process.platform === 'win32' ? 'C:\\default\\platform' : '/default/platform'
     await expect(pickNativeDirectory(signal(), { run, pickWin32Dialog })).resolves.toBe(expected)
+  })
+
+  it('maps empty command output to cancellation', async () => {
+    const run = vi.fn<DirectoryPickerRunner>(async () => ({ stdout: '', stderr: '' }))
+    await expect(pickNativeDirectory(signal(), { platform: 'linux', run })).resolves.toBeNull()
   })
 
   it('uses Zenity on Linux and falls back to KDialog only when Zenity is missing', async () => {

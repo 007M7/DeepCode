@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-[目录选择 seam](../directory-picker/README.md) 的**原生 OS 选择器后端**：`NativeDirectoryPicker` 以 `native` 能力注册 `ctx.directoryPicker`，其 `pick(signal)` 每次调用打开一个原生选择器并解析出所选绝对路径（取消时为 `null`）。平台工具不经 shell 调用：macOS 使用 `osascript`，Linux 使用 Zenity 并以 KDialog 回退；调用方的中止信号会终止原生进程。Windows 在进程内打开现代 `IFileOpenDialog`——由 koffi 在 worker 线程上驱动的 COM 会话，采用宿主接受的最佳线程 DPI 感知（优先 per-monitor-v2），中止时向对话框线程投递 `WM_CLOSE`——当该原生面不可用时回退到 PowerShell 承载的对话框（先 `pwsh`，再回退到每台 Windows 都自带的 Windows PowerShell 5.1）；可解析但无法呈现对话框的 `pwsh`（PowerShell 6 没有 WinForms）同样落入该回退。只有操作者坐在宿主屏幕前时才可用——远程部署应组合 [`-browse`](../directory-picker-browse/README.md)。命令边界（`DirectoryPickerRunner`）与平台事实可注入，便于确定性测试。共享的免 shell 子进程运行器位于 [`dsh-native-command`](../../util/native-command/README.md)。
+[目录选择 seam](../directory-picker/README.md) 的**原生 OS 选择器后端**：`NativeDirectoryPicker` 以 `native` 能力注册 `ctx.directoryPicker`，其 `pick(signal)` 每次调用打开一个原生选择器并解析出所选绝对路径（取消时为 `null`）。平台工具不经 shell 调用：macOS 使用 `osascript`，Linux 使用 Zenity 并以 KDialog 回退；调用方的中止信号会终止原生进程。Windows 在 spawn 的子进程中打开现代 `IFileOpenDialog`——由 koffi 在子进程主线程上驱动的 COM 会话，采用宿主接受的最佳线程 DPI 感知（优先 per-monitor-v2），中止时向对话框线程投递 `WM_CLOSE`。只有操作者坐在宿主屏幕前时才可用——远程部署应组合 [`-browse`](../directory-picker-browse/README.md)。命令边界（`DirectoryPickerRunner`）与平台事实可注入，便于确定性测试。共享的免 shell 子进程运行器位于 [`dsh-native-command`](../../util/native-command/README.md)。
 
 **双面包**：browser half（`./client`）向 [ui-workspace](../../client/ui-workspace/README.md) 的两个目录流洞注册一个无渲染的流程占用者——每次 `open` 请求驱动 `host.pickDirectory`，并经洞的 owner 会话上报唯一结果（所选路径／取消／失败）。因此一行 cordis.yml 同时组合原生交互的两侧；client 侧不含任何能力 kind 分支，挂载第二个流程包会在加载期失败（洞为 `single` kind）。
 
@@ -17,5 +17,4 @@
 ## 已知限制与延期工作
 
 - **Linux 依赖桌面工具**——Zenity 与 KDialog 均未安装时，`pick` 以包含解决建议的错误拒绝；它不会回退为手输路径提示（组合层面的回退是 browse 后端）。
-- **Windows 回退链会降级对话框**——进程内选择器就是现代资源管理器风格对话框；koffi 无法驱动 COM 时由 PowerShell 层级接手，最终只到达 Windows PowerShell 5.1 的机器得到旧版文件夹树，DPI 已修正，但界面不是现代的。
-- **卡死的中止可能泄漏一个对话框线程**——当 `WM_CLOSE` 始终投递不到（对话框窗口从未创建）时，driver 会 terminate 并 unref 该 worker；Node 无法打断阻塞在原生模态调用里的线程，因此该线程会存活到进程退出。
+- **Windows 没有机制级回退**——子进程选择器是唯一层级：koffi 是打包依赖，其可用性由安装保证，因此一次失败的 pick（COM 拒绝、对话框崩溃）直接上报失败，不会降级到 PowerShell 承载的对话框（原有的 `pwsh` → Windows PowerShell 5.1 链已删除）。组合层面的回退仍是 browse 后端。

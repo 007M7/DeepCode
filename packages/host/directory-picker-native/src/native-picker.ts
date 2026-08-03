@@ -67,62 +67,13 @@ export async function pickNativeDirectory(
   }
 
   if (platform === 'win32') {
-    // Primary: the in-process koffi-backed IFileOpenDialog worker — the modern
-    // picker with per-monitor-v2 DPI, no PowerShell dependency, and abort
-    // support. Any non-abort failure (koffi unavailable, ancient Windows, COM
-    // refusal) falls back to the PowerShell chain below.
+    // The koffi-backed IFileOpenDialog child process — the modern picker with
+    // per-monitor-v2 DPI and abort support. koffi is a packaged dependency
+    // whose availability the install guarantees, so there is no fallback
+    // tier: any failure surfaces as-is (the former PowerShell chain was
+    // removed — see the simplification Agent Note).
     const pickDialog = internals.pickWin32Dialog ?? pickWin32Directory
-    let dialogError: unknown
-    try {
-      return await pickDialog(signal)
-    } catch (error: unknown) {
-      rethrowIfAborted(signal, error)
-      dialogError = error
-    }
-
-    // PowerShell fallback: PowerShell 7 renders the modern IFileDialog folder
-    // picker, while Windows PowerShell 5.1's FolderBrowserDialog is hardwired
-    // to the legacy SHBrowseForFolder tree. Prefer pwsh, but ANY pwsh failure
-    // falls back to 5.1 (which every Windows ships): a resolvable pwsh can
-    // still be unable to deliver the dialog — PowerShell 6 has no WinForms,
-    // so its Add-Type exits 1, not ENOENT. Both hosts spawn DPI-unaware, so
-    // the script opts the process into system DPI awareness before any window
-    // is created. No Description is set: the modern dialog renders it as a
-    // bottom strip and the classic dialog as an unthemed box.
-    const script = [
-      "$ErrorActionPreference = 'Stop'",
-      "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class DpiAware { [DllImport(\"user32.dll\")] public static extern bool SetProcessDPIAware(); }'",
-      '[DpiAware]::SetProcessDPIAware() | Out-Null',
-      'Add-Type -AssemblyName System.Windows.Forms',
-      '$dialog = New-Object System.Windows.Forms.FolderBrowserDialog',
-      '$dialog.ShowNewFolderButton = $true',
-      '$result = $dialog.ShowDialog()',
-      'if ($result -eq [System.Windows.Forms.DialogResult]::OK) {',
-      '  [Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
-      '  [Console]::WriteLine($dialog.SelectedPath)',
-      '}',
-    ].join('; ')
-    let pwshError: unknown
-    try {
-      const result = await run('pwsh.exe', ['-NoProfile', '-STA', '-Command', script], signal)
-      return outputPath(result.stdout)
-    } catch (error: unknown) {
-      rethrowIfAborted(signal, error)
-      pwshError = error
-    }
-    try {
-      const result = await run('powershell.exe', ['-NoProfile', '-STA', '-Command', script], signal)
-      return outputPath(result.stdout)
-    } catch (error: unknown) {
-      rethrowIfAborted(signal, error)
-      // Triple miss: every tier failed. Surface all three causes — the
-      // in-process dialog's reason is otherwise unrecoverable from the last
-      // PowerShell error alone.
-      throw new AggregateError(
-        [dialogError, pwshError, error],
-        'native directory picker failed: the in-process dialog and both PowerShell hosts failed',
-      )
-    }
+    return await pickDialog(signal)
   }
 
   if (platform === 'linux') {

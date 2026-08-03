@@ -2,11 +2,10 @@
  * Native backend of the directory-picker seam: registers `ctx.directoryPicker`
  * with the `native` capability, opening one native OS chooser on the host
  * display per pick (macOS `osascript`, Linux Zenity with a KDialog fallback;
- * Windows opens the modern `IFileOpenDialog` in-process — a koffi-driven COM
- * conversation on a worker thread — and falls back to a PowerShell-hosted
- * dialog (`pwsh`, then Windows PowerShell 5.1) when that native surface is
- * unavailable). Only viable when the operator sits at the host's screen;
- * remote deployments compose the browse backend instead.
+ * Windows opens the modern `IFileOpenDialog` in a spawned child process — a
+ * koffi-driven COM conversation on the child's main thread). Only viable when
+ * the operator sits at the host's screen; remote deployments compose the
+ * browse backend instead.
  * @module @deepseek-ai/dsh-host-directory-picker-native
  */
 
