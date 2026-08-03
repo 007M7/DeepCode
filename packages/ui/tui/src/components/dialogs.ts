@@ -34,6 +34,7 @@ import type {
 import type { AskUserQuestionItem } from '@deepseek-ai/dsh-user-interaction'
 import { BRACKETED_PASTE_END, BRACKETED_PASTE_START, displayText, sanitizePastedText } from './text.ts'
 import { dialogSelectTheme, type Palette } from './theme.ts'
+import type { ToolCardVisibility } from './transcript.ts'
 import {
   renderTuiPromptTemplate,
   type TuiPromptTemplateToken,
@@ -428,6 +429,79 @@ export class ModelDialog implements Component {
         : this.list.render(innerWidth),
       '',
       this.palette.dim('type to filter • ↑/↓ move • Shift+Tab reasoning • Enter select • Esc'),
+    ], width, this.palette)
+  }
+}
+
+/** Both transcript-detail dimensions, applied immediately on each Tab. */
+export interface DetailsSelection {
+  readonly visibility: ToolCardVisibility
+  readonly showReasoning: boolean
+}
+
+const TOOL_CARD_PHASES: readonly ToolCardVisibility[] = ['collapsed', 'expanded', 'hidden']
+
+/**
+ * Keyboard toggle over the two transcript-detail entries — tool-card
+ * visibility and reasoning display. Tab cycles the highlighted entry's value
+ * and applies it immediately, so the transcript behind the dialog is the live
+ * preview; Enter, Esc, or Ctrl+C closes.
+ */
+export class DetailsDialog implements Component {
+  private readonly list: SelectList
+  private readonly toolsItem: SelectItem
+  private readonly reasoningItem: SelectItem
+
+  constructor(
+    private visibility: ToolCardVisibility,
+    private showReasoning: boolean,
+    private readonly palette: Palette,
+    private readonly apply: (selection: DetailsSelection) => void,
+    private readonly close: () => void,
+  ) {
+    this.toolsItem = { value: 'tools', label: 'Tool cards', description: visibility }
+    this.reasoningItem = { value: 'reasoning', label: 'Reasoning', description: this.reasoningLabel() }
+    this.list = new SelectList([this.toolsItem, this.reasoningItem], 2, dialogSelectTheme(palette))
+    this.list.onSelect = close
+  }
+
+  private reasoningLabel(): string {
+    return this.showReasoning ? 'shown' : 'hidden'
+  }
+
+  /** Cycle the highlighted entry one step and apply the new state. */
+  private cycle(): void {
+    const selected = this.list.getSelectedItem()
+    /* v8 ignore next -- the two-entry list always has a selection. */
+    if (selected === null) return
+    if (selected.value === 'tools') {
+      const index = TOOL_CARD_PHASES.indexOf(this.visibility)
+      this.visibility = TOOL_CARD_PHASES[(index + 1) % TOOL_CARD_PHASES.length] as ToolCardVisibility
+      this.toolsItem.description = this.visibility
+    } else {
+      this.showReasoning = !this.showReasoning
+      this.reasoningItem.description = this.reasoningLabel()
+    }
+    this.apply({ visibility: this.visibility, showReasoning: this.showReasoning })
+  }
+
+  invalidate(): void {
+    this.list.invalidate()
+  }
+
+  handleInput(data: string): void {
+    if (matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl('c'))) this.close()
+    else if (matchesKey(data, Key.tab)) this.cycle()
+    else this.list.handleInput(data)
+    this.invalidate()
+  }
+
+  render(width: number): string[] {
+    const innerWidth = Math.max(1, width - 4)
+    return renderDialog('Transcript details', [
+      ...this.list.render(innerWidth),
+      '',
+      this.palette.dim('↑/↓ move • Tab toggle • Enter/Esc close'),
     ], width, this.palette)
   }
 }

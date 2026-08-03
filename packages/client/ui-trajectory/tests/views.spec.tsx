@@ -9,7 +9,7 @@
  */
 import { Context } from 'cordis'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { createElement, type ComponentProps, type FC, type ReactNode } from 'react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
@@ -288,6 +288,7 @@ describe('tab switching in ConversationRoot', () => {
     expect(screen.queryByRole('columnheader')).toBeNull()
     expect(screen.getByRole('toolbar', { name: 'Trajectory toolbar' })).toBeTruthy()
     expect(screen.getByRole('region', { name: 'Trajectory timeline' })).toBeTruthy()
+    expect(view.container.querySelector('[data-conversation-composer-overlay]')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Collapse turns' }))
     expect(view.container.querySelector('[data-collapsed-summary="turn"]')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Expand turns' }))
@@ -445,7 +446,7 @@ describe('tab switching in ConversationRoot', () => {
       .toBe('outside')
     fireEvent.contextMenu(plot)
     expect(screen.getByRole('row', { name: /USER/ }).getAttribute('data-timeline-focus'))
-      .toBeNull()
+      .toBe('outside')
   })
 
   it('clicking a timeline block clears the range, selects the record, and opens its inspector', async () => {
@@ -528,6 +529,57 @@ describe('timeline projection', () => {
     }],
   }] satisfies readonly TrajectoryTurnModel[]
 
+  it('splits assistant time into recorded TTFT and decoding proportions with a delayed tooltip', () => {
+    vi.useFakeTimers()
+    try {
+      const view = render(
+        <TrajectoryTimeline
+          turns={[{
+            turn: 1,
+            groups: [{
+              title: 'Step 1',
+              cells: [{
+                index: 1,
+                kind: 'message',
+                text: 'assistant',
+                startedAt: 1_000,
+                timeSeconds: 2,
+                assistantMetrics: {
+                  timingRecorded: true,
+                  stepStartTime: 1_000,
+                  firstTokenTime: 1_500,
+                  completedTime: 3_000,
+                  usageProvided: false,
+                  outputTokens: null,
+                },
+              }],
+            }],
+          }]}
+          mode="duration"
+          range={null}
+          onRangeChange={vi.fn()}
+        />,
+      )
+      const span = view.container.querySelector<HTMLElement>(
+        '[data-timeline-span="message"]',
+      )
+      expect(span?.getAttribute('title')).toBeNull()
+      expect(span?.getAttribute('data-assistant-timing')).toBe('true')
+      expect(span?.style.getPropertyValue('--trajectory-assistant-ttft')).toBe('25%')
+
+      fireEvent.mouseEnter(span as HTMLElement)
+      act(() => { vi.advanceTimersByTime(499) })
+      expect(view.container.querySelector('[role="tooltip"]')).toBeNull()
+      act(() => { vi.advanceTimersByTime(1) })
+      const tooltip = view.container.querySelector<HTMLElement>('[role="tooltip"]')
+      expect(tooltip?.textContent).toContain('Total 2.0 s')
+      expect(tooltip?.textContent).toContain('TTFT 500 ms')
+      expect(tooltip?.textContent).toContain('Decoding 1.5 s')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('cancels native scrolling across the timeline while zooming', () => {
     render(
       <TrajectoryTimeline
@@ -548,6 +600,99 @@ describe('timeline projection', () => {
       clientX: 20,
       deltaY: -100,
     })).toBe(false)
+  })
+
+  it('scales sequence gutters with narrow operation spans', () => {
+    const view = render(
+      <TrajectoryTimeline
+        turns={longTurns}
+        mode="sequence"
+        range={null}
+        onRangeChange={vi.fn()}
+      />,
+    )
+    const span = view.container.querySelector<HTMLElement>('[data-timeline-span]')
+    expect(span?.style.getPropertyValue('--trajectory-span-width')).toBe('10%')
+    expect(span?.style.getPropertyValue('--trajectory-span-gap'))
+      .toBe('clamp(0.25px, 0.8%, 1px)')
+  })
+
+  it('clears the selection without changing zoom on a zoomed right click', () => {
+    const onRangeChange = vi.fn()
+    const view = render(
+      <TrajectoryTimeline
+        turns={longTurns}
+        mode="sequence"
+        range={{ start: 2, end: 4 }}
+        onRangeChange={onRangeChange}
+      />,
+    )
+    const plot = screen.getByLabelText('Timeline overview; drag horizontally to focus events')
+    vi.spyOn(plot, 'getBoundingClientRect').mockReturnValue({
+      x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 72, width: 100, height: 72,
+      toJSON: () => ({}),
+    })
+    fireEvent.wheel(plot, { clientX: 50, deltaY: -1_000 })
+    const domain = view.container.querySelector<HTMLElement>('[data-timeline-domain]')
+    const domainWidth = domain?.style.getPropertyValue('--trajectory-domain-width')
+    expect(domainWidth).not.toBe('100%')
+
+    fireEvent.pointerDown(plot, { button: 2, clientX: 50, pointerId: 1 })
+    expect(fireEvent.contextMenu(plot)).toBe(false)
+    fireEvent.pointerUp(plot, { button: 2, clientX: 50, pointerId: 1 })
+
+    expect(onRangeChange).toHaveBeenCalledOnce()
+    expect(onRangeChange).toHaveBeenCalledWith(null)
+    expect(domain?.style.getPropertyValue('--trajectory-domain-width')).toBe(domainWidth)
+  })
+
+  it('clears the selection and suppresses the context menu at full zoom', () => {
+    const onRangeChange = vi.fn()
+    render(
+      <TrajectoryTimeline
+        turns={longTurns}
+        mode="sequence"
+        range={{ start: 2, end: 4 }}
+        onRangeChange={onRangeChange}
+      />,
+    )
+    const plot = screen.getByLabelText('Timeline overview; drag horizontally to focus events')
+
+    fireEvent.pointerDown(plot, { button: 2, clientX: 50, pointerId: 1 })
+    expect(fireEvent.contextMenu(plot)).toBe(false)
+    fireEvent.pointerUp(plot, { button: 2, clientX: 50, pointerId: 1 })
+    expect(onRangeChange).toHaveBeenCalledOnce()
+    expect(onRangeChange).toHaveBeenCalledWith(null)
+  })
+
+  it('pans the zoomed viewport with a right-button drag without changing the selection', () => {
+    const onRangeChange = vi.fn()
+    const view = render(
+      <TrajectoryTimeline
+        turns={longTurns}
+        mode="sequence"
+        range={{ start: 2, end: 4 }}
+        onRangeChange={onRangeChange}
+      />,
+    )
+    const plot = screen.getByLabelText('Timeline overview; drag horizontally to focus events')
+    vi.spyOn(plot, 'getBoundingClientRect').mockReturnValue({
+      x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 72, width: 100, height: 72,
+      toJSON: () => ({}),
+    })
+    fireEvent.wheel(plot, { clientX: 50, deltaY: -1_000 })
+    const domain = view.container.querySelector<HTMLElement>('[data-timeline-domain]')
+    const before = domain?.style.getPropertyValue('--trajectory-domain-left')
+
+    fireEvent.pointerDown(plot, { button: 2, clientX: 50, pointerId: 1 })
+    expect(plot.getAttribute('data-panning')).toBe('true')
+    expect(fireEvent.contextMenu(plot)).toBe(false)
+    fireEvent.pointerMove(plot, { buttons: 2, clientX: 75, pointerId: 1 })
+    fireEvent.pointerUp(plot, { button: 2, clientX: 75, pointerId: 1 })
+
+    expect(domain?.style.getPropertyValue('--trajectory-domain-left')).not.toBe(before)
+    expect(onRangeChange).not.toHaveBeenCalled()
+    expect(plot.getAttribute('data-panning')).toBeNull()
   })
 
   it('pans the zoomed viewport only far enough to reveal a newly selected record', async () => {

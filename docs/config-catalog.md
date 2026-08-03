@@ -2081,6 +2081,8 @@ export interface TuiConfig {
   modelDialogWidth?: number
   /** Model-selector maximum height in terminal rows. */
   modelDialogMaxHeight?: number
+  /** Transcript-details selector width in terminal columns. */
+  detailsDialogWidth?: number
   /** Maximum fuzzy file candidates displayed for one `@` query. */
   fileSearchMaxResults?: number
   /** Maximum paths retained in one `@` workspace index. */
@@ -2112,7 +2114,7 @@ export interface TuiThemeConfig {
 }
 ```
 
-Source: [`packages/ui/tui/src/config.ts:117`](../packages/ui/tui/src/config.ts)
+Source: [`packages/ui/tui/src/config.ts:121`](../packages/ui/tui/src/config.ts)
 
 ## `@deepseek-ai/dsh-typert-loader`
 

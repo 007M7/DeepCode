@@ -2080,7 +2080,7 @@ async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [ContinuableSetupContribution](../core-data-structures/subagent.md) · [ContinuableStart](../core-data-structures/subagent.md) · [ContinuableStartSpec](../core-data-structures/subagent.md) · [MessageId](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md) · [SubagentFollowupOptions](../core-data-structures/subagent.md) · [SubagentListEntry](../core-data-structures/subagent.md) · [SubagentProvider](../core-data-structures/subagent.md) · [SubagentReportOptions](../core-data-structures/subagent.md) · [SubagentRun](../core-data-structures/subagent.md) · [SubagentStartRequest](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:163`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:165`](../../packages/subagent/subagent/src/index.ts)
 
 ## `ctx.subprocess` — `SubprocessService` (abstract seam)
 
@@ -2457,7 +2457,7 @@ The concrete provider retains pi-tui, focus, and terminal lifecycle state. Plugi
 abstract openOverlay(request: TuiOverlayRequest): TuiOverlaySession
 ```
 
-Source: [`packages/ui/tui/src/index.ts:242`](../../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/index.ts:244`](../../packages/ui/tui/src/index.ts)
 
 ## `ctx.typert` — `TypertRegistry`
 
