@@ -8,6 +8,7 @@ import type { IApiClient } from './api.ts'
 import { ConnectionController, type ConnectionConfig, type ConnectionSinks, type ConnectionState } from './connection.ts'
 import { FixtureApiClient } from './fixture.ts'
 import { WebApiClient } from './web-api-client.ts'
+import { isLoopbackHostname } from '../loopback-hostname.ts'
 
 // ---- Contract re-exports (browser-safe apiproxy channels + core types) ----
 export type {
@@ -48,6 +49,8 @@ export const inject: string[] = []
 export interface ConnectionHandle {
   /** Shared api client (fixture or real, decided at boot from the page URL). */
   readonly api: IApiClient
+  /** Whether the current page authority is loopback; non-browser contexts default to true. */
+  readonly isLoopback: boolean
   /**
    * Start the connect/pump/reconnect loop with the consumer's frame sinks.
    * One consumer owns the streams (the runtime object layer); a second call
@@ -64,11 +67,13 @@ export interface ConnectionHandle {
  * @param ctx - client cordis context.
  */
 export function apply(ctx: Context): void {
-  const fixture = typeof location !== 'undefined' && new URLSearchParams(location.search).has('fixture')
+  const pageLocation = typeof location === 'undefined' ? undefined : location
+  const fixture = pageLocation !== undefined && new URLSearchParams(pageLocation.search).has('fixture')
   const api: IApiClient = fixture ? new FixtureApiClient() : new WebApiClient()
   let started = false
   const handle: ConnectionHandle = {
     api,
+    isLoopback: pageLocation === undefined || isLoopbackHostname(pageLocation.hostname),
     start(sinks, config) {
       if (started) throw new Error('connection: the stream loop is already owned by another consumer')
       started = true

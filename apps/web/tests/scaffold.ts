@@ -89,7 +89,7 @@ const REPLAY_PROVIDERS = [{
 export interface WebScaffold {
   /** The active snapshot mode this scaffold booted under. */
   mode: WebSnapshotMode
-  /** Browser-facing origin (http://127.0.0.1:<bound port>). */
+  /** Browser-facing origin for the bound test server. */
   baseUrl: string
   /** Settled root context (the in-process barrier seam; headless event subscription is its sanctioned use). */
   ctx: Context
@@ -166,6 +166,12 @@ export interface LaunchOptions {
   }
   /** Leave the current welcome notice unacknowledged; ordinary scenarios publish it as complete before browser boot. */
   welcomeNoticePending?: boolean
+  /**
+   * Browse through a trusted non-loopback hostname that the browser resolves
+   * to loopback (for example `*.localhost`). The test server stays bound to
+   * 127.0.0.1; a non-resolving authority fails before Host trust is exercised.
+   */
+  remoteAuthority?: string
 }
 
 /** Dispose the booted tree and remove both owned temp roots, reporting every independent cleanup failure. */
@@ -185,6 +191,7 @@ async function cleanupScaffoldWorld(ctx: Context, workspaceCwd: string, persiste
 export async function launchWebScaffold(options: LaunchOptions = {}): Promise<WebScaffold> {
   requireDist()
   const mode = webSnapshotMode()
+  const browserHost = options.remoteAuthority ?? '127.0.0.1'
   if (mode === 'record') {
     // Both owning vitest configs (web unconditionally, snapshot in record
     // mode) load the repo-root .env before this file runs.
@@ -261,7 +268,13 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     // to the production OTLP endpoint (or whatever DSH_TELEMETRY_OTLP_URL
     // names in the ambient environment).
     { id: 'telemetry-otel', disabled: true },
-    { id: 'webserver', config: { host: '127.0.0.1', port: 0, distIndex: DIST_INDEX } },
+    {
+      id: 'webserver',
+      config: { host: '127.0.0.1', port: 0, distIndex: DIST_INDEX },
+    },
+    ...options.remoteAuthority === undefined
+      ? []
+      : [{ id: 'connection', config: { trustedHosts: [options.remoteAuthority] } }],
     { id: 'settings', config: { dshHome: harnessHome } },
     { id: 'credentials', config: { dshHome: harnessHome } },
     // The shipped directory-picker row is the -auto chooser, which resolves
@@ -352,7 +365,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   return {
     harnessHome,
     mode,
-    baseUrl: `http://127.0.0.1:${port}`,
+    baseUrl: `http://${browserHost}:${port}`,
     ctx,
     workspaceCwd,
     persistenceRoot,
