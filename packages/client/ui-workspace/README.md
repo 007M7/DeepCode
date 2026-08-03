@@ -12,6 +12,8 @@ Workspace and Session hover cards copy the value their row clips: activating a W
 
 The Session row's Fork action forks at the source's last completed turn, increments the inherited persisted title on the client, and then opens the child; a trailing ASCII or fullwidth parenthesized number is incremented in the same style, while an unnumbered title gets ` (1)` appended. The source and child always appear as peer rows within a workspace group, with lineage retained only as session data. A fork or rename failure leaves the current selection unchanged; after a rename failure, the created child remains in the list.
 
+Session rows distinguish the runtime's live `waitingApproval` approval-request fact from an otherwise blue in-flight Session: an amber warning dot takes precedence over the running indicator, and the hover card reports **Waiting for approval** until the request is resolved. Every lit state carries a visually hidden label (`Waiting for approval` or `Running`) for assistive technology; an idle row leaves the reserved status slot empty. Question waits do not set a list-level status bit such as `waitingApproval`.
+
 Both target slots are declared by other plugins, so `apply` registers through declaration-aware deferral and re-registers after a declaring slot is restored.
 
 The shared sidebar projection hides rows whose durable Session summary has `origin: 'subagent'`; users enter those conversations through the selected parent's subagent header catalog. Ordinary forks remain visible because lineage alone does not set that origin. The runtime keeps hidden rows available for conversation, title, and addressed transport state.
@@ -28,4 +30,5 @@ None; this package neither assembles nor sends a provider request.
 
 - **No fuzzy content search or event deep links** — the content backend uses literal token/phrase matching, and selecting a result opens the Session rather than the matching event.
 - **No Session deletion or unarchive control** — archiving replaces the former Delete placeholder; archived sessions have no viewing or unarchive surface yet, and Workspace registration deletion does not delete Sessions.
+- **Approval waiting is not aggregated into collapsed groups** — a waiting row inside a collapsed group lights no group-header indicator and becomes visible only after that group is expanded.
 - **Native folder selection depends on the local Host carrier** — under the `-native` composition, fixture-only or remote browser deployments cannot open a local operating-system dialog; platform failures are shown in a retryable modal. Remote-capable picking is the `-browse` composition's in-app flow.

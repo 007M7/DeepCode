@@ -822,10 +822,18 @@ export class ResumePicker implements Component, Focusable {
   }
 }
 
-/** Bottom-anchored dialog for one user question with option or custom-answer modes. */
+interface SelectedBlockPage {
+  offset: number
+  size: number
+  maxOffset: number
+}
+
+/** Inline dialog for one user question with option or custom-answer modes. */
 export class QuestionDialog implements Component, Focusable {
   private selectedIndex = 0
   private selected = new Set<number>()
+  private headerPage: SelectedBlockPage = { offset: 0, size: 1, maxOffset: 0 }
+  private selectedBlockPage: SelectedBlockPage = { offset: 0, size: 1, maxOffset: 0 }
   private mode: 'options' | 'custom'
   private error = ''
   private readonly input = new Input()
@@ -838,6 +846,7 @@ export class QuestionDialog implements Component, Focusable {
     private readonly total: number,
     private readonly unanswered: number,
     private readonly maxVisible: number,
+    private readonly maxHeight: () => number,
     private readonly palette: Palette,
     private readonly done: (selection: QuestionSelection) => void,
     private readonly cancel: () => void,
@@ -861,6 +870,14 @@ export class QuestionDialog implements Component, Focusable {
 
   handleInput(data: string): void {
     this.invalidate()
+    if (matchesKey(data, Key.pageUp)) {
+      this.pageBackward()
+      return
+    }
+    if (matchesKey(data, Key.pageDown)) {
+      this.pageForward()
+      return
+    }
     if (this.mode === 'custom') {
       this.input.focused = this.focused
       this.input.handleInput(data)
@@ -868,8 +885,10 @@ export class QuestionDialog implements Component, Focusable {
     }
     const options = this.options
     if (matchesKey(data, Key.up)) {
+      this.selectedBlockPage = { offset: 0, size: 1, maxOffset: 0 }
       this.selectedIndex = this.selectedIndex === 0 ? options.length - 1 : this.selectedIndex - 1
     } else if (matchesKey(data, Key.down)) {
+      this.selectedBlockPage = { offset: 0, size: 1, maxOffset: 0 }
       this.selectedIndex = this.selectedIndex === options.length - 1 ? 0 : this.selectedIndex + 1
     } else if (matchesKey(data, Key.space) && this.question.multiSelect) {
       if (this.selected.has(this.selectedIndex)) this.selected.delete(this.selectedIndex)
@@ -883,6 +902,7 @@ export class QuestionDialog implements Component, Focusable {
       this.done({ selected: indices.map(index => options[index]?.label).filter((label): label is string => label !== undefined) })
     } else if (matchesKey(data, Key.tab) || data.toLowerCase() === 'c') {
       this.mode = 'custom'
+      this.selectedBlockPage = { offset: 0, size: 1, maxOffset: 0 }
       this.error = ''
     } else if (matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl('c'))) {
       this.cancel()
@@ -898,75 +918,346 @@ export class QuestionDialog implements Component, Focusable {
     this.done({ selected: [], custom })
   }
 
+  /** Page backward through an oversized option, then through question detail. */
+  private pageBackward(): void {
+    if (this.mode === 'options' && this.selectedBlockPage.offset > 0) {
+      this.selectedBlockPage = {
+        ...this.selectedBlockPage,
+        offset: Math.max(0, this.selectedBlockPage.offset - this.selectedBlockPage.size),
+      }
+      return
+    }
+    this.headerPage = {
+      ...this.headerPage,
+      offset: Math.max(0, this.headerPage.offset - this.headerPage.size),
+    }
+  }
+
+  /** Page forward through question detail, then through an oversized option. */
+  private pageForward(): void {
+    if (this.headerPage.offset < this.headerPage.maxOffset) {
+      this.headerPage = {
+        ...this.headerPage,
+        offset: Math.min(
+          this.headerPage.maxOffset,
+          this.headerPage.offset + this.headerPage.size,
+        ),
+      }
+      return
+    }
+    if (this.mode === 'custom') return
+    this.selectedBlockPage = {
+      ...this.selectedBlockPage,
+      offset: Math.min(
+        this.selectedBlockPage.maxOffset,
+        this.selectedBlockPage.offset + this.selectedBlockPage.size,
+      ),
+    }
+  }
+
   render(width: number): string[] {
     this.input.focused = this.focused
-    const innerWidth = Math.max(1, width - 4)
+    const horizontalPadding = Math.min(2, Math.max(0, Math.floor((width - 1) / 2)))
+    const innerWidth = Math.max(1, width - horizontalPadding * 2)
     const header = `Question ${this.position}/${this.total} (${this.unanswered} unanswered)${this.question.header === undefined ? '' : ` · ${displayText(this.question.header)}`}`
-    const lines = [
-      this.palette.dim(header),
-      ...wrapTextWithAnsi(this.palette.text(displayText(this.question.question)), innerWidth),
+    const questionLines = wrapTextWithAnsi(
+      this.palette.text(displayText(this.question.question)),
+      innerWidth,
+    )
+    const contentLines = [...questionLines]
+    const headerLines: string[] = [
+      ...wrapTextWithAnsi(this.palette.dim(header), innerWidth),
+      ...questionLines,
     ]
-    const push = (line: string): void => { lines.push(line) }
     // Supporting detail (e.g. the full plan under review) renders between the
     // question and the answer surface, kept out of option labels.
     if (this.question.detail !== undefined) {
-      push('')
-      for (const line of wrapTextWithAnsi(displayText(this.question.detail), innerWidth)) push(line)
-    }
-    push('')
-    if (this.mode === 'custom') {
-      for (const line of this.input.render(innerWidth)) push(line)
-      push(this.palette.dim(this.options.length > 0 ? 'Enter submit • Esc options' : 'Enter submit • Esc cancel'))
-    } else {
-      const options = this.options
-      const start = Math.max(0, Math.min(
-        this.selectedIndex - Math.floor(this.maxVisible / 2),
-        options.length - this.maxVisible,
-      ))
-      const end = Math.min(options.length, start + this.maxVisible)
-      const optionRows = options.slice(start, end).map((option, offset) => {
-        const index = start + offset
-        const mark = this.question.multiSelect
-          ? this.selected.has(index) ? '[x] ' : '[ ] '
-          : ''
-        return `${index === this.selectedIndex ? '›' : ' '} ${index + 1}. ${mark}${displayText(option.label)}`
-      })
-      const descriptionColumn = Math.min(
-        Math.max(...optionRows.map(row => visibleWidth(row))) + 2,
-        Math.max(1, Math.floor(innerWidth * 0.55)),
-      )
-      for (let index = start; index < end; index += 1) {
-        // `index < end <= options.length`; the options array is borrowed immutably for this dialog.
-        const option = options[index] as NonNullable<AskUserQuestionItem['options']>[number]
-        const mark = this.question.multiSelect
-          ? this.selected.has(index) ? '[x] ' : '[ ] '
-          : ''
-        const left = `${index === this.selectedIndex ? '›' : ' '} ${index + 1}. ${mark}${displayText(option.label)}`
-        const leftStyled = index === this.selectedIndex
-          ? this.palette.bold(this.palette.accent(left))
-          : left
-        const description = option.description === undefined
-          ? ''
-          : `${' '.repeat(Math.max(1, descriptionColumn - visibleWidth(left)))}${this.palette.dim(displayText(option.description))}`
-        push(`${leftStyled}${description}`)
+      headerLines.push('')
+      contentLines.push('')
+      for (const line of wrapTextWithAnsi(displayText(this.question.detail), innerWidth)) {
+        headerLines.push(line)
+        contentLines.push(line)
       }
-      if (options.length > this.maxVisible) push(this.palette.dim(`${this.selectedIndex + 1}/${options.length}`))
+    }
+    headerLines.push('')
+
+    const customHint = this.palette.dim(this.options.length > 0
+      ? 'Enter submit • Esc options'
+      : 'Enter submit • Esc cancel')
+    const footerLines: string[] = []
+    if (this.mode === 'custom') {
+      for (const line of this.input.render(innerWidth)) footerLines.push(line)
+      for (const line of wrapTextWithAnsi(customHint, innerWidth)) footerLines.push(line)
+    } else {
       const controls = [
         'Tab custom answer',
-        ...(options.length > 1 ? ['↑/↓ navigate'] : []),
+        ...(this.options.length > 1 ? ['↑/↓ navigate'] : []),
         ...(this.question.multiSelect ? ['Space toggle'] : []),
         'Enter submit',
         'Esc interrupt',
       ]
       const hint = this.palette.dim(controls.join(' • '))
-      for (const line of wrapTextWithAnsi(hint, innerWidth)) push(line)
+      for (const line of wrapTextWithAnsi(hint, innerWidth)) footerLines.push(line)
     }
     if (this.error) {
-      for (const line of wrapTextWithAnsi(this.palette.error(this.error), innerWidth)) push(line)
+      for (const line of wrapTextWithAnsi(this.palette.error(this.error), innerWidth)) footerLines.push(line)
     }
-    return ['', ...lines, ''].map((line) => {
-      const clipped = truncateToWidth(line, innerWidth, '')
-      return `  ${clipped}${' '.repeat(Math.max(0, innerWidth - visibleWidth(clipped)))}  `
+    const positionLines = this.mode === 'options' && this.options.length > this.maxVisible
+      ? [this.palette.dim(`${this.selectedIndex + 1}/${this.options.length}`)]
+      : []
+
+    // Options receive only the rows left after fixed chrome and outer padding.
+    // The final height window handles fixed chrome that cannot fit even alone.
+    const paddingRows = 2
+    const maxHeight = this.maxHeight()
+    const availableForOptions = Math.max(
+      this.mode === 'options' ? 4 : 1,
+      maxHeight - paddingRows - headerLines.length - positionLines.length - footerLines.length,
+    )
+
+    const body: string[] = [...headerLines]
+    const optionLines: string[] = []
+    if (this.mode === 'custom') {
+      for (const line of footerLines) body.push(line)
+    } else {
+      const optionBlocks = this.options.map((option, index) => this.renderOptionBlock(option, index, innerWidth))
+      const { visibleBlocks, hiddenBefore, hiddenAfter } = this.windowBlocks(optionBlocks, availableForOptions, innerWidth)
+      if (hiddenBefore > 0) optionLines.push(this.palette.dim(`↑ ${hiddenBefore} more`))
+      for (const block of visibleBlocks) {
+        for (const line of block) optionLines.push(line)
+      }
+      if (hiddenAfter > 0) optionLines.push(this.palette.dim(`↓ ${hiddenAfter} more`))
+      for (const line of optionLines) body.push(line)
+      for (const line of positionLines) body.push(line)
+      for (const line of footerLines) body.push(line)
+    }
+
+    const rows = ['', ...body, '']
+    let visibleRows = rows
+    if (rows.length <= maxHeight) this.headerPage = { offset: 0, size: 1, maxOffset: 0 }
+    if (rows.length > maxHeight && this.mode === 'options' && maxHeight >= 6) {
+      const headerBudget = Math.max(
+        0,
+        maxHeight - optionLines.length - (this.error === '' ? 1 : 2),
+      )
+      const compactFooter = [
+        ...this.error === ''
+          ? []
+          : [truncateToWidth(this.palette.error(`Error: ${this.error}`), innerWidth, '…')],
+        this.compactOptionControls(
+          innerWidth,
+          headerBudget === 1 && contentLines.length > headerBudget,
+        ),
+      ]
+      const compactHeader = this.compactQuestionHeader(contentLines, headerBudget, innerWidth)
+      visibleRows = [...compactHeader, ...optionLines, ...compactFooter]
+    } else if (rows.length > maxHeight && this.mode === 'custom' && maxHeight >= 2) {
+      const compactFooterSource = [
+        ...this.input.render(innerWidth),
+        this.compactCustomControls(innerWidth),
+        ...this.error === ''
+          ? []
+          : [truncateToWidth(this.palette.error(this.error), innerWidth, '…')],
+      ]
+      const footerBudget = Math.max(1, maxHeight - 1)
+      const compactFooter = compactFooterSource.length <= footerBudget
+        ? compactFooterSource
+        : footerBudget === 1
+          ? compactFooterSource.slice(0, 1)
+          : [
+            ...compactFooterSource.slice(0, 1),
+            ...compactFooterSource.slice(-(footerBudget - 1)),
+          ]
+      const compactHeader = this.compactQuestionHeader(
+        contentLines,
+        Math.max(0, maxHeight - compactFooter.length),
+        innerWidth,
+      )
+      visibleRows = [...compactHeader, ...compactFooter]
+    }
+    if (visibleRows.length > maxHeight) {
+      visibleRows = maxHeight === 1
+        ? [this.palette.dim(`↑ ${visibleRows.length} lines hidden`)]
+        : [
+          this.palette.dim(`↑ ${visibleRows.length - maxHeight + 1} lines hidden`),
+          ...visibleRows.slice(-(maxHeight - 1)),
+        ]
+    }
+    return visibleRows.map((line) => {
+      const bounded = truncateToWidth(line, innerWidth, '…')
+      const pad = ' '.repeat(Math.max(0, innerWidth - visibleWidth(bounded)))
+      const outerPad = ' '.repeat(horizontalPadding)
+      return `${outerPad}${bounded}${pad}${outerPad}`
     })
+  }
+
+  /** Render one option as wrapped label and indented description lines. */
+  private renderOptionBlock(
+    option: NonNullable<AskUserQuestionItem['options']>[number],
+    index: number,
+    innerWidth: number,
+  ): string[] {
+    const cursor = index === this.selectedIndex ? '›' : ' '
+    const number = `${index + 1}. `
+    const mark = this.question.multiSelect
+      ? this.selected.has(index) ? '[x] ' : '[ ] '
+      : ''
+    const labelPrefixPlain = ` ${cursor} ${number}${mark}`
+    const labelPrefixWidth = visibleWidth(labelPrefixPlain)
+    const labelBodyWidth = Math.max(1, innerWidth - labelPrefixWidth)
+    const labelLines = wrapTextWithAnsi(displayText(option.label), labelBodyWidth)
+    const continuation = ' '.repeat(labelPrefixWidth)
+    const lines: string[] = []
+    for (const [lineIndex, labelLine] of labelLines.entries()) {
+      const prefix = lineIndex === 0 ? labelPrefixPlain : continuation
+      const composed = `${prefix}${labelLine}`
+      lines.push(index === this.selectedIndex ? this.palette.bold(this.palette.accent(composed)) : composed)
+    }
+    if (option.description !== undefined) {
+      const descIndent = ' '.repeat(labelPrefixWidth)
+      const descBodyWidth = Math.max(1, innerWidth - labelPrefixWidth)
+      const descLines = wrapTextWithAnsi(displayText(option.description), descBodyWidth)
+      for (const descLine of descLines) lines.push(`${descIndent}${this.palette.dim(descLine)}`)
+    }
+    return lines
+  }
+
+  /** Keep the question visible when fixed chrome must be compacted. */
+  private compactQuestionHeader(
+    contentLines: readonly string[],
+    budget: number,
+    innerWidth: number,
+  ): string[] {
+    if (budget <= 0) return []
+    if (contentLines.length <= budget) {
+      this.headerPage = { offset: 0, size: 1, maxOffset: 0 }
+      return [...contentLines]
+    }
+    const pageSize = Math.max(1, budget - 1)
+    const maxOffset = Math.max(0, contentLines.length - pageSize)
+    const offset = Math.min(this.headerPage.offset, maxOffset)
+    this.headerPage = { offset, size: pageSize, maxOffset }
+    const keptLines = contentLines.slice(offset, offset + pageSize)
+    if (budget === 1) {
+      // A page is non-empty because pageSize is one and offset is clamped inside contentLines.
+      return [keptLines[0] as string]
+    }
+    return [
+      ...keptLines,
+      this.pagerStatus(offset + 1, offset + keptLines.length, contentLines.length, innerWidth),
+    ]
+  }
+
+  /** Keep Page Up / Page Down discoverable when a full pager status cannot fit. */
+  private pagerStatus(first: number, last: number, total: number, innerWidth: number): string {
+    const full = `… lines ${first}-${last}/${total} • PgUp/PgDn`
+    const compact = `PgUp/PgDn ${first}/${total}`
+    return this.palette.dim(truncateToWidth(
+      visibleWidth(full) <= innerWidth ? full : compact,
+      innerWidth,
+      '…',
+    ))
+  }
+
+  /** Render custom-mode controls on one row when the header must compact. */
+  private compactCustomControls(innerWidth: number): string {
+    const controls = this.options.length > 0
+      ? 'Enter submit • Esc options'
+      : 'Enter submit • Esc cancel'
+    const fallback = this.options.length > 0 ? '↵ Esc options' : 'Enter Esc cancel'
+    const line = visibleWidth(controls) <= innerWidth ? controls : fallback
+    return this.palette.dim(truncateToWidth(line, innerWidth, '…'))
+  }
+
+  /** Render a one-row option footer that retains every mode-specific control. */
+  private compactOptionControls(innerWidth: number, showPager = false): string {
+    const controls = [
+      ...(this.options.length > 1 ? ['↑/↓'] : []),
+      'Tab custom',
+      ...(this.question.multiSelect ? ['Space toggle'] : []),
+      'Enter',
+      'Esc interrupt',
+      ...(showPager ? ['PgUp/PgDn'] : []),
+    ].join(' • ')
+    const optionNavigation = this.options.length > 1 ? '↑↓ ' : ''
+    const fallback = showPager
+      ? `P↑↓ ${optionNavigation}Tab${this.question.multiSelect ? ' S' : ''}↵Esc`
+      : this.question.multiSelect ? `${optionNavigation}Tab Sp ↵Esc` : `${optionNavigation}Tab ↵ Esc`
+    const line = visibleWidth(controls) <= innerWidth ? controls : fallback
+    return this.palette.dim(truncateToWidth(line, innerWidth, '…'))
+  }
+
+  /**
+   * Choose option blocks that fit while keeping the selected option visible.
+   * Omitted blocks are counted at each end for explicit overflow markers.
+   */
+  private windowBlocks(
+    blocks: readonly string[][],
+    budget: number,
+    innerWidth: number,
+  ): { visibleBlocks: string[][]; hiddenBefore: number; hiddenAfter: number } {
+    const totalLines = blocks.reduce((sum, block) => sum + block.length, 0)
+    if (totalLines <= budget && blocks.length <= this.maxVisible) {
+      return { visibleBlocks: [...blocks], hiddenBefore: 0, hiddenAfter: 0 }
+    }
+    // `blocks` is dense and selectedIndex is derived from the same options.
+    let start = this.selectedIndex
+    let end = this.selectedIndex + 1
+    /* v8 ignore next -- selectedIndex stays inside [0, options.length). */
+    let used = blocks[this.selectedIndex]?.length ?? 0
+    const markerLines = (before: number, after: number): number =>
+      (before > 0 ? 1 : 0) + (after > 0 ? 1 : 0)
+    const fits = (nextStart: number, nextEnd: number, nextUsed: number): boolean =>
+      nextEnd - nextStart <= this.maxVisible
+      && nextUsed + markerLines(nextStart, blocks.length - nextEnd) <= budget
+    const selectedMarkers = markerLines(start, blocks.length - end)
+    if (used + selectedMarkers > budget) {
+      /* v8 ignore next -- selectedIndex stays inside [0, options.length). */
+      const selectedBlock = blocks[this.selectedIndex] ?? []
+      const hiddenBefore = start
+      const hiddenAfter = blocks.length - end
+      const pageSize = budget - selectedMarkers - 1
+      const maxOffset = Math.max(0, selectedBlock.length - pageSize)
+      const offset = Math.min(this.selectedBlockPage.offset, maxOffset)
+      this.selectedBlockPage = { offset, size: pageSize, maxOffset }
+      const keptLines = selectedBlock.slice(offset, offset + pageSize)
+      const first = offset + 1
+      const last = offset + keptLines.length
+      const overflow = this.pagerStatus(first, last, selectedBlock.length, innerWidth)
+      return {
+        visibleBlocks: [[...keptLines, overflow]],
+        hiddenBefore,
+        hiddenAfter,
+      }
+    }
+    this.selectedBlockPage = { offset: 0, size: 1, maxOffset: 0 }
+    let expanded = true
+    while (expanded && (start > 0 || end < blocks.length)) {
+      expanded = false
+      if (end < blocks.length) {
+        /* v8 ignore next -- guarded by `end < blocks.length` above. */
+        const next = blocks[end]?.length ?? 0
+        if (fits(start, end + 1, used + next)) {
+          used += next
+          end += 1
+          expanded = true
+          continue
+        }
+      }
+      if (start > 0) {
+        /* v8 ignore next -- guarded by `start > 0` above. */
+        const previous = blocks[start - 1]?.length ?? 0
+        if (fits(start - 1, end, used + previous)) {
+          used += previous
+          start -= 1
+          expanded = true
+        }
+      }
+    }
+    return {
+      visibleBlocks: blocks.slice(start, end),
+      hiddenBefore: start,
+      hiddenAfter: blocks.length - end,
+    }
   }
 }
