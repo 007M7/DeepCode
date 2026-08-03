@@ -1,12 +1,14 @@
 import type {
   HistoryEntry, IApiClient, MuxFrame, RpcError, SessionId,
 } from '@deepseek-ai/dsh-client-connection/client'
+import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type {
   SessionHistoryFace, SessionHistorySnapshot,
 } from '../contract/session-history.ts'
 import { createHistoryInspection } from '../sessions/history.ts'
 import { Notifier } from '../sessions/notifier.ts'
+import { PartialAccumulator } from '../sessions/partial.ts'
 
 const HISTORY_PAGE_MESSAGES = 50
 
@@ -33,6 +35,9 @@ export class SessionHistorySource implements SessionHistoryFace {
     entries: readonly HistoryEntry[]
     value: SessionHistorySnapshot['inspection']
   } | null = null
+  private streamPublishToken: object | null = null
+  private streamBaseInspection: SessionHistorySnapshot['inspection'] | null = null
+  private streamPartial: PartialAccumulator | null = null
   private snapshotCache: SessionHistorySnapshot
   private readonly notifier = new Notifier(() => {
     this.snapshotCache = this.buildSnapshot()
@@ -125,7 +130,7 @@ export class SessionHistorySource implements SessionHistoryFace {
     if (this.state !== 'cold') {
       this.state = 'cold'
       this.error = null
-      this.notifier.markDirty()
+      this.publishDirtyNow()
     }
   }
 
@@ -143,7 +148,7 @@ export class SessionHistorySource implements SessionHistoryFace {
     this.hasMore = false
     this.state = 'cold'
     this.error = null
-    this.notifier.markDirty()
+    this.publishDirtyNow()
     void this.loadForConsumers()
   }
 
@@ -155,6 +160,9 @@ export class SessionHistorySource implements SessionHistoryFace {
     this.openPromise = null
     this.olderPromise = null
     this.liveBuffer = []
+    this.streamPublishToken = null
+    this.streamBaseInspection = null
+    this.streamPartial = null
   }
 
   private open(): Promise<void> {
@@ -188,7 +196,7 @@ export class SessionHistorySource implements SessionHistoryFace {
   private async doOpen(generation: number): Promise<void> {
     this.state = 'loading'
     this.error = null
-    this.notifier.markDirty()
+    this.publishDirtyNow()
     try {
       let { result } = await this.api.sessions.history({
         sessionId: this.sessionId,
@@ -222,7 +230,7 @@ export class SessionHistorySource implements SessionHistoryFace {
       /* v8 ignore next -- transportError always returns the error branch. */
       this.error = folded.ok ? null : folded.error
     } finally {
-      if (generation === this.generation) this.notifier.markDirty()
+      if (generation === this.generation) this.publishDirtyNow()
     }
   }
 
@@ -261,7 +269,7 @@ export class SessionHistorySource implements SessionHistoryFace {
     const settled = operation.finally(() => {
       if (this.olderPromise !== settled) return
       this.olderPromise = null
-      this.notifier.markDirty()
+      this.publishDirtyNow()
     })
     this.olderPromise = settled
     return settled
@@ -286,7 +294,7 @@ export class SessionHistorySource implements SessionHistoryFace {
     const buffered = this.liveBuffer
     this.liveBuffer = []
     for (const entry of buffered) this.appendLive(entry)
-    this.notifier.markDirty()
+    this.publishDirtyNow()
   }
 
   private acceptLive(entry: HistoryEntry): void {
@@ -301,14 +309,82 @@ export class SessionHistorySource implements SessionHistoryFace {
       void this.repairGap()
       return
     }
+    if (
+      entry.event.type === 'assistant/chunk'
+      && entry.event.data.chunk.type !== 'usage'
+    ) {
+      if (!this.appendIncrementalChunk(entry, entry.event)) return
+      this.publishStreamDirty()
+      return
+    }
     this.appendLive(entry)
-    this.notifier.markDirty()
+    this.publishDirtyNow()
   }
 
   private appendLive(entry: HistoryEntry): void {
     const tailSeq = this.tailSeq()
     if (tailSeq !== null && entry.event.seq <= tailSeq) return
     this.entries = [...this.entries, entry]
+  }
+
+  /** Append a chunk against the cached finalized projection; false means no visible publish. */
+  private appendIncrementalChunk(
+    entry: HistoryEntry,
+    event: SessionEvent<'assistant/chunk'>,
+  ): boolean {
+    const { turn, step, chunk } = event.data
+    if (!isVisibleAssistantChunk(chunk.type)) {
+      const inspection = this.currentInspection()
+      this.appendLive(entry)
+      this.inspectionCache = { entries: this.entries, value: inspection }
+      return false
+    }
+    const base = this.streamBaseInspection ?? this.currentInspection()
+    this.streamBaseInspection = base
+    if (
+      this.streamPartial === null
+      || this.streamPartial.turn !== turn
+      || this.streamPartial.step !== step
+    ) {
+      const current = base.partial
+      this.streamPartial = new PartialAccumulator(
+        turn,
+        step,
+        current?.turn === turn && current.step === step ? current.blocks : [],
+      )
+    }
+    this.streamPartial.push(chunk)
+    this.appendLive(entry)
+    this.inspectionCache = {
+      entries: this.entries,
+      value: { ...base, partial: this.streamPartial.toPartial() },
+    }
+    return true
+  }
+
+  /** Coalesce token-stream projection and rendering work to one publish per browser frame. */
+  private publishStreamDirty(): void {
+    if (this.streamPublishToken !== null) return
+    const token = {}
+    this.streamPublishToken = token
+    const publish = () => {
+      if (this.streamPublishToken !== token) return
+      this.streamPublishToken = null
+      this.notifier.markDirty()
+    }
+    if (typeof globalThis.requestAnimationFrame === 'function') {
+      globalThis.requestAnimationFrame(publish)
+    } else {
+      queueMicrotask(publish)
+    }
+  }
+
+  /** Publish structural changes immediately and invalidate an older scheduled stream publish. */
+  private publishDirtyNow(): void {
+    this.streamPublishToken = null
+    this.streamBaseInspection = null
+    this.streamPartial = null
+    this.notifier.markDirty()
   }
 
   private async repairGap(): Promise<void> {
@@ -335,6 +411,16 @@ export class SessionHistorySource implements SessionHistoryFace {
   }
 
   private buildSnapshot(): SessionHistorySnapshot {
+    return {
+      state: this.state,
+      error: this.error,
+      hasMore: this.hasMore,
+      inspection: this.currentInspection(),
+    }
+  }
+
+  /** Inspection pinned to the source's current immutable entry array. */
+  private currentInspection(): SessionHistorySnapshot['inspection'] {
     if (this.inspectionCache?.entries !== this.entries) {
       const entries = this.entries
       this.inspectionCache = {
@@ -342,11 +428,14 @@ export class SessionHistorySource implements SessionHistoryFace {
         value: createHistoryInspection(() => entries),
       }
     }
-    return {
-      state: this.state,
-      error: this.error,
-      hasMore: this.hasMore,
-      inspection: this.inspectionCache.value,
-    }
+    return this.inspectionCache.value
   }
+}
+
+function isVisibleAssistantChunk(type: string): boolean {
+  return type === 'block-start'
+    || type === 'text-delta'
+    || type === 'reasoning-delta'
+    || type === 'tool-call-delta'
+    || type === 'block-end'
 }

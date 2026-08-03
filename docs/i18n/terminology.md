@@ -96,6 +96,7 @@
 | Cookbook | 实操手册 | | | 文档标题用语 |
 | context | 上下文 | | | |
 | counterpart | 对侧文件 | | 对应物、配对物 | 双语配对语境；泛指"另一侧"时可写「另一侧」 |
+| configurable-provider directory | 可配置提供方目录 | | | llm seam 中 `registerConfigurableProviders()` 维护的目录；沿用 Service Catalog →「服务目录」先例 |
 | context compaction | 上下文压缩 | 上下文压缩（context compaction） | | |
 | contract | 契约 | | | 如：`pairing contract` →`配对契约` |
 | Cordis config entry | Cordis 配置项 | | | 指 `cordis.yml` 插件列表中的一项；插件实现本身写`Cordis 插件` |
@@ -103,6 +104,7 @@
 | coverage | 覆盖率 | | | |
 | crash recovery | 崩溃恢复 | | | |
 | deploy root | 部署根目录 | | | |
+| dormant | 休眠 | | 睡眠、蛰伏 | 指已声明可配置但当前未注册路由的提供方 |
 | durability | 持久性 | | | |
 | feature requirement | 功能依赖 | | | 功能或功能选项通过 `requires` 声明的关系 |
 | ergonomics | 易用性 / 开发体验 | | 人体工学 | API 或面向模型的接口用「易用性」；工具链或开发者工作流用「开发体验」 |
@@ -119,6 +121,7 @@
 | fenced code block | 围栏代码块 | | | 沿用 MDN 中文翻译 |
 | fingerprint | 指纹 | | | 通用内容指纹；双语配对机制使用 sidecar record 记录两侧 blob hash |
 | finish reason | 结束原因 | | | |
+| fold | 折叠区 | | | 配置界面语境：默认收起的字段分区（collapsed →「收起」）|
 | foreground run | 前台运行 | | | |
 | freshness | 新鲜度 | | | 沿用 MDN 中文翻译；在本项目中指译文相对源文的同步状态 |
 | hook | 钩子 | | | |
@@ -166,6 +169,7 @@
 | serving surface | 对外服务接口 | | | |
 | session | 会话 | | | |
 | session event | 会话事件 | | | |
+| setup card | 设置卡片 | | | 首次运行时代替行卡直接展开的配置卡 |
 | sidecar record | 伴随记录 | | 旁挂记录 | 指与文档同目录的伴随记录文件 |
 | smoke test | 冒烟测试 | | | |
 | snapshot | 快照 | | | |

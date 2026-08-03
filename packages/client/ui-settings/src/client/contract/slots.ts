@@ -47,6 +47,13 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * item registrant; the shell neither declares nor renders it.)
      */
     'settings.section': { kind: 'list'; scope: 'root'; owner: SettingsSectionOwnerProps }
+    /**
+     * Root-scoped onboarding steps contributed by settings features. The
+     * shell mounts one ordered step at a time; the active registrant either
+     * completes itself or keeps ownership until the user completes its sole
+     * path. Registrants own readiness, copy, and dialog behavior.
+     */
+    'settings.onboarding': { kind: 'list'; scope: 'root'; owner: SettingsOnboardingOwnerProps }
   }
 }
 
@@ -72,11 +79,27 @@ export interface SettingsSectionOwnerProps {
   children?: never
 }
 
+/** Owner share of the currently active settings-backed onboarding step. */
+export interface SettingsOnboardingOwnerProps {
+  /** Stable id of the step currently selected by the coordinator. */
+  stepId: string
+  /** Complete or skip this step and transfer ownership to the next entry. */
+  complete: () => void
+  /** Open the settings panel directly on one registered section. */
+  openSection: (id: string) => void
+}
+
 /** One nav row projected from a settings.section registration's options. */
 export interface SettingsSectionRow {
   id: string
   order: number
   label: string
+}
+
+/** One ordered onboarding step projected from a slot registration. */
+export interface SettingsOnboardingStep {
+  id: string
+  order: number
 }
 
 /**
@@ -88,6 +111,8 @@ export type SettingsRootInjected = {
   hooks: {
     /** settings.section ledger projected into ordered nav rows. */
     sections: HostObservable<readonly SettingsSectionRow[]>
+    /** settings.onboarding ledger projected into coordinator order. */
+    onboardingSteps: HostObservable<readonly SettingsOnboardingStep[]>
   }
 }
 
@@ -99,5 +124,7 @@ export type SettingsRootInjected = {
  */
 export type SettingsRootComponentProps =
   PropsRuntime<'sidebar.settings'>
-  & PropsRenderSlots<'settings.trigger' | 'settings.header' | 'settings.close' | 'settings.section'>
+  & PropsRenderSlots<
+    'settings.trigger' | 'settings.header' | 'settings.close' | 'settings.section' | 'settings.onboarding'
+  >
   & InjectFace<SettingsRootInjected>

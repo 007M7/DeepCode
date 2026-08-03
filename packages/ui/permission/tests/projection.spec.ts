@@ -44,7 +44,7 @@ async function agentFor(ctx: Context, session: Session): Promise<Agent> {
 }
 
 describe('permissions projection unit', () => {
-  it('serves the composition-default select at zero events', async () => {
+  it('serves the pinned new-session default select', async () => {
     const { ctx, session } = await harness()
     const value = ctx.sessionProjections.snapshot(session).values.permissions
     expect(value).toMatchObject({ currentValue: 'workspace-write' })
@@ -89,7 +89,7 @@ describe('/permission command', () => {
     const { ctx, session } = await harness()
     const agent = await agentFor(ctx, session)
     const execution = await ctx.commands.execute(agent, '/permission danger-full-access', new AbortController().signal)
-    expect(execution?.result).toEqual({ kind: 'success', text: 'Permission preset: danger-full-access.' })
+    expect(execution?.result).toEqual({ kind: 'success', text: 'preset danger-full-access' })
     expect(ctx.permission.current(session.events)).toBe('danger-full-access')
     const run = session.events.find(event => event.type === 'command/run')
     expect(run?.data).toMatchObject({ name: 'permission', args: ' danger-full-access' })
@@ -101,16 +101,25 @@ describe('/permission command', () => {
     const execution = await ctx.commands.execute(agent, '/permission', new AbortController().signal)
     expect(execution?.result).toEqual({
       kind: 'success',
-      text: 'Current permission preset: workspace-write. Available: workspace-write, danger-full-access.',
+      text: 'current preset workspace-write (available: workspace-write, danger-full-access)',
     })
-    expect(session.events.filter(event => event.type === 'permission/preset')).toHaveLength(0)
+    expect(session.events.filter(event => event.type === 'permission/preset')).toHaveLength(1)
   })
 
   it('rejects an unknown preset without touching the log', async () => {
     const { ctx, session } = await harness()
     const agent = await agentFor(ctx, session)
+    const before = session.events.filter(event =>
+      event.type !== 'command/run' && event.type !== 'command/done')
     const execution = await ctx.commands.execute(agent, '/permission yolo', new AbortController().signal)
-    expect(execution?.result).toMatchObject({ kind: 'error' })
-    expect(session.events.filter(event => event.type !== 'command/run' && event.type !== 'command/done')).toHaveLength(0)
+    // The error text carries the same no-self-labelling rule as the success
+    // texts: `permission · unknown preset "yolo" (…)`, not `unknown permission
+    // preset`, which the row's own title already says.
+    expect(execution?.result).toEqual({
+      kind: 'error',
+      text: 'unknown preset "yolo" (available: workspace-write, danger-full-access)',
+    })
+    expect(session.events.filter(event =>
+      event.type !== 'command/run' && event.type !== 'command/done')).toEqual(before)
   })
 })

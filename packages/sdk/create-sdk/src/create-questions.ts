@@ -24,7 +24,7 @@ export interface ProjectAnswers {
   directory: string
   name: string
   description: string
-  provider: 'deepseek' | 'custom'
+  provider: 'deepseek-official' | 'custom'
   baseURL: string
   apiKey: string
   model: string
@@ -142,14 +142,14 @@ const PROJECT_QUESTION_STEPS: readonly WizardStep<ProjectAnswerState>[] = [
     apply: (state, value) => { state.description = value },
   }),
   questionStep({
-    question: () => new SelectQuestion<'deepseek' | 'custom'>({
+    question: () => new SelectQuestion<'deepseek-official' | 'custom'>({
       id: 'provider',
       message: 'Model provider',
       options: [
-        { value: 'deepseek', label: 'DeepSeek' },
+        { value: 'deepseek-official', label: 'DeepSeek' },
         { value: 'custom', label: 'Custom endpoint (pi-ai)' },
       ],
-      initialValue: 'deepseek',
+      initialValue: 'deepseek-official',
     }),
     prefilled: state => state.args.provider,
     apply: (state, value) => { state.provider = value },

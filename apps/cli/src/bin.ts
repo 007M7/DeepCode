@@ -25,7 +25,8 @@ function readVersion(): string {
 }
 
 loadEnv('dsh')
-const invocation = parseDshArgs(process.argv.slice(2), readVersion())
+// The env opt-in is read at the process boundary; `1` is the documented value.
+const invocation = parseDshArgs(process.argv.slice(2), readVersion(), process.env.DSH_EXPERIMENTAL === '1')
 
 switch (invocation.mode) {
   case 'web': {
@@ -43,14 +44,19 @@ switch (invocation.mode) {
     await runTui(invocation.config, invocation.resume, undefined, undefined, invocation.configReplace)
     break
   }
+  case 'dump-config': {
+    const { runDumpConfig } = await import('./dump-config.ts')
+    runDumpConfig(invocation.surface, invocation.defaultOnly, invocation.config)
+    break
+  }
   case 'meta': {
-    const { runMeta } = await import('./tui.ts')
-    await runMeta()
+    const { runTui, SOURCE_ROOT } = await import('./tui.ts')
+    await runTui(undefined, undefined, SOURCE_ROOT)
     break
   }
   case 'upgrade': {
-    const { runSkillSession } = await import('./tui.ts')
-    await runSkillSession(`dsh-${invocation.mode}`)
+    const { runTui } = await import('./tui.ts')
+    await runTui(undefined, undefined, undefined, `dsh-${invocation.mode}`)
     break
   }
   default:

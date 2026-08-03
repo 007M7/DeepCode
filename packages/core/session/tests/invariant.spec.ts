@@ -144,6 +144,12 @@ describe('session-log invariants', () => {
         source: { kind: 'user' },
       }),
     }, { surfaceOp: 'append' })).toThrow(/outside any open turn/)
+    // Route capacity is core execution state like the header beside it.
+    expect(() => outside.append('request/context', {
+      provider: 'mock',
+      model: 'm',
+      contextWindow: 128_000,
+    })).toThrow(/outside any open turn/)
     // The owning plugin decides whether a merge-extensible event is log-only.
     const appendUnknown = outside.append.bind(outside) as (type: string, data: unknown) => unknown
     expect(() => { appendUnknown('plugin/marker', {}) }).not.toThrow()

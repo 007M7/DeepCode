@@ -354,6 +354,9 @@ const BACKGROUND_OUTPUT_PROPERTIES = {
 } as const
 
 export function apply(ctx: Context, config: Config = {}): void {
+  // FIXME(bash-env-ownership): Move ctx.bashEnv to a tool-independent shell
+  // environment plugin; replacing this tool with persistent Bash must not
+  // remove the managed DSH_* contributor seam.
   const bashEnv = new BashEnvRegistry(ctx, config)
   bashEnv.register({
     name: 'session-persistence',
@@ -376,7 +379,6 @@ export function apply(ctx: Context, config: Config = {}): void {
   if (defaultMode !== undefined && sandboxPolicy === undefined) {
     throw new Error('tool-bash: the mounted bash executor confines but ctx.sandboxPolicy is missing')
   }
-
   /** Resolve the complete standing policy for this call when a confining executor is mounted. */
   const resolveSandboxPolicy = (exec: ToolExecution): SandboxExecutionPolicy | undefined =>
     sandboxPolicy?.resolve(exec.agent === undefined ? {} : { session: exec.agent.session })

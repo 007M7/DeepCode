@@ -31,9 +31,9 @@ const reasoning = {
 
 function state(overrides: Partial<ModelDirectoryState> = {}): ModelDirectoryState {
   return {
-    current: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+    current: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
     groups: [{
-      id: 'deepseek',
+      id: 'deepseek-official',
       name: 'DeepSeek',
       models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', reasoning }],
     }],
@@ -55,6 +55,7 @@ describe('ModelSelect reasoning effort', () => {
     })
     render(<ModelSelect
       locked={false}
+      available
       directory={directory}
       load={vi.fn()}
       select={select}
@@ -72,7 +73,7 @@ describe('ModelSelect reasoning effort', () => {
     fireEvent.click(screen.getByRole('menuitemradio', { name: /Max/ }))
     await waitFor(() => {
       expect(select).toHaveBeenCalledWith({
-        provider: 'deepseek',
+        provider: 'deepseek-official',
         model: 'deepseek-v4-flash',
         reasoningEffort: 'max',
       })
@@ -95,6 +96,7 @@ describe('ModelSelect reasoning effort', () => {
     }))
     render(<ModelSelect
       locked={false}
+      available
       directory={directory}
       load={vi.fn()}
       select={vi.fn().mockResolvedValue(true)}
@@ -107,5 +109,20 @@ describe('ModelSelect reasoning effort', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: /推理等级/ }))
     expect(screen.getAllByRole('menuitemradio').map(item => item.textContent))
       .toEqual(['Default', 'Standard'])
+  })
+
+  it('renders no Agent-bound control for an addressed subagent session', () => {
+    const load = vi.fn()
+    render(<ModelSelect
+      locked={false}
+      available={false}
+      directory={createSnapshotStore(state())}
+      load={load}
+      select={vi.fn().mockResolvedValue(false)}
+      t={t}
+    />)
+
+    expect(screen.queryByRole('button')).toBeNull()
+    expect(load).not.toHaveBeenCalled()
   })
 })

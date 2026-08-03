@@ -78,10 +78,22 @@ export async function runHeadless(task: string): Promise<void> {
     configPath: fileURLToPath(new URL('../config/base.cordis.yml', import.meta.url)),
     overlayPath: fileURLToPath(new URL('../config/web.cordis.yml', import.meta.url)),
     dev: false,
+    watchPersonalConfig: false,
     port: 0,
   })
   const { ctx, port } = await entry.run()
   const dispose = async (): Promise<void> => { await ctx.fiber.dispose() }
+  // Signal exits must still dispose the tree: the composition mounts
+  // exit-drained plugins (telemetry's queued tail and shutdown marker would
+  // otherwise be lost), and Node's default signal exit skips disposal.
+  let signalled = false
+  const disposeAndExit = (code: number): void => {
+    if (signalled) return
+    signalled = true
+    void dispose().finally(() => { process.exit(code) })
+  }
+  process.on('SIGTERM', () => { disposeAndExit(143) })
+  process.on('SIGINT', () => { disposeAndExit(130) })
   // The headless session is web-observable while it runs (same composition).
   process.stderr.write(`dsh: observing at http://127.0.0.1:${String(port)}\n`)
   const api = new InProcessApiClient(toFetchHandler(ctx.apiProxy))

@@ -12,7 +12,7 @@ The Python and TypeScript SDKs could select a provider and model but could not b
 
 The high-level SDKs expose one optional process-wide output cap: Python names it `max_tokens`, TypeScript names it `maxTokens`, and the shared `initialize` wire payload carries `maxTokens`. The JSON-RPC server rejects values that are not positive safe integers and stores the accepted cap with its provider/model route.
 
-Each SDK-created root Agent receives the cap through `AgentOptions.maxTokens`. Agent Loop places that value in the initial `LlmCallConfig`, logs it in the request header, and reconstructs every dispatched conversation request from that durable header. Omitting the option leaves `maxTokens` absent so the selected provider retains its default.
+Each SDK-created root Agent receives the cap through `AgentOptions.maxTokens`. Agent Loop places that value in the initial `LlmCallConfig`; final call preparation preserves the explicit value or materializes an exact-model adapter default, logs the effective cap in the request header, and reconstructs every dispatched conversation request from that durable header. Omitting the SDK option therefore allows the selected adapter or provider route default to apply.
 
 In-process subagents inherit the parent's provider, model, and output cap. An explicit `SubagentStartRequest.agentOptions.maxTokens`, including one configured by `dsh-tool-subagent`, overrides the inherited value for that child and its descendants. Out-of-process providers own the configuration of their separate runtime; `subagent-dsh-sdk` therefore exposes its own optional `maxTokens` and forwards it through that child runtime's SDK handshake.
 
@@ -20,7 +20,7 @@ Compaction, session-title generation, web search, and other auxiliary calls keep
 
 ## Alternatives considered
 
-**Set an adapter environment variable.** This would be DeepSeek-adapter-specific, invisible in the session request header, ineffective for intercepted or alternate adapters, and easy to confuse with a provider default. The cap belongs in provider-neutral request configuration.
+**Set only an adapter environment variable.** A serializer-private fallback would be DeepSeek-adapter-specific, invisible in the session request header, ineffective for intercepted or alternate adapters, and easy to confuse with a provider default. Adapter-owned defaults may instead be exposed as exact-model metadata and materialized into provider-neutral request configuration before logging.
 
 **Add `maxTokens` to every `session/prompt`.** Per-turn mutation would enlarge the wire and introduce request-config transitions that callers do not need for the current evaluation use case. A runtime initialization option gives every session in one SDK process the same reproducible budget.
 

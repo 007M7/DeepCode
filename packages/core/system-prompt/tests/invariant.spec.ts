@@ -13,6 +13,7 @@ async function setup(): Promise<Context> {
 
 const valid = (): PromptAssembly => ({
   sections: [{ name: 'identity', text: 'prompt' }],
+  contexts: [{ name: 'policy', text: 'current policy' }],
   tools: [{ name: 'echo', description: 'Echo', parameters: {} }],
   variables: { cwd: '/repo', optional: undefined },
 })
@@ -34,6 +35,9 @@ describe('system-prompt invariants', () => {
     [{ ...valid(), sections: [{ name: '', text: 'x' }] }, /section names must be non-empty/],
     [{ ...valid(), sections: [{ name: 'x', text: 'a' }, { name: 'x', text: 'b' }] }, /section name "x" is duplicated/],
     [{ ...valid(), sections: [{ name: 'x', text: 1 as never }] }, /section "x" text must be a string/],
+    [{ ...valid(), contexts: [{ name: '', text: 'x' }] }, /context names must be non-empty/],
+    [{ ...valid(), contexts: [{ name: 'x', text: 'a' }, { name: 'x', text: 'b' }] }, /context name "x" is duplicated/],
+    [{ ...valid(), contexts: [{ name: 'x', text: 1 as never }] }, /context "x" text must be a string/],
     [{ ...valid(), tools: [{ name: '', description: 'x', parameters: {} }] }, /tool names must be non-empty/],
     [{ ...valid(), variables: { Bad: 'x' } }, /variable name "Bad" is invalid/],
     [{ ...valid(), variables: { value: 1 as never } }, /variable "value" must be a string or undefined/],

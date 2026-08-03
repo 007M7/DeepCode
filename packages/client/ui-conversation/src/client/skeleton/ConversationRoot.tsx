@@ -14,7 +14,7 @@ export type ConversationRootProps = ConversationSlotProps
 
 export function ConversationRoot({
   sessionId, useSession, useSessions, useWorkspaces, useInput,
-  renderSlot, renderSlotChain, selectWorkspace,
+  renderSlot, renderSlotChain, selectWorkspace, t,
 }: ConversationRootProps) {
   const openState = useSession(s => s.openState)
   const composerPhase = useSession(s => s.composerPhase)
@@ -22,6 +22,7 @@ export function ConversationRoot({
   const session = useSession(s => s)
   const inputState = useInput(s => s)
   const cwd = useSessions(s => sessionId === undefined ? undefined : s.byId[sessionId]?.cwd)
+  const summaryBlank = useSessions(s => sessionId === undefined ? undefined : s.byId[sessionId]?.blank)
   const workspaces = useWorkspaces(s => s)
 
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -65,8 +66,16 @@ export function ConversationRoot({
   // While a session is still replaying (loading + blank) the hero/docked
   // choice is unknowable — render the composer hidden instead of flashing
   // the centered hero and snapping to the docked bar (or vice versa).
+  // Exemption: a session the list summary already proves blank can only
+  // land on the hero, so hiding would blank the column for the whole
+  // history round-trip (the startup auto-selection flash) for nothing.
+  // The exemption is deliberately open-state-wide, not loading-only: a
+  // summary-blank session is the hero before its open starts (`cold`) and
+  // after one fails (`error`) for the same reason — there is no history.
   const settling = sessionId !== undefined && composerPhase === 'blank' && openState === 'loading'
-  const hero = sessionId === undefined || (composerPhase === 'blank' && openState === 'open')
+    && summaryBlank !== true
+  const hero = sessionId === undefined
+    || (composerPhase === 'blank' && (openState === 'open' || summaryBlank === true))
   const zone: InputZone | undefined =
     session === undefined || inputState === undefined ? undefined : { session, input: inputState }
 
@@ -94,6 +103,7 @@ export function ConversationRoot({
         label={chipTitle}
         menuOpen={pickerOpen}
         onClick={() => { setPickerOpen(open => !open) }}
+        t={t}
       />
       {renderSlot('conversation.hero.workspace', {
         open: pickerOpen,
@@ -120,8 +130,8 @@ export function ConversationRoot({
   const inputBar = renderSlot('conversation.composer.bar', {
     variant: hero ? 'hero' : 'composer',
     ...(inert
-      ? { disabled: true, placeholder: 'Choose a workspace to start' }
-      : hero ? { placeholder: 'Describe what you want to build' } : {}),
+      ? { disabled: true, placeholder: t('placeholder.workspace') }
+      : hero ? { placeholder: t('placeholder.hero') } : {}),
     overlay: renderSlot('conversation.input.overlay', {}),
     leftItems: zone === undefined ? null : renderSlot('conversation.input.left', zone),
     rightItems: zone === undefined ? null : renderSlot('conversation.input.right', zone),
@@ -133,7 +143,7 @@ export function ConversationRoot({
   const composerBar = (
     <div className={clsx(css.composerStack, hero && css.composerHero)}>
       {hero && <HeroGlow className={css.heroGlow} />}
-      {hero && <HeroShell />}
+      {hero && <HeroShell t={t} />}
       {hero && heroWorkspaceRow}
       {!hero && zone !== undefined && renderSlot('conversation.input.dock', zone)}
       {inputBar}
@@ -143,7 +153,7 @@ export function ConversationRoot({
   const phase = settling ? 'settling' : hero ? 'hero' : 'active'
   const composer = renderSlotChain(
     'conversation.composer',
-    { interactions: pending },
+    { interactions: pending, session },
     { fallback: composerBar, overlay: true },
   )
 

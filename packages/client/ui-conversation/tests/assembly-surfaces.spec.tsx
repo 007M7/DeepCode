@@ -24,8 +24,12 @@ import { cleanup, fireEvent, waitFor, within } from '@testing-library/react'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import type { ISession, SessionId, TodoItem, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
-import { SlotTestRuntime } from '@deepseek-ai/dsh-client-test-runtime'
+import { SlotTestRuntime, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-conversation/client'
+
+// The service reads its initial locale from the browser; these specs assert
+// the shipped Chinese copy, so they state the browser they assume.
+usePinnedBrowserLanguages('zh-CN')
 
 const SID = 's1' as SessionId
 
@@ -82,7 +86,9 @@ const LAYOUT_CHILDREN = {
 async function bench(nodes: ToolResultNode[], opts?: { blank?: boolean }) {
   const runtime = await SlotTestRuntime.create()
   runtime.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
-  runtime.provide('locale', new LocaleService(runtime.ctx))
+  const locale = new LocaleService(runtime.ctx)
+  runtime.provide('locale', locale)
+  runtime.slots.installLocale(locale)
   await runtime.sessions.add({
     id: SID,
     summary: { title: 'S', displayTitle: 'S', cwd: '/proj' },
@@ -116,7 +122,7 @@ describe('todo_write assembly (product registrations, no outlet twins)', () => {
     // (default-collapsed: the header summary shows; rows appear on expand).
     const panel = view.container.querySelector('[data-testid="todo-panel"]')
     expect(panel).not.toBeNull()
-    expect(panel!.textContent).toContain('1/3 tasks · 1 in progress')
+    expect(panel!.textContent).toContain('1/3 项任务 · 1 项进行中')
     fireEvent.click(panel!.querySelector('button')!)
     expect([...panel!.querySelectorAll('li')].map(li => li.getAttribute('data-status')))
       .toEqual(['completed', 'in_progress', 'pending'])
@@ -134,7 +140,7 @@ describe('todo_write assembly (product registrations, no outlet twins)', () => {
 })
 
 describe('terminal card assembly', () => {
-  it('the keyed bash row carries a resident terminal card; the fallback row reaches one through expand', async () => {
+  it('both the keyed bash row and the fallback row reach the terminal card through the whole-row expand', async () => {
     const runtime = await bench([
       bashResult(3, 'c-keyed'),
       // An unregistered tool with terminal views: GenericToolCard fallback.
@@ -142,15 +148,20 @@ describe('terminal card assembly', () => {
     ])
     const view = runtime.renderRoot()
 
-    // Keyed BashRow renders the card residently (no expand gesture).
-    const keyed = view.container.querySelector('[data-sample="bash-global"]')?.parentElement
-    expect(keyed?.querySelector('[data-terminal]')).not.toBeNull()
+    // Keyed BashRow: collapsed by default, the whole summary row is the toggle.
+    const keyedRow = view.container.querySelector('[data-sample="bash"]')
+    const keyed = keyedRow?.parentElement
+    expect(keyed?.querySelector('[data-terminal]')).toBeNull()
+    fireEvent.click(keyedRow!)
+    await waitFor(() => {
+      expect(keyed!.querySelector('[data-terminal]')).not.toBeNull()
+    })
 
-    // Fallback row: card appears only after its expand control.
+    // Fallback row: same unified expand interaction.
     const fallback = view.container.querySelector('[data-tool="fx-bash"]')
     expect(fallback).not.toBeNull()
     expect(fallback!.querySelector('[data-terminal]')).toBeNull()
-    fireEvent.click(fallback!.querySelector('button[aria-expanded]')!)
+    fireEvent.click(fallback!.querySelector('[data-expandable]')!)
     await waitFor(() => {
       expect(fallback!.querySelector('[data-terminal]')).not.toBeNull()
     })
@@ -162,7 +173,9 @@ describe('resident composer', () => {
   it('renders the locked view state while no session exists at all', async () => {
     const runtime = await SlotTestRuntime.create()
     runtime.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
-    runtime.provide('locale', new LocaleService(runtime.ctx))
+    const locale = new LocaleService(runtime.ctx)
+    runtime.provide('locale', locale)
+    runtime.slots.installLocale(locale)
     await runtime.root.declare(LAYOUT_CHILDREN, AppRoot)
     await runtime.mount({ inject: [...inject], apply })
     const view = runtime.renderRoot()
@@ -171,7 +184,7 @@ describe('resident composer', () => {
     const textarea = view.container.querySelector('textarea')
     expect(textarea).not.toBeNull()
     expect(textarea!.disabled).toBe(true)
-    expect(view.getByRole('button', { name: 'Choose workspace' })).toBeTruthy()
+    expect(view.getByRole('button', { name: '选择工作区' })).toBeTruthy()
     await runtime.dispose()
   })
 
@@ -204,7 +217,9 @@ describe('prompt rejection through the assembled composer', () => {
   it('renders the promptError alert strip and keeps the draft in the machine', async () => {
     const runtime = await SlotTestRuntime.create()
     runtime.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
-    runtime.provide('locale', new LocaleService(runtime.ctx))
+    const locale = new LocaleService(runtime.ctx)
+    runtime.provide('locale', locale)
+    runtime.slots.installLocale(locale)
     const prompt = vi.fn<ISession['prompt']>(async () => ({
       ok: false, error: { code: 'agent-busy', message: 'prompt rejected before acceptance', details: { reason: 'busy' } },
     }))
@@ -241,16 +256,17 @@ describe('prompt rejection through the assembled composer', () => {
 })
 
 describe('title projection across assembled surfaces', () => {
-  it('one summary update re-labels the breadcrumb and document.title consumers together', async () => {
+  it('one summary update re-labels the current-session crumb', async () => {
     const runtime = await bench([])
     const view = runtime.renderRoot()
-    // The strict session header breadcrumb reads useSessions ancestry.
-    const crumb = within(view.container.querySelector('[aria-label="Session hierarchy"]') as HTMLElement)
-    expect(crumb.getByText('S')).toBeTruthy()
+    const hierarchy = view.getByRole('navigation', { name: '会话层级' })
+    expect(within(hierarchy).getByRole('button', { name: 'S' }).hasAttribute('disabled')).toBe(true)
 
     await runtime.sessions.updateSummary(SID, { displayTitle: '修订标题', title: '修订标题' })
-    await waitFor(() => { expect(crumb.getByText('修订标题')).toBeTruthy() })
-    expect(crumb.queryByText('S')).toBeNull()
+    await waitFor(() => {
+      expect(within(hierarchy).getByRole('button', { name: '修订标题' }).hasAttribute('disabled')).toBe(true)
+    })
+    expect(within(hierarchy).queryByRole('button', { name: 'S' })).toBeNull()
     await runtime.dispose()
   })
 })

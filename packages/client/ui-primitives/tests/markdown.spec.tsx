@@ -94,6 +94,11 @@ describe('MarkdownText', () => {
     expect(done.container.querySelector('pre.shiki')).not.toBeNull()
   })
 
+  it('forwards localized labels to fenced code blocks', () => {
+    render(<MarkdownText text={'```ts\nconst answer = 42\n```'} codeLabels={{ copyLabel: 'Copy code', copiedLabel: 'Copied' }} />)
+    expect(screen.getByRole('button', { name: 'Copy code' })).toBeTruthy()
+  })
+
   it('neutralizes raw HTML, unsafe or relative links, and remote images', () => {
     const markdown = [
       '<script>globalThis.compromised = true</script>',
@@ -120,6 +125,39 @@ describe('MarkdownText', () => {
     expect(screen.getByRole('heading', { level: 2, name: 'Streaming' })).toBeTruthy()
     expect(container.querySelectorAll('li')).toHaveLength(2)
     expect(screen.getByText('**unfinished')).toBeTruthy()
+  })
+
+  it('renders inline and display TeX through KaTeX without enabling trusted commands', () => {
+    const source = [
+      'Einstein wrote $E = mc^2$.',
+      '',
+      '$$',
+      '\\frac{\\partial \\mathbf{u}}{\\partial t} + (\\mathbf{u} \\cdot \\nabla)\\mathbf{u} = -\\frac{1}{\\rho}\\nabla p',
+      '$$',
+      '',
+      '$\\href{javascript:alert(1)}{unsafe}$',
+    ].join('\n')
+    const { container } = render(<MarkdownText text={source} />)
+
+    expect(container.querySelectorAll('.katex')).toHaveLength(3)
+    expect(container.querySelectorAll('.katex-display')).toHaveLength(1)
+    expect(container.querySelector('.katex-display annotation')?.textContent).toContain('\\frac{\\partial \\mathbf{u}}')
+    expect(container.querySelector('a')).toBeNull()
+  })
+
+  it('defers TeX rendering while streaming so incomplete formulas never flash KaTeX errors', () => {
+    const partial = '$$\n\\frac{\\partial \\mathbf{u}}{\\partial'
+    const complete = '$$\n\\frac{\\partial \\mathbf{u}}{\\partial t}\n$$'
+    const live = render(<MarkdownText text={partial} streaming />)
+
+    expect(live.container.querySelector('.katex')).toBeNull()
+    expect(live.container.querySelector('.katex-error')).toBeNull()
+    expect(live.container.textContent).toContain('\\frac{\\partial \\mathbf{u}}{\\partial')
+
+    live.rerender(<MarkdownText text={complete} />)
+    expect(live.container.querySelectorAll('.katex')).toHaveLength(1)
+    expect(live.container.querySelectorAll('.katex-display')).toHaveLength(1)
+    expect(live.container.querySelector('.katex-error')).toBeNull()
   })
 })
 
