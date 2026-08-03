@@ -4,7 +4,7 @@
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
-- text: "Run two shell commands: wait for cancellation, then write skipped.txt. 7/18 {{clock}}"
+- text: "Run two shell commands: wait for cancellation, then write skipped.txt. {{date}} {{clock}}"
 - button "Copy":
   - img
 - button "Branch into a new conversation":

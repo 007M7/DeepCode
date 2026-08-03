@@ -67,6 +67,9 @@ describe.skipIf(MODE === 'record')('web e2e: cancelled Bash row disclosure', () 
     await expect.poll(() => call.getByText('Error: command aborted', { exact: true }).count()).toBe(2)
 
     const snapshot = (await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd))
+      // The borrowed fixture's UTC date is still the previous day in PDT;
+      // the disclosure golden must not depend on the runner timezone.
+      .replace(/\b\d{1,2}\/\d{1,2}(?= \{\{clock\}\})/g, '{{date}}')
       .split(SEED_ID).join('{{seededId}}')
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
     expect(tripwire.pageErrors).toEqual([])
