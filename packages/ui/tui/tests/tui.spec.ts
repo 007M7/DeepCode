@@ -192,6 +192,7 @@ describe('TUI config', () => {
       questionDialogMaxHeight: 20,
       modelDialogWidth: 76,
       modelDialogMaxHeight: 20,
+      detailsDialogWidth: 72,
       fileSearchMaxResults: 20,
       fileSearchMaxEntries: 10_000,
       fileSearchExcludedDirectories: ['.git', 'node_modules'],
@@ -216,6 +217,7 @@ describe('TUI config', () => {
       questionDialogMaxHeight: 14,
       modelDialogWidth: 64,
       modelDialogMaxHeight: 16,
+      detailsDialogWidth: 44,
       fileSearchMaxResults: 7,
       fileSearchMaxEntries: 123,
       fileSearchExcludedDirectories: ['.git', 'generated'],
@@ -232,6 +234,7 @@ describe('TUI config', () => {
       questionDialogMaxHeight: 14,
       modelDialogWidth: 64,
       modelDialogMaxHeight: 16,
+      detailsDialogWidth: 44,
       fileSearchMaxResults: 7,
       fileSearchMaxEntries: 123,
       fileSearchExcludedDirectories: ['.git', 'generated'],
@@ -2684,6 +2687,94 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await tick()
 
     expect(result.exit).toHaveBeenCalledWith(0)
+    await dispose(result)
+  })
+
+  it('/details sets card visibility and reasoning display from arguments', async () => {
+    const result = await setup()
+    const run = async (line: string): Promise<void> => {
+      result.terminal.send(line)
+      result.terminal.send('\r')
+      await tick()
+    }
+
+    await run('/details hidden')
+    expect(result.terminal.output).toContain('Tool cards hidden.')
+
+    await run('/details expanded reasoning off')
+    expect(result.terminal.output).toContain('Tool and context cards expanded.')
+    expect(result.terminal.output).toContain('Reasoning blocks hidden.')
+
+    await run('/details reasoning on')
+    expect(result.terminal.output).toContain('Reasoning blocks shown.')
+
+    // Bare `reasoning` toggles: shown -> hidden.
+    const toggleOutput = result.terminal.output.length
+    await run('/details reasoning')
+    expect(result.terminal.output.slice(toggleOutput)).toContain('Reasoning blocks hidden.')
+    await run('/details collapsed')
+    expect(result.terminal.output.slice(toggleOutput)).toContain('Tool and context cards collapsed.')
+
+    await run('/details bogus')
+    expect(result.terminal.output).toContain('Unknown /details argument "bogus"')
+
+    await dispose(result)
+  })
+
+  it('bare /details opens the transcript-details toggle and Tab applies immediately', async () => {
+    const result = await setup()
+    const open = async (): Promise<number> => {
+      const from = result.terminal.output.length
+      result.terminal.send('/details')
+      result.terminal.send('\r')
+      await vi.waitFor(() => { expect(result.terminal.output.slice(from)).toContain('Transcript details') })
+      return from
+    }
+
+    const opened = await open()
+    expect(result.terminal.output.slice(opened)).toContain('Tool cards')
+    expect(result.terminal.output.slice(opened)).toContain('Reasoning')
+
+    // A second /details while the selector is open replaces the overlay
+    // instead of stacking a second one behind it.
+    await result.ctx.commands.execute(result.agent, '/details', new AbortController().signal)
+    await tick()
+
+    // Each Tab applies one step immediately while the dialog stays open:
+    // collapsed -> expanded -> hidden -> collapsed (wraparound).
+    result.terminal.send('\t')
+    await tick()
+    expect(result.terminal.output).toContain('Tool and context cards expanded.')
+    result.terminal.send('\t')
+    await tick()
+    expect(result.terminal.output).toContain('Tool cards hidden.')
+    result.terminal.send('\t')
+    await tick()
+    expect(result.terminal.output).toContain('Tool and context cards collapsed.')
+
+    // The reasoning entry toggles the same way.
+    result.terminal.send('\x1b[B')
+    result.terminal.send('\t')
+    await tick()
+    expect(result.terminal.output).toContain('Reasoning blocks hidden.')
+
+    // Enter closes without further changes.
+    const entered = result.terminal.output.length
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output.slice(entered)).not.toContain('Reasoning blocks')
+
+    // Esc and Ctrl+C also close; the reopened dialog shows the live values.
+    const reopened = await open()
+    expect(result.terminal.output.slice(reopened)).toContain('collapsed')
+    expect(result.terminal.output.slice(reopened)).toContain('hidden')
+    result.terminal.send('\x1b')
+    await tick()
+    const ctrlCOutput = await open()
+    result.terminal.send('\x03')
+    await tick()
+    expect(result.terminal.output.slice(ctrlCOutput)).not.toContain('Reasoning blocks')
+
     await dispose(result)
   })
 
@@ -5165,6 +5256,134 @@ describe('tool cards and surface replay', () => {
     expect(mounted).toContain('reply before compaction')
     expect(mounted.split('… earlier context was compacted …')).toHaveLength(2)
     expect(mounted).not.toContain('stored model-only payload')
+    await dispose(result)
+  })
+
+  /** The last repainted frame, with CSI/OSC escapes and carriage returns stripped. */
+  const lastFrame = (terminal: FakeTerminal): string => terminal.output
+    .slice(terminal.output.lastIndexOf('\x1b[2J'))
+    .replaceAll(/\x1b\[[0-9;]*[A-Za-z]|\x1b\][^\x07]*\x07|\r/g, '')
+
+  const countAssistantHeaders = (frame: string): number => frame.split('\n')
+    .filter(row => row.trim() === 'Assistant').length
+
+  /** One turn with text -> tool call/result -> text across two steps. */
+  const appendTwoStepTurn = (session: Awaited<ReturnType<typeof setup>>['session']): void => {
+    appendUser(session, 'fold me')
+    appendAssistant(session, [{ type: 'text', text: 'first step text' }])
+    session.append('tool/call', { turn: 1, step: 1, callId: 'fold-1' as never, name: 'bash', arguments: '{}' })
+    session.append('tool/result', {
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'fold-1' as never, content: [{ type: 'text', text: 'tool body' }], isError: false,
+      }),
+    }, { surfaceOp: 'append' })
+    session.append('step/end', { turn: 1, step: 1 })
+    session.append('step/start', { turn: 1, step: 2 })
+    appendAssistant(session, [{ type: 'text', text: 'second step text' }], undefined, { turn: 1, step: 2 })
+    session.append('step/end', { turn: 1, step: 2 })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+  }
+
+  it('folds a turn to one Assistant header in hidden mode and restores headers on cycle', async () => {
+    const result = await setup({ tools })
+    appendTwoStepTurn(result.session)
+    await tick()
+
+    // Collapsed (default): each step keeps its own header.
+    result.terminal.send('\x0c')
+    await tick()
+    expect(countAssistantHeaders(lastFrame(result.terminal))).toBe(2)
+
+    // collapsed -> expanded -> hidden.
+    result.terminal.send('\x0f')
+    result.terminal.send('\x0f')
+    await tick()
+    result.terminal.send('\x0c')
+    await tick()
+    const hidden = lastFrame(result.terminal)
+    expect(countAssistantHeaders(hidden)).toBe(1)
+    expect(hidden).toContain('first step text')
+    expect(hidden).toContain('second step text')
+    expect(hidden).not.toContain('Tool / bash')
+    // The fold keeps model order: header text precedes the continuation.
+    expect(hidden.indexOf('first step text')).toBeLessThan(hidden.indexOf('second step text'))
+
+    // hidden -> collapsed restores per-step headers.
+    result.terminal.send('\x0f')
+    await tick()
+    result.terminal.send('\x0c')
+    await tick()
+    expect(countAssistantHeaders(lastFrame(result.terminal))).toBe(2)
+    await dispose(result)
+  })
+
+  it('gives the hidden-mode header to the first step with a visible body and keeps turns separate', async () => {
+    const result = await setup({ tools })
+    // Turn 1, step 1 is tool-only; step 2 carries the turn's text.
+    appendUser(result.session, 'tool-only first step')
+    appendAssistant(result.session, [{ type: 'tool-call', id: 'only-1' as never, name: 'bash', arguments: '{}' }])
+    result.session.append('tool/call', { turn: 1, step: 1, callId: 'only-1' as never, name: 'bash', arguments: '{}' })
+    result.session.append('tool/result', {
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'only-1' as never, content: [{ type: 'text', text: 'tool body' }], isError: false,
+      }),
+    }, { surfaceOp: 'append' })
+    result.session.append('step/end', { turn: 1, step: 1 })
+    result.session.append('step/start', { turn: 1, step: 2 })
+    appendAssistant(result.session, [{ type: 'text', text: 'late turn-one text' }], undefined, { turn: 1, step: 2 })
+    result.session.append('step/end', { turn: 1, step: 2 })
+    result.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    // Turn 2 keeps its own header.
+    result.session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
+    appendUser(result.session, 'next turn')
+    result.session.append('step/start', { turn: 2, step: 1 })
+    appendAssistant(result.session, [{ type: 'text', text: 'turn-two text' }], undefined, { turn: 2, step: 1 })
+    result.session.append('step/end', { turn: 2, step: 1 })
+    result.session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
+    await tick()
+
+    result.terminal.send('\x0f')
+    result.terminal.send('\x0f')
+    await tick()
+    result.terminal.send('\x0c')
+    await tick()
+    const hidden = lastFrame(result.terminal)
+    // One header per turn: the tool-only step neither renders a blank segment
+    // nor consumes turn one's header, which the late text step owns.
+    expect(countAssistantHeaders(hidden)).toBe(2)
+    expect(hidden).toContain('late turn-one text')
+    expect(hidden).toContain('turn-two text')
+    const rows = hidden.split('\n').map(row => row.trim())
+    const turnOneHeader = rows.indexOf('Assistant')
+    expect(rows[turnOneHeader + 1]).toBe('late turn-one text')
+    await dispose(result)
+  })
+
+  it('folds live hidden-mode streaming once a later step shows text', async () => {
+    const result = await setup({ tools, status: 'running' })
+    result.terminal.send('\x0f')
+    result.terminal.send('\x0f')
+    await tick()
+    result.session.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'live first' } })
+    result.session.append('step/end', { turn: 1, step: 1 })
+    result.session.append('step/start', { turn: 1, step: 2 })
+    result.session.append('assistant/chunk', { turn: 1, step: 2, chunk: { type: 'text-delta', index: 0, text: 'live second' } })
+    await tick()
+    result.terminal.send('\x0c')
+    await tick()
+    const hidden = lastFrame(result.terminal)
+    expect(countAssistantHeaders(hidden)).toBe(1)
+    expect(hidden).toContain('live first')
+    expect(hidden).toContain('live second')
+
+    // A transcript rebuild (resize) recomputes the same fold from the log.
+    result.terminal.resize(89)
+    await tick()
+    const rebuilt = lastFrame(result.terminal)
+    expect(countAssistantHeaders(rebuilt)).toBe(1)
+    expect(rebuilt).toContain('live second')
     await dispose(result)
   })
 })
