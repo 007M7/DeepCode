@@ -1237,14 +1237,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/error',
     mode: 'emit',
     signature: '\'agent/error\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: unknown): void',
-    jsDoc: '/**\n * A step or turn errored. The machine reports a failure here (plus the\n * logger) even when the error has no in-turn position for a durable record.\n * @param agent - the agent whose turn errored.\n * @param turn - the turn in which the failure surfaced.\n * @param step - the step at which the failure surfaced.\n * @param error - the failure, verbatim.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    jsDoc: '/**\n * A step or turn errored. The machine reports a failure here even when\n * the error has no in-turn position for a durable record.\n * @param agent - the agent whose turn errored.\n * @param turn - the turn in which the failure surfaced.\n * @param step - the step at which the failure surfaced.\n * @param error - the failure, verbatim.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: 'A step or turn errored.',
   },
   {
     name: 'agent/inbox/claimed',
     mode: 'emit',
     signature: '\'agent/inbox/claimed\'(this: Scoped<Agent>, agent: Agent, event: { message: UserMessage; turn: number }): void',
-    jsDoc: '/**\n * One message left the inbox for a turn.\n * @param agent - the agent whose inbox changed.\n * @param event - the claimed message and owning turn.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    jsDoc: '/**\n * One message left the inbox for a turn. If the turn boundary that\n * claimed it is rejected, the claimed message ends here: it is neither\n * discarded nor re-emitted as a user/message, and a later batch may\n * reuse the same turn number.\n * @param agent - the agent whose inbox changed.\n * @param event - the claimed message and owning turn.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: 'One message left the inbox for a turn.',
   },
   {

@@ -581,7 +581,8 @@ interface Agent {
   /**
    * Submit steering for the nearest step. An idle driver schedules a turn;
    * collecting and running drivers consume it at their next step boundary.
-   * Cancellation or disposal may discard pending steering.
+   * A rejected step leaves steering parked in the inbox until the next
+   * wake; cancellation or disposal may discard pending steering.
    * @param message - identified steering content and its producer provenance.
    */
   steer(message: UserMessage): void

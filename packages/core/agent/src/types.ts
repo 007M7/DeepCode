@@ -145,7 +145,8 @@ export interface Agent {
   /**
    * Submit steering for the nearest step. An idle driver schedules a turn;
    * collecting and running drivers consume it at their next step boundary.
-   * Cancellation or disposal may discard pending steering.
+   * A rejected step leaves steering parked in the inbox until the next
+   * wake; cancellation or disposal may discard pending steering.
    * @param message - identified steering content and its producer provenance.
    */
   steer(message: UserMessage): void
@@ -203,7 +204,10 @@ declare module 'cordis' {
      */
     'agent/inbox/inserted'(this: Scoped<Agent>, agent: Agent, event: { message: UserMessage }): void
     /**
-     * One message left the inbox for a turn.
+     * One message left the inbox for a turn. If the turn boundary that
+     * claimed it is rejected, the claimed message ends here: it is neither
+     * discarded nor re-emitted as a user/message, and a later batch may
+     * reuse the same turn number.
      * @param agent - the agent whose inbox changed.
      * @param event - the claimed message and owning turn.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
@@ -284,8 +288,8 @@ declare module 'cordis' {
     'agent/turn-stopping'(this: Scoped<Agent>, agent: Agent, turn: number, signal: AbortSignal): Promise<void> | void
     // ---- error notifications (emit) ----
     /**
-     * A step or turn errored. The machine reports a failure here (plus the
-     * logger) even when the error has no in-turn position for a durable record.
+     * A step or turn errored. The machine reports a failure here even when
+     * the error has no in-turn position for a durable record.
      * @param agent - the agent whose turn errored.
      * @param turn - the turn in which the failure surfaced.
      * @param step - the step at which the failure surfaced.

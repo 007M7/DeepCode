@@ -33,7 +33,7 @@ A fully configured agent and live session were published. Setup is composition-o
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:177`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:178`](../../packages/core/agent/src/types.ts)
 
 ### `agent/disposed` — emit
 
@@ -53,16 +53,16 @@ An agent left the registry; AgentLoop emits this after driver quiescence and sco
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:186`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:187`](../../packages/core/agent/src/types.ts)
 
 ### `agent/error` — emit
 
-A step or turn errored. The machine reports a failure here (plus the logger) even when the error has no in-turn position for a durable record.
+A step or turn errored. The machine reports a failure here even when the error has no in-turn position for a durable record.
 
 ```ts cordis-catalog
 /**
- * A step or turn errored. The machine reports a failure here (plus the
- * logger) even when the error has no in-turn position for a durable record.
+ * A step or turn errored. The machine reports a failure here even when
+ * the error has no in-turn position for a durable record.
  * @param agent - the agent whose turn errored.
  * @param turn - the turn in which the failure surfaced.
  * @param step - the step at which the failure surfaced.
@@ -75,15 +75,18 @@ A step or turn errored. The machine reports a failure here (plus the logger) eve
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:296`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:300`](../../packages/core/agent/src/types.ts)
 
 ### `agent/inbox/claimed` — emit
 
-One message left the inbox for a turn.
+One message left the inbox for a turn. If the turn boundary that claimed it is rejected, the claimed message ends here: it is neither discarded nor re-emitted as a user/message, and a later batch may reuse the same turn number.
 
 ```ts cordis-catalog
 /**
- * One message left the inbox for a turn.
+ * One message left the inbox for a turn. If the turn boundary that
+ * claimed it is rejected, the claimed message ends here: it is neither
+ * discarded nor re-emitted as a user/message, and a later batch may
+ * reuse the same turn number.
  * @param agent - the agent whose inbox changed.
  * @param event - the claimed message and owning turn.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
@@ -94,7 +97,7 @@ One message left the inbox for a turn.
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
 
-Source: [`packages/core/agent/src/types.ts:212`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:216`](../../packages/core/agent/src/types.ts)
 
 ### `agent/inbox/discarded` — emit
 
@@ -113,7 +116,7 @@ One message was discarded from the live inbox.
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
 
-Source: [`packages/core/agent/src/types.ts:220`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:224`](../../packages/core/agent/src/types.ts)
 
 ### `agent/inbox/inserted` — emit
 
@@ -132,7 +135,7 @@ One message entered the live inbox.
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
 
-Source: [`packages/core/agent/src/types.ts:204`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:205`](../../packages/core/agent/src/types.ts)
 
 ### `agent/pre-step` — waterfall
 
@@ -153,7 +156,7 @@ Reject a proposed step or replace the messages that enter it. Calling `next()` p
 
 Types: [Agent](../core-data-structures/core.md) · [PreStepContext](../core-data-structures/core.md) · [PreStepDecision](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
 
-Source: [`packages/core/agent/src/types.ts:244`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:248`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request` — waterfall
 
@@ -177,7 +180,7 @@ Replace the frozen call configuration. `await next()` yields the config the mach
 
 Types: [Agent](../core-data-structures/core.md) · [LlmCallConfig](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:257`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:261`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request-error` — waterfall
 
@@ -200,7 +203,7 @@ Handle one failed model-request attempt before the loop retries or closes its st
 
 Types: [Agent](../core-data-structures/core.md) · [RequestErrorAction](../core-data-structures/core.md) · [RequestFailureContext](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:269`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:273`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-start` — emit
 
@@ -222,7 +225,7 @@ The session lifecycle began, once before the first turn. Use `agent.inject()` to
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [SessionStartSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:232`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:236`](../../packages/core/agent/src/types.ts)
 
 ### `agent/status` — emit
 
@@ -243,7 +246,7 @@ Agent status changed (`idle` ⇄ `running`). A waking delivery enters `running` 
 
 Types: [Agent](../core-data-structures/core.md) · [AgentStatus](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:196`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:197`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-stopping` — serial
 
@@ -269,7 +272,7 @@ The turn is about to close: the model owes no response (no live tool calls, no f
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:284`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:288`](../../packages/core/agent/src/types.ts)
 
 ## `agent-loop/*`
 

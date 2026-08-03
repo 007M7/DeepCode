@@ -80,8 +80,8 @@ export class ReactLoopAgent implements Agent {
     public readonly session: Session,
   ) {
     this.inbox = new Inbox(session, {
-      inserted: (message) =>{  emitAgentEvent(loopCtx, this, 'agent/inbox/inserted', { message }) },
-      discarded: (message) =>{  emitAgentEvent(loopCtx, this, 'agent/inbox/discarded', { message }) },
+      inserted: (message) => { emitAgentEvent(loopCtx, this, 'agent/inbox/inserted', { message }) },
+      discarded: (message) => { emitAgentEvent(loopCtx, this, 'agent/inbox/discarded', { message }) },
     })
     const lastTurn = session.events.findLast(event => event.type === 'turn/start')?.data.turn ?? 0
     this.phase = { kind: 'idle', lastTurn }
