@@ -272,11 +272,30 @@ const ADVANCED_CARD_TOOLS: Record<string, ToolDefinition> = {
   edit: visualTool(
     'edit',
     () => ({ card: 'diff', title: 'Edit src/view.ts', diffs: [{ path: 'src/view.ts', oldText: 'old line', newText: 'new line' }] }),
-    // The real edit/write tools produce exactly one diff whose path the title
-    // already names, so the card omits the redundant per-file header.
+    // The fixed tool header never names a path, so the hunk retains its path.
     (): ToolResultView => ({
       card: 'diff',
       diffs: [{ path: 'src/view.ts', oldText: 'old line\nkeep', newText: 'new line\nkeep' }],
+    }),
+  ),
+  large_edit: visualTool(
+    'large_edit',
+    () => ({
+      card: 'diff',
+      title: 'Edit src/large.ts',
+      diffs: [{
+        path: 'src/large.ts',
+        oldText: 'old one\nold two\nold three',
+        newText: 'new one\nnew two\nnew three',
+      }],
+    }),
+    (): ToolResultView => ({
+      card: 'diff',
+      diffs: [{
+        path: 'src/large.ts',
+        oldText: 'old one\nold two\nold three',
+        newText: 'new one\nnew two\nnew three',
+      }],
     }),
   ),
   subagent: visualTool('subagent', args => ({
@@ -588,7 +607,7 @@ describe('TUI terminal-state snapshots', () => {
   it('pins terminal, diff, subagent, task, skill, collapsed, and expanded cards', async () => {
     const harness = await setupSnapshot({
       tools: ADVANCED_CARD_TOOLS,
-      config: { maxToolOutputLines: 3 },
+      config: { maxToolOutputLines: 3, maxDiffEditLength: 2 },
     }, { columns: 100, rows: 40 })
     const calls = [
       { id: 'advanced-1', name: 'bash', arguments: { command: 'pnpm run test:coverage' } },
@@ -596,6 +615,7 @@ describe('TUI terminal-state snapshots', () => {
       { id: 'advanced-3', name: 'subagent', arguments: { prompt: 'Review renderer ownership and report only gaps.' } },
       { id: 'advanced-4', name: 'task_output', arguments: { task_id: 'subagent-7', wait: true } },
       { id: 'advanced-5', name: 'skill', arguments: { name: 'dsh-code-review' } },
+      { id: 'advanced-6', name: 'large_edit', arguments: { file_path: 'src/large.ts' } },
     ]
     await renderAfter(harness, () => {
       appendToolCalls(harness.session, calls)
@@ -604,6 +624,7 @@ describe('TUI terminal-state snapshots', () => {
       appendToolResult(harness.session, 'advanced-3', [{ type: 'text', text: 'The renderer has explicit lifecycle ownership.' }])
       appendToolResult(harness.session, 'advanced-4', [{ type: 'text', text: 'audit complete\n[status: completed]' }])
       appendToolResult(harness.session, 'advanced-5', [{ type: 'text', text: 'Loaded review instructions.' }])
+      appendToolResult(harness.session, 'advanced-6', [{ type: 'text', text: 'large edit complete' }])
     })
     await checkpoint('advanced-cards-collapsed', harness.terminal, { includeScrollback: true })
 

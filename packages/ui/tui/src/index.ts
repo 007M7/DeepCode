@@ -643,6 +643,7 @@ export function createTuiChat(
       parsed,
       ctx.tools.get(event.data.name, agent),
       resolved.maxToolOutputLines,
+      resolved.maxDiffEditLength,
       palette,
       mdTheme,
     )
@@ -835,7 +836,15 @@ export function createTuiChat(
         const callId = event.data.message.source.callId
         let card = toolCards.get(callId)
         if (card === undefined) {
-          card = new ToolCardComponent('tool', { value: {}, valid: true }, undefined, resolved.maxToolOutputLines, palette, mdTheme)
+          card = new ToolCardComponent(
+            'tool',
+            { value: {}, valid: true },
+            undefined,
+            resolved.maxToolOutputLines,
+            resolved.maxDiffEditLength,
+            palette,
+            mdTheme,
+          )
           card.setVisibility(toolsVisibility)
           chat.addChild(card)
           allToolCards.add(card)
