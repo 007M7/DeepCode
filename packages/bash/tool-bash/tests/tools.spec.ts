@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { BashExecutor } from '@deepseek-ai/dsh-bash'
-import type { BashExecRequest, BashExecSpec, BashProcess, BashProcessRead, BashRunResult, ShellDialect } from '@deepseek-ai/dsh-bash'
+import type { BashExecRequest, BashExecSpec, BashProcess, BashProcessRead, BashRunResult } from '@deepseek-ai/dsh-bash'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { TOOL_ABORTED, TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
@@ -101,8 +101,6 @@ async function callUntilText(
 }
 
 class RecordingSandboxExecutor extends BashExecutor {
-  readonly dialect = 'bash' as const
-
   readonly modes: Array<string | undefined> = []
 
   override get sandboxMode() {
@@ -156,8 +154,6 @@ class RecordingSandboxExecutor extends BashExecutor {
 
 /** Test executor that records whether the background start boundary was crossed. */
 class CountingStartExecutor extends BashExecutor {
-  readonly dialect: ShellDialect = 'bash'
-
   starts = 0
 
   resolve(request: BashExecRequest): BashExecSpec {
@@ -363,19 +359,6 @@ describe('bash tool', () => {
     })
     expect(result.isError).toBe(true)
     expect(text(result)).toContain('tool execution arguments must be losslessly JSON-serializable')
-  })
-
-  it('rejects an executor speaking another shell dialect at load', async () => {
-    class PowershellDialectExecutor extends CountingStartExecutor {
-      override readonly dialect: ShellDialect = 'powershell'
-    }
-    const ctx = new Context()
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
-    await ctx.plugin(AgentRegistry)
-    await ctx.plugin(BashEnvPlugin)
-    await ctx.plugin(PowershellDialectExecutor)
-    await expect(ctx.plugin(ToolBash)).rejects.toThrow("the mounted executor speaks 'powershell', not bash")
   })
 
   it('registers the bash schema with run_in_background exposed by default', async () => {
@@ -1084,8 +1067,6 @@ describe('the model-facing bash tool builds its request from named args only (no
    * hands back an already-settled fake handle so the task registration completes.
    */
   class RecordingBashExecutor extends BashExecutor {
-    readonly dialect = 'bash' as const
-
     readonly requests: BashExecRequest[] = []
     resolve(request: BashExecRequest): BashExecSpec {
       this.requests.push(request)

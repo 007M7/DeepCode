@@ -4,7 +4,7 @@ English | [中文](README.zh.md)
 
 The model-facing `pwsh` tool registered over the `ctx.bash` executor seam. Intended for Windows compositions where a PowerShell executor (e.g. `@deepseek-ai/dsh-pwsh-local`) backs `ctx.bash`; the tool contract is PowerShell-dialect: native `C:\...` paths and `$env:NAME` variables. Behavior mirrors `dsh-tool-bash` call-for-call minus the sandbox surface — foreground and `run_in_background` execution through the generic task runtime, the managed `DSH_*` environment through the shared `bash-env` registry, and the bash marker/truncation rendering story (a clean exit produces no marker).
 
-Requires a loaded executor implementation and the `bash-env` plugin; the tool stays pending until both exist (`inject: ['tools', 'bash', 'systemPrompt', 'bashEnv']`), and rejects an executor whose `dialect` is not `powershell` at load — a PowerShell command handed to `bash -c` would surface as an ordinary nonzero exit.
+Requires a loaded executor implementation and the `bash-env` plugin; the tool stays pending until both exist (`inject: ['tools', 'bash', 'systemPrompt', 'bashEnv']`).
 
 The package root exposes only the Cordis plugin contract (`name`, `inject`, `Config`, `apply`); result rendering (`src/render.ts`) and background-task adaptation (`src/background.ts`) mirror the bash tool's structure and stay reachable through the package's `./src/*` export.
 

@@ -138,11 +138,6 @@ const BACKGROUND_OUTPUT_PROPERTIES = {
 /* jscpd:ignore-end */
 
 export function apply(ctx: Context, config: Config = {}): void {
-  // Model commands are written in PowerShell; a mismatched executor would
-  // hand them to bash and surface as ordinary nonzero exits.
-  if (ctx.bash.dialect !== 'powershell') {
-    throw new Error(`tool-pwsh: the mounted executor speaks '${ctx.bash.dialect}', not powershell — mount dsh-pwsh-local or the matching shell tool`)
-  }
   const backgroundEnabled = config.enableRunInBackground ?? true
 
   ctx.systemPrompt.section({

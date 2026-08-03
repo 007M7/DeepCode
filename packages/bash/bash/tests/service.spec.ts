@@ -10,8 +10,6 @@ import type { BashExecRequest, BashExecSpec, BashProcess, BashProcessRead, BashR
  * owes the abstract class.
  */
 class StubExecutor extends BashExecutor {
-  readonly dialect = 'bash' as const
-
   resolve(request: BashExecRequest): BashExecSpec {
     return {
       command: request.command,
