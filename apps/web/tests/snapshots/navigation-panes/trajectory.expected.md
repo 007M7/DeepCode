@@ -5,7 +5,7 @@
   - img
   - searchbox "Search trajectory"
 - region "Trajectory timeline":
-  - tooltip "ASSISTANT {{clock}}:40.549 AM → {{clock}}:42.091 AM Total 1.5 s · TTFT 368 ms · Decoding 1.2 s"
+  - tooltip "ASSISTANT {{clock}} → {{clock}} Total 1.5 s · TTFT 368 ms · Decoding 1.2 s"
 - table:
   - rowgroup:
     - row "SYSTEM, Initial System Prompt":
