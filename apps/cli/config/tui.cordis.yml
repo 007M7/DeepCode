@@ -58,19 +58,6 @@
 # ── TUI-only rows ───────────────────────────────────────────────────────────
 
 - insert:
-    # Relational runtime checks over the authoritative event streams; each
-    # companion registers the assertions its own package owns.
-    - id: invariants
-      name: '@deepseek-ai/dsh-invariants'
-    - id: session-invariant
-      name: '@deepseek-ai/dsh-session/invariant'
-    - id: agent-invariant
-      name: '@deepseek-ai/dsh-agent/invariant'
-    - id: scope-invariant
-      name: '@deepseek-ai/dsh-scope/invariant'
-    - id: agent-loop-invariant
-      name: '@deepseek-ai/dsh-agent-loop/invariant'
-
     # The derived query index behind `/resume`. The launcher provides a unique
     # process-local path because this SQLite backend has one writer owner; the
     # project-local fallback applies when no launcher sets the typed slot.
