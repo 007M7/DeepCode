@@ -180,6 +180,11 @@
     - id: ui-permission
       name: '@deepseek-ai/dsh-client-ui-permission'
 
+    # The agent-preset row in General settings: the default preset for
+    # sessions created later. Absent a roster it renders nothing.
+    - id: ui-agent-preset
+      name: '@deepseek-ai/dsh-client-ui-agent-preset'
+
     # Plan control: the composer plan seat over the plan projection + /plan channel.
     - id: ui-plan
       name: '@deepseek-ai/dsh-client-ui-plan'
