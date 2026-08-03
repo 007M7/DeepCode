@@ -72,6 +72,19 @@ export function msUntilNextLocalMidnight(ms: number): number {
 }
 
 /**
+ * Compact elapsed-time label for the turn run-time chrome, matching the
+ * running TurnStatus clock format: `15s` under a minute, `2m 05s` from there.
+ * @param ms - Elapsed duration in milliseconds (negatives clamp to zero).
+ * @returns Display string in whole seconds.
+ */
+export function formatRunDuration(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000))
+  const minutes = Math.floor(total / 60)
+  const seconds = total % 60
+  return minutes > 0 ? `${minutes}m ${String(seconds).padStart(2, '0')}s` : `${seconds}s`
+}
+
+/**
  * Compact local timestamp for message IconActions. Same calendar day →
  * `HH:mm`; earlier this year → the `clock.md` date template + clock; other
  * years → the `clock.ymd` template + clock. Pure: the date templates arrive

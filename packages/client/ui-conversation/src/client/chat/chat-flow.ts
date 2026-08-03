@@ -48,6 +48,43 @@ export function assistantActionsSeqs(nodes: readonly ConversationNode[]): Readon
 }
 
 /**
+ * Approximate turn start times: turn number -> the time of the nearest
+ * user/steering node preceding the turn's first assistant node. Same
+ * derivation family as the trajectory fold (adjacent logged timestamps, no
+ * dedicated turn/start state); a turn whose triggering input is outside the
+ * loaded window is simply absent.
+ * @param nodes - snapshot nodes in event order.
+ * @returns Unix epoch ms per in-window turn with a visible trigger.
+ */
+export function turnStartTimes(nodes: readonly ConversationNode[]): ReadonlyMap<number, number> {
+  const starts = new Map<number, number>()
+  let lastInputTime: number | null = null
+  for (const node of nodes) {
+    if (node.kind === 'user' || node.kind === 'steering') {
+      lastInputTime = node.time
+    } else if (node.kind === 'assistant' && lastInputTime !== null && !starts.has(node.turn)) {
+      starts.set(node.turn, lastInputTime)
+    }
+  }
+  return starts
+}
+
+/**
+ * Time of the last user/steering node in the window: the running turn's
+ * trigger, anchoring the live TurnStatus clock to the same logged instant the
+ * finalized footer's run time is measured from.
+ * @param nodes - snapshot nodes in event order.
+ * @returns Unix epoch ms, or null when no input node is in-window.
+ */
+export function lastInputTime(nodes: readonly ConversationNode[]): number | null {
+  for (let i = nodes.length - 1; i >= 0; i--) {
+    const node = nodes[i]
+    if (node?.kind === 'user' || node?.kind === 'steering') return node.time
+  }
+  return null
+}
+
+/**
  * Seq set of message rows that may fork: the last transcript node of a
  * completed turn, when that node owns message chrome. A later tool, reasoning,
  * error, or other transcript node leaves the earlier message's branch action
