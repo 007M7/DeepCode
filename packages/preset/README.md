@@ -7,6 +7,7 @@ An **agent preset** is a directory holding one `agent.cordis.yml`. Mounting it u
 | Package | Role | ctx key |
 |---|---|---|
 | `agent-presets/` | Preset vocabulary, filesystem discovery over trusted and user-authored roots, and the guarded per-agent mount | `ctx.agentPresets` |
+| `persona/` | The agent persona as a composable row, so a preset can change identity and not only tools | — |
 
 The composition split this group assumes: registries and cross-session facilities are process singletons and stay in the host composition, while a preset carries what one agent contributes to them. A preset that names a row publishing a process-global service is rejected at mount rather than allowed to collide with the next session.
 

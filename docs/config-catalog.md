@@ -1022,6 +1022,24 @@ Depends on: [`ApprovalPolicy`](core-data-structures/approval.md) · [`SandboxMod
 
 Source: [`packages/ui/permission/src/index.ts:140`](../packages/ui/permission/src/index.ts)
 
+## `@deepseek-ai/dsh-persona`
+
+Requires: `systemPrompt`
+
+```ts config-catalog
+/** Plugin config: the persona text this composition contributes. */
+export interface Config {
+  /**
+   * Persona prose rendered as the `deployment:persona` section. A template:
+   * complete `{{…}}` groups interpolate strictly against registered prompt
+   * variables. Empty text drops the section at render, matching the registry.
+   */
+  text: string
+}
+```
+
+Source: [`packages/preset/persona/src/index.ts:33`](../packages/preset/persona/src/index.ts)
+
 ## `@deepseek-ai/dsh-plan-mode`
 
 Requires: `tools` · `systemPrompt`
