@@ -18,6 +18,7 @@ import {
 import type { ComposerChainProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { SlashService } from '@deepseek-ai/dsh-client-ui-slash/client'
 import type { ClientSessionContext, SlashSource } from '@deepseek-ai/dsh-client-ui-slash/client'
+import { apply as applyLocale } from '@deepseek-ai/dsh-client-locale/client'
 import {
   SubagentCatalogAction, type SubagentCatalogInjected,
 } from '../src/client/SubagentCatalogAction.tsx'
@@ -85,6 +86,7 @@ async function fullBench(sessions: SessionSummary[]) {
   ctx.provide('slash', { registerSource: (src: SlashSource) => { captured = src; return () => {} } })
   ctx.provide('sessions', face)
   await provideSlotFaces(ctx)
+  await ctx.plugin({ inject: ['slots'], apply: applyLocale }).await()
   await ctx.plugin({ inject: [...inject], apply }).await()
   return { source: captured!, face, ctx }
 }
@@ -111,7 +113,7 @@ const req = (query: string) =>
 
 describe('apply', () => {
   it('declares the services it binds', () => {
-    expect(inject).toEqual(['slash', 'sessions', 'conversation', 'slots'])
+    expect(inject).toEqual(['slash', 'sessions', 'conversation', 'slots', 'locale'])
   })
 
   it('registers the "@" subagent source; disposal frees the name (HMR safety)', async () => {
@@ -119,6 +121,7 @@ describe('apply', () => {
     await ctx.plugin(SlashService).await()
     ctx.provide('sessions', sessionsWith(FAMILY))
     await provideSlotFaces(ctx)
+    await ctx.plugin({ inject: ['slots'], apply: applyLocale }).await()
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
     const slash = ctx.get('slash') as SlashService

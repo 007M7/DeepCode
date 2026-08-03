@@ -1034,8 +1034,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
   /** Whether the session's own suffix carries the durable subagent discriminator. */
   function hasSubagentDescriptor(session: Pick<Session, 'events' | 'header'>): boolean {
-    const ownStart = session.header.seedLength ?? 0
-    return session.events.slice(ownStart).some(event => event.type === 'subagent/descriptor')
+    const events = session.events
+    // Indexed scan from the own-suffix start: slicing copies the whole suffix
+    // on every Agent-bound RPC, including each `session.prompt` on long
+    // transcripts.
+    for (let index = session.header.seedLength ?? 0; index < events.length; index += 1) {
+      if (events[index]?.type === 'subagent/descriptor') return true
+    }
+    return false
   }
 
   /**
@@ -1076,13 +1082,28 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     return inspected
   }
 
-  async function agentFor(sessionId: SessionId): Promise<{ agent: Agent } | { error: RpcError }> {
-    const attached = ctx.sessions.get(sessionId)
+  /**
+   * Resolve one live registered identity through the subagent-ownership
+   * fence: subagent-owned agents answer `agent-busy`, plain agents pass.
+   * Fences the live agent's own session rather than trusting a
+   * "registered ⇒ attached-store" invariant — a registered subagent whose
+   * session is ever absent from the attached store must still not be handed
+   * out through generic Host routing. `undefined` means no live agent.
+   */
+  function fencedLiveAgent(sessionId: SessionId): { agent: Agent } | { error: RpcError } | undefined {
     const live = ctx.agents.get(sessionId)
-    if (attached !== undefined && hasSubagentOwner(attached, live)) {
+    if (live === undefined) return undefined
+    if (hasSubagentOwner(live.session, live)) return { error: subagentOwnershipError(sessionId) }
+    return { agent: live }
+  }
+
+  async function agentFor(sessionId: SessionId): Promise<{ agent: Agent } | { error: RpcError }> {
+    const fenced = fencedLiveAgent(sessionId)
+    if (fenced !== undefined) return fenced
+    const attached = ctx.sessions.get(sessionId)
+    if (attached !== undefined && hasSubagentOwner(attached, undefined)) {
       return { error: subagentOwnershipError(sessionId) }
     }
-    if (live !== undefined) return { agent: live }
     let resume = resumes.get(sessionId)
     if (resume === undefined) {
       resume = (async () => {
@@ -1116,6 +1137,17 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       }
       if (error instanceof SubagentSessionOwnership) {
         return { error: subagentOwnershipError(error.sessionId) }
+      }
+      // A concurrent publish can win the identity between the pre-resume
+      // re-check and `ctx.agents.resume` publication; the ID-collision
+      // rejection falls through here. Mirror ensureSession's `.catch` in
+      // full: classify a subagent-owned winner into the stable ownership
+      // error, and hand a clean plain-agent winner straight back.
+      const fenced = fencedLiveAgent(sessionId)
+      if (fenced !== undefined) return fenced
+      const attached = ctx.sessions.get(sessionId)
+      if (attached !== undefined && hasSubagentOwner(attached, undefined)) {
+        return { error: subagentOwnershipError(sessionId) }
       }
       // The internal details slot is contractually {}; the reason rides the message.
       return { error: { code: 'internal', message: `resume failed for session "${sessionId}": ${String(error)}`, details: {} } }
@@ -1192,12 +1224,15 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           ? undefined
           : (await persistence.list()).find(header => header.id === sessionId)
         if (persistence !== undefined && stored !== undefined) {
-          if (stored.cwd !== cwd) {
-            throw new SessionCwdConflict(sessionId, cwd, stored.cwd)
-          }
           const inspected = await persistence.inspect(sessionId)
+          // Ownership first: explicit-id adoption of a session-backed
+          // subagent must answer `agent-busy` regardless of the requested
+          // cwd (the api/commands.ts contract), not a cwd conflict.
           if (hasSubagentOwner({ header: inspected.meta, events: inspected.events }, undefined)) {
             throw new SubagentSessionOwnership(sessionId)
+          }
+          if (inspected.meta.cwd !== cwd) {
+            throw new SessionCwdConflict(sessionId, cwd, inspected.meta.cwd)
           }
           return (await ctx.agents.resume({
             resumeSessionId: sessionId,
@@ -2266,9 +2301,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     },
 
     commands: {
-      // Both methods address one session's agent (agentFor keeps its
-      // resume-on-miss: clients only send a sessionId for a published
-      // session, and resume restores an existing entity).
+      // Both methods address one session's agent. agentFor resumes on miss
+      // and fences every subagent-owned identity with `agent-busy`; the
+      // api/commands.ts module contract owns that fence's wording, so this
+      // comment only notes the routing shape: clients send a sessionId for a
+      // published session, and resume restores an existing entity.
       async list(request) {
         // Missing service = the deployment omitted dsh-commands from its
         // composition, not an empty catalog: fail loud instead of serving [].

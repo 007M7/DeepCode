@@ -19,8 +19,7 @@ describe('SubagentActivationSetupRegistry', () => {
 
     const transaction = registry.apply(child.ctx)
     expect(order).toEqual(['first', 'second'])
-    expect(() => { transaction.assertIntact() }).not.toThrow()
-    transaction.commit()
+    expect(() => { transaction.commit() }).not.toThrow()
     expect(order).toEqual(['first', 'second'])
   })
 
@@ -68,7 +67,7 @@ describe('SubagentActivationSetupRegistry', () => {
 
     remove()
     expect(disposals).toBe(1)
-    expect(() => { transaction.assertIntact() }).toThrow(/revoked while this child was being built/)
+    expect(() => { transaction.commit() }).toThrow(/revoked while this child was being built/)
   })
 
   it('catches a contribution revoked inside its own installer', () => {
@@ -82,7 +81,7 @@ describe('SubagentActivationSetupRegistry', () => {
 
     const transaction = registry.apply(childContext().ctx)
     expect(disposals).toBe(1)
-    expect(() => { transaction.assertIntact() }).toThrow(/revoked/)
+    expect(() => { transaction.commit() }).toThrow(/revoked/)
   })
 
   it('attempts every contribution-removal disposer before reporting failures', () => {

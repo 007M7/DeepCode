@@ -338,4 +338,43 @@ describe('sessions.prompt synchronous rejection', () => {
       }
     }
   })
+
+  it('classifies a raced cold-resume ID collision as agent-busy', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(UserInteractionService)
+    const sessionId = sid('race-resume')
+    const meta: SessionHeader = header('race-resume', 1000)
+    ctx.provide('sessionPersistence', {
+      list: () => Promise.resolve([meta]),
+      inspect: () => Promise.resolve({ meta, events: [] as SessionEvent[] }),
+      locate: () => undefined,
+    } as never)
+    // The raced winner: a live parent-owned subagent publishes the identity
+    // while the generic cold resume is in flight, so the resume collides.
+    const parentSession = ctx.sessions.create(sid('race-parent'), { meta: { cwd: '/proj' } })
+    const parent = { id: parentSession.id, session: parentSession, status: 'idle', ctx } as Agent
+    ctx.agents.register(parent)
+    const childSession = ctx.sessions.create(sessionId, {
+      meta: { cwd: '/proj', parentSession: parent.id, origin: 'subagent' },
+    })
+    const child = { id: sessionId, session: childSession, status: 'idle', ctx } as unknown as Agent
+    vi.spyOn(ctx.agents, 'resume').mockImplementationOnce(async () => {
+      // The parent's `enter()` wins the identity between the pre-resume
+      // re-check and publication; the generic resume then collides.
+      ctx.agents.register(child)
+      throw new Error('session id already published')
+    })
+    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+
+    const models = await api.sessions.models(request({ sessionId }))
+    expect(models.result.ok).toBe(false)
+    if (!models.result.ok) {
+      expect(models.result.error).toMatchObject({
+        code: 'agent-busy',
+        details: { reason: 'use subagent delivery for this child session' },
+      })
+    }
+  })
 })

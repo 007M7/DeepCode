@@ -88,7 +88,10 @@ export function installReportTool(
  * @param config - deployment scheduling policy.
  */
 export function apply(ctx: Context, config: Config = {}): void {
-  const { reportDelivery = 'quiet' } = Config(config)
+  // Config() applies the schema default ('quiet') at runtime; the schemastery
+  // return type keeps the input's optional shape, so assert the resolved
+  // shape here — no runtime fallback exists or is wanted.
+  const { reportDelivery } = Config(config) as { reportDelivery: SubagentReportDelivery }
   ctx.subagents.registerContinuableSetup(childCtx =>
     installReportTool(childCtx, ctx, reportDelivery))
 }
