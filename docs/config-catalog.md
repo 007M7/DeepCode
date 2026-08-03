@@ -2067,6 +2067,8 @@ export interface TuiConfig {
   showReasoning?: boolean
   /** Maximum tool-card body lines retained in its collapsed head/tail preview. */
   maxToolOutputLines?: number
+  /** Maximum added and removed lines explored while deriving an exact line diff. */
+  maxDiffEditLength?: number
   /** Maximum options visible at once in a user-question panel. */
   maxQuestionOptions?: number
   /** Maximum models visible at once in the model selector. */
@@ -2114,7 +2116,7 @@ export interface TuiThemeConfig {
 }
 ```
 
-Source: [`packages/ui/tui/src/config.ts:121`](../packages/ui/tui/src/config.ts)
+Source: [`packages/ui/tui/src/config.ts:125`](../packages/ui/tui/src/config.ts)
 
 ## `@deepseek-ai/dsh-typert-loader`
 

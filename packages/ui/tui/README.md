@@ -50,6 +50,7 @@ A launcher can seed a fresh session's first turn by providing `INITIAL_SKILL_KEY
 | `sessionId` | `main` | Exact shared agent/session identity driven by the terminal |
 | `showReasoning` | `true` | Render reasoning blocks |
 | `maxToolOutputLines` | `6` | Output lines retained across a collapsed tool card's head/tail preview |
+| `maxDiffEditLength` | `1000` | Maximum added and removed lines explored for an exact diff before whole-side fallback |
 | `maxQuestionOptions` | `8` | Visible options in a question panel |
 | `maxModelOptions` | `8` | Visible models in the model selector |
 | `maxResumeOptions` | `8` | Visible sessions in the resume selector |
@@ -73,6 +74,7 @@ A launcher can seed a fresh session's first turn by providing `INITIAL_SKILL_KEY
     sessionId: main-session-123
     showReasoning: true
     maxToolOutputLines: 6
+    maxDiffEditLength: 1000
     fileSearchExcludedDirectories: ['.git', 'node_modules', 'dist']
 ```
 
@@ -84,7 +86,7 @@ Every general-purpose SGR code the TUI emits lives in one table, `paletteSpec` i
 
 There is one role per visual meaning: `dim` is the single recessed tone, `accent` the single interaction emphasis, and `brand` the DeepSeek mark's standard-ANSI fallback, while `success` and `error` double as a diff's added and removed lines. Colors and attributes are separately typed, so `bold(accent(x))` compiles and `accent(error(x))` does not — SGR has no color stack, so nesting one color inside another silently drops the outer color at the inner one's close. Attributes occupy independent SGR groups and compose with any color in either order. Run `/palette` to see every role as your terminal renders it, with its SGR pair.
 
-Grouped regions (user prompts, assistant replies, tool cards) are separated by a bold, underlined role header in the role color and blank-line spacing rather than a filled block or a per-line prefix, so a mouse drag-select copies the message text without any leading bar or indent; a tool card's status (pending, error, success) shows in its colored, underlined title glyph and title. Inside a tool card, the whole body — presenter title, a terminal `$` command and cwd, and the tool's own output — renders in one dim tone, so only the status-colored header carries color and the body reads as one recessed block instead of a run of competing shades; an injected-context card's prose is the same tone as its header. A diff card's `+`/`-` lines and a `[signal …]` marker stay colored, because there the color is the meaning rather than emphasis. The question panel emphasizes its active row with bold accent text, while selectors use reverse video. These treatments are foreground-only, so they never collide with the terminal background. Set `color: false` to strip all styling.
+Grouped regions (user prompts, assistant replies, tool cards) are separated by a bold, underlined role header in the role color and blank-line spacing rather than a filled block or a per-line prefix, so a mouse drag-select copies the message text without any leading bar or indent; a tool card's status (pending, error, success) shows in its colored, underlined title glyph and title. Inside a tool card, the whole body — presenter title, a terminal `$` command and cwd, and the tool's own output — renders in one dim tone, so only the status-colored header carries color and the body reads as one recessed block instead of a run of competing shades; an injected-context card's prose is the same tone as its header. A diff card with both sides available colors and counts exact added `+` and removed `-` lines, while unchanged context stays dim and uncounted. If exact comparison exceeds `maxDiffEditLength`, the card renders each old-side row as removed and each new-side row as added, marks the footer approximate, and caches that fallback for later redraws. When `oldText` is unavailable, including pending writes and replay fallbacks as well as creates, every non-empty new-side row is shown and counted as added; that count does not prove the rows were absent from an existing file. Empty new content produces no synthetic `+ ` row. A `[signal …]` marker remains colored because there the color is the meaning rather than emphasis. The question panel emphasizes its active row with bold accent text, while selectors use reverse video. These treatments are foreground-only, so they never collide with the terminal background. Set `color: false` to strip all styling.
 
 ## Model Experience
 
