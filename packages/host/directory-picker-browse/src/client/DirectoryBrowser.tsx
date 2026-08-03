@@ -25,7 +25,9 @@
  * reveals the hidden entries it names, and a prefix nobody matches releases
  * the filter), while a directory part no pane lists is scanned after a short
  * debounce and shown in place — so typing deeper descends and erasing
- * segments steps back up without leaving the editor.
+ * segments steps back up without leaving the editor. Panes the draft walked
+ * to stay put when the editor closes (cancellation included): the crumbs name
+ * where the walk ended, and Open's fallback target follows them.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
@@ -157,9 +159,9 @@ function draftPrefixFor(listing: DirectoryListing, draft: string | null): string
 function pendingPreviewDirectory(
   parent: DirectoryListing | null,
   child: DirectoryListing | null,
-  draft: string | null,
+  draft: string,
 ): string | null {
-  if (parent === null || draft === null) return null
+  if (parent === null) return null
   const directory = draftDirectory(parent, draft)
   if (directory === null || directory === levelDirectory(parent)) return null
   if (child !== null && directory === levelDirectory(child)) return null
@@ -453,9 +455,22 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
    * Enter owns the view from submission until its navigation lands, so the
    * debounce timer the same keystrokes armed must not supersede it. Cleared
    * by the next edit (and by opening the editor); a failed submission leaves
-   * it set, so the rejected path is not immediately re-scanned as a preview.
+   * it set until the operator edits again, so the rejected path is not
+   * immediately re-scanned as a preview.
    */
   const previewSuspended = useRef(false)
+
+  // The panes as the draft-following scan must read them when its wait
+  // fires: current, but NOT a dependency of the wait (see the effect below).
+  const viewRef = useRef<{ parent: DirectoryListing | null; child: DirectoryListing | null }>({ parent: null, child: null })
+  useEffect(() => { viewRef.current = { parent, child } }, [parent, child])
+
+  /**
+   * A landed preview replaced the pane a keyboard operator may have Tabbed
+   * onto, so the focus it drops is re-parked on the still-open editor (the
+   * Modal has no focus trap). Consumed by the refocus effect below.
+   */
+  const refocusPathInput = useRef(false)
 
   /**
    * List the directory the draft addresses and show it WITHOUT closing the
@@ -478,6 +493,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
       setChild(null)
       setLoading(false)
       setError(null)
+      refocusPathInput.current = true
     }, () => {
       if (seq !== requestSeq.current) return
       setLoading(false)
@@ -602,21 +618,25 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
     return () => { window.clearTimeout(timer) }
   }, [loading, scanWindow])
 
-  // The panes follow the draft: a directory part no pane lists is scanned
-  // once the typing rests. The dependency is the target STRING, so the
-  // landing it commits cannot re-arm the timer (a host that answers with a
-  // differently spelled path leaves the target unchanged, hence unrepeated),
-  // and every further keystroke replaces the pending timer instead of
-  // queueing another scan.
-  const previewDirectory = pendingPreviewDirectory(parent, child, pathDraft)
+  // The panes follow the draft: EVERY keystroke replaces the pending timer,
+  // and the target is decided when it fires, off the panes as they stand
+  // then. Keying the wait on the draft (not on the directory part it names)
+  // is what makes a keystroke that superseded an in-flight scan re-arm one,
+  // and what lets an edit after a rejected submission release the hold the
+  // submission took. The panes are read through a ref for the converse
+  // reason: were they dependencies, the landing this commits would re-arm the
+  // wait, and a host answering with a differently spelled path would scan
+  // forever.
   useEffect(() => {
-    if (previewDirectory === null) return
+    if (pathDraft === null) return
     const timer = window.setTimeout(() => {
       if (previewSuspended.current) return
-      previewDraftLevel(previewDirectory)
+      const directory = pendingPreviewDirectory(viewRef.current.parent, viewRef.current.child, pathDraft)
+      if (directory === null) return
+      previewDraftLevel(directory)
     }, DRAFT_PREVIEW_DEBOUNCE_MS)
     return () => { window.clearTimeout(timer) }
-  }, [previewDirectory, previewDraftLevel])
+  }, [pathDraft, previewDraftLevel])
 
   // After the hooks: a closed dialog renders nothing and evaluates no copy.
   const crumbSource = child ?? parent
@@ -642,6 +662,12 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   // replacing the picked button's column — while Enter and an input-focused
   // Escape land on the crumb edit zone that replaces the input.
   useEffect(() => {
+    if (refocusPathInput.current) {
+      refocusPathInput.current = false
+      // Only when the swap actually dropped focus to body: focus the operator
+      // still holds (the input itself, a surviving row) stays theirs.
+      if (document.activeElement === document.body) pathInputRef.current?.focus()
+    }
     if (pathDraft !== null) return
     if (refocusPick.current) {
       refocusPick.current = false

@@ -407,8 +407,11 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
   it('walks the panes with the typed path: deeper past a separator, back up on erase, whole on a miss', async () => {
     // The panes must track the draft without leaving the editor, so the
     // typed text and what is listed under it never disagree.
+    // Staged by this scenario itself (mkdir is recursive and idempotent), so
+    // running it alone through -t sees the same tree the assertions describe.
     const staged = join(scaffold.workspaceCwd, 'browse-golden')
     await mkdir(join(staged, 'alpha', 'only-under-alpha'), { recursive: true })
+    await mkdir(join(staged, 'beta'), { recursive: true })
     const dialog = await browseTo(staged)
     await expect.poll(() => dialog.getByText('alpha', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
     await dialog.getByRole('button', { name: 'Edit path' }).click()

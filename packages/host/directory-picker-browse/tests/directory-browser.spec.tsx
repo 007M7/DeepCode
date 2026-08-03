@@ -678,7 +678,7 @@ describe('DirectoryBrowser', () => {
   })
 
   it('filters the child pane in two-pane mode and follows the draft back up a level', async () => {
-    mount()
+    const b = mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
     fireEvent.click(rowButton(screen.getByRole('listitem')))
     await waitFor(() => { expect(columns()).toHaveLength(2) })
@@ -689,6 +689,12 @@ describe('DirectoryBrowser', () => {
     expect(input.value).toBe(`${DOCS}/`)
     fireEvent.change(input, { target: { value: `${DOCS}/h` } })
     expect(within(columns()[1]!).getByText('harness')).toBeTruthy()
+    // The child pane already lists that directory: no scan follows, and both
+    // panes stay.
+    const settled = b.listDirectory.mock.calls.length
+    await act(async () => { await new Promise((resolve) => { setTimeout(resolve, 400) }) })
+    expect(b.listDirectory.mock.calls).toHaveLength(settled)
+    expect(columns()).toHaveLength(2)
     // A miss releases the right pane's filter rather than emptying it.
     fireEvent.change(input, { target: { value: `${DOCS}/zzz` } })
     expect(within(columns()[1]!).getByText('harness')).toBeTruthy()
@@ -712,11 +718,73 @@ describe('DirectoryBrowser', () => {
     expect(b.listDirectory.mock.calls.at(-1)?.[0]).toBe(`${DOCS}/`)
     // Still editing: the panes moved under the draft, the editor stayed.
     expect(screen.getByLabelText<HTMLInputElement>('browser.editPath').value).toBe(`${DOCS}/h`)
+    // Typing on inside the level the panes now list costs no scan at all:
+    // the prefix filter alone answers the draft.
+    const settled = b.listDirectory.mock.calls.length
+    fireEvent.change(input, { target: { value: `${DOCS}/ha` } })
+    await act(async () => { await new Promise((resolve) => { setTimeout(resolve, 400) }) })
+    expect(b.listDirectory.mock.calls).toHaveLength(settled)
     // Erasing back past the separator steps the panes up a level again.
     fireEvent.change(input, { target: { value: `${HOME}/Do` } })
     await waitFor(() => { expect(screen.getByText('Documents')).toBeTruthy() })
     expect(b.listDirectory.mock.calls.at(-1)?.[0]).toBe(`${HOME}/`)
     expect(columns()).toHaveLength(1)
+  })
+
+  it('re-arms the draft-following scan after a keystroke superseded one in flight', async () => {
+    let started = 0
+    const listDirectory = vi.fn(async (path?: string) => {
+      if (path !== `${DOCS}/`) return listingFor(path)
+      started += 1
+      // The first scan never settles: the next keystroke aborts it, and only
+      // a re-armed wait can still land the level the draft names.
+      if (started === 1) return await new Promise<DirectoryListing>(() => {})
+      return listingFor(path)
+    })
+    mount({ listDirectory })
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    fireEvent.change(input, { target: { value: `${DOCS}/h` } })
+    await waitFor(() => { expect(started).toBe(1) })
+    // A further tail keystroke supersedes the in-flight scan; the panes must
+    // still follow, not sit on the stale level until a separator is typed.
+    fireEvent.change(input, { target: { value: `${DOCS}/ha` } })
+    await waitFor(() => { expect(screen.getByText('harness')).toBeTruthy() })
+  })
+
+  it('follows the draft again after an edit releases a failed submission hold', async () => {
+    const listDirectory = vi.fn(async (path?: string) => {
+      if (path === HARNESS) throw new Error('target unreadable')
+      return listingFor(path)
+    })
+    mount({ listDirectory })
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    // Submitting inside the debounce window holds the pending scan back.
+    fireEvent.change(input, { target: { value: HARNESS } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('target unreadable') })
+    // Correcting only the final segment leaves the directory part unchanged;
+    // the edit must still release the hold and re-arm the wait.
+    fireEvent.change(input, { target: { value: `${HARNESS}x` } })
+    await waitFor(() => { expect(listDirectory).toHaveBeenCalledWith(`${DOCS}/`, expect.anything()) })
+    await waitFor(() => { expect(screen.getByText('harness')).toBeTruthy() })
+  })
+
+  it('re-parks focus on the editor when a landed scan unmounts the focused row', async () => {
+    mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    fireEvent.change(input, { target: { value: `${DOCS}/h` } })
+    // The keyboard path: focus Tabbed onto a row of the level about to be
+    // replaced. Without a re-park it would fall to body, outside a Modal that
+    // has no focus trap.
+    rowButton(screen.getByRole('listitem')).focus()
+    await waitFor(() => { expect(screen.getByText('harness')).toBeTruthy() })
+    expect(document.activeElement).toBe(screen.getByLabelText('browser.editPath'))
   })
 
   it('keeps the panes and stays silent when a draft-following scan fails', async () => {
@@ -1065,6 +1133,10 @@ describe('DirectoryBrowser', () => {
     fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
     const input = screen.getByLabelText('browser.editPath')
     fireEvent.change(input, { target: { value: DOCS } })
+    // With no level listed there is no platform separator to read, so the
+    // draft-following wait resolves to nothing and the editor types blind.
+    await act(async () => { await new Promise((resolve) => { setTimeout(resolve, 400) }) })
+    expect(listDirectory).toHaveBeenCalledTimes(1)
     listDirectory.mockImplementation(async (path?: string) => listingFor(path))
     fireEvent.keyDown(input, { key: 'Enter' })
     await waitFor(() => { expect(screen.getByText('harness')).toBeTruthy() })
