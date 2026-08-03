@@ -1394,7 +1394,7 @@ describe('manual web performance: complex workspace and history', () => {
     try {
       await world.page.goto(world.scaffold.baseUrl, { waitUntil: 'load' })
       await world.page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
-      await connectFreshWorkspace(world.page, 'continuous-conversation-perf')
+      await connectFreshWorkspace(world.page, world.scaffold.workspaceCwd, 'continuous-conversation-perf')
       const cdp = await world.page.context().newCDPSession(world.page)
       await cdp.send('Performance.enable')
       const conversation = await continueConversation(world, cdp, {

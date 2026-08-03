@@ -191,7 +191,7 @@ describe('web e2e: continuous conversation grown through the composer', () => {
     })
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
-    await connectFreshWorkspace(page, 'continuous-chat-e2e')
+    await connectFreshWorkspace(page, scaffold.workspaceCwd, 'continuous-chat-e2e')
   }, 120_000)
 
   afterAll(async () => {
@@ -302,7 +302,7 @@ describe('web e2e: continuous conversation grown through the composer', () => {
       const toolRow = page.locator(`[data-chat-call-id="${spec.callId}"]`)
       await expect.poll(() => toolRow.count(), { timeout: 10_000 }).toBe(1)
       expect(await toolRow.textContent()).toContain(spec.toolResultMarker)
-      const disclosure = toolRow.locator('[data-sample="bash-global"]')
+      const disclosure = toolRow.locator('[data-sample="bash"]')
       expect(await disclosure.getAttribute('aria-expanded')).toBe('false')
       await disclosure.click()
       await expect.poll(() => disclosure.getAttribute('aria-expanded'), { timeout: 10_000 }).toBe('true')

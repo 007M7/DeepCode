@@ -168,6 +168,7 @@ describe('web e2e: long Chat interaction contract', () => {
     const branchUserMarker = FIXTURE.markers.user(BRANCH_TURN)
     const branchAssistantMarker = FIXTURE.markers.assistant(BRANCH_TURN)
     const branchUserEvent = requiredEvent(source.session.events, 'user/message', branchUserMarker)
+    const branchAssistantEvent = requiredEvent(source.session.events, 'assistant/message', branchAssistantMarker)
     const boundary = source.session.events.find((event): event is SessionEvent<'turn/end'> => (
       event.type === 'turn/end' && event.data.turn === BRANCH_TURN
     ))
@@ -208,8 +209,8 @@ describe('web e2e: long Chat interaction contract', () => {
     expect(groupKeys[0]).not.toBeNull()
     expect(groupKeys[1]).toBe(groupKeys[0])
 
-    const summary1 = call1.locator('[data-sample="bash-global"]')
-    const summary2 = call2.locator('[data-sample="bash-global"]')
+    const summary1 = call1.locator('[data-sample="bash"]')
+    const summary2 = call2.locator('[data-sample="bash"]')
     expect(await summary1.getAttribute('aria-expanded')).toBe('false')
     expect(await summary2.getAttribute('aria-expanded')).toBe('false')
     await summary2.focus()
@@ -220,15 +221,17 @@ describe('web e2e: long Chat interaction contract', () => {
 
     await wheelUntilMounted(page, `[data-chat-anchor-key="node:${String(branchUserEvent.seq)}"]`, -1_100)
     const userRow = page.locator(`[data-chat-anchor-key="node:${String(branchUserEvent.seq)}"]`)
+    const assistantRow = page.locator(`[data-chat-anchor-key="node:${String(branchAssistantEvent.seq)}"]`)
     expect(await userRow.textContent()).toContain(branchUserMarker)
+    expect(await assistantRow.textContent()).toContain(branchAssistantMarker)
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
     await userRow.hover()
     await userRow.getByRole('button', { name: 'Copy', exact: true }).click()
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText()), { timeout: 5_000 })
       .toBe(expectedUserText)
 
-    await userRow.hover()
-    await userRow.getByRole('button', { name: 'Branch into a new conversation', exact: true }).click()
+    await assistantRow.hover()
+    await assistantRow.getByRole('button', { name: 'Branch into a new conversation', exact: true }).click()
     await expect.poll(
       () => scaffold.ctx.agents.list().find(agent => agent.session.header.parentSession === SessionId(SESSION_ID)),
       { timeout: 15_000 },
