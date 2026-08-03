@@ -200,20 +200,23 @@ interface ToolExecutionInput {
 }
 ```
 
-工具函数体接收运行时扩展。`deferContext()` 是组合工具的通道：它记录嵌套分派产生的上下文，而不会在外层调用尚未结束时注入这些上下文。
+工具函数体接收运行时扩展。`deferContext()` 把上下文附着到本次执行自己的结果上——既是组合工具转运嵌套分派上下文的通道，也可供叶子工具铸造插件来源指令——而不会在外层调用尚未结束时注入这些上下文。
 
 ```ts type-equiv
 /**
  * Runtime context handed to a tool implementation after the registry has
- * accepted a {@link ToolExecution}. A composite tool uses
- * {@link deferContext} to ferry context produced by nested dispatches back to
- * the outer result; the loop appends it only after the outer `tool/result`.
+ * accepted a {@link ToolExecution}. {@link deferContext} attaches context to
+ * this execution's own result — a composite tool ferries nested-dispatch
+ * context back to the outer result, and a leaf tool may mint a fresh
+ * plugin-sourced instruction; the loop appends it only after the
+ * `tool/result`.
  */
 interface ToolRunContext extends ToolExecution {
   /**
-   * Defer one nested-dispatch context until this tool's final result reaches
-   * the agent loop. Contexts retain their individual source and metadata and
-   * are emitted in call order.
+   * Defer one context — typically a nested-dispatch context ferried by a
+   * composite tool, or a fresh plugin-sourced instruction — until this tool's
+   * final result reaches the agent loop. Contexts retain their individual
+   * source and metadata and are emitted in call order.
    */
   deferContext(context: UserMessage): void
   /**

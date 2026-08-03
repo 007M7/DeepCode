@@ -14,7 +14,7 @@ import { randomUUID } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 import { Readable, Writable } from 'node:stream'
 import Schema from 'schemastery'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
 import {
   AgentSideConnection,
   ndJsonStream,
@@ -368,7 +368,14 @@ export function apply(ctx: Context, config: AcpConfig): void {
         if (result.status === 'rejected') failures.push(result.reason as unknown)
       }
       if (failures.length > 0) {
-        throw new AggregateError(failures, `ACP agent teardown failed for ${failures.length} session(s)`)
+        // The production consumer logs this AggregateError through `String`,
+        // which renders only its message. Embed every per-session diagnostic,
+        // including nested causes and aggregate members, in that message.
+        const detail = failures.map(failure => errorChain(failure)).join('; ')
+        throw new AggregateError(
+          failures,
+          `ACP agent teardown failed for ${failures.length} session(s): ${detail}`,
+        )
       }
     })()
     return quiescing

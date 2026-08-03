@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type {
   SessionId, SessionListState, SessionSummary, SubagentCatalogSnapshot,
 } from '@deepseek-ai/dsh-client-runtime/client'
@@ -8,6 +9,7 @@ import {
   SubagentCatalogAction, type SubagentCatalogActionProps,
 } from '../src/client/SubagentCatalogAction.tsx'
 import { SubagentReadOnlyComposer } from '../src/client/SubagentReadOnlyComposer.tsx'
+import { zh } from '../src/client/locales.ts'
 
 afterEach(() => {
   cleanup()
@@ -17,6 +19,7 @@ afterEach(() => {
 const PARENT = 'parent' as SessionId
 const CHILD = 'child' as SessionId
 const GRANDCHILD = 'grandchild' as SessionId
+const t: SubagentCatalogActionProps['t'] = makeTranslate(zh)
 
 function catalog(over: Partial<SubagentCatalogSnapshot> = {}): SubagentCatalogSnapshot {
   return {
@@ -69,6 +72,7 @@ function props(
     openChild: vi.fn(),
     refresh: vi.fn(),
     setCatalogOpen: vi.fn(),
+    t,
   } as unknown as SubagentCatalogActionProps
 }
 
@@ -152,6 +156,24 @@ describe('SubagentCatalogAction', () => {
       parentSessionId: PARENT, childSessionId: CHILD, mode: 'continuable',
     })
     expect(input.setCatalogOpen).toHaveBeenLastCalledWith(PARENT, false)
+  })
+
+  it('selects singular count keys for one descendant', () => {
+    const base = props(catalog({
+      entries: [{
+        kind: 'child', id: CHILD, mode: 'continuable', label: 'worker',
+        activity: 'running', hasChildren: false,
+      }],
+    }), {}, {
+      [CHILD]: {
+        ...summary(CHILD, Date.now()), parentId: PARENT, origin: 'subagent', running: true,
+      },
+    })
+    const translate = vi.fn(base.t)
+    render(<SubagentCatalogAction {...base} t={translate} />)
+
+    expect(translate).toHaveBeenCalledWith('count.running.one', { count: 1 })
+    expect(translate).toHaveBeenCalledWith('count.total.one', { count: 1 })
   })
 
   it('supports trigger/menu keyboard traversal, Escape focus restore, and outside close', async () => {
@@ -401,6 +423,32 @@ describe('SubagentCatalogAction', () => {
     expect(failed.refresh).toHaveBeenCalledWith(PARENT)
   })
 
+  it('keeps known descendants reachable while their catalog is absent or stale-empty', () => {
+    const second = 'child-2' as SessionId
+    const summaries = {
+      [CHILD]: {
+        ...summary(CHILD, 1), parentId: PARENT, origin: 'subagent' as const,
+      },
+      [second]: {
+        ...summary(second, 1), parentId: PARENT, origin: 'subagent' as const, running: true,
+      },
+    }
+    const absent = props(undefined, {}, summaries)
+    const view = render(<SubagentCatalogAction {...absent} />)
+
+    const trigger = screen.getByRole('button', { name: '2 个子代理，正在运行' })
+    fireEvent.click(trigger)
+    expect(absent.setCatalogOpen).toHaveBeenCalledWith(PARENT, true)
+    expect(screen.getAllByRole('treeitem', { name: '正在加载子代理' })).toHaveLength(2)
+    expect(absent.openChild).not.toHaveBeenCalled()
+
+    const staleEmpty = props(catalog({ entries: [] }), {}, summaries)
+    view.rerender(<SubagentCatalogAction {...staleEmpty} />)
+    expect(screen.getByRole('button', { name: '2 个子代理，正在运行' })).toBeTruthy()
+    expect(screen.getAllByRole('treeitem', { name: '正在加载子代理' })).toHaveLength(2)
+    expect(staleEmpty.openChild).not.toHaveBeenCalled()
+  })
+
   it('renders empty loading and fallback error states without focusable rows', async () => {
     const loading = props(catalog({ entries: [], state: 'loading' }))
     const view = render(<SubagentCatalogAction {...loading} />)
@@ -454,12 +502,12 @@ describe('SubagentCatalogAction', () => {
 
 describe('SubagentReadOnlyComposer', () => {
   it('explains the exact missing-parent recovery path', () => {
-    render(<SubagentReadOnlyComposer matched={{ reason: 'parent-unavailable' }} />)
+    render(<SubagentReadOnlyComposer matched={{ reason: 'parent-unavailable' }} t={t} />)
     expect(screen.getByRole('status').textContent).toContain('父会话当前不在线')
   })
 
   it('explains that one-shot histories never accept follow-ups', () => {
-    render(<SubagentReadOnlyComposer matched={{ reason: 'one-shot' }} />)
+    render(<SubagentReadOnlyComposer matched={{ reason: 'one-shot' }} t={t} />)
     expect(screen.getByRole('status').textContent).toContain('一次性任务不支持后续消息')
   })
 })

@@ -96,7 +96,7 @@ describe('ACP connection ownership', () => {
     expect(harness.ctx.agents.get(SessionId(sessionId))).toBeUndefined()
   })
 
-  it('awaits every owned session disposal before reporting one failure', async () => {
+  it('awaits every owned session disposal and reports nested failure reasons', async () => {
     harness = await makeBridgeHarness()
     const create = harness.ctx.agents.create.bind(harness.ctx.agents)
     const releaseSecond = Promise.withResolvers<undefined>()
@@ -110,7 +110,10 @@ describe('ACP connection ownership', () => {
       if (created++ === 0) {
         handle.dispose = async () => {
           await originalDispose()
-          throw new Error('first session cleanup failed')
+          throw new AggregateError([
+            new Error('scope cleanup failed', { cause: new Error('sqlite busy') }),
+            new Error('hook cleanup failed'),
+          ], 'first session cleanup failed')
         }
       } else {
         handle.dispose = async () => {
@@ -131,7 +134,11 @@ describe('ACP connection ownership', () => {
 
     releaseSecond.resolve(undefined)
     await vi.waitFor(() => {
-      expect(warnings.some(warning => warning.includes('ACP agent teardown failed for 1 session(s)'))).toBe(true)
+      expect(warnings.some(warning =>
+        warning.includes(
+          'ACP agent teardown failed for 1 session(s): '
+          + 'first session cleanup failed [scope cleanup failed: sqlite busy; hook cleanup failed]',
+        ))).toBe(true)
       expect(harness!.ctx.agents.get(SessionId(first.sessionId))).toBeUndefined()
       expect(harness!.ctx.agents.get(SessionId(second.sessionId))).toBeUndefined()
     })
