@@ -24,10 +24,12 @@
  * prefix-filters the level its directory part names (a dot-led prefix also
  * reveals the hidden entries it names, and a prefix nobody matches releases
  * the filter), while a directory part no pane lists is scanned after a short
- * debounce and shown in place — so typing deeper descends and erasing
- * segments steps back up without leaving the editor. Panes the draft walked
- * to stay put when the editor closes (cancellation included): the crumbs name
- * where the walk ended, and Open's fallback target follows them.
+ * debounce and lands like any other navigation — selection-anchored and
+ * two-pane away from the display root — so typing deeper descends and
+ * erasing segments walks back up, moving the Miller view without leaving the
+ * editor. Panes the draft walked to stay put when the editor closes
+ * (cancellation included): the crumbs name where the walk ended, and Open's
+ * fallback target follows them.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
@@ -334,25 +336,65 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   }, [restartSlowScanWindow, listDirectory])
 
   /**
-   * Replace the whole view with a freshly navigated level. Away from the
+   * Enter owns the view from submission until its navigation lands, so the
+   * debounce timer the same keystrokes armed must not supersede it. Cleared
+   * by the next edit (and by opening the editor); a failed submission leaves
+   * it set until the operator edits again, so the rejected path is not
+   * immediately re-scanned as a preview.
+   */
+  const previewSuspended = useRef(false)
+
+  // The panes as the draft-following scan must read them when its wait
+  // fires: current, but NOT a dependency of the wait (see the effect below).
+  const viewRef = useRef<{ parent: DirectoryListing | null; child: DirectoryListing | null }>({ parent: null, child: null })
+  useEffect(() => { viewRef.current = { parent, child } }, [parent, child])
+
+  /**
+   * A landed preview replaced the pane a keyboard operator may have Tabbed
+   * onto, so the focus it drops is re-parked on the still-open editor (the
+   * Modal has no focus trap). Consumed by the refocus effect below.
+   */
+  const refocusPathInput = useRef(false)
+
+  /**
+   * Replace the whole view with a freshly scanned level. Away from the
    * display root — the same collapse the crumb header renders, so crumbs and
    * pane shape never disagree — the landing is two-pane: the target's ACTUAL
    * parent-level entry re-selected (left pane = parent, right pane = the
    * target), so a crumb jump reads as stepping back one pane. Both legs land
    * as one frame when the parent leg settles within
    * {@link PARENT_LEG_WAIT_MS}; past that bound (or at the display root) the
-   * target commits alone — single wide level, the editor closes, loading
-   * ends — and a late parent leg still upgrades the landing in place. A
-   * failed parent leg, or a truncated parent window that lacks the target,
-   * leaves the single-pane landing — the upgrade must never orphan the
-   * selection it exists to anchor. Until whichever commit comes first, the
-   * previous view keeps rendering: navigation swaps the panes, it never
-   * blanks them.
+   * target commits alone — single wide level, loading ends — and a late
+   * parent leg still upgrades the landing in place. A failed parent leg, or a
+   * truncated parent window that lacks the target, leaves the single-pane
+   * landing — the upgrade must never orphan the selection it exists to
+   * anchor. Until whichever commit comes first, the previous view keeps
+   * rendering: a landing swaps the panes, it never blanks them.
+   *
+   * Two callers, one landing shape. A submitted path (Enter, a crumb) closes
+   * the editor on arrival and announces its failure; the editor's own
+   * draft-following scan keeps both to itself — it is speculative, so a
+   * failure leaves the last readable panes standing and says nothing, while
+   * an arrival clears the stale message and re-parks focus the swap dropped.
+   * @param path - the level to list; absent lists the Host home directory.
+   * @param options - `closeEditor` retires the path draft on arrival;
+   * `announce` surfaces a failure as the dialog's alert.
    */
-  const navigate = useCallback((path?: string) => {
+  const land = useCallback((path: string | undefined, options: { closeEditor: boolean; announce: boolean }) => {
     const { seq, scan } = launchListing(path)
     setLoading(true)
-    setError(null)
+    if (options.announce) setError(null)
+    // What every landing does once its panes are committed, whichever shape
+    // committed them.
+    const settle = (): void => {
+      setLoading(false)
+      if (options.closeEditor) {
+        setPathDraft(null)
+        return
+      }
+      setError(null)
+      refocusPathInput.current = true
+    }
     scan.then((target) => {
       if (seq !== requestSeq.current) return
       // The single-pane landing; `landed` makes it first-commit-only, while
@@ -364,8 +406,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
         setParent(target)
         setSelected(null)
         setChild(null)
-        setLoading(false)
-        setPathDraft(null)
+        settle()
       }
       // Arity is label-independent: only the collapsed chain's depth decides.
       if (displayCrumbs(target, '').length < 2) { landSingle(); return }
@@ -386,10 +427,8 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
         setChild(target)
         // Idempotent on a late upgrade of a timed-out landing: reopening the
         // editor or starting a newer scan supersedes this seq, so reaching
-        // here means the draft is closed and the loading flag is this
-        // navigation's own.
-        setLoading(false)
-        setPathDraft(null)
+        // here means the settlement is still this landing's own.
+        settle()
       }, () => {
         // The parent-leg failure (its abort included) never surfaces: the
         // target listed fine, and nobody asked to see the parent level.
@@ -399,9 +438,14 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
     }, (reason: unknown) => {
       if (seq !== requestSeq.current) return
       setLoading(false)
-      setError(failureText(reason))
+      if (options.announce) setError(failureText(reason))
     })
   }, [launchListing, continueScan])
+
+  /** Commit a submitted path (Enter, a crumb, the initial home listing): the editor closes, failures surface. */
+  const navigate = useCallback((path?: string) => {
+    land(path, { closeEditor: true, announce: true })
+  }, [land])
 
   // Editor-close focus parking (consumed by the refocus effect below the
   // miller-row ref): a pick parks on the selection's row, Enter and an
@@ -452,53 +496,15 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   }, [launchListing, pathDraft])
 
   /**
-   * Enter owns the view from submission until its navigation lands, so the
-   * debounce timer the same keystrokes armed must not supersede it. Cleared
-   * by the next edit (and by opening the editor); a failed submission leaves
-   * it set until the operator edits again, so the rejected path is not
-   * immediately re-scanned as a preview.
-   */
-  const previewSuspended = useRef(false)
-
-  // The panes as the draft-following scan must read them when its wait
-  // fires: current, but NOT a dependency of the wait (see the effect below).
-  const viewRef = useRef<{ parent: DirectoryListing | null; child: DirectoryListing | null }>({ parent: null, child: null })
-  useEffect(() => { viewRef.current = { parent, child } }, [parent, child])
-
-  /**
-   * A landed preview replaced the pane a keyboard operator may have Tabbed
-   * onto, so the focus it drops is re-parked on the still-open editor (the
-   * Modal has no focus trap). Consumed by the refocus effect below.
-   */
-  const refocusPathInput = useRef(false)
-
-  /**
-   * List the directory the draft addresses and show it WITHOUT closing the
-   * editor: the level replaces the panes single-wide (the selection and its
-   * child preview belonged to the level the draft left), and the draft's
-   * final segment prefix-filters it from the next render on. Unlike Enter,
-   * this is speculative — half-typed directories are unreadable most of the
-   * time — so a failure keeps the last readable panes and stays silent,
-   * leaving submission to surface the real error. A landing clears a stale
-   * error for the same reason: it, not the launch, is what makes the message
-   * obsolete.
+   * Walk the panes to the directory the draft addresses, WITHOUT closing the
+   * editor. The landing is an ordinary one — selection-anchored and two-pane
+   * away from the display root — so typing a path moves the Miller view
+   * exactly as a crumb jump does, and the draft's final segment
+   * prefix-filters the arrival from the next render on.
    */
   const previewDraftLevel = useCallback((directory: string) => {
-    const { seq, scan } = launchListing(directory)
-    setLoading(true)
-    scan.then((level) => {
-      if (seq !== requestSeq.current) return
-      setParent(level)
-      setSelected(null)
-      setChild(null)
-      setLoading(false)
-      setError(null)
-      refocusPathInput.current = true
-    }, () => {
-      if (seq !== requestSeq.current) return
-      setLoading(false)
-    })
-  }, [launchListing])
+    land(directory, { closeEditor: false, announce: false })
+  }, [land])
 
   /** Abandon path editing (Escape or clicking away) and restore the crumb view. */
   const cancelPathEdit = useCallback(() => {

@@ -652,7 +652,7 @@ describe('DirectoryBrowser', () => {
   })
 
   it('prefix-filters the listed level from the draft tail, dot revealing hidden matches', async () => {
-    mount()
+    const b = mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
     fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
     const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
@@ -672,9 +672,17 @@ describe('DirectoryBrowser', () => {
     // Its dot-led reveal lapses with it.
     fireEvent.change(input, { target: { value: `${HOME}/.zzz` } })
     expect(screen.getAllByRole('listitem').map(item => item.textContent)).toEqual(['Documents'])
-    // A draft naming some other directory (or none) leaves the level whole.
+    // A tail inside the listed level names no level to walk to: the wait
+    // fires and finds nothing to scan.
+    const settled = b.listDirectory.mock.calls.length
+    await act(async () => { await new Promise((resolve) => { setTimeout(resolve, 400) }) })
+    expect(b.listDirectory.mock.calls).toHaveLength(settled)
+    // A draft naming some other directory (or none) leaves the level whole —
+    // and a draft with no separator at all addresses no directory either.
     fireEvent.change(input, { target: { value: 'no-separator' } })
     expect(screen.getByRole('listitem').textContent).toBe('Documents')
+    await act(async () => { await new Promise((resolve) => { setTimeout(resolve, 400) }) })
+    expect(b.listDirectory.mock.calls).toHaveLength(settled)
   })
 
   it('filters the child pane in two-pane mode and follows the draft back up a level', async () => {
@@ -706,29 +714,46 @@ describe('DirectoryBrowser', () => {
     expect(within(columns()[1]!).getByText('harness')).toBeTruthy()
   })
 
-  it('follows the draft into a directory no pane lists, and back up when segments are erased', async () => {
+  it('follows the draft into a directory no pane lists, landing the two-pane Miller view', async () => {
     const b = mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    expect(columns()).toHaveLength(1)
     fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
     const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
-    // Typing past a separator addresses a level nobody shows: the panes
-    // follow it once the typing rests, and the tail filters the arrival.
+    // Typing past a separator addresses a level nobody shows: the panes walk
+    // to it once the typing rests, landing the ordinary selection-anchored
+    // two-pane view (level | its children) with the tail filtering the right
+    // pane — a typed path moves the Miller view exactly as a crumb jump does.
     fireEvent.change(input, { target: { value: `${DOCS}/h` } })
-    await waitFor(() => { expect(screen.getByText('harness')).toBeTruthy() })
-    expect(b.listDirectory.mock.calls.at(-1)?.[0]).toBe(`${DOCS}/`)
+    await waitFor(() => { expect(columns()).toHaveLength(2) })
+    expect(b.listDirectory).toHaveBeenCalledWith(`${DOCS}/`, expect.anything())
+    expect(within(columns()[0]!).getByText('Documents')).toBeTruthy()
+    expect(within(columns()[1]!).getByText('harness')).toBeTruthy()
     // Still editing: the panes moved under the draft, the editor stayed.
     expect(screen.getByLabelText<HTMLInputElement>('browser.editPath').value).toBe(`${DOCS}/h`)
-    // Typing on inside the level the panes now list costs no scan at all:
-    // the prefix filter alone answers the draft.
+    // Typing on inside a level the panes already list costs no scan at all:
+    // the prefix filter alone answers the draft, both panes stay.
     const settled = b.listDirectory.mock.calls.length
     fireEvent.change(input, { target: { value: `${DOCS}/ha` } })
     await act(async () => { await new Promise((resolve) => { setTimeout(resolve, 400) }) })
     expect(b.listDirectory.mock.calls).toHaveLength(settled)
-    // Erasing back past the separator steps the panes up a level again.
-    fireEvent.change(input, { target: { value: `${HOME}/Do` } })
-    await waitFor(() => { expect(screen.getByText('Documents')).toBeTruthy() })
-    expect(b.listDirectory.mock.calls.at(-1)?.[0]).toBe(`${HOME}/`)
-    expect(columns()).toHaveLength(1)
+    expect(columns()).toHaveLength(2)
+  })
+
+  it('walks the panes back up when erased segments leave the listed levels', async () => {
+    const b = mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    fireEvent.change(input, { target: { value: `${DOCS}/h` } })
+    await waitFor(() => { expect(columns()).toHaveLength(2) })
+    // Erasing back to a directory neither pane lists walks up to it; the
+    // filesystem root is the display root, so it lands the single wide level
+    // with the tail filtering it.
+    fireEvent.change(input, { target: { value: '/ho' } })
+    await waitFor(() => { expect(columns()).toHaveLength(1) })
+    expect(b.listDirectory).toHaveBeenCalledWith('/', expect.anything())
+    expect(screen.getAllByRole('listitem').map(item => item.textContent)).toEqual(['home'])
   })
 
   it('re-arms the draft-following scan after a keystroke superseded one in flight', async () => {
@@ -778,12 +803,14 @@ describe('DirectoryBrowser', () => {
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
     fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
     const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
-    fireEvent.change(input, { target: { value: `${DOCS}/h` } })
+    // Two levels down, so the walk replaces the LEFT pane the focused row
+    // lives in (a landing that re-lists the same level reuses its rows).
+    fireEvent.change(input, { target: { value: `${HARNESS}/` } })
     // The keyboard path: focus Tabbed onto a row of the level about to be
     // replaced. Without a re-park it would fall to body, outside a Modal that
     // has no focus trap.
     rowButton(screen.getByRole('listitem')).focus()
-    await waitFor(() => { expect(screen.getByText('harness')).toBeTruthy() })
+    await waitFor(() => { expect(within(columns()[0]!).getByText('harness')).toBeTruthy() })
     expect(document.activeElement).toBe(screen.getByLabelText('browser.editPath'))
   })
 

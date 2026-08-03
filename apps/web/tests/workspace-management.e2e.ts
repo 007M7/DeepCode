@@ -416,17 +416,18 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
     await expect.poll(() => dialog.getByText('alpha', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
     await dialog.getByRole('button', { name: 'Edit path' }).click()
     const path = dialog.getByLabel('Edit path')
-    // A directory part no pane lists: the panes follow it and keep the editor.
+    // A directory part no pane lists: the panes walk to it, landing the
+    // ordinary two-pane Miller view (level | its children) with the editor
+    // still up and the draft intact.
     await path.fill(`${join(staged, 'alpha')}${sep}`)
     await expect.poll(() => dialog.getByText('only-under-alpha', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
-    // The editor is still up with the draft intact: the panes moved under it.
+    expect(await dialog.getByRole('list').count()).toBe(2)
     expect(await path.inputValue()).toBe(`${join(staged, 'alpha')}${sep}`)
-    // Erasing back past the separator steps the panes up, the tail filtering
-    // the level it returns to.
+    // Erasing back past the separator returns to a level already on screen:
+    // the tail filters it, no scan needed, both panes stay.
     await path.fill(`${staged}${sep}al`)
-    await expect.poll(() => dialog.getByText('alpha', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
-    expect(await dialog.getByText('beta', { exact: true }).count()).toBe(0)
-    expect(await dialog.getByText('only-under-alpha', { exact: true }).count()).toBe(0)
+    await expect.poll(() => dialog.getByText('beta', { exact: true }).count(), { timeout: 10_000 }).toBe(0)
+    expect(await dialog.getByText('alpha', { exact: true }).count()).toBe(1)
     // A tail nobody matches is a name still being spelled: the level shows
     // whole instead of emptying under it.
     await path.fill(`${staged}${sep}zzz`)
