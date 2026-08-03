@@ -22,6 +22,6 @@ New Session 会启动运行时的页面局部前端 Session Intent；真实 Work
 
 ## 已知限制与暂缓事项
 
-- **状态点只有两种实时数据状态（running/none）**：done/error/amber 的数据源将随 P-II 审批与通知功能一并提供；四色原语已接入。
+- **Session 状态点渲染由 [ui-workspace](../ui-workspace/README.md) 持有**：done/error 的通知数据源仍暂缓实现。
 - **分组选单只提供按 Workspace 分组**：Update/Status 分组策略只有图稿而没有规范，暂缓实现。
 - **「New task completed」未读标记是本地查看状态**：完成时间 > 上次查看时间这一事实永远不会到达宿主。

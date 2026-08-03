@@ -259,6 +259,7 @@ const SELECT_PRO_MODEL = [
   { waitFor: 'scripted TUI ready.', send: '/model\r' },
   { waitFor: 'Select model', send: '\x1b[B\x1b[Z\r' },
 ] as const
+const ANSWER_MULTI_WITH_CUSTOM = ' \tRelease notes\r'
 
 describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
   it.each([
@@ -450,7 +451,10 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
         // The question text first appears in the streamed tool-call card. Wait
         // for the dialog's input legend so Enter cannot arrive before it owns
         // terminal input when pre-dispatch policy yields.
-        { waitFor: 'Tab custom answer • ↑/↓ navigate • Enter submit • Esc interrupt', send: '\r' },
+        {
+          waitFor: 'Tab custom answer • ↑/↓ navigate • Space toggle • Enter submit • Esc interrupt',
+          send: ANSWER_MULTI_WITH_CUSTOM,
+        },
         { waitFor: 'Decision received. Scripted TUI run complete.', send: '' },
         // Session title: the first user message drives the first-message-llm
         // provider's tool-less title call; the scripted adapter answers it, the
@@ -476,6 +480,7 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
     expect(output).not.toContain('\u001B[999CMODEL_CURSOR')
     expect(output).not.toContain('\u009B31mMODEL_C1')
     expect(output).toContain('Safe')
+    expect(output).toContain('Release notes')
     expect(output).toContain('\u001B]0;scripted session title — DeepSeek Harness\u0007')
     expect(output).toContain('Session status')
     expect(output).toContain('Title')
@@ -861,7 +866,7 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
       actions: [
         ...SELECT_PRO_MODEL,
         { waitFor: 'Model selected: tui-scripted/tui-scripted-model-pro.', send: 'exercise the TUI\r' },
-        { waitFor: 'How should the scripted run proceed?', send: '\r' },
+        { waitFor: 'How should the scripted run proceed?', send: ANSWER_MULTI_WITH_CUSTOM },
         { waitFor: 'Decision received. Scripted TUI run complete.', send: '/exit\r' },
       ],
       inspect: async (cwd) => { context = await readLoggedRequestContext(cwd) },
