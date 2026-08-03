@@ -29,6 +29,7 @@ Status: implemented
 - bash 与 pwsh 工具在前台与后台 shell 工作（减 sandbox）上行为可互换，pwsh 的 prompt/描述句每句都有渲染器背书——reviewer 的“拿代码 grep 对证”检查通过。
 - 对齐也反向发生过一次：pwsh 工具的结构化前台中止（`HarnessError('tool call aborted', TOOL_ABORTED)`，name 为 `AbortError`）被回移到 bash 工具，取代其无码的 `Error('command aborted')`——这是模型可见/入日志的变更，由两侧的精确形状测试与 cancel-tool-calls fixture 钉住。
 - `@deepseek-ai/dsh-bash-env` 成为新的交付包；`dsh-tool-bash` 的 `dshHome` 配置迁往那里，因此挂载 shell 工具的组合也必须挂载 `bash-env`（spine bundle 已如此）。
+- seam 现在携带 `dialect`（`ShellDialect`：`bash` | `powershell`——具体 shell 而非家族；类 POSIX 的同胞将是自己的值），两个 shell 工具在加载时拒绝不匹配的执行器：把 tool-pwsh 与 bash-local 误配（或反之）会响亮失败，而不是让交错 parser 的命令表现为普通非零退出。
 - Windows 专属语义（CRLF 归一化、强制终止 exit-1/signal-null、仅 POSIX 的自信号）一如既往由测试钉住。
 - pwsh 工具的 per-file 覆盖门禁由可脚本化的 fake-executor 套件（`tests/tools.spec.ts`）承担；真实 pwsh 的集成与 Loader 组合套件在无 `pwsh` 的宿主自跳过，与 bash 套件的分工一致。
 - 路线图提案的 parity 阶段已交付；其余阶段是 Windows 默认组合与 pwsh TUI/GUI 渲染。

@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The **bash executor seam**: an abstract `BashExecutor` service (`ctx.bash`) defining WHAT a bash backend does — run foreground commands and start background processes — without saying HOW. Task ids, ownership, collection, cancellation, and notices belong to the generic `ctx.tasks` runtime.
+The **bash executor seam**: an abstract `BashExecutor` service (`ctx.bash`) defining WHAT a bash backend does — run foreground commands and start background processes — without saying HOW. Every implementation declares its `dialect` (`ShellDialect`: the concrete shell that parses the command string, `bash` or `powershell`), and the model-facing shell tools reject a mismatched executor at load. Task ids, ownership, collection, cancellation, and notices belong to the generic `ctx.tasks` runtime.
 
 This package is the interface quarter of the bash capability, split so each concern can evolve (and be swapped) independently:
 

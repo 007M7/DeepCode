@@ -4,7 +4,7 @@
 
 注册在 `ctx.bash` 执行器 seam 之上的模型可见 `pwsh` 工具。面向由 PowerShell 执行器（如 `@deepseek-ai/dsh-pwsh-local`）支撑 `ctx.bash` 的 Windows 组合；工具契约是 PowerShell 方言：原生 `C:\...` 路径与 `$env:NAME` 变量。行为与 `dsh-tool-bash` 逐调用对齐、减去 sandbox 面——通过通用任务运行时执行前台与 `run_in_background`、通过共享 `bash-env` 注册表管理 `DSH_*` 环境、以及 bash 的 marker/截断渲染故事（干净退出不产生 marker）。
 
-需要已加载的执行器实现与 `bash-env` 插件；两者都存在前工具保持 pending（`inject: ['tools', 'bash', 'systemPrompt', 'bashEnv']`）。
+需要已加载的执行器实现与 `bash-env` 插件；两者都存在前工具保持 pending（`inject: ['tools', 'bash', 'systemPrompt', 'bashEnv']`），并在加载时拒绝 `dialect` 不为 `powershell` 的执行器——PowerShell 命令被交给 `bash -c` 只会表现为普通的非零退出。
 
 包根只导出 Cordis 插件契约（`name`、`inject`、`Config`、`apply`）；结果渲染（`src/render.ts`）与后台任务适配（`src/background.ts`）镜像 bash 工具的结构，并可通过包的 `./src/*` 导出访问。
 

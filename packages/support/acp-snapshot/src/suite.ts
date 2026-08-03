@@ -162,7 +162,7 @@ export interface Scenario {
    */
   posixOnly?: boolean
   /**
-   * Whether the scenario boots a composition that needs a real `pwsh` on PATH
+   * Whether the scenario boots a composition that needs a usable `pwsh`
    * (the pwsh-tool-turn scenario). The run test is skipped when the suite's
    * {@link SnapshotSuiteOptions.hasPwsh} probe is false; fixtures stay guarded
    * on every platform.

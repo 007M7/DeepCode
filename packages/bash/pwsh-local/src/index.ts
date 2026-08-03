@@ -104,6 +104,8 @@ function assertPositiveFinite(name: string, value: number): void {
 export class PwshLocalExecutor extends BashExecutor {
   static inject = ['subprocess']
 
+  readonly dialect = 'powershell' as const
+
   static Config: z<Config> = z.object({
     cwd: z.string(),
     timeoutMs: z.number().default(120_000),

@@ -23,7 +23,7 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { BashExecutor } from '@deepseek-ai/dsh-bash'
-import type { BashExecRequest, BashExecSpec, BashProcess, BashRunResult } from '@deepseek-ai/dsh-bash'
+import type { BashExecRequest, BashExecSpec, BashProcess, BashRunResult, ShellDialect } from '@deepseek-ai/dsh-bash'
 import * as ToolPwsh from '@deepseek-ai/dsh-tool-pwsh'
 import * as BashEnvPlugin from '@deepseek-ai/dsh-bash-env'
 import type { BashProcessRead } from '@deepseek-ai/dsh-bash'
@@ -38,6 +38,8 @@ const testToolSignal = new AbortController().signal
  * handle.
  */
 class FakeBash extends BashExecutor {
+  readonly dialect: ShellDialect = 'powershell'
+
   requests: BashExecRequest[] = []
   specs: BashExecSpec[] = []
   startCalls = 0
@@ -199,6 +201,19 @@ async function callUntilText(
 }
 
 describe('registration', () => {
+  it('rejects an executor speaking another shell dialect at load', async () => {
+    class BashDialectExecutor extends FakeBash {
+      override readonly dialect = 'bash' as const
+    }
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(BashEnvPlugin)
+    await ctx.plugin(BashDialectExecutor)
+    await expect(ctx.plugin(ToolPwsh)).rejects.toThrow("the mounted executor speaks 'bash', not powershell")
+  })
+
   it('registers the pwsh tool with its prompt section and schema', async () => {
     const { ctx } = await setup()
     const schema = ctx.tools.schemas().find(s => s.name === 'pwsh')

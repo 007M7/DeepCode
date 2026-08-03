@@ -30,6 +30,14 @@ declare module 'cordis' {
 }
 
 /**
+ * The shell language a command string is written in. Values name concrete
+ * shells, not families — the executor hands the string verbatim to that
+ * shell's parser (`bash -c`, `pwsh -Command`), so a POSIX-ish sibling such
+ * as zsh or fish would be its own dialect, never `bash`.
+ */
+export type ShellDialect = 'bash' | 'powershell'
+
+/**
  * Abstract bash execution service. Subclass, implement the abstract methods,
  * and load the subclass as a plugin — it registers as `ctx.bash` (one
  * implementation per context; loading a second throws, which is cordis'
@@ -52,6 +60,14 @@ export abstract class BashExecutor extends Service {
   constructor(ctx: Context) {
     super(ctx, 'bash')
   }
+
+  /**
+   * The shell dialect this executor's `run`/`start` parse commands with.
+   * Model-facing shell tools reject a mismatched executor at load
+   * (misconfiguration fails loud): a PowerShell command handed to `bash -c`
+   * would otherwise surface as an ordinary nonzero exit.
+   */
+  abstract readonly dialect: ShellDialect
 
   /**
    * The sandbox mode this executor applies by default, or `undefined` when it

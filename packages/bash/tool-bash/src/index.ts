@@ -188,6 +188,11 @@ const BACKGROUND_OUTPUT_PROPERTIES = {
 } as const
 
 export function apply(ctx: Context, config: Config = {}): void {
+  // Model commands are written in bash; a mismatched executor would hand
+  // them to another shell's parser and surface as ordinary nonzero exits.
+  if (ctx.bash.dialect !== 'bash') {
+    throw new Error(`tool-bash: the mounted executor speaks '${ctx.bash.dialect}', not bash — mount a bash executor (e.g. dsh-bash-local) or the matching shell tool`)
+  }
   const backgroundEnabled = config.enableRunInBackground ?? true
   const defaultMode = ctx.bash.sandboxMode
   const escalationModes: readonly SandboxMode[] = defaultMode === undefined ? [] : ESCALATION_TARGETS
