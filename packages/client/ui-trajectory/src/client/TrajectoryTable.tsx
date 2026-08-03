@@ -2528,7 +2528,7 @@ export function TrajectoryTable({
                     )}
                   {selectedAssistantRequestTarget !== undefined && (
                     <OverviewSection
-                      label="Timing"
+                      label="Request Timing"
                       onOpen={() => {
                         selectRequest(selectedAssistantRequestTarget, 'timing')
                       }}
