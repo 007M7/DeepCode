@@ -21,6 +21,7 @@ const BASE_FIXTURE = fileURLToPath(new URL('./snapshots/live-interactions/sessio
 const AVAILABLE_CHILD_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/ui.expected.md', import.meta.url))
 const TREE_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/tree.expected.md', import.meta.url))
 const BRANCHLESS_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/branchless.expected.md', import.meta.url))
+const BRANCHLESS_LAYOUT_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/branchless-layout.expected.md', import.meta.url))
 const STALE_CATALOG_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/stale-catalog.expected.md', import.meta.url))
 const SIDEBAR_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/sidebar.expected.md', import.meta.url))
 const UNAVAILABLE_GRANDCHILD_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/nested.expected.md', import.meta.url))
@@ -400,6 +401,80 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     const tree = page.getByRole('tree', { name: 'Subagent sessions' })
     const nestedRow = tree.getByRole('treeitem', { name: new RegExp(NESTED_LABEL) })
     expect(await nestedRow.locator(':scope > *').count()).toBe(1)
+    const clickArea = nestedRow.locator(':scope > *')
+    const label = nestedRow.getByText(NESTED_LABEL, { exact: true })
+    const summary = nestedRow.getByText('continuable · not running', { exact: true })
+    const [treeBox, rowBox, clickAreaBox, treeStyle, rowStyle, labelStyle, summaryStyle] = await Promise.all([
+      tree.boundingBox(),
+      nestedRow.boundingBox(),
+      clickArea.boundingBox(),
+      tree.evaluate((element) => {
+        const style = getComputedStyle(element)
+        return { gap: style.gap, padding: style.padding, radius: style.borderRadius }
+      }),
+      nestedRow.evaluate((element) => {
+        const style = getComputedStyle(element)
+        return { padding: style.padding, radius: style.borderRadius }
+      }),
+      label.evaluate((element) => {
+        const style = getComputedStyle(element)
+        return { size: style.fontSize, lineHeight: style.lineHeight, weight: style.fontWeight }
+      }),
+      summary.evaluate((element) => {
+        const style = getComputedStyle(element)
+        return { size: style.fontSize, lineHeight: style.lineHeight, weight: style.fontWeight }
+      }),
+    ])
+    expect(treeBox).not.toBeNull()
+    expect(rowBox).not.toBeNull()
+    expect(clickAreaBox).not.toBeNull()
+    const leftInset = Math.round(clickAreaBox!.x - treeBox!.x)
+    const rightInset = Math.round(
+      treeBox!.x + treeBox!.width - clickAreaBox!.x - clickAreaBox!.width,
+    )
+    const layout = {
+      menuWidth: Math.round(treeBox!.width),
+      menuPadding: treeStyle.padding,
+      menuGap: treeStyle.gap,
+      menuRadius: treeStyle.radius,
+      rowWidth: Math.round(rowBox!.width),
+      rowHeight: Math.round(rowBox!.height),
+      rowPadding: rowStyle.padding,
+      rowRadius: rowStyle.radius,
+      contentWidth: Math.round(clickAreaBox!.width),
+      contentHeight: Math.round(clickAreaBox!.height),
+      leftInset,
+      rightInset,
+      label: labelStyle,
+      summary: summaryStyle,
+    }
+    expect(layout).toEqual({
+      menuWidth: 360,
+      menuPadding: '4px',
+      menuGap: '4px',
+      menuRadius: '12px',
+      rowWidth: 352,
+      rowHeight: 54,
+      rowPadding: '7px 8px 7px 4px',
+      rowRadius: '8px',
+      contentWidth: 340,
+      contentHeight: 40,
+      leftInset: 8,
+      rightInset: 12,
+      label: { size: '14px', lineHeight: '20px', weight: '400' },
+      summary: { size: '12px', lineHeight: '18px', weight: '400' },
+    })
+    await compareOrRefreshGolden(
+      BRANCHLESS_LAYOUT_EXPECTED,
+      [
+        `menu: ${layout.menuWidth}px; padding ${layout.menuPadding}; gap ${layout.menuGap}; radius ${layout.menuRadius}`,
+        `row: ${layout.rowWidth}×${layout.rowHeight}px; padding ${layout.rowPadding}; radius ${layout.rowRadius}`,
+        `content: ${layout.contentWidth}×${layout.contentHeight}px; left inset ${layout.leftInset}px; right inset ${layout.rightInset}px`,
+        `label: ${layout.label.size}/${layout.label.lineHeight}/${layout.label.weight}`,
+        `summary: ${layout.summary.size}/${layout.summary.lineHeight}/${layout.summary.weight}`,
+      ].join('\n'),
+      MODE,
+    )
     await compareOrRefreshGolden(
       BRANCHLESS_EXPECTED,
       await captureStableAria(page, '[role="tree"][aria-label="Subagent sessions"]', scaffold.workspaceCwd),
