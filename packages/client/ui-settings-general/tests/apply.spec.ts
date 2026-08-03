@@ -1,6 +1,6 @@
 /** Ownerless-copy registrations: the four seats, the dictionaries, thunked labels, and HMR recovery. */
 import { Context } from 'cordis'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
@@ -16,8 +16,6 @@ import { WELCOME_NOTICE_SETTINGS_NAMESPACE } from '../src/onboarding-copy.ts'
 // the shipped Chinese copy, so they state the browser they assume.
 usePinnedBrowserLanguages('zh-CN')
 
-afterEach(() => { vi.unstubAllGlobals() })
-
 /** The five seats this plugin fills (slot name → expected component). */
 const SEATS = [
   ['settings.trigger', TriggerContent],
@@ -27,7 +25,7 @@ const SEATS = [
   ['settings.onboarding', WelcomeNotice],
 ] as const
 
-async function bench() {
+async function bench(isLoopback = true) {
   const ctx = new Context()
   await ctx.plugin(SlotsService).await()
   const locale = new LocaleService(ctx)
@@ -49,7 +47,7 @@ async function bench() {
       },
     },
   }))
-  ctx.provide('connection', { api: { settings: { describe: settingsDescribe } } } as never)
+  ctx.provide('connection', { api: { settings: { describe: settingsDescribe } }, isLoopback } as never)
   return { ctx, slots: ctx.get('slots') as SlotsService, locale, settingsDescribe }
 }
 
@@ -162,8 +160,7 @@ describe('ui-settings-general apply', () => {
   })
 
   it('keeps remote welcome acknowledgement process-local', async () => {
-    vi.stubGlobal('location', { hostname: '192.0.2.20' })
-    const b = await bench()
+    const b = await bench(false)
     declare(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     const entry = b.slots.entries('settings.onboarding')[0]!

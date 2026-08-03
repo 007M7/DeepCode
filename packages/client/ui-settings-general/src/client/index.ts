@@ -8,7 +8,6 @@
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import { deferRegistration } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
-import { isLoopbackHostname } from '@deepseek-ai/dsh-client-connection/loopback-hostname'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 // Type-only: pulls the shell's SlotMap merges (trigger/header/section/item).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
@@ -42,10 +41,6 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 /** Dictionary namespace owned by this plugin (shell chrome + General copy). */
 const NS = 'settings'
 
-function welcomePersistence(): 'host' | 'memory' {
-  return typeof location === 'undefined' || isLoopbackHostname(location.hostname) ? 'host' : 'memory'
-}
-
 /**
  * Required services (cordis fiber inject). The target slots are declared by
  * ui-settings' apply, whose activation order relative to this one is NOT
@@ -66,7 +61,7 @@ export function apply(ctx: ClientContext): void {
   // locale/change re-registration wiring.
   const t = ctx.locale.bind(NS)
   const connection = ctx.get('connection') as ConnectionHandle
-  const welcomeController = new WelcomeNoticeStore(connection.api, welcomePersistence())
+  const welcomeController = new WelcomeNoticeStore(connection.api, connection.isLoopback ? 'host' : 'memory')
   const useWelcomeSnapshot = bindSnapshotSelector(welcomeController.store)
   const welcomeInjected = (): WelcomeNoticeInjected => ({
     controller: welcomeController,
