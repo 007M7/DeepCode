@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   countVisibleUnits,
   parseReferences,
+  retainIssueReferences,
   requiresPullRequestPolicy,
   validateBody,
   validateIssue,
@@ -115,6 +116,24 @@ test('separates resolving and informational references', () => {
     }),
     { all: [4, 7, 12], resolving: [12], related: [4, 7] },
   )
+})
+
+test('does not treat pull request references as Issue associations', () => {
+  const references = {
+    all: [123, 1180, 1181],
+    resolving: [123, 1180],
+    related: [1181],
+  }
+  const issues = new Map([
+    [1180, {}],
+    [1181, {}],
+  ])
+
+  assert.deepEqual(retainIssueReferences(references, issues), {
+    all: [1180, 1181],
+    resolving: [1180],
+    related: [1181],
+  })
 })
 
 test('allows informational references without cross-object constraints', () => {
