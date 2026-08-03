@@ -75,7 +75,7 @@ A step or turn errored. The machine reports a failure here even when the error h
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:300`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:303`](../../packages/core/agent/src/types.ts)
 
 ### `agent/inbox/claimed` — emit
 
@@ -250,7 +250,7 @@ Source: [`packages/core/agent/src/types.ts:197`](../../packages/core/agent/src/t
 
 ### `agent/turn-stopping` — serial
 
-The turn is about to close: the model owes no response (no live tool calls, no fresh steering). Awaited before the boundary commits — a listener that objects steers (`agent.steer(...)`) and the machine re-reads its inbox: fresh steering runs another step, none closes the turn. Data decides, so listener order cannot change the outcome. The inverse control (stop a tool loop early) is data too: a tool result carrying `concludesTurn` ends the turn at its step.
+The turn is about to close: the model owes no response (no live tool calls, no fresh steering). Awaited before the boundary commits — a listener that objects steers (`agent.steer(...)`) and the machine re-reads its inbox: fresh steering runs another step, none closes the turn. Data decides, so listener order cannot change the outcome. The inverse control (stop a tool loop early) is data too: a tool result carrying `concludesTurn` ends the turn at its step. The conclusion never short-circuits already-submitted next-step work: same-step `additionalContexts` or racing steering still runs, and the turn closes only when that inbox drains.
 
 ```ts cordis-catalog
 /**
@@ -260,7 +260,10 @@ The turn is about to close: the model owes no response (no live tool calls, no f
  * re-reads its inbox: fresh steering runs another step, none closes the
  * turn. Data decides, so listener order cannot change the outcome. The
  * inverse control (stop a tool loop early) is data too: a tool result
- * carrying `concludesTurn` ends the turn at its step.
+ * carrying `concludesTurn` ends the turn at its step. The conclusion
+ * never short-circuits already-submitted next-step work: same-step
+ * `additionalContexts` or racing steering still runs, and the turn
+ * closes only when that inbox drains.
  * @param agent - the agent whose turn is at its stop boundary.
  * @param turn - the turn about to close.
  * @param signal - the current turn's explicit abort signal.
@@ -272,7 +275,7 @@ The turn is about to close: the model owes no response (no live tool calls, no f
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:288`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:291`](../../packages/core/agent/src/types.ts)
 
 ## `agent-loop/*`
 

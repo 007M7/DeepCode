@@ -1300,7 +1300,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/turn-stopping',
     mode: 'serial',
     signature: '\'agent/turn-stopping\'(this: Scoped<Agent>, agent: Agent, turn: number, signal: AbortSignal): Promise<void> | void',
-    jsDoc: '/**\n * The turn is about to close: the model owes no response (no live tool\n * calls, no fresh steering). Awaited before the boundary commits — a\n * listener that objects steers (`agent.steer(...)`) and the machine\n * re-reads its inbox: fresh steering runs another step, none closes the\n * turn. Data decides, so listener order cannot change the outcome. The\n * inverse control (stop a tool loop early) is data too: a tool result\n * carrying `concludesTurn` ends the turn at its step.\n * @param agent - the agent whose turn is at its stop boundary.\n * @param turn - the turn about to close.\n * @param signal - the current turn\'s explicit abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode serial\n */',
+    jsDoc: '/**\n * The turn is about to close: the model owes no response (no live tool\n * calls, no fresh steering). Awaited before the boundary commits — a\n * listener that objects steers (`agent.steer(...)`) and the machine\n * re-reads its inbox: fresh steering runs another step, none closes the\n * turn. Data decides, so listener order cannot change the outcome. The\n * inverse control (stop a tool loop early) is data too: a tool result\n * carrying `concludesTurn` ends the turn at its step. The conclusion\n * never short-circuits already-submitted next-step work: same-step\n * `additionalContexts` or racing steering still runs, and the turn\n * closes only when that inbox drains.\n * @param agent - the agent whose turn is at its stop boundary.\n * @param turn - the turn about to close.\n * @param signal - the current turn\'s explicit abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode serial\n */',
     summary: 'The turn is about to close: the model owes no response (no live tool calls, no fresh steering).',
   },
   {
@@ -2969,7 +2969,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'TurnEndReasonMap',
-    declaration: 'export interface TurnEndReasonMap {\n    completed: {\n        kind: \'completed\';\n    };\n    aborted: {\n        kind: \'aborted\';\n        reason: AgentCancelCause;\n    };\n    blocked: {\n        kind: \'blocked\';\n    };\n    error: {\n        kind: \'error\';\n        error: unknown;\n    };\n    \'max-tokens\': {\n        kind: \'max-tokens\';\n    };\n    interrupted: {\n        kind: \'interrupted\';\n    };\n}',
+    declaration: 'export interface TurnEndReasonMap {\n    completed: {\n        kind: \'completed\';\n    };\n    aborted: {\n        kind: \'aborted\';\n        reason: AgentCancelCause;\n    };\n    blocked: {\n        kind: \'blocked\';\n    };\n    error: {\n        kind: \'error\';\n        error: LlmFailure;\n    };\n    \'max-tokens\': {\n        kind: \'max-tokens\';\n    };\n    interrupted: {\n        kind: \'interrupted\';\n    };\n}',
   },
   {
     name: 'TypertContribution',
