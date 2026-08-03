@@ -146,3 +146,15 @@ export function emitAgentEvent<K extends AgentSubjectEvent>(
 export function assembleContextFor(agent: Agent, signal?: AbortSignal): AssembleContext {
   return { agent, scope: agent, ...signal === undefined ? {} : { signal } }
 }
+
+/**
+ * Build the prompt assembly context for the agent loop's next model request.
+ * Inspection callers use {@link assembleContextFor} so listeners cannot mistake
+ * a diagnostic assembly for an imminent request commit.
+ * @param agent - the agent the request assembly is for.
+ * @param signal - the current turn's explicit control signal, when available.
+ * @returns the agent-scoped context marked for request materialization.
+ */
+export function assembleRequestContextFor(agent: Agent, signal?: AbortSignal): AssembleContext {
+  return { ...assembleContextFor(agent, signal), modelRequest: true }
+}

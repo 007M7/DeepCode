@@ -17,7 +17,7 @@ import type { Agent, AgentOptions } from './types.ts'
 export * from './types.ts'
 export * from './brand.ts'
 export * from './llm-target.ts'
-export { agentCarrier, agentEvents, assembleContextFor, emitAgentEvent } from './dispatch.ts'
+export { agentCarrier, agentEvents, assembleContextFor, assembleRequestContextFor, emitAgentEvent } from './dispatch.ts'
 export type { AgentEventDispatch, AgentSubjectEvent } from './dispatch.ts'
 
 declare module 'cordis' {

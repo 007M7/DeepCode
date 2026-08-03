@@ -169,7 +169,7 @@ idle inject:
 
 例外情况包括 LLM（大语言模型）合并接口和消费方、文件系统整合策略、web 使用注册表、skill 和 subagent 使用具名提供方。subagent 可以通过 spawn 创建全新实例、fork 一个已完成轮次的前缀，或使用 ACP（Agent Client Protocol）子 agent（[subagent.md](core-data-structures/subagent.md)）。
 
-`dsh-workspace-context` 在第一次 `agent/step` 注入基线，在下一次请求创建快照前于 `system-prompt/assemble` 期间恢复因压缩而被遮蔽的基线，并通过 `tools/post-execute` 追加 `ctx.fs` 发现的变更；其[决策](../.agents/notes/implemented/feature/2026-06-24-workspace-context.md)记录隔离方式。`dsh-paths` 负责共享路径。
+`dsh-workspace-context` 在第一次 `agent/step` 注入基线，在请求创建快照前于 loop 面向模型请求的 `system-prompt/assemble` 期间恢复因压缩而被遮蔽的基线，并通过 `tools/post-execute` 追加 `ctx.fs` 发现的变更；仅检查组装保持只读。其[决策](../.agents/notes/implemented/feature/2026-06-24-workspace-context.md)记录隔离方式。`dsh-paths` 负责共享路径。
 
 ### 组合包与应用
 

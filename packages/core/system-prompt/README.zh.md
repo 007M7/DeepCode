@@ -28,7 +28,7 @@
 
 ### 关键类型
 
-- `AssembleContext`：说明一次 `assemble()` 调用的用途。它可通过合并扩展；此处声明 `scope?: ScopeKey`（层选择器）与 `signal?: AbortSignal`（显式请求控制能力），而 `dsh-agent` 声明 `agent?: Agent`（类型化 DX 字段；绝不能在没有 `scope` 时设置，应使用 `assembleContextFor(agent, signal)`）。提供方必须容忍字段缺席，因为裸 `assemble()` 携带的是无作用域、无信号的空上下文。`signal` 是请求值，不是环境 Agent 执行 frame 的一部分。
+- `AssembleContext`：说明一次 `assemble()` 调用的用途。它可通过合并扩展；此处声明 `scope?: ScopeKey`（层选择器）与 `signal?: AbortSignal`（显式请求控制能力），而 `dsh-agent` 声明 `agent?: Agent` 和 `modelRequest?: true`。使用 `assembleContextFor(agent, signal)` 进行 agent 作用域检查；只有当调用方会将结果物化为下一个模型请求时，才使用 `assembleRequestContextFor(agent, signal)`。提供方必须容忍字段缺席，因为裸 `assemble()` 携带的是无作用域、无信号的空上下文。`signal` 是请求值，不是环境 Agent 执行 frame 的一部分。
 - `PromptSection`：`{ name, order, text }`。各段按 `order` 升序拼接。顺序区间：`-100` 是 harness 身份，`0` 是部署 persona，工具引导使用 `100–199`。
 - `PromptContext`：`{ name, order, text }`。上下文承载不断变化的当前事实，这些事实不能改写已缓存的系统／历史前缀；上下文与段使用相同的逐组装提供方契约和严格变量契约。
 - `PromptAssembly`：`{ sections: AssembledSection[], contexts: AssembledContext[], tools: ToolSchema[], variables: Record<string, string | undefined> }`。段与上下文文本到达时已解析，但尚未插值；`variables` 包含对上下文解析后的每个已注册变量。工具 schema 按设计属于组装结果：「模型获知自己能做什么」是一个连贯整体，尽管适配器把 schema 作为独立 wire 字段传输。

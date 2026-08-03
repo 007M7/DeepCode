@@ -4,6 +4,8 @@ import type { Events } from 'cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry, {
   agentEvents,
+  assembleContextFor,
+  assembleRequestContextFor,
 } from '@deepseek-ai/dsh-agent'
 
 import type {
@@ -184,6 +186,23 @@ describe('agentEvents()', () => {
       'agent event "agent/status" listener threw: Error: sync listener',
       'agent event "agent/status" listener rejected: Error: async listener',
     ])
+  })
+})
+
+describe('agent prompt assembly context', () => {
+  it('marks only request-owned assemblies for model materialization', () => {
+    const agent = stubAgent('assembly')
+    const signal = new AbortController().signal
+
+    expect(assembleContextFor(agent, signal)).toEqual({ agent, scope: agent, signal })
+    expect(assembleRequestContextFor(agent, signal)).toEqual({
+      agent,
+      scope: agent,
+      signal,
+      modelRequest: true,
+    })
+    expect(assembleContextFor(agent)).toEqual({ agent, scope: agent })
+    expect(assembleRequestContextFor(agent)).toEqual({ agent, scope: agent, modelRequest: true })
   })
 })
 

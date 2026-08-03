@@ -161,7 +161,10 @@ describe('AgentLoop initiator scope', () => {
     }
 
     ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
-      if (context.agent === agent) capture(context.signal)
+      if (context.agent === agent) {
+        expect(context.modelRequest).toBe(true)
+        capture(context.signal)
+      }
       return next()
     })
     ctx.on('agent/prompt-submit', async (subject, _message, signal, next) => {

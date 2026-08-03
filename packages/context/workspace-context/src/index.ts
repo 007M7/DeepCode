@@ -2,7 +2,7 @@
  * Workspace instruction loader for AGENTS.md-compatible files.
  *
  * Baseline instructions enter durable context before the first request and are
- * restored during prompt assembly when compaction removes them. Successful fs
+ * restored during model-request prompt assembly when compaction removes them. Successful fs
  * tool touches reconcile nested, changed, and removed instructions through
  * `tools/post-execute` for the next model request. Plugin lifecycle reads use
  * the optional `ctx.fs` provider, so providerless products mount it as a no-op.
@@ -55,8 +55,8 @@ function hasVisibleBaseline(session: Agent['session']): boolean {
   })
 }
 
-function hasBaselineHistory(agent: Agent): boolean {
-  return agent.session.events.some(event => event.type === 'user/message'
+function hasBaselineHistory(session: Agent['session']): boolean {
+  return session.events.some(event => event.type === 'user/message'
     && event.data.source.kind === 'workspace-instructions'
     && event.data.source.baseline === true)
 }
@@ -93,14 +93,13 @@ export function apply(ctx: Context, config: Config): void {
     if (event.type === 'user/message'
       && event.data.source.kind === 'workspace-instructions'
       && event.data.source.baseline === true) baselineQueuedGeneration.delete(session)
-    if ((event.type === 'step/end' || event.type === 'turn/end')
-      && !hasVisibleBaseline(session)) baselineQueuedGeneration.delete(session)
   })
 
   const prepareBaseline = async (
     agent: Agent,
     signal: AbortSignal | undefined,
     keepVisibleBaseline: boolean,
+    deduplicateRestore = false,
   ): Promise<void> => {
     if (resolved.maxBytes <= 0 || !Number.isFinite(resolved.maxBytes)) {
       baselineLoaded.add(agent.session)
@@ -139,6 +138,13 @@ export function apply(ctx: Context, config: Config): void {
       fileSystem,
       { includeBaselineScopes: false, ...signal === undefined ? {} : { signal } },
     )
+    signal?.throwIfAborted()
+    const generation = agent.session.surface.replaceGeneration
+    if (deduplicateRestore && (
+      hasVisibleBaseline(agent.session)
+      || baselineSettledGeneration.get(agent.session) === generation
+      || baselineQueuedGeneration.get(agent.session) === generation
+    )) return
     if (update !== undefined) {
       agent.inject(update.context)
       applyInstructionVersionUpdates(agent.session, update.versionUpdates, instructionVersions)
@@ -146,15 +152,20 @@ export function apply(ctx: Context, config: Config): void {
     if (!keepVisibleBaseline && instructions !== undefined && instructions.rendered.text.length > 0) {
       const baselineMessage = workspaceContextMessage(instructions.rendered.text)
       baselineSettledGeneration.delete(agent.session)
-      baselineQueuedGeneration.set(agent.session, agent.session.surface.replaceGeneration)
-      agent.inject(createUserMessage({
-        content: baselineMessage.content,
-        source: {
-          kind: 'workspace-instructions',
-          baseline: true,
-          changes: [...baseline.changes.values()],
-        },
-      }))
+      baselineQueuedGeneration.set(agent.session, generation)
+      try {
+        agent.inject(createUserMessage({
+          content: baselineMessage.content,
+          source: {
+            kind: 'workspace-instructions',
+            baseline: true,
+            changes: [...baseline.changes.values()],
+          },
+        }))
+      } catch (error: unknown) {
+        baselineQueuedGeneration.delete(agent.session)
+        throw error
+      }
     } else {
       baselineSettledGeneration.set(agent.session, agent.session.surface.replaceGeneration)
       baselineQueuedGeneration.delete(agent.session)
@@ -171,13 +182,14 @@ export function apply(ctx: Context, config: Config): void {
   ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
     const assembled = await next()
     const agent = context.agent
-    if (agent === undefined
+    if (context.modelRequest !== true
+      || agent === undefined
       || !baselineLoaded.has(agent.session)
       || hasVisibleBaseline(agent.session)
       || baselineSettledGeneration.get(agent.session) === agent.session.surface.replaceGeneration
       || baselineQueuedGeneration.get(agent.session) === agent.session.surface.replaceGeneration
-      || !hasBaselineHistory(agent)) return assembled
-    await prepareBaseline(agent, context.signal, false)
+      || !hasBaselineHistory(agent.session)) return assembled
+    await prepareBaseline(agent, context.signal, false, true)
     return assembled
   })
 

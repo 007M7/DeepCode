@@ -15,6 +15,8 @@ declare module '@deepseek-ai/dsh-system-prompt' {
   interface AssembleContext {
     /** Agent for this assembly; absent on diagnostics. When present, `scope` must identify the same agent. */
     agent?: Agent
+    /** Present only when the caller will materialize this assembly into the agent's next model request. */
+    modelRequest?: true
   }
 }
 

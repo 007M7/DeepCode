@@ -10,7 +10,7 @@
 
 import type { Context } from 'cordis'
 import { randomUUID } from 'node:crypto'
-import { agentCarrier, assembleContextFor, emitAgentEvent, InboxItemId } from '@deepseek-ai/dsh-agent'
+import { agentCarrier, assembleRequestContextFor, emitAgentEvent, InboxItemId } from '@deepseek-ai/dsh-agent'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import type {
@@ -688,7 +688,7 @@ export class ReactLoopAgent implements Agent {
     // Assemble request-owned prompt inputs fresh each step. Dynamic context is
     // committed at the tail before deriving history once, preserving the stable
     // system/history cache prefix while keeping every model-visible byte logged.
-    const assembly = await this.loopCtx.systemPrompt.assemble(assembleContextFor(this, signal))
+    const assembly = await this.loopCtx.systemPrompt.assemble(assembleRequestContextFor(this, signal))
     signal.throwIfAborted()
     const system = renderPrompt(assembly)
     materializeRuntimeContext(session, renderContextSnapshot(assembly))

@@ -7,7 +7,7 @@ import Loader from '@cordisjs/plugin-loader'
 import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 import LlmService, { createUserMessage, CallId, type Message, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, SESSION_FORMAT_VERSION, type SessionEvent, type UserMessage } from '@deepseek-ai/dsh-session'
-import AgentRegistry, { agentEvents, assembleContextFor, type Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents, assembleContextFor, assembleRequestContextFor, type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { FileSystem, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {
@@ -152,6 +152,26 @@ class BlockingReadFileSystem extends RecordingFileSystem {
       })
       yield 'unreachable'
     })()
+  }
+}
+
+class OverlappingReadFileSystem extends RecordingFileSystem {
+  readonly paired = Promise.withResolvers<undefined>()
+  readonly release = Promise.withResolvers<undefined>()
+  private armed = false
+  private started = 0
+
+  arm(): void {
+    this.armed = true
+  }
+
+  override async streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>> {
+    if (this.armed) {
+      this.started += 1
+      if (this.started === 2) this.paired.resolve(undefined)
+      await this.release.promise
+    }
+    return super.streamText(target, signal)
   }
 }
 
@@ -1108,7 +1128,7 @@ describe('workspace context request injection', () => {
         sourceEventSeqs: [baseline!.seq],
       })
 
-      await ctx.systemPrompt.assemble(assembleContextFor(agent))
+      await ctx.systemPrompt.assemble(assembleRequestContextFor(agent))
 
       expect(baselineEvents(agent)).toHaveLength(2)
       expect(blocksText(agent.session.deriveMessages().at(-1)?.content)).toContain('repo rule')
@@ -1118,7 +1138,7 @@ describe('workspace context request injection', () => {
     }
   })
 
-  it('retries a re-injected baseline when its queued step closes before the message becomes durable', async () => {
+  it('does not restore a compacted baseline for an inspection-only assembly', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {
@@ -1138,25 +1158,101 @@ describe('workspace context request injection', () => {
         surfaceOp: { op: 'replace', start: baseline!.seq, end: baseline!.seq },
         sourceEventSeqs: [baseline!.seq],
       })
-      const queued: UserMessage[] = []
-      const queuedAgent: Agent = {
-        ...agent,
-        inject(input) { queued.push(input) },
-      }
+      await ctx.systemPrompt.assemble(assembleContextFor(agent, testToolSignal))
 
-      await ctx.systemPrompt.assemble(assembleContextFor(queuedAgent, testToolSignal))
-      await ctx.systemPrompt.assemble(assembleContextFor(queuedAgent, testToolSignal))
-      expect(queued).toHaveLength(1)
-
-      ctx.emit('session/event', agent.session, {
-        type: 'step/end', seq: 999, time: 0, data: { turn: 1, step: 1 },
-      })
-      await ctx.systemPrompt.assemble(assembleContextFor(queuedAgent, testToolSignal))
-
-      expect(queued).toHaveLength(2)
+      expect(baselineEvents(agent)).toHaveLength(1)
+      expect(blocksText(agent.session.deriveMessages().at(-1)?.content)).toContain('compacted summary')
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('queues one baseline when two request assemblies finish preparation concurrently', async () => {
+    const root = resolve('/virtual/concurrent-assembly-repo')
+    const home = resolve('/virtual/concurrent-assembly-home')
+    const ctx = new Context()
+    try {
+      await ctx.plugin(SystemPrompt)
+      await ctx.plugin(OverlappingReadFileSystem)
+      const fs = ctx.fs as OverlappingReadFileSystem
+      fs.entries.set(join(root, '.git'), { type: 'directory' })
+      fs.entries.set(join(root, 'AGENTS.md'), { type: 'file', content: 'repo rule' })
+      await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
+      const agent = stubAgent(root)
+      await composeBaselinePrefix(ctx, agent)
+      const baseline = baselineEvents(agent)[0]
+      expect(baseline).toBeDefined()
+      agent.session.append('user/message', createUserMessage({
+        content: [{ type: 'text', text: 'compacted summary' }],
+        source: { kind: 'plugin', plugin: 'compact' },
+      }), {
+        surfaceOp: { op: 'replace', start: baseline!.seq, end: baseline!.seq },
+        sourceEventSeqs: [baseline!.seq],
+      })
+      const queued: UserMessage[] = []
+      const queuedAgent: Agent = {
+        ...agent,
+        acceptsNextStep: true,
+        inject(input) { queued.push(input) },
+      }
+      fs.arm()
+
+      const first = ctx.systemPrompt.assemble(assembleRequestContextFor(queuedAgent, testToolSignal))
+      const second = ctx.systemPrompt.assemble(assembleRequestContextFor(queuedAgent, testToolSignal))
+      await fs.paired.promise
+      fs.release.resolve(undefined)
+      await Promise.all([first, second])
+
+      expect(queued).toHaveLength(1)
+      expect(blocksText(queued[0]?.content)).toContain('repo rule')
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('retries restoration after synchronous baseline injection failure', async () => {
+    const root = resolve('/virtual/injection-failure-repo')
+    const home = resolve('/virtual/injection-failure-home')
+    const ctx = new Context()
+    try {
+      await ctx.plugin(SystemPrompt)
+      await ctx.plugin(RecordingFileSystem)
+      const fs = ctx.fs as RecordingFileSystem
+      fs.entries.set(join(root, '.git'), { type: 'directory' })
+      fs.entries.set(join(root, 'AGENTS.md'), { type: 'file', content: 'repo rule' })
+      await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
+      const agent = stubAgent(root)
+      await composeBaselinePrefix(ctx, agent)
+      const baseline = baselineEvents(agent)[0]
+      expect(baseline).toBeDefined()
+      agent.session.append('user/message', createUserMessage({
+        content: [{ type: 'text', text: 'compacted summary' }],
+        source: { kind: 'plugin', plugin: 'compact' },
+      }), {
+        surfaceOp: { op: 'replace', start: baseline!.seq, end: baseline!.seq },
+        sourceEventSeqs: [baseline!.seq],
+      })
+      const throwingAgent: Agent = {
+        ...agent,
+        inject() { throw new Error('injection failed') },
+      }
+
+      await expect(ctx.systemPrompt.assemble(
+        assembleRequestContextFor(throwingAgent, testToolSignal),
+      )).rejects.toThrow('injection failed')
+
+      const queued: UserMessage[] = []
+      const retryingAgent: Agent = {
+        ...agent,
+        inject(input) { queued.push(input) },
+      }
+      await ctx.systemPrompt.assemble(assembleRequestContextFor(retryingAgent, testToolSignal))
+
+      expect(queued).toHaveLength(1)
+      expect(blocksText(queued[0]?.content)).toContain('repo rule')
+    } finally {
+      await ctx.fiber.dispose()
     }
   })
 

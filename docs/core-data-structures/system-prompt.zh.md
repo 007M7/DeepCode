@@ -8,7 +8,7 @@
 
 ## 组装上下文
 
-`AssembleContext` 标识一次组装所解析的作用域 layer，并可携带该请求的显式控制 signal。它可合并扩展：`dsh-agent` 添加可选的 live `agent` 字段，`assembleContextFor(agent, signal)` 则一起设置这些显式字段。裸组装既没有 scope，也没有 signal。
+`AssembleContext` 标识一次组装所解析的作用域 layer，并可携带该请求的显式控制 signal。它可合并扩展：`dsh-agent` 添加可选的 live `agent` 字段和 `modelRequest?: true` 标记。`assembleContextFor(agent, signal)` 构建带 agent 作用域的检查上下文；`assembleRequestContextFor(agent, signal)` 将结果标记为调用方会把它物化为下一个模型请求。裸组装既没有 scope，也没有 signal。
 
 ```ts type-equiv
 /** Merge-extensible context for one prompt assembly. */
