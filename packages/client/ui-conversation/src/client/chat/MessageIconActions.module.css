@@ -43,3 +43,23 @@
   background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-secondary);
 }
+
+/* Unavailable stays focusable and hoverable so Tooltip can explain why. */
+.action[data-unavailable] {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.action[data-unavailable]:hover {
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

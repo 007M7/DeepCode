@@ -20,7 +20,7 @@ Web 对话通过会话事件、历史回放与流式累积保留 assistant Markd
 
 ## 不受信任输出策略
 
-assistant 生成的目标地址仅限绝对 HTTP、HTTPS 与 mailto URL。HTTP(S) 链接会在新标签页中打开，并带有 `rel="noopener noreferrer"`；相对目标地址与其他协议会渲染为不可导航的文本。Markdown 图片仅渲染替代文本，因此模型输出无法发起远程图片请求。由于管线中未引入 HTML 解析器，原始 HTML 仍是不会生效的源文本。Shiki 输出是由围栏文本生成的静态 span 树（不含脚本或用户 HTML）。
+assistant 生成的链接目标地址仅限绝对 HTTP、HTTPS 与 mailto URL。HTTP(S) 链接会在新标签页中打开，并带有 `rel="noopener noreferrer"`；相对目标地址与其他协议会渲染为不可导航的文本。Markdown 图片遵循独立的[远程图片策略](2026-07-30-web-remote-markdown-images.md)。由于流水线中未引入 HTML 解析器，原始 HTML 仍是不会生效的源文本。Shiki 输出是由围栏文本生成的静态 span 树（不含脚本或用户 HTML）。
 
 围栏代码与 GFM 表格各自处理横向溢出，因此较长内容无法撑宽对话栏。
 
@@ -32,7 +32,7 @@ assistant 生成的目标地址仅限绝对 HTTP、HTTPS 与 mailto URL。HTTP(S
 
 **将 Markdown 解析为会话快照。**这会让 React 节点或呈现层 AST 成为持久的运行时状态，并重新引入最终输出与流式输出之间的模式边界。解析仍留在呈现层的叶节点中。
 
-**通过净化启用原始 HTML 或远程图片。**当前产品并不需要这两项功能，但二者都会扩大可执行行为或网络隐私边界。因此它们保持禁用，无需增加净化器与图片策略依赖。
+**通过净化启用原始 HTML。** 原始 HTML 当前没有产品需求，并且会扩大可执行内容边界，因此保持禁用，无需增加净化器依赖。远程图片由后续的[图片策略](2026-07-30-web-remote-markdown-images.md)约束。
 
 **移植 deepsuite 的 Prism `highlight.css` 与 mdast 管线。**外观一致性由 CSS Modules 与共享的 `--dsw-*` token 负责；高亮仍走现有的 shiki 允许列表，使客户端不必引入第二套高亮器或 Prism class 契约。
 
