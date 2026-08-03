@@ -19,8 +19,8 @@ interface TimingState {
   descriptorSeen: boolean
 }
 
-// Cast for the optional values: under exactOptionalPropertyTypes zod infers
-// `number | undefined` where the interface declares absent-or-number fields.
+// Zod's optional output includes explicit `undefined`; with
+// exactOptionalPropertyTypes the public interface permits omission only.
 const projectionSchema = z.object({
   settledMs: z.number().int().nonnegative(),
   active: z.object({
