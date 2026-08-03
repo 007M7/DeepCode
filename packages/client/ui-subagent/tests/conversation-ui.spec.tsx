@@ -151,6 +151,7 @@ describe('SubagentCatalogAction', () => {
     expect(diagnostic.getAttribute('aria-disabled')).toBe('true')
     expect(screen.getByRole('button', { name: '展开 worker 的下级子代理' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: '展开 reviewer 的下级子代理' })).toBeNull()
+    expect(screen.getByRole('treeitem', { name: /reviewer/ }).children).toHaveLength(2)
 
     fireEvent.click(screen.getByRole('treeitem', { name: /worker/ }))
     expect(input.openChild).toHaveBeenCalledWith({
@@ -175,6 +176,19 @@ describe('SubagentCatalogAction', () => {
 
     expect(translate).toHaveBeenCalledWith('count.running.one', { count: 1 })
     expect(translate).toHaveBeenCalledWith('count.total.one', { count: 1 })
+  })
+
+  it('removes the disclosure column from branchless catalog levels', () => {
+    const input = props(catalog({
+      entries: [{
+        kind: 'child', id: CHILD, mode: 'continuable', label: 'worker',
+        activity: 'running', hasChildren: false,
+      }],
+    }))
+    render(<SubagentCatalogAction {...input} />)
+    fireEvent.click(screen.getByRole('button', { name: /1 个子代理/ }))
+
+    expect(screen.getByRole('treeitem', { name: /worker/ }).children).toHaveLength(1)
   })
 
   it('supports trigger/menu keyboard traversal, Escape focus restore, and outside close', async () => {

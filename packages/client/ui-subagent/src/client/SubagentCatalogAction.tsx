@@ -237,6 +237,9 @@ function CatalogRows({
   openChild, refresh, toggleBranch, closeCatalog, t,
 }: CatalogRowsProps & { t: TranslateNS<typeof NS> }) {
   const emptyLoading = catalog.state === 'loading' && catalog.entries.length === 0
+  const reserveDisclosure = catalog.entries.some(
+    entry => entry.kind === 'child' && entry.hasChildren,
+  )
   return (
     <>
       {emptyLoading && (
@@ -273,7 +276,7 @@ function CatalogRows({
                 className={`${css.row} ${css.disabled}`}
                 title={reason}
               >
-                <span className={css.disclosureSpace} />
+                {reserveDisclosure && <span className={css.disclosureSpace} />}
                 <StateDot state="error" />
                 <span className={css.content}>
                   <span className={css.label}>{entry.id}</span>
@@ -352,7 +355,7 @@ function CatalogRows({
               onKeyDown={handleKey}
             >
               {knownLeaf
-                ? <span className={css.disclosureSpace} />
+                ? reserveDisclosure && <span className={css.disclosureSpace} />
                 : (
                   <button
                     type="button"
