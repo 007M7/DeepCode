@@ -20,6 +20,7 @@ import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './suppor
 const BASE_FIXTURE = fileURLToPath(new URL('./snapshots/live-interactions/session.jsonl', import.meta.url))
 const AVAILABLE_CHILD_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/ui.expected.md', import.meta.url))
 const TREE_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/tree.expected.md', import.meta.url))
+const BRANCHLESS_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/branchless.expected.md', import.meta.url))
 const STALE_CATALOG_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/stale-catalog.expected.md', import.meta.url))
 const SIDEBAR_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/sidebar.expected.md', import.meta.url))
 const UNAVAILABLE_GRANDCHILD_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/nested.expected.md', import.meta.url))
@@ -108,7 +109,8 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     childId = started.childId
     await waitForAgentToSettle(scaffold, childId)
     oneShotId = sessionId('recorded-one-shot')
-    const oneShotAt = Date.now()
+    const oneShotDurationMs = 192 * 24 * 60 * 60 * 1_000
+    const oneShotAt = Date.now() - oneShotDurationMs
     await scaffold.ctx.sessionPersistence.create({
       version: SESSION_FORMAT_VERSION,
       id: oneShotId,
@@ -146,10 +148,11 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
       {
         type: 'turn/end',
         seq: 3,
-        time: oneShotAt + 3,
+        time: oneShotAt + oneShotDurationMs,
         data: { turn: 1, reason: { kind: 'completed' } },
       },
     ] as SessionEvent[])
+    await scaffold.ctx.sessionProjectionCache.coldSnapshot(oneShotId)
     grandchildId = sessionId('recorded-grandchild')
     const authoredAt = Date.now()
     await scaffold.ctx.sessionPersistence.create({
@@ -193,17 +196,18 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
         data: { turn: 1, reason: { kind: 'completed' } },
       },
     ] as SessionEvent[])
+    await scaffold.ctx.sessionProjectionCache.coldSnapshot(grandchildId)
     expect(scaffold.ctx.agents.get(childId)).toBeUndefined()
     expect(scaffold.ctx.agents.get(oneShotId)).toBeUndefined()
     expect(scaffold.ctx.agents.get(grandchildId)).toBeUndefined()
     await expect(scaffold.ctx.subagents.listChildren(parent.id)).resolves.toMatchObject([
       {
-        kind: 'child', id: childId, mode: 'continuable', label: LABEL,
-        activity: 'inactive', hasChildren: true,
-      },
-      {
         kind: 'child', id: oneShotId, mode: 'one-shot',
         label: ONE_SHOT_LABEL, activity: 'inactive', hasChildren: false,
+      },
+      {
+        kind: 'child', id: childId, mode: 'continuable', label: LABEL,
+        activity: 'inactive', hasChildren: true,
       },
     ])
     await expect(scaffold.ctx.subagents.listChildren(childId)).resolves.toMatchObject([
@@ -299,7 +303,14 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     expect(await page.getByRole('button', {
       name: `Expand ${ONE_SHOT_LABEL} descendants`,
     }).count()).toBe(0)
+    const oneShotRow = page.getByRole('treeitem', { name: new RegExp(ONE_SHOT_LABEL) })
+    expect(await oneShotRow.getByText('~6mo 12d', { exact: true }).count()).toBe(1)
+    expect(await oneShotRow.getAttribute('aria-label')).toContain('192d 00h 00m 00s')
     await page.getByRole('button', { name: `Expand ${LABEL} descendants` }).click()
+    const childRow = page.getByRole('treeitem', { name: new RegExp(LABEL) })
+    const childLabel = await childRow.getAttribute('aria-label')
+    await page.waitForTimeout(1_100)
+    expect(await childRow.getAttribute('aria-label')).toBe(childLabel)
     await page.getByRole('treeitem', { name: new RegExp(NESTED_LABEL) }).waitFor({ timeout: 15_000 })
     expect(scaffold.ctx.agents.get(childId)).toBeUndefined()
     expect(scaffold.ctx.agents.get(grandchildId)).toBeUndefined()
@@ -386,7 +397,15 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
   it('opens an unavailable persisted grandchild after recording the available child', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-subagent-grandchild'))
     await page.getByRole('button', { name: '1 subagent' }).click()
-    await page.getByRole('treeitem', { name: new RegExp(NESTED_LABEL) }).click()
+    const tree = page.getByRole('tree', { name: 'Subagent sessions' })
+    const nestedRow = tree.getByRole('treeitem', { name: new RegExp(NESTED_LABEL) })
+    expect(await nestedRow.locator(':scope > *').count()).toBe(1)
+    await compareOrRefreshGolden(
+      BRANCHLESS_EXPECTED,
+      await captureStableAria(page, '[role="tree"][aria-label="Subagent sessions"]', scaffold.workspaceCwd),
+      MODE,
+    )
+    await nestedRow.click()
     await page.getByText('The parent session is offline; reopen it to continue sending messages.').waitFor()
     const hierarchy = page.getByRole('navigation', { name: 'Session hierarchy' })
     const crumbs = await hierarchy.getByRole('button').allTextContents()

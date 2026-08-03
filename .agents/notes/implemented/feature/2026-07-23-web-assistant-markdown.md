@@ -20,7 +20,7 @@ The dependency is explicit in `ui-primitives`; because that pure library is seed
 
 ## Untrusted output policy
 
-Assistant-authored destinations are restricted to absolute HTTP, HTTPS, and mailto URLs. HTTP(S) links open in a new tab with `rel="noopener noreferrer"`; relative destinations and other protocols render as non-navigable text. Markdown images render only their alt text, so model output cannot initiate a remote image request. Raw HTML remains inert source text because no HTML parser enters the pipeline. Shiki output is a static span tree generated from the fence text (no scripts or user HTML).
+Assistant-authored link destinations are restricted to absolute HTTP, HTTPS, and mailto URLs. HTTP(S) links open in a new tab with `rel="noopener noreferrer"`; relative destinations and other protocols render as non-navigable text. Markdown images follow the separate [remote-image policy](2026-07-30-web-remote-markdown-images.md). Raw HTML remains inert source text because no HTML parser enters the pipeline. Shiki output is a static span tree generated from the fence text (no scripts or user HTML).
 
 Fenced code and GFM tables own horizontal overflow so long content cannot widen the conversation column.
 
@@ -32,7 +32,7 @@ Fenced code and GFM tables own horizontal overflow so long content cannot widen 
 
 **Parse Markdown into session snapshots.** This would make React nodes or presentation ASTs durable runtime state and reintroduce a final-versus-streaming mode boundary. Parsing stays at the presentation leaf instead.
 
-**Enable raw HTML or remote images with sanitization.** Neither capability has a current product need, while both enlarge the executable or network privacy boundary. They remain disabled rather than adding sanitizer and image-policy dependencies.
+**Enable raw HTML with sanitization.** Raw HTML has no current product need and would enlarge the executable-content boundary, so it remains disabled rather than adding a sanitizer dependency. Remote images are governed by the later [image policy](2026-07-30-web-remote-markdown-images.md).
 
 **Port deepsuite Prism `highlight.css` and the mdast pipeline.** Appearance parity is owned by CSS Modules and shared `--dsw-*` tokens; highlighting stays on the existing shiki allowlist so the client does not take a second highlighter or Prism class contract.
 

@@ -1,6 +1,6 @@
 /** Turn-aware trajectory event ledger with a local record inspector. */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import {
   IconChevronRightOutline14,
@@ -21,6 +21,8 @@ import type {
 import { formatElapsedSeconds } from './trajectory-record.ts'
 import { trajectoryPreviewText, type TrajectoryTurnModel } from './layout.ts'
 import css from './TrajectoryTable.module.css'
+
+const BOTTOM_FOLLOW_THRESHOLD_PX = 2
 
 const KIND_LABEL: Record<TrajectoryCellKind, string> = {
   system: 'SYSTEM',
@@ -1711,6 +1713,9 @@ export function TrajectoryTable({
   // ledger has rendered. Not-found leaves the request pending (`turns` in the
   // deps retries as history pages in); the ack clears the store field.
   const rootRef = useRef<HTMLDivElement>(null)
+  const tablePaneRef = useRef<HTMLDivElement>(null)
+  const followsTableTail = useRef(false)
+  const tableScrollInitialized = useRef(false)
   const pendingScrollIndex = useRef<number | null>(null)
   const openRecordSummaryRef = useRef(openRecordSummary)
   openRecordSummaryRef.current = openRecordSummary
@@ -1734,11 +1739,30 @@ export function TrajectoryTable({
       row.scrollIntoView({ behavior: 'smooth', block: 'center' })
     }
   })
+  useLayoutEffect(() => {
+    const pane = tablePaneRef.current
+    if (pane === null) return
+    if (!tableScrollInitialized.current) {
+      tableScrollInitialized.current = true
+      followsTableTail.current =
+        pane.scrollHeight - pane.clientHeight - pane.scrollTop
+          <= BOTTOM_FOLLOW_THRESHOLD_PX
+      return
+    }
+    if (followsTableTail.current) pane.scrollTop = pane.scrollHeight
+  }, [turns])
 
   return (
     <div ref={rootRef} className={css.split} style={splitStyle}>
       <div
+        ref={tablePaneRef}
         className={css.tablePane}
+        onScroll={(event) => {
+          const pane = event.currentTarget
+          followsTableTail.current =
+            pane.scrollHeight - pane.clientHeight - pane.scrollTop
+              <= BOTTOM_FOLLOW_THRESHOLD_PX
+        }}
         onClick={(event) => {
           if (event.target === event.currentTarget) clearAllSelections()
         }}

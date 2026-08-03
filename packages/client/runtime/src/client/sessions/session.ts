@@ -113,6 +113,11 @@ export class Session implements SessionFace {
   private pendingCache: { rev: number; value: PendingInteraction[] } | null = null
   private derivedRev = 0
   private nodesCache: { projected: readonly ConversationNode[]; derivedRev: number; value: readonly ConversationNode[] } | null = null
+  /** Completed turn boundaries retained from the raw window so presentation
+   *  actions never infer a safe fork point from transcript content alone. */
+  private turnEnds = new Map<number, number>()
+  private turnEndsRev = 0
+  private turnEndsCache: { rev: number; value: ReadonlyMap<number, number> } | null = null
   /** Authoritative stream-only inbox snapshot; pending work never hits history. */
   private queued: QueuedMessage[] = []
   private queueRev = 0
@@ -821,6 +826,8 @@ export class Session implements SessionFace {
         return
       }
       case 'turn/end': {
+        this.turnEnds.set(event.data.turn, event.seq)
+        this.turnEndsRev++
         if (event.data.reason.kind === 'aborted' || event.data.reason.kind === 'disposed') {
           this.settleScheduledRetry('cancelled', event.data.turn)
         }
@@ -911,6 +918,8 @@ export class Session implements SessionFace {
     this.callsRev++
     this.derivedNodes = []
     this.derivedRev++
+    this.turnEnds = new Map()
+    this.turnEndsRev++
     this.codeDispatches = new Map()
     this.dispatchesRev++
     for (let i = 0; i < this.events.length; i++) {
@@ -942,6 +951,9 @@ export class Session implements SessionFace {
     if (this.callsCache === null || this.callsCache.rev !== this.callsRev) {
       this.callsCache = { rev: this.callsRev, value: [...this.openCalls.values()] }
     }
+    if (this.turnEndsCache === null || this.turnEndsCache.rev !== this.turnEndsRev) {
+      this.turnEndsCache = { rev: this.turnEndsRev, value: new Map(this.turnEnds) }
+    }
     if (this.pendingCache === null || this.pendingCache.rev !== this.pendingRev) {
       this.pendingCache = { rev: this.pendingRev, value: [...this.pending.values()] }
     }
@@ -955,6 +967,7 @@ export class Session implements SessionFace {
     return {
       sessionId: this.sessionId,
       nodes,
+      turnEnds: this.turnEndsCache.value,
       partial,
       runningCalls: this.callsCache.value,
       pending: this.pendingCache.value,
