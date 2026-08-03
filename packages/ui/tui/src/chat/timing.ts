@@ -132,32 +132,58 @@ function timingTotalsAt(state: TimingState, at?: number): TimingTotals {
   return totals
 }
 
+function stepKey(position: StepPosition): string {
+  return `${position.turn}:${position.step}`
+}
+
+interface TrackedStep extends TimingState {
+  /** Set at the step's `step/end`; later same-coordinate events no longer advance the step. */
+  closed: boolean
+}
+
 /**
- * Replay one step's accumulated per-phase timing up to clock `at`.
- * @param events - Session events to replay.
- * @param position - Turn/step coordinates of the step.
- * @param at - Render clock to accumulate the open bucket up to.
- * @returns The step's per-phase totals.
+ * Incremental per-step timing accumulator shared by every step's timing footer
+ * in one transcript. One forward pass over the append-only session log serves
+ * all steps' totals: each query advances a cursor over the events appended
+ * since the previous query, so a transcript of S steps costs O(events) in
+ * total instead of the O(S × events) of replaying the whole log per footer
+ * ([rationale](../../../../../.agents/notes/implemented/bug-fix/2026-08-03-tui-long-session-render-costs.md)).
+ *
+ * The log must be append-only with stable indices (the session `seq = log
+ * length` contract). Event times are consumed as logged: a backward wall-clock
+ * step clamps each bucket at zero rather than cutting the scan off at the
+ * query clock. The open bucket is accumulated to the query clock at lookup,
+ * never during the scan.
  */
-export function stepTimingAt(
-  events: readonly SessionEvent[],
-  position: StepPosition,
-  at: number,
-): TimingTotals {
-  const startIndex = events.findIndex(event => event.type === 'step/start' && sameStep(event, position))
-  if (startIndex < 0) return emptyTimingTotals()
-  const start = events[startIndex] as Extract<SessionEvent, { type: 'step/start' }>
-  const state = timingState(start.time)
-  for (let index = startIndex + 1; index < events.length; index += 1) {
-    const event = events[index] as SessionEvent
-    if (event.time > at) break
-    if ((event.type === 'assistant/chunk' || event.type === 'tool/call' || event.type === 'step/end')
-      && sameStep(event, position)) {
-      advanceStepTiming(state, event)
-      if (event.type === 'step/end') break
+export class StepTimingTracker {
+  private scanned = 0
+  private readonly steps = new Map<string, TrackedStep>()
+
+  /**
+   * Advance over events appended since the previous query, then return one
+   * step's accumulated per-phase timing up to clock `at`.
+   * @param events - Current session event log (append-only).
+   * @param position - Turn/step coordinates of the queried step.
+   * @param at - Render clock to accumulate the open bucket up to.
+   * @returns The step's per-phase totals; empty when the step never started.
+   */
+  totalsAt(events: readonly SessionEvent[], position: StepPosition, at: number): TimingTotals {
+    for (; this.scanned < events.length; this.scanned += 1) {
+      const event = events[this.scanned] as SessionEvent
+      if (event.type === 'step/start') {
+        const key = stepKey(event.data)
+        if (!this.steps.has(key)) this.steps.set(key, { ...timingState(event.time), closed: false })
+      } else if (event.type === 'assistant/chunk' || event.type === 'tool/call' || event.type === 'step/end') {
+        const state = this.steps.get(stepKey(event.data))
+        if (state !== undefined && !state.closed) {
+          advanceStepTiming(state, event)
+          if (event.type === 'step/end') state.closed = true
+        }
+      }
     }
+    const state = this.steps.get(stepKey(position))
+    return state === undefined ? emptyTimingTotals() : timingTotalsAt(state, at)
   }
-  return timingTotalsAt(state, at)
 }
 
 /**
@@ -191,7 +217,7 @@ const COMPACTING_GLYPH = '⊙'
 /**
  * Derive the currently open step's active timing bucket, or `undefined` when no
  * step is open. The open step is the last `step/start` with no later matching
- * `step/end`; its bucket is replayed with the same rules as {@link stepTimingAt}.
+ * `step/end`; its bucket is replayed with the same rules as {@link StepTimingTracker}.
  * @param events - Session events to scan.
  * @returns The open step's active bucket, or `undefined`.
  */
