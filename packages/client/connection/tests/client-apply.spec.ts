@@ -8,7 +8,7 @@ import { apply, type ConnectionHandle } from '../src/client/index.ts'
 import { FixtureApiClient } from '../src/client/fixture.ts'
 import { WebApiClient } from '../src/client/web-api-client.ts'
 
-type Win = { location?: { search: string } }
+type Win = { location?: { hostname: string; search: string } }
 
 afterEach(() => {
   delete (globalThis as Win).location
@@ -24,20 +24,28 @@ async function mount(): Promise<ConnectionHandle> {
 
 describe('connection client apply', () => {
   it('mounts ctx.connection with the real client when no ?fixture switch is present', async () => {
-    ;(globalThis as Win).location = { search: '' }
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '' }
     const handle = await mount()
     expect(handle.api).toBeInstanceOf(WebApiClient)
+    expect(handle.isLoopback).toBe(true)
   })
 
   it('selects the fixture client under ?fixture (and with no location at all stays real)', async () => {
-    ;(globalThis as Win).location = { search: '?fixture' }
+    ;(globalThis as Win).location = { hostname: '127.0.0.1', search: '?fixture' }
     expect((await mount()).api).toBeInstanceOf(FixtureApiClient)
     delete (globalThis as Win).location
-    expect((await mount()).api).toBeInstanceOf(WebApiClient)
+    const handle = await mount()
+    expect(handle.api).toBeInstanceOf(WebApiClient)
+    expect(handle.isLoopback).toBe(true)
+  })
+
+  it('reports non-loopback page authority through the connection handle', async () => {
+    ;(globalThis as Win).location = { hostname: '192.0.2.20', search: '' }
+    expect((await mount()).isLoopback).toBe(false)
   })
 
   it('start() hands out one loop, rejects a second consumer, and stop() aborts the streams', async () => {
-    ;(globalThis as Win).location = { search: '?fixture' }
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
     const handle = await mount()
     // config omitted: the `config ?? {}` default arm is part of the surface.
     const loop = handle.start({})
@@ -46,7 +54,7 @@ describe('connection client apply', () => {
   })
 
   it('WebApiClient carries requests over globalThis.fetch', async () => {
-    ;(globalThis as Win).location = { search: '' }
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '' }
     const handle = await mount()
     const original = globalThis.fetch
     const seen: string[] = []

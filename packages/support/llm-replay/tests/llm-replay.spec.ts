@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import LlmService, { GenerateOptions, LlmAdapter, StreamChunk } from '@deepseek-ai/dsh-llm'
+import LlmService, { CallId, createUserMessage, GenerateOptions, LlmAdapter, StreamChunk } from '@deepseek-ai/dsh-llm'
 import {
   type ReplayEntry,
   type SessionScript,
@@ -17,6 +17,7 @@ import {
   name,
   parseSessionHeader,
   parseSessionLog,
+  resolveScriptedEntry,
 } from '../src/index.ts'
 
 /**
@@ -308,6 +309,80 @@ describe('installLlmReplay (through the real LlmService)', () => {
     // No adapter registered for 'm' — replay must not reach it.
     installLlmReplay(ctx, { file })
     expect(await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] }))).toEqual(TEXT_CHUNKS)
+  })
+
+  describe('{{fromRequest:...}} substitution', () => {
+    const requestMessages = [createUserMessage({
+      content: [{ type: 'text' as const, text: 'stale {"goal":{"id":"goal-old"}} then {"goal":{"id":"goal-42ab"}}' }],
+      source: { kind: 'user' as const },
+    })]
+
+    function scriptedCall(argumentsDelta: string): StreamChunk[] {
+      return [
+        { type: 'block-start', index: 0, blockType: 'tool-call' },
+        { type: 'tool-call-delta', index: 0, id: CallId('c1'), name: 'update_goal', argumentsDelta },
+        { type: 'block-end', index: 0, block: { type: 'tool-call', id: CallId('c1'), name: 'update_goal', arguments: argumentsDelta } },
+        { type: 'finish', reason: { kind: 'tool-calls' } },
+      ]
+    }
+
+    async function streamScripted(argumentsDelta: string): Promise<StreamChunk[]> {
+      writeLog(TEXT_CHUNKS)
+      const overrideFile = join(dir, 'replay.override.json')
+      writeFileSync(overrideFile, JSON.stringify([{ kind: 'chunks', chunks: scriptedCall(argumentsDelta) }]), 'utf8')
+      const ctx = new Context()
+      await ctx.plugin(LlmService)
+      installLlmReplay(ctx, { file, overrideFile })
+      return drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: requestMessages }))
+    }
+
+    it('resolves the capture group from the LAST request match in every scripted string field', async () => {
+      const streamed = await streamScripted('{"goal_id":"{{fromRequest:"id":"(goal-[^"]+)"}}","revision":1}')
+      const delta = streamed.find(chunk => chunk.type === 'tool-call-delta')
+      expect(delta).toMatchObject({ argumentsDelta: '{"goal_id":"goal-42ab","revision":1}' })
+      const end = streamed.find(chunk => chunk.type === 'block-end')
+      expect(end).toMatchObject({ block: { arguments: '{"goal_id":"goal-42ab","revision":1}' } })
+    })
+
+    it('substitutes the whole match when the pattern has no capture group', async () => {
+      const streamed = await streamScripted('{"goal_id":"{{fromRequest:goal-[0-9a-z]+}}"}')
+      const delta = streamed.find(chunk => chunk.type === 'tool-call-delta')
+      expect(delta).toMatchObject({ argumentsDelta: '{"goal_id":"goal-42ab"}' })
+    })
+
+    it('keeps a trailing brace quantifier inside the pattern (terminator is the run tail)', async () => {
+      const streamed = await streamScripted('{"goal_id":"{{fromRequest:goal-[0-9a-z]{4}}}"}')
+      const delta = streamed.find(chunk => chunk.type === 'tool-call-delta')
+      expect(delta).toMatchObject({ argumentsDelta: '{"goal_id":"goal-42ab"}' })
+    })
+
+    it('fails loud when a placeholder matches nothing in the request', async () => {
+      await expect(streamScripted('{"goal_id":"{{fromRequest:task-[0-9]+}}"}'))
+        .rejects.toThrow(/fromRequest.*matched nothing/)
+    })
+
+    it('fails loud on an invalid placeholder pattern', async () => {
+      await expect(streamScripted('{"goal_id":"{{fromRequest:(goal-}}"}'))
+        .rejects.toThrow(/fromRequest.*invalid pattern/)
+    })
+
+    it('fails loud on an unterminated placeholder', () => {
+      const entry: ReplayEntry = { kind: 'chunks', chunks: scriptedCall('{"goal_id":"{{fromRequest:goal-1"}') }
+      expect(() => resolveScriptedEntry(entry, requestMessages)).toThrow(/fromRequest placeholder is unterminated/)
+    })
+
+    it('returns the exact same entry when no placeholder appears', () => {
+      const entry: ReplayEntry = { kind: 'chunks', chunks: TEXT_CHUNKS }
+      expect(resolveScriptedEntry(entry, requestMessages)).toBe(entry)
+    })
+
+    it('skips non-string request leaves when building the corpus', () => {
+      const messages = requestMessages.map(message => ({ ...message, seq: 7 })) as unknown as GenerateOptions['messages']
+      const entry: ReplayEntry = { kind: 'chunks', chunks: scriptedCall('{"goal_id":"{{fromRequest:goal-42[a-z]+}}"}') }
+      const resolved = resolveScriptedEntry(entry, messages)
+      if (resolved.kind !== 'chunks') throw new Error('expected chunks entry')
+      expect(resolved.chunks[1]).toMatchObject({ argumentsDelta: '{"goal_id":"goal-42ab"}' })
+    })
   })
 
   it('registers a replay-only provider catalog when configured', async () => {

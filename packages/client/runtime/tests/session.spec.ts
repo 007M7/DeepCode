@@ -426,6 +426,7 @@ describe('live event path', () => {
     feed(ev.turnEnd(10, 1, 'aborted')) // no assistant/message ever arrives
     const snapshot = session.getSnapshot()
     expect(snapshot.partial).toBeNull()
+    expect(snapshot.turnEnds.get(1)).toBe(10)
     const frozen = snapshot.nodes.at(-1)
     expect(frozen).toMatchObject({ kind: 'assistant', interrupted: true, blocks: [{ kind: 'text', text: '说到一半' }] })
     // Ordered inside the flow: after the user message (seq 7), before any later turn.
@@ -1215,6 +1216,7 @@ describe('reference stability (the memo contract)', () => {
     expect(after).not.toBe(before)
     expect(after.runningCalls).toBe(before.runningCalls)
     expect(after.pending).toBe(before.pending)
+    expect(after.turnEnds).toBe(before.turnEnds)
     // And a mutation on the tracked domain swaps that array.
     feed(ev.toolResult(11, 1, 'c1', 'ECHO'))
     const resolved = session.getSnapshot()

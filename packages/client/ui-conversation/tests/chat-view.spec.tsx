@@ -20,7 +20,7 @@ import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts
 import { createChatStore } from '../src/client/stores.ts'
 import { ChatView } from '../src/client/chat/ChatView.tsx'
 import { zh } from '../src/client/locales.ts'
-import { assistantActionsSeqs, deriveChatFlow, flowKeys } from '../src/client/chat/chat-flow.ts'
+import { assistantActionsSeqs, deriveChatFlow, flowKeys, messageBranchSeqs } from '../src/client/chat/chat-flow.ts'
 
 afterEach(cleanup)
 // Keyless create() persists under the bare declared key; clear between cases
@@ -33,7 +33,7 @@ const SID = 's1' as SessionId
 
 function snapshotBase(): ConversationSnapshot {
   return {
-    sessionId: SID, nodes: [], partial: null, runningCalls: [], codeDispatches: new Map(),
+    sessionId: SID, nodes: [], turnEnds: new Map(), partial: null, runningCalls: [], codeDispatches: new Map(),
     pending: [], queue: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
     hasMore: false, loadingOlder: false, promptError: null, blank: false, subagent: null, lastAgentError: null,
   }
@@ -211,6 +211,29 @@ describe('chat-flow derivation', () => {
     ])
     expect([...seqs].sort((a, b) => a - b)).toEqual([5, 7])
   })
+
+  it('messageBranchSeqs keeps only message rows at completed transcript tails', () => {
+    const interruptedThink: AssistantMessageNode = {
+      kind: 'assistant', seq: 4.1, time: 4_100, turn: 1, step: 2,
+      blocks: [{ kind: 'reasoning', text: 'bad path' }], interrupted: true,
+    }
+    const nodes: ConversationNode[] = [
+      user(1, 'first'),
+      assistant(2, 'answer before tools'),
+      toolResult(3, 'a'),
+      interruptedThink,
+      user(6, 'second'),
+      assistant(7, 'clean tail', 2),
+      user(10, 'user-only tail'),
+      {
+        kind: 'steering', messageId: 'steering-tail' as never,
+        seq: 13, time: 13_000, turn: 4,
+        content: [{ type: 'text', text: 'steering tail' }], source: null,
+      },
+    ]
+    const seqs = messageBranchSeqs(nodes, new Map([[1, 5], [2, 8], [3, 11], [4, 14]]))
+    expect([...seqs]).toEqual([7, 10, 13])
+  })
 })
 
 describe('ChatView', () => {
@@ -302,8 +325,18 @@ describe('ChatView', () => {
     expect(view.getAllByText('interrupt now')).toHaveLength(1)
     expect(view.container.querySelector('[data-pending-steering]')).toBeNull()
     expect(view.getAllByRole('button', { name: '复制' })).toHaveLength(2)
+    const durableBubble = view.getByText('interrupt now').closest('[class*="userRow"]') as HTMLElement
+    const unavailable = within(durableBubble).getByRole('button', { name: '在新对话中分支' })
+    expect(unavailable.getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(unavailable)
+    expect(h.forkAt).not.toHaveBeenCalled()
+
+    act(() => {
+      h.set({ running: false, turnEnds: new Map([[1, 3]]) })
+    })
     const branchButtons = view.getAllByRole('button', { name: '在新对话中分支' })
     expect(branchButtons).toHaveLength(2)
+    expect(branchButtons.map(button => button.getAttribute('aria-disabled'))).toEqual(['true', null])
     fireEvent.click(branchButtons[1]!)
     expect(h.forkAt).toHaveBeenCalledWith(2)
   })
@@ -404,21 +437,47 @@ describe('ChatView', () => {
         user(5, 'next'),
         assistant(6, 'second turn', 2),
       ],
+      turnEnds: new Map([[1, 4], [2, 6]]),
     })
     const view = render(<h.ChatView {...h.props} />)
-    // 2 user + 2 turn-tail assistants; mid-turn text at seq 2 stays chrome-free.
+    // Every message footer keeps branch visible; only completed assistant tails enable it.
     expect(view.getAllByRole('button', { name: '复制' })).toHaveLength(4)
-    expect(view.getAllByRole('button', { name: '在新对话中分支' })).toHaveLength(4)
+    const branchButtons = view.getAllByRole('button', { name: '在新对话中分支' })
+    expect(branchButtons).toHaveLength(4)
+    expect(branchButtons.map(button => button.getAttribute('aria-disabled'))).toEqual(['true', null, 'true', null])
   })
 
-  it('forks from both user and finalized assistant message actions at their event seq', () => {
-    const h = makeHarness({ nodes: [user(1, 'question'), assistant(2, 'answer')] })
+  it('enables fork only on the finalized assistant at the completed transcript tail', () => {
+    const h = makeHarness({
+      nodes: [user(1, 'question'), assistant(2, 'answer')],
+      turnEnds: new Map([[1, 3]]),
+    })
     const view = render(<h.ChatView {...h.props} />)
     const buttons = view.getAllByRole('button', { name: '在新对话中分支' })
     expect(buttons).toHaveLength(2)
+    expect(buttons.map(button => button.getAttribute('aria-disabled'))).toEqual(['true', null])
     fireEvent.click(buttons[0]!)
     fireEvent.click(buttons[1]!)
-    expect(h.forkAt.mock.calls).toEqual([[1], [2]])
+    expect(h.forkAt.mock.calls).toEqual([[2]])
+  })
+
+  it('keeps branch visible but unavailable when tool and interrupted Think follow the response', () => {
+    const interruptedThink: AssistantMessageNode = {
+      kind: 'assistant', seq: 4.1, time: 4_100, turn: 1, step: 2,
+      blocks: [{ kind: 'reasoning', text: 'bad path' }], interrupted: true,
+    }
+    const h = makeHarness({
+      nodes: [user(1, 'question'), assistant(2, 'answer'), toolResult(3, 'a'), interruptedThink],
+      turnEnds: new Map([[1, 5]]),
+    })
+    const view = render(<h.ChatView {...h.props} />)
+    expect(view.getAllByRole('button', { name: '复制' })).toHaveLength(2)
+    const buttons = view.getAllByRole('button', { name: '在新对话中分支' })
+    expect(buttons).toHaveLength(2)
+    expect(buttons.every(button => button.getAttribute('aria-disabled') === 'true')).toBe(true)
+    fireEvent.click(buttons[0]!)
+    fireEvent.click(buttons[1]!)
+    expect(h.forkAt).not.toHaveBeenCalled()
   })
 
   it('renders assistant Markdown across history, streaming, final, and interrupted states while user text stays literal', () => {

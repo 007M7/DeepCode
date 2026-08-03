@@ -12,6 +12,7 @@
  */
 
 import type { Context } from 'cordis'
+import type { AgentSetupCommit } from '@deepseek-ai/dsh-agent'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import { SubagentError } from './error.ts'
 
@@ -45,17 +46,6 @@ interface Installation {
 interface TransactionState {
   readonly installations: Installation[]
   invalidated: boolean
-}
-
-/** Package-private setup transaction consumed by the continuation manager. */
-export interface ActivationSetupTransaction {
-  /**
-   * Reject a batch invalidated by revocation before publication.
-   * @throws {SubagentError} code `ACTIVATION_SETUP_REVOKED` after revocation.
-   */
-  assertIntact(): void
-  /** Promote this batch to resident installations. */
-  commit(): void
 }
 
 /** Re-read mutable removal state after a contribution may have revoked itself. */
@@ -95,9 +85,9 @@ export class SubagentActivationSetupRegistry {
   /**
    * Install every live contribution into one unpublished child context.
    * @param childCtx - the child's unpublished scoped context.
-   * @returns the provisioning transaction.
+   * @returns the provisioning commit consumed at Agent publication.
    */
-  apply(childCtx: Context): ActivationSetupTransaction {
+  apply(childCtx: Context): AgentSetupCommit {
     const state: TransactionState = { installations: [], invalidated: false }
     try {
       for (const registration of [...this.registrations]) {
@@ -135,15 +125,14 @@ export class SubagentActivationSetupRegistry {
     }
     childCtx.effect(() => () => { this.releaseChild(childCtx) }, 'subagents.activationSetup()')
     return {
-      assertIntact: () => {
-        if (!state.invalidated) return
-        throw new SubagentError(
-          'a continuable-subagent setup contribution was revoked while this child was being built; '
-          + 'the child was not established',
-          'ACTIVATION_SETUP_REVOKED',
-        )
-      },
       commit: () => {
+        if (state.invalidated) {
+          throw new SubagentError(
+            'a continuable-subagent setup contribution was revoked while this child was being built; '
+            + 'the child was not established',
+            'ACTIVATION_SETUP_REVOKED',
+          )
+        }
         for (const installation of state.installations) installation.transaction = undefined
       },
     }

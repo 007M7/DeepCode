@@ -26,7 +26,7 @@ A tool card has one colored `Tool / <name>` status header over one dim body. Pre
 
 Injected context renders as prose in `ContextCardComponent`, not through the XML tree renderer. Exact matched outer `<system-reminder>` lines are stripped, but mismatched, unpaired, or inline tag-like text remains verbatim. Model-facing content is unchanged. Folding uses the shared `preview` helper after body assembly, so it depends only on row count, never parser success or payload characters.
 
-`Ctrl+O` cycles collapsed, expanded, and hidden. Tool cards disappear in the hidden state together with their card-owned leading gap. Context cards participate in collapsed and expanded states but fall back to collapsed while tools are hidden, because injected instructions are not disposable tool traffic.
+`Ctrl+O` cycles collapsed, expanded, and hidden. Tool cards disappear in the hidden state together with their card-owned leading gap. Context cards participate in collapsed and expanded states but fall back to collapsed while tools are hidden, because injected instructions are not disposable tool traffic. The hidden phase additionally folds each turn's assistant steps into one message; the [hidden-mode assistant fold Agent Note](../feature/2026-07-29-tui-hidden-mode-assistant-fold.md) owns that rule.
 
 ### Cross-workspace resume
 

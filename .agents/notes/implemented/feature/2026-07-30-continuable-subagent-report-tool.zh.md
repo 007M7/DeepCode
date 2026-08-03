@@ -54,7 +54,7 @@ root、one-shot child、伪造对象、陈旧 Agent 和同 id 替换对象都以
 
 subagent seam 新增 `registerContinuableSetup(contribution): () => void`，由 `SubagentActivationSetupRegistry` 支撑。每个同步贡献都会接收尚未发布的 child 上下文，并返回其安装的 disposer。继续执行管理器首先应用基础 child 组合，然后通过同一个用于首次创建与冷恢复的设置闭包，按注册顺序应用当前贡献。
 
-注册表负责注册、每个 child 的安装记录、设置回滚、child 作用域清理和立即撤销。某项贡献抛出异常或被并发撤销时，会在 Activation 发布前拒绝操作并回滚该批次。新注册项只会在驻留 child 的下一个 Activation 生效；移除注册项时，会先将它对新设置关闭，再立即撤销为正在配置或驻留的每个 child 安装的实例。注册 dispose 与 child 上下文 dispose 都是幂等的，两者都会先尝试每项释放，再聚合失败。
+注册表负责注册、每个 child 的安装记录、设置回滚、child 作用域清理和立即撤销。应用一个批次会返回 Agent setup 提交对象，用于在所有 setup 的 await 均结算后、紧邻 Agent 发布前重新校验配置状态。因此，某项贡献抛出异常或被并发撤销时，会在 Agent 与 Session 发布前拒绝操作并回滚该批次。新注册项只会在驻留 child 的下一个 Activation 生效；移除注册项时，会先将它对新设置关闭，再立即撤销为正在配置或驻留的每个 child 安装的实例。注册 dispose 与 child 上下文 dispose 都是幂等的，两者都会先尝试每项释放，再聚合失败。
 
 该 seam 使继续执行管理器无需知道工具名。report 包只安装 `report`；`@deepseek-ai/dsh-tool-subagent-control` 则独立安装 parent 侧的 `send_message` 和 `list_agents`。部署时可安装任一方向、同时安装两者或两者均不安装。提供方仍只负责数据，持久化描述符不会对 report 可用性或投递模式建立快照，冷恢复则使用部署当前的贡献与策略。
 
@@ -94,6 +94,10 @@ ACP（Agent Client Protocol）快照 harness 新增 `waitForSubagentTurnEnd`，�
 
 承载结果的包装层会让一次报告或一个轮次看似具有终止性，并重新引入可继续 Activation 已经移除的生命周期不匹配。显式、可重复的发送无需中间执行对象。
 
+### 在 Agent 创建后校验 setup
+
+创建完成后的撤销检查只能在 Agent 与 Session 均已发布后拒绝 Activation。对返回的 handle 执行 dispose 会移除实时对象，但当前 seam 无法删除持久化内容，因此会留下一个仍可恢复的 child，而继续执行管理器却判定它从未建立。改为返回 `AgentSetupCommit`，Agent 工厂便可在自身的发布边界同步执行同一项可变状态检查。
+
 ## 影响
 
 - 只有安装 report 包贡献时，可继续进程内 child 才会恰好暴露一个作用域局部 `report` schema；无关 Agent 永远不会暴露该 schema。
@@ -112,5 +116,3 @@ ACP（Agent Client Protocol）快照 harness 新增 `waitForSubagentTurnEnd`，�
 wakeup 模式可能在嵌套 child 频繁报告时放大模型工作量。由部署所有者控制并默认静默，可以限制该风险，但无法完全消除。
 
 注册表中的存在性就是 parent 在线信号。宿主拥有的 parent 如果已开始 `AgentHandle.dispose()` 但尚未展开其作用域，仍可能接受并追加一条本进程不会再处理的报告。要弥合这个缺口，需要 Agent 层面的 dispose 开始信号，不能由 subagent 层推断。
-
-最终 setup 撤销检查发生在 `ctx.agents.create()` 或 `ctx.agents.resume()` 返回之后，此时底层 Agent 和 Session 已经发布。在该窗口内撤销会回滚 handle，并阻止 subagent Activation 的 start 边，但可能留下持久化 Session。若要把截止点移到底层发布之前，需要未来提供 Agent 创建 setup 事务 seam。

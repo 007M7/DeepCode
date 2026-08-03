@@ -1,6 +1,6 @@
 /** Turn-aware trajectory event ledger with a local record inspector. */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import {
   IconChevronRightOutline14,
@@ -21,6 +21,8 @@ import type {
 import { formatElapsedSeconds } from './trajectory-record.ts'
 import { trajectoryPreviewText, type TrajectoryTurnModel } from './layout.ts'
 import css from './TrajectoryTable.module.css'
+
+const BOTTOM_FOLLOW_THRESHOLD_PX = 2
 
 const KIND_LABEL: Record<TrajectoryCellKind, string> = {
   system: 'SYSTEM',
@@ -187,6 +189,10 @@ const REQUEST_TABS: readonly DetailTabItem[] = [
 
 type TrajectorySplitStyle = CSSProperties & {
   '--trajectory-tool-request-width': string
+}
+
+type RequestBoundaryStyle = CSSProperties & {
+  '--request-boundary-offset': string
 }
 
 function clampDetailsWidth(width: number, splitWidth: number): number {
@@ -449,6 +455,22 @@ function indexRequestNumbers(
     if (!numbers.has(key)) numbers.set(key, next++)
   }
   return numbers
+}
+
+function indexRequestBoundaryRuns(records: readonly TableRecord[]): ReadonlyMap<number, number> {
+  const indexes = new Map<number, number>()
+  let runLength = 0
+  for (const record of records) {
+    if (record.cell.requestOnly === true) {
+      indexes.set(record.cell.index, runLength++)
+      continue
+    }
+    if (runLength > 0 && record.groupStart && requestStep(record.group) !== undefined) {
+      indexes.set(record.cell.index, runLength)
+    }
+    runLength = 0
+  }
+  return indexes
 }
 
 function summarizeTurn(records: readonly TableRecord[]): string {
@@ -1210,7 +1232,8 @@ function MarkdownRecordContent({
             aria-expanded={thinkingExpanded}
             onClick={() => { onThinkingExpandedChange(!thinkingExpanded) }}
           >
-            {thinkingExpanded ? 'Thinking' : 'Thinking ...'}
+            Thinking
+            <IconChevronRightOutline14 className={css.thinkingChevron} size={12} />
           </button>
           {thinkingExpanded && (
             <MarkdownFragment
@@ -1543,6 +1566,7 @@ export function TrajectoryTable({
       collapsedAssistants,
     )
     : filterRecords(allRecords, searchMatchIndexes)
+  const requestBoundaryRuns = indexRequestBoundaryRuns(records)
   const selected = allRecords.find(record => record.cell.index === selectedIndex)
   const selectedPrompt = selected?.cell.kind === 'system'
     ? selected.cell.promptDetail
@@ -1711,6 +1735,9 @@ export function TrajectoryTable({
   // ledger has rendered. Not-found leaves the request pending (`turns` in the
   // deps retries as history pages in); the ack clears the store field.
   const rootRef = useRef<HTMLDivElement>(null)
+  const tablePaneRef = useRef<HTMLDivElement>(null)
+  const followsTableTail = useRef(false)
+  const tableScrollInitialized = useRef(false)
   const pendingScrollIndex = useRef<number | null>(null)
   const openRecordSummaryRef = useRef(openRecordSummary)
   openRecordSummaryRef.current = openRecordSummary
@@ -1734,11 +1761,30 @@ export function TrajectoryTable({
       row.scrollIntoView({ behavior: 'smooth', block: 'center' })
     }
   })
+  useLayoutEffect(() => {
+    const pane = tablePaneRef.current
+    if (pane === null) return
+    if (!tableScrollInitialized.current) {
+      tableScrollInitialized.current = true
+      followsTableTail.current =
+        pane.scrollHeight - pane.clientHeight - pane.scrollTop
+          <= BOTTOM_FOLLOW_THRESHOLD_PX
+      return
+    }
+    if (followsTableTail.current) pane.scrollTop = pane.scrollHeight
+  }, [turns])
 
   return (
     <div ref={rootRef} className={css.split} style={splitStyle}>
       <div
+        ref={tablePaneRef}
         className={css.tablePane}
+        onScroll={(event) => {
+          const pane = event.currentTarget
+          followsTableTail.current =
+            pane.scrollHeight - pane.clientHeight - pane.scrollTop
+              <= BOTTOM_FOLLOW_THRESHOLD_PX
+        }}
         onClick={(event) => {
           if (event.target === event.currentTarget) clearAllSelections()
         }}
@@ -1767,6 +1813,12 @@ export function TrajectoryTable({
               const requestInfo = request === undefined
                 ? undefined
                 : sessionRequestNumbers?.find(candidate => candidate.number === request)
+              const requestStatus = requestInfo?.status
+                ?? (record.cell.isError === true ? 'error' : undefined)
+              const requestRunIndex = requestBoundaryRuns.get(record.cell.index) ?? 0
+              const requestBoundaryStyle: RequestBoundaryStyle = {
+                '--request-boundary-offset': `${requestRunIndex * 8}px`,
+              }
               const requestLabel = request === undefined
                 ? undefined
                 : `Request #${request}${requestInfo?.purpose === 'compaction' ? ' · Compaction' : ''}`
@@ -1858,6 +1910,9 @@ export function TrajectoryTable({
                         aria-label={requestLabel}
                         aria-pressed={requestSelected}
                         data-label={requestLabel}
+                        data-request-run-index={requestRunIndex}
+                        data-request-status={requestStatus}
+                        style={requestBoundaryStyle}
                         onClick={(event) => {
                           event.stopPropagation()
                           selectRequest({
@@ -1906,36 +1961,36 @@ export function TrajectoryTable({
                         <span
                           className={css.kindSlot}
                         >
-                          <Tooltip
-                            label={KIND_LABEL[record.cell.kind]}
-                            side="right"
+                          <span
+                            className={`${css.kindTag} ${
+                              record.cell.kind === 'system'
+                                ? css.systemNeutral
+                                : record.cell.kind === 'context'
+                                  ? css.contextGreen
+                                  : record.cell.kind === 'compacted'
+                                    ? css.compacted
+                                    : record.cell.kind === 'tool'
+                                      ? css.toolAmber
+                                      : record.cell.kind === 'message'
+                                        ? css.assistantVioletBright
+                                        : record.cell.kind === 'subtool'
+                                          ? css.subtoolAmber
+                                          : css[record.cell.kind]
+                            }`}
+                            data-role-kind={record.cell.kind}
                           >
-                            <span
-                              className={`${css.kindTag} ${
-                                record.cell.kind === 'system'
-                                  ? css.systemNeutral
-                                  : record.cell.kind === 'context'
-                                    ? css.contextGreen
-                                    : record.cell.kind === 'compacted'
-                                      ? css.compacted
-                                      : record.cell.kind === 'tool'
-                                        ? css.toolAmber
-                                        : record.cell.kind === 'message'
-                                          ? css.assistantVioletBright
-                                          : record.cell.kind === 'subtool'
-                                            ? css.subtoolAmber
-                                            : css[record.cell.kind]
-                              }`}
-                              data-role-kind={record.cell.kind}
+                            <Tooltip
+                              label={KIND_LABEL[record.cell.kind]}
+                              side="right"
                             >
                               <span className={css.kindTagIcon} aria-hidden="true">
                                 {KIND_ICON[record.cell.kind]}
                               </span>
-                              <span className={css.kindTagLabel}>
-                                {KIND_LABEL[record.cell.kind]}
-                              </span>
+                            </Tooltip>
+                            <span className={css.kindTagLabel}>
+                              {KIND_LABEL[record.cell.kind]}
                             </span>
-                          </Tooltip>
+                          </span>
                         </span>
                       )}
                     </div>
@@ -2473,7 +2528,7 @@ export function TrajectoryTable({
                     )}
                   {selectedAssistantRequestTarget !== undefined && (
                     <OverviewSection
-                      label="Timing"
+                      label="Request Timing"
                       onOpen={() => {
                         selectRequest(selectedAssistantRequestTarget, 'timing')
                       }}

@@ -20,6 +20,7 @@ async function mount(): Promise<Bench> {
   const bench: Bench = { ctx, sinks: undefined }
   const handle: ConnectionHandle = {
     api,
+    isLoopback: true,
     start: (sinks) => {
       bench.sinks = sinks
       return { stop: () => {} }

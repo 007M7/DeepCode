@@ -108,11 +108,11 @@ setup 接收一个完整的受信 Cordis 上下文，因此可以组合普通插
 
 ### 创建最后发布，dispose 最后撤销
 
-`ctx.agents.create()` 和 `resume()` 构建未发布的会话、作用域、agent 和驱动器。它们等待 `setup`，准入最终的会话和 agent 条目，按序公告，启动循环，然后才返回 handle。
+`ctx.agents.create()` 和 `resume()` 构建未发布的会话、作用域、agent 和驱动器。它们等待 `setup`，同步调用其可选的 `AgentSetupCommit`，准入最终的会话和 agent 条目，按序公告，启动循环，然后才返回 handle。该提交操作让可变的配置状态在所有 setup 的 await 均结算后，于确切的发布边界重新校验；若其抛出异常，则会在公告任何一个身份前回滚私有事务，而成功提交后的撤销属于普通的实时拆卸。
 
 可选的创建信号仅在创建或恢复挂起期间取消工作。promise resolve 后，返回的 `AgentHandle` 拥有显式 dispose 权。
 
-如果加载、setup、准入或发布失败，私有事务回滚其准备的一切。使用同一个调用方提供的存活 ID 的并发操作可能都到达 setup，但最终注册表条目只准入一个；每个失败者拒绝并清理其私有资源。在等待 dispose 完成后的顺序复用仍然有效。
+如果加载、setup、可选的 setup 提交、准入或发布失败，私有事务回滚其准备的一切。使用同一个调用方提供的存活 ID 的并发操作可能都到达 setup，但最终注册表条目只准入一个；每个失败者拒绝并清理其私有资源。在等待 dispose 完成后的顺序复用仍然有效。
 
 `AgentHandle.dispose()` 反转边界。它停用创建或驱动，等待同步发布解除，停止并排空驱动器和最终会话刷写，分离 agent 和会话，最后 dispose 作用域。重复或竞争的 dispose 请求合并为一个完成 promise。
 
@@ -122,12 +122,14 @@ setup 接收一个完整的受信 Cordis 上下文，因此可以组合普通插
 flowchart TB
   request["Create or resume"] --> privateWorld["Build private session, scope, agent, and driver"]
   privateWorld --> setup["Await composition through agent.ctx"]
-  setup --> admission["Admit final session and agent entries"]
+  setup --> setupCommit["Commit optional mutable provisioning"]
+  setupCommit --> admission["Admit final session and agent entries"]
   admission --> publish["Announce lifecycle and start the driver"]
   publish --> live["Return AgentHandle"]
 
   privateWorld -->|"failure, cancellation, or owner loss"| rollback["Rollback private work"]
   setup -->|"failure, cancellation, or owner loss"| rollback
+  setupCommit -->|"revalidation failure or owner loss"| rollback
   admission -->|"duplicate or owner loss"| rollback
   publish -->|"listener failure or owner loss"| rollback
   live -->|"handle or owner disposal"| quiesce["Stop and drain work"]
@@ -166,6 +168,6 @@ agent 作用域组合的是受信的同进程注册。它不沙箱化插件、�
 
 ## 后果
 
-贡献者使用一种熟悉的模式：通过插件上下文注册共享行为，通过 `agent.ctx` 注册本地行为，在操作中选择真实 agent，dispose 返回的 handle。从观察者角度看 setup 是原子的，拆除则保留本地行为直到工作停止。
+贡献者使用一种熟悉的模式：通过插件上下文注册共享行为，通过 `agent.ctx` 注册本地行为，在操作中选择真实 agent，dispose 返回的 handle。从观察者角度看，setup 及其可选的发布提交是原子的，拆除则保留本地行为直到工作停止。
 
 代价是显式的主体选择、异步的编程式创建，以及服务需要逐个采纳作用域。扁平注册作用域有意不等同于权限，subagent 组合控制作为独立功能存在，而非隐藏的作用域语义。

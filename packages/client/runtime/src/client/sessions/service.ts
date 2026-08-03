@@ -25,6 +25,7 @@ import { SESSION_SEARCH_RESULT_LIMIT } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type {
   HostObservable, SessionMaybeProvideInfo, SessionProvideInfo,
 } from '@deepseek-ai/dsh-client-ui-slots'
+import type { SessionProjectionMap } from '@deepseek-ai/dsh-session-projection/types'
 import type { SnapshotStore } from '../contract/store.ts'
 import { createSnapshotStore } from '../contract/store.ts'
 import type { SessionFace } from '../contract/session.ts'
@@ -57,6 +58,8 @@ export interface SessionSummary {
    */
   blank: boolean
   updatedAt: number
+  /** Current host-computed projection values retained by the object layer. */
+  projectionValues?: Readonly<Partial<SessionProjectionMap>>
 }
 
 /**
@@ -613,6 +616,9 @@ export class SessionsService implements ISessions {
         waitingApproval: entry.waitingApproval,
         blank: entry.blank,
         updatedAt: entry.updatedAt,
+        ...(entry.projectionValues === undefined
+          ? {}
+          : { projectionValues: entry.projectionValues }),
         ...(entry.title !== undefined ? { title: entry.title } : {}),
         ...(entry.cwd !== undefined ? { cwd: entry.cwd } : {}),
         ...(entry.parentSessionId !== undefined ? { parentId: entry.parentSessionId } : {}),

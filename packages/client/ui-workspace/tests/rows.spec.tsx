@@ -96,7 +96,7 @@ describe('workspace browser rows', () => {
 
   it('renders and opens a selected running Session row', () => {
     const node: SessionNode = {
-      id: sid('session'), title: 'Session', blank: false, running: true, updatedAt: 0,
+      id: sid('session'), title: 'Session', blank: false, waitingApproval: false, running: true, updatedAt: 0,
     }
     const onOpen = vi.fn()
     render(
@@ -180,7 +180,7 @@ describe('workspace browser rows', () => {
     vi.useFakeTimers()
     try {
       const node: SessionNode = {
-        id: sid('s-blank'), title: 'ignored', blank: true, running: false, updatedAt: 0,
+        id: sid('s-blank'), title: 'ignored', blank: true, waitingApproval: false, running: false, updatedAt: 0,
       }
       render(<SessionNodeItem node={node} currentId={node.id} now={0} onOpen={vi.fn()}
         onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
@@ -206,7 +206,7 @@ describe('workspace browser rows', () => {
     const onFork = vi.fn()
     const onArchive = vi.fn()
     const node: SessionNode = {
-      id: sid('s1'), title: 'One', blank: false, running: false, updatedAt: 0,
+      id: sid('s1'), title: 'One', blank: false, waitingApproval: false, running: false, updatedAt: 0,
     }
     render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={onOpen}
       onRename={onRename} onFork={onFork} onArchive={onArchive} t={t} />)
@@ -234,11 +234,12 @@ describe('workspace browser rows', () => {
     expect(screen.queryByRole('menu')).toBeNull()
   })
 
+
   it('shows the hover card after the dwell and suppresses it while the row menu is open', () => {
     vi.useFakeTimers()
     try {
       const node: SessionNode = {
-        id: sid('s1'), title: 'Hovered', blank: false, running: true, updatedAt: 0,
+        id: sid('s1'), title: 'Hovered', blank: false, waitingApproval: false, running: true, updatedAt: 0,
       }
       render(<SessionNodeItem node={node} currentId={undefined} now={60_000} onOpen={vi.fn()}
         onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
@@ -248,7 +249,7 @@ describe('workspace browser rows', () => {
       // Card body: full title + relative time + running status.
       expect(screen.getAllByText('Hovered')).toHaveLength(2)
       expect(screen.getByText('1分钟前')).toBeTruthy()
-      expect(screen.getByText('进行中')).toBeTruthy()
+      expect(screen.getAllByText('进行中')).toHaveLength(2)
       fireEvent.pointerLeave(wrapper)
       // Menu open (disabled=true) suppresses the card for the same hover.
       fireEvent.click(screen.getByRole('button', { name: '会话“Hovered”的操作' }))
@@ -260,11 +261,38 @@ describe('workspace browser rows', () => {
     }
   })
 
+  it('shows approval waiting as warning ahead of the running state', () => {
+    vi.useFakeTimers()
+    try {
+      const node: SessionNode = {
+        id: sid('approval'), title: 'Needs approval', blank: false,
+        waitingApproval: true, running: true, updatedAt: 0,
+      }
+      const view = render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
+        onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
+      const row = screen.getByRole('treeitem')
+      expect(row.querySelector('[data-state="warning"]')).toBeTruthy()
+      expect(row.querySelector('[data-state="ongoing"]')).toBeNull()
+      expect(screen.getByText('等待审批')).toBeTruthy()
+
+      view.rerender(<SessionNodeItem node={{ ...node, running: false }} currentId={undefined} now={0}
+        onOpen={vi.fn()} onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
+      expect(screen.getByRole('treeitem').querySelector('[data-state="warning"]')).toBeTruthy()
+
+      fireEvent.pointerEnter(screen.getByRole('treeitem').parentElement as HTMLElement)
+      act(() => { vi.advanceTimersByTime(500) })
+      expect(screen.getAllByText('等待审批')).toHaveLength(2)
+      expect(document.querySelectorAll('[data-state="warning"]')).toHaveLength(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('idle hover card shows the Idle status line', () => {
     vi.useFakeTimers()
     try {
       const node: SessionNode = {
-        id: sid('s1'), title: 'Quiet', blank: false, running: false, updatedAt: 0,
+        id: sid('s1'), title: 'Quiet', blank: false, waitingApproval: false, running: false, updatedAt: 0,
       }
       render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
         onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
@@ -279,7 +307,7 @@ describe('workspace browser rows', () => {
 
   it('draggable row wires start/end and gates hover/drop on an active same-group drag', () => {
     const node: SessionNode = {
-      id: sid('s1'), title: 'Drag me', blank: false, running: false, updatedAt: 0,
+      id: sid('s1'), title: 'Drag me', blank: false, waitingApproval: false, running: false, updatedAt: 0,
     }
     const inactive = dragProps()
     const { rerender } = render(

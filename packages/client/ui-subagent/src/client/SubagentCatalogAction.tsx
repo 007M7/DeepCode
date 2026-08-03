@@ -2,13 +2,17 @@ import {
   useEffect, useRef, useState, type KeyboardEvent, type MouseEvent,
 } from 'react'
 import type {
-  SessionId, SessionListState, SessionSummary, SubagentAddress, SubagentCatalogSnapshot,
+  SessionId, SessionListState, SessionProjectionMap, SessionSummary, SubagentAddress,
+  SubagentCatalogSnapshot,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import {
   IconChevronDownOutline14, IconChevronRightOutline14, IconRefreshOutline14, StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+import { NS } from './locales.ts'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type {} from '@deepseek-ai/dsh-subagent/client'
+import type {} from '@deepseek-ai/dsh-token-meter/client'
 import css from './SubagentCatalogAction.module.css'
 
 type CatalogEntry = SubagentCatalogSnapshot['entries'][number]
@@ -23,7 +27,7 @@ export interface SubagentCatalogInjected {
 
 /** Full props for the session-header catalog action. */
 export type SubagentCatalogActionProps =
-  PropsRuntime<'conversation.session.header.actions'> & SubagentCatalogInjected
+  PropsRuntime<'conversation.session.header.actions'> & SubagentCatalogInjected & PropsLocale<typeof NS>
 
 interface CatalogRowsProps {
   parentSessionId: SessionId
@@ -39,11 +43,14 @@ interface CatalogRowsProps {
   closeCatalog: () => void
 }
 
-function diagnosticReason(entry: Extract<CatalogEntry, { kind: 'diagnostic' }>): string {
+function diagnosticReason(
+  entry: Extract<CatalogEntry, { kind: 'diagnostic' }>,
+  t: TranslateNS<typeof NS>,
+): string {
   switch (entry.reason) {
-    case 'corrupt': return '会话记录损坏'
-    case 'unsupported': return '子代理记录版本不受支持'
-    case 'unavailable': return '会话记录暂不可用'
+    case 'corrupt': return t('diagnostic.corrupt')
+    case 'unsupported': return t('diagnostic.unsupported')
+    case 'unavailable': return t('diagnostic.unavailable')
   }
 }
 
@@ -53,19 +60,115 @@ function treeItems(root: HTMLDivElement | null): HTMLElement[] {
     : Array.from(root.querySelectorAll<HTMLElement>('[role="treeitem"]:not([aria-disabled="true"])'))
 }
 
-/** Compact trailing activity time for a catalog row. */
-function relativeTime(updatedAt: number | undefined, now: number): string | undefined {
-  if (updatedAt === undefined) return undefined
-  const minute = 60_000
-  const hour = 60 * minute
-  const day = 24 * hour
-  const diff = Math.max(0, now - updatedAt)
-  if (diff < minute) return '刚刚'
-  if (diff < hour) return `${Math.floor(diff / minute)}分钟`
-  if (diff < day) return `${Math.floor(diff / hour)}小时`
-  if (diff < 30 * day) return `${Math.floor(diff / day)}天`
-  if (diff < 365 * day) return `${Math.floor(diff / (30 * day))}个月`
-  return `${Math.floor(diff / (365 * day))}年`
+/** Compact token count shared in shape with the conversation stats strip. */
+function formatTokens(value: number): string {
+  const scaled = (next: number): string => next >= 100
+    ? String(Math.round(next))
+    : String(Math.round(next * 10) / 10)
+  if (value < 1_000) return String(value)
+  if (value < 1_000_000) return `${scaled(value / 1_000)}K`
+  return `${scaled(value / 1_000_000)}M`
+}
+
+/** Sum the four disjoint durable provider-usage buckets. */
+function tokenTotal(
+  usage: SessionProjectionMap['tokenUsage'] | undefined,
+): number | undefined {
+  return usage === undefined
+    ? undefined
+    : usage.uncachedInputTokens + usage.outputTokens
+      + usage.cacheReadTokens + usage.cacheWriteTokens
+}
+
+/** Exact whole-second active-turn duration for one catalog row. */
+function activityDuration(
+  summary: SessionSummary | undefined,
+  activity: 'running' | 'inactive',
+  now: number,
+): number | undefined {
+  if (summary === undefined) return undefined
+  const timing: SessionProjectionMap['subagentTiming'] | undefined
+    = summary.projectionValues?.subagentTiming
+  if (timing === undefined) return undefined
+  if (timing.active === undefined) return timing.settledMs
+  const end = activity === 'running'
+    ? now
+    : timing.active.through
+  return timing.settledMs + Math.max(0, end - timing.active.since)
+}
+
+interface DurationParts {
+  seconds: number
+  minutes: number
+  hours: number
+  days: number
+  totalMinutes: number
+  totalHours: number
+}
+
+function splitDuration(ms: number): DurationParts {
+  const totalSeconds = Math.floor(Math.max(0, ms) / 1_000)
+  const totalMinutes = Math.floor(totalSeconds / 60)
+  const totalHours = Math.floor(totalMinutes / 60)
+  return {
+    seconds: totalSeconds % 60,
+    minutes: totalMinutes % 60,
+    hours: totalHours % 24,
+    days: Math.floor(totalHours / 24),
+    totalMinutes,
+    totalHours,
+  }
+}
+
+/** Format a duration with decreasing visual precision at larger scales. */
+function formatDuration(ms: number, t: TranslateNS<typeof NS>): string {
+  const { seconds, minutes, hours, days, totalMinutes, totalHours } = splitDuration(ms)
+  if (days >= 365) {
+    const years = Math.floor(days / 365)
+    const months = Math.floor((days % 365) / 30)
+    return months === 0
+      ? t('duration.years', { years })
+      : t('duration.yearsMonths', { years, months })
+  }
+  if (days >= 30) {
+    const months = Math.floor(days / 30)
+    const remainingDays = days % 30
+    return remainingDays === 0
+      ? t('duration.months', { months })
+      : t('duration.monthsDays', { months, days: remainingDays })
+  }
+  if (days > 0) {
+    return hours === 0
+      ? t('duration.days', { days })
+      : t('duration.daysHours', { days, hours })
+  }
+  if (totalHours > 0) {
+    return t('duration.hours', {
+      hours: totalHours,
+      minutes: String(minutes).padStart(2, '0'),
+      seconds: String(seconds).padStart(2, '0'),
+    })
+  }
+  if (totalMinutes > 0) {
+    return t('duration.minutes', {
+      minutes: totalMinutes,
+      seconds: String(seconds).padStart(2, '0'),
+    })
+  }
+  return t('duration.seconds', { seconds })
+}
+
+/** Preserve exact whole seconds for hover and accessible naming. */
+function formatExactDuration(ms: number, t: TranslateNS<typeof NS>): string {
+  const { seconds, minutes, hours, days } = splitDuration(ms)
+  return days === 0
+    ? formatDuration(ms, t)
+    : t('duration.exactDays', {
+      days,
+      hours: String(hours).padStart(2, '0'),
+      minutes: String(minutes).padStart(2, '0'),
+      seconds: String(seconds).padStart(2, '0'),
+    })
 }
 
 /** Aggregate the complete subagent-only descendant subtree from flat summaries. */
@@ -98,28 +201,30 @@ function CatalogLoadingRows({
   parentSessionId,
   summaries,
   level,
+  t,
 }: {
   parentSessionId: SessionId
   summaries: Readonly<Record<SessionId, SessionSummary>>
   level: number
+  t: TranslateNS<typeof NS>
 }) {
   const children = Object.values(summaries).filter(summary => (
     summary.origin === 'subagent' && summary.parentId === parentSessionId
   ))
-  if (children.length === 0) return <div className={css.notice}>正在加载子代理…</div>
+  if (children.length === 0) return <div className={css.notice}>{t('loading.label')}</div>
   return children.map(summary => (
     <div key={summary.id} className={css.node}>
       <div
         role="treeitem"
         aria-disabled="true"
         aria-level={level}
-        aria-label="正在加载子代理"
+        aria-label={t('loading.aria')}
         className={`${css.row} ${css.disabled} ${css.loadingRow}`}
       >
         <span className={css.disclosureSpace} />
         <StateDot state={summary.running ? 'ongoing' : 'done'} />
         <span className={css.content}>
-          <span className={css.label}>正在加载子代理…</span>
+          <span className={css.label}>{t('loading.label')}</span>
         </span>
       </div>
     </div>
@@ -129,9 +234,12 @@ function CatalogLoadingRows({
 /** Render one catalog level and recurse only through explicitly expanded rows. */
 function CatalogRows({
   parentSessionId, catalog, catalogs, summaries, expanded, level, now,
-  openChild, refresh, toggleBranch, closeCatalog,
-}: CatalogRowsProps) {
+  openChild, refresh, toggleBranch, closeCatalog, t,
+}: CatalogRowsProps & { t: TranslateNS<typeof NS> }) {
   const emptyLoading = catalog.state === 'loading' && catalog.entries.length === 0
+  const reserveDisclosure = catalog.entries.some(
+    entry => entry.kind === 'child' && entry.hasChildren,
+  )
   return (
     <>
       {emptyLoading && (
@@ -139,24 +247,25 @@ function CatalogRows({
           parentSessionId={parentSessionId}
           summaries={summaries}
           level={level}
+          t={t}
         />
       )}
       {catalog.state === 'error' && (
         <div className={css.error}>
-          <span>{catalog.error?.message ?? '无法加载子代理'}</span>
+          <span>{catalog.error?.message ?? t('load.error')}</span>
           <button
             type="button"
             className={css.refresh}
             onClick={() => { refresh(parentSessionId) }}
           >
             <IconRefreshOutline14 />
-            重试
+            {t('retry')}
           </button>
         </div>
       )}
       {catalog.entries.map((entry) => {
         if (entry.kind === 'diagnostic') {
-          const reason = diagnosticReason(entry)
+          const reason = diagnosticReason(entry, t)
           return (
             <div key={entry.id} className={css.node}>
               <div
@@ -167,7 +276,7 @@ function CatalogRows({
                 className={`${css.row} ${css.disabled}`}
                 title={reason}
               >
-                <span className={css.disclosureSpace} />
+                {reserveDisclosure && <span className={css.disclosureSpace} />}
                 <StateDot state="error" />
                 <span className={css.content}>
                   <span className={css.label}>{entry.id}</span>
@@ -185,12 +294,29 @@ function CatalogRows({
           || (childCatalog.state === 'loading' && childCatalog.entries.length === 0)
         const summary = summaries[entry.id]
         const label = entry.label ?? entry.id
-        const mode = entry.mode === 'one-shot' ? '一次性' : '可继续'
-        const activity = entry.activity === 'running' ? '正在运行' : '当前未运行'
+        const mode = entry.mode === 'one-shot' ? t('mode.oneShot') : t('mode.continuable')
+        const activity = entry.activity === 'running' ? t('activity.running') : t('activity.inactive')
         const secondary = [summary?.title, mode, activity]
           .filter(value => value !== undefined)
           .join(' · ')
-        const time = relativeTime(summary?.updatedAt, now)
+        const totalTokens = tokenTotal(summary?.projectionValues?.tokenUsage)
+        const durationMs = activityDuration(
+          summary,
+          entry.activity,
+          now,
+        )
+        const tokenMetric = totalTokens === undefined
+          ? undefined
+          : `${formatTokens(totalTokens)} tok`
+        const durationMetric = durationMs === undefined
+          ? undefined
+          : {
+            compact: formatDuration(durationMs, t),
+            exact: formatExactDuration(durationMs, t),
+          }
+        const metrics = [tokenMetric, durationMetric?.exact]
+          .filter(value => value !== undefined)
+          .join(' · ')
 
         const open = (): void => {
           openChild({ parentSessionId, childSessionId: entry.id, mode: entry.mode })
@@ -222,20 +348,20 @@ function CatalogRows({
               role="treeitem"
               tabIndex={0}
               aria-level={level}
-              aria-label={[label, secondary, time].filter(value => value !== undefined).join(' ')}
+              aria-label={[label, secondary, metrics].filter(value => value !== '').join(' ')}
               {...knownLeaf ? {} : { 'aria-expanded': isExpanded }}
               className={css.row}
               onClick={open}
               onKeyDown={handleKey}
             >
               {knownLeaf
-                ? <span className={css.disclosureSpace} />
+                ? reserveDisclosure && <span className={css.disclosureSpace} />
                 : (
                   <button
                     type="button"
                     tabIndex={-1}
                     className={`${css.disclosure} ${isExpanded ? css.disclosureOpen : ''}`}
-                    aria-label={`${isExpanded ? '收起' : '展开'} ${label} 的下级子代理`}
+                    aria-label={t(isExpanded ? 'branch.collapse' : 'branch.expand', { label })}
                     onClick={toggle}
                   >
                     <IconChevronRightOutline14 />
@@ -247,7 +373,19 @@ function CatalogRows({
                   <span className={css.label}>{label}</span>
                   <span className={css.summary}>{secondary}</span>
                 </span>
-                {time !== undefined && <span className={css.time}>{time}</span>}
+                {metrics !== '' && (
+                  <span className={css.metrics}>
+                    {tokenMetric !== undefined && <span className={css.metricToken}>{tokenMetric}</span>}
+                    {durationMetric !== undefined && (
+                      <span
+                        className={css.metricDuration}
+                        title={t('duration.exactTitle', { duration: durationMetric.exact })}
+                      >
+                        {durationMetric.compact}
+                      </span>
+                    )}
+                  </span>
+                )}
               </div>
             </div>
             {isExpanded && !knownLeaf && (
@@ -262,6 +400,7 @@ function CatalogRows({
                       parentSessionId={entry.id}
                       summaries={summaries}
                       level={level + 1}
+                      t={t}
                     />
                   )
                   : (
@@ -277,6 +416,7 @@ function CatalogRows({
                       refresh={refresh}
                       toggleBranch={toggleBranch}
                       closeCatalog={closeCatalog}
+                      t={t}
                     />
                   )}
               </div>
@@ -291,15 +431,16 @@ function CatalogRows({
 /**
  * Render the current session's direct catalog and lazily expanded descendants.
  * @param props - session standard props plus catalog navigation actions.
- * @returns The action only after a non-empty catalog arrives.
+ * @returns The action while the catalog is pending or summaries establish descendants.
  */
 export function SubagentCatalogAction({
-  sessionId, useSessions, openChild, refresh, setCatalogOpen,
+  sessionId, useSessions, openChild, refresh, setCatalogOpen, t,
 }: SubagentCatalogActionProps) {
   const catalogs = useSessions(state => state.subagentsByParent)
   const summaries = useSessions(state => state.byId)
   const catalog = catalogs[sessionId]
   const [open, setOpen] = useState(false)
+  const [now, setNow] = useState(() => Date.now())
   const [expanded, setExpanded] = useState<ReadonlySet<SessionId>>(() => new Set())
   const rootRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -311,6 +452,20 @@ export function SubagentCatalogAction({
   // The catalog can arrive before the session-list baseline; never undercount
   // the already-visible direct rows during that short bootstrap window.
   const descendantCount = Math.max(healthy.length, descendants.count)
+  const totalCountKey = descendantCount === 1 ? 'count.total.one' : 'count.total.other'
+  const runningCountKey = descendantCount === 1 ? 'count.running.one' : 'count.running.other'
+  // Session summaries can announce membership before the descriptor-backed catalog catches up.
+  // Keep that entry point visible through disabled loading rows; only catalog rows are navigable.
+  const summaryBackedLoading = descendants.count > 0
+    && (catalog === undefined || (catalog.state === 'ready' && catalog.entries.length === 0))
+  const presentedCatalog: SubagentCatalogSnapshot | undefined = summaryBackedLoading
+    ? {
+      entries: [],
+      parentAvailable: catalog?.parentAvailable ?? false,
+      state: 'loading',
+      error: null,
+    }
+    : catalog
 
   const observeCatalog = (parentSessionId: SessionId, next: boolean): void => {
     if (next) observedCatalogs.current.add(parentSessionId)
@@ -328,7 +483,10 @@ export function SubagentCatalogAction({
 
   const changeOpen = (next: boolean, restoreFocus = false): void => {
     setOpen(next)
-    if (next) observeCatalog(sessionId, true)
+    if (next) {
+      setNow(Date.now())
+      observeCatalog(sessionId, true)
+    }
     else closeAllCatalogs()
     if (restoreFocus) queueMicrotask(() => { triggerRef.current?.focus() })
   }
@@ -368,6 +526,12 @@ export function SubagentCatalogAction({
     return () => { document.removeEventListener('pointerdown', closeOutside) }
   }, [open])
 
+  useEffect(() => {
+    if (!open || !descendants.running) return
+    const timer = setInterval(() => { setNow(Date.now()) }, 1_000)
+    return () => { clearInterval(timer) }
+  }, [open, descendants.running])
+
   useEffect(() => () => {
     for (const parentSessionId of observedCatalogs.current) {
       setCatalogOpenRef.current(parentSessionId, false)
@@ -375,7 +539,8 @@ export function SubagentCatalogAction({
     observedCatalogs.current.clear()
   }, [])
 
-  const visible = catalog !== undefined && (catalog.state !== 'ready' || catalog.entries.length > 0)
+  const visible = presentedCatalog !== undefined
+    && (presentedCatalog.state !== 'ready' || presentedCatalog.entries.length > 0)
   useEffect(() => {
     if (visible || !open) return
     setOpen(false)
@@ -419,7 +584,7 @@ export function SubagentCatalogAction({
         className={css.trigger}
         aria-haspopup="tree"
         aria-expanded={open}
-        aria-label={`${descendantCount} 个子代理${descendants.running ? '，正在运行' : ''}`}
+        aria-label={t(descendants.running ? runningCountKey : totalCountKey, { count: descendantCount })}
         onClick={() => { changeOpen(!open) }}
         onKeyDown={(event) => {
           if (event.key !== 'ArrowDown') return
@@ -431,23 +596,24 @@ export function SubagentCatalogAction({
         <span className={css.activitySlot}>
           {descendants.running && <StateDot state="ongoing" />}
         </span>
-        <span className={css.count}>{descendantCount} 个子代理</span>
+        <span className={css.count}>{t(totalCountKey, { count: descendantCount })}</span>
         <IconChevronDownOutline14 className={open ? css.triggerOpen : undefined} />
       </button>
       {open && (
-        <div className={css.menu} role="tree" aria-label="子代理会话">
+        <div className={css.menu} role="tree" aria-label={t('tree.aria')}>
           <CatalogRows
             parentSessionId={sessionId}
-            catalog={catalog}
+            catalog={presentedCatalog}
             catalogs={catalogs}
             summaries={summaries}
             expanded={expanded}
             level={1}
-            now={Date.now()}
+            now={now}
             openChild={openChild}
             refresh={refresh}
             toggleBranch={toggleBranch}
             closeCatalog={() => { changeOpen(false) }}
+            t={t}
           />
         </div>
       )}

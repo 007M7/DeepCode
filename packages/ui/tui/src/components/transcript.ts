@@ -15,6 +15,7 @@ import {
   type Component,
   type MarkdownTheme,
 } from '@earendil-works/pi-tui'
+import { diffLines as compareLines } from 'diff'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { JsonValue, SessionEvent, TodoItem } from '@deepseek-ai/dsh-session'
@@ -52,12 +53,17 @@ function pretty(value: unknown): string {
   return displayText(serialized ?? String(value))
 }
 
+interface RenderedDiff {
+  lines: string[]
+  added: number
+  removed: number
+  approximate: boolean
+}
+
 /**
  * A side's content lines under the terminator rule the Web DiffBlock also
- * applies: empty text is zero lines (a full deletion's `newText`, a create's
- * absent `oldText`), and a single trailing newline terminates the last line
- * rather than adding an empty one. An interior blank line survives. Keeping the
- * two front ends on the same rule holds their `+A -R` footers in step.
+ * applies: empty text is zero lines, a trailing newline terminates the last
+ * line, and an interior blank line survives.
  */
 function diffContentLines(text: string): string[] {
   if (text === '') return []
@@ -65,16 +71,47 @@ function diffContentLines(text: string): string[] {
   return body.split('\n')
 }
 
-/** A file diff as colored `+`/`-` lines, optionally prefixed with its path. */
-function diffLines(diff: FileDiff, palette: Palette): string[] {
+/**
+ * A file diff whose unchanged context stays neutral and does not affect exact
+ * change totals. Comparisons beyond the edit-distance budget fall back to
+ * whole-side rendering so a model-authored pending edit cannot stall the TUI.
+ */
+function renderDiff(diff: FileDiff, maxDiffEditLength: number, palette: Palette): RenderedDiff {
   // The card header is a fixed `Tool / <name>` frame that never names a file, so
   // each hunk always carries its own path header (no redundancy to suppress).
   const lines = [palette.bold(displayText(diff.path))]
-  if (diff.oldText !== null) {
-    for (const line of diffContentLines(displayText(diff.oldText))) lines.push(palette.error(`- ${line}`))
+  let added = 0
+  let removed = 0
+  if (diff.oldText === null) {
+    const newLines = diffContentLines(displayText(diff.newText))
+    added = newLines.length
+    for (const line of newLines) lines.push(palette.success(`+ ${line}`))
+    return { lines, added, removed, approximate: false }
   }
-  for (const line of diffContentLines(displayText(diff.newText))) lines.push(palette.success(`+ ${line}`))
-  return lines
+  const changes = compareLines(diff.oldText, diff.newText, { maxEditLength: maxDiffEditLength })
+  if (changes === undefined) {
+    const oldLines = diffContentLines(displayText(diff.oldText))
+    const newLines = diffContentLines(displayText(diff.newText))
+    lines.push(palette.dim(`[exact line diff omitted: >${maxDiffEditLength} changed lines]`))
+    removed = oldLines.length
+    added = newLines.length
+    for (const line of oldLines) lines.push(palette.error(`- ${line}`))
+    for (const line of newLines) lines.push(palette.success(`+ ${line}`))
+    return { lines, added, removed, approximate: true }
+  }
+  for (const change of changes) {
+    const changedLines = diffContentLines(displayText(change.value))
+    if (change.added) {
+      added += changedLines.length
+      for (const line of changedLines) lines.push(palette.success(`+ ${line}`))
+    } else if (change.removed) {
+      removed += changedLines.length
+      for (const line of changedLines) lines.push(palette.error(`- ${line}`))
+    } else {
+      for (const line of changedLines) lines.push(palette.dim(`  ${line}`))
+    }
+  }
+  return { lines, added, removed, approximate: false }
 }
 
 /**
@@ -149,20 +186,28 @@ export class UserMessageComponent extends Container {
   }
 }
 
-/** Children of a settled assistant message: optional reasoning block then the response text. */
+/**
+ * Children of a settled assistant message: optional reasoning block then the
+ * response text. A folded continuation (a later step of a turn while tool cards
+ * are hidden) drops the `Assistant` header and renders nothing when it has no
+ * visible body, so tool-only steps leave no blank segment behind.
+ */
 function assistantMessageChildren(
   content: readonly ContentBlock[],
   showReasoning: boolean,
+  foldedContinuation: boolean,
   palette: Palette,
   mdTheme: MarkdownTheme,
 ): Component[] {
   const reasoning = displayText(textBlocks(content, 'reasoning').trim())
   const text = displayText(textBlocks(content, 'text').trim())
-  const children: Component[] = [
-    new Spacer(1),
-    new Text(messageHeader('Assistant', palette.accent, palette), 0, 0),
-  ]
-  if (reasoning && showReasoning) {
+  const showsReasoning = reasoning !== '' && showReasoning
+  if (foldedContinuation && !showsReasoning && text === '') return []
+  const children: Component[] = [new Spacer(1)]
+  if (!foldedContinuation) {
+    children.push(new Text(messageHeader('Assistant', palette.accent, palette), 0, 0))
+  }
+  if (showsReasoning) {
     children.push(
       new Text(palette.italic(palette.dim('Reasoning')), 0, 0),
       new Markdown(reasoning, 0, 0, mdTheme, { color: value => palette.dim(value), italic: true }),
@@ -220,6 +265,7 @@ interface StreamingBlock {
 export class StreamingAssistantComponent extends Container {
   private readonly blocks = new Map<number, StreamingBlock>()
   private settledContent: readonly ContentBlock[] | undefined
+  private foldedContinuation = false
   /**
    * The step's timing footer. The renderer keeps it at the tail of the chat so
    * it trails any tool cards the step appends after this assistant message; it
@@ -228,7 +274,8 @@ export class StreamingAssistantComponent extends Container {
   readonly timing: StepTimingComponent
 
   constructor(
-    position: StepPosition,
+    /** The step's turn/step coordinates, used to group steps into their turn. */
+    readonly position: StepPosition,
     events: () => readonly SessionEvent[],
     now: () => number,
     private showReasoning: boolean,
@@ -299,18 +346,49 @@ export class StreamingAssistantComponent extends Container {
     this.rebuild()
   }
 
-  private rebuild(): void {
-    this.clear()
-    const content: readonly ContentBlock[] = this.settledContent ?? [...this.blocks.entries()]
+  /**
+   * Mark this step as a folded continuation of its turn: no `Assistant` header,
+   * and no output at all while the step has no visible body. Used while tool
+   * cards are hidden so a turn reads as one assistant message.
+   * @param folded - Whether to render as a headerless continuation.
+   */
+  setFoldedContinuation(folded: boolean): void {
+    if (this.foldedContinuation === folded) return
+    this.foldedContinuation = folded
+    this.rebuild()
+  }
+
+  /**
+   * Whether the step currently renders visible reasoning or text.
+   * @returns `true` when a header-owning render would show a body.
+   */
+  hasVisibleBody(): boolean {
+    const content = this.presentedContent()
+    return textBlocks(content, 'text').trim() !== ''
+      || (this.showReasoning && textBlocks(content, 'reasoning').trim() !== '')
+  }
+
+  /** The settled content when available, otherwise the streamed blocks in model order. */
+  private presentedContent(): readonly ContentBlock[] {
+    return this.settledContent ?? [...this.blocks.entries()]
       .sort(([left], [right]) => left - right)
       .flatMap<ContentBlock>(([, block]) => {
         if (block.type === 'text') return [{ type: 'text', text: block.text }]
         if (block.type === 'reasoning') return [{ type: 'reasoning', text: block.text }]
         return []
       })
-    for (const child of assistantMessageChildren(content, this.showReasoning, this.palette, this.mdTheme)) {
-      this.addChild(child)
-    }
+  }
+
+  private rebuild(): void {
+    this.clear()
+    const children = assistantMessageChildren(
+      this.presentedContent(),
+      this.showReasoning,
+      this.foldedContinuation,
+      this.palette,
+      this.mdTheme,
+    )
+    for (const child of children) this.addChild(child)
   }
 }
 
@@ -337,12 +415,14 @@ export class ToolCardComponent implements Component {
   private visibility: ToolCardVisibility = 'collapsed'
   private callView: ToolCallView
   private resultView: ToolResultView | undefined
+  private diffBodyCache: { view: ToolCallView | ToolResultView; body: CardBody } | undefined
 
   constructor(
     private readonly name: string,
     private readonly parsed: ParsedArguments,
     private readonly definition: ToolDefinition | undefined,
     private readonly maxOutputLines: number,
+    private readonly maxDiffEditLength: number,
     private readonly palette: Palette,
     private readonly mdTheme: MarkdownTheme,
   ) {
@@ -366,6 +446,7 @@ export class ToolCardComponent implements Component {
    * @param event - The `tool/result` event payload.
    */
   updateResult(event: Extract<SessionEvent, { type: 'tool/result' }>['data']): void {
+    this.diffBodyCache = undefined
     const result = event.message.content[0]
     this.result = {
       content: [...result.content],
@@ -519,24 +600,28 @@ export class ToolCardComponent implements Component {
       return { prelude: prelude.filter(Boolean), lines: lines.filter(Boolean) }
     }
     if (view.card === 'diff') {
+      if (this.diffBodyCache?.view === view) return this.diffBodyCache.body
       // The header no longer names the file, so each diff keeps its own path
-      // header. A trailing footer summarizes the change (`+A -R · N file(s)`),
-      // on the same terminator rule and distinct-path count the Web DiffBlock
-      // uses, so the two front ends' footers agree.
-      let added = 0
-      let removed = 0
-      const paths = new Set<string>()
-      const hunks = view.diffs.flatMap((diff, index) => {
-        paths.add(diff.path)
-        if (diff.oldText !== null) removed += diffContentLines(displayText(diff.oldText)).length
-        added += diffContentLines(displayText(diff.newText)).length
-        return [...index > 0 ? [''] : [], ...diffLines(diff, this.palette)]
+      // header. A trailing footer summarizes the exact changed rows when the
+      // bounded comparison succeeds (`+A -R · N file(s)`).
+      const renderedDiffs = view.diffs.map(diff =>
+        renderDiff(diff, this.maxDiffEditLength, this.palette),
+      )
+      const added = renderedDiffs.reduce((total, rendered) => total + rendered.added, 0)
+      const removed = renderedDiffs.reduce((total, rendered) => total + rendered.removed, 0)
+      const approximate = renderedDiffs.some(rendered => rendered.approximate)
+      const hunks = renderedDiffs.flatMap((rendered, index) => {
+        return [...index > 0 ? [''] : [], ...rendered.lines]
       })
-      const files = paths.size
-      const footer = this.palette.dim(`└ +${added} -${removed} · ${files} file${files === 1 ? '' : 's'}`)
+      const files = new Set(view.diffs.map(diff => diff.path)).size
+      const footer = this.palette.dim(
+        `└ +${added} -${removed} · ${files} file${files === 1 ? '' : 's'}${approximate ? ' · approximate' : ''}`,
+      )
       // A diff's own `+`/`-` colors carry its meaning, so it renders verbatim
       // rather than under the dim result-output color.
-      return { prelude: [...hunks, footer], lines: [] }
+      const body = { prelude: [...hunks, footer], lines: [] }
+      this.diffBodyCache = { view, body }
+      return body
     }
     // A generic or read card carries its own envelope-stripped `content`; a
     // search or web card carries no `content` copy and falls back to the raw
