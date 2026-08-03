@@ -104,6 +104,11 @@
   border-bottom: 0;
 }
 
+.table tbody tr[data-request-only='true']:has(+ tr[data-request-only='true']) td {
+  /* Keep consecutive boundary markers from painting their halos over one another. */
+  height: 9px;
+}
+
 .table tbody tr[data-request-only='true']:last-child td {
   /* Retain the lower half of the 16px boundary marker at the table's end. */
   height: 9px;
