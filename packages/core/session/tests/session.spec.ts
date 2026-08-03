@@ -233,6 +233,14 @@ describe('Session', () => {
         message: 'message has invalid source',
       },
       {
+        name: 'content shape',
+        event: {
+          type: 'user/message', seq: 0, time: 1, surfaceOp: 'append',
+          data: { ...user, content: 'not-an-array' },
+        },
+        message: 'message has invalid content',
+      },
+      {
         name: 'assistant source',
         event: {
           type: 'assistant/message', seq: 0, time: 1, surfaceOp: 'append',

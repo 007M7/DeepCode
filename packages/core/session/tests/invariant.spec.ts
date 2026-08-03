@@ -131,6 +131,13 @@ describe('session-log invariants', () => {
     expect(() => second.append('turn/start', { turn: 3 }))
       .toThrow(/expected turn 2, got 3/)
 
+    const third = (await setup()).ctx.sessions.create()
+    third.append('turn/start', { turn: 1 })
+    third.append('step/start', { turn: 1, step: 1 })
+    third.append('step/end', { turn: 1, step: 1 })
+    expect(() => third.append('turn/end', { turn: 1, step: 2, reason: { kind: 'completed' } }))
+      .toThrow(/expected last step 1, got 2/)
+
     const outside = (await setup()).ctx.sessions.create()
     expect(() => outside.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'idle context' }],
