@@ -36,6 +36,8 @@ Status: implemented
 
 `packages/client/ui-primitives/tests/web-block.spec.tsx` 删去折叠相关用例（首尾切片、点击展开、折叠尾部编号、展开器不计入编号、仅首部、默认上限），并新增：一个 30 条来源的卡片渲染出全部 30 个 `<li>`，无 `[aria-expanded]`、无 `<button>`，每个 `<ol>` 子元素都是一条来源 `<li>`，且 `<li value>` 从 1 到 N 连续编号。`packages/client/ui-conversation/tests/web-card.spec.tsx` 删去 `CHAT_WEB_MAX_SOURCES` 上限断言；WebRow 展开测试仍断言卡片展示每一个来源字段。`packages/web/tool-web` 的测试不变——模型侧未曾移动。
 
+jsdom 不解析 CSS Modules 布局，对任何元素都报 `scrollHeight === clientHeight`，因此它根本无从见证这次滚动。几何改由组装态浏览器钉住，位于 `apps/web/tests/web-search-round.e2e.ts`：其确定性 search double 返回 12 条 provider 结果，每条带标题、引用摘录与日期。这首先在真实组合里端到端钉住 seam 的裁剪——出厂 `searchMaxResults` 保留 8 条，面向模型的 render 文本含这 8 条标题、不含被丢弃的 4 条 URL，并含 `(Showing the first 8 sources. Refine the query for more.)`，`meta.truncated` 为 true。随后位于 aria golden 之后的一个用例展开 `web_search` 行，对卡片的 `<ol>` 断言：8 个 `<li>`、卡片内任何位置都没有 `<button>`、`来源列表已截断` 指示可见，以及计算样式 `max-height: 320px` 与 `overflow-y: auto`，`scrollHeight` 为 574、`clientHeight` 为 320。录制的模型流与 aria golden 都未变动：replay 是对 fixture 中 `assistant/chunk` 条目的位置游标，而 search double 是 provider 经 `fetch` 抵达的另一个本地端点；捕获时卡片处于折叠状态，其 `<ol>` 不在 DOM 中，摘要行也不携带来源数量。
+
 ## Related
 
 - [Web result card](2026-07-30-web-result-card.md) —— 本卡片消费的 `card: 'web'` 渲染意图分支与 `presentationMeta` 路由；那份裁剪过一次的列表的来源。
