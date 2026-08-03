@@ -3,10 +3,13 @@
 // Orphaned lineage degrades to root level; cycles fail soft and emit as roots.
 
 import type { SessionId, SessionSummary } from '@deepseek-ai/dsh-client-connection/client'
+import type { SessionProjectionMap } from '@deepseek-ai/dsh-session-projection/types'
 
 /** Host list summary enriched with the latest mux-projected durable title. */
 export interface TitledSessionSummary extends SessionSummary {
   title?: string
+  /** Current host-computed projection values for list consumers. */
+  projectionValues?: Readonly<Partial<SessionProjectionMap>>
 }
 
 /** One flattened session-list row (summary + lineage indent depth + live pending-approval bit). */
@@ -21,6 +24,8 @@ export interface SessionListEntry {
   /** Coarse durable origin for navigation filtering; not a continuation capability. */
   origin?: 'subagent'
   cwd?: string
+  /** Current host-computed projection values for list consumers. */
+  projectionValues?: Readonly<Partial<SessionProjectionMap>>
   /** An approval question is pending on this session (mux-frame derived; the sidebar's amber dot). */
   waitingApproval: boolean
   /** Lineage indent depth: root = 0; the UI just multiplies by the indent width. */

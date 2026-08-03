@@ -208,6 +208,26 @@
   );
 }
 
+/* Views may opt into a composer overlay while ConversationRoot retains
+   ownership of the seat geometry and its active-phase precedence. */
+.scrollBody:has([data-conversation-composer-overlay]) {
+  position: relative;
+  overflow: hidden;
+}
+
+.scrollBody:has([data-conversation-composer-overlay]) > .viewArea {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.scrollBody:has([data-conversation-composer-overlay]) > .composerSeat {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+}
+
 /* Hero phase: the composer stack (hero chrome + workspace row + card) is
    flex-centered in the column; composer phase docks it at the bottom. Flex,
    NOT absolute+transform: a transform would make this box the containing

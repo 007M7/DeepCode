@@ -1,6 +1,7 @@
 // Web e2e scenarios: workspace management — adding a workspace through the
 // composed directory dialog (its own New folder affordance is the product's
-// one creation route), same-basename directory adoption, the rename round
+// one creation route), the dialog's path editor walking the panes with the
+// typed draft, same-basename directory adoption, the rename round
 // trip over the real wire (workspace.rename RPC + durable registry), the
 // duplicate-name pre-check, the
 // flat "In one list" view with its persisted group-by preference, the session
@@ -12,7 +13,7 @@
 // seeded-history seed reused verbatim — no new recording).
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import type { Browser, Locator, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
@@ -400,6 +401,43 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
       if (realUserProfile === undefined) delete process.env.USERPROFILE
       else process.env.USERPROFILE = realUserProfile
     }
+    expect(tripwire.pageErrors).toEqual([])
+  }, 60_000)
+
+  it('walks the panes with the typed path: deeper past a separator, back up on erase, whole on a miss', async () => {
+    // The panes must track the draft without leaving the editor, so the
+    // typed text and what is listed under it never disagree.
+    // Staged by this scenario itself (mkdir is recursive and idempotent), so
+    // running it alone through -t sees the same tree the assertions describe.
+    const staged = join(scaffold.workspaceCwd, 'browse-golden')
+    await mkdir(join(staged, 'alpha', 'only-under-alpha'), { recursive: true })
+    await mkdir(join(staged, 'beta'), { recursive: true })
+    const dialog = await browseTo(staged)
+    await expect.poll(() => dialog.getByText('alpha', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
+    await dialog.getByRole('button', { name: 'Edit path' }).click()
+    const path = dialog.getByLabel('Edit path')
+    // A directory part no pane lists: the panes walk to it, landing the
+    // ordinary two-pane Miller view (level | its children) with the editor
+    // still up and the draft intact.
+    await path.fill(`${join(staged, 'alpha')}${sep}`)
+    await expect.poll(() => dialog.getByText('only-under-alpha', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
+    await expect.poll(() => dialog.getByRole('list').count(), { timeout: 10_000 }).toBe(2)
+    expect(await path.inputValue()).toBe(`${join(staged, 'alpha')}${sep}`)
+    // Erasing back past the separator walks the panes up, so the level being
+    // typed is the last pane again (its children no longer stand to its
+    // right) and the tail filters it.
+    await path.fill(`${staged}${sep}al`)
+    await expect.poll(() => dialog.getByText('only-under-alpha', { exact: true }).count(), { timeout: 10_000 }).toBe(0)
+    expect(await dialog.getByText('alpha', { exact: true }).count()).toBe(1)
+    expect(await dialog.getByText('beta', { exact: true }).count()).toBe(0)
+    await expect.poll(() => dialog.getByRole('list').count(), { timeout: 10_000 }).toBe(2)
+    // A tail nobody matches is a name still being spelled: the level shows
+    // whole instead of emptying under it.
+    await path.fill(`${staged}${sep}zzz`)
+    await expect.poll(() => dialog.getByText('beta', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
+    expect(await dialog.getByText('alpha', { exact: true }).count()).toBe(1)
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+    await dialog.waitFor({ state: 'hidden', timeout: 10_000 })
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 
