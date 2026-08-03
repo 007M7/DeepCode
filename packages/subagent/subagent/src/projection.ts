@@ -8,16 +8,25 @@ import { z } from 'zod'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import type { SubagentTimingProjection } from './projection-types.ts'
 
-interface TimingState extends SubagentTimingProjection {
+interface TimingState {
+  /** Milliseconds accumulated across completed post-descriptor turns. */
+  settledMs: number
+  /** Current open interval kept paired inside the fold. */
+  active?: { since: number; through: number }
   /** Latest pre-descriptor turn start, promoted when the child's own descriptor arrives. */
   pendingTurnStart?: number
   /** Whether the fold has crossed a descriptor in this logical log. */
   descriptorSeen: boolean
 }
 
+// Cast for the optional values: under exactOptionalPropertyTypes zod infers
+// `number | undefined` where the interface declares absent-or-number fields.
 const projectionSchema = z.object({
   settledMs: z.number().int().nonnegative(),
-  activeSince: z.number().int().nonnegative().optional(),
+  active: z.object({
+    since: z.number().int().nonnegative(),
+    through: z.number().int().nonnegative(),
+  }).strict().optional(),
 }).strict() as unknown as z.ZodType<SubagentTimingProjection>
 
 /**
@@ -36,33 +45,38 @@ ProjectionDefinition<'subagentTiming', TimingState> = {
   apply: (state, event) => {
     if (event.type === 'turn/start') {
       return state.descriptorSeen
-        ? { ...state, activeSince: event.time }
+        ? { ...state, active: { since: event.time, through: event.time } }
         : { ...state, pendingTurnStart: event.time }
     }
     if (event.type === 'subagent/descriptor') {
-      const activeSince = state.activeSince ?? state.pendingTurnStart
+      const activeSince = state.active?.since ?? state.pendingTurnStart
       return {
         descriptorSeen: true,
         settledMs: 0,
-        ...(activeSince === undefined ? {} : { activeSince }),
+        ...(activeSince === undefined
+          ? {}
+          : { active: { since: activeSince, through: event.time } }),
       }
     }
-    if (event.type !== 'turn/end') return state
-    if (!state.descriptorSeen) {
-      if (state.pendingTurnStart === undefined) return state
-      const { pendingTurnStart: _closed, ...next } = state
-      return next
+    if (event.type === 'turn/end') {
+      if (!state.descriptorSeen) {
+        if (state.pendingTurnStart === undefined) return state
+        const { pendingTurnStart: _closed, ...next } = state
+        return next
+      }
+      if (state.active === undefined) return state
+      const { active, ...rest } = state
+      return {
+        ...rest,
+        settledMs: state.settledMs + Math.max(0, event.time - active.since),
+      }
     }
-    if (state.activeSince === undefined) return state
-    const { activeSince, ...rest } = state
-    return {
-      ...rest,
-      settledMs: state.settledMs + Math.max(0, event.time - activeSince),
-    }
+    if (state.active === undefined) return state
+    return { ...state, active: { ...state.active, through: event.time } }
   },
   view: state => ({
     settledMs: state.settledMs,
-    ...(state.activeSince === undefined ? {} : { activeSince: state.activeSince }),
+    ...(state.active === undefined ? {} : { active: state.active }),
   }),
-  stateVersion: 1,
+  stateVersion: 2,
 }

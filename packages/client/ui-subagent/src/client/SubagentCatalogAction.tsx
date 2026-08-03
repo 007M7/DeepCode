@@ -69,9 +69,11 @@ function activityDuration(
   const timing: SessionProjectionMap['subagentTiming'] | undefined
     = summary.projectionValues?.subagentTiming
   if (timing === undefined) return undefined
-  if (timing.activeSince === undefined) return timing.settledMs
-  const end = activity === 'running' ? now : summary.updatedAt
-  return timing.settledMs + Math.max(0, end - timing.activeSince)
+  if (timing.active === undefined) return timing.settledMs
+  const end = activity === 'running'
+    ? now
+    : timing.active.through
+  return timing.settledMs + Math.max(0, end - timing.active.since)
 }
 
 /** Format a non-negative duration to seconds without dropping larger units. */

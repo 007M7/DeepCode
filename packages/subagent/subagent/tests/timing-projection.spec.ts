@@ -21,10 +21,13 @@ describe('subagent timing projection', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(SessionProjectionRegistry)
-    await ctx.plugin(SubagentService)
+    const serviceFiber = await ctx.plugin(SubagentService)
 
     expect(ctx.sessionProjections.snapshot(ctx.sessions.create()).values.subagentTiming)
       .toEqual({ settledMs: 0 })
+    await serviceFiber.dispose()
+    expect(ctx.sessionProjections.snapshot(ctx.sessions.create()).values.subagentTiming)
+      .toBeUndefined()
   })
 
   it('resets inherited seed timing at the child descriptor and sums later completed turns', () => {
@@ -47,7 +50,7 @@ describe('subagent timing projection', () => {
       event('turn/end', 2, 900),
       event('turn/start', 3, 2_000),
       event('assistant/chunk', 4, 2_500),
-    ])).toEqual({ settledMs: 0, activeSince: 2_000 })
+    ])).toEqual({ settledMs: 0, active: { since: 2_000, through: 2_500 } })
   })
 
   it('ignores completed pre-descriptor turns and unrelated events', () => {
