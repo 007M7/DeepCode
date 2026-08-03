@@ -31,6 +31,7 @@
 | [`spill/`](spill/README.md) | 溢出能力系列：存储 seam、本地实现、工具结果溢出策略 | 产品：稳定表面 |
 | [`todo/`](todo/README.md) | 面向模型的 `todo_write` 工具 | 产品：稳定表面 |
 | [`plan/`](plan/README.md) | Plan 协作状态，提供直接进入命令与经评审的退出 | 产品：稳定表面 |
+| [`preset/`](preset/README.md) | 由 preset `cordis.yml` 按会话组装 agent | 产品：稳定表面 |
 | [`timeout/`](timeout/README.md) | 工具调用 `tools/execute` 截止时间强制执行 | 产品：稳定表面 |
 | [`guard/`](guard/README.md) | 循环卫生建议性重复调用提醒 | 产品：稳定表面 |
 | [`bundle/`](bundle/README.md) | 可安装的 `dsh --profile` 补丁层 | 产品：稳定表面 |

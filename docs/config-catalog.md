@@ -110,6 +110,37 @@ Depends on: [`AgentOptions`](core-data-structures/core.md) · [`SessionId`](core
 
 Source: [`packages/core/agent-loop/src/index.ts:236`](../packages/core/agent-loop/src/index.ts)
 
+## `@deepseek-ai/dsh-agent-presets`
+
+Requires: `loader`
+
+```ts config-catalog
+/** Plugin config: which profile is the default, and where profiles live. */
+export interface Config {
+  /** Profile id mounted when a caller names none. Missing at mount time fails loud. */
+  default: string
+  /** Scanned roots in precedence order; an earlier root wins a duplicate id. */
+  roots: PresetRoot[]
+}
+
+/** One directory scanned for profile subdirectories. */
+export interface PresetRoot {
+  /** Directory holding one subdirectory per profile; a leading `~` expands. */
+  path: string
+  /** Trust recorded on every profile discovered under this root. */
+  trust: PresetTrust
+}
+
+/**
+ * Where a profile's composition came from. A `system` profile ships with the
+ * deployment; a `user` profile was authored locally, by a person or by an
+ * agent, and therefore carries the same trust as shell access.
+ */
+export type PresetTrust = 'system' | 'user'
+```
+
+Source: [`packages/preset/agent-presets/src/types.ts:29`](../packages/preset/agent-presets/src/types.ts)
+
 ## `@deepseek-ai/dsh-agent-spine-demo`
 
 ```ts config-catalog

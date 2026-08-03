@@ -81,6 +81,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'agentPresets',
+    summary: 'Registry over the deployment\'s agent presets.',
+    methods: [
+      {
+        signature: 'async list(): Promise<AgentPreset[]>',
+        jsDoc: '/**\n * Every profile the configured roots currently supply.\n * @returns the profiles, first-root-wins per id.\n */',
+      },
+      {
+        signature: 'async resolve(id?: string): Promise<AgentPreset>',
+        jsDoc: '/**\n * Resolve one profile by id.\n * @param id - the profile id, or `undefined` for {@link defaultId}.\n * @returns the resolved profile.\n * @throws when no configured root supplies that id.\n */',
+      },
+      {
+        signature: 'async mount(agentCtx: Context, id?: string): Promise<AgentPreset>',
+        jsDoc: '/**\n * Compose one agent from a profile, installing it under that agent alone.\n *\n * Call from the agent factory\'s `setup(agentCtx)`; a rejection there rolls\n * the agent creation back, so a broken profile never yields a half-composed\n * session.\n * @param agentCtx - the agent\'s scope context.\n * @param id - the profile id, or `undefined` for {@link defaultId}.\n * @returns the profile that was mounted, for the caller to record.\n * @throws when the profile is unknown or its composition is unusable.\n */',
+      },
+    ],
+  },
+  {
     key: 'agents',
     summary: 'Agent service (`ctx.agents`): tracks live agents and carries the initiating Agent through one process-local asynchronous driver chain.',
     methods: [
@@ -1602,6 +1620,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface AgentOptions {\n    provider?: string;\n    model?: string;\n    maxTokens?: number;\n}',
   },
   {
+    name: 'AgentPreset',
+    declaration: 'export interface AgentPreset {\n    readonly id: string;\n    readonly trust: PresetTrust;\n    readonly path: string;\n}',
+  },
+  {
     name: 'AgentSetup',
     declaration: 'export type AgentSetup = (agentCtx: Context) => AgentSetupCommit | Promise<AgentSetupCommit | void> | void;',
   },
@@ -2192,6 +2214,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'PresetSpec',
     declaration: 'export interface PresetSpec {\n    sandbox: SandboxMode;\n    approval: ApprovalPolicy;\n    name?: string;\n    description?: string;\n}',
+  },
+  {
+    name: 'PresetTrust',
+    declaration: 'export type PresetTrust = \'system\' | \'user\';',
   },
   {
     name: 'ProjectionChangeListener',

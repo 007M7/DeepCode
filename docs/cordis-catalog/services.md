@@ -46,6 +46,43 @@ Types: [Agent](../core-data-structures/core.md) · [AgentOptions](../core-data-s
 
 Source: [`packages/core/agent-loop/src/index.ts:277`](../../packages/core/agent-loop/src/index.ts)
 
+## `ctx.agentPresets` — `AgentPresets`
+
+Registry over the deployment's agent presets.
+
+Discovery is unmemoized: `list()` and `resolve()` re-read the roots on every call so a profile authored while the process runs is visible immediately, and a profile deleted underneath a picker disappears from the next read.
+
+```ts cordis-catalog
+/**
+ * Every profile the configured roots currently supply.
+ * @returns the profiles, first-root-wins per id.
+ */
+async list(): Promise<AgentPreset[]>
+
+/**
+ * Resolve one profile by id.
+ * @param id - the profile id, or `undefined` for {@link defaultId}.
+ * @returns the resolved profile.
+ * @throws when no configured root supplies that id.
+ */
+async resolve(id?: string): Promise<AgentPreset>
+
+/**
+ * Compose one agent from a profile, installing it under that agent alone.
+ *
+ * Call from the agent factory's `setup(agentCtx)`; a rejection there rolls
+ * the agent creation back, so a broken profile never yields a half-composed
+ * session.
+ * @param agentCtx - the agent's scope context.
+ * @param id - the profile id, or `undefined` for {@link defaultId}.
+ * @returns the profile that was mounted, for the caller to record.
+ * @throws when the profile is unknown or its composition is unusable.
+ */
+async mount(agentCtx: Context, id?: string): Promise<AgentPreset>
+```
+
+Source: [`packages/preset/agent-presets/src/index.ts:36`](../../packages/preset/agent-presets/src/index.ts)
+
 ## `ctx.agents` — `AgentRegistry`
 
 Agent service (`ctx.agents`): tracks live agents and carries the initiating Agent through one process-local asynchronous driver chain. Agent *creation* is provided by whichever plugin implements the AgentFactory (`@deepseek-ai/dsh-agent-loop`), registered via setFactory.

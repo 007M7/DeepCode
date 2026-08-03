@@ -31,6 +31,7 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 | [`spill/`](spill/README.md) | Spill capability family: storage seam, local impl, tool-result spill policy | Product — stable surface |
 | [`todo/`](todo/README.md) | The model-facing `todo_write` tool | Product — stable surface |
 | [`plan/`](plan/README.md) | Plan collaboration state with a direct entry command and reviewed exit | Product — stable surface |
+| [`preset/`](preset/README.md) | Per-session agent composition from preset `cordis.yml` files | Product — stable surface |
 | [`timeout/`](timeout/README.md) | Tool-call `tools/execute` deadline enforcement | Product — stable surface |
 | [`guard/`](guard/README.md) | Loop-hygiene advisory repeat-call reminders | Product — stable surface |
 | [`bundle/`](bundle/README.md) | Installable `dsh --profile` patch layers | Product — stable surface |
