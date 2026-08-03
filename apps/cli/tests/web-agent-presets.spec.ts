@@ -76,7 +76,7 @@ describe('the shipped Web composition', () => {
   it('supplies both shipped presets, and only those, from the system root', async () => {
     const listed = await ctx.agentPresets.list()
 
-    expect(listed.map(preset => preset.id).sort()).toEqual(['core-web', 'standard'])
+    expect(listed.map(preset => preset.id).sort()).toEqual(['cordis', 'core-web', 'standard'])
     expect(listed.every(preset => preset.trust === 'system')).toBe(true)
     expect(ctx.agentPresets.defaultId).toBe('standard')
   })
@@ -137,6 +137,51 @@ describe('the shipped Web composition', () => {
     } finally {
       await full.dispose()
     }
+  })
+
+  it('composes the cordis agent with its own toolset', async () => {
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('preset-cordis'),
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'cordis').then(() => undefined),
+    })
+    try {
+      const tools = toolNames(ctx, handle.agent)
+      // The self-referential toolset is what distinguishes this preset.
+      expect(tools).toEqual(expect.arrayContaining(['cordis_inspect', 'cordis_mount', 'cordis_unmount']))
+      // And it keeps the standard agent's own tools rather than replacing them.
+      expect(tools).toEqual(expect.arrayContaining(['bash', 'read', 'edit', 'skill']))
+
+      // The skill registry sits in this preset's entry-local realm, so it is
+      // invisible to the host AND to the agent's own scope — only the rows
+      // inside that group resolve it, which is what makes `tool-skill` the
+      // agent's own rather than a shared one.
+      expect(ctx.get('skills')).toBeUndefined()
+    } finally {
+      await handle.dispose()
+    }
+  })
+
+  it('keeps the self-referential toolset out of every other preset', async () => {
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('preset-no-cordis'),
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'standard').then(() => undefined),
+    })
+    try {
+      // Editing the live runtime is opt-in per session, not ambient.
+      expect(toolNames(ctx, handle.agent)).not.toContain('cordis_mount')
+    } finally {
+      await handle.dispose()
+    }
+  })
+
+  it('ships the composition-authoring skill inside the preset directory', async () => {
+    // The preset's skill root is derived from its own `baseUrl`, so the skill
+    // travels with the directory wherever the preset is installed.
+    const skill = join(
+      CONFIG_DIR, 'agent-presets', 'cordis', 'skills', 'editing-cordis-compositions', 'SKILL.md',
+    )
+
+    expect((await readFile(skill, 'utf8')).startsWith('---\nname: editing-cordis-compositions')).toBe(true)
   })
 
   it('never rewrites the preset file it composed from', async () => {
