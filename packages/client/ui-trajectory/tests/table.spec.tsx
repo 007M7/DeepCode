@@ -160,6 +160,53 @@ describe('TrajectoryTable', () => {
     expect(onClearSelection).toHaveBeenCalledOnce()
   })
 
+  it('follows appended records only while the ledger is already at the bottom', () => {
+    const view = render(<TrajectoryTable turns={TURNS} {...FOLD_PROPS} />)
+    const tablePane = screen.getByRole('table').parentElement as HTMLElement
+    let scrollHeight = 200
+    Object.defineProperties(tablePane, {
+      clientHeight: { configurable: true, get: () => 100 },
+      scrollHeight: { configurable: true, get: () => scrollHeight },
+    })
+    tablePane.scrollTop = 100
+    fireEvent.scroll(tablePane)
+
+    scrollHeight = 260
+    view.rerender(
+      <TrajectoryTable
+        turns={[...TURNS, {
+          turn: 2,
+          groups: [{
+            title: 'Step 1',
+            cells: [{ index: 4, kind: 'message', text: 'new reply', timeSeconds: 0.1 }],
+          }],
+        }]}
+        {...FOLD_PROPS}
+      />,
+    )
+    expect(tablePane.scrollTop).toBe(260)
+
+    tablePane.scrollTop = 20
+    fireEvent.scroll(tablePane)
+    scrollHeight = 320
+    view.rerender(
+      <TrajectoryTable
+        turns={[...TURNS, {
+          turn: 2,
+          groups: [{
+            title: 'Step 1',
+            cells: [
+              { index: 4, kind: 'message', text: 'new reply', timeSeconds: 0.1 },
+              { index: 5, kind: 'tool', text: 'new tool', timeSeconds: 0.1 },
+            ],
+          }],
+        }]}
+        {...FOLD_PROPS}
+      />,
+    )
+    expect(tablePane.scrollTop).toBe(20)
+  })
+
   it('keeps running and failure semantics distinct from record roles', () => {
     const view = render(<TrajectoryTable turns={TURNS} {...FOLD_PROPS} />)
     expect(view.container.querySelector('tr[data-kind="tool"][data-running="true"]')).toBeTruthy()
