@@ -16,6 +16,8 @@ A new `docs/subsystems/` folder catalogs the vocabulary, with a new `verify-type
 
 ### What counts as "core" — the spine-vs-seam line
 
+> **Superseded as the page-scoping rule** by [package-anchored subsystem pages](2026-08-03-package-anchored-subsystem-pages.md): each page now anchors to the package group that declares its vocabulary. The `ts type-equiv` mechanism below remains current.
+
 The scoping line was not picked top-down; it was discovered by testing candidate definitions against concrete borderline types until one rule survived every case. The decisive test was `BashExecRequest`/`BashExecSpec`/`BashRunResult`: bash is a capability *seam*, not part of the agent-loop spine, so if those are "core" then "core" means *all cross-package vocabulary* and the catalog is a flat dump; if they are not, "core" means *the central spine* and bash vocabulary belongs on its own seam page. The latter won, which set the whole structure: a **tiered folder**, not a flat document.
 
 The rule that settled the remaining cases: ***the type you write, hold, or receive is core; the machinery that types it, renders it, or persists it is a seam-page detail.*** Worked through:

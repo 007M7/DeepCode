@@ -804,7 +804,7 @@ Post-commit, fire-and-forget append feed. The listener snapshot resolves before 
 'session/event'(this: Scoped<Session>, session: Session, event: SessionEvent): void
 ```
 
-Types: [Scoped](scope.md) · [SessionEvent](core.md)
+Types: [Scoped](scope.md)
 
 Source: [`packages/core/session/src/index.ts:96`](../../packages/core/session/src/index.ts)
 

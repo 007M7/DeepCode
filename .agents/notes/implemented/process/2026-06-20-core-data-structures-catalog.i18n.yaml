@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-06-20-core-data-structures-catalog.md
-2026-06-20-core-data-structures-catalog.md: b358ad54652e5b16ae90037c128cf756bcfdaed3
-2026-06-20-core-data-structures-catalog.zh.md: d84c2befaee4c2032b358ed1a7949ac0151ae74c
+2026-06-20-core-data-structures-catalog.md: 9a3f80df592f28adc365d5e64cc15516d92b47b5
+2026-06-20-core-data-structures-catalog.zh.md: 96c606a3d65a67e757960c5cbc997e717f11e8d5

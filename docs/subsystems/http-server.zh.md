@@ -2,7 +2,7 @@
 
 [English](http-server.md) | 中文
 
-[dsh-host-webserver](../../packages/host/webserver) 是 GUI 宿主 web 形态的 HTTP 载体：单个提供 `ctx.httpServer` 的 `node:http` 插件，由具名路由注册表加 index.html 转换挂点组成，兜底是静态 dist 回退。它不属于 agent loop（智能体循环）主干，也不是能力 seam：它不了解任何 harness 概念，每个功能表面（`/api` 桥接、插件 bundle、HMR（热模块替换）事件流）都是由其他插件注册的一条路由（[分层说明](../../.agents/notes/implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md)）。仅限 web（浏览器）形态：Electron 通过 `file://` 加载 dist，并经 IPC 桥接承载 fetch，不经过本服务器。
+[dsh-host-webserver](../../packages/host/webserver) 是 GUI 宿主 web 形态的 HTTP 载体：单个提供 `ctx.httpServer` 的 `node:http` 插件，由具名路由注册表、index.html 转换挂点与单一可认领的回退席位组成。它不属于 agent loop（智能体循环）主干，也不是能力 seam：它不了解任何 harness 概念，每个功能表面（`/api` 桥接、插件 bundle、HMR（热模块替换）事件流）都是由其他插件注册的一条路由（[分层说明](../../.agents/notes/implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md)）。仅限 web（浏览器）形态：Electron 通过 `file://` 加载 dist，并经 IPC 桥接承载 fetch，不经过本服务器。
 
 源码：[`packages/host/webserver/src/index.ts`](../../packages/host/webserver/src/index.ts)
 

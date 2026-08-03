@@ -22,17 +22,17 @@
       "source": "packages/llm/llm/src/message.ts"
     },
     {
-      "doc": "docs/subsystems/core.md",
+      "doc": "docs/subsystems/llm-streaming.md",
       "symbol": "ContextForm",
       "source": "packages/llm/llm/src/message.ts"
     },
     {
-      "doc": "docs/subsystems/core.md",
+      "doc": "docs/subsystems/llm-streaming.md",
       "symbol": "ContextSnapshotSection",
       "source": "packages/llm/llm/src/message.ts"
     },
     {
-      "doc": "docs/subsystems/core.md",
+      "doc": "docs/subsystems/llm-streaming.md",
       "symbol": "ContextFormed",
       "source": "packages/llm/llm/src/message.ts"
     },
@@ -57,12 +57,12 @@
       "source": "packages/llm/llm/src/types.ts"
     },
     {
-      "doc": "docs/subsystems/core.md",
+      "doc": "docs/subsystems/llm-streaming.md",
       "symbol": "LlmModelDiscoveryRequest",
       "source": "packages/llm/llm/src/types.ts"
     },
     {
-      "doc": "docs/subsystems/core.md",
+      "doc": "docs/subsystems/llm-streaming.md",
       "symbol": "LlmDiscoveredModel",
       "source": "packages/llm/llm/src/types.ts"
     },
@@ -110,11 +110,6 @@
       "doc": "docs/subsystems/llm-streaming.md",
       "symbol": "LlmCallConfigAdapterDefaults",
       "source": "packages/llm/llm/src/call-config.ts"
-    },
-    {
-      "doc": "docs/subsystems/core.md",
-      "symbol": "SessionEvent",
-      "source": "packages/core/session/src/types.ts"
     },
     {
       "doc": "docs/subsystems/core.md",
@@ -1689,6 +1684,21 @@
       "doc": "docs/subsystems/session-projection.md",
       "symbol": "ProjectionChangeListener",
       "source": "packages/session/session-projection/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/core.md",
+      "symbol": "AgentHandle",
+      "source": "packages/core/agent/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/core.md",
+      "symbol": "AgentStatus",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/core.md",
+      "symbol": "AgentOptions",
+      "source": "packages/core/agent/src/types.ts"
     }
   ]
 }

@@ -2,7 +2,7 @@
 
 [English](tools.md) | 中文
 
-[dsh-tools](../../packages/core/tools) 的工具流水线。[core.md](core.md) 介绍了 `ToolDefinition`（唯一被提升到主干的流水线编写类型）和 `ToolSchema`（面向模型的协议格式（wire format）形状）。本页拥有完整的 `ToolDefinition`、用于构建它的类型化 schema DSL、受保护的执行形状，以及 UI 展示词汇。
+[dsh-tools](../../packages/core/tools) 的工具流水线。[core.md](core.md) 介绍了 `ToolDefinition`（唯一被提升到主干的流水线编写类型）；面向模型的 [`ToolSchema`](llm-streaming.md#the-model-request-and-result) 协议格式（wire format）形状与模型请求一起声明。本页拥有完整的 `ToolDefinition`、用于构建它的类型化 schema DSL、受保护的执行形状，以及 UI 展示词汇。
 
 源码：[`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index.ts) · [`packages/core/tools/src/schema.ts`](../../packages/core/tools/src/schema.ts) · [`packages/core/tools/src/presentation.ts`](../../packages/core/tools/src/presentation.ts)
 

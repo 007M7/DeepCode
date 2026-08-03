@@ -256,7 +256,7 @@ viewCheckpoint(checkpoint: ProjectionCheckpoint): Partial<SessionProjectionMap>
 restore(checkpoint: ProjectionCheckpoint, events: readonly SessionEvent[], baseSeq: number): { snapshot: ProjectionSnapshot; checkpoint: ProjectionCheckpoint }
 ```
 
-Types: [Session](session.md) · [SessionEvent](core.md)
+Types: [Session](session.md) · [SessionEvent](session.md)
 
 Source: [`packages/session/session-projection/src/index.ts:156`](../../packages/session/session-projection/src/index.ts)
 <!-- END GENERATED cordis-surface -->

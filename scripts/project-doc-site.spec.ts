@@ -1,9 +1,9 @@
 /** Tests for the documentation website projection adapter. */
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, globSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { docsPages, type DocsPage } from '../website/docs.ts'
 import {
@@ -266,6 +266,19 @@ describe('docsPages locale routes', () => {
         expect(counterpart?.source).toBe(page.source)
         expect(counterpart?.contentLocale).toBe(page.contentLocale)
       }
+    }
+  })
+
+  it('indexes every subsystem page in both sides of the folder README', () => {
+    const pages = globSync(join(repositoryRoot, 'docs/subsystems/*.md'))
+      .map(page => basename(page))
+      .filter(page => !page.endsWith('.zh.md') && page !== 'README.md')
+      .sort()
+    expect(pages.length).toBeGreaterThan(0)
+    for (const readme of ['README.md', 'README.zh.md']) {
+      const rows = readFileSync(join(repositoryRoot, 'docs/subsystems', readme), 'utf8')
+      const missing = pages.filter(page => !rows.includes(`| [${page}](${page}) |`))
+      expect(missing, `${readme} must carry one table row per subsystem page`).toEqual([])
     }
   })
 

@@ -125,7 +125,7 @@ optionOf(name: string): PresetOption
 set(session: Session, name: string): void
 ```
 
-Types: [Session](session.md) · [SessionEvent](core.md)
+Types: [Session](session.md) · [SessionEvent](session.md)
 
 Source: [`packages/interaction/permission/src/index.ts:159`](../../packages/interaction/permission/src/index.ts)
 <!-- END GENERATED cordis-surface -->

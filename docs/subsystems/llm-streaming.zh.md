@@ -72,10 +72,82 @@ interface Message {
  */
 interface MessageSourceMap {
   user: { kind: 'user' }
-  plugin: { kind: 'plugin'; plugin: string }
+  plugin: { kind: 'plugin'; plugin: string } & ContextFormed
   model: ModelMessageSource
   tool: ToolMessageSource
 }
+```
+
+溯源与形态是相互独立的两根轴。`kind` 回答「由谁产生」；生产方可选混入的 `form` 回答「这是何种形态的信息」，因此多个生产方可以共用一种呈现，一个生产方在一次会话中也可以发出多种形态。该词汇表是语义的，逐个取值增长；未声明或无法识别的取值是有文档的默认，按不透明内容呈现：
+
+```ts type-equiv
+/**
+ * What SHAPE of information a producer-supplied context carries, declared by
+ * the producer beside its provenance.
+ *
+ * `MessageSource.kind` answers *who produced this*; `form` answers *what kind
+ * of thing it is*, and the two axes are deliberately independent — several
+ * producers share one form (three snapshot producers today), and one producer
+ * may emit more than one form over a session.
+ *
+ * The vocabulary is SEMANTIC, never visual: a value states that the content is
+ * a file's instructions or a catalog of available items, and a consumer decides
+ * what that looks like. Colors, icons, ordering, and collapse defaults are the
+ * consumer's business and must not enter this union. It grows one value at a
+ * time as producers gain the structured fields their form needs; an absent or
+ * unknown value is the documented default, presented as opaque content.
+ */
+type ContextForm =
+  /** Instructions read out of workspace files the model is expected to follow. */
+  | 'instructions'
+  /** A catalog of items available in this session, republished as it changes. */
+  | 'catalog'
+  /** Current state, where a later snapshot from the same producer supersedes an earlier one. */
+  | 'snapshot'
+  /** A one-off account of something that just happened; it supersedes nothing. */
+  | 'notice'
+  /** A message another agent addressed to this one. */
+  | 'relay'
+  /** Material lifted out of another session's log, possibly reduced on the way in. */
+  | 'recall'
+```
+
+```ts type-equiv
+/** One named contribution to a `snapshot`-form context, in assembly order. */
+interface ContextSnapshotSection {
+  /** The contributing subsystem's name. */
+  readonly name: string
+  /** That contribution's model-facing text, exactly as assembled. */
+  readonly text: string
+}
+```
+
+```ts type-equiv
+/**
+ * Producer-declared {@link ContextForm} and the fields that form requires,
+ * mixed into the source shapes that carry one.
+ *
+ * Discriminated by `form` so a producer cannot declare a shape without the
+ * facts that shape is presented from: a `notice` must record its one-line
+ * account, a `snapshot` its sections. Omitting `form` stays valid — an
+ * undeclared context is the documented default.
+ */
+type ContextFormed =
+  | { readonly form?: never }
+  | { readonly form: 'instructions' }
+  | { readonly form: 'catalog' }
+  | {
+    readonly form: 'snapshot'
+    /** The named contributions this snapshot assembled, in order. */
+    readonly sections: readonly ContextSnapshotSection[]
+  }
+  | {
+    readonly form: 'notice'
+    /** One-line account of what happened, shown without expanding the row. */
+    readonly summary: string
+  }
+  | { readonly form: 'relay' }
+  | { readonly form: 'recall' }
 ```
 
 <a id="streamchunk--the-raw-protocol"></a>
@@ -89,8 +161,9 @@ interface MessageSourceMap {
  * Raw streaming protocol emitted by adapters.
  * Block indexes correlate interleaved deltas, and `block-end` carries the
  * assembled block. Adapters emit usage before the terminal finish and nothing
- * afterward; tool arguments remain raw JSON strings. Failures either throw or
- * end with `error`/`aborted`, and consumers must handle both paths.
+ * afterward; tool arguments remain raw JSON strings. An adapter implementation
+ * may throw, but `LlmService.stream()` normalizes that failure to a terminal
+ * `error` or `aborted` finish before exposing it to consumers.
  */
 type StreamChunk =
   | { type: 'block-start'; index: number; blockType: ContentBlockType }
@@ -221,8 +294,9 @@ declare class BlockAssembler {
   push(chunk: StreamChunk): void;
   /**
    * Assemble all blocks seen so far, in stream order.
-   * @returns one block per seen index; an open block assembles from its
-   *   accumulated deltas (an unknown block type never closed by `block-end` throws).
+   * @returns one block per seen index, except that max-token truncation drops
+   *   tool calls that cannot be executed safely; an open block assembles from
+   *   its accumulated deltas (an unknown block type never closed by `block-end` throws).
    */
   blocks(): ContentBlock[];
   /** Usage from the `usage` chunk; undefined until one arrives. */
@@ -309,6 +383,15 @@ interface LlmConfigurableProvider {
    * object; empty when the whole section is the profile.
    */
   settingsPath: readonly string[]
+  /**
+   * Whether the owning adapter knows this route only because configuration
+   * declared it — a gateway or self-hosted server it ships nothing about.
+   * Absent means the adapter draws no such distinction; false means it does
+   * and this route is one of its own. Only the adapter can answer: a stored
+   * profile is how a user-added route AND a corrected shipped one both look
+   * from outside.
+   */
+  declared?: boolean
 }
 ```
 
@@ -459,6 +542,55 @@ interface ToolSchema {
 
 面向模型的 `ToolSchema` 是协议格式；产出它的已注册 `ToolDefinition`（schema + `execute`）在 [tools.md](tools.md) 中。
 
+界面正在起草的提供方既没有路由也没有 catalog，因此询问被单独描述：请求携带用户正在编辑的草稿，回复是界面可以采纳的候选，而不是它必须服务的 catalog。
+
+```ts type-equiv
+/**
+ * One interrogation of a provider endpoint that configuration has not stored
+ * yet. Configuration surfaces send the draft a user is still editing, so the
+ * request carries the endpoint and credential directly instead of naming a
+ * route: a provider being added has no route to name.
+ */
+interface LlmModelDiscoveryRequest {
+  /**
+   * Route the draft is editing, when it edits an existing one. A route whose
+   * adapter already knows its models answers from that knowledge instead of
+   * asking the endpoint — the adapter's own registry is the better answer, and
+   * it costs no network call.
+   */
+  provider?: string
+  /**
+   * Endpoint to interrogate. Optional because a route the adapter already
+   * describes needs none; a route it does not must supply one.
+   */
+  baseURL?: string
+  /** Wire protocol the endpoint speaks, when the draft names one. */
+  api?: string
+  /** Credential for this interrogation alone; the harness never stores it. */
+  apiKey?: string
+  /** Caller cancellation; implementations must settle promptly after it aborts. */
+  signal?: AbortSignal
+}
+```
+
+```ts type-equiv
+/**
+ * One model an endpoint reports about itself. Every field but the id is
+ * optional because most provider listings disclose an id and nothing else;
+ * a surface adopting one of these still owes the capacities its adapter needs.
+ */
+interface LlmDiscoveredModel {
+  /** Model id the endpoint accepts. */
+  id: string
+  /** Human-readable name when the endpoint supplies one. */
+  name?: string
+  /** Maximum combined request and response context, when disclosed. */
+  contextWindow?: number
+  /** Maximum output tokens, when disclosed. */
+  maxTokens?: number
+}
+```
+
 ### 请求信封：`LlmCallConfig` 与记录的 header
 
 循环从已记录状态构建每个请求。`EpochHeader` 通过完整的 `request/header` 快照记录调用配置、适配器默认值来源、渲染后的提示词以及权威返回工具顺序（由 `toolOrder` 配置；未配置时按字典序）。结合派生历史，请求便可由会话日志重建。见 [session.md](session.md#the-request-header-event-requestheader) 与[可重建性 Agent Note（agent 决策记录）](../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)。
@@ -506,6 +638,8 @@ interface LlmCallConfigAdapterDefaults {
 interface PreparedLlmCall {
   /** Detached, deep-frozen config with any adapter-owned default materialized. */
   readonly config: LlmCallConfig
+  /** Immutable retry policy captured with the adapter registration. */
+  readonly retryPolicy: ResolvedRetryPolicy
   /** Detached context metadata resolved with the registration-bound call. */
   readonly context?: LlmModelContext
   /** Config fields materialized by the captured adapter rather than proposed by the caller. */
@@ -611,15 +745,38 @@ listProviders(): LlmProviderInfo[]
  * entry, or a provider already declared by any registration throws
  * `LlmError` without registering the rest. Disposed with the fiber.
  * @param entries - every configurable provider this plugin owns.
- * @returns the disposer that withdraws all of them.
+ * @returns a handle that withdraws all of them, and can atomically replace them.
  */
-registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): () => void
+registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle
 
 /**
  * List every declared configurable provider, registered or dormant.
  * @returns detached directory entries in declaration order.
  */
 listConfigurableProviders(): LlmConfigurableProvider[]
+
+/**
+ * Offer to interrogate provider endpoints on behalf of the settings
+ * namespace this plugin owns. The namespace is the key because that is what
+ * a configuration surface already holds from the configurable-provider
+ * directory, and because a provider being *added* has no route to name yet.
+ * Disposed with the fiber.
+ * @param settingsNs - the namespace whose profiles this discovery serves.
+ * @param discover - interrogates one endpoint; must honor `request.signal`.
+ * @returns the disposer that withdraws the offer.
+ */
+registerModelDiscovery( settingsNs: string, discover: (request: LlmModelDiscoveryRequest) => Promise<readonly LlmDiscoveredModel[]>, ): () => void
+
+/**
+ * Interrogate one provider endpoint for the models it advertises. The
+ * request describes a draft, not a stored route, so nothing here reads or
+ * writes settings or credentials — the caller owns both, and the reply is
+ * candidate metadata a surface may offer for adoption.
+ * @param settingsNs - namespace whose registered discovery serves this draft.
+ * @param request - the endpoint, protocol, and one-shot credential to use.
+ * @returns the advertised models, deduplicated in endpoint order.
+ */
+async discoverModels( settingsNs: string, request: LlmModelDiscoveryRequest, ): Promise<LlmDiscoveredModel[]>
 
 /**
  * Resolve the retry policy captured when one provider route was registered.
@@ -670,22 +827,20 @@ async resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<Ll
 async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall>
 
 /**
- * Stream one model call as raw chunks (token-level deltas). Throws
- * `LlmError` with code `NO_ADAPTER` if no adapter is registered for
- * `options.provider`. Replay state is retained only when the same adapter
- * instance owns its historical provider and the target provider. Final
- * adapter selection remains fixed through asynchronous exact-model resolution
- * and dispatch. Selection, dispatch, and iteration failures retain their
- * original Error identity and are tagged in a call-local scope for narrow
- * agent-loop request recovery; middleware and nested-call failures remain
- * untagged for the outer call.
+ * Stream one model call as raw chunks (token-level deltas). Replay state is
+ * retained only when the same adapter instance owns its historical provider
+ * and the target provider. Final adapter selection remains fixed through
+ * asynchronous exact-model resolution and dispatch. Adapter selection,
+ * dispatch, and iteration failures become terminal `error` or `aborted`
+ * finish chunks; middleware, nested-call, cleanup, and consumer failures
+ * remain thrown.
  * @param options - the full request; `options.provider` selects the adapter.
  * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.
  */
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
-Source: [`packages/llm/llm/src/index.ts:232`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:292`](../../packages/llm/llm/src/index.ts)
 
 <a id="llm-events"></a>
 
@@ -710,7 +865,7 @@ The provider topology changed: an adapter registered or unregistered routes, or 
 'llm/adapters-updated'(): void
 ```
 
-Source: [`packages/llm/llm/src/index.ts:71`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:73`](../../packages/llm/llm/src/index.ts)
 
 <a id="llmstream--waterfall"></a>
 
@@ -734,5 +889,5 @@ Waterfall around every streaming model call (retry, replay, routing). Bound to t
 'llm/stream'(this: LlmService, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>
 ```
 
-Source: [`packages/llm/llm/src/index.ts:60`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:62`](../../packages/llm/llm/src/index.ts)
 <!-- END GENERATED cordis-surface -->
