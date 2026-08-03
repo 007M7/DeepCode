@@ -100,15 +100,10 @@
 }
 
 .table tbody tr[data-request-only='true'] td {
-  height: 1px;
+  height: 0;
   padding-top: 0;
   padding-bottom: 0;
   border-bottom: 0;
-}
-
-.table tbody tr[data-request-only='true']:has(+ tr[data-request-only='true']) td {
-  /* Keep consecutive boundary markers from painting their halos over one another. */
-  height: 9px;
 }
 
 .table tbody tr[data-request-only='true']:last-child td {
@@ -130,10 +125,12 @@
 }
 
 .requestBoundaryControl {
+  --request-boundary-base-left: 12px;
+
   position: absolute;
   z-index: 6;
   top: -8px;
-  left: 12px;
+  left: calc(var(--request-boundary-base-left) + var(--request-boundary-offset, 0px));
   width: 16px;
   height: 16px;
   padding: 0;
@@ -196,6 +193,12 @@
     var(--dsw-alias-bg-layer-1)
   );
   box-shadow: 0 0 0 1.5px var(--dsw-alias-brand-primary-new-colorprimary-new-color);
+}
+
+.requestBoundaryControl[data-request-status='error']::before,
+.requestBoundaryControl[data-request-status='error']:hover::before,
+.requestBoundaryControl[data-request-status='error']:focus-visible::before {
+  background: var(--dsw-alias-state-error-primary);
 }
 
 .requestBoundaryControl:hover::after,
@@ -402,7 +405,7 @@
   }
 
   .requestBoundaryControl {
-    left: 6px;
+    --request-boundary-base-left: 6px;
   }
 
   .kindSlot {
@@ -1245,7 +1248,17 @@
   background: transparent;
   cursor: pointer;
   font: 600 12px/18px var(--dsw-font-family);
+  gap: 2px;
   user-select: none;
+}
+
+.thinkingChevron {
+  flex: none;
+  transition: transform 120ms var(--ds-ease-in-out);
+}
+
+.thinkingToggle[aria-expanded='true'] .thinkingChevron {
+  transform: rotate(90deg);
 }
 
 .thinkingToggle:hover {
