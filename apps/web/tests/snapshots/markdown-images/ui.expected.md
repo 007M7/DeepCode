@@ -1,0 +1,30 @@
+- banner:
+  - navigation "Session hierarchy":
+    - button "Markdown image policy" [disabled]
+  - tablist:
+    - tab "Chat" [selected]
+    - tab "Trajectory"
+- text: Show the Markdown image policy. {{clock}}
+- button "Copy":
+  - img
+- button "Branch into a new conversation":
+  - img
+- heading "Markdown images" [level=2]
+- paragraph:
+  - img "Remote test image"
+- paragraph: Local test image
+- paragraph: REMOTE_IMAGE_DONE
+- button "Copy":
+  - img
+- button "Branch into a new conversation":
+  - img
+- text: {{clock}}
+- textbox "Message the agent"
+- button "Commands":
+  - img
+- 'button "Access mode, current: Workspace Write"': Workspace Write
+- button "Select model, current deepseek-v4-flash":
+  - text: deepseek-v4-flash
+  - img
+- button "Send message" [disabled]
+- text: 1 turns · 1 steps Input 0 tok · Output 0 tok

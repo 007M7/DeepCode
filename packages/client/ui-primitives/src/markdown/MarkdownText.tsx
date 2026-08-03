@@ -37,6 +37,15 @@ export interface MarkdownCodeLabels {
   copiedLabel?: string | undefined
 }
 
+function remoteImageUrl(url: string): string | undefined {
+  try {
+    const protocol = new URL(url).protocol
+    return protocol === 'http:' || protocol === 'https:' ? url : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /** Build the component table; while `streaming`, fences render the plain arm (see CodeBlock). */
 function buildComponents(streaming: boolean, codeLabels?: MarkdownCodeLabels): Components {
   return {
@@ -53,7 +62,20 @@ function buildComponents(streaming: boolean, codeLabels?: MarkdownCodeLabels): C
         </a>
       )
     },
-    img: ({ alt = '' }) => <span className={css.imageAlt}>{alt}</span>,
+    img: ({ alt = '', src = '' }) => {
+      const imageSrc = remoteImageUrl(src)
+      if (imageSrc === undefined) return <span className={css.imageAlt}>{alt}</span>
+      return (
+        <img
+          className={css.image}
+          src={imageSrc}
+          alt={alt}
+          loading="lazy"
+          decoding="async"
+          referrerPolicy="no-referrer"
+        />
+      )
+    },
     table: ({ children }) => (
       <div className={css.tableScroll}>
         <table>{children}</table>
@@ -98,7 +120,9 @@ const streamingComponents = buildComponents(true)
  * pass a reference-stable object (memoized per locale revision), because the
  * component table memoizes on its identity and a fresh literal per render
  * would rebuild it every streaming chunk.
- * @returns A GFM document with TeX math rendered through KaTeX and raw HTML, relative links, unsafe protocols, and remote images disabled.
+ * @returns A GFM document with TeX math rendered through KaTeX; raw HTML,
+ * relative links, and unsafe protocols are disabled, while absolute HTTP(S)
+ * images render directly.
  */
 export function MarkdownText({ text, streaming = false, codeLabels }: {
   text: string
