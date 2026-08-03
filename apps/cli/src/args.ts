@@ -2,8 +2,11 @@
  * Commander adapter for the `dsh` command-line entry: the one place argv is
  * parsed and routed to a mode. `bin.ts` switches on the returned discriminant
  * and dynamic-imports that mode's module. One program: the default (no
- * subcommand) is the TUI/headless surface with option-only flags; `meta` and
- * `web` are real subcommands. Commander owns `--help`/`--version` and parse
+ * subcommand) is the TUI/headless surface with option-only flags;
+ * `meta`, `upgrade`, and `web` are real subcommands; the experimental ones
+ * (`meta`, `upgrade`) run only under the `--experimental` flag or
+ * `DSH_EXPERIMENTAL=1`. Commander owns
+ * `--help`/`--version` and parse
  * errors — it prints and exits at the point of failure (a domain failure routes through
  * `command.error`), so this returns only a resolved mode.
  * @module @deepseek-ai/dsh/args
@@ -23,22 +26,39 @@ interface TuiInvocation {
   resume?: string
 }
 
+/**
+ * Print the composed config tree and exit, without booting: `--dump-config`
+ * composes the shipped base, the surface overlay, and the `--config` or
+ * personal overlay — exactly the layers that surface would boot;
+ * `--dump-default-config` stops at the surface overlay (the shipped tree, no
+ * user layer).
+ */
+interface DumpConfigInvocation {
+  mode: 'dump-config'
+  surface: 'tui' | 'web'
+  /** Omit the `--config`/personal layer and print only the shipped composition. */
+  defaultOnly: boolean
+  /** The `--config` overlay to compose instead of the personal one. */
+  config?: string
+}
+
 /** Headless one-shot: `dsh -p "task"`. */
 interface HeadlessInvocation {
   mode: 'headless'
   prompt: string
 }
 
-/** Interactive fresh TUI over this harness checkout; accepts no default-surface options. */
+/** Interactive fresh TUI over this harness checkout; accepts no default-surface options, only the experimental gate. */
 interface MetaInvocation {
   mode: 'meta'
 }
 
 /**
- * Guided fresh-session entry: `dsh upgrade` seeds the first turn with the
- * `dsh-upgrade` skill. It always mints a
- * fresh session in the invoking directory and takes no options — `--resume`,
- * `--config`, and `-p` are rejected as mistyped, so there is nothing to carry.
+ * Guided fresh-session entry: `dsh upgrade` seeds the first turn
+ * with the `dsh-upgrade` skill. It always mints a
+ * fresh session in the invoking directory and takes no options beyond the
+ * experimental gate — `--resume`, `--config`, and `-p` are rejected as
+ * mistyped, so there is nothing to carry.
  */
 interface SkillSessionInvocation {
   mode: 'upgrade'
@@ -69,6 +89,7 @@ interface WebInvocation {
 /** The resolved `dsh` invocation: exactly one mode. `--help`/`--version`/errors exit inside {@link parseDshArgs}. */
 export type DshInvocation =
   | TuiInvocation
+  | DumpConfigInvocation
   | HeadlessInvocation
   | MetaInvocation
   | SkillSessionInvocation
@@ -82,6 +103,34 @@ interface WebOptions {
   dev?: boolean
   workspaceRoot?: string
   trustedHost?: string[]
+  dumpConfig?: boolean
+  dumpDefaultConfig?: boolean
+}
+
+/**
+ * Resolve the two dump flags for one surface, or return `undefined` when
+ * neither was passed. Both flags together are contradictory (one includes the
+ * user layer, the other excludes it) and fail loud through `error`.
+ */
+function resolveDump(
+  surface: 'tui' | 'web',
+  options: { config?: string; dumpConfig?: boolean; dumpDefaultConfig?: boolean },
+  error: (message: string) => never,
+): DumpConfigInvocation | undefined {
+  if (options.dumpConfig !== true && options.dumpDefaultConfig !== true) return undefined
+  if (options.dumpConfig === true && options.dumpDefaultConfig === true) {
+    error('error: --dump-config and --dump-default-config are mutually exclusive')
+  }
+  const defaultOnly = options.dumpDefaultConfig === true
+  if (defaultOnly && options.config !== undefined) {
+    error('error: --dump-default-config prints the shipped tree and takes no --config')
+  }
+  return {
+    mode: 'dump-config',
+    surface,
+    defaultOnly,
+    ...options.config !== undefined && { config: options.config },
+  }
 }
 
 /**
@@ -108,9 +157,11 @@ function resolveWeb(options: WebOptions): WebInvocation {
  * TUI/headless surface; `web` is a subcommand.
  * @param argv - the arguments after the node binary and script (`process.argv.slice(2)`).
  * @param version - the version string `--version` prints; read from this app's package.json.
+ * @param experimentalEnv - whether the environment opts into experimental
+ * subcommands (`DSH_EXPERIMENTAL=1`); the caller reads the process boundary.
  * @returns the resolved invocation (only reached on a valid, non-help invocation).
  */
-export function parseDshArgs(argv: readonly string[], version: string): DshInvocation {
+export function parseDshArgs(argv: readonly string[], version: string, experimentalEnv: boolean): DshInvocation {
   let resolved: DshInvocation | undefined
   const program = new Command()
     .name('dsh')
@@ -135,7 +186,26 @@ Examples:
     .option('--resume <id>', 'continue a past session by id')
     .option('--config <path>', 'apply this overlay of loader patches instead of the personal one')
     .option('--config-replace <path>', 'boot this file as the entire tree, ignoring the shipped and personal configuration')
-    .action((options: { config?: string; configReplace?: string; prompt?: string; resume?: string }) => {
+    .option('--dump-config', 'print the composed config tree (base + surface + --config/personal overlay) and exit')
+    .option('--dump-default-config', 'print the shipped config tree (base + surface overlay, no user layer) and exit')
+    .action((options: {
+      config?: string
+      configReplace?: string
+      prompt?: string
+      resume?: string
+      dumpConfig?: boolean
+      dumpDefaultConfig?: boolean
+    }) => {
+      const dump = resolveDump('tui', options, message => program.error(message))
+      if (dump !== undefined) {
+        // The dump prints composition; a boot-only flag alongside it would be
+        // silently ignored, so reject the mix loud.
+        if (options.prompt !== undefined || options.resume !== undefined || options.configReplace !== undefined) {
+          program.error('error: --dump-config/--dump-default-config take none of -p/--prompt, --resume, or --config-replace')
+        }
+        resolved = dump
+        return
+      }
       if (options.prompt !== undefined) {
         // A headless prompt owns the invocation; an empty task has nothing to
         // run, and --config/--resume are TUI inputs that must not silently
@@ -168,22 +238,42 @@ Examples:
   // a leaked config/prompt/resume option is a mistyped invocation that must fail
   // loud rather than silently run and drop the input.
   const rejectParentOptions = (command: string): void => {
-    const parent = program.opts<{ config?: string; configReplace?: string; prompt?: string; resume?: string }>()
+    const parent = program.opts<{
+      config?: string
+      configReplace?: string
+      prompt?: string
+      resume?: string
+      dumpConfig?: boolean
+      dumpDefaultConfig?: boolean
+    }>()
     if (parent.config !== undefined || parent.configReplace !== undefined
-      || parent.prompt !== undefined || parent.resume !== undefined) {
-      program.error(`error: ${command} takes none of --config, --config-replace, -p/--prompt, or --resume`)
+      || parent.prompt !== undefined || parent.resume !== undefined
+      || parent.dumpConfig !== undefined || parent.dumpDefaultConfig !== undefined) {
+      program.error(`error: ${command} takes none of --config, --config-replace, -p/--prompt, --resume, --dump-config, or --dump-default-config`)
+    }
+  }
+
+  // `meta` and `upgrade` are experimental: each runs only under its own
+  // `--experimental` flag or an environment-wide `DSH_EXPERIMENTAL=1` opt-in,
+  // and fails loud otherwise so the gate is never silently skipped.
+  const requireExperimental = (command: string, flag: boolean | undefined): void => {
+    if (flag !== true && !experimentalEnv) {
+      program.error(`error: ${command} is experimental; pass --experimental or set DSH_EXPERIMENTAL=1`)
     }
   }
 
   // Registration order is the rendered help order, so daily use comes first
-  // and the harness-development surfaces (`web --dev`, `meta`) come last.
-  // `upgrade` is a guided fresh-session entry: it takes no options and always
-  // mints a fresh session, so nothing is left to carry.
+  // and the harness-development surfaces (`web --dev`, `meta`)
+  // come last. `upgrade` is a guided fresh-session entry: beyond the
+  // experimental gate it takes no options and always mints a fresh session,
+  // so nothing is left to carry.
   program
     .command('upgrade')
-    .description('update this dsh installation to the latest version')
-    .action(() => {
+    .description('update this dsh installation to the latest version (experimental)')
+    .option('--experimental', 'acknowledge this subcommand is experimental')
+    .action((options: { experimental?: boolean }) => {
       rejectParentOptions('upgrade')
+      requireExperimental('upgrade', options.experimental)
       resolved = { mode: 'upgrade' }
     })
 
@@ -195,19 +285,28 @@ Examples:
     .option('--config <path>', 'apply this overlay of loader patches over the shipped configuration')
     .option('--host <host>', 'bind host; pass 0.0.0.0 to reach it from another machine')
     .option('--port <port>', 'listen port; pass 0 to let the OS pick a free one')
-    .option('--dev', 'developer mode: hot-reload the browser client')
+    .option('--dev', 'mount the client-plugin HMR receiver (run pnpm run dev:web separately to rebuild bundles)')
     .option('--workspace-root <path>', 'parent directory for workspaces created from the browser UI')
     .option('--trusted-host <authority...>', 'extra authority the /api browser-trust fence accepts (host or host:port; repeatable)')
+    .option('--dump-config', 'print the composed config tree (base + web + --config/personal overlay) and exit')
+    .option('--dump-default-config', 'print the shipped config tree (base + web overlay, no user layer) and exit')
     .action((options: WebOptions) => {
       rejectParentOptions('web')
+      const dump = resolveDump('web', options, message => program.error(message))
+      if (dump !== undefined) {
+        resolved = dump
+        return
+      }
       resolved = resolveWeb(options)
     })
 
   program
     .command('meta')
-    .description('work on the dsh source that runs this command, from any directory')
-    .action(() => {
+    .description('work on the dsh source that runs this command, from any directory (experimental)')
+    .option('--experimental', 'acknowledge this subcommand is experimental')
+    .action((options: { experimental?: boolean }) => {
       rejectParentOptions('meta')
+      requireExperimental('meta', options.experimental)
       resolved = { mode: 'meta' }
     })
 

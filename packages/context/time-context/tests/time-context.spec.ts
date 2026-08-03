@@ -44,12 +44,13 @@ function sessionAgent(session: Session, id = 'agent'): Agent {
     acceptsNextStep: true,
     ctx: new Context(),
     followup: () => {},
-    steer: () => {},
+    steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
     inject(input) {
       session.append('user/message', input, { surfaceOp: 'append' })
     },
     send: () => {},
     updateInbox: () => 'not-found',
+    reserveTurnAdmission: () => undefined,
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }

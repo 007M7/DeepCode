@@ -154,7 +154,7 @@ config:
       ],
       options: [
         {
-          id: 'deepseek',
+          id: 'deepseek-official',
           label: 'DeepSeek search',
           default: true,
           markers: [{ id: 'web-search-deepseek', name: '@deepseek-ai/dsh-web-search-deepseek' }],
@@ -209,7 +209,14 @@ config:
       id: 'subagent',
       summary: 'Delegate work to child agents',
       mode: 'multiple',
-      baseResources: [{ kind: 'npm-cordis-config-entry', id: 'subagent', package: '@deepseek-ai/dsh-subagent' }],
+      // In-process options select continuable background delegation; the
+      // follow-up adapter remains an independently loadable global tool.
+      baseResources: [
+        { kind: 'npm-cordis-config-entry', id: 'tasks', package: '@deepseek-ai/dsh-tasks-local' },
+        { kind: 'npm-cordis-config-entry', id: 'tool-tasks', package: '@deepseek-ai/dsh-tool-tasks' },
+        { kind: 'npm-cordis-config-entry', id: 'subagent', package: '@deepseek-ai/dsh-subagent' },
+        { kind: 'npm-cordis-config-entry', id: 'tool-subagent-control', package: '@deepseek-ai/dsh-tool-subagent-control' },
+      ],
       options: [
         {
           id: 'spawn',
@@ -221,7 +228,7 @@ config:
               kind: 'npm-cordis-config-entry',
               id: 'tool-subagent',
               package: '@deepseek-ai/dsh-tool-subagent',
-              config: { provider: 'spawn' } satisfies ToolSubagentConfig,
+              config: { provider: 'spawn', backgroundMode: 'continuable' } satisfies ToolSubagentConfig,
             },
           ],
         },
@@ -234,7 +241,11 @@ config:
               kind: 'npm-cordis-config-entry',
               id: 'tool-subagent-fork',
               package: '@deepseek-ai/dsh-tool-subagent',
-              config: { provider: 'fork', toolName: 'subagent_fork' } satisfies ToolSubagentConfig,
+              config: {
+                provider: 'fork',
+                toolName: 'subagent_fork',
+                backgroundMode: 'continuable',
+              } satisfies ToolSubagentConfig,
             },
           ],
         },

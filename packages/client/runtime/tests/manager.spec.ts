@@ -12,7 +12,13 @@ import { entries, plainTurn } from './event-script.ts'
 const S1 = 'fk-m1' as SessionId
 const S2 = 'fk-m2' as SessionId
 
-type SummaryOver = Partial<{ updatedAt: number; running: boolean; blank: boolean; parentSessionId: SessionId }>
+type SummaryOver = Partial<{
+  updatedAt: number
+  running: boolean
+  blank: boolean
+  parentSessionId: SessionId
+  origin: 'subagent'
+}>
 
 function summary(sessionId: SessionId, over: SummaryOver = {}) {
   return { sessionId, updatedAt: 100, running: false, blank: false, ...over }
@@ -206,6 +212,49 @@ describe('list lifecycle', () => {
   })
 })
 
+describe('search', () => {
+  it('returns bounded Host results and forwards the caller signal', async () => {
+    const api = new FakeApiClient()
+    api.onSearch = () => Promise.resolve(ok({
+      items: [{ sessionId: S1, snippet: 'matching excerpt' }],
+      hasMore: true,
+    }))
+    const manager = new SessionManager(api)
+    const signal = new AbortController().signal
+
+    await expect(manager.search('exact phrase', signal)).resolves.toEqual({
+      ok: true,
+      value: {
+        items: [{ sessionId: S1, snippet: 'matching excerpt' }],
+        hasMore: true,
+      },
+    })
+    expect(api.callsOf('session.search')).toEqual([{ query: 'exact phrase' }])
+    expect(api.lastSearchSignal).toBe(signal)
+  })
+
+  it('preserves business errors and folds transport failures', async () => {
+    const api = new FakeApiClient()
+    const manager = new SessionManager(api)
+    api.onSearch = () => Promise.resolve(err({
+      code: 'internal',
+      message: 'index unavailable',
+      details: {},
+    }))
+    const signal = new AbortController().signal
+    await expect(manager.search('first', signal)).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'internal', message: 'index unavailable' },
+    })
+
+    api.onSearch = () => Promise.reject(new Error('wire down'))
+    await expect(manager.search('second', signal)).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'internal', message: 'wire down' },
+    })
+  })
+})
+
 describe('host frame routing', () => {
   it('adds/removes/flips sessions from host frames and keeps removed instances resident', async () => {
     const api = new FakeApiClient()
@@ -226,6 +275,402 @@ describe('host frame routing', () => {
     expect(manager.getListSnapshot().items).toHaveLength(0)
     expect(session.getSnapshot().removed).toBe(true)
     expect(manager.get(S1)).toBe(session) // resident-instance rule survives removal
+  })
+})
+
+describe('subagent catalogs', () => {
+  it('keeps a catalog-discovered child address across ordinary selection and status frames', async () => {
+    const api = new FakeApiClient()
+    api.onList = () => Promise.resolve(ok({ items: [
+      summary(S1),
+      summary(S2, { parentSessionId: S1, origin: 'subagent' }),
+    ] as never[] }))
+    api.onSubagentList = () => Promise.resolve(ok({
+      entries: [{
+        kind: 'child', id: S2, mode: 'continuable', label: 'worker',
+        activity: 'running', hasChildren: false,
+      }] as never[],
+      parentAvailable: true,
+    }))
+    const manager = new SessionManager(api)
+    await manager.refreshList()
+    await manager.refreshSubagents(S1)
+    manager.selectSubagent({ parentSessionId: S1, childSessionId: S2, mode: 'continuable' })
+
+    expect(manager.getListSnapshot().currentAddress).toEqual({
+      parentSessionId: S1, childSessionId: S2, mode: 'continuable',
+    })
+    expect(manager.get(S2).getSnapshot().subagent).toEqual({
+      address: { parentSessionId: S1, childSessionId: S2, mode: 'continuable' },
+      parentAvailable: true,
+    })
+    // Clicking the same child through an ordinary list-selection path must not
+    // erase the catalog-derived address and fall back to session.* transport.
+    manager.select(S2)
+    expect(manager.getListSnapshot().currentAddress).toEqual({
+      parentSessionId: S1, childSessionId: S2, mode: 'continuable',
+    })
+    expect(manager.get(S2).getSnapshot().subagent).toEqual({
+      address: { parentSessionId: S1, childSessionId: S2, mode: 'continuable' },
+      parentAvailable: true,
+    })
+    await manager.get(S2).open()
+    await manager.get(S2).prompt([{ type: 'text', text: 'continue' }], 'queue')
+    expect(api.callsOf('subagent.history')).toEqual([
+      { parentSessionId: S1, childSessionId: S2, mode: 'continuable', maxMessages: 50 },
+    ])
+    expect(api.callsOf('subagent.prompt')).toEqual([
+      {
+        parentSessionId: S1, childSessionId: S2, mode: 'continuable',
+        content: [{ type: 'text', text: 'continue' }],
+      },
+    ])
+    expect(api.callsOf('session.history')).toEqual([])
+    expect(api.callsOf('session.prompt')).toEqual([])
+    const listCalls = api.callsOf('subagent.list').length
+    manager.handleHostEnvelope({
+      rpcId: 'child-complete' as never,
+      payload: { type: 'host/session-status', sessionId: S2, running: false },
+    })
+    expect(manager.getListSnapshot().subagentsByParent[S1]?.entries[0]).toMatchObject({
+      kind: 'child', id: S2, activity: 'inactive',
+    })
+    expect(api.callsOf('subagent.list')).toHaveLength(listCalls)
+
+    manager.handleHostEnvelope({
+      rpcId: 'child-detached' as never,
+      payload: { type: 'host/session-removed', sessionId: S2 },
+    })
+    expect(manager.getListSnapshot().items.find(item => item.sessionId === S2)).toMatchObject({
+      origin: 'subagent', parentSessionId: S1, running: false,
+    })
+    expect(manager.get(S2).getSnapshot()).toMatchObject({
+      removed: false,
+      subagent: {
+        address: { parentSessionId: S1, childSessionId: S2, mode: 'continuable' },
+      },
+    })
+  })
+
+  it('refetches debounced membership only while the parent catalog is open', async () => {
+    vi.useFakeTimers()
+    try {
+      const api = new FakeApiClient()
+      const manager = new SessionManager(api)
+      await manager.refreshSubagents(S1)
+      manager.setSubagentCatalogOpen(S1, true)
+      await Promise.resolve()
+      const baseline = api.callsOf('subagent.list').length
+      manager.handleHostEnvelope({
+        rpcId: 'child-added' as never,
+        payload: {
+          type: 'host/session-added', sessionId: S2, parentSessionId: S1, blank: false,
+        },
+      })
+      manager.handleHostEnvelope({
+        rpcId: 'child-added-again' as never,
+        payload: {
+          type: 'host/session-added', sessionId: 'fk-m3' as SessionId, parentSessionId: S1, blank: false,
+        },
+      })
+      await vi.advanceTimersByTimeAsync(50)
+      expect(api.callsOf('subagent.list')).toHaveLength(baseline + 1)
+
+      manager.setSubagentCatalogOpen(S1, false)
+      manager.handleHostEnvelope({
+        rpcId: 'child-added-closed' as never,
+        payload: {
+          type: 'host/session-added', sessionId: 'fk-m4' as SessionId, parentSessionId: S1, blank: false,
+        },
+      })
+      await vi.advanceTimersByTimeAsync(50)
+      expect(api.callsOf('subagent.list')).toHaveLength(baseline + 1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('marks a loaded parent row expandable only for a direct subagent publication', async () => {
+    const api = new FakeApiClient()
+    const root = 'fk-root' as SessionId
+    api.onSubagentList = () => Promise.resolve(ok({
+      entries: [
+        {
+          kind: 'child', id: S1, mode: 'continuable', label: 'parent',
+          activity: 'inactive', hasChildren: false,
+        },
+        {
+          kind: 'child', id: S2, mode: 'continuable', label: 'ordinary parent',
+          activity: 'inactive', hasChildren: false,
+        },
+      ] as never[],
+      parentAvailable: true,
+    }))
+    const manager = new SessionManager(api)
+    await manager.refreshSubagents(root)
+
+    manager.handleHostEnvelope({
+      rpcId: 'nested-subagent' as never,
+      payload: {
+        type: 'host/session-added', sessionId: 'fk-grandchild' as SessionId,
+        parentSessionId: S1, origin: 'subagent', blank: false,
+      },
+    })
+    manager.handleHostEnvelope({
+      rpcId: 'ordinary-fork' as never,
+      payload: {
+        type: 'host/session-added', sessionId: 'fk-fork' as SessionId,
+        parentSessionId: S2, blank: false,
+      },
+    })
+
+    expect(manager.getListSnapshot().subagentsByParent[root]?.entries).toMatchObject([
+      { kind: 'child', id: S1, hasChildren: true },
+      { kind: 'child', id: S2, hasChildren: false },
+    ])
+  })
+
+  it('preserves a live expandability hint across only the older in-flight catalog response', async () => {
+    const api = new FakeApiClient()
+    const root = 'fk-root' as SessionId
+    const response = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
+    api.onSubagentList = () => response.promise
+    const manager = new SessionManager(api)
+    const refresh = manager.refreshSubagents(root)
+
+    manager.handleHostEnvelope({
+      rpcId: 'nested-subagent' as never,
+      payload: {
+        type: 'host/session-added', sessionId: 'fk-grandchild' as SessionId,
+        parentSessionId: S1, origin: 'subagent', blank: false,
+      },
+    })
+    response.resolve(ok({
+      entries: [{
+        kind: 'child', id: S1, mode: 'continuable', label: 'parent',
+        activity: 'inactive', hasChildren: false,
+      }] as never[],
+      parentAvailable: true,
+    }))
+    await refresh
+
+    expect(manager.getListSnapshot().subagentsByParent[root]?.entries).toMatchObject([
+      { kind: 'child', id: S1, hasChildren: true },
+    ])
+
+    api.onSubagentList = () => Promise.resolve(ok({
+      entries: [{
+        kind: 'child', id: S1, mode: 'continuable', label: 'parent',
+        activity: 'inactive', hasChildren: false,
+      }] as never[],
+      parentAvailable: true,
+    }))
+    await manager.refreshSubagents(root)
+    expect(manager.getListSnapshot().subagentsByParent[root]?.entries).toMatchObject([
+      { kind: 'child', id: S1, hasChildren: false },
+    ])
+  })
+
+  it('replays status frames over an older in-flight catalog response', async () => {
+    const api = new FakeApiClient()
+    const root = 'fk-root' as SessionId
+    const response = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
+    api.onSubagentList = () => response.promise
+    const manager = new SessionManager(api)
+    const refresh = manager.refreshSubagents(root)
+
+    manager.handleHostEnvelope({
+      rpcId: 'child-stopped' as never,
+      payload: { type: 'host/session-status', sessionId: S1, running: false },
+    })
+    manager.handleHostEnvelope({
+      rpcId: 'child-started' as never,
+      payload: { type: 'host/session-status', sessionId: S2, running: true },
+    })
+    response.resolve(ok({
+      entries: [
+        {
+          kind: 'child', id: S1, mode: 'continuable', label: 'stopped',
+          activity: 'running', hasChildren: false,
+        },
+        {
+          kind: 'child', id: S2, mode: 'continuable', label: 'started',
+          activity: 'inactive', hasChildren: false,
+        },
+      ] as never[],
+      parentAvailable: true,
+    }))
+    await refresh
+
+    expect(manager.getListSnapshot().subagentsByParent[root]?.entries).toMatchObject([
+      { kind: 'child', id: S1, activity: 'inactive' },
+      { kind: 'child', id: S2, activity: 'running' },
+    ])
+  })
+
+  it('marks a detached catalog child inactive without requiring a selected address', async () => {
+    const api = new FakeApiClient()
+    api.onSubagentList = () => Promise.resolve(ok({
+      entries: [{
+        kind: 'child', id: S2, mode: 'continuable', label: 'worker',
+        activity: 'running', hasChildren: false,
+      }] as never[],
+      parentAvailable: true,
+    }))
+    const manager = new SessionManager(api)
+    await manager.refreshSubagents(S1)
+
+    manager.handleHostEnvelope({
+      rpcId: 'child-detached' as never,
+      payload: { type: 'host/session-removed', sessionId: S2 },
+    })
+
+    expect(manager.getListSnapshot().subagentsByParent[S1]?.entries).toMatchObject([
+      { kind: 'child', id: S2, activity: 'inactive' },
+    ])
+  })
+
+  it('coalesces overlapping catalog reads without scheduling a trailing pull', async () => {
+    const api = new FakeApiClient()
+    const root = 'fk-root' as SessionId
+    const first = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
+    api.onSubagentList = () => first.promise
+    const manager = new SessionManager(api)
+
+    const refresh = manager.refreshSubagents(root)
+    expect(manager.refreshSubagents(root)).toBe(refresh)
+    api.onSubagentList = () => Promise.resolve(ok({ entries: [], parentAvailable: true }))
+    first.resolve(ok({ entries: [], parentAvailable: true }))
+    await refresh
+
+    expect(api.callsOf('subagent.list')).toHaveLength(1)
+  })
+
+  it('runs one trailing catalog refresh for a membership change coalesced into an in-flight pull', async () => {
+    vi.useFakeTimers()
+    try {
+      const api = new FakeApiClient()
+      const root = 'fk-root' as SessionId
+      const first = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
+      const second = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
+      api.onSubagentList = () => first.promise
+      const manager = new SessionManager(api, root)
+      const refresh = manager.refreshSubagents(root)
+
+      // A membership frame arrives while the pull is in flight; the debounced
+      // refresh it schedules fires 50ms later and is coalesced into the pull —
+      // which was requested before the new child existed. The stale mark must
+      // queue one trailing pull carrying the change.
+      manager.handleHostEnvelope({
+        rpcId: 'child-added' as never,
+        payload: {
+          type: 'host/session-added', sessionId: S2, parentSessionId: root, blank: false,
+        },
+      })
+      await vi.advanceTimersByTimeAsync(50)
+      api.onSubagentList = () => second.promise
+      first.resolve(ok({
+        entries: [{
+          kind: 'child', id: S1, mode: 'continuable', label: 'older',
+          activity: 'inactive', hasChildren: false,
+        }] as never[],
+        parentAvailable: true,
+      }))
+      await refresh
+      // The trailing pull is already in flight (kicked synchronously in finally).
+      second.resolve(ok({
+        entries: [
+          {
+            kind: 'child', id: S1, mode: 'continuable', label: 'older',
+            activity: 'inactive', hasChildren: false,
+          },
+          {
+            kind: 'child', id: S2, mode: 'continuable', label: 'new child',
+            activity: 'inactive', hasChildren: false,
+          },
+        ] as never[],
+        parentAvailable: true,
+      }))
+      await second.promise
+
+      expect(api.callsOf('subagent.list')).toHaveLength(2)
+      expect(manager.getListSnapshot().subagentsByParent[root]?.entries).toMatchObject([
+        { kind: 'child', id: S1, label: 'older' },
+        { kind: 'child', id: S2, label: 'new child' },
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps removal invalidation across a stale success and failed trailing pull', async () => {
+    const api = new FakeApiClient()
+    const root = 'fk-root' as SessionId
+    const child = () => ({
+      kind: 'child' as const, id: S2, mode: 'continuable' as const, label: 'worker',
+      activity: 'inactive' as const, hasChildren: false,
+    })
+    const first = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
+    api.onSubagentList = () => first.promise
+    const manager = new SessionManager(api)
+    const refresh = manager.refreshSubagents(root)
+    first.resolve(ok({ entries: [child()] as never[], parentAvailable: true }))
+    await refresh
+    manager.selectSubagent({ parentSessionId: root, childSessionId: S2, mode: 'continuable' })
+
+    // The removal lands while a second pull is in flight: the invalidation
+    // must survive the pre-removal ok response, so one trailing pull runs.
+    const mid = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
+    api.onSubagentList = () => mid.promise
+    const midRefresh = manager.refreshSubagents(root)
+    manager.handleHostEnvelope({
+      rpcId: 'parent-removed-mid-pull' as never,
+      payload: { type: 'host/session-removed', sessionId: root },
+    })
+    const trailing = deferred<Awaited<ReturnType<FakeApiClient['onSubagentList']>>>()
+    api.onSubagentList = () => trailing.promise
+    mid.resolve(ok({ entries: [child()] as never[], parentAvailable: true }))
+    await midRefresh
+    expect(manager.getListSnapshot().subagentsByParent[root]?.parentAvailable).toBe(false)
+    expect(manager.get(S2).getSnapshot().subagent).toMatchObject({ parentAvailable: false })
+
+    trailing.resolve(err({ code: 'internal', message: 'trailing pull failed', details: {} }))
+    await vi.waitFor(() => {
+      expect(manager.getListSnapshot().subagentsByParent[root]).toMatchObject({
+        state: 'error',
+        parentAvailable: false,
+      })
+    })
+
+    const rootCalls = api.callsOf('subagent.list')
+      .filter(call => (call as { parentSessionId: SessionId }).parentSessionId === root)
+    expect(rootCalls).toHaveLength(3)
+    expect(manager.getListSnapshot().subagentsByParent[root]?.parentAvailable).toBe(false)
+    expect(manager.get(S2).getSnapshot().subagent).toMatchObject({ parentAvailable: false })
+  })
+
+  it('invalidates catalog availability when the owning parent is removed', async () => {
+    const api = new FakeApiClient()
+    const root = 'fk-root' as SessionId
+    api.onSubagentList = () => Promise.resolve(ok({
+      entries: [{
+        kind: 'child', id: S2, mode: 'continuable', label: 'worker',
+        activity: 'inactive', hasChildren: false,
+      }] as never[],
+      parentAvailable: true,
+    }))
+    const manager = new SessionManager(api)
+    await manager.refreshSubagents(root)
+    manager.selectSubagent({ parentSessionId: root, childSessionId: S2, mode: 'continuable' })
+    expect(manager.get(S2).getSnapshot().subagent).toMatchObject({ parentAvailable: true })
+
+    manager.handleHostEnvelope({
+      rpcId: 'parent-removed' as never,
+      payload: { type: 'host/session-removed', sessionId: root },
+    })
+
+    expect(manager.getListSnapshot().subagentsByParent[root]?.parentAvailable).toBe(false)
+    expect(manager.get(S2).getSnapshot().subagent).toMatchObject({ parentAvailable: false })
   })
 })
 
@@ -275,6 +720,23 @@ describe('remaining branches', () => {
     expect(result).toMatchObject({ ok: false, error: { code: 'workspace-attach-failed' } })
     expect(manager.getListSnapshot().items).toEqual([expect.objectContaining({ sessionId: S1 })])
     expect(manager.getListSnapshot().items[0]).not.toHaveProperty('cwd')
+  })
+
+  it('reconciles a fork child published before workspace attachment fails', async () => {
+    const api = new FakeApiClient()
+    api.onFork = () => Promise.resolve(err({
+      code: 'workspace-attach-failed',
+      message: 'forked but unattached',
+      details: { sessionId: S2, workspaceId: 'w1' },
+    } as never))
+    const manager = new SessionManager(api)
+    const result = await manager.fork({ sessionId: S1 })
+    expect(result).toMatchObject({ ok: false, error: { code: 'workspace-attach-failed' } })
+    expect(manager.getListSnapshot().items).toEqual([expect.objectContaining({
+      sessionId: S2,
+      parentSessionId: S1,
+      blank: false,
+    })])
   })
 
   it('reconciles a preallocated id after an ordinary transport failure', async () => {
@@ -349,9 +811,17 @@ describe('remaining branches', () => {
     const api = new FakeApiClient()
     const manager = new SessionManager(api)
     manager.handleHostEnvelope({ rpcId: 'h1' as never, payload: { type: 'host/session-added', blank: true, sessionId: S1 } })
-    manager.handleHostEnvelope({ rpcId: 'h2' as never, payload: { type: 'host/session-added', blank: true, sessionId: S2, parentSessionId: S1 } })
+    manager.handleHostEnvelope({
+      rpcId: 'h2' as never,
+      payload: {
+        type: 'host/session-added', blank: true, sessionId: S2,
+        parentSessionId: S1, origin: 'subagent',
+      },
+    })
     const items = manager.getListSnapshot().items
-    expect(items.find(e => e.sessionId === S2)).toMatchObject({ parentSessionId: S1, depth: 1 })
+    expect(items.find(e => e.sessionId === S2)).toMatchObject({
+      parentSessionId: S1, origin: 'subagent', depth: 1,
+    })
   })
 })
 
@@ -361,7 +831,7 @@ describe('connected generation', () => {
     api.onHistory = () => Promise.resolve(ok({
       events: entries(plainTurn(0, 0, 'a', 'b')) as never[],
       hasMore: false,
-      modelTarget: { provider: 'deepseek', model: 'deepseek-chat' },
+      modelTarget: { provider: 'deepseek-official', model: 'deepseek-chat' },
     }))
     const manager = new SessionManager(api)
     const openedSession = manager.get(S1)
@@ -374,6 +844,21 @@ describe('connected generation', () => {
       // Only the opened instance repulls history; the cold one stays silent.
       expect(api.callsOf('session.history').length).toBe(historyCallsBefore + 1)
     })
+  })
+
+  it('reloads the durable parent address for a restored child selection', async () => {
+    const api = new FakeApiClient()
+    const address = {
+      parentSessionId: S1, childSessionId: S2, mode: 'continuable' as const,
+    }
+    const manager = new SessionManager(api, S2, address)
+
+    manager.handleConnected()
+
+    await vi.waitFor(() => {
+      expect(api.callsOf('subagent.list')).toContainEqual({ parentSessionId: S1 })
+    })
+    expect(manager.getListSnapshot().currentAddress).toEqual(address)
   })
 })
 

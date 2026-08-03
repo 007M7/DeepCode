@@ -25,7 +25,7 @@ Status: implemented
 
 身份归属于 `agent-loop`，因为它才是创建所配置 agent 的插件；也因为 patch 会整体替换配置项的 `config`：重新指向 agent 配置项模型路由的 overlay 会抹掉启动器设置的身份键。参见[共享 base overlay note](../simplification/2026-07-29-shared-base-config-overlays.md)。
 
-`apps/cli` 铸造或选定 id，并依据它所复现的那次调用构建该行，与 `/resume` 的 execve 移交共用同一个 `resumeArgs` 助手，从而使打印出的命令与原地移交不会分歧。该行现在会在传入了 `--config` 时命名它，并在 meta 模式下复现 `dsh meta --resume <id>`——从而收口了 `dsh meta` note 所推迟的随 mode 变化的提示，在那里被复制的提示此前只有在检出目录中才有效。
+`apps/cli` 铸造或选定 id，并依据它所复现的那次调用构建该行，与 `/resume` 的 execve 移交共用同一个 `resumeArgs` 助手，从而使打印出的命令与原地移交不会分歧。该行会在传入了 `--config` 时将其写入命令。恢复始终通过 `dsh --resume <id>` 重新进入默认界面；`dsh meta` 不接受任何默认界面选项，并且总是启动新会话。
 
 **`ctx.provide` 是从启动器 argv 进入被 Loader 挂载的插件的唯一通道。** 配置的 `!!js` 表达式会以 `with (entry.ctx) { eval(expr) }`（`vendor/loader/src/config/utils.ts`）求值，因此一个裸标识符会针对该条目的上下文解析，别无它物可达。于是只要应用 bundle 仍从 YAML 挂载，这个槽位就无法被移除；变化之处在于它现在是启动器↔应用之间的内部管线，而不再是一个配置作者必须正确接线的、有文档记载的键。
 

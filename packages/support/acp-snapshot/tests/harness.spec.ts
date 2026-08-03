@@ -742,6 +742,83 @@ describe('runScenario', () => {
     )).rejects.toThrow(/did not persist turn\/end within 20ms/)
   })
 
+  it('waitForSubagentTurnEnd requires a closed child work turn', { timeout: 20_000 }, async () => {
+    const closed = await scenario({
+      prompt: 'hang-until-cancel',
+      persistLogsOnCancel: true,
+      logs: [
+        {
+          file: 'project/main/session.jsonl',
+          lines: [
+            { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
+            { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'aborted' } } },
+          ],
+        },
+        {
+          file: 'project/child/session.jsonl',
+          lines: [
+            { type: 'session', version: 0, id: 'child-1', createdAt: 2, parentSession: '{{SID}}', delegationDepth: 1 },
+            { type: 'subagent/descriptor', seq: 0, time: 1, data: {} },
+            { type: 'turn/start', seq: 1, time: 2, data: { turn: 1 } },
+            { type: 'request/header', seq: 2, time: 3, data: { header: {}, reason: 'initial' } },
+            { type: 'turn/end', seq: 3, time: 4, data: { turn: 1, reason: { kind: 'completed' } } },
+          ],
+        },
+      ],
+    })
+    const result = await runScenario(
+      {
+        steps: [
+          ...boot,
+          { op: 'promptAndCancel', text: 'hang' },
+          { op: 'waitForSubagentTurnEnd' },
+        ],
+      },
+      { agent: AGENT, mode: 'replay', fixtureFile: closed.fixtureFile },
+    )
+    expect(result.sessionLogs[1]?.parentSession).toBe(result.sessionId)
+
+    const seedOnly = await scenario({
+      prompt: 'hang-until-cancel',
+      persistLogsOnCancel: true,
+      logs: [
+        {
+          file: 'project/main/session.jsonl',
+          lines: [
+            { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
+            { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'aborted' } } },
+          ],
+        },
+        {
+          file: 'project/child/session.jsonl',
+          lines: [
+            { type: 'session', version: 0, id: 'child-1', createdAt: 2, parentSession: '{{SID}}', delegationDepth: 1 },
+            { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message' } } },
+            { type: 'request/header', seq: 1, time: 2, data: { header: {}, reason: 'initial' } },
+            { type: 'turn/end', seq: 2, time: 3, data: { turn: 1, reason: { kind: 'completed' } } },
+            { type: 'subagent/descriptor', seq: 3, time: 4, data: {} },
+          ],
+        },
+      ],
+    })
+    await expect(runScenario(
+      {
+        steps: [
+          ...boot,
+          { op: 'promptAndCancel', text: 'hang' },
+          { op: 'waitForSubagentTurnEnd', timeoutMs: 20 },
+        ],
+      },
+      { agent: AGENT, mode: 'replay', fixtureFile: seedOnly.fixtureFile },
+    )).rejects.toThrow(/subagent child #1 did not persist a closed work turn within 20ms/)
+
+    const missing = await scenario({})
+    await expect(runScenario(
+      { steps: [...boot, { op: 'waitForSubagentTurnEnd', child: 2, timeoutMs: 20 }] },
+      { agent: AGENT, mode: 'replay', fixtureFile: missing.fixtureFile },
+    )).rejects.toThrow(/subagent child #2 did not persist a closed work turn within 20ms/)
+  })
+
   it('waitForTitleAfterTurnEnd times out when the title precedes the boundary', { timeout: 20_000 }, async () => {
     const { fixtureFile } = await scenario({
       prompt: 'hang-until-cancel',
@@ -860,6 +937,19 @@ describe('runScenario', () => {
     await writeFile(join(workspaceDir, 'ready'), '')
     const result = await runScenario(
       { steps: [...boot, { op: 'cancel', waitForFile: { path: 'ready' } }] },
+      { agent: AGENT, mode: 'replay', fixtureFile, workspaceDir },
+    )
+    expect(result.sessionId).toBeDefined()
+  })
+
+  it('waitForFile holds the next input step behind cwd-relative readiness', { timeout: 20_000 }, async () => {
+    const { dir, fixtureFile } = await scenario({})
+    const workspaceDir = join(dir, 'workspace')
+    const { mkdir } = await import('node:fs/promises')
+    await mkdir(workspaceDir, { recursive: true })
+    await writeFile(join(workspaceDir, 'ready'), '')
+    const result = await runScenario(
+      { steps: [...boot, { op: 'waitForFile', path: 'ready' }, { op: 'cancel' }] },
       { agent: AGENT, mode: 'replay', fixtureFile, workspaceDir },
     )
     expect(result.sessionId).toBeDefined()

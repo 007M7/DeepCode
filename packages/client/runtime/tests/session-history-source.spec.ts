@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import { SessionHistorySource } from '../src/client/session-history/source.ts'
@@ -6,6 +6,10 @@ import { FakeApiClient, deferred, err, ok } from './fake-api.ts'
 import { entries, ev, plainTurn } from './event-script.ts'
 
 const SID = 'history-s1' as SessionId
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 function histResponse(events: SessionEvent[], hasMore = false) {
   return Promise.resolve(ok({ events: entries(events) as never[], hasMore }))
@@ -50,6 +54,71 @@ describe('SessionHistorySource', () => {
     expect(before.inspection.eventNodes.map(node => node.seq)).toEqual([1, 3])
     expect(source.getSnapshot().inspection.eventNodes.map(node => node.seq))
       .toEqual([1, 3, 6])
+  })
+
+  it('publishes multiple assistant chunks once per browser frame', async () => {
+    const api = new FakeApiClient()
+    api.onHistory = () => histResponse(plainTurn(0, 0, '问', '答'))
+    const source = new SessionHistorySource(SID, api)
+    await source.loadAll()
+    const frames: FrameRequestCallback[] = []
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.push(callback)
+      return frames.length
+    })
+    let notifications = 0
+    const unsubscribe = source.subscribe(() => { notifications++ })
+    const before = source.getSnapshot().inspection
+    const finalizedNodes = before.eventNodes
+    const requests = before.requests
+    const contexts = before.contexts
+
+    for (const event of [
+      ev.chunkStart(6, 1),
+      ev.chunkText(7, 1, 'stream '),
+      ev.chunkText(8, 1, 'content'),
+    ]) {
+      source.handleMuxFrame({
+        type: 'session/event',
+        sessionId: SID,
+        event,
+      })
+    }
+
+    expect(frames).toHaveLength(1)
+    expect(notifications).toBe(0)
+    frames[0]?.(0)
+    await Promise.resolve()
+
+    expect(notifications).toBe(1)
+    const streamed = source.getSnapshot().inspection
+    expect(streamed.eventNodes).toBe(finalizedNodes)
+    expect(streamed.requests).toBe(requests)
+    expect(streamed.contexts).toBe(contexts)
+    expect(streamed.partial?.blocks).toEqual([
+      { kind: 'text', text: 'stream content' },
+    ])
+
+    source.handleMuxFrame({
+      type: 'session/event',
+      sessionId: SID,
+      event: ev.chunkText(9, 1, ' then final'),
+    })
+    source.handleMuxFrame({
+      type: 'session/event',
+      sessionId: SID,
+      event: ev.assistant(10, 1, 'stream content then final'),
+    })
+    await Promise.resolve()
+
+    expect(notifications).toBe(2)
+    const finalized = source.getSnapshot().inspection
+    expect(finalized.eventNodes).not.toBe(finalizedNodes)
+    expect(finalized.partial).toBeNull()
+    frames[1]?.(0)
+    await Promise.resolve()
+    expect(notifications).toBe(2)
+    unsubscribe()
   })
 
   it('stops loading when an older page fails to advance', async () => {

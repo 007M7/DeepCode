@@ -31,7 +31,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('first-message title provider wit
       maxInputBytes: 4_096,
       maxOutputTokens: 64,
       timeoutMs: 60_000,
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'deepseek-v4-flash',
     })
     const session = ctx.sessions.create(SessionId('real-title-provider'))
@@ -51,7 +51,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('first-message title provider wit
       source: {
         kind: 'provider',
         provider: 'session-title-first-message-llm',
-        model: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+        model: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
       },
     })
     expect(title?.title.length).toBeGreaterThan(0)

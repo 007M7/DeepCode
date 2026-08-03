@@ -216,11 +216,11 @@ roots(): Agent[]
 
 Types: [Agent](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:216`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:242`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.approval` — `ApprovalService`
 
-Approval service that applies session policy before answerers and logs every ask/outcome pair to the requesting session. It exposes deterministic policy changes to the model through prompt and pre-step notices.
+Approval service that applies session policy before answerers and logs every ask/outcome pair to the requesting session. It exposes deterministic policy changes to the model through the cache-safe runtime-context snapshot.
 
 ```ts cordis-catalog
 /**
@@ -253,7 +253,7 @@ overrideOf(session: Session): ApprovalPolicy | undefined
 
 Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalPolicy](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/ui/user-approval/src/index.ts:217`](../../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:193`](../../packages/ui/user-approval/src/index.ts)
 
 ## `ctx.bash` — `BashExecutor` (abstract seam)
 
@@ -328,7 +328,7 @@ Source: [`packages/bash/tool-bash/src/index.ts:104`](../../packages/bash/tool-ba
 
 ## `ctx.clientModuleHost` — `ClientModuleHostService`
 
-The web plugin table service: incremental dshClient scan + wire composition + bundle route + index tap. Construction runs the activation scan synchronously — a malformed declaration or missing bundle among the already-loaded entries aggregates into one loud throw (FAILED fiber; the boot sweep reports it).
+The web plugin table service: incremental dshClient scan + wire composition + bundle route + index tap. Construction runs the activation scan synchronously — a malformed declaration or missing bundle among the already-loaded entries aggregates into one loud throw (FAILED fiber; the boot activation audit reports it).
 
 ```ts cordis-catalog
 /**
@@ -368,7 +368,7 @@ onRebuilt(listener: (id: string, rev: string) => void): () => void
 onGraphChanged(listener: () => void): () => void
 ```
 
-Source: [`packages/client/modules/src/index.ts:143`](../../packages/client/modules/src/index.ts)
+Source: [`packages/client/modules/src/index.ts:184`](../../packages/client/modules/src/index.ts)
 
 ## `ctx.codeRuntime` — `CodeRuntime` (abstract seam)
 
@@ -464,6 +464,26 @@ Abstract compaction service. Implementations own trigger policy, retention, and 
 abstract compactIfNeeded( agent: CompactAgentContext, trigger: CompactionTrigger, signal: AbortSignal, ): Promise<CompactionResult | null>
 
 /**
+ * Explicitly compact useful history even below automatic pressure thresholds.
+ * Implementations reserve idle turn admission synchronously before any
+ * asynchronous work, select a useful range without writing on a no-op, then
+ * append a standalone `compact/start` before summarization. That durable
+ * marker is the compaction lock until one `compact/end` attempt. Later waking
+ * prompts remain accepted in FIFO order and start only after the optional
+ * durability checkpoint and admission release. Context injected while the
+ * summary runs may sit between the marker pair; only the selected span must
+ * remain stable.
+ *
+ * @param agent - idle agent whose durable history should be compacted.
+ * @param signal - command-owned cancellation forwarded to summarization.
+ * @returns the compaction result, or `null` when no safe useful range exists.
+ * @throws {@link ManualCompactionError} for expected busy, changed-span,
+ * summarization/shrink, commit-stage, or persistence failures, and the exact
+ * abort reason when cancelled. Failed attempts remain visible in the log.
+ */
+abstract compactNow( agent: ManualCompactAgentContext, signal: AbortSignal, ): Promise<CompactionResult | null>
+
+/**
  * Forcibly compact a range of surface nodes into a single summary node.
  * `start` and `end` name an inclusive span by surface position, not numeric seq
  * order; replacements can make visible seqs non-monotonic. Both edges must be
@@ -486,7 +506,53 @@ abstract compactRegion( start: number, end: number, agent: CompactAgentContext, 
 
 Types: [CompactionResult](../core-data-structures/compaction.md) · [CompactionTrigger](../core-data-structures/compaction.md)
 
-Source: [`packages/compact/compact/src/index.ts:54`](../../packages/compact/compact/src/index.ts)
+Source: [`packages/compact/compact/src/index.ts:80`](../../packages/compact/compact/src/index.ts)
+
+## `ctx.credentials` — `Credentials` (abstract seam)
+
+Abstract credential service. Providers implement the four operations over their source layers; one seam-wide rule binds them all: an empty stored value is absent everywhere — `resolve` skips it, `describe` reports it unconfigured — so a blank never masquerades as a configured secret.
+
+```ts cordis-catalog
+/**
+ * Resolve one reference to its current value. Resolution is per call:
+ * consumers re-resolve at each operation and must not cache across
+ * operations — that per-operation read is what makes a changed credential
+ * reach the next operation without a restart.
+ * @param ref - the reference to resolve.
+ * @returns the value and its source, or `undefined` while unconfigured.
+ */
+abstract resolve(ref: CredentialRef): Promise<ResolvedCredential | undefined>
+
+/**
+ * Describe one reference for configuration surfaces without exposing the
+ * value.
+ * @param ref - the reference to describe.
+ * @returns configured state, supplying source, and writability.
+ */
+abstract describe(ref: CredentialRef): Promise<CredentialInfo>
+
+/**
+ * Durably store one value in the provider-managed writable source. Rejects
+ * while a read-only source shadows the reference — the write would appear
+ * to succeed while resolution keeps returning the shadowing value — and
+ * rejects an empty value (use {@link unset}).
+ * @param ref - the reference to store.
+ * @param value - the non-empty secret value.
+ */
+abstract set(ref: CredentialRef, value: string): Promise<void>
+
+/**
+ * Remove one reference from the provider-managed writable source; removing
+ * an absent reference is a no-op. Rejects while a read-only source shadows
+ * the reference, like {@link set}.
+ * @param ref - the reference to remove.
+ */
+abstract unset(ref: CredentialRef): Promise<void>
+```
+
+Types: [CredentialInfo](../core-data-structures/credentials.md) · [CredentialRef](../core-data-structures/credentials.md) · [ResolvedCredential](../core-data-structures/credentials.md)
+
+Source: [`packages/credentials/credentials/src/index.ts:77`](../../packages/credentials/credentials/src/index.ts)
 
 ## `ctx.directoryPicker` — `DirectoryPicker` (abstract seam)
 
@@ -744,15 +810,31 @@ The abstract `llm` service: an adapter registry plus a streaming model-call surf
  * Disposed with the fiber.
  * @param providers - every provider route this adapter should serve.
  * @param adapter - the adapter that streams calls for those providers.
- * @returns the disposer that unregisters all of them.
+ * @returns the disposer, carrying {@link AdapterRegistrationHandle.replace}.
  */
-registerAdapter(providers: string[], adapter: LlmAdapter): () => void
+registerAdapter(providers: string[], adapter: LlmAdapter): AdapterRegistrationHandle
 
 /**
  * Describe provider routes with a registered adapter.
  * @returns detached provider metadata in registration order.
  */
 listProviders(): LlmProviderInfo[]
+
+/**
+ * Declare provider routes an adapter plugin can activate through
+ * configuration. Registration is all-or-nothing: an empty list, invalid
+ * entry, or a provider already declared by any registration throws
+ * `LlmError` without registering the rest. Disposed with the fiber.
+ * @param entries - every configurable provider this plugin owns.
+ * @returns the disposer that withdraws all of them.
+ */
+registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): () => void
+
+/**
+ * List every declared configurable provider, registered or dormant.
+ * @returns detached directory entries in declaration order.
+ */
+listConfigurableProviders(): LlmConfigurableProvider[]
 
 /**
  * Resolve the retry policy captured when one provider route was registered.
@@ -782,7 +864,7 @@ async resolveModelInfo( provider: string, model: string, signal?: AbortSignal, )
 
 /**
  * Validate a conversation call config against its exact model capability and
- * materialize an adapter-configured default. Unsupported explicit efforts
+ * materialize adapter-configured defaults. Unsupported explicit efforts
  * reject before provider I/O; no clamping or aliasing is performed. This
  * standalone query does not bind a later dispatch; use {@link prepareCall}
  * when logging and streaming must share one adapter registration.
@@ -818,9 +900,9 @@ async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<Prepared
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
-Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
+Types: [AdapterRegistrationHandle](../core-data-structures/core.md) · [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmConfigurableProvider](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:191`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:232`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 
@@ -872,7 +954,7 @@ set(session: Session, name: string): void
 
 Types: [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/ui/permission/src/index.ts:144`](../../packages/ui/permission/src/index.ts)
+Source: [`packages/ui/permission/src/index.ts:159`](../../packages/ui/permission/src/index.ts)
 
 ## `ctx.planMode` — `PlanModeService`
 
@@ -908,7 +990,7 @@ set(agent: Agent, active: boolean): 'committed' | 'queued' | 'cancelled' | 'noop
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/plan/plan-mode/src/index.ts:179`](../../packages/plan/plan-mode/src/index.ts)
+Source: [`packages/plan/plan-mode/src/index.ts:182`](../../packages/plan/plan-mode/src/index.ts)
 
 ## `ctx.pty` — `PtyService`
 
@@ -1017,7 +1099,7 @@ Source: [`packages/sandbox/sandbox/src/index.ts:131`](../../packages/sandbox/san
 
 ## `ctx.sandboxPolicy` — `SandboxPolicyService`
 
-The sandbox-policy service (`ctx.sandboxPolicy`). Owns the deployment default mode and fallback workspace root. Tool layers call resolve for each execution so a session's mode log and immutable cwd travel together to every enforcing capability.
+The sandbox-policy service (`ctx.sandboxPolicy`). Owns the deployment default mode, fallback workspace root, and current request-time policy section. Tool layers call resolve for each execution so a session's mode log and immutable cwd travel together to every enforcing capability.
 
 ```ts cordis-catalog
 /**
@@ -1041,7 +1123,7 @@ overrideOf(session: Session): SandboxMode | undefined
 
 Types: [SandboxExecutionPolicy](../core-data-structures/sandbox.md) · [SandboxMode](../core-data-structures/sandbox.md) · [SandboxPolicyRequest](../core-data-structures/sandbox.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/sandbox/sandbox-policy/src/index.ts:68`](../../packages/sandbox/sandbox-policy/src/index.ts)
+Source: [`packages/sandbox/sandbox-policy/src/index.ts:91`](../../packages/sandbox/sandbox-policy/src/index.ts)
 
 ## `ctx.sessionPersistence` — `SessionPersistence` (abstract seam)
 
@@ -1553,10 +1635,11 @@ announce(session: Session): void
  * raw `ctx.parallel('session/flush', …)` — one owner, one spelling, and the
  * scoped-dispatch invariant can pin it.
  * @param session - the session whose buffered events must reach durable storage.
- * @returns resolves when every flush listener has settled; after all settle,
- *   rejects with the first registered listener failure if any listener failed.
+ * @returns whether at least one durability listener participated, after every
+ *   listener has settled successfully.
+ * @throws the first registered listener failure after every listener settles.
  */
-async flush(session: Session): Promise<void>
+async flush(session: Session): Promise<boolean>
 
 /**
  * Look up a live session.
@@ -1590,7 +1673,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:713`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:767`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 
@@ -1638,6 +1721,83 @@ register(provider: SessionTitleProvider): () => Promise<void>
 Types: [Session](../core-data-structures/session.md) · [SessionTitleProvider](../core-data-structures/session-title.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
 
 Source: [`packages/session-title/session-title/src/index.ts:261`](../../packages/session-title/session-title/src/index.ts)
+
+## `ctx.settings` — `Settings` (abstract seam)
+
+Abstract settings service. Providers implement raw-document storage (`load`/`persist`) and push external changes through Settings.publish; the base class owns namespace registration, resolution, validation, change detection, and the `settings/updated` commit event.
+
+```ts cordis-catalog
+/**
+ * Register a namespace schema and receive its owner scope. The registration
+ * is an effect on the calling plugin's fiber: disposing that fiber removes
+ * the namespace and its observers. An invalid stored section fails the
+ * registration itself — the earliest point where the schema can judge it.
+ * @param ns - unique namespace; duplicate registration fails loud.
+ * @param schema - schemastery schema resolving this namespace's value.
+ * @param options - composition `base` layer and effect timing.
+ * @returns the owner scope for reads, observation, and updates.
+ */
+register<T>(ns: SettingsNamespace, schema: z<T>, options?: SettingsRegisterOptions<T>): SettingsScope<T>
+
+/**
+ * Describe every registered namespace for configuration surfaces, including
+ * the composition `base` and raw user layers so a form can mark which fields
+ * the user overrode (presence in `user`) and what a reset returns to.
+ * @param options - redaction switch; wire surfaces must redact.
+ * @returns one descriptor per registered namespace, in registration order.
+ */
+describe(options?: SettingsDescribeOptions): SettingsDescriptor[]
+
+/**
+ * Read one registered namespace's resolved value.
+ * @param ns - the namespace to read.
+ * @returns the resolved value, or `undefined` while unregistered.
+ */
+get(ns: SettingsNamespace): unknown
+
+/**
+ * Merge a patch into one registered namespace's user layer, validate the
+ * resolved candidate, persist through the provider, then commit and emit.
+ * A validation failure rejects before anything is persisted. Writes to one
+ * namespace are serialized: concurrent updates apply in call order, each
+ * merging over the previous write's committed section.
+ * @param ns - the registered namespace to update.
+ * @param patch - plain-object patch over the user section.
+ * @param expectedRevision - the descriptor `revision` the caller read; a
+ *   namespace that moved past it rejects with {@link SettingsConflictError}.
+ */
+async update(ns: SettingsNamespace, patch: object, expectedRevision?: number): Promise<void>
+
+/**
+ * Replace one registered namespace's user section wholesale, validate,
+ * persist, then commit and emit. Keys absent from `section` fall back to the
+ * composition `base` and schema defaults — this is the removal/reset path a
+ * merge-only patch cannot express (`replace({})` re-inherits everything).
+ * @param ns - the registered namespace to replace.
+ * @param section - the complete next user section.
+ * @param expectedRevision - the descriptor `revision` the caller read; a
+ *   namespace that moved past it rejects with {@link SettingsConflictError}.
+ */
+async replace(ns: SettingsNamespace, section: object, expectedRevision?: number): Promise<void>
+
+/**
+ * Apply path-addressed edits to one registered namespace's user section,
+ * validate, persist, then commit and emit. The ops are applied to the
+ * section as it stands when the write reaches the front of the queue, so a
+ * caller never has to restate fields it did not touch — and, crucially,
+ * cannot delete fields it never saw. This is the write path for any caller
+ * holding a redacted view; `replace` remains the wholesale reset.
+ * @param ns - the registered namespace to edit.
+ * @param ops - ordered path edits; later ops observe earlier ones.
+ * @param expectedRevision - the descriptor `revision` the caller read; a
+ *   namespace that moved past it rejects with {@link SettingsConflictError}.
+ */
+async mutate(ns: SettingsNamespace, ops: readonly SettingsPathOp[], expectedRevision?: number): Promise<void>
+```
+
+Types: [SettingsDescribeOptions](../core-data-structures/settings.md) · [SettingsDescriptor](../core-data-structures/settings.md) · [SettingsNamespace](../core-data-structures/settings.md) · [SettingsPathOp](../core-data-structures/settings.md) · [SettingsRegisterOptions](../core-data-structures/settings.md) · [SettingsScope](../core-data-structures/settings.md)
+
+Source: [`packages/settings/settings/src/index.ts:365`](../../packages/settings/settings/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 
@@ -1789,9 +1949,92 @@ Source: [`packages/storage/storage-domain/src/index.ts:69`](../../packages/stora
 
 ## `ctx.subagents` — `SubagentService`
 
-Named provider registry and capability-checked start surface.
+Named provider registry with one-shot runs, durable discovery, and continuable-child operations.
 
 ```ts cordis-catalog
+/**
+ * Establish one durable continuable child and deliver its initial prompt.
+ * Resolves when the child's inbox accepts that prompt, without waiting for the
+ * turn to start or for the message to reach the Session log; any earlier
+ * failure rejects with no ids and rolls back the child entirely.
+ * @param spec - provider, delegation request, and caller cancellation.
+ * @returns the durable child id and the accepted prompt's message id.
+ * @throws when continuation services are unavailable or materialization fails.
+ */
+async startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart>
+
+/**
+ * Deliver one later message to a continuable child as its next FIFO turn. A
+ * resident child's Agent inbox accepts it directly (waking a `waiting`
+ * Activation), while an absent one is cold-resumed from its persisted
+ * Session. The Agent inbox is the only queue, so every accepted message has
+ * one observable order.
+ * @param parent - the exact live direct parent authorizing this delivery.
+ * @param childId - durable child session id.
+ * @param content - user-role content to deliver.
+ * @param options - durable provenance and caller cancellation, which stops the
+ *   operation only before inbox acceptance.
+ * @returns the accepted message's inbox id.
+ * @throws when continuation services are unavailable, parent authority is
+ *   rejected, or the message was not admitted.
+ */
+async followup( parent: Agent, childId: SessionId, content: ContentBlock[], options: SubagentFollowupOptions, ): Promise<MessageId>
+
+/**
+ * Deliver selected content from one live continuable child to its durable
+ * direct parent. The child is the authority credential; callers cannot name a
+ * recipient. Reporting does not conclude the child's turn or Activation.
+ * @param child - exact live reporting child.
+ * @param content - selected model-facing content.
+ * @param options - parent scheduling and pre-acceptance cancellation.
+ * @returns the stable identity of the parent-accepted message.
+ * @throws when continuation services are unavailable, sender authorization
+ *   fails, or the direct parent is not live.
+ */
+async reportFrom( child: Agent, content: ContentBlock[], options: SubagentReportOptions, ): Promise<MessageId>
+
+/**
+ * Compose one deployment capability into every continuable child's
+ * unpublished creation context on fresh creation and cold resume. Grants wait
+ * for the next Activation; removing the contribution revokes every resident
+ * installation immediately.
+ * @param contribution - synchronous child-scope installer.
+ * @returns the exact Cordis effect disposer.
+ */
+registerContinuableSetup(contribution: ContinuableSetupContribution): () => void
+
+/**
+ * Close continuable admission below exact live parent Agents, stop only their
+ * visible descendant Activations synchronously, then await admitted scoped
+ * materializations and release those forests child-first. The scoped cutoff
+ * lasts until each exact parent leaves the registry; unrelated parent trees
+ * remain live.
+ * @param parents - exact host-owned parent Agents entering teardown.
+ * @returns once every retained descendant Activation released its `AgentHandle`.
+ * @throws an aggregate error after all branches settle when any failed.
+ */
+async drainContinuableDescendants(parents: readonly Agent[]): Promise<void>
+
+/**
+ * Enumerate the parent's direct session-backed subagents from the
+ * live-preferred session corpus without loading or resuming an Agent. Session
+ * query supplies lineage, candidate order, event reads, and live state; this
+ * service interprets descriptor mode, activity, and per-child diagnostics
+ * without consulting Agent registrations, Activations, or providers.
+ *
+ * The trace and exact descriptor read receive `signal`; the full event-list
+ * read has no signal parameter, so the scan rechecks cancellation around
+ * every await and between candidates. Query rejections that settle after an
+ * abort become a stable `SubagentError` with code `CANCELLED`.
+ * @param parentSessionId - parent session whose direct children are listed.
+ * @param signal - caller-owned cancellation forwarded where supported and
+ *   observed around every query await.
+ * @returns children and per-child diagnostics in stable trace order.
+ * @throws {@link SubagentError} when session query is unavailable or the
+ *   caller cancels the scan.
+ */
+listChildren(parentSessionId: SessionId, signal?: AbortSignal): Promise<SubagentListEntry[]>
+
 /**
  * Register a provider under its name. Registration is effect-scoped and HMR
  * safe; removing a provider blocks new starts but does not revoke runs that
@@ -1815,20 +2058,21 @@ getProvider(name: string): SubagentProvider | undefined
 list(): string[]
 
 /**
- * Establish a ready child on the named provider. Capability and semantic
+ * Establish a published child on the named provider. Capability and semantic
  * checks run before delegation. Provider ownership lasts until its promise
  * fulfills; a rejection therefore has no run for the caller to dispose and
- * emits no run lifecycle events.
+ * emits no run lifecycle events. Post-publication turn and infrastructure
+ * failures settle through the returned run.
  * @param name - the provider to use.
- * @param request - child prompt, parent, signal, and optional capabilities.
- * @returns the ready holder-owned run.
+ * @param request - child label, prompt, parent, signal, and optional capabilities.
+ * @returns the published holder-owned run.
  */
 async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
 ```
 
-Types: [SubagentProvider](../core-data-structures/subagent.md) · [SubagentRun](../core-data-structures/subagent.md) · [SubagentStartRequest](../core-data-structures/subagent.md)
+Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [ContinuableSetupContribution](../core-data-structures/subagent.md) · [ContinuableStart](../core-data-structures/subagent.md) · [ContinuableStartSpec](../core-data-structures/subagent.md) · [MessageId](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md) · [SubagentFollowupOptions](../core-data-structures/subagent.md) · [SubagentListEntry](../core-data-structures/subagent.md) · [SubagentProvider](../core-data-structures/subagent.md) · [SubagentReportOptions](../core-data-structures/subagent.md) · [SubagentRun](../core-data-structures/subagent.md) · [SubagentStartRequest](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:181`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:165`](../../packages/subagent/subagent/src/index.ts)
 
 ## `ctx.subprocess` — `SubprocessService` (abstract seam)
 
@@ -1871,6 +2115,16 @@ Registry service for the prompt inputs assembled before each model step.
 section(section: PromptSection): () => void
 
 /**
+ * Register ordered cache-safe dynamic context in the calling context's scope.
+ * A scoped context shadows a global context with the same name; duplicates
+ * within one layer and non-finite orders throw. Registration and disposal
+ * emit `system-prompt/change`.
+ * @param context - the context contribution to register.
+ * @returns the exact Cordis effect disposer.
+ */
+context(context: PromptContext): () => void
+
+/**
  * Register a tool-schema provider in the calling context's scope. Global and
  * matching scoped providers both contribute; returning the reserved
  * {@link TOOL_ORDER_REST} name makes assembly fail.
@@ -1899,9 +2153,9 @@ variable(name: string, provider: (context: AssembleContext) => string | undefine
 async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 ```
 
-Types: [AssembleContext](../core-data-structures/system-prompt.md) · [PromptSection](../core-data-structures/system-prompt.md) · [ToolProviderResult](../core-data-structures/system-prompt.md)
+Types: [AssembleContext](../core-data-structures/system-prompt.md) · [PromptContext](../core-data-structures/system-prompt.md) · [PromptSection](../core-data-structures/system-prompt.md) · [ToolProviderResult](../core-data-structures/system-prompt.md)
 
-Source: [`packages/core/system-prompt/src/index.ts:248`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:298`](../../packages/core/system-prompt/src/index.ts)
 
 ## `ctx.tasks` — `TaskService` (abstract seam)
 
@@ -2054,7 +2308,7 @@ estimateMessage(message: Message): number
 
 Types: [EpochHeader](../core-data-structures/session.md) · [Message](../core-data-structures/core.md) · [Session](../core-data-structures/session.md) · [TokenMeasurement](../core-data-structures/token-meter.md)
 
-Source: [`packages/llm/token-meter/src/index.ts:82`](../../packages/llm/token-meter/src/index.ts)
+Source: [`packages/llm/token-meter/src/index.ts:85`](../../packages/llm/token-meter/src/index.ts)
 
 ## `ctx.toolResultPrune` — `ToolResultPruneService`
 
@@ -2174,7 +2428,7 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ScopeKey](../core-data-structures/scope.md) · [ToolDefinition](../core-data-structures/tools.md) · [ToolExecutionInput](../core-data-structures/tools.md) · [ToolExecutionMode](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolGuard](../core-data-structures/tools.md) · [ToolRestriction](../core-data-structures/tools.md) · [ToolSchema](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:700`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:714`](../../packages/core/tools/src/index.ts)
 
 ## `ctx.tui` — `TuiExtensionService` (abstract seam)
 
@@ -2197,7 +2451,7 @@ The concrete provider retains pi-tui, focus, and terminal lifecycle state. Plugi
 abstract openOverlay(request: TuiOverlayRequest): TuiOverlaySession
 ```
 
-Source: [`packages/ui/tui/src/index.ts:240`](../../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/index.ts:242`](../../packages/ui/tui/src/index.ts)
 
 ## `ctx.typert` — `TypertRegistry`
 
@@ -2284,7 +2538,7 @@ async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>
 
 Types: [AskUserQuestionAnswer](../core-data-structures/user-interaction.md) · [AskUserQuestionRequest](../core-data-structures/user-interaction.md) · [UserInteractionProvider](../core-data-structures/user-interaction.md)
 
-Source: [`packages/ui/user-interaction/src/index.ts:50`](../../packages/ui/user-interaction/src/index.ts)
+Source: [`packages/ui/user-interaction/src/index.ts:51`](../../packages/ui/user-interaction/src/index.ts)
 
 ## `ctx.web` — `WebService`
 
@@ -2373,7 +2627,7 @@ Durable workspace registry. Startup waits for `sessionPersistence`, builds one c
  * original error and a non-directory rejects. Repeated calls for the same
  * canonical path return the existing entity without changing its title.
  * A newly created workspace is prepended to the durable registry order.
- * A different canonical path cannot create a duplicate display title.
+ * Different canonical paths may share a display title.
  * @param path - Existing directory to own, in any path spelling.
  * @param title - Display title used only when a new record is created.
  * @returns the existing or newly durable workspace.
@@ -2406,6 +2660,15 @@ list(): Workspace[]
 delete(id: WorkspaceId): Promise<boolean>
 
 /**
+ * Archive one session durably. The session must exist (live or in session
+ * persistence); its workspace accounting — or lack of one — is irrelevant.
+ * An already archived id resolves without writing.
+ * @param sessionId - The session to archive.
+ * @returns resolution after durability.
+ */
+archiveSession(sessionId: SessionId): Promise<void>
+
+/**
  * Resolve by canonical directory path without creating or mutating a
  * workspace. A missing path rejects during `realpath`; an existing unowned
  * directory returns `undefined`.
@@ -2415,7 +2678,9 @@ delete(id: WorkspaceId): Promise<boolean>
 async resolveByPath(path: string): Promise<Workspace | undefined>
 ```
 
-Source: [`packages/workspace/workspace/src/index.ts:78`](../../packages/workspace/workspace/src/index.ts)
+Types: [SessionId](../core-data-structures/core.md)
+
+Source: [`packages/workspace/workspace/src/index.ts:81`](../../packages/workspace/workspace/src/index.ts)
 
 ## Inherited `ctx` members (cordis core + loader/hmr/timer)
 

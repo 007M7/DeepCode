@@ -43,6 +43,7 @@ export class CommandService extends Service implements CommandServiceContract {
     const connection = ctx.get('connection') as ConnectionHandle | undefined
     if (connection === undefined) throw new Error('ui-command: connection service unavailable')
     this.directory = new CommandDirectory(async (sessionId) => {
+      if (this.sessions().subagentAddress(sessionId) !== undefined) return []
       const { result } = await connection.api.commands.list({ sessionId })
       if (!result.ok) throw new Error(`command.list failed: ${result.error.code}: ${result.error.message}`)
       return result.value.commands

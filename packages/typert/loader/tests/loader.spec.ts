@@ -147,12 +147,12 @@ describe('typert loader', () => {
     await new Promise(resolve => setTimeout(resolve, 20))
     expect(ctx.typert.list()).toHaveLength(1)
 
-    ctx.loader.remove(id)
+    await ctx.loader.remove(id)
     await ctx.loader.await()
     // The unmount reconciliation rides a queued microtask flush.
     await new Promise(resolve => setTimeout(resolve, 20))
     expect(ctx.typert.get('@fixture/with-typert#Thing')).toBeUndefined()
-    ctx.loader.remove(plainId)
+    await ctx.loader.remove(plainId)
     await ctx.loader.await()
     await new Promise(resolve => setTimeout(resolve, 20))
 
@@ -172,9 +172,10 @@ describe('typert loader', () => {
     expect(ctx.typert.get('@fixture/late#Late')).toBeUndefined()
     await ctx.loader.create({ name: '@fixture/late' })
     await ctx.loader.await()
-    // The microtask flush and the dynamic import need a turn to settle.
-    await new Promise(resolve => setTimeout(resolve, 20))
-    expect(ctx.typert.get('@fixture/late#Late')).toBeDefined()
+    // Contributor import settles after Loader's own await boundary.
+    await vi.waitFor(() => {
+      expect(ctx.typert.get('@fixture/late#Late')).toBeDefined()
+    }, { timeout: 10_000 })
   })
 
   it('drops an in-flight manifest when the loader is disposed before import settles', LOADER_TEST_TIMEOUT, async () => {

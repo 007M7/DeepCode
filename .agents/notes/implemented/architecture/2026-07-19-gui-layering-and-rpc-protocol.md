@@ -184,7 +184,7 @@ The remaining frame types are not re-copied here; the full unions are `MuxFrame`
 - **History = event replay**: one fold (client side); history pagination and live increments share one code path; the server maintains no second materialized-snapshot system. History **page boundaries align to message boundaries** (never cut mid-message; chunks group with their finalized message), and the tail page includes the in-flight partial's chunks.
 - **Prompt correlation**: the prompt's rpcId rides MessageSource (`'user-rpc'`) into the `user/message` event; the client uses it to promote the optimistic echo.
 - **Reconnect = rebuild**: no resume cursor (`mux`'s `since` signature is a reserved seat, ignored if passed); on disconnect reopen the stream + refetch history; compare `subscribed.lastSeq` with the history tail seq and backfill once if there is a seam.
-- **Cold sessions resume implicitly**: when `history`/`prompt` hits an unattached session the impl auto-resumes, deduplicating concurrent triggers with an in-flight table; attachment status is not exposed to clients (`running` already covers it).
+- **Cold session handling follows ownership**: `session.history` and the source read for `session.fork` inspect persistence without an Agent, while Agent-bound ordinary-session methods such as `prompt` resume through a deduplicated in-flight table. Session-backed subagents reject that generic resume path, and attachment status is not exposed to clients (`running` already covers it).
 - **Approvals/questions**: the requested frame mints a stable rpcId on acceptance; first answer wins, and the host's in-memory pending table (keyed by rpcId) is the only referee; after a mux reopen, still-pending requested frames replay after the subscribed frame (rpcId reused verbatim — refresh recovery). The audit events `approval/asked`/`decided` continue through the durable log — frames = the live control plane, events = the durable audit. **Status**: the contract and frame types are shipped; the host-side pending table/wire answerer is unimplemented (`respond` in `api-proxy.ts` is a stub, always `not-pending`); PendingCard v1 is display-only.
 - **No protocol version**: client and host release bound together; `host.describe` has no protocolVersion field; introduce one when an independently released client appears.
 - **Reserved-seam discipline**: the map holds only implemented methods; an unknown method fails loud at envelope parse (`bad-request`) — no not-implemented fallback code. The reservation list (implementing = copy the signature into the domain interface + add the map row + add the schema pair): `session.fork`, `prompt.mode` gaining `'inject'`, `task.list`, `host.listModels`, describe gaining `hostInstanceId`. (`session.rename` graduated from this list: it appends a user-source `session/title` event.)
@@ -204,7 +204,7 @@ The same domain tree as `ApiProxy`, but unary methods **take the business payloa
 | `callUnary` | mint → tap → POST full form → `serverResponseSchema` parse → **rpcId echo check** (mismatch throws) → tap → emit narrow form |
 | `readSse` | streaming fetch (not EventSource), `\n\n` framing, `data:` concatenation, ServerRequest full-form parse, tap, emit narrow `RpcRequest<frame>` |
 | `respond` | client-response passthrough (rpcId is an echo — never minted here); response body parsed by `rpcReceiptSchema` |
-| unary timeout | `AbortSignal.timeout` (default 30s, constructor-tunable); streams have no timeout (long-lived by nature) |
+| unary deadline | Ordinary unary calls use `AbortSignal.timeout` (default 30s, constructor-tunable); user-paced `host.pickDirectory` and `command.execute` omit that deadline but keep caller/connection cancellation; streams have no deadline |
 | `resolveBase` | browser = same-origin origin; no-location environment (Node) = the `http://dsh.internal` fake authority |
 
 ### The instance-level envelope observation aspect
@@ -234,7 +234,7 @@ All four quadrant full forms pass through `onEnvelope`; the base implementation 
 
 ## Consequences
 
-Every client shape consumes one contract: adding a unary method is a five-step mechanical change radiating from a single signature, swapping a carrier touches only a `doFetch` subclass, and every wire message is zod-validated, observable through the envelope tap, and reconcilable by rpcId. The accepted costs: two groups of packages need explicit tsconfig paths entries, and the reserved seams (fork/inject/task.list/listModels/hostInstanceId) stay dormant until a real consumer arrives.
+Every client shape consumes one contract: adding a unary method is a five-step mechanical change radiating from a single signature, swapping a carrier touches only a `doFetch` subclass, and every wire message is zod-validated, observable through the envelope tap, and reconcilable by rpcId. Ordinary unary calls remain bounded, while `host.pickDirectory` and `command.execute` may stay pending until the operation finishes or caller/connection cancellation arrives; this accepts that a non-cooperative user-paced operation can hang its request rather than treating valid operation duration as transport failure. The other accepted costs: two groups of packages need explicit tsconfig paths entries, and the reserved seams (fork/inject/task.list/listModels/hostInstanceId) stay dormant until a real consumer arrives.
 
 ## Alternatives considered
 
@@ -252,3 +252,4 @@ Every client shape consumes one contract: adding a unary method is a five-step m
 | A DTO layer (a second wire-only structure set) | Core types reach the browser type-only at zero cost; a DTO is a permanent two-way synchronization tax |
 | Cursor resumption (implementing mux since) | Reconnect = rebuild (opencode-style) covers all v1 needs; the signature keeps the seat, implementation waits for a real consumer |
 | A createApiClient factory function (the original implementation) | Platform differences (transport/observation) are inheritance aspects, not parameters; the class family lets the fixture substitute at the protocol layer instead of wrapping a fake envelope |
+| Applying the 30-second transport deadline to `command.execute` | Command duration is operation work, not a transport-health budget; the deadline kills valid long-running handlers, while caller/connection cancellation already supplies the required stop path |

@@ -80,6 +80,24 @@ describe('session dispatch carriers', () => {
 })
 
 describe('sessions.flush()', () => {
+  it('allows an ordinary flush with no listeners', async () => {
+    const ctx = await mount()
+    const session = ctx.sessions.create()
+
+    await expect(ctx.sessions.flush(session)).resolves.toBe(false)
+  })
+
+  it('reports a participating listener after it succeeds', async () => {
+    const ctx = await mount()
+    const session = ctx.sessions.create()
+    const flushed: Session[] = []
+    ctx.on('session/flush', current => void flushed.push(current))
+
+    await expect(ctx.sessions.flush(session)).resolves.toBe(true)
+
+    expect(flushed).toEqual([session])
+  })
+
   it('dispatches session/flush with the owning carrier and awaits all listeners', async () => {
     const ctx = await mount()
     const scope = await mintScope(ctx, 'owner')

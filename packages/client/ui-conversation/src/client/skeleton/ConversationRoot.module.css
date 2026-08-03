@@ -1,4 +1,4 @@
-/* Conversation column skeleton: header (breadcrumb row + tabs) over the view
+/* Conversation column skeleton: header (breadcrumb row only for subagents not fork + tabs) over the view
    area, composer InputBar at the bottom. Column width/squeeze is layout's;
    this fills its cell. Figma: Header 39:27730 (83px two-row), tabs 13px with
    a 3px active bar. */
@@ -23,13 +23,12 @@
   display: none;
 }
 
-.crumbRow {
+.titleRow {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 10px;
   min-height: 32px;
 }
-
 .crumbs {
   display: flex;
   align-items: center;
@@ -76,6 +75,13 @@
   font-weight: 500;
   color: var(--dsw-alias-label-primary);
   cursor: default;
+}
+
+.headerActions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
 }
 
 /* figma Tab_Group 34:11441: 35px strip, gap 36, pad-left 8, tabs bottom-aligned. */
@@ -133,6 +139,12 @@
   --dsh-composer-stack-gap: 6px;
   --dsh-queue-composer-overlap: 5px;
 
+  /* InputBar and dock registrants derive their horizontal geometry from the
+     same card width, outer clearance, and dock inset. */
+  --dsh-composer-card-max-width: 800px;
+  --dsh-composer-side-clearance: 32px;
+  --dsh-composer-dock-inset: 12px;
+
   display: flex;
   flex-direction: column;
   gap: var(--dsh-composer-stack-gap);
@@ -143,6 +155,14 @@
   display: flex;
   flex: none;
   flex-direction: column;
+  /* One cap for every scrolling text region a composer seat can hold: the
+     InputBar draft (figma Input 75:8208 max 14 lines × 24px line) and the
+     takeover panels' bodies top out at the same height, so electing a
+     takeover never grows the footer past the card it replaces. Declared on
+     the seat because it is the chain's only shared ancestor — fallback and
+     elected overlay are siblings — and custom properties inherit down to
+     whichever entry is mounted. */
+  --dsh-composer-text-max-height: 336px;
 }
 
 /* Active phase: header is ordinary column chrome above the scrollport (not
@@ -186,6 +206,26 @@
     color-mix(in srgb, var(--dsw-alias-bg-base) 0%, transparent) 0px,
     var(--dsw-alias-bg-base) 36px
   );
+}
+
+/* Views may opt into a composer overlay while ConversationRoot retains
+   ownership of the seat geometry and its active-phase precedence. */
+.scrollBody:has([data-conversation-composer-overlay]) {
+  position: relative;
+  overflow: hidden;
+}
+
+.scrollBody:has([data-conversation-composer-overlay]) > .viewArea {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.scrollBody:has([data-conversation-composer-overlay]) > .composerSeat {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
 }
 
 /* Hero phase: the composer stack (hero chrome + workspace row + card) is

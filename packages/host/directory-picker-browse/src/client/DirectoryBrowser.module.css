@@ -13,6 +13,12 @@
   height: min(500px, calc(100dvh - 32px));
   padding: 0;
   gap: 0;
+  /* The Modal card is an l2 surface and the columns below scroll on it:
+   * rebind the scrollbar indirection to the elevation pair here, on the
+   * surface, so it inherits down to whichever descendant scrolls (the
+   * rebinding contract in ui-theme styles/scrollbar.css). */
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
 /* Card-scope wrapper hosting the path editor's Escape and focus-leave
@@ -43,11 +49,29 @@
   color: var(--dsw-alias-label-primary);
 }
 
+/* The bar IS the editor's box in both modes: it carries the rounded outline
+ * and the inner padding, the crumbs and the input sit inside it, and hovering
+ * the edit zone lights the whole row rather than the remainder right of the
+ * crumbs. The negative left margin pays back the border and padding, so the
+ * crumb (and input) text keeps the column the title sits in. */
 .crumbBar {
   display: flex;
   align-items: center;
   gap: 4px;
-  min-height: 20px;
+  box-sizing: border-box;
+  min-height: 24px;
+  margin-left: -9px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+}
+
+/* Lit by the affordance the row belongs to, never by a crumb: a crumb's hover
+ * offers navigation, not path entry. Editing keeps the outline standing. */
+.crumbBar:has(.crumbEditZone:enabled:hover),
+.crumbBar:has(.crumbEditZone:focus-visible),
+.crumbBar:has(.pathInput) {
+  border-color: var(--dsw-alias-border-l2);
 }
 
 /* Deep chains scroll inside the trail (the effect pins the tail into view)
@@ -112,25 +136,50 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
-/* The empty remainder of the bar: invisible, but a real click target that
- * flips the bar into path-edit mode. */
+/* The empty remainder of the bar: a real click target that flips the bar into
+ * path-edit mode. The pencil glyph seated at its right edge is the standing
+ * affordance; the outline the gesture lights belongs to the bar, so the whole
+ * row reads as the box the input will occupy. */
 .crumbEditZone {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
   flex: 1 0 34px;
   min-width: 34px;
-  align-self: stretch;
+  height: 22px;
+  padding: 0;
   border: none;
   background: transparent;
   cursor: text;
+  outline: none;
 }
 
+.crumbEditGlyph {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.crumbEditZone:enabled:hover .crumbEditGlyph,
+.crumbEditZone:focus-visible .crumbEditGlyph {
+  color: var(--dsw-alias-label-primary);
+}
+
+.crumbEditZone:disabled {
+  cursor: default;
+}
+
+.crumbEditZone:disabled .crumbEditGlyph {
+  color: var(--dsw-alias-label-caption);
+}
+
+/* Chrome-free: the bar around it draws the box (border, radius, padding). */
 .pathInput {
   box-sizing: border-box;
   flex: 1 1 0;
   min-width: 0;
-  height: 24px;
-  padding: 0 8px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
+  height: 22px;
+  padding: 0;
+  border: none;
   outline: none;
   background: transparent;
   font-size: 13px;
@@ -146,6 +195,8 @@
   flex-direction: column;
   flex: 1 1 0;
   min-height: 0;
+  /* Anchors the floating loading pill (.loadingFloat). */
+  position: relative;
   /* Right inset is slimmer than the left: the trailing column's own 8px
    * scrollbar clearance makes up the optical difference. */
   padding: 16px 16px 16px 24px;
@@ -234,6 +285,10 @@
 .status,
 .error {
   padding: 4px;
+  /* The loading pill occupies the opposite corner while a stale status stays
+   * visible. Reserve its widest localized footprint so wrapped text cannot
+   * run underneath it on a narrow card. */
+  padding-right: 120px;
   font-size: 12px;
   line-height: 18px;
 }
@@ -244,6 +299,23 @@
 
 .error {
   color: var(--dsw-alias-state-error-primary);
+}
+
+/* The slow-scan indicator floats over the content's bottom-RIGHT corner on
+ * the card background instead of occupying a row: a scan must never shift
+ * the columns' height, and the stale view keeps rendering beneath it (it
+ * only appears at all once a scan outlives SLOW_SCAN_DELAY_MS). Right,
+ * not left: the truncated/error status rows flow at the bottom LEFT and
+ * stay on screen through a scan, with their reserved right padding keeping
+ * both legible even on a narrow card. After .status in the cascade — the
+ * element carries both classes and this padding must win the
+ * same-specificity race. */
+.loadingFloat {
+  position: absolute;
+  right: 16px;
+  bottom: 8px;
+  padding: 2px 8px;
+  background: var(--dsw-alias-bg-layer-2);
 }
 
 /* Footer: l3 separator on top, symmetric padding so the row sits vertically

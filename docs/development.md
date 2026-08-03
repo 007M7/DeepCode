@@ -83,7 +83,7 @@ DEEPSEEK_BASE_URL=https://... # optional
 
 lefthook is configured in `lefthook.yml` as a fast local checkpoint:
 
-- `pre-commit` applies formatting-only ESLint fixes, validates the staged files with Oxlint and applies its native fixes, checks the staged diff for whitespace errors, and runs the vendor manifest guard.
+- `pre-commit` applies formatting-only ESLint fixes, validates the staged files with Oxlint and applies its native fixes, regenerates `THIRD_PARTY_NOTICES.md` when a staged file is one of its inputs, checks the staged diff for whitespace errors, and runs the vendor manifest guard.
 - `pre-push` runs only the incremental repository typecheck (`tsc -b` over the root solution, covering both the host and client aggregates).
 
 The vendor manifest guard checks that changes under `vendor/*/src` are staged with the matching `vendor/README.md` manifest update. See `vendor/README.md` before editing vendored code.

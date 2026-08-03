@@ -8,6 +8,8 @@
 
 解析分支顺序（`import(specifier)`）：平台种子词 → 外壳实例；记忆化记录 → 表层；外壳自身的静态注册表（`registerStatic`，app-shell）→ 模块；已注册 factory → 物化；模块图记录（`window.__DSH_BOOT__`）→ 抓取 + 执行 + 物化；其他情况一律抛出异常。这是构建时组合包纯度门禁的运行时镜像。交给 factory 的同步 `require` 采用相同顺序，但不含抓取分支，并把观察到的边记录到模块记录中。`prefetch` 是第一阶段加载钩子（抓取 + 执行，只注册；并发调用共享一个进行中的任务）；`invalidate` 会丢弃 factory 与物化记录，使下一次 prefetch/import 重新抓取；它是 HMR（热模块替换）钩子。
 
+Node 侧会扫描已启用的 Loader 配置项以发现 web `dshClient` 包，解析每个 `exports["./client"]`，把构建后的组合包哈希写入启动图，并通过 `/plugins` 提供该文件。源码启动会把宿主侧导入映射到 TypeScript 源码，但仍消费客户端导出的构建产物；缺失文件共享一条构建要求，随后以 package/path list 列出各项，而无关的文件系统错误仍是独立故障。
+
 ## 模型体验
 
 无。模块 loader 属于浏览器侧内核机制；这里没有任何内容进入模型请求。

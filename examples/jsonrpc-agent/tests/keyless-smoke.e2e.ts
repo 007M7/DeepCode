@@ -105,7 +105,7 @@ describe('jsonrpc-agent keyless smoke', () => {
         jsonrpc: '2.0',
         id: 1,
         method: 'initialize',
-        params: { cwd: root, provider: 'deepseek', model: 'deepseek-v4-pro', maxTokens: 1234 },
+        params: { cwd: root, provider: 'deepseek-official', model: 'deepseek-v4-pro', maxTokens: 1234 },
       })}\n`)
       const initialized = await waitForLine(lines, value => value.id === 1, () => stderr)
       expect(initialized).toMatchObject({
@@ -184,6 +184,8 @@ describe('jsonrpc-agent keyless smoke', () => {
 
     expect(exitCode, stderr).toBe(1)
     expect(stdout).toBe('')
-    expect(stderr).toContain('plugin(s) failed to load: @deepseek-ai/dsh-jsonrpc')
+    expect(stderr).toContain('plugin tree failed to load')
+    expect(stderr).toContain('failed to apply loader entry jsonrpc (@deepseek-ai/dsh-jsonrpc)')
+    expect(stderr).toContain('sometimes')
   }, 30_000)
 })

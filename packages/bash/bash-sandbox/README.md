@@ -18,7 +18,7 @@ Semantics:
 
 - **Denials are result facts.** A failed run whose stderr carries the selected backend's own denial dialect — the signatures the provider stamps on every wrap (EROFS text under bwrap, EACCES under Landlock, EPERM under Seatbelt) — is reported as `BashRunResult.sandbox.denied: true` (conservative classification, read from the collected stderr tail); every CONFINED run also carries the mode it executed under (`result.sandbox.mode`) and the provider's enforcement completeness (`result.sandbox.enforcement`: `full`, or `partial` on an older Landlock ABI).
 - **Runner failures are sandbox failures, never command failures.** Foreground execution throws `SANDBOX_UNAVAILABLE`; a settled background process stamps `process.sandbox.runnerFailed`, which the bash producer renders through generic `task_output`. Spawn failures also pass through settlement, so confined background handles retain their mode/enforcement facts and release per-process accounting.
-- **Deployment fallback, per-call policy.** [`ctx.sandboxPolicy`](../../sandbox/sandbox-policy/) resolves a complete `SandboxExecutionPolicy` for every tool call: the calling session supplies its mode override and immutable cwd root, while deployment config supplies the fallbacks for agentless calls. An approved escalation changes only that policy's mode; its session root stays attached. `resolve()` carries the policy onto the spec, so overlapping commands from different projects run, classify, and report under their own roots and modes. The capability fact `ctx.bash.sandboxMode` reports the configured default so the tool layer advertises escalation only when this executor is mounted. The model learns of the sandbox only through result facts — the static bash tool description explains the denial marker; there is no current-mode statement in the system prompt.
+- **Deployment fallback, per-call policy.** [`ctx.sandboxPolicy`](../../sandbox/sandbox-policy/) resolves a complete `SandboxExecutionPolicy` for every tool call: the calling session supplies its mode override and immutable cwd root, while deployment config supplies the fallbacks for agentless calls. An approved escalation changes only that policy's mode; its session root stays attached. `resolve()` carries the policy onto the spec, so overlapping commands from different projects run, classify, and report under their own roots and modes. The capability fact `ctx.bash.sandboxMode` reports the configured default so the tool layer advertises escalation only when this executor is mounted; the static bash tool description separately owns denial and escalation guidance.
 - **File effects only.** Network and process visibility are deliberately not restricted — the mode vocabulary does not pretend to cover what the backend does not enforce.
 - Process mechanics (spawn, process-group kills, output collection/spill, background handles, credential scrub) are inherited from [`dsh-bash-local`](../bash-local/); runner selection lives in [`dsh-sandbox-local`](../../sandbox/sandbox-local/).
 
@@ -44,15 +44,15 @@ The keyless consumer-integration proofs are `tests/bwrap.e2e.ts`, `tests/landloc
 
 #### What the model sees
 
-The generated [`dsh-tool-bash` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-bash) are the baseline. By advertising a confining `sandboxMode`, this backend augments `bash` with `sandbox_permissions` using enum `workspace-write` | `danger-full-access` and with `justification`. The backend adds no prompt prose, and the session's effective mode remains unstated.
+The generated [`dsh-tool-bash` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-bash) are the baseline. By advertising a confining `sandboxMode`, this backend augments `bash` with `sandbox_permissions` using enum `workspace-write` | `danger-full-access` and with `justification`. The policy owner separately contributes the current capability-neutral `sandbox:policy` context.
 
 #### Token effect
 
-Small fixed schema increment on requests where `bash` is visible; mode switches add no context tokens.
+Small fixed schema increment on requests where `bash` is visible, plus the current-policy clause owned by `dsh-sandbox-policy`.
 
 #### KV Cache effect
 
-Prefix-stable while the executor advertises the same sandbox capabilities. Changing those capabilities alters the `bash` schema and may invalidate reuse from that definition; per-session mode switches do not.
+A standing-policy change appends a complete owner-rendered context snapshot after retained history, preserving the existing system/history prefix byte-for-byte. Changing executor capabilities alters the `bash` schema.
 
 ### Bash tool result, indirectly
 

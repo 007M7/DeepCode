@@ -92,9 +92,21 @@ interface SessionEventMap {
    */
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
   /**
+   * Registration-bound context metadata for the route a request resolved to,
+   * appended inside its step beside `request/header` and only when the route
+   * or capacity differs from the last record. It is log-only and deliberately
+   * NOT part of {@link EpochHeader}: capacity is adapter metadata about a
+   * route, not an input the request was built from, so it must not participate
+   * in request reconstruction or header equality. `contextWindow` is absent
+   * when the route's adapter advertises no capacity.
+   */
+  'request/context': RequestContext
+  /**
    * Marks the end of a constructor seed. Events before it have smaller seq
    * values and came from the seed (resume, fork, or replay); this lifecycle
-   * produced none of them. This log-only event is the durable projection of
+   * produced none of them. An explicitly supplied empty seed puts the marker
+   * at seq 0, distinguishing an empty resumed session from a fresh session.
+   * This log-only event is the durable projection of
    * {@link Session.firstLiveSeq}. Its payload is empty — position and `time`
    * carry the meaning.
    *
@@ -146,7 +158,7 @@ interface TodoItem {
 
 ### 请求头事件：`request/header`
 
-请求信封（即 `EpochHeader`：调用配置 + 渲染后的系统提示词 + 已组装的工具 schema）会作为会话状态写入日志，因此每个对话请求都是日志的纯函数（见可重建性 Agent Note）。带有 reason `'initial'` 或 `'resume'` 的完整 `request/header` 快照记录每个 agent loop 实例的边界；之后请求发生变化时，系统会以 reason `'change'` 记录另一份完整快照。`foldRequestHeader(events)` 通过选择最新快照重建请求头。该事件不是 `SurfaceEventType`，不产生 LLM 消息。
+请求信封（即 `EpochHeader`：调用配置 + 适配器默认值来源 + 渲染后的系统提示词 + 已组装的工具 schema）会作为会话状态写入日志，因此每个对话请求都是日志的纯函数（见可重建性 Agent Note）。带有 reason `'initial'` 或 `'resume'` 的完整 `request/header` 快照记录每个 agent loop 实例的边界；之后请求发生变化时，系统会以 reason `'change'` 记录另一份完整快照。`foldRequestHeader(events)` 通过选择最新快照重建请求头。该事件不是 `SurfaceEventType`，不产生 LLM 消息。
 
 ```ts type-equiv
 /**
@@ -157,6 +169,8 @@ interface TodoItem {
 interface EpochHeader {
   /** The conversation's call configuration (provider, model, reasoning effort, and sampling scalars). */
   config: LlmCallConfig
+  /** Effective config fields materialized from the exact adapter rather than proposed by a caller. */
+  adapterDefaults?: LlmCallConfigAdapterDefaults
   /** Rendered system prompt text; absent for a system-less request. */
   system?: string
   /** Assembled tool schemas; absent for a tool-less request. */
@@ -165,6 +179,26 @@ interface EpochHeader {
 ```
 
 规范形式：空系统提示词和空工具列表都表示为字段缺失，与请求构建方式一致。包含已移除的 `request/header-delta` 事件或完整快照原因为 `fallback` 的旧版 v0 日志，会在 seed、append 和持久化加载边界被拒绝，而不会以不完整方式回放。
+
+### 路由容量事件：`request/context`
+
+请求所解析到的路由的上下文元数据是独立的已记录状态，在同一步骤内紧随 `request/header` 追加，且仅在提供方、模型或容量与上一条记录不同时追加。它保持在 `EpochHeader` 之外，因为该类型是由 `headerEquals` 逐字段比较的重建契约：容量描述的是路由，不是请求输入，把它折叠进去会让一次容量变化被登记为请求信封的 `change`，也会把适配器元数据拉进 loop 的重建不变式。与 `request/header` 一样，它不是 `SurfaceEventType`，也不产生 LLM 消息。`session.requestContext()` 以增量方式归并最新一条记录。适配器不公布容量的路由会以缺失 `contextWindow` 的形式记录，因此新记录可以清除较早路由的容量。
+
+```ts type-equiv
+/**
+ * Registration-bound context metadata of one resolved model route. Adapter
+ * metadata about a route rather than a request input, which is why it lives
+ * outside {@link EpochHeader}.
+ */
+interface RequestContext {
+  /** Registered provider route the metadata was resolved through. */
+  provider: string
+  /** Provider-owned model id the metadata belongs to. */
+  model: string
+  /** Maximum combined request and response context in tokens; absent when the adapter advertises none. */
+  contextWindow?: number
+}
+```
 
 ## `SessionEvent<T>`：一条日志条目
 
@@ -271,7 +305,7 @@ interface SurfaceIntent {
 }
 ```
 
-对 `SurfaceEventType` 事件必填：每个产生消息的事件都必须声明它如何加入 surface（派生历史的唯一来源）。非 surface 类型在编译期拒绝此参数。
+对 `SurfaceEventType` 事件必填：每个产生消息的事件都必须声明它如何加入 surface（派生模型历史的唯一来源）。面向人类的记录（transcript）是另一个投影，读取的是日志中追加来源的事件，因为 surface 会有意遮蔽替换所概括的范围（见 [dsh-session](../../packages/core/session/README.md) 的 `isAppendSurfaceEvent`）。非 surface 类型在编译期拒绝此参数。
 
 此处适用相同的溯源区分：只有 `assistant/message` 可以携带存在但为空的 `sourceEventSeqs`；省略该字段并不表示其源流为空。
 
@@ -352,7 +386,9 @@ declare class Session {
    * start here. Distinct from `header.seedLength`, the DURABLE fork-lineage
    * boundary: a resumed session's constructor seed is its full stored log,
    * while its header keeps the original fork value — this field is the
-   * in-process construction fact.
+   * in-process construction fact. An explicitly supplied empty seed has the
+   * same value as no seed (0); its `session/end-seed` event preserves the
+   * lifecycle distinction.
    *
    * Not persisted itself: a seeded session projects it into the log as the
    * `session/end-seed` event, which is what a consumer reading STORED history
@@ -390,7 +426,8 @@ declare class Session {
    *   the ordered surface; `sourceEventSeqs` records provenance (the seq
    *   numbers of events this one derives from). REQUIRED for
    *   {@link SurfaceEventType} events (every message-producing event must
-   *   declare how it joins the surface, the sole source of derived history) and
+   *   declare how it joins the surface, the sole source of derived model
+   *   history) and
    *   rejected by the compiler for non-surface types like `turn/start` or
    *   `assistant/chunk`.
    * @returns the logged event — its assigned `seq`/`time` plus the SNAPSHOT of
@@ -424,6 +461,14 @@ declare class Session {
    * @returns the folded header, or undefined when no header event exists yet.
    */
   requestHeader(): EpochHeader | undefined;
+  /**
+   * The route metadata in force after the log's last `request/context` event —
+   * what the NEXT request deduplicates against — or undefined before any such
+   * record. Maintained incrementally like {@link requestHeader}, so a per-step
+   * read costs O(new events).
+   * @returns the folded context record, or undefined when none exists yet.
+   */
+  requestContext(): RequestContext | undefined;
   /**
    * Derive the LLM message history by walking the ordered sequences of
    * message-producing events maintained by `surfaceOp` markers. The
@@ -549,7 +594,7 @@ interface TurnEndReasonMap {
 
 带种子的会话（恢复、fork 或回放）紧接构造种子之后追加这个仅日志事件，作为自己的第一次实时写入。在它之前的事件具有更小的 seq，且来自种子。它是 `firstLiveSeq` 的持久投影：该字段为持有对象的消费方回答本生命周期的写入从哪里开始，该事件则为只持有存储字节的消费方回答同一问题。payload 为空，因此位置与 `time` 承载全部含义，且不产生任何消息。`Session` 的构造函数是唯一合法的写入方。
 
-空种子不写入任何内容；种子本身已以 `session/end-seed` 结尾时不会重复标记，因此重新打开一个未被改动的会话不会每次拾起都增长日志。应定位存储历史中的最后一条 `session/end-seed`，而不是假定 `firstLiveSeq` 处一定有一条：在一次没有产生工作的拾起之后，该事件的 seq 会小于下一个生命周期的 `firstLiveSeq`。
+显式传入的空种子会在 seq 0 写入 `session/end-seed`，从而把从空日志恢复的会话与全新会话区分开来。种子本身已以 `session/end-seed` 结尾时不会重复标记，因此重新打开一个未被改动的会话不会每次拾起都增长日志。应定位存储历史中的最后一条 `session/end-seed`，而不是假定 `firstLiveSeq` 处一定有一条：在一次没有产生工作的拾起之后，该事件的 seq 会小于下一个生命周期的 `firstLiveSeq`。
 
 它之所以必要，是因为种子历史与实时工作在字节层面完全相同，这会让任何拥有独立开／闭括号的插件失效：一个未配对的 `compact/start`，无论写入方是在压缩中途崩溃、还是此刻正在压缩，读起来都一样。在 `session/end-seed` 之前的开启标记来自构造种子，并且属于一个已结束的生命周期，无论结束原因为何（崩溃、进程接替，或从仍在运行的父会话 fork 出来），因此其所有方可以视之为已死。这只覆盖*本*会话继承的括号：另一个并发存活的会话可能在同一段历史上持有开放括号，而它自己的边界在别处，因此容忍并发写入方还需要日志之外的存活信号。核心写入该边界但不从中读取任何内容——括号的词汇表仍归其所属插件，这也正是崩溃修复只关闭轮次／步骤／工具边界而从不处理 `compact/*` 的原因。
 

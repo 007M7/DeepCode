@@ -51,6 +51,8 @@ const WAIT_POLL_INTERVAL_MS = 10
  * specified turn number. `waitForTurnEnd` holds the subprocess open until the
  * selected session's latest complete raw-JSONL turn boundary is `turn/end`.
  * `waitForTitleAfterTurnEnd` additionally waits for a later durable title.
+ * `waitForSubagentTurnEnd` applies the same work-turn boundary to one
+ * background child, whose progress has no ACP update to wait on.
  * A standalone `cancel` may also wait for a cwd-relative readiness marker.
  * All wait timeouts default to 10s.
  */
@@ -66,8 +68,10 @@ export type InputStep =
     text: string
     waitForFile?: { path: string; timeoutMs?: number }
   }
+  | { op: 'waitForFile'; path: string; timeoutMs?: number }
   | { op: 'waitForTurnStart'; minimumTurn?: number; timeoutMs?: number }
   | { op: 'waitForTurnEnd'; timeoutMs?: number }
+  | { op: 'waitForSubagentTurnEnd'; child?: number; timeoutMs?: number }
   | { op: 'waitForTitleAfterTurnEnd'; timeoutMs?: number }
   | { op: 'cancel'; waitForFile?: { path: string; timeoutMs?: number } }
 
@@ -290,6 +294,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
         (id) => { sessionId = id },
         (id, timeoutMs, minimumTurn) => waitForPersistedTurnStart(sessionsRoot, id, timeoutMs, minimumTurn),
         (id, timeoutMs) => waitForPersistedTurnEnd(sessionsRoot, id, timeoutMs),
+        (child, timeoutMs) => waitForPersistedChildTurnEnd(sessionsRoot, child, timeoutMs),
         (id, timeoutMs) => waitForPersistedTitleAfterTurnEnd(sessionsRoot, id, timeoutMs),
       )
       // A permission exchange happens while a step's request is in flight, so
@@ -364,6 +369,7 @@ async function runStep(
   setSessionId: (id: string) => void,
   waitForTurnStart: (sessionId: string, timeoutMs?: number, minimumTurn?: number) => Promise<void>,
   waitForTurnEnd: (sessionId: string, timeoutMs?: number) => Promise<void>,
+  waitForChildTurnEnd: (child: number, timeoutMs?: number) => Promise<void>,
   waitForTitleAfterTurnEnd: (sessionId: string, timeoutMs?: number) => Promise<void>,
 ): Promise<void> {
   switch (step.op) {
@@ -436,12 +442,18 @@ async function runStep(
       await promptDone
       return
     }
+    case 'waitForFile':
+      await waitForWorkspaceFile(cwd, step.path, step.timeoutMs)
+      return
     case 'waitForTurnEnd': {
       const sessionId = getSessionId()
       if (sessionId === undefined) throw new Error('snapshot-harness: waitForTurnEnd before newSession')
       await waitForTurnEnd(sessionId, step.timeoutMs)
       return
     }
+    case 'waitForSubagentTurnEnd':
+      await waitForChildTurnEnd(step.child ?? 1, step.timeoutMs)
+      return
     case 'waitForTitleAfterTurnEnd': {
       const sessionId = getSessionId()
       if (sessionId === undefined) throw new Error('snapshot-harness: waitForTitleAfterTurnEnd before newSession')
@@ -513,6 +525,41 @@ async function waitForPersistedTurnEnd(
       throw new Error(`snapshot-harness: session "${sessionId}" did not persist turn/end within ${timeoutMs}ms`)
     }
   }, { interval: WAIT_POLL_INTERVAL_MS, timeout: timeoutMs })
+}
+
+/**
+ * Wait until the Nth harvested child Session closes a model work turn.
+ *
+ * Harvest order matches `session.1.jsonl`, `session.2.jsonl`, and so on. A
+ * continuable child appends its descriptor after any inherited history and
+ * before accepting its first prompt, so only a later request header proves its
+ * own model work reached a closed turn.
+ */
+async function waitForPersistedChildTurnEnd(
+  root: string,
+  child: number,
+  timeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
+): Promise<void> {
+  await vi.waitFor(async () => {
+    const log = (await harvestSessionLogs(root))[child]
+    if (log === undefined || !latestTurnIsClosed(log.content)
+      || !hasRequestHeaderAfterDescriptor(log.content)) {
+      throw new Error(
+        `snapshot-harness: subagent child #${child} did not persist a closed work turn within ${timeoutMs}ms`,
+      )
+    }
+  }, { interval: WAIT_POLL_INTERVAL_MS, timeout: timeoutMs })
+}
+
+/** Whether a child log contains model work after its own descriptor event. */
+function hasRequestHeaderAfterDescriptor(content: string): boolean {
+  const events = content.slice(0, content.lastIndexOf('\n') + 1)
+    .split('\n')
+    .filter(line => line.length > 0)
+    .map(line => JSON.parse(line) as { type?: unknown })
+  const descriptor = events.findLastIndex(event => event.type === 'subagent/descriptor')
+  return descriptor >= 0
+    && events.slice(descriptor + 1).some(event => event.type === 'request/header')
 }
 
 /** Wait until a complete provider or fallback title record follows the latest closed turn. */
