@@ -41,7 +41,7 @@ Figma 中的 [subagent 列表](https://www.figma.com/design/jRBBK7zBgcszdVWQ0Fh5
 
 `running` 表示在 Host 采样边界，确切 child Agent driver 正在处理工作；`inactive` 表示该 driver 空闲或不存在。UI 不会把任一值解释为成功、失败、取消、完成状态或可恢复性。`subagent.list` 提供当前 driver 状态基线，`host/session-status` 会就地更新已知活动状态，请求内回放会阻止更早发起但尚未完成的列表响应覆盖较新的状态转换，`host/session-removed` 则会使已知行恢复为 `inactive`；重连时会读取新的基线。直接 subagent 的 `host/session-added` 帧会立即把任何已加载的 parent 行翻转为 `hasChildren: true`，并使这项正向提示不被更早发起但尚未完成的目录响应覆盖；受影响分支打开期间，成员、label、mode、diagnostic 与权威快照仍需要通过去抖动的 `subagent.list` 刷新来更新。消息投递时仍以提示词响应为权威依据。
 
-健康行会复用列表镜像中保留的标准会话投影。token 用量数值会汇总持久化日志中四个互不重叠的 `tokenUsage` 桶。`subagentTiming` 会在每个描述符处重置，使继承的 fork 种子不会计入 child 总量；它会累加已完成的 `turn/start` → `turn/end` 时段，并携带当前轮次的 `activeSince`。菜单会以整秒格式化时间，且仅在有已知后代处于运行状态时才推进其本地时钟；对 inactive 行，菜单使用已结算耗时，或以摘要的最后活动为被中断未结束轮次的上界，因此重新打开菜单绝不会让已完成工作重新计时。token 分片不会改变 `subagentTiming`，因此不会增加按 token 更新列表的路径。这两项指标都不蕴含持久化结果语义。
+健康行会复用列表镜像中保留的标准会话投影。token 用量数值会汇总持久化日志中四个互不重叠的 `tokenUsage` 桶。`subagentTiming` 会在每个描述符处重置，使继承的 fork 种子不会计入 child 总量；它会累加已完成的 `turn/start` → `turn/end` 时段，并携带未结束轮次同一切面的 `active.since` 和 `active.through` 边界。该轮次保持未结束期间，现有会话事件会推进 `active.through`；菜单不会增加单独的计时器或日志读取，它会以整秒格式化时间，且仅在有已知后代处于运行状态时才推进其本地时钟。对 inactive 行，菜单以 `active.through` 为被中断未结束轮次的上界，因此陈旧投影绝不会借用更新的会话元数据，且重新打开菜单绝不会让已完成工作重新计时。这两项指标都不蕴含持久化结果语义。
 
 选择一行后，系统会先记录其确切地址，再打开常驻客户端 `Session`。历史分页、事件 fold、工具渲染意图、title 与实时 mux 归并都会复用普通对话机制。面包屑导航使用目录 label，只会沿 `origin: 'subagent'` 行的父链接逐级回溯，包含第一个普通 owner，并让普通 fork 保持单层。从已寻址 subagent 创建 fork 时，会生成具有直接源谱系的普通 fork，并将其附加到最近拥有 Workspace 的祖先。目录是一棵 ARIA 树，支持懒加载式 ArrowRight／ArrowLeft 展开与折叠、线性 ArrowUp／ArrowDown 导航、Home／End、Escape 以及焦点恢复。
 

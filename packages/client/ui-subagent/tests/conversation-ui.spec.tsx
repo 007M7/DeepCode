@@ -245,9 +245,9 @@ describe('SubagentCatalogAction', () => {
     vi.useFakeTimers()
     vi.setSystemTime(now)
     const rows = [
-      ['running', 'running', 65_000, now - 5_000, now],
-      ['finished', 'inactive', 3_723_000, undefined, now - 60_000],
-      ['interrupted', 'inactive', 2_000, now - 7_000, now - 3_000],
+      ['running', 'running', 65_000, now - 5_000, now - 1_000, now],
+      ['finished', 'inactive', 3_723_000, undefined, undefined, now - 60_000],
+      ['interrupted', 'inactive', 2_000, now - 7_000, now - 3_000, now + 60_000],
     ] as const
     const usageById = {
       running: {
@@ -277,7 +277,9 @@ describe('SubagentCatalogAction', () => {
       activity,
       hasChildren: false,
     }))
-    const summaries = Object.fromEntries(rows.map(([id, activity, settledMs, activeSince, updatedAt]) => {
+    const summaries = Object.fromEntries(rows.map(([
+      id, activity, settledMs, activeSince, activeThrough, updatedAt,
+    ]) => {
       const childId = id as SessionId
       return [id, {
         ...summary(childId, updatedAt),
@@ -287,7 +289,9 @@ describe('SubagentCatalogAction', () => {
         projectionValues: {
           subagentTiming: {
             settledMs,
-            ...(activeSince === undefined ? {} : { activeSince }),
+            ...(activeSince === undefined || activeThrough === undefined
+              ? {}
+              : { active: { since: activeSince, through: activeThrough } }),
           },
           tokenUsage: usageById[id],
         },
