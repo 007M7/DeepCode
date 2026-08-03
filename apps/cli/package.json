@@ -8,7 +8,7 @@
     "dsh": "lib/bin.js"
   },
   "files": [
-    "lib/bin.js",
+    "lib/*.js",
     "config",
     "src"
   ],
