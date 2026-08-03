@@ -4,7 +4,7 @@
 
 模型侧 `bash` 工具，注册在 `ctx.bash` 执行器 seam 上。前台执行始终位于该 seam 之后；后台进程句柄会注册到通用 `ctx.tasks` 运行时，并通过 `task_output`、`task_list` 和 `task_kill` 控制；这些工具由 `@deepseek-ai/dsh-tool-tasks` 提供。
 
-需要加载执行器实现（例如 `@deepseek-ai/dsh-bash-local`）；在 `ctx.bash` 可用之前，插件会保持等待状态（`inject: ['tools', 'bash', 'systemPrompt']`）。
+需要加载执行器实现（例如 `@deepseek-ai/dsh-bash-local`）与 [`@deepseek-ai/dsh-bash-env`](../bash-env/README.md) 注册表；在每个注入服务就绪之前，插件会保持等待状态（`inject: ['tools', 'bash', 'systemPrompt', 'bashEnv']`）。
 
 包（package）根只公开 Cordis 插件契约（`name`、`inject`、`Config`、`apply`）；结果渲染和后台进程适配仍是实现细节，由同包测试覆盖。
 
@@ -30,7 +30,7 @@
 
 每次模型发起的前台或后台 bash 调用都会收到新收集的一组可信 `DSH_*` 环境变量。`DSH_HOME` 是由 [`@deepseek-ai/dsh-paths`](../../util/paths/README.md) 解析出的 Harness home 绝对路径（依次采用 `dshHome` 配置、环境中的 `$DSH_HOME`、`~/.dsh`），`DSH_SHELL=1` 则标识受托管的子进程。Agent 调用还会收到 `DSH_SESSION_ID=agent.session.header.id`；当活跃的持久化 seam 找到 JSONL 产物时，也会收到 `DSH_SESSION_JSONL=<absolute target path>`。JSONL 路径只是位置提示：首次 flush 前它可能尚不存在，也可能不包含当前缓冲的轮次，并且它不是授权凭据。
 
-`ctx.bashEnv` 持有收集过程。其他插件可以注册具有 effect 作用域的贡献方，提供稳定名称、已声明的键／说明以及 `resolve(execution: ToolExecution)`；重复持有或运行时返回未声明的键会快速失败，而 `list()` 无需执行提供方即可列举声明。Harness 内置项保留 `DSH_HOME`、`DSH_SHELL` 和 `DSH_SESSION_ID`；tool-bash 的持久化转换器持有 `DSH_SESSION_JSONL`，其值来自后端无关的 `sessionPersistence.locate()` seam。
+`ctx.bashEnv` 持有收集过程。其他插件可以注册具有 effect 作用域的贡献方，提供稳定名称、已声明的键／说明以及 `resolve(execution: ToolExecution)`；重复持有或运行时返回未声明的键会快速失败，而 `list()` 无需执行提供方即可列举声明。Harness 内置项保留 `DSH_HOME`、`DSH_SHELL` 和 `DSH_SESSION_ID`；`dsh-bash-env` 的会话持久化贡献方持有 `DSH_SESSION_JSONL`，其值来自后端无关的 `sessionPersistence.locate()` seam。
 
 ```ts
 import type { Context } from 'cordis'

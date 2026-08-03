@@ -79,7 +79,6 @@
     "@deepseek-ai/dsh-system-prompt": "workspace:^",
     "@deepseek-ai/dsh-tasks": "workspace:^",
     "@deepseek-ai/dsh-tasks-local": "workspace:^",
-    "@deepseek-ai/dsh-bash-env": "workspace:^",
     "@deepseek-ai/dsh-tool-bash": "workspace:^",
     "@deepseek-ai/dsh-tool-fs": "workspace:^",
     "@deepseek-ai/dsh-tool-goal": "workspace:^",

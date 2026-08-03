@@ -6,7 +6,7 @@ Local PowerShell implementation of the `@deepseek-ai/dsh-bash` executor seam ove
 
 The command string rides as ONE argv element to `-Command`: PowerShell itself parses the text, and no intermediate shell exists, so there is no shell-quoting layer to escape (the `bash -c` string domain has no equivalent here). Native Win32 paths (`C:\...`) pass through unchanged.
 
-The package root exports the default and named `PwshLocalExecutor` plugin, its `Config`, and the pure `resolvePwshPath`/`candidatePwshPaths` helpers.
+The package root exports the default and named `PwshLocalExecutor` plugin, its `Config`, the pure `resolvePwshPath`/`candidatePwshPaths` helpers, and the `ENV_OVERRIDES`/`ENCODING_PREAMBLE` constants the executor injects into every spawn.
 
 ## Config
 

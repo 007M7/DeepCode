@@ -6,7 +6,7 @@
 
 命令字符串作为 ONE argv 元素传给 `-Command`：由 PowerShell 自己解析文本，不存在中间 shell，因此没有需要转义的 shell 引号层（`bash -c` 字符串域在这里没有对应物）。原生 Win32 路径（`C:\...`）原样通过。
 
-包根导出默认与具名 `PwshLocalExecutor` 插件、其 `Config`，以及纯函数 `resolvePwshPath`/`candidatePwshPaths` 辅助函数。
+包根导出默认与具名 `PwshLocalExecutor` 插件、其 `Config`、纯函数 `resolvePwshPath`/`candidatePwshPaths` 辅助函数，以及执行器注入每次 spawn 的 `ENV_OVERRIDES`/`ENCODING_PREAMBLE` 常量。
 
 ## 配置
 
