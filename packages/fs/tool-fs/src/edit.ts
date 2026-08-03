@@ -11,6 +11,7 @@ import type { DiffCallView, DiffResultView, ToolResult } from '@deepseek-ai/dsh-
 import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { computeHunkDiffs, diffsFromMeta } from './diff.ts'
+import { remediateFsError } from './error.ts'
 import { sessionResolveOptions } from './session-cwd.ts'
 import type { FsSandboxSurface } from './sandbox.ts'
 
@@ -116,10 +117,13 @@ export function applyEditTool(ctx: Context, sandbox: FsSandboxSurface): void {
       const target = await ctx.fs.resolve(input.filePath, sessionResolveOptions(exec, input.filePath, sandboxPolicy?.workspaceRoot))
       // Single-slot decision: the policy plugin returns { version: vObserved } or
       // throws FS_NOT_OBSERVED; the bare default is undefined (unconditional edit).
-      // No stat — the bare default never manufactures a version basis.
-      const intent = await ctx.waterfall('fs/edit-intent', target, exec, () => undefined)
+      // No stat — the bare default never manufactures a version basis. The intent
+      // slot itself can throw FS_NOT_OBSERVED for an unread target, so it sits
+      // inside the try: both that refusal and the provider's guarded-mutation
+      // failure get the model-facing remedy below.
       let outcome
       try {
+        const intent = await ctx.waterfall('fs/edit-intent', target, exec, () => undefined)
         outcome = await ctx.fs.editText(
           target,
           { oldString: input.oldString, newString: input.newString, replaceAll: input.replaceAll },
@@ -128,8 +132,10 @@ export function applyEditTool(ctx: Context, sandbox: FsSandboxSurface): void {
           sandboxPolicy,
         )
       } catch (error: unknown) {
-        // A sandbox denial becomes the shared [sandbox: …] marker; any other error passes through.
-        throw sandbox.mapError(error, sandboxPolicy)
+        // A sandbox denial becomes the shared [sandbox: …] marker (the model
+        // recognizes it from bash); stale/not-observed failures gain their
+        // model-facing remedy; anything else passes through.
+        throw remediateFsError(sandbox.mapError(error, sandboxPolicy))
       }
       // Record the observed version (a no-op when no policy plugin listens).
       ctx.emit('fs/observed', target, outcome.version, exec)

@@ -55,7 +55,7 @@ await ctx.plugin(FsPolicy)
 
 #### 模型看到的内容
 
-该插件不添加提示词或 schema。编辑前未读取时，它会以代码 `FS_NOT_OBSERVED` 和精确消息 `edit requires reading "<path>" first` 拒绝。观察版本陈旧的防护变更会传播由提供方拥有的 `FS_STALE_VERSION` 错误。[`dsh-tool-fs`](../tool-fs/README.md)拥有面向模型的错误包装；观察状态绝不会显示。
+该插件不添加提示词或 schema。编辑前未读取时，它会以代码 `FS_NOT_OBSERVED` 和精确消息 `edit requires reading "<path>" first` 拒绝。观察版本陈旧的防护变更会传播由提供方拥有的 `FS_STALE_VERSION` 错误。[`dsh-tool-fs`](../tool-fs/README.md)拥有面向模型的错误包装，会为 `FS_STALE_VERSION` 消息追加恢复指令（`— re-read the file, then retry`）、为 `FS_NOT_OBSERVED` 消息追加恢复指令（`— read the file, then retry`），同时保留错误码；观察状态绝不会显示。
 
 #### Token 影响
 

@@ -12,6 +12,7 @@ import type { FsWriteOutcome } from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { computeHunkDiffs, diffsFromMeta } from './diff.ts'
+import { remediateFsError } from './error.ts'
 import { sessionResolveOptions } from './session-cwd.ts'
 import type { FsSandboxSurface } from './sandbox.ts'
 
@@ -113,8 +114,9 @@ export function applyWriteTool(ctx: Context, sandbox: FsSandboxSurface): void {
         outcome = await ctx.fs.writeText(target, input.content, intent, exec.signal, sandboxPolicy)
       } catch (error: unknown) {
         // A sandbox denial becomes the shared [sandbox: …] marker (the model
-        // recognizes it from bash); any other error passes through.
-        throw sandbox.mapError(error, sandboxPolicy)
+        // recognizes it from bash); stale/not-observed failures gain their
+        // model-facing remedy; anything else passes through.
+        throw remediateFsError(sandbox.mapError(error, sandboxPolicy))
       }
       // Record the observed version (a no-op when no policy plugin listens).
       ctx.emit('fs/observed', target, outcome.version, exec)
