@@ -400,6 +400,17 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     const tree = page.getByRole('tree', { name: 'Subagent sessions' })
     const nestedRow = tree.getByRole('treeitem', { name: new RegExp(NESTED_LABEL) })
     expect(await nestedRow.locator(':scope > *').count()).toBe(1)
+    const clickArea = nestedRow.locator(':scope > *')
+    const [treeBox, clickAreaBox] = await Promise.all([
+      tree.boundingBox(),
+      clickArea.boundingBox(),
+    ])
+    expect(treeBox).not.toBeNull()
+    expect(clickAreaBox).not.toBeNull()
+    expect([
+      Math.round(clickAreaBox!.x - treeBox!.x),
+      Math.round(treeBox!.x + treeBox!.width - clickAreaBox!.x - clickAreaBox!.width),
+    ]).toEqual([5, 5])
     await compareOrRefreshGolden(
       BRANCHLESS_EXPECTED,
       await captureStableAria(page, '[role="tree"][aria-label="Subagent sessions"]', scaffold.workspaceCwd),
