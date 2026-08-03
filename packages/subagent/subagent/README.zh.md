@@ -92,6 +92,8 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 
 可继续子级不会创建 `SubagentRun` 或 Task。延续管理器为每个驻留子 Session 直接拥有一个仅存在于当前进程的 Activation 和一个留存的 `AgentHandle`，使用 Agent inbox 作为唯一 FIFO，并从持久化描述符冷恢复。父到子投递由准确的实时直接父级身份授权。上报则由准确的实时子级身份授权；管理器根据持久化的 `parentSession` 推导接收方，`MessageSource` 仍只表示来源，不表示权限。
 
+当 `ctx.sessionProjections` 可用时，服务会注册 `subagentTiming`。该投影会在每个描述符处重置，使 fork 种子中的祖先工作不会计入 child 总量，随后累加 `turn/start` → `turn/end` 活跃时间，并为未结束的轮次保留同一切面的 `active.since` 和 `active.through` 边界。在该轮次保持未结束期间，`active.through` 会跟随最近折叠的事件，从而为 inactive 消费方提供保守的崩溃上界，又不会混入更新的会话元数据。
+
 `registerContinuableSetup()` 允许可选包添加子级作用域功能，而无需让延续管理器知道这些功能的名称。贡献会在 Activation 发布前同步安装，在设置失败时一并回滚，并随子级作用域释放。新授权须等到下一个 Activation，移除贡献则会立即撤销每个驻留安装项。
 
 ## 收集模型

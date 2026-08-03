@@ -30,6 +30,9 @@
       "path": "../ui-slots"
     },
     {
+      "path": "../../subagent/subagent"
+    },
+    {
       "path": "../../support/invariants"
     }
   ]

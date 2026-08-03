@@ -846,10 +846,14 @@ export class SessionManager {
     const merged: TitledSessionSummary[] = this.summaries.map((summary) => {
       // List rows read the generic 'title' projection key (host-computed unit
       // value; the bespoke session/title frame is retired).
-      const title = this.projectionStores.get(summary.sessionId)?.get('title')
-      return typeof title === 'string' && title !== ''
-        ? { ...summary, title }
-        : summary
+      const projectionStore = this.projectionStores.get(summary.sessionId)
+      const title = projectionStore?.get('title')
+      const projectionValues = projectionStore?.values()
+      return {
+        ...summary,
+        ...(typeof title === 'string' && title !== '' ? { title } : {}),
+        ...(projectionValues === undefined ? {} : { projectionValues }),
+      }
     })
     const fresh = flattenLineage(merged, new Set(this.waitingApprovals.keys()))
     const items = fresh.map((entry) => {
@@ -860,6 +864,7 @@ export class SessionManager {
         && prev.parentSessionId === entry.parentSessionId && prev.cwd === entry.cwd
         && prev.origin === entry.origin && prev.title === entry.title && prev.depth === entry.depth
         && prev.waitingApproval === entry.waitingApproval
+        && prev.projectionValues === entry.projectionValues
       ) return prev
       this.entryCache.set(entry.sessionId, entry)
       return entry
