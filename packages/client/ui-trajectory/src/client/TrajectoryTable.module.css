@@ -277,7 +277,7 @@
   z-index: 3;
   top: 0;
   left: 0;
-  display: inline-flex;
+  display: inline-grid;
   flex: none;
   align-items: center;
   box-sizing: border-box;
@@ -292,8 +292,18 @@
   white-space: nowrap;
 }
 
+.turnLabelFull,
 .turnLabelCompact {
-  display: none;
+  grid-area: 1 / 1;
+  max-width: 64px;
+  overflow: hidden;
+  opacity: 1;
+  white-space: nowrap;
+}
+
+.turnLabelCompact {
+  max-width: 0;
+  opacity: 0;
 }
 
 .turnLabelActive {
@@ -350,15 +360,23 @@
 }
 
 .kindTagIcon {
-  display: none;
+  display: inline-flex;
+  flex: none;
   align-items: center;
   justify-content: center;
-  width: 13px;
+  width: 0;
   height: 13px;
+  overflow: hidden;
+  opacity: 0;
+  transform: scale(0.8);
 }
 
 .kindTagLabel {
-  display: inline;
+  display: inline-block;
+  max-width: 72px;
+  overflow: hidden;
+  opacity: 1;
+  white-space: nowrap;
 }
 
 .table .kindSlot .message {
@@ -393,19 +411,66 @@
   }
 
   .kindTagIcon {
-    display: inline-flex;
+    width: 13px;
+    opacity: 1;
+    transform: scale(1);
   }
 
   .kindTagLabel {
-    display: none;
+    max-width: 0;
+    opacity: 0;
   }
 
   .turnLabelFull {
-    display: none;
+    max-width: 0;
+    opacity: 0;
   }
 
   .turnLabelCompact {
-    display: inline;
+    max-width: 64px;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .eventColumn,
+  .event,
+  .requestBoundaryControl,
+  .kindSlot,
+  .kindTag,
+  .kindTagIcon,
+  .kindTagLabel,
+  .turnLabelFull,
+  .turnLabelCompact {
+    transition-duration: 180ms;
+    transition-timing-function: var(--ds-ease-in-out);
+  }
+
+  .eventColumn,
+  .kindSlot {
+    transition-property: width;
+  }
+
+  .event {
+    transition-property: padding-right, padding-left;
+  }
+
+  .requestBoundaryControl {
+    transition-property: left;
+  }
+
+  .kindTag {
+    transition-property: padding-right, padding-left;
+  }
+
+  .kindTagIcon {
+    transition-property: width, opacity, transform;
+  }
+
+  .kindTagLabel,
+  .turnLabelFull,
+  .turnLabelCompact {
+    transition-property: max-width, opacity;
   }
 }
 
