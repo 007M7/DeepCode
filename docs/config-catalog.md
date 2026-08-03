@@ -2075,6 +2075,8 @@ export interface TuiConfig {
   maxModelOptions?: number
   /** Maximum sessions visible at once in the resume selector. */
   maxResumeOptions?: number
+  /** Maximum concurrent cold projection reads in one resume scan. */
+  resumeScanConcurrency?: number
   /** User-question panel width in terminal columns, clamped to the terminal. */
   questionDialogWidth?: number
   /** User-question panel maximum height in terminal rows. */
@@ -2116,7 +2118,7 @@ export interface TuiThemeConfig {
 }
 ```
 
-Source: [`packages/ui/tui/src/config.ts:125`](../packages/ui/tui/src/config.ts)
+Source: [`packages/ui/tui/src/config.ts:129`](../packages/ui/tui/src/config.ts)
 
 ## `@deepseek-ai/dsh-typert-loader`
 
