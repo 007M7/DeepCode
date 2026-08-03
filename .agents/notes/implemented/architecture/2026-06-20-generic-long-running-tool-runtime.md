@@ -93,7 +93,7 @@ The bash seam exposes `resolve`, `run`, and `start`. `start(spec)` returns a `Ba
 
 For background bash, `dsh-tool-bash` registers the calling agent as owner. Its hooks map `kill()` to cancellation, `done` to a completed or killed `TaskOutcome`, and `readOutput()` to the process's bounded incremental output plus spill and sandbox notices. Generic task tools own ids, status lines, listing, waiting, and completion notices.
 
-For background subagents, `dsh-tool-subagent` creates a task-owned `AbortController` and begins provider startup inside the task starter. Cancellation aborts the same signal before or after provider readiness. `done` awaits both the child result and child disposal, maps completed output to a final result, maps abort to `killed`, and maps other stop reasons or infrastructure failures to `failed`. Intermediate child history remains in the child session and is not exposed through `readOutput()`.
+For background subagents, `dsh-tool-subagent` creates a task-owned `AbortController` and begins provider startup inside the task starter. Cancellation aborts the same signal before or after provider publication. `done` awaits both the child result and child disposal, maps completed output to a final result, maps abort to `killed`, and maps other stop reasons or infrastructure failures to `failed`. Intermediate child history remains in the child session and is not exposed through `readOutput()`.
 
 ## Alternatives considered
 

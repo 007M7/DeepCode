@@ -12,8 +12,8 @@
 
 ### 公共 API
 
-- `ctx.sessions.create(id?, { seed?, meta? }?)` 校验持久种子／头部数据并生成脱离副本，补齐版本和 id，在未提供 `createdAt` 时使用当前时间，发布会话并将其绑定到调用方 fiber。持久化重建会提供原始的 `createdAt`、`seedLength` 和 `delegationDepth`。
-- `ctx.sessions.flush(session)` 通过会话捕获的作用域分发受等待的并行持久性检查点。每个监听器都会启动；调用会等待全部结算后才报告失败。未发布、已脱离和陈旧的对象会被拒绝。
+- `ctx.sessions.create(id?, { seed?, meta? }?)` 校验持久种子／头部数据并生成脱离副本，补齐版本和 id，在未提供 `createdAt` 时使用当前时间，发布会话并将其绑定到调用方 fiber。持久化重建会提供原始的 `createdAt`、`seedLength`、`origin` 和 `delegationDepth`。
+- `ctx.sessions.flush(session)` 通过会话捕获的作用域分发受等待的并行持久性检查点。每个监听器都会启动；调用会等待全部结算后才报告失败；至少一个监听器参与时返回 `true`，监听器快照为空时返回 `false`，而未发布、已脱离和陈旧的对象会被拒绝。要求持久化存储的调用方应在自己的策略边界拒绝 `false`。
 - `findLastMessageTurnEnd(events)` 将由消息触发的开始与结束配对，并返回最近匹配的 `turn/end`。结果消费方使用该折叠逻辑，而不直接取日志中最近的事件，因为轮次间记录和非消息轮次没有提示词结果。
 - `ctx.sessions.fork(source, boundary?, childSessionId?): Session`：解析实时会话对象或 id，选取截至 `boundary` 事件序号（含该事件）的种子（默认为当前最后一个事件），要求所选前缀结束时没有开放轮次，再创建带谱系元数据的实时子会话。
 - `ctx.sessions.get(id: SessionId): Session | undefined`
@@ -43,7 +43,7 @@
 - `session.surface` 暴露只读 `SessionSurface` 视图，由会话唯一的增量 surface 管理器所有；每次提交重写，`replaceGeneration` 都会变化。
 - `session.events` 是按追加失效的缓存冻结快照；已接受事件保持深度冻结。
 - `session.seq`、`session.id`：当前序号和只读类型化身份。
-- `session.header: SessionHeader`：脱离、深冻结的创建元数据（`version`、`id`、`createdAt`，以及可选的 `cwd`／`parentSession`／`seedLength`／`delegationDepth`）。构造时会校验持久记录，并要求其中的 id 与 `session.id` 一致。
+- `session.header: SessionHeader`：脱离、深冻结的创建元数据（`version`、`id`、`createdAt`，以及可选的 `cwd`／`parentSession`／`seedLength`／`origin`／`delegationDepth`）。`origin: 'subagent'` 是粗粒度产品分类，不代表具备继续执行能力。构造时会校验持久记录，并要求其中的 id 与 `session.id` 一致。
 
 ### 无损 JSON 工具
 
@@ -64,7 +64,9 @@
 
 ### 请求头重建（`request-header.ts`）
 
-`request/header` 记录非历史请求封装的完整规范快照，其原因为 `initial`、`resume` 或 `change`。`foldRequestHeader()` 选择最新快照；旧版增量事件和已移除的 `fallback` 原因会被拒绝。详见[可重建请求 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)。
+`request/header` 记录非历史请求封装的完整规范快照，其原因为 `initial`、`resume` 或 `change`。其可选 `adapterDefaults` 映射会标记由精确模型解析填入的生效 `reasoningEffort` 或 `maxTokens` 值，使下一次请求提议能够将它们与显式对话设置区分开。`foldRequestHeader()` 选择最新快照；旧版增量事件和已移除的 `fallback` 原因会被拒绝。详见[可重建请求 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)。
+
+`request/context` 记录请求所解析到的路由的、绑定注册项的元数据，在其所属步骤内紧随 `request/header` 追加，且仅在提供方、模型或容量与上一条记录不同时追加。`session.requestContext()` 以增量方式归并最新一条，与 `requestHeader()` 保持一致。容量刻意不进入 `EpochHeader`：它是描述路由的适配器元数据，不是构建该请求所依据的输入，因此绝不可进入请求重建或请求头相等性判断：容量变化不构成请求头 `change`。适配器不公布容量的路由仍会被记录，但 `contextWindow` 字段缺失，从而清除较早的已知容量。
 
 `user/message` 会直接存储完整的 `UserMessage`，其中包括路由或提示词准入前创建的标识。无论它是直接人类提示词、合成注入，还是已准入的 Goal Round，都会原样呈现其 `content`；带类型的 `source` 是区分三者的唯一通道，并携带各领域专有的持久事实。`assistant/message`、`tool/result` 和 steering（中途引导）对应的 `steering/message` 也会存储完整的消息值。轮次执行仍由 `turn/start` 与 `turn/end` 包围，而空闲注入可以在轮次之间追加并刷新一条 `user/message`，无需运行模型。
 
@@ -87,7 +89,7 @@
 
 ### 元数据类型（`types.ts`）
 
-- `SessionHeader`：会话元数据，在发布为 `Session.header` 时写入一次；脱离和深冻结保证运行时不可变：`{ version, id, createdAt, cwd?, parentSession?, seedLength?, delegationDepth? }`。持久化 loader 可返回相同数据类型的可变脱离副本。该类型由此包与 `SessionId` 一同所有，因为 `Session.header` 以它为类型；持久化后端只是重新导出而不拥有它，否则会形成包循环依赖。
+- `SessionHeader`：会话元数据，在发布为 `Session.header` 时写入一次；脱离和深冻结保证运行时不可变：`{ version, id, createdAt, cwd?, parentSession?, seedLength?, origin?, delegationDepth? }`。持久化 loader 可返回相同数据类型的可变脱离副本。该类型由此包与 `SessionId` 一同所有，因为 `Session.header` 以它为类型；持久化后端只是重新导出而不拥有它，否则会形成包循环依赖。
 
 ### 扩展点
 

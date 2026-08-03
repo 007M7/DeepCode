@@ -342,6 +342,11 @@ describe('context-overflow recovery across the real loop and compact-basic', () 
 
         expect(adapter.conversationRequests).toHaveLength(2)
         expect(adapter.summaryRequests).toHaveLength(1)
+        const instruction = adapter.summaryRequests[0]!.messages.at(-1)?.content
+          .map(block => (block.type === 'text' ? block.text : ''))
+          .join('') ?? ''
+        expect(instruction).toContain('Write concise English engineering prose.')
+        expect(instruction).toContain('numeric values, function signatures, and syntax fragments.')
         expect(JSON.stringify(adapter.conversationRequests[0]!.messages)).toContain('OLD HISTORY SENTINEL')
         const retry = JSON.stringify(adapter.conversationRequests[1]!.messages)
         expect(retry).toContain('RECOVERY CHECKPOINT')

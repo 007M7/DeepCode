@@ -14,3 +14,4 @@
 |---|---|
 | [0001](0001-acp-default-export-drops-inject.md) | ACP（Agent Client Protocol）服务器在连接时崩溃：`export default` 丢失了插件的 `inject` |
 | [0002](0002-js-expression-disabled-filesystem-tools.md) | 文件系统快照工具被一个字面量 `!!js` 对象永久禁用 |
+| [0003](0003-web-agent-gui-feedback-loop.md) | Web agent 验证了替代服务器，而非承载其会话的 GUI |

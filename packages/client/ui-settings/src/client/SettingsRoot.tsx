@@ -5,9 +5,12 @@
  * close label, sections) arrives from registrants through slots; accessible
  * names resolve to that content (trigger: its own text; dialog:
  * aria-labelledby the title node; close: visually-hidden slot text). Modal
- * open state and the active section id are component-local viewing state.
+ * open state and the active section id are component-local viewing state;
+ * the onboarding coordinator mounts exactly one ordered registrant while the
+ * sessions-derived empty-Hero fact is active.
  */
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import { IconCloseOutline16, IconDataOutline16, IconSettingsOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SettingsRootComponentProps, SettingsSectionRow } from './contract/slots.ts'
@@ -22,6 +25,8 @@ function navIcon(id: string) {
 type PanelProps = {
   rows: readonly SettingsSectionRow[]
   renderSlot: SettingsRootComponentProps['renderSlot']
+  activeId: string | undefined
+  onSelect: (id: string) => void
   onClose: () => void
 }
 
@@ -30,10 +35,9 @@ type PanelProps = {
  * header button, a mask click, and document-level Escape (mounted only while
  * open, so the listener lifetime is the panel's).
  */
-function SettingsPanel({ rows, renderSlot, onClose }: PanelProps) {
-  // Local selection; entries can unmount underneath it, so the render-time
+function SettingsPanel({ rows, renderSlot, activeId, onSelect, onClose }: PanelProps) {
+  // Entries can unmount underneath the requested id, so the render-time
   // projection falls back to the first row when the id is gone.
-  const [activeId, setActiveId] = useState<string | undefined>(undefined)
   const active = rows.find(r => r.id === activeId)?.id ?? rows[0]?.id
   const titleId = useId()
 
@@ -62,7 +66,7 @@ function SettingsPanel({ rows, renderSlot, onClose }: PanelProps) {
                 type="button"
                 className={clsx(css.navCell, row.id === active && css.active)}
                 aria-current={row.id === active ? 'true' : undefined}
-                onClick={() => { setActiveId(row.id) }}
+                onClick={() => { onSelect(row.id) }}
               >
                 {navIcon(row.id)}
                 <span className={css.navLabel}>{row.label}</span>
@@ -92,14 +96,50 @@ function SettingsPanel({ rows, renderSlot, onClose }: PanelProps) {
  * @returns the settings shell element tree.
  */
 export function SettingsRoot(props: SettingsRootComponentProps) {
-  const { wide, useSections, renderSlot } = props
+  const { wide, useSections, useOnboardingSteps, useSessions, renderSlot } = props
   const [open, setOpen] = useState(false)
-  const close = useCallback(() => { setOpen(false) }, [])
+  const [activeId, setActiveId] = useState<string | undefined>(undefined)
+  const [completedOnboarding, setCompletedOnboarding] = useState<ReadonlySet<string>>(() => new Set())
+  const close = useCallback(() => {
+    setOpen(false)
+    setActiveId(undefined)
+  }, [])
+  const openSection = useCallback((id: string) => {
+    setActiveId(id)
+    setOpen(true)
+  }, [])
 
   // The ledger tick keeps the nav rows fresh: registrants re-register with
   // freshly localized text on locale change, and the trigger/header/close
   // seats re-render through their own outlets' subscriptions.
   const rows = useSections(s => s)
+  const onboardingSteps = useOnboardingSteps(s => s)
+  const onboardingActive = useSessions(state =>
+    state.phase === 'ready'
+    && (state.current === undefined || state.byId[state.current]?.blank === true))
+  const onboardingStep = onboardingActive
+    ? onboardingSteps.find(step => !completedOnboarding.has(step.id))
+    : undefined
+
+  useEffect(() => {
+    if (onboardingActive) return
+    setCompletedOnboarding(new Set())
+  }, [onboardingActive])
+
+  const completeOnboardingStep = useCallback((id: string) => {
+    setCompletedOnboarding((previous) => {
+      if (previous.has(id)) return previous
+      return new Set([...previous, id])
+    })
+  }, [])
+
+  useEffect(() => {
+    if (onboardingStep === undefined) return
+    const appRoot = document.getElementById('root')
+    if (appRoot === null) return
+    appRoot.inert = true
+    return () => { appRoot.inert = false }
+  }, [onboardingStep])
 
   return (
     <>
@@ -112,7 +152,27 @@ export function SettingsRoot(props: SettingsRootComponentProps) {
       >
         {renderSlot('settings.trigger', { wide })}
       </button>
-      {open && <SettingsPanel rows={rows} renderSlot={renderSlot} onClose={close} />}
+      {open && (
+        <SettingsPanel
+          rows={rows}
+          renderSlot={renderSlot}
+          activeId={activeId}
+          onSelect={setActiveId}
+          onClose={close}
+        />
+      )}
+      {onboardingStep !== undefined && createPortal((
+        <div className={css.onboardingOverlay} role="presentation">
+          <div className={css.onboardingMask} aria-hidden="true" />
+          <div className={css.onboardingStage}>
+            {renderSlot('settings.onboarding', {
+              stepId: onboardingStep.id,
+              complete: () => { completeOnboardingStep(onboardingStep.id) },
+              openSection,
+            }, { only: onboardingStep.id })}
+          </div>
+        </div>
+      ), document.body)}
     </>
   )
 }

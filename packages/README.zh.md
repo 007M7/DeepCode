@@ -33,13 +33,14 @@
 | [`plan/`](plan/README.md) | Plan 协作状态，提供直接进入命令与经评审的退出 | 产品：稳定表面 |
 | [`timeout/`](timeout/README.md) | 工具调用超时策略：`tools/execute` 截止时间强制执行器 | 产品：稳定表面 |
 | [`guard/`](guard/README.md) | 循环卫生守卫：建议性重复调用提醒 | 产品：稳定表面 |
-| [`cordis/`](cordis/README.md) | 自指运行时工具集：检查实时运行时的插件与服务，挂载／卸载模型所写插件（[设计](../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md)） | 产品：稳定表面 |
+| [`cordis/`](cordis/README.md) | Cordis 运行时集成：自检／模型编写的临时 Plugin，以及受限 repository Plugin 加载 | 产品：稳定表面 |
 | [`hooks/`](hooks/README.md) | 钩子桥接 + 共享 Claude Code／Codex 协议格式库 | 产品：稳定表面 |
 | [`session-persistence/`](session-persistence/README.md) | 持久化 seam + JSONL/SQLite 后端 | 产品：稳定表面 |
 | [`session-projection/`](session-projection/README.md) | 投影 seam：领域折叠单元供给全量值 | 产品：稳定表面 |
 | [`session-query/`](session-query/README.md) | 会话检索系列：逻辑语料库、有界读取、血缘、事件关系、语义过滤和 SQLite 全文搜索 | 产品：稳定表面 |
 | [`session-title/`](session-title/README.md) | 日志支撑的会话标题：回退服务与选用 LLM 提供方 | 产品：稳定表面 |
 | [`settings/`](settings/README.md) | 用户设置 seam + 文件 provider | 产品：稳定表面 |
+| [`credentials/`](credentials/README.md) | 凭据引用 seam + 环境叠加 `.env` provider | 产品：稳定表面 |
 | [`telemetry/`](telemetry/README.md) | 会话上报：捕获／脱敏 seam、OTel 后端 | 产品：稳定表面 |
 | [`storage/`](storage/README.md) | 非会话存储中枢 + 后端 + 领域形式 | 产品：稳定表面 |
 | [`workspace/`](workspace/README.md) | Workspace 实体 | 产品：稳定表面 |

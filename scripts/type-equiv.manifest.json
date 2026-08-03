@@ -33,6 +33,11 @@
     },
     {
       "doc": "docs/core-data-structures/core.md",
+      "symbol": "AdapterRegistrationHandle",
+      "source": "packages/llm/llm/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
       "symbol": "LlmProviderInfo",
       "source": "packages/llm/llm/src/types.ts"
     },
@@ -79,6 +84,11 @@
     {
       "doc": "docs/core-data-structures/core.md",
       "symbol": "LlmCallConfig",
+      "source": "packages/llm/llm/src/call-config.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "LlmCallConfigAdapterDefaults",
       "source": "packages/llm/llm/src/call-config.ts"
     },
     {
@@ -263,6 +273,11 @@
     },
     {
       "doc": "docs/core-data-structures/system-prompt.md",
+      "symbol": "PromptContext",
+      "source": "packages/core/system-prompt/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/system-prompt.md",
       "symbol": "PromptSection",
       "source": "packages/core/system-prompt/src/index.ts"
     },
@@ -336,6 +351,11 @@
     {
       "doc": "docs/core-data-structures/session.md",
       "symbol": "EpochHeader",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.md",
+      "symbol": "RequestContext",
       "source": "packages/core/session/src/types.ts"
     },
     {
@@ -696,6 +716,11 @@
     },
     {
       "doc": "docs/core-data-structures/user-interaction.md",
+      "symbol": "AskUserQuestionIntent",
+      "source": "packages/ui/user-interaction/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/user-interaction.md",
       "symbol": "AskUserQuestionItem",
       "source": "packages/ui/user-interaction/src/types.ts"
     },
@@ -1046,6 +1071,11 @@
     },
     {
       "doc": "docs/core-data-structures/compaction.md",
+      "symbol": "ManualCompactionErrorCode",
+      "source": "packages/compact/compact/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/compaction.md",
       "symbol": "PrunedEntry",
       "source": "packages/compact/compact-tool-result-prune/src/types.ts"
     },
@@ -1062,6 +1092,51 @@
     {
       "doc": "docs/core-data-structures/subagent.md",
       "symbol": "SubagentStartRequest",
+      "source": "packages/subagent/subagent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "ResolvedSubagentStartRequest",
+      "source": "packages/subagent/subagent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "CoordinatorMessageSource",
+      "source": "packages/subagent/subagent/src/continuation.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "SubagentReportMessageSource",
+      "source": "packages/subagent/subagent/src/continuation.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "SubagentReportDelivery",
+      "source": "packages/subagent/subagent/src/continuation.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "SubagentReportOptions",
+      "source": "packages/subagent/subagent/src/continuation.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "SubagentFollowupOptions",
+      "source": "packages/subagent/subagent/src/continuation.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "ContinuableStart",
+      "source": "packages/subagent/subagent/src/continuation.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "ContinuableCreateRequest",
+      "source": "packages/subagent/subagent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "ContinuableCreateSpec",
       "source": "packages/subagent/subagent/src/types.ts"
     },
     {
@@ -1362,6 +1437,36 @@
     {
       "doc": "docs/core-data-structures/settings.md",
       "symbol": "SettingsUpdateSource",
+      "source": "packages/settings/settings/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/credentials.md",
+      "symbol": "CredentialRef",
+      "source": "packages/credentials/credentials/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/credentials.md",
+      "symbol": "ResolvedCredential",
+      "source": "packages/credentials/credentials/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/credentials.md",
+      "symbol": "CredentialInfo",
+      "source": "packages/credentials/credentials/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/settings.md",
+      "symbol": "SettingsDescribeOptions",
+      "source": "packages/settings/settings/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "LlmConfigurableProvider",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/settings.md",
+      "symbol": "SettingsPathOp",
       "source": "packages/settings/settings/src/index.ts"
     }
   ]

@@ -197,7 +197,7 @@ describe('docsPages locale routes', () => {
     const translated = rootPages.filter(page => page.contentLocale === 'zh-CN')
     const fallbacks = rootPages.filter(page => page.contentLocale === 'en-US')
 
-    expect(translated).toHaveLength(19)
+    expect(translated).toHaveLength(20)
     expect(translated.every(page => page.source.endsWith('.zh.md'))).toBe(true)
     expect(fallbacks.map(page => page.source).sort()).toEqual([
       'docs/core-data-structures/commands.md',
@@ -217,18 +217,33 @@ describe('docsPages locale routes', () => {
       expect(english?.section).toBe('Cordis Core API')
     }
   })
+
+  it('includes persistence event headings in both locale outlines', () => {
+    const pages = docsPages.filter(page => page.source === 'docs/persistence-catalog.md')
+    expect(pages).toHaveLength(2)
+    expect(pages.map(page => page.outline)).toEqual(['deep', 'deep'])
+  })
 })
 
 describe('addProjectionFrontmatter', () => {
   it('adds frontmatter to an ordinary Markdown page', () => {
-    expect(addProjectionFrontmatter('# Guide\n', 'docs/guide.md')).toBe(
+    expect(addProjectionFrontmatter('# Guide\n', { source: 'docs/guide.md' })).toBe(
       '---\neditSource: "docs/guide.md"\n---\n\n# Guide\n',
     )
   })
 
   it('extends existing VitePress frontmatter', () => {
-    expect(addProjectionFrontmatter('---\nlayout: home\n---\n', 'docs/index.md')).toBe(
+    expect(addProjectionFrontmatter('---\nlayout: home\n---\n', { source: 'docs/index.md' })).toBe(
       '---\neditSource: "docs/index.md"\nlayout: home\n---\n',
+    )
+  })
+
+  it('adds the page-specific outline depth from the publication manifest', () => {
+    expect(addProjectionFrontmatter('# Catalog\n', {
+      source: 'docs/catalog.md',
+      outline: [2, 4],
+    })).toBe(
+      '---\neditSource: "docs/catalog.md"\noutline: [2,4]\n---\n\n# Catalog\n',
     )
   })
 })

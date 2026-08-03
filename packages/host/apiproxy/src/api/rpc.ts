@@ -46,11 +46,42 @@ export interface RpcErrorDetailsMap {
   'directory-picker-unavailable': { capability: string }
   'agent-busy': { reason: string }
   'queue-item-not-found': { itemId: InboxItemId }
+  'steer-unavailable': { itemId: InboxItemId }
   /** A known slash command reported a usage/state error; the message is the command's own text. */
   'command-error': {}
   /** A leading-/ prompt named no registered command; the message names the token. */
   'unknown-command': {}
+  /**
+   * A settings write was refused (schema validation, unknown namespace,
+   * read-only provider, or storage failure); the message is the seam's text.
+   */
+  'settings-rejected': { ns: string }
+  /**
+   * A settings namespace exists in the seam but is outside the configuration
+   * plane's model-provider boundary, so this proxy neither reads nor writes
+   * it; the message names the namespace.
+   */
+  'settings-not-exposed': { ns: string }
+  /**
+   * A settings write carried an `expectedRevision` the namespace has already
+   * moved past: another writer (tab, editor, or an external file edit) landed
+   * first. The details carry both revisions so a client can re-read and retry.
+   */
+  'settings-conflict': { ns: string; expected: number; actual: number }
+  /** A credential write was refused (read-only shadowing layer or storage failure); the message is the seam's own text. */
+  'credential-rejected': { ref: string }
   'title-invalid': { sessionId: SessionId }
+  'fork-unavailable': { sessionId: SessionId }
+  'subagent-parent-unavailable': { parentSessionId: SessionId }
+  'subagent-not-found': { parentSessionId: SessionId; childSessionId: SessionId }
+  'subagent-catalog-diagnostic': {
+    parentSessionId: SessionId
+    childSessionId: SessionId
+    reason: 'corrupt' | 'unsupported' | 'unavailable'
+  }
+  'subagent-not-resumable': { childSessionId: SessionId }
+  'subagent-unauthorized': { childSessionId: SessionId }
+  'subagent-delivery-unavailable': { childSessionId: SessionId }
   'internal': {}
 }
 

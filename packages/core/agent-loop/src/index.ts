@@ -558,7 +558,10 @@ export class AgentLoop extends Service implements AgentFactory {
     const prepared = this.prepare(ownerCtx, options.sessionId, options.agentOptions ?? {}, session, options.signal)
     const published = (async () => {
       try {
-        await raceAbort(options.setup?.(prepared.agent.ctx), prepared.signal, options.sessionId)
+        const setupCommit = await raceAbort(
+          options.setup?.(prepared.agent.ctx), prepared.signal, options.sessionId,
+        )
+        setupCommit?.commit()
         return prepared.publish('startup')
       } catch (error: unknown) {
         await prepared.dispose()
@@ -617,7 +620,8 @@ export class AgentLoop extends Service implements AgentFactory {
       })
       const prepared = this.prepare(ownerCtx, id, options.agentOptions ?? {}, session, options.signal)
       try {
-        await raceAbort(options.setup?.(prepared.agent.ctx), prepared.signal, id)
+        const setupCommit = await raceAbort(options.setup?.(prepared.agent.ctx), prepared.signal, id)
+        setupCommit?.commit()
         return prepared.publish('resume')
       } catch (error: unknown) {
         await prepared.dispose()

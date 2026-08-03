@@ -55,8 +55,8 @@ function successStatus(reason: string, options: HarnessSdkServerOptions): 'ok' |
  */
 export class HarnessSdkServer {
   private cwd = process.cwd()
-  private provider = 'deepseek'
-  private model = 'deepseek'
+  private provider = 'deepseek-official'
+  private model = 'deepseek-official'
   private maxTokens: number | undefined
   private llmFiber: { dispose(): Promise<void> } | undefined
   private readonly sessions = new Map<string, SessionRecord>()
@@ -124,7 +124,7 @@ export class HarnessSdkServer {
     this.model = params.model
     this.maxTokens = params.maxTokens
     if (!this.hasAdapterFor(this.provider)) {
-      if (this.provider !== 'deepseek') throw new Error(`no adapter registered for provider "${this.provider}"`)
+      if (this.provider !== 'deepseek-official') throw new Error(`no adapter registered for provider "${this.provider}"`)
       this.llmFiber = await this.ctx.plugin(LlmDeepSeek, {})
     }
     return { serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' } }

@@ -16,7 +16,7 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 一个普通的共享 fixture 模块（[测试政策认可的形态](../../../../docs/testing.md)），不是包：值得门禁把守的逻辑——回放推导、会话解析、日志脱敏、持久化——都在已受门禁的包 `dsh-llm-replay`、`dsh-acp-snapshot`、`dsh-session-persistence-jsonl` 中；剩下的只是启动接线和浏览器胶水，而驱动 chromium 的源码在无浏览器的覆盖率 runner 上无法诚实保持逐文件 100% 覆盖率。
 
-`launchWebScaffold()` 通过 vendored Loader 的 include 机制，从交付的 `apps/cli/config/base.cordis.yml` 与 `apps/cli/config/web.cordis.yml` 启动真实 web 组合——与 `AppCLIEntry` 为 `dsh web` 驱动的是同一棵树、同一套机制。差异全部经 include patch 覆盖在这棵树上，即 ACP `cordis.snapshot.yml` 模式的进程内表达：临时 `persistenceRoot`；禁用 `workspace-context`（录制的 fixture 不得嵌入本仓库的 AGENTS.md）；禁用 `session-title-llm`（其发后不管的标题调用会与循环争抢会话的回放游标）；webserver 行钉到端口 0 加已构建 dist；无密钥模式下禁用 `llm-deepseek`。patch 的 id 一旦不再匹配任何行，boot 扫描会大声失败而不是漂移。boot 在临时工作区 `chdir` 下运行，使 api-gateway 的 `process.cwd()` 会话默认值、工具 cwd 与 fixture 一致；`dsh web` bin 自身的胶水（argv、profile json、AppCLIEntry）仍由 `smoke-real.e2e.ts` 中的无密钥 CLI 冒烟把守。初始化回滚和正常关闭都会先对 Cordis 树执行 dispose（资源释放），再删除 scaffold 持有的两个临时根目录；每项清理都会独立尝试，并会报告清理失败而不掩盖初始化失败。
+`launchWebScaffold()` 通过 vendored Loader 的 include 机制，从交付的 `apps/cli/config/base.cordis.yml` 与 `apps/cli/config/web.cordis.yml` 启动真实 web 组合——与 `AppCLIEntry` 为 `dsh web` 驱动的是同一棵树、同一套机制。差异全部经 include patch 覆盖在这棵树上，即 ACP `cordis.snapshot.yml` 模式的进程内表达：临时 `persistenceRoot`；每个主机级 `skill-local` 根目录（`dshHome`、`agentsHome` 和 `bundledSkillDir`）都钉在临时工作区下并禁用监听，因为环境 skill（技能）目录是模型可见输入；禁用 `workspace-context`（录制的 fixture 不得嵌入本仓库的 AGENTS.md）；禁用 `session-title-llm`（其发后不管的标题调用会与循环争抢会话的回放游标）；webserver 行钉到端口 0 加已构建 dist；无密钥模式下禁用 `llm-deepseek`。patch 的 id 一旦不再匹配任何行，boot 扫描会大声失败而不是漂移。boot 在临时工作区 `chdir` 下运行，使 api-gateway 的 `process.cwd()` 会话默认值、工具 cwd 与 fixture 一致；`dsh web` bin 自身的胶水（argv、profile json、AppCLIEntry）仍由 `smoke-real.e2e.ts` 中的无密钥 CLI 冒烟把守。初始化回滚和正常关闭都会先对 Cordis 树执行 dispose（资源释放），再删除 scaffold 持有的两个临时根目录；每项清理都会独立尝试，并会报告清理失败而不掩盖初始化失败。
 
 无密钥的模型替换 = 禁用适配器行的 patch 加 `installLlmReplay` 在停稳的根 ctx 上以提供方目录（providers-catalog）模式填充开放的 seam——绝不用 catch-all：适配器行被禁用后不存在任何适配器，catch-all 会让 `resolveModelInfo` 无路由可走，`compact-basic` 的步后压力检查将步步告警，而不是被可证明地闲置（发布的 128k `contextWindow` 使该路径对小 fixture 保持闲置）。选择直接安装而非插入回放插件行是刻意的：直接安装返回收尾消费检查所需的 `ReplayHandle`。没有 fixture 的场景让 seam 保持空置，任何离群的流式调用都会以 NO_ADAPTER 大声失败。
 
@@ -28,7 +28,7 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 不做单次瞬态 DOM 断言：从回放产出到 React 提交的每一跳都可能合并分片，采样 `[data-streaming]` 天然就是竞态。流式输出的增量性由持久化的 `assistant/chunk` 事件断言（模型可见 ⟺ 已记录，使日志成为权威证据）。`dsh-llm-replay` 的可选 `paceMs`（默认缺省 = 突发）只是让浏览器观察到真正增量 SSE 的真实感旋钮；正确性绝不依赖它，且节奏等待期间中止会即时取消。
 
-每个场景都会因任何 pageerror 或客户端的连接丢失/间隙修复控制台警告而失败：否则重连机制加历史重同步会把一条死掉的 SSE 通路自愈掉，套件反而认证了坏 wire。Scaffold 的 `close()` 调用 `ReplayHandle.assertConsumed()` 收尾检查（每个已录脚本都被绑定、每个游标都耗尽），把静默的少放与错绑变成清晰诊断。车道不设 vitest 重试；每文件一个 chromium、每场景一个新 context、每场景一个 host；视口固定；交互选择器锚定 role、`data-*` 属性和可见文本，而 frame 与会话区采集则使用既有的 CSS 模块局部类名锚点。常规场景在客户端启动前设置 `dsh.locale=en`，使本地化的 role 定位器和预期输出统一采用明确指定的语言；只有 `settings-chrome.e2e.ts` 不预设该存储项，以覆盖默认中文状态及双向切换。
+每个场景都会因任何 pageerror 或客户端的连接丢失/间隙修复控制台警告而失败：否则重连机制加历史重同步会把一条死掉的 SSE 通路自愈掉，套件反而认证了坏 wire。Scaffold 的 `close()` 调用 `ReplayHandle.assertConsumed()` 收尾检查（每个已录脚本都被绑定、每个游标都耗尽），把静默的少放与错绑变成清晰诊断。车道不设 vitest 重试；每文件一个 chromium、每场景一个新 context、每场景一个 host；视口固定；交互选择器锚定 role、`data-*` 属性和可见文本，而 frame 与会话区采集则使用既有的 CSS 模块局部类名锚点。常规场景在客户端启动前设置 `dsh.locale=en`，使本地化的 role 定位器和预期输出统一采用明确指定的语言；断言中文文案的场景则不预设该存储项，改为开启 `zh-CN` 浏览器，因为客户端的初始 locale 由 `navigator` 推导（[由浏览器推导初始 locale](../feature/2026-07-31-browser-derived-initial-locale.md)），而 `settings-chrome.e2e.ts` 还额外覆盖双向切换与英文浏览器默认态。
 
 ### 预期输出
 
@@ -76,13 +76,12 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 ## Testing
 
-`pnpm run test:web` 构建并无密钥运行该车道；`test:web:built` 基于现有构建产物运行。`DSH_SNAPSHOT=record pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/<spec>` 对真实模型录制一个发起提示的场景，`DSH_SNAPSHOT=refresh pnpm run test:web` 则无密钥重写 aria 预期输出。CI 显式选择回放模式。`dsh-llm-replay` 单元覆盖率钉住节奏控制、取消、消费诊断、sidecar 校验、按索引替换与唯一的追加位置。
+`pnpm run test:web` 构建并无密钥运行该车道；`test:web:built` 基于现有构建产物运行。`DSH_SNAPSHOT=record pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/<spec>` 对真实模型录制一个发起提示的场景，`DSH_SNAPSHOT=refresh pnpm run test:web` 则无密钥重写 aria 预期输出。CI 显式选择回放模式。live-interactions AUTH 场景会把不可重试的终态失败钉为 Chat 内联状态，其中携带适合展示的消息与错误码，并验证提供方回显的凭据片段不会出现在 Chat 或 Trajectory 中；该场景同时覆盖输入框恢复与 `turn/end` 错误。scaffold 环境隔离场景会在全部 3 个环境 skill 根目录中分别填入不同条目，并要求这些条目都不得进入组装后的目录。`dsh-llm-replay` 单元覆盖率钉住节奏控制、取消、消费诊断、sidecar 校验、按索引替换与唯一的追加位置。
 
 ## 暂缓
 
 - **Web 头类别钉住**：web fixture 处处 token 化 `{{system}}`/`{{tools}}`，没有场景钉住 web 组合的提示词/工具 schema（`TODO(web-header-pin)`——scaffold 的 `recordFixture` JSDoc 有标记）。沿用 TUI 处处脱敏先例；当 web 组装的请求头与其镜像的 repl 组合进一步分叉时重审。
 - **恢复后追问场景**：真实 wire 上的历史/实时缝合路径；当该代码变更或回归时作为独立场景补充。
-- **Web 错误表面**：客户端不消费任何 `agent/error` 帧，分片前的失败也没有可冻结的部分输出，因此不可重试的提供方失败不渲染任何错误文案——用户看到的只是发送就此停住。AUTH 场景钉住当前契约（不崩溃、输入框恢复可用、轮次记录为 `error`），`FIXME(web-error-surface)` 标记了待 UI 长出错误渲染后断言可见错误文本的位置。
 - **输入框 steering 手势**：输入在运行期间锁定（只能停止或等待），因此 steering 场景从页面走 wire 做 steer；`TODO(web-steer-composer)` 待产品长出真实的输入框手势后，把驱动步骤升级为该手势。
 - **拖拽会话重排**：`workspace.insertSessionBefore` 尚无浏览器场景；它需要在同一个工作区里物化两个会话，并合成 HTML5 拖拽事件。当该表面变更或回归时再补充。无行为的会话 Rename/Fork/Delete 和工作区 Delete 菜单行待获得行为后再补充场景。
 

@@ -126,7 +126,9 @@ describe('child env layering (through the subprocess seam)', () => {
     // explicit entry merges after it and the child must see the value.
     const ctx = await setup({ MOCK_ECHO_ENV: 'DSH_ACP_TEST_FACT', DSH_ACP_TEST_FACT: 'managed' })
     const parent = { id: 'parent', session: { header: { cwd: process.cwd() } } } as unknown as Agent
-    const run = await ctx.subagents.start('acp', { prompt: [{ type: 'text' as const, text: 'p' }], parent, signal: new AbortController().signal })
+    const run = await ctx.subagents.start('acp', {
+      label: 'p', prompt: [{ type: 'text' as const, text: 'p' }], parent, signal: new AbortController().signal,
+    })
     const result = await run.result
     await run.dispose()
     const text = result.output.filter(b => b.type === 'text').map(b => (b as { text: string }).text).join('')

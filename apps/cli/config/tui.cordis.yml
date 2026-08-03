@@ -22,7 +22,7 @@
   config:
     agents:
       - id: main
-        provider: deepseek
+        provider: deepseek-official
         model: deepseek-v4-pro
         cwd: !!js process.cwd()
 
@@ -36,8 +36,8 @@
       Verify your work by running the code or tests. Keep answers brief and
       factual.
 
-# Shipped default: full thinking at max effort on every request (wire-only
-# defaults; they never enter the request header).
+# Shipped default: full thinking at max effort on every request. Exact-model
+# resolution materializes request defaults before the request header is logged.
 - id: llm-deepseek
   config:
     apiKey: !!js process.env.DEEPSEEK_API_KEY
@@ -46,7 +46,7 @@
     reasoningEffort: max
 
 # This single-session app resolves relative paths from the process cwd.
-- id: fs-local
+- id: fs-sandbox
   config:
     cwd: !!js process.cwd()
 
@@ -71,29 +71,17 @@
     - id: agent-loop-invariant
       name: '@deepseek-ai/dsh-agent-loop/invariant'
 
-    - id: session-checkpoint-policy
-      name: '@deepseek-ai/dsh-session-checkpoint-policy'
-
     # The derived query index behind `/resume`. The launcher provides a unique
     # process-local path because this SQLite backend has one writer owner; the
     # project-local fallback applies when no launcher sets the typed slot.
     - id: session-reference
       name: '@deepseek-ai/dsh-session-reference'
 
-    # Compacts oversized tool results before the broader conversation compactor
-    # runs, preserving the model-visible result within the configured budget.
-    - id: tool-result-prune
-      name: '@deepseek-ai/dsh-compact-tool-result-prune'
-
-    # Persisted same-session goals reach the model and the slash menu here; the
-    # domain, driver, and `/goal` command are in the base.
-    - id: tool-goal
-      name: '@deepseek-ai/dsh-tool-goal'
-
-    # A separate fixed consumer demonstrates fresh-agent Ralph iteration without
-    # changing the workflow tool or same-session goal behavior.
-    - id: tool-ralph
-      name: '@deepseek-ai/dsh-tool-ralph'
+    # Terminal-multiplexer context, mounted only where a terminal exists.
+    - id: tmux-context
+      name: '@deepseek-ai/dsh-tmux-context'
+      config:
+        refreshIntervalMs: 900000
 
     # The keyboard-backed provider behind ask_user_question and the plan-mode
     # review, and the front door it renders inside.

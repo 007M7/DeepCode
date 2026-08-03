@@ -5,7 +5,7 @@ import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/clie
 import type { InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
   AssistantMessageNode, ConversationContext,
-  SessionHistoryFace,
+  SessionHistoryFace, SnapshotStore,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import {
   deriveTrajectoryContextBranches, trajectoryBranchContainsRequest,
@@ -29,8 +29,12 @@ const EMPTY_IDS: ReadonlySet<number> = new Set()
 
 /** Session-history paging needed by the event-complete trajectory view. */
 export interface TrajectoryViewInjected {
-  hooks: { history: SessionHistoryFace }
+  hooks: {
+    history: SessionHistoryFace
+    duration: SnapshotStore<boolean>
+  }
   loadAllHistory: (signal: AbortSignal) => Promise<void>
+  setActualDuration: (actualDuration: boolean) => void
 }
 
 interface UsageLike {
@@ -102,7 +106,7 @@ function searchMatches(
           ...(cell.outputBlocks ?? []),
         ]
         const text = [
-          `turn ${turn.turn}`,
+          turn.turn === null ? 'between turns' : `turn ${turn.turn}`,
           group.title,
           cell.kind,
           cell.kind === 'message' ? 'assistant' : undefined,
@@ -134,7 +138,7 @@ function searchMatches(
 }
 
 export function TrajectoryView({
-  useHistory, loadAllHistory,
+  useHistory, useDuration, loadAllHistory, setActualDuration, inspect, onInspectDone,
 }: ConvViewProps & InjectFace<TrajectoryViewInjected>) {
   const [collapsedTurns, setCollapsedTurns] = useState<ReadonlySet<number>>(EMPTY_IDS)
   const [collapsedAssistants, setCollapsedAssistants] =
@@ -143,10 +147,13 @@ export function TrajectoryView({
     branchId: number
     range: TrajectoryTimeRange
   } | null>(null)
-  const [actualDuration, setActualDuration] = useState(false)
+  const actualDuration = useDuration(value => value)
   const [actualTime, setActualTime] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedTimelineIndex, setSelectedTimelineIndex] = useState<number | null>(null)
+  const [timelineRecordSelection, setTimelineRecordSelection] = useState<{
+    readonly index: number
+  } | null>(null)
   const ledgerRef = useRef<HTMLDivElement>(null)
   const inspection = useHistory(snapshot => snapshot.inspection)
   const nodes = inspection.eventNodes
@@ -380,13 +387,15 @@ export function TrajectoryView({
   const collapsibleTurnIds = useMemo(
     () => turns
       .filter(turn =>
+        turn.turn !== null
+        &&
         turn.groups.reduce(
           (count, group) =>
             count + group.cells.filter(cell =>
               cell.requestOnly !== true && cell.kind !== 'system').length,
           0,
         ) > 1)
-      .map(turn => turn.turn),
+      .flatMap(turn => turn.turn === null ? [] : [turn.turn]),
     [turns],
   )
   const allTurnsCollapsed = collapsibleTurnIds.length > 0
@@ -450,7 +459,7 @@ export function TrajectoryView({
   }
 
   return (
-    <div className={css.root}>
+    <div className={css.root} data-conversation-composer-overlay="">
       <TrajectoryToolbar
         actualDuration={actualDuration}
         onActualDurationChange={(nextActualDuration) => {
@@ -462,10 +471,8 @@ export function TrajectoryView({
           setActualTime(nextActualTime)
           setTimelineSelection(null)
         }}
-        collapsibleTurns={collapsibleTurnIds.length}
         allTurnsCollapsed={allTurnsCollapsed}
         onToggleAllTurns={toggleAllTurns}
-        collapsibleAssistants={collapsibleAssistantIds.length}
         allAssistantsCollapsed={allAssistantsCollapsed}
         onToggleAllAssistants={toggleAllAssistants}
         searchQuery={searchQuery}
@@ -478,7 +485,20 @@ export function TrajectoryView({
         selectedIndex={selectedTimelineIndex}
         searchMatchIndexes={searchMatchIndexes}
         onRangeChange={(range) => {
-          setTimelineSelection(range === null ? null : { branchId: currentBranch.id, range })
+          setTimelineSelection(range === null ? null : {
+            branchId: currentBranch.id,
+            range,
+          })
+        }}
+        onRecordSelect={(index) => {
+          setTimelineSelection(null)
+          setTimelineRecordSelection({ index })
+          setSelectedTimelineIndex(index)
+          const row = ledgerRef.current
+            ?.querySelector<HTMLElement>(`tr[data-record-index="${index}"]`)
+          if (row !== undefined && row !== null && typeof row.scrollIntoView === 'function') {
+            row.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          }
         }}
         onRecordFocus={(index) => {
           const row = ledgerRef.current
@@ -497,11 +517,14 @@ export function TrajectoryView({
           searchMatchIndexes={searchMatchIndexes}
           onSelectedIndexChange={setSelectedTimelineIndex}
           onRecordSelect={handleRecordSelect}
+          recordSelection={timelineRecordSelection}
           onClearSelection={() => { setTimelineSelection(null) }}
           collapsedTurns={collapsedTurns}
           onToggleTurn={toggleTurn}
           collapsedAssistants={collapsedAssistants}
           onToggleAssistant={toggleAssistant}
+          inspectCallId={inspect?.callId ?? null}
+          onInspectApplied={onInspectDone}
         />
       </div>
     </div>

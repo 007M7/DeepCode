@@ -32,7 +32,7 @@ Effective broad cancellation was requested, before queued/outbox work is cleared
 
 Types: [Agent](../core-data-structures/core.md) · [AgentCancelCause](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:319`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:353`](../../packages/core/agent/src/types.ts)
 
 ### `agent/created` — emit
 
@@ -54,7 +54,7 @@ A fully configured agent and live session were published. Setup is composition-o
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:250`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:284`](../../packages/core/agent/src/types.ts)
 
 ### `agent/disposed` — emit
 
@@ -74,7 +74,7 @@ An agent left the registry; AgentLoop emits this after driver quiescence and sco
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:259`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:293`](../../packages/core/agent/src/types.ts)
 
 ### `agent/error` — emit
 
@@ -96,7 +96,7 @@ A step or turn errored. The machine reports a failure here (plus the logger) eve
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:433`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:467`](../../packages/core/agent/src/types.ts)
 
 ### `agent/inbox/dequeue` — emit
 
@@ -117,7 +117,7 @@ The driver claimed one item out of the inbox: a queued item at a turn boundary, 
 
 Types: [Agent](../core-data-structures/core.md) · [InboxItem](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:297`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:331`](../../packages/core/agent/src/types.ts)
 
 ### `agent/inbox/discard` — emit
 
@@ -140,7 +140,7 @@ Pending inbox items were dropped without delivering them, so every enqueue occur
 
 Types: [Agent](../core-data-structures/core.md) · [InboxItem](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:309`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:343`](../../packages/core/agent/src/types.ts)
 
 ### `agent/inbox/enqueue` — emit
 
@@ -161,7 +161,7 @@ An item entered the queued or steering inbox. `placement` is the acceptance-time
 
 Types: [Agent](../core-data-structures/core.md) · [InboxItem](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:278`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:312`](../../packages/core/agent/src/types.ts)
 
 ### `agent/inbox/update` — emit
 
@@ -181,7 +181,7 @@ A still-pending queued item changed content. The item id, placement, and positio
 
 Types: [Agent](../core-data-structures/core.md) · [InboxItem](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:287`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:321`](../../packages/core/agent/src/types.ts)
 
 ### `agent/prompt-submit` — waterfall
 
@@ -204,7 +204,7 @@ Allow, rewrite, or block one claimed prompt before it becomes a user message or 
 
 Types: [Agent](../core-data-structures/core.md) · [PromptDecision](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
 
-Source: [`packages/core/agent/src/types.ts:346`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:380`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request` — waterfall
 
@@ -228,7 +228,7 @@ Replace the frozen call configuration. `await next()` yields the config the mach
 
 Types: [Agent](../core-data-structures/core.md) · [LlmCallConfig](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:372`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:406`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request-error` — waterfall
 
@@ -258,7 +258,7 @@ Handle a model-request failure after its failed step has closed but before the f
 
 Types: [Agent](../core-data-structures/core.md) · [LlmFailure](../core-data-structures/llm-streaming.md) · [RequestError](../core-data-structures/core.md) · [RequestErrorAction](../core-data-structures/core.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:391`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:425`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-start` — emit
 
@@ -280,7 +280,7 @@ The session lifecycle began, once before the first turn. Use `agent.inject()` to
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [SessionStartSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:332`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:366`](../../packages/core/agent/src/types.ts)
 
 ### `agent/settled` — emit
 
@@ -305,7 +305,7 @@ One drain chain reached its terminal turn: that turn's `turn/end` is already com
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [SettleReason](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:420`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:454`](../../packages/core/agent/src/types.ts)
 
 ### `agent/status` — emit
 
@@ -325,7 +325,7 @@ Agent status changed (`idle` ⇄ `running`). `send()` does not enter `running` s
 
 Types: [Agent](../core-data-structures/core.md) · [AgentStatus](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:268`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:302`](../../packages/core/agent/src/types.ts)
 
 ### `agent/step` — serial
 
@@ -349,7 +349,7 @@ Awaited serial checkpoint before EVERY request of a turn is built (the first as 
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:359`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:393`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-stopping` — serial
 
@@ -375,7 +375,7 @@ The turn is about to close: the model owes no response (no live tool calls, no f
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:406`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:440`](../../packages/core/agent/src/types.ts)
 
 ## `agent-loop/*`
 
@@ -438,6 +438,32 @@ A command was registered or unregistered. This is an unfiltered registry notific
 ```
 
 Source: [`packages/ui/commands/src/index.ts:154`](../../packages/ui/commands/src/index.ts)
+
+## `credentials/*`
+
+### `credentials/updated` — emit
+
+Committed change to a provider-managed credential source: a `set`, an `unset`, or an external edit observed in storage. Ambient process-environment changes are not observable and never emit. Listener failures are contained and logged — a sync throw and an async rejection alike — without changing the committed operation's outcome, except `INVARIANT`-coded failures, which rethrow after every listener ran; that rethrow reaches the emitter only from synchronous listeners, so invariant checks on this event must not be async functions.
+
+```ts cordis-catalog
+/**
+ * Committed change to a provider-managed credential source: a `set`, an
+ * `unset`, or an external edit observed in storage. Ambient
+ * process-environment changes are not observable and never emit. Listener
+ * failures are contained and logged — a sync throw and an async rejection
+ * alike — without changing the committed operation's outcome, except
+ * `INVARIANT`-coded failures, which rethrow after every listener ran;
+ * that rethrow reaches the emitter only from synchronous listeners, so
+ * invariant checks on this event must not be async functions.
+ * @param ref - the reference whose stored value changed.
+ * @mode emit
+ */
+'credentials/updated'(ref: CredentialRef): void
+```
+
+Types: [CredentialRef](../core-data-structures/credentials.md)
+
+Source: [`packages/credentials/credentials/src/index.ts:67`](../../packages/credentials/credentials/src/index.ts)
 
 ## `domain/*`
 
@@ -545,6 +571,25 @@ Source: [`packages/goal/goal/src/domain.ts:135`](../../packages/goal/goal/src/do
 
 ## `llm/*`
 
+### `llm/adapters-updated` — emit
+
+The provider topology changed: an adapter registered or unregistered routes, or the configurable-provider directory gained or lost entries. This is a payload-free registry notification fired at each commit point (including registration disposal); consumers re-read `listProviders()`, `listModels()`, or `listConfigurableProviders()` for the new state. Observer failures are contained and cannot veto the registry mutation.
+
+```ts cordis-catalog
+/**
+ * The provider topology changed: an adapter registered or unregistered
+ * routes, or the configurable-provider directory gained or lost entries.
+ * This is a payload-free registry notification fired at each commit point
+ * (including registration disposal); consumers re-read `listProviders()`,
+ * `listModels()`, or `listConfigurableProviders()` for the new state.
+ * Observer failures are contained and cannot veto the registry mutation.
+ * @mode emit
+ */
+'llm/adapters-updated'(): void
+```
+
+Source: [`packages/llm/llm/src/index.ts:71`](../../packages/llm/llm/src/index.ts)
+
 ### `llm/stream` — waterfall
 
 Waterfall around every streaming model call (retry, replay, routing). Bound to the LlmService; call `next()` to reach the resolved adapter's stream, or yield your own chunks to short-circuit.
@@ -567,7 +612,7 @@ Waterfall around every streaming model call (retry, replay, routing). Bound to t
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [LlmService](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:58`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:60`](../../packages/llm/llm/src/index.ts)
 
 ## `session/*`
 
@@ -640,13 +685,12 @@ Source: [`packages/core/session/src/index.ts:93`](../../packages/core/session/sr
 
 ### `session/flush` — parallel
 
-Awaited parallel durability checkpoint: every listener runs and the caller awaits all of them, with no waterfall veto. Dispatch through SessionStore.flush. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) reuses the session's owner scope.
+Awaited parallel durability checkpoint: every listener runs and the caller awaits all of them, with no waterfall veto. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) reuses the session's owner scope.
 
 ```ts cordis-catalog
 /**
  * Awaited parallel durability checkpoint: every listener runs and the
- * caller awaits all of them, with no waterfall veto. Dispatch through
- * {@link SessionStore.flush}. Scope-filtered dispatch
+ * caller awaits all of them, with no waterfall veto. Scope-filtered dispatch
  * (`@deepseek-ai/dsh-scope`) reuses the session's owner scope.
  * @param session - the session whose buffered events must reach durable storage.
  * @dshScopeScan unsupported
@@ -657,9 +701,32 @@ Awaited parallel durability checkpoint: every listener runs and the caller await
 
 Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:103`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:102`](../../packages/core/session/src/index.ts)
 
 ## `settings/*`
+
+### `settings/document-updated` — emit
+
+One registered namespace's RAW user section changed, whether or not the resolved value did. `settings/updated` is the consumer-facing event and stays deep-equal-gated; this one exists for configuration surfaces, which must learn that a field went from inherited to overridden (same resolved value, different meaning) and that their held revision is stale. Listener containment matches `settings/updated`.
+
+```ts cordis-catalog
+/**
+ * One registered namespace's RAW user section changed, whether or not the
+ * resolved value did. `settings/updated` is the consumer-facing event and
+ * stays deep-equal-gated; this one exists for configuration surfaces,
+ * which must learn that a field went from inherited to overridden (same
+ * resolved value, different meaning) and that their held revision is
+ * stale. Listener containment matches `settings/updated`.
+ * @param ns - the namespace whose stored section changed.
+ * @param revision - the namespace's new revision.
+ * @mode emit
+ */
+'settings/document-updated'(ns: SettingsNamespace, revision: number): void
+```
+
+Types: [SettingsNamespace](../core-data-structures/settings.md)
+
+Source: [`packages/settings/settings/src/index.ts:150`](../../packages/settings/settings/src/index.ts)
 
 ### `settings/updated` — emit
 
@@ -686,7 +753,7 @@ Committed change to one registered namespace's resolved value. Emitted after the
 
 Types: [SettingsNamespace](../core-data-structures/settings.md) · [SettingsUpdateSource](../core-data-structures/settings.md)
 
-Source: [`packages/settings/settings/src/index.ts:108`](../../packages/settings/settings/src/index.ts)
+Source: [`packages/settings/settings/src/index.ts:137`](../../packages/settings/settings/src/index.ts)
 
 ## `skills/*`
 
@@ -711,11 +778,11 @@ Source: [`packages/skill/skill/src/index.ts:188`](../../packages/skill/skill/src
 
 ### `subagent/end` — emit
 
-A ready child settled. Scope-filtered dispatch uses the same delegating parent carrier as `subagent/start`, so the lifecycle pair reaches the same scoped audience.
+A published child settled. Scope-filtered dispatch uses the same delegating parent carrier as `subagent/start`, so the lifecycle pair reaches the same scoped audience.
 
 ```ts cordis-catalog
 /**
- * A ready child settled. Scope-filtered dispatch uses the same delegating
+ * A published child settled. Scope-filtered dispatch uses the same delegating
  * parent carrier as `subagent/start`, so the lifecycle pair reaches the
  * same scoped audience.
  * @param info - the run identity and terminal outcome.
@@ -727,7 +794,7 @@ A ready child settled. Scope-filtered dispatch uses the same delegating parent c
 
 Types: [Scoped](../core-data-structures/scope.md) · [SubagentService](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:140`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:160`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/provider-added` — emit
 
@@ -744,7 +811,7 @@ A provider became resolvable in the registry.
 
 Types: [SubagentProvider](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:114`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:134`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/provider-removed` — emit
 
@@ -759,20 +826,20 @@ A provider left the registry. Accepted runs remain holder-owned.
 'subagent/provider-removed'(name: string): void
 ```
 
-Source: [`packages/subagent/subagent/src/index.ts:120`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:140`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/start` — emit
 
-A provider established a ready child. For in-process providers, `ctx.agents.get(info.id)` resolves during this notification. Scope-filtered dispatch keys the carrier by the delegating parent, so a parent-scoped listener observes only its own delegations. Paired with `subagent/end`.
+A provider established a published child. For in-process providers, `ctx.agents.get(info.id)` resolves during this notification. Scope-filtered dispatch keys the carrier by the delegating parent, so a parent-scoped listener observes only its own delegations. Paired with `subagent/end`.
 
 ```ts cordis-catalog
 /**
- * A provider established a ready child. For in-process providers,
+ * A provider established a published child. For in-process providers,
  * `ctx.agents.get(info.id)` resolves during this notification.
  * Scope-filtered dispatch keys the carrier by the delegating parent, so a
  * parent-scoped listener observes only its own delegations. Paired with
  * `subagent/end`.
- * @param info - the provider and ready child identity.
+ * @param info - the provider and published child identity.
  * @dshScopeScan unsupported
  * @mode emit
  */
@@ -781,17 +848,17 @@ A provider established a ready child. For in-process providers, `ctx.agents.get(
 
 Types: [Scoped](../core-data-structures/scope.md) · [SubagentService](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:131`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:151`](../../packages/subagent/subagent/src/index.ts)
 
 ## `system-prompt/*`
 
 ### `system-prompt/assemble` — waterfall
 
-Expert waterfall over the assembled sections, tools, and variables. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): scoped listeners receive only that scope's assemblies. The returned value is authoritative. A supplied signal controls only this explicit assembly request and must not be retained to control later turns.
+Expert waterfall over the assembled sections, contexts, tools, and variables. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): scoped listeners receive only that scope's assemblies. The returned value is authoritative. A supplied signal controls only this explicit assembly request and must not be retained to control later turns.
 
 ```ts cordis-catalog
 /**
- * Expert waterfall over the assembled sections, tools, and variables.
+ * Expert waterfall over the assembled sections, contexts, tools, and variables.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): scoped listeners
  * receive only that scope's assemblies. The returned value is authoritative.
  * A supplied signal controls only this explicit assembly request and must not
@@ -870,7 +937,7 @@ A tool was registered or unregistered, or a scoped restriction changed (the avai
 'tools/change'(): void
 ```
 
-Source: [`packages/core/tools/src/index.ts:156`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:167`](../../packages/core/tools/src/index.ts)
 
 ### `tools/code-dispatch-log` — waterfall
 
@@ -894,7 +961,7 @@ Shape the DURABLE LOG COPY of one `run_code` sub-dispatch outcome before the bri
 
 Types: [CodeDispatchLog](../core-data-structures/tools.md) · [ContentBlock](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [ToolRegistry](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:138`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:149`](../../packages/core/tools/src/index.ts)
 
 ### `tools/execute` — waterfall
 
@@ -916,7 +983,7 @@ Around-dispatch waterfall for timeout, retry, or metrics. `next()` returns a nor
 
 Types: [Scoped](../core-data-structures/scope.md) · [ToolDispatchExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:113`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:124`](../../packages/core/tools/src/index.ts)
 
 ### `tools/post-execute` — waterfall
 
@@ -939,7 +1006,7 @@ Accept, replace, enrich, or block a normalized dispatch result. `next()` accepts
 
 Types: [PostToolDecision](../core-data-structures/tools.md) · [Scoped](../core-data-structures/scope.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:125`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:136`](../../packages/core/tools/src/index.ts)
 
 ### `tools/pre-execute` — waterfall
 
@@ -960,7 +1027,7 @@ Allow, deny, or ask before dispatch. `next()` delegates to allow; missing approv
 
 Types: [PreToolDecision](../core-data-structures/tools.md) · [Scoped](../core-data-structures/scope.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:102`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:113`](../../packages/core/tools/src/index.ts)
 
 ### `tools/result` — emit
 
@@ -979,7 +1046,7 @@ Observe the frozen, lossless-JSON final outcome. Listener failures are contained
 
 Types: [Scoped](../core-data-structures/scope.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:146`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:157`](../../packages/core/tools/src/index.ts)
 
 ## `workflow/*`
 
@@ -1007,13 +1074,13 @@ Source: [`packages/workflow/workflow/src/index.ts:81`](../../packages/workflow/w
 
 ### `workflow/agent-start` — emit
 
-One `agent()` call established a ready child run. Paired with Events['workflow/agent-end'] by `agent.seq`. A call that never receives a ready run from the provider emits neither event in this pair.
+One `agent()` call established a published child run. Paired with Events['workflow/agent-end'] by `agent.seq`. A call that never receives a published run from the provider emits neither event in this pair.
 
 ```ts cordis-catalog
 /**
- * One `agent()` call established a ready child run. Paired with
+ * One `agent()` call established a published child run. Paired with
  * {@link Events['workflow/agent-end']} by `agent.seq`. A call that never
- * receives a ready run from the provider emits neither
+ * receives a published run from the provider emits neither
  * event in this pair.
  * @param info - the run's identity snapshot.
  * @param agent - the call's sequence number, label, phase, and child id.
@@ -1115,7 +1182,8 @@ The framework events every plugin also sees, beyond the harness vocabulary above
 - `internal/listener` — A listener was registered. ([`vendor/cordis/src/events.ts:340`](../../vendor/cordis/src/events.ts))
 - `internal/dispatch` — An event is being dispatched to listeners. ([`vendor/cordis/src/events.ts:342`](../../vendor/cordis/src/events.ts))
 - `hmr/change` — A watched source file changed on disk. ([`vendor/hmr/src/index.ts:20`](../../vendor/hmr/src/index.ts))
-- `hmr/reload` — Plugins are being reloaded after a change. ([`vendor/hmr/src/index.ts:21`](../../vendor/hmr/src/index.ts))
+- `hmr/reload` — Plugins are being reloaded after a change. ([`vendor/hmr/src/index.ts:22`](../../vendor/hmr/src/index.ts))
+- `hmr/config-update-failed` — A watched config-file refresh failed. ([`vendor/hmr/src/index.ts:29`](../../vendor/hmr/src/index.ts))
 - `exit` — The process is exiting on a signal. ([`vendor/loader/src/index.ts:23`](../../vendor/loader/src/index.ts))
 - `loader/config-update` — The loader config tree changed. ([`vendor/loader/src/index.ts:24`](../../vendor/loader/src/index.ts))
 - `loader/entry-init` — A config entry is being initialized. ([`vendor/loader/src/index.ts:25`](../../vendor/loader/src/index.ts))

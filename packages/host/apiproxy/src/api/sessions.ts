@@ -129,6 +129,7 @@ export interface SessionModels {
 export type QueueAction =
   | { kind: 'edit'; content: ContentBlock[] }
   | { kind: 'remove' }
+  | { kind: 'steer' }
 
 /** Session list entry (v1 builds no index: list does readdir+stat). */
 export interface SessionSummary {
@@ -153,6 +154,8 @@ export interface SessionSummary {
   blank: boolean
   /** fork/spawn lineage (session.header.parentSession passthrough); absent for root sessions. */
   parentSessionId?: SessionId
+  /** Coarse durable origin used by navigation surfaces; never proves resumability. */
+  origin?: 'subagent'
   /** Session working directory (header.cwd passthrough); absent when unrecorded. */
   cwd?: string
   /**
@@ -169,10 +172,27 @@ export interface SessionSummary {
   projections?: SessionProjectionsBlock
 }
 
+/** One session-content search result; display metadata stays owned by `session.list`. */
+export interface SessionSearchItem {
+  sessionId: SessionId
+  /** Plain-text excerpt around the strongest matching visible message. */
+  snippet: string
+}
+
 /** Session-domain unary methods (the map keys session.* of RpcMethodMap). */
 export interface SessionsApi {
   /** Lists persisted sessions (updatedAt descending). v1 returns everything; cursor is a reserved seat, unimplemented. */
   list(request: RpcRequest<{ cursor?: string }>): Promise<RpcResponse<{ items: SessionSummary[] }>>
+
+  /**
+   * Searches the current user/assistant/steering message surface across
+   * sessions visible to `list`. Results contain at most 20 sessions and carry
+   * no continuation cursor; `hasMore` asks the client to refine the query.
+   */
+  search(
+    request: RpcRequest<{ query: string }>,
+    signal: AbortSignal,
+  ): Promise<RpcResponse<{ items: SessionSearchItem[]; hasMore: boolean }>>
 
   /**
    * Creates a real session and its idle agent. At most one of `workspaceId` /
@@ -200,17 +220,22 @@ export interface SessionsApi {
    * the client needs a fresh baseline already pulls the tail page, and
    * loadOlder (the only beforeSeq path) is the only path that never needs one.
    * A deployment without the registry serves histories without the block.
+   * Reading history uses an attached Session or persistence inspection and
+   * never resumes or publishes an Agent.
    */
   history(request: RpcRequest<{ sessionId: SessionId; beforeSeq?: number; maxMessages?: number }>):
   Promise<RpcResponse<{ events: HistoryEntry[]; hasMore: boolean; projections?: SessionProjectionsBlock }>>
 
-  /** Reads a fresh advisory model directory for this session. Provider lookups run independently. */
+  /**
+   * Reads a fresh advisory model directory for an ordinary session. Provider
+   * lookups run independently; subagents reject with `agent-busy`.
+   */
   models(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<SessionModels>>
 
   /**
    * Selects the complete target for this session. Exact model metadata
    * validates an optional reasoning effort, while catalog membership remains
-   * advisory.
+   * advisory. Session-backed subagents reject with `agent-busy`.
    */
   selectModel(request: RpcRequest<{
     sessionId: SessionId
@@ -226,6 +251,7 @@ export interface SessionsApi {
    * normalized accepted title and the title event's seq return so the caller
    * can settle its projection cell without waiting for the push frame. A
    * title that normalizes to empty fails with `title-invalid`.
+   * Session-backed subagents reject with `agent-busy`.
    */
   rename(request: RpcRequest<{ sessionId: SessionId; title: string }>):
   Promise<RpcResponse<{ title: string; seq: number }>>
@@ -238,16 +264,39 @@ export interface SessionsApi {
    * one — carried for future rendering; the state change is the feedback). A usage/state error is an
    * RPC error with code command-error; an unrecognized name is an RPC error with code unknown-command.
    */
+  /**
+   * Forks a new session from a completed-turn prefix of the source. `atSeq`
+   * anchors the cut: the boundary is the first `turn/end` at or after it
+   * (a message's fork button passes the message seq, so the fork includes
+   * that whole turn); a boundary past the log end, or an omitted `atSeq`,
+   * falls back to the source's last completed turn. An in-log anchor whose
+   * turn is still open fails with `fork-unavailable` instead of clipping to
+   * an earlier turn. The child inherits the source cwd, latest logged model
+   * target and `parentSessionId` lineage; the seed prefix carries the source
+   * title. Reading the source uses attached state or persistence inspection
+   * without acquiring an Agent. Workspace attachment follows the source
+   * directly, or the nearest workspace-owning ancestor when the source is a
+   * subagent.
+   */
+  fork(request: RpcRequest<{ sessionId: SessionId; atSeq?: number }>):
+  Promise<RpcResponse<{ sessionId: SessionId }>>
+
+  /** Sends a message to an ordinary session Agent. Session-backed subagents reject with `agent-busy` and use `subagent.prompt`. */
   prompt(request: RpcRequest<{ sessionId: SessionId; mode: 'queue' | 'steer'; content: ContentBlock[] }>):
   Promise<RpcResponse<{ accepted: true; command?: { kind: 'success'; text?: string } }>>
 
   /**
-   * Edits or removes one pending queued occurrence.
+   * Edits, removes, or strictly steers one pending queued occurrence on an ordinary session.
+   * Session-backed subagents reject with `agent-busy`.
    */
   updateQueue(request: RpcRequest<{ sessionId: SessionId; itemId: InboxItemId; action: QueueAction }>):
   Promise<RpcResponse<{ accepted: true }>>
 
-  /** Stops: clears both FIFOs + aborts the current step (1:1 with agent.cancel). */
+  /**
+   * Stops an ordinary session's active turn, preserving pending inbox work
+   * that resumes in FIFO order after cancellation settles. Session-backed
+   * subagents reject with `agent-busy`.
+   */
   cancel(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<{ accepted: true }>>
 
 }

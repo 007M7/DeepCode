@@ -254,7 +254,7 @@ describe('agent loop', () => {
     // NO system field at all (not an empty string).
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    ctx.on('system-prompt/assemble', async () => ({ sections: [], tools: [], variables: {} }))
+    ctx.on('system-prompt/assemble', async () => ({ sections: [], contexts: [], tools: [], variables: {} }))
     const agent = ctx.agentLoop.create(SessionId('a-no-system'), { provider: 'mock', model: 'mock' })
 
     send(agent, 'hi')
@@ -262,6 +262,178 @@ describe('agent loop', () => {
 
     expect(adapter.requests).toHaveLength(1)
     expect('system' in adapter.requests[0]!).toBe(false)
+  })
+
+  it('materializes changed runtime context at the history tail without rewriting the system header', async () => {
+    const adapter = new MockAdapter([
+      textResponse('one'),
+      textResponse('two'),
+      textResponse('three'),
+      textResponse('four'),
+      textResponse('five'),
+    ])
+    const ctx = await harness(adapter)
+    let mode = 'read-only'
+    const dispose = ctx.systemPrompt.context({ name: 'policy', order: 0, text: () => `Mode: ${mode}.` })
+    const agent = ctx.agentLoop.create(SessionId('a-runtime-context'), { provider: 'mock', model: 'mock' })
+    const contextEvents = () => agent.session.events.flatMap(event =>
+      event.type === 'user/message'
+        && event.data.source.kind === 'plugin'
+        && event.data.source.plugin === '@deepseek-ai/dsh-system-prompt'
+        ? [event]
+        : [])
+
+    send(agent, 'first')
+    await waitForIdle(ctx, agent)
+    expect(contextEvents()).toHaveLength(1)
+    expect(contextEvents()[0]?.data.content).toEqual([{
+      type: 'text',
+      text: 'Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\n\nMode: read-only.',
+    }])
+
+    send(agent, 'unchanged')
+    await waitForIdle(ctx, agent)
+    expect(contextEvents()).toHaveLength(1)
+
+    mode = 'danger-full-access'
+    send(agent, 'changed')
+    await waitForIdle(ctx, agent)
+    expect(contextEvents()).toHaveLength(2)
+    const changedBlock = contextEvents()[1]?.data.content[0]
+    expect(changedBlock?.type).toBe('text')
+    if (changedBlock?.type !== 'text') throw new Error('changed runtime context is not text')
+    expect(changedBlock.text).toContain('danger-full-access')
+
+    dispose()
+    send(agent, 'cleared')
+    await waitForIdle(ctx, agent)
+    expect(contextEvents()).toHaveLength(3)
+    expect(contextEvents()[2]?.data.content).toEqual([{
+      type: 'text',
+      text: 'Current runtime context: none. Earlier runtime-context snapshots no longer apply.',
+    }])
+
+    send(agent, 'still clear')
+    await waitForIdle(ctx, agent)
+    expect(contextEvents()).toHaveLength(3)
+    expect(adapter.requests.map(request => request.system)).toEqual(Array(5).fill(adapter.requests[0]?.system))
+    expect(agent.session.events.filter(event => event.type === 'request/header')).toHaveLength(1)
+  })
+
+  it('re-emits unchanged runtime context when a surface replacement removed the retained snapshot', async () => {
+    const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
+    const ctx = await harness(adapter)
+    ctx.systemPrompt.context({ name: 'policy', order: 0, text: 'Mode: read-only.' })
+    const agent = ctx.agentLoop.create(SessionId('a-runtime-context-compacted'), { provider: 'mock', model: 'mock' })
+
+    send(agent, 'first')
+    await waitForIdle(ctx, agent)
+    const contextEvent = agent.session.events.find(event =>
+      event.type === 'user/message'
+      && event.data.source.kind === 'plugin'
+      && event.data.source.plugin === '@deepseek-ai/dsh-system-prompt')
+    if (contextEvent?.type !== 'user/message') throw new Error('first turn did not materialize runtime context')
+    agent.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'compacted summary' }],
+      source: { kind: 'plugin', plugin: 'test-compaction' },
+    }), {
+      surfaceOp: { op: 'replace', start: contextEvent.seq, end: contextEvent.seq },
+      sourceEventSeqs: [contextEvent.seq],
+    })
+
+    send(agent, 'after compaction')
+    await waitForIdle(ctx, agent)
+    const runtimeContexts = agent.session.events.flatMap(event =>
+      event.type === 'user/message'
+        && event.data.source.kind === 'plugin'
+        && event.data.source.plugin === '@deepseek-ai/dsh-system-prompt'
+        ? [event]
+        : [])
+    expect(runtimeContexts).toHaveLength(2)
+    expect(adapter.requests[1]?.messages.some(message =>
+      message.source.kind === 'plugin'
+      && message.source.plugin === '@deepseek-ai/dsh-system-prompt')).toBe(true)
+  })
+
+  it('clears compacted runtime context after the active set becomes empty', async () => {
+    const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
+    const ctx = await harness(adapter)
+    const dispose = ctx.systemPrompt.context({ name: 'policy', order: 0, text: 'Mode: read-only.' })
+    const agent = ctx.agentLoop.create(SessionId('a-runtime-context-compacted-clear'), { provider: 'mock', model: 'mock' })
+
+    send(agent, 'first')
+    await waitForIdle(ctx, agent)
+    const contextEvent = agent.session.events.find(event =>
+      event.type === 'user/message'
+      && event.data.source.kind === 'plugin'
+      && event.data.source.plugin === '@deepseek-ai/dsh-system-prompt')
+    if (contextEvent?.type !== 'user/message') throw new Error('first turn did not materialize runtime context')
+    agent.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'summary retaining old mode: read-only' }],
+      source: { kind: 'plugin', plugin: 'test-compaction' },
+    }), {
+      surfaceOp: { op: 'replace', start: contextEvent.seq, end: contextEvent.seq },
+      sourceEventSeqs: [contextEvent.seq],
+    })
+    dispose()
+
+    send(agent, 'after compaction')
+    await waitForIdle(ctx, agent)
+    const clearing = adapter.requests[1]?.messages.find(message =>
+      message.source.kind === 'plugin'
+      && message.source.plugin === '@deepseek-ai/dsh-system-prompt')
+    expect(clearing?.content).toEqual([{
+      type: 'text',
+      text: 'Current runtime context: none. Earlier runtime-context snapshots no longer apply.',
+    }])
+  })
+
+  it('does not clear runtime context after an unrelated replacement', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('a-runtime-context-unrelated-compaction'), { provider: 'mock', model: 'mock' })
+    const original = agent.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'old context' }],
+      source: { kind: 'plugin', plugin: 'test-context' },
+    }), { surfaceOp: 'append' })
+    agent.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'compacted summary' }],
+      source: { kind: 'plugin', plugin: 'test-compaction' },
+    }), {
+      surfaceOp: { op: 'replace', start: original.seq, end: original.seq },
+      sourceEventSeqs: [original.seq],
+    })
+
+    send(agent, 'after compaction')
+    await waitForIdle(ctx, agent)
+    expect(adapter.requests[0]?.messages.some(message =>
+      message.source.kind === 'plugin'
+      && message.source.plugin === '@deepseek-ai/dsh-system-prompt')).toBe(false)
+  })
+
+  it('replaces a malformed retained runtime-context message with the current complete snapshot', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    ctx.systemPrompt.context({ name: 'policy', order: 0, text: 'Mode: read-only.' })
+    const agent = ctx.agentLoop.create(SessionId('a-runtime-context-malformed'), { provider: 'mock', model: 'mock' })
+    agent.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'broken' }, { type: 'text', text: 'snapshot' }],
+      source: { kind: 'plugin', plugin: '@deepseek-ai/dsh-system-prompt' },
+    }), { surfaceOp: 'append' })
+
+    send(agent, 'repair context')
+    await waitForIdle(ctx, agent)
+    const runtimeContexts = agent.session.events.flatMap(event =>
+      event.type === 'user/message'
+        && event.data.source.kind === 'plugin'
+        && event.data.source.plugin === '@deepseek-ai/dsh-system-prompt'
+        ? [event]
+        : [])
+    expect(runtimeContexts).toHaveLength(2)
+    expect(runtimeContexts[1]?.data.content).toEqual([{
+      type: 'text',
+      text: 'Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\n\nMode: read-only.',
+    }])
   })
 
   it('records raw chunks for replay as assistant/chunk session events', async () => {
@@ -298,7 +470,10 @@ describe('agent loop', () => {
       parameters: {},
       async execute() {
         // steer while the turn is running (during tool execution)
-        agent.steer(createUserMessage({ content: [{ type: 'text', text: 'change of plans' }], source: { kind: 'user' } }))
+        agent.send(
+          createUserMessage({ content: [{ type: 'text', text: 'change of plans' }], source: { kind: 'user' } }),
+          { target: 'next-step', wakeup: true },
+        )
         return [{ type: 'text', text: 'tool done' }]
       },
     }))
@@ -370,6 +545,120 @@ describe('agent loop', () => {
     expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(2)
     expect(agent.session.events.some(event => event.type === 'steering/message')).toBe(true)
     expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('pending steering')
+  })
+
+  it('rejects failed steering commits while preserving later context', async () => {
+    const adapter = new MockAdapter([textResponse('recovered')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('failed-steering-commit'), { provider: 'mock', model: 'mock' })
+    let receipt: ReturnType<Agent['steer']> | undefined
+    ctx.on('agent/step', (subject) => {
+      if (subject !== agent || receipt !== undefined) return
+      receipt = subject.steer(createUserMessage({
+        content: [{ type: 'text', text: 'rejected steering' }],
+        source: { kind: 'user' },
+      }))
+      subject.inject(createUserMessage({
+        content: [{ type: 'text', text: 'preserved context' }],
+        source: { kind: 'plugin', plugin: 'loop-test' },
+      }))
+    })
+    let rejected = false
+    ctx.on('internal/dispatch', (_mode, name, args) => {
+      if (name !== 'session/event') return
+      const event = args[1] as { type: string }
+      if (event.type === 'steering/message' && !rejected) {
+        rejected = true
+        throw new Error('reject steering commit')
+      }
+    })
+
+    send(agent, 'first prompt')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests).toHaveLength(0)
+    if (receipt === undefined) throw new Error('agent/step did not submit steering')
+    expect(await receipt.outcome).toEqual({ status: 'rejected' })
+    expect(agent.session.events.some(event => event.type === 'steering/message')).toBe(false)
+
+    send(agent, 'recover')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests).toHaveLength(1)
+    const request = JSON.stringify(adapter.requests[0]?.messages)
+    expect(request).toContain('preserved context')
+    expect(request).not.toContain('rejected steering')
+  })
+
+  it('rejects committed steering when the step boundary fails', async () => {
+    const adapter = new MockAdapter([])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('failed-step-boundary'), { provider: 'mock', model: 'mock' })
+    let receipt: ReturnType<Agent['steer']> | undefined
+    ctx.on('agent/step', (subject) => {
+      if (subject !== agent || receipt !== undefined) return
+      receipt = subject.steer(createUserMessage({
+        content: [{ type: 'text', text: 'committed steering' }],
+        source: { kind: 'user' },
+      }))
+    })
+    ctx.on('internal/dispatch', (_mode, name, args) => {
+      if (name !== 'session/event') return
+      const event = args[1] as { type: string }
+      if (event.type === 'step/start') throw new Error('reject step boundary')
+    })
+
+    send(agent, 'prompt')
+    await waitForIdle(ctx, agent)
+
+    if (receipt === undefined) throw new Error('agent/step did not submit steering')
+    expect(await receipt.outcome).toEqual({ status: 'rejected' })
+    expect(adapter.requests).toHaveLength(0)
+    expect(agent.session.events.some(event => event.type === 'steering/message')).toBe(true)
+    expect(agent.session.events.some(event => event.type === 'step/start')).toBe(false)
+  })
+
+  it('retries context and steering after a context commit fails', async () => {
+    const adapter = new MockAdapter([textResponse('recovered')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('failed-context-commit'), { provider: 'mock', model: 'mock' })
+    let receipt: ReturnType<Agent['steer']> | undefined
+    ctx.on('agent/step', (subject) => {
+      if (subject !== agent || receipt !== undefined) return
+      subject.inject(createUserMessage({
+        content: [{ type: 'text', text: 'preserved context' }],
+        source: { kind: 'plugin', plugin: 'loop-test' },
+      }))
+      receipt = subject.steer(createUserMessage({
+        content: [{ type: 'text', text: 'preserved steering' }],
+        source: { kind: 'user' },
+      }))
+    })
+    let rejected = false
+    ctx.on('internal/dispatch', (_mode, name, args) => {
+      if (name !== 'session/event') return
+      const event = args[1] as { type: string; data?: { source?: { kind: string } } }
+      if (event.type === 'user/message' && event.data?.source?.kind === 'plugin' && !rejected) {
+        rejected = true
+        throw new Error('reject context commit')
+      }
+    })
+
+    send(agent, 'first prompt')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests).toHaveLength(0)
+    expect(agent.session.events.some(event => event.type === 'steering/message')).toBe(false)
+
+    send(agent, 'recover')
+    await waitForIdle(ctx, agent)
+
+    if (receipt === undefined) throw new Error('agent/step did not submit steering')
+    expect(await receipt.outcome).toEqual({ status: 'admitted', turn: 2, step: 1 })
+    expect(adapter.requests).toHaveLength(1)
+    const request = JSON.stringify(adapter.requests[0]?.messages)
+    expect(request).toContain('preserved context')
+    expect(request).toContain('preserved steering')
   })
 
   it('inject() while idle appends context without opening a turn', async () => {
@@ -549,13 +838,24 @@ describe('agent loop', () => {
     ])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    let receipt: ReturnType<Agent['steer']> | undefined
+    let contextInjected = false
+    ctx.on('session/event', (session, event) => {
+      if (session !== agent.session || event.type !== 'step/end' || contextInjected) return
+      contextInjected = true
+      agent.inject(createUserMessage({
+        content: [{ type: 'text', text: 'final context' }],
+        source: { kind: 'plugin', plugin: 'finalize' },
+      }))
+    })
     ctx.tools.register(defineContentToolFixture({
       name: 'finalize',
       description: '',
       parameters: {},
       async execute(_args, exec) {
-        // Steering lands while the concluding tool is still executing.
-        agent.steer(createUserMessage({ content: [{ type: 'text', text: 'late steering' }], source: { kind: 'user' } }))
+        // Steering lands while the concluding tool is still executing; the
+        // step/end listener adds ordinary context after the normal result drain.
+        receipt = agent.steer(createUserMessage({ content: [{ type: 'text', text: 'late steering' }], source: { kind: 'user' } }))
         exec.concludeTurn()
         return [{ type: 'text', text: 'final' }]
       },
@@ -568,9 +868,12 @@ describe('agent loop', () => {
     expect(adapter.requests).toHaveLength(1)
     const events = agent.session.events.map(event => event.type)
     expect(events.filter(type => type === 'turn/end')).toHaveLength(1)
-    // The steering is durable inside the concluded turn and feeds the NEXT
-    // turn's request instead of being dropped or re-queued.
-    expect(events).toContain('steering/message')
+    if (receipt === undefined) throw new Error('concluding tool did not submit steering')
+    expect(await receipt.outcome).toEqual({ status: 'rejected' })
+    expect(events).not.toContain('steering/message')
+    expect(agent.session.events.some(event => event.type === 'user/message'
+      && event.data.source.kind === 'plugin'
+      && event.data.content.some(block => block.type === 'text' && block.text === 'final context'))).toBe(true)
 
     send(agent, 'follow up')
     await waitForIdle(ctx, agent)
@@ -579,7 +882,8 @@ describe('agent loop', () => {
       .flatMap(message => message.content)
       .filter(block => block.type === 'text')
       .map(block => block.text)
-    expect(texts).toContain('late steering')
+    expect(texts).toContain('final context')
+    expect(texts).not.toContain('late steering')
   })
 
   it('agent/request waterfall switches models by returning a replacement config; the switch is logged', async () => {

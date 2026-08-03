@@ -8,6 +8,10 @@ The headless demo combines the real DeepSeek adapter and coding capabilities wit
 ```mermaid
 flowchart LR
   cfg["examples/headless-agent<br/>cordis.yml"]
+  plugin_headless_settings["settings<br/>@deepseek-ai/dsh-settings-local"]
+  cfg --> plugin_headless_settings
+  plugin_headless_credentials["credentials<br/>@deepseek-ai/dsh-credentials-local"]
+  cfg --> plugin_headless_credentials
   plugin_headless_llm_deepseek["llm-deepseek<br/>@deepseek-ai/dsh-llm-deepseek"]
   cfg --> plugin_headless_llm_deepseek
   plugin_headless_subprocess["subprocess<br/>@deepseek-ai/dsh-subprocess-local"]
@@ -33,6 +37,10 @@ flowchart LR
   cfg --> plugin_headless_subagent_spawn
   plugin_headless_subagent_fork["subagent-fork<br/>@deepseek-ai/dsh-subagent-fork"]
   cfg --> plugin_headless_subagent_fork
+  plugin_headless_tool_subagent_control["tool-subagent-control<br/>@deepseek-ai/dsh-tool-subagent-control"]
+  cfg --> plugin_headless_tool_subagent_control
+  plugin_headless_tool_subagent_report["tool-subagent-report<br/>@deepseek-ai/dsh-tool-subagent-report"]
+  cfg --> plugin_headless_tool_subagent_report
   plugin_headless_tool_subagent["tool-subagent<br/>@deepseek-ai/dsh-tool-subagent"]
   cfg --> plugin_headless_tool_subagent
   plugin_headless_tool_subagent_fork["tool-subagent-fork<br/>@deepseek-ai/dsh-tool-subagent"]
@@ -55,6 +63,8 @@ flowchart LR
 
 | Plugin id | Package / module |
 | --- | --- |
+| `settings` | `@deepseek-ai/dsh-settings-local` |
+| `credentials` | `@deepseek-ai/dsh-credentials-local` |
 | `llm-deepseek` | `@deepseek-ai/dsh-llm-deepseek` |
 | `subprocess` | `@deepseek-ai/dsh-subprocess-local` |
 | `bash` | `@deepseek-ai/dsh-bash-local` |
@@ -64,6 +74,8 @@ flowchart LR
 | `subagent` | `@deepseek-ai/dsh-subagent` |
 | `subagent-spawn` | `@deepseek-ai/dsh-subagent-spawn` |
 | `subagent-fork` | `@deepseek-ai/dsh-subagent-fork` |
+| `tool-subagent-control` | `@deepseek-ai/dsh-tool-subagent-control` |
+| `tool-subagent-report` | `@deepseek-ai/dsh-tool-subagent-report` |
 | `tool-subagent` | `@deepseek-ai/dsh-tool-subagent` |
 | `tool-subagent-fork` | `@deepseek-ai/dsh-tool-subagent` |
 | `workflow-workerthread` | `@deepseek-ai/dsh-workflow-workerthread` |

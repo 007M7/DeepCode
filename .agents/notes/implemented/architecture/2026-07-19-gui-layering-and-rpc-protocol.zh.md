@@ -182,7 +182,7 @@ export type ResponseValue<K> =
 - **历史 = 事件重放**：一套 fold（client 侧），历史分页与 live 增量同一条代码路径；server 不做物化快照第二套。history **页边界对齐消息边界**（绝不从消息中间截断；chunk 随定稿消息归组），尾页含进行中 partial 的 chunk。
 - **prompt 关联**：prompt 的 rpcId 经 MessageSource（`'user-rpc'`）透传进 `user/message` 事件，client 以此把乐观回显转正。
 - **重连 = 重建**：不做续传 cursor（`mux` 的 `since` 签名留座、传了忽略）；断线重开流 + 重拉 history；`subscribed.lastSeq` 与 history 尾 seq 比对，有缝再补拉一次。
-- **冷 session 隐式 resume**：`history`/`prompt` 命中未 attach 的 session 时 impl 自动 resume，并发触发用在途表去重；attach 与否不对客暴露（`running` 已覆盖）。
+- **冷会话处理遵循所有权**：`session.history` 与 `session.fork` 的源端读取会在不获取 Agent 的情况下检查持久化存储，而绑定到 Agent 的普通会话方法（如 `prompt`）则通过在途表去重后恢复会话。由会话支撑的 subagent 会拒绝这条通用恢复路径，且附加状态不对客户端暴露（`running` 已经覆盖）。
 - **审批/问答**：requested 帧受理时 mint 稳定 rpcId；先到先赢，host 内存 pending 表（keyed by rpcId）是唯一裁判；mux 重开后在 subscribed 帧后重放仍 pending 的 requested 帧（rpcId 原样复用，刷新恢复）。审计事件 `approval/asked`/`decided` 照旧走 durable 日志——帧=live 控制面，事件=durable 审计。**现状**：契约与帧类型已 shipped，host 侧 pending 表/wire answerer 未实现（`api-proxy.ts` 的 `respond` 是 stub，恒回 `not-pending`）；PendingCard v1 只展示。
 - **不设协议版本**：client 与 host 绑定发布，`host.describe` 无 protocolVersion 字段；出现独立发布的 client 时再引入。
 - **预留接缝纪律**：map 只含已实现方法，未知 method 在信封 parse 即 fail loud（`bad-request`），不设 not-implemented 兜底码。预留清单（实现时把签名抄进域接口+map 加行+schema 加对即升格）：`session.fork`、`prompt.mode` 加 `'inject'`、`task.list`、`host.listModels`、describe 加 `hostInstanceId`。（`session.rename` 已从本清单毕业：追加 user 来源的 `session/title` 事件。）
@@ -202,7 +202,7 @@ export type ResponseValue<K> =
 | `callUnary` | mint → tap → POST 全形 → `serverResponseSchema` parse → **rpcId 回显校验**（不符即 throw）→ tap → 吐窄形 |
 | `readSse` | streaming fetch（非 EventSource）、`\n\n` 分帧、`data:` 拼接、ServerRequest 全形 parse、tap、吐窄形 `RpcRequest<帧>` |
 | `respond` | client-response 透传（rpcId 是回填，此处不 mint）；应答体 `rpcReceiptSchema` parse |
-| unary 超时 | `AbortSignal.timeout`（默认 30s，构造参数可调）；流不设超时（长连接本性） |
+| unary 时限 | 普通 unary 调用使用 `AbortSignal.timeout`（默认 30s，构造参数可调）；由用户掌控节奏的 `host.pickDirectory` 和 `command.execute` 不设该时限，但保留调用方／连接取消；流不设时限 |
 | `resolveBase` | 浏览器=同源 origin；无 location 环境（Node）=`http://dsh.internal` 假 authority |
 
 ### 实例级 envelope 观测切面
@@ -232,7 +232,7 @@ export type ResponseValue<K> =
 
 ## Consequences
 
-所有 client 形态消费同一契约：加一个 unary 方法是从单一签名辐射的五步机械改动，换载体只动一个 `doFetch` 子类，wire 上每条消息可 zod 校验、可经 envelope tap 观测、可按 rpcId 对账。接受的代价：两组包需要显式 tsconfig paths 条目；预留接缝（fork/inject/task.list/listModels/hostInstanceId）在真实消费者出现前保持休眠。
+所有 client 形态消费同一契约：加一个 unary 方法是从单一签名辐射的五步机械改动，换载体只动一个 `doFetch` 子类，wire 上每条消息可 zod 校验、可经 envelope tap 观测、可按 rpcId 对账。普通 unary 调用仍受时限约束，而 `host.pickDirectory` 与 `command.execute` 可保持挂起，直到操作完成或调用方／连接取消到来；若由用户掌控节奏的操作不自行结束，请求可能一直挂起，这是为避免把合理的操作时长视为传输失败而接受的代价。其余接受的代价：两组包需要显式 tsconfig paths 条目；预留接缝（fork/inject/task.list/listModels/hostInstanceId）在真实消费者出现前保持休眠。
 
 ## Alternatives considered
 
@@ -250,3 +250,4 @@ export type ResponseValue<K> =
 | DTO 层（wire 专用第二套结构） | core 类型 type-only 直达浏览器零成本；DTO 是永久的双向同步税 |
 | cursor 续传（mux since 实装） | 重连=重建（opencode 同款）覆盖 v1 全部需求；签名留座，实装等真实消费者 |
 | createApiClient 工厂函数（原实现） | 平台差异（传输/观测）是继承切面不是参数；类体系让 fixture 在协议层替换而不是包一层假信封 |
+| 对 `command.execute` 应用 30 秒传输时限 | 命令耗时属于操作本身，而非传输健康预算；该时限会终止本应继续运行的长时处理器，调用方／连接取消已提供所需的停止路径 |

@@ -259,8 +259,34 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Consider automatic compaction for one explicit trigger. Pressure policy\n * uses the latest durable routed request, while context-overflow policy may\n * force a useful balanced reduction even below the normal threshold. Return\n * `null` when no safe range can be compacted. A single oversized retained\n * unit or request envelope cannot be repaired through surface compaction.\n *\n * @param agent - agent context owning the session surface and routing options.\n * @param trigger - normal pressure or provider-confirmed context overflow.\n * @param signal - cancellation signal; model-backed implementations must forward it.\n * @returns the compaction result, or `null` if no compaction was needed.\n */',
       },
       {
+        signature: 'abstract compactNow( agent: ManualCompactAgentContext, signal: AbortSignal, ): Promise<CompactionResult | null>',
+        jsDoc: '/**\n * Explicitly compact useful history even below automatic pressure thresholds.\n * Implementations reserve idle turn admission synchronously before any\n * asynchronous work, select a useful range without writing on a no-op, then\n * append a standalone `compact/start` before summarization. That durable\n * marker is the compaction lock until one `compact/end` attempt. Later waking\n * prompts remain accepted in FIFO order and start only after the optional\n * durability checkpoint and admission release. Context injected while the\n * summary runs may sit between the marker pair; only the selected span must\n * remain stable.\n *\n * @param agent - idle agent whose durable history should be compacted.\n * @param signal - command-owned cancellation forwarded to summarization.\n * @returns the compaction result, or `null` when no safe useful range exists.\n * @throws {@link ManualCompactionError} for expected busy, changed-span,\n * summarization/shrink, commit-stage, or persistence failures, and the exact\n * abort reason when cancelled. Failed attempts remain visible in the log.\n */',
+      },
+      {
         signature: 'abstract compactRegion( start: number, end: number, agent: CompactAgentContext, signal?: AbortSignal, ): Promise<CompactionResult>',
         jsDoc: '/**\n * Forcibly compact a range of surface nodes into a single summary node.\n * `start` and `end` name an inclusive span by surface position, not numeric seq\n * order; replacements can make visible seqs non-monotonic. Both edges must be\n * balanced so assistant tool calls remain paired with their results. A model-\n * backed implementation forwards cancellation and rejects active, missing,\n * reversed, or unbalanced ranges. The target session is `agent.session`.\n * Its replacement user message must use {@link COMPACT_CHECKPOINT_SOURCE}.\n * Use {@link toolPairingBalancedBefore} and {@link toolPairingBalancedAfter}\n * for the edge checks.\n *\n * @param start - first surface seq, inclusive.\n * @param end - last surface seq, inclusive.\n * @param agent - context whose session is mutated and whose routing options guide summarization.\n * @param signal - optional cancellation; model-backed implementations must forward it.\n * @throws when compaction is active or the range is missing, reversed, or unbalanced.\n * @returns the appended event seqs, summary, replaced range, and token accounting.\n */',
+      },
+    ],
+  },
+  {
+    key: 'credentials',
+    summary: 'Abstract credential service.',
+    methods: [
+      {
+        signature: 'abstract resolve(ref: CredentialRef): Promise<ResolvedCredential | undefined>',
+        jsDoc: '/**\n * Resolve one reference to its current value. Resolution is per call:\n * consumers re-resolve at each operation and must not cache across\n * operations — that per-operation read is what makes a changed credential\n * reach the next operation without a restart.\n * @param ref - the reference to resolve.\n * @returns the value and its source, or `undefined` while unconfigured.\n */',
+      },
+      {
+        signature: 'abstract describe(ref: CredentialRef): Promise<CredentialInfo>',
+        jsDoc: '/**\n * Describe one reference for configuration surfaces without exposing the\n * value.\n * @param ref - the reference to describe.\n * @returns configured state, supplying source, and writability.\n */',
+      },
+      {
+        signature: 'abstract set(ref: CredentialRef, value: string): Promise<void>',
+        jsDoc: '/**\n * Durably store one value in the provider-managed writable source. Rejects\n * while a read-only source shadows the reference — the write would appear\n * to succeed while resolution keeps returning the shadowing value — and\n * rejects an empty value (use {@link unset}).\n * @param ref - the reference to store.\n * @param value - the non-empty secret value.\n */',
+      },
+      {
+        signature: 'abstract unset(ref: CredentialRef): Promise<void>',
+        jsDoc: '/**\n * Remove one reference from the provider-managed writable source; removing\n * an absent reference is a no-op. Rejects while a read-only source shadows\n * the reference, like {@link set}.\n * @param ref - the reference to remove.\n */',
       },
     ],
   },
@@ -383,12 +409,20 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'The abstract `llm` service: an adapter registry plus a streaming model-call surface, interceptable via the `llm/stream` waterfall.',
     methods: [
       {
-        signature: 'registerAdapter(providers: string[], adapter: LlmAdapter): () => void',
-        jsDoc: '/**\n * Register an adapter for the given provider routes. Throws `LlmError` with code\n * `DUPLICATE_ADAPTER` if any provider already has an adapter (all-or-nothing).\n * Disposed with the fiber.\n * @param providers - every provider route this adapter should serve.\n * @param adapter - the adapter that streams calls for those providers.\n * @returns the disposer that unregisters all of them.\n */',
+        signature: 'registerAdapter(providers: string[], adapter: LlmAdapter): AdapterRegistrationHandle',
+        jsDoc: '/**\n * Register an adapter for the given provider routes. Throws `LlmError` with code\n * `DUPLICATE_ADAPTER` if any provider already has an adapter (all-or-nothing).\n * Disposed with the fiber.\n * @param providers - every provider route this adapter should serve.\n * @param adapter - the adapter that streams calls for those providers.\n * @returns the disposer, carrying {@link AdapterRegistrationHandle.replace}.\n */',
       },
       {
         signature: 'listProviders(): LlmProviderInfo[]',
         jsDoc: '/**\n * Describe provider routes with a registered adapter.\n * @returns detached provider metadata in registration order.\n */',
+      },
+      {
+        signature: 'registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): () => void',
+        jsDoc: '/**\n * Declare provider routes an adapter plugin can activate through\n * configuration. Registration is all-or-nothing: an empty list, invalid\n * entry, or a provider already declared by any registration throws\n * `LlmError` without registering the rest. Disposed with the fiber.\n * @param entries - every configurable provider this plugin owns.\n * @returns the disposer that withdraws all of them.\n */',
+      },
+      {
+        signature: 'listConfigurableProviders(): LlmConfigurableProvider[]',
+        jsDoc: '/**\n * List every declared configurable provider, registered or dormant.\n * @returns detached directory entries in declaration order.\n */',
       },
       {
         signature: 'providerRetryPolicy(provider: string): ResolvedRetryPolicy',
@@ -404,7 +438,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<LlmCallConfig>',
-        jsDoc: '/**\n * Validate a conversation call config against its exact model capability and\n * materialize an adapter-configured default. Unsupported explicit efforts\n * reject before provider I/O; no clamping or aliasing is performed. This\n * standalone query does not bind a later dispatch; use {@link prepareCall}\n * when logging and streaming must share one adapter registration.\n * @param config - provider/model route and optional request controls.\n * @param signal - optional cancellation for adapter-owned capability lookup.\n * @returns a detached config only when a default must be materialized.\n */',
+        jsDoc: '/**\n * Validate a conversation call config against its exact model capability and\n * materialize adapter-configured defaults. Unsupported explicit efforts\n * reject before provider I/O; no clamping or aliasing is performed. This\n * standalone query does not bind a later dispatch; use {@link prepareCall}\n * when logging and streaming must share one adapter registration.\n * @param config - provider/model route and optional request controls.\n * @param signal - optional cancellation for adapter-owned capability lookup.\n * @returns a detached config only when a default must be materialized.\n */',
       },
       {
         signature: 'async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall>',
@@ -709,8 +743,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/** Emit `session/created` exactly once for an {@link enter}ed session (with\n * the carrier {@link enter} captured). Separate from {@link enter} so the\n * caller can yield the detach disposer first (rollback safety — see\n * {@link enter}).\n * @param session - the entered session to announce to listeners.\n * @throws if the session is not live or its announcement already began,\n *   including a reentrant call from a creation listener. */',
       },
       {
-        signature: 'async flush(session: Session): Promise<void>',
-        jsDoc: '/**\n * Dispatch the awaited `session/flush` durability checkpoint for `session`,\n * with the carrier captured at {@link enter}. THE flush entry point: the\n * store owns the carrier, so callers (the loop\'s turn-end checkpoint, idle\n * injection, teardown drains) must come through here rather than dispatch a\n * raw `ctx.parallel(\'session/flush\', …)` — one owner, one spelling, and the\n * scoped-dispatch invariant can pin it.\n * @param session - the session whose buffered events must reach durable storage.\n * @returns resolves when every flush listener has settled; after all settle,\n *   rejects with the first registered listener failure if any listener failed.\n */',
+        signature: 'async flush(session: Session): Promise<boolean>',
+        jsDoc: '/**\n * Dispatch the awaited `session/flush` durability checkpoint for `session`,\n * with the carrier captured at {@link enter}. THE flush entry point: the\n * store owns the carrier, so callers (the loop\'s turn-end checkpoint, idle\n * injection, teardown drains) must come through here rather than dispatch a\n * raw `ctx.parallel(\'session/flush\', …)` — one owner, one spelling, and the\n * scoped-dispatch invariant can pin it.\n * @param session - the session whose buffered events must reach durable storage.\n * @returns whether at least one durability listener participated, after every\n *   listener has settled successfully.\n * @throws the first registered listener failure after every listener settles.\n */',
       },
       {
         signature: 'get(id: SessionId): Session | undefined',
@@ -757,20 +791,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Register a namespace schema and receive its owner scope. The registration\n * is an effect on the calling plugin\'s fiber: disposing that fiber removes\n * the namespace and its observers. An invalid stored section fails the\n * registration itself — the earliest point where the schema can judge it.\n * @param ns - unique namespace; duplicate registration fails loud.\n * @param schema - schemastery schema resolving this namespace\'s value.\n * @param options - composition `base` layer and effect timing.\n * @returns the owner scope for reads, observation, and updates.\n */',
       },
       {
-        signature: 'describe(): SettingsDescriptor[]',
-        jsDoc: '/**\n * Describe every registered namespace for configuration surfaces.\n * @returns one descriptor per registered namespace, in registration order.\n */',
+        signature: 'describe(options?: SettingsDescribeOptions): SettingsDescriptor[]',
+        jsDoc: '/**\n * Describe every registered namespace for configuration surfaces, including\n * the composition `base` and raw user layers so a form can mark which fields\n * the user overrode (presence in `user`) and what a reset returns to.\n * @param options - redaction switch; wire surfaces must redact.\n * @returns one descriptor per registered namespace, in registration order.\n */',
       },
       {
         signature: 'get(ns: SettingsNamespace): unknown',
         jsDoc: '/**\n * Read one registered namespace\'s resolved value.\n * @param ns - the namespace to read.\n * @returns the resolved value, or `undefined` while unregistered.\n */',
       },
       {
-        signature: 'async update(ns: SettingsNamespace, patch: object): Promise<void>',
-        jsDoc: '/**\n * Merge a patch into one registered namespace\'s user layer, validate the\n * resolved candidate, persist through the provider, then commit and emit.\n * A validation failure rejects before anything is persisted. Writes to one\n * namespace are serialized: concurrent updates apply in call order, each\n * merging over the previous write\'s committed section.\n * @param ns - the registered namespace to update.\n * @param patch - plain-object patch over the user section.\n */',
+        signature: 'async update(ns: SettingsNamespace, patch: object, expectedRevision?: number): Promise<void>',
+        jsDoc: '/**\n * Merge a patch into one registered namespace\'s user layer, validate the\n * resolved candidate, persist through the provider, then commit and emit.\n * A validation failure rejects before anything is persisted. Writes to one\n * namespace are serialized: concurrent updates apply in call order, each\n * merging over the previous write\'s committed section.\n * @param ns - the registered namespace to update.\n * @param patch - plain-object patch over the user section.\n * @param expectedRevision - the descriptor `revision` the caller read; a\n *   namespace that moved past it rejects with {@link SettingsConflictError}.\n */',
       },
       {
-        signature: 'async replace(ns: SettingsNamespace, section: object): Promise<void>',
-        jsDoc: '/**\n * Replace one registered namespace\'s user section wholesale, validate,\n * persist, then commit and emit. Keys absent from `section` fall back to the\n * composition `base` and schema defaults — this is the removal/reset path a\n * merge-only patch cannot express (`replace({})` re-inherits everything).\n * @param ns - the registered namespace to replace.\n * @param section - the complete next user section.\n */',
+        signature: 'async replace(ns: SettingsNamespace, section: object, expectedRevision?: number): Promise<void>',
+        jsDoc: '/**\n * Replace one registered namespace\'s user section wholesale, validate,\n * persist, then commit and emit. Keys absent from `section` fall back to the\n * composition `base` and schema defaults — this is the removal/reset path a\n * merge-only patch cannot express (`replace({})` re-inherits everything).\n * @param ns - the registered namespace to replace.\n * @param section - the complete next user section.\n * @param expectedRevision - the descriptor `revision` the caller read; a\n *   namespace that moved past it rejects with {@link SettingsConflictError}.\n */',
+      },
+      {
+        signature: 'async mutate(ns: SettingsNamespace, ops: readonly SettingsPathOp[], expectedRevision?: number): Promise<void>',
+        jsDoc: '/**\n * Apply path-addressed edits to one registered namespace\'s user section,\n * validate, persist, then commit and emit. The ops are applied to the\n * section as it stands when the write reaches the front of the queue, so a\n * caller never has to restate fields it did not touch — and, crucially,\n * cannot delete fields it never saw. This is the write path for any caller\n * holding a redacted view; `replace` remains the wholesale reset.\n * @param ns - the registered namespace to edit.\n * @param ops - ordered path edits; later ops observe earlier ones.\n * @param expectedRevision - the descriptor `revision` the caller read; a\n *   namespace that moved past it rejects with {@link SettingsConflictError}.\n */',
       },
     ],
   },
@@ -844,8 +882,32 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'subagents',
-    summary: 'Named provider registry and capability-checked start surface.',
+    summary: 'Named provider registry with one-shot runs, durable discovery, and continuable-child operations.',
     methods: [
+      {
+        signature: 'async startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart>',
+        jsDoc: '/**\n * Establish one durable continuable child and deliver its initial prompt.\n * Resolves when the child\'s inbox accepts that prompt, without waiting for the\n * turn to start or for the message to reach the Session log; any earlier\n * failure rejects with no ids and rolls back the child entirely.\n * @param spec - provider, delegation request, and caller cancellation.\n * @returns the durable child id and the accepted prompt\'s message id.\n * @throws when continuation services are unavailable or materialization fails.\n */',
+      },
+      {
+        signature: 'async followup( parent: Agent, childId: SessionId, content: ContentBlock[], options: SubagentFollowupOptions, ): Promise<MessageId>',
+        jsDoc: '/**\n * Deliver one later message to a continuable child as its next FIFO turn. A\n * resident child\'s Agent inbox accepts it directly (waking a `waiting`\n * Activation), while an absent one is cold-resumed from its persisted\n * Session. The Agent inbox is the only queue, so every accepted message has\n * one observable order.\n * @param parent - the exact live direct parent authorizing this delivery.\n * @param childId - durable child session id.\n * @param content - user-role content to deliver.\n * @param options - durable provenance and caller cancellation, which stops the\n *   operation only before inbox acceptance.\n * @returns the accepted message\'s inbox id.\n * @throws when continuation services are unavailable, parent authority is\n *   rejected, or the message was not admitted.\n */',
+      },
+      {
+        signature: 'async reportFrom( child: Agent, content: ContentBlock[], options: SubagentReportOptions, ): Promise<MessageId>',
+        jsDoc: '/**\n * Deliver selected content from one live continuable child to its durable\n * direct parent. The child is the authority credential; callers cannot name a\n * recipient. Reporting does not conclude the child\'s turn or Activation.\n * @param child - exact live reporting child.\n * @param content - selected model-facing content.\n * @param options - parent scheduling and pre-acceptance cancellation.\n * @returns the stable identity of the parent-accepted message.\n * @throws when continuation services are unavailable, sender authorization\n *   fails, or the direct parent is not live.\n */',
+      },
+      {
+        signature: 'registerContinuableSetup(contribution: ContinuableSetupContribution): () => void',
+        jsDoc: '/**\n * Compose one deployment capability into every continuable child\'s\n * unpublished creation context on fresh creation and cold resume. Grants wait\n * for the next Activation; removing the contribution revokes every resident\n * installation immediately.\n * @param contribution - synchronous child-scope installer.\n * @returns the exact Cordis effect disposer.\n */',
+      },
+      {
+        signature: 'async drainContinuableDescendants(parents: readonly Agent[]): Promise<void>',
+        jsDoc: '/**\n * Close continuable admission below exact live parent Agents, stop only their\n * visible descendant Activations synchronously, then await admitted scoped\n * materializations and release those forests child-first. The scoped cutoff\n * lasts until each exact parent leaves the registry; unrelated parent trees\n * remain live.\n * @param parents - exact host-owned parent Agents entering teardown.\n * @returns once every retained descendant Activation released its `AgentHandle`.\n * @throws an aggregate error after all branches settle when any failed.\n */',
+      },
+      {
+        signature: 'listChildren(parentSessionId: SessionId, signal?: AbortSignal): Promise<SubagentListEntry[]>',
+        jsDoc: '/**\n * Enumerate the parent\'s direct session-backed subagents from the\n * live-preferred session corpus without loading or resuming an Agent. Session\n * query supplies lineage, candidate order, event reads, and live state; this\n * service interprets descriptor mode, activity, and per-child diagnostics\n * without consulting Agent registrations, Activations, or providers.\n *\n * The trace and exact descriptor read receive `signal`; the full event-list\n * read has no signal parameter, so the scan rechecks cancellation around\n * every await and between candidates. Query rejections that settle after an\n * abort become a stable `SubagentError` with code `CANCELLED`.\n * @param parentSessionId - parent session whose direct children are listed.\n * @param signal - caller-owned cancellation forwarded where supported and\n *   observed around every query await.\n * @returns children and per-child diagnostics in stable trace order.\n * @throws {@link SubagentError} when session query is unavailable or the\n *   caller cancels the scan.\n */',
+      },
       {
         signature: 'registerProvider(provider: SubagentProvider): () => void',
         jsDoc: '/**\n * Register a provider under its name. Registration is effect-scoped and HMR\n * safe; removing a provider blocks new starts but does not revoke runs that\n * were already returned to their holders.\n * @param provider - the trusted provider implementation.\n * @returns the exact Cordis effect disposer.\n */',
@@ -860,7 +922,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>',
-        jsDoc: '/**\n * Establish a ready child on the named provider. Capability and semantic\n * checks run before delegation. Provider ownership lasts until its promise\n * fulfills; a rejection therefore has no run for the caller to dispose and\n * emits no run lifecycle events.\n * @param name - the provider to use.\n * @param request - child prompt, parent, signal, and optional capabilities.\n * @returns the ready holder-owned run.\n */',
+        jsDoc: '/**\n * Establish a published child on the named provider. Capability and semantic\n * checks run before delegation. Provider ownership lasts until its promise\n * fulfills; a rejection therefore has no run for the caller to dispose and\n * emits no run lifecycle events. Post-publication turn and infrastructure\n * failures settle through the returned run.\n * @param name - the provider to use.\n * @param request - child label, prompt, parent, signal, and optional capabilities.\n * @returns the published holder-owned run.\n */',
       },
     ],
   },
@@ -881,6 +943,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'section(section: PromptSection): () => void',
         jsDoc: '/**\n * Register an ordered prompt section in the calling context\'s scope. A scoped\n * section shadows a global section with the same name; duplicates within one\n * layer and non-finite orders throw. Registration and disposal emit\n * `system-prompt/change`.\n * @param section - the section to register.\n * @returns the exact Cordis effect disposer.\n */',
+      },
+      {
+        signature: 'context(context: PromptContext): () => void',
+        jsDoc: '/**\n * Register ordered cache-safe dynamic context in the calling context\'s scope.\n * A scoped context shadows a global context with the same name; duplicates\n * within one layer and non-finite orders throw. Registration and disposal\n * emit `system-prompt/change`.\n * @param context - the context contribution to register.\n * @returns the exact Cordis effect disposer.\n */',
       },
       {
         signature: 'tools(provider: (context: AssembleContext) => ToolProviderResult): () => void',
@@ -1114,7 +1180,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'async create(path: string, title?: string): Promise<Workspace>',
-        jsDoc: '/**\n * Create or reuse a workspace for an existing directory. The path is\n * canonicalized through `fs.realpath`; a nonexistent path rejects with the\n * original error and a non-directory rejects. Repeated calls for the same\n * canonical path return the existing entity without changing its title.\n * A newly created workspace is prepended to the durable registry order.\n * A different canonical path cannot create a duplicate display title.\n * @param path - Existing directory to own, in any path spelling.\n * @param title - Display title used only when a new record is created.\n * @returns the existing or newly durable workspace.\n */',
+        jsDoc: '/**\n * Create or reuse a workspace for an existing directory. The path is\n * canonicalized through `fs.realpath`; a nonexistent path rejects with the\n * original error and a non-directory rejects. Repeated calls for the same\n * canonical path return the existing entity without changing its title.\n * A newly created workspace is prepended to the durable registry order.\n * Different canonical paths may share a display title.\n * @param path - Existing directory to own, in any path spelling.\n * @param title - Display title used only when a new record is created.\n * @returns the existing or newly durable workspace.\n */',
       },
       {
         signature: 'get(id: WorkspaceId): Workspace | undefined',
@@ -1127,6 +1193,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'delete(id: WorkspaceId): Promise<boolean>',
         jsDoc: '/**\n * Delete one workspace registration while retaining its directory and every\n * session log. The durable order is updated before the table deletion; a\n * failed table write restores the prior order and keeps the entity\n * published. Unknown ids are an idempotent no-op for domain callers.\n * @param id - Workspace registration to remove.\n * @returns `true` when a record was deleted, `false` when it was unknown.\n */',
+      },
+      {
+        signature: 'archiveSession(sessionId: SessionId): Promise<void>',
+        jsDoc: '/**\n * Archive one session durably. The session must exist (live or in session\n * persistence); its workspace accounting — or lack of one — is irrelevant.\n * An already archived id resolves without writing.\n * @param sessionId - The session to archive.\n * @returns resolution after durability.\n */',
       },
       {
         signature: 'async resolveByPath(path: string): Promise<Workspace | undefined>',
@@ -1272,6 +1342,13 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'A command was registered or unregistered.',
   },
   {
+    name: 'credentials/updated',
+    mode: 'emit',
+    signature: '\'credentials/updated\'(ref: CredentialRef): void',
+    jsDoc: '/**\n * Committed change to a provider-managed credential source: a `set`, an\n * `unset`, or an external edit observed in storage. Ambient\n * process-environment changes are not observable and never emit. Listener\n * failures are contained and logged — a sync throw and an async rejection\n * alike — without changing the committed operation\'s outcome, except\n * `INVARIANT`-coded failures, which rethrow after every listener ran;\n * that rethrow reaches the emitter only from synchronous listeners, so\n * invariant checks on this event must not be async functions.\n * @param ref - the reference whose stored value changed.\n * @mode emit\n */',
+    summary: 'Committed change to a provider-managed credential source: a `set`, an `unset`, or an external edit observed in storage.',
+  },
+  {
     name: 'domain/changed',
     mode: 'emit',
     signature: '\'domain/changed\'(change: DomainChanged): void',
@@ -1307,6 +1384,13 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'Goal mutation accepted by one live agent.',
   },
   {
+    name: 'llm/adapters-updated',
+    mode: 'emit',
+    signature: '\'llm/adapters-updated\'(): void',
+    jsDoc: '/**\n * The provider topology changed: an adapter registered or unregistered\n * routes, or the configurable-provider directory gained or lost entries.\n * This is a payload-free registry notification fired at each commit point\n * (including registration disposal); consumers re-read `listProviders()`,\n * `listModels()`, or `listConfigurableProviders()` for the new state.\n * Observer failures are contained and cannot veto the registry mutation.\n * @mode emit\n */',
+    summary: 'The provider topology changed: an adapter registered or unregistered routes, or the configurable-provider directory gained or lost entries.',
+  },
+  {
     name: 'llm/stream',
     mode: 'waterfall',
     signature: '\'llm/stream\'(this: LlmService, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>',
@@ -1338,8 +1422,15 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'session/flush',
     mode: 'parallel',
     signature: '\'session/flush\'(this: Scoped<Session>, session: Session): Promise<void> | void',
-    jsDoc: '/**\n * Awaited parallel durability checkpoint: every listener runs and the\n * caller awaits all of them, with no waterfall veto. Dispatch through\n * {@link SessionStore.flush}. Scope-filtered dispatch\n * (`@deepseek-ai/dsh-scope`) reuses the session\'s owner scope.\n * @param session - the session whose buffered events must reach durable storage.\n * @dshScopeScan unsupported\n * @mode parallel\n */',
+    jsDoc: '/**\n * Awaited parallel durability checkpoint: every listener runs and the\n * caller awaits all of them, with no waterfall veto. Scope-filtered dispatch\n * (`@deepseek-ai/dsh-scope`) reuses the session\'s owner scope.\n * @param session - the session whose buffered events must reach durable storage.\n * @dshScopeScan unsupported\n * @mode parallel\n */',
     summary: 'Awaited parallel durability checkpoint: every listener runs and the caller awaits all of them, with no waterfall veto.',
+  },
+  {
+    name: 'settings/document-updated',
+    mode: 'emit',
+    signature: '\'settings/document-updated\'(ns: SettingsNamespace, revision: number): void',
+    jsDoc: '/**\n * One registered namespace\'s RAW user section changed, whether or not the\n * resolved value did. `settings/updated` is the consumer-facing event and\n * stays deep-equal-gated; this one exists for configuration surfaces,\n * which must learn that a field went from inherited to overridden (same\n * resolved value, different meaning) and that their held revision is\n * stale. Listener containment matches `settings/updated`.\n * @param ns - the namespace whose stored section changed.\n * @param revision - the namespace\'s new revision.\n * @mode emit\n */',
+    summary: 'One registered namespace\'s RAW user section changed, whether or not the resolved value did.',
   },
   {
     name: 'settings/updated',
@@ -1359,8 +1450,8 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'subagent/end',
     mode: 'emit',
     signature: '\'subagent/end\'(this: Scoped<SubagentService>, info: SubagentRunEndInfo): void',
-    jsDoc: '/**\n * A ready child settled. Scope-filtered dispatch uses the same delegating\n * parent carrier as `subagent/start`, so the lifecycle pair reaches the\n * same scoped audience.\n * @param info - the run identity and terminal outcome.\n * @dshScopeScan unsupported\n * @mode emit\n */',
-    summary: 'A ready child settled.',
+    jsDoc: '/**\n * A published child settled. Scope-filtered dispatch uses the same delegating\n * parent carrier as `subagent/start`, so the lifecycle pair reaches the\n * same scoped audience.\n * @param info - the run identity and terminal outcome.\n * @dshScopeScan unsupported\n * @mode emit\n */',
+    summary: 'A published child settled.',
   },
   {
     name: 'subagent/provider-added',
@@ -1380,15 +1471,15 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'subagent/start',
     mode: 'emit',
     signature: '\'subagent/start\'(this: Scoped<SubagentService>, info: SubagentRunInfo): void',
-    jsDoc: '/**\n * A provider established a ready child. For in-process providers,\n * `ctx.agents.get(info.id)` resolves during this notification.\n * Scope-filtered dispatch keys the carrier by the delegating parent, so a\n * parent-scoped listener observes only its own delegations. Paired with\n * `subagent/end`.\n * @param info - the provider and ready child identity.\n * @dshScopeScan unsupported\n * @mode emit\n */',
-    summary: 'A provider established a ready child.',
+    jsDoc: '/**\n * A provider established a published child. For in-process providers,\n * `ctx.agents.get(info.id)` resolves during this notification.\n * Scope-filtered dispatch keys the carrier by the delegating parent, so a\n * parent-scoped listener observes only its own delegations. Paired with\n * `subagent/end`.\n * @param info - the provider and published child identity.\n * @dshScopeScan unsupported\n * @mode emit\n */',
+    summary: 'A provider established a published child.',
   },
   {
     name: 'system-prompt/assemble',
     mode: 'waterfall',
     signature: '\'system-prompt/assemble\'(this: Scoped<SystemPrompt>, assembly: PromptAssembly, context: AssembleContext, next: () => Promise<PromptAssembly>): Promise<PromptAssembly>',
-    jsDoc: '/**\n * Expert waterfall over the assembled sections, tools, and variables.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): scoped listeners\n * receive only that scope\'s assemblies. The returned value is authoritative.\n * A supplied signal controls only this explicit assembly request and must not\n * be retained to control later turns.\n * @param assembly - the mutable assembly built from registered providers.\n * @param context - the caller\'s per-assembly context.\n * @mode waterfall\n */',
-    summary: 'Expert waterfall over the assembled sections, tools, and variables.',
+    jsDoc: '/**\n * Expert waterfall over the assembled sections, contexts, tools, and variables.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): scoped listeners\n * receive only that scope\'s assemblies. The returned value is authoritative.\n * A supplied signal controls only this explicit assembly request and must not\n * be retained to control later turns.\n * @param assembly - the mutable assembly built from registered providers.\n * @param context - the caller\'s per-assembly context.\n * @mode waterfall\n */',
+    summary: 'Expert waterfall over the assembled sections, contexts, tools, and variables.',
   },
   {
     name: 'system-prompt/change',
@@ -1457,8 +1548,8 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'workflow/agent-start',
     mode: 'emit',
     signature: '\'workflow/agent-start\'(info: WorkflowRunInfo, agent: WorkflowAgentInfo): void',
-    jsDoc: '/**\n * One `agent()` call established a ready child run. Paired with\n * {@link Events[\'workflow/agent-end\']} by `agent.seq`. A call that never\n * receives a ready run from the provider emits neither\n * event in this pair.\n * @param info - the run\'s identity snapshot.\n * @param agent - the call\'s sequence number, label, phase, and child id.\n * @mode emit\n */',
-    summary: 'One `agent()` call established a ready child run.',
+    jsDoc: '/**\n * One `agent()` call established a published child run. Paired with\n * {@link Events[\'workflow/agent-end\']} by `agent.seq`. A call that never\n * receives a published run from the provider emits neither\n * event in this pair.\n * @param info - the run\'s identity snapshot.\n * @param agent - the call\'s sequence number, label, phase, and child id.\n * @mode emit\n */',
+    summary: 'One `agent()` call established a published child run.',
   },
   {
     name: 'workflow/end',
@@ -1493,8 +1584,12 @@ export const EVENT_API: readonly EventApiEntry[] = [
 /** Shapes of every exported type the SERVICE_API signatures reference (transitively), sorted by name. */
 export const TYPE_API: readonly TypeApiEntry[] = [
   {
+    name: 'AdapterRegistrationHandle',
+    declaration: 'export interface AdapterRegistrationHandle {\n    (): void;\n    replace(providers: string[]): void;\n}',
+  },
+  {
     name: 'Agent',
-    declaration: 'export interface Agent {\n    readonly id: SessionId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly acceptsNextStep: boolean;\n    readonly ctx: Context;\n    send(message: UserMessage, options: SendOptions): void;\n    updateInbox(id: InboxItemId, action: InboxAction): InboxActionResult;\n    cancel(cause: AgentCancelCause, options?: CancelOptions): void;\n    whenIdle(): Promise<void>;\n    followup(message: UserMessage): void;\n    steer(message: UserMessage): void;\n    inject(message: UserMessage): void;\n}',
+    declaration: 'export interface Agent {\n    readonly id: SessionId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly acceptsNextStep: boolean;\n    readonly ctx: Context;\n    send(message: UserMessage, options: SendOptions): void;\n    reserveTurnAdmission(): (() => void) | undefined;\n    updateInbox(id: InboxItemId, action: InboxAction): InboxActionResult;\n    cancel(cause: AgentCancelCause, options?: CancelOptions): void;\n    whenIdle(): Promise<void>;\n    followup(message: UserMessage): void;\n    steer(message: UserMessage): SteeringReceipt;\n    inject(message: UserMessage): void;\n}',
   },
   {
     name: 'AgentCancelCause',
@@ -1511,6 +1606,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AgentOptions',
     declaration: 'export interface AgentOptions {\n    provider?: string;\n    model?: string;\n    maxTokens?: number;\n}',
+  },
+  {
+    name: 'AgentSetup',
+    declaration: 'export type AgentSetup = (agentCtx: Context) => AgentSetupCommit | Promise<AgentSetupCommit | void> | void;',
+  },
+  {
+    name: 'AgentSetupCommit',
+    declaration: 'export interface AgentSetupCommit {\n    commit(): void;\n}',
   },
   {
     name: 'AgentStatus',
@@ -1537,8 +1640,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface AskUserQuestionAnswerItem {\n    id: string;\n    selected: string[];\n    custom?: string;\n}',
   },
   {
+    name: 'AskUserQuestionIntent',
+    declaration: 'export type AskUserQuestionIntent = {\n    kind: \'plan-review\';\n    approve: string;\n};',
+  },
+  {
     name: 'AskUserQuestionItem',
-    declaration: 'export interface AskUserQuestionItem {\n    id: string;\n    question: string;\n    detail?: string;\n    header?: string;\n    options?: AskUserQuestionOption[];\n    multiSelect?: boolean;\n}',
+    declaration: 'export interface AskUserQuestionItem {\n    id: string;\n    question: string;\n    detail?: string;\n    header?: string;\n    options?: AskUserQuestionOption[];\n    multiSelect?: boolean;\n    intent?: AskUserQuestionIntent;\n}',
   },
   {
     name: 'AskUserQuestionOption',
@@ -1551,6 +1658,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AssembleContext',
     declaration: 'export interface AssembleContext {\n    scope?: ScopeKey;\n    signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'AssembledContext',
+    declaration: 'export interface AssembledContext {\n    name: string;\n    text: string;\n}',
   },
   {
     name: 'AssembledSection',
@@ -1705,8 +1816,32 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ContentBlockType = keyof ContentBlockMap;',
   },
   {
+    name: 'ContinuableCreateRequest',
+    declaration: 'export interface ContinuableCreateRequest {\n    readonly sessionId: SessionId;\n    readonly parent: Agent;\n    readonly signal: AbortSignal;\n}',
+  },
+  {
+    name: 'ContinuableCreateSpec',
+    declaration: 'export interface ContinuableCreateSpec {\n    readonly seed?: readonly SessionEvent[];\n}',
+  },
+  {
+    name: 'ContinuableSetupContribution',
+    declaration: 'export type ContinuableSetupContribution = (childCtx: Context) => () => void;',
+  },
+  {
+    name: 'ContinuableStart',
+    declaration: 'export interface ContinuableStart {\n    readonly childId: SessionId;\n    readonly messageId: MessageId;\n}',
+  },
+  {
+    name: 'ContinuableStartSpec',
+    declaration: 'export interface ContinuableStartSpec {\n    readonly provider: string;\n    readonly label: string;\n    readonly request: Omit<SubagentStartRequest, \'label\' | \'signal\' | \'outputSchema\'>;\n    readonly signal: AbortSignal;\n}',
+  },
+  {
+    name: 'ContinuableSubagentDescriptorData',
+    declaration: 'export interface ContinuableSubagentDescriptorData extends SubagentDescriptorBase {\n    readonly mode: \'continuable\';\n    readonly label: string;\n    readonly agentProvider?: string;\n    readonly agentModel?: string;\n    readonly persona?: string;\n    readonly toolFilter?: ToolRestriction;\n}',
+  },
+  {
     name: 'CreateAgentOptions',
-    declaration: 'export interface CreateAgentOptions {\n    readonly sessionId: SessionId;\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly seedLength?: number;\n        readonly delegationDepth?: number;\n    };\n    readonly seed?: readonly SessionEvent[];\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: (agentCtx: Context) => Promise<void> | void;\n}',
+    declaration: 'export interface CreateAgentOptions {\n    readonly sessionId: SessionId;\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly seedLength?: number;\n        readonly origin?: \'subagent\';\n        readonly delegationDepth?: number;\n    };\n    readonly seed?: readonly SessionEvent[];\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: AgentSetup;\n}',
   },
   {
     name: 'CreateGoalRequest',
@@ -1714,7 +1849,15 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CreateSessionOptions',
-    declaration: 'export interface CreateSessionOptions {\n    readonly seed?: readonly SessionEvent[];\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly createdAt?: number;\n        readonly seedLength?: number;\n        readonly delegationDepth?: number;\n    };\n}',
+    declaration: 'export interface CreateSessionOptions {\n    readonly seed?: readonly SessionEvent[];\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly createdAt?: number;\n        readonly seedLength?: number;\n        readonly origin?: \'subagent\';\n        readonly delegationDepth?: number;\n    };\n}',
+  },
+  {
+    name: 'CredentialInfo',
+    declaration: 'export interface CredentialInfo {\n    configured: boolean;\n    source?: string;\n    writable: boolean;\n}',
+  },
+  {
+    name: 'CredentialRef',
+    declaration: 'export type CredentialRef = Branded<\'CredentialRef\'>;',
   },
   {
     name: 'DiffCallView',
@@ -1790,7 +1933,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'EpochHeader',
-    declaration: 'export interface EpochHeader {\n    config: LlmCallConfig;\n    system?: string;\n    tools?: ToolSchema[];\n}',
+    declaration: 'export interface EpochHeader {\n    config: LlmCallConfig;\n    adapterDefaults?: LlmCallConfigAdapterDefaults;\n    system?: string;\n    tools?: ToolSchema[];\n}',
   },
   {
     name: 'FileDiff',
@@ -1890,11 +2033,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'InboxAction',
-    declaration: 'export type InboxAction = {\n    readonly kind: \'edit\';\n    readonly content: ContentBlock[];\n} | {\n    readonly kind: \'remove\';\n};',
+    declaration: 'export type InboxAction = {\n    readonly kind: \'edit\';\n    readonly content: ContentBlock[];\n} | {\n    readonly kind: \'remove\';\n} | {\n    readonly kind: \'steer\';\n};',
   },
   {
     name: 'InboxActionResult',
-    declaration: 'export type InboxActionResult = \'applied\' | \'not-found\';',
+    declaration: 'export type InboxActionResult = \'applied\' | \'not-found\' | \'steer-unavailable\';',
   },
   {
     name: 'InboxItemId',
@@ -1945,6 +2088,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface LlmCallConfig {\n    provider: string;\n    model: string;\n    reasoningEffort?: ReasoningEffortId;\n    temperature?: number;\n    maxTokens?: number;\n    stop?: string[];\n}',
   },
   {
+    name: 'LlmCallConfigAdapterDefaults',
+    declaration: 'export interface LlmCallConfigAdapterDefaults {\n    reasoningEffort?: true;\n    maxTokens?: true;\n}',
+  },
+  {
+    name: 'LlmConfigurableProvider',
+    declaration: 'export interface LlmConfigurableProvider {\n    provider: string;\n    displayName: string;\n    settingsNs: string;\n    settingsPath: readonly string[];\n}',
+  },
+  {
     name: 'LlmFailure',
     declaration: 'export interface LlmFailure {\n    readonly message: string;\n    readonly code: string;\n    readonly status?: number;\n    readonly providerRetryAfterMs?: number;\n    readonly requestId?: ProviderRequestId;\n}',
   },
@@ -1970,7 +2121,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'LlmResolvedModelInfo',
-    declaration: 'export interface LlmResolvedModelInfo extends LlmModelInfo {\n    context?: LlmModelContext;\n    reasoning?: LlmModelReasoningInfo;\n}',
+    declaration: 'export interface LlmResolvedModelInfo extends LlmModelInfo {\n    context?: LlmModelContext;\n    defaultMaxTokens?: number;\n    reasoning?: LlmModelReasoningInfo;\n}',
+  },
+  {
+    name: 'ManualCompactAgentContext',
+    declaration: 'export interface ManualCompactAgentContext extends CompactAgentContext {\n    reserveTurnAdmission(): (() => void) | undefined;\n}',
   },
   {
     name: 'Message',
@@ -1997,12 +2152,16 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ObjectJsonSchema = JsonSchemaNode & {\n    type: \'object\';\n};',
   },
   {
+    name: 'OneShotSubagentDescriptorData',
+    declaration: 'export interface OneShotSubagentDescriptorData extends SubagentDescriptorBase {\n    readonly mode: \'one-shot\';\n    readonly label?: string;\n}',
+  },
+  {
     name: 'PermissionSelect',
     declaration: 'export interface PermissionSelect {\n    options: PresetOption[];\n    currentValue: string;\n}',
   },
   {
     name: 'PreparedLlmCall',
-    declaration: 'export interface PreparedLlmCall {\n    readonly config: LlmCallConfig;\n    stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
+    declaration: 'export interface PreparedLlmCall {\n    readonly config: LlmCallConfig;\n    readonly context?: LlmModelContext;\n    readonly adapterDefaults: LlmCallConfigAdapterDefaults;\n    stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
   },
   {
     name: 'PreparedReferencedMessage',
@@ -2038,7 +2197,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PromptAssembly',
-    declaration: 'export interface PromptAssembly {\n    sections: AssembledSection[];\n    tools: ToolSchema[];\n    variables: Record<string, string | undefined>;\n}',
+    declaration: 'export interface PromptAssembly {\n    sections: AssembledSection[];\n    contexts: AssembledContext[];\n    tools: ToolSchema[];\n    variables: Record<string, string | undefined>;\n}',
+  },
+  {
+    name: 'PromptContext',
+    declaration: 'export interface PromptContext {\n    readonly name: string;\n    readonly order: number;\n    readonly text: string | ((context: AssembleContext) => string);\n}',
   },
   {
     name: 'PromptSection',
@@ -2129,6 +2292,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type PtyWaitReason = \'stdin_read\' | \'inferred_idle\' | \'timeout\' | \'session_exit\';',
   },
   {
+    name: 'ReadFileLine',
+    declaration: 'export interface ReadFileLine {\n    number: number;\n    text: string;\n}',
+  },
+  {
+    name: 'ReadResultView',
+    declaration: 'export interface ReadResultView {\n    card: \'read\';\n    title?: string;\n    path: string;\n    offset: number;\n    lines: ReadFileLine[];\n    totalLines: number;\n    lang?: string;\n    content?: ContentBlock[];\n}',
+  },
+  {
     name: 'ReasoningBlock',
     declaration: 'export interface ReasoningBlock {\n    type: \'reasoning\';\n    text: string;\n}',
   },
@@ -2137,12 +2308,24 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ReasoningEffortId = Branded<\'ReasoningEffortId\'>;',
   },
   {
+    name: 'RedactedSecret',
+    declaration: 'export interface RedactedSecret {\n    path: string[];\n    set: boolean;\n}',
+  },
+  {
+    name: 'RequestContext',
+    declaration: 'export interface RequestContext {\n    provider: string;\n    model: string;\n    contextWindow?: number;\n}',
+  },
+  {
     name: 'RequestHeaderReason',
     declaration: 'export type RequestHeaderReason = \'initial\' | \'resume\' | \'change\';',
   },
   {
     name: 'ResolvedAlwaysRetryPolicy',
     declaration: 'export interface ResolvedAlwaysRetryPolicy extends ResolvedRetryBackoff {\n    readonly mode: \'always\';\n}',
+  },
+  {
+    name: 'ResolvedCredential',
+    declaration: 'export interface ResolvedCredential {\n    value: string;\n    source: string;\n}',
   },
   {
     name: 'ResolvedNormalRetryPolicy',
@@ -2157,8 +2340,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ResolvedRetryPolicy = ResolvedNormalRetryPolicy | ResolvedAlwaysRetryPolicy;',
   },
   {
+    name: 'ResolvedSubagentStartRequest',
+    declaration: 'export interface ResolvedSubagentStartRequest extends SubagentStartRequest {\n    readonly descriptor: SubagentDescriptorData;\n}',
+  },
+  {
     name: 'ResumeAgentOptions',
-    declaration: 'export interface ResumeAgentOptions {\n    readonly resumeSessionId: SessionId;\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: (agentCtx: Context) => Promise<void> | void;\n}',
+    declaration: 'export interface ResumeAgentOptions {\n    readonly resumeSessionId: SessionId;\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: AgentSetup;\n}',
   },
   {
     name: 'SandboxEnforcement',
@@ -2189,6 +2376,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ScopeKey = object;',
   },
   {
+    name: 'SearchFileMatches',
+    declaration: 'export interface SearchFileMatches {\n    path: string;\n    matches: SearchLineMatch[];\n}',
+  },
+  {
+    name: 'SearchLineMatch',
+    declaration: 'export interface SearchLineMatch {\n    lineNumber: number;\n    line: string;\n}',
+  },
+  {
+    name: 'SearchMatchesResultView',
+    declaration: 'export interface SearchMatchesResultView {\n    card: \'search\';\n    shape: \'matches\';\n    title?: string;\n    files: SearchFileMatches[];\n    truncated: boolean;\n    total: number;\n}',
+  },
+  {
+    name: 'SearchPathsResultView',
+    declaration: 'export interface SearchPathsResultView {\n    card: \'search\';\n    shape: \'paths\';\n    title?: string;\n    paths: string[];\n    truncated: boolean;\n    total: number;\n}',
+  },
+  {
+    name: 'SearchResultView',
+    declaration: 'export type SearchResultView = SearchMatchesResultView | SearchPathsResultView;',
+  },
+  {
     name: 'SendOptions',
     declaration: 'export interface SendOptions {\n    target: SendTarget;\n    wakeup: boolean;\n}',
   },
@@ -2198,7 +2405,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'Session',
-    declaration: 'export class Session {\n    get surface(): SessionSurface;\n    readonly header: SessionHeader;\n    get id(): SessionId;\n    readonly firstLiveSeq: number;\n    constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader);\n    get events(): readonly SessionEvent[];\n    get seq(): number;\n    append<T extends SessionEventType>(type: T, data: SessionEventMap[T], ...opts: T extends SurfaceEventType ? [\n        opts: SurfaceIntent\n    ] : [\n    ]): SessionEvent<T>;\n    requestHeader(): EpochHeader | undefined;\n    deriveMessages(): Message[];\n    deriveEventMessage(event: SessionEvent): Message | null;\n}',
+    declaration: 'export class Session {\n    get surface(): SessionSurface;\n    readonly header: SessionHeader;\n    get id(): SessionId;\n    readonly firstLiveSeq: number;\n    constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader);\n    get events(): readonly SessionEvent[];\n    get seq(): number;\n    append<T extends SessionEventType>(type: T, data: SessionEventMap[T], ...opts: T extends SurfaceEventType ? [\n        opts: SurfaceIntent\n    ] : [\n    ]): SessionEvent<T>;\n    requestHeader(): EpochHeader | undefined;\n    requestContext(): RequestContext | undefined;\n    deriveMessages(): Message[];\n    deriveEventMessage(event: SessionEvent): Message | null;\n}',
   },
   {
     name: 'SessionAvailability',
@@ -2210,7 +2417,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionEventMap',
-    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n        trigger: TurnTrigger;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': UserMessage;\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        message: AssistantMessage;\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        message: ToolResultMessage;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: JsonValue;\n    };\n    \'steering/message\': {\n        turn: number;\n        message: UserMessage;\n    };\n    \'todo/write\': {\n        todos: TodoItem[];\n    };\n    \'request/header\': {\n        header: EpochHeader;\n        reason: RequestHeaderReason;\n    };\n    \'session/end-seed\': Record<string, never>;\n}',
+    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n        trigger: TurnTrigger;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': UserMessage;\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        message: AssistantMessage;\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        message: ToolResultMessage;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: JsonValue;\n    };\n    \'steering/message\': {\n        turn: number;\n        message: UserMessage;\n    };\n    \'todo/write\': {\n        todos: TodoItem[];\n    };\n    \'request/header\': {\n        header: EpochHeader;\n        reason: RequestHeaderReason;\n    };\n    \'request/context\': RequestContext;\n    \'session/end-seed\': Record<string, never>;\n}',
   },
   {
     name: 'SessionEventMetadataFilter',
@@ -2274,7 +2481,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionHeader',
-    declaration: 'export interface SessionHeader {\n    readonly version: number;\n    readonly id: SessionId;\n    readonly createdAt: number;\n    readonly cwd?: string;\n    readonly parentSession?: SessionId;\n    readonly seedLength?: number;\n    readonly delegationDepth?: number;\n}',
+    declaration: 'export interface SessionHeader {\n    readonly version: number;\n    readonly id: SessionId;\n    readonly createdAt: number;\n    readonly cwd?: string;\n    readonly parentSession?: SessionId;\n    readonly seedLength?: number;\n    readonly origin?: \'subagent\';\n    readonly delegationDepth?: number;\n}',
   },
   {
     name: 'SessionId',
@@ -2409,12 +2616,20 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type SettingsApplies = \'live\' | \'restart\';',
   },
   {
+    name: 'SettingsDescribeOptions',
+    declaration: 'export interface SettingsDescribeOptions {\n    redactSecrets?: boolean;\n}',
+  },
+  {
     name: 'SettingsDescriptor',
-    declaration: 'export interface SettingsDescriptor {\n    ns: SettingsNamespace;\n    schema: unknown;\n    value: unknown;\n    applies: SettingsApplies;\n}',
+    declaration: 'export interface SettingsDescriptor {\n    ns: SettingsNamespace;\n    schema: unknown;\n    value: unknown;\n    revision: number;\n    base?: unknown;\n    user?: unknown;\n    applies: SettingsApplies;\n    secrets?: RedactedSecret[];\n}',
   },
   {
     name: 'SettingsNamespace',
     declaration: 'export type SettingsNamespace = Branded<\'SettingsNamespace\'>;',
+  },
+  {
+    name: 'SettingsPathOp',
+    declaration: 'export type SettingsPathOp = {\n    op: \'set\';\n    path: readonly string[];\n    value: unknown;\n} | {\n    op: \'unset\';\n    path: readonly string[];\n};',
   },
   {
     name: 'SettingsRegisterOptions',
@@ -2489,6 +2704,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SpillSource {\n    toolName: string;\n    callId: CallId;\n    label: string;\n}',
   },
   {
+    name: 'SteeringOutcome',
+    declaration: 'export type SteeringOutcome = {\n    readonly status: \'admitted\';\n    readonly turn: number;\n    readonly step: number;\n} | {\n    readonly status: \'rejected\';\n};',
+  },
+  {
+    name: 'SteeringReceipt',
+    declaration: 'export interface SteeringReceipt {\n    readonly outcome: Promise<SteeringOutcome>;\n}',
+  },
+  {
     name: 'StorageForms',
     declaration: 'export interface StorageForms {\n}',
   },
@@ -2501,8 +2724,28 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SubagentCapabilities {\n    readonly outputSchema: boolean;\n    readonly depthLimit: boolean;\n    readonly toolFilter: boolean;\n    readonly persona: boolean;\n}',
   },
   {
+    name: 'SubagentDescriptorData',
+    declaration: 'export type SubagentDescriptorData = OneShotSubagentDescriptorData | ContinuableSubagentDescriptorData;',
+  },
+  {
+    name: 'SubagentFollowupOptions',
+    declaration: 'export interface SubagentFollowupOptions {\n    readonly source: MessageSource;\n    readonly signal: AbortSignal;\n}',
+  },
+  {
+    name: 'SubagentListEntry',
+    declaration: 'export type SubagentListEntry = {\n    readonly kind: \'child\';\n    readonly id: SessionId;\n    readonly activity: \'running\' | \'inactive\';\n    readonly hasChildren: boolean;\n} & ({\n    readonly mode: \'one-shot\';\n    readonly label?: string;\n} | {\n    readonly mode: \'continuable\';\n    readonly label: string;\n}) | {\n    readonly kind: \'diagnostic\';\n    readonly id: SessionId;\n    readonly reason: \'corrupt\' | \'unsupported\' | \'unavailable\';\n};',
+  },
+  {
     name: 'SubagentProvider',
-    declaration: 'export interface SubagentProvider {\n    readonly name: string;\n    readonly capabilities: SubagentCapabilities;\n    readonly inheritsParentContext: boolean;\n    start(request: SubagentStartRequest): Promise<SubagentRun>;\n}',
+    declaration: 'export interface SubagentProvider {\n    readonly name: string;\n    readonly capabilities: SubagentCapabilities;\n    readonly inheritsParentContext: boolean;\n    start(request: ResolvedSubagentStartRequest): Promise<SubagentRun>;\n    prepareContinuable?(request: ContinuableCreateRequest): Promise<ContinuableCreateSpec>;\n}',
+  },
+  {
+    name: 'SubagentReportDelivery',
+    declaration: 'export type SubagentReportDelivery = \'quiet\' | \'wakeup\';',
+  },
+  {
+    name: 'SubagentReportOptions',
+    declaration: 'export interface SubagentReportOptions {\n    readonly delivery: SubagentReportDelivery;\n    readonly signal: AbortSignal;\n}',
   },
   {
     name: 'SubagentResult',
@@ -2510,11 +2753,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubagentRun',
-    declaration: 'export interface SubagentRun {\n    readonly id: SessionId;\n    readonly localAgent: Agent | undefined;\n    readonly result: Promise<SubagentResult>;\n    dispose(): Promise<void>;\n    sendMessage?(content: ContentBlock[]): void;\n    resume?(content: ContentBlock[]): Promise<SubagentRun>;\n}',
+    declaration: 'export interface SubagentRun {\n    readonly id: SessionId;\n    readonly localAgent: Agent | undefined;\n    readonly result: Promise<SubagentResult>;\n    dispose(): Promise<void>;\n}',
   },
   {
     name: 'SubagentStartRequest',
-    declaration: 'export interface SubagentStartRequest {\n    readonly prompt: ContentBlock[];\n    readonly parent: Agent;\n    readonly signal: AbortSignal;\n    readonly agentOptions?: AgentOptions;\n    readonly outputSchema?: ObjectJsonSchema;\n    readonly maxDepth?: number;\n    readonly toolFilter?: ToolRestriction;\n    readonly persona?: string;\n}',
+    declaration: 'export interface SubagentStartRequest {\n    readonly label?: string;\n    readonly prompt: ContentBlock[];\n    readonly parent: Agent;\n    readonly signal: AbortSignal;\n    readonly agentOptions?: AgentOptions;\n    readonly outputSchema?: ObjectJsonSchema;\n    readonly maxDepth?: number;\n    readonly toolFilter?: ToolRestriction;\n    readonly persona?: string;\n}',
   },
   {
     name: 'SubagentStopReason',
@@ -2750,7 +2993,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolResultView',
-    declaration: 'export type ToolResultView = GenericResultView | TerminalResultView | DiffResultView;',
+    declaration: 'export type ToolResultView = GenericResultView | TerminalResultView | DiffResultView | SearchResultView | ReadResultView | WebResultView;',
   },
   {
     name: 'ToolRunContext',
@@ -2857,6 +3100,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface WebFetchResult {\n    readonly url: string;\n    readonly statusCode: number;\n    readonly body: WebFetchBody;\n    readonly truncated: boolean;\n}',
   },
   {
+    name: 'WebFetchResultView',
+    declaration: 'export interface WebFetchResultView {\n    card: \'web\';\n    kind: \'fetch\';\n    title?: string;\n    url: string;\n    statusCode: number;\n    truncated: boolean;\n}',
+  },
+  {
+    name: 'WebResultView',
+    declaration: 'export type WebResultView = WebSearchResultView | WebFetchResultView;',
+  },
+  {
     name: 'WebRoute',
     declaration: 'export interface WebRoute {\n    kind: WebRouteKind;\n    path: string;\n    handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>;\n}',
   },
@@ -2877,8 +3128,16 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface WebSearchResult {\n    readonly content?: string;\n    readonly sources: readonly WebSearchSource[];\n    readonly truncated: boolean;\n}',
   },
   {
+    name: 'WebSearchResultView',
+    declaration: 'export interface WebSearchResultView {\n    card: \'web\';\n    kind: \'search\';\n    title?: string;\n    sources: WebSource[];\n    answer?: string;\n    truncated: boolean;\n}',
+  },
+  {
     name: 'WebSearchSource',
     declaration: 'export interface WebSearchSource {\n    readonly url: string;\n    readonly title?: string;\n    readonly snippet?: string;\n    readonly publishedAt?: string;\n}',
+  },
+  {
+    name: 'WebSource',
+    declaration: 'export interface WebSource {\n    url: string;\n    title?: string;\n    snippet?: string;\n    publishedAt?: string;\n}',
   },
   {
     name: 'WorkflowMeta',
