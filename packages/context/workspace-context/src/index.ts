@@ -70,6 +70,11 @@ function filePathFromExecution(exec: ToolExecution): string | undefined {
 export function apply(ctx: Context, config: Config): void {
   const resolved: ResolvedConfig = resolveConfig(config)
   const instructionVersions: InstructionVersionCache = new WeakMap()
+  const projectionLifecycle = new AbortController()
+  ctx.effect(
+    () => () =>{  projectionLifecycle.abort(new Error('workspace-context disposed')); },
+    'workspace-context.projectionLifecycle',
+  )
   // Emit listeners are not awaited, so each projection must compose against the
   // inbox produced by earlier file results for the same agent.
   const projectionTails = new WeakMap<Agent, Promise<void>>()
@@ -186,13 +191,12 @@ export function apply(ctx: Context, config: Config): void {
 
   const queueProjection = (
     agent: Agent,
-    signal: AbortSignal,
     touchedPath: string,
   ): void => {
     const previous = projectionTails.get(agent) ?? Promise.resolve()
-    const current = previous.then(() => composeAndSync(agent, signal, [], [touchedPath]))
+    const current = previous.then(() => composeAndSync(agent, projectionLifecycle.signal, [], [touchedPath]))
       .catch((error: unknown) => {
-        if (!signal.aborted) ctx.logger.warn('workspace instruction refresh failed: %o', error)
+        if (!projectionLifecycle.signal.aborted) ctx.logger.warn('workspace instruction refresh failed: %o', error)
       })
     projectionTails.set(agent, current)
     void current.then(() => {
@@ -221,6 +225,6 @@ export function apply(ctx: Context, config: Config): void {
     if (result.isError || exec.agent === undefined || exec.signal.aborted) return
     const ownPath = filePathFromExecution(exec)
     if (ownPath === undefined) return
-    queueProjection(exec.agent, exec.signal, ownPath)
+    queueProjection(exec.agent, ownPath)
   })
 }

@@ -2090,10 +2090,8 @@ describe('dynamic nested workspace context injection', () => {
       await agent.whenIdle()
 
       const contexts = agent.session.events.filter(event => event.type === 'user/message' && event.data.source.kind !== 'user')
-      // Cancellation discards the aborted step's pending context. The next
-      // successful read discovers and durably injects it once.
       expect(contexts).toHaveLength(1)
-      expect(adapter.requests).toHaveLength(4)
+      expect(adapter.requests).toHaveLength(3)
       expect(adapter.requests.at(-1)?.messages.map(blocks => blocksText(blocks.content)).join('\n'))
         .toContain('nested rule survives an aborted tool batch')
     } finally {
@@ -2214,6 +2212,34 @@ describe('dynamic nested workspace context injection', () => {
       expect(text).not.toContain('<workspace-context')
       expect(text).toContain('baseline root rule')
     } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('finishes a committed file-result projection after the tool signal ends', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    const ctx = new Context()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'pkg/AGENTS.md'), 'nested package rule')
+      await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
+      const agent = stubAgent(root)
+      const controller = new AbortController()
+
+      ctx.emit('tools/result', stubToolExecution({
+        signal: controller.signal,
+        callId: CallId('read-before-signal-end'),
+        name: 'read',
+        arguments: { file_path: join('pkg', 'file.txt') },
+        agent,
+      }), { content: [{ type: 'text', text: 'ok' }], isError: false, value: null })
+      controller.abort(new Error('tool execution ended'))
+
+      expect(blocksText((await workspaceContextOf(agent)).content)).toContain('nested package rule')
+    } finally {
+      await ctx.fiber.dispose()
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
     }
