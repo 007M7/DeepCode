@@ -156,7 +156,7 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 #### What the model sees
 
-When a consumer calls `ctx.userInteraction.ask()`, this provider presents each question in order and returns selected option labels or `custom` text. Abort, cancellation, or UI disposal becomes `Error: ask_user_question was interrupted before the user answered` through `dsh-tool-ask-user`.
+When a consumer calls `ctx.userInteraction.ask()`, this provider presents each question in order and returns selected option labels, `custom` text, or both for a multi-select question. Pending custom text survives switching back to options and joins checked labels on a later options-mode submit. Abort, cancellation, or UI disposal becomes `Error: ask_user_question was interrupted before the user answered` through `dsh-tool-ask-user`.
 
 #### Token effect
 

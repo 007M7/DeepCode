@@ -412,8 +412,10 @@ function matchesQuestions(payload: QuestionResponsePayload, pending: PendingQues
     if (new Set(answer.selected).size !== answer.selected.length) return false
     const custom = answer.custom?.trim()
     if (custom !== undefined && custom === '') return false
-    if (custom !== undefined && answer.selected.length > 0) return false
-    if (question.multiSelect !== true && answer.selected.length > 1) return false
+    if (question.multiSelect !== true) {
+      if (custom !== undefined && answer.selected.length > 0) return false
+      if (answer.selected.length > 1) return false
+    }
     const labels = new Set(question.options?.map(option => option.label) ?? [])
     return answer.selected.every(label => labels.has(label))
   })

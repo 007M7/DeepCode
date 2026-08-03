@@ -156,7 +156,7 @@ Paths prefixed with @ are files explicitly referenced by the user. Use the read 
 
 #### 模型看到的内容
 
-消费方调用 `ctx.userInteraction.ask()` 时，此提供方会按顺序显示各个问题，并返回选中选项标签或 `custom` 文本。中止、取消或 UI dispose 会变为 `Error: ask_user_question was interrupted before the user answered`；该转换由 `dsh-tool-ask-user` 完成。
+消费方调用 `ctx.userInteraction.ask()` 时，此提供方会按顺序显示各个问题，并返回选中选项标签、`custom` 文本，或为多选题同时返回两者。切回选项后，待提交的自定义文本仍会保留，并在之后从选项模式提交时与已勾选的标签一同返回。中止、取消或 UI dispose 会变为 `Error: ask_user_question was interrupted before the user answered`；该转换由 `dsh-tool-ask-user` 完成。
 
 #### Token 影响
 

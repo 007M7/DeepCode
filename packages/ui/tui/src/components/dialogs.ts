@@ -894,12 +894,15 @@ export class QuestionDialog implements Component, Focusable {
       if (this.selected.has(this.selectedIndex)) this.selected.delete(this.selectedIndex)
       else this.selected.add(this.selectedIndex)
     } else if (matchesKey(data, Key.enter)) {
-      const indices = this.question.multiSelect ? [...this.selected].sort((a, b) => a - b) : [this.selectedIndex]
-      if (indices.length === 0) {
+      const selected = this.question.multiSelect
+        ? this.selectedOptionLabels()
+        : [options[this.selectedIndex]?.label].filter((label): label is string => label !== undefined)
+      const custom = this.question.multiSelect ? this.input.getValue().trim() : ''
+      if (selected.length === 0 && custom === '') {
         this.error = 'Select at least one option, or press Tab for a custom answer.'
         return
       }
-      this.done({ selected: indices.map(index => options[index]?.label).filter((label): label is string => label !== undefined) })
+      this.done({ selected, ...(custom === '' ? {} : { custom }) })
     } else if (matchesKey(data, Key.tab) || data.toLowerCase() === 'c') {
       this.mode = 'custom'
       this.selectedBlockPage = { offset: 0, size: 1, maxOffset: 0 }
@@ -915,7 +918,17 @@ export class QuestionDialog implements Component, Focusable {
       this.error = 'Enter an answer before submitting.'
       return
     }
-    this.done({ selected: [], custom })
+    this.done({
+      selected: this.question.multiSelect ? this.selectedOptionLabels() : [],
+      custom,
+    })
+  }
+
+  private selectedOptionLabels(): string[] {
+    return [...this.selected]
+      .sort((a, b) => a - b)
+      .map(index => this.options[index]?.label)
+      .filter((label): label is string => label !== undefined)
   }
 
   /** Page backward through an oversized option, then through question detail. */
@@ -981,9 +994,12 @@ export class QuestionDialog implements Component, Focusable {
     }
     headerLines.push('')
 
-    const customHint = this.palette.dim(this.options.length > 0
-      ? 'Enter submit • Esc options'
-      : 'Enter submit • Esc cancel')
+    const customControls = [
+      ...(this.options.length > 0 && this.question.multiSelect ? [`${this.selected.size} selected`] : []),
+      'Enter submit',
+      this.options.length > 0 ? 'Esc options' : 'Esc cancel',
+    ]
+    const customHint = this.palette.dim(customControls.join(' • '))
     const footerLines: string[] = []
     if (this.mode === 'custom') {
       for (const line of this.input.render(innerWidth)) footerLines.push(line)

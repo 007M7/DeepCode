@@ -5584,8 +5584,29 @@ describe('TUI user-interaction dialogs', () => {
     result.terminal.send(' ')
     result.terminal.send('\x1b[B')
     result.terminal.send(' ')
+    result.terminal.send('\t')
+    await tick()
+    expect(result.terminal.output).toContain('2 selected • Enter submit • Esc options')
+    result.terminal.send('Tests')
     result.terminal.send('\r')
-    await expect(multi).resolves.toEqual({ answers: [{ id: 'targets', selected: ['Code', 'Docs'] }] })
+    await expect(multi).resolves.toEqual({
+      answers: [{ id: 'targets', selected: ['Code', 'Docs'], custom: 'Tests' }],
+    })
+
+    const labelsOnly = result.ctx.userInteraction.ask({
+      questions: [{
+        id: 'labels-only',
+        question: 'Pick one target',
+        multiSelect: true,
+        options: [{ label: 'Code' }, { label: 'Docs' }],
+      }],
+    })
+    await tick()
+    result.terminal.send(' ')
+    result.terminal.send('\r')
+    await expect(labelsOnly).resolves.toEqual({
+      answers: [{ id: 'labels-only', selected: ['Code'] }],
+    })
 
     const custom = result.ctx.userInteraction.ask({
       questions: [{ id: 'other', question: 'Choose or type', options: [{ label: 'Default' }] }],
@@ -5628,7 +5649,6 @@ describe('TUI user-interaction dialogs', () => {
         options: [{ label: 'One', description: 'first' }, { label: 'Two' }],
       }],
     })
-    const rejected = expect(answer).rejects.toMatchObject({ code: 'ASK_ABORTED' })
     await tick()
     result.terminal.send('\x1b[A')
     result.terminal.send('\x1b[B')
@@ -5644,11 +5664,17 @@ describe('TUI user-interaction dialogs', () => {
     })
     result.terminal.send('c')
     await tick()
+    result.terminal.send('keep this')
+    await tick()
+    expect(result.terminal.output).toContain('0 selected • Enter submit • Esc options')
     result.terminal.send('\x1b')
     await tick()
     expect(result.terminal.output).toContain('Space toggle')
-    result.terminal.send('\x03')
-    await rejected
+    result.terminal.send(' ')
+    result.terminal.send('\r')
+    await expect(answer).resolves.toEqual({
+      answers: [{ id: 'options', selected: ['One'], custom: 'keep this' }],
+    })
     await dispose(result)
   })
 
