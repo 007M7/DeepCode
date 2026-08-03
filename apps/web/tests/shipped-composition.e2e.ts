@@ -47,10 +47,10 @@ const EXPECTED_TOOLS = [
 ]
 
 /**
- * `glob` and `grep` come from `dsh-tool-fs-search`, which probes `command -v rg`
- * through the mounted bash executor at load and registers neither tool when
- * ripgrep is absent. That is a host dependency, not a composition decision, so the
- * pair is asserted separately — present together or absent together.
+ * `glob` and `grep` come from `dsh-tool-fs-search`, which spawns the PACKAGED
+ * ripgrep binary (`@vscode/ripgrep`) through the subprocess seam, so the pair
+ * is always present on every host — asserted as fixed members, not a host
+ * dependency.
  */
 const RIPGREP_TOOLS = ['glob', 'grep']
 
@@ -65,7 +65,9 @@ it('assembles the shipped Web catalog with the confined access default', async (
   scaffold = await launchWebScaffold()
   const names = scaffold.ctx.tools.schemas().map(schema => schema.name).sort()
   expect(names.filter(name => !RIPGREP_TOOLS.includes(name))).toEqual(EXPECTED_TOOLS)
-  expect([[], RIPGREP_TOOLS]).toContainEqual(names.filter(name => RIPGREP_TOOLS.includes(name)))
+  // The packaged ripgrep binary ships with the dependency, so the pair is a
+  // fixed roster member on every host.
+  expect(names.filter(name => RIPGREP_TOOLS.includes(name))).toEqual(RIPGREP_TOOLS)
   // `workspace-write` is not "the workspace and nothing else": the shared roots
   // helper always admits the temp directories too. Pinning it against an
   // explicit mode keeps the claim independent of this surface's default, and
