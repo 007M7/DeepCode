@@ -52,7 +52,12 @@ export function classifyRunnerFailure(
   for (const rule of rules) {
     if (rule.allowedExitCodes !== undefined && !rule.allowedExitCodes.includes(exitCode)) continue
     const informationalLines = new Set((rule.informationalLines ?? []).map(line => line.toLowerCase()))
-    const fatalSignatures = rule.fatalSignatures.map(signature => signature.toLowerCase())
+    // An empty substring matches every string in JavaScript. Ignore it so a
+    // malformed public rule cannot turn a gated exit status into evidence by
+    // itself; keep any valid signatures beside it active.
+    const fatalSignatures = rule.fatalSignatures
+      .filter(signature => signature.length > 0)
+      .map(signature => signature.toLowerCase())
     for (const line of lines) {
       const lowered = line.toLowerCase()
       if (informationalLines.has(lowered)) continue

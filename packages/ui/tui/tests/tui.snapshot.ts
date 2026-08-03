@@ -44,6 +44,9 @@ const CHECKPOINTS = [
   'cordis-tools-pending',
   'advanced-cards-collapsed',
   'advanced-cards-expanded',
+  'tool-cards-hidden-folded',
+  'details-command',
+  'details-selector',
   'untrusted-controls',
   'question-dialog',
   'question-dialog-single-option',
@@ -606,6 +609,71 @@ describe('TUI terminal-state snapshots', () => {
 
     await renderAfter(harness, () => { harness.terminal.send('\x0f') })
     await checkpoint('advanced-cards-expanded', harness.terminal, { includeScrollback: true })
+    await disposeSnapshot(harness)
+  })
+
+  it('pins the hidden phase folding a multi-step turn into one assistant message', async () => {
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(new Date(2026, 6, 29, 22, 30, 0).getTime())
+    const harness = await setupSnapshot({
+      tools: ADVANCED_CARD_TOOLS,
+      config: { maxToolOutputLines: 3 },
+    }, { columns: 100, rows: 40 })
+    await renderAfter(harness, () => {
+      appendUser(harness.session, 'Refactor the renderer.')
+      appendAssistant(harness.session, [{ type: 'text', text: 'Inspecting the renderer first.' }])
+      appendToolCalls(harness.session, [
+        { id: 'fold-1', name: 'bash', arguments: { command: 'pnpm run test' } },
+      ])
+      appendToolResult(harness.session, 'fold-1', [{ type: 'text', text: 'all tests pass' }])
+      harness.session.append('step/end', { turn: 1, step: 1 })
+      harness.session.append('step/start', { turn: 1, step: 2 })
+      appendAssistant(harness.session, [{ type: 'text', text: 'The renderer is sound; no refactor needed.' }], undefined, { turn: 1, step: 2 })
+      harness.session.append('step/end', { turn: 1, step: 2 })
+      harness.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    })
+    // collapsed -> expanded -> hidden: one Assistant header, no tool card.
+    await renderAfter(harness, () => { harness.terminal.send('\x0f') })
+    await renderAfter(harness, () => { harness.terminal.send('\x0f') })
+    await checkpoint('tool-cards-hidden-folded', harness.terminal, { includeScrollback: true })
+    nowSpy.mockRestore()
+    await disposeSnapshot(harness)
+  })
+
+  it('pins /details jumping card visibility and reasoning display to named states', async () => {
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(new Date(2026, 6, 30, 18, 0, 0).getTime())
+    const harness = await setupSnapshot({
+      tools: ADVANCED_CARD_TOOLS,
+      config: { maxToolOutputLines: 3 },
+    }, { columns: 100, rows: 40 })
+    await renderAfter(harness, () => {
+      appendUser(harness.session, 'Inspect the renderer.')
+      appendAssistant(harness.session, [
+        { type: 'reasoning', text: 'The tool card and this block vanish under /details hidden reasoning off.' },
+        { type: 'text', text: 'Running the check now.' },
+      ])
+      appendToolCalls(harness.session, [
+        { id: 'details-1', name: 'bash', arguments: { command: 'pnpm run test' } },
+      ])
+      appendToolResult(harness.session, 'details-1', [{ type: 'text', text: 'all tests pass' }])
+      harness.session.append('step/end', { turn: 1, step: 1 })
+      harness.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    })
+    await renderAfter(harness, () => {
+      harness.terminal.send('/details hidden reasoning off')
+      harness.terminal.send('\r')
+    })
+    await checkpoint('details-command', harness.terminal, { includeScrollback: true })
+    // Bare /details opens the two-entry toggle seeded with the current
+    // hidden/reasoning-off state; one Tab immediately cycles tool cards
+    // hidden -> collapsed, so the frame pins the applied notice, the restored
+    // tool card behind the dialog, and the updated entry value together.
+    await renderAfter(harness, () => {
+      harness.terminal.send('/details')
+      harness.terminal.send('\r')
+      harness.terminal.send('\t')
+    })
+    await checkpoint('details-selector', harness.terminal, { includeScrollback: true })
+    nowSpy.mockRestore()
     await disposeSnapshot(harness)
   })
 

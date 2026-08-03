@@ -36,12 +36,14 @@ describe('MessageItem arms', () => {
     // Same-day clock: construct "today at 14:24" so the label stays `HH:mm`.
     const now = new Date()
     const time = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 14, 24).getTime()
+    const onFork = vi.fn()
     render(
       <MessageItem t={t} node={{
         kind: 'user', seq: 1, time,
         content: [{ type: 'text', text: 'hello bubble' }] as never,
         source: null,
       }}
+      onFork={onFork}
       />,
     )
     expect(screen.getByText('14:24')).toBeTruthy()
@@ -50,6 +52,8 @@ describe('MessageItem arms', () => {
     expect(screen.queryByRole('button', { name: '编辑' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '复制' }))
     expect(writeText).toHaveBeenCalledWith('hello bubble')
+    fireEvent.click(screen.getByRole('button', { name: '在新对话中分支' }))
+    expect(onFork).toHaveBeenCalledWith(1)
   })
 
   it('user copy falls back to execCommand when clipboard.writeText is unavailable', () => {
@@ -72,6 +76,30 @@ describe('MessageItem arms', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: '复制' }))
     expect(exec).toHaveBeenCalledWith('copy')
+  })
+
+  it('keeps an unavailable branch focusable and explains why without sending a fork', () => {
+    const onFork = vi.fn()
+    render(
+      <MessageItem t={t} node={{
+        kind: 'user', seq: 1, time: 1_000,
+        content: [{ type: 'text', text: 'open turn' }] as never,
+        source: null,
+      }}
+      onFork={onFork}
+      forkUnavailable
+      />,
+    )
+    const branch = screen.getByRole('button', { name: '在新对话中分支' }) as HTMLButtonElement
+    expect(branch.disabled).toBe(false)
+    expect(branch.getAttribute('aria-disabled')).toBe('true')
+    const reasonId = branch.getAttribute('aria-describedby')
+    expect(reasonId).not.toBeNull()
+    expect(document.getElementById(reasonId!)?.textContent).toBe('仅可从已完成轮次的最后一条消息分支')
+    fireEvent.click(branch)
+    expect(onFork).not.toHaveBeenCalled()
+    fireEvent.focus(branch)
+    expect(screen.getByRole('tooltip').textContent).toBe('仅可从已完成轮次的最后一条消息分支')
   })
 
   it('user copy stays quiet when execCommand throws or is absent', () => {
@@ -420,12 +448,15 @@ describe('small branch tails', () => {
     })
     const now = new Date()
     const time = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 14, 24).getTime()
+    const onFork = vi.fn()
     const settled = render(
       <AssistantMarkdown
         t={t}
         blocks={[{ kind: 'text', text: 'answer body' }, { kind: 'reasoning', text: 'hidden' }]}
         streaming={false}
         time={time}
+        seq={3}
+        onFork={onFork}
       />,
     )
     expect(settled.getByText('14:24')).toBeTruthy()
@@ -433,6 +464,8 @@ describe('small branch tails', () => {
     expect(settled.getByRole('button', { name: '在新对话中分支' })).toBeTruthy()
     fireEvent.click(settled.getByRole('button', { name: '复制' }))
     expect(writeText).toHaveBeenCalledWith('answer body')
+    fireEvent.click(settled.getByRole('button', { name: '在新对话中分支' }))
+    expect(onFork).toHaveBeenCalledWith(3)
     settled.unmount()
 
     const thinkOnly = render(

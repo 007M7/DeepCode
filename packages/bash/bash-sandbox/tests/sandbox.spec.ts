@@ -234,6 +234,24 @@ describe('classifyDenial', () => {
 })
 
 describe('classifyRunnerFailure', () => {
+  it('ignores empty fatal signatures instead of treating exit status or notice text as evidence', () => {
+    const notice = 'landlock-run: partial enforcement (older Landlock ABI)'
+    const emptyRule = [{ allowedExitCodes: [125], fatalSignatures: [''] }]
+    expect(classifyRunnerFailure(125, '', emptyRule)).toBeUndefined()
+    expect(classifyRunnerFailure(125, notice, emptyRule)).toBeUndefined()
+  })
+
+  it('keeps valid fatal signatures active beside an ignored empty entry', () => {
+    const notice = 'landlock-run: partial enforcement (older Landlock ABI)'
+    const fatal = 'landlock-run: ruleset creation failed'
+    const rules = [{
+      allowedExitCodes: [125],
+      fatalSignatures: ['', 'landlock-run: '],
+      informationalLines: [notice],
+    }]
+    expect(classifyRunnerFailure(125, `${notice}\nchild diagnostic\n${fatal}`, rules)).toEqual({ detail: fatal })
+  })
+
   it('matches an outer-shell rule case-insensitively only at its exit codes and configured argv0', () => {
     const rules = [{
       allowedExitCodes: [126, 127],

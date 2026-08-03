@@ -1,7 +1,7 @@
 /**
- * Deterministic composition proof for the partial-Landlock diagnostic: the
- * real local provider and sandbox bash executor wrap commands through a POSIX
- * fake launcher that prints the native informational line before exec.
+ * Deterministic real-process proofs for runner classification: the real local
+ * provider and sandbox bash executor exercise an outer-shell launch failure
+ * and a POSIX fake Landlock launcher that prints its notice before exec.
  */
 
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -64,6 +64,26 @@ async function setup(fatal = false): Promise<SandboxBashExecutor> {
 }
 
 describe('partial Landlock runner-failure classification', () => {
+  it.skipIf(process.platform === 'win32')('classifies a genuinely missing configured runner through the outer bash exec rule', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-missing-sandbox-runner-'))
+    tempDirs.push(dir)
+    const missingRunner = join(dir, 'missing-runner')
+    const ctx = new Context()
+    contexts.push(ctx)
+    await ctx.plugin(LocalSandboxProvider, {
+      runnerCommand: [missingRunner],
+      runnerFailureSignatures: ['configured-runner: fatal'],
+    })
+    await ctx.plugin(SandboxPolicyService, { mode: 'read-only', workspaceRoot: process.cwd() })
+    await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(SandboxBashExecutor, { cwd: process.cwd(), timeoutMs: 5_000 })
+
+    const error = await ctx.bash.run(ctx.bash.resolve({ command: 'true' })).catch((value: unknown) => value)
+    expect(error).toMatchObject({ name: 'SandboxUnavailableError', code: SANDBOX_UNAVAILABLE })
+    expect(error).toBeInstanceOf(Error)
+    expect((error as Error).message).toContain(missingRunner)
+  })
+
   it('keeps true, false, and child exit 125 as child outcomes when the notice is the only runner line', async () => {
     const bash = await setup()
     for (const [command, exitCode] of [['true', 0], ['false', 1], ['exit 125', 125]] as const) {
