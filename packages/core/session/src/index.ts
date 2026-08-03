@@ -93,8 +93,7 @@ declare module 'cordis' {
     'session/event'(this: Scoped<Session>, session: Session, event: SessionEvent): void
     /**
      * Awaited parallel durability checkpoint: every listener runs and the
-     * caller awaits all of them, with no waterfall veto. Dispatch through
-     * {@link SessionStore.flush}. Scope-filtered dispatch
+     * caller awaits all of them, with no waterfall veto. Scope-filtered dispatch
      * (`@deepseek-ai/dsh-scope`) reuses the session's owner scope.
      * @param session - the session whose buffered events must reach durable storage.
      * @dshScopeScan unsupported
@@ -138,6 +137,9 @@ function snapshotSessionHeader(id: SessionId, source?: SessionHeader): SessionHe
   if (record.seedLength !== undefined
     && (typeof record.seedLength !== 'number' || !Number.isSafeInteger(record.seedLength) || record.seedLength < 0)) {
     throw new Error('session header seedLength must be a non-negative safe integer')
+  }
+  if (record.origin !== undefined && record.origin !== 'subagent') {
+    throw new Error('session header origin must be "subagent"')
   }
   if (record.delegationDepth !== undefined
     && (typeof record.delegationDepth !== 'number' || !Number.isSafeInteger(record.delegationDepth) || record.delegationDepth < 0)) {
@@ -838,6 +840,7 @@ export class SessionStore extends Service {
       ...meta?.cwd === undefined ? {} : { cwd: meta.cwd },
       ...meta?.parentSession === undefined ? {} : { parentSession: meta.parentSession },
       ...meta?.seedLength === undefined ? {} : { seedLength: meta.seedLength },
+      ...meta?.origin === undefined ? {} : { origin: meta.origin },
       ...meta?.delegationDepth === undefined ? {} : { delegationDepth: meta.delegationDepth },
     }
     return new Session(sessionId, seed, header)
@@ -969,10 +972,11 @@ export class SessionStore extends Service {
    * raw `ctx.parallel('session/flush', …)` — one owner, one spelling, and the
    * scoped-dispatch invariant can pin it.
    * @param session - the session whose buffered events must reach durable storage.
-   * @returns resolves when every flush listener has settled; after all settle,
-   *   rejects with the first registered listener failure if any listener failed.
+   * @returns whether at least one durability listener participated, after every
+   *   listener has settled successfully.
+   * @throws the first registered listener failure after every listener settles.
    */
-  async flush(session: Session): Promise<void> {
+  async flush(session: Session): Promise<boolean> {
     const { carrier } = this.liveEntryFor(session)
     const callbackArgs: unknown[] = [session]
     const callbacks = collectSessionCallbacks(this.ctx, [carrier, 'session/flush', session])
@@ -988,6 +992,7 @@ export class SessionStore extends Service {
     }))
     const failure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
     if (failure !== undefined) throw failure.reason
+    return callbacks.length > 0
   }
 
   /** Return the exact live entry; detached/prepared objects reject. */

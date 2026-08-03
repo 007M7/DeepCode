@@ -40,7 +40,8 @@ interface EffortChoice {
  * @returns the trigger and, while open, the two-level menu.
  */
 export function ModelSelect(
-  { locked, directory, load, select, t }: ModelSelectInjected & { locked: boolean } & PropsLocale<'model'>,
+  { locked, available, directory, load, select, t }:
+  ModelSelectInjected & { locked: boolean } & PropsLocale<'model'>,
 ) {
   const state = useSyncExternalStore(
     fn => directory.subscribe(fn),
@@ -92,7 +93,9 @@ export function ModelSelect(
   const busy = state.status === 'selecting'
 
   // Mount-time load resolves the trigger label; every open refreshes.
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    if (available) load()
+  }, [available, load])
 
   useEffect(() => {
     if (!open) return
@@ -102,6 +105,8 @@ export function ModelSelect(
     document.addEventListener('mousedown', closeOutside)
     return () => { document.removeEventListener('mousedown', closeOutside) }
   }, [open])
+
+  if (!available) return null
 
   const show = (): void => {
     setPane('root')

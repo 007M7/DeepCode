@@ -1,5 +1,6 @@
 - banner:
-  - heading "Use the ask_user_question tool to" [level=1]
+  - navigation "Session hierarchy":
+    - button "Use the ask_user_question tool to" [disabled]
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
@@ -20,7 +21,11 @@
   - img
   - img
   - text: Ask question 1/1 answered
-- text: "Interjection: include the word BANANA in your final reply."
+- text: "Interjection: include the word BANANA in your final reply. {{clock}}"
+- button "Copy":
+  - img
+- button "Branch into a new conversation":
+  - img
 - button "Think The user selected \"Yes\" and wants me to include the word \"BANANA\" in my final reply. Let me acknowledge their answer.":
   - img
   - img
@@ -34,7 +39,7 @@
 - textbox "Message the agent"
 - button "Commands":
   - img
-- 'button "Access mode, current: Full access"': Full access
+- 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img

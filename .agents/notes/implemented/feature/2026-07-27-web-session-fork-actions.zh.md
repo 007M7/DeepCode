@@ -14,7 +14,7 @@ Web 的 session 行菜单与消息 IconActions 共用 client runtime 的 `sessio
 
 `forkAt(seq)` 只在 ui-conversation 的 apply 注入层接触 session 服务，消息组件只回传事件 `seq`。Session 行同理只通过 ui-workspace 的注入回调发起操作；两个呈现包都不持有 session mutation 状态，也不复制 host 的边界求值。
 
-Session lineage 不投影成列表层级。WorkSpace 模式按 `WorkspaceView.sessionIds` 的手动序把源会话与所有 fork 子会话显示为同级行，每行都可独立打开、搜索和拖拽；In one list 模式继续按 `updatedAt` 严格排序；Ungrouped 组在没有 workspace 账本时也按 recency 排序。`parentId` 仍用于 lineage、工具呈现和后续查询，但不控制 session 列表可见性。
+Session lineage 不投影成列表层级。WorkSpace 模式按 `WorkspaceView.sessionIds` 的手动序把源会话与所有 fork 子会话显示为同级行，每行都可独立打开、搜索和拖拽；In one list 模式继续按 `updatedAt` 严格排序；Ungrouped 组在没有 workspace 账本时也按 recency 排序。`parentId` 仍用于 lineage 和后续查询，但不控制 session 列表可见性。
 
 ## Alternatives considered
 

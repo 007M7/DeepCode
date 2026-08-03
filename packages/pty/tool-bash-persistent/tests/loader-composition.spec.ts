@@ -46,7 +46,7 @@ function agent(ctx: Context, cwd: string): Agent {
     acceptsNextStep: false,
     ctx: scope.ctx,
     followup: () => {},
-    steer: () => {},
+    steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
     inject: () => {},
     send: () => {},
     updateInbox: () => 'not-found',

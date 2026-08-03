@@ -21,7 +21,7 @@
  * with an aborted signal just returns early.
  */
 import type { ConnectionHandle, SessionId, SkillEntry } from '@deepseek-ai/dsh-client-connection/client'
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext, ISessions } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SlashServiceContract, SlashSource } from '@deepseek-ai/dsh-client-ui-slash/client'
 
 /** One session's catalog fetch: the shared promise plus its own abort handle. */
@@ -32,8 +32,8 @@ interface CatalogFetch {
   settled?: readonly SkillEntry[]
 }
 
-/** Required services: the slash registry + the wire face the source closes over. */
-export const inject = ['slash', 'connection']
+/** Required services: slash registry, routed sessions, and the wire face. */
+export const inject = ['slash', 'connection', 'sessions']
 
 /**
  * Client plugin body: register the '/' skill source over the root wire face.
@@ -41,6 +41,7 @@ export const inject = ['slash', 'connection']
  */
 export function apply(ctx: ClientContext): void {
   const skills = (ctx.get('connection') as ConnectionHandle).api.skills
+  const sessions = ctx.get('sessions') as ISessions
   // Session-keyed catalog cache; single-flight per key. Plugin-closure state:
   // the fiber effect below is its teardown boundary.
   const fetches = new Map<SessionId, CatalogFetch>()
@@ -61,6 +62,7 @@ export function apply(ctx: ClientContext): void {
   }
 
   const fetchCatalog = (sessionId: SessionId): Promise<readonly SkillEntry[]> => {
+    if (sessions.subagentAddress(sessionId) !== undefined) return Promise.resolve([])
     const existing = fetches.get(sessionId)
     if (existing !== undefined) return existing.promise
     const abort = new AbortController()

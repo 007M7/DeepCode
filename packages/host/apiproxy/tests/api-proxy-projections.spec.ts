@@ -1,20 +1,16 @@
 /**
- * Projection carrier paths of the host ApiProxy: the history tail page's
- * projections block reads the registry's watermark snapshot (asOfSeq = last
- * event seq, one consistent cut); loadOlder pages never carry the block; a
- * composition without the registry serves histories without it; a disposed
- * registration's key leaves subsequent responses; and every unit change is
- * pushed to mux consumers as a session/projection frame minted here.
+ * Projection carrier paths of the host ApiProxy: history tail pages snapshot
+ * attached state or fold one cold inspected prefix, loadOlder omits the block,
+ * and live unit changes push session/projection frames.
  */
 
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { z } from 'zod'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
-import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import type { Session } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
@@ -53,9 +49,6 @@ async function harness(withRegistry: boolean): Promise<{ ctx: Context; session: 
   await ctx.plugin(AgentRegistry)
   if (withRegistry) await ctx.plugin(SessionProjectionRegistry)
   const session = ctx.sessions.create()
-  // history resolves the agent first; a live structural stub is enough (only
-  // .session is read on this path).
-  ctx.agents.register({ id: session.id, session, status: 'idle', ctx } as Agent)
   return { ctx, session }
 }
 
@@ -85,6 +78,40 @@ describe('session.history projections block', () => {
     expect(projections?.values['test/last-user']).toEqual({ text: 'm2' })
     // asOfSeq IS the window tail: the last served event carries it.
     expect(events.at(-1)?.event.seq).toBe(projections?.asOfSeq)
+  })
+
+  it('folds a cold inspected prefix without publishing an Agent', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(UserInteractionService)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(SessionProjectionRegistry)
+    ctx.sessionProjections.register(lastUserUnit())
+    const sessionId = SessionId('session-cold-history')
+    const meta: SessionHeader = { version: 0, id: sessionId, createdAt: 1, cwd: '/tmp' }
+    const events = [{
+      type: 'user/message',
+      seq: 0,
+      time: 2,
+      data: createUserMessage({
+        content: [{ type: 'text', text: 'persisted' }],
+        source: { kind: 'user' },
+      }),
+      surfaceOp: 'append',
+    }] as SessionEvent[]
+    ctx.provide('sessionPersistence', {
+      list: () => Promise.resolve([meta]),
+      inspect: () => Promise.resolve({ meta, events }),
+    } as never)
+
+    const response = await api(ctx).sessions.history(request({ sessionId }))
+    expect(response.result.ok).toBe(true)
+    if (!response.result.ok) throw new Error('unreachable')
+    expect(response.result.value.projections).toEqual({
+      asOfSeq: 0,
+      values: { 'test/last-user': { text: 'persisted' } },
+    })
+    expect(ctx.agents.get(sessionId)).toBeUndefined()
   })
 
   it('never carries the block on loadOlder pages (beforeSeq present)', async () => {

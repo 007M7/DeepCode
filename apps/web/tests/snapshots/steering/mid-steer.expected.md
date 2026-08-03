@@ -1,5 +1,6 @@
 - banner:
-  - heading "Use the ask_user_question tool to" [level=1]
+  - navigation "Session hierarchy":
+    - button "Use the ask_user_question tool to" [disabled]
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
@@ -22,6 +23,9 @@
   - img
   - text: Ask question waiting
 - status: Deep diving...
+- text: "Interjection: include the word BANANA in your final reply."
+- button "Copy":
+  - img
 - region "Ready to continue?":
   - text: Checkpoint
   - heading "Ready to continue?" [level=2]

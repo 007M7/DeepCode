@@ -1,4 +1,5 @@
 import { createUserMessage, createMessage } from '@deepseek-ai/dsh-llm'
+import { createHash } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -6,6 +7,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { LOADER_SMOKE_TEST_TIMEOUT_MS } from '@deepseek-ai/dsh-loader-smoke'
+import { PREPARED_ENTRY_FILENAME, prepareDshPlugin } from '@deepseek-ai/dsh-repository-plugin'
 import { packChunkRuns, SessionId, type SessionEvent, type SessionHeader } from '@deepseek-ai/dsh-session'
 import { logPath, toHeaderLine } from '../../../packages/session-persistence/session-persistence-jsonl/src/format.ts'
 import { runTuiPtySmoke, type TuiPtySmokeOptions } from './pty-harness.ts'
@@ -63,6 +65,38 @@ function seedWorkspace(
       await mkdir(dirname(file), { recursive: true })
       await writeFile(file, content)
     }
+  }
+}
+
+/**
+ * Run the real `prepareDshPlugin` over an equivalent one-skill `.dsh-plugin`
+ * package and return the generated wrapper text, so the smoke's cache-seeded
+ * wrapper can never drift from the generator's template.
+ */
+async function generatePreparedWrapper(pluginName: string): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-smoke-wrapper-'))
+  try {
+    const plugin = join(root, '.dsh-plugin')
+    await mkdir(join(root, 'skills', 'config-only-repository'), { recursive: true })
+    await writeFile(join(root, 'skills', 'config-only-repository', 'SKILL.md'), [
+      '---',
+      'name: config-only-repository',
+      'description: Generator input; the seeded cache copy owns the visible text.',
+      '---',
+      '',
+      'Repository instructions.',
+      '',
+    ].join('\n'))
+    await mkdir(plugin, { recursive: true })
+    await writeFile(join(plugin, 'package.json'), `${JSON.stringify({
+      name: pluginName,
+      version: '0.0.0',
+      dsh: { skills: ['../skills'] },
+    }, undefined, 2)}\n`)
+    await prepareDshPlugin(plugin)
+    return await readFile(join(plugin, PREPARED_ENTRY_FILENAME), 'utf8')
+  } finally {
+    await rm(root, { recursive: true, force: true })
   }
 }
 
@@ -640,6 +674,54 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
     expect(output).toContain('\u001B[?2004l')
   }, PTY_SMOKE_TEST_TIMEOUT_MS)
 
+  it('loads a cached repository Plugin from personal config alone', async () => {
+    const source = 'github:fixture/repository#fixed-ref'
+    const specifier = `${source}&path:/.dsh-plugin`
+    const key = createHash('sha256').update(specifier).digest('hex')
+    const packageRoot = `cache/repository-plugins/${key}/node_modules/repository`
+    // Produced by the real generator (prepareDshPlugin over an equivalent
+    // .dsh-plugin package) rather than hand-written, so a wrapper-template
+    // change cannot leave this smoke exercising a stale shape. The cache
+    // LAYOUT below (sha256 key, marker, node_modules/repository) remains a
+    // deliberate external pin of the durable on-disk format.
+    const wrapper = await generatePreparedWrapper('config-only-fixture')
+    const output = await smoke({
+      label: 'dsh personal repository Plugin',
+      tempDirPrefix: 'dsh-personal-repository-plugin-',
+      binScript: dshBinScript,
+      configArgs: [],
+      prepare: seedWorkspace({
+        personal: {
+          'config.yaml': [
+            '- id: repository-plugins',
+            "  name: '@deepseek-ai/dsh-repository-plugin'",
+            '  config:',
+            '    repositories:',
+            `      - '${source}'`,
+            '',
+          ].join('\n'),
+          [`cache/repository-plugins/${key}/.repository-cache.json`]: `${JSON.stringify({ specifier })}\n`,
+          [`${packageRoot}/dsh-plugin.mjs`]: wrapper,
+          [`${packageRoot}/dsh-plugin-assets/skills/0/config-only-repository/SKILL.md`]: [
+            '---',
+            'name: config-only-repository',
+            'description: CONFIG_ONLY_REPOSITORY_SKILL',
+            '---',
+            '',
+            'Repository instructions.',
+            '',
+          ].join('\n'),
+        },
+      }),
+      actions: [
+        { waitFor: 'main-session-', send: '/skill:config-only' },
+        { waitFor: 'CONFIG_ONLY_REPOSITORY_SKILL', send: '\x03/exit\r' },
+      ],
+    })
+    expect(output).toContain('CONFIG_ONLY_REPOSITORY_SKILL')
+    expect(output).toContain('\u001B[?2004l')
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
   it('fails loud instead of booting when the personal config.yaml is invalid', async () => {
     const output = await smoke({
       label: 'dsh invalid personal config',
@@ -738,11 +820,12 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
     expect(output).not.toContain('[exit code: 3]')
   }, PTY_SMOKE_TEST_TIMEOUT_MS)
 
-  it('tells the model its source path and offers the bundled maintenance skills', async () => {
+  it('distinguishes its source path from the current workdir and offers the bundled maintenance skills', async () => {
     // The launcher resolves the checkout root three hops up from apps/cli/{src,lib};
     // this test file sits an equal depth under the same root, so the same hop applies.
-    // The source-path line is a system-prompt section; the bundled skills reach the
-    // model through a durable user message, so each assertion targets its own field.
+    // The source-path line explicitly distinguishes that checkout from the current workdir;
+    // bundled skills reach the model through a durable user message, so each assertion
+    // targets its own field.
     const sourceRoot = fileURLToPath(new URL('../../..', import.meta.url))
     let context: LoggedRequestContext = { system: '', skillCatalog: '' }
     await smoke({
@@ -758,7 +841,7 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
       ],
       inspect: async (cwd) => { context = await readLoggedRequestContext(cwd) },
     })
-    expect(context.system).toContain(`Your own source code is the checkout at ${sourceRoot}; you can read it there to learn how dsh works and how to extend it.`)
+    expect(context.system).toContain(`The DeepSeek Harness implementation checkout is at ${sourceRoot}. The checkout location and current working directory are separate values and may differ; never infer the working directory from this path. Use pwd to determine the current working directory. Use this checkout only to inspect or extend DSH itself.`)
     expect(context.skillCatalog).toContain("- `dsh-customize`: Customize or maintain any dsh source checkout — the one powering the current DSH process, the installed `dsh` command, or a sibling dsh/deepseek-harness clone. Use before any requested action that alters such a checkout's files or git state. Read-only questions that only inspect the checkout do not trigger this. Do not edit the personal staging checkout directly.")
     expect(context.skillCatalog).toContain('- `dsh-upgrade`: Upgrades a source-installed, personally customized DSH checkout to upstream master while preserving local changes and an unchanged rollback worktree. Use when the user asks to update or upgrade DSH.')
     expect(context.skillCatalog).toContain('- `dsh-upstream-customization`: Classifies personal DSH customizations for upstream contribution and, after explicit per-feature approval, rebuilds one on upstream master and opens a draft pull request. Use when the user asks to contribute, publish, or upstream a local DSH change, or asks whether one is worth proposing.')

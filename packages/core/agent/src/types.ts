@@ -54,9 +54,24 @@ export interface InboxItem {
 export type InboxAction =
   | { readonly kind: 'edit'; readonly content: ContentBlock[] }
   | { readonly kind: 'remove' }
+  | { readonly kind: 'steer' }
 
 /** Result of applying an inbox action at the synchronous ownership boundary. */
-export type InboxActionResult = 'applied' | 'not-found'
+export type InboxActionResult = 'applied' | 'not-found' | 'steer-unavailable'
+
+/** Final admission outcome for one call to {@link Agent.steer}. */
+export type SteeringOutcome =
+  | { readonly status: 'admitted'; readonly turn: number; readonly step: number }
+  | { readonly status: 'rejected' }
+
+/**
+ * Message-owned steering admission receipt. The outcome promise always
+ * resolves: synchronous input validation still throws from {@link Agent.steer},
+ * while lifecycle policy reports non-admission as `rejected`.
+ */
+export interface SteeringReceipt {
+  readonly outcome: Promise<SteeringOutcome>
+}
 
 /**
  * Options for the unified {@link Agent.send} primitive over the
@@ -195,10 +210,13 @@ export interface Agent {
   /**
    * Mutate one still-pending queued occurrence synchronously. Editing preserves
    * the message identity and queue position; removal publishes its terminal
-   * discard. Steering occurrences and driver-claimed items return `not-found`.
+   * discard. Steer strictly transfers the message into the current next-step
+   * window, or returns `steer-unavailable` without changing the queued
+   * occurrence. Steering occurrences and driver-claimed items return
+   * `not-found`.
    * @param id - independently addressable queued occurrence.
-   * @param action - edit or remove operation.
-   * @returns whether the pending occurrence was found and updated.
+   * @param action - edit, remove, or strict steer operation.
+   * @returns the applied outcome or the reason no mutation occurred.
    */
   updateInbox(id: InboxItemId, action: InboxAction): InboxActionResult
 
@@ -225,16 +243,18 @@ export interface Agent {
   followup(message: UserMessage): void
 
   /**
-   * Submit steering during prompt admission or an open turn — the
-   * `next-step`/wakeup preset of {@link send}. It stages for the next steering
-   * checkpoint before a request or stop decision. If the activity fails before
-   * that boundary, the remainder stays staged without waking the agent; retry
-   * or a later prompt takes it. Outside that window steering falls back to a
-   * woken follow-up turn, while cancellation or disposal may discard pending
-   * steering.
+   * Submit steering with a message-owned admission receipt — the
+   * `next-step`/wakeup preset of {@link send}. During prompt admission or an
+   * open turn, the message waits in the steering FIFO until a committed step
+   * snapshots it; outside that window it enters the ordinary queued FIFO. The
+   * receipt resolves `admitted` only after the message joins that step's
+   * immutable request history, or `rejected` when terminal policy,
+   * cancellation, or disposal discards it first. A non-terminal turn close may
+   * leave it staged for a later admitted prompt without settling the receipt.
    * @param message - identified steering content and its producer provenance.
+   * @returns the receipt for this exact message's eventual admission outcome.
    */
-  steer(message: UserMessage): void
+  steer(message: UserMessage): SteeringReceipt
 
   /**
    * Append model-facing context without running the model — the

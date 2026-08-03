@@ -211,6 +211,35 @@ describe('dsh-subagent-fork', () => {
     expect(ctx.subagents.list()).toEqual([])
   })
 
+  it('contributes the completed-turn prefix as a continuable child\'s seed', async () => {
+    const { ctx, parent } = await setup([textResponse('parent turn'), textResponse('child answer')])
+    const provider = ctx.subagents.getProvider('fork')!
+    const signal = new AbortController().signal
+
+    // Before any completed parent turn there is nothing to inherit, so the
+    // child starts fresh rather than carrying an empty seed.
+    const fresh = await provider.prepareContinuable!({
+      sessionId: SessionId('continuable-fresh'),
+      parent,
+      signal,
+    })
+    expect(fresh.seed).toBeUndefined()
+
+    // Complete one parent turn, then the prefix is captured once at creation.
+    parent.followup(createUserMessage({ content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } }))
+    await parent.whenIdle()
+    const seeded = await provider.prepareContinuable!({
+      sessionId: SessionId('continuable-seeded'),
+      parent,
+      signal,
+    })
+    expect(seeded.seed).toBeDefined()
+    const lastSeeded = seeded.seed!.at(-1)
+    // The seed ends at a completed turn, so it replays as a valid child log.
+    expect(lastSeeded?.type).toBe('turn/end')
+    expect(seeded.seed!.map(event => event.seq)).toEqual(seeded.seed!.map((_event, index) => index))
+  })
+
   it('has the namespace-plugin export shape (no stray default)', () => {
     expect('default' in fork).toBe(false)
     expect(fork.name).toBe('subagent-fork')

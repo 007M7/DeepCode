@@ -10,7 +10,7 @@ Status: implemented
 
 把它们经由 YAML 传递，使其可被静默丢弃。`@cordisjs/plugin-include` 施加定向补丁的方式是替换整个顶层键（`target[key] = value`），因此一份对 `tui-agent` 条目的 `config` 打补丁的个人 `~/.dsh/config.yaml`，会把交付时的整块内容整体替换掉。于是，一份为改动 provider 和 model 而写的用户 overlay，会删掉它未重述的每一个 resume 键，且没有任何东西报告这一点：缺失 `resumeCommand` 合法地意味着「未配置回退」。
 
-两处失效在同一份真实的 overlay 中同时存在。退出提示不再打印，因为该 overlay 省略了 `resumeCommand`。更糟的是，该 overlay 带着 `resumeSessionId: !!js process.env.RESUME_SESSION_ID`——一行来自 [env 变量桥被移除](../../archived/architecture/2026-07-24-dsh-commander-argument-adapter.md)之前的陈旧代码——它用一次对某个无人设置的变量的读取，覆盖掉了交付时的 `!!js "typeof resumeSessionId === 'string' ? …"` 入口。此后 `dsh --resume <valid-id>` 会开启一个*全新*会话且什么都不说，并被直接复现：banner 显示的是一个新铸造的 id，而非所请求的那个。[`dsh experimental-meta`](../feature/2026-07-28-dsh-meta-source-workspace.md) note 曾把这次静默的 resume 记为一处无法解释的既有缺陷；而 overlay 的浅层替换正是其成因。
+两处失效在同一份真实的 overlay 中同时存在。退出提示不再打印，因为该 overlay 省略了 `resumeCommand`。更糟的是，该 overlay 带着 `resumeSessionId: !!js process.env.RESUME_SESSION_ID`——一行来自 [env 变量桥被移除](../../archived/architecture/2026-07-24-dsh-commander-argument-adapter.md)之前的陈旧代码——它用一次对某个无人设置的变量的读取，覆盖掉了交付时的 `!!js "typeof resumeSessionId === 'string' ? …"` 入口。此后 `dsh --resume <valid-id>` 会开启一个*全新*会话且什么都不说，并被直接复现：banner 显示的是一个新铸造的 id，而非所请求的那个。[`dsh meta`](../feature/2026-07-28-dsh-meta-source-workspace.md) note 曾把这次静默的 resume 记为一处无法解释的既有缺陷；而 overlay 的浅层替换正是其成因。
 
 一个配置键无法安全地表达这些事实，因为部署方并非它们的权威。
 
@@ -25,7 +25,7 @@ Status: implemented
 
 身份归属于 `agent-loop`，因为它才是创建所配置 agent 的插件；也因为 patch 会整体替换配置项的 `config`：重新指向 agent 配置项模型路由的 overlay 会抹掉启动器设置的身份键。参见[共享 base overlay note](../simplification/2026-07-29-shared-base-config-overlays.md)。
 
-`apps/cli` 铸造或选定 id，并依据它所复现的那次调用构建该行，与 `/resume` 的 execve 移交共用同一个 `resumeArgs` 助手，从而使打印出的命令与原地移交不会分歧。该行会在传入了 `--config` 时将其写入命令。恢复始终通过 `dsh --resume <id>` 重新进入默认界面；`dsh experimental-meta` 不接受任何选项，并且总是启动新会话。
+`apps/cli` 铸造或选定 id，并依据它所复现的那次调用构建该行，与 `/resume` 的 execve 移交共用同一个 `resumeArgs` 助手，从而使打印出的命令与原地移交不会分歧。该行会在传入了 `--config` 时将其写入命令。恢复始终通过 `dsh --resume <id>` 重新进入默认界面；`dsh meta` 不接受任何默认界面选项，并且总是启动新会话。
 
 **`ctx.provide` 是从启动器 argv 进入被 Loader 挂载的插件的唯一通道。** 配置的 `!!js` 表达式会以 `with (entry.ctx) { eval(expr) }`（`vendor/loader/src/config/utils.ts`）求值，因此一个裸标识符会针对该条目的上下文解析，别无它物可达。于是只要应用 bundle 仍从 YAML 挂载，这个槽位就无法被移除；变化之处在于它现在是启动器↔应用之间的内部管线，而不再是一个配置作者必须正确接线的、有文档记载的键。
 
