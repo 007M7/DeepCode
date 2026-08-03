@@ -26,6 +26,10 @@ The model side is unchanged: the seam still caps sources at `searchMaxResults`, 
 
 **Make the scroll height a plugin config field.** Rejected: the height bounds the card's on-screen geometry, not a deployment policy, so per [web-card-model](2026-07-30-web-result-card.md)'s precedent for `CHAT_WEB_MAX_SOURCES` it belongs in CSS as a design constant.
 
+## Consequences
+
+Every source the tool returned is always in the DOM, so no source the model saw is hidden behind an interaction. The card's height is bounded regardless of source count, and a list taller than the container scrolls in place. The cost is that the scroll affordance depends on the platform's scrollbar rendering: an overlay-scrollbar system (macOS default) shows no persistent bar when the pointer is away, so a capped list relies on the `来源列表已截断` note plus a clipped last row to signal there is more. `WebSearchBlockProps`/`WebFetchBlockProps` lose their `maxSources` prop and the primitive loses `DEFAULT_WEB_MAX_SOURCES`, so any future caller renders the full list by construction rather than by passing a large cap.
+
 ## Testing
 
 `packages/client/ui-primitives/tests/web-block.spec.tsx` drops the collapse cases (head/tail slice, expand-on-click, collapsed-tail numbering, expander-out-of-numbering, head-alone, default cap) and adds: a 30-source card renders all 30 `<li>` with no `[aria-expanded]` and no `<button>`, every `<ol>` child is a source `<li>`, and `<li value>` numbers 1..N contiguously. `packages/client/ui-conversation/tests/web-card.spec.tsx` drops the `CHAT_WEB_MAX_SOURCES` cap assertion; the WebRow expansion test still asserts the card shows every source field. The `packages/web/tool-web` tests are unchanged — the model side did not move.

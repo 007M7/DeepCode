@@ -26,6 +26,10 @@ Status: implemented
 
 **把滚动高度做成插件配置字段。** 否决：该高度约束的是卡片在屏幕上的几何形状，而非部署策略，因此依据 [web-card-model](2026-07-30-web-result-card.md) 对 `CHAT_WEB_MAX_SOURCES` 的先例，它作为设计常量属于 CSS。
 
+## Consequences
+
+工具返回的每一条来源始终存在于 DOM 中，因此模型看到的来源没有一条被藏在交互之后。无论来源数量多少，卡片高度都受限；高于容器的列表在原地滚动。代价是滚动提示依赖平台的滚动条渲染：overlay 滚动条系统（macOS 默认）在指针离开时不显示常驻滚动条，因此被裁剪的列表依靠 `来源列表已截断` 提示加上被裁切的最后一行来表明还有更多内容。`WebSearchBlockProps`/`WebFetchBlockProps` 失去 `maxSources` prop，primitive 失去 `DEFAULT_WEB_MAX_SOURCES`，因此未来任何调用方都从构造上渲染完整列表，而不是靠传入一个很大的上限值。
+
 ## Testing
 
 `packages/client/ui-primitives/tests/web-block.spec.tsx` 删去折叠相关用例（首尾切片、点击展开、折叠尾部编号、展开器不计入编号、仅首部、默认上限），并新增：一个 30 条来源的卡片渲染出全部 30 个 `<li>`，无 `[aria-expanded]`、无 `<button>`，每个 `<ol>` 子元素都是一条来源 `<li>`，且 `<li value>` 从 1 到 N 连续编号。`packages/client/ui-conversation/tests/web-card.spec.tsx` 删去 `CHAT_WEB_MAX_SOURCES` 上限断言；WebRow 展开测试仍断言卡片展示每一个来源字段。`packages/web/tool-web` 的测试不变——模型侧未曾移动。
