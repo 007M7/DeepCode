@@ -94,6 +94,5 @@ describe('runFolderDialog', () => {
     expect(() => runFolderDialog(bindings, 'Pick', vi.fn())).toThrow(`${what} failed: HRESULT 0x80004005`)
     expect(dialog.release).toHaveBeenCalledOnce()
     expect(uninitialize).toHaveBeenCalledOnce()
-    void bindings
   })
 })

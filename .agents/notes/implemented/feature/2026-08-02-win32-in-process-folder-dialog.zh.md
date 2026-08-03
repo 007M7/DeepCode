@@ -23,4 +23,5 @@ Windows 目录选择器的主层此前是围绕 WinForms `FolderBrowserDialog` �
 
 - 每台 Windows 机器都得到带其所支持的最佳 DPI 感知（1703+ 为 per-monitor-v2）的现代对话框，无论是否安装 PowerShell；PowerShell 层只服务 koffi 无法驱动 COM 的主机。
 - 真实对话框渲染与选中路径仍是手动 Windows 检查（自动关闭冒烟证明打开／中止／收尾）；卡死的中止可能泄漏一个对话框线程直到进程退出，已记录于包 README。
-- 所用 COM vtable 槽位与 GUID 是冻结的 Windows ABI（Vista 起）；koffi 签名错误是被限制在 worker 线程内的进程内崩溃风险，并在交付前被 win32 冒烟捕获。
+- 所用 COM vtable 槽位与 GUID 是冻结的 Windows ABI（Vista 起）；koffi 签名错误是可能拖垮整个 Node 进程的原生崩溃风险——`worker_threads` 与主线程共享进程，访问冲突不会只局限在 worker 内，也不会进入 PowerShell 回退。mocked-koffi 的 ABI 钉与真实 win32 冒烟正是为了在交付前捕获这类错误。
+- 打包二进制的 VFS 臂——在 pkg 快照内解析 `./worker.cjs`——不受任何自动化测试覆盖：源码 worker 与普通 Node 下构建出的 `lib/worker.cjs` 已被覆盖，VFS 专属的 spawn 推迟到 Windows CI 路线图。

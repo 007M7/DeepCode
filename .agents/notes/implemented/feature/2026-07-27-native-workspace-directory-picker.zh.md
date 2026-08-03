@@ -30,7 +30,7 @@ Status: implemented
 平台适配器不经 shell 打开对话框——POSIX 上 spawn 原生工具，Windows 上是进程内 COM 会话：
 
 - macOS：`osascript` 和系统文件夹选择器。
-- Windows：进程内 koffi `IFileOpenDialog` worker，带 per-monitor-v2 DPI（见[进程内对话框 Note](2026-08-02-win32-in-process-folder-dialog.md)）；PowerShell 链（STA 模式的 `pwsh`，再到 Windows PowerShell 5.1，均已修正 DPI）保留为回退（见[选择器修复](../bug-fix/2026-08-01-windows-picker-pwsh-dpi.md)）。
+- Windows：进程内 koffi `IFileOpenDialog` worker，使用宿主接受的最佳线程 DPI 感知（可用时为 per-monitor-v2；不支持 PMv2 的主机级联到 per-monitor 或 system-aware）（见[进程内对话框 Note](2026-08-02-win32-in-process-folder-dialog.md)）；PowerShell 链（STA 模式的 `pwsh`，再到 Windows PowerShell 5.1，均已修正 DPI）保留为回退（见[选择器修复](../bug-fix/2026-08-01-windows-picker-pwsh-dpi.md)）。
 - Linux：使用 `zenity`；Zenity 不可用时回退到 `kdialog`。
 
 ## 考虑过的替代方案

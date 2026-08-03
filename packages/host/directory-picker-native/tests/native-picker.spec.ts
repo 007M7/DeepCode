@@ -1,3 +1,10 @@
+/**
+ * Native picker tier selection and the execFile adapter: the in-process
+ * dialog primary, the pwsh → Windows PowerShell 5.1 fallback chain (any
+ * non-abort pwsh failure cascades), the abort-never-falls-through rule, and
+ * the triple-miss AggregateError carrying the dialog/pwsh/5.1 causes.
+ */
+
 type ExecFileCallback = (
   error: (Error & { code?: string | number }) | null,
   stdout: string,

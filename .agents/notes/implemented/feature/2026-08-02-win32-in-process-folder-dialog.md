@@ -23,4 +23,5 @@ The Windows directory picker's primary tier was a spawned PowerShell script arou
 
 - Every Windows machine gets the modern dialog with the best DPI awareness it supports (per-monitor-v2 on 1703+), PowerShell installed or not; the PowerShell tiers only serve hosts where koffi cannot drive COM.
 - Real dialog rendering and the selection path stay a manual Windows check (the auto-close smoke proves open/abort/unwind); a wedged abort can leak one dialog thread until process exit, documented in the package README.
-- The COM vtable slots and GUIDs used are frozen Windows ABI (Vista); a koffi signature mistake is an in-process crash risk contained to the worker thread and caught by the win32 smoke before shipping.
+- The COM vtable slots and GUIDs used are frozen Windows ABI (Vista); a koffi signature mistake is a native-crash risk that can take down the whole Node process — `worker_threads` share the process, so an access violation is not contained to the worker and no PowerShell fallback runs. The mocked-koffi ABI pins and the real win32 smoke exist to catch such mistakes before shipping.
+- The packaged-binary VFS arm — resolution of `./worker.cjs` inside a pkg snapshot — is not exercised by any automated test: the source worker and the built `lib/worker.cjs` under plain Node are covered, and the VFS-specific spawn remains deferred to the Windows CI roadmap.
