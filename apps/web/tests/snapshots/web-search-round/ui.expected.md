@@ -9,15 +9,14 @@
   - img
 - button "Branch into a new conversation":
   - img
-- button "Edit":
+- button "Context injection":
   - img
-- img
-- text: Search DeepSeek Harness snapshot search
-- list:
-  - listitem:
-    - link "Snapshot Search Result":
-      - /url: https://docs.example.test/search
-    - text: Snapshot search excerpt. 2026-07-31
+  - img
+  - text: Context injection
+- button "Search DeepSeek Harness snapshot search":
+  - img
+  - img
+  - text: Search DeepSeek Harness snapshot search
 - paragraph: SEARCH_DONE
 - button "Copy":
   - img
@@ -27,9 +26,9 @@
 - textbox "Message the agent"
 - button "Commands":
   - img
-- 'button "Access mode, current: Full access"': Full access
+- 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
-- text: 1 turns · 2 steps Tool call {{duration}} Cache hit 0% Input 22 tok · Output 7 tok
+- text: 1 turns · 2 steps Tool call {{duration}} Context 0% of 128K Cache hit 0% Input 22 tok · Output 7 tok

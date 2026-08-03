@@ -10,8 +10,6 @@
 - tooltip "Copy"
 - button "Branch into a new conversation":
   - img
-- button "Edit":
-  - img
 - button "Think The user wants me to read a.txt and b.txt, then reply with \"DONE\". Let me do both reads in parallel.":
   - img
   - img
@@ -39,7 +37,7 @@
 - textbox "Message the agent"
 - button "Commands":
   - img
-- 'button "Access mode, current: Full access"': Full access
+- 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Select model, current deepseek-v4-flash":
   - text: deepseek-v4-flash
   - img

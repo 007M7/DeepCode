@@ -20,11 +20,13 @@ import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { REPO_ROOT, connectFreshWorkspace, newEnglishPage, probeFreePort, requireDist, saveFailureShot } from './support.ts'
+
+const DEVELOPMENT_PROMPT = fileURLToPath(new URL('./snapshots/web-runtime-context/development-prompt.expected.md', import.meta.url))
 
 function waitForReadyLine(child: ChildProcess): Promise<string> {
   return new Promise((resolveReady, reject) => {
@@ -163,6 +165,8 @@ describe('dsh web keyless CLI smoke', () => {
         env: {
           ...process.env,
           DEEPSEEK_API_KEY: 'keyless-web-no-call',
+          DSH_HOME: join(sessionsDir, '.dsh'),
+          DSH_AGENTS_HOME: join(sessionsDir, '.agents'),
           TSX_TSCONFIG_PATH: join(REPO_ROOT, 'tsconfig.json'),
         },
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -182,7 +186,7 @@ describe('dsh web keyless CLI smoke', () => {
     }
   })
 
-  it('injects the invoking workspace AGENTS.md into the provider request', async () => {
+  it('routes --dev runtime context and workspace instructions through the real CLI request', async () => {
     requireDist()
     const workspace = mkdtempSync(join(tmpdir(), 'dsh-web-workspace-'))
     mkdirSync(join(workspace, '.git'))
@@ -218,7 +222,7 @@ describe('dsh web keyless CLI smoke', () => {
     const tsxLoader = pathToFileURL(createRequire(join(REPO_ROOT, 'package.json')).resolve('tsx')).href
     const child = spawn(
       process.execPath,
-      ['--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web', '--port', '0'],
+      ['--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web', '--port', '0', '--dev'],
       {
         cwd: workspace,
         env: {
@@ -226,6 +230,7 @@ describe('dsh web keyless CLI smoke', () => {
           DEEPSEEK_API_KEY: 'keyless-web-workspace',
           DEEPSEEK_BASE_URL: `http://127.0.0.1:${address.port}`,
           DSH_HOME: join(workspace, '.dsh'),
+          DSH_AGENTS_HOME: join(workspace, '.agents'),
           TSX_TSCONFIG_PATH: join(REPO_ROOT, 'tsconfig.json'),
         },
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -245,8 +250,14 @@ describe('dsh web keyless CLI smoke', () => {
           setTimeout(() => { reject(new Error('provider request not received in 10s')) }, 10_000).unref()
         }),
       ])
+      expect(captured.messages?.some(message =>
+        message.role === 'user' && message.content?.includes('<available_skills>'))).toBe(false)
       const workspaceMessage = captured.messages?.find(message =>
         message.role === 'user' && message.content?.includes('web-workspace-context-probe'))
+      const systemMessage = captured.messages?.find(message => message.role === 'system')
+      const expectedWebSection = readFileSync(DEVELOPMENT_PROMPT, 'utf8').trimEnd()
+        .replace('{{webUrl}}', baseUrl)
+      expect(systemMessage?.content).toContain(expectedWebSection)
       expect(workspaceMessage).toMatchInlineSnapshot(`
         {
           "content": "<system-reminder>
@@ -413,6 +424,7 @@ describe('dsh web keyless CLI smoke', () => {
           DEEPSEEK_BASE_URL: `http://127.0.0.1:${address.port}`,
           DSH_TOOLS_MODE: 'code',
           DSH_HOME: join(workspace, '.dsh'),
+          DSH_AGENTS_HOME: join(workspace, '.agents'),
           TSX_TSCONFIG_PATH: join(REPO_ROOT, 'tsconfig.json'),
         },
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -461,17 +473,23 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     sessionsDir = mkdtempSync(join(tmpdir(), 'dsh-web-w5-'))
     const port = await probeFreePort()
     // tsx boot mirrors demo:web — lib/ may be unbuilt in this worktree. Isolate
-    // the global Harness home inside the temp world; tsx also needs the repo's
-    // loader and tsconfig paths pointed at explicitly.
+    // the host-level Harness and shared-agent homes inside the temp world; tsx
+    // also needs the repo's loader and tsconfig paths pointed at explicitly.
     const tsxLoader = pathToFileURL(createRequire(join(REPO_ROOT, 'package.json')).resolve('tsx')).href
     child = spawn(
       process.execPath,
-      ['--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web', '--port', String(port)],
+      [
+        '--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web', '--port', String(port),
+        // Pin the in-browser picker: the shipped `-auto` row would resolve to
+        // the native OS chooser on this bind, and no page can drive that.
+        '--config', fileURLToPath(new URL('./pin-browse-picker.overlay.yml', import.meta.url)),
+      ],
       {
         cwd: sessionsDir,
         env: {
           ...process.env,
           DSH_HOME: join(sessionsDir, '.dsh'),
+          DSH_AGENTS_HOME: join(sessionsDir, '.agents'),
           TSX_TSCONFIG_PATH: join(REPO_ROOT, 'tsconfig.json'),
         },
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -506,8 +524,18 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
 
   it('2+3 empty-state first send completes a real model round', async () => {
     onTestFailed(() => saveFailureShot(page, 'w5-first-round'))
+    // This scenario spawns its own server against a fresh $DSH_HOME, so the
+    // first-run welcome notice is unacknowledged and its overlay owns pointer
+    // events (the shared scaffold acknowledges it before boot instead). The
+    // notice is anchored structurally, not by its copy: this spec sits in the
+    // client TypeScript program, which does not reference the package that
+    // owns the strings.
+    const welcome = page.locator('[class*="onboardingOverlay"]')
+    await welcome.waitFor({ timeout: 15_000 })
+    await welcome.getByRole('button').click()
+    await welcome.waitFor({ state: 'detached', timeout: 15_000 })
     // Fresh world: connect a Workspace so the composer starts live.
-    await connectFreshWorkspace(page)
+    await connectFreshWorkspace(page, sessionsDir)
     const input = page.locator('textarea').first()
     await input.waitFor({ timeout: 10_000 })
     await screen(page, '02-empty-state')
@@ -566,7 +594,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     // Bash renders through the third-party sample registration. Match that
     // exact row: other clickable variants (for example Think disclosure)
     // may precede the tool call in document order.
-    const toolRow = page.locator('[data-sample="bash-global"]')
+    const toolRow = page.locator('[data-sample="bash"]')
     await toolRow.waitFor({ timeout: 120_000 })
     await screen(page, '08-bash-round')
     expect(await detailsTrack(page)).toBe(0)

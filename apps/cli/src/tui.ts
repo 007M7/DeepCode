@@ -8,12 +8,11 @@
  * from it, so `dsh` acts on whatever project it is launched in. Session storage
  * is the exception — it lives under the Harness home so `/resume` reaches every
  * workspace, and an in-place resume enters the selected session's own directory.
- * `dsh meta`
- * ({@link runMeta}) is the one exception — it makes this harness checkout the
- * workspace. `dsh upgrade` ({@link runSkillSession}) is a fresh
- * session whose first turn auto-invokes a bundled skill. After boot, the
- * agent's system prompt is told the path to this harness checkout so it can
- * find its own source.
+ * `dsh meta` is the one exception — it makes this harness
+ * checkout the workspace. `dsh upgrade` is a fresh session whose
+ * first turn auto-invokes a bundled skill. After boot, the agent's system
+ * prompt is told the path to this harness checkout so it can find its own
+ * source.
  * @module @deepseek-ai/dsh/tui
  */
 
@@ -29,7 +28,10 @@ import {
   loadOverlayPatches,
   loadPersonalPatches,
   resolveConfigPath,
+  watchPersonalPatches,
 } from '@deepseek-ai/dsh-app-boot'
+import { resolveDshHome } from '@deepseek-ai/dsh-paths'
+import type { PatchOptions } from '@cordisjs/plugin-include'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { configHasTelemetryRow, resolveTelemetryPatch } from './app-cli-entry.ts'
 import { SESSION_QUERY_SQLITE_PATH_KEY } from '@deepseek-ai/dsh-session-query-sqlite'
@@ -42,6 +44,16 @@ import {
   type MainSessionIdentity,
   type TuiResumeHost,
 } from '@deepseek-ai/dsh-tui'
+import {
+  apply as applyTuiFirstRunWelcome,
+  hasTuiFirstRunWelcomeAcknowledgement,
+  inject as tuiFirstRunWelcomeInject,
+  name as tuiFirstRunWelcomeName,
+  needsTuiFirstRunWelcomeAsciiArt,
+} from './tui-onboarding/tui-first-run-welcome.ts'
+import {
+  TUI_FIRST_RUN_WELCOME_NOTICE_VERSION,
+} from './tui-onboarding/tui-first-run-welcome-copy.ts'
 
 const NAME = 'dsh'
 
@@ -61,30 +73,11 @@ const SESSION_QUERY_DB = `session-query-${String(process.pid)}-${randomUUID()}.d
 // The harness checkout root: three hops up from apps/cli/{src,lib}, resolved
 // from this bin's location so it holds however `dsh` is launched (a PATH
 // symlink, an arbitrary cwd). The agent is told where its own source lives.
-const SOURCE_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
+/** The harness checkout used as the `dsh meta` workspace and source prompt path. */
+export const SOURCE_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 
 /* v8 ignore start -- composition over the unit-tested dsh-app-boot helpers;
    the CLI PTY smoke drives this path end to end, personal overlay included */
-/**
- * Run the interactive TUI with this harness checkout as the workspace
- * (`dsh meta`), whatever directory it was launched from.
- */
-export async function runMeta(): Promise<void> {
-  return runTui(undefined, undefined, SOURCE_ROOT)
-}
-
-/**
- * Run the interactive TUI as a guided fresh session whose first turn invokes a
- * bundled skill (`dsh upgrade` → `dsh-upgrade`).
- * Always mints a fresh session in the invoking directory; the skill is seeded
- * only on this first launch, so a later `--resume` of the session is an ordinary
- * TUI session with no re-injection.
- * @param skill - the bundled skill name to auto-invoke as the first turn.
- */
-export async function runSkillSession(skill: string): Promise<void> {
-  return runTui(undefined, undefined, undefined, skill)
-}
-
 /**
  * Run the interactive TUI from the invoking directory.
  * @param config - an overlay patch list applied over the shared base and the
@@ -99,8 +92,8 @@ export async function runSkillSession(skill: string): Promise<void> {
  * @param workspace - a directory to make the workspace instead of the invoking
  * one, or `undefined` to keep the cwd. Only `dsh meta` passes it.
  * @param initialSkill - a bundled skill to auto-invoke as a fresh session's
- * first turn, or `undefined`. Set only by {@link runSkillSession} and ignored
- * on a resume, so it never re-fires; reaches the app through
+ * first turn, or `undefined`. Set only by `dsh upgrade` and
+ * ignored on a resume, so it never re-fires; reaches the app through
  * {@link INITIAL_SKILL_KEY}.
  * @param configReplace - a config path to boot as the ENTIRE tree, bypassing the
  * shared base, the TUI overlay, and the personal overlay alike, or `undefined`
@@ -122,7 +115,6 @@ export async function runTui(
     )
     process.exit(1)
   }
-  installFailLoud(NAME)
   // The bin already loaded the invoking directory's .env, and that is the
   // whole environment: $DSH_HOME/.env is credentials-local's writable store,
   // and hoisting it would make every stored key read as a read-only ambient
@@ -133,6 +125,11 @@ export async function runTui(
   // both together. Sessions themselves live under the Harness home so `/resume`
   // spans every workspace, and are unaffected by this chdir.
   if (workspace !== undefined) process.chdir(workspace)
+  const dshHome = resolveDshHome()
+  const showFirstRunWelcome = !await hasTuiFirstRunWelcomeAcknowledgement(
+    dshHome,
+    TUI_FIRST_RUN_WELCOME_NOTICE_VERSION,
+  )
   process.env.DSH_BUNDLED_SKILL_DIR = join(SOURCE_ROOT, 'skills')
   // The in-place `/resume` handoff re-execs `dsh` with a normalized `--resume`
   // flag, so the resumed process rehydrates through this same intake. The
@@ -144,8 +141,22 @@ export async function runTui(
   const entry = process.argv[1]
   const execve = process.execve?.bind(process)
   const app: { current?: Context } = {}
-  // Resume always enters the default surface because meta rejects parent
-  // options, including `--resume`. The resumed session already persists its cwd.
+  // The Loader mounts entries concurrently, so `ui-tui` can already hold the
+  // terminal (raw mode, bracketed paste, keyboard protocol) when something
+  // else fails. A config-tree failure settles through `boot`, which disposes
+  // the tree itself; this release covers the rejections `boot` cannot see — a
+  // plugin's detached async work rejecting while mounting is still in flight
+  // or after the tree settled. Disposing the tree runs the TUI's own shutdown,
+  // which stops the terminal and hands the shell back; without it such a
+  // failure returns to a corrupted prompt. `app.current` is captured from
+  // boot's `prepare` hook, so it holds the root context for the whole mounting
+  // window rather than only after boot resolves.
+  installFailLoud(NAME, process, async () => {
+    await app.current?.fiber.dispose()
+  })
+  // Resume always enters the default surface because meta rejects
+  // parent options, including `--resume`. The resumed session already persists
+  // its cwd.
   const resumeArgs = (sessionId: string): string[] => [
     `--resume=${sessionId}`,
     // Both config flags must survive the handoff: resuming into a different
@@ -204,21 +215,26 @@ export async function runTui(
   // presence is checked against the tree actually booting, so a
   // --config-replace tree is judged on its own rows, not the shipped base's.
   const telemetryPatch = resolveTelemetryPatch(process.env.DSH_TELEMETRY_DISABLED, configHasTelemetryRow(bootConfig))
-  const patches = [
+  const composePatches = (personalPatches: PatchOptions[]): PatchOptions[] => [
     ...replaceTree ? [] : [
       ...loadOverlayPatches(NAME, TUI_OVERLAY),
       ...resolvedConfig === undefined
-        ? loadPersonalPatches(NAME) ?? []
+        ? personalPatches
         : loadOverlayPatches(NAME, resolveConfigPath(resolvedConfig, undefined)),
     ],
     ...telemetryPatch === undefined ? [] : [telemetryPatch],
   ]
+  const patches = composePatches(loadPersonalPatches(NAME) ?? [])
   const queryIndexPath = join(tmpdir(), SESSION_QUERY_DB)
   const ctx = await boot(
     NAME,
     bootConfig,
     patches,
     (hostCtx) => {
+      // Runs after the Loader installs and before any config-tree entry mounts,
+      // so the fail-loud release hook can reach the tree for the whole window in
+      // which an entry may reject.
+      app.current = hostCtx
       // The launcher owns session identity and the exit line: a config-mounted
       // app bundle reads both from these slots, so no cordis.yml key can drop
       // resume.
@@ -249,7 +265,25 @@ export async function runTui(
       }
     },
   )
+  // The shipped tree includes HMR and keeps personal config live. An explicit
+  // --config tree replaces the personal overlay (so there is nothing to keep
+  // live), and a --config-replace or HMR-less tree remains a valid composition
+  // that still receives the startup overlay but deliberately has no hidden
+  // watcher.
+  if (resolvedConfig === undefined && !replaceTree && ctx.get('hmr') !== undefined) {
+    await watchPersonalPatches(ctx, { binName: NAME, compose: composePatches })
+  }
   app.current = ctx
   addHarnessSourceSection(ctx, SOURCE_ROOT)
+  if (showFirstRunWelcome) {
+    await ctx.plugin({
+      name: tuiFirstRunWelcomeName,
+      inject: tuiFirstRunWelcomeInject,
+      apply: applyTuiFirstRunWelcome,
+    }, {
+      dshHome,
+      asciiArt: needsTuiFirstRunWelcomeAsciiArt(),
+    })
+  }
 }
 /* v8 ignore stop */

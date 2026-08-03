@@ -11,13 +11,14 @@
 // masking its credential, without making a model call.
 //
 // Composition divergences from `dsh web`, all deliberate, all via include
-// patches after the shipped surface overlay: temp persistenceRoot; local skill
-// roots confined to the temp workspace; workspace-context disabled (recorded
-// fixtures must not embed this repo's AGENTS.md); session-title-llm disabled
-// (its fire-and-forget title call would race the loop for the session's replay
-// cursor); webserver pinned to port 0 with the built dist; ordinary keyless
-// modes disable llm-deepseek and fill the open llm seam post-boot with
-// installLlmReplay on the settled root ctx
+// patches after the shipped surface overlay, over the SAME tree (never a
+// second yml): temp persistenceRoot; host-level skill roots confined to the
+// temp workspace while project skill discovery remains real; workspace-context
+// disabled (recorded fixtures must not embed this repo's AGENTS.md);
+// session-title-llm disabled (its fire-and-forget title call would race the
+// loop for the session's replay cursor); webserver pinned to port 0 with the
+// built dist; ordinary keyless modes disable llm-deepseek and fill the open
+// llm seam post-boot with installLlmReplay on the settled root ctx
 // (the plugin-row path discards the ReplayHandle; the direct install keeps
 // assertConsumed for the teardown fixture-consumption check).
 import { existsSync } from 'node:fs'
@@ -32,6 +33,7 @@ import Loader from '@cordisjs/plugin-loader'
 import Include, { type PatchOptions } from '@cordisjs/plugin-include'
 import { scrubRequestHeaders } from '@deepseek-ai/dsh-acp-snapshot'
 import { assertEntriesLoaded, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
+import { dshHomePath } from '@deepseek-ai/dsh-paths'
 import {
   WELCOME_NOTICE_ACK_FIELD, WELCOME_NOTICE_SETTINGS_NAMESPACE, WELCOME_NOTICE_VERSION,
 } from '@deepseek-ai/dsh-client-ui-settings-general'
@@ -51,6 +53,7 @@ import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 // Empty type imports carry the httpServer/agents/sessionPersistence Context merges.
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-agent'
+import { prepareWebRuntimeContext } from '../../cli/src/web.ts'
 import { DIST_INDEX, REPO_ROOT, requireDist } from './support.ts'
 
 /** Snapshot mode for the lane, from $DSH_SNAPSHOT (same vocabulary as the ACP/TUI suites). */
@@ -105,6 +108,12 @@ export interface WebScaffold {
 /** Options for {@link launchWebScaffold}. */
 export interface LaunchOptions {
   /**
+   * Optional product overlay applied after the shipped Web surface and before
+   * the scaffold's hermetic test patches, matching AppCLIEntry's `--config`
+   * ordering.
+   */
+  extraOverlayPath?: string
+  /**
    * Replay fixture (session.jsonl) served by the inserted dsh-llm-replay row
    * in replay/refresh modes; ignored in record mode (the real adapter
    * answers). Omit for scenarios issuing no model calls — a stray stream then
@@ -112,6 +121,11 @@ export interface LaunchOptions {
    * mounts).
    */
   replayFixture?: string
+  /**
+   * Recorded child logs assigned in child creation order. Each child owns its
+   * own positional replay cursor across initial and continuation turns.
+   */
+  replayChildFixtures?: string[]
   /**
    * Optional replay.override.json sidecar (whole-script replacement or
    * `{ patches }` augmentation) for throw/hang scenarios not expressible as
@@ -213,8 +227,12 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   // snapshot overlay use, applied over the SAME shipped tree (a patch id that
   // stops matching a row fails the boot sweep loudly instead of drifting).
   const surfacePatches = loadOverlayPatches('web e2e scaffold', WEB_OVERLAY_PATH)
+  const extraOverlayPatches = options.extraOverlayPath === undefined
+    ? []
+    : loadOverlayPatches('web e2e scaffold', options.extraOverlayPath)
   const patches: PatchOptions[] = [
     ...surfacePatches,
+    ...extraOverlayPatches,
     { id: 'session-persistence-jsonl', config: { root: persistenceRoot } },
     { id: 'session-query-sqlite', config: { path: ':memory:', openAt: 'first-search' } },
     // storage-json's yml root is anchored to the real $DSH_HOME; pin the row
@@ -281,11 +299,14 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   try {
     process.chdir(workspaceCwd)
     ctx.baseUrl = pathToFileURL(join(resolve(CONFIG_PATH), '..')).href + '/'
+    // This direct Loader harness supplies the same root-path capability as app-boot.
+    ctx.provide('dshHomePath', dshHomePath)
     await ctx.plugin(Loader)
     ctx.loader.builtins.include = Include
     // The shipped CLI deliberately has no dependency on this opt-in package.
     // Keep the Loader row real without broadening the product installation.
     if (options.cordisTools === true) ctx.loader.builtins['tool-cordis'] = ToolCordis
+    prepareWebRuntimeContext(ctx, REPO_ROOT, 'production')
     await ctx.loader.create({
       name: 'cordis:include',
       config: { path: pathToFileURL(resolve(CONFIG_PATH)).href, patches },
@@ -312,6 +333,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
         file: options.replayFixture,
         providers: REPLAY_PROVIDERS,
         ...(options.replayOverride === undefined ? {} : { overrideFile: options.replayOverride }),
+        ...(options.replayChildFixtures === undefined ? {} : { childFiles: options.replayChildFixtures }),
         ...(options.paceMs === undefined ? {} : { paceMs: options.paceMs }),
       })
     }
@@ -482,18 +504,26 @@ export async function seedSession(scaffold: WebScaffold, fixtureText: string, id
  * volatility collapse to stable tokens.
  */
 function normalizeAria(snapshot: string, workspaceCwd: string): string {
-  // The header breadcrumb renders the workspace's basename, not the full
+  // The session heading renders the workspace's basename, not the full
   // path, so both spellings must collapse to the token.
   const base = workspaceCwd.split('/').pop()!
   return snapshot
     .split(workspaceCwd).join('{{cwd}}')
     .split(base).join('{{workspace}}')
     .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '{{uuid}}')
-    .replace(/\b\d+(?:\.\d+)?(?:ms|s|秒)\b/g, '{{duration}}')
+    .replace(
+      /~\d+(?:y(?: \d+mo)?|mo(?: \d+d)?)|\b(?:\d+d(?: \d+h(?: \d+m \d+s)?)?|\d+h \d+m \d+s|\d+m \d+s|\d+(?:\.\d+)?s|\d+(?:\.\d+)?ms)\b/g,
+      duration => duration.startsWith('~') ? duration : '{{duration}}',
+    )
+    .replace(
+      /约\d+(?:年(?:\d+个月)?|个月(?:\d+天)?)|\d+(?:天(?:\d+小时(?:\d+分\d+秒)?)?|小时\d+分\d+秒|分\d+秒|(?:\.\d+)?秒)/g,
+      duration => duration.startsWith('约') ? duration : '{{duration}}',
+    )
     // Message IconActions clocks widen by calendar day/year; collapse every
     // shape so goldens stay stable across midnight and year boundaries.
     .replace(/\d{4}年\d{1,2}月\d{1,2}日 \d{2}:\d{2}/g, '{{clock}}')
     .replace(/\d{1,2}月\d{1,2}日 \d{2}:\d{2}/g, '{{clock}}')
+    .replace(/(?<!\d)\d{1,2}:\d{2}:\d{2}(?:\.\d+)?(?:\s*[AP]M)?(?!\d)/gi, '{{clock}}')
     .replace(/(?<!\d)\d{2}:\d{2}(?!\d)/g, '{{clock}}')
 }
 

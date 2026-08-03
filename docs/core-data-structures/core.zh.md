@@ -524,11 +524,12 @@ interface InboxItem {
 type InboxAction =
   | { readonly kind: 'edit'; readonly content: ContentBlock[] }
   | { readonly kind: 'remove' }
+  | { readonly kind: 'steer' }
 ```
 
 ```ts type-equiv
 /** Result of applying an inbox action at the synchronous ownership boundary. */
-type InboxActionResult = 'applied' | 'not-found'
+type InboxActionResult = 'applied' | 'not-found' | 'steer-unavailable'
 ```
 
 ```ts type-equiv
@@ -554,7 +555,7 @@ interface SendOptions {
 }
 ```
 
-固定预设的别名方法自带 `target` 与 `wakeup`；其已有标识的 `UserMessage` 会携带角色、内容与 provenance。编辑替换消息内容时，其 `MessageId` 保持稳定；外层 `InboxItemId` 则在 `agent/inbox/enqueue`、`agent/inbox/update` 及终态 dequeue 或 discard 之间标识同一次入队。注入绕过两个 FIFO，从不出现在这些事件中。
+固定预设的别名方法自带 `target` 与 `wakeup`；其已有标识的 `UserMessage` 会携带角色、内容与 provenance。编辑替换内容或严格 steering（中途引导）转移不可变消息时，其 `MessageId` 都保持稳定。原 queued 单次入队项会结束，严格 steering 则接受一个具有不同 `InboxItemId` 的新 steering 单次入队项。注入绕过两个 FIFO，从不出现在 inbox 生命周期事件中。
 
 ```ts type-equiv
 /** Options for {@link Agent.cancel}. */
@@ -567,6 +568,8 @@ interface CancelOptions {
   keepInbox?: boolean
 }
 ```
+
+`SteeringReceipt.outcome` 始终会解析。`admitted` 标识其不可变请求历史包含该确切消息的轮次与步骤；`rejected` 表示生命周期或终止策略先丢弃了该消息。同步输入校验仍会从 `steer()` 抛出异常。
 
 ```ts type-equiv
 /** Stable runtime cause accepted by {@link Agent.cancel}. */
@@ -623,12 +626,29 @@ interface Agent {
   send(message: UserMessage, options: SendOptions): void
 
   /**
+   * Reserve admission of the next ordinary turn while this agent is idle, so an
+   * operation can mutate durable history before any queued prompt derives a
+   * request from it. Already-accepted waking work has right of way, including a
+   * send whose wake is still a pending microtask. Later sends keep their
+   * ordinary placement, FIFO order, and `wakeup` facts, and
+   * {@link acceptsNextStep} stays `false`, so a waking `next-step` send becomes
+   * a queued follow-up rather than steering; cancellation and disposal may
+   * still discard them. {@link inject} is not withheld. {@link whenIdle} treats
+   * a live reservation as activity, while lifecycle teardown does not await it.
+   * @returns the idempotent release, or `undefined` when the agent is running, already reserved, or already committed to waking work.
+   */
+  reserveTurnAdmission(): (() => void) | undefined
+
+  /**
    * Mutate one still-pending queued occurrence synchronously. Editing preserves
    * the message identity and queue position; removal publishes its terminal
-   * discard. Steering occurrences and driver-claimed items return `not-found`.
+   * discard. Steer strictly transfers the message into the current next-step
+   * window, or returns `steer-unavailable` without changing the queued
+   * occurrence. Steering occurrences and driver-claimed items return
+   * `not-found`.
    * @param id - independently addressable queued occurrence.
-   * @param action - edit or remove operation.
-   * @returns whether the pending occurrence was found and updated.
+   * @param action - edit, remove, or strict steer operation.
+   * @returns the applied outcome or the reason no mutation occurred.
    */
   updateInbox(id: InboxItemId, action: InboxAction): InboxActionResult
 
@@ -655,16 +675,18 @@ interface Agent {
   followup(message: UserMessage): void
 
   /**
-   * Submit steering during prompt admission or an open turn — the
-   * `next-step`/wakeup preset of {@link send}. It stages for the next steering
-   * checkpoint before a request or stop decision. If the activity fails before
-   * that boundary, the remainder stays staged without waking the agent; retry
-   * or a later prompt takes it. Outside that window steering falls back to a
-   * woken follow-up turn, while cancellation or disposal may discard pending
-   * steering.
+   * Submit steering with a message-owned admission receipt — the
+   * `next-step`/wakeup preset of {@link send}. During prompt admission or an
+   * open turn, the message waits in the steering FIFO until a committed step
+   * snapshots it; outside that window it enters the ordinary queued FIFO. The
+   * receipt resolves `admitted` only after the message joins that step's
+   * immutable request history, or `rejected` when terminal policy,
+   * cancellation, or disposal discards it first. A non-terminal turn close may
+   * leave it staged for a later admitted prompt without settling the receipt.
    * @param message - identified steering content and its producer provenance.
+   * @returns the receipt for this exact message's eventual admission outcome.
    */
-  steer(message: UserMessage): void
+  steer(message: UserMessage): SteeringReceipt
 
   /**
    * Append model-facing context without running the model — the
@@ -679,7 +701,7 @@ interface Agent {
 }
 ```
 
-`AgentStatus` 为 `'idle' | 'running'`，`SessionId` 是品牌类型。dispose（资源释放）会把 agent 从注册表移除并发出 `agent/disposed`；它不是一个终态 status 值。`running` 描述整个驱动器的排空区间，可能跨越连续的排队轮次；它不能证明某个轮次仍然打开。对于需要在把输入作为 steering 加入当前提示词准入／轮次，还是提交为一个新的待准入提示词之间做选择的调用方，`acceptsNextStep` 才是更窄且准确的路由判断条件。`AgentOptions` 可合并扩展：core 声明 `provider?`、`model?` 与 `maxTokens?`（在 `agent/request` 后，分发要求 provider 与 model 都存在）。提供 `maxTokens` 时，它必须是正安全整数，并限制每次对话模型请求的输出；省略时，系统会在写入请求 header 前填入确切模型的适配器默认值，否则提供方行为保持不变。Persona 归 `dsh-system-prompt` 所有：agent 作用域的 `deployment:persona` 可以遮蔽全局默认值。
+`AgentStatus` 为 `'idle' | 'running'`，`SessionId` 是品牌类型。dispose（资源释放）会把 agent 从注册表移除并发出 `agent/disposed`；它不是一个终态 status 值。`running` 描述整个驱动器的排空区间，可能跨越连续的排队轮次；它不能证明某个轮次仍然打开。对于需要在把输入作为 steering 加入当前提示词准入／轮次，还是提交为一个新的待准入提示词之间做选择的调用方，`acceptsNextStep` 才是更窄且准确的路由判断条件。活动的轮次接纳预留与完全停稳相关，但不会改变 `status`，也不会把之后的队列项变成 steering；它的唯一权限是将驱动器的下一次认领延迟到释放时。`AgentOptions` 可合并扩展：core 声明 `provider?`、`model?` 与 `maxTokens?`（在 `agent/request` 后，分发要求 provider 与 model 都存在）。提供 `maxTokens` 时，它必须是正安全整数，并限制每次对话模型请求的输出；省略时，系统会在写入请求 header 前填入确切模型的适配器默认值，否则提供方行为保持不变。Persona 归 `dsh-system-prompt` 所有：agent 作用域的 `deployment:persona` 可以遮蔽全局默认值。
 
 cause 是由 TypeScript 强制约束的同进程输入。活跃的 `TurnCancellation` 持有者会把其判别字段复制到仅运行时的 `AbortSignal.reason`，并在发布 `turn/end` 前退役；冻结后的 `AbortSignal.reason` 仍可读取。只有 loop 会在结算时从自己机器私有的 signal 上读回 cause（`user`、`parent` 或仅用于生命周期的 `disposed`）——不存在公开的读取器，signal 也不授予协作监听器任何分类权限。持久 `turn/end` 保留粗粒度 `{ kind: 'aborted' }` 结果；若需记录请求 provenance，应使用单独的持久事件，而不是让终态结果承担额外含义。
 

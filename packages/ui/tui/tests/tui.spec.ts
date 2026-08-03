@@ -42,7 +42,7 @@ import {
   type TuiRuntime,
 } from '../src/index.ts'
 import { WorkspaceFileSearch } from '../src/chat/file-autocomplete.ts'
-import { ATTRIBUTE_ROLES, COLOR_ROLES, paletteSpec } from '../src/components/theme.ts'
+import { ATTRIBUTE_ROLES, brandText, COLOR_ROLES, paletteSpec } from '../src/components/theme.ts'
 import {
   appendAssistant,
   appendUser,
@@ -136,6 +136,12 @@ class FakeTerminal implements Terminal {
 
 async function tick(): Promise<void> {
   await new Promise(resolve => setTimeout(resolve, 25))
+}
+
+function promptWidth(output: string): number {
+  const row = output.split('\n').find(line => line.includes('dsh'))
+  if (row === undefined) throw new Error('prompt row not rendered')
+  return visibleWidth(row.slice(row.indexOf('dsh'), row.indexOf('dsh') + 6))
 }
 
 async function setup(options: TuiHarnessOptions = {}) {
@@ -1954,12 +1960,6 @@ describe('pi-tui chat lifecycle and transcript', () => {
     // `dsh <glyph> ` with the same visible width as the idle `dsh > `, so the
     // cursor never shifts. Assert both the glyph slot and that constant width
     // (color is off in this harness, so output carries no ANSI to strip).
-    const promptWidth = (): number => {
-      const row = result.terminal.output.split('\n').find(line => line.includes('dsh'))
-      if (row === undefined) throw new Error('prompt row not rendered')
-      return visibleWidth(row.slice(row.indexOf('dsh'), row.indexOf('dsh') + 6))
-    }
-
     // Each phase swaps only the glyph character in the same slot at equal width.
     const phaseGlyph: [() => void, string][] = [
       [() => result.session.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'weighing' } }), 'dsh ✻ '],
@@ -1972,8 +1972,8 @@ describe('pi-tui chat lifecycle and transcript', () => {
       drive()
       await tick()
       expect(result.terminal.output).toContain(expected)
-      runningWidth ??= promptWidth()
-      expect(promptWidth()).toBe(runningWidth)
+      runningWidth ??= promptWidth(result.terminal.output)
+      expect(promptWidth(result.terminal.output)).toBe(runningWidth)
     }
 
     // Idle begins a fade-out; once it settles (clock past the fade window) the
@@ -1990,10 +1990,187 @@ describe('pi-tui chat lifecycle and transcript', () => {
       return rows.at(-1) ?? ''
     }
     expect(promptRow()).toContain('dsh > ')
-    expect(promptRow()).not.toMatch(/dsh(?:\x1b\[[0-9;]*m| )*[◍✻●⚙]/u)
-    expect(promptWidth()).toBe(runningWidth)
+    expect(promptRow()).not.toMatch(/dsh(?:\x1b\[[0-9;]*m| )*[◍✻●⚙⊙]/u)
+    expect(promptWidth(result.terminal.output)).toBe(runningWidth)
 
     await dispose(result)
+  })
+
+  it('shows a live standalone compaction in the fixed status area', async () => {
+    let clock = 0
+    const result = await setup({ omitInitialLifecycle: true, now: () => clock })
+    const idleWidth = promptWidth(result.terminal.output)
+
+    result.session.append('compact/start', { turn: null })
+    clock = 1_000
+    result.terminal.output = ''
+    await new Promise(resolve => setTimeout(resolve, 75))
+
+    expect(result.terminal.output).toContain('dsh ⊙ ')
+    expect(result.terminal.output).toContain('Context being compacted 1.0s')
+    expect(promptWidth(result.terminal.output)).toBe(idleWidth)
+    expect(result.terminal.progress.at(-1)).toBe(true)
+
+    clock = 1_450
+    result.terminal.output = ''
+    await new Promise(resolve => setTimeout(resolve, 75))
+    expect(result.terminal.output).toContain('Context being compacted 1.4s')
+
+    await dispose(result)
+  })
+
+  it('ignores a numbered compaction bracket while the status line is idle', async () => {
+    const result = await setup({ now: () => 1_000 })
+    result.session.append('compact/start', { turn: 1 })
+    await tick()
+
+    expect(result.terminal.output).toContain('dsh > ')
+    expect(result.terminal.output).not.toContain('dsh ⊙ ')
+    expect(result.terminal.progress.at(-1)).toBe(false)
+    await dispose(result)
+  })
+
+  it('fades a closed standalone compaction back to the plain caret', async () => {
+    let clock = 0
+    const result = await setup({ omitInitialLifecycle: true, now: () => clock })
+    clock = 1_000
+    result.session.append('compact/start', { turn: null })
+    await tick()
+    result.session.append('compact/end', { turn: null })
+    await tick()
+
+    clock = 2_000
+    await new Promise(resolve => setTimeout(resolve, 120))
+    result.terminal.output = ''
+    result.terminal.resize(result.terminal.columns + 1)
+    await tick()
+
+    expect(result.terminal.output).toContain('dsh > ')
+    expect(result.terminal.output).not.toMatch(/dsh [◍✻●⚙⊙]/u)
+    expect(result.terminal.output).not.toContain('Context being compacted')
+    expect(result.terminal.progress.at(-1)).toBe(false)
+    await dispose(result)
+  })
+
+  it('reports a failed standalone compaction when its live bracket closes', async () => {
+    const result = await setup({ omitInitialLifecycle: true, now: () => 1_000 })
+    result.session.append('compact/start', { turn: null })
+    result.terminal.output = ''
+    result.session.append('compact/end', { turn: null, error: 'summary failed' })
+    await tick()
+
+    expect(result.terminal.output).toContain('Compaction failed: summary failed')
+    expect(result.terminal.progress.at(-1)).toBe(false)
+    await dispose(result)
+  })
+
+  it('preserves live compaction progress across an idle status edge', async () => {
+    let clock = 0
+    const result = await setup({ omitInitialLifecycle: true, now: () => clock })
+    result.session.append('compact/start', { turn: null })
+    clock = 1_000
+    result.terminal.output = ''
+    result.ctx.emit('agent/status', result.agent, 'idle')
+    result.terminal.resize(result.terminal.columns + 1)
+    await tick()
+
+    expect(result.terminal.output).toContain('dsh ⊙ ')
+    expect(result.terminal.progress.at(-1)).toBe(true)
+    await dispose(result)
+  })
+
+  it('keeps a running turn phase glyph ahead of standalone compaction', async () => {
+    let clock = 0
+    const result = await setup({ status: 'running', now: () => clock })
+    clock = 1_000
+    result.terminal.output = ''
+    result.session.append('compact/start', { turn: null })
+    await tick()
+
+    expect(result.terminal.output).toContain('dsh ◍ ')
+    expect(result.terminal.output).not.toContain('dsh ⊙ ')
+    result.session.append('compact/end', { turn: null })
+    await tick()
+    result.terminal.output = ''
+    result.terminal.resize(result.terminal.columns + 1)
+    await tick()
+
+    expect(result.terminal.output).toContain('dsh ◍ ')
+    expect(result.terminal.output).not.toContain('dsh ⊙ ')
+    expect(result.terminal.progress.at(-1)).toBe(true)
+    await dispose(result)
+  })
+
+  it('treats duplicate live compaction starts as one owned bracket', async () => {
+    const intervalSpy = vi.spyOn(globalThis, 'setInterval')
+    const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval')
+    let result: Awaited<ReturnType<typeof setup>> | undefined
+    let didDispose = false
+    let clock = 0
+    try {
+      result = await setup({ omitInitialLifecycle: true, now: () => clock })
+      intervalSpy.mockClear()
+      clearIntervalSpy.mockClear()
+      result.session.append('compact/start', { turn: null })
+      clock = 1_000
+      result.session.append('compact/start', { turn: null })
+      await tick()
+
+      expect(intervalSpy).toHaveBeenCalledOnce()
+      expect(result.terminal.output).toContain('dsh ⊙ ')
+      expect(result.terminal.progress.at(-1)).toBe(true)
+
+      result.session.append('compact/end', { turn: null })
+      await tick()
+      expect(clearIntervalSpy).toHaveBeenCalledOnce()
+      expect(result.terminal.progress.at(-1)).toBe(false)
+
+      await dispose(result)
+      didDispose = true
+    } finally {
+      if (result !== undefined && !didDispose) await dispose(result)
+      intervalSpy.mockRestore()
+      clearIntervalSpy.mockRestore()
+    }
+  })
+
+  it('does not show compaction progress for a resumed orphaned start', async () => {
+    const result = await setup({
+      omitInitialLifecycle: true,
+      now: () => 1_000,
+      beforeMount(session) {
+        session.append('compact/start', { turn: null })
+      },
+    })
+
+    expect(result.terminal.output).toContain('dsh > ')
+    expect(result.terminal.output).not.toContain('dsh ⊙ ')
+    expect(result.terminal.output).not.toContain('Context being compacted')
+    expect(result.terminal.progress.at(-1)).toBe(false)
+    await dispose(result)
+  })
+
+  it('releases the live compaction timer and progress bit on dispose', async () => {
+    const intervalSpy = vi.spyOn(globalThis, 'setInterval')
+    const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval')
+    let result: Awaited<ReturnType<typeof setup>> | undefined
+    let didDispose = false
+    try {
+      result = await setup({ omitInitialLifecycle: true, now: () => 1_000 })
+      intervalSpy.mockClear()
+      clearIntervalSpy.mockClear()
+      result.session.append('compact/start', { turn: null })
+      expect(intervalSpy).toHaveBeenCalledOnce()
+
+      await dispose(result)
+      didDispose = true
+      expect(clearIntervalSpy).toHaveBeenCalledOnce()
+      expect(result.terminal.progress.at(-1)).toBe(false)
+    } finally {
+      if (result !== undefined && !didDispose) await dispose(result)
+      intervalSpy.mockRestore()
+      clearIntervalSpy.mockRestore()
+    }
   })
 
   // Extract the running glyph's interpolated gray channel from a rendered frame.
@@ -2103,7 +2280,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
   it('shows the plain prompt caret while idle', async () => {
     const result = await setup({ now: () => 0 })
     expect(result.terminal.output).toContain('dsh > ')
-    expect(result.terminal.output).not.toMatch(/dsh [◍✻●⚙]/u)
+    expect(result.terminal.output).not.toMatch(/dsh [◍✻●⚙⊙]/u)
     await dispose(result)
   })
 
@@ -4115,8 +4292,9 @@ describe('skill slash command', () => {
       source: 'runtime',
       content: 'Dynamic body.',
     })
-    await tick()
-    expect(result.terminal.output).toContain('DYNAMIC_COMPLETION_MARKER')
+    await vi.waitFor(() => {
+      expect(result.terminal.output).toContain('DYNAMIC_COMPLETION_MARKER')
+    })
 
     result.terminal.send('\x03')
     disposeSkill()
@@ -5401,6 +5579,7 @@ describe('TUI extension service', () => {
                 host.theme.accent(`${label} plugin overlay`),
                 [
                   host.theme.text('text'),
+                  host.theme.brand('brand'),
                   host.theme.dim('dim'),
                   host.theme.success('success'),
                   host.theme.warning('warning'),
@@ -5568,7 +5747,7 @@ describe('terminal mounting', () => {
     const session = ctx.sessions.create(SessionId('main'))
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'idle', acceptsNextStep: false, ctx,
-      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, updateInbox: () => 'not-found', cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }), inject: () => {}, send: () => {}, updateInbox: () => 'not-found', reserveTurnAdmission: () => undefined, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     mountTui(ctx, { theme: { color: false } }, { terminal, exit: vi.fn() })
@@ -5593,7 +5772,7 @@ describe('terminal mounting', () => {
     const session = ctx.sessions.create(SessionId('main'))
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'idle', acceptsNextStep: false, ctx,
-      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, updateInbox: () => 'not-found', cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }), inject: () => {}, send: () => {}, updateInbox: () => 'not-found', reserveTurnAdmission: () => undefined, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     // Mirror dsh-tui's own inject (minus loader, the absence under test).
@@ -5628,14 +5807,14 @@ describe('terminal mounting', () => {
     const otherSession = ctx.sessions.create(SessionId('other-session'))
     ctx.agents.register({
       id: otherSession.id, options: {}, session: otherSession, status: 'idle', acceptsNextStep: false, ctx,
-      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, updateInbox: () => 'not-found', cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }), inject: () => {}, send: () => {}, updateInbox: () => 'not-found', reserveTurnAdmission: () => undefined, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     expect(terminal.started).toBe(0)
 
     const session = ctx.sessions.create(SessionId('late-session'))
     const agent = {
       id: session.id, options: {}, session, status: 'idle', acceptsNextStep: false, ctx,
-      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, updateInbox: () => 'not-found', cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }), inject: () => {}, send: () => {}, updateInbox: () => 'not-found', reserveTurnAdmission: () => undefined, cancel() {}, whenIdle: () => Promise.resolve(),
     } as Agent
     ctx.agents.register(agent)
     await tick()
@@ -5666,7 +5845,7 @@ describe('terminal mounting', () => {
     const session = ctx.sessions.create(SessionId('main-session'))
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'idle', acceptsNextStep: false, ctx,
-      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, updateInbox: () => 'not-found', cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }), inject: () => {}, send: () => {}, updateInbox: () => 'not-found', reserveTurnAdmission: () => undefined, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     await tick()
     expect(terminal.started).toBe(0)
@@ -5710,7 +5889,7 @@ describe('terminal mounting', () => {
     session.append('step/start', { turn: 1, step: 1 })
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'running', acceptsNextStep: true, ctx,
-      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, updateInbox: () => 'not-found', cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }), inject: () => {}, send: () => {}, updateInbox: () => 'not-found', reserveTurnAdmission: () => undefined, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     terminal.start = () => { throw new Error('terminal startup failed') }
@@ -5776,6 +5955,10 @@ describe('terminal mounting', () => {
     // `text` is the terminal default, emitted as no escape at all.
     expect(printed).toContain('no escape')
     await dispose(result)
+  })
+
+  it('uses the official DeepSeek SVG ink for truecolor brand art', () => {
+    expect(brandText('mark')).toBe('\x1b[38;2;77;107;254mmark\x1b[39m')
   })
 
   it('detects a light terminal color scheme and switches the scheme-dependent code role', async () => {

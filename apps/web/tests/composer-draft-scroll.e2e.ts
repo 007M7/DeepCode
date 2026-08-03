@@ -232,7 +232,7 @@ describe('web e2e: composer draft scrolling', () => {
     tripwire = watchConsole(page)
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
-    await connectFreshWorkspace(page, 'composer-draft-scroll')
+    await connectFreshWorkspace(page, scaffold.workspaceCwd, 'composer-draft-scroll')
     await page.locator('textarea:enabled').first().fill(DRAFT)
   }, 180_000)
 

@@ -228,13 +228,14 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
       steeredOptions.push(input)
       const id = input.id
       steeredIds.push(id)
-      return id
+      return { outcome: Promise.resolve({ status: 'admitted' as const, turn: 1, step: 1 }) }
     },
     inject(input) {
       injected.push(input.content)
       injectedOptions.push(input)
       return input.id
     },
+    reserveTurnAdmission: () => undefined,
     cancel(cause) {
       cancelled.push(cause)
     },

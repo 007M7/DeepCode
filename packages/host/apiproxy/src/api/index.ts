@@ -9,6 +9,7 @@ import type { HostApi } from './host.ts'
 import type { WorkspaceApi } from './workspace.ts'
 import type { CommandsApi } from './commands.ts'
 import type { SkillsApi } from './skills.ts'
+import type { SubagentsApi } from './subagents.ts'
 import type { EventsApi } from './events.ts'
 import type { GoalsApi } from './goals.ts'
 import type { SettingsApi } from './settings.ts'
@@ -19,6 +20,7 @@ import type { ClientResponse, RpcReceipt } from './rpc.ts'
 /** Root interface of the unified API surface. New client-request domain = one new file pair + one field here + one map row. */
 export interface ApiProxy {
   sessions: SessionsApi
+  subagents: SubagentsApi
   host: HostApi
   workspace: WorkspaceApi
   commands: CommandsApi
@@ -39,6 +41,9 @@ export type {
   SessionsApi, SessionSummary,
 } from './sessions.ts'
 export type { DirectoryEntry, DirectoryListing, HostApi } from './host.ts'
+export type {
+  SubagentAddress, SubagentCatalog, SubagentListEntry, SubagentPromptReceipt, SubagentsApi,
+} from './subagents.ts'
 export type { WorkspaceApi, WorkspaceId, WorkspaceView } from './workspace.ts'
 export type { CommandsApi, CommandDescriptor } from './commands.ts'
 export type { SkillsApi, SkillEntry } from './skills.ts'

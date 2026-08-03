@@ -26,8 +26,9 @@ function stubAgent(rawId: string, overrides: Partial<Agent> = {}): Agent {
     send: () => {},
     updateInbox: () => 'not-found',
     followup: () => {},
-    steer: () => {},
+    steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
     inject: () => {},
+    reserveTurnAdmission: () => undefined,
     cancel() {},
     whenIdle() { return Promise.resolve() },
   }

@@ -12,13 +12,25 @@
       "path": "../../../vendor/cordis"
     },
     {
+      "path": "../locale"
+    },
+    {
       "path": "../runtime"
+    },
+    {
+      "path": "../ui-conversation"
+    },
+    {
+      "path": "../ui-primitives"
     },
     {
       "path": "../ui-slash"
     },
     {
       "path": "../ui-slots"
+    },
+    {
+      "path": "../../subagent/subagent"
     },
     {
       "path": "../../support/invariants"

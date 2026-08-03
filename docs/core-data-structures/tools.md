@@ -200,20 +200,23 @@ interface ToolExecutionInput {
 }
 ```
 
-A tool body receives the runtime extension. `deferContext()` is the composite-tool channel: it records nested-dispatch context without injecting inside the still-open outer call.
+A tool body receives the runtime extension. `deferContext()` attaches context to the execution's own result — the composite-tool nested-dispatch channel, also usable by a leaf tool minting a plugin-sourced instruction — without injecting inside the still-open outer call.
 
 ```ts type-equiv
 /**
  * Runtime context handed to a tool implementation after the registry has
- * accepted a {@link ToolExecution}. A composite tool uses
- * {@link deferContext} to ferry context produced by nested dispatches back to
- * the outer result; the loop appends it only after the outer `tool/result`.
+ * accepted a {@link ToolExecution}. {@link deferContext} attaches context to
+ * this execution's own result — a composite tool ferries nested-dispatch
+ * context back to the outer result, and a leaf tool may mint a fresh
+ * plugin-sourced instruction; the loop appends it only after the
+ * `tool/result`.
  */
 interface ToolRunContext extends ToolExecution {
   /**
-   * Defer one nested-dispatch context until this tool's final result reaches
-   * the agent loop. Contexts retain their individual source and metadata and
-   * are emitted in call order.
+   * Defer one context — typically a nested-dispatch context ferried by a
+   * composite tool, or a fresh plugin-sourced instruction — until this tool's
+   * final result reaches the agent loop. Contexts retain their individual
+   * source and metadata and are emitted in call order.
    */
   deferContext(context: UserMessage): void
   /**

@@ -12,6 +12,7 @@ import type { ClientContext, ISessions, SessionBinding, SessionFace, SessionId }
 import type { SlashController } from '@deepseek-ai/dsh-client-ui-slash/client'
 import { queueReadFaceOf } from '../queue/store.ts'
 import type { ComposerKeyboard, InputService, SessionInput } from './contract.ts'
+import type { InputSubmitMode } from '../contract/composer-submission.ts'
 import type { PopupDismissFace } from './facade.ts'
 import { SessionInputShell } from './facade.ts'
 
@@ -123,7 +124,7 @@ export class InputHub implements InputService {
    * exactly one path; a failed first prompt is an ordinary prompt failure
    * (error strip via promptError, draft restored only while untouched).
    */
-  private sink(session: SessionFace, text: string, mode: 'queue' | 'steer'): void {
+  private sink(session: SessionFace, text: string, mode: InputSubmitMode): void {
     if (text === '') return
     const shell = this.shells.get(session.sessionId)
     // Commit, not an editable clear: undo must not resurrect sent content.

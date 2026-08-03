@@ -1134,6 +1134,48 @@ describe('LlmService', () => {
     })).toThrow(expect.objectContaining({ code: 'INVALID_PREPARED_CALL' }))
   })
 
+  it('reuses one exact-model lookup for prepared config and context metadata', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    let resolutions = 0
+    const source = { contextWindow: 128_000 }
+    const adapter = new class extends ScriptedAdapter {
+      override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+        resolutions += 1
+        return Promise.resolve({
+          provider,
+          id: model,
+          name: model,
+          description: 'Resolved model',
+          context: source,
+          reasoning: model === 'no-default'
+            ? { efforts: [{ id: ReasoningEffortId('high'), name: 'High' }] }
+            : {
+              efforts: [{ id: ReasoningEffortId('high'), name: 'High' }],
+              defaultEffort: ReasoningEffortId('high'),
+            },
+        })
+      }
+    }(SCRIPT)
+    ctx.llm.registerAdapter(['route'], adapter)
+
+    const prepared = await ctx.llm.prepareCall({ provider: 'route', model: 'model' })
+    source.contextWindow = 64_000
+    expect(prepared.config.reasoningEffort).toBe(ReasoningEffortId('high'))
+    expect(prepared.context).toEqual({ contextWindow: 128_000 })
+    expect(Object.isFrozen(prepared.context)).toBe(true)
+    for await (const _chunk of prepared.stream({
+      ...prepared.config,
+      messages: [],
+    })) { /* drain */ }
+    expect(resolutions).toBe(1)
+
+    const noDefault = await ctx.llm.prepareCall({ provider: 'route', model: 'no-default' })
+    expect(noDefault.config).toEqual({ provider: 'route', model: 'no-default' })
+    expect(noDefault.context).toEqual({ contextWindow: 64_000 })
+    expect(resolutions).toBe(2)
+  })
+
   it('passes cancellation through exact-model resolution', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
