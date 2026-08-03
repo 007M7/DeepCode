@@ -191,6 +191,10 @@ type TrajectorySplitStyle = CSSProperties & {
   '--trajectory-tool-request-width': string
 }
 
+type RequestBoundaryStyle = CSSProperties & {
+  '--request-boundary-offset': string
+}
+
 function clampDetailsWidth(width: number, splitWidth: number): number {
   const maxWidth = Math.max(
     DETAILS_MIN_WIDTH,
@@ -451,6 +455,23 @@ function indexRequestNumbers(
     if (!numbers.has(key)) numbers.set(key, next++)
   }
   return numbers
+}
+
+function indexRequestBoundaryRuns(records: readonly TableRecord[]): ReadonlyMap<number, number> {
+  const indexes = new Map<number, number>()
+  let previous: TableRecord | undefined
+  let runIndex = 0
+  for (const record of records) {
+    if (record.cell.requestOnly !== true) {
+      previous = record
+      runIndex = 0
+      continue
+    }
+    runIndex = previous?.cell.requestOnly === true ? runIndex + 1 : 0
+    indexes.set(record.cell.index, runIndex)
+    previous = record
+  }
+  return indexes
 }
 
 function summarizeTurn(records: readonly TableRecord[]): string {
@@ -1545,6 +1566,7 @@ export function TrajectoryTable({
       collapsedAssistants,
     )
     : filterRecords(allRecords, searchMatchIndexes)
+  const requestBoundaryRuns = indexRequestBoundaryRuns(records)
   const selected = allRecords.find(record => record.cell.index === selectedIndex)
   const selectedPrompt = selected?.cell.kind === 'system'
     ? selected.cell.promptDetail
@@ -1791,6 +1813,12 @@ export function TrajectoryTable({
               const requestInfo = request === undefined
                 ? undefined
                 : sessionRequestNumbers?.find(candidate => candidate.number === request)
+              const requestStatus = requestInfo?.status
+                ?? (record.cell.isError === true ? 'error' : undefined)
+              const requestRunIndex = requestBoundaryRuns.get(record.cell.index) ?? 0
+              const requestBoundaryStyle: RequestBoundaryStyle = {
+                '--request-boundary-offset': `${requestRunIndex * 8}px`,
+              }
               const requestLabel = request === undefined
                 ? undefined
                 : `Request #${request}${requestInfo?.purpose === 'compaction' ? ' · Compaction' : ''}`
@@ -1882,6 +1910,9 @@ export function TrajectoryTable({
                         aria-label={requestLabel}
                         aria-pressed={requestSelected}
                         data-label={requestLabel}
+                        data-request-run-index={requestRunIndex}
+                        data-request-status={requestStatus}
+                        style={requestBoundaryStyle}
                         onClick={(event) => {
                           event.stopPropagation()
                           selectRequest({

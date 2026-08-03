@@ -222,6 +222,47 @@ describe('TrajectoryTable', () => {
     expect(errorResult.closest('[class*="errorPayload"]')).toBeTruthy()
   })
 
+  it('marks failed requests and lays coincident request markers left to right', () => {
+    const turns: readonly TrajectoryTurnModel[] = [
+      {
+        turn: null,
+        groups: [{
+          title: 'Step 1',
+          cells: [{
+            index: 1,
+            kind: 'message',
+            text: '',
+            requestOnly: true,
+            isError: true,
+            timeSeconds: 0.1,
+          }],
+        }],
+      },
+      {
+        turn: null,
+        groups: [{
+          title: 'Step 2',
+          cells: [{
+            index: 2,
+            kind: 'message',
+            text: '',
+            requestOnly: true,
+            timeSeconds: 0.1,
+          }],
+        }],
+      },
+    ]
+    render(<TrajectoryTable turns={turns} {...FOLD_PROPS} />)
+
+    const failed = screen.getByRole('button', { name: 'Request #1' })
+    const retry = screen.getByRole('button', { name: 'Request #2' })
+    expect(failed.getAttribute('data-request-status')).toBe('error')
+    expect(failed.getAttribute('data-request-run-index')).toBe('0')
+    expect(failed.style.getPropertyValue('--request-boundary-offset')).toBe('0px')
+    expect(retry.getAttribute('data-request-run-index')).toBe('1')
+    expect(retry.style.getPropertyValue('--request-boundary-offset')).toBe('8px')
+  })
+
   it('renders responsive role icons with a custom tooltip', () => {
     const view = render(<TrajectoryTable turns={TURNS} {...FOLD_PROPS} />)
     const toolTag = view.container.querySelector<HTMLElement>('[data-role-kind="tool"]')
