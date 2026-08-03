@@ -66,6 +66,7 @@
   },
   "dependencies": {
     "@earendil-works/pi-tui": "0.80.7",
+    "diff": "^9.0.0",
     "saxes": "6.0.0",
     "schemastery": "^3.18.0"
   },
