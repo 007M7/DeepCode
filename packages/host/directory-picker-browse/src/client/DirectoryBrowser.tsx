@@ -19,18 +19,20 @@
  * error surface. Hidden entries are host-flagged and hidden by default; the
  * footer's fixed-label "Show hidden files" toggle (aria-pressed, check when
  * on) reveals them (client-side only). The path editor announces itself with
- * a pencil glyph and a hover-lit zone, opens seeded with a trailing
- * separator, and keeps the panes under the draft: the final segment
- * prefix-filters the level its directory part names (a dot-led prefix also
- * reveals the hidden entries it names, and a prefix nobody matches releases
- * the filter), while any other directory part is scanned after a short
- * debounce and lands like any other navigation — selection-anchored and
- * two-pane away from the display root. The pane arity holds throughout: the
- * last pane is the level the path names and the one beside it is its parent,
- * so typing deeper descends and erasing segments walks back up, moving the
- * Miller view without leaving the editor. Panes the draft walked to stay put
- * when the editor closes (cancellation included): the crumbs name where the
- * walk ended, and Open's fallback target follows them.
+ * a pencil glyph and a bar-wide hover-lit outline, opens seeded with a
+ * trailing separator, and keeps the panes under the draft: the final segment
+ * prefix-filters the LAST pane while that pane's level is the one the draft's
+ * directory part names (a dot-led prefix also reveals the hidden entries it
+ * names, and a prefix nobody matches releases the filter), while any other
+ * directory part is scanned after a short debounce and lands like any other
+ * navigation — selection-anchored and two-pane away from the display root,
+ * both legs waited out so one keystroke moves the view once. The pane arity
+ * holds throughout: the last pane is the level the path names and the one
+ * beside it is its parent, so typing deeper descends and erasing segments
+ * walks back up, moving the Miller view without leaving the editor. Panes the
+ * draft walked to stay put when the editor closes (cancellation included):
+ * the crumbs name where the walk ended, and Open's fallback target follows
+ * them.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
@@ -125,63 +127,65 @@ function levelDirectory(listing: DirectoryListing): string {
   return listing.path.endsWith(sep) ? listing.path : `${listing.path}${sep}`
 }
 
+/** The directory text a draft-following scan last sent, with the level path the host answered it with. */
+interface ScannedDirectory {
+  /** The draft's directory part, verbatim as it went to the host. */
+  readonly directory: string
+  /** `path` of the listing that came back. */
+  readonly landed: string
+}
+
 /**
  * The draft's directory part — everything through its last separator — or
  * null while no separator has been typed at all (nothing addresses a
- * directory yet). The platform separator comes from `listing`, so the caller
- * passes any listing of the host's filesystem.
+ * directory yet). The platform comes from `listing`: on Windows a forward
+ * slash separates too (the host's `resolve` accepts either), while on POSIX a
+ * backslash is a legal name character and never separates.
  */
 function draftDirectory(listing: DirectoryListing, draft: string): string | null {
-  const cut = draft.lastIndexOf(separatorOf(listing))
+  const cut = separatorOf(listing) === '\\'
+    ? Math.max(draft.lastIndexOf('\\'), draft.lastIndexOf('/'))
+    : draft.lastIndexOf('/')
   return cut === -1 ? null : draft.slice(0, cut + 1)
 }
 
 /**
- * The path draft's final segment, when its directory part is exactly the
- * level `listing` lists — the segment the level prefix-filters on while the
- * user types. Any other draft (no separator yet, or naming some other
- * directory) leaves the level unfiltered. The directory part compares
- * exactly (it is the host's own path text, reached by seeding, erasing, or a
- * draft-following scan); only the name filter downstream is case-insensitive.
+ * How the draft reads against one level: the directory part it names, and —
+ * when `listing` is the level that directory part addresses — the final
+ * segment that prefix-filters it while the user types (case-insensitively,
+ * downstream). A level answers a directory part when its own path is that
+ * part, or when it is the level that very text just produced (`scanned`): the
+ * host resolves what it is given, so `..` segments and Windows forward
+ * slashes reach a level whose path spells the request differently.
+ * @param listing - the level to read the draft against.
+ * @param draft - the current path draft.
+ * @param scanned - the last draft-following scan's directory and landing.
+ * @returns the draft's directory part (null with no separator typed) and its
+ * filtering tail (null when this level does not answer that directory).
  */
-function draftPrefixFor(listing: DirectoryListing, draft: string | null): string | null {
-  if (draft === null) return null
-  const directory = draftDirectory(listing, draft)
-  if (directory === null) return null
-  return directory === levelDirectory(listing) ? draft.slice(directory.length) : null
-}
-
-/**
- * The directory a draft addresses that the panes are not already presenting
- * as the current level — what the editor must scan to keep the view under the
- * typed path. The pane arity is the invariant this preserves: the LAST pane
- * always lists the level the path names, with its parent beside it (a display
- * root lists alone), so a draft naming any other level re-lands rather than
- * leaving a deeper level standing to the right of the one being typed. Null
- * when that level is already the last pane, when no separator has been typed
- * yet, and when no level is listed at all: the platform separator is read off
- * a listing, so the editor's failed-home-listing recovery path types blind
- * until Enter.
- */
-function pendingPreviewDirectory(
-  parent: DirectoryListing | null,
-  child: DirectoryListing | null,
+function readDraft(
+  listing: DirectoryListing,
   draft: string,
-): string | null {
-  if (parent === null) return null
-  const directory = draftDirectory(parent, draft)
-  if (directory === null) return null
-  return directory === levelDirectory(child ?? parent) ? null : directory
+  scanned: ScannedDirectory | null,
+): { directory: string | null; tail: string | null } {
+  const directory = draftDirectory(listing, draft)
+  if (directory === null) return { directory: null, tail: null }
+  const answers = directory === levelDirectory(listing)
+    || (scanned !== null && scanned.directory === directory && scanned.landed === listing.path)
+  return { directory, tail: answers ? draft.slice(directory.length) : null }
 }
 
 /**
  * The rows one column renders. The selection is exempt from every filter: it
  * anchors the two-pane view (crumbs and the child pane point at it), so
  * neither the hidden filter after a dot-reveal pick nor a prefix miss may
- * orphan it. A prefix narrows the level only while some row matches it — a
- * tail nobody matches is a name being spelled, not a demand for an empty
- * pane, so the level shows whole (and its hidden rows return to obeying the
- * toggle, the dot-led reveal included).
+ * orphan it. A prefix narrows the level only while some row it would actually
+ * show matches — a tail nobody matches is a name being spelled, not a demand
+ * for an empty pane, so the level shows whole and its hidden rows return to
+ * obeying the toggle. Counting only displayable rows is what keeps that true:
+ * were a hidden row ever to match a prefix that does not reveal it (today
+ * `hidden` means dot-prefixed, so it cannot), the level would narrow to
+ * nothing.
  */
 function visibleEntries(
   entries: readonly DirectoryEntry[],
@@ -190,15 +194,15 @@ function visibleEntries(
   filterPrefix: string | null,
 ): readonly DirectoryEntry[] {
   const needle = filterPrefix === null ? '' : filterPrefix.toLowerCase()
-  const matches = (entry: DirectoryEntry): boolean => entry.name.toLowerCase().startsWith(needle)
-  const narrowing = needle !== '' && entries.some(matches)
   // A dot-led prefix names hidden entries explicitly, so matching ones
   // surface even while the toggle keeps the rest hidden.
-  const revealHidden = narrowing && needle.startsWith('.')
+  const displayable = (entry: DirectoryEntry): boolean => showHidden || !entry.hidden || needle.startsWith('.')
+  const matches = (entry: DirectoryEntry): boolean => displayable(entry) && entry.name.toLowerCase().startsWith(needle)
+  const narrowing = needle !== '' && entries.some(matches)
   return entries.filter((entry) => {
     if (entry.path === selectedPath) return true
-    if (narrowing && !matches(entry)) return false
-    return showHidden || !entry.hidden || revealHidden
+    if (narrowing) return matches(entry)
+    return showHidden || !entry.hidden
   })
 }
 
@@ -353,6 +357,12 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   const viewRef = useRef<{ parent: DirectoryListing | null; child: DirectoryListing | null }>({ parent: null, child: null })
   useEffect(() => { viewRef.current = { parent, child } }, [parent, child])
 
+  // What the last draft-following scan asked for and what came back, so a
+  // level still answers the text that produced it after the host respelled
+  // it. Stale entries are harmless: a match needs both the directory text and
+  // that level's own path, which together already mean the same directory.
+  const scanned = useRef<ScannedDirectory | null>(null)
+
   /**
    * A landed preview replaced the pane a keyboard operator may have Tabbed
    * onto, so the focus it drops is re-parked on the still-open editor (the
@@ -376,13 +386,18 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
    * rendering: a landing swaps the panes, it never blanks them.
    *
    * Two callers, one landing shape. A submitted path (Enter, a crumb) closes
-   * the editor on arrival and announces its failure; the editor's own
-   * draft-following scan keeps both to itself — it is speculative, so a
-   * failure leaves the last readable panes standing and says nothing, while
-   * an arrival clears the stale message and re-parks focus the swap dropped.
+   * the editor on arrival, announces its failure, and takes the wait bound —
+   * it is answering a gesture, so it may not hang on a stalled parent. The
+   * editor's own draft-following scan keeps all three to itself: it is
+   * speculative, nothing waits on it, and the stale view keeps rendering, so
+   * it waits for BOTH legs rather than flashing a single pane it would then
+   * upgrade — one keystroke must move the view once. A failure leaves the
+   * last readable panes standing and says nothing, while an arrival clears
+   * the stale message and re-parks focus the swap dropped.
    * @param path - the level to list; absent lists the Host home directory.
-   * @param options - `closeEditor` retires the path draft on arrival;
-   * `announce` surfaces a failure as the dialog's alert.
+   * @param options - `closeEditor` retires the path draft on arrival and
+   * bounds the wait for the parent leg; `announce` surfaces a failure as the
+   * dialog's alert.
    */
   const land = useCallback((path: string | undefined, options: { closeEditor: boolean; announce: boolean }) => {
     const { seq, scan } = launchListing(path)
@@ -401,6 +416,11 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
     }
     scan.then((target) => {
       if (seq !== requestSeq.current) return
+      // The level the panes will present as current answers this exact
+      // directory text, however the host respelled it (`..`, a Windows
+      // forward slash): the tail filters, and the same text asks for no
+      // second scan.
+      if (!options.closeEditor && path !== undefined) scanned.current = { directory: path, landed: target.path }
       // The single-pane landing; `landed` makes it first-commit-only, while
       // the two-pane commit below may still upgrade an already-landed view.
       let landed = false
@@ -438,7 +458,10 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
         // target listed fine, and nobody asked to see the parent level.
         landSingle()
       })
-      window.setTimeout(landSingle, PARENT_LEG_WAIT_MS)
+      // Only a submitted navigation is bounded: the walk waits both legs out
+      // (see the contract above), and a keystroke aborts it if the operator
+      // moves on first.
+      if (options.closeEditor) window.setTimeout(landSingle, PARENT_LEG_WAIT_MS)
     }, (reason: unknown) => {
       if (seq !== requestSeq.current) return
       setLoading(false)
@@ -641,8 +664,12 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
     if (pathDraft === null) return
     const timer = window.setTimeout(() => {
       if (previewSuspended.current) return
-      const directory = pendingPreviewDirectory(viewRef.current.parent, viewRef.current.child, pathDraft)
-      if (directory === null) return
+      // The level the panes present as current: it alone may answer the
+      // draft, so anything else it names is a level to walk to.
+      const current = viewRef.current.child ?? viewRef.current.parent
+      if (current === null) return
+      const { directory, tail } = readDraft(current, pathDraft, scanned.current)
+      if (directory === null || tail !== null) return
       previewDraftLevel(directory)
     }, DRAFT_PREVIEW_DEBOUNCE_MS)
     return () => { window.clearTimeout(timer) }
@@ -650,6 +677,14 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
 
   // After the hooks: a closed dialog renders nothing and evaluates no copy.
   const crumbSource = child ?? parent
+  // The draft's tail filters the level it names, which by the pane invariant
+  // is the LAST pane — never a pane the draft has already walked away from.
+  // Narrowing that stale pane would move the view twice for one keystroke:
+  // once as it narrows, again as its landing replaces it. It holds still
+  // instead, and the filter arrives with the level it belongs to.
+  const typedPrefix = crumbSource === null || pathDraft === null
+    ? null
+    : readDraft(crumbSource, pathDraft, scanned.current).tail
   const crumbs = crumbSource === null ? [] : displayCrumbs(crumbSource, t('browser.home'))
   const crumbTail = crumbs.at(-1)?.path
   useEffect(() => {
@@ -888,7 +923,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
                 busy={parentInert}
                 onPick={select}
                 showHidden={showHidden}
-                filterPrefix={draftPrefixFor(parent, pathDraft)}
+                filterPrefix={child === null ? typedPrefix : null}
                 pathEditing={draftPending}
               />
             )}
@@ -900,7 +935,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
                 busy={parentInert}
                 onPick={advance}
                 showHidden={showHidden}
-                filterPrefix={draftPrefixFor(child, pathDraft)}
+                filterPrefix={typedPrefix}
                 pathEditing={draftPending}
               />
             )}

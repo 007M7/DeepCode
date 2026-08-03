@@ -762,6 +762,105 @@ describe('DirectoryBrowser', () => {
     expect(b.listDirectory).toHaveBeenCalledWith(`${DOCS}/`, expect.anything())
   })
 
+  it('holds a stale pane still until its landing, instead of narrowing it first', async () => {
+    // Own three-level tree: the level that goes stale needs two rows for the
+    // narrowing this pins against to be visible at all.
+    const ROOT = '/u'
+    const MID = `${ROOT}/mid`
+    const LEAF = `${MID}/leaf`
+    const chain = [{ name: '/', path: '/', hidden: false }, { name: 'u', path: ROOT, hidden: false }]
+    const tree: Record<string, DirectoryListing> = {
+      [ROOT]: {
+        path: ROOT,
+        home: ROOT,
+        crumbs: chain,
+        entries: [{ name: 'mid', path: MID, hidden: false }, { name: 'other', path: `${ROOT}/other`, hidden: false }],
+        truncated: false,
+      },
+      [MID]: {
+        path: MID,
+        home: ROOT,
+        crumbs: [...chain, { name: 'mid', path: MID, hidden: false }],
+        entries: [{ name: 'leaf', path: LEAF, hidden: false }, { name: 'sibling', path: `${MID}/sibling`, hidden: false }],
+        truncated: false,
+      },
+      [LEAF]: {
+        path: LEAF,
+        home: ROOT,
+        crumbs: [...chain, { name: 'mid', path: MID, hidden: false }, { name: 'leaf', path: LEAF, hidden: false }],
+        entries: [],
+        truncated: false,
+      },
+    }
+    mount({
+      listDirectory: vi.fn(async (path?: string) => {
+        const asked = path ?? ROOT
+        const found = tree[asked.length > 1 && asked.endsWith('/') ? asked.slice(0, -1) : asked]
+        if (found === undefined) throw new Error(`cannot list ${asked}`)
+        return found
+      }),
+    })
+    await waitFor(() => { expect(screen.getByText('mid')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    fireEvent.change(input, { target: { value: `${LEAF}/` } })
+    await waitFor(() => { expect(columns()).toHaveLength(2) })
+    expect(within(columns()[0]!).getAllByRole('listitem').map(item => item.textContent)).toEqual(['leaf', 'sibling'])
+    // Deleting the separator names the level the LEFT pane lists. That pane
+    // is stale — its landing will move it right — so it must not narrow to
+    // the tail first: one deletion, one movement.
+    fireEvent.change(input, { target: { value: LEAF } })
+    expect(within(columns()[0]!).getAllByRole('listitem').map(item => item.textContent)).toEqual(['leaf', 'sibling'])
+    await waitFor(() => { expect(within(columns()[0]!).getByText('other')).toBeTruthy() })
+    expect(within(columns()[1]!).getAllByRole('listitem').map(item => item.textContent)).toEqual(['leaf'])
+  })
+
+  it('keeps the walked-to panes when the editor is cancelled, Open adopting where the walk ended', async () => {
+    const b = mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    fireEvent.change(input, { target: { value: `${DOCS}/h` } })
+    await waitFor(() => { expect(columns()).toHaveLength(2) })
+    fireEvent.keyDown(input, { key: 'Escape' })
+    // Cancel closes the editor; it does not rewind the walk. The operator
+    // watched the panes move, so the crumbs, the panes, and Open's target all
+    // stay where the walk ended.
+    expect(screen.queryByLabelText('browser.editPath', { selector: 'input' })).toBeNull()
+    expect(columns()).toHaveLength(2)
+    expect(within(columns()[0]!).getByText('Documents')).toBeTruthy()
+    expect(within(columns()[1]!).getByText('harness')).toBeTruthy()
+    expect(screen.getByRole('navigation').textContent).toContain('Documents')
+    const open = screen.getByRole<HTMLButtonElement>('button', { name: 'browser.open' })
+    expect(open.disabled).toBe(false)
+    fireEvent.click(open)
+    expect(b.onOpen).toHaveBeenCalledWith(DOCS)
+  })
+
+  it('waits both legs out for a walk: one keystroke never flashes a single pane', async () => {
+    let landParent = (): void => {}
+    const listDirectory = vi.fn(async (path?: string) => {
+      // The parent leg outlives the submitted-navigation wait bound; a walk
+      // has nothing waiting on it, so it holds the stale view instead of
+      // landing single-pane and upgrading.
+      if (path === HOME) return await new Promise<DirectoryListing>((resolve) => { landParent = () => { resolve(listingFor(HOME)) } })
+      return listingFor(path)
+    })
+    mount({ listDirectory })
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    fireEvent.change(input, { target: { value: `${DOCS}/h` } })
+    await waitFor(() => { expect(listDirectory).toHaveBeenCalledWith(HOME, expect.anything()) })
+    await act(async () => { await new Promise((resolve) => { setTimeout(resolve, 400) }) })
+    // Well past the submitted-navigation bound: still the pre-walk view.
+    expect(columns()).toHaveLength(1)
+    expect(screen.getByText('Documents')).toBeTruthy()
+    await act(async () => { landParent() })
+    await waitFor(() => { expect(columns()).toHaveLength(2) })
+    expect(within(columns()[1]!).getByText('harness')).toBeTruthy()
+  })
+
   it('walks the panes back up when erased segments leave the listed levels', async () => {
     const b = mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
@@ -1018,7 +1117,8 @@ describe('DirectoryBrowser', () => {
       ],
       truncated: false,
     }
-    mount({ listDirectory: vi.fn(async () => windowsListing) })
+    const listDirectory = vi.fn(async () => windowsListing)
+    mount({ listDirectory })
     await waitFor(() => { expect(screen.getAllByRole('listitem')).toHaveLength(2) })
     fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
     const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
@@ -1026,6 +1126,18 @@ describe('DirectoryBrowser', () => {
     expect(input.value).toBe(ROOT)
     fireEvent.change(input, { target: { value: `${ROOT}u` } })
     expect(screen.getByRole('listitem').textContent).toBe('Users')
+    // Windows separates on a forward slash too (so does the Host's resolve),
+    // so a path typed that way names its directory; the level the Host
+    // answers with spells it back with a backslash, and once that scan lands
+    // the level answers the typed spelling — the tail filters it.
+    fireEvent.change(input, { target: { value: 'C:/p' } })
+    await waitFor(() => { expect(screen.getByRole('listitem').textContent).toBe('Program Files') })
+    // And the same spelling asks for no second scan.
+    const settled = listDirectory.mock.calls.length
+    fireEvent.change(input, { target: { value: 'C:/pr' } })
+    await act(async () => { await new Promise((resolve) => { setTimeout(resolve, 400) }) })
+    expect(listDirectory.mock.calls).toHaveLength(settled)
+    expect(screen.getByRole('listitem').textContent).toBe('Program Files')
   })
 
   it('clicking away from the path editor cancels it back to the crumb view', async () => {

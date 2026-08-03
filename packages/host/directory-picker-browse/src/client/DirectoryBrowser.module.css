@@ -49,12 +49,29 @@
   color: var(--dsw-alias-label-primary);
 }
 
+/* The bar IS the editor's box in both modes: it carries the rounded outline
+ * and the inner padding, the crumbs and the input sit inside it, and hovering
+ * the edit zone lights the whole row rather than the remainder right of the
+ * crumbs. The negative left margin pays back the border and padding, so the
+ * crumb (and input) text keeps the column the title sits in. */
 .crumbBar {
   display: flex;
   align-items: center;
   gap: 4px;
-  /* The path editor's height: crumb mode and edit mode occupy the same bar. */
+  box-sizing: border-box;
   min-height: 24px;
+  margin-left: -9px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+}
+
+/* Lit by the affordance the row belongs to, never by a crumb: a crumb's hover
+ * offers navigation, not path entry. Editing keeps the outline standing. */
+.crumbBar:has(.crumbEditZone:enabled:hover),
+.crumbBar:has(.crumbEditZone:focus-visible),
+.crumbBar:has(.pathInput) {
+  border-color: var(--dsw-alias-border-l2);
 }
 
 /* Deep chains scroll inside the trail (the effect pins the tail into view)
@@ -119,30 +136,21 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
-/* The empty remainder of the bar: a real click target that flips the bar
- * into path-edit mode. The zone itself stays flush with the crumbs; the
- * pencil glyph seated at its right edge is the standing affordance, and
- * hover/focus lights the zone in the editor's own rounded shape so the
- * gesture reads before the click. */
+/* The empty remainder of the bar: a real click target that flips the bar into
+ * path-edit mode. The pencil glyph seated at its right edge is the standing
+ * affordance; the outline the gesture lights belongs to the bar, so the whole
+ * row reads as the box the input will occupy. */
 .crumbEditZone {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   flex: 1 0 34px;
   min-width: 34px;
-  /* The editor's own height, so hover previews the input's exact footprint
-   * and the bar does not resize when the two swap. */
-  height: 24px;
-  padding: 0 6px;
-  border: 1px solid transparent;
-  border-radius: 8px;
+  height: 22px;
+  padding: 0;
+  border: none;
   background: transparent;
   cursor: text;
-}
-
-.crumbEditZone:hover,
-.crumbEditZone:focus-visible {
-  border-color: var(--dsw-alias-border-l2);
   outline: none;
 }
 
@@ -151,13 +159,12 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
-.crumbEditZone:hover .crumbEditGlyph,
+.crumbEditZone:enabled:hover .crumbEditGlyph,
 .crumbEditZone:focus-visible .crumbEditGlyph {
   color: var(--dsw-alias-label-primary);
 }
 
 .crumbEditZone:disabled {
-  border-color: transparent;
   cursor: default;
 }
 
@@ -165,14 +172,14 @@
   color: var(--dsw-alias-label-caption);
 }
 
+/* Chrome-free: the bar around it draws the box (border, radius, padding). */
 .pathInput {
   box-sizing: border-box;
   flex: 1 1 0;
   min-width: 0;
-  height: 24px;
-  padding: 0 8px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
+  height: 22px;
+  padding: 0;
+  border: none;
   outline: none;
   background: transparent;
   font-size: 13px;
