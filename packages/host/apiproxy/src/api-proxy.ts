@@ -24,6 +24,7 @@ import {
   WorkspaceMoveInvalidError, WorkspaceUnknownSessionError,
 } from '@deepseek-ai/dsh-workspace'
 // Type-only: brings the `ctx.tools` Context merge into this program (viewFor reads presenters).
+import { PresetMountError, UnknownPresetError } from '@deepseek-ai/dsh-agent-presets'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {
   ApiProxy, CredentialView, GoalRef, HistoryEntry, HostFrame, ModelCatalogFailure, ModelProviderGroup,
@@ -744,6 +745,45 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     targetFor(agent)
   }
 
+  /**
+   * Resolve the preset an agent will be composed from, and the setup that
+   * installs it.
+   *
+   * The id is resolved BEFORE the session exists because the session boundary
+   * snapshots `meta` before asynchronous setup begins — a preset discovered
+   * during setup could never reach the header. Mounting still happens in
+   * setup, where a failure rolls the whole creation back rather than leaving a
+   * published session whose capabilities are half-installed.
+   *
+   * A deployment with no preset roster composes nothing and every session
+   * shares the host composition, which is the behavior before presets existed.
+   * @param presetId - the requested preset, or `undefined` for the default.
+   * @returns the id to record on the header (absent without a roster) and the setup callback.
+   * @throws when the roster supplies no such preset.
+   */
+  async function composeAgent(presetId: string | undefined): Promise<{
+    agentPreset?: string
+    setup: (agentCtx: Context) => Promise<void>
+  }> {
+    const presets = ctx.get('agentPresets')
+    if (presets === undefined) {
+      return {
+        setup: (agentCtx: Context) => {
+          installTarget(agentCtx)
+          return Promise.resolve()
+        },
+      }
+    }
+    const resolvedId = (await presets.resolve(presetId)).id
+    return {
+      agentPreset: resolvedId,
+      setup: async (agentCtx: Context) => {
+        installTarget(agentCtx)
+        await presets.mount(agentCtx, resolvedId)
+      },
+    }
+  }
+
   /** Send one transient frame to every connected mux consumer. */
   function broadcast(payload: MuxFrame): void {
     const envelope = frame(payload)
@@ -1101,7 +1141,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   }
 
   /** Resolve one requested identity to a live agent, creating or resuming it once. */
-  async function ensureSession(sessionId: SessionId, cwd: string, checkPersistedIdentity: boolean): Promise<Agent> {
+  async function ensureSession(
+    sessionId: SessionId,
+    cwd: string,
+    checkPersistedIdentity: boolean,
+    presetId?: string,
+  ): Promise<Agent> {
     let creation = sessionCreations.get(sessionId)
     if (creation === undefined) {
       creation = (async () => {
@@ -1127,10 +1172,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           if (inspected.meta.cwd !== cwd) {
             throw new SessionCwdConflict(sessionId, cwd, inspected.meta.cwd)
           }
+          // The stored preset wins over anything the request names: a resumed
+          // session's history was produced under that composition, and
+          // rebuilding it differently would replay tool calls the model can no
+          // longer make.
           return (await ctx.agents.resume({
             resumeSessionId: sessionId,
             agentOptions,
-            setup: installTarget,
+            setup: (await composeAgent(inspected.meta.agentPreset)).setup,
           })).agent
         }
 
@@ -1139,11 +1188,15 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         } catch (error: unknown) {
           throw new Error(`failed to ensure project directory "${cwd}": ${String(error)}`, { cause: error })
         }
+        const composition = await composeAgent(presetId)
         return (await ctx.agents.create({
           sessionId,
           agentOptions,
-          meta: { cwd },
-          setup: installTarget,
+          meta: {
+            cwd,
+            ...composition.agentPreset === undefined ? {} : { agentPreset: composition.agentPreset },
+          },
+          setup: composition.setup,
         })).agent
       })().catch((error: unknown) => {
         // Another Host entry path may have published the same identity while
@@ -1592,9 +1645,24 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           }
         }
         const cwd = workspace?.path ?? request.payload.cwd ?? defaults.cwd
+        const requestedPreset = request.payload.agentPreset
         try {
-          await ensureSession(sessionId, cwd, request.payload.sessionId !== undefined)
+          await ensureSession(sessionId, cwd, request.payload.sessionId !== undefined, requestedPreset)
         } catch (error: unknown) {
+          if (error instanceof UnknownPresetError) {
+            return err(request, {
+              code: 'agent-preset-not-found',
+              message: error.message,
+              details: { agentPreset: error.presetId, available: [...error.available] },
+            })
+          }
+          if (error instanceof PresetMountError) {
+            return err(request, {
+              code: 'agent-preset-invalid',
+              message: error.message,
+              details: { agentPreset: error.presetId, reason: error.reason },
+            })
+          }
           if (error instanceof SessionCwdConflict) {
             return err(request, {
               code: 'session-conflict',

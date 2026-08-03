@@ -19,7 +19,7 @@ import { Context, type Fiber } from 'cordis'
 import { Include } from '@cordisjs/plugin-include'
 import type { EntryTree } from '@cordisjs/plugin-loader'
 import { scopeOf } from '@deepseek-ai/dsh-scope'
-import type { AgentPreset } from './types.ts'
+import { PresetMountError, type AgentPreset } from './types.ts'
 
 /** What one mounted subtree publishes about itself for the audit to read. */
 interface MountedTree {
@@ -221,6 +221,6 @@ export async function mountPreset(agentCtx: Context, preset: AgentPreset): Promi
        wraps a row's thrown value before it propagates, and this module's own
        rejections are Errors. The fallback keeps a hostile value readable. */
     const detail = error instanceof Error ? error.message : String(error)
-    throw new Error(`agent-presets: preset "${preset.id}" (${preset.path}) failed to mount: ${detail}`, { cause: error })
+    throw new PresetMountError(preset.id, `${detail} (${preset.path})`, { cause: error })
   }
 }

@@ -32,3 +32,34 @@ export interface Config {
   /** Scanned roots in precedence order; an earlier root wins a duplicate id. */
   roots: PresetRoot[]
 }
+
+/**
+ * No configured root supplies the requested preset.
+ *
+ * Separate from a mount failure because the two mean different things to a
+ * caller: an unknown id is a bad request, while an unusable composition is a
+ * broken preset the deployment must fix.
+ */
+export class UnknownPresetError extends Error {
+  constructor(
+    /** The id that was requested. */
+    readonly presetId: string,
+    /** Ids the roster does supply, for the caller to offer instead. */
+    readonly available: readonly string[],
+  ) {
+    super(`agent-presets: preset "${presetId}" not found (available: ${available.join(', ') || 'none'})`)
+  }
+}
+
+/** A preset exists but its composition cannot be installed. */
+export class PresetMountError extends Error {
+  constructor(
+    /** The preset whose composition failed. */
+    readonly presetId: string,
+    /** Why it failed, without this package's own message prefix. */
+    readonly reason: string,
+    options?: ErrorOptions,
+  ) {
+    super(`agent-presets: preset "${presetId}" failed to mount: ${reason}`, options)
+  }
+}

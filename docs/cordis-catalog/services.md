@@ -81,7 +81,7 @@ async resolve(id?: string): Promise<AgentPreset>
 async mount(agentCtx: Context, id?: string): Promise<AgentPreset>
 ```
 
-Source: [`packages/preset/agent-presets/src/index.ts:36`](../../packages/preset/agent-presets/src/index.ts)
+Source: [`packages/preset/agent-presets/src/index.ts:37`](../../packages/preset/agent-presets/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 
@@ -253,7 +253,7 @@ roots(): Agent[]
 
 Types: [Agent](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:242`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:243`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.approval` — `ApprovalService`
 
@@ -1785,7 +1785,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [PrepareSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:800`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:803`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 

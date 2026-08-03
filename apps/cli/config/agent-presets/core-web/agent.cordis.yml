@@ -1,0 +1,31 @@
+# The `core-web` agent preset: the two-tool benchmark surface.
+#
+# The native model surface is exactly persistent `bash` plus
+# `str_replace_editor`. Everything else a session could reach — skills, goals,
+# plan mode, delegation, workflows, todo, web — is simply absent rather than
+# disabled, because a preset composes what an agent has instead of subtracting
+# from a shared default.
+#
+# The host composition is unchanged: this agent still runs inside the same
+# sandbox, approval, persistence, and model routing as any other session.
+
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    text: >-
+      You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}.
+
+# `tool-bash` provides the `bashEnv` service, so it needs a realm even alone.
+- id: shell
+  name: cordis:group
+  group: true
+  isolate:
+    bashEnv: true
+  config:
+    - id: tool-bash
+      name: '@deepseek-ai/dsh-tool-bash'
+
+- id: tool-str-replace-editor
+  name: '@deepseek-ai/dsh-tool-str-replace-editor'
+  config:
+    maxOutputChars: 16000

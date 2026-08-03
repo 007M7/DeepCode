@@ -33,6 +33,9 @@
       "path": "../../core/agent"
     },
     {
+      "path": "../../preset/agent-presets"
+    },
+    {
       "path": "../../core/session"
     },
     {

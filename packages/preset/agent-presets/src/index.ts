@@ -14,10 +14,11 @@ import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import { discoverPresets } from './discovery.ts'
 import { mountPreset } from './mount.ts'
-import type { AgentPreset, Config } from './types.ts'
+import { UnknownPresetError, type AgentPreset, type Config } from './types.ts'
 
 export { COMPOSITION_FILE, discoverPresets, scanRoot } from './discovery.ts'
 export { inactiveRows, leakedServices, livePresetMounts, mountPreset, type PresetMount } from './mount.ts'
+export { PresetMountError, UnknownPresetError } from './types.ts'
 export type { AgentPreset, Config, PresetRoot, PresetTrust } from './types.ts'
 
 declare module 'cordis' {
@@ -73,8 +74,7 @@ export class AgentPresets extends Service {
     const presets = await this.list()
     const found = presets.find(preset => preset.id === wanted)
     if (found === undefined) {
-      const known = presets.map(preset => preset.id).join(', ')
-      throw new Error(`agent-presets: preset "${wanted}" not found (available: ${known || 'none'})`)
+      throw new UnknownPresetError(wanted, presets.map(preset => preset.id))
     }
     return found
   }

@@ -44,6 +44,8 @@ export interface RpcErrorDetailsMap {
   'directory-exists': { path: string }
   'directory-create-failed': { path: string }
   'directory-picker-unavailable': { capability: string }
+  'agent-preset-not-found': { agentPreset: string; available: string[] }
+  'agent-preset-invalid': { agentPreset: string; reason: string }
   'agent-busy': { reason: string }
   'queue-item-not-found': { itemId: MessageId }
   'steer-unavailable': { itemId: MessageId }
