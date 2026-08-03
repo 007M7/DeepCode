@@ -1961,36 +1961,36 @@ export function TrajectoryTable({
                         <span
                           className={css.kindSlot}
                         >
-                          <Tooltip
-                            label={KIND_LABEL[record.cell.kind]}
-                            side="right"
+                          <span
+                            className={`${css.kindTag} ${
+                              record.cell.kind === 'system'
+                                ? css.systemNeutral
+                                : record.cell.kind === 'context'
+                                  ? css.contextGreen
+                                  : record.cell.kind === 'compacted'
+                                    ? css.compacted
+                                    : record.cell.kind === 'tool'
+                                      ? css.toolAmber
+                                      : record.cell.kind === 'message'
+                                        ? css.assistantVioletBright
+                                        : record.cell.kind === 'subtool'
+                                          ? css.subtoolAmber
+                                          : css[record.cell.kind]
+                            }`}
+                            data-role-kind={record.cell.kind}
                           >
-                            <span
-                              className={`${css.kindTag} ${
-                                record.cell.kind === 'system'
-                                  ? css.systemNeutral
-                                  : record.cell.kind === 'context'
-                                    ? css.contextGreen
-                                    : record.cell.kind === 'compacted'
-                                      ? css.compacted
-                                      : record.cell.kind === 'tool'
-                                        ? css.toolAmber
-                                        : record.cell.kind === 'message'
-                                          ? css.assistantVioletBright
-                                          : record.cell.kind === 'subtool'
-                                            ? css.subtoolAmber
-                                            : css[record.cell.kind]
-                              }`}
-                              data-role-kind={record.cell.kind}
+                            <Tooltip
+                              label={KIND_LABEL[record.cell.kind]}
+                              side="right"
                             >
                               <span className={css.kindTagIcon} aria-hidden="true">
                                 {KIND_ICON[record.cell.kind]}
                               </span>
-                              <span className={css.kindTagLabel}>
-                                {KIND_LABEL[record.cell.kind]}
-                              </span>
+                            </Tooltip>
+                            <span className={css.kindTagLabel}>
+                              {KIND_LABEL[record.cell.kind]}
                             </span>
-                          </Tooltip>
+                          </span>
                         </span>
                       )}
                     </div>

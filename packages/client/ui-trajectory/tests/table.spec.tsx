@@ -263,19 +263,22 @@ describe('TrajectoryTable', () => {
     expect(retry.style.getPropertyValue('--request-boundary-offset')).toBe('8px')
   })
 
-  it('renders responsive role icons with a custom tooltip', () => {
+  it('shows the custom role tooltip only from the responsive icon', () => {
     const view = render(<TrajectoryTable turns={TURNS} {...FOLD_PROPS} />)
     const toolTag = view.container.querySelector<HTMLElement>('[data-role-kind="tool"]')
+    const toolIcon = toolTag?.querySelector<HTMLElement>('[data-role-icon="wrench"]')
 
     expect(toolTag).not.toBeNull()
     expect(toolTag?.getAttribute('title')).toBeNull()
-    expect(toolTag?.querySelector('[data-role-icon="wrench"]')).toBeTruthy()
+    expect(toolIcon).toBeTruthy()
 
     fireEvent.mouseEnter(toolTag as HTMLElement)
+    expect(screen.queryByRole('tooltip')).toBeNull()
+    fireEvent.mouseEnter(toolIcon as HTMLElement)
     const tooltip = screen.getByRole('tooltip')
     expect(tooltip.textContent).toBe('TOOL')
     expect(tooltip.getAttribute('data-side')).toBe('right')
-    fireEvent.mouseLeave(toolTag as HTMLElement)
+    fireEvent.mouseLeave(toolIcon as HTMLElement)
     expect(screen.queryByRole('tooltip')).toBeNull()
   })
 
