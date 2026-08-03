@@ -53,7 +53,8 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  min-height: 20px;
+  /* The path editor's height: crumb mode and edit mode occupy the same bar. */
+  min-height: 24px;
 }
 
 /* Deep chains scroll inside the trail (the effect pins the tail into view)
@@ -118,15 +119,50 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
-/* The empty remainder of the bar: invisible, but a real click target that
- * flips the bar into path-edit mode. */
+/* The empty remainder of the bar: a real click target that flips the bar
+ * into path-edit mode. The zone itself stays flush with the crumbs; the
+ * pencil glyph seated at its right edge is the standing affordance, and
+ * hover/focus lights the zone in the editor's own rounded shape so the
+ * gesture reads before the click. */
 .crumbEditZone {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
   flex: 1 0 34px;
   min-width: 34px;
-  align-self: stretch;
-  border: none;
+  /* The editor's own height, so hover previews the input's exact footprint
+   * and the bar does not resize when the two swap. */
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
   background: transparent;
   cursor: text;
+}
+
+.crumbEditZone:hover,
+.crumbEditZone:focus-visible {
+  border-color: var(--dsw-alias-border-l2);
+  outline: none;
+}
+
+.crumbEditGlyph {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.crumbEditZone:hover .crumbEditGlyph,
+.crumbEditZone:focus-visible .crumbEditGlyph {
+  color: var(--dsw-alias-label-primary);
+}
+
+.crumbEditZone:disabled {
+  border-color: transparent;
+  cursor: default;
+}
+
+.crumbEditZone:disabled .crumbEditGlyph {
+  color: var(--dsw-alias-label-caption);
 }
 
 .pathInput {

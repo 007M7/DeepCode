@@ -11,9 +11,14 @@ const HOME = '/home/u'
 const DOCS = `${HOME}/Documents`
 const HARNESS = `${DOCS}/harness`
 
-/** Listing fake over a tiny fixed tree; unknown paths reject like the Host. */
+/**
+ * Listing fake over a tiny fixed tree; unknown paths reject like the Host.
+ * A trailing separator is dropped the way the Host's own `resolve` drops it,
+ * so a directory part typed into the path editor addresses its level.
+ */
 function listingFor(path?: string): DirectoryListing {
-  const target = path ?? HOME
+  const asked = path ?? HOME
+  const target = asked.length > 1 && asked.endsWith('/') ? asked.slice(0, -1) : asked
   const tree: Record<string, DirectoryListing> = {
     [HOME]: {
       path: HOME,
@@ -659,9 +664,14 @@ describe('DirectoryBrowser', () => {
     // A dot-led prefix names hidden entries, so it reveals the match.
     fireEvent.change(input, { target: { value: `${HOME}/.co` } })
     expect(screen.getByRole('listitem').textContent).toBe('.config')
-    // A prefix matching nothing empties the level (no stale rows linger).
+    // A prefix nobody matches releases the filter: the level shows whole
+    // (hidden rows back under the toggle) instead of emptying under a name
+    // the operator is still spelling.
     fireEvent.change(input, { target: { value: `${HOME}/zzz` } })
-    expect(screen.queryByRole('listitem')).toBeNull()
+    expect(screen.getAllByRole('listitem').map(item => item.textContent)).toEqual(['Documents'])
+    // Its dot-led reveal lapses with it.
+    fireEvent.change(input, { target: { value: `${HOME}/.zzz` } })
+    expect(screen.getAllByRole('listitem').map(item => item.textContent)).toEqual(['Documents'])
     // A draft naming some other directory (or none) leaves the level whole.
     fireEvent.change(input, { target: { value: 'no-separator' } })
     expect(screen.getByRole('listitem').textContent).toBe('Documents')
@@ -679,15 +689,93 @@ describe('DirectoryBrowser', () => {
     expect(input.value).toBe(`${DOCS}/`)
     fireEvent.change(input, { target: { value: `${DOCS}/h` } })
     expect(within(columns()[1]!).getByText('harness')).toBeTruthy()
+    // A miss releases the right pane's filter rather than emptying it.
     fireEvent.change(input, { target: { value: `${DOCS}/zzz` } })
-    expect(within(columns()[1]!).queryAllByRole('listitem')).toHaveLength(0)
+    expect(within(columns()[1]!).getByText('harness')).toBeTruthy()
     expect(within(columns()[0]!).getByText('Documents')).toBeTruthy()
     // Erasing back into the parent's own path moves the filter to the LEFT
-    // pane and releases the right one. The selected row is exempt (it
-    // anchors the two-pane view), so it alone survives the miss.
+    // pane and releases the right one — no scan, both levels are on screen.
     fireEvent.change(input, { target: { value: `${HOME}/zz` } })
     expect(within(columns()[0]!).getAllByRole('listitem').map(item => item.textContent)).toEqual(['Documents'])
     expect(within(columns()[1]!).getByText('harness')).toBeTruthy()
+  })
+
+  it('follows the draft into a directory no pane lists, and back up when segments are erased', async () => {
+    const b = mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    // Typing past a separator addresses a level nobody shows: the panes
+    // follow it once the typing rests, and the tail filters the arrival.
+    fireEvent.change(input, { target: { value: `${DOCS}/h` } })
+    await waitFor(() => { expect(screen.getByText('harness')).toBeTruthy() })
+    expect(b.listDirectory.mock.calls.at(-1)?.[0]).toBe(`${DOCS}/`)
+    // Still editing: the panes moved under the draft, the editor stayed.
+    expect(screen.getByLabelText<HTMLInputElement>('browser.editPath').value).toBe(`${DOCS}/h`)
+    // Erasing back past the separator steps the panes up a level again.
+    fireEvent.change(input, { target: { value: `${HOME}/Do` } })
+    await waitFor(() => { expect(screen.getByText('Documents')).toBeTruthy() })
+    expect(b.listDirectory.mock.calls.at(-1)?.[0]).toBe(`${HOME}/`)
+    expect(columns()).toHaveLength(1)
+  })
+
+  it('keeps the panes and stays silent when a draft-following scan fails', async () => {
+    const b = mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    fireEvent.change(input, { target: { value: `${HOME}/nope/x` } })
+    await waitFor(() => { expect(b.listDirectory).toHaveBeenCalledWith(`${HOME}/nope/`, expect.anything()) })
+    // A half-typed directory is unreadable most of the time: the last
+    // readable level keeps rendering and no error interrupts the typing.
+    expect(screen.getByText('Documents')).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('holds the draft-following scan while a submitted path is in flight', async () => {
+    const listDirectory = vi.fn(async (path?: string) => {
+      // The submitted leg never settles, so the debounce window elapses with
+      // the navigation still owning the view.
+      if (path === HARNESS) return await new Promise<DirectoryListing>(() => {})
+      return listingFor(path)
+    })
+    mount({ listDirectory })
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    fireEvent.change(input, { target: { value: HARNESS } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await act(async () => { await new Promise((resolve) => { setTimeout(resolve, 400) }) })
+    // Only the initial home listing and the submitted path — the draft's
+    // directory part was never scanned behind the navigation's back.
+    expect(listDirectory.mock.calls.map(call => call[0])).toEqual([undefined, HARNESS])
+  })
+
+  it('discards draft-following scans that a newer edit superseded', async () => {
+    let landDocs = (): void => {}
+    let failRoot = (): void => {}
+    const listDirectory = vi.fn(async (path?: string) => {
+      if (path === `${DOCS}/`) return await new Promise<DirectoryListing>((resolve) => { landDocs = () => { resolve(listingFor(DOCS)) } })
+      if (path === '/') {
+        return await new Promise<DirectoryListing>((_, reject) => {
+          failRoot = () => { reject(new Error('root unreadable')) }
+        })
+      }
+      return listingFor(path)
+    })
+    mount({ listDirectory })
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    fireEvent.change(input, { target: { value: `${DOCS}/h` } })
+    await waitFor(() => { expect(listDirectory).toHaveBeenCalledWith(`${DOCS}/`, expect.anything()) })
+    fireEvent.change(input, { target: { value: '/x' } })
+    await waitFor(() => { expect(listDirectory).toHaveBeenCalledWith('/', expect.anything()) })
+    // Back onto the listed level: neither pending scan may still land.
+    fireEvent.change(input, { target: { value: `${HOME}/D` } })
+    await act(async () => { landDocs(); failRoot() })
+    expect(screen.getAllByRole('listitem').map(item => item.textContent)).toEqual(['Documents'])
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 
   it('keeps the draft and filter through window focus loss and in-dialog focus moves', async () => {
