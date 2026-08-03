@@ -12,6 +12,7 @@ import type { PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-cl
 import { NS } from './locales.ts'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-subagent/client'
+import type {} from '@deepseek-ai/dsh-token-meter/client'
 import css from './SubagentCatalogAction.module.css'
 
 type CatalogEntry = SubagentCatalogSnapshot['entries'][number]
@@ -57,6 +58,26 @@ function treeItems(root: HTMLDivElement | null): HTMLElement[] {
   return root === null
     ? []
     : Array.from(root.querySelectorAll<HTMLElement>('[role="treeitem"]:not([aria-disabled="true"])'))
+}
+
+/** Compact token count shared in shape with the conversation stats strip. */
+function formatTokens(value: number): string {
+  const scaled = (next: number): string => next >= 100
+    ? String(Math.round(next))
+    : String(Math.round(next * 10) / 10)
+  if (value < 1_000) return String(value)
+  if (value < 1_000_000) return `${scaled(value / 1_000)}K`
+  return `${scaled(value / 1_000_000)}M`
+}
+
+/** Sum the four disjoint durable provider-usage buckets. */
+function tokenTotal(
+  usage: SessionProjectionMap['tokenUsage'] | undefined,
+): number | undefined {
+  return usage === undefined
+    ? undefined
+    : usage.uncachedInputTokens + usage.outputTokens
+      + usage.cacheReadTokens + usage.cacheWriteTokens
 }
 
 /** Exact whole-second active-turn duration for one catalog row. */
@@ -216,6 +237,9 @@ function CatalogRows({
   openChild, refresh, toggleBranch, closeCatalog, t,
 }: CatalogRowsProps & { t: TranslateNS<typeof NS> }) {
   const emptyLoading = catalog.state === 'loading' && catalog.entries.length === 0
+  const reserveDisclosure = catalog.entries.some(
+    entry => entry.kind === 'child' && entry.hasChildren,
+  )
   return (
     <>
       {emptyLoading && (
@@ -252,7 +276,7 @@ function CatalogRows({
                 className={`${css.row} ${css.disabled}`}
                 title={reason}
               >
-                <span className={css.disclosureSpace} />
+                {reserveDisclosure && <span className={css.disclosureSpace} />}
                 <StateDot state="error" />
                 <span className={css.content}>
                   <span className={css.label}>{entry.id}</span>
@@ -275,17 +299,24 @@ function CatalogRows({
         const secondary = [summary?.title, mode, activity]
           .filter(value => value !== undefined)
           .join(' · ')
+        const totalTokens = tokenTotal(summary?.projectionValues?.tokenUsage)
         const durationMs = activityDuration(
           summary,
           entry.activity,
           now,
         )
-        const duration = durationMs === undefined
+        const tokenMetric = totalTokens === undefined
+          ? undefined
+          : `${formatTokens(totalTokens)} tok`
+        const durationMetric = durationMs === undefined
           ? undefined
           : {
             compact: formatDuration(durationMs, t),
             exact: formatExactDuration(durationMs, t),
           }
+        const metrics = [tokenMetric, durationMetric?.exact]
+          .filter(value => value !== undefined)
+          .join(' · ')
 
         const open = (): void => {
           openChild({ parentSessionId, childSessionId: entry.id, mode: entry.mode })
@@ -317,16 +348,14 @@ function CatalogRows({
               role="treeitem"
               tabIndex={0}
               aria-level={level}
-              aria-label={[label, secondary, duration?.exact]
-                .filter(value => value !== undefined)
-                .join(' ')}
+              aria-label={[label, secondary, metrics].filter(value => value !== '').join(' ')}
               {...knownLeaf ? {} : { 'aria-expanded': isExpanded }}
               className={css.row}
               onClick={open}
               onKeyDown={handleKey}
             >
               {knownLeaf
-                ? <span className={css.disclosureSpace} />
+                ? reserveDisclosure && <span className={css.disclosureSpace} />
                 : (
                   <button
                     type="button"
@@ -344,12 +373,17 @@ function CatalogRows({
                   <span className={css.label}>{label}</span>
                   <span className={css.summary}>{secondary}</span>
                 </span>
-                {duration !== undefined && (
-                  <span
-                    className={css.time}
-                    title={t('duration.exactTitle', { duration: duration.exact })}
-                  >
-                    {duration.compact}
+                {metrics !== '' && (
+                  <span className={css.metrics}>
+                    {tokenMetric !== undefined && <span className={css.metricToken}>{tokenMetric}</span>}
+                    {durationMetric !== undefined && (
+                      <span
+                        className={css.metricDuration}
+                        title={t('duration.exactTitle', { duration: durationMetric.exact })}
+                      >
+                        {durationMetric.compact}
+                      </span>
+                    )}
                   </span>
                 )}
               </div>
