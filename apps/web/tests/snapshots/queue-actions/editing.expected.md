@@ -1,5 +1,6 @@
 - banner:
-  - heading "Reply with a one-sentence description" [level=1]
+  - navigation "Session hierarchy":
+    - button "Reply with a one-sentence description" [disabled]
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
@@ -21,6 +22,8 @@
     - button "Edit queued message":
       - img
     - button "Remove queued message":
+      - img
+    - button "Steer queued message":
       - img
   - listitem:
     - textbox "Edit queued message": Edited queue item

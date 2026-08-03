@@ -264,6 +264,13 @@ describe('agent scope lifecycle', () => {
         setupStarted.resolve(undefined)
         await gate.promise
         order.push('setup:end')
+        return {
+          commit: () => {
+            expect(ctx.agents.get(SessionId('atomic'))).toBeUndefined()
+            expect(ctx.sessions.get(SessionId('atomic'))).toBeUndefined()
+            order.push('setup:commit')
+          },
+        }
       },
     })
     await setupStarted.promise
@@ -276,6 +283,7 @@ describe('agent scope lifecycle', () => {
     expect(order).toEqual([
       'setup:start',
       'setup:end',
+      'setup:commit',
       'session/created',
       'setup-listener:session/created',
       'agent/created',

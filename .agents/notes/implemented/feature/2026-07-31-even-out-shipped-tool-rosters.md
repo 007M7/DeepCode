@@ -12,11 +12,11 @@ The result was a user-visible difference nobody had decided: the same model, ask
 
 ## Decision
 
-The rows that are not surface-specific move into [`base.cordis.yml`](../../../../apps/cli/config/base.cordis.yml), and three more join them: `tool-session-query`, `tool-str-replace-editor`, and `repeat-tool-guard`. Web search moves there too; its [deployment decision](2026-07-31-web-default-search.md) owns the security boundary while the shared base owns its surface-neutral mount. Both surfaces now assemble the same roster: twenty-five tools on every host, plus `glob` and `grep` when ripgrep is available.
+The rows that are not surface-specific move into [`base.cordis.yml`](../../../../apps/cli/config/base.cordis.yml), and three more join them: `tool-session-query`, `tool-str-replace-editor`, and `repeat-tool-guard`. Web search moves there too; its [deployment decision](2026-07-31-web-default-search.md) owns the security boundary while the shared base owns its surface-neutral mount. Both surfaces assemble the same roster: twenty tools on every host, plus `glob` and `grep` when ripgrep is available. `tool-session-query` joined and then left again — the [session-search-not-shipped-default decision](2026-08-02-session-search-not-shipped-default.md) keeps the model-facing consumer opt-in — while the rest of this roster stands.
 
 Two rows stay surface-specific. `tmux-context` is TUI-only because a browser surface has no terminal multiplexer to describe. `session-reference` is TUI-only because it drives the shared session-query index from the launcher's process-local path, and the browser sidebar reconciles that index on its own first search.
 
-**This roster decision adds only.** No tool row is removed from either surface, and a catalog comparison finds additions and nothing else. The shared executors, sandbox composition, and access default are owned independently by the [workspace-write default decision](2026-07-31-workspace-write-surface-default.md).
+**This roster decision added only at the time.** No tool row was removed from either surface when it landed, and a catalog comparison found additions and nothing else. One of those additions, `tool-session-query`, was subsequently removed by the [session-search-not-shipped-default decision](2026-08-02-session-search-not-shipped-default.md). The shared executors, sandbox composition, and access default are owned independently by the [workspace-write default decision](2026-07-31-workspace-write-surface-default.md).
 
 ### What stays unmounted, and why
 
@@ -62,8 +62,8 @@ Beyond the committed tests, both surfaces were driven against a real key from th
 
 ## Consequences
 
-The same model gets the same tools on both surfaces, and the difference that existed for no recorded reason is gone. The tests assert the twenty-five unconditional names exactly and require the ripgrep-dependent pair to be either present together or absent together on both sides, so a later change that alters only one surface fails a check instead of shipping quietly.
+The same model gets the same tools on both surfaces, and the difference that existed for no recorded reason is gone. The tests assert the twenty unconditional names exactly and require the ripgrep-dependent pair to be either present together or absent together on both sides, so a later change that alters only one surface fails a check instead of shipping quietly; the [session-search-not-shipped-default decision](2026-08-02-session-search-not-shipped-default.md) is exactly such a later change, and both tests moved with it.
 
-`apps/cli` gains five workspace dependencies: four the shipped tree now mounts, plus `dsh-mcp-client`, which it does not mount and which exists so an installed `dsh` can.
+`apps/cli` gained five workspace dependencies: four the shipped tree mounted, plus `dsh-mcp-client`, which it does not mount and which exists so an installed `dsh` can. Four remain — the [session-search-not-shipped-default decision](2026-08-02-session-search-not-shipped-default.md) removed `@deepseek-ai/dsh-tool-session-query` along with its row.
 
 Execution policy stays independent of the roster. The [shared workspace-write decision](2026-07-31-workspace-write-surface-default.md) owns both surfaces' sandboxed executors and default permission; changing that policy does not add or remove a tool.

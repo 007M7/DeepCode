@@ -48,7 +48,7 @@ function agent(ctx: Context, cwd: string): Agent {
     ctx: scope.ctx,
     send: () => {},
     followup: () => {},
-    steer: () => {},
+    steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
     inject: () => {},
     cancel() {},
     whenIdle: () => Promise.resolve(),

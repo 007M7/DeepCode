@@ -12,6 +12,8 @@ flowchart LR
   cfg --> plugin_tui_timer
   plugin_tui_hmr["hmr<br/>@cordisjs/plugin-hmr"]
   cfg --> plugin_tui_hmr
+  plugin_tui_repository_plugins["repository-plugins<br/>@deepseek-ai/dsh-repository-plugin"]
+  cfg --> plugin_tui_repository_plugins
   plugin_tui_llm["llm<br/>@deepseek-ai/dsh-llm"]
   cfg --> plugin_tui_llm
   plugin_tui_session["session<br/>@deepseek-ai/dsh-session"]
@@ -92,10 +94,16 @@ flowchart LR
   cfg --> plugin_tui_subagent_spawn
   plugin_tui_subagent_fork["subagent-fork<br/>@deepseek-ai/dsh-subagent-fork"]
   cfg --> plugin_tui_subagent_fork
+  plugin_tui_tool_subagent_control["tool-subagent-control<br/>@deepseek-ai/dsh-tool-subagent-control"]
+  cfg --> plugin_tui_tool_subagent_control
+  plugin_tui_tool_subagent_list_agents["tool-subagent-list-agents<br/>@deepseek-ai/dsh-tool-subagent-control/list-agents"]
+  cfg --> plugin_tui_tool_subagent_list_agents
   plugin_tui_tool_subagent["tool-subagent<br/>@deepseek-ai/dsh-tool-subagent"]
   cfg --> plugin_tui_tool_subagent
   plugin_tui_tool_subagent_fork["tool-subagent-fork<br/>@deepseek-ai/dsh-tool-subagent"]
   cfg --> plugin_tui_tool_subagent_fork
+  plugin_tui_tool_subagent_report["tool-subagent-report<br/>@deepseek-ai/dsh-tool-subagent-report"]
+  cfg --> plugin_tui_tool_subagent_report
   plugin_tui_workflow_workerthread["workflow-workerthread<br/>@deepseek-ai/dsh-workflow-workerthread"]
   cfg --> plugin_tui_workflow_workerthread
   plugin_tui_tool_workflow["tool-workflow<br/>@deepseek-ai/dsh-tool-workflow"]
@@ -116,8 +124,6 @@ flowchart LR
   cfg --> plugin_tui_tool_goal
   plugin_tui_tool_ralph["tool-ralph<br/>@deepseek-ai/dsh-tool-ralph"]
   cfg --> plugin_tui_tool_ralph
-  plugin_tui_tool_session_query["tool-session-query<br/>@deepseek-ai/dsh-tool-session-query"]
-  cfg --> plugin_tui_tool_session_query
   plugin_tui_tool_str_replace_editor["tool-str-replace-editor<br/>@deepseek-ai/dsh-tool-str-replace-editor"]
   cfg --> plugin_tui_tool_str_replace_editor
   plugin_tui_repeat_tool_guard["repeat-tool-guard<br/>@deepseek-ai/dsh-repeat-tool-guard"]
@@ -144,6 +150,7 @@ flowchart LR
 | --- | --- |
 | `timer` | `@cordisjs/plugin-timer` |
 | `hmr` | `@cordisjs/plugin-hmr` |
+| `repository-plugins` | `@deepseek-ai/dsh-repository-plugin` |
 | `llm` | `@deepseek-ai/dsh-llm` |
 | `session` | `@deepseek-ai/dsh-session` |
 | `session-title` | `@deepseek-ai/dsh-session-title` |
@@ -184,8 +191,11 @@ flowchart LR
 | `subagent` | `@deepseek-ai/dsh-subagent` |
 | `subagent-spawn` | `@deepseek-ai/dsh-subagent-spawn` |
 | `subagent-fork` | `@deepseek-ai/dsh-subagent-fork` |
+| `tool-subagent-control` | `@deepseek-ai/dsh-tool-subagent-control` |
+| `tool-subagent-list-agents` | `@deepseek-ai/dsh-tool-subagent-control/list-agents` |
 | `tool-subagent` | `@deepseek-ai/dsh-tool-subagent` |
 | `tool-subagent-fork` | `@deepseek-ai/dsh-tool-subagent` |
+| `tool-subagent-report` | `@deepseek-ai/dsh-tool-subagent-report` |
 | `workflow-workerthread` | `@deepseek-ai/dsh-workflow-workerthread` |
 | `tool-workflow` | `@deepseek-ai/dsh-tool-workflow` |
 | `timeout-policy` | `@deepseek-ai/dsh-timeout-policy` |
@@ -196,7 +206,6 @@ flowchart LR
 | `tool-todo` | `@deepseek-ai/dsh-tool-todo` |
 | `tool-goal` | `@deepseek-ai/dsh-tool-goal` |
 | `tool-ralph` | `@deepseek-ai/dsh-tool-ralph` |
-| `tool-session-query` | `@deepseek-ai/dsh-tool-session-query` |
 | `tool-str-replace-editor` | `@deepseek-ai/dsh-tool-str-replace-editor` |
 | `repeat-tool-guard` | `@deepseek-ai/dsh-repeat-tool-guard` |
 | `web` | `@deepseek-ai/dsh-web` |

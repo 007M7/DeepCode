@@ -10,7 +10,7 @@ Web UI 此前没有任何目标相关的界面：目标栈已随模型工具、T
 
 ## 决策
 
-`GoalBar`（`packages/client/ui-goal/src/client/GoalBar.tsx`）是一个由 props 驱动的自包含组件，在 composer 的 input-dock 列表中注册为第一个条目。它采用独立的 752px 卡片，遵循 composer 的水平几何；所有可见状态均使用固定的 36px 高度，切换阶段不会改变尺寸。加载中（`goal === undefined`）、无目标（`goal === null`）和 `phase === 'complete'` 时不渲染任何内容：已完成的目标是历史记录，不是常驻界面元素。
+`GoalBar`（`packages/client/ui-goal/src/client/GoalBar.tsx`）是一个由 props 驱动的自包含组件，在 composer 的 input-dock 列表中注册为第二个条目，位于 Todo 之后、Queue 之前。它采用独立的 752px 卡片，遵循 composer 的水平几何；所有可见状态均使用固定的 36px 高度，切换阶段不会改变尺寸。加载中（`goal === undefined`）、无目标（`goal === null`）和 `phase === 'complete'` 时不渲染任何内容：已完成的目标是历史记录，不是常驻界面元素。
 
 可见性决定标签和操作：active 状态显示 "Ongoing Goal" 并提供暂停／编辑／清除；paused 状态显示 "Paused Goal"，把暂停换成一个恢复图标按钮；blocked 状态显示 "Blocked Goal"，并把 `blockedReason.message` 作为横条的 `title` 悬浮提示。创建目标的入口在 `/goal` 命令上，不在横条里。铅笔图标把横条切换为内联编辑表单，预填当前目标内容：Enter 或勾选按钮通过 `GoalBarActions.onEdit(objective)` 保存，Esc 取消，目标内容全为空白字符时保存按钮保持禁用。编辑成功后表单才会关闭；编辑失败时保留草稿，并在横条中显示错误。恢复和清除失败也显示在横条中。除此之外，清除直接调用 `onClear`，不做确认——清除会保留 durable 墓碑，没有不可恢复的损失。每次变更都会先取得一个同步的组件内 single-flight 锁，因为 React 的 pending 状态渲染无法关闭同一帧内的点击窗口。清除成功后还会立即抑制该 goal id，直到权威的 null 投影追上，因此已确认的墓碑不会留下陈旧的清除控件并再次提交 `GOAL_NOT_FOUND`；失败则释放锁，并且仍可重试。一个以目标 id 为键的 effect 会在目标身份变化时重置瞬态状态并丢弃编辑表单，因此无论已清除标记还是存留草稿，都不会影响替换目标。
 

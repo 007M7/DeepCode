@@ -5,7 +5,8 @@
 // Enter / Space, icon→chevron hover preview). The collapsed row is always
 // one line; every row with body, output, or a card material (terminal, diff,
 // read, search, web) is expandable; the summary stays inline while open,
-// except Think, whose body opens with the same first line and would repeat it.
+// except Think, where the running collapsed row follows the latest line at its
+// scroll end and the summary yields while open to avoid repeating the body.
 // The expanded body — an IN/OUT gutter-labeled card (figma 1249:35657) for
 // text input/output, the run_code program through CodeBlock, or a card
 // primitive (TerminalBlock, DiffBlock, ReadBlock, SearchBlock, WebBlock) for a
@@ -19,7 +20,7 @@
 // independent); an error row's collapsed summary is the failure's first line in
 // the error color.
 
-import { useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
+import { useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import clsx from 'clsx'
 import {
   CodeBlock, DiffBlock, ReadBlock, SearchBlock, StateDot, TerminalBlock, WebBlock,
@@ -152,6 +153,7 @@ export function ToolRow({
   inspect,
 }: ToolRowProps) {
   const [expanded, setExpanded] = useState(false)
+  const summaryRef = useRef<HTMLSpanElement>(null)
   const terminalBody = terminal ?? null
   const diffBody = diff ?? null
   const readBody = read ?? null
@@ -173,6 +175,15 @@ export function ToolRow({
   const summaryText = failureLine ?? summary
   // The failure line is error prose, not the path: no open-file affordance.
   const fileLink = filePath !== undefined && onOpenFile !== undefined && failureLine === null
+  const isThink = variant === 'think'
+  const followSummaryEnd = isThink && state === 'running' && !open
+  useLayoutEffect(() => {
+    const summaryElement = summaryRef.current
+    if (summaryElement === null) return
+    summaryElement.scrollLeft = followSummaryEnd
+      ? summaryElement.scrollWidth - summaryElement.clientWidth
+      : 0
+  }, [followSummaryEnd, summaryText])
   const toggleExpand = () => {
     setExpanded(v => !v)
   }
@@ -188,9 +199,8 @@ export function ToolRow({
     if (event.key === 'Enter' || event.key === ' ') event.stopPropagation()
   }
   // Think reasoning is prose, not an input payload: expanded, it renders as
-  // plain indented text (no IN/OUT card) and the inline summary — the body's
-  // own first line — yields to avoid repeating itself.
-  const isThink = variant === 'think'
+  // plain indented text (no IN/OUT card) and the inline summary yields to avoid
+  // repeating the body.
   // The code variant's program renders through CodeBlock (shiki), so only its
   // output joins the IN/OUT card; every other variant's input does too.
   const cardBody = variant === 'code' ? null : body
@@ -227,7 +237,11 @@ export function ToolRow({
                 {summaryText}
               </button>
             ) : (
-              <span className={clsx(css.summary, failureLine !== null && css.errorSummary)}>
+              <span
+                ref={isThink ? summaryRef : undefined}
+                className={clsx(css.summary, failureLine !== null && css.errorSummary)}
+                data-follow-end={followSummaryEnd || undefined}
+              >
                 {summaryText}
               </span>
             )}

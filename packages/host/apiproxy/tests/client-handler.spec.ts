@@ -19,6 +19,7 @@ function ok<T>(request: RpcRequest<unknown>, value: T): Promise<RpcResponse<T>> 
 /** Scripted impl: every method resolves an empty-ish OK unless a case overrides it. */
 function scriptedApi(overrides: {
   sessions?: Partial<ApiProxy['sessions']>
+  subagents?: Partial<ApiProxy['subagents']>
   host?: Partial<ApiProxy['host']>
   commands?: Partial<ApiProxy['commands']>
   skills?: Partial<ApiProxy['skills']>
@@ -56,6 +57,12 @@ function scriptedApi(overrides: {
       updateQueue: r => ok(r, { accepted: true as const }),
       cancel: r => ok(r, { accepted: true as const }),
       ...overrides.sessions,
+    },
+    subagents: {
+      list: r => ok(r, { entries: [], parentAvailable: false }),
+      history: r => ok(r, { events: [], hasMore: false }),
+      prompt: r => ok(r, { messageId: 'message-1' as never }),
+      ...overrides.subagents,
     },
     host: {
       describe: r => ok(r, { version: '0-test', cwd: '/t', attachedSessions: 0 }),

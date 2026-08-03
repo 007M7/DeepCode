@@ -50,6 +50,29 @@ describe('ConversationService', () => {
     await expect(b.scoped.send('x')).rejects.toThrow('conversation.send failed: agent-busy: busy')
     b.cancel.mockResolvedValueOnce({ ok: false, error: { code: 'internal', message: 'nope', details: {} } } as never)
     await expect(b.scoped.cancel()).rejects.toThrow('conversation.cancel failed: internal: nope')
+    b.updateQueue.mockResolvedValueOnce({
+      ok: false, error: { code: 'internal', message: 'broken', details: {} },
+    } as never)
+    await expect(b.scoped.updateQueue('item-1' as never, { kind: 'steer' }))
+      .rejects.toThrow('conversation.updateQueue failed: internal: broken')
+    await b.runtime.dispose()
+  })
+
+  it('treats strict-steer races as converged Queue delivery', async () => {
+    const b = await bench()
+    b.updateQueue.mockResolvedValueOnce({
+      ok: false, error: { code: 'steer-unavailable', message: 'closed', details: {} },
+    } as never)
+    await expect(b.scoped.updateQueue('item-1' as never, { kind: 'steer' })).resolves.toBeUndefined()
+    b.updateQueue.mockResolvedValueOnce({
+      ok: false, error: { code: 'queue-item-not-found', message: 'claimed', details: {} },
+    } as never)
+    await expect(b.scoped.updateQueue('item-2' as never, { kind: 'steer' })).resolves.toBeUndefined()
+    b.updateQueue.mockResolvedValueOnce({
+      ok: false, error: { code: 'queue-item-not-found', message: 'claimed', details: {} },
+    } as never)
+    await expect(b.scoped.updateQueue('item-3' as never, { kind: 'remove' }))
+      .rejects.toThrow('conversation.updateQueue failed: queue-item-not-found: claimed')
     await b.runtime.dispose()
   })
 

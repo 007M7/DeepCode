@@ -1,0 +1,8 @@
+- tree "Subagent sessions":
+  - treeitem "event-sourcing researcher Explain event sourcing in one · continuable · not running just now" [expanded] [level=1]:
+    - button "Collapse event-sourcing researcher descendants":
+      - img
+    - text: event-sourcing researcher Explain event sourcing in one · continuable · not running just now
+  - group:
+    - treeitem "example editor continuable · not running just now" [level=2]
+  - treeitem "event-sourcing reviewer one-shot · not running just now" [level=1]

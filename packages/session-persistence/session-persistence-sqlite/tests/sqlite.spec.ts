@@ -168,6 +168,7 @@ describe('rowToMeta', () => {
       cwd: null,
       parent_session: null,
       seed_length: null,
+      origin: null,
       incarnation: 'fractional',
       revision: 1,
       delegation_depth: null,
@@ -609,7 +610,7 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
   })
 
   it('exposes the schema version constant', () => {
-    expect(SCHEMA_VERSION).toBe(12)
+    expect(SCHEMA_VERSION).toBe(13)
   })
 
   it('keeps the revision stable for an empty repair hook', async () => {

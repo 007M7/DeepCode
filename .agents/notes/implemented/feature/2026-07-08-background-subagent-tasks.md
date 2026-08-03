@@ -23,7 +23,7 @@ For a background call, the tool validates the parent and refuses an already-abor
 The task registration maps the subagent seam as follows:
 
 - `kind` is `subagent`, `label` is the model-supplied description, and `owner` is the parent agent.
-- `cancel(reason?)` aborts the task-owned controller. The same signal covers pending provider startup and the ready child.
+- `cancel(reason?)` aborts the task-owned controller. The same signal covers pending provider startup and the published run's remaining work.
 - `done` awaits provider startup, the child result, and `run.dispose()`. Completed runs return final text, aborted runs become `killed`, and other stop reasons become `failed`. Startup, result, and disposal failures become failed outcomes rather than rejected task promises.
 - `readOutput` is absent. While live, `task_output` returns status only; after settlement, it returns final output idempotently. Intermediate child activity remains in the child session.
 
@@ -57,7 +57,7 @@ Streaming child history into the parent would blur the log boundary and make pro
 
 ## Testing
 
-Unit coverage pins stop-reason mapping, dispose-before-report behavior, startup and result failures, pre-aborted refusal, detachment from the starting call's signal, cancellation before and after provider readiness, collection through the real task tools, the no-surface preflight fence, missing-runtime failure, and per-instance schema gating. Snapshot coverage pins the model-facing schemas.
+Unit coverage pins stop-reason mapping, dispose-before-report behavior, startup and result failures, pre-aborted refusal, detachment from the starting call's signal, cancellation before and after provider publication, collection through the real task tools, the no-surface preflight fence, missing-runtime failure, and per-instance schema gating. Snapshot coverage pins the model-facing schemas.
 
 ## Consequences
 

@@ -1,5 +1,6 @@
 - banner:
-  - heading "Use only Cordis tools. First" [level=1]
+  - navigation "Session hierarchy":
+    - button "Use only Cordis tools. First" [disabled]
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"

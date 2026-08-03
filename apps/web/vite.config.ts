@@ -1,11 +1,25 @@
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
+import type { Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 
 const src = (rel: string): string => fileURLToPath(new URL(rel, import.meta.url))
+const STANDALONE_ERROR = 'apps/web is not a standalone application: bare Vite cannot inject window.__DSH_BOOT__. '
+  + 'Build with `pnpm run build && pnpm run build:web`, then run `dsh web` (repository checkout: `pnpm run dsh -- web`). '
+  + 'For client-plugin HMR, run `pnpm run dsh -- web --dev` together with `pnpm run dev:web`.'
+
+/** Fail before a Vite dev or preview server can expose the boot-manifest-free shell. */
+function rejectStandaloneServe(): Plugin {
+  return {
+    name: 'dsh-reject-standalone-web-serve',
+    config(_config, env) {
+      if (env.command === 'serve') throw new Error(STANDALONE_ERROR)
+    },
+  }
+}
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [rejectStandaloneServe(), react()],
   resolve: {
     // Workspace packages resolve to SOURCE: package.json exports point at lib
     // for Node/type consumers, but the browser bundle must compile src directly

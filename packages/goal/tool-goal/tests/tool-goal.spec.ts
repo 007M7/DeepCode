@@ -34,7 +34,7 @@ function stubAgent(rawId: string, supplied?: Session): StubAgent {
     ctx: new Context(),
     send: () => {},
     followup: () => {},
-    steer: () => {},
+    steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
     inject(input) {
       this.inbox.append('next-step', input)
     },
@@ -351,7 +351,7 @@ describe('goal tool state transitions', () => {
     expect(goal).toMatchObject({ phase: 'active', revision: 4 })
   })
 
-  it('terminal-stops an autonomous completion but leaves a human pause interactive', async () => {
+  it('injects one wrap-up instruction for an autonomous completion but leaves a human pause interactive', async () => {
     const { ctx, root } = await harness()
     const humanTurn = openTurn(root, { kind: 'user' })
     const created = ctx.goals.create(root.agent, { objective: 'pause cleanly' })
@@ -360,6 +360,7 @@ describe('goal tool state transitions', () => {
     }, root.agent)
     expect(resultGoal(paused)).toMatchObject({ phase: 'paused' })
     expect(paused.concludesTurn).toBeUndefined()
+    expect(paused.additionalContexts).toBeUndefined()
     const resumed = resultGoal(await execute(ctx, 'update_goal', {
       goal_id: created.id, revision: 2, action: 'resume',
     }, root.agent))
@@ -372,7 +373,27 @@ describe('goal tool state transitions', () => {
       goal_id: created.id, revision: resumed['revision'], action: 'complete',
     }, root.agent)
     expect(resultGoal(complete)).toMatchObject({ phase: 'complete' })
-    expect(complete.concludesTurn).toBe(true)
+    expect(complete.concludesTurn).toBeUndefined()
+    const contexts = complete.additionalContexts ?? []
+    expect(contexts).toHaveLength(1)
+    expect(contexts[0]?.source).toEqual({ kind: 'plugin', plugin: 'tool-goal' })
+    const block = contexts[0]?.content[0]
+    if (block?.type !== 'text') throw new Error('expected one text wrap-up block')
+    expect(block.text).toContain('<goal_complete>')
+    expect(block.text).toContain('"pause cleanly"')
+    expect(block.text).toContain("Do not call any more tools in this run; further work waits for the user's next instruction.")
+  })
+
+  it('completes without a wrap-up instruction under direct human authority', async () => {
+    const { ctx, root } = await harness()
+    openTurn(root, { kind: 'user' })
+    const created = ctx.goals.create(root.agent, { objective: 'finish now' })
+    const complete = await execute(ctx, 'update_goal', {
+      goal_id: created.id, revision: created.revision, action: 'complete',
+    }, root.agent)
+    expect(resultGoal(complete)).toMatchObject({ phase: 'complete' })
+    expect(complete.concludesTurn).toBeUndefined()
+    expect(complete.additionalContexts).toBeUndefined()
   })
 
   it('rearms a restored active goal only after a new direct human prompt', async () => {
@@ -554,6 +575,14 @@ describe('goal tool state transitions', () => {
       blockedReason: { code: 'model-reported', message: 'The required credential is still unavailable.' },
       roundsStarted: 3,
     })
+    expect(blocked.concludesTurn).toBeUndefined()
+    const contexts = blocked.additionalContexts ?? []
+    expect(contexts).toHaveLength(1)
+    const block = contexts[0]?.content[0]
+    if (block?.type !== 'text') throw new Error('expected one text wrap-up block')
+    expect(block.text).toContain('<goal_blocked>')
+    expect(block.text).toContain('The required credential is still unavailable.')
+    expect(block.text).toContain("Do not call any more tools in this run; further work waits for the user's next instruction.")
   })
 
   it('lets direct human authority block before the model threshold', async () => {
@@ -574,5 +603,7 @@ describe('goal tool state transitions', () => {
       },
       roundsStarted: 0,
     })
+    expect(blocked.concludesTurn).toBeUndefined()
+    expect(blocked.additionalContexts).toBeUndefined()
   })
 })
