@@ -242,12 +242,21 @@ describe('SubagentCatalogAction', () => {
 
   it('shows durable token totals, ticks active duration by seconds, and freezes inactive rows', async () => {
     const now = 2_000_000_000_000
+    const minute = 60_000
+    const hour = 60 * minute
+    const day = 24 * hour
     vi.useFakeTimers()
     vi.setSystemTime(now)
     const rows = [
       ['running', 'running', 65_000, now - 5_000, now - 1_000, now],
       ['finished', 'inactive', 3_723_000, undefined, undefined, now - 60_000],
       ['interrupted', 'inactive', 2_000, now - 7_000, now - 3_000, now + 60_000],
+      ['days', 'inactive', 12 * day + 5 * hour + 6 * minute + 7_000, undefined, undefined, now],
+      ['whole-day', 'inactive', day, undefined, undefined, now],
+      ['months', 'inactive', 192 * day, undefined, undefined, now],
+      ['whole-month', 'inactive', 30 * day, undefined, undefined, now],
+      ['years', 'inactive', 832 * day, undefined, undefined, now],
+      ['whole-year', 'inactive', 365 * day, undefined, undefined, now],
     ] as const
     const usageById = {
       running: {
@@ -293,13 +302,15 @@ describe('SubagentCatalogAction', () => {
               ? {}
               : { active: { since: activeSince, through: activeThrough } }),
           },
-          tokenUsage: usageById[id],
+          tokenUsage: id in usageById
+            ? usageById[id as keyof typeof usageById]
+            : undefined,
         },
       }]
     })) as Record<SessionId, SessionSummary>
     const input = props(catalog({ entries }), {}, summaries)
     render(<SubagentCatalogAction {...input} />)
-    fireEvent.click(screen.getByRole('button', { name: /3 个子代理/ }))
+    fireEvent.click(screen.getByRole('button', { name: /9 个子代理/ }))
 
     const runningRow = screen.getByRole('treeitem', { name: /running.*4\.6K tok · 1分10秒/ })
     const runningMetrics = within(runningRow)
@@ -309,6 +320,14 @@ describe('SubagentCatalogAction', () => {
     expect(tokenMetric.nextElementSibling).toBe(durationMetric)
     expect(screen.getByRole('treeitem', { name: /finished.*123 tok · 1小时02分03秒/ })).toBeTruthy()
     expect(screen.getByRole('treeitem', { name: /interrupted.*123M tok · 6秒/ })).toBeTruthy()
+    expect(screen.getByRole('treeitem', { name: /days.*12天05小时06分07秒/ })).toBeTruthy()
+    expect(screen.getByText('12天5小时').getAttribute('title'))
+      .toBe('总活跃耗时：12天05小时06分07秒')
+    expect(screen.getByText('1天')).toBeTruthy()
+    expect(screen.getByText('约6个月12天')).toBeTruthy()
+    expect(screen.getByText('约1个月')).toBeTruthy()
+    expect(screen.getByText('约2年3个月')).toBeTruthy()
+    expect(screen.getByText('约1年')).toBeTruthy()
 
     await vi.advanceTimersByTimeAsync(1_000)
     expect(screen.getByRole('treeitem', { name: /running.*4\.6K tok · 1分11秒/ })).toBeTruthy()
