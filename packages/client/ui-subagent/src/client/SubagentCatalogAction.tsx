@@ -2,7 +2,8 @@ import {
   useEffect, useRef, useState, type KeyboardEvent, type MouseEvent,
 } from 'react'
 import type {
-  SessionId, SessionListState, SessionSummary, SubagentAddress, SubagentCatalogSnapshot,
+  SessionId, SessionListState, SessionProjectionMap, SessionSummary, SubagentAddress,
+  SubagentCatalogSnapshot,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import {
   IconChevronDownOutline14, IconChevronRightOutline14, IconRefreshOutline14, StateDot,
@@ -10,6 +11,7 @@ import {
 import type { PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import { NS } from './locales.ts'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type {} from '@deepseek-ai/dsh-subagent/client'
 import css from './SubagentCatalogAction.module.css'
 
 type CatalogEntry = SubagentCatalogSnapshot['entries'][number]
@@ -57,23 +59,95 @@ function treeItems(root: HTMLDivElement | null): HTMLElement[] {
     : Array.from(root.querySelectorAll<HTMLElement>('[role="treeitem"]:not([aria-disabled="true"])'))
 }
 
-/** Compact trailing activity time for a catalog row. */
-function relativeTime(
-  updatedAt: number | undefined,
+/** Exact whole-second active-turn duration for one catalog row. */
+function activityDuration(
+  summary: SessionSummary | undefined,
+  activity: 'running' | 'inactive',
   now: number,
-  t: TranslateNS<typeof NS>,
-): string | undefined {
-  if (updatedAt === undefined) return undefined
-  const minute = 60_000
-  const hour = 60 * minute
-  const day = 24 * hour
-  const diff = Math.max(0, now - updatedAt)
-  if (diff < minute) return t('time.justNow')
-  if (diff < hour) return t('time.minutes', { n: Math.floor(diff / minute) })
-  if (diff < day) return t('time.hours', { n: Math.floor(diff / hour) })
-  if (diff < 30 * day) return t('time.days', { n: Math.floor(diff / day) })
-  if (diff < 365 * day) return t('time.months', { n: Math.floor(diff / (30 * day)) })
-  return t('time.years', { n: Math.floor(diff / (365 * day)) })
+): number | undefined {
+  if (summary === undefined) return undefined
+  const timing: SessionProjectionMap['subagentTiming'] | undefined
+    = summary.projectionValues?.subagentTiming
+  if (timing === undefined) return undefined
+  if (timing.active === undefined) return timing.settledMs
+  const end = activity === 'running'
+    ? now
+    : timing.active.through
+  return timing.settledMs + Math.max(0, end - timing.active.since)
+}
+
+interface DurationParts {
+  seconds: number
+  minutes: number
+  hours: number
+  days: number
+  totalMinutes: number
+  totalHours: number
+}
+
+function splitDuration(ms: number): DurationParts {
+  const totalSeconds = Math.floor(Math.max(0, ms) / 1_000)
+  const totalMinutes = Math.floor(totalSeconds / 60)
+  const totalHours = Math.floor(totalMinutes / 60)
+  return {
+    seconds: totalSeconds % 60,
+    minutes: totalMinutes % 60,
+    hours: totalHours % 24,
+    days: Math.floor(totalHours / 24),
+    totalMinutes,
+    totalHours,
+  }
+}
+
+/** Format a duration with decreasing visual precision at larger scales. */
+function formatDuration(ms: number, t: TranslateNS<typeof NS>): string {
+  const { seconds, minutes, hours, days, totalMinutes, totalHours } = splitDuration(ms)
+  if (days >= 365) {
+    const years = Math.floor(days / 365)
+    const months = Math.floor((days % 365) / 30)
+    return months === 0
+      ? t('duration.years', { years })
+      : t('duration.yearsMonths', { years, months })
+  }
+  if (days >= 30) {
+    const months = Math.floor(days / 30)
+    const remainingDays = days % 30
+    return remainingDays === 0
+      ? t('duration.months', { months })
+      : t('duration.monthsDays', { months, days: remainingDays })
+  }
+  if (days > 0) {
+    return hours === 0
+      ? t('duration.days', { days })
+      : t('duration.daysHours', { days, hours })
+  }
+  if (totalHours > 0) {
+    return t('duration.hours', {
+      hours: totalHours,
+      minutes: String(minutes).padStart(2, '0'),
+      seconds: String(seconds).padStart(2, '0'),
+    })
+  }
+  if (totalMinutes > 0) {
+    return t('duration.minutes', {
+      minutes: totalMinutes,
+      seconds: String(seconds).padStart(2, '0'),
+    })
+  }
+  return t('duration.seconds', { seconds })
+}
+
+/** Preserve exact whole seconds for hover and accessible naming. */
+function formatExactDuration(ms: number, t: TranslateNS<typeof NS>): string {
+  const { seconds, minutes, hours, days } = splitDuration(ms)
+  return days === 0
+    ? formatDuration(ms, t)
+    : t('duration.exactDays', {
+      days,
+      hours: String(hours).padStart(2, '0'),
+      minutes: String(minutes).padStart(2, '0'),
+      seconds: String(seconds).padStart(2, '0'),
+    })
 }
 
 /** Aggregate the complete subagent-only descendant subtree from flat summaries. */
@@ -201,7 +275,17 @@ function CatalogRows({
         const secondary = [summary?.title, mode, activity]
           .filter(value => value !== undefined)
           .join(' · ')
-        const time = relativeTime(summary?.updatedAt, now, t)
+        const durationMs = activityDuration(
+          summary,
+          entry.activity,
+          now,
+        )
+        const duration = durationMs === undefined
+          ? undefined
+          : {
+            compact: formatDuration(durationMs, t),
+            exact: formatExactDuration(durationMs, t),
+          }
 
         const open = (): void => {
           openChild({ parentSessionId, childSessionId: entry.id, mode: entry.mode })
@@ -233,7 +317,9 @@ function CatalogRows({
               role="treeitem"
               tabIndex={0}
               aria-level={level}
-              aria-label={[label, secondary, time].filter(value => value !== undefined).join(' ')}
+              aria-label={[label, secondary, duration?.exact]
+                .filter(value => value !== undefined)
+                .join(' ')}
               {...knownLeaf ? {} : { 'aria-expanded': isExpanded }}
               className={css.row}
               onClick={open}
@@ -258,7 +344,14 @@ function CatalogRows({
                   <span className={css.label}>{label}</span>
                   <span className={css.summary}>{secondary}</span>
                 </span>
-                {time !== undefined && <span className={css.time}>{time}</span>}
+                {duration !== undefined && (
+                  <span
+                    className={css.time}
+                    title={t('duration.exactTitle', { duration: duration.exact })}
+                  >
+                    {duration.compact}
+                  </span>
+                )}
               </div>
             </div>
             {isExpanded && !knownLeaf && (
@@ -313,6 +406,7 @@ export function SubagentCatalogAction({
   const summaries = useSessions(state => state.byId)
   const catalog = catalogs[sessionId]
   const [open, setOpen] = useState(false)
+  const [now, setNow] = useState(() => Date.now())
   const [expanded, setExpanded] = useState<ReadonlySet<SessionId>>(() => new Set())
   const rootRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -355,7 +449,10 @@ export function SubagentCatalogAction({
 
   const changeOpen = (next: boolean, restoreFocus = false): void => {
     setOpen(next)
-    if (next) observeCatalog(sessionId, true)
+    if (next) {
+      setNow(Date.now())
+      observeCatalog(sessionId, true)
+    }
     else closeAllCatalogs()
     if (restoreFocus) queueMicrotask(() => { triggerRef.current?.focus() })
   }
@@ -394,6 +491,12 @@ export function SubagentCatalogAction({
     document.addEventListener('pointerdown', closeOutside)
     return () => { document.removeEventListener('pointerdown', closeOutside) }
   }, [open])
+
+  useEffect(() => {
+    if (!open || !descendants.running) return
+    const timer = setInterval(() => { setNow(Date.now()) }, 1_000)
+    return () => { clearInterval(timer) }
+  }, [open, descendants.running])
 
   useEffect(() => () => {
     for (const parentSessionId of observedCatalogs.current) {
@@ -471,7 +574,7 @@ export function SubagentCatalogAction({
             summaries={summaries}
             expanded={expanded}
             level={1}
-            now={Date.now()}
+            now={now}
             openChild={openChild}
             refresh={refresh}
             toggleBranch={toggleBranch}

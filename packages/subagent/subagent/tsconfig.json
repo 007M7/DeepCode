@@ -33,6 +33,9 @@
       "path": "../../session-query/session-query"
     },
     {
+      "path": "../../session-projection/session-projection"
+    },
+    {
       "path": "../../tasks/tasks"
     },
     {

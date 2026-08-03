@@ -1903,6 +1903,9 @@ importers:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants
+      '@deepseek-ai/dsh-subagent':
+        specifier: workspace:^
+        version: link:../../subagent/subagent
       '@types/react':
         specifier: ~18.3.1
         version: 18.3.31
@@ -4888,6 +4891,10 @@ importers:
         version: link:../../../vendor/cordis
 
   packages/subagent/subagent:
+    dependencies:
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
@@ -4910,6 +4917,9 @@ importers:
       '@deepseek-ai/dsh-session-persistence':
         specifier: workspace:^
         version: link:../../session-persistence/session-persistence
+      '@deepseek-ai/dsh-session-projection':
+        specifier: workspace:^
+        version: link:../../session-projection/session-projection
       '@deepseek-ai/dsh-session-query':
         specifier: workspace:^
         version: link:../../session-query/session-query

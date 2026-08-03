@@ -26,6 +26,9 @@ const dshBinScript = fileURLToPath(new URL('../src/bin.ts', import.meta.url))
 // `--config` layers an overlay over the shared base, so the default surface
 // needs no config argument at all; these are the overlays under test.
 const scriptedConfigPath = fileURLToPath(new URL('./fixtures/tui-scripted.cordis.yml', import.meta.url))
+// An overlay whose `llm-pi-ai` config fails validation, so an entry rejects
+// while the TUI already holds the terminal.
+const invalidProviderConfigPath = fileURLToPath(new URL('./fixtures/tui-invalid-provider.cordis.yml', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 const firstRunSnapshots = fileURLToPath(new URL('./tui-first-run-snapshots/', import.meta.url))
 const synchronizedFrameEnd = '\x1b[?2026l'
@@ -413,6 +416,28 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
     expect(output).not.toContain('╮')
     expect(output).toContain('\u001B[?2004l')
   }, PTY_SMOKE_TEST_TIMEOUT_MS)
+
+  // The Loader mounts entries concurrently, so `ui-tui` can already own the
+  // terminal when a sibling entry rejects on its config. Exiting without the
+  // tree's own teardown left raw mode and bracketed paste set on the user's
+  // shell, and the pending Device Attributes reply landed there as literal
+  // text. The transactional mount must settle (an HMR initial-scan refresh
+  // once deadlocked its rollback into a silent exit 13) so `boot` disposes
+  // the tree — reaching the TUI's own shutdown — and rejects with the
+  // labelled diagnostic.
+  it('restores the terminal when a sibling entry fails to validate during boot', async () => {
+    const output = await smoke({
+      label: 'dsh invalid provider config',
+      tempDirPrefix: 'dsh-tui-invalid-config-',
+      configPath: invalidProviderConfigPath,
+      expectedExitCode: 1,
+    })
+    expect(output).toContain('dsh: plugin tree failed to load:')
+    expect(output).toContain('$.providers')
+    // Bracketed paste is disabled again, which only `ProcessTerminal.stop()`
+    // writes — proof the tree was disposed rather than exited out from under.
+    expect(output).toContain('\u001B[?2004l')
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
   it('switches models, streams a response, answers a user-question dialog, and exits cleanly', async () => {
     const output = await smoke({

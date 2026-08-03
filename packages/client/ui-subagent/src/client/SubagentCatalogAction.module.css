@@ -182,6 +182,8 @@
 .time {
   flex: none;
   margin-top: 16px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .children {
