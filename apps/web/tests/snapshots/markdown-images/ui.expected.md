@@ -1,21 +1,19 @@
 - banner:
   - navigation "Session hierarchy":
-    - button "Reply with a one-sentence description" [disabled]
+    - button "Markdown image policy" [disabled]
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
-- text: Reply with a one-sentence description of event sourcing, then stop. {{clock}}
+- text: Show the Markdown image policy. {{clock}}
 - button "Copy":
   - img
-- button "Branch into a new conversation" [disabled]:
+- button "Branch into a new conversation":
   - img
-- text: Available only on the last message of a completed turn
-- button "Context injection":
-  - img
-  - img
-  - text: Context injection
-- paragraph: partial
-- text: Stopped
+- heading "Markdown images" [level=2]
+- paragraph:
+  - img "Remote test image"
+- paragraph: Local test image
+- paragraph: REMOTE_IMAGE_DONE
 - button "Copy":
   - img
 - button "Branch into a new conversation":
@@ -25,8 +23,8 @@
 - button "Commands":
   - img
 - 'button "Access mode, current: Workspace Write"': Workspace Write
-- button "Select model, current DeepSeek-V4-Flash":
-  - text: DeepSeek-V4-Flash
+- button "Select model, current deepseek-v4-flash":
+  - text: deepseek-v4-flash
   - img
 - button "Send message" [disabled]
 - text: 1 turns · 1 steps Input 0 tok · Output 0 tok

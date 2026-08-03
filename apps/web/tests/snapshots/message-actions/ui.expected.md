@@ -8,12 +8,19 @@
 - button "Copy":
   - img
 - tooltip "Copy"
-- button "Branch into a new conversation":
+- button "Branch into a new conversation" [disabled]:
   - img
+- text: Available only on the last message of a completed turn
 - button "Think The user wants me to read a.txt and b.txt, then reply with \"DONE\". Let me do both reads in parallel.":
   - img
   - img
   - text: Think The user wants me to read a.txt and b.txt, then reply with "DONE". Let me do both reads in parallel.
+- paragraph: I will read both files before answering.
+- button "Copy":
+  - img
+- button "Branch into a new conversation" [disabled]:
+  - img
+- text: Available only on the last message of a completed turn 7/25 {{clock}}
 - button "Read a.txt":
   - img
   - img
@@ -28,6 +35,12 @@
   - img
   - img
   - text: Think Both files have been read. a.txt contains "alpha" and b.txt contains "beta". I'll now reply with DONE as instructed.
+- text: Stopped Now give the final answer. 7/25 {{clock}}
+- button "Copy":
+  - img
+- button "Branch into a new conversation" [disabled]:
+  - img
+- text: Available only on the last message of a completed turn
 - paragraph: DONE
 - button "Copy":
   - img
@@ -42,4 +55,4 @@
   - text: deepseek-v4-flash
   - img
 - button "Send message" [disabled]
-- text: 1 turns · 2 steps Tool call {{duration}} Cache hit 98% Input 15.8K tok · Output 135 tok
+- text: 2 turns · 3 steps Tool call {{duration}} Cache hit 98% Input 7.8K tok · Output 103 tok

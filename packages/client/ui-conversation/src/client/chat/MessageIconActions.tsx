@@ -1,7 +1,7 @@
 // Shared IconActions chrome for user, steering, and assistant messages: copy
 // live, optional branch wiring, and an optional date-aware clock.
 
-import { useCallback } from 'react'
+import { useCallback, useId } from 'react'
 import {
   IconBranchOutline16, IconCopyOutline16, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -17,9 +17,11 @@ export interface MessageIconActionsProps {
   time?: number | undefined
   /** Clock before icons (user) or after (assistant). */
   clock: 'start' | 'end'
-  /** Fork the session at this message. */
+  /** Fork the session at this message; omission hides the branch action. */
   onBranch?: (() => void) | undefined
-  /** Whether to render the branch action; defaults to true. */
+  /** The message is not a completed transcript tail, so branch stays visible but unavailable. */
+  branchUnavailable?: boolean | undefined
+  /** Additional branch visibility gate for transient message chrome; defaults to true. */
   showBranch?: boolean | undefined
   /** Parent layout class composed onto the actions row. */
   className?: string | undefined
@@ -33,9 +35,10 @@ export interface MessageIconActionsProps {
  * @returns The actions row element.
  */
 export function MessageIconActions({
-  text, time, clock, onBranch, showBranch = true, className, t,
+  text, time, clock, onBranch, branchUnavailable = false, showBranch = true, className, t,
 }: MessageIconActionsProps) {
   const day = useCalendarDay()
+  const reasonId = useId()
   const onCopy = useCallback(() => {
     void writeClipboard(text)
   }, [text])
@@ -52,12 +55,24 @@ export function MessageIconActions({
           <IconCopyOutline16 />
         </button>
       </Tooltip>
-      {showBranch && (
-        <Tooltip label={t('message.branch')} side="bottom">
-          <button type="button" className={css.action} aria-label={t('message.branch')} onClick={onBranch}>
+      {showBranch && onBranch !== undefined && (
+        <Tooltip label={branchUnavailable ? t('message.branchUnavailable') : t('message.branch')} side="bottom">
+          {/* Native disabled buttons do not deliver the hover/focus events Tooltip needs. */}
+          <button
+            type="button"
+            className={css.action}
+            aria-label={t('message.branch')}
+            aria-disabled={branchUnavailable || undefined}
+            aria-describedby={branchUnavailable ? reasonId : undefined}
+            data-unavailable={branchUnavailable || undefined}
+            onClick={branchUnavailable ? undefined : onBranch}
+          >
             <IconBranchOutline16 />
           </button>
         </Tooltip>
+      )}
+      {showBranch && onBranch !== undefined && branchUnavailable && (
+        <span id={reasonId} className={css.visuallyHidden}>{t('message.branchUnavailable')}</span>
       )}
       {clock === 'end' ? clockEl : null}
     </div>
