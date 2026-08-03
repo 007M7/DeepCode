@@ -4,7 +4,7 @@ English | [中文](README.zh.md)
 
 The model-facing `bash` tool registered over the `ctx.bash` executor seam. Foreground execution stays behind that seam; a background process handle is registered with the generic `ctx.tasks` runtime and controlled through `task_output`, `task_list`, and `task_kill` from `@deepseek-ai/dsh-tool-tasks`.
 
-Requires a loaded executor implementation (e.g. `@deepseek-ai/dsh-bash-local`) and the [`@deepseek-ai/dsh-bash-env`](../bash-env/README.md) registry; the plugin stays pending until every injected service exists (`inject: ['tools', 'bash', 'systemPrompt', 'bashEnv']`).
+Requires a loaded executor implementation (e.g. `@deepseek-ai/dsh-bash-local`) and the [`@deepseek-ai/dsh-bash-env`](../bash-env/README.md) registry; the plugin stays pending until every injected service exists (`inject: ['tools', 'bash', 'systemPrompt', 'bashEnv']`). The tool contract is bash-dialect — mount a bash-parsing executor.
 
 The package root exposes only the Cordis plugin contract (`name`, `inject`, `Config`, `apply`); result rendering and background-process adaptation remain implementation details covered by same-package tests.
 

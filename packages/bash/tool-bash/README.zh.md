@@ -4,7 +4,7 @@
 
 模型侧 `bash` 工具，注册在 `ctx.bash` 执行器 seam 上。前台执行始终位于该 seam 之后；后台进程句柄会注册到通用 `ctx.tasks` 运行时，并通过 `task_output`、`task_list` 和 `task_kill` 控制；这些工具由 `@deepseek-ai/dsh-tool-tasks` 提供。
 
-需要加载执行器实现（例如 `@deepseek-ai/dsh-bash-local`）与 [`@deepseek-ai/dsh-bash-env`](../bash-env/README.md) 注册表；在每个注入服务就绪之前，插件会保持等待状态（`inject: ['tools', 'bash', 'systemPrompt', 'bashEnv']`）。
+需要加载执行器实现（例如 `@deepseek-ai/dsh-bash-local`）与 [`@deepseek-ai/dsh-bash-env`](../bash-env/README.md) 注册表；在每个注入服务就绪之前，插件会保持等待状态（`inject: ['tools', 'bash', 'systemPrompt', 'bashEnv']`）。工具契约是 bash 方言——请挂载能解析 bash 的执行器。
 
 包（package）根只公开 Cordis 插件契约（`name`、`inject`、`Config`、`apply`）；结果渲染和后台进程适配仍是实现细节，由同包测试覆盖。
 
