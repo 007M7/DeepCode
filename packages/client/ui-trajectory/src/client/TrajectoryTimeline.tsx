@@ -4,7 +4,9 @@ import {
   memo, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent,
   type PointerEvent,
 } from 'react'
+import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TrajectoryTurnModel } from './layout.ts'
+import type { AssistantMetricDetail, TrajectoryCellKind, TrajectoryCellProps } from './trajectory-record.ts'
 import {
   deriveTrajectoryTimeline,
   formatTimelineOffset,
@@ -18,6 +20,14 @@ const MINIMUM_ZOOM_OPERATIONS = 4
 const EDGE_PAN_ZONE_FRACTION = 0.08
 const EDGE_PAN_STEP_FRACTION = 0.025
 const MAXIMUM_EDGE_PAN_PX = 32
+const TIMELINE_TOOLTIP_DELAY_MS = 500
+
+interface TimelineRecordDetail {
+  decodingMs?: number
+  durationMs?: number
+  startedAt?: number
+  ttftMs?: number
+}
 
 interface FractionRange {
   start: number
@@ -27,6 +37,94 @@ interface FractionRange {
 interface HoverPoint {
   fraction: number
   recordIndex: number | null
+}
+
+interface PanGesture {
+  anchorClientX: number
+  anchorStart: number
+  moved: boolean
+  pannable: boolean
+  pointerId: number
+}
+
+function assistantTimingDetail(
+  metrics: AssistantMetricDetail | undefined,
+): Pick<TimelineRecordDetail, 'ttftMs' | 'decodingMs'> {
+  const start = metrics?.stepStartTime
+  const first = metrics?.firstTokenTime
+  const completed = metrics?.completedTime
+  if (
+    metrics?.timingRecorded !== true
+    || typeof start !== 'number'
+    || typeof first !== 'number'
+    || typeof completed !== 'number'
+    || !Number.isFinite(start)
+    || !Number.isFinite(first)
+    || !Number.isFinite(completed)
+    || first < start
+    || completed < first
+  ) return {}
+  return { ttftMs: first - start, decodingMs: completed - first }
+}
+
+function timelineRecordDetail(cell: TrajectoryCellProps): TimelineRecordDetail {
+  const durationMs = cell.timeSeconds === null || !Number.isFinite(cell.timeSeconds)
+    ? undefined
+    : Math.max(0, cell.timeSeconds * 1_000)
+  const startedAt = cell.startedAt === null || !Number.isFinite(cell.startedAt)
+    ? undefined
+    : cell.startedAt
+  return {
+    ...(durationMs === undefined ? {} : { durationMs }),
+    ...(startedAt === undefined ? {} : { startedAt }),
+    ...assistantTimingDetail(cell.assistantMetrics),
+  }
+}
+
+function timelineKindLabel(kind: TrajectoryCellKind): string {
+  switch (kind) {
+    case 'system': return 'SYSTEM'
+    case 'user': return 'USER'
+    case 'context': return 'CONTEXT'
+    case 'compacted': return 'COMPACTED'
+    case 'message': return 'ASSISTANT'
+    case 'tool': return 'TOOL'
+    case 'subtool': return 'SUBTOOL'
+  }
+}
+
+function formatRecordedTime(timestamp: number): string {
+  return new Date(timestamp).toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    fractionalSecondDigits: 3,
+  })
+}
+
+function timelineTooltipLabel(
+  kind: TrajectoryCellKind,
+  detail: TimelineRecordDetail | undefined,
+): string {
+  const heading = timelineKindLabel(kind)
+  if (detail === undefined) return heading
+  const duration = detail.durationMs === undefined
+    ? null
+    : `Total ${formatTimelineOffset(detail.durationMs)}`
+  const range = detail.startedAt === undefined
+    ? null
+    : detail.durationMs === undefined
+      ? `Started ${formatRecordedTime(detail.startedAt)}`
+      : `${formatRecordedTime(detail.startedAt)} → ${formatRecordedTime(
+        detail.startedAt + detail.durationMs,
+      )}`
+  const segments = detail.ttftMs === undefined || detail.decodingMs === undefined
+    ? null
+    : `TTFT ${formatTimelineOffset(detail.ttftMs)} · Decoding ${formatTimelineOffset(
+      detail.decodingMs,
+    )}`
+  const timing = [duration, segments].filter(value => value !== null).join(' · ')
+  return [heading, range, timing].filter(value => value !== null && value !== '').join('\n')
 }
 
 /** Props for the fixed full-domain overview above the trajectory ledger. */
@@ -105,14 +203,10 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
   onRecordFocus,
 }: TrajectoryTimelineProps) {
   const model = useMemo(() => deriveTrajectoryTimeline(turns, mode), [mode, turns])
-  const durationByIndex = useMemo(
+  const detailByIndex = useMemo(
     () => new Map(turns.flatMap(turn =>
       turn.groups.flatMap(group =>
-        group.cells.flatMap(cell =>
-          cell.timeSeconds === null || !Number.isFinite(cell.timeSeconds)
-            ? []
-            : [[cell.index, Math.max(0, cell.timeSeconds * 1_000)] as const],
-        ),
+        group.cells.map(cell => [cell.index, timelineRecordDetail(cell)] as const),
       ),
     )),
     [turns],
@@ -123,10 +217,12 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
     anchorClientX: number
     recordIndex: number | null
   } | null>(null)
+  const panRef = useRef<PanGesture | null>(null)
   const rootRef = useRef<HTMLElement | null>(null)
   const trackRef = useRef<HTMLDivElement | null>(null)
   const [draft, setDraft] = useState<TrajectoryTimeRange | null>(null)
   const [hover, setHover] = useState<HoverPoint | null>(null)
+  const [panning, setPanning] = useState(false)
   const [viewport, setViewport] = useState<TrajectoryTimeRange | null>(null)
   const [animateViewport, setAnimateViewport] = useState(false)
   useEffect(() => {
@@ -267,6 +363,21 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
   }
 
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.button === 2) {
+      panRef.current = {
+        anchorClientX: event.clientX,
+        anchorStart: domainStart,
+        moved: false,
+        pannable: viewport !== null,
+        pointerId: event.pointerId,
+      }
+      if (viewport !== null) setAnimateViewport(false)
+      setPanning(true)
+      if (typeof event.currentTarget.setPointerCapture === 'function') {
+        event.currentTarget.setPointerCapture(event.pointerId)
+      }
+      return
+    }
     if (event.button !== 0) return
     const anchor = fractionAt(event)
     const anchorTime = domainStart + anchor * domainDuration
@@ -285,10 +396,24 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
   }
 
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current
     const rect = event.currentTarget.getBoundingClientRect()
     const fraction = fractionAt(event)
     setHover({ fraction, recordIndex: recordIndexAt(event) })
+    const pan = panRef.current
+    if (pan !== null && pan.pointerId === event.pointerId) {
+      if (Math.abs(event.clientX - pan.anchorClientX) >= MINIMUM_DRAG_PX) {
+        pan.moved = true
+      }
+      if (!pan.pannable) return
+      const delta = (event.clientX - pan.anchorClientX) / Math.max(1, rect.width)
+      const nextStart = Math.min(
+        Math.max(pan.anchorStart - delta * domainDuration, model.start),
+        model.end - domainDuration,
+      )
+      setViewport({ start: nextStart, end: nextStart + domainDuration })
+      return
+    }
+    const drag = dragRef.current
     if (drag === null || drag.pointerId !== event.pointerId) return
     let nextDomainStart = domainStart
     if (viewport !== null) {
@@ -326,6 +451,15 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
   }
 
   const onPointerEnd = (event: PointerEvent<HTMLDivElement>) => {
+    const pan = panRef.current
+    if (pan !== null && pan.pointerId === event.pointerId) {
+      const moved = pan.moved
+        || Math.abs(event.clientX - pan.anchorClientX) >= MINIMUM_DRAG_PX
+      panRef.current = null
+      setPanning(false)
+      if (!moved) onRangeChange(null)
+      return
+    }
     const drag = dragRef.current
     if (drag === null || drag.pointerId !== event.pointerId) return
     const pointFraction = fractionAt(event)
@@ -375,8 +509,10 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
 
   const onPointerCancel = () => {
     dragRef.current = null
+    panRef.current = null
     setDraft(null)
     setHover(null)
+    setPanning(false)
   }
 
   return (
@@ -386,6 +522,7 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
         <div
           ref={trackRef}
           className={css.track}
+          data-panning={panning || undefined}
           aria-label="Timeline overview; drag horizontally to focus events"
           tabIndex={0}
           onKeyDown={onKeyDown}
@@ -394,7 +531,7 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
           onPointerUp={onPointerEnd}
           onPointerCancel={onPointerCancel}
           onPointerLeave={() => {
-            if (dragRef.current === null) setHover(null)
+            if (dragRef.current === null && panRef.current === null) setHover(null)
           }}
           onDoubleClick={(event) => {
             event.preventDefault()
@@ -402,9 +539,6 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
           }}
           onContextMenu={(event) => {
             event.preventDefault()
-            setAnimateViewport(false)
-            onRangeChange(null)
-            setViewport(null)
           }}
         >
           {hover !== null && hover.recordIndex === null && draft === null && (
@@ -466,7 +600,6 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
             className={css.lanes}
             data-animate-viewport={animateViewport || undefined}
             data-timeline-domain
-            aria-hidden="true"
             style={projectedDomainStyle}
           >
             {model.spans
@@ -476,34 +609,51 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
               .map((span) => {
                 const left = (span.start - model.start) / fullDuration
                 const width = (span.end - span.start) / fullDuration
-                const durationMs = durationByIndex.get(span.index)
+                const widthPercent = Math.max(width * 100, 0.35)
+                const detail = detailByIndex.get(span.index)
+                const ttftMs = detail?.ttftMs
+                const decodingMs = detail?.decodingMs
+                const ttftFraction = ttftMs === undefined
+                  || decodingMs === undefined
+                  || ttftMs + decodingMs <= 0
+                  ? null
+                  : ttftMs / (ttftMs + decodingMs)
                 return (
-                  <span
-                    className={css.span}
-                    data-timeline-span={span.kind}
-                    data-timeline-record-index={span.index}
-                    data-error={span.isError || undefined}
-                    data-equal-duration={mode === 'time' || undefined}
-                    data-current={span.index === selectedIndex || undefined}
-                    data-hovered={hover?.recordIndex === span.index || undefined}
-                    data-search-match={searchMatchIndexes === null
-                      ? undefined
-                      : searchMatchIndexes.has(span.index) ? 'true' : 'false'}
-                    data-selected={activeRange === null
-                      ? undefined
-                      : span.start <= activeRange.end && span.end >= activeRange.start
-                        ? 'true'
-                        : 'false'}
+                  <Tooltip
                     key={span.index}
-                    title={durationMs === undefined
-                      ? span.label
-                      : `${span.label} · ${formatTimelineOffset(durationMs)}`}
-                    style={{
-                      '--trajectory-span-left': `${left * 100}%`,
-                      '--trajectory-span-width': `${Math.max(width * 100, 0.35)}%`,
-                      '--trajectory-span-lane': span.lane,
-                    } as CSSProperties}
-                  />
+                    label={timelineTooltipLabel(span.kind, detail)}
+                    side="bottom"
+                    delayMs={TIMELINE_TOOLTIP_DELAY_MS}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={css.span}
+                      data-timeline-span={span.kind}
+                      data-timeline-record-index={span.index}
+                      data-assistant-timing={ttftFraction === null ? undefined : 'true'}
+                      data-error={span.isError || undefined}
+                      data-equal-duration={mode === 'time' || undefined}
+                      data-current={span.index === selectedIndex || undefined}
+                      data-hovered={hover?.recordIndex === span.index || undefined}
+                      data-search-match={searchMatchIndexes === null
+                        ? undefined
+                        : searchMatchIndexes.has(span.index) ? 'true' : 'false'}
+                      data-selected={activeRange === null
+                        ? undefined
+                        : span.start <= activeRange.end && span.end >= activeRange.start
+                          ? 'true'
+                          : 'false'}
+                      style={{
+                        '--trajectory-span-left': `${left * 100}%`,
+                        '--trajectory-span-width': `${widthPercent}%`,
+                        '--trajectory-span-gap': `clamp(0.25px, ${widthPercent * 0.08}%, 1px)`,
+                        '--trajectory-span-lane': span.lane,
+                        ...(ttftFraction === null
+                          ? {}
+                          : { '--trajectory-assistant-ttft': `${ttftFraction * 100}%` }),
+                      } as CSSProperties}
+                    />
+                  </Tooltip>
                 )
               })}
           </div>
