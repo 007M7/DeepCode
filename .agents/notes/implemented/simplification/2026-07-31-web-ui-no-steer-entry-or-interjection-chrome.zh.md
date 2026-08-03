@@ -30,9 +30,11 @@ Status: implemented
 
 - Web 用户无法从 composer 或 `ctx.conversation.send` steer；中途控制只剩停止／取消与 Queue。
 - Host 线缆与非 Web 客户端仍可 steer；Web 客户端展示这些消息时不再标成插话。
+- 非用户来源的 next-step 项（`agent.inject` 上下文：审批通知、任务完成、附加快照）以 `context` placement 广播，绝不渲染为待处理 steering 气泡；领取为持久 `user/message` context card 前保持不可见。
 - 若要重新引入专用 steer UI，需要新的产品决策；没有决策就不要复活 mode 联合类型或徽章。
 
 ## 测试
 
 - `packages/client/ui-conversation` unit／jsdom 覆盖：input machine enter／sink、ConversationService 路由、MessageItem steering 分支（无「插话」）、InputBar submit。
 - `apps/web/tests/steering.e2e.ts` 无密钥回放，以及更新后的 `settled.expected.md`（有 steer 正文、无徽章）。
+- `packages/host/apiproxy` 的 `session/queue` 投影测试断言用户来源的 next-step 项保持 `steering`，而插件来源的项落入 `context`。

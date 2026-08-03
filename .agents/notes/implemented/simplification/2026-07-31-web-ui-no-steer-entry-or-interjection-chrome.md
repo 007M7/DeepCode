@@ -30,9 +30,11 @@ Keep host and runtime steering intact. Remove only the Web UI entry and chrome:
 
 - Web users cannot steer from the composer or `ctx.conversation.send`; stop/cancel and Queue remain the only mid-turn controls.
 - Host-wire and non-Web clients can still steer; the Web client shows those messages without labeling them as interjections.
+- Non-user next-step items (`agent.inject` context: approval notices, task completion, attached snapshots) broadcast with the `context` placement and never render as pending steering bubbles; they stay invisible until claimed as durable `user/message` context cards.
 - Reintroducing a dedicated steer UI would need a new product decision; do not revive the mode union or badge without one.
 
 ## Testing
 
 - `packages/client/ui-conversation` unit/jsdom coverage: input machine enter/sink, ConversationService routing, MessageItem steering arm (no 「插话」), InputBar submit.
 - `apps/web/tests/steering.e2e.ts` keyless replay plus updated `settled.expected.md` (steer text without badge).
+- `packages/host/apiproxy` `session/queue` projection test asserts user-origin next-step items stay `steering` while plugin-origin items land as `context`.

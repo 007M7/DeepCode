@@ -786,7 +786,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     }
     return [
       ...project('next-turn').map(message => ({ id: message.id, placement: 'queued' as const, message })),
-      ...project('next-step').map(message => ({ id: message.id, placement: 'steering' as const, message })),
+      ...project('next-step').map(message => ({
+        id: message.id,
+        // Only user-origin messages are steering; injected context (approval
+        // notices, task completion, attached snapshots) is not a user action
+        // and must not render as a pending steering bubble.
+        placement: message.source.kind === 'user' ? 'steering' as const : 'context' as const,
+        message,
+      })),
     ]
   }
 

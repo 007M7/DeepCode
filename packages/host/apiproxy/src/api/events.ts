@@ -36,8 +36,8 @@ export type ToolEventView =
 export interface QueuedInboxItem {
   /** Message identity used by inbox mutations. */
   id: MessageId
-  /** Agent-resolved FIFO placement; clients render queued and steering items on different surfaces. */
-  placement: 'queued' | 'steering'
+  /** Agent-resolved FIFO placement; queued and steering items render on different surfaces, context items stay invisible until claimed. */
+  placement: 'queued' | 'steering' | 'context'
   /** Complete pending message; it is not durable until the Agent claims it. */
   message: Message
 }

@@ -360,6 +360,14 @@ describe('session/queue frames', () => {
     ]
     agent.inbox.splice('next-turn', 0, 1, [edited])
     frames.push(await nextFrame(iterator), await nextFrame(iterator))
+    const injected = freezeMessage({
+      id: MessageId('m-3'),
+      role: 'user',
+      content: [{ type: 'text' as const, text: 'injected context' }],
+      source: { kind: 'plugin' as const, plugin: 'approval' },
+    })
+    agent.inbox.splice('next-step', 0, 0, [injected])
+    frames.push(await nextFrame(iterator), await nextFrame(iterator))
     abort.abort()
     await iterator.return?.()
 
@@ -377,6 +385,15 @@ describe('session/queue frames', () => {
         sessionId: agent.id,
         items: [
           { id: edited.id, placement: 'queued', message: edited },
+          { id: steering.id, placement: 'steering', message: steering },
+        ],
+      },
+      {
+        type: 'session/queue',
+        sessionId: agent.id,
+        items: [
+          { id: edited.id, placement: 'queued', message: edited },
+          { id: injected.id, placement: 'context', message: injected },
           { id: steering.id, placement: 'steering', message: steering },
         ],
       },
