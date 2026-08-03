@@ -191,6 +191,7 @@ describe('TUI config', () => {
       maxQuestionOptions: 8,
       maxModelOptions: 8,
       maxResumeOptions: 8,
+      resumeScanConcurrency: 4,
       questionDialogWidth: 200,
       questionDialogMaxHeight: 20,
       modelDialogWidth: 76,
@@ -217,6 +218,7 @@ describe('TUI config', () => {
       maxQuestionOptions: 3,
       maxModelOptions: 4,
       maxResumeOptions: 5,
+      resumeScanConcurrency: 2,
       questionDialogWidth: 60,
       questionDialogMaxHeight: 14,
       modelDialogWidth: 64,
@@ -235,6 +237,7 @@ describe('TUI config', () => {
       maxQuestionOptions: 3,
       maxModelOptions: 4,
       maxResumeOptions: 5,
+      resumeScanConcurrency: 2,
       questionDialogWidth: 60,
       questionDialogMaxHeight: 14,
       modelDialogWidth: 64,
@@ -491,6 +494,81 @@ describe('goodbye message and /resume', () => {
     result.terminal.send('\r')
     await tick(); await tick()
     expect(result.terminal.output).toContain('(1 of 3)')
+    await dispose(result)
+  })
+
+  it('resolves titles through the projection cache without scanning logs', async () => {
+    const current = header('main-session', 5, '/workspace')
+    const cachedRow = header('cached-title', 40, '/workspace')
+    const rowless = header('rowless-title', 30, '/workspace')
+    const untitled = header('untitled-title', 20, '/workspace')
+    const broken = header('broken-title', 10, '/workspace')
+    let coldReads = 0
+    const result = await setup({
+      cwd: '/workspace',
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        ctx.provide('sessionQuery', {
+          listSessions: () => Promise.resolve([
+            { header: current, live: true, persisted: false },
+            { header: cachedRow, live: false, persisted: true },
+            { header: rowless, live: false, persisted: true },
+            { header: untitled, live: false, persisted: true },
+            { header: broken, live: false, persisted: true },
+          ]),
+          readTitleSnapshots: () => Promise.reject(new Error('the ladder must not scan logs')),
+        } as never)
+        ctx.provide('sessionProjections', {
+          snapshot: () => ({ asOfSeq: 0, values: { title: 'Live projected' } }),
+        } as never)
+        ctx.provide('sessionProjectionCache', {
+          cachedSnapshot: (meta: SessionHeader) => {
+            if (meta.id === cachedRow.id) return { asOfSeq: 3, values: { title: 'Cached projected' } }
+            if (meta.id === untitled.id) return { asOfSeq: 3, values: { title: null } }
+            if (meta.id === rowless.id) return { asOfSeq: 3, values: {} }
+            return undefined
+          },
+          coldSnapshot: async (id: SessionId) => {
+            coldReads += 1
+            if (id === broken.id) throw new Error('checkpoint restore failed')
+            return { asOfSeq: 5, values: { title: 'Cold projected' } }
+          },
+        } as never)
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(result.terminal.output).toContain('Live projected')
+    expect(result.terminal.output).toContain('Cached projected')
+    expect(result.terminal.output).toContain('Cold projected')
+    expect(result.terminal.output).toContain('Untitled session')
+    expect(result.terminal.output).toContain('Unreadable session')
+    expect(result.terminal.output).toContain('checkpoint restore failed')
+    expect(result.terminal.output).not.toContain('the ladder must not scan logs')
+    expect(coldReads).toBe(2)
+    await dispose(result)
+  })
+
+  it('shows a live row untitled when the cache is mounted without the registry', async () => {
+    const current = header('main-session', 5, '/workspace')
+    const result = await setup({
+      cwd: '/workspace',
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        ctx.provide('sessionQuery', {
+          listSessions: () => Promise.resolve([{ header: current, live: true, persisted: false }]),
+        } as never)
+        ctx.provide('sessionProjectionCache', {
+          cachedSnapshot: () => undefined,
+          coldSnapshot: async () => ({ asOfSeq: -1, values: {} }),
+        } as never)
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(result.terminal.output).toContain('Untitled session')
     await dispose(result)
   })
 

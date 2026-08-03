@@ -11,6 +11,9 @@ import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
+import type {} from '@deepseek-ai/dsh-session-projection'
+import type { SessionProjectionCache } from '@deepseek-ai/dsh-session-projection-cache'
+import type {} from '@deepseek-ai/dsh-session-title'
 import type {
   SessionQueryService,
   SessionRecord,
@@ -112,6 +115,73 @@ export function createResumeController(deps: ResumeControllerDeps): ResumeContro
       // Only a just-deleted or never-materialized artifact fails stat; the row falls back to created-at.
       return undefined
     }
+  }
+
+  /**
+   * One persisted row's title through the projection-cache ladder: the
+   * zero-I/O checkpoint row when usable, otherwise a cold read that folds
+   * only the log tail since the checkpoint and writes the refreshed row
+   * back — so a store scanned once serves later scans without log reads.
+   */
+  const projectedTitle = async (
+    cache: SessionProjectionCache,
+    record: SessionRecord,
+    signal: AbortSignal,
+  ): Promise<string | null | undefined> => {
+    const live = ctx.sessions.get(record.header.id)
+    if (live !== undefined) return ctx.get('sessionProjections')?.snapshot(live).values.title
+    const cached = cache.cachedSnapshot(record.header)
+    if (cached !== undefined && 'title' in cached.values) return cached.values.title
+    return (await cache.coldSnapshot(record.header.id, signal)).values.title
+  }
+
+  /** One per-record title resolution: a title (absent for untitled) or an isolated failure. */
+  type TitleResolution = { title?: string; failure?: unknown }
+
+  /**
+   * Resolve every row's title without reading whole logs when the projection
+   * cache is mounted (live registry snapshot / checkpoint row / tail-only
+   * cold read, bounded by `resumeScanConcurrency`); a composition without
+   * the cache falls back to one bounded raw-log title batch.
+   */
+  const resolveTitles = async (
+    listQuery: SessionQueryService,
+    records: readonly SessionRecord[],
+    signal: AbortSignal,
+  ): Promise<TitleResolution[]> => {
+    const cache = ctx.get('sessionProjectionCache')
+    if (cache === undefined) {
+      const results = await listQuery.readTitleSnapshots(records.map(record => record.header.id), signal)
+      return records.map((record, index): TitleResolution => {
+        const result = results[index]
+        /* v8 ignore next 2 -- readTitleSnapshots returns one result per unique listed id in input order */
+        if (result === undefined || result.sessionId !== record.header.id) throw new Error(`resume scan misaligned at "${record.header.id}"`)
+        if (result.status === 'rejected') return { failure: result.reason }
+        const title = result.value.title?.title
+        return title === undefined ? {} : { title }
+      })
+    }
+    const resolutions = new Array<TitleResolution>(records.length)
+    let cursor = 0
+    const worker = async (): Promise<void> => {
+      for (;;) {
+        const index = cursor
+        if (index >= records.length) return
+        cursor += 1
+        const record = records[index] as SessionRecord
+        try {
+          const value = await projectedTitle(cache, record, signal)
+          resolutions[index] = typeof value === 'string' ? { title: value } : {}
+        } catch (failure: unknown) {
+          resolutions[index] = { failure }
+        }
+      }
+    }
+    await Promise.all(Array.from(
+      { length: Math.min(resolved.resumeScanConcurrency, records.length) },
+      () => worker(),
+    ))
+    return resolutions
   }
 
   /** The latest logged provider/model route, for the preflight availability check. */
@@ -266,20 +336,18 @@ export function createResumeController(deps: ResumeControllerDeps): ResumeContro
         // current-workspace/all-workspaces scope split over the whole set.
         const records = await listQuery.listSessions(scanAbort.signal)
         if (scanStale()) return
-        // Rows need only metadata, an mtime, and the batch-folded title — the
-        // one per-log read the selector performs. A corrupt neighbor degrades
-        // to one disabled row.
+        // Rows need only metadata, an mtime, and a title — resolved without
+        // whole-log reads when the projection cache is mounted. A corrupt
+        // neighbor degrades to one disabled row.
         const [titles, activity] = await Promise.all([
-          listQuery.readTitleSnapshots(records.map(record => record.header.id), scanAbort.signal),
+          resolveTitles(listQuery, records, scanAbort.signal),
           Promise.all(records.map(record => lastActivityAt(record))),
         ])
         const candidates = records.map((record, index) => {
-          const title = titles[index]
-          /* v8 ignore next 2 -- readTitleSnapshots returns one result per unique listed id in input order */
-          if (title === undefined || title.sessionId !== record.header.id) throw new Error(`resume scan misaligned at "${record.header.id}"`)
-          return title.status === 'fulfilled'
-            ? summarize(record, title.value.title?.title, activity[index])
-            : unreadableCandidate(record, activity[index], title.reason)
+          const resolution = titles[index] as TitleResolution
+          return 'failure' in resolution
+            ? unreadableCandidate(record, activity[index], resolution.failure)
+            : summarize(record, resolution.title, activity[index])
         })
         candidates.sort((a, b) => b.lastActivityAt - a.lastActivityAt
           || a.record.header.id.localeCompare(b.record.header.id))

@@ -42,6 +42,8 @@ export interface TuiConfig {
   maxModelOptions?: number
   /** Maximum sessions visible at once in the resume selector. */
   maxResumeOptions?: number
+  /** Maximum concurrent cold projection reads in one resume scan. */
+  resumeScanConcurrency?: number
   /** User-question panel width in terminal columns, clamped to the terminal. */
   questionDialogWidth?: number
   /** User-question panel maximum height in terminal rows. */
@@ -72,6 +74,7 @@ const maxDiffEditLengthSchema = z.number().step(1).min(1).default(1000)
 const maxQuestionOptionsSchema = z.number().step(1).min(1).default(8)
 const maxModelOptionsSchema = z.number().step(1).min(1).default(8)
 const maxResumeOptionsSchema = z.number().step(1).min(1).default(8)
+const resumeScanConcurrencySchema = z.number().step(1).min(1).default(4)
 const questionDialogWidthSchema = z.number().step(1).min(20).default(200)
 const questionDialogMaxHeightSchema = z.number().step(1).min(6).default(20)
 const modelDialogWidthSchema = z.number().step(1).min(20).default(76)
@@ -105,6 +108,7 @@ const tuiConfigSchemaFields = {
   maxQuestionOptions: maxQuestionOptionsSchema,
   maxModelOptions: maxModelOptionsSchema,
   maxResumeOptions: maxResumeOptionsSchema,
+  resumeScanConcurrency: resumeScanConcurrencySchema,
   questionDialogWidth: questionDialogWidthSchema,
   questionDialogMaxHeight: questionDialogMaxHeightSchema,
   modelDialogWidth: modelDialogWidthSchema,
@@ -178,6 +182,7 @@ export interface ResolvedTuiConfig {
   maxQuestionOptions: number
   maxModelOptions: number
   maxResumeOptions: number
+  resumeScanConcurrency: number
   questionDialogWidth: number
   questionDialogMaxHeight: number
   modelDialogWidth: number
@@ -205,6 +210,7 @@ export function resolveTuiConfig(config: TuiConfig | undefined): ResolvedTuiConf
     maxQuestionOptions: config?.maxQuestionOptions ?? 8,
     maxModelOptions: config?.maxModelOptions ?? 8,
     maxResumeOptions: config?.maxResumeOptions ?? 8,
+    resumeScanConcurrency: config?.resumeScanConcurrency ?? 4,
     questionDialogWidth: config?.questionDialogWidth ?? 200,
     questionDialogMaxHeight: config?.questionDialogMaxHeight ?? 20,
     modelDialogWidth: config?.modelDialogWidth ?? 76,
