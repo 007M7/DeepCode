@@ -16,6 +16,7 @@ interface FakeWorld {
   bindings: Win32DialogBindings
   dpi: ReturnType<typeof vi.fn>
   createDialog: ReturnType<typeof vi.fn>
+  uninitialize: ReturnType<typeof vi.fn>
   dialog: {
     setOptions: ReturnType<typeof vi.fn>
     setTitle: ReturnType<typeof vi.fn>
@@ -36,21 +37,25 @@ function world(overrides: Partial<Win32FolderDialog> = {}, coInit = 0): FakeWorl
   }
   const dpi = vi.fn()
   const createDialog = vi.fn(() => dialog)
+  const uninitialize = vi.fn()
   const bindings: Win32DialogBindings = {
     setThreadDpiAwareness: dpi,
     coInitializeSta: vi.fn(() => coInit),
+    coUninitialize: uninitialize,
     createFolderDialog: createDialog,
     currentThreadId: vi.fn(() => 4242),
   }
-  return { bindings, dpi, createDialog, dialog: dialog as FakeWorld['dialog'] }
+  return { bindings, dpi, createDialog, uninitialize, dialog: dialog as FakeWorld['dialog'] }
 }
 
 describe('runFolderDialog', () => {
-  it('sequences DPI, STA, options, title, show, and result extraction', () => {
-    const { bindings, dpi, dialog } = world()
+  it('sequences DPI, STA, options, title, show, result extraction, and apartment teardown', () => {
+    const { bindings, dpi, dialog, uninitialize } = world()
     const showing = vi.fn()
     expect(runFolderDialog(bindings, 'Pick', showing)).toBe('C:\\picked\\目录')
     expect(dpi).toHaveBeenCalledOnce()
+    expect(uninitialize).toHaveBeenCalledOnce()
+    expect(dialog.release.mock.invocationCallOrder[0]).toBeLessThan(uninitialize.mock.invocationCallOrder[0] as number)
     expect(dialog.setOptions).toHaveBeenCalledWith(FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_NOCHANGEDIR)
     expect(dialog.setTitle).toHaveBeenCalledWith('Pick')
     expect(showing).toHaveBeenCalledWith(4242)
@@ -58,11 +63,12 @@ describe('runFolderDialog', () => {
     expect(dialog.release).toHaveBeenCalledOnce()
   })
 
-  it('maps the cancelled HRESULT to null and still releases the dialog', () => {
-    const { bindings, dialog } = world({ show: vi.fn(() => HRESULT_CANCELLED) })
+  it('maps the cancelled HRESULT to null and still releases the dialog and apartment', () => {
+    const { bindings, dialog, uninitialize } = world({ show: vi.fn(() => HRESULT_CANCELLED) })
     expect(runFolderDialog(bindings, 'Pick', vi.fn())).toBeNull()
     expect(dialog.resultPath).not.toHaveBeenCalled()
     expect(dialog.release).toHaveBeenCalledOnce()
+    expect(uninitialize).toHaveBeenCalledOnce()
   })
 
   it('accepts the S_FALSE re-entry HRESULT from CoInitializeEx', () => {
@@ -70,10 +76,12 @@ describe('runFolderDialog', () => {
     expect(runFolderDialog(bindings, 'Pick', vi.fn())).toBe('C:\\picked\\目录')
   })
 
-  it('throws on a failing CoInitializeEx without creating a dialog', () => {
-    const { bindings, createDialog } = world({}, E_FAIL)
+  it('throws on a failing CoInitializeEx without creating a dialog or uninitializing', () => {
+    const { bindings, createDialog, uninitialize } = world({}, E_FAIL)
     expect(() => runFolderDialog(bindings, 'Pick', vi.fn())).toThrow('CoInitializeEx failed: HRESULT 0x80004005')
     expect(createDialog).not.toHaveBeenCalled()
+    // A failed CoInitializeEx must NOT be paired with CoUninitialize.
+    expect(uninitialize).not.toHaveBeenCalled()
   })
 
   it.each([
@@ -81,10 +89,11 @@ describe('runFolderDialog', () => {
     ['SetTitle', { setTitle: vi.fn(() => E_FAIL) }],
     ['Show', { show: vi.fn(() => E_FAIL) }],
     ['GetResult', { resultPath: vi.fn(() => ({ hr: E_FAIL })) }],
-  ] satisfies [string, Partial<Win32FolderDialog>][])('releases the dialog when %s fails', (what, overrides) => {
-    const { bindings, dialog } = world(overrides)
+  ] satisfies [string, Partial<Win32FolderDialog>][])('releases the dialog and apartment when %s fails', (what, overrides) => {
+    const { bindings, dialog, uninitialize } = world(overrides)
     expect(() => runFolderDialog(bindings, 'Pick', vi.fn())).toThrow(`${what} failed: HRESULT 0x80004005`)
     expect(dialog.release).toHaveBeenCalledOnce()
+    expect(uninitialize).toHaveBeenCalledOnce()
     void bindings
   })
 })

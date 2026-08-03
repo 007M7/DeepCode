@@ -97,10 +97,16 @@ describe('native directory picker', () => {
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
     await expect(pickNativeDirectory(signal(), { platform: 'win32', run: cancelled, pickWin32Dialog: noDialog })).resolves.toBeNull()
 
+    // Triple miss: the surfaced AggregateError carries all three causes,
+    // including the otherwise-lost in-process dialog failure.
     const failed = vi.fn<DirectoryPickerRunner>()
       .mockRejectedValueOnce(failure('ENOENT'))
       .mockRejectedValueOnce(failure(2))
-    await expect(pickNativeDirectory(signal(), { platform: 'win32', run: failed, pickWin32Dialog: noDialog })).rejects.toThrow('command failed')
+    const tripleMiss = await pickNativeDirectory(signal(), { platform: 'win32', run: failed, pickWin32Dialog: noDialog })
+      .then(() => { throw new Error('expected rejection') }, (error: unknown) => error as AggregateError)
+    expect(tripleMiss.message).toContain('the in-process dialog and both PowerShell hosts failed')
+    expect((tripleMiss.errors[0] as Error).message).toBe('dialog unavailable')
+    expect((tripleMiss.errors[2] as Error).message).toContain('command failed')
   })
 
   it('wires the real Win32 dialog as the default tier', async () => {
@@ -153,7 +159,9 @@ describe('native directory picker', () => {
     execFileMock.mockImplementationOnce((_command, _args, _options, callback) => {
       callback(commandError, 'partial output', 'failure details')
     })
-    await expect(pickNativeDirectory(signal(), { platform: 'win32', pickWin32Dialog: noDialog })).rejects.toMatchObject({
+    const surfaced = await pickNativeDirectory(signal(), { platform: 'win32', pickWin32Dialog: noDialog })
+      .then(() => { throw new Error('expected rejection') }, (error: unknown) => error as AggregateError)
+    expect(surfaced.errors[2]).toMatchObject({
       message: 'powershell failed', cause: commandError, code: 7,
       stdout: 'partial output', stderr: 'failure details',
     })

@@ -28,7 +28,9 @@ const { title } = workerData as Win32DialogWorkerData
 void (async () => {
   try {
     const bindings = await loadWin32DialogBindings()
-    const path = runFolderDialog(bindings, title, (threadId) =>{  port.postMessage({ kind: 'showing', threadId } satisfies Win32DialogWorkerMessage) })
+    const path = runFolderDialog(bindings, title, (threadId) => {
+      port.postMessage({ kind: 'showing', threadId } satisfies Win32DialogWorkerMessage)
+    })
     port.postMessage({ kind: 'done', path } satisfies Win32DialogWorkerMessage)
   } catch (error: unknown) {
     const message = error instanceof Error ? (error.stack ?? error.message) : String(error)

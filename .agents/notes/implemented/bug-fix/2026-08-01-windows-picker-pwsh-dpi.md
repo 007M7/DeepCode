@@ -22,5 +22,5 @@ The PowerShell chain is now the FALLBACK tier below the in-process koffi dialog 
 ## Consequences
 
 - Machines with PowerShell 7 get the modern folder picker; 5.1-only machines keep the legacy tree — now sharp — and the package README's Known Limitations documents the gap.
-- No new packages or runtime dependencies; the fallback reuses the existing `ENOENT` classification and abort propagation.
+- The PowerShell chain itself adds no packages or dependencies (koffi and tsx arrived with the in-process primary and belong to its note); the pwsh→5.1 hop triggers on ANY non-abort pwsh failure — no `ENOENT` classification remains on the win32 path — while abort propagation is unchanged.
 - The command boundary (`DirectoryPickerRunner`) pins the spawn order and script content in unit tests; real dialog rendering remains a manual Windows check, as before.

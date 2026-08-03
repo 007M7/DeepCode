@@ -94,7 +94,9 @@ describe('pickWin32Directory', () => {
     const picked = expect(pickWin32Directory(controller.signal, internals)).rejects.toThrow('native directory picker aborted')
     worker.post({ kind: 'showing', threadId: 99 })
     controller.abort()
-    await vi.waitFor(() =>{  expect(close).toHaveBeenCalledWith(99) })
+    await vi.waitFor(() => {
+      expect(close).toHaveBeenCalledWith(99)
+    })
     worker.post({ kind: 'done', path: null })
     await picked
   })
@@ -108,9 +110,23 @@ describe('pickWin32Directory', () => {
     controller.abort()
     expect(closeFailures).not.toHaveBeenCalled()
     worker.post({ kind: 'showing', threadId: 12 })
-    await vi.waitFor(() =>{  expect(closeFailures.mock.calls.length).toBeGreaterThan(1) })
+    await vi.waitFor(() => {
+      expect(closeFailures.mock.calls.length).toBeGreaterThan(1)
+    })
     worker.post({ kind: 'done', path: null })
     await picked
+  })
+
+  it('terminates a worker that never reports showing after an abort', async () => {
+    // The budget runs without a thread id (nothing to WM_CLOSE yet), so a
+    // worker hung before `showing` cannot dangle the pick.
+    const { worker, internals, close } = harness()
+    const controller = new AbortController()
+    const picked = expect(pickWin32Directory(controller.signal, internals)).rejects.toThrow('dialog unresponsive; worker terminated')
+    controller.abort()
+    await picked
+    expect(worker.terminate).toHaveBeenCalledOnce()
+    expect(close).not.toHaveBeenCalled()
   })
 
   it('terminates an unresponsive worker after the close budget', async () => {
@@ -134,7 +150,9 @@ describe('pickWin32Directory', () => {
   // and the abort service closes it (the same lever a disconnecting client pulls).
   it.skipIf(process.platform !== 'win32')('opens and abort-closes a real dialog', async () => {
     const controller = new AbortController()
-    setTimeout(() =>{  controller.abort() }, 400)
+    setTimeout(() => {
+      controller.abort()
+    }, 400)
     await expect(pickWin32Directory(controller.signal)).rejects.toThrow('native directory picker aborted')
   }, 30_000)
 })

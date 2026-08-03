@@ -81,11 +81,20 @@ export async function pickWin32Directory(
       outcome()
     }
 
+    const postClose = (): void => {
+      // Before `showing` there is no window to close; the budget below still
+      // runs so a worker that never reports cannot dangle the pick.
+      if (dialogThreadId !== undefined) void closeWindows(dialogThreadId).catch(() => undefined)
+    }
+
+    // Sole caller: the once-registered abort listener, so no re-entry guard.
     const serviceAbort = (): void => {
       let attempts = 0
       // The `showing` notice precedes the blocking `Show`, so the very first
       // WM_CLOSE can race the window's creation; re-post until the worker
-      // reports back, then force-terminate as a last resort.
+      // reports back, then force-terminate as a last resort. The budget is
+      // unconditional — an abort before `showing` (worker hung in koffi or
+      // COM init) still ends in terminate instead of a dangling promise.
       closeTimer = setInterval(() => {
         attempts += 1
         if (attempts > CLOSE_MAX_ATTEMPTS) {
@@ -95,14 +104,13 @@ export async function pickWin32Directory(
           })
           return
         }
-        void closeWindows(dialogThreadId as number).catch(() => undefined)
+        postClose()
       }, closeRetryMs)
-      void closeWindows(dialogThreadId as number).catch(() => undefined)
+      postClose()
     }
 
     const onAbort = (): void => {
-      if (dialogThreadId !== undefined) serviceAbort()
-      // Not shown yet: the `showing` handler below starts the service loop.
+      serviceAbort()
     }
     signal.addEventListener('abort', onAbort, { once: true })
 
@@ -110,7 +118,8 @@ export async function pickWin32Directory(
       switch (message.kind) {
         case 'showing':
           dialogThreadId = message.threadId
-          if (signal.aborted) serviceAbort()
+          // An abort that raced ahead of this notice now has a window to hit.
+          if (signal.aborted) postClose()
           return
         case 'done':
           settle(() => {
@@ -119,10 +128,20 @@ export async function pickWin32Directory(
           })
           return
         case 'error':
-          settle(() =>{  reject(new Error(`win32 folder dialog failed: ${message.message}`)) })
+          settle(() => {
+            reject(new Error(`win32 folder dialog failed: ${message.message}`))
+          })
       }
     })
-    worker.on('error', (error: Error) =>{  settle(() =>{  reject(error) }) })
-    worker.on('exit', () =>{  settle(() =>{  reject(new Error('win32 folder dialog worker exited before reporting a result')) }) })
+    worker.on('error', (error: Error) => {
+      settle(() => {
+        reject(error)
+      })
+    })
+    worker.on('exit', () => {
+      settle(() => {
+        reject(new Error('win32 folder dialog worker exited before reporting a result'))
+      })
+    })
   })
 }

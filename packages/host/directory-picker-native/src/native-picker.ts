@@ -72,10 +72,12 @@ export async function pickNativeDirectory(
     // support. Any non-abort failure (koffi unavailable, ancient Windows, COM
     // refusal) falls back to the PowerShell chain below.
     const pickDialog = internals.pickWin32Dialog ?? pickWin32Directory
+    let dialogError: unknown
     try {
       return await pickDialog(signal)
     } catch (error: unknown) {
       rethrowIfAborted(signal, error)
+      dialogError = error
     }
 
     // PowerShell fallback: PowerShell 7 renders the modern IFileDialog folder
@@ -100,14 +102,27 @@ export async function pickNativeDirectory(
       '  [Console]::WriteLine($dialog.SelectedPath)',
       '}',
     ].join('; ')
+    let pwshError: unknown
     try {
       const result = await run('pwsh.exe', ['-NoProfile', '-STA', '-Command', script], signal)
       return outputPath(result.stdout)
     } catch (error: unknown) {
       rethrowIfAborted(signal, error)
+      pwshError = error
     }
-    const result = await run('powershell.exe', ['-NoProfile', '-STA', '-Command', script], signal)
-    return outputPath(result.stdout)
+    try {
+      const result = await run('powershell.exe', ['-NoProfile', '-STA', '-Command', script], signal)
+      return outputPath(result.stdout)
+    } catch (error: unknown) {
+      rethrowIfAborted(signal, error)
+      // Triple miss: every tier failed. Surface all three causes — the
+      // in-process dialog's reason is otherwise unrecoverable from the last
+      // PowerShell error alone.
+      throw new AggregateError(
+        [dialogError, pwshError, error],
+        'native directory picker failed: the in-process dialog and both PowerShell hosts failed',
+      )
+    }
   }
 
   if (platform === 'linux') {

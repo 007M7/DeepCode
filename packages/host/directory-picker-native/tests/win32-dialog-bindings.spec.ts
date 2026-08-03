@@ -31,6 +31,7 @@ interface ComWorld {
   posted: { hwnd: unknown; message: number }[]
   registered: number
   unregistered: number
+  uninitialized: number
 }
 
 function comWorld(overrides: Partial<ComWorld> = {}): ComWorld {
@@ -39,7 +40,7 @@ function comWorld(overrides: Partial<ComWorld> = {}): ComWorld {
     hasThreadDpi: true, enumThrows: false,
     path: 'C:\\选中\\directory',
     titles: [], options: [], dpiContexts: [], freed: [], released: [], posted: [],
-    registered: 0, unregistered: 0,
+    registered: 0, unregistered: 0, uninitialized: 0,
     ...overrides,
   }
 }
@@ -85,6 +86,7 @@ function installFakeKoffi(world: ComWorld): void {
         func: (_convention: string, name: string, _result: string, _args: string[]) => {
           switch (name) {
             case 'CoInitializeEx': return () => world.coInitHr
+            case 'CoUninitialize': return () => { world.uninitialized += 1 }
             case 'CoCreateInstance': return (...args: unknown[]) => {
               if (world.coCreateHr < 0) return world.coCreateHr
               outBuffers.set(args[4], dialogPtr)
@@ -109,6 +111,7 @@ function installFakeKoffi(world: ComWorld): void {
       }),
       proto: (declaration: string) => ({ declaration }),
       pointer: (type: unknown) => type,
+      sizeof: (type: string) => { void type; return 8 },
       register: (fn: (hwnd: unknown, lparam: unknown) => number) => { world.registered += 1; return { fn } },
       unregister: () => { world.unregistered += 1 },
       decode: (value: unknown, offsetOrType: unknown): unknown => {
@@ -153,6 +156,7 @@ describe('loadWin32DialogBindings over the fake COM world', () => {
     expect(showing).toHaveBeenCalledWith(31337)
     expect(world.freed).toHaveLength(1)
     expect(world.released).toEqual(['item', 'dialog'])
+    expect(world.uninitialized).toBe(1)
   })
 
   it('maps dismissal, missing DPI support, and the S_FALSE CoInitializeEx', async () => {
@@ -163,6 +167,7 @@ describe('loadWin32DialogBindings over the fake COM world', () => {
     expect(runFolderDialog(bindings, 'Pick', vi.fn())).toBeNull()
     expect(world.dpiContexts).toEqual([])
     expect(world.released).toEqual(['dialog'])
+    expect(world.uninitialized).toBe(1)
   })
 
   it('surfaces creation and extraction failures as HRESULT errors', async () => {
@@ -225,6 +230,7 @@ describe('the worker entry over a mocked thread boundary', () => {
       loadWin32DialogBindings: async () => ({
         setThreadDpiAwareness: () => undefined,
         coInitializeSta: () => 0,
+        coUninitialize: () => undefined,
         currentThreadId: () => 11,
         createFolderDialog: () => ({
           setOptions: () => 0,

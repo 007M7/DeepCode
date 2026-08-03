@@ -27,10 +27,10 @@ The workspace manager must upsert the returned workspace before the selection ca
 
 The native dialog RPC is accepted only from a loopback socket with same-origin browser metadata. The RPC does not use the default 30-second request timeout because a system dialog may remain open indefinitely; caller and connection aborts still propagate to the platform process.
 
-Platform adapters invoke native tools without a shell:
+Platform adapters open the dialog without a shell — spawned native tools on POSIX, an in-process COM conversation on Windows:
 
 - macOS: `osascript` and the system folder chooser.
-- Windows: `pwsh` (PowerShell 7) in STA mode with a Windows PowerShell 5.1 fallback, always DPI-aware ([picker fix](../bug-fix/2026-08-01-windows-picker-pwsh-dpi.md)).
+- Windows: the in-process koffi `IFileOpenDialog` worker with per-monitor-v2 DPI ([in-process dialog note](2026-08-02-win32-in-process-folder-dialog.md)); the PowerShell chain (`pwsh` in STA mode, then Windows PowerShell 5.1, both DPI-corrected) remains the fallback ([picker fix](../bug-fix/2026-08-01-windows-picker-pwsh-dpi.md)).
 - Linux: `zenity`, with `kdialog` as a fallback when Zenity is unavailable.
 
 ## Alternatives considered

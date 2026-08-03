@@ -60,6 +60,12 @@ export interface Win32DialogBindings {
    */
   coInitializeSta(): number
   /**
+   * `CoUninitialize` on the calling thread — COM requires one pairing call
+   * for every successful (including `S_FALSE`) `CoInitializeEx`, even on a
+   * thread that exits right after the conversation.
+   */
+  coUninitialize(): void
+  /**
    * `CoCreateInstance(CLSID_FileOpenDialog)`.
    * @returns the created dialog surface; throws when creation fails.
    */
@@ -100,18 +106,24 @@ export function runFolderDialog(
 ): string | null {
   bindings.setThreadDpiAwareness()
   check(bindings.coInitializeSta(), 'CoInitializeEx')
-  const dialog = bindings.createFolderDialog()
+  // From here the apartment is initialized (S_OK or S_FALSE) and must be
+  // uninitialized exactly once on every path.
   try {
-    check(dialog.setOptions(FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_NOCHANGEDIR), 'SetOptions')
-    check(dialog.setTitle(title), 'SetTitle')
-    onShowing(bindings.currentThreadId())
-    const shown = dialog.show()
-    if (shown === HRESULT_CANCELLED) return null
-    check(shown, 'Show')
-    const result = dialog.resultPath()
-    check(result.hr, 'GetResult')
-    return result.path as string
+    const dialog = bindings.createFolderDialog()
+    try {
+      check(dialog.setOptions(FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_NOCHANGEDIR), 'SetOptions')
+      check(dialog.setTitle(title), 'SetTitle')
+      onShowing(bindings.currentThreadId())
+      const shown = dialog.show()
+      if (shown === HRESULT_CANCELLED) return null
+      check(shown, 'Show')
+      const result = dialog.resultPath()
+      check(result.hr, 'GetResult')
+      return result.path as string
+    } finally {
+      dialog.release()
+    }
   } finally {
-    dialog.release()
+    bindings.coUninitialize()
   }
 }
