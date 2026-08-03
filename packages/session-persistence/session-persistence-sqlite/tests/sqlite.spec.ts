@@ -866,13 +866,10 @@ describe('surface field round-trip', () => {
     const fiber = await ctx.plugin(SessionPersistenceSqlite, { path: ':memory:' })
     const session = ctx.sessions.create(SessionId('surface-noseq'))
     session.append('turn/start', { turn: 1 })
-    session.append('steering/message', {
-      turn: 1,
-      message: createUserMessage({
-        content: [],
-        source: { kind: 'user' },
-      }),
-    }, { surfaceOp: 'append' })
+    session.append('user/message', createUserMessage({
+      content: [],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
     session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
     await ctx.sessions.flush(session)
     const loaded = await ctx.sessionPersistence.load(SessionId('surface-noseq'))

@@ -305,16 +305,13 @@ describe('goal tool execution authority', () => {
     const humanTurn = openTurn(root, { kind: 'user' })
     const created = ctx.goals.create(root.agent, { objective: 'steer me' })
     closeTurn(root, humanTurn)
-    const round = openTurn(root, {
+    openTurn(root, {
       kind: 'goal', goalId: created.id, revision: created.revision, round: 1,
     })
-    root.session.append('steering/message', {
-      turn: round,
-      message: createUserMessage({
-        content: [{ type: 'text', text: 'pause now' }],
-        source: { kind: 'user' },
-      }),
-    }, { surfaceOp: 'append' })
+    root.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'pause now' }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
     const paused = await execute(ctx, 'update_goal', {
       goal_id: created.id, revision: created.revision, action: 'pause',
     }, root.agent)

@@ -1570,7 +1570,7 @@ Persistence is intentionally not implemented here — persistence plugins subscr
  * {@link SessionHeader} (the store fills `version`/`id`/`createdAt`).
  *
  * For an agent whose session must be torn down IN ORDER with its loop (so the
- * loop's final flush is captured before the store attachment ends), do NOT use this
+ * loop's final events are published before the store attachment ends), do NOT use this
  * — fold the session lifecycle into the agent's own effect via
  * {@link prepare} + {@link enter} + {@link announce} (see
  * `dsh-agent-loop`'s creation transaction).
@@ -1591,7 +1591,7 @@ create(id?: SessionId, options?: CreateSessionOptions): Session
  * `ctx.effect` (the agent factory) folds the session lifecycle into that ONE
  * effect so a fiber unload tears the session + agent down as a single ORDERED
  * chain rather than as racing sibling effects — which would remove the publication hooks
- * before the loop's closing `session/flush`, dropping the closing events.
+ * before the driver's closing events commit, dropping them.
  *
  * @param id - the session id; omitted, the store mints `session-<n>`.
  * @param options - seed events and/or creation metadata for the header.
@@ -1681,7 +1681,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:733`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:728`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 

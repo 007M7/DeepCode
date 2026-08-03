@@ -576,8 +576,8 @@ describe('Agent.cancel()', () => {
     expect(turnStarts.length).toBe(1) // only the original (cancelled) turn
     // The steering text was dropped — it never reached the log.
     const flat = agent.session.events
-      .filter(e => e.type === 'steering/message')
-      .flatMap(e => e.type === 'steering/message' ? e.data.message.content : [])
+      .filter(e => e.type === 'user/message')
+      .flatMap(e => e.data.content)
       .flatMap(b => b.type === 'text' ? [b.text] : [])
     expect(flat).not.toContain('steer text')
   })

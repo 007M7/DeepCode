@@ -83,7 +83,7 @@ const SESSION_SEARCH_PROVIDER_CALL_LIMIT = 100
 const COLD_SUMMARY_BATCH_SIZE = 16
 
 /** Conversation message event types (the pagination counting unit). */
-const MESSAGE_TYPES = new Set(['user/message', 'assistant/message', 'steering/message'])
+const MESSAGE_TYPES = new Set(['user/message', 'assistant/message'])
 
 /** Product settings intentionally exposed beside model-provider namespaces. */
 const PRODUCT_SETTINGS_NAMESPACES = new Set(['ui-onboarding'])
@@ -1453,7 +1453,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               page = await sessionQuery.searchSessions({
                 query: request.payload.query,
                 eventFilters: [
-                  { kind: 'type', values: ['user/message', 'assistant/message', 'steering/message'] },
+                  { kind: 'type', values: ['user/message', 'assistant/message'] },
                   { kind: 'surface', values: ['current'] },
                 ],
                 limit: requestedPageLimit,

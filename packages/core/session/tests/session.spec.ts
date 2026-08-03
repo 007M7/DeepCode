@@ -81,19 +81,16 @@ describe('Session', () => {
       .toEqual({ kind: 'aborted', reason: { kind: 'user' } })
   })
 
-  it('renders injected-context and steering messages as plain user content', () => {
+  it('renders injected-context and user messages as plain user content', () => {
     const session = new Session(SessionId('s2'))
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'file changed: a.ts' }],
       source: { kind: 'plugin', plugin: 'watcher' },
     }), { surfaceOp: 'append' })
-    session.append('steering/message', {
-      turn: 1,
-      message: createUserMessage({
-        content: [{ type: 'text', text: 'focus on tests' }],
-        source: { kind: 'user' },
-      }),
-    }, { surfaceOp: 'append' })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'focus on tests' }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
 
     const [contextMessage, steeringMessage] = session.deriveMessages()
     expect(contextMessage!.role).toBe('user')
@@ -246,17 +243,6 @@ describe('Session', () => {
           },
         },
         message: 'message must have model source',
-      },
-      {
-        name: 'content block',
-        event: {
-          type: 'steering/message', seq: 0, time: 1, surfaceOp: 'append',
-          data: {
-            turn: 1,
-            message: { ...user, content: 'not-an-array' },
-          },
-        },
-        message: 'message has invalid content',
       },
       {
         name: 'tool source',

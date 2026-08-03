@@ -756,14 +756,6 @@ export function createTuiChat(
         trailAssistantStep()
         break
       }
-      case 'steering/message': {
-        const text = displayText(contentText(event.data.message.content).trim())
-        if (text) {
-          chat.addChild(new Spacer(1))
-          chat.addChild(new UserMessageComponent(text, palette, mdTheme, 'Steering'))
-        }
-        break
-      }
       case 'step/start':
         startAssistantStep(event.data)
         break

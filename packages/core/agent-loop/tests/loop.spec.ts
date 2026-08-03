@@ -544,7 +544,6 @@ describe('agent loop', () => {
       [{ type: 'text', text: 'first idle steer' }],
       [{ type: 'text', text: 'second idle steer' }],
     ])
-    expect(agent.session.events.filter(event => event.type === 'steering/message')).toEqual([])
     expect(adapter.requests).toHaveLength(1)
     expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('first idle steer')
     expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('second idle steer')
@@ -574,7 +573,6 @@ describe('agent loop', () => {
 
     expect(adapter.requests).toHaveLength(1)
     expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
-    expect(agent.session.events.some(event => event.type === 'steering/message')).toBe(false)
     expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('pending steering')
   })
 

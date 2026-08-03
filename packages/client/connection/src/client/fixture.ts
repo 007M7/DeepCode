@@ -339,7 +339,7 @@ function fixtureUsage(turn: number, step: number): TokenUsage {
 }
 
 /** fx-alpha history script: 60 turns (~130+ messages -> 3 pages at PAGE_MESSAGES=50),
- *  mixing reasoning blocks / tool call+result / steering / context. */
+ *  mixing reasoning blocks / tool call+result / context. */
 function buildAlphaLog(): SessionEvent[] {
   const events: Record<string, unknown>[] = []
   let time = Date.now() - 3_600_000
@@ -392,9 +392,6 @@ function buildAlphaLog(): SessionEvent[] {
     } else {
       push({ type: 'assistant/message', surfaceOp: 'append', data: { turn, step: 0, message: assistantMessage(blocks) } })
       push({ type: 'step/end', data: { turn, step: 0 } })
-    }
-    if (turn % 13 === 6) {
-      push({ type: 'steering/message', surfaceOp: 'append', data: { turn, message: userMessage(text(`插话 ${turn}：fixture steering 消息。`)) } })
     }
     push({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
   }
@@ -957,7 +954,7 @@ function pageOf(
     const event = log[i]
     /* v8 ignore next -- dense-array guard: log seqs are array indexes, i stays within [0, end). */
     if (event === undefined) break
-    if (event.type === 'user/message' || event.type === 'assistant/message' || event.type === 'steering/message') messages++
+    if (event.type === 'user/message' || event.type === 'assistant/message') messages++
     if (event.type === 'turn/start' && messages >= maxMessages) {
       start = i
       break
@@ -986,11 +983,11 @@ function searchBlockText(block: ContentBlock): string[] {
   }
 }
 
-/** One current-surface user/assistant/steering document, if searchable. */
+/** One current-surface user/assistant document, if searchable. */
 function searchEventText(event: SessionEvent): string {
   const content = event.type === 'user/message'
     ? event.data.content
-    : event.type === 'assistant/message' || event.type === 'steering/message'
+    : event.type === 'assistant/message'
       ? event.data.message.content
       : undefined
   if (content === undefined) return ''
@@ -1833,10 +1830,8 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         summary.blank = false
         const userText = content.map(b => (b.type === 'text' ? b.text : '')).join('')
         if (mode === 'steer' && replays.has(id)) {
-          // Steering: insert a steering message into the current turn; the replay continues.
-          /* v8 ignore next -- the ?? arm needs a missing counter, but a live replay implies a prior prompt already set it. */
-          const turn = (nextTurn.get(id) ?? 1) - 1
-          append(id, { type: 'steering/message', surfaceOp: 'append', data: { turn, message: userMessage(content) } })
+          // Steering: the durable user/message lands inside the current turn; the replay continues.
+          append(id, { type: 'user/message', surfaceOp: 'append', data: userMessage(content) })
           return ok(request, { accepted: true as const })
         }
         const turn = nextTurn.get(id) ?? 0

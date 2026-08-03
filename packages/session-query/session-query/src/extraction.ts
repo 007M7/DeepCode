@@ -15,7 +15,6 @@ export function extractSessionEventText(event: SessionEvent): string {
     case 'user/message':
       return contentText(event.data.content)
     case 'assistant/message':
-    case 'steering/message':
       return contentText(event.data.message.content)
     case 'tool/call':
       return joinText([event.data.name, event.data.arguments])

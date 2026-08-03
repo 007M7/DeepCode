@@ -80,8 +80,9 @@ describe('web e2e: mid-turn steering lands durably and visibly', () => {
   it('strictly steers one queued row; the interjection is logged, rendered, and obeyed', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-steering'))
     if (MODE !== 'record') {
-      // The recorded prompt inventory excludes the later same-turn steer.
-      expect(fixtureUserPrompts(await readFile(FIXTURE, 'utf8'))).toEqual([PROMPT])
+      // The steer lands as a durable user/message, so the inventory holds
+      // both the opening prompt and the later same-turn steer.
+      expect(fixtureUserPrompts(await readFile(FIXTURE, 'utf8'))).toEqual([PROMPT, STEER])
     }
     const input = page.locator('textarea').first()
     await input.waitFor({ timeout: 10_000 })
@@ -187,7 +188,7 @@ describe('web e2e: composer shortcut steers directly', () => {
 
   it.skipIf(MODE === 'record')('uses Cmd+Enter without creating a Queue row', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-composer-steering'))
-    expect(fixtureUserPrompts(await readFile(FIXTURE, 'utf8'))).toEqual([PROMPT])
+    expect(fixtureUserPrompts(await readFile(FIXTURE, 'utf8'))).toEqual([PROMPT, STEER])
     const input = page.locator('textarea').first()
     await input.waitFor({ timeout: 10_000 })
     const settled = scaffold.whenTurnSettled(30_000)

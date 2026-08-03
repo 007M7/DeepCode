@@ -75,7 +75,7 @@ const PREVIEW_OUTPUT_CHARACTERS = 512
 
 type InputNode = Extract<
   ConversationSnapshot['nodes'][number],
-  { kind: 'user' | 'steering' | 'context' }
+  { kind: 'user' | 'context' }
 >
 
 type OrderedLayoutEntry =
@@ -325,19 +325,17 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
       continue
     }
     const { node, nodeIndex: i } = entry
-    if (node.kind === 'user' || node.kind === 'steering') {
+    if (node.kind === 'user') {
       // user/message has no turn on the wire; enclose it in the next assistant
       // (or partial) turn, else open the turn after the last assistant.
-      const turn = node.kind === 'steering'
-        ? node.turn
-        : enclosingUserTurn(nodes, i, partial, lastAssistantTurn)
+      const turn = enclosingUserTurn(nodes, i, partial, lastAssistantTurn)
       pushMessage(turn, {
         absTime: finiteTime(node.time),
         cell: {
           index: ++index,
           kind: 'user',
           ...inputCellDetail(node),
-          opensTurn: node.kind === 'user',
+          opensTurn: true,
         },
       })
       prevAbsTime = finiteTime(node.time) ?? prevAbsTime
@@ -453,7 +451,7 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
     else for (const laid of laidList) pushMessage(call.turn, laid)
   }
 
-  // Orphan turn-0 cells (orphaned tools / steering turn 0) fold into Turn 1.
+  // Orphan turn-0 cells (orphaned tools) fold into Turn 1.
   const prologue = turns.get(0)
   if (prologue !== undefined) {
     turns.delete(0)
@@ -733,7 +731,7 @@ function stringifySourceValue(value: unknown): string {
 }
 
 /**
- * Turn that encloses a user/message: next assistant/steering turn, else the
+ * Turn that encloses a user/message: next assistant turn, else the
  * in-flight partial, else the turn after the last finalized assistant (or 1).
  */
 function enclosingUserTurn(
@@ -746,7 +744,7 @@ function enclosingUserTurn(
     const n = nodes[i]
     /* v8 ignore next -- dense-array guard: i stays within nodes.length, so the undefined arm needs a sparse array no caller builds. */
     if (n === undefined) continue
-    if (n.kind === 'assistant' || n.kind === 'steering') return n.turn
+    if (n.kind === 'assistant') return n.turn
   }
   if (partial !== null) return partial.turn
   if (lastAssistantTurn !== null) return lastAssistantTurn + 1
@@ -770,7 +768,7 @@ function firstVisibleTurn(
   partial: ConversationSnapshot['partial'],
 ): number {
   const turns = nodes.flatMap(node =>
-    (node.kind === 'assistant' || node.kind === 'steering') && node.turn > 0
+    node.kind === 'assistant' && node.turn > 0
       ? [node.turn]
       : [],
   )

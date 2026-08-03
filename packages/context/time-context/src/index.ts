@@ -65,7 +65,6 @@ function precedingMessageTime(agent: Agent): number | undefined {
       case 'user/message':
       case 'assistant/message':
       case 'tool/result':
-      case 'steering/message':
         return event.time
       default:
         // Merge-extensible session events: non-surface records are not messages.

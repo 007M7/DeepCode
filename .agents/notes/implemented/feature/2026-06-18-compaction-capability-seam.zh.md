@@ -10,7 +10,7 @@ Status: implemented
 
 [会话接口面](../architecture/2026-06-18-session-surface.md)正是为此而构建的基础设施：一份建立在事件日志之上的有序投影，带有专门设计的 `surfaceOp: { op: 'replace', start, end }` 操作，用于遮蔽一段条目并插入替换内容，`sourceEventSeqs` 记录溯源信息以便决策可确定性地回放。剩下的是那个*决定压缩什么、并产出摘要*的插件。
 
-两股力量塑造了设计。第一，压缩策略与可复用的 token 测量独立变化：测量归 LLM 系列的 [`ctx.tokenMeter` 服务](../architecture/2026-07-15-replay-token-meter-service.md)所有，摘要生成则可以使用模型调用、模板或远程服务。第二，`SurfaceEventType` 封闭为五种事件类型（`user/message`、`assistant/message`、`tool/result`、`context/message`、`steering/message`）；只有这些类型可以携带 `surfaceOp`。因此一个专用的 `compaction/*` 事件**不能**出现在 surface 上，编译器与 Session 始终启用的 append/seed 边界都会拒绝在其上附加 `surfaceOp`。
+两股力量塑造了设计。第一，压缩策略与可复用的 token 测量独立变化：测量归 LLM 系列的 [`ctx.tokenMeter` 服务](../architecture/2026-07-15-replay-token-meter-service.md)所有，摘要生成则可以使用模型调用、模板或远程服务。第二，`SurfaceEventType` 封闭为产生消息的事件类型（`user/message`、`assistant/message`、`tool/result`）；只有这些类型可以携带 `surfaceOp`。因此一个专用的 `compaction/*` 事件**不能**出现在 surface 上，编译器与 Session 始终启用的 append/seed 边界都会拒绝在其上附加 `surfaceOp`。
 
 ## 决策
 

@@ -6,7 +6,7 @@ English | [中文](2026-07-31-web-ui-no-steer-entry-or-interjection-chrome.zh.md
 
 ## Problem
 
-Mid-turn steering is a host/agent-loop capability (`mode:'steer'`, durable `steering/message`). The Web product already locked the composer while a turn runs and never shipped a queue/steer menu, yet the client still threaded `'queue' | 'steer'` through the input machine, `conversation.send`, and locale keys, and rendered consumed steering as a badged 「插话」/「Interjection」 bubble. That left a half-built UI surface: an unused submit mode, a product label for a gesture users cannot perform, and e2e goldens that pinned chrome the product does not own.
+Mid-turn steering is a host/agent-loop capability (`mode:'steer'`, a durable `user/message`). The Web product already locked the composer while a turn runs and never shipped a queue/steer menu, yet the client still threaded `'queue' | 'steer'` through the input machine, `conversation.send`, and locale keys, and rendered consumed steering as a badged 「插话」/「Interjection」 bubble. That left a half-built UI surface: an unused submit mode, a product label for a gesture users cannot perform, and e2e goldens that pinned chrome the product does not own.
 
 ## Decision
 
@@ -14,7 +14,7 @@ Keep host and runtime steering intact. Remove only the Web UI entry and chrome:
 
 - `InputMachine` / `SessionInput` / `InputActions.submit` / hub `defaultSink` are queue-only; they always call `session.prompt(..., 'queue')`.
 - `ConversationService.send(text)` drops its mode argument and always queues.
-- `MessageItem`'s `steering` arm still folds durable `steering/message` content into a plain right-aligned bubble (no badge, no user IconActions) so external/host steers stay visible on replay.
+- Durable steer content renders as a plain right-aligned bubble (no badge, no user IconActions) so external/host steers stay visible on replay.
 - Delete `message.steering` locale strings and the unused badge CSS.
 - The web steering e2e still POSTs `mode:'steer'` over `/api/session.prompt` and asserts durable + model-visible obedience; it no longer expects interjection chrome. Update [web input machine note](../architecture/2026-07-25-web-input-machine-and-slash-pipeline.md) fact lines to match.
 

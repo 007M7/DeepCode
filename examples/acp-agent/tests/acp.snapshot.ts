@@ -418,8 +418,7 @@ it('packed ACP fixture retains every chunk row kind without changing the logical
     }
     if (cloned.type === 'user/message') delete cloned.data?.id
     if (cloned.type === 'assistant/message'
-      || cloned.type === 'tool/result'
-      || cloned.type === 'steering/message') {
+      || cloned.type === 'tool/result') {
       delete cloned.data?.message?.id
     }
     if (cloned.type === 'hook/result') delete cloned.data?.durationMs

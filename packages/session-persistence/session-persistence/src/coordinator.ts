@@ -270,23 +270,6 @@ function migrateLegacyMessageEvent(
         },
       } as SessionEvent
     }
-    case 'steering/message': {
-      if (Object.hasOwn(data, 'message')
-        || !Object.hasOwn(data, 'content') || !Object.hasOwn(data, 'source')) return event
-      const { content, source, ...eventData } = data
-      return {
-        ...event,
-        data: {
-          ...eventData,
-          message: {
-            id: legacyMessageId(id, event.seq),
-            role: 'user',
-            content,
-            source,
-          },
-        },
-      } as SessionEvent
-    }
     default:
       return event
   }

@@ -136,13 +136,6 @@ describe('session-log invariants', () => {
       content: [{ type: 'text', text: 'idle context' }],
       source: { kind: 'plugin', plugin: 'test' },
     }), { surfaceOp: 'append' })).not.toThrow()
-    expect(() => outside.append('steering/message', {
-      turn: 1,
-      message: createUserMessage({
-        content: [{ type: 'text', text: 'go' }],
-        source: { kind: 'user' },
-      }),
-    }, { surfaceOp: 'append' })).toThrow(/outside any open turn/)
     // Route capacity is core execution state like the header beside it.
     expect(() => outside.append('request/context', {
       provider: 'mock',

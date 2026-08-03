@@ -155,7 +155,6 @@ export function snapshotSessionEvent<T extends SessionEvent>(event: T): T {
       break
     case 'assistant/message':
     case 'tool/result':
-    case 'steering/message':
       deepFreeze(snapshot.data.message)
       break
     default:
@@ -207,7 +206,7 @@ function assertCurrentLlmShape(event: Record<string, unknown>, index: number): v
   }
   const type = event['type']
   if (type !== 'user/message' && type !== 'assistant/message'
-    && type !== 'tool/result' && type !== 'steering/message') return
+    && type !== 'tool/result') return
   assertMessageEventShape(event, `seed ${type} at index ${index}`)
 }
 
@@ -235,7 +234,7 @@ function assertAdapterDefaults(
 function assertMessageEventShape(event: Record<string, unknown>, subject: string): void {
   const type = event['type']
   if (type !== 'user/message' && type !== 'assistant/message'
-    && type !== 'tool/result' && type !== 'steering/message') return
+    && type !== 'tool/result') return
   const data = event['data']
   const record = typeof data === 'object' && data !== null
     ? data as Record<string, unknown>
@@ -665,10 +664,9 @@ export class Session {
     // trace/replay data.
 
     switch (event.type) {
-      // Ordinary prompts, injected context, and mid-turn steering project
-      // identically in user role: the event's model-facing content stays
-      // verbatim. Steering's `turn` is log-only. Do NOT
-      // re-add per-type framing (e.g. `<context>`/`<steering>`) here: framing is
+      // Ordinary prompts and injected context project in user role: the
+      // event's model-facing content stays verbatim. Do NOT
+      // re-add per-type framing (e.g. `<context>`) here: framing is
       // caller-owned — a producer bakes it into `content`, as workspace-context
       // does with `<system-reminder>` — or, if reintroduced, must be driven by
       // the event `meta` map and a dedicated renderer, keeping this projection a
@@ -676,9 +674,6 @@ export class Session {
       // ../../../../.agents/notes/implemented/simplification/2026-07-20-unwrap-injected-content-envelopes.md
       case 'user/message': {
         return event.data
-      }
-      case 'steering/message': {
-        return event.data.message
       }
       case 'assistant/message': {
         // Skip an empty-content assistant/message: it exists only to host a
@@ -747,7 +742,7 @@ export class SessionStore extends Service {
    * {@link SessionHeader} (the store fills `version`/`id`/`createdAt`).
    *
    * For an agent whose session must be torn down IN ORDER with its loop (so the
-   * loop's final flush is captured before the store attachment ends), do NOT use this
+   * loop's final events are published before the store attachment ends), do NOT use this
    * — fold the session lifecycle into the agent's own effect via
    * {@link prepare} + {@link enter} + {@link announce} (see
    * `dsh-agent-loop`'s creation transaction).
@@ -779,7 +774,7 @@ export class SessionStore extends Service {
    * `ctx.effect` (the agent factory) folds the session lifecycle into that ONE
    * effect so a fiber unload tears the session + agent down as a single ORDERED
    * chain rather than as racing sibling effects — which would remove the publication hooks
-   * before the loop's closing `session/flush`, dropping the closing events.
+   * before the driver's closing events commit, dropping them.
    *
    * @param id - the session id; omitted, the store mints `session-<n>`.
    * @param options - seed events and/or creation metadata for the header.

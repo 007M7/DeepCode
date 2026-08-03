@@ -149,16 +149,16 @@ describe('queue snapshot intake', () => {
     const durable = {
       seq: 0,
       time: 1_700_000_000_000,
-      type: 'steering/message',
+      type: 'user/message',
       surfaceOp: 'append',
-      data: { turn: 1, message },
+      data: message,
     } as SessionEvent
 
     session.handleMuxEnvelope(rid('env-durable'), {
       type: 'session/event', sessionId: SID, event: durable,
     })
     expect(session.getSnapshot().queue.map(item => item.id)).toEqual(['s-second'])
-    expect(session.getSnapshot().nodes.filter(node => node.kind === 'steering')).toHaveLength(1)
+    expect(session.getSnapshot().nodes.filter(node => node.kind === 'user')).toHaveLength(1)
 
     session.handleMuxEnvelope(rid('env-reused-id'), queueFrame([
       { id: 's-later', body: '', placement: 'steering', message },

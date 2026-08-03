@@ -102,19 +102,6 @@ export interface AssistantMessageNode {
   interrupted?: true
 }
 
-/** A steering message injected mid-turn. */
-export interface SteeringMessageNode {
-  kind: 'steering'
-  /** Stable identity shared with its pre-admission inbox occurrence. */
-  messageId: MessageId
-  seq: number
-  /** Unix epoch ms from the source session event. */
-  time: number
-  turn: number
-  content: readonly ContentBlock[]
-  source: unknown
-}
-
 /** A context/system injection surfaced in the flow. */
 export interface ContextMessageNode {
   kind: 'context'
@@ -236,7 +223,6 @@ export interface CommandNode {
 export type ConversationNode =
   | UserMessageNode
   | AssistantMessageNode
-  | SteeringMessageNode
   | ContextMessageNode
   | ModelRetryNode
   | TurnErrorNode

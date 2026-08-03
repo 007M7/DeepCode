@@ -190,10 +190,11 @@ export interface SessionEventMap {
   'turn/start': { turn: number }
   /**
    * Closes turn `turn` after `step`, the last entered step (`0` when none),
-   * with the {@link TurnEndReason} that ended it. The loop awaits
-   * `session/flush` after an ordinary turn ends before claiming the next queued
-   * item. Success commits the turn; rejection is reported live and does not
-   * prevent later work.
+   * with the {@link TurnEndReason} that ended it. The loop does not await a
+   * flush at turn boundaries: `dsh-session-checkpoint-policy` owns the
+   * per-request durability checkpoint, and consumers that read storage after
+   * `whenIdle()` flush themselves. Success commits the turn; rejection is
+   * reported live and does not prevent later work.
    */
   'turn/end': { turn: number; step: number; reason: TurnEndReason }
   /** Opens step `step` of turn `turn` — one model call plus the tool executions it requested. */
@@ -241,8 +242,6 @@ export interface SessionEventMap {
     error?: { name: string; code: string }
     meta?: JsonValue
   }
-  /** Steering content injected between steps of a running turn. */
-  'steering/message': { turn: number; message: UserMessage }
   /** Whole-list snapshot; latest write wins on replay. Log-only UI state; never derived history. */
   'todo/write': { todos: TodoItem[] }
   /**
@@ -292,7 +291,6 @@ export type SurfaceEventType =
   | 'user/message'
   | 'assistant/message'
   | 'tool/result'
-  | 'steering/message'
 
 /**
  * A {@link SessionEvent} that is **on** the ordered surface — its
@@ -309,7 +307,7 @@ export type SurfaceEvent = SessionEvent<SurfaceEventType> & { surfaceOp: Surface
  * How a session event entered the ordered surface. Only valid on
  * {@link SurfaceEventType} events.
  *
- * - `'append'`: added to the tail — normal path for user/assistant/tool/steering
+ * - `'append'`: added to the tail — normal path for user/assistant/tool
  *   messages.
  * - `{ op: 'replace', start, end }`: replaces surface nodes from `start`
  *   (inclusive) through `end` (inclusive) with this node. Both must exist as
@@ -344,7 +342,7 @@ export interface SurfaceIntent {
  *
  * The {@link sourceEventSeqs} and {@link surfaceOp} fields are conditional:
  * they only exist on {@link SurfaceEventType} variants (`user/message`,
- * `assistant/message`, `tool/result`, `steering/message`).
+ * `assistant/message`, `tool/result`).
  * Non-surface events (boundary markers, chunks, usage, errors) never carry
  * surface metadata — the compiler enforces this at `Session.append()`
  * call sites.

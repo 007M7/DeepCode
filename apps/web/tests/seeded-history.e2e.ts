@@ -57,8 +57,7 @@ function withCompaction(raw: string): string {
     .filter(event => event.surfaceOp === 'append'
       && (event.type === 'user/message'
         || event.type === 'assistant/message'
-        || event.type === 'tool/result'
-        || event.type === 'steering/message'))
+        || event.type === 'tool/result'))
     .map(event => event.seq)
   const first = surfaceSeqs[0]
   const last = surfaceSeqs.at(-1)

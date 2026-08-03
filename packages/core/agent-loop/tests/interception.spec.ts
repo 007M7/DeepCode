@@ -293,7 +293,7 @@ describe('agent/pre-step', () => {
     expect(agent.inbox.hasPending).toBe(false)
 
     const staged = events(agent).filter(event =>
-      event.type === 'turn/start' || event.type === 'user/message' || event.type === 'steering/message')
+      event.type === 'turn/start' || event.type === 'user/message')
     expect(staged.map(event => event.type)).toEqual([
       'turn/start',
       'user/message',
@@ -350,7 +350,7 @@ describe('agent/pre-step', () => {
     await waitForIdle(ctx, agent)
 
     const staged = events(agent).filter(event =>
-      event.type === 'user/message' || event.type === 'steering/message')
+      event.type === 'user/message')
     expect(staged.map(event => event.type)).toEqual([
       'user/message',
       'user/message',

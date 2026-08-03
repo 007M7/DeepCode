@@ -1337,20 +1337,14 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: '   ' }], source: { kind: 'user' },
     }), { surfaceOp: 'append' })
-    result.session.append('steering/message', {
-      turn: 2,
-      message: createUserMessage({
-        content: [{ type: 'text', text: 'steering note' }],
-        source: { kind: 'user' },
-      }),
-    }, { surfaceOp: 'append' })
-    result.session.append('steering/message', {
-      turn: 2,
-      message: createUserMessage({
-        content: [{ type: 'text', text: '' }],
-        source: { kind: 'user' },
-      }),
-    }, { surfaceOp: 'append' })
+    result.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'steering note' }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    result.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: '' }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
     result.session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'user context' }], source: { kind: 'user' },
     }), { surfaceOp: 'append' })
@@ -1448,7 +1442,8 @@ describe('pi-tui chat lifecycle and transcript', () => {
     })
 
     expect(result.terminal.output).toContain('press enter to steer and esc to cancel')
-    expect(result.terminal.output).toContain('Steering')
+    // Steer content renders as a plain user bubble, with no steering label.
+    expect(result.terminal.output).toContain('steering note')
     expect(result.terminal.output).toContain('user context')
     expect(result.terminal.output).toContain('Context · workspace-context')
     // The redundant `system-reminder` frame element is dropped: the source label
@@ -1702,13 +1697,10 @@ describe('pi-tui chat lifecycle and transcript', () => {
         const index = result.agent.inbox.nextStep.findIndex(message => message.id === id)
         if (index >= 0) result.agent.inbox.splice('next-step', index, 1, [])
       }
-      result.session.append('steering/message', {
-        turn: 1,
-        message: createUserMessage({
-          content: [{ type: 'text', text }],
-          source: { kind: 'user' },
-        }),
-      }, { surfaceOp: 'append' })
+      result.session.append('user/message', createUserMessage({
+        content: [{ type: 'text', text }],
+        source: { kind: 'user' },
+      }), { surfaceOp: 'append' })
     }
 
     // Two steering messages queue while the turn runs.
@@ -1740,16 +1732,12 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await tick()
     expect(result.terminal.output).toContain('1 queued')
 
-    // A steering/message has no inbox identity and therefore cannot consume a
-    // pending slot by itself.
+    // A user/message append alone cannot consume a pending slot by itself.
     result.terminal.output = ''
-    result.session.append('steering/message', {
-      turn: 1,
-      message: createUserMessage({
-        content: [{ type: 'text', text: 'continue: goal not reached' }],
-        source: { kind: 'plugin', plugin: 'hooks' },
-      }),
-    }, { surfaceOp: 'append' })
+    result.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'continue: goal not reached' }],
+      source: { kind: 'plugin', plugin: 'hooks' },
+    }), { surfaceOp: 'append' })
     await tick()
     expect(result.terminal.output).toContain('1 queued')
     result.terminal.output = ''
@@ -2266,13 +2254,10 @@ describe('pi-tui chat lifecycle and transcript', () => {
   it('tracks steering drains without a running status line', async () => {
     const result = await setup()
     const source = { kind: 'user' as const }
-    result.session.append('steering/message', {
-      turn: 1,
-      message: createUserMessage({
-        content: [{ type: 'text', text: 'early' }],
-        source,
-      }),
-    }, { surfaceOp: 'append' })
+    result.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'early' }],
+      source,
+    }), { surfaceOp: 'append' })
     await tick()
     expect(result.terminal.output).not.toContain('queued')
     await dispose(result)
@@ -3244,13 +3229,10 @@ describe('pi-tui chat lifecycle and transcript', () => {
         references: [{ sessionId: 'steering-source', label: 'Steering source' }],
       } as never,
     }), { surfaceOp: 'append' })
-    result.session.append('steering/message', {
-      turn: 1,
-      message: createUserMessage({
-        content: [{ type: 'text', text: 'visible steering prompt' }],
-        source: { kind: 'user' },
-      }),
-    }, { surfaceOp: 'append' })
+    result.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'visible steering prompt' }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
     await tick()
     expect(result.terminal.output).toContain('visible steering prompt')
     expect(result.terminal.output).toContain('Referenced sessions · Steering source (steering-source)')

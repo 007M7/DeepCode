@@ -24,13 +24,12 @@ export type SurfaceEventType =
   | 'user/message'
   | 'assistant/message'
   | 'tool/result'
-  | 'steering/message'
 
 /**
  * How a session event entered the ordered surface. Only valid on
  * {@link SurfaceEventType} events.
  *
- * - `'append'`: added to the tail — normal path for user/assistant/tool/steering
+ * - `'append'`: added to the tail — normal path for user/assistant/tool
  *   messages.
  * - `{ op: 'replace', start, end }`: replaces surface nodes from `start`
  *   (inclusive) through `end` (inclusive) with this node. Both must exist as
@@ -50,7 +49,7 @@ export type SurfaceOp =
  *
  * The {@link sourceEventSeqs} and {@link surfaceOp} fields are conditional:
  * they only exist on {@link SurfaceEventType} variants (`user/message`,
- * `assistant/message`, `tool/result`, `steering/message`).
+ * `assistant/message`, `tool/result`).
  * Non-surface events (boundary markers, chunks, usage, errors) never carry
  * surface metadata — the compiler enforces this at `Session.append()`
  * call sites.
@@ -78,7 +77,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-Sources: [`packages/core/session/src/types.ts:284`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:291`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:320`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:352`](../packages/core/session/src/types.ts)
+Sources: [`packages/core/session/src/types.ts:283`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:290`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:318`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:350`](../packages/core/session/src/types.ts)
 
 ## Events
 
@@ -175,7 +174,7 @@ Source: [`packages/ui/user-approval/src/index.ts:67`](../packages/ui/user-approv
 
 Types: [StreamChunk](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:212`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:213`](../packages/core/session/src/types.ts)
 
 #### `assistant/message` — surface
 
@@ -191,7 +190,7 @@ Source: [`packages/core/session/src/types.ts:212`](../packages/core/session/src/
 
 Types: [TokenUsage](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:219`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:220`](../packages/core/session/src/types.ts)
 
 ### `command/*`
 
@@ -420,7 +419,7 @@ Source: [`packages/plan/plan-mode/src/index.ts:52`](../packages/plan/plan-mode/s
 'request/context': RequestContext
 ```
 
-Source: [`packages/core/session/src/types.ts:257`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:256`](../packages/core/session/src/types.ts)
 
 #### `request/header` — log-only
 
@@ -432,7 +431,7 @@ Source: [`packages/core/session/src/types.ts:257`](../packages/core/session/src/
 'request/header': { header: EpochHeader; reason: RequestHeaderReason }
 ```
 
-Source: [`packages/core/session/src/types.ts:252`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:251`](../packages/core/session/src/types.ts)
 
 ### `sandbox/*`
 
@@ -485,7 +484,7 @@ Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:33`](../packages/s
 'session/end-seed': Record<string, never>
 ```
 
-Source: [`packages/core/session/src/types.ts:280`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:279`](../packages/core/session/src/types.ts)
 
 #### `session/title` — log-only
 
@@ -512,17 +511,6 @@ Types: [SessionTitleLlmRequestEventData](core-data-structures/session-title.md)
 
 Source: [`packages/session-title/session-title-llm/src/index.ts:43`](../packages/session-title/session-title-llm/src/index.ts)
 
-### `steering/*`
-
-#### `steering/message` — surface
-
-```ts persistence-catalog
-/** Steering content injected between steps of a running turn. */
-'steering/message': { turn: number; message: UserMessage }
-```
-
-Source: [`packages/core/session/src/types.ts:245`](../packages/core/session/src/types.ts)
-
 ### `step/*`
 
 #### `step/end` — log-only
@@ -532,7 +520,7 @@ Source: [`packages/core/session/src/types.ts:245`](../packages/core/session/src/
 'step/end': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:202`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:203`](../packages/core/session/src/types.ts)
 
 #### `step/start` — log-only
 
@@ -541,7 +529,7 @@ Source: [`packages/core/session/src/types.ts:202`](../packages/core/session/src/
 'step/start': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:200`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:201`](../packages/core/session/src/types.ts)
 
 ### `subagent/*`
 
@@ -571,7 +559,7 @@ Source: [`packages/subagent/subagent/src/descriptor.ts:37`](../packages/subagent
 
 Types: [TodoItem](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:247`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:246`](../packages/core/session/src/types.ts)
 
 ### `tool/*`
 
@@ -588,7 +576,7 @@ Source: [`packages/core/session/src/types.ts:247`](../packages/core/session/src/
 
 Types: [CallId](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:225`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:226`](../packages/core/session/src/types.ts)
 
 #### `tool/code-dispatch` — log-only
 
@@ -661,7 +649,7 @@ Source: [`packages/core/tools/src/code-mode.ts:33`](../packages/core/tools/src/c
 }
 ```
 
-Source: [`packages/core/session/src/types.ts:237`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:238`](../packages/core/session/src/types.ts)
 
 ### `turn/*`
 
@@ -670,17 +658,18 @@ Source: [`packages/core/session/src/types.ts:237`](../packages/core/session/src/
 ```ts persistence-catalog
 /**
  * Closes turn `turn` after `step`, the last entered step (`0` when none),
- * with the {@link TurnEndReason} that ended it. The loop awaits
- * `session/flush` after an ordinary turn ends before claiming the next queued
- * item. Success commits the turn; rejection is reported live and does not
- * prevent later work.
+ * with the {@link TurnEndReason} that ended it. The loop does not await a
+ * flush at turn boundaries: `dsh-session-checkpoint-policy` owns the
+ * per-request durability checkpoint, and consumers that read storage after
+ * `whenIdle()` flush themselves. Success commits the turn; rejection is
+ * reported live and does not prevent later work.
  */
 'turn/end': { turn: number; step: number; reason: TurnEndReason }
 ```
 
 Types: [TurnEndReason](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:198`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:199`](../packages/core/session/src/types.ts)
 
 #### `turn/start` — log-only
 
@@ -710,7 +699,7 @@ Source: [`packages/core/session/src/types.ts:190`](../packages/core/session/src/
 'user/message': UserMessage
 ```
 
-Source: [`packages/core/session/src/types.ts:210`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:211`](../packages/core/session/src/types.ts)
 
 ### `web/*`
 

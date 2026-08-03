@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-中途 steering 是 host／agent-loop 能力（`mode:'steer'`、持久 `steering/message`）。Web 产品已在 turn 运行中锁定 composer，且从未交付排队／steer 菜单，但客户端仍把 `'queue' | 'steer'` 穿进 input machine、`conversation.send` 与 locale 键，并把已消费的 steering 渲染成带「插话」／「Interjection」徽章的气泡。这留下半成品 UI：用不到的提交 mode、用户做不到的手势却有产品文案，以及把产品并不拥有的 chrome 钉死在 e2e golden 上。
+中途 steering 是 host／agent-loop 能力（`mode:'steer'`、持久 `user/message`）。Web 产品已在 turn 运行中锁定 composer，且从未交付排队／steer 菜单，但客户端仍把 `'queue' | 'steer'` 穿进 input machine、`conversation.send` 与 locale 键，并把已消费的 steering 渲染成带「插话」／「Interjection」徽章的气泡。这留下半成品 UI：用不到的提交 mode、用户做不到的手势却有产品文案，以及把产品并不拥有的 chrome 钉死在 e2e golden 上。
 
 ## 决策
 
@@ -14,7 +14,7 @@ Status: implemented
 
 - `InputMachine`／`SessionInput`／`InputActions.submit`／hub `defaultSink` 仅 queue；始终调用 `session.prompt(..., 'queue')`。
 - `ConversationService.send(text)` 去掉 mode 参数，始终排队。
-- `MessageItem` 的 `steering` 分支仍把持久 `steering/message` 内容折成右对齐普通气泡（无徽章、无用户 IconActions），以便外部／host steer 在回放时仍可见。
+- 持久 steer 内容渲染为右对齐普通气泡（无徽章、无用户 IconActions），以便外部／host steer 在回放时仍可见。
 - 删除 `message.steering` locale 字符串与未使用的徽章 CSS。
 - web steering e2e 仍通过 `/api/session.prompt` POST `mode:'steer'`，并断言持久化与模型可见服从；不再期望插话 chrome。同步更新 [web input machine note](../architecture/2026-07-25-web-input-machine-and-slash-pipeline.md) 中的事实行。
 

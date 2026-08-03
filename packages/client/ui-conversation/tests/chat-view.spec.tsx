@@ -292,8 +292,7 @@ describe('ChatView', () => {
         nodes: [
           assistant(1, 'working'),
           {
-            kind: 'steering', messageId: pending.messageId,
-            seq: 2, time: 2_000, turn: 1,
+            kind: 'user', seq: 2, time: 2_000,
             content: [{ type: 'text', text: 'interrupt now' }], source: null,
           },
         ],
@@ -320,8 +319,7 @@ describe('ChatView', () => {
     const h = makeHarness({
       queue: [pending],
       nodes: [{
-        kind: 'steering', messageId: pending.messageId,
-        seq: 2, time: 2_000, turn: 1,
+        kind: 'user', seq: 2, time: 2_000,
         content: pending.content, source: null,
       }],
       running: true,

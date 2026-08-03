@@ -90,19 +90,8 @@ function legacyMessageLog(): SessionEvent[] {
       surfaceOp: 'append',
     },
     {
-      type: 'steering/message',
-      seq: 6,
-      time: 7,
-      data: {
-        turn: 1,
-        content: [{ type: 'text', text: 'continue' }],
-        source: { kind: 'plugin', plugin: 'test' },
-      },
-      surfaceOp: 'append',
-    },
-    {
       type: 'tool/result',
-      seq: 7,
+      seq: 6,
       time: 8,
       data: {
         turn: 1,
@@ -114,8 +103,8 @@ function legacyMessageLog(): SessionEvent[] {
       sourceEventSeqs: [5],
       surfaceOp: { op: 'replace', start: 5, end: 5 },
     },
-    { type: 'step/end', seq: 8, time: 9, data: { turn: 1, step: 1 } },
-    { type: 'turn/end', seq: 9, time: 10, data: { turn: 1, step: 1, reason: { kind: 'completed' } } },
+    { type: 'step/end', seq: 7, time: 9, data: { turn: 1, step: 1 } },
+    { type: 'turn/end', seq: 8, time: 10, data: { turn: 1, step: 1, reason: { kind: 'completed' } } },
   ] as unknown as SessionEvent[]
 }
 
@@ -357,18 +346,16 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
           await ctx.sessionPersistence.inspect(id),
           await ctx.sessionPersistence.load(id),
         ]) {
-          const messages = snapshot.events.flatMap((event) => {
-            if (event.type === 'user/message') return [event.data]
-            if (event.type === 'assistant/message'
-              || event.type === 'tool/result'
-              || event.type === 'steering/message') return [event.data.message]
-            return []
-          })
+          const messages: { id: string }[] = []
+          for (const event of snapshot.events) {
+            if (event.type === 'user/message') messages.push(event.data)
+            else if (event.type === 'assistant/message'
+              || event.type === 'tool/result') messages.push(event.data.message)
+          }
           expect(messages.map(message => message.id)).toEqual([
             `legacy-message:${id}:1`,
             `legacy-message:${id}:3`,
             `legacy-message:${id}:5`,
-            `legacy-message:${id}:6`,
             `legacy-message:${id}:5`,
           ])
           expect(messages.every(message => Object.isFrozen(message))).toBe(true)
@@ -378,7 +365,6 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
             `legacy-message:${id}:1`,
             `legacy-message:${id}:3`,
             `legacy-message:${id}:5`,
-            `legacy-message:${id}:6`,
           ])
         }
       } finally {
@@ -411,7 +397,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         await expect(ctx.sessionPersistence.load(id))
           .rejects.toThrow('message must have role "user"')
 
-        for (const type of ['tool/result', 'steering/message'] as const) {
+        for (const type of ['tool/result'] as const) {
           const malformedId = SessionId(`invalid-${type}`)
           await ctx.sessionPersistence.create(meta(malformedId, WORK))
           await ctx.sessionPersistence.append(malformedId, [{
