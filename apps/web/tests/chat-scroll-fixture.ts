@@ -27,7 +27,7 @@ export interface ChatScrollFixtureOptions {
 }
 
 /** Semantic marker helpers returned with a generated fixture. */
-export interface ChatScrollMarkers {
+interface ChatScrollMarkers {
   /** Marker painted in the human message for a turn. */
   user(turn: number): string
   /** Marker painted in the final assistant message for a turn. */
