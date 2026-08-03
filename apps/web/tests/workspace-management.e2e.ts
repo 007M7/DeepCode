@@ -421,7 +421,7 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
     // still up and the draft intact.
     await path.fill(`${join(staged, 'alpha')}${sep}`)
     await expect.poll(() => dialog.getByText('only-under-alpha', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
-    expect(await dialog.getByRole('list').count()).toBe(2)
+    await expect.poll(() => dialog.getByRole('list').count(), { timeout: 10_000 }).toBe(2)
     expect(await path.inputValue()).toBe(`${join(staged, 'alpha')}${sep}`)
     // Erasing back past the separator walks the panes up, so the level being
     // typed is the last pane again (its children no longer stand to its
@@ -430,7 +430,7 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
     await expect.poll(() => dialog.getByText('only-under-alpha', { exact: true }).count(), { timeout: 10_000 }).toBe(0)
     expect(await dialog.getByText('alpha', { exact: true }).count()).toBe(1)
     expect(await dialog.getByText('beta', { exact: true }).count()).toBe(0)
-    expect(await dialog.getByRole('list').count()).toBe(2)
+    await expect.poll(() => dialog.getByRole('list').count(), { timeout: 10_000 }).toBe(2)
     // A tail nobody matches is a name still being spelled: the level shows
     // whole instead of emptying under it.
     await path.fill(`${staged}${sep}zzz`)
