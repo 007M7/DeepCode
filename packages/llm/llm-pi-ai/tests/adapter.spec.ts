@@ -400,12 +400,14 @@ describe('provider profile lifecycle', () => {
     expect(server.requests).toHaveLength(0)
   })
 
-  it('validates empty, unknown, legacy-shaped, and explicitly blank profiles', () => {
+  it('validates empty, underspecified, legacy-shaped, and explicitly blank profiles', () => {
     // Empty and omitted dicts are the dormant zero-route posture, not errors.
     expect(resolveProfiles({}).size).toBe(0)
     expect(resolveProfiles(undefined).size).toBe(0)
     expect(() => resolveProfiles({ '': {} })).toThrow(/non-empty/)
-    expect(() => resolveProfiles({ 'not-real': {} })).toThrow(/unknown/)
+    // A route the installed catalog does not ship is allowed, but it has no
+    // defaults to fall back on: it must describe its own models.
+    expect(() => resolveProfiles({ 'not-real': {} })).toThrow(/resolves no models/)
     // The pre-release array shape and its per-profile provider field fail
     // loud with migration directions instead of half-working.
     expect(() => resolveProfiles([{ provider: 'openai' }] as never)).toThrow(/dict keyed by provider/)

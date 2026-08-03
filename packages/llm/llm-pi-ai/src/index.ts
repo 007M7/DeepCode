@@ -1,10 +1,11 @@
 /**
  * Generic pi-ai-backed LLM adapter plugin. One plugin instance owns a dict of
- * provider routes; requests select a profile by provider and resolve the
- * model dynamically from pi-ai's installed catalog. Profile facts resolve per
- * request over the optional `llm-pi-ai` user-settings section and the
- * optional credential seam, so a changed key, endpoint, or knob reaches the
- * next request without a restart; a changed *route set* (or a route's
+ * provider routes; a route naming an installed pi-ai provider inherits that
+ * provider's endpoint, protocol, and model catalog as defaults, and a route
+ * pi-ai does not ship is declared outright. Profile facts resolve per request
+ * over the optional `llm-pi-ai` user-settings section and the optional
+ * credential seam, so a changed key, endpoint, model, or knob reaches the next
+ * request without a restart; a changed *route set* (or a route's
  * registration-captured retry policy) re-registers the same adapter instance
  * in place.
  *
@@ -13,34 +14,48 @@
  *   name: '@deepseek-ai/dsh-llm-pi-ai'
  *   config:
  *     providers:
+ *       # Catalog route: everything but the credential comes from pi-ai.
  *       openai:
  *         apiKeyEnv: OPENAI_API_KEY
  *         retryPolicy:
  *           mode: normal
  *           maxRetries: 2
+ *       # Catalog route with the catalog narrowed and one capacity corrected.
  *       anthropic:
  *         apiKeyEnv: ANTHROPIC_API_KEY
- *       openrouter:
- *         apiKeyEnv: OPENROUTER_API_KEY
- *         baseURL: https://proxy.example.com/v1
+ *         models:
+ *           - id: claude-sonnet-4-5
+ *             contextWindow: 200000
+ *       # Hand-declared route: pi-ai ships nothing under this key.
+ *       acme-gateway:
+ *         displayName: Acme Gateway
+ *         apiKeyEnv: ACME_GATEWAY_API_KEY
+ *         api: openai-completions
+ *         baseURL: https://gateway.acme.example/v1
+ *         models:
+ *           - id: acme-large
+ *             name: Acme Large
+ *             contextWindow: 65536
+ *             maxTokens: 4096
  * ```
  *
  * @module @deepseek-ai/dsh-llm-pi-ai
  */
 
 import type { Context } from 'cordis'
-import { getBuiltinProviders } from '@earendil-works/pi-ai/providers/all'
 import { LlmError } from '@deepseek-ai/dsh-llm'
-import type { AdapterRegistrationHandle } from '@deepseek-ai/dsh-llm'
+import type { AdapterRegistrationHandle, LlmConfigurableProvider } from '@deepseek-ai/dsh-llm'
 import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { PiAiAdapter } from './adapter.ts'
+import { catalogProviderIds } from './catalog.ts'
 import { Config, resolveProfiles } from './config.ts'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
 
 export { PiAiAdapter } from './adapter.ts'
 export type { PiAiAdapterOptions } from './adapter.ts'
 export { Config } from './config.ts'
-export type { PiAiProviderProfile, ResolvedPiAiProviderProfile } from './config.ts'
+export type { PiAiModelProfile, PiAiProviderProfile, ResolvedPiAiProviderProfile } from './config.ts'
+export { supportedProtocols } from './provider.ts'
 
 export const name = 'llm-pi-ai'
 export const inject = ['llm']
@@ -56,6 +71,26 @@ function registrationFacts(profiles: ReadonlyMap<string, ResolvedPiAiProviderPro
   return [...profiles.entries()]
     .map(([provider, profile]) => ({ provider, retryPolicy: profile.retryPolicy }))
     .sort((left, right) => left.provider.localeCompare(right.provider))
+}
+
+/**
+ * The configurable-provider directory: every installed catalog route, plus
+ * every route the current profiles declare. A hand-declared route has no
+ * catalog entry, so without this union it would have no settings address and
+ * configuration surfaces could neither show nor edit it.
+ * @param profiles - the currently resolved provider profiles.
+ * @returns the directory entries in catalog order, declared routes last.
+ */
+function directoryEntries(
+  profiles: ReadonlyMap<string, ResolvedPiAiProviderProfile>,
+): LlmConfigurableProvider[] {
+  const entries = new Map<string, LlmConfigurableProvider>()
+  const declare = (provider: string, displayName: string): void => {
+    entries.set(provider, { provider, displayName, settingsNs: NS, settingsPath: ['providers', provider] })
+  }
+  for (const provider of catalogProviderIds()) declare(provider, provider)
+  for (const [provider, profile] of profiles) declare(provider, profile.displayName)
+  return [...entries.values()]
 }
 
 /** Register one generic pi-ai adapter for all configured provider routes. */
@@ -114,13 +149,18 @@ export function apply(ctx: Context, config: Config): void {
   const adapter = new PiAiAdapter({ profiles, resolveApiKey })
   // The full installed catalog is configurable from the moment the plugin
   // mounts — dormant or not — so configuration surfaces can offer every
-  // pi-ai provider before any route exists.
-  ctx.llm.registerConfigurableProviders(getBuiltinProviders().map(provider => ({
-    provider,
-    displayName: provider,
-    settingsNs: NS,
-    settingsPath: ['providers', provider],
-  })))
+  // pi-ai provider before any route exists. Hand-declared routes join it as
+  // profiles appear, and leave with them.
+  let directory: (() => void) | undefined
+  let directoryFacts: unknown
+  const ensureDirectory = (): void => {
+    const entries = directoryEntries(profiles())
+    if (deepEqualJson(entries, directoryFacts)) return
+    directory?.()
+    directory = ctx.llm.registerConfigurableProviders(entries)
+    directoryFacts = entries
+  }
+  ensureDirectory()
   // Route effects bind to this apply fiber via the stable `ctx` reference,
   // even when a swap runs inside the scoped settings callback below. A bare
   // mount (zero routes) is the dormant posture: nothing registers until a
@@ -156,6 +196,11 @@ export function apply(ctx: Context, config: Config): void {
     setSource: (source) => {
       current = source
     },
-    onChange: ensureRegistrationFacts,
+    onChange: () => {
+      ensureRegistrationFacts()
+      // The directory follows the profiles the registry accepted, so a route
+      // that failed to register is not advertised as configurable.
+      ensureDirectory()
+    },
   })
 }

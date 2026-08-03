@@ -1,0 +1,47 @@
+# Agent Note: pi-ai routes are declared providers, not catalog lookups
+
+Status: implemented
+
+English | [中文](2026-08-03-pi-ai-declared-provider-catalog.zh.md)
+
+## Problem
+
+`dsh-llm-pi-ai` treated the pi-ai package's generated catalog as the boundary of what could be configured. A route key had to name an installed provider (`resolveProfiles` rejected anything else), model listing returned `getBuiltinModels(provider)` verbatim, and request-time model resolution looked the id up in that same catalog and overrode only `baseURL`. Three consequences followed, and all three were dead ends rather than gaps: an OpenAI-compatible gateway, a self-hosted server, or a provider newer than the installed catalog could not be configured at all; a model the catalog had not caught up with failed with `UNKNOWN_MODEL` even against a correct endpoint; and a model's context window and output cap were whatever the pinned pi-ai release said, so a deployment could neither correct a stale value nor supply one for a model pi-ai had never described. Upgrading the package was the only way to move any of it.
+
+The adapter also streamed through `streamSimple` from `@earendil-works/pi-ai/compat`, an entry point whose own module documentation declares it a temporary compatibility surface — its catalog reads are `@deprecated`, and it is deleted when pi-ai finishes its `ModelManager` migration. The three configuration limits and the deprecated dependency have the same fix, because pi-ai's supported runtime (`createModels()` / `createProvider()`) is built around a provider being *declared* rather than looked up.
+
+## Decision
+
+A provider route is a **declaration**, and the installed catalog is its default. `resolveProfiles` no longer checks route keys against `getBuiltinProviders()`. Instead each route resolves to a materialized model list plus the pi-ai `Provider` that serves it:
+
+- `catalog.ts` merges the installed catalog under the profile's own entries. A profile's `models` list *replaces* the route's catalog (an absent or empty list serves it unchanged), and each entry defaults its unset fields from the installed model of the same `id`. Only the fields the harness consumes are configurable — `id`, `name`, `contextWindow`, `maxTokens`, `reasoning`. Pricing and input modalities are absent from the surface because nothing reads them: `replay.ts` zeroes pi-ai's cost metadata and `context.ts` keeps only text blocks. Reasoning-level spellings, OpenAI-compatibility quirks, and model headers ride the installed entry, because restating them in configuration could not be validated.
+- `provider.ts` builds the route's `Provider`. A catalog route that keeps its catalog protocol **reuses** the installed provider with `getModels()` replaced; every other route is built by `createProvider()` over a protocol table whose entries are the same `@earendil-works/pi-ai/api/*.lazy` factories pi-ai's own provider factories use.
+- `adapter.ts` owns one `createModels()` collection, re-synced when resolution produces a new profile map, and serves `listModels`, `resolveModel`, and `stream` from it. A model's configured `maxTokens` becomes the seam's `defaultMaxTokens`, so a request naming no output cap now carries the configured one.
+
+Resolution fails loud and names the route and model at fault: a model the catalog does not describe needs an explicit `contextWindow` and `maxTokens`; a route the catalog does not ship needs `api`, `baseURL`, and a non-empty `models` list. Because the built `Provider` is part of the resolution result, a protocol or model error keeps the last good route set serving, exactly as a bad settings snapshot already did.
+
+The configurable-provider directory is now the installed catalog **joined with** every route the current profiles declare, re-registered when that set changes. Without the join a hand-declared route would have no settings address and no configuration surface could show or edit it.
+
+### Credentials stay outside pi-ai
+
+pi-ai's `Models` carries its own credential concept — a `CredentialStore` keyed by provider id, with `envApiKeyAuth` resolving `credential.key ?? env(VAR)`. Adopting it would have created a second credential source of truth beside `ctx.credentials` and, worse, reintroduced the ambient fallback the harness deliberately forbids: a named-but-missing `apiKeyEnv` must fail with `MISSING_CREDENTIAL` rather than authenticate with whatever unrelated key the environment holds.
+
+`ModelsImpl.applyAuth` treats `options.apiKey` as the highest-priority auth override, short-circuiting resolution entirely. The harness therefore resolves the route's key through its own seam, as before, and passes the result as the request's `apiKey`; the collection is constructed with no credential store. A catalog route reuses the installed provider's `auth`, which preserves its provider-native ambient discovery for a profile naming no credential. A hand-declared route gets a harness-owned `ApiKeyAuth` that reports configured-but-keyless rather than unconfigured, leaving the requirement to the protocol — which is where it lives: pi-ai's OpenAI-compatible implementation still demands a key or an `Authorization` header, and says so itself.
+
+## Alternatives considered
+
+- **Keep `createProvider()` but skip the `Models` collection**, streaming through `provider.streamSimple(model, ctx, {apiKey})`. Smallest diff and the credential path is untouched, but `createProvider`'s `auth` is a required field that this path never invokes — a required-by-signature implementation with no caller. It also leaves `refreshModels` needing a hand-built `RefreshModelsContext`, and keeps the adapter off the runtime pi-ai actually supports.
+- **Reuse the installed provider for catalog routes and `createProvider()` only for declared ones**, with no shared resolution. Zero risk to catalog behavior, but catalog materialization, endpoint override, and per-model configuration would each exist twice, and a catalog route that repoints its protocol would have to jump paths mid-resolution. The chosen split confines the asymmetry to provider construction, where it is forced by pi-ai not exposing a built provider's API implementations.
+- **Rebuild every route through `createProvider()`**, including catalog ones. Fully symmetric, but a built `Provider` does not expose its `api`, so the protocol table would become the ceiling on which providers work — Bedrock loads its Smithy module through a separate entry point and would silently stop working.
+- **Expose pi-ai's whole `Model` shape** (cost, input modalities, `thinkingLevelMap`, `compat`). Maximum configurability, but no current consumer reads those fields, so a configured price or modality would change nothing while reading as supported.
+- **A runtime dynamic catalog** — `fetchModels` plus `ModelsStore`, refreshed in the background. Rejected for this change: it makes the model list external mutable state needing cache, invalidation, and an offline path, and the product need is a one-shot discovery action whose result the user adopts into `settings.yaml`. That action belongs to the configuration surface and is deferred with it; `settings.yaml` stays the single source of truth for what a route serves.
+
+## Consequences
+
+Configuring a provider no longer depends on a pi-ai release. A gateway, a self-hosted server, or a model newer than the pinned catalog is a `settings.yaml` edit, and a stale context window can be corrected in place. The deprecated `/compat` import is gone, so pi-ai deleting it is no longer a breaking event. `defaultMaxTokens` now flows from configuration, closing the case where a request carried no output cap at all.
+
+What it costs: `settings.yaml` grows for a declared route, because a model the catalog cannot default must state its own capacity. `api` applies to a whole route, so a mixed-protocol catalog route cannot host a model of the other protocol — splitting it across two route keys is the workaround. Nothing queries a provider's `/models`, so a model list is only as current as its last edit. Reported error shape shifts in one case: a route whose auth resolves to nothing now surfaces pi-ai's own diagnostic as an error `finish` chunk before any network call, where the previous adapter sent a keyless request and surfaced the provider's 401.
+
+## Testing
+
+`tests/catalog.spec.ts` covers the contract end to end against local mock servers: a hand-declared route streaming to its own endpoint with its own credential, its appearance in the configurable-provider directory, per-model overrides defaulting from the installed catalog, a model added to a catalog route, protocol repointing with and without an endpoint override, catalog-only metadata surviving an override, the keyless posture and its `Authorization`-header workaround, and every resolution failure that names a route or model. `tests/sdk-options.spec.ts` re-targets the SDK boundary from the removed `/compat` import to the protocol table's lazy api module, which also pins that a setup failure arrives as a terminal error chunk rather than a throw. The twin's [design-verification role](2026-06-13-twin-llm-adapters.md) is unchanged.
