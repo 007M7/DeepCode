@@ -34,7 +34,7 @@ import { assistantActionsSeqs, deriveChatFlow, type ChatFlowItem } from './chat-
 import { AssistantMarkdown } from './AssistantMarkdown.tsx'
 import { GenericCommandCard } from './GenericCommandCard.tsx'
 import { GenericToolCard } from './GenericToolCard.tsx'
-import { MessageItem } from './MessageItem.tsx'
+import { MessageItem, PendingSteeringBubble } from './MessageItem.tsx'
 import css from './ChatView.module.css'
 
 const FOLLOW_THRESHOLD = 24
@@ -236,6 +236,7 @@ export function ChatView({
   useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, inspectCall, chatScroll, forkAt, t,
 }: ChatViewSlotProps) {
   const nodes = useSession(s => s.nodes)
+  const inbox = useSession(s => s.queue)
   // Workspace root off the session list row: path summaries display relative to it.
   const cwd = useSessions(s => s.byId[sessionId]?.cwd)
   const running = useSession(s => s.running)
@@ -248,6 +249,10 @@ export function ChatView({
   const selectedCallId = useStore(s => s.selection?.callId)
 
   const items = useMemo(() => deriveChatFlow(nodes), [nodes])
+  const pendingSteering = useMemo(
+    () => inbox.filter(item => item.placement === 'steering'),
+    [inbox],
+  )
   const activeRetry = useMemo(() => activeRetrySeq(nodes, running), [nodes, running])
   // Only the last content assistant of each turn owns IconActions; mid-turn
   // text (before tools) omits `time` so AssistantMarkdown stays chrome-free.
@@ -261,6 +266,7 @@ export function ChatView({
   const firstSeqRef = useRef<number | null>(null)
   const openedRef = useRef(false)
   const lastKeyRef = useRef<string | null>(null)
+  const lastSteeringIdRef = useRef<string | null>(null)
   /** Flow tip signature — follow-scroll only when this moves, never on a
    *  scroll-driven at-bottom chrome re-render (that was snapping inertial
    *  scrolls the rest of the way to the floor). */
@@ -269,7 +275,8 @@ export function ChatView({
   const firstSeq = nodes[0]?.seq ?? null
   const lastItem = items[items.length - 1]
   const lastKey = lastItem?.key ?? null
-  const followSig = `${openState}:${firstSeq}:${lastKey}:${nodes.length}:${running ? 1 : 0}:${runningCalls.length}`
+  const lastSteeringId = pendingSteering[pendingSteering.length - 1]?.id ?? null
+  const followSig = `${openState}:${firstSeq}:${lastKey}:${nodes.length}:${running ? 1 : 0}:${runningCalls.length}:${lastSteeringId ?? ''}`
 
   const toBottom = (el: HTMLElement): void => {
     el.scrollTop = el.scrollHeight
@@ -298,6 +305,7 @@ export function ChatView({
       }
       firstSeqRef.current = firstSeq
       lastKeyRef.current = lastKey
+      lastSteeringIdRef.current = lastSteeringId
       followSigRef.current = followSig
       return
     }
@@ -308,6 +316,7 @@ export function ChatView({
       firstSeqRef.current = firstSeq
       /* v8 ignore next -- ?? arm: a prepend adds nodes, so the flow list here is never empty. */
       lastKeyRef.current = lastKey
+      lastSteeringIdRef.current = lastSteeringId
       followSigRef.current = followSig
       return
     }
@@ -316,12 +325,14 @@ export function ChatView({
     // (send lives in the composer, so arrival is detected here, not armed there).
     const appendedUser = lastKey !== lastKeyRef.current
       && lastItem !== undefined && lastItem.kind === 'node' && lastItem.node.kind === 'user'
+    const appendedSteering = lastSteeringId !== null && lastSteeringId !== lastSteeringIdRef.current
     const tipMoved = followSigRef.current !== followSig
     lastKeyRef.current = lastKey
+    lastSteeringIdRef.current = lastSteeringId
     followSigRef.current = followSig
     // Follow new flow content while pinned; do NOT re-pin on every render
     // merely because atBottomRef is true (scroll threshold → setState → snap).
-    if (appendedUser || (tipMoved && atBottomRef.current)) toBottom(el)
+    if (appendedUser || appendedSteering || (tipMoved && atBottomRef.current)) toBottom(el)
   })
 
   const onScrollRef = useRef(() => {})
@@ -467,6 +478,9 @@ export function ChatView({
           {/* Turn-level loading signal: rides the whole running turn (first-token
               wait, tool execution, streaming) so it never flickers per step. */}
           {running && <TurnStatus />}
+          {pendingSteering.map(item => (
+            <PendingSteeringBubble key={item.id} content={item.content} t={t} />
+          ))}
         </div>
         {!atBottom && (
           <div className={css.toBottomSlot}>

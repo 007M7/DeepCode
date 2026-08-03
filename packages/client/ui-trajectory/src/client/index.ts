@@ -7,6 +7,7 @@ import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: the 'conversation.view' SlotMap row (declared by the slot's
 // owning package) must be in the program for the register calls to type.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { createTrajectoryDurationStore } from './duration-store.ts'
 import { TrajectoryView, type TrajectoryViewInjected } from './TrajectoryView.tsx'
 
 /**
@@ -24,6 +25,7 @@ export const inject = ['slots', 'conversation', 'sessionHistory']
  * @param ctx - client root context.
  */
 export function apply(ctx: Context): void {
+  const duration = createTrajectoryDurationStore()
   ctx.slots.register({
     name: 'conversation.view',
     id: 'trajectory',
@@ -32,8 +34,9 @@ export function apply(ctx: Context): void {
     inject: (sessionId: SessionId): TrajectoryViewInjected => {
       const history = ctx.sessionHistory.source(sessionId)
       return {
-        hooks: { history },
+        hooks: { history, duration },
         loadAllHistory: signal => history.loadAll(signal),
+        setActualDuration: (value) => { duration.set(value) },
       }
     },
   }, TrajectoryView)

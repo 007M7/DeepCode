@@ -30,7 +30,7 @@ const fakeRuntime = fileURLToPath(new URL('../../../sdk/sdk-client/tests/fake-ru
 const fakeParent = { id: 'parent', session: { header: { cwd: process.cwd() } } } as unknown as Agent
 
 function request(text = 'p', signal = new AbortController().signal) {
-  return { prompt: [{ type: 'text' as const, text }], parent: fakeParent, signal }
+  return { label: text, prompt: [{ type: 'text' as const, text }], parent: fakeParent, signal }
 }
 
 /** Mount the SDK backend pointed at the fake runtime, scripted by `fakeEnv`. */
@@ -441,7 +441,9 @@ describe('dsh-subagent-dsh-sdk provider', () => {
   it('fails loud when neither config cwd nor parent session cwd exists', async () => {
     const ctx = await setup()
     const parent = { id: 'parent', session: { header: {} } } as unknown as Agent
-    await expect(ctx.subagents.start('dsh-sdk', { prompt: [{ type: 'text' as const, text: 'p' }], parent, signal: new AbortController().signal }))
+    await expect(ctx.subagents.start('dsh-sdk', {
+      label: 'p', prompt: [{ type: 'text' as const, text: 'p' }], parent, signal: new AbortController().signal,
+    }))
       .rejects.toThrow('no working directory for the child')
     await ctx.fiber.dispose()
   })

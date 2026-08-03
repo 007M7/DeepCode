@@ -24,7 +24,7 @@ group-by 菜单提供 WorkSpace / In one list 两种模式。WorkSpace 模式按
 
 ### workspace.rename
 
-`workspace.rename({ workspaceId, title })`:title trim 后非空;同名 no-op 与重名查重都在 host 的 workspace 创建串行链内求值(与 create 共链,并发 create/rename 不能穿插出重名或乱序假成功),冲突回 `workspace-name-conflict`。落盘经 `setTitle` 的 mutate 通道,`domain/changed` 监听自动广播 `host/workspace-changed` 帧。UI 为标准 Modal,client 侧另做重名预检。
+`workspace.rename({ workspaceId, title })`：title trim 后非空；同名 no-op 与重名查重都在 Host 的 Workspace 操作串行链内求值（与按名称创建共链，并发的显式命名操作不能穿插出重名或乱序假成功），冲突返回 `workspace-name-conflict`。按路径收编可以派生出已有 title，因为拥有身份的是 canonical path，而不是 title（见[身份决策](../bug-fix/2026-07-31-same-basename-workspace-adoption.md)）。落盘经 `setTitle` 的 mutate 通道，`domain/changed` 监听自动广播 `host/workspace-changed` 帧。UI 为标准 Modal，client 侧另做重名预检。
 
 ### 手动排序:insertSessionBefore 取代活动置顶
 
@@ -34,7 +34,7 @@ UI 为组内 session 行的 HTML5 拖拽(仅 workspace 分组、非搜索态；f
 
 ### 壳/区域切分
 
-ui-sidebar 缩为列几何壳:品牌行、折叠状态机、New Session、Settings,以及一个 `sidebar.workspaces` 洞;壳与区域的契约只有两个事实 `{ wide, expandSidebar }`。ui-workspace 全权拥有浏览区域(section header、搜索、分组树与平铺、全部 workspace 对话框、拖拽)及其 groupBy store;rail 态的搜索/新建图标也归区域,经 `expandSidebar()` 请求壳展开。picker 拆为核心件 `WorkspaceCreateFlow`(区域内直接组件组合)与薄包装 `WorkspacePicker`(继续填 ui-conversation 的 hero 坑);原 `sidebar.workspace` picker 坑与声明感知延迟注册随之删除。
+ui-sidebar 缩为列几何壳:品牌行、折叠状态机、New Session、Settings,以及一个 `sidebar.workspaces` 洞;壳与区域的契约只有两个事实 `{ wide, expandSidebar }`。ui-workspace 全权拥有浏览区域(section header、搜索、分组树与平铺、全部 workspace 对话框、拖拽)及其 groupBy store;rail 态的搜索/添加工作区图标也归区域,经 `expandSidebar()` 请求壳展开。picker 拆为核心件 `WorkspacePickFlow`(区域内直接组件组合;在[单一路径 Note](../simplification/2026-07-31-one-route-to-add-a-workspace.md)之前名为 `WorkspaceCreateFlow`)与薄包装 `WorkspacePicker`(继续填 ui-conversation 的 hero 坑);原 `sidebar.workspace` picker 坑与声明感知延迟注册随之删除。
 
 ## Alternatives considered
 

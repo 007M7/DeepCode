@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Opt-in durable context naming the tmux session, window, and pane this agent process runs in, plus the window's pane-tree layout. Sampled once per turn during model-request preparation. `dsh-agent-spine-demo` and shipped examples do not mount it. Decision record: [the tmux-context Agent Note](../../../.agents/notes/implemented/feature/2026-07-27-tmux-location-context.md).
+Opt-in durable context naming the tmux session, window, and pane this agent process runs in, plus the window's pane-tree layout. Sampled once per turn during model-request preparation. The shipped TUI mounts it; `dsh-agent-spine-demo` and the Web/headless surfaces do not. Decision record: [the tmux-context Agent Note](../../../.agents/notes/implemented/feature/2026-07-27-tmux-location-context.md).
 
 ## Config
 

@@ -14,7 +14,7 @@
   color: var(--dsw-static-neutral-bluish-00);
   font-size: 14px;
   line-height: 22px;
-  white-space: nowrap;
+  white-space: pre-line;
   pointer-events: none;
   animation: tooltip-in 150ms var(--ds-ease-in-out);
 }

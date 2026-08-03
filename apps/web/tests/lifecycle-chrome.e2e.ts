@@ -50,7 +50,7 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     // Fresh world: connect a Workspace so the composer scenarios start live.
-    await connectFreshWorkspace(page)
+    await connectFreshWorkspace(page, scaffold.workspaceCwd)
   }, 120_000)
 
   afterAll(async () => {
@@ -93,7 +93,7 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
     try {
       await activePage.goto(activeScaffold.baseUrl, { waitUntil: 'load' })
       await activePage.waitForSelector('[class*="frame"]', { timeout: 30_000 })
-      await connectFreshWorkspace(activePage)
+      await connectFreshWorkspace(activePage, activeScaffold.workspaceCwd)
       const input = activePage.locator('textarea').first()
       await activePage.getByRole('button', { name: 'Commands' }).click()
       const menu = activePage.getByRole('listbox', { name: 'Trigger suggestions' })
@@ -158,8 +158,24 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
     }
     const settled = scaffold.whenTurnSettled()
     await input.fill(PROMPT)
-    await input.press('Enter')
-    const sessionId = await settled
+    const observeTurn = async () => {
+      const originalViewport = page.viewportSize() ?? { width: 1680, height: 1000 }
+      if (MODE !== 'record') await page.setViewportSize({ width: 480, height: 1000 })
+      try {
+        await input.press('Enter')
+        if (MODE !== 'record') {
+          const liveTail = page.locator('[data-variant="think"][data-state="running"] [data-follow-end]')
+          await expect.poll(async () => await liveTail.evaluate(element => (
+            element.scrollWidth > element.clientWidth
+              && element.scrollLeft >= element.scrollWidth - element.clientWidth - 1
+          )), { timeout: 10_000, interval: 10 }).toBe(true)
+        }
+        return await settled
+      } finally {
+        if (MODE !== 'record') await page.setViewportSize(originalViewport)
+      }
+    }
+    const sessionId = await observeTurn()
     if (MODE === 'record') {
       await recordFixture(scaffold, sessionId, FIXTURE)
     }
@@ -172,10 +188,10 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
     await expect.poll(() => page.getByText('1 session', { exact: true }).count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(1)
     await expect.poll(() => page.locator('[role="treeitem"][aria-selected="true"]').count(), { timeout: 10_000 }).toBe(1)
     await expect.poll(() => page.getByText('LIGHTHOUSE', { exact: true }).count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(1)
-    // Host: the session's durable header cwd is the workspace flow's
-    // create-by-name target (<workspaceRoot>/workspace, the composer's
-    // default draft name) — the proof the send went through workspace
-    // materialization rather than a bare default-cwd session.
+    // Host: the session's durable header cwd is the folder the workspace
+    // flow created and adopted (<workspaceCwd>/workspace) — the proof the
+    // send went through workspace materialization rather than a bare
+    // default-cwd session.
     const cwds = scaffold.ctx.sessions.list().map(session => session.header.cwd)
     expect(cwds).toEqual([join(scaffold.workspaceCwd, 'workspace')])
     const turnEnds = sessionEvents.filter(e => e.type === 'turn/end')

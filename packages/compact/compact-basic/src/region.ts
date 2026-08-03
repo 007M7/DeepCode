@@ -1,5 +1,6 @@
 /**
- * Surface retention selection and the log-recorded compaction transaction.
+ * Surface retention selection and the shared log-recorded compaction
+ * transaction for automatic open-turn and manual idle-session compaction.
  *
  * @module @deepseek-ai/dsh-compact-basic/region
  */
@@ -7,12 +8,13 @@
 import { isDeepStrictEqual } from 'node:util'
 import {
   COMPACT_CHECKPOINT_SOURCE,
+  ManualCompactionError,
   toolPairingBalancedAfter,
   toolPairingBalancedBefore,
 } from '@deepseek-ai/dsh-compact'
 import type { CompactionResult } from '@deepseek-ai/dsh-compact'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import type { Message } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
+import type { Message, UserMessage } from '@deepseek-ai/dsh-llm'
 import type { TokenMeasurement, TokenMeterService } from '@deepseek-ai/dsh-token-meter'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -22,6 +24,62 @@ import type { SummarizationInput, SummaryResult } from './summarizer.ts'
 interface RegionDependencies {
   readonly meter: TokenMeterService
   summarize(input: SummarizationInput, agent: Agent, signal?: AbortSignal): Promise<SummaryResult>
+}
+
+/** One validated inclusive span of current surface positions. */
+interface SurfaceSelection {
+  readonly start: number
+  readonly end: number
+  readonly startIdx: number
+  readonly endIdx: number
+  readonly shadowedSeqs: readonly number[]
+}
+
+/** A selection with its priced snapshot and the replay input built from it. */
+interface PreparedCompaction extends SurfaceSelection {
+  readonly measurement: TokenMeasurement
+  readonly selectedNodes: TokenMeasurement['nodes']
+  readonly shadowedTokenCount: number
+  readonly input: SummarizationInput
+}
+
+interface SummarizedCompaction extends PreparedCompaction, SummaryResult {
+  readonly checkpointMessage: UserMessage
+}
+
+interface CompactionTransactionOptions {
+  /** `current-turn` derives a numbered owner; `null` writes a standalone bracket. */
+  readonly owner: 'current-turn' | null
+  /** Surface relationship that must survive asynchronous summarization. */
+  readonly stability: 'whole-surface' | 'selected-span'
+  /** Optional durability checkpoint after a successfully closed bracket. */
+  readonly flush?: () => Promise<void>
+}
+
+interface CompactionEntryState {
+  readonly openTurn: number | null
+  readonly unmatchedCompactionStart: SessionEvent<'compact/start'> | undefined
+  readonly latestEndSeedSeq: number | undefined
+}
+
+/**
+ * Rejects a summary whose replacement boundaries are no longer the ones it was
+ * built from, distinguished from summarizer and shrink failures so a manual
+ * caller can report the two causes differently.
+ */
+class SurfaceChangedError extends Error {}
+
+/** Whether the summary may still replace the span it was built from. */
+type StabilityCheck = (
+  dependencies: RegionDependencies,
+  session: Session,
+  prepared: PreparedCompaction,
+) => void
+
+/** Failure captured after `compact/start` has committed. */
+interface TransactionFailure {
+  readonly error: unknown
+  readonly stage: 'summary' | 'commit'
 }
 
 /**
@@ -71,12 +129,18 @@ export function selectCompactableRange(
 }
 
 /**
- * Validate and compact one positional surface span.
+ * Run the single compaction transaction over one selected positional span.
+ * Selection and validation are read-only. Idle/log validation and
+ * `compact/start` are synchronously adjacent, so the durable opening marker is
+ * the compaction lock before summarization yields. Every later failure makes
+ * exactly one `compact/end` attempt; a failed close deliberately leaves the
+ * unmatched start detectable.
  * @param dependencies - conversation meter and dynamically dispatched summarizer hook.
  * @param session - session whose surface is mutated.
  * @param start - inclusive first surface-node seq.
  * @param end - inclusive last surface-node seq.
  * @param agent - agent used by the summarizer.
+ * @param options - bracket owner, stability rule, and optional durability checkpoint.
  * @param signal - optional summarization cancellation signal.
  * @returns the successful durable compaction result.
  */
@@ -86,8 +150,151 @@ export async function compactSurfaceRegion(
   start: number,
   end: number,
   agent: Agent,
+  options: CompactionTransactionOptions,
   signal?: AbortSignal,
 ): Promise<CompactionResult> {
+  if (options.owner === null) signal?.throwIfAborted()
+  const selection = validateSurfaceRegion(session, start, end)
+  const entryState = inspectCompactionEntryState(session.events)
+  assertCompactionInactive(
+    entryState.unmatchedCompactionStart,
+    entryState.latestEndSeedSeq,
+    'compaction',
+  )
+
+  let owner: number | null
+  if (options.owner === null) {
+    if (entryState.openTurn !== null) {
+      throw new ManualCompactionError('busy', 'manual compaction: the session already has an open turn')
+    }
+    owner = null
+  } else {
+    if (entryState.openTurn === null) {
+      throw new Error('compactRegion: no open turn — automatic compaction events must be enclosed in a turn')
+    }
+    owner = entryState.openTurn
+  }
+
+  const startEvent = session.append('compact/start', { turn: owner })
+  const assertStable: StabilityCheck = options.stability === 'whole-surface'
+    ? assertWholeSurfaceUnchanged
+    : assertSelectedSpanStable
+  let failure: TransactionFailure | undefined
+  let flushFailure: unknown
+  let result: CompactionResult | undefined
+  let closed = false
+  let closing = false
+  let stage: TransactionFailure['stage'] = 'summary'
+
+  try {
+    const prepared = prepareCompaction(dependencies, session, selection)
+    const summarized = await summarizeCompaction(dependencies, prepared, agent, signal)
+    if (options.owner === null) signal?.throwIfAborted()
+    assertStable(dependencies, session, summarized)
+    stage = 'commit'
+    const pending = commitCompactionBody(session, startEvent, summarized)
+    closing = true
+    const endEvent = session.append('compact/end', { turn: owner })
+    closed = true
+    result = completeCompaction(pending, endEvent)
+  } catch (error: unknown) {
+    failure = { error, stage: closing ? 'commit' : stage }
+    if (!closing) {
+      closing = true
+      try {
+        session.append('compact/end', { turn: owner, error: errorChain(error) })
+        closed = true
+      } catch (closeError: unknown) {
+        failure = { error: closeError, stage: 'commit' }
+      }
+    }
+  }
+
+  if (closed && options.flush !== undefined) {
+    try {
+      await options.flush()
+    } catch (error: unknown) {
+      flushFailure = error
+    }
+  }
+
+  if (options.owner === null) signal?.throwIfAborted()
+  if (failure !== undefined) {
+    if (options.owner === null) throwManualFailure(failure)
+    throw failure.error
+  }
+  if (flushFailure !== undefined) {
+    throw new ManualCompactionError(
+      'persistence',
+      'manual compaction durability checkpoint failed',
+      { cause: flushFailure },
+    )
+  }
+  /* v8 ignore next -- every path without a result records and throws a failure above. */
+  if (result === undefined) throw new Error('compaction committed without a result')
+  return result
+}
+
+/** Classify one closed manual attempt without weakening cancellation precedence. */
+function throwManualFailure(failure: TransactionFailure): never {
+  if (failure.stage === 'commit') {
+    throw new ManualCompactionError(
+      'commit',
+      'manual compaction did not commit cleanly',
+      { cause: failure.error },
+    )
+  }
+  if (failure.error instanceof SurfaceChangedError) {
+    throw new ManualCompactionError(
+      'changed',
+      'the compacted history changed during manual compaction',
+      { cause: failure.error },
+    )
+  }
+  throw new ManualCompactionError(
+    'summary',
+    'manual compaction could not produce a smaller summary',
+    { cause: failure.error },
+  )
+}
+
+/**
+ * Reject a durable unmatched compaction marker unless a later constructor-seed
+ * boundary proves that its owner belongs to an earlier session lifecycle.
+ * @param unmatchedCompactionStart - latest unmatched opening marker, if any.
+ * @param latestEndSeedSeq - newest constructor-seed boundary, if any.
+ * @param stage - operation label included in the busy diagnostic.
+ */
+function assertCompactionInactive(
+  unmatchedCompactionStart: SessionEvent<'compact/start'> | undefined,
+  latestEndSeedSeq: number | undefined,
+  stage: string,
+): void {
+  if (unmatchedCompactionStart === undefined
+    || (latestEndSeedSeq !== undefined
+      && latestEndSeedSeq > unmatchedCompactionStart.seq)) return
+  throw new ManualCompactionError(
+    'busy',
+    `${stage}: compaction already in progress; the session compaction lock is already active`,
+  )
+}
+
+/**
+ * Recheck the durable compaction lock after an asynchronous policy decision.
+ * @param session - session whose latest marker state is inspected.
+ * @param stage - operation label included in the busy diagnostic.
+ */
+export function assertNoActiveCompaction(session: Session, stage: string): void {
+  const entryState = inspectCompactionEntryState(session.events)
+  assertCompactionInactive(
+    entryState.unmatchedCompactionStart,
+    entryState.latestEndSeedSeq,
+    stage,
+  )
+}
+
+/** Validate one requested surface-position span before asynchronous work begins. */
+function validateSurfaceRegion(session: Session, start: number, end: number): SurfaceSelection {
   const nodes = session.surface.nodes
   const startIdx = nodes.indexOf(start)
   const endIdx = nodes.indexOf(end)
@@ -107,75 +314,145 @@ export async function compactSurfaceRegion(
     throw new Error(`compactRegion: end seq ${end} is not a balanced boundary (would split a step, or the step is still open)`)
   }
 
-  const tail = inspectTurnTail(session.events)
-  if (tail.compactionInProgress) throw new Error('compaction already in progress')
-  if (tail.turn === null) {
-    throw new Error('compactRegion: no open turn — compaction events must be enclosed in a turn')
-  }
+  return { start, end, startIdx, endIdx, shadowedSeqs: nodes.slice(startIdx, endIdx + 1) }
+}
 
-  const shadowedSeqs = nodes.slice(startIdx, endIdx + 1)
-  const startEvent = session.append('compact/start', { turn: tail.turn })
+/** Snapshot pricing and replay input for a validated surface range. */
+function prepareCompaction(
+  dependencies: RegionDependencies,
+  session: Session,
+  selection: SurfaceSelection,
+): PreparedCompaction {
+  const measurement = dependencies.meter.measure(session)
+  const selectedNodes = measurement.nodes.slice(selection.startIdx, selection.endIdx + 1)
+  if (selectedNodes.length !== selection.shadowedSeqs.length
+    || selectedNodes.some((node, index) => node.seq !== selection.shadowedSeqs[index])) {
+    throw new SurfaceChangedError('compaction: selected surface changed before summarization began')
+  }
+  return {
+    ...selection,
+    measurement,
+    selectedNodes,
+    shadowedTokenCount: selectedNodes.reduce((total, node) => total + node.tokens, 0),
+    input: buildSummarizationInput(session, selection.shadowedSeqs),
+  }
+}
+
+/** Run the summarizer and frame its replacement checkpoint. */
+async function summarizeCompaction(
+  dependencies: RegionDependencies,
+  prepared: PreparedCompaction,
+  agent: Agent,
+  signal?: AbortSignal,
+): Promise<SummarizedCompaction> {
+  const summaryResult = await dependencies.summarize(prepared.input, agent, signal)
+  const checkpointMessage = createUserMessage({
+    content: frameSummary(summaryResult.summary),
+    source: COMPACT_CHECKPOINT_SOURCE,
+  })
+  const framedSummaryTokenCount = dependencies.meter.estimateMessage(checkpointMessage)
+  if (framedSummaryTokenCount >= prepared.shadowedTokenCount) {
+    throw new Error(
+      `summary is not smaller than the shadowed content (${framedSummaryTokenCount} estimated framed tokens >= ${prepared.shadowedTokenCount})`,
+    )
+  }
+  return {
+    ...prepared,
+    ...summaryResult,
+    checkpointMessage,
+  }
+}
+
+/** Reject a summary prepared against any earlier surface generation. */
+function assertWholeSurfaceUnchanged(
+  dependencies: RegionDependencies,
+  session: Session,
+  prepared: PreparedCompaction,
+): void {
+  const current = dependencies.meter.measure(session)
+  if (!isDeepStrictEqual(current.nodes, prepared.measurement.nodes)) {
+    throw new SurfaceChangedError('compaction: session surface changed during summarization')
+  }
+}
+
+/**
+ * Require only that the selected span remain the same present, contiguous,
+ * equally priced, balanced replacement target. Nodes added outside it remain
+ * visible and do not invalidate the summary.
+ */
+function assertSelectedSpanStable(
+  dependencies: RegionDependencies,
+  session: Session,
+  prepared: PreparedCompaction,
+): void {
+  let current: SurfaceSelection
   try {
-    // Capture after the lock event so a later surface mutation invalidates the
-    // async selection before replacement. Unrelated log-only facts may append.
-    const lockedMeasurement = dependencies.meter.measure(session)
-    const selected = lockedMeasurement.nodes.slice(startIdx, endIdx + 1)
-    if (selected.length !== shadowedSeqs.length
-      || selected.some((node, index) => node.seq !== shadowedSeqs[index])) {
-      throw new Error('compaction: selected surface changed before summarization began')
-    }
-    const shadowedTokenCount = selected.reduce((total, node) => total + node.tokens, 0)
-    const summarizationInput = buildSummarizationInput(session, shadowedSeqs)
-    const {
-      summary, rawOutput, provider, model, maxTokens, usage,
-    } = await dependencies.summarize(summarizationInput, agent, signal)
-
-    const currentMeasurement = dependencies.meter.measure(session)
-    if (!isDeepStrictEqual(currentMeasurement.nodes, lockedMeasurement.nodes)) {
-      throw new Error('compaction: session surface changed during summarization')
-    }
-    const framedSummary = frameSummary(summary)
-    const checkpointMessage = createUserMessage({
-      content: framedSummary,
-      source: COMPACT_CHECKPOINT_SOURCE,
-    })
-    const framedSummaryTokenCount = dependencies.meter.estimateMessage(checkpointMessage)
-    if (framedSummaryTokenCount >= shadowedTokenCount) {
-      throw new Error(
-        `summary is not smaller than the shadowed content (${framedSummaryTokenCount} estimated framed tokens >= ${shadowedTokenCount})`,
-      )
-    }
-
-    const summaryEvent = session.append('compact/summary', {
-      summary,
-      ...rawOutput === undefined ? {} : { rawOutput },
-      shadowedRange: { start, end },
-      shadowedSeqs,
-      shadowedTokenCount,
-      provider,
-      model,
-      ...maxTokens === undefined ? {} : { maxTokens },
-      ...usage === undefined ? {} : { usage },
-    })
-    session.append('user/message', checkpointMessage, {
-      surfaceOp: { op: 'replace', start, end },
-      sourceEventSeqs: [startEvent.seq, summaryEvent.seq, ...shadowedSeqs],
-    })
-    const endEvent = session.append('compact/end', { turn: tail.turn })
-    return {
-      startSeq: startEvent.seq,
-      summarySeq: summaryEvent.seq,
-      endSeq: endEvent.seq,
-      summary,
-      shadowedRange: { start, end },
-      shadowedSeqs,
-      shadowedTokenCount,
-    }
+    current = validateSurfaceRegion(session, prepared.start, prepared.end)
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error)
-    session.append('compact/end', { turn: tail.turn, error: message })
-    throw error
+    throw new SurfaceChangedError(
+      'compaction: the selected span is no longer a valid replacement target',
+      { cause: error },
+    )
   }
+  if (!isDeepStrictEqual([...current.shadowedSeqs], [...prepared.shadowedSeqs])) {
+    throw new SurfaceChangedError('compaction: the selected span changed during summarization')
+  }
+  const measured = dependencies.meter.measure(session).nodes.slice(current.startIdx, current.endIdx + 1)
+  if (!isDeepStrictEqual(measured, prepared.selectedNodes)) {
+    throw new SurfaceChangedError('compaction: the selected span was rewritten during summarization')
+  }
+}
+
+/** Append one already-summarized provenance and replacement body without yielding. */
+function commitCompactionBody(
+  session: Session,
+  startEvent: SessionEvent<'compact/start'>,
+  summarized: SummarizedCompaction,
+): Omit<CompactionResult, 'endSeq'> {
+  const {
+    start,
+    end,
+    shadowedSeqs,
+    shadowedTokenCount,
+    summary,
+    rawOutput,
+    provider,
+    model,
+    maxTokens,
+    usage,
+    checkpointMessage,
+  } = summarized
+  const summaryEvent = session.append('compact/summary', {
+    summary,
+    ...rawOutput === undefined ? {} : { rawOutput },
+    shadowedRange: { start, end },
+    shadowedSeqs: [...shadowedSeqs],
+    shadowedTokenCount,
+    provider,
+    model,
+    ...maxTokens === undefined ? {} : { maxTokens },
+    ...usage === undefined ? {} : { usage },
+  })
+  session.append('user/message', checkpointMessage, {
+    surfaceOp: { op: 'replace', start, end },
+    sourceEventSeqs: [startEvent.seq, summaryEvent.seq, ...shadowedSeqs],
+  })
+  return {
+    startSeq: startEvent.seq,
+    summarySeq: summaryEvent.seq,
+    summary,
+    shadowedRange: { start, end },
+    shadowedSeqs: [...shadowedSeqs],
+    shadowedTokenCount,
+  }
+}
+
+/** Attach the successfully appended close event to a pending result. */
+function completeCompaction(
+  pending: Omit<CompactionResult, 'endSeq'>,
+  endEvent: SessionEvent<'compact/end'>,
+): CompactionResult {
+  return { ...pending, endSeq: endEvent.seq }
 }
 
 /**
@@ -206,25 +483,38 @@ function buildSummarizationInput(
   }
 }
 
-/** Inspect the current turn boundary and latest compaction bracket once. */
-function inspectTurnTail(
-  events: readonly SessionEvent[],
-): { turn: number | null; compactionInProgress: boolean } {
-  let compactionInProgress = false
-  let compactionStateKnown = false
+/** Inspect open-turn, unmatched-compaction, and latest seed-boundary state independently. */
+function inspectCompactionEntryState(events: readonly SessionEvent[]): CompactionEntryState {
+  let openTurn: number | null = null
+  let openTurnStateKnown = false
+  let unmatchedCompactionStart: SessionEvent<'compact/start'> | undefined
+  let compactionEntryStateKnown = false
+  let latestEndSeedSeq: number | undefined
   for (let index = events.length - 1; index >= 0; index -= 1) {
     // oxlint-disable-next-line typescript/no-non-null-assertion
     const event = events[index]!
-    if (!compactionStateKnown) {
+    if (latestEndSeedSeq === undefined && event.type === 'session/end-seed') {
+      latestEndSeedSeq = event.seq
+    }
+    if (!compactionEntryStateKnown) {
       if (event.type === 'compact/start') {
-        compactionInProgress = true
-        compactionStateKnown = true
+        unmatchedCompactionStart = event
+        compactionEntryStateKnown = true
       } else if (event.type === 'compact/end') {
-        compactionStateKnown = true
+        compactionEntryStateKnown = true
       }
     }
-    if (event.type === 'turn/start') return { turn: event.data.turn, compactionInProgress }
-    if (event.type === 'turn/end') return { turn: null, compactionInProgress }
+    if (!openTurnStateKnown) {
+      if (event.type === 'turn/start') {
+        openTurn = event.data.turn
+        openTurnStateKnown = true
+      } else if (event.type === 'turn/end') {
+        openTurnStateKnown = true
+      }
+    }
+    if (openTurnStateKnown
+      && compactionEntryStateKnown
+      && latestEndSeedSeq !== undefined) break
   }
-  return { turn: null, compactionInProgress }
+  return { openTurn, unmatchedCompactionStart, latestEndSeedSeq }
 }

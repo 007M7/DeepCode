@@ -60,6 +60,11 @@ export interface SessionHeader {
    */
   readonly seedLength?: number
   /**
+   * Coarse product classification for a session created as a subagent child.
+   * This is presentation metadata, not proof that the child is continuable.
+   */
+  readonly origin?: 'subagent'
+  /**
    * Delegation depth: absent (zero) for a top-level session, parent depth + 1
    * for a subagent child. Persisted so a recursion budget survives restart and
    * resume — a runtime-only depth would reset a resumed child to top-level.
@@ -84,6 +89,7 @@ export interface CreateSessionOptions {
     readonly parentSession?: SessionId
     readonly createdAt?: number
     readonly seedLength?: number
+    readonly origin?: 'subagent'
     readonly delegationDepth?: number
   }
 }
@@ -173,6 +179,20 @@ export interface EpochHeader {
 }
 
 /**
+ * Registration-bound context metadata of one resolved model route. Adapter
+ * metadata about a route rather than a request input, which is why it lives
+ * outside {@link EpochHeader}.
+ */
+export interface RequestContext {
+  /** Registered provider route the metadata was resolved through. */
+  provider: string
+  /** Provider-owned model id the metadata belongs to. */
+  model: string
+  /** Maximum combined request and response context in tokens; absent when the adapter advertises none. */
+  contextWindow?: number
+}
+
+/**
  * Why a `request/header` snapshot was appended: `'initial'` — the log's first
  * header (a new conversation); `'resume'` — a loop instance's first request
  * over a log that already has header events (process restart, fork seed);
@@ -253,6 +273,16 @@ export interface SessionEventMap {
    * It is log-only; the latest snapshot reconstructs the request header.
    */
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
+  /**
+   * Registration-bound context metadata for the route a request resolved to,
+   * appended inside its step beside `request/header` and only when the route
+   * or capacity differs from the last record. It is log-only and deliberately
+   * NOT part of {@link EpochHeader}: capacity is adapter metadata about a
+   * route, not an input the request was built from, so it must not participate
+   * in request reconstruction or header equality. `contextWindow` is absent
+   * when the route's adapter advertises no capacity.
+   */
+  'request/context': RequestContext
   /**
    * Marks the end of a constructor seed. Events before it have smaller seq
    * values and came from the seed (resume, fork, or replay); this lifecycle

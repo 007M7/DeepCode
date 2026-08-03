@@ -67,6 +67,11 @@ interface SessionHeader {
    */
   readonly seedLength?: number
   /**
+   * Coarse product classification for a session created as a subagent child.
+   * This is presentation metadata, not proof that the child is continuable.
+   */
+  readonly origin?: 'subagent'
+  /**
    * Delegation depth: absent (zero) for a top-level session, parent depth + 1
    * for a subagent child. Persisted so a recursion budget survives restart and
    * resume — a runtime-only depth would reset a resumed child to top-level.
@@ -77,7 +82,7 @@ interface SessionHeader {
 
 ## `CreateSessionOptions` — seeding and metadata
 
-Creating a `Session` through the store takes a `seed` (initial replay or fork history) and `meta` (the storage-level fields the store folds into a `SessionHeader`). The store fills in `version`/`id` and defaults `createdAt`; the caller supplies the validated absolute `cwd`, the `parentSession` lineage, the `seedLength` seed boundary, the `delegationDepth`, and — only when reconstructing a persisted session — the original `createdAt` to preserve it.
+Creating a `Session` through the store takes a `seed` (initial replay or fork history) and `meta` (the storage-level fields the store folds into a `SessionHeader`). The store fills in `version`/`id` and defaults `createdAt`; the caller supplies the validated absolute `cwd`, the `parentSession` lineage, the `seedLength` seed boundary, the optional coarse `origin`, the `delegationDepth`, and — only when reconstructing a persisted session — the original `createdAt` to preserve it. `origin: 'subagent'` lets product navigation hide duplicate child rows; it does not prove that a descriptor is valid or that the child can resume.
 
 ```ts type-equiv
 /**
@@ -97,6 +102,7 @@ interface CreateSessionOptions {
     readonly parentSession?: SessionId
     readonly createdAt?: number
     readonly seedLength?: number
+    readonly origin?: 'subagent'
     readonly delegationDepth?: number
   }
 }

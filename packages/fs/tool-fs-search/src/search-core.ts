@@ -19,6 +19,8 @@
 import { isAbsolute, relative, sep } from 'node:path'
 import type { Context } from 'cordis'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
+import { ItemRetainer, TextRetainer } from '@deepseek-ai/dsh-retention'
+import type { RetainedItems } from '@deepseek-ai/dsh-retention'
 import type { BashRunResult, CollectedOutput } from '@deepseek-ai/dsh-bash'
 import type { SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
@@ -35,6 +37,18 @@ export const RAW_OUTPUT_MAX_BYTES = 20_000_000
  * `@deepseek-ai/dsh-timeout-policy` to enforce through `exec.signal`.
  */
 export const SEARCH_TIMEOUT_MS = 30_000
+
+/**
+ * Default cap in bytes on one search's serialized `presentationMeta` (the
+ * `searchMetaMaxBytes` config). The inline match/path caps already bound the item
+ * COUNT, but retained matches of a broad search (many long lines) can still
+ * serialize to hundreds of kilobytes, and `meta` is persisted with the session
+ * log and re-sent on every request. A deployment's final output budget
+ * (`dsh-spill-policy`) only shrinks a result's `content`, never its `meta`, so the
+ * projection owns this cap. 64 KiB holds the full default-capped result of a
+ * typical search while bounding the pathological one.
+ */
+export const SEARCH_META_MAX_BYTES = 65_536
 
 /**
  * Stable, machine-routable codes for search failures. Package-owned (not
@@ -210,6 +224,63 @@ export function toWorkdirRelative(path: string, workdir: string): string {
   if (rel.length === 0) return '.'
   if (rel === '..' || rel.startsWith(`..${sep}`)) return path
   return rel
+}
+
+/** One parsed match: the file, the 1-based line number, and the (possibly previewed) line text. */
+export interface GrepMatch {
+  path: string
+  lineNumber: number
+  line: string
+}
+
+/**
+ * Bound one matched-line preview to `maxBytes` (UTF-8 boundary preserved) and
+ * mark the cut. The cap is a per-line budget fact; the complete line stays in
+ * the searched file for `read`.
+ *
+ * @param line - the matched line text (trailing newline already stripped).
+ * @param maxBytes - the preview budget in bytes.
+ * @returns the preview, suffixed with ` (line truncated)` when bytes were cut.
+ */
+export function previewLine(line: string, maxBytes: number): string {
+  const retainer = new TextRetainer({ kind: 'head', maxBytes })
+  retainer.push(line)
+  const kept = retainer.finish()
+  return kept.truncated ? `${kept.text} (line truncated)` : kept.text
+}
+
+/**
+ * Apply the shared inline cap to a canonical `grep` match list: preview each
+ * retained line to `maxLineBytes` and keep the first `maxMatches`. The single
+ * retention pass both the model-facing render ({@link module:@deepseek-ai/dsh-tool-fs-search/grep}
+ * `formatGrepOutput`) and the search-card projection
+ * ({@link module:@deepseek-ai/dsh-tool-fs-search/presentation} `grepSearchMeta`)
+ * consume, so text and card never disagree about which matches survived.
+ *
+ * @param matches - every match the search parsed (the canonical value's matches).
+ * @param maxMatches - the inline match cap (the `grepMaxMatches` config).
+ * @param maxLineBytes - the per-matched-line preview budget in bytes.
+ * @returns the retention outcome over the previewed matches.
+ */
+export function retainGrepMatches(matches: GrepMatch[], maxMatches: number, maxLineBytes: number): RetainedItems<GrepMatch> {
+  const retainer = new ItemRetainer<GrepMatch>({ kind: 'head', maxItems: maxMatches })
+  for (const match of matches) retainer.push({ ...match, line: previewLine(match.line, maxLineBytes) })
+  return retainer.finish()
+}
+
+/**
+ * Apply the shared inline cap to a canonical `glob` path list: keep the first
+ * `maxResults`. The single retention pass both the model-facing render and the
+ * search-card projection consume.
+ *
+ * @param paths - every path the search discovered (the canonical value's paths).
+ * @param maxResults - the inline path cap (the `globMaxResults` config).
+ * @returns the retention outcome over the paths.
+ */
+export function retainGlobPaths(paths: string[], maxResults: number): RetainedItems<string> {
+  const retainer = new ItemRetainer<string>({ kind: 'head', maxItems: maxResults })
+  for (const path of paths) retainer.push(path)
+  return retainer.finish()
 }
 
 /**

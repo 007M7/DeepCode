@@ -12,8 +12,8 @@ Creates and holds event-sourced `Session` instances. Persistence is intentionall
 
 ### Public API
 
-- `ctx.sessions.create(id?, { seed?, meta? }?)` validates and detaches durable seed/header data, fills the version and id, defaults `createdAt` to now, publishes the session, and binds it to the calling fiber. Persisted reconstruction supplies its original `createdAt`, `seedLength`, and `delegationDepth`.
-- `ctx.sessions.flush(session)` dispatches the awaited parallel durability checkpoint through the session's captured scope. Every listener starts and the call waits for all to settle before reporting failure; unpublished, detached, and stale objects reject.
+- `ctx.sessions.create(id?, { seed?, meta? }?)` validates and detaches durable seed/header data, fills the version and id, defaults `createdAt` to now, publishes the session, and binds it to the calling fiber. Persisted reconstruction supplies its original `createdAt`, `seedLength`, `origin`, and `delegationDepth`.
+- `ctx.sessions.flush(session)` dispatches the awaited parallel durability checkpoint through the session's captured scope. Every listener starts and the call waits for all to settle before reporting failure; it returns `true` when at least one listener participated and `false` for an empty snapshot, while unpublished, detached, and stale objects reject. A caller that requires durable storage rejects `false` at its own policy boundary.
 - `findLastMessageTurnEnd(events)` pairs message-triggered starts with their ends and returns the latest matched `turn/end`. Outcome consumers use this fold instead of the raw latest log event because between-turn records and non-message turns have no prompt outcome.
 - `ctx.sessions.fork(source, boundary?, childSessionId?): Session` — Resolve a live session object or id, select a seed through the inclusive `boundary` event seq (default: current last event), require that prefix to end outside an open turn, and create a live child session with lineage metadata.
 - `ctx.sessions.get(id: SessionId): Session | undefined`
@@ -43,7 +43,7 @@ Plain class (not a Cordis Service). Create via `ctx.sessions.create()`.
 - `session.surface` exposes the readonly `SessionSurface` view owned by the session's single incremental surface manager; `replaceGeneration` changes on every committed rewrite.
 - `session.events` is a cached frozen snapshot invalidated by append; accepted events remain deeply frozen.
 - `session.seq`, `session.id` — current sequence and readonly typed identity.
-- `session.header: SessionHeader` — detached, deep-frozen creation metadata (`version`, `id`, `createdAt`, optional `cwd`/`parentSession`/`seedLength`/`delegationDepth`). Construction validates the durable record and requires its id to match `session.id`.
+- `session.header: SessionHeader` — detached, deep-frozen creation metadata (`version`, `id`, `createdAt`, optional `cwd`/`parentSession`/`seedLength`/`origin`/`delegationDepth`). `origin: 'subagent'` is a coarse product classification, not a continuation capability. Construction validates the durable record and requires its id to match `session.id`.
 
 ### Lossless JSON utilities
 
@@ -66,6 +66,8 @@ Providers stream token-sized deltas, so a raw log stores hundreds of `assistant/
 
 `request/header` records a full canonical snapshot of the non-history request envelope with reason `initial`, `resume`, or `change`. Its optional `adapterDefaults` map marks effective `reasoningEffort` or `maxTokens` values materialized by exact-model resolution, allowing the next request proposal to distinguish them from explicit conversation settings. `foldRequestHeader()` selects the latest snapshot; legacy delta events and the removed `fallback` reason are rejected. See the [reconstructable-requests Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md).
 
+`request/context` records registration-bound metadata for the route a request resolved to, appended inside its step beside `request/header` and only when the provider, model, or capacity differs from the previous record. `session.requestContext()` folds the latest one incrementally, mirroring `requestHeader()`. Capacity stays OUT of `EpochHeader` on purpose: it is adapter metadata describing a route, not an input the request was built from, so it must not enter request reconstruction or header equality — a capacity change is not a header `change`. A route whose adapter advertises no capacity is still recorded with `contextWindow` absent, clearing any older known capacity.
+
 A `user/message` stores the complete `UserMessage` directly, including the identity created before routing or prompt admission. It renders its `content` verbatim whether it is a direct human prompt, a synthetic injection, or an admitted goal round; its typed `source` is the only channel that tells them apart and carries any domain-specific durable facts. `assistant/message`, `tool/result`, and `steering/message` likewise store complete message values. Turn execution remains enclosed by `turn/start` and `turn/end`, while an idle injection may append and flush a `user/message` between turns without running the model.
 
 `tool/result` persists one identified user-role tool-result message, optional internal failure identity, and optional presentation metadata. A tool's successful canonical `value` and human-readable canonical failure message remain execution-local; rendered error content is the replay-authoritative message.
@@ -87,7 +89,7 @@ Every `SessionEvent` carries two optional top-level fields (structural metadata)
 
 ### Metadata types (`types.ts`)
 
-- `SessionHeader` — session metadata written once when published as `Session.header`, where detachment and deep-freezing enforce immutability at runtime: `{ version, id, createdAt, cwd?, parentSession?, seedLength?, delegationDepth? }`. Persistence loaders may return mutable detached copies of the same data type. Owned here (beside `SessionId`) because `Session.header` is typed by it; persistence backends re-export it rather than own it (which would force a package cycle).
+- `SessionHeader` — session metadata written once when published as `Session.header`, where detachment and deep-freezing enforce immutability at runtime: `{ version, id, createdAt, cwd?, parentSession?, seedLength?, origin?, delegationDepth? }`. Persistence loaders may return mutable detached copies of the same data type. Owned here (beside `SessionId`) because `Session.header` is typed by it; persistence backends re-export it rather than own it (which would force a package cycle).
 
 ### Extension points
 

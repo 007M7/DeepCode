@@ -24,8 +24,12 @@ import { cleanup, fireEvent, waitFor, within } from '@testing-library/react'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import type { ISession, SessionId, TodoItem, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
-import { SlotTestRuntime } from '@deepseek-ai/dsh-client-test-runtime'
+import { SlotTestRuntime, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-conversation/client'
+
+// The service reads its initial locale from the browser; these specs assert
+// the shipped Chinese copy, so they state the browser they assume.
+usePinnedBrowserLanguages('zh-CN')
 
 const SID = 's1' as SessionId
 
@@ -145,7 +149,7 @@ describe('terminal card assembly', () => {
     const view = runtime.renderRoot()
 
     // Keyed BashRow: collapsed by default, the whole summary row is the toggle.
-    const keyedRow = view.container.querySelector('[data-sample="bash-global"]')
+    const keyedRow = view.container.querySelector('[data-sample="bash"]')
     const keyed = keyedRow?.parentElement
     expect(keyed?.querySelector('[data-terminal]')).toBeNull()
     fireEvent.click(keyedRow!)
@@ -252,16 +256,17 @@ describe('prompt rejection through the assembled composer', () => {
 })
 
 describe('title projection across assembled surfaces', () => {
-  it('one summary update re-labels the breadcrumb and document.title consumers together', async () => {
+  it('one summary update re-labels the current-session crumb', async () => {
     const runtime = await bench([])
     const view = runtime.renderRoot()
-    // The strict session header breadcrumb reads useSessions ancestry.
-    const crumb = within(view.container.querySelector('[aria-label="会话层级"]') as HTMLElement)
-    expect(crumb.getByText('S')).toBeTruthy()
+    const hierarchy = view.getByRole('navigation', { name: '会话层级' })
+    expect(within(hierarchy).getByRole('button', { name: 'S' }).hasAttribute('disabled')).toBe(true)
 
     await runtime.sessions.updateSummary(SID, { displayTitle: '修订标题', title: '修订标题' })
-    await waitFor(() => { expect(crumb.getByText('修订标题')).toBeTruthy() })
-    expect(crumb.queryByText('S')).toBeNull()
+    await waitFor(() => {
+      expect(within(hierarchy).getByRole('button', { name: '修订标题' }).hasAttribute('disabled')).toBe(true)
+    })
+    expect(within(hierarchy).queryByRole('button', { name: 'S' })).toBeNull()
     await runtime.dispose()
   })
 })

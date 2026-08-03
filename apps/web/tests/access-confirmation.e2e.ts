@@ -11,24 +11,7 @@ import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden,
   launchWebScaffold, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
-import { saveFailureShot } from './support.ts'
-
-/**
- * connectFreshWorkspace twin over the product default Chinese locale (the
- * shared helper's anchors assume the English page every other scenario
- * boots; this scenario deliberately keeps zh, so the localized picker
- * copy is the anchor set).
- */
-async function connectFreshWorkspaceZh(page: Page, name = 'workspace'): Promise<void> {
-  await page.getByRole('button', { name: '选择工作区' }).click()
-  await page.getByRole('menuitem', { name: '新建工作区' }).click()
-  const dialog = page.getByRole('dialog', { name: '新建工作区' })
-  await dialog.waitFor({ timeout: 10_000 })
-  await dialog.getByLabel('新工作区名称').fill(name)
-  await dialog.getByRole('button', { name: '创建工作区' }).click()
-  await page.locator('textarea:enabled[placeholder="描述你想要构建的内容"]')
-    .waitFor({ timeout: 15_000 })
-}
+import { ZH_BROWSER_LOCALE, connectFreshWorkspaceZh, saveFailureShot } from './support.ts'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/access-confirmation', import.meta.url))
 const UI_EXPECTED = join(SNAPSHOT_DIR, 'ui.expected.md')
@@ -49,11 +32,11 @@ describe('web e2e: Full access confirmation', () => {
     browser = await chromium.launch(executablePath === undefined ? {} : { executablePath })
     // Keep the product default Chinese locale: the golden pins the actual
     // registered dictionary rather than a test-local translation callback.
-    page = await browser.newPage({ viewport: { width: 1680, height: 1000 } })
+    page = await browser.newPage({ viewport: { width: 1680, height: 1000 }, locale: ZH_BROWSER_LOCALE })
     tripwire = watchConsole(page)
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
-    await connectFreshWorkspaceZh(page)
+    await connectFreshWorkspaceZh(page, scaffold.workspaceCwd)
   }, 120_000)
 
   afterAll(async () => {
@@ -66,14 +49,7 @@ describe('web e2e: Full access confirmation', () => {
     const access = page.locator('button[aria-label^="访问模式"]').first()
     await access.waitFor({ timeout: 10_000 })
 
-    // Normalize the starting preset through the real command path. The
-    // shipped web config may already start at Full access.
-    if ((await access.getAttribute('aria-label'))?.endsWith('Full access') === true) {
-      await access.click()
-      await page.getByRole('menuitem', { name: 'Workspace Write' }).click()
-      await expect.poll(() => access.getAttribute('aria-label'), { timeout: 10_000 })
-        .toBe('访问模式，当前：Workspace Write')
-    }
+    expect(await access.getAttribute('aria-label')).toBe('访问模式，当前：Workspace Write')
 
     await access.click()
     await page.getByRole('menuitem', { name: 'Full access' }).click()

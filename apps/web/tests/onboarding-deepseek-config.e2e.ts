@@ -12,7 +12,7 @@ import {
   acknowledgeReloadConnectionLoss, assertFixtureInventory, captureStableAria, compareOrRefreshGolden,
   launchWebScaffold, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
-import { saveFailureShot } from './support.ts'
+import { ZH_BROWSER_LOCALE, connectFreshWorkspaceZh, saveFailureShot } from './support.ts'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import {
   WELCOME_NOTICE_ACK_FIELD, WELCOME_NOTICE_COPY, WELCOME_NOTICE_SETTINGS_NAMESPACE,
@@ -35,7 +35,8 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
   beforeAll(async () => {
     scaffold = await launchWebScaffold({ deepSeekMissingCredential: true, welcomeNoticePending: true })
     browser = await chromium.launch()
-    page = await browser.newPage({ viewport: { width: 1440, height: 960 } })
+    // The scenario asserts the shipped Chinese copy, so the browser asks for it.
+    page = await browser.newPage({ viewport: { width: 1440, height: 960 }, locale: ZH_BROWSER_LOCALE })
     tripwire = watchConsole(page)
     page.on('console', message => browserConsole.push(message.text()))
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
@@ -192,12 +193,9 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
     expect(document).not.toContain('id: deepseek-v4-flash')
 
     await page.keyboard.press('Escape')
-    await page.getByRole('button', { name: '创建工作区', exact: true }).click()
-    await page.getByRole('menuitem', { name: '新建工作区', exact: true }).click()
-    const workspaceDialog = page.getByRole('dialog', { name: '新建工作区' })
-    await workspaceDialog.getByLabel('新工作区名称').fill('model-fallback-e2e')
-    await workspaceDialog.getByRole('button', { name: '创建工作区', exact: true }).click()
-    await workspaceDialog.waitFor({ state: 'detached', timeout: 10_000 })
+    // A connected Workspace is what puts a live composer — and its model
+    // trigger — on the page; the scaffold boots without one.
+    await connectFreshWorkspaceZh(page, scaffold.workspaceCwd, 'model-fallback-e2e')
 
     const modelTrigger = page.getByRole('button', { name: '选择模型', exact: true })
     await modelTrigger.waitFor({ timeout: 10_000 })

@@ -3,8 +3,8 @@
  * with derived titles), the migrated current-selection account (open
  * validation, persisted mask semantics, cell resolution), scope-tree
  * lifecycle (lazy mint / frozen survival / removed teardown with staged
- * deferral — the stage follows list.current), binding identity, ancestry
- * walk, create.
+ * deferral — the stage follows list.current), binding identity, breadcrumb
+ * projection, create.
  */
 import { Context } from 'cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -28,7 +28,14 @@ function bench(): Bench {
 }
 
 /** Refresh the manager list from programmable rows and flush the microtask batch. */
-type FeedRow = { id: string; cwd?: string; parentId?: string; running?: boolean; blank?: boolean }
+type FeedRow = {
+  id: string
+  cwd?: string
+  parentId?: string
+  origin?: 'subagent'
+  running?: boolean
+  blank?: boolean
+}
 
 async function feedList(b: Bench, rows: FeedRow[]): Promise<void> {
   b.api.onList = () => Promise.resolve(ok({
@@ -36,6 +43,7 @@ async function feedList(b: Bench, rows: FeedRow[]): Promise<void> {
       sessionId: sid(r.id), updatedAt: 1, running: r.running ?? false, blank: r.blank ?? false,
       ...(r.cwd !== undefined ? { cwd: r.cwd } : {}),
       ...(r.parentId !== undefined ? { parentSessionId: sid(r.parentId) } : {}),
+      ...(r.origin !== undefined ? { origin: r.origin } : {}),
     })),
   }) as never)
   await b.svc.refresh()
@@ -51,12 +59,14 @@ describe('list store projection', () => {
     })
     await feedList(b, [
       { id: 's1', cwd: '/home/u/proj-a/' },
-      { id: 's2', parentId: 's1', running: true },
+      { id: 's2', parentId: 's1', origin: 'subagent', running: true },
     ])
     const state = b.svc.list.getSnapshot()
     expect(state.ids).toEqual(['s1', 's2'])
     expect(state.byId[sid('s1')]).toMatchObject({ title: 'Durable title', displayTitle: 'Durable title', cwd: '/home/u/proj-a/' })
-    expect(state.byId[sid('s2')]).toMatchObject({ displayTitle: 's2', parentId: 's1', running: true })
+    expect(state.byId[sid('s2')]).toMatchObject({
+      displayTitle: 's2', parentId: 's1', origin: 'subagent', running: true,
+    })
     expect(state.byId[sid('s2')]?.title).toBeUndefined()
   })
 
@@ -351,18 +361,89 @@ describe('slot-store scope prune hook', () => {
   })
 })
 
-describe('ancestry', () => {
-  it('walks parentId links root-first including self; broken links stop the walk', async () => {
+describe('catalog-addressed navigation', () => {
+  it('uses catalog labels for a listed addressed route', async () => {
     const b = bench()
+    b.api.onSubagentList = (payload) => {
+      const { parentSessionId } = payload as { parentSessionId: SessionId }
+      if (parentSessionId === sid('root')) {
+        return Promise.resolve(ok({
+          entries: [{
+            kind: 'child', id: sid('child'), mode: 'continuable', label: 'Child',
+            activity: 'inactive', hasChildren: true,
+          }] as never[],
+          parentAvailable: true,
+        }))
+      }
+      if (parentSessionId === sid('child')) {
+        return Promise.resolve(ok({
+          entries: [{
+            kind: 'child', id: sid('grandchild'), mode: 'continuable', label: 'Grandchild',
+            activity: 'inactive', hasChildren: false,
+          }] as never[],
+          parentAvailable: false,
+        }))
+      }
+      return Promise.resolve(ok({ entries: [], parentAvailable: false }))
+    }
     await feedList(b, [
-      { id: 'root', cwd: '/w/app' },
-      { id: 'mid', parentId: 'root' },
-      { id: 'leaf', parentId: 'mid' },
-      { id: 'orphan', parentId: 'ghost' },
+      { id: 'root' },
+      { id: 'child', cwd: '/summary-child', parentId: 'root', origin: 'subagent' },
+      { id: 'grandchild', cwd: '/summary-grandchild', parentId: 'child', origin: 'subagent' },
     ])
-    expect(b.svc.ancestry(sid('leaf')).map(s => s.id)).toEqual(['root', 'mid', 'leaf'])
-    expect(b.svc.ancestry(sid('orphan')).map(s => s.id)).toEqual(['orphan'])
-    expect(b.svc.ancestry(sid('ghost'))).toEqual([])
+    await b.svc.refreshSubagents(sid('root'))
+    await b.svc.refreshSubagents(sid('child'))
+    b.svc.openSubagent({
+      parentSessionId: sid('child'), childSessionId: sid('grandchild'), mode: 'continuable',
+    })
+
+    expect(b.svc.list.getSnapshot().byId[sid('child')]?.displayTitle).toBe('Child')
+    expect(b.svc.list.getSnapshot().byId[sid('grandchild')]?.displayTitle).toBe('Grandchild')
+  })
+
+  it('projects a directly opened descendant route without retaining ancestor scopes or addresses', async () => {
+    const b = bench()
+    b.api.onSubagentList = (payload) => {
+      const { parentSessionId } = payload as { parentSessionId: SessionId }
+      if (parentSessionId === sid('root')) {
+        return Promise.resolve(ok({
+          entries: [{
+            kind: 'child', id: sid('child'), mode: 'continuable', label: 'Child',
+            activity: 'inactive', hasChildren: true,
+          }] as never[],
+          parentAvailable: true,
+        }))
+      }
+      if (parentSessionId === sid('child')) {
+        return Promise.resolve(ok({
+          entries: [{
+            kind: 'child', id: sid('grandchild'), mode: 'continuable', label: 'Grandchild',
+            activity: 'inactive', hasChildren: false,
+          }] as never[],
+          parentAvailable: false,
+        }))
+      }
+      return Promise.resolve(ok({ entries: [], parentAvailable: false }))
+    }
+    await feedList(b, [{ id: 'root' }])
+    await b.svc.refreshSubagents(sid('root'))
+    await b.svc.refreshSubagents(sid('child'))
+    b.svc.openSubagent({
+      parentSessionId: sid('child'), childSessionId: sid('grandchild'), mode: 'continuable',
+    })
+
+    const list = b.svc.list.getSnapshot()
+    expect(list.ids).toEqual([sid('root')])
+    expect(list.byId[sid('child')]).toMatchObject({ parentId: sid('root'), origin: 'subagent' })
+    expect(list.byId[sid('grandchild')]).toMatchObject({ parentId: sid('child'), origin: 'subagent' })
+    expect(b.svc.binding(sid('child'))).toBeUndefined()
+    expect(b.svc.subagentAddress(sid('child'))).toBeUndefined()
+
+    b.svc.open(sid('child'))
+    expect(b.svc.list.getSnapshot().current).toBe(sid('child'))
+    expect(b.svc.subagentAddress(sid('child'))).toEqual({
+      parentSessionId: sid('root'), childSessionId: sid('child'), mode: 'continuable',
+    })
   })
 })
 
@@ -453,6 +534,17 @@ describe('fork', () => {
       displayTitle: childTitle,
       parentId: 'source',
     })
+  })
+
+  it('floors a fractional anchor to the real event seq the wire accepts', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 'source', cwd: '/work' }])
+    b.api.onFork = () => Promise.resolve(ok({ sessionId: sid('child') }))
+
+    // The frozen node of an interrupted turn carries turnEnd.seq - 0.9.
+    await expect(b.svc.fork({ sessionId: sid('source'), atSeq: 41.1 })).resolves.toBe('child')
+
+    expect(b.api.callsOf('session.fork')).toEqual([{ sessionId: 'source', atSeq: 41 }])
   })
 
   it('does not rename without the title policy or a durable source title', async () => {

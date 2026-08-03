@@ -9,8 +9,6 @@
   - img
 - button "Branch into a new conversation":
   - img
-- button "Edit":
-  - img
 - button "Think The user wants me to read a.txt and b.txt, then reply with \"DONE\". Let me do both reads in parallel.":
   - img
   - img
@@ -35,16 +33,19 @@
 - button "Branch into a new conversation":
   - img
 - text: 7/25 {{clock}}
+- button "Context compacted View compaction summary":
+  - img
+  - text: Context compacted View compaction summary
 - button "Context injection":
   - img
   - img
   - text: Context injection
 - img
-- text: permission preset workspace-write
+- text: permission preset read-only
 - textbox "Message the agent"
 - button "Commands":
   - img
-- 'button "Access mode, current: Workspace Write"': Workspace Write
+- 'button "Access mode, current: Read Only"': Read Only
 - button "Select model":
   - text: Select model
   - img

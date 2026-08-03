@@ -820,6 +820,22 @@ describe('LocalSkillProvider', () => {
       await ctx.plugin(SkillLocal, { watch: false })
       expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['env-bundled-skill', 'env-skill'])
 
+      // Isolated providers see only their explicit roots: the environment
+      // bundled root is a default root, so includeDefaultRoots: false must
+      // drop it — repository providers never re-claim the app's builtins.
+      const isolated = new Context()
+      await isolated.plugin(SkillService)
+      const customOnly = join(envHome, 'custom-only')
+      await writeSkill(customOnly, 'custom-isolated-skill', 'Custom isolated skill')
+      await isolated.plugin(SkillLocal, {
+        providerName: 'isolated',
+        includeDefaultRoots: false,
+        customSkillDirs: [customOnly],
+        watch: false,
+      })
+      expect((await isolated.skills.list()).map(skill => skill.name)).toEqual(['custom-isolated-skill'])
+      await isolated.fiber.dispose()
+
       process.env.DSH_HOME = join(envHome, 'empty-dsh')
       delete process.env.DSH_BUNDLED_SKILL_DIR
       process.env.DSH_AGENTS_HOME = join(envHome, 'empty-agents')

@@ -261,7 +261,9 @@ function validateSnapshotTransition(
  * @returns stable identity used to reconcile a deferred change with its log event.
  */
 export function goalChangeRef(change: GoalChangeMeta): GoalRef {
-  return change.operation === 'clear' ? change.cleared : change.goal
+  return change.operation === 'clear'
+    ? change.cleared
+    : { id: change.goal.id, revision: change.goal.revision }
 }
 
 /**

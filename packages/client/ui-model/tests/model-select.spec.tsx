@@ -55,6 +55,7 @@ describe('ModelSelect reasoning effort', () => {
     })
     render(<ModelSelect
       locked={false}
+      available
       directory={directory}
       load={vi.fn()}
       select={select}
@@ -95,6 +96,7 @@ describe('ModelSelect reasoning effort', () => {
     }))
     render(<ModelSelect
       locked={false}
+      available
       directory={directory}
       load={vi.fn()}
       select={vi.fn().mockResolvedValue(true)}
@@ -116,6 +118,7 @@ describe('ModelSelect reasoning effort', () => {
     const select = vi.fn().mockResolvedValue(true)
     render(<ModelSelect
       locked={false}
+      available
       directory={directory}
       load={vi.fn()}
       select={select}
@@ -129,5 +132,20 @@ describe('ModelSelect reasoning effort', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: /模型/ }))
     expect(screen.queryByText('removed-model')).toBeNull()
     expect(screen.getByRole('menuitemradio', { name: 'DeepSeek-V4-Flash' })).toBeTruthy()
+  })
+
+  it('renders no Agent-bound control for an addressed subagent session', () => {
+    const load = vi.fn()
+    render(<ModelSelect
+      locked={false}
+      available={false}
+      directory={createSnapshotStore(state())}
+      load={load}
+      select={vi.fn().mockResolvedValue(false)}
+      t={t}
+    />)
+
+    expect(screen.queryByRole('button')).toBeNull()
+    expect(load).not.toHaveBeenCalled()
   })
 })

@@ -66,10 +66,9 @@ export function WelcomeNotice(props: WelcomeNoticeProps): ReactNode {
       <div className={css.brand} aria-hidden="true"><BrandWordmark size={24} /></div>
       <h2 ref={titleRef} id="welcome-notice-title" className={css.title} tabIndex={-1}>{t('welcome.title')}</h2>
       <p className={css.opening}>{t('welcome.paragraph.0')}</p>
-      <p className={css.status}>{t('welcome.paragraph.1')}</p>
-      <blockquote className={css.reflection}>{t('welcome.paragraph.2')}</blockquote>
+      <blockquote className={css.reflection}>{t('welcome.paragraph.1')}</blockquote>
       <p className={css.feedback}>
-        {emphasizedFeedback(t('welcome.paragraph.3'), t('welcome.feedbackEmphasis'))}
+        {emphasizedFeedback(t('welcome.paragraph.2'), t('welcome.feedbackEmphasis'))}
       </p>
       {state.error === null ? null : <p className={css.error} role="alert">{t('welcome.error')}</p>}
       <div className={css.footer}>
