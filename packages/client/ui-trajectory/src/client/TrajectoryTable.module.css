@@ -1248,7 +1248,17 @@
   background: transparent;
   cursor: pointer;
   font: 600 12px/18px var(--dsw-font-family);
+  gap: 2px;
   user-select: none;
+}
+
+.thinkingChevron {
+  flex: none;
+  transition: transform 120ms var(--ds-ease-in-out);
+}
+
+.thinkingToggle[aria-expanded='true'] .thinkingChevron {
+  transform: rotate(90deg);
 }
 
 .thinkingToggle:hover {

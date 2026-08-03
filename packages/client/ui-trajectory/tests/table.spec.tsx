@@ -101,10 +101,13 @@ describe('TrajectoryTable', () => {
     render(<TrajectoryTable turns={turns} {...FOLD_PROPS} />)
 
     fireEvent.click(screen.getByRole('row', { name: /ASSISTANT/ }))
-    const toggle = screen.getByRole('button', { name: 'Thinking ...' })
+    const toggle = screen.getByRole('button', { name: 'Show thinking' })
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
     expect(screen.queryByText(thinking)).toBeNull()
 
     fireEvent.click(toggle)
+    expect(screen.getByRole('button', { name: 'Hide thinking' })).toBe(toggle)
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
     expect(toggle.parentElement?.textContent?.length).toBeGreaterThan(thinking.length)
   })
 

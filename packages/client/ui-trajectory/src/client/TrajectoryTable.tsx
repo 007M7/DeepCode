@@ -1232,7 +1232,8 @@ function MarkdownRecordContent({
             aria-expanded={thinkingExpanded}
             onClick={() => { onThinkingExpandedChange(!thinkingExpanded) }}
           >
-            {thinkingExpanded ? 'Thinking' : 'Thinking ...'}
+            {thinkingExpanded ? 'Hide thinking' : 'Show thinking'}
+            <IconChevronRightOutline14 className={css.thinkingChevron} size={12} />
           </button>
           {thinkingExpanded && (
             <MarkdownFragment
