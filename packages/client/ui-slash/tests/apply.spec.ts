@@ -8,10 +8,15 @@
 import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
+import { usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { createScope, scopeOf, SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { apply, inject, SlashService } from '@deepseek-ai/dsh-client-ui-slash/client'
 import type { MenuViewInjected } from '@deepseek-ai/dsh-client-ui-slash/client'
+
+// The service reads its initial locale from the browser; these specs assert
+// the shipped Chinese copy, so they state the browser they assume.
+usePinnedBrowserLanguages('zh-CN')
 
 const sid = (k: string): SessionId => k as SessionId
 

@@ -41,8 +41,8 @@ interface Bench {
 
 async function boot(): Promise<Bench> {
   const ctx = new Context()
-  ctx.plugin(SlotsService)
-  await ctx.fiber.await()
+  const fiber = ctx.plugin(SlotsService)
+  await fiber
   // Service accessor (ctx.get reads the reflect store, which Service-class
   // plugins do not write; the accessor is the product path).
   const svc = ctx.slots

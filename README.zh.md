@@ -8,23 +8,23 @@ DeepSeek Harness（`dsh`）是一款基于 DeepSeek Harness SDK 构建的开源 
 
 ## 内测声明
 
-感谢您愿意拨冗试用 DeepSeek Harness。
-
-目前的版本仍处于内部测试阶段，功能仍待完善，体验难免有些粗糙。
+感谢您愿意拨冗试用 DeepSeek Harness。当前版本仍处于内部测试阶段，功能仍待完善，体验难免有些粗糙。
 
 “如切如磋，如琢如磨。” 产品的成长，离不开一次次真实的碰撞与坦诚的反馈。您在真实使用中发现的问题，也可能促使我们重新审视，甚至推翻已有的设计。
 
-我们尤其希望听见那些失败、困惑与不顺手的时刻——如果您有任何反馈与建议，请在企业微信群中留言告诉我们。每一条反馈，都会帮助我们把它打磨得更好。
+为了帮助我们更准确地还原您真实使用中的问题，内测版本默认会上传所有 Session Log；如需关闭，可以设置环境变量 `DSH_TELEMETRY_DISABLED=1`。另外，如果您有任何反馈与建议，请在企业微信群中留言告诉我们。每一条反馈，都会帮助我们把它打磨得更好。
 
 ## 安装
 
-使用一条命令安装 `dsh`：
+克隆仓库，然后运行安装器：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/deepseek-harness/deepseek-harness/master/scripts/install.sh | sh
+git clone <repo-url>
+cd deepseek-harness
+scripts/install.sh
 ```
 
-安装器要求系统已安装 `git` 和 Node `^22.19 || >=24`，缺少 `pnpm` 时可代为安装，并会提示输入 DeepSeek API 密钥。
+安装器要求系统已安装 `git` 和 Node `^22.19 || >=24`，缺少 `pnpm` 时可代为安装，并会提示输入 DeepSeek API 密钥，随后让你选择启动 Web UI 或 TUI。选择 Web UI 时，安装器会先构建所需的仓库产物。
 
 安装器会把所有检出都放在 `~/.dsh/source` 下：master 克隆位于 `~/.dsh/source/master`，每次安装的 staging 检出是一个 git worktree `~/.dsh/source/staging-<时间戳>`。稳定符号链接 `~/.dsh/source/current` 指向当前生效的 staging worktree，`~/.local/bin` 中的 `dsh` 链接到 `current/bin/dsh`，因此升级只需重指一个符号链接，PATH 上的 `dsh` 从不移动。再次运行该命令会基于更新后的 master 新增一个 staging worktree，并把 `current` 重指到它。其他安装位置和选项见 [`scripts/install.sh`](scripts/install.sh)。
 
@@ -32,14 +32,14 @@ curl -fsSL https://raw.githubusercontent.com/deepseek-harness/deepseek-harness/m
 
 ### Web UI
 
-推荐在本地使用 Web UI。安装完成后以及每次更新后，请先构建当前生效的检出，再启动 Web UI：
+推荐在本地使用 Web UI；安装结束时，选择 Web UI 即可。以后需要启动时，或更新当前生效的检出后，请构建仓库并运行：
 
 ```sh
 (cd ~/.dsh/source/current && pnpm run build)
 dsh web
 ```
 
-完整构建会生成库与客户端 bundle，以及前端 dist。上述路径是安装器的默认位置。如果你设置过 `DSH_SOURCE` 或 `DSH_CURRENT`，或者复用了已有检出，请把 `~/.dsh/source/current` 换成该检出路径；详情见 [`scripts/install.sh`](scripts/install.sh)。Web UI 默认通过 `http://127.0.0.1:3080` 提供服务。
+上述路径是安装器的默认位置。如果你设置过 `DSH_SOURCE` 或 `DSH_CURRENT`，或者复用了已有检出，请把 `~/.dsh/source/current` 换成该检出路径；详情见 [`scripts/install.sh`](scripts/install.sh)。Web UI 默认通过 `http://127.0.0.1:3080` 提供服务。
 
 ### TUI
 
@@ -100,3 +100,5 @@ DeepSeek Harness 目前处于内测阶段。
 ## 许可证
 
 [BSD 3-Clause](LICENSE)
+
+第三方依赖及其许可证在 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 中披露。

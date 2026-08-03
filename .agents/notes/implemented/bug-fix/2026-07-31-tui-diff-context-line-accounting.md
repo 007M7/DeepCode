@@ -10,7 +10,7 @@ Result-time filesystem diffs carry the applied change with three surrounding con
 
 ## Decision
 
-The TUI compares each `FileDiff` whose old and new text are both available. Added and removed rows retain their green `+` and red `-` markers; equal context rows use the recessed body tone with a neutral two-space prefix. The footer sums only the rows classified as added or removed. `maxDiffEditLength` bounds the exact comparison by its combined added and removed line count; the default is 1000. Exceeding the bound renders the complete old side as removed and the complete new side as added, marks the footer approximate, and caches that result so redraws do not repeat the comparison.
+The TUI compares each `FileDiff` whose old and new text are both available. Added and removed rows retain their green `+` and red `-` markers; equal context rows use the recessed body tone with a neutral two-space prefix. The footer sums only the rows classified as added or removed. `maxDiffEditLength` bounds the exact comparison by its combined added and removed line count; the default is 1000. Exceeding the bound renders the complete old side as removed and the complete new side as added, marks the footer approximate, and caches that result so redraws do not repeat the comparison. A tool result clears the pending-view cache before deriving the settled view, including when a presenter mutates and reuses the same view object.
 
 When `oldText` is `null`, the renderer cannot distinguish a create from a pending overwrite or an argument fallback whose prior text is unavailable. It therefore shows every non-empty new-side row as added, without claiming those rows were absent from an existing file. Empty new content renders no synthetic added row.
 
@@ -30,4 +30,4 @@ This remains a consumer-side interpretation of the existing `FileDiff` contract.
 
 TUI diff cards distinguish evidence-bearing context from the mutation itself, and an exact `+A -R` footer reports the actual line delta. Replaying an existing contextual diff gains the corrected rendering without a migration. Result-time filesystem hunks are context-bounded; unrestricted pending views either complete within the configured edit-length budget or degrade to an explicitly approximate linear rendering.
 
-The focused TUI tests cover neutral context, exact totals, an empty create, bounded fallback, and cache reuse. The assembled `advanced-cards` terminal snapshots pin the neutral context style, semantic change colors, exact footer, and approximate fallback through collapsed and expanded card states.
+The focused TUI tests cover neutral context, exact totals, an empty create, bounded fallback, result-time cache invalidation, and redraw cache reuse. The assembled `advanced-cards` terminal snapshots pin the neutral context style, semantic change colors, exact footer, and approximate fallback through collapsed and expanded card states.

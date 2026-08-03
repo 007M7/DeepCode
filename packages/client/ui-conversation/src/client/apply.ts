@@ -1,6 +1,6 @@
 /** Registers the conversation components, shared store, and service callbacks. */
 import type { Context } from 'cordis'
-import { resolveSlotLabel, type BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
+import { deferRegistration, resolveSlotLabel, type BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
@@ -16,11 +16,16 @@ import { createChatStore } from './stores.ts'
 import { ConversationService } from './service.ts'
 import type { IConversation } from './service.ts'
 import { InputHub } from './input/hub.ts'
+import { ComposerSubmissionPolicy } from './input/submission-policy.ts'
 import { InputBar } from './skeleton/InputBar.tsx'
+import { EnterBehaviorRow } from './settings/EnterBehaviorRow.tsx'
+import type { EnterBehaviorRowInjected } from './settings/EnterBehaviorRow.tsx'
 import { ChatView } from './chat/ChatView.tsx'
 import { StatsLine } from './chat/StatsLine.tsx'
 import { bashToolviewSample } from './toolviews/bash-sample.tsx'
+import { readToolview } from './toolviews/read-row.tsx'
 import { fileMutationToolview } from './toolviews/file-mutation-row.tsx'
+import { searchToolview } from './toolviews/search-row.tsx'
 import { webToolview } from './toolviews/web-row.tsx'
 import { ApprovalPanel } from './skeleton/ApprovalPanel.tsx'
 import { todoToolview } from './toolviews/todo-row.tsx'
@@ -91,6 +96,22 @@ export function apply(ctx: Context): void {
 
   // Apply-time construction keeps store identity bound to this fiber.
   const chatStore = createChatStore()
+  const submissionPolicy = new ComposerSubmissionPolicy()
+
+  ctx.effect(() => {
+    const row = deferRegistration(ctx.slots, 'settings.general.item', EnterBehaviorRow, () =>
+      ctx.slots.register({
+        name: 'settings.general.item',
+        id: 'composer-enter',
+        order: 20,
+        locale: NS,
+        inject: (): EnterBehaviorRowInjected => ({
+          hooks: { busyEnter: submissionPolicy.busyEnter },
+          setBusyEnter: (behavior) => { submissionPolicy.setBusyEnter(behavior) },
+        }),
+      }, EnterBehaviorRow))
+    return () => { row.dispose() }
+  }, 'ui-conversation: Enter behavior settings row')
 
   // Chat scroll offsets by session, surviving view switches (the chat view
   // unmounts under the tab ring). Deliberately not persisted: a fresh page
@@ -164,7 +185,10 @@ export function apply(ctx: Context): void {
   slots.register({
     name: 'conversation.session',
     locale: NS,
-    children: { 'conversation.view': { kind: 'list', scope: 'session' } },
+    children: {
+      'conversation.view': { kind: 'list', scope: 'session' },
+      'conversation.session.header.actions': { kind: 'list', scope: 'session' },
+    },
     store: chatStore,
     inject: (sessionId: SessionId, _actions: BoundActions<typeof chatStore>): ConversationSessionInjected => ({
       views: {
@@ -198,6 +222,8 @@ export function apply(ctx: Context): void {
       if (sessionId === undefined) {
         return {
           keyboard: undefined,
+          resolveSubmitMode: (running, gesture, steeringAvailable) =>
+            submissionPolicy.resolve(running, gesture, steeringAvailable),
           toggleCommandMenu: undefined,
           stop: undefined,
           command: undefined,
@@ -208,6 +234,8 @@ export function apply(ctx: Context): void {
       const slash = inputHub.slash(sessionId)
       return {
         keyboard: shell,
+        resolveSubmitMode: (running, gesture, steeringAvailable) =>
+          submissionPolicy.resolve(running, gesture, steeringAvailable),
         toggleCommandMenu: slash === undefined
           ? undefined
           : (selection) => {
@@ -317,13 +345,22 @@ export function apply(ctx: Context): void {
   ctx.plugin(ConversationService, { input: inputHub })
 
   // The bash sample rides that exact seam, in third-party posture
-  // (ToolRow-matching Bash · {description} chrome; scoped badge in child sessions).
+  // (ToolRow-matching Bash · {description} chrome).
   ctx.plugin(bashToolviewSample)
+
+  // The read row rides the same seam (a product registration, not a sample):
+  // Read · {path} chrome with the file's read card resident below it.
+  ctx.plugin(readToolview)
 
   // The write/edit rows ride the same seam: a file-mutation call declares the
   // diff render intent, so these rows stack the applied diff card under their
   // path-link summary (the terminal card's posture, applied to diffs).
   ctx.plugin(fileMutationToolview)
+
+  // The grep/glob search row rides the same seam: one component registered
+  // under both tool names, since both declare the same search render intent.
+  ctx.plugin(searchToolview)
+
   // The web rows ride the same seam: one WebRow registered under both
   // web_search and web_fetch, rendering the completed retrieval's web card
   // resident under the summary (a product registration, not a sample).

@@ -24,7 +24,7 @@ The group-by menu offers two modes, WorkSpace / In one list. WorkSpace mode rend
 
 ### workspace.rename
 
-`workspace.rename({ workspaceId, title })`: the title is trimmed and must be non-blank; both the same-title no-op and the duplicate check evaluate inside the host's serialized workspace-creation chain (shared with create, so concurrent create/rename cannot interleave a duplicate or an out-of-order fake success), and a conflict returns `workspace-name-conflict`. Durability goes through `setTitle`'s mutate path, and the `domain/changed` listener broadcasts the `host/workspace-changed` frame automatically. The UI is a standard modal with a client-side duplicate pre-check.
+`workspace.rename({ workspaceId, title })`: the title is trimmed and must be non-blank; both the same-title no-op and the duplicate check evaluate inside the Host's serialized workspace-operation chain (shared with create-by-name, so concurrent explicit naming operations cannot interleave a duplicate or an out-of-order fake success), and a conflict returns `workspace-name-conflict`. Path adoption may derive a title already present because canonical path, not title, owns identity ([decision](../bug-fix/2026-07-31-same-basename-workspace-adoption.md)). Durability goes through `setTitle`'s mutate path, and the `domain/changed` listener broadcasts the `host/workspace-changed` frame automatically. The UI is a standard modal with a client-side duplicate pre-check.
 
 ### Manual order: insertSessionBefore replaces activity pinning
 
@@ -34,7 +34,7 @@ The UI is HTML5 drag on session rows inside a group (workspace grouping only, ou
 
 ### Shell/region split
 
-ui-sidebar shrinks to the column-geometry shell: brand row, fold state machine, New Session, Settings, and one `sidebar.workspaces` hole; the shell↔region contract is two facts, `{ wide, expandSidebar }`. ui-workspace fully owns the browsing region (section header, search, grouped tree and flat list, every workspace dialog, drag) plus its groupBy store; the rail-state search/new-workspace icons belong to the region too and request shell expansion via `expandSidebar()`. The picker splits into the core `WorkspaceCreateFlow` (composed directly inside the region) and the thin `WorkspacePicker` wrapper (still filling ui-conversation's hero slot); the old `sidebar.workspace` picker slot and its declaration-aware deferral are deleted with it.
+ui-sidebar shrinks to the column-geometry shell: brand row, fold state machine, New Session, Settings, and one `sidebar.workspaces` hole; the shell↔region contract is two facts, `{ wide, expandSidebar }`. ui-workspace fully owns the browsing region (section header, search, grouped tree and flat list, every workspace dialog, drag) plus its groupBy store; the rail-state search/add-workspace icons belong to the region too and request shell expansion via `expandSidebar()`. The picker splits into the core `WorkspacePickFlow` (composed directly inside the region; named `WorkspaceCreateFlow` until the [one-route Note](../simplification/2026-07-31-one-route-to-add-a-workspace.md)) and the thin `WorkspacePicker` wrapper (still filling ui-conversation's hero slot); the old `sidebar.workspace` picker slot and its declaration-aware deferral are deleted with it.
 
 ## Alternatives considered
 

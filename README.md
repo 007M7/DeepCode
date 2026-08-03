@@ -8,23 +8,23 @@ It uses an architecture where **everything is a plugin**.
 
 ## Internal testing notice
 
-Thank you for taking the time to try DeepSeek Harness.
+感谢您愿意拨冗试用 DeepSeek Harness。当前版本仍处于内部测试阶段，功能仍待完善，体验难免有些粗糙。
 
-This version is still in internal testing. Its functionality still needs improvement, and the experience may feel a little rough.
+“如切如磋，如琢如磨。” 产品的成长，离不开一次次真实的碰撞与坦诚的反馈。您在真实使用中发现的问题，也可能促使我们重新审视，甚至推翻已有的设计。
 
-“As one cuts and files, as one chisels and polishes.” A product grows through real encounters and candid feedback. Problems you discover in real use may prompt us to reconsider—or even overturn—our existing designs.
-
-We especially want to hear about failures, confusion, and friction. If you have any feedback or suggestions, please leave us a message in our <a href="https://wj.qq.com/s2/27234598/03eb/">WeCom group</a>. Every piece of feedback helps us refine it.
+为了帮助我们更准确地还原您真实使用中的问题，内测版本默认会上传所有 Session Log；如需关闭，可以设置环境变量 `DSH_TELEMETRY_DISABLED=1`。另外，如果您有任何反馈与建议，请在企业微信群中留言告诉我们。每一条反馈，都会帮助我们把它打磨得更好。
 
 ## Install
 
-Install `dsh` with one command:
+Clone the repository, then run the installer:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/deepseek-harness/deepseek-harness/master/scripts/install.sh | sh
+git clone <repo-url>
+cd deepseek-harness
+scripts/install.sh
 ```
 
-The installer requires `git` and Node `^22.19 || >=24`, offers to install `pnpm` when it is missing, and prompts for a DeepSeek API key.
+The installer requires `git` and Node `^22.19 || >=24`, offers to install `pnpm` when it is missing, prompts for a DeepSeek API key, then lets you launch the Web UI or TUI. Choosing Web UI builds the required repository artifacts first.
 
 The installer keeps every checkout under `~/.dsh/source`: the master clone at `~/.dsh/source/master` and each install's staging checkout as a git worktree `~/.dsh/source/staging-<timestamp>`. The stable symlink `~/.dsh/source/current` points at the active staging worktree, and `dsh` in `~/.local/bin` links to `current/bin/dsh`, so an upgrade repoints one symlink and the `dsh` on PATH never moves. Re-running the command adds a fresh staging worktree from an updated master and repoints `current` at it. See [`scripts/install.sh`](scripts/install.sh) for alternate install locations and other options.
 
@@ -32,14 +32,14 @@ The installer keeps every checkout under `~/.dsh/source`: the master clone at `~
 
 ### Web UI
 
-For the recommended local interface, build the active checkout after installation and after each update, then start the Web UI:
+For the recommended local interface, choose Web UI when the installer finishes. To start it later, or after updating the active checkout, build the repository and run:
 
 ```sh
 (cd ~/.dsh/source/current && pnpm run build)
 dsh web
 ```
 
-The full build produces the library and client bundles plus the frontend dist. The path above is the installer's default. If you set `DSH_SOURCE` or `DSH_CURRENT`, or reused an existing checkout, replace `~/.dsh/source/current` with that checkout path; see [`scripts/install.sh`](scripts/install.sh) for details. The Web UI is served at `http://127.0.0.1:3080` by default.
+The path above is the installer's default. If you set `DSH_SOURCE` or `DSH_CURRENT`, or reused an existing checkout, replace `~/.dsh/source/current` with that checkout path; see [`scripts/install.sh`](scripts/install.sh) for details. The Web UI is served at `http://127.0.0.1:3080` by default.
 
 ### TUI
 
@@ -96,3 +96,5 @@ DeepSeek Harness is currently in internal testing.
 ## License
 
 [BSD 3-Clause](LICENSE)
+
+Third-party dependencies and their licenses are disclosed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

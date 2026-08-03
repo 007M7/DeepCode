@@ -20,6 +20,7 @@ import {
 
 const theme: TuiTheme = Object.freeze({
   text: (value: string) => `text:${value}`,
+  brand: (value: string) => `brand:${value}`,
   muted: (value: string) => `muted:${value}`,
   dim: (value: string) => `dim:${value}`,
   accent: (value: string) => `accent:${value}`,

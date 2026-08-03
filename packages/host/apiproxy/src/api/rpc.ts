@@ -46,6 +46,7 @@ export interface RpcErrorDetailsMap {
   'directory-picker-unavailable': { capability: string }
   'agent-busy': { reason: string }
   'queue-item-not-found': { itemId: InboxItemId }
+  'steer-unavailable': { itemId: InboxItemId }
   /** A known slash command reported a usage/state error; the message is the command's own text. */
   'command-error': {}
   /** A leading-/ prompt named no registered command; the message names the token. */
@@ -71,6 +72,16 @@ export interface RpcErrorDetailsMap {
   'credential-rejected': { ref: string }
   'title-invalid': { sessionId: SessionId }
   'fork-unavailable': { sessionId: SessionId }
+  'subagent-parent-unavailable': { parentSessionId: SessionId }
+  'subagent-not-found': { parentSessionId: SessionId; childSessionId: SessionId }
+  'subagent-catalog-diagnostic': {
+    parentSessionId: SessionId
+    childSessionId: SessionId
+    reason: 'corrupt' | 'unsupported' | 'unavailable'
+  }
+  'subagent-not-resumable': { childSessionId: SessionId }
+  'subagent-unauthorized': { childSessionId: SessionId }
+  'subagent-delivery-unavailable': { childSessionId: SessionId }
   'internal': {}
 }
 

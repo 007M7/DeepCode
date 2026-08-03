@@ -7,7 +7,7 @@
 - text: Workspaces
 - button "Group by":
   - img
-- button "Create workspace":
+- button "Add workspace":
   - img
 - button "Search sessions":
   - img
@@ -28,7 +28,7 @@
 - textbox "Describe what you want to build"
 - button "Commands":
   - img
-- 'button "Access mode, current: Full access"': Full access
+- 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Plan mode on, press to turn off": Plan
 - button "Select model, current deepseek-v4-flash":
   - text: deepseek-v4-flash

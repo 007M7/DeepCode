@@ -9,8 +9,10 @@
   - img
 - button "Branch into a new conversation":
   - img
-- button "Edit":
+- button "Context injection":
   - img
+  - img
+  - text: Context injection
 - button "Think The user wants me to:":
   - img
   - img
@@ -52,9 +54,9 @@
 - textbox "Message the agent"
 - button "Commands":
   - img
-- 'button "Access mode, current: Full access"': Full access
+- 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
-- text: 1 turns · 4 steps Tool call {{duration}} Cache hit 77% Input 66.5K tok · Output 312 tok
+- text: 1 turns · 4 steps Tool call {{duration}} Context 13% of 128K Cache hit 77% Input 66.5K tok · Output 312 tok

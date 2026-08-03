@@ -2,7 +2,8 @@
  * Concrete Agent loop over two pending-input lists: queued prompts each open a
  * turn that logs its admitted input after `turn/start` commits, while steering
  * and injected context enter through the outbox at step boundaries. Every
- * request is derived from the session log.
+ * request is derived from the session log. An idle turn-admission reservation
+ * can withhold the driver from the queue without touching its contents.
  *
  * @module dsh-agent-loop/agent
  */
@@ -28,12 +29,15 @@ import type {
   RequestError,
   RequestErrorAction,
   SendOptions,
+  SteeringOutcome,
+  SteeringReceipt,
 } from '@deepseek-ai/dsh-agent'
 import {
   BlockAssembler,
   LlmError,
   assertNever,
   createAssistantMessage,
+  createUserMessage,
   deepFreeze,
   errorChain,
   freezeMessage,
@@ -44,8 +48,8 @@ import {
 } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmCallConfig, LlmFailure, Message, PreparedLlmCall, ResolvedRetryPolicy } from '@deepseek-ai/dsh-llm'
 import { canonicalHeader, headerEquals } from '@deepseek-ai/dsh-session'
-import type { AssistantMessage, EpochHeader, Session, SessionId, TurnEndReason, TurnTrigger, UserMessage } from '@deepseek-ai/dsh-session'
-import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
+import type { AssistantMessage, EpochHeader, RequestContext, Session, SessionId, TurnEndReason, TurnTrigger, UserMessage } from '@deepseek-ai/dsh-session'
+import { renderContextSnapshot, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import { executeToolCalls } from './tool-calls.ts'
 
@@ -53,6 +57,68 @@ import { executeToolCalls } from './tool-calls.ts'
 type StepOutcome =
   | { kind: 'completed'; continueTurn: boolean; concluded: boolean; maxTokens: boolean }
   | { kind: 'request-failed'; error: RequestError; failure: LlmFailure; retryPolicy: ResolvedRetryPolicy | undefined }
+
+/** Internal one-shot controller paired with a public steering receipt. */
+interface SteeringDelivery {
+  readonly receipt: SteeringReceipt
+  settle(outcome: SteeringOutcome): void
+}
+
+/** Create one idempotent steering-admission controller. */
+function createSteeringDelivery(): SteeringDelivery {
+  const { promise, resolve } = Promise.withResolvers<SteeringOutcome>()
+  let settled = false
+  return {
+    receipt: { outcome: promise },
+    settle(outcome): void {
+      /* v8 ignore next -- each ownership transfer removes the delivery before another settlement path can reach it. */
+      if (settled) return
+      settled = true
+      resolve(outcome)
+    },
+  }
+}
+
+const RUNTIME_CONTEXT_SOURCE = '@deepseek-ai/dsh-system-prompt'
+/** Clearing marker kept distinct from every prefixed {@link renderContextSnapshot} result. */
+const CLEARED_RUNTIME_CONTEXT = 'Current runtime context: none. Earlier runtime-context snapshots no longer apply.'
+
+/** Whether one user message is owned by runtime-context materialization. */
+function isRuntimeContextMessage(message: UserMessage): boolean {
+  return message.source.kind === 'plugin' && message.source.plugin === RUNTIME_CONTEXT_SOURCE
+}
+
+/** Latest retained runtime-context snapshot; `found` distinguishes malformed content from absence. */
+function retainedRuntimeContext(session: Session): { found: boolean; text: string | undefined } {
+  const events = session.events
+  const nodes = session.surface.nodes
+  for (let index = nodes.length - 1; index >= 0; index -= 1) {
+    const event = events[nodes[index] as number]
+    if (event?.type !== 'user/message' || !isRuntimeContextMessage(event.data)) continue
+    const [block] = event.data.content
+    return {
+      found: true,
+      text: event.data.content.length === 1 && block?.type === 'text' ? block.text : undefined,
+    }
+  }
+  return { found: false, text: undefined }
+}
+
+/** Append a full current snapshot only when it changed or compaction removed it. */
+function materializeRuntimeContext(session: Session, current: string): void {
+  const previous = retainedRuntimeContext(session)
+  if (!previous.found && current.length === 0) {
+    const compactedPriorSnapshot = session.surface.replaceGeneration > 0
+      && session.events.some(event => event.type === 'user/message' && isRuntimeContextMessage(event.data))
+    if (!compactedPriorSnapshot) return
+  }
+  const snapshot = current.length === 0 ? CLEARED_RUNTIME_CONTEXT : current
+  if (previous.text === snapshot) return
+  session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: snapshot }],
+    source: { kind: 'plugin', plugin: RUNTIME_CONTEXT_SOURCE },
+  }), { surfaceOp: 'append' })
+}
 
 /** Remove adapter-derived values before plugins propose the next request config. */
 function requestProposal(header: EpochHeader): LlmCallConfig {
@@ -69,21 +135,30 @@ function requestProposal(header: EpochHeader): LlmCallConfig {
  */
 export class ReactLoopAgent implements Agent {
   /** Prompts awaiting individual turns. */
-  private queued: { item: InboxItem; wakeup: boolean }[] = []
+  private queued: { item: InboxItem; wakeup: boolean; delivery?: SteeringDelivery }[] = []
   /** Input taken into the session log at step boundaries. */
-  private outbox: { message: UserMessage; steering: boolean; item?: InboxItem }[] = []
+  private outbox: { message: UserMessage; steering: boolean; item?: InboxItem; delivery?: SteeringDelivery }[] = []
+  /** Steering already committed to the log but not yet captured by a request. */
+  private pendingAdmissions: SteeringDelivery[] = []
+  /** Whether the active cancellation preserves already committed pending delivery. */
+  private preservePendingAdmissionsOnAbort = false
 
   /** Whether observers see a running interval; consecutive turns share it. */
   private busy = false
   /** Whether an idle waking send has deferred driver admission. */
   private wakeScheduled = false
+  /**
+   * The live idle turn-admission reservation, holding the driver out of the
+   * queue until its owner releases. It settles idle waiters instead of
+   * {@link done} so lifecycle teardown never awaits the reserving operation.
+   */
+  private admission: { readonly settled: Promise<void>; readonly settle: () => void } | undefined
   /** Whether next-step input belongs to the current admission or open turn. */
   acceptsNextStep = false
   /** Abort owner for the current admission or turn. */
   private abort: AbortController | undefined
   /** Resolves when the current admission and turn exit. */
   done: Promise<void> = Promise.resolve()
-
   /** The agent-scoped registration boundary; the lifecycle owner unwinds it after {@link done}. */
   readonly scope: Scope
   /** The agent's scoped composition context ({@link Agent.ctx}). */
@@ -118,6 +193,15 @@ export class ReactLoopAgent implements Agent {
     message: UserMessage,
     options: SendOptions,
   ): void {
+    this.route(message, options)
+  }
+
+  /** Route one accepted message, optionally tracking steering admission. */
+  private route(
+    message: UserMessage,
+    options: SendOptions,
+    delivery?: SteeringDelivery,
+  ): void {
     const { target, wakeup } = options
     if (target === 'next-step' && !wakeup) {
       if (this.acceptsNextStep) {
@@ -135,9 +219,9 @@ export class ReactLoopAgent implements Agent {
       placement,
     })
     if (placement === 'steering') {
-      this.outbox.push({ message, steering: true, item })
+      this.outbox.push({ message, steering: true, item, ...delivery === undefined ? {} : { delivery } })
     } else {
-      this.queued.push({ item, wakeup })
+      this.queued.push({ item, wakeup, ...delivery === undefined ? {} : { delivery } })
     }
     // Preserve the routing decision for every send in this synchronous caller
     // stack, while installing quiescence ownership before enqueue observers
@@ -168,6 +252,28 @@ export class ReactLoopAgent implements Agent {
       }
       case 'remove': {
         this.queued.splice(queuedIndex, 1)
+        pending.delivery?.settle({ status: 'rejected' })
+        emitAgentEvent(this.loopCtx, this, 'agent/inbox/discard', [pending.item])
+        return 'applied'
+      }
+      case 'steer': {
+        if (!this.acceptsNextStep) return 'steer-unavailable'
+        this.queued.splice(queuedIndex, 1)
+        const item: InboxItem = Object.freeze({
+          id: InboxItemId(randomUUID()),
+          message: pending.item.message,
+          placement: 'steering',
+        })
+        this.outbox.push({
+          message: item.message,
+          steering: true,
+          item,
+          ...pending.delivery === undefined ? {} : { delivery: pending.delivery },
+        })
+        // Publish the replacement only after it is owned by the outbox. Its
+        // enqueue precedes the old occurrence's discard so reentrant
+        // cancellation can terminally account for both occurrences.
+        emitAgentEvent(this.loopCtx, this, 'agent/inbox/enqueue', item)
         emitAgentEvent(this.loopCtx, this, 'agent/inbox/discard', [pending.item])
         return 'applied'
       }
@@ -185,12 +291,14 @@ export class ReactLoopAgent implements Agent {
     })
   }
 
-  /** Steer the open turn, falling back to a waking prompt while idle. */
-  steer(input: UserMessage): void {
-    this.send(input, {
+  /** Steer the open turn, falling back to a tracked waking prompt while idle. */
+  steer(input: UserMessage): SteeringReceipt {
+    const delivery = createSteeringDelivery()
+    this.route(input, {
       target: 'next-step',
       wakeup: true,
-    })
+    }, delivery)
+    return delivery.receipt
   }
 
   /** Append model-facing context without waking the driver. */
@@ -199,6 +307,32 @@ export class ReactLoopAgent implements Agent {
       target: 'next-step',
       wakeup: false,
     })
+  }
+
+  /**
+   * Hold the idle admission boundary so no queued prompt can open a turn until
+   * the returned release runs. Later sends keep their ordinary placement and
+   * `wakeup` facts; only the driver's claim waits.
+   * @returns the idempotent release, or `undefined` when the driver is active or already committed to waking work.
+   */
+  reserveTurnAdmission(): (() => void) | undefined {
+    // `busy` covers every abort owner: kick() and run() mark the interval
+    // running before they install one. `wakeScheduled` is the same-tick state
+    // of an accepted waking prompt whose claim is still a pending microtask.
+    if (this.busy || this.wakeScheduled || this.admission !== undefined
+      || this.queued.some(item => item.wakeup)) return undefined
+    const pending = Promise.withResolvers<void>()
+    const reservation = { settled: pending.promise, settle: pending.resolve }
+    this.admission = reservation
+    return () => {
+      // Idempotent, and inert once a later reservation owns the boundary.
+      if (this.admission !== reservation) return
+      this.admission = undefined
+      // Re-arm the ordinary path first, so an idle waiter released below
+      // re-reads live admission activity instead of settled state.
+      if (this.queued.some(item => item.wakeup)) this.scheduleKick()
+      reservation.settle()
+    }
   }
 
   /**
@@ -218,11 +352,17 @@ export class ReactLoopAgent implements Agent {
       // inboxes clear; listener failures are contained by the dispatcher.
       if (cause.kind !== 'disposed') emitAgentEvent(this.loopCtx, this, 'agent/cancel-requested', cause)
     }
+    if (options.keepInbox && this.abort !== undefined) this.preservePendingAdmissionsOnAbort = true
     if (!options.keepInbox) {
       const discarded = this.queued.map(item => item.item)
+      for (const item of this.queued) item.delivery?.settle({ status: 'rejected' })
       for (const item of this.outbox) {
-        if (item.steering && item.item !== undefined) discarded.push(item.item)
+        if (item.steering && item.item !== undefined) {
+          item.delivery?.settle({ status: 'rejected' })
+          discarded.push(item.item)
+        }
       }
+      this.rejectPendingAdmissions()
       // Clear before abort observers run: replacement work belongs to the next turn.
       this.queued.length = 0
       this.outbox.length = 0
@@ -234,19 +374,34 @@ export class ReactLoopAgent implements Agent {
 
   /** Resolve at idle quiescence: no run driving and no waking prompt waiting. */
   async whenIdle(): Promise<void> {
-    // `done` is replaced per activity, so re-reading it follows chained turns.
-    // Every driver failure today is contained before it can reject `done`,
-    // but the waiter must not gamble quiescence on that: a future escape
-    // still counts as settled activity.
-    /* v8 ignore next 3 -- the catch arm backstops rejection paths that are all currently contained */
-    while (this.busy || this.wakeScheduled || this.abort !== undefined || this.queued.some(item => item.wakeup)) {
-      await this.done.catch(() => undefined)
+    while (true) {
+      // `done` is replaced per activity, so re-reading it follows chained turns.
+      // Every driver failure today is contained before it can reject `done`,
+      // but the waiter must not gamble quiescence on that: a future escape
+      // still counts as settled activity.
+      /* v8 ignore next 3 -- the catch arm backstops rejection paths that are all currently contained */
+      while (this.busy || this.wakeScheduled || this.abort !== undefined || this.runnableWakingQueued) {
+        await this.done.catch(() => undefined)
+      }
+      // A reservation is unfinished activity even with an empty queue, and a
+      // prompt it withholds is not quiescent — but `done` never owns it, so
+      // waiting on the queue alone would spin on an already-settled promise.
+      const reservation = this.admission
+      if (reservation === undefined) return
+      await reservation.settled
     }
+  }
+
+  /** Whether a queued waking prompt may claim the driver now. */
+  private get runnableWakingQueued(): boolean {
+    return this.admission === undefined && this.queued.some(item => item.wakeup)
   }
 
   /** Defer idle admission while keeping {@link done} as its quiescence owner. */
   private scheduleKick(): void {
-    if (this.abort !== undefined || this.wakeScheduled) return
+    // A held reservation keeps the item queued with no scheduled claim; its
+    // release re-arms this path for whatever is queued by then.
+    if (this.abort !== undefined || this.wakeScheduled || this.admission !== undefined) return
     this.wakeScheduled = true
     const pending = Promise.withResolvers<void>()
     const scheduled = pending.promise
@@ -268,11 +423,12 @@ export class ReactLoopAgent implements Agent {
 
   /** Claim and admit the next queued prompt, then start its turn. */
   private kick(): void {
-    if (this.abort !== undefined || !this.queued.some(item => item.wakeup)) return
+    if (this.abort !== undefined || !this.runnableWakingQueued) return
     // The some() guard above proves the queue is non-empty; the non-null
     // assertion expresses that invariant.
     // oxlint-disable-next-line typescript/no-non-null-assertion
-    const { item } = this.queued.shift()!
+    const pending = this.queued.shift()!
+    const { item, delivery } = pending
     const { message } = item
     const inheritedOutboxLength = this.outbox.length
 
@@ -322,6 +478,7 @@ export class ReactLoopAgent implements Agent {
       // still owns the slot here and releasing it unconditionally is exact.
       this.abort = undefined
       if (admitted === undefined) {
+        delivery?.settle({ status: 'rejected' })
         this.acceptsNextStep = false
         try {
           this.flushRejectedAdmissionContexts()
@@ -339,7 +496,7 @@ export class ReactLoopAgent implements Agent {
         this.continueOrIdle()
         return
       }
-      await this.run(trigger, admitted, inheritedOutboxLength)
+      await this.run(trigger, admitted, inheritedOutboxLength, Object.freeze([]), delivery)
     })
     // Published only after the abort owner and pending done are installed: a
     // dequeue listener that cancels or disposes must find live cancellation
@@ -356,6 +513,7 @@ export class ReactLoopAgent implements Agent {
     admitted: UserMessage[] = [],
     inheritedOutboxLength = 0,
     priorFailures: readonly LlmFailure[] = Object.freeze([]),
+    promptDelivery?: SteeringDelivery,
   ): Promise<void> {
     // Both entries hold the invariant: kick() clears the admission slot before
     // awaiting run(), and a retry is entered only after the prior run clears it.
@@ -363,6 +521,7 @@ export class ReactLoopAgent implements Agent {
     if (this.abort !== undefined) throw new Error(`agent "${this.id}" is already running`)
     const controller = new AbortController()
     this.abort = controller
+    this.preservePendingAdmissionsOnAbort = false
     this.acceptsNextStep = true
     const signal = controller.signal
     const turn = this.lastTurn + 1
@@ -386,12 +545,11 @@ export class ReactLoopAgent implements Agent {
       // Context or steering retained by an earlier rejected admission happened
       // before this prompt and must occupy the same order in durable history.
       this.drainOutbox(turn, inheritedOutboxLength)
+      if (promptDelivery !== undefined) this.pendingAdmissions.push(promptDelivery)
       for (const input of admitted) {
         this.session.append('user/message', input, { surfaceOp: 'append' })
       }
       signal.throwIfAborted()
-
-      this.drainOutbox(turn)
 
       steps: while (true) {
         step += 1
@@ -400,11 +558,15 @@ export class ReactLoopAgent implements Agent {
           case 'completed':
             requestFailureHistory = Object.freeze([])
             if (outcome.maxTokens) reason = { kind: 'max-tokens' }
-            // A concluding tool result is terminal: steering already in the
-            // log waits for the next turn's request instead of reopening this
-            // one, and the agent/turn-stopping drain below is skipped for the same
-            // reason.
-            if (outcome.concluded) break steps
+            // A concluding tool result is terminal: reject steering that did
+            // not enter a request, while retaining same-boundary context in
+            // durable history before the turn closes.
+            if (outcome.concluded) {
+              this.discardOutboxSteering()
+              this.drainOutbox(turn)
+              break steps
+            }
+            /* v8 ignore next -- step() folded the same steering predicate into continueTurn immediately before returning. */
             if (outcome.continueTurn || this.outbox.some(item => item.steering)) continue
             break
           case 'request-failed': {
@@ -440,7 +602,10 @@ export class ReactLoopAgent implements Agent {
         }
         await this.loopCtx.serial(agentCarrier(this), 'agent/turn-stopping', this, turn, signal)
         signal.throwIfAborted()
-        if (!this.drainOutbox(turn)) break
+        this.drainOutboxContexts()
+        if (!this.outbox.some(item => item.steering)) {
+          break
+        }
       }
     } catch (caught: unknown) {
       try {
@@ -478,6 +643,10 @@ export class ReactLoopAgent implements Agent {
       // is still this run's controller here.
       this.abort = undefined
       signal.removeEventListener('abort', cancelRetry)
+      const preservePending = signal.aborted && this.preservePendingAdmissionsOnAbort
+      this.preservePendingAdmissionsOnAbort = false
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- keepInbox cancellation can set this while turn work is awaited.
+      if (!preservePending) this.rejectPendingAdmissions()
     }
 
     if (opened) {
@@ -516,14 +685,18 @@ export class ReactLoopAgent implements Agent {
     await this.loopCtx.serial(agentCarrier(this), 'agent/step', this, turn, step, signal)
     signal.throwIfAborted()
 
-    // Take the outbox whole — same-boundary steering and context leave in
-    // this request together.
-    this.drainOutbox(turn)
-
-    // Assemble the system prompt fresh each step (it may depend on log state).
+    // Assemble request-owned prompt inputs fresh each step. Dynamic context is
+    // committed at the tail before deriving history once, preserving the stable
+    // system/history cache prefix while keeping every model-visible byte logged.
     const assembly = await this.loopCtx.systemPrompt.assemble(assembleContextFor(this, signal))
     signal.throwIfAborted()
     const system = renderPrompt(assembly)
+    materializeRuntimeContext(session, renderContextSnapshot(assembly))
+
+    // Commit the exact pending batch only after every asynchronous
+    // pre-request contribution succeeded. Input accepted after this splice
+    // remains pending for a later request.
+    this.drainOutbox(turn)
 
     // Snapshot the exact log prefix: the reconstruction boundary. Appends
     // after this synchronous snapshot join the next request.
@@ -531,6 +704,7 @@ export class ReactLoopAgent implements Agent {
 
     session.append('step/start', { turn, step })
     this.stepOpen = true
+    this.admitPendingAdmissions(turn, step)
     signal.throwIfAborted()
 
     const { request, preparedCall } = await this.buildRequest(
@@ -597,14 +771,14 @@ export class ReactLoopAgent implements Agent {
       ))
     }
 
-    // Tool results stay adjacent to their calls; input accepted during the
-    // request enters the log only after the complete result batch.
-    const steered = this.drainOutbox(turn)
+    // Ordinary context keeps the base loop's result-adjacent commit point.
+    // Steering remains provisional until the next request snapshot admits it.
+    this.drainOutboxContexts()
     session.append('step/end', { turn, step })
     this.stepOpen = false
     return {
       kind: 'completed',
-      continueTurn: (toolCalls.length > 0 && !concluded) || steered,
+      continueTurn: (toolCalls.length > 0 && !concluded) || this.outbox.some(item => item.steering),
       concluded,
       maxTokens: finish.kind === 'max-tokens',
     }
@@ -680,6 +854,24 @@ export class ReactLoopAgent implements Agent {
       session.append('request/header', { header, reason: 'change' })
     }
 
+    // TODO: This looks like code smell.
+    // Context metadata for the route this request resolved to, recorded from the same
+    // registration-bound lookup that prepared the call (no second resolve).
+    // A route with unknown capacity is still recorded so it clears any older
+    // denominator; an unchanged route logs nothing.
+    const contextWindow = preparedCall?.context?.contextWindow
+    const requestContext: RequestContext = {
+      provider: config.provider,
+      model: config.model,
+      ...contextWindow === undefined ? {} : { contextWindow },
+    }
+    const previous = session.requestContext()
+    if (previous?.provider !== requestContext.provider
+      || previous.model !== requestContext.model
+      || previous.contextWindow !== requestContext.contextWindow) {
+      session.append('request/context', requestContext)
+    }
+
     const request = markAgentLoopRequest(deepFreeze({
       ...header.config,
       messages: boundaryMessages,
@@ -691,25 +883,83 @@ export class ReactLoopAgent implements Agent {
     return { request, ...preparedCall === undefined ? {} : { preparedCall } }
   }
 
-  /** Commit the outbox and report whether it contained steering. */
-  private drainOutbox(turn: number, limit = this.outbox.length): boolean {
-    let steered = false
-    for (const item of this.outbox.splice(0, limit)) {
-      if (item.steering) {
-        steered = true
-        /* v8 ignore next -- only inbox-backed steer entries carry steering:true. */
-        if (item.item === undefined) throw new Error(`agent "${this.id}" steering outbox item has no inbox identity`)
-        emitAgentEvent(this.loopCtx, this, 'agent/inbox/dequeue', item.item)
-        this.session.append(
-          'steering/message',
-          { turn, message: item.message },
-          { surfaceOp: 'append' },
-        )
-      } else {
-        this.session.append('user/message', item.message, { surfaceOp: 'append' })
+  /** Commit one stable outbox prefix and retain tracked delivery until snapshot admission. */
+  private drainOutbox(turn: number, limit = this.outbox.length): void {
+    const batch = this.outbox.splice(0, limit)
+    for (let index = 0; index < batch.length; index += 1) {
+      const item = batch[index]
+      /* v8 ignore next -- the index walks the exact array length. */
+      if (item === undefined) throw new Error(`agent "${this.id}" outbox item disappeared during drain`)
+      try {
+        if (item.steering) {
+          /* v8 ignore next -- only inbox-backed steer entries carry steering:true. */
+          if (item.item === undefined) throw new Error(`agent "${this.id}" steering outbox item has no inbox identity`)
+          emitAgentEvent(this.loopCtx, this, 'agent/inbox/dequeue', item.item)
+          this.session.append(
+            'steering/message',
+            { turn, message: item.message },
+            { surfaceOp: 'append' },
+          )
+          if (item.delivery !== undefined) this.pendingAdmissions.push(item.delivery)
+        } else {
+          this.session.append('user/message', item.message, { surfaceOp: 'append' })
+        }
+      } catch (error: unknown) {
+        item.delivery?.settle({ status: 'rejected' })
+        this.outbox.unshift(...batch.slice(item.steering ? index + 1 : index))
+        throw error
       }
     }
-    return steered
+  }
+
+  /** Commit ordinary context while retaining provisional steering in order. */
+  private drainOutboxContexts(): void {
+    const pending = this.outbox
+    this.outbox = []
+    for (let index = 0; index < pending.length; index += 1) {
+      const item = pending[index]
+      /* v8 ignore next -- the index walks the exact array length. */
+      if (item === undefined) throw new Error(`agent "${this.id}" outbox item disappeared during context drain`)
+      if (item.steering) {
+        this.outbox.push(item)
+        continue
+      }
+      try {
+        this.session.append('user/message', item.message, { surfaceOp: 'append' })
+      } catch (error: unknown) {
+        this.outbox.push(...pending.slice(index))
+        throw error
+      }
+    }
+  }
+
+  /** Settle every committed steering item captured by this immutable request. */
+  private admitPendingAdmissions(turn: number, step: number): void {
+    const outcome: SteeringOutcome = { status: 'admitted', turn, step }
+    for (const delivery of this.pendingAdmissions.splice(0)) delivery.settle(outcome)
+  }
+
+  /** Reject committed steering that left the inbox without reaching a request. */
+  private rejectPendingAdmissions(): void {
+    for (const delivery of this.pendingAdmissions.splice(0)) delivery.settle({ status: 'rejected' })
+  }
+
+  /** Discard uncommitted steering while retaining same-boundary injected context. */
+  private discardOutboxSteering(): void {
+    const contexts: typeof this.outbox = []
+    const discarded: InboxItem[] = []
+    for (const item of this.outbox) {
+      if (!item.steering) {
+        contexts.push(item)
+        continue
+      }
+      item.delivery?.settle({ status: 'rejected' })
+      /* v8 ignore next -- only inbox-backed steer entries carry steering:true. */
+      if (item.item === undefined) throw new Error(`agent "${this.id}" steering outbox item has no inbox identity`)
+      discarded.push(item.item)
+    }
+    this.outbox = contexts
+    if (discarded.length > 0) emitAgentEvent(this.loopCtx, this, 'agent/inbox/discard', discarded)
   }
 
   /**
@@ -774,7 +1024,7 @@ export class ReactLoopAgent implements Agent {
 
   /** Continue with a waking prompt, or publish the idle status. */
   private continueOrIdle(): void {
-    if (this.queued.some(item => item.wakeup)) {
+    if (this.runnableWakingQueued) {
       this.kick()
     } else {
       // Every caller sits inside an admission or run whose install marked the

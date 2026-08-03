@@ -1,24 +1,25 @@
-// Web toolview registrant: third-party posture over the keyed toolview hole
-// (ctx.slots.register + ToolRowProps only — never imports the chat domain).
-// Registered under BOTH web_search and web_fetch, since both declare the one
-// `web` render intent and render through the one WebBlock family; the row
-// discriminates on the toolName only to pick its icon and title.
-//
-// A web tool declares the `web` render intent at result time, so this row
-// renders the completed retrieval through WebBlock resident below its summary,
-// the same posture BashRow uses for the terminal card: no expand control on the
-// row itself, not a details-panel target, and the block's own expander keeps a
-// long source list from taking over the message flow (CHAT_WEB_MAX_SOURCES is
-// passed as maxSources — the chat flow's tighter cap over the block's default
-// of 16). Until the call settles there is no web card (the tools keep a generic
-// pending view), so a running row is the summary line alone.
+// Web toolview registrant: the keyed toolview hole for the `web_search` and
+// `web_fetch` tools. Registered under BOTH, since both declare the one `web`
+// render intent and render through the one WebBlock family; the row
+// discriminates on the toolName only to pick its icon and title. The row
+// composes the shared ToolRow (chrome, running sweep, whole-row expand) and
+// feeds it the completed retrieval as ToolRow's `web` card material, so it
+// renders through WebBlock in the collapsed-by-default expanded body — the same
+// unified interaction every other card row has. Until the call settles there is
+// no web card (the tools keep a generic pending view), so a running row is the
+// summary line alone.
 
 import type { Context } from 'cordis'
-import { IconBrowseOutline16, IconSearchOutline16, StateDot, WebBlock } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconBrowseOutline16, IconSearchOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ToolRowProps } from '../contract/slots.ts'
-import { CHAT_WEB_MAX_SOURCES, webCardModel } from '../contract/web-card-model.ts'
-import { toolRowModel, type ToolRowState } from '../contract/tool-call-model.ts'
-import css from './web-row.module.css'
+import { webCardModel } from '../contract/web-card-model.ts'
+import { toolRowModel } from '../contract/tool-call-model.ts'
+import { ToolRow } from '../chat/ToolRow.tsx'
+import { NS } from '../locales.ts'
+
+/** Full row props: the toolview runtime share plus the standard locale seat. */
+type WebRowProps = ToolRowProps & PropsLocale<'conversation'>
 
 /** web_fetch reads one URL; web_search queries. Titles are figma literals. */
 const WEB_TITLES: Record<string, string> = {
@@ -26,49 +27,30 @@ const WEB_TITLES: Record<string, string> = {
   web_fetch: 'Fetch',
 }
 
-/** Leading icon per tool, yielding to the state semantic while failed/stopped. */
-function leadingFor(toolName: string, state: ToolRowState) {
-  switch (state) {
-    case 'error': return <StateDot state="error" />
-    case 'stopped': return <StateDot state="warning" />
-    // Running keeps the icon — the row sweep carries the in-flight signal.
-    default: return toolName === 'web_fetch' ? <IconBrowseOutline16 size={14} /> : <IconSearchOutline16 size={14} />
-  }
-}
-
-/** Visually hidden status — StateDot is aria-hidden; AT needs a text label. */
-function stateStatus(state: ToolRowState): string | null {
-  switch (state) {
-    case 'running': return '运行中'
-    case 'error': return '失败'
-    case 'stopped': return '已停止'
-    default: return null
-  }
-}
-
 /**
  * Web row: icon + Search/Fetch · {summary} in the shared ToolRow chrome, with
- * the completed retrieval's web card resident below it. The summary row is not
- * a details-panel control (tool rows stopped being one), so the card's own
- * links and expander are the row's only interactions.
+ * the completed retrieval's web card as the row's collapsed-by-default card
+ * body. The row discriminates on `toolName` only to pick its icon and title.
  */
-export function WebRow({ toolName, block }: ToolRowProps) {
+export function WebRow({ toolName, block, inspect, t }: WebRowProps) {
   const model = toolRowModel(toolName, block)
   const web = webCardModel(block)
-  const status = stateStatus(model.state)
+  const icon = toolName === 'web_fetch' ? <IconBrowseOutline16 size={14} /> : <IconSearchOutline16 size={14} />
   return (
-    <div className={css.card}>
-      <div className={css.root} data-variant="web" data-tool={toolName} data-state={model.state}>
-        <span className={css.leading}>{leadingFor(toolName, model.state)}</span>
-        {status !== null && <span className={css.visuallyHidden}>{status}</span>}
-        <span className={css.title}>{WEB_TITLES[toolName] ?? model.title}</span>
-        <span className={css.sep} aria-hidden />
-        <span className={css.summary}>{model.summary}</span>
-      </div>
-      {web !== null && (
-        <WebBlock {...web} maxSources={CHAT_WEB_MAX_SOURCES} className={css.web} />
-      )}
-    </div>
+    <ToolRow
+      t={t}
+      variant={model.variant}
+      toolName={toolName}
+      icon={icon}
+      title={WEB_TITLES[toolName] ?? model.title}
+      summary={model.summary}
+      body={null}
+      output={model.output}
+      errorSummary={model.errorSummary}
+      web={web}
+      state={model.state}
+      inspect={inspect}
+    />
   )
 }
 
@@ -86,7 +68,7 @@ export const webToolview = {
    * @param ctx - registrant context (disposal rides ctx.effect inside slots.register).
    */
   apply(ctx: Context): void {
-    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'web_search' }, WebRow)
-    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'web_fetch' }, WebRow)
+    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'web_search', locale: NS }, WebRow)
+    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'web_fetch', locale: NS }, WebRow)
   },
 }

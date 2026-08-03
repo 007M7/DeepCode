@@ -69,7 +69,7 @@ import type {
   TuiTheme,
 } from './extension/types.ts'
 import { displayInlineText, displayText } from './components/text.ts'
-import { createPalette, markdownTheme, renderPalette, selectTheme } from './components/theme.ts'
+import { brandText, createPalette, markdownTheme, renderPalette, selectTheme } from './components/theme.ts'
 import { contentText, parseArguments } from './components/content.ts'
 import {
   cacheHitRate,
@@ -80,6 +80,7 @@ import {
 import {
   fadeGlyph,
   formatQueuedStatus,
+  formatStatusDuration,
   openStepPhase,
   openTurn,
   pulseLevel,
@@ -104,6 +105,7 @@ import {
 } from './components/transcript.ts'
 import {
   compactTargetLabel,
+  DetailsDialog,
   diagnosticMeter,
   formatDiagnosticCount,
   formatDiagnosticNumber,
@@ -112,6 +114,7 @@ import {
   StatusCardComponent,
   PromptContextComponent,
   targetLabel,
+  type DetailsSelection,
   type StatusCardRow,
 } from './components/dialogs.ts'
 import {
@@ -226,9 +229,9 @@ export const TUI_GOODBYE_MESSAGE_KEY = 'tuiGoodbyeMessage'
 /**
  * Context key a launcher sets before any Loader entry mounts
  * (`ctx.provide(INITIAL_SKILL_KEY, name)`) to seed a fresh session's first user
- * turn with `/skill:<name>` — the `dsh migrate`/`dsh upgrade` guided-session
- * entry. The launcher sets it only when minting a fresh session, so it never
- * re-fires on a resumed one. Absent leaves the first turn to the user.
+ * turn with `/skill:<name>` — the `dsh migrate`/`dsh upgrade`
+ * guided-session entry. The launcher sets it only when minting a fresh session,
+ * so it never re-fires on a resumed one. Absent leaves the first turn to the user.
  */
 export const INITIAL_SKILL_KEY = 'tuiInitialSkill'
 
@@ -329,14 +332,27 @@ export function createTuiChat(
   })
   editor.hintPrefix = initialInputPrompt
   const todo = new TodoComponent(palette)
+  const compactionStatusLine = new Text('', 0, 0)
   let showReasoning = resolved.showReasoning
   // Ctrl+O cycles collapsed -> expanded -> hidden. Codex-style: hidden drops
   // tool cards entirely, collapsed previews, expanded shows full bodies.
   let toolsVisibility: ToolCardVisibility = 'collapsed'
   let streaming: StreamingAssistantComponent | undefined
   let completedStreaming: StreamingAssistantComponent | undefined
+  // Assistant step components in model order per turn, for hidden-mode folding:
+  // with tool cards hidden, a turn keeps one Assistant header and later steps
+  // render as headerless continuations (see applyTurnFolding).
+  const assistantSteps = new Map<number, StreamingAssistantComponent[]>()
   let runningStatus: RunningStatus | undefined
   let fadingStatus: FadingStatus | undefined
+  /**
+   * Live standalone compaction observed by this process. Never derive this
+   * state from history: a resumed log may contain a stale orphaned start.
+   */
+  let compacting: {
+    startedAt: number
+    timer: ReturnType<typeof setInterval>
+  } | undefined
   // TUI steering submissions that the inbox has not yet claimed or discarded.
   // Correlation ids avoid guessing whether a running-state submission actually
   // joined steering or fell back to the queued-turn FIFO during turn close.
@@ -400,6 +416,7 @@ export function createTuiChat(
     throw new Error('TUI prompt built-ins failed to initialize')
   }
   const updatePromptValues = (): void => {
+    const renderTime = now()
     cwdValue.set(palette.bold(palette.accent(formattedCwd)))
     gitValue.set(branch === undefined ? undefined : palette.dim(` (${displayText(branch)})`))
     const rate = cacheHitRate(tokens)
@@ -413,23 +430,31 @@ export function createTuiChat(
     const queued = runningStatus === undefined ? undefined : formatQueuedStatus(pendingSteering.size)
     queuedValue.set(queued === undefined ? undefined : palette.dim(queued))
     symbolValue.set(palette.bold(palette.accent('dsh')))
+    compactionStatusLine.setText(compacting === undefined
+      ? ''
+      : palette.dim(`Context being compacted ${formatStatusDuration(renderTime - compacting.startedAt)}`))
     // `${indicator}` owns the caret column and its trailing gap before the
-    // cursor. The phase glyph replaces the `>` caret in place — same width
-    // every frame — fading in as a turn starts, throbbing while it runs, and
-    // fading out after it ends before the plain `>` returns. Only the gray
+    // cursor. The active status glyph replaces the `>` caret in place — same
+    // width every frame — fading in when work starts, throbbing while it runs,
+    // and fading out after it ends before the plain `>` returns. Only the gray
     // brightness changes, so the cursor never shifts.
-    const runningGlyph = runningPhaseGlyph(agent.session.events, runningStatus !== undefined)
+    const statusGlyph = runningPhaseGlyph(
+      agent.session.events,
+      runningStatus !== undefined,
+      compacting !== undefined,
+    )
     // Remember the live phase glyph so the fade-out shows it, not the ttft
     // fallback the derivation returns once the closing turn's step has ended.
-    if (runningStatus !== undefined && runningGlyph !== undefined) runningStatus.lastGlyph = runningGlyph
-    // The fade envelope gates appear/disappear; the running throb breathes the
-    // glyph the whole turn. Truecolor opacity is envelope × throb; the
+    if (runningStatus !== undefined && statusGlyph !== undefined) runningStatus.lastGlyph = statusGlyph
+    // The fade envelope gates appear/disappear; the active throb breathes the
+    // glyph throughout the operation. Truecolor opacity is envelope × throb; the
     // non-truecolor fallback keys visibility off the envelope alone, so the
     // throb never blinks it. `envelope` clamps to [0, 1].
-    const envelope = runningStatus !== undefined && runningGlyph !== undefined
-      ? { glyph: runningGlyph, level: Math.min(1, (now() - runningStatus.startedAt) / STATUS_FADE_MS) }
+    const activeSince = runningStatus?.startedAt ?? compacting?.startedAt
+    const envelope = activeSince !== undefined && statusGlyph !== undefined
+      ? { glyph: statusGlyph, level: Math.min(1, (renderTime - activeSince) / STATUS_FADE_MS) }
       : fadingStatus !== undefined
-        ? { glyph: fadingStatus.glyph, level: Math.max(0, 1 - (now() - fadingStatus.endedAt) / STATUS_FADE_MS) }
+        ? { glyph: fadingStatus.glyph, level: Math.max(0, 1 - (renderTime - fadingStatus.endedAt) / STATUS_FADE_MS) }
         : undefined
     const caret = envelope === undefined
       ? palette.dim('>')
@@ -438,7 +463,7 @@ export function createTuiChat(
         palette,
         resolved.theme.color,
         resolved.theme.color && resolved.theme.truecolor,
-        envelope.level * pulseLevel(now()),
+        envelope.level * pulseLevel(renderTime),
         envelope.level >= 0.5,
       )
     indicatorValue.set(`${caret}${palette.dim(' ')}`)
@@ -453,6 +478,7 @@ export function createTuiChat(
   ui.addChild(new Spacer(1))
   todoContainer.addChild(todo)
   ui.addChild(todoContainer)
+  ui.addChild(compactionStatusLine)
   ui.addChild(promptContext)
   ui.addChild(editor)
   ui.setFocus(editor)
@@ -486,6 +512,9 @@ export function createTuiChat(
 
   const extensionTheme: TuiTheme = Object.freeze({
     text: (value: string) => palette.text(value),
+    brand: (value: string) => resolved.theme.color
+      ? resolved.theme.truecolor ? brandText(value) : palette.brand(value)
+      : value,
     dim: (value: string) => palette.dim(value),
     accent: (value: string) => palette.accent(value),
     success: (value: string) => palette.success(value),
@@ -537,8 +566,8 @@ export function createTuiChat(
     requestRender()
   }
 
-  /** Stop the running and fade-out timers and drop both states at once. */
-  const clearStatus = (): void => {
+  /** Stop the turn-phase running and fade-out timers and drop both states. */
+  const clearTurnStatus = (): void => {
     if (runningStatus !== undefined) {
       clearInterval(runningStatus.timer)
       runningStatus = undefined
@@ -547,21 +576,30 @@ export function createTuiChat(
       clearInterval(fadingStatus.timer)
       fadingStatus = undefined
     }
-    runtime.terminal.setProgress(false)
+    runtime.terminal.setProgress(compacting !== undefined)
+  }
+
+  /** Hard clear: drop every indicator, including a live compaction bracket. */
+  const clearStatus = (): void => {
+    if (compacting !== undefined) {
+      clearInterval(compacting.timer)
+      compacting = undefined
+    }
+    clearTurnStatus()
   }
 
   /**
-   * On the running → non-running edge, hand the last rendered glyph to a
-   * fade-out that re-renders until it settles on the `>` caret, then stops its
-   * own timer. A hard clear (teardown) skips this via {@link clearStatus}.
+   * Hand the last active glyph to a fade-out that re-renders until it settles
+   * on the `>` caret, then stops its own timer. A hard clear (teardown) skips
+   * this via {@link clearStatus}.
    */
   const beginFadeOut = (glyph: string): void => {
-    clearStatus()
+    clearTurnStatus()
     const fading: FadingStatus = {
       glyph,
       endedAt: now(),
       timer: setInterval(() => {
-        if (now() - fading.endedAt >= STATUS_FADE_MS) clearStatus()
+        if (now() - fading.endedAt >= STATUS_FADE_MS) clearTurnStatus()
         renderStatus()
       }, STATUS_ANIMATION_INTERVAL_MS),
     }
@@ -571,9 +609,9 @@ export function createTuiChat(
   const setStatus = (status: AgentStatus): void => {
     const priorTurn = runningStatus?.turn
     const fadeOutGlyph = status !== 'running' ? runningStatus?.lastGlyph : undefined
-    if (status === 'running') clearStatus()
+    if (status === 'running') clearTurnStatus()
     else if (fadeOutGlyph !== undefined) beginFadeOut(fadeOutGlyph)
-    else clearStatus()
+    else clearTurnStatus()
     editor.borderColor = status === 'running' ? text => palette.accent(text) : text => palette.dim(text)
     editor.hint = status === 'running' ? palette.dim(displayInlineText(resolved.theme.inputPlaceholder)) : undefined
     if (status === 'running') {
@@ -615,6 +653,35 @@ export function createTuiChat(
     return card
   }
 
+  /**
+   * Re-derive hidden-mode folding for one turn: the first step with a visible
+   * body owns the turn's single Assistant header, every other step renders as a
+   * headerless continuation (empty ones render nothing). Any other visibility
+   * restores the per-step headers.
+   */
+  const applyTurnFolding = (turn: number): void => {
+    const steps = assistantSteps.get(turn)
+    if (steps === undefined) return
+    let headerSeen = false
+    for (const step of steps) {
+      if (toolsVisibility !== 'hidden') {
+        step.setFoldedContinuation(false)
+      } else if (!headerSeen && step.hasVisibleBody()) {
+        headerSeen = true
+        step.setFoldedContinuation(false)
+      } else {
+        step.setFoldedContinuation(true)
+      }
+    }
+  }
+
+  const registerAssistantStep = (component: StreamingAssistantComponent): void => {
+    const steps = assistantSteps.get(component.position.turn) ?? []
+    steps.push(component)
+    assistantSteps.set(component.position.turn, steps)
+    applyTurnFolding(component.position.turn)
+  }
+
   const removeStreaming = (current: StreamingAssistantComponent | undefined): void => {
     if (current === undefined) return
     for (const child of [current, current.timing]) {
@@ -622,6 +689,15 @@ export function createTuiChat(
       /* v8 ignore next -- streaming components and their timing footers are retained only while attached to the chat. */
       if (index >= 0) chat.children.splice(index, 1)
     }
+    const steps = assistantSteps.get(current.position.turn)
+    /* v8 ignore next -- every attached streaming component is registered in the fold map. */
+    if (steps === undefined) return
+    const index = steps.indexOf(current)
+    /* v8 ignore next -- registration precedes attachment, so the component is present until this removal. */
+    if (index < 0) return
+    steps.splice(index, 1)
+    // A retracted step may have owned the turn's hidden-mode header.
+    applyTurnFolding(current.position.turn)
   }
 
   /**
@@ -660,6 +736,7 @@ export function createTuiChat(
       palette,
       mdTheme,
     )
+    registerAssistantStep(streaming)
     chat.addChild(streaming)
     chat.addChild(streaming.timing)
   }
@@ -723,12 +800,22 @@ export function createTuiChat(
         startAssistantStep(event.data)
         break
       case 'assistant/chunk':
-        if (options.renderChunks) streaming?.update(event.data.chunk)
+        if (options.renderChunks && streaming !== undefined) {
+          streaming.update(event.data.chunk)
+          // The first streamed text/reasoning may make this step the turn's
+          // hidden-mode header owner (or a continuation with a visible body).
+          applyTurnFolding(streaming.position.turn)
+        }
         break
       case 'assistant/message':
         completedStreaming = undefined
-        if (streaming === undefined || !chat.children.includes(streaming)) startAssistantStep(event.data)
-        streaming?.settle(event.data.message.content)
+        // A settled component stays attached but never absorbs a later message
+        // of the same step; both the live and replay paths start a new one.
+        if (streaming === undefined || streaming.isSettled() || !chat.children.includes(streaming)) startAssistantStep(event.data)
+        if (streaming !== undefined) {
+          streaming.settle(event.data.message.content)
+          applyTurnFolding(streaming.position.turn)
+        }
         break
       case 'llm/retry': {
         retractFailedStreaming()
@@ -847,6 +934,7 @@ export function createTuiChat(
     toolCards.clear()
     allToolCards.clear()
     contextCards.clear()
+    assistantSteps.clear()
     streaming = undefined
     todo.update([])
     const transcriptCalls = transcriptToolCallIds(agent.session)
@@ -956,30 +1044,97 @@ export function createTuiChat(
   // same reason.
   ui.queryTerminalColorScheme({ timeoutMs: 2000 }).catch(() => {})
 
-  const toggleTools = (): void => {
-    // The cycle order puts the two common reading modes adjacent: preview ->
-    // full detail -> conversation-only, then back to the preview default.
-    toolsVisibility = toolsVisibility === 'collapsed' ? 'expanded'
-      : toolsVisibility === 'expanded' ? 'hidden' : 'collapsed'
+  const setToolsVisibility = (next: ToolCardVisibility): void => {
+    toolsVisibility = next
     for (const card of allToolCards) card.setVisibility(toolsVisibility)
     // Context cards carry injected instructions rather than tool traffic, so
     // they never hide: the hidden phase reads as their collapsed preview.
     for (const card of contextCards) card.setExpanded(toolsVisibility === 'expanded')
+    // Hidden mode folds each turn's steps into one assistant message; other
+    // modes restore the per-step Assistant headers.
+    for (const turn of assistantSteps.keys()) applyTurnFolding(turn)
     appendNotice(toolsVisibility === 'hidden' ? 'Tool cards hidden.' : `Tool and context cards ${toolsVisibility}.`)
   }
 
-  const toggleReasoning = (): void => {
-    showReasoning = !showReasoning
+  const toggleTools = (): void => {
+    // The cycle order puts the two common reading modes adjacent: preview ->
+    // full detail -> conversation-only, then back to the preview default.
+    setToolsVisibility(toolsVisibility === 'collapsed' ? 'expanded'
+      : toolsVisibility === 'expanded' ? 'hidden' : 'collapsed')
+  }
+
+  const setReasoning = (show: boolean): void => {
+    showReasoning = show
     const activeStreaming = streaming
     rebuildTranscript(false)
     /* v8 ignore next -- the non-streaming command path is covered; this branch preserves an active stream across rebuild. */
     if (activeStreaming !== undefined) {
       streaming = activeStreaming
       streaming.setShowReasoning(showReasoning)
+      registerAssistantStep(activeStreaming)
       chat.addChild(activeStreaming)
       chat.addChild(activeStreaming.timing)
     }
     appendNotice(`Reasoning blocks ${showReasoning ? 'shown' : 'hidden'}.`)
+  }
+
+  const toggleReasoning = (): void => { setReasoning(!showReasoning) }
+
+  // The selector and the argument grammar mutate the same closure state the
+  // Ctrl+O cycle and Ctrl+R toggle drive, so every entry converges.
+  let detailsOverlay: TuiOverlaySession | undefined
+  const showDetailsSelector = (): void => {
+    void detailsOverlay?.close()
+    const session = overlayManager.open({
+      create: () => new DetailsDialog(
+        toolsVisibility,
+        showReasoning,
+        palette,
+        // Each Tab applies immediately; one dimension changes per call.
+        (selection: DetailsSelection) => {
+          if (selection.showReasoning !== showReasoning) setReasoning(selection.showReasoning)
+          if (selection.visibility !== toolsVisibility) setToolsVisibility(selection.visibility)
+        },
+        () => { void session.close() },
+      ),
+      options: { width: resolved.detailsDialogWidth, anchor: 'center', margin: 1 },
+    })
+    detailsOverlay = session
+    void session.closed.then(() => {
+      if (detailsOverlay === session) detailsOverlay = undefined
+    })
+    requestRender()
+  }
+
+  // `/details` names the same transcript-detail state the Ctrl+O cycle and
+  // Ctrl+R toggle mutate, so a user can jump to a mode without cycling.
+  const runDetails = (rawInput: string): CommandResult => {
+    const tokens = rawInput.split(/\s+/u).filter(token => token !== '')
+    if (tokens.length === 0) {
+      showDetailsSelector()
+      return { kind: 'success' }
+    }
+    let visibility: ToolCardVisibility | undefined
+    let reasoning: boolean | undefined
+    for (let token = tokens.shift(); token !== undefined; token = tokens.shift()) {
+      if (token === 'collapsed' || token === 'expanded' || token === 'hidden') {
+        visibility = token
+      } else if (token === 'reasoning') {
+        const value = tokens[0]
+        if (value === 'on' || value === 'off') {
+          tokens.shift()
+          reasoning = value === 'on'
+        } else {
+          reasoning = !showReasoning
+        }
+      } else {
+        return { kind: 'error', text: `Unknown /details argument "${token}". Usage: /details [collapsed|expanded|hidden] [reasoning [on|off]]` }
+      }
+    }
+    // Reasoning first: its transcript rebuild would drop the visibility notice.
+    if (reasoning !== undefined) setReasoning(reasoning)
+    if (visibility !== undefined) setToolsVisibility(visibility)
+    return { kind: 'success' }
   }
 
   const showHelp = (): void => {
@@ -1166,6 +1321,12 @@ export function createTuiChat(
       name: 'clear',
       description: 'Clear the transcript view (session history is unchanged)',
       handler: () => { chat.clear(); requestRender(); return { kind: 'success' } },
+    })
+    commandCtx.commands.register({
+      name: 'details',
+      description: 'Select tool-card visibility and reasoning display',
+      input: { hint: '[collapsed|expanded|hidden] [reasoning [on|off]]' },
+      handler: ({ rawInput }) => runDetails(rawInput),
     })
     commandCtx.commands.register({
       name: 'palette',
@@ -1506,7 +1667,32 @@ export function createTuiChat(
     if (event.type === 'tool/result') fileSearch.invalidate()
     recordEventUsage(tokens, event)
     if (event.type === 'turn/start' && runningStatus !== undefined) runningStatus.turn = event.data.turn
-    if (event.type === 'assistant/message' && streaming?.isSettled()) streaming = undefined
+    // Track live standalone compaction state.
+    if (event.type === 'compact/start' && event.data.turn === null) {
+      if (compacting === undefined) {
+        const startedAt = now()
+        compacting = {
+          startedAt,
+          timer: setInterval(renderStatus, STATUS_ANIMATION_INTERVAL_MS),
+        }
+        runtime.terminal.setProgress(true)
+      }
+      requestRender()
+      return
+    }
+    if (event.type === 'compact/end' && event.data.turn === null && compacting !== undefined) {
+      const fadeOutGlyph = runningPhaseGlyph(agent.session.events, false, true)
+      clearInterval(compacting.timer)
+      compacting = undefined
+      if (event.data.error !== undefined) {
+        appendNotice(`Compaction failed: ${event.data.error}`, 'warning')
+      }
+      // A concurrently running turn owns the indicator. Keep its timer and
+      // progress bit instead of letting the compaction fade clear that state.
+      if (runningStatus === undefined && fadeOutGlyph !== undefined) beginFadeOut(fadeOutGlyph)
+      requestRender()
+      return
+    }
     // A replacement mutates only the model surface, so the rendered transcript
     // keeps what it already showed; a landed summary checkpoint adds its marker.
     if (isReplacementSurfaceEvent(event)) {
@@ -1550,6 +1736,9 @@ export function createTuiChat(
     // TUI stays mounted. Retained agents accept deliveries after detachment, so
     // without this a later send would drive a zombie agent/session; mark
     // disposed so dispatchMessage reports it instead.
+    // The hard clear also retires live compaction. A later compact/end is
+    // intentionally presentation-silent: this disposal notice owns the
+    // terminal outcome, and no animation may survive agent detachment.
     clearStatus()
     appendNotice(`Agent "${agent.id}" was disposed.`, 'warning')
     disposed = true
@@ -1572,6 +1761,7 @@ export function createTuiChat(
     disposeAgent()
     disposeSchemeListener()
     disposeTargetListeners()
+    modelController.detach()
   }
 
   // Sweep reveal of the whole banner: the header wipes in left-to-right over
@@ -1637,11 +1827,11 @@ export function createTuiChat(
   })
   startBannerReveal()
 
-  // A launcher-seeded first turn (`dsh migrate`/`dsh upgrade`): invoke the
-  // named skill exactly as a typed `/skill:<name>` would, once the chat is live
-  // and the agent is idle. The launcher sets this only for a fresh session, so
-  // there is no prior turn to collide with; invokeSkill reports an unknown skill
-  // as a notice.
+  // A launcher-seeded first turn (`dsh migrate`/`dsh upgrade`):
+  // invoke the named skill exactly as a typed `/skill:<name>` would, once the
+  // chat is live and the agent is idle. The launcher sets this only for a fresh
+  // session, so there is no prior turn to collide with; invokeSkill reports an
+  // unknown skill as a notice.
   if (config.initialSkill !== undefined) invokeSkill(config.initialSkill, '')
 
   return {

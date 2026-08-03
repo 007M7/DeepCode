@@ -52,6 +52,10 @@ function mount(version?: string, mutateImpl: () => Promise<unknown> = () => Prom
 }
 
 describe('WelcomeNotice', () => {
+  it('uses the same Chinese owner copy in both GUI locales', () => {
+    expect(WELCOME_NOTICE_COPY.en).toEqual(WELCOME_NOTICE_COPY.zh)
+  })
+
   it('renders the owner copy with one primary action and no dismissal control', async () => {
     const h = mount()
     const page = await screen.findByRole('region', { name: WELCOME_NOTICE_COPY.zh.title })

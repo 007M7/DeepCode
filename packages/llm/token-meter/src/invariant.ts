@@ -15,8 +15,11 @@ export const name = 'token-meter-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: token estimates are per-call outputs and the private session cache is
- * invalidated at its event mutation boundary; neither exposes an independent observation stream.
+ * No runtime invariant: token estimates are per-call outputs and the private
+ * session cache is invalidated at its event mutation boundary. The package's
+ * projection does expose an observation stream, but its schema fixes the JSON
+ * payload and its pure fold replaces same-step samples; totals need not be
+ * monotone when a final usage sample corrects an earlier chunk.
  */
 const install: InvariantInstaller = () => {}
 

@@ -55,6 +55,11 @@ import {
   credentialsDescribeValueSchema, credentialsSetValueSchema, credentialsUnsetValueSchema,
 } from '../api/credentials.schema.ts'
 import { llmModelsValueSchema, llmProvidersValueSchema } from '../api/llm.schema.ts'
+import {
+  subagentHistoryValueSchema,
+  subagentListValueSchema,
+  subagentPromptValueSchema,
+} from '../api/subagents.schema.ts'
 
 /**
  * Client consumption face of the contract (shape a): same domain tree as ApiProxy, but unary
@@ -85,6 +90,11 @@ export interface IApiClient {
     prompt(payload: RequestPayload<'session.prompt'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.prompt'>>>
     updateQueue(payload: RequestPayload<'session.updateQueue'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.updateQueue'>>>
     cancel(payload: RequestPayload<'session.cancel'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.cancel'>>>
+  }
+  subagents: {
+    list(payload: RequestPayload<'subagent.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'subagent.list'>>>
+    history(payload: RequestPayload<'subagent.history'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'subagent.history'>>>
+    prompt(payload: RequestPayload<'subagent.prompt'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'subagent.prompt'>>>
   }
   host: {
     describe(payload: RequestPayload<'host.describe'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'host.describe'>>>
@@ -155,6 +165,9 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'session.prompt': sessionPromptValueSchema,
   'session.updateQueue': sessionUpdateQueueValueSchema,
   'session.cancel': sessionCancelValueSchema,
+  'subagent.list': subagentListValueSchema,
+  'subagent.history': subagentHistoryValueSchema,
+  'subagent.prompt': subagentPromptValueSchema,
   'host.describe': hostDescribeValueSchema,
   'host.pickDirectory': hostPickDirectoryValueSchema,
   'host.listDirectory': hostListDirectoryValueSchema,
@@ -383,6 +396,12 @@ export abstract class AbstractApiClient implements IApiClient {
     prompt: (payload, signal) => this.callUnary('session.prompt', payload, signal),
     updateQueue: (payload, signal) => this.callUnary('session.updateQueue', payload, signal),
     cancel: (payload, signal) => this.callUnary('session.cancel', payload, signal),
+  }
+
+  readonly subagents: IApiClient['subagents'] = {
+    list: (payload, signal) => this.callUnary('subagent.list', payload, signal),
+    history: (payload, signal) => this.callUnary('subagent.history', payload, signal),
+    prompt: (payload, signal) => this.callUnary('subagent.prompt', payload, signal),
   }
 
   readonly host: IApiClient['host'] = {

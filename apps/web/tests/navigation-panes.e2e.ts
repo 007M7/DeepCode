@@ -43,7 +43,7 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
 
   beforeAll(async () => {
     scaffold = await launchWebScaffold({})
-    // The workspace-aware flow runs sessions in <workspaceRoot>/workspace;
+    // The workspace-aware flow runs sessions in <workspaceCwd>/workspace;
     // the read targets must live in that session cwd (pre-creation is safe:
     // create-by-name adopts an existing directory).
     const sessionCwd = join(scaffold.workspaceCwd, 'workspace')
@@ -67,6 +67,10 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     })
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+    // The frame mounts before the asynchronous session-list baseline lands.
+    // Search must target the settled seeded row, not the startup input that
+    // the ready projection replaces.
+    await page.getByText('1 session', { exact: true }).waitFor({ timeout: 30_000 })
   }, 120_000)
 
   afterAll(async () => {
@@ -134,6 +138,23 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-trajectory'))
     await page.getByRole('tab', { name: 'Trajectory' }).click()
     await page.waitForTimeout(100)
+    const overlayLayout = await page.getByRole('table').evaluate((table) => {
+      const host = table.closest('[data-conversation-scroll]')
+      const seat = host?.querySelector('[data-composer-seat]') ?? null
+      const pane = table.parentElement
+      return {
+        hostPosition: host === null ? null : getComputedStyle(host).position,
+        paneOverflowX: pane === null ? null : getComputedStyle(pane).overflowX,
+        paneScrollableWidth: pane === null ? null : pane.scrollWidth - pane.clientWidth,
+        seatPosition: seat === null ? null : getComputedStyle(seat).position,
+      }
+    })
+    expect(overlayLayout).toEqual({
+      hostPosition: 'relative',
+      paneOverflowX: 'hidden',
+      paneScrollableWidth: 0,
+      seatPosition: 'absolute',
+    })
     expect({
       pageErrors: tripwire.pageErrors,
       slotErrors,
@@ -147,14 +168,34 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     await expect.poll(() => page.locator('tr[data-turn-start="true"]').count(), { timeout: 15_000 }).toBe(2)
     await expect.poll(() => page.getByRole('columnheader').count(), { timeout: 10_000 }).toBe(0)
     await page.locator('tr[data-kind="tool"]').first().click()
-    await expect.poll(() => page.getByRole('complementary', { name: 'Event details' }).count(), { timeout: 10_000 }).toBe(1)
+    const details = page.getByRole('complementary', { name: 'Event details' })
+    await expect.poll(() => details.count(), { timeout: 10_000 }).toBe(1)
+    expect(await details.getByRole('tabpanel').evaluate(panel => getComputedStyle(panel).overflowX))
+      .toBe('hidden')
+    await page.evaluate(() => { document.body.setAttribute('data-ds-dark-theme', '') })
+    const darkSummarySurfaces = await details.getByRole('heading', { name: 'Payload' }).evaluate(heading => ({
+      heading: getComputedStyle(heading).backgroundColor,
+      panel: getComputedStyle(heading.closest('[aria-label="Event details"]')!).backgroundColor,
+    }))
+    expect(darkSummarySurfaces.heading).toBe(darkSummarySurfaces.panel)
+    await page.evaluate(() => { document.body.removeAttribute('data-ds-dark-theme') })
     await page.getByRole('tab', { name: 'Result' }).click()
     await expect.poll(() => page.getByText('NAVIGATION_OK', { exact: false }).count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(1)
+    const assistantSpan = page.locator('[data-timeline-span="message"][data-assistant-timing="true"]').first()
+    await assistantSpan.hover()
+    const timingTooltip = page.getByRole('tooltip')
+    await timingTooltip.waitFor({ timeout: 5_000 })
+    await expect.poll(() => timingTooltip.textContent(), { timeout: 5_000 }).toMatch(/TTFT .* Decoding/)
+    const assistantTimingStyle = await assistantSpan.evaluate(node => ({
+      background: getComputedStyle(node).backgroundImage,
+      ttft: getComputedStyle(node).getPropertyValue('--trajectory-assistant-ttft'),
+    }))
+    expect(assistantTimingStyle.background).toContain('linear-gradient')
+    expect(assistantTimingStyle.ttft).toMatch(/%$/)
     const snapshot = (await captureStableAria(page, '[class*="viewArea"]', scaffold.workspaceCwd))
       .split(SEED_ID).join('{{seededId}}')
     await compareOrRefreshGolden(TRAJECTORY_EXPECTED, snapshot, MODE)
-    await page.getByRole('complementary', { name: 'Event details' })
-      .getByRole('button', { name: 'Close details' }).click()
+    await details.getByRole('button', { name: 'Close details' }).click()
   }, 60_000)
 
   it.skipIf(MODE === 'record')('focuses the ledger by dragging an overview interval', async () => {
@@ -177,7 +218,7 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
   it.skipIf(MODE === 'record')('bash and file-path rows leave the default details column closed', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-details'))
     await page.getByRole('tab', { name: 'Chat' }).click()
-    const bashRow = page.locator('[data-sample="bash-global"]').first()
+    const bashRow = page.locator('[data-sample="bash"]').first()
     await bashRow.waitFor({ timeout: 15_000 })
     const frame = page.locator('[style*="grid-template-columns"]').first()
     expect(await frame.getAttribute('data-details-collapsed')).toBe('true')
@@ -187,7 +228,7 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).toBe('true')
     // The card's own controls are outside the summary row and must not open
     // details either — the expanded terminal card is read in place.
-    await page.locator('[data-sample="bash-global"] ~ div [data-terminal] [class*="_copyButton_"]').first().click()
+    await page.locator('[data-sample="bash"] ~ div [data-terminal] [class*="_copyButton_"]').first().click()
     await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).toBe('true')
     // Read summaries are host-open file links; they also must not open details.
     const fileLink = page.locator('[data-variant="read"] button').first()
@@ -203,10 +244,10 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     // tool-row interaction): open it if a previous case left it collapsed.
     // Expanded, the recorded command's own output sits in the message flow,
     // derived from the logged call/result presentations alone.
-    const bashRow = page.locator('[data-sample="bash-global"]').first()
+    const bashRow = page.locator('[data-sample="bash"]').first()
     await bashRow.waitFor({ timeout: 15_000 })
     if (await bashRow.getAttribute('aria-expanded') !== 'true') await bashRow.click()
-    const card = page.locator('[data-sample="bash-global"] ~ div [data-terminal]').first()
+    const card = page.locator('[data-sample="bash"] ~ div [data-terminal]').first()
     await card.waitFor({ timeout: 15_000 })
     // Real layout, not jsdom's stub (which computes no geometry at all):
     // squeeze the output pane below its content width and the line must keep

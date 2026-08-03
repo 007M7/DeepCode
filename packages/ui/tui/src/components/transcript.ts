@@ -186,20 +186,28 @@ export class UserMessageComponent extends Container {
   }
 }
 
-/** Children of a settled assistant message: optional reasoning block then the response text. */
+/**
+ * Children of a settled assistant message: optional reasoning block then the
+ * response text. A folded continuation (a later step of a turn while tool cards
+ * are hidden) drops the `Assistant` header and renders nothing when it has no
+ * visible body, so tool-only steps leave no blank segment behind.
+ */
 function assistantMessageChildren(
   content: readonly ContentBlock[],
   showReasoning: boolean,
+  foldedContinuation: boolean,
   palette: Palette,
   mdTheme: MarkdownTheme,
 ): Component[] {
   const reasoning = displayText(textBlocks(content, 'reasoning').trim())
   const text = displayText(textBlocks(content, 'text').trim())
-  const children: Component[] = [
-    new Spacer(1),
-    new Text(messageHeader('Assistant', palette.accent, palette), 0, 0),
-  ]
-  if (reasoning && showReasoning) {
+  const showsReasoning = reasoning !== '' && showReasoning
+  if (foldedContinuation && !showsReasoning && text === '') return []
+  const children: Component[] = [new Spacer(1)]
+  if (!foldedContinuation) {
+    children.push(new Text(messageHeader('Assistant', palette.accent, palette), 0, 0))
+  }
+  if (showsReasoning) {
     children.push(
       new Text(palette.italic(palette.dim('Reasoning')), 0, 0),
       new Markdown(reasoning, 0, 0, mdTheme, { color: value => palette.dim(value), italic: true }),
@@ -257,6 +265,7 @@ interface StreamingBlock {
 export class StreamingAssistantComponent extends Container {
   private readonly blocks = new Map<number, StreamingBlock>()
   private settledContent: readonly ContentBlock[] | undefined
+  private foldedContinuation = false
   /**
    * The step's timing footer. The renderer keeps it at the tail of the chat so
    * it trails any tool cards the step appends after this assistant message; it
@@ -265,7 +274,8 @@ export class StreamingAssistantComponent extends Container {
   readonly timing: StepTimingComponent
 
   constructor(
-    position: StepPosition,
+    /** The step's turn/step coordinates, used to group steps into their turn. */
+    readonly position: StepPosition,
     events: () => readonly SessionEvent[],
     now: () => number,
     private showReasoning: boolean,
@@ -336,18 +346,49 @@ export class StreamingAssistantComponent extends Container {
     this.rebuild()
   }
 
-  private rebuild(): void {
-    this.clear()
-    const content: readonly ContentBlock[] = this.settledContent ?? [...this.blocks.entries()]
+  /**
+   * Mark this step as a folded continuation of its turn: no `Assistant` header,
+   * and no output at all while the step has no visible body. Used while tool
+   * cards are hidden so a turn reads as one assistant message.
+   * @param folded - Whether to render as a headerless continuation.
+   */
+  setFoldedContinuation(folded: boolean): void {
+    if (this.foldedContinuation === folded) return
+    this.foldedContinuation = folded
+    this.rebuild()
+  }
+
+  /**
+   * Whether the step currently renders visible reasoning or text.
+   * @returns `true` when a header-owning render would show a body.
+   */
+  hasVisibleBody(): boolean {
+    const content = this.presentedContent()
+    return textBlocks(content, 'text').trim() !== ''
+      || (this.showReasoning && textBlocks(content, 'reasoning').trim() !== '')
+  }
+
+  /** The settled content when available, otherwise the streamed blocks in model order. */
+  private presentedContent(): readonly ContentBlock[] {
+    return this.settledContent ?? [...this.blocks.entries()]
       .sort(([left], [right]) => left - right)
       .flatMap<ContentBlock>(([, block]) => {
         if (block.type === 'text') return [{ type: 'text', text: block.text }]
         if (block.type === 'reasoning') return [{ type: 'reasoning', text: block.text }]
         return []
       })
-    for (const child of assistantMessageChildren(content, this.showReasoning, this.palette, this.mdTheme)) {
-      this.addChild(child)
-    }
+  }
+
+  private rebuild(): void {
+    this.clear()
+    const children = assistantMessageChildren(
+      this.presentedContent(),
+      this.showReasoning,
+      this.foldedContinuation,
+      this.palette,
+      this.mdTheme,
+    )
+    for (const child of children) this.addChild(child)
   }
 }
 
@@ -405,6 +446,7 @@ export class ToolCardComponent implements Component {
    * @param event - The `tool/result` event payload.
    */
   updateResult(event: Extract<SessionEvent, { type: 'tool/result' }>['data']): void {
+    this.diffBodyCache = undefined
     const result = event.message.content[0]
     this.result = {
       content: [...result.content],
@@ -441,23 +483,26 @@ export class ToolCardComponent implements Component {
     const glyph = this.result === undefined ? '○' : '●'
     const rawBody = this.renderBody()
     const view = this.resultView ?? this.callView
-    // A generic card's own content, or a read card's `content` fallback (the
+    // A generic card's own content, a read card's `content` fallback (the
     // envelope-stripped file text — the TUI has no dedicated read rendering, so a
-    // read renders exactly as before the read card existed), or a web card's
-    // fallback to the raw result content (the `web` view carries no `content`
-    // copy), all render as one dim Markdown block below, so links/lists/headings
-    // keep the unified dim styling rather than reading as bare text. Terminal and
-    // diff cards own their body styling, so they are excluded (mirrors
-    // renderBody's post-terminal/diff fallback).
+    // read renders exactly as before the read card existed), or a search/web
+    // card's fallback to the raw result content (neither the `search` nor the
+    // `web` view carries a `content` copy), all render as one dim Markdown block
+    // below, so links/lists/headings keep the unified dim styling rather than
+    // reading as bare text. A search card thus stays byte-identical to the
+    // pre-search-card generic fallback. Terminal and diff cards own their body
+    // styling, so they are excluded (mirrors renderBody's post-terminal/diff fallback).
     const markdownContent = view.card === 'generic' || view.card === 'read'
       ? view.content ?? this.result?.content
-      : view.card === 'web'
-        // A web resultView is only assigned alongside this.result (the result
-        // handler sets both) and the pending callView is never a web card, so
-        // the optional-chain undefined side is unreachable here.
-        /* v8 ignore next */
+      : view.card === 'search'
         ? this.result?.content
-        : undefined
+        : view.card === 'web'
+          // A web resultView is only assigned alongside this.result (the result
+          // handler sets both) and the pending callView is never a web card, so
+          // the optional-chain undefined side is unreachable here.
+          /* v8 ignore next */
+          ? this.result?.content
+          : undefined
     const unknownXml = this.definition === undefined && markdownContent !== undefined
       ? renderUnknownXml(
         displayText(contentText(markdownContent)),
@@ -578,11 +623,12 @@ export class ToolCardComponent implements Component {
       this.diffBodyCache = { view, body }
       return body
     }
-    // A generic or read card carries its own envelope-stripped `content`; a `web`
-    // card carries no `content` copy and falls back to the raw result content
-    // here. (Mirrors the `markdownContent` selection in render(); a read card has
-    // no dedicated TUI rendering, so its `content` takes the same body path,
-    // keeping read output as it was before the read card existed.)
+    // A generic or read card carries its own envelope-stripped `content`; a
+    // search or web card carries no `content` copy and falls back to the raw
+    // result content here. (Mirrors the `markdownContent` selection in render();
+    // a read card has no dedicated TUI rendering, so its `content` takes the same
+    // body path, keeping read output as it was before the read card existed, and
+    // a search card stays byte-identical to the pre-search-card fallback.)
     const content = (view.card === 'generic' || view.card === 'read' ? view.content : undefined) ?? this.result?.content
     const prelude: string[] = []
     const lines: string[] = []
