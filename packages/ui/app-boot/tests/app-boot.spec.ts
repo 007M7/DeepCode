@@ -5,7 +5,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import {
-  addHarnessSourceSection, assertEntriesActivated, assertEntriesLoaded, boot, HARNESS_SOURCE_SECTION,
+  addHarnessSourceSection, assertEntriesActivated, assertEntriesLoaded, boot,
+  FAIL_LOUD_RELEASE_TIMEOUT_MS, HARNESS_SOURCE_SECTION,
   installFailLoud, loadEnv, loadOverlayPatches, resolveConfigPath, type FailLoudProcess,
 } from '../src/index.ts'
 
@@ -109,16 +110,22 @@ describe('installFailLoud', () => {
     expect(proc.exits).toEqual([1])
   })
 
+  // One rejection is reported per install: the first is the diagnosis, so each
+  // formatting case needs its own handler rather than reusing a latched one.
   it('stringifies a non-Error rejection and an Error without a stack falls back to its message', () => {
-    const proc = fakeProc()
-    installFailLoud(NAME, proc)
-    proc.handlers[0]!('plain failure')
-    expect(proc.written[0]).toContain('plain failure')
+    const plain = fakeProc()
+    installFailLoud(NAME, plain)
+    plain.handlers[0]!('plain failure')
+    expect(plain.written[0]).toContain('plain failure')
+    expect(plain.exits).toEqual([1])
+
     const stackless = new Error('no stack')
     delete (stackless as { stack?: string }).stack
-    proc.handlers[0]!(stackless)
-    expect(proc.written[1]).toContain('no stack')
-    expect(proc.exits).toEqual([1, 1])
+    const bare = fakeProc()
+    installFailLoud(NAME, bare)
+    bare.handlers[0]!(stackless)
+    expect(bare.written[0]).toContain('no stack')
+    expect(bare.exits).toEqual([1])
   })
 
   it('returns an uninstaller that removes the handler (and defaults to the real process)', () => {
@@ -161,6 +168,64 @@ describe('installFailLoud', () => {
     await expect(audit).rejects.toThrow('assembled activation failure')
     proc.handlers[0]!(error)
     expect(proc.exits).toEqual([1])
+  })
+
+  // The Loader mounts entries concurrently, so a terminal-owning surface can
+  // already hold raw mode when a sibling entry rejects. Exiting without running
+  // its teardown strands the terminal on the user's shell.
+  it('awaits the release hook before exiting so the terminal owner can restore it', async () => {
+    const proc = fakeProc()
+    const order: string[] = []
+    installFailLoud(NAME, proc, async () => {
+      await Promise.resolve()
+      order.push('released')
+    })
+    proc.handlers[0]!(new Error('sibling entry rejected'))
+    expect(proc.written[0]).toContain(`${NAME}: fatal load failure: `)
+    // The release is in flight, so the exit has not committed yet.
+    expect(proc.exits).toEqual([])
+    await vi.waitFor(() => { expect(proc.exits).toEqual([1]) })
+    expect(order).toEqual(['released'])
+  })
+
+  it('still exits when the release hook rejects', async () => {
+    const proc = fakeProc()
+    installFailLoud(NAME, proc, () => Promise.reject(new Error('terminal stop failed')))
+    proc.handlers[0]!(new Error('boom'))
+    await vi.waitFor(() => { expect(proc.exits).toEqual([1]) })
+  })
+
+  it('exits without waiting when a release hook never settles', async () => {
+    vi.useFakeTimers()
+    try {
+      const proc = fakeProc()
+      installFailLoud(NAME, proc, () => new Promise<void>(() => {}))
+      proc.handlers[0]!(new Error('boom'))
+      expect(proc.exits).toEqual([])
+      await vi.advanceTimersByTimeAsync(FAIL_LOUD_RELEASE_TIMEOUT_MS)
+      expect(proc.exits).toEqual([1])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // Loader failures arrive in bursts, and teardown's own disposers may reject.
+  // Only the first rejection is the diagnosis; the handler must stay installed
+  // so a later one cannot become uncaught and kill the process mid-teardown.
+  it('reports only the first rejection and keeps handling later ones during the release', async () => {
+    const proc = fakeProc()
+    let released = false
+    installFailLoud(NAME, proc, async () => {
+      await Promise.resolve()
+      released = true
+    })
+    proc.handlers[0]!(new Error('first rejection'))
+    proc.handlers[0]!(new Error('second rejection'))
+    expect(proc.handlers).toHaveLength(1)
+    expect(proc.written).toHaveLength(1)
+    expect(proc.written[0]).toContain('first rejection')
+    await vi.waitFor(() => { expect(proc.exits).toEqual([1]) })
+    expect(released).toBe(true)
   })
 })
 

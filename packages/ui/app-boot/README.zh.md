@@ -8,7 +8,8 @@
 |---|---|
 | `resolveConfigPath(path, snapshotMode, cwd?)` | 生成绝对配置路径；当 `snapshotMode === 'replay'` 时，把 basename 为 `cordis.yml`/`.yaml` 的文件替换为同级 `cordis.snapshot.yml` |
 | `loadEnv(binName, dir?, warn?)` | 加载已被 git 忽略的 `.env`（Node `process.loadEnvFile`）；文件不存在不影响启动，文件无法加载时输出一行带标签的警告（默认写入 stderr） |
-| `installFailLoud(binName, proc?)` | 将启动期或后续未处理的 Loader rejection 转换为一行带标签的 stderr 消息并执行 `exit(1)`；返回卸载函数（供测试使用） |
+| `installFailLoud(binName, proc?, release?)` | 将启动期或后续未处理的 Loader rejection 转换为一行带标签的 stderr 消息并执行 `exit(1)`；两者之间会等待可选的 `release` 拆卸回调（以 `FAIL_LOUD_RELEASE_TIMEOUT_MS` 为上限），使持有终端的界面能在退出前恢复终端；返回卸载函数（供测试使用） |
+| `FAIL_LOUD_RELEASE_TIMEOUT_MS` | `installFailLoud` 等待其 `release` 回调的时长；卡住的 disposer 只会延迟致命退出，而不会取消它 |
 | `assertEntriesLoaded(ctx, binName)` | 树结算后，如果其中存在已启用但没有 fiber 的条目，则抛出异常，并以 Cordis 启动故障的形式报告每个未解析插件的名称 |
 | `assertEntriesActivated(ctx, binName)` | 先执行 `assertEntriesLoaded` 检查，再在 Loader 结算后等待每个已启用配置项；抛出的错误包含每个失败插件的原始错误堆栈，或每个等待中插件尚未解析的服务 |
 | `loadPersonalPatches(binName, dir?)` | 解析 Harness home 中可选的 `config.yaml`（默认使用 [`resolveDshHome()`](../../util/paths/README.md)：先取 `$DSH_HOME`，否则取 `~/.dsh`）：其顶层是一个 YAML 数组，内容为 include 的 `PatchOptions`（按 id 定位的配置覆盖、`insert` 列表，允许 `!!js`）；文件不存在时返回 `undefined`，文件不可读、不可解析或内容不是数组时抛出异常 |
@@ -21,6 +22,8 @@
 | `HARNESS_SOURCE_SECTION` | `'harness:source'` 段落名称，供 `addHarnessSourceSection` 注册使用 |
 
 Loader 结算会在导入或生命周期失败时 reject，并携带失败的配置项与阶段；`boot()` 会 dispose 部分构造的上下文，并用 bin 名称包装该失败。结算后遗留的配置项由独立审计处理：`assertEntriesLoaded` 将已启用却没有 fiber 的配置项转换为 rejection 并列出每个未解析插件；`assertEntriesActivated` 会显式等待每个失败的 fiber，把原始错误堆栈写入启动 rejection，并列出每个等待中配置项尚未解析的服务。抛出错误前，审计会通过一个进程级检查点标记这些 rejection 的确切原因，从而让 `installFailLoud` 将 Loader 的重复通知合并为一次，而所有无关的未处理 rejection 仍然致命。
+
+Loader 并发挂载各个条目，因此当其他环节失败时，某个界面可能已经持有终端：此时不经过整棵树自身的拆卸就退出，会把 raw 模式、bracketed paste 和键盘协议残留在用户的 shell 上，而尚未返回的终端查询响应会在下一个提示符处显示为字面文本。配置树失败会经 `boot()` 结算：它先释放部分构建的上下文（从而执行该界面自身的 shutdown），再抛出带标签的 rejection。对于 `boot()` 看不到的 rejection（插件游离的异步工作在挂载期间或挂载完成后失败），持有终端的 bin 会传入 `release`，在提交退出前释放整棵树；`dsh` 在 `boot()` 的 `prepare` 回调中捕获根上下文，而不是取其返回值，使该回调覆盖整个挂载窗口。release 执行期间处理函数保持注册并加闩：被报告的始终是第一个 rejection，后续 rejection（包括拆卸自身的）会被吞掉，而不会变成未捕获错误、在拆卸中途杀死进程。
 
 配置中的裸插件 specifier（`@deepseek-ai/dsh-*`、npm 包（package））通过 Cordis Loader 的内部模块 loader 解析。仓库 bin 会安装 Loader 的可选 peer `node-addon-require-builtin`；外部调用方必须提供该组件，或者把插件安装到普通 Node import 解析可以找到的位置。相对 specifier 无需原生 helper，并以配置目录为基准解析。构建后的 `dsh-app-boot` 产物内嵌静态挂载的 Include 实现，但仍将 Loader 保持为外部依赖，因此 include 树与 host 会绑定到同一个 Loader peer。`dsh` 源码启动器还会将 manifest（元数据清单）声明的 workspace 包映射到其 TypeScript 源码；其配置门禁要求每个 TUI／Web 裸插件都出现在解析所用 manifest 的 `dependencies` 中。bin 的子进程冒烟测试覆盖内部 loader 路径，而本包的单元测试套件会在进程内使用相对 specifier 配置驱动 `boot()`。
 
