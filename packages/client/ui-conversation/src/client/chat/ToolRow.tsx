@@ -30,7 +30,6 @@ import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import { CHAT_DIFF_MAX_LINES, type DiffCardModel } from '../contract/diff-card-model.ts'
 import { CHAT_READ_MAX_LINES, type ReadCardModel } from '../contract/read-card-model.ts'
 import { CHAT_SEARCH_MAX_LINES, type SearchCardModel } from '../contract/search-card-model.ts'
-import { CHAT_WEB_MAX_SOURCES } from '../contract/web-card-model.ts'
 import { terminalBlockLabels, type TerminalCardModel } from '../contract/terminal-card-model.ts'
 import type { ToolRowState, ToolRowVariant } from '../contract/tool-call-model.ts'
 import { DisclosureRow } from './DisclosureRow.tsx'
@@ -276,7 +275,7 @@ export function ToolRow({
                     </>
                   )
                   : webBody !== null
-                    ? <WebBlock {...webBody} maxSources={CHAT_WEB_MAX_SOURCES} className={css.webBody} />
+                    ? <WebBlock {...webBody} className={css.webBody} />
                     : isThink
                       ? <div className={css.thinkBody}>{body}</div>
                       : (
