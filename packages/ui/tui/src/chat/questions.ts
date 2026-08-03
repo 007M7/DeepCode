@@ -29,7 +29,10 @@ interface PendingQuestion {
 }
 
 /** Collaborators the question queue needs from the chat channel. */
-export type QuestionQueueDeps = ChatChannelDeps
+export interface QuestionQueueDeps extends ChatChannelDeps {
+  /** Current row budget after reserving the editor. */
+  questionMaxHeight(): number
+}
 
 /** Ask-user-question controller for one chat channel. */
 export interface QuestionQueue {
@@ -85,6 +88,7 @@ export function createQuestionQueue(deps: QuestionQueueDeps): QuestionQueue {
           pending.request.questions.length,
           pending.request.questions.length - pending.answers.length,
           resolved.maxQuestionOptions,
+          () => deps.questionMaxHeight(),
           palette,
           (selection) => {
             pending.overlay = undefined
@@ -102,10 +106,8 @@ export function createQuestionQueue(deps: QuestionQueueDeps): QuestionQueue {
         options: {
           width: resolved.questionDialogWidth,
           maxHeight: resolved.questionDialogMaxHeight,
-          anchor: 'bottom-left',
-          margin: { bottom: 1 },
         },
-      })
+      }, 'inline')
       pending.overlay = session
       void session.closed.then((result) => {
         if (pending.overlay !== session) return

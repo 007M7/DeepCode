@@ -65,6 +65,7 @@ import type { ContinuableSetupContribution } from './activation-setup-registry.t
 import { listChildren as listSubagentChildren } from './list-children.ts'
 import type { SubagentListEntry } from './list-children.ts'
 import { snapshotSubagentDescriptor } from './descriptor.ts'
+import { subagentTimingProjectionDefinition } from './projection.ts'
 
 export * from './out-of-process.ts'
 export { SubagentRunId } from './types.ts'
@@ -117,6 +118,7 @@ export type {
 export type { ContinuableSetupContribution } from './activation-setup-registry.ts'
 export type { SubagentListEntry } from './list-children.ts'
 export type { SubagentRunEndInfo, SubagentRunInfo } from './types.ts'
+export type { SubagentTimingProjection } from './projection-types.ts'
 
 declare module 'cordis' {
   interface Context {
@@ -185,6 +187,9 @@ export class SubagentService extends Service {
         /* v8 ignore else -- one injected binding owns the slot until its fiber disposes. */
         if (this.continuations === manager) this.continuations = undefined
       }, 'subagents.continuationBinding()')
+    })
+    ctx.inject(['sessionProjections'], (projectionCtx) => {
+      projectionCtx.sessionProjections.register(subagentTimingProjectionDefinition)
     })
   }
 

@@ -115,7 +115,6 @@ export async function runTui(
     )
     process.exit(1)
   }
-  installFailLoud(NAME)
   // The bin already loaded the invoking directory's .env, and that is the
   // whole environment: $DSH_HOME/.env is credentials-local's writable store,
   // and hoisting it would make every stored key read as a read-only ambient
@@ -142,6 +141,19 @@ export async function runTui(
   const entry = process.argv[1]
   const execve = process.execve?.bind(process)
   const app: { current?: Context } = {}
+  // The Loader mounts entries concurrently, so `ui-tui` can already hold the
+  // terminal (raw mode, bracketed paste, keyboard protocol) when something
+  // else fails. A config-tree failure settles through `boot`, which disposes
+  // the tree itself; this release covers the rejections `boot` cannot see — a
+  // plugin's detached async work rejecting while mounting is still in flight
+  // or after the tree settled. Disposing the tree runs the TUI's own shutdown,
+  // which stops the terminal and hands the shell back; without it such a
+  // failure returns to a corrupted prompt. `app.current` is captured from
+  // boot's `prepare` hook, so it holds the root context for the whole mounting
+  // window rather than only after boot resolves.
+  installFailLoud(NAME, process, async () => {
+    await app.current?.fiber.dispose()
+  })
   // Resume always enters the default surface because meta rejects
   // parent options, including `--resume`. The resumed session already persists
   // its cwd.
@@ -219,6 +231,10 @@ export async function runTui(
     bootConfig,
     patches,
     (hostCtx) => {
+      // Runs after the Loader installs and before any config-tree entry mounts,
+      // so the fail-loud release hook can reach the tree for the whole window in
+      // which an entry may reject.
+      app.current = hostCtx
       // The launcher owns session identity and the exit line: a config-mounted
       // app bundle reads both from these slots, so no cordis.yml key can drop
       // resume.

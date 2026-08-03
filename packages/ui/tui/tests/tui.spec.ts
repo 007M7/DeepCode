@@ -50,6 +50,7 @@ import {
   disposeTuiTestHarness,
   type TuiHarnessOptions,
 } from './harness.ts'
+import { HeadlessTerminal } from './headless-terminal.ts'
 import { TestSessionQueryService } from './session-query.ts'
 
 const UNUSED_TOOL_OUTPUT: ToolDefinition['output'] = {
@@ -185,6 +186,7 @@ describe('TUI config', () => {
     expect(resolveTuiConfig(undefined)).toEqual({
       showReasoning: true,
       maxToolOutputLines: 6,
+      maxDiffEditLength: 1000,
       maxQuestionOptions: 8,
       maxModelOptions: 8,
       maxResumeOptions: 8,
@@ -192,6 +194,7 @@ describe('TUI config', () => {
       questionDialogMaxHeight: 20,
       modelDialogWidth: 76,
       modelDialogMaxHeight: 20,
+      detailsDialogWidth: 72,
       fileSearchMaxResults: 20,
       fileSearchMaxEntries: 10_000,
       fileSearchExcludedDirectories: ['.git', 'node_modules'],
@@ -209,6 +212,7 @@ describe('TUI config', () => {
     expect(resolveTuiConfig({
       showReasoning: false,
       maxToolOutputLines: 2,
+      maxDiffEditLength: 12,
       maxQuestionOptions: 3,
       maxModelOptions: 4,
       maxResumeOptions: 5,
@@ -216,6 +220,7 @@ describe('TUI config', () => {
       questionDialogMaxHeight: 14,
       modelDialogWidth: 64,
       modelDialogMaxHeight: 16,
+      detailsDialogWidth: 44,
       fileSearchMaxResults: 7,
       fileSearchMaxEntries: 123,
       fileSearchExcludedDirectories: ['.git', 'generated'],
@@ -225,6 +230,7 @@ describe('TUI config', () => {
     })).toEqual({
       showReasoning: false,
       maxToolOutputLines: 2,
+      maxDiffEditLength: 12,
       maxQuestionOptions: 3,
       maxModelOptions: 4,
       maxResumeOptions: 5,
@@ -232,6 +238,7 @@ describe('TUI config', () => {
       questionDialogMaxHeight: 14,
       modelDialogWidth: 64,
       modelDialogMaxHeight: 16,
+      detailsDialogWidth: 44,
       fileSearchMaxResults: 7,
       fileSearchMaxEntries: 123,
       fileSearchExcludedDirectories: ['.git', 'generated'],
@@ -2687,6 +2694,94 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await dispose(result)
   })
 
+  it('/details sets card visibility and reasoning display from arguments', async () => {
+    const result = await setup()
+    const run = async (line: string): Promise<void> => {
+      result.terminal.send(line)
+      result.terminal.send('\r')
+      await tick()
+    }
+
+    await run('/details hidden')
+    expect(result.terminal.output).toContain('Tool cards hidden.')
+
+    await run('/details expanded reasoning off')
+    expect(result.terminal.output).toContain('Tool and context cards expanded.')
+    expect(result.terminal.output).toContain('Reasoning blocks hidden.')
+
+    await run('/details reasoning on')
+    expect(result.terminal.output).toContain('Reasoning blocks shown.')
+
+    // Bare `reasoning` toggles: shown -> hidden.
+    const toggleOutput = result.terminal.output.length
+    await run('/details reasoning')
+    expect(result.terminal.output.slice(toggleOutput)).toContain('Reasoning blocks hidden.')
+    await run('/details collapsed')
+    expect(result.terminal.output.slice(toggleOutput)).toContain('Tool and context cards collapsed.')
+
+    await run('/details bogus')
+    expect(result.terminal.output).toContain('Unknown /details argument "bogus"')
+
+    await dispose(result)
+  })
+
+  it('bare /details opens the transcript-details toggle and Tab applies immediately', async () => {
+    const result = await setup()
+    const open = async (): Promise<number> => {
+      const from = result.terminal.output.length
+      result.terminal.send('/details')
+      result.terminal.send('\r')
+      await vi.waitFor(() => { expect(result.terminal.output.slice(from)).toContain('Transcript details') })
+      return from
+    }
+
+    const opened = await open()
+    expect(result.terminal.output.slice(opened)).toContain('Tool cards')
+    expect(result.terminal.output.slice(opened)).toContain('Reasoning')
+
+    // A second /details while the selector is open replaces the overlay
+    // instead of stacking a second one behind it.
+    await result.ctx.commands.execute(result.agent, '/details', new AbortController().signal)
+    await tick()
+
+    // Each Tab applies one step immediately while the dialog stays open:
+    // collapsed -> expanded -> hidden -> collapsed (wraparound).
+    result.terminal.send('\t')
+    await tick()
+    expect(result.terminal.output).toContain('Tool and context cards expanded.')
+    result.terminal.send('\t')
+    await tick()
+    expect(result.terminal.output).toContain('Tool cards hidden.')
+    result.terminal.send('\t')
+    await tick()
+    expect(result.terminal.output).toContain('Tool and context cards collapsed.')
+
+    // The reasoning entry toggles the same way.
+    result.terminal.send('\x1b[B')
+    result.terminal.send('\t')
+    await tick()
+    expect(result.terminal.output).toContain('Reasoning blocks hidden.')
+
+    // Enter closes without further changes.
+    const entered = result.terminal.output.length
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output.slice(entered)).not.toContain('Reasoning blocks')
+
+    // Esc and Ctrl+C also close; the reopened dialog shows the live values.
+    const reopened = await open()
+    expect(result.terminal.output.slice(reopened)).toContain('collapsed')
+    expect(result.terminal.output.slice(reopened)).toContain('hidden')
+    result.terminal.send('\x1b')
+    await tick()
+    const ctrlCOutput = await open()
+    result.terminal.send('\x03')
+    await tick()
+    expect(result.terminal.output.slice(ctrlCOutput)).not.toContain('Reasoning blocks')
+
+    await dispose(result)
+  })
+
   it('sends, steers, handles commands, global keys, and disposed-agent input', async () => {
     const result = await setup()
 
@@ -4584,7 +4679,11 @@ describe('tool cards and surface replay', () => {
       presentCall: () => ({
         card: 'diff',
         title: 'Edit src/only.ts',
-        diffs: [{ path: 'src/only.ts', oldText: 'old', newText: 'new' }],
+        diffs: [{
+          path: 'src/only.ts',
+          oldText: 'my: my-MM\nne: ne-NP\nnl: nl-NL\nnb: no-NO\npa: pa-Guru-IN\npl: pl-PL\npt_pt: pt-PT',
+          newText: 'my: my-MM\nne: ne-NP\nnl: nl-NL\nnb: nb-NO\npa: pa-Guru-IN\npl: pl-PL\npt_pt: pt-PT',
+        }],
       }),
     },
     scatteredDiff: {
@@ -4938,7 +5037,7 @@ describe('tool cards and surface replay', () => {
   })
 
   it('names a single-file diff in the body once, under a fixed Tool header', async () => {
-    const result = await setup({ tools })
+    const result = await setup({ tools, config: { maxToolOutputLines: 20 } })
     appendUser(result.session, 'edit one file')
     appendAssistant(result.session, [
       { type: 'text', text: 'Editing' },
@@ -4954,9 +5053,123 @@ describe('tool cards and surface replay', () => {
     expect(output).toContain('Tool / singleDiff')
     expect(output).not.toContain('Edit src/only.ts')
     expect(output.split('src/only.ts').length - 1).toBe(1)
-    expect(output).toContain('- old')
-    expect(output).toContain('+ new')
-    expect(output).toContain('· 1 file')
+    expect(output).toContain('  my: my-MM')
+    expect(output).not.toContain('- my: my-MM')
+    expect(output).not.toContain('+ my: my-MM')
+    expect(output).toContain('- nb: no-NO')
+    expect(output).toContain('+ nb: nb-NO')
+    expect(output).toContain('└ +1 -1 · 1 file')
+    await dispose(result)
+  })
+
+  it('renders an empty create without a synthetic added row', async () => {
+    const emptyCreate: Record<string, ToolDefinition> = {
+      emptyCreate: {
+        name: 'emptyCreate',
+        description: '',
+        parameters: {},
+        output: UNUSED_TOOL_OUTPUT,
+        execute: async () => [],
+        presentCall: () => ({
+          card: 'diff',
+          title: 'Write empty.txt',
+          diffs: [{ path: 'empty.txt', oldText: null, newText: '' }],
+        }),
+      },
+    }
+    const result = await setup({
+      tools: emptyCreate,
+      config: { maxToolOutputLines: 20, theme: { color: false } },
+    })
+    appendAssistant(result.session, [
+      { type: 'tool-call', id: 'empty-create' as never, name: 'emptyCreate', arguments: '{}' },
+    ])
+    result.session.append('tool/call', {
+      turn: 1,
+      step: 1,
+      callId: 'empty-create' as never,
+      name: 'emptyCreate',
+      arguments: '{}',
+    })
+    await tick()
+    const rows = result.terminal.output.split('\n').map(row => row.trim())
+    expect(result.terminal.output).toContain('empty.txt')
+    expect(result.terminal.output).toContain('└ +0 -0 · 1 file')
+    expect(rows).not.toContain('+')
+    await dispose(result)
+  })
+
+  it('bounds and caches exact diff comparison before whole-side fallback', async () => {
+    let oldTextReads = 0
+    let newText = 'new one\nnew two'
+    const boundedDiff = {
+      path: 'bounded.txt',
+      get oldText() {
+        oldTextReads += 1
+        return 'old one\nold two'
+      },
+      get newText() { return newText },
+    }
+    const boundedView = {
+      card: 'diff' as const,
+      title: 'Edit bounded.txt',
+      diffs: [boundedDiff],
+    }
+    const bounded: Record<string, ToolDefinition> = {
+      bounded: {
+        name: 'bounded',
+        description: '',
+        parameters: {},
+        output: UNUSED_TOOL_OUTPUT,
+        execute: async () => [],
+        presentCall: () => boundedView,
+        presentResult: () => {
+          newText = 'settled one\nsettled two'
+          return boundedView
+        },
+      },
+    }
+    const result = await setup({
+      tools: bounded,
+      config: {
+        maxToolOutputLines: 20,
+        maxDiffEditLength: 1,
+        theme: { color: false },
+      },
+    })
+    appendAssistant(result.session, [
+      { type: 'tool-call', id: 'bounded-diff' as never, name: 'bounded', arguments: '{}' },
+    ])
+    result.session.append('tool/call', {
+      turn: 1,
+      step: 1,
+      callId: 'bounded-diff' as never,
+      name: 'bounded',
+      arguments: '{}',
+    })
+    await tick()
+    expect(result.terminal.output).toContain('[exact line diff omitted: >1 changed lines]')
+    expect(result.terminal.output).toContain('- old one')
+    expect(result.terminal.output).toContain('+ new one')
+    expect(result.terminal.output).toContain('└ +2 -2 · 1 file · approximate')
+    const readsAfterFirstRender = oldTextReads
+    expect(readsAfterFirstRender).toBeGreaterThan(0)
+    result.session.append('tool/result', {
+      turn: 1,
+      step: 1,
+      message: createToolResultMessage({
+        callId: 'bounded-diff' as never,
+        content: [{ type: 'text', text: 'done' }],
+        isError: false,
+      }),
+    }, { surfaceOp: 'append' })
+    await tick()
+    expect(result.terminal.output).toContain('+ settled one')
+    expect(oldTextReads).toBeGreaterThan(readsAfterFirstRender)
+    const readsAfterResult = oldTextReads
+    result.terminal.resize(87)
+    await tick()
+    expect(oldTextReads).toBe(readsAfterResult)
     await dispose(result)
   })
 
@@ -5167,9 +5380,185 @@ describe('tool cards and surface replay', () => {
     expect(mounted).not.toContain('stored model-only payload')
     await dispose(result)
   })
+
+  /** The last repainted frame, with CSI/OSC escapes and carriage returns stripped. */
+  const lastFrame = (terminal: FakeTerminal): string => terminal.output
+    .slice(terminal.output.lastIndexOf('\x1b[2J'))
+    .replaceAll(/\x1b\[[0-9;]*[A-Za-z]|\x1b\][^\x07]*\x07|\r/g, '')
+
+  const countAssistantHeaders = (frame: string): number => frame.split('\n')
+    .filter(row => row.trim() === 'Assistant').length
+
+  /** One turn with text -> tool call/result -> text across two steps. */
+  const appendTwoStepTurn = (session: Awaited<ReturnType<typeof setup>>['session']): void => {
+    appendUser(session, 'fold me')
+    appendAssistant(session, [{ type: 'text', text: 'first step text' }])
+    session.append('tool/call', { turn: 1, step: 1, callId: 'fold-1' as never, name: 'bash', arguments: '{}' })
+    session.append('tool/result', {
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'fold-1' as never, content: [{ type: 'text', text: 'tool body' }], isError: false,
+      }),
+    }, { surfaceOp: 'append' })
+    session.append('step/end', { turn: 1, step: 1 })
+    session.append('step/start', { turn: 1, step: 2 })
+    appendAssistant(session, [{ type: 'text', text: 'second step text' }], undefined, { turn: 1, step: 2 })
+    session.append('step/end', { turn: 1, step: 2 })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+  }
+
+  it('folds a turn to one Assistant header in hidden mode and restores headers on cycle', async () => {
+    const result = await setup({ tools })
+    appendTwoStepTurn(result.session)
+    await tick()
+
+    // Collapsed (default): each step keeps its own header.
+    result.terminal.send('\x0c')
+    await tick()
+    expect(countAssistantHeaders(lastFrame(result.terminal))).toBe(2)
+
+    // collapsed -> expanded -> hidden.
+    result.terminal.send('\x0f')
+    result.terminal.send('\x0f')
+    await tick()
+    result.terminal.send('\x0c')
+    await tick()
+    const hidden = lastFrame(result.terminal)
+    expect(countAssistantHeaders(hidden)).toBe(1)
+    expect(hidden).toContain('first step text')
+    expect(hidden).toContain('second step text')
+    expect(hidden).not.toContain('Tool / bash')
+    // The fold keeps model order: header text precedes the continuation.
+    expect(hidden.indexOf('first step text')).toBeLessThan(hidden.indexOf('second step text'))
+
+    // hidden -> collapsed restores per-step headers.
+    result.terminal.send('\x0f')
+    await tick()
+    result.terminal.send('\x0c')
+    await tick()
+    expect(countAssistantHeaders(lastFrame(result.terminal))).toBe(2)
+    await dispose(result)
+  })
+
+  it('gives the hidden-mode header to the first step with a visible body and keeps turns separate', async () => {
+    const result = await setup({ tools })
+    // Turn 1, step 1 is tool-only; step 2 carries the turn's text.
+    appendUser(result.session, 'tool-only first step')
+    appendAssistant(result.session, [{ type: 'tool-call', id: 'only-1' as never, name: 'bash', arguments: '{}' }])
+    result.session.append('tool/call', { turn: 1, step: 1, callId: 'only-1' as never, name: 'bash', arguments: '{}' })
+    result.session.append('tool/result', {
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'only-1' as never, content: [{ type: 'text', text: 'tool body' }], isError: false,
+      }),
+    }, { surfaceOp: 'append' })
+    result.session.append('step/end', { turn: 1, step: 1 })
+    result.session.append('step/start', { turn: 1, step: 2 })
+    appendAssistant(result.session, [{ type: 'text', text: 'late turn-one text' }], undefined, { turn: 1, step: 2 })
+    result.session.append('step/end', { turn: 1, step: 2 })
+    result.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    // Turn 2 keeps its own header.
+    result.session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
+    appendUser(result.session, 'next turn')
+    result.session.append('step/start', { turn: 2, step: 1 })
+    appendAssistant(result.session, [{ type: 'text', text: 'turn-two text' }], undefined, { turn: 2, step: 1 })
+    result.session.append('step/end', { turn: 2, step: 1 })
+    result.session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
+    await tick()
+
+    result.terminal.send('\x0f')
+    result.terminal.send('\x0f')
+    await tick()
+    result.terminal.send('\x0c')
+    await tick()
+    const hidden = lastFrame(result.terminal)
+    // One header per turn: the tool-only step neither renders a blank segment
+    // nor consumes turn one's header, which the late text step owns.
+    expect(countAssistantHeaders(hidden)).toBe(2)
+    expect(hidden).toContain('late turn-one text')
+    expect(hidden).toContain('turn-two text')
+    const rows = hidden.split('\n').map(row => row.trim())
+    const turnOneHeader = rows.indexOf('Assistant')
+    expect(rows[turnOneHeader + 1]).toBe('late turn-one text')
+    await dispose(result)
+  })
+
+  it('folds live hidden-mode streaming once a later step shows text', async () => {
+    const result = await setup({ tools, status: 'running' })
+    result.terminal.send('\x0f')
+    result.terminal.send('\x0f')
+    await tick()
+    result.session.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'live first' } })
+    result.session.append('step/end', { turn: 1, step: 1 })
+    result.session.append('step/start', { turn: 1, step: 2 })
+    result.session.append('assistant/chunk', { turn: 1, step: 2, chunk: { type: 'text-delta', index: 0, text: 'live second' } })
+    await tick()
+    result.terminal.send('\x0c')
+    await tick()
+    const hidden = lastFrame(result.terminal)
+    expect(countAssistantHeaders(hidden)).toBe(1)
+    expect(hidden).toContain('live first')
+    expect(hidden).toContain('live second')
+
+    // A transcript rebuild (resize) recomputes the same fold from the log.
+    result.terminal.resize(89)
+    await tick()
+    const rebuilt = lastFrame(result.terminal)
+    expect(countAssistantHeaders(rebuilt)).toBe(1)
+    expect(rebuilt).toContain('live second')
+    await dispose(result)
+  })
 })
 
 describe('TUI user-interaction dialogs', () => {
+  it('limits the visible option window to maxQuestionOptions', async () => {
+    const result = await setup({
+      config: { maxQuestionOptions: 1, questionDialogWidth: 60, questionDialogMaxHeight: 20 },
+    })
+    const answer = result.ctx.userInteraction.ask({
+      questions: [{
+        id: 'cap',
+        question: 'Pick one',
+        options: [{ label: 'Visible first' }, { label: 'Hidden second' }],
+      }],
+    })
+    const rejected = expect(answer).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    await tick()
+    expect(result.terminal.output).toContain('Visible first')
+    expect(result.terminal.output).not.toContain('Hidden second')
+    expect(result.terminal.output).toContain('↓ 1 more')
+    result.terminal.send('\x03')
+    await rejected
+
+    await dispose(result)
+  })
+
+  it('renders a pending question between the transcript and editor', async () => {
+    const result = await setup({
+      config: { questionDialogWidth: 40, questionDialogMaxHeight: 10 },
+    })
+    result.terminal.send('draft input')
+    const answer = result.ctx.userInteraction.ask({
+      questions: [{
+        id: 'placement',
+        question: 'Pick one',
+        options: [{ label: 'First' }, { label: 'Second' }],
+      }],
+    })
+    const rejected = expect(answer).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    await tick()
+    result.terminal.resize(60, 20)
+    await tick()
+    const render = result.terminal.output.slice(result.terminal.output.lastIndexOf('\x1b[2J'))
+    const questionIndex = render.indexOf('Pick one')
+    const editorIndex = render.indexOf('draft input')
+    expect(questionIndex).toBeGreaterThanOrEqual(0)
+    expect(editorIndex).toBeGreaterThan(questionIndex)
+    result.terminal.send('\x03')
+    await rejected
+    await dispose(result)
+  })
+
   it('answers single-select, multi-select, custom, and optionless questions', async () => {
     const result = await setup({ config: { maxQuestionOptions: 1 } })
 
@@ -5195,8 +5584,29 @@ describe('TUI user-interaction dialogs', () => {
     result.terminal.send(' ')
     result.terminal.send('\x1b[B')
     result.terminal.send(' ')
+    result.terminal.send('\t')
+    await tick()
+    expect(result.terminal.output).toContain('2 selected • Enter submit • Esc options')
+    result.terminal.send('Tests')
     result.terminal.send('\r')
-    await expect(multi).resolves.toEqual({ answers: [{ id: 'targets', selected: ['Code', 'Docs'] }] })
+    await expect(multi).resolves.toEqual({
+      answers: [{ id: 'targets', selected: ['Code', 'Docs'], custom: 'Tests' }],
+    })
+
+    const labelsOnly = result.ctx.userInteraction.ask({
+      questions: [{
+        id: 'labels-only',
+        question: 'Pick one target',
+        multiSelect: true,
+        options: [{ label: 'Code' }, { label: 'Docs' }],
+      }],
+    })
+    await tick()
+    result.terminal.send(' ')
+    result.terminal.send('\r')
+    await expect(labelsOnly).resolves.toEqual({
+      answers: [{ id: 'labels-only', selected: ['Code'] }],
+    })
 
     const custom = result.ctx.userInteraction.ask({
       questions: [{ id: 'other', question: 'Choose or type', options: [{ label: 'Default' }] }],
@@ -5239,7 +5649,6 @@ describe('TUI user-interaction dialogs', () => {
         options: [{ label: 'One', description: 'first' }, { label: 'Two' }],
       }],
     })
-    const rejected = expect(answer).rejects.toMatchObject({ code: 'ASK_ABORTED' })
     await tick()
     result.terminal.send('\x1b[A')
     result.terminal.send('\x1b[B')
@@ -5255,12 +5664,480 @@ describe('TUI user-interaction dialogs', () => {
     })
     result.terminal.send('c')
     await tick()
+    result.terminal.send('keep this')
+    await tick()
+    expect(result.terminal.output).toContain('0 selected • Enter submit • Esc options')
     result.terminal.send('\x1b')
     await tick()
     expect(result.terminal.output).toContain('Space toggle')
+    result.terminal.send(' ')
+    result.terminal.send('\r')
+    await expect(answer).resolves.toEqual({
+      answers: [{ id: 'options', selected: ['One'], custom: 'keep this' }],
+    })
+    await dispose(result)
+  })
+
+  it('scrolls tall option lists with ↑/↓ overflow markers when the dialog height is capped', async () => {
+    const result = await setup({
+      config: {
+        questionDialogWidth: 60,
+        questionDialogMaxHeight: 12,
+        maxQuestionOptions: 8,
+      },
+    })
+    const answer = result.ctx.userInteraction.ask({
+      questions: [{
+        id: 'scroll',
+        question: 'Pick one',
+        options: [
+          { label: 'Alpha', description: 'first choice with a description that will wrap to multiple lines when the dialog is narrow' },
+          { label: 'Bravo', description: 'second choice' },
+          { label: 'Charlie', description: 'third choice' },
+          { label: 'Delta', description: 'fourth choice' },
+          { label: 'Echo', description: 'fifth choice' },
+          { label: 'Foxtrot', description: 'sixth choice' },
+        ],
+      }],
+    })
+    const rejected = expect(answer).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    await tick()
+    expect(result.terminal.output).toContain('↓')
+    expect(result.terminal.output).toContain('more')
+    for (let step = 0; step < 5; step += 1) result.terminal.send('\x1b[B')
+    await tick()
+    expect(result.terminal.output).toContain('↑')
     result.terminal.send('\x03')
     await rejected
     await dispose(result)
+  })
+
+  it('keeps controls visible when the selected option block exceeds the row budget', async () => {
+    const result = await setup({
+      config: { questionDialogWidth: 40, questionDialogMaxHeight: 10 },
+    })
+    const answer = result.ctx.userInteraction.ask({
+      questions: [{
+        id: 'oversize',
+        question: 'Pick one',
+        options: [
+          { label: 'Huge', description: `start ${'middle '.repeat(40)}visible tail` },
+          { label: 'Other' },
+        ],
+      }],
+    })
+    const rejected = expect(answer).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    await tick()
+    expect(result.terminal.output).toContain('Huge')
+    expect(result.terminal.output).toContain('PgUp/PgDn')
+    expect(result.terminal.output).toContain('↑↓ Tab ↵ Esc')
+    expect(result.terminal.output).not.toContain('visible tail')
+    for (let page = 0; page < 30; page += 1) result.terminal.send('\x1b[6~')
+    await tick()
+    expect(result.terminal.output).toContain('visible tail')
+    for (let page = 0; page < 30; page += 1) result.terminal.send('\x1b[5~')
+    result.terminal.send('\x1b[6~')
+    await tick()
+    expect(result.terminal.output).toContain('start middle')
+    result.terminal.send('\x03')
+    await rejected
+    await dispose(result)
+  })
+
+  it('pages long question detail so every plan-review line remains reachable', async () => {
+    const result = await setup({
+      config: { questionDialogWidth: 20, questionDialogMaxHeight: 10 },
+    })
+    const answer = result.ctx.userInteraction.ask({
+      questions: [{
+        id: 'long-detail',
+        question: 'Approve this plan?',
+        detail: `visible start ${'review step '.repeat(60)}visible tail`,
+        options: [{ label: 'Approve' }, { label: 'Reject' }],
+      }],
+    })
+    const rejected = expect(answer).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    await tick()
+    result.terminal.resize(60, 20)
+    await tick()
+    const initialRender = result.terminal.output.slice(result.terminal.output.lastIndexOf('\x1b[2J'))
+    expect(initialRender).toContain('plan?')
+    expect(initialRender).toContain('visible start')
+    expect(initialRender).not.toContain('visible tail')
+    expect(initialRender).toMatch(/PgUp\/PgDn \d+\/\d+/u)
+    for (let page = 0; page < 30; page += 1) result.terminal.send('\x1b[6~')
+    await tick()
+    const finalRender = result.terminal.output.slice(result.terminal.output.lastIndexOf('\x1b[2J'))
+    expect(finalRender).toContain('visible tail')
+    expect(finalRender).toContain('Approve')
+    result.terminal.send('\x1b[B')
+    await tick()
+    const movedRender = result.terminal.output.slice(result.terminal.output.lastIndexOf('\x1b[2J'))
+    expect(movedRender).toContain('visible tail')
+    expect(movedRender).toContain('Reject')
+    result.terminal.send('\x1b[A')
+    result.terminal.send('\t')
+    await tick()
+    result.terminal.send('\x1b[6~')
+    await tick()
+    result.terminal.send('\x1b[5~')
+    result.terminal.resize(61, 20)
+    await tick()
+    const customPagedRender = result.terminal.output.slice(result.terminal.output.lastIndexOf('\x1b[2J'))
+    expect(customPagedRender).not.toContain('visible tail')
+    expect(customPagedRender).toContain('Esc options')
+    result.terminal.send('\x1b')
+    for (let page = 0; page < 30; page += 1) result.terminal.send('\x1b[5~')
+    await tick()
+    const restoredRender = result.terminal.output.slice(result.terminal.output.lastIndexOf('\x1b[2J'))
+    expect(restoredRender).toContain('visible start')
+    result.terminal.send('\x03')
+    await rejected
+    await dispose(result)
+  })
+
+  it('reclaims enough rows to keep selected content, paging, and option markers visible', async () => {
+    const result = await setup({
+      config: { questionDialogWidth: 60, questionDialogMaxHeight: 8 },
+    })
+    const answer = result.ctx.userInteraction.ask({
+      questions: [{
+        id: 'one-row',
+        question: 'Pick one',
+        options: [
+          { label: 'Selected first', description: `start ${'middle '.repeat(30)}visible tail` },
+          { label: 'Hidden second' },
+        ],
+      }],
+    })
+    const rejected = expect(answer).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    await tick()
+    expect(result.terminal.output).toContain('Selected first')
+    expect(result.terminal.output).not.toContain('Hidden second')
+    expect(result.terminal.output).toContain('↓ 1 more')
+    expect(result.terminal.output).toContain('PgUp/PgDn')
+    expect(result.terminal.output).toContain('Esc interrupt')
+    for (let page = 0; page < 30; page += 1) result.terminal.send('\x1b[6~')
+    await tick()
+    expect(result.terminal.output).toContain('visible tail')
+    result.terminal.send('\x03')
+    await rejected
+    await dispose(result)
+  })
+
+  it('preserves both option markers and controls at the minimum configured height', async () => {
+    const result = await setup({
+      config: { questionDialogWidth: 60, questionDialogMaxHeight: 6 },
+    })
+    const answer = result.ctx.userInteraction.ask({
+      questions: [{
+        id: 'minimum-options',
+        question: 'Pick one',
+        multiSelect: true,
+        options: ['One', 'Two', 'Three', 'Four', 'Five'].map(label => ({
+          label,
+          description: `${label} ${'wrapped detail '.repeat(20)}`,
+        })),
+      }],
+    })
+    const rejected = expect(answer).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    await tick()
+    result.terminal.send('\x1b[B')
+    result.terminal.send('\x1b[B')
+    await tick()
+    expect(result.terminal.output).toContain('↑ 2 more')
+    expect(result.terminal.output).toContain('Three')
+    expect(result.terminal.output).toContain('PgUp/PgDn')
+    expect(result.terminal.output).toContain('↓ 2 more')
+    expect(result.terminal.output).toContain('Tab custom')
+    expect(result.terminal.output).toContain('Space toggle')
+    expect(result.terminal.output).toContain('Esc interrupt')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('Error: Select at least one')
+    result.terminal.resize(61)
+    await tick()
+    const validationRender = result.terminal.output.slice(result.terminal.output.lastIndexOf('\x1b[2J'))
+    expect(validationRender).toContain('Tab custom')
+    expect(validationRender).toContain('Space toggle')
+    result.terminal.send('\x03')
+    await rejected
+    await dispose(result)
+  })
+
+  it('preserves detail text and every action when one compact header row remains', async () => {
+    const result = await setup({
+      config: { questionDialogWidth: 20, questionDialogMaxHeight: 6 },
+    })
+    const answer = result.ctx.userInteraction.ask({
+      questions: [{
+        id: 'one-header-row',
+        question: 'Plan?',
+        detail: 'abcdvisible tail',
+        multiSelect: true,
+        options: [
+          { label: 'Yes', description: 'accept' },
+          { label: 'No', description: 'reject' },
+        ],
+      }],
+    })
+    const rejected = expect(answer).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    await tick()
+    result.terminal.resize(60, 20)
+    await tick()
+    const initialRender = result.terminal.output.slice(result.terminal.output.lastIndexOf('\x1b[2J'))
+    expect(initialRender).toContain('P↑↓ ↑↓ Tab S↵Esc')
+    result.terminal.send('\x1b[6~')
+    result.terminal.send('\x1b[6~')
+    await tick()
+    const detailRender = result.terminal.output.slice(result.terminal.output.lastIndexOf('\x1b[2J'))
+    expect(detailRender).toContain('visible tail')
+    result.terminal.send('\x03')
+    await rejected
+
+    const single = result.ctx.userInteraction.ask({
+      questions: [{
+        id: 'one-header-row-single',
+        question: 'Plan?',
+        detail: 'abcdvisible tail',
+        options: [
+          { label: 'Yes', description: 'accept' },
+          { label: 'No', description: 'reject' },
+        ],
+      }],
+    })
+    const singleRejected = expect(single).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    await tick()
+    result.terminal.resize(61, 20)
+    await tick()
+    const singleRender = result.terminal.output.slice(result.terminal.output.lastIndexOf('\x1b[2J'))
+    expect(singleRender).toContain('P↑↓ ↑↓ Tab↵Esc')
+    result.terminal.send('\x03')
+    await singleRejected
+
+    const compact = result.ctx.userInteraction.ask({
+      questions: [{
+        id: 'one-header-row-compact',
+        question: 'Pick?',
+        multiSelect: true,
+        options: [
+          { label: 'Yes', description: 'accept' },
+          { label: 'No', description: 'reject' },
+        ],
+      }],
+    })
+    const compactRejected = expect(compact).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    await tick()
+    result.terminal.resize(60, 20)
+    await tick()
+    const compactRender = result.terminal.output.slice(result.terminal.output.lastIndexOf('\x1b[2J'))
+    expect(compactRender).toContain('↑↓ Tab Sp ↵Esc')
+    result.terminal.send('\x03')
+    await compactRejected
+
+    const oneOption = result.ctx.userInteraction.ask({
+      questions: [{
+        id: 'one-header-row-one-option',
+        question: 'Pick?',
+        detail: 'Review every line.',
+        options: [{ label: 'Yes', description: 'wrapped detail '.repeat(8) }],
+      }],
+    })
+    const oneOptionRejected = expect(oneOption).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    await tick()
+    result.terminal.resize(61, 20)
+    await tick()
+    const oneOptionRender = result.terminal.output.slice(result.terminal.output.lastIndexOf('\x1b[2J'))
+    expect(oneOptionRender).toContain('P↑↓ Tab↵Esc')
+    expect(oneOptionRender).not.toContain('P↑↓ ↑↓')
+    result.terminal.send('\x03')
+    await oneOptionRejected
+    await dispose(result)
+  })
+
+  it('expands the visible option window forward and backward around the selection', async () => {
+    const result = await setup({
+      config: {
+        questionDialogWidth: 60,
+        questionDialogMaxHeight: 14,
+        maxQuestionOptions: 8,
+      },
+    })
+    const answer = result.ctx.userInteraction.ask({
+      questions: [{
+        id: 'middle-scroll',
+        question: 'Pick one',
+        options: [
+          { label: 'One', description: 'a' },
+          { label: 'Two', description: 'b' },
+          { label: 'Three', description: 'c' },
+          { label: 'Four', description: 'd' },
+          { label: 'Five', description: 'e' },
+          { label: 'Six', description: 'f' },
+          { label: 'Seven', description: 'g' },
+          { label: 'Eight', description: 'h' },
+          { label: 'Nine', description: 'i' },
+          { label: 'Ten', description: 'j' },
+        ],
+      }],
+    })
+    const rejected = expect(answer).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    await tick()
+    for (let step = 0; step < 4; step += 1) result.terminal.send('\x1b[B')
+    await tick()
+    expect(result.terminal.output).toContain('↑')
+    expect(result.terminal.output).toContain('↓')
+    expect(result.terminal.output).toContain('Five')
+    result.terminal.send('\x03')
+    await rejected
+    await dispose(result)
+  })
+
+  it('wraps a long option label across multiple lines instead of truncating it', async () => {
+    const result = await setup({ config: { questionDialogWidth: 40 } })
+    const longLabel = 'this is a very long option label that will not fit on one line in a narrow dialog'
+    const answer = result.ctx.userInteraction.ask({
+      questions: [{
+        id: 'long-label',
+        question: 'Pick one',
+        options: [{ label: longLabel }, { label: 'Short' }],
+      }],
+    })
+    const rejected = expect(answer).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    await tick()
+    expect(result.terminal.output).toContain('narrow dialog')
+    result.terminal.send('\x03')
+    await rejected
+    await dispose(result)
+  })
+
+  it('wraps fixed question chrome within the minimum dialog width', async () => {
+    const result = await setup({ config: { questionDialogWidth: 20 } })
+    const answer = result.ctx.userInteraction.ask({
+      questions: [{ id: 'narrow', question: 'Answer?' }],
+    })
+    const rejected = expect(answer).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    await tick()
+    expect(result.terminal.output).not.toContain('Question 1/1 (1 unanswered)')
+    expect(result.terminal.output).toContain('unanswered)')
+    expect(result.terminal.output).not.toContain('Enter submit • Esc cancel')
+    expect(result.terminal.output).toContain('Esc cancel')
+    result.terminal.send('\x03')
+    await rejected
+    await dispose(result)
+  })
+
+  it('keeps custom controls visible at the minimum dialog height', async () => {
+    const result = await setup({
+      config: { questionDialogWidth: 20, questionDialogMaxHeight: 6 },
+    })
+    const answer = result.ctx.userInteraction.ask({
+      questions: [{ id: 'short-viewport', question: 'Answer this deliberately long question?' }],
+    })
+    const rejected = expect(answer).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    await tick()
+    expect(result.terminal.output).toContain('long question?')
+    expect(result.terminal.output).toContain('Esc cancel')
+    result.terminal.resize(60, 4)
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('Enter an answer')
+    expect(result.terminal.output).toContain('long question?')
+    result.terminal.send('\x03')
+    await rejected
+    await dispose(result)
+  })
+
+  it('compacts custom controls for a question that also has options', async () => {
+    const result = await setup({
+      config: { questionDialogWidth: 20, questionDialogMaxHeight: 6 },
+    })
+    const answer = result.ctx.userInteraction.ask({
+      questions: [{
+        id: 'compact-custom-options',
+        question: 'Choose or type a deliberately long answer',
+        options: [{ label: 'Default' }],
+      }],
+    })
+    const rejected = expect(answer).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    await tick()
+    result.terminal.send('\t')
+    await tick()
+    expect(result.terminal.output).toContain('Esc options')
+    result.terminal.send('\x1b')
+    await tick()
+    result.terminal.send('\x03')
+    await rejected
+    await dispose(result)
+  })
+
+  it('reports hidden question rows when the viewport leaves one row', async () => {
+    const result = await setup({
+      config: { questionDialogWidth: 60, questionDialogMaxHeight: 6 },
+    })
+    result.terminal.resize(60, 2)
+    const answer = result.ctx.userInteraction.ask({
+      questions: [{ id: 'one-row-dialog', question: 'Answer this deliberately long question?' }],
+    })
+    const rejected = expect(answer).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    await tick()
+    expect(result.terminal.output).toContain('lines hidden')
+    result.terminal.send('\x03')
+    await rejected
+    await dispose(result)
+  })
+
+  it('keeps question text when the viewport leaves two question rows', async () => {
+    const result = await setup({
+      config: { questionDialogWidth: 60, questionDialogMaxHeight: 6 },
+    })
+    result.terminal.resize(60, 3)
+    const answer = result.ctx.userInteraction.ask({
+      questions: [{ id: 'two-row-dialog', question: 'Answer this deliberately long question?' }],
+    })
+    const rejected = expect(answer).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    await tick()
+    expect(result.terminal.output).toContain('long question?')
+    result.terminal.send('\x03')
+    await rejected
+    await dispose(result)
+  })
+
+  it('bounds option mode when the viewport leaves three question rows', async () => {
+    const result = await setup({
+      config: { questionDialogWidth: 60, questionDialogMaxHeight: 6 },
+    })
+    result.terminal.resize(60, 4)
+    const answer = result.ctx.userInteraction.ask({
+      questions: [{
+        id: 'three-row-options',
+        question: 'Pick one',
+        options: [{ label: 'First' }, { label: 'Second' }],
+      }],
+    })
+    const rejected = expect(answer).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    await tick()
+    expect(result.terminal.output).toContain('lines hidden')
+    result.terminal.send('\x03')
+    await rejected
+    await dispose(result)
+  })
+
+  it('keeps question rows within a sub-five-column viewport', async () => {
+    const terminal = new HeadlessTerminal(4, 12)
+    const result = await createTuiTestHarness(terminal, vi.fn(), {
+      config: { questionDialogWidth: 20 },
+    })
+    const beforeQuestion = terminal.frames
+    const answer = result.ctx.userInteraction.ask({
+      questions: [{ id: 'narrow-viewport', question: 'Pick?', options: [{ label: 'Yes' }] }],
+    })
+    const rejected = expect(answer).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    await terminal.waitForFrame(beforeQuestion)
+    await expect(terminal.snapshot()).resolves.toContain('terminal 4x12')
+    terminal.send('\x03')
+    await rejected
+    await disposeTuiTestHarness(result)
   })
 
   it('asks batches in order and rejects cancelled or aborted work', async () => {

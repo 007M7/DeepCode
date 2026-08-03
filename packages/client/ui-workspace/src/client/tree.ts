@@ -20,6 +20,8 @@ export interface SessionNode {
   title: string
   /** The provisional blank session (renderer shows the localized New Session title). */
   blank: boolean
+  /** The runtime Session list reports a pending approval request for this Session. */
+  waitingApproval: boolean
   running: boolean
   updatedAt: number
 }
@@ -169,6 +171,7 @@ function sessionNode(s: SessionSummary): SessionNode {
     id: s.id,
     title: sessionTitle(s),
     blank: s.blank,
+    waitingApproval: s.waitingApproval,
     running: s.running,
     updatedAt: s.updatedAt,
   }

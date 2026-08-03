@@ -14,5 +14,5 @@
 - button "Branch into a new conversation":
   - img
 - status:
-  - strong: 此子代理暂时只读
-  - text: 父会话当前不在线，重新打开父会话后即可继续发送消息。
+  - strong: This subagent is read-only for now
+  - text: The parent session is offline; reopen it to continue sending messages.

@@ -61,7 +61,7 @@ export function apply(ctx: ClientContext): void {
   // locale/change re-registration wiring.
   const t = ctx.locale.bind(NS)
   const connection = ctx.get('connection') as ConnectionHandle
-  const welcomeController = new WelcomeNoticeStore(connection.api)
+  const welcomeController = new WelcomeNoticeStore(connection.api, connection.isLoopback ? 'host' : 'memory')
   const useWelcomeSnapshot = bindSnapshotSelector(welcomeController.store)
   const welcomeInjected = (): WelcomeNoticeInjected => ({
     controller: welcomeController,

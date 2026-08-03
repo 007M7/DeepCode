@@ -26,6 +26,9 @@ const dshBinScript = fileURLToPath(new URL('../src/bin.ts', import.meta.url))
 // `--config` layers an overlay over the shared base, so the default surface
 // needs no config argument at all; these are the overlays under test.
 const scriptedConfigPath = fileURLToPath(new URL('./fixtures/tui-scripted.cordis.yml', import.meta.url))
+// An overlay whose `llm-pi-ai` config fails validation, so an entry rejects
+// while the TUI already holds the terminal.
+const invalidProviderConfigPath = fileURLToPath(new URL('./fixtures/tui-invalid-provider.cordis.yml', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 const firstRunSnapshots = fileURLToPath(new URL('./tui-first-run-snapshots/', import.meta.url))
 const synchronizedFrameEnd = '\x1b[?2026l'
@@ -256,6 +259,7 @@ const SELECT_PRO_MODEL = [
   { waitFor: 'scripted TUI ready.', send: '/model\r' },
   { waitFor: 'Select model', send: '\x1b[B\x1b[Z\r' },
 ] as const
+const ANSWER_MULTI_WITH_CUSTOM = ' \tRelease notes\r'
 
 describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
   it.each([
@@ -414,6 +418,28 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
     expect(output).toContain('\u001B[?2004l')
   }, PTY_SMOKE_TEST_TIMEOUT_MS)
 
+  // The Loader mounts entries concurrently, so `ui-tui` can already own the
+  // terminal when a sibling entry rejects on its config. Exiting without the
+  // tree's own teardown left raw mode and bracketed paste set on the user's
+  // shell, and the pending Device Attributes reply landed there as literal
+  // text. The transactional mount must settle (an HMR initial-scan refresh
+  // once deadlocked its rollback into a silent exit 13) so `boot` disposes
+  // the tree — reaching the TUI's own shutdown — and rejects with the
+  // labelled diagnostic.
+  it('restores the terminal when a sibling entry fails to validate during boot', async () => {
+    const output = await smoke({
+      label: 'dsh invalid provider config',
+      tempDirPrefix: 'dsh-tui-invalid-config-',
+      configPath: invalidProviderConfigPath,
+      expectedExitCode: 1,
+    })
+    expect(output).toContain('dsh: plugin tree failed to load:')
+    expect(output).toContain('$.providers')
+    // Bracketed paste is disabled again, which only `ProcessTerminal.stop()`
+    // writes — proof the tree was disposed rather than exited out from under.
+    expect(output).toContain('\u001B[?2004l')
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
   it('switches models, streams a response, answers a user-question dialog, and exits cleanly', async () => {
     const output = await smoke({
       label: 'dsh conversation',
@@ -425,7 +451,10 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
         // The question text first appears in the streamed tool-call card. Wait
         // for the dialog's input legend so Enter cannot arrive before it owns
         // terminal input when pre-dispatch policy yields.
-        { waitFor: 'Tab custom answer • ↑/↓ navigate • Enter submit • Esc interrupt', send: '\r' },
+        {
+          waitFor: 'Tab custom answer • ↑/↓ navigate • Space toggle • Enter submit • Esc interrupt',
+          send: ANSWER_MULTI_WITH_CUSTOM,
+        },
         { waitFor: 'Decision received. Scripted TUI run complete.', send: '' },
         // Session title: the first user message drives the first-message-llm
         // provider's tool-less title call; the scripted adapter answers it, the
@@ -451,6 +480,7 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
     expect(output).not.toContain('\u001B[999CMODEL_CURSOR')
     expect(output).not.toContain('\u009B31mMODEL_C1')
     expect(output).toContain('Safe')
+    expect(output).toContain('Release notes')
     expect(output).toContain('\u001B]0;scripted session title — DeepSeek Harness\u0007')
     expect(output).toContain('Session status')
     expect(output).toContain('Title')
@@ -836,7 +866,7 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
       actions: [
         ...SELECT_PRO_MODEL,
         { waitFor: 'Model selected: tui-scripted/tui-scripted-model-pro.', send: 'exercise the TUI\r' },
-        { waitFor: 'How should the scripted run proceed?', send: '\r' },
+        { waitFor: 'How should the scripted run proceed?', send: ANSWER_MULTI_WITH_CUSTOM },
         { waitFor: 'Decision received. Scripted TUI run complete.', send: '/exit\r' },
       ],
       inspect: async (cwd) => { context = await readLoggedRequestContext(cwd) },

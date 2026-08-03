@@ -54,7 +54,7 @@ The first version provides no durable mailbox, idempotency key, delivery receipt
 
 The subagent seam adds `registerContinuableSetup(contribution): () => void`, backed by `SubagentActivationSetupRegistry`. Each synchronous contribution receives the unpublished child context and returns the disposer for its installation. The continuation manager first applies base child composition, then current contributions in registration order through the same setup closure used for fresh creation and cold resume.
 
-The registry owns registration, per-child installation records, setup rollback, child-scope cleanup, and immediate revocation. A throwing or concurrently revoked contribution rejects before Activation publication and rolls back the batch. New registrations affect a resident child only on its next Activation; removing a registration first closes it to new setup and then revokes every provisioning or resident installation immediately. Registration disposal and child-context disposal are idempotent and attempt every release before aggregating failures.
+The registry owns registration, per-child installation records, setup rollback, child-scope cleanup, and immediate revocation. Applying a batch returns the Agent setup commit that revalidates provisioning after every setup await and immediately before Agent publication. A throwing or concurrently revoked contribution therefore rejects before either Agent or Session publication and rolls back the batch. New registrations affect a resident child only on its next Activation; removing a registration first closes it to new setup and then revokes every provisioning or resident installation immediately. Registration disposal and child-context disposal are idempotent and attempt every release before aggregating failures.
 
 This seam keeps the continuation manager unaware of tool names. The report package installs only `report`; `@deepseek-ai/dsh-tool-subagent-control` independently installs parent-side `send_message` and `list_agents`. A deployment can install either direction, both, or neither. Providers remain data-only, durable descriptors do not snapshot report availability or delivery mode, and cold resume uses the deployment's current contributions and policy.
 
@@ -94,6 +94,10 @@ Mutating or cold-resuming an absent parent requires a new durable addressing, au
 
 A result-bearing wrapper makes one report or one turn appear terminal and recreates the lifetime mismatch that continuable Activations removed. Explicit repeatable sends need no intermediate execution object.
 
+### Validate setup after Agent creation
+
+A post-creation revocation check can reject the Activation only after the Agent and Session have been published. Disposing the returned handle removes the live objects but cannot delete persistence through the current seam, leaving a resumable child that the continuation manager said was never established. Returning an `AgentSetupCommit` instead lets the Agent factory perform the same mutable-state check synchronously at its publication boundary.
+
 ## Consequences
 
 - A continuable in-process child exposes exactly one scope-local `report` schema only while the report package's contribution is installed; unrelated Agents never expose it.
@@ -112,5 +116,3 @@ The acceptance boundary is weaker than durable end-to-end delivery. A crash can 
 Wakeup mode can amplify model work when nested children report frequently. Deployment ownership and a quiet default limit but do not remove that risk.
 
 Registry presence is the parent liveness signal. A host-owned parent whose `AgentHandle.dispose()` has started but has not yet unwound its scope can still accept and append a report that it will not act on in this process. Closing that gap requires an Agent-level disposal-start signal rather than subagent-layer inference.
-
-The final setup-revocation check runs after `ctx.agents.create()` or `ctx.agents.resume()` returns, after lower-level Agent and Session publication. Revocation in this window rolls back the handle and prevents the subagent Activation start edge but may leave a persisted Session. Moving the cutoff before lower-level publication requires a future Agent-creation setup transaction seam.

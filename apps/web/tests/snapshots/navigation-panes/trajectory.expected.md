@@ -4,7 +4,8 @@
   - button "Collapse calls": Calls
   - img
   - searchbox "Search trajectory"
-- region "Trajectory timeline"
+- region "Trajectory timeline":
+  - tooltip "ASSISTANT {{clock}} → {{clock}} Total 1.5 s · TTFT 368 ms · Decoding 1.2 s"
 - table:
   - rowgroup:
     - row "SYSTEM, Initial System Prompt":

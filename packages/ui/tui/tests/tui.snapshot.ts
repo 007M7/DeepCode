@@ -44,8 +44,13 @@ const CHECKPOINTS = [
   'cordis-tools-pending',
   'advanced-cards-collapsed',
   'advanced-cards-expanded',
+  'tool-cards-hidden-folded',
+  'details-command',
+  'details-selector',
   'untrusted-controls',
   'question-dialog',
+  'question-dialog-detail-paged',
+  'question-dialog-paged',
   'question-dialog-single-option',
   'question-dialog-validation',
   'surface-before-compaction',
@@ -269,11 +274,30 @@ const ADVANCED_CARD_TOOLS: Record<string, ToolDefinition> = {
   edit: visualTool(
     'edit',
     () => ({ card: 'diff', title: 'Edit src/view.ts', diffs: [{ path: 'src/view.ts', oldText: 'old line', newText: 'new line' }] }),
-    // The real edit/write tools produce exactly one diff whose path the title
-    // already names, so the card omits the redundant per-file header.
+    // The fixed tool header never names a path, so the hunk retains its path.
     (): ToolResultView => ({
       card: 'diff',
       diffs: [{ path: 'src/view.ts', oldText: 'old line\nkeep', newText: 'new line\nkeep' }],
+    }),
+  ),
+  large_edit: visualTool(
+    'large_edit',
+    () => ({
+      card: 'diff',
+      title: 'Edit src/large.ts',
+      diffs: [{
+        path: 'src/large.ts',
+        oldText: 'old one\nold two\nold three',
+        newText: 'new one\nnew two\nnew three',
+      }],
+    }),
+    (): ToolResultView => ({
+      card: 'diff',
+      diffs: [{
+        path: 'src/large.ts',
+        oldText: 'old one\nold two\nold three',
+        newText: 'new one\nnew two\nnew three',
+      }],
     }),
   ),
   subagent: visualTool('subagent', args => ({
@@ -585,7 +609,7 @@ describe('TUI terminal-state snapshots', () => {
   it('pins terminal, diff, subagent, task, skill, collapsed, and expanded cards', async () => {
     const harness = await setupSnapshot({
       tools: ADVANCED_CARD_TOOLS,
-      config: { maxToolOutputLines: 3 },
+      config: { maxToolOutputLines: 3, maxDiffEditLength: 2 },
     }, { columns: 100, rows: 40 })
     const calls = [
       { id: 'advanced-1', name: 'bash', arguments: { command: 'pnpm run test:coverage' } },
@@ -593,6 +617,7 @@ describe('TUI terminal-state snapshots', () => {
       { id: 'advanced-3', name: 'subagent', arguments: { prompt: 'Review renderer ownership and report only gaps.' } },
       { id: 'advanced-4', name: 'task_output', arguments: { task_id: 'subagent-7', wait: true } },
       { id: 'advanced-5', name: 'skill', arguments: { name: 'dsh-code-review' } },
+      { id: 'advanced-6', name: 'large_edit', arguments: { file_path: 'src/large.ts' } },
     ]
     await renderAfter(harness, () => {
       appendToolCalls(harness.session, calls)
@@ -601,11 +626,77 @@ describe('TUI terminal-state snapshots', () => {
       appendToolResult(harness.session, 'advanced-3', [{ type: 'text', text: 'The renderer has explicit lifecycle ownership.' }])
       appendToolResult(harness.session, 'advanced-4', [{ type: 'text', text: 'audit complete\n[status: completed]' }])
       appendToolResult(harness.session, 'advanced-5', [{ type: 'text', text: 'Loaded review instructions.' }])
+      appendToolResult(harness.session, 'advanced-6', [{ type: 'text', text: 'large edit complete' }])
     })
     await checkpoint('advanced-cards-collapsed', harness.terminal, { includeScrollback: true })
 
     await renderAfter(harness, () => { harness.terminal.send('\x0f') })
     await checkpoint('advanced-cards-expanded', harness.terminal, { includeScrollback: true })
+    await disposeSnapshot(harness)
+  })
+
+  it('pins the hidden phase folding a multi-step turn into one assistant message', async () => {
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(new Date(2026, 6, 29, 22, 30, 0).getTime())
+    const harness = await setupSnapshot({
+      tools: ADVANCED_CARD_TOOLS,
+      config: { maxToolOutputLines: 3 },
+    }, { columns: 100, rows: 40 })
+    await renderAfter(harness, () => {
+      appendUser(harness.session, 'Refactor the renderer.')
+      appendAssistant(harness.session, [{ type: 'text', text: 'Inspecting the renderer first.' }])
+      appendToolCalls(harness.session, [
+        { id: 'fold-1', name: 'bash', arguments: { command: 'pnpm run test' } },
+      ])
+      appendToolResult(harness.session, 'fold-1', [{ type: 'text', text: 'all tests pass' }])
+      harness.session.append('step/end', { turn: 1, step: 1 })
+      harness.session.append('step/start', { turn: 1, step: 2 })
+      appendAssistant(harness.session, [{ type: 'text', text: 'The renderer is sound; no refactor needed.' }], undefined, { turn: 1, step: 2 })
+      harness.session.append('step/end', { turn: 1, step: 2 })
+      harness.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    })
+    // collapsed -> expanded -> hidden: one Assistant header, no tool card.
+    await renderAfter(harness, () => { harness.terminal.send('\x0f') })
+    await renderAfter(harness, () => { harness.terminal.send('\x0f') })
+    await checkpoint('tool-cards-hidden-folded', harness.terminal, { includeScrollback: true })
+    nowSpy.mockRestore()
+    await disposeSnapshot(harness)
+  })
+
+  it('pins /details jumping card visibility and reasoning display to named states', async () => {
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(new Date(2026, 6, 30, 18, 0, 0).getTime())
+    const harness = await setupSnapshot({
+      tools: ADVANCED_CARD_TOOLS,
+      config: { maxToolOutputLines: 3 },
+    }, { columns: 100, rows: 40 })
+    await renderAfter(harness, () => {
+      appendUser(harness.session, 'Inspect the renderer.')
+      appendAssistant(harness.session, [
+        { type: 'reasoning', text: 'The tool card and this block vanish under /details hidden reasoning off.' },
+        { type: 'text', text: 'Running the check now.' },
+      ])
+      appendToolCalls(harness.session, [
+        { id: 'details-1', name: 'bash', arguments: { command: 'pnpm run test' } },
+      ])
+      appendToolResult(harness.session, 'details-1', [{ type: 'text', text: 'all tests pass' }])
+      harness.session.append('step/end', { turn: 1, step: 1 })
+      harness.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    })
+    await renderAfter(harness, () => {
+      harness.terminal.send('/details hidden reasoning off')
+      harness.terminal.send('\r')
+    })
+    await checkpoint('details-command', harness.terminal, { includeScrollback: true })
+    // Bare /details opens the two-entry toggle seeded with the current
+    // hidden/reasoning-off state; one Tab immediately cycles tool cards
+    // hidden -> collapsed, so the frame pins the applied notice, the restored
+    // tool card behind the dialog, and the updated entry value together.
+    await renderAfter(harness, () => {
+      harness.terminal.send('/details')
+      harness.terminal.send('\r')
+      harness.terminal.send('\t')
+    })
+    await checkpoint('details-selector', harness.terminal, { includeScrollback: true })
+    nowSpy.mockRestore()
     await disposeSnapshot(harness)
   })
 
@@ -697,9 +788,13 @@ describe('TUI terminal-state snapshots', () => {
           id: 'coverage',
           header: 'Coverage',
           question: 'Which advanced TUI states belong in the required matrix?',
+          detail: `Review the complete plan ${'including every required checkpoint '.repeat(12)}visible plan tail`,
           multiSelect: true,
           options: [
-            { label: 'Code Mode', description: 'run_code programs and captured output' },
+            {
+              label: 'Code Mode',
+              description: `run_code programs and captured output ${'with complete wrapped detail '.repeat(12)}visible tail`,
+            },
             { label: 'Workflows', description: 'phases and parallel agents' },
             { label: 'Cordis tools', description: 'inspect, mount, and unmount' },
             { label: 'Compaction', description: 'surface replacement and reflow' },
@@ -713,6 +808,14 @@ describe('TUI terminal-state snapshots', () => {
     const rejected = expect(answer).rejects.toMatchObject({ code: 'ASK_ABORTED' })
     await harness.terminal.waitForFrame(beforeQuestion)
     await checkpoint('question-dialog', harness.terminal)
+
+    await renderAfter(harness, () => { harness.terminal.send('\x1b[6~') })
+    await checkpoint('question-dialog-detail-paged', harness.terminal)
+
+    await renderAfter(harness, () => {
+      for (let page = 0; page < 30; page += 1) harness.terminal.send('\x1b[6~')
+    })
+    await checkpoint('question-dialog-paged', harness.terminal)
 
     await renderAfter(harness, () => { harness.terminal.send('\r') })
     await checkpoint('question-dialog-validation', harness.terminal)
