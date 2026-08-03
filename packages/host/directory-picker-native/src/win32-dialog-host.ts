@@ -1,9 +1,10 @@
 /**
  * Real-process half of the Win32 dialog driver: spawn the dialog worker
- * (source or built plane) and close a dialog thread's windows. Loaded lazily
- * and only on the win32 default path, so non-Windows processes never touch
- * worker or koffi machinery; the driver's logic is tested against fakes of
- * this surface instead.
+ * (source or built plane) and close a dialog thread's windows. The module
+ * itself loads everywhere (the import chain from native-picker.ts is
+ * static); what stays win32-only is koffi, imported dynamically inside the
+ * bindings' functions. The driver's logic is tested against fakes of this
+ * surface instead.
  */
 
 import { fileURLToPath } from 'node:url'

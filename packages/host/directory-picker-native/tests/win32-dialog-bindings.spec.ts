@@ -13,6 +13,12 @@ import { HRESULT_CANCELLED, runFolderDialog } from '../src/win32-dialog-logic.ts
 
 const E_FAIL = 0x80004005 | 0
 const WM_CLOSE = 0x10
+/**
+ * Deliberately NOT 8: the bindings must derive vtable offsets and out-buffer
+ * sizes from koffi.sizeof('void *'), and a hardcoded 8 anywhere fails against
+ * this width (the win32-ia32 bug class).
+ */
+const FAKE_POINTER_SIZE = 4
 
 interface ComWorld {
   coInitHr: number
@@ -21,6 +27,8 @@ interface ComWorld {
   getResultHr: number
   getDisplayNameHr: number
   hasThreadDpi: boolean
+  /** Contexts `SetThreadDpiAwarenessContext` accepts; others return NULL. */
+  supportedDpiContexts: number[]
   enumThrows: boolean
   path: string
   titles: string[]
@@ -37,7 +45,7 @@ interface ComWorld {
 function comWorld(overrides: Partial<ComWorld> = {}): ComWorld {
   return {
     coInitHr: 0, coCreateHr: 0, showHr: 0, getResultHr: 0, getDisplayNameHr: 0,
-    hasThreadDpi: true, enumThrows: false,
+    hasThreadDpi: true, supportedDpiContexts: [-4], enumThrows: false,
     path: 'C:\\选中\\directory',
     titles: [], options: [], dpiContexts: [], freed: [], released: [], posted: [],
     registered: 0, unregistered: 0, uninitialized: 0,
@@ -89,6 +97,10 @@ function installFakeKoffi(world: ComWorld): void {
             case 'CoUninitialize': return () => { world.uninitialized += 1 }
             case 'CoCreateInstance': return (...args: unknown[]) => {
               if (world.coCreateHr < 0) return world.coCreateHr
+              // The out-pointer must be allocated at the fake's pointer width.
+              if ((args[4] as Buffer).length !== FAKE_POINTER_SIZE) {
+                throw new Error(`CoCreateInstance out buffer must be ${FAKE_POINTER_SIZE} bytes`)
+              }
               outBuffers.set(args[4], dialogPtr)
               return 0
             }
@@ -96,7 +108,10 @@ function installFakeKoffi(world: ComWorld): void {
             case 'GetCurrentThreadId': return () => 31337
             case 'SetThreadDpiAwarenessContext': {
               if (!world.hasThreadDpi) throw new Error(`${dll}: SetThreadDpiAwarenessContext not found`)
-              return (context: unknown) => { world.dpiContexts.push(context); return null }
+              return (context: unknown) => {
+                world.dpiContexts.push(context)
+                return world.supportedDpiContexts.includes(context as number) ? { kind: 'previous-context' } : null
+              }
             }
             case 'EnumThreadWindows': return (_tid: unknown, callback: { fn: (hwnd: unknown, lparam: unknown) => number }, lparam: unknown) => {
               if (world.enumThrows) throw new Error('EnumThreadWindows refused')
@@ -111,15 +126,16 @@ function installFakeKoffi(world: ComWorld): void {
       }),
       proto: (declaration: string) => ({ declaration }),
       pointer: (type: unknown) => type,
-      sizeof: (type: string) => { void type; return 8 },
+      sizeof: (type: string) => { void type; return FAKE_POINTER_SIZE },
       register: (fn: (hwnd: unknown, lparam: unknown) => number) => { world.registered += 1; return { fn } },
       unregister: () => { world.unregistered += 1 },
       decode: (value: unknown, offsetOrType: unknown): unknown => {
         if (offsetOrType === 'str16') return (value as FakePtr).text
         if (typeof offsetOrType === 'number') {
-          // Vtable slot read: hand back a callable-reference sentinel.
+          // Vtable slot read: offsets must be multiples of the fake width.
+          if (offsetOrType % FAKE_POINTER_SIZE !== 0) throw new Error(`vtable offset ${offsetOrType} is not pointer-aligned`)
           const owner = (value as { owner: FakePtr }).owner
-          return { call: (args: unknown[]) => dispatch(owner, offsetOrType / 8, args) }
+          return { call: (args: unknown[]) => dispatch(owner, offsetOrType / FAKE_POINTER_SIZE, args) }
         }
         // decode(x, 'void *'): out-buffer read or vtable read.
         if (outBuffers.has(value)) return outBuffers.get(value)
@@ -159,15 +175,39 @@ describe('loadWin32DialogBindings over the fake COM world', () => {
     expect(world.uninitialized).toBe(1)
   })
 
-  it('maps dismissal, missing DPI support, and the S_FALSE CoInitializeEx', async () => {
-    const world = comWorld({ showHr: HRESULT_CANCELLED, hasThreadDpi: false, coInitHr: 1 })
+  it('maps dismissal and the S_FALSE CoInitializeEx', async () => {
+    const world = comWorld({ showHr: HRESULT_CANCELLED, coInitHr: 1 })
     installFakeKoffi(world)
     const { loadWin32DialogBindings } = await loadBindingsModule()
     const bindings = await loadWin32DialogBindings()
     expect(runFolderDialog(bindings, 'Pick', vi.fn())).toBeNull()
-    expect(world.dpiContexts).toEqual([])
     expect(world.released).toEqual(['dialog'])
     expect(world.uninitialized).toBe(1)
+  })
+
+  it('cascades DPI contexts to the first the host accepts', async () => {
+    const world = comWorld({ supportedDpiContexts: [-3] })
+    installFakeKoffi(world)
+    const bindings = await (await loadBindingsModule()).loadWin32DialogBindings()
+    expect(runFolderDialog(bindings, 'Pick', vi.fn())).toBe('C:\\选中\\directory')
+    expect(world.dpiContexts).toEqual([-4, -3])
+  })
+
+  it('keeps the tier when no DPI context is accepted or the symbol is absent', async () => {
+    // DPI is a cosmetic best-effort: the modern dialog still opens.
+    const rejecting = comWorld({ supportedDpiContexts: [] })
+    installFakeKoffi(rejecting)
+    let bindings = await (await loadBindingsModule()).loadWin32DialogBindings()
+    expect(runFolderDialog(bindings, 'Pick', vi.fn())).toBe('C:\\选中\\directory')
+    expect(rejecting.dpiContexts).toEqual([-4, -3, -2])
+
+    vi.doUnmock('koffi')
+    vi.resetModules()
+    const preThreadDpi = comWorld({ hasThreadDpi: false })
+    installFakeKoffi(preThreadDpi)
+    bindings = await (await loadBindingsModule()).loadWin32DialogBindings()
+    expect(runFolderDialog(bindings, 'Pick', vi.fn())).toBe('C:\\选中\\directory')
+    expect(preThreadDpi.dpiContexts).toEqual([])
   })
 
   it('surfaces creation and extraction failures as HRESULT errors', async () => {

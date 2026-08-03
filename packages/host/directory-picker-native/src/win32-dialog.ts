@@ -83,7 +83,9 @@ export async function pickWin32Directory(
 
     const postClose = (): void => {
       // Before `showing` there is no window to close; the budget below still
-      // runs so a worker that never reports cannot dangle the pick.
+      // runs so a worker that never reports cannot dangle the pick. A
+      // rejected close attempt (EnumThreadWindows/PostMessageW refusing) is
+      // discarded: the interval retries it and terminate is the backstop.
       if (dialogThreadId !== undefined) void closeWindows(dialogThreadId).catch(() => undefined)
     }
 

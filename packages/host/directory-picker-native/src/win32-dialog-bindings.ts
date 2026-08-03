@@ -1,9 +1,10 @@
 /**
  * koffi-backed Win32 bindings for the folder dialog: the COM vtable calls
  * behind {@link Win32DialogBindings} plus the cross-thread window closer the
- * driver uses to service aborts. Loaded lazily and only on win32 (the dialog
- * worker and the driver's abort path), so non-Windows processes never load
- * koffi — the same containment as the repo's other `win32.ts` modules.
+ * driver uses to service aborts. The module loads on every platform; koffi
+ * itself is imported lazily inside each function, so non-Windows processes
+ * never load it — the same containment as the repo's other `win32.ts`
+ * modules.
  *
  * The COM surface used here (IModalWindow/IFileDialog/IFileOpenDialog and
  * IShellItem vtable order, the GUIDs, `FOS_*` and `SIGDN_FILESYSPATH`) is
@@ -29,7 +30,14 @@ interface Koffi {
 const COINIT_APARTMENTTHREADED = 0x2
 const CLSCTX_INPROC_SERVER = 0x1
 const SIGDN_FILESYSPATH = 0x80058000 | 0
-const DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4
+/**
+ * Thread DPI awareness contexts, best first: per-monitor-v2 (Windows 10
+ * 1703+), per-monitor (1607+), then system-aware. `SetThreadDpiAwarenessContext`
+ * returns NULL for an unsupported context instead of throwing, so the caller
+ * cascades to the best one the host accepts; DPI stays a cosmetic
+ * best-effort — an unsupported host still gets the modern dialog.
+ */
+const DPI_AWARENESS_CONTEXTS = [-4, -3, -2]
 const WM_CLOSE = 0x10
 
 /** IFileOpenDialog vtable slots (IUnknown 0-2, IModalWindow 3, IFileDialog 4+). */
@@ -94,14 +102,22 @@ export async function loadWin32DialogBindings(): Promise<Win32DialogBindings> {
 
   return {
     setThreadDpiAwareness: () => {
+      let setContext: KoffiFunction
       try {
-        const setThreadDpiAwarenessContext = user32.func('__stdcall', 'SetThreadDpiAwarenessContext', 'void *', ['intptr'])
-        setThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
+        setContext = user32.func('__stdcall', 'SetThreadDpiAwarenessContext', 'void *', ['intptr'])
       } catch {
-        // SetThreadDpiAwarenessContext absent (Windows 10 pre-1703): the
-        // dialog renders at system DPI; nothing else can fail here because
-        // user32 itself loaded above.
+        // Symbol absent (pre-1607 Windows): no per-thread DPI control exists.
+        // Proceed anyway — the cost is a blurry dialog above 100 % scaling on
+        // museum hosts, and the modern picker still beats dropping to the
+        // legacy 5.1 tree over a cosmetic concern.
+        return
       }
+      for (const context of DPI_AWARENESS_CONTEXTS) {
+        if (setContext(context) !== null) return
+      }
+      // Unreachable in practice (SYSTEM_AWARE is accepted wherever the symbol
+      // exists); if a host ever refuses everything, the dialog still works —
+      // just without a DPI opt-in.
     },
     coInitializeSta: () => coInitializeEx(null, COINIT_APARTMENTTHREADED) as number,
     coUninitialize: () => {

@@ -49,9 +49,12 @@ export interface Win32FolderDialog {
 /** The thread-level native surface the dialog sequencing runs against. */
 export interface Win32DialogBindings {
   /**
-   * Best-effort per-monitor-v2 DPI opt-in for the calling thread. Absent
-   * before Windows 10 1703; implementations swallow only that absence, so an
-   * old host merely renders the dialog at system DPI.
+   * Opt the calling thread into the best supported DPI awareness
+   * (per-monitor-v2, then per-monitor, then system-aware), checking each
+   * call's result. Best-effort on purpose: a host accepting none of them
+   * (or lacking the API, pre-1607) still shows the modern dialog — possibly
+   * blurry above 100 % scaling — because a cosmetic degradation must not
+   * cost the tier.
    */
   setThreadDpiAwareness(): void
   /**
