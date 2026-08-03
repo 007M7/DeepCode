@@ -5,27 +5,24 @@
     - tab "Chat" [selected]
     - tab "Trajectory"
 - text: Show the Markdown image policy. {{clock}}
-- button "复制":
+- button "Copy":
   - img
-- button "在新对话中分支":
-  - img
-- button "编辑":
+- button "Branch into a new conversation":
   - img
 - heading "Markdown images" [level=2]
 - paragraph:
   - img "Remote test image"
 - paragraph: Local test image
 - paragraph: REMOTE_IMAGE_DONE
-- button "复制":
+- button "Copy":
   - img
-- button "在新对话中分支":
+- button "Branch into a new conversation":
   - img
 - text: {{clock}}
 - textbox "Message the agent"
-- button "Add attachment":
+- button "Commands":
   - img
-- 'button "Access mode, current: Danger Full Access"': Danger Full Access
-- button "Plan mode off, press to turn on": Plan off
+- 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Select model, current deepseek-v4-flash":
   - text: deepseek-v4-flash
   - img
