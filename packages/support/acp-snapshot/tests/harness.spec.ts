@@ -791,6 +791,38 @@ describe('runScenario', () => {
     )).rejects.toThrow(/did not persist turn\/end within 20ms/)
   })
 
+  it('waitForGoalPhase requires the requested durable goal phase', { timeout: 20_000 }, async () => {
+    const reached = await scenario({
+      prompt: 'hang-until-cancel',
+      persistLogsOnCancel: true,
+      logs: [{
+        file: 'project/main/session.jsonl',
+        lines: [
+          { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
+          { type: 'goal/change', seq: 1, time: 2, data: {} },
+          { type: 'goal/change', seq: 2, time: 3, data: { goal: { phase: 'active' } } },
+        ],
+      }],
+    })
+    const result = await runScenario(
+      {
+        steps: [
+          ...boot,
+          { op: 'promptAndCancel', text: 'hang' },
+          { op: 'waitForGoalPhase', phase: 'active' },
+        ],
+      },
+      { agent: AGENT, mode: 'replay', fixtureFile: reached.fixtureFile },
+    )
+    expect(result.sessionLogs[0]?.content).toContain('"phase":"active"')
+
+    const missing = await scenario({})
+    await expect(runScenario(
+      { steps: [...boot, { op: 'waitForGoalPhase', phase: 'blocked', timeoutMs: 20 }] },
+      { agent: AGENT, mode: 'replay', fixtureFile: missing.fixtureFile },
+    )).rejects.toThrow(/did not persist goal phase "blocked" within 20ms/)
+  })
+
   it('waitForSubagentTurnEnd requires a closed child work turn', { timeout: 20_000 }, async () => {
     const closed = await scenario({
       prompt: 'hang-until-cancel',
@@ -1021,6 +1053,7 @@ describe('runScenario', () => {
     [{ op: 'promptAndCancel', text: 'x' }, /promptAndCancel before newSession/],
     [{ op: 'waitForTurnStart' }, /waitForTurnStart before newSession/],
     [{ op: 'waitForTurnEnd' }, /waitForTurnEnd before newSession/],
+    [{ op: 'waitForGoalPhase', phase: 'active' }, /waitForGoalPhase before newSession/],
     [{ op: 'waitForInboxMessage', text: 'marker' }, /waitForInboxMessage before newSession/],
     [{ op: 'waitForTitleAfterTurnEnd' }, /waitForTitleAfterTurnEnd before newSession/],
     [{ op: 'cancel' }, /cancel before newSession/],
