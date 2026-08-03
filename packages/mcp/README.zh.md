@@ -6,4 +6,4 @@
 
 | 包 | 角色 |
 |---|---|
-| `mcp-client/` | MCP 客户端桥接：连接外部 MCP 服务器，并将其工具注册到 `ctx.tools` |
+| [`mcp-client/`](mcp-client/README.md) | MCP 客户端桥接：将外部服务器工具注册到 `ctx.tools` |

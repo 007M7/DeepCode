@@ -31,10 +31,6 @@ The protocol client under the turns API: explicit `start()`/`initialize()`/`prom
 
 `HarnessClientOptions.env` replaces the child environment entirely when given (`undefined` inherits the parent's); callers own credential policy — `scrubbedParentEnv` from `dsh-subprocess` is the shared scrub base for isolation-minded launches.
 
-## Testing
-
-Keyless unit tests drive a scripted fake runtime subprocess (`tests/fake-runtime.ts`, protocol-only, env-scripted) over real stdio: turn loop, session-tree scoping, timeout/death/malformed-response surfaces, and the dispose ladder. The [SDK snapshot suite](../../../examples/jsonrpc-agent/tests/sdk.snapshot.ts) drives the real `dsh-jsonrpc-agent` runtime through this client keylessly via `llm-replay`, pinning the notification stream, the turn result, and the persisted logs; `DSH_SNAPSHOT=record` re-records against the live API.
-
 ## Model Experience
 
 None, as this is a client-process library; the model runs in the spawned runtime, whose experience is owned by the plugins its `cordis.yml` composes.

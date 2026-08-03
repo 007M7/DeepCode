@@ -32,10 +32,7 @@
 # Local execution
 - name: '@deepseek-ai/dsh-bash-local'
 
-# Or a future remote sandbox implementation
-# - name: '@deepseek-ai/dsh-bash-remote'
-#   config:
-#     endpoint: 'https://sandbox.example.com'
+# Replace this row with another package that implements the same service.
 ```
 
 更换实现时，接口和工具均保持不变。

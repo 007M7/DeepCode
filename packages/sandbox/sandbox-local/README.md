@@ -14,8 +14,6 @@ The Seatbelt profile is allow-default with `(deny file-write*)` plus write allow
 
 [`node-addon-landlock-run`](https://www.npmjs.com/package/node-addon-landlock-run) supplies the platform launcher, functional probe, and CLI argument vocabulary. This provider owns only mode-to-grant mapping and runner selection. Keeping path resolution and probe parsing with the versioned binary prevents contract drift.
 
-Each rung has a self-skipping keyless world-effect test; CI runs platform legs against real kernels and rejects a silent all-skip. The packed-install test exercises the registry launcher and executable mode through a plain-Node consumer.
-
 ```yaml
 - id: sandbox
   name: '@deepseek-ai/dsh-sandbox-local'

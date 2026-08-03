@@ -31,10 +31,6 @@ console.log(result.status, result.finalResponse)
 
 `HarnessClientOptions.env` 给定时整体替换子进程环境（`undefined` 原样继承父进程环境）；凭据策略归调用方——`dsh-subprocess` 的 `scrubbedParentEnv` 是面向隔离启动的共享擦除基底。
 
-## 测试
-
-免密钥单元测试通过真实 stdio 驱动一个脚本化伪运行时子进程（`tests/fake-runtime.ts`，纯协议、环境变量脚本化）：轮次循环、会话树范围限定、超时、进程死亡和响应畸形场景，以及 dispose（资源释放）阶梯。[SDK 快照套件](../../../examples/jsonrpc-agent/tests/sdk.snapshot.ts) 经由 `llm-replay` 免密钥地通过本客户端驱动真实 `dsh-jsonrpc-agent` 运行时，固定通知流、轮次结果与持久化日志；`DSH_SNAPSHOT=record` 对真实 API 重录。
-
 ## 模型体验
 
 无，因为这是一个客户端进程库；模型运行在 spawn 出的运行时中，其体验由该运行时的 `cordis.yml` 所组合的插件决定。

@@ -94,5 +94,4 @@ Mode transitions do not change the tool catalog; plan arguments and review resul
 - Plan mode guides rather than enforces; deployments needing a hard boundary must combine independent sandbox and approval controls.
 - A pending selection made while idle is lost if the process exits before the next boundary, so the UI must reapply it.
 - Forked agents inherit logged plan state, while newly spawned agents begin inactive; there is no creation-time plan option.
-- The `exit_plan_mode` review arc has one assembled-application snapshot, the Web `plan-review` e2e lane (submit → decision card → approved flip). The rejected-feedback and dismissed branches are covered by package tests only, and the TUI keyless scenarios exercise only `/plan` entry and `/plan off` exit.
 - Only the Web UI renders the `plan-review` intent; the TUI presents the review through its generic question flow, which is answerable but does not read as a plan gate.

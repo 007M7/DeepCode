@@ -14,8 +14,6 @@ Seatbelt profile 默认允许，但带 `(deny file-write*)` 和写入 allow-list
 
 [`node-addon-landlock-run`](https://www.npmjs.com/package/node-addon-landlock-run)提供平台 launcher、功能探测和 CLI 参数词汇。该提供方只负责模式到授权的映射与 runner 选择。把路径解析和探测解析保留在带版本的 binary 中，可防止契约漂移。
 
-每个权限层级都有会自行跳过的无密钥 world-effect 测试；CI 在真实内核上运行平台 job，并拒绝所有测试静默跳过。打包安装测试通过纯 Node 消费方运行注册表 launcher 与可执行模式。
-
 ```yaml
 - id: sandbox
   name: '@deepseek-ai/dsh-sandbox-local'

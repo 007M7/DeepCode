@@ -32,10 +32,7 @@ One interface can have multiple implementations selected through `cordis.yml`:
 # Local execution
 - name: '@deepseek-ai/dsh-bash-local'
 
-# Or a future remote sandbox implementation
-# - name: '@deepseek-ai/dsh-bash-remote'
-#   config:
-#     endpoint: 'https://sandbox.example.com'
+# Replace this row with another package that implements the same service.
 ```
 
 The interface and tool remain unchanged while the implementation changes.

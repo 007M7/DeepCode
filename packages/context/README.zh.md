@@ -6,9 +6,9 @@
 
 | 包 | 职责 | ctx key |
 |---|---|---|
-| `session-reference/` | 其他会话当前表层的有界快照 | `ctx.sessionReferences` |
-| `time-context/` | 持久化的逐步骤当前时间与已用时上下文 | （无） |
-| `tmux-context/` | 持久化的逐轮次上下文，记录本 agent 所在的 tmux pane/window 位置 | （监听 `agent/step`，读取 `ctx.bash`） |
-| `workspace-context/` | `AGENTS.md`／`CLAUDE.md` 工作区上下文 loader | （监听 `agent/step` + `tools/post-execute`） |
+| [`session-reference/`](session-reference/README.md) | 其他会话的有界快照 | `ctx.sessionReferences` |
+| [`time-context/`](time-context/README.md) | 当前时间与已用时上下文 | — |
+| [`tmux-context/`](tmux-context/README.md) | tmux 位置上下文 | — |
+| [`workspace-context/`](workspace-context/README.md) | 工作区指令上下文 | — |
 
 [`workspace-context` 决策记录](../../.agents/notes/implemented/feature/2026-06-24-workspace-context.md)解释了每个 agent（智能体）和会话各自隔离的方式，以及相应的生命周期拆分。

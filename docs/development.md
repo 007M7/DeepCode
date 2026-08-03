@@ -98,36 +98,7 @@ The keyless [CI workflow](../.github/workflows/ci.yml) groups independent gates 
 
 ## Daily commands
 
-Use these from the repo root:
-
-```sh
-pnpm run test           # unit tests
-pnpm run test:coverage  # unit tests with per-file coverage gates
-pnpm run test:e2e       # real-API tests; self-skips without DEEPSEEK_API_KEY
-pnpm run check:all      # comprehensive opt-in gate set; not wired to Git hooks
-pnpm run typecheck      # tsc -b over the root solution: emits package/vendor lib/types, checks both aggregates
-pnpm run lint           # oxlint .
-pnpm run lint:fix       # formatting-only ESLint, then oxlint . --fix
-pnpm run doc-typecheck  # compile checked TypeScript snippets in Markdown docs
-pnpm run gen-cordis-catalog     # regenerate docs/cordis-catalog/events.md + services.md from source
-pnpm run verify-cordis-catalog  # fail if either cordis catalog is stale
-pnpm run verify-export-jsdoc    # fail if a module-level package export lacks complete JSDoc
-pnpm run gen-doc-graphs     # regenerate generated relationship docs from source and curated graph definitions
-pnpm run verify-doc-graphs  # fail if generated relationship docs are stale
-pnpm run verify-md-wrap  # fail on hard-wrapped prose paragraphs in docs/README markdown
-pnpm run verify-mermaid  # fail if a ```mermaid diagram has invalid Mermaid syntax
-pnpm run verify-type-equiv  # fail if a ```ts type-equiv doc block drifts from its source type
-pnpm run verify-doc-budgets  # fail if a budgeted standing doc exceeds its word ceiling
-pnpm run gen-translation-brief   # print the minimal-update briefing for out-of-sync translation pairs (--apply splices code-only edits)
-pnpm run doc-sync       # all Markdown/doc gates, scheduled concurrently; the doc-sync leaf list in scripts/run-gates.ts is the full list
-pnpm run gen-module-graph     # regenerate docs/module-graph.md from package peerDeps
-pnpm run verify-module-graph  # fail if docs/module-graph.md is stale
-pnpm run build          # emit lib/types intermediates, then bundle lib/index.* runtime files
-pnpm run verify-node-next-types  # fail if built declarations are not NodeNext-consumable
-pnpm run hygiene        # knip, publint, workspace constraints, and NodeNext declaration check
-```
-
-When changing package public behavior, update the relevant README or JSDoc in the same change. `pnpm run doc-sync` catches checked TypeScript snippets, generated doc freshness, markdown wrap/link drift, type equivalence, translation pairing, Mermaid syntax, and doc budgets, but broader prose/API sync still needs review.
+The root [contributor instructions](../AGENTS.md#commands) summarize common commands, while [`package.json`](../package.json) and [scripts/run-gates.ts](../scripts/run-gates.ts) own the current script and gate inventories. Select the smallest checks that cover the changed surface. Documentation changes use `pnpm run doc-sync`; package-public behavior changes also update the owning README or JSDoc, and built-artifact checks require `pnpm run build` first.
 
 ## Demos
 

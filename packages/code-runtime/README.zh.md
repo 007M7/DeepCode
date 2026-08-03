@@ -6,7 +6,7 @@
 
 | 包 | 职责 | ctx 键 |
 |---|---|---|
-| `code-runtime/` | 抽象代码执行 seam（接口 + 词汇） | `ctx.codeRuntime` |
-| [`code-runtime-worker/`](code-runtime-worker/README.md) | worker 线程后端：每次运行使用全新 worker，由宿主侧剥离 TypeScript 类型（类型注解仅供参考，绝不执行类型检查）、端口桥接绑定、预算／堆限制 | 注册 `ctx.codeRuntime` |
+| [`code-runtime/`](code-runtime/README.md) | 代码执行 seam 与共享词汇 | `ctx.codeRuntime` |
+| [`code-runtime-worker/`](code-runtime-worker/README.md) | worker 线程后端 | 注册 `ctx.codeRuntime` |
 
-接口位于 `code-runtime/code-runtime/`，随附的后端位于 `code-runtime/code-runtime-worker/`。不同后端可以采用不同执行基底（worker 线程、进程、容器）与源语言；二者都是服务上的只读描述符。后端注册 `ctx.codeRuntime`，无需修改接口或消费方；正是这种拆分，使未来可以直接换入加固后端。
+后端注册该 seam，无需改动消费方。语言、隔离与执行预算细节由子级 README 负责。

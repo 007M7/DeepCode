@@ -98,36 +98,7 @@ keyless [CI 工作流](../.github/workflows/ci.yml) 将独立门禁分组到若�
 
 ## 日常命令
 
-在仓库根目录使用：
-
-```sh
-pnpm run test           # unit tests
-pnpm run test:coverage  # unit tests with per-file coverage gates
-pnpm run test:e2e       # real-API tests; self-skips without DEEPSEEK_API_KEY
-pnpm run check:all      # comprehensive opt-in gate set; not wired to Git hooks
-pnpm run typecheck      # tsc -b over the root solution: emits package/vendor lib/types, checks both aggregates
-pnpm run lint           # oxlint .
-pnpm run lint:fix       # formatting-only ESLint, then oxlint . --fix
-pnpm run doc-typecheck  # compile checked TypeScript snippets in Markdown docs
-pnpm run gen-cordis-catalog     # regenerate docs/cordis-catalog/events.md + services.md from source
-pnpm run verify-cordis-catalog  # fail if either cordis catalog is stale
-pnpm run verify-export-jsdoc    # fail if a module-level package export lacks complete JSDoc
-pnpm run gen-doc-graphs     # regenerate generated relationship docs from source and curated graph definitions
-pnpm run verify-doc-graphs  # fail if generated relationship docs are stale
-pnpm run verify-md-wrap  # fail on hard-wrapped prose paragraphs in docs/README markdown
-pnpm run verify-mermaid  # fail if a ```mermaid diagram has invalid Mermaid syntax
-pnpm run verify-type-equiv  # fail if a ```ts type-equiv doc block drifts from its source type
-pnpm run verify-doc-budgets  # fail if a budgeted standing doc exceeds its word ceiling
-pnpm run gen-translation-brief   # print the minimal-update briefing for out-of-sync translation pairs (--apply splices code-only edits)
-pnpm run doc-sync       # all Markdown/doc gates, scheduled concurrently; the doc-sync leaf list in scripts/run-gates.ts is the full list
-pnpm run gen-module-graph     # regenerate docs/module-graph.md from package peerDeps
-pnpm run verify-module-graph  # fail if docs/module-graph.md is stale
-pnpm run build          # emit lib/types intermediates, then bundle lib/index.* runtime files
-pnpm run verify-node-next-types  # fail if built declarations are not NodeNext-consumable
-pnpm run hygiene        # knip, publint, workspace constraints, and NodeNext declaration check
-```
-
-修改 package 的公开行为时，请在同一个变更中更新相关 README 或 JSDoc。`pnpm run doc-sync` 能检测到被检查的 TypeScript 片段、生成文档的新鲜度、Markdown 换行/链接漂移、type-equiv、翻译配对、Mermaid 语法和文档预算，但更广泛的行文/API 同步仍需评审把关。
+根目录的[贡献者说明](../AGENTS.md#commands)概述常用命令，[`package.json`](../package.json) 与 [scripts/run-gates.ts](../scripts/run-gates.ts) 则负责当前脚本和门禁清单。请选择覆盖变更表面的最小检查集。文档变更使用 `pnpm run doc-sync`；package 公开行为变更还需更新所属 README 或 JSDoc，而基于构建产物的检查需要先运行 `pnpm run build`。
 
 ## 演示
 

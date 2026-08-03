@@ -120,35 +120,6 @@ export default class MyService extends Service {
 
 Function form is sufficient in most cases. Use class form when the plugin provides a service to other plugins; see [services and dependencies](../framework/service.md).
 
-## Complete example
-
-A minimal tool plugin registers its definition on `ctx.tools`:
-
-```ts
-import type { Context } from 'cordis'
-import { defineTool } from '@deepseek-ai/dsh-tools'
-
-export const name = 'greet-tool'
-export const inject = ['tools']
-
-export function apply(ctx: Context) {
-  ctx.tools.register(defineTool({
-    name: 'greet',
-    description: 'Greet the named person.',
-    parameters: {
-      name: { type: 'string', required: true },
-    },
-    output: {
-      schema: { type: 'string' },
-      render: (_args, value) => [{ type: 'text', text: value }],
-    },
-    async execute(args) {
-      return `Hello, ${args.name}!`
-    },
-  }))
-}
-```
-
 ## Next steps
 
 - [Build a tool](./tool.md) — learn the tool definition DSL
