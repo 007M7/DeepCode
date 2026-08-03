@@ -166,6 +166,18 @@ describe('ACP prompt lifecycle', () => {
       .toEqual({ kind: 'aborted', reason: { kind: 'user' } })
   })
 
+  it('settles a hook-cancelled turn as end_turn, not cancelled', async () => {
+    harness = await makeBridgeHarness({ script: ['hang'] })
+    const sessionId = await newSession(harness)
+    const prompt = harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] })
+    const agent = harness.ctx.agents.get(SessionId(sessionId))!
+    await vi.waitFor(() => { expect(agent.status).toBe('running') })
+    // A hook or another owner cancels the agent: the ACP client never called
+    // session/cancel, so this is ordinary quiescence and reports end_turn.
+    agent.cancel({ kind: 'hook', reason: 'owner intervention' })
+    await expect(prompt).resolves.toEqual({ stopReason: 'end_turn' })
+  })
+
   it('cancels autonomous running work without an in-flight prompt', async () => {
     harness = await makeBridgeHarness({ script: ['hang'] })
     const sessionId = await newSession(harness)
