@@ -1,11 +1,9 @@
 /**
- * Driver tests: the worker message protocol mapped onto the promise, the
- * foreground raise after the `showing` notice (retried until the dialog
- * window exists), the WM_CLOSE abort service (including the show-race
- * retry and the terminate last resort) against fakes, plus the real spawn
- * plumbing — POSIX hosts prove the default path rejects cleanly (koffi
- * cannot load ole32 there), and win32 hosts briefly open and auto-abort a
- * real dialog.
+ * Driver tests: the child-process message protocol mapped onto the promise,
+ * the WM_CLOSE abort service (including the show-race retry and the kill
+ * last resort) against fakes, plus the real spawn plumbing — POSIX hosts
+ * prove the default path rejects cleanly (koffi cannot load ole32 there),
+ * and win32 hosts briefly open and auto-abort a real dialog.
  */
 
 import { EventEmitter } from 'node:events'
@@ -14,7 +12,7 @@ import { pickWin32Directory, type Win32DialogInternals, type Win32DialogWorkerLi
 import type { Win32DialogWorkerMessage } from '../src/win32-dialog-worker.ts'
 
 class FakeWorker extends EventEmitter implements Win32DialogWorkerLike {
-  terminate = vi.fn(async () => 0)
+  kill = vi.fn(() => true)
   post(message: Win32DialogWorkerMessage): void {
     this.emit('message', message)
   }
@@ -24,21 +22,17 @@ interface Harness {
   worker: FakeWorker
   internals: Win32DialogInternals
   close: ReturnType<typeof vi.fn>
-  raise: ReturnType<typeof vi.fn>
 }
 
 function harness(overrides: Partial<Win32DialogInternals> = {}): Harness {
   const worker = new FakeWorker()
   const close = vi.fn(async () => undefined)
-  const raise = vi.fn(async () => true)
   return {
     worker,
     close,
-    raise,
     internals: {
       spawnWorker: () => worker,
       closeThreadWindows: close,
-      raiseDialogWindow: raise,
       closeRetryMs: 1,
       ...overrides,
     },
@@ -60,35 +54,6 @@ describe('pickWin32Directory', () => {
     const cancelled = pickWin32Directory(live(), second.internals)
     second.worker.post({ kind: 'done', path: null })
     await expect(cancelled).resolves.toBeNull()
-  })
-
-  it('raises the dialog window to the foreground after the showing notice', async () => {
-    const { worker, internals, raise } = harness()
-    const picked = pickWin32Directory(live(), internals)
-    worker.post({ kind: 'showing', threadId: 7 })
-    worker.post({ kind: 'done', path: 'C:\\raised' })
-    await expect(picked).resolves.toBe('C:\\raised')
-    expect(raise).toHaveBeenCalledWith(7)
-  })
-
-  it('retries the raise until the dialog window exists, then stops', async () => {
-    const { worker, internals, raise } = harness()
-    // The window is created inside `Show`, after the `showing` notice, so
-    // the first attempts find nothing; once a window is reported, the raise
-    // must stop retrying.
-    raise.mockResolvedValueOnce(false).mockResolvedValueOnce(false).mockResolvedValue(true)
-    const picked = pickWin32Directory(live(), internals)
-    worker.post({ kind: 'showing', threadId: 12 })
-    await vi.waitFor(() => {
-      expect(raise.mock.calls.length).toBeGreaterThanOrEqual(2)
-    })
-    const callsAfterRaised = await new Promise<number>((resolve) => {
-      setTimeout(() =>{  resolve(raise.mock.calls.length); }, 20)
-    })
-    await new Promise(resolve => setTimeout(resolve, 20))
-    expect(raise.mock.calls.length).toBe(callsAfterRaised)
-    worker.post({ kind: 'done', path: 'C:\\raised' })
-    await expect(picked).resolves.toBe('C:\\raised')
   })
 
   it('rejects on a reported dialog failure, a worker crash, and a silent exit', async () => {
@@ -143,7 +108,7 @@ describe('pickWin32Directory', () => {
 
   it('starts the close service on the showing notice when the abort came first', async () => {
     const closeFailures = vi.fn(async () => { throw new Error('window not there yet') })
-    const { worker, internals, raise } = harness({ closeThreadWindows: closeFailures })
+    const { worker, internals } = harness({ closeThreadWindows: closeFailures })
     const controller = new AbortController()
     // Attached before the race for the same unhandled-rejection reason above.
     const picked = expect(pickWin32Directory(controller.signal, internals)).rejects.toThrow('native directory picker aborted')
@@ -153,31 +118,30 @@ describe('pickWin32Directory', () => {
     await vi.waitFor(() => {
       expect(closeFailures.mock.calls.length).toBeGreaterThan(1)
     })
-    expect(raise).not.toHaveBeenCalled()
     worker.post({ kind: 'done', path: null })
     await picked
   })
 
-  it('terminates a worker that never reports showing after an abort', async () => {
+  it('kills a worker that never reports showing after an abort', async () => {
     // The budget runs without a thread id (nothing to WM_CLOSE yet), so a
     // worker hung before `showing` cannot dangle the pick.
     const { worker, internals, close } = harness()
     const controller = new AbortController()
-    const picked = expect(pickWin32Directory(controller.signal, internals)).rejects.toThrow('dialog unresponsive; worker terminated')
+    const picked = expect(pickWin32Directory(controller.signal, internals)).rejects.toThrow('dialog unresponsive; worker killed')
     controller.abort()
     await picked
-    expect(worker.terminate).toHaveBeenCalledOnce()
+    expect(worker.kill).toHaveBeenCalledOnce()
     expect(close).not.toHaveBeenCalled()
   })
 
-  it('terminates an unresponsive worker after the close budget', async () => {
+  it('kills an unresponsive worker after the close budget', async () => {
     const { worker, internals, close } = harness()
     const controller = new AbortController()
     const picked = pickWin32Directory(controller.signal, internals)
     worker.post({ kind: 'showing', threadId: 5 })
     controller.abort()
-    await expect(picked).rejects.toThrow('dialog unresponsive; worker terminated')
-    expect(worker.terminate).toHaveBeenCalledOnce()
+    await expect(picked).rejects.toThrow('dialog unresponsive; worker killed')
+    expect(worker.kill).toHaveBeenCalledOnce()
     expect(close.mock.calls.length).toBeGreaterThan(10)
   })
 

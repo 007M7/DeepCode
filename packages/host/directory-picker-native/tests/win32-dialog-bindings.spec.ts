@@ -3,9 +3,9 @@
  * technique as dsh-session-persistence-jsonl's win32 suite): a small in-memory
  * COM world stands in for ole32/user32/kernel32, keeping the vtable dispatch,
  * result extraction, memory hygiene, and the WM_CLOSE poster covered on every
- * host. The worker entry is exercised the same way with a mocked
- * `node:worker_threads`. Real-COM behavior is pinned by the win32-only smoke
- * in win32-dialog.spec.ts.
+ * host. The worker entry is exercised the same way with a mocked process
+ * boundary (env title + `process.send`). Real-COM behavior is pinned by the
+ * win32-only smoke in win32-dialog.spec.ts.
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -127,6 +127,11 @@ function installFakeKoffi(world: ComWorld): void {
       proto: (declaration: string) => ({ declaration }),
       pointer: (type: unknown) => type,
       sizeof: (type: string) => { void type; return FAKE_POINTER_SIZE },
+      view: (value: unknown, len: number): ArrayBuffer => {
+        const bytes = Buffer.alloc(len)
+        bytes.write((value as FakePtr).text as string, 'utf16le')
+        return bytes.buffer
+      },
       register: (fn: (hwnd: unknown, lparam: unknown) => number) => { world.registered += 1; return { fn } },
       unregister: () => { world.unregistered += 1 },
       decode: (value: unknown, offsetOrType: unknown): unknown => {
@@ -259,13 +264,31 @@ describe('closeThreadWindows over the fake COM world', () => {
   })
 })
 
-describe('the worker entry over a mocked thread boundary', () => {
+describe('the worker entry over a mocked process boundary', () => {
+  const originalSend = process.send?.bind(process)
+  const originalTitle = process.env.DSH_DIALOG_TITLE
+
+  const installBoundary = (): { posted: { kind: string; message?: string }[] } => {
+    const posted: { kind: string; message?: string }[] = []
+    process.env.DSH_DIALOG_TITLE = 'Pick'
+    ;(process as { send?: unknown }).send = (message: { kind: string }, callback?: () => void) => {
+      posted.push(message)
+      callback?.()
+    }
+    return { posted }
+  }
+
+  afterEach(() => {
+    delete (process as { send?: unknown }).send
+    if (originalSend !== undefined) (process as { send?: unknown }).send = originalSend
+    if (originalTitle === undefined) delete process.env.DSH_DIALOG_TITLE
+    else process.env.DSH_DIALOG_TITLE = originalTitle
+    vi.doUnmock('../src/win32-dialog-bindings.ts')
+    vi.resetModules()
+  })
+
   it('posts showing then done for a completed conversation', async () => {
-    const posted: unknown[] = []
-    vi.doMock('node:worker_threads', () => ({
-      parentPort: { postMessage: (message: unknown) => posted.push(message) },
-      workerData: { title: 'Pick' },
-    }))
+    const { posted } = installBoundary()
     vi.doMock('../src/win32-dialog-bindings.ts', () => ({
       loadWin32DialogBindings: async () => ({
         setThreadDpiAwareness: () => undefined,
@@ -289,11 +312,7 @@ describe('the worker entry over a mocked thread boundary', () => {
   })
 
   it('posts the failure message when the native surface cannot load', async () => {
-    const posted: { kind: string; message?: string }[] = []
-    vi.doMock('node:worker_threads', () => ({
-      parentPort: { postMessage: (message: { kind: string }) => posted.push(message) },
-      workerData: { title: 'Pick' },
-    }))
+    const { posted } = installBoundary()
     vi.doMock('../src/win32-dialog-bindings.ts', () => ({
       loadWin32DialogBindings: async () => { throw new Error('no ole32 here') },
     }))
@@ -307,14 +326,8 @@ describe('the worker entry over a mocked thread boundary', () => {
     const stackless = new Error('bare message')
     delete stackless.stack
     for (const [thrown, expected] of [[stackless, 'bare message'], ['plain refusal', 'plain refusal']] as const) {
-      vi.doUnmock('node:worker_threads')
-      vi.doUnmock('../src/win32-dialog-bindings.ts')
       vi.resetModules()
-      const posted: { kind: string; message?: string }[] = []
-      vi.doMock('node:worker_threads', () => ({
-        parentPort: { postMessage: (message: { kind: string }) => posted.push(message) },
-        workerData: { title: 'Pick' },
-      }))
+      const { posted } = installBoundary()
       vi.doMock('../src/win32-dialog-bindings.ts', () => ({
         loadWin32DialogBindings: async () => { throw thrown },
       }))
@@ -323,8 +336,15 @@ describe('the worker entry over a mocked thread boundary', () => {
     }
   })
 
-  it('refuses to run outside a worker thread', async () => {
-    vi.doMock('node:worker_threads', () => ({ parentPort: null, workerData: undefined }))
-    await expect(import('../src/win32-dialog-worker.ts')).rejects.toThrow('must run as a worker thread')
+  it('refuses to run without the dialog title', async () => {
+    delete process.env.DSH_DIALOG_TITLE
+    ;(process as { send?: unknown }).send = () => true
+    await expect(import('../src/win32-dialog-worker.ts')).rejects.toThrow('DSH_DIALOG_TITLE is required')
+  })
+
+  it('refuses to run outside a child process', async () => {
+    process.env.DSH_DIALOG_TITLE = 'Pick'
+    delete (process as { send?: unknown }).send
+    await expect(import('../src/win32-dialog-worker.ts')).rejects.toThrow('must run as a child process')
   })
 })
