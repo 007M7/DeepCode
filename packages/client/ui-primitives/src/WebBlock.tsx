@@ -11,8 +11,11 @@
 // plain text. Geometry, radius, and fonts mirror CodeBlock/TerminalBlock so a
 // web card reads as one family with them; the whole source list renders inside a
 // fixed-height scroll container (its `.sources` max-height), so a long list
-// scrolls in place rather than growing the card. The list matches what the model
-// saw: the tool already cut it to the source cap, and `truncated` reports that.
+// scrolls in place rather than growing the card. The card draws every source the
+// view carries: the tool already cut the list to its source cap, and `truncated`
+// reports that cut. A content-only transform downstream of the tool — spill-policy
+// replacing an oversized result's text while leaving its presentationMeta whole —
+// can still narrow what the model reads below this list.
 
 import clsx from 'clsx'
 import { MarkdownText } from './markdown/MarkdownText.tsx'

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-03-web-search-source-scroll.md
-2026-08-03-web-search-source-scroll.md: 8575f3fd2228e0e54be6cc4b115d17a88b7d4a39
-2026-08-03-web-search-source-scroll.zh.md: 214e51d18ccae3e7708a7ad073648097ca0b4065
+2026-08-03-web-search-source-scroll.md: 8ec9aee890015ecc1360b447a8bcee5585365e86
+2026-08-03-web-search-source-scroll.zh.md: a9cf64d421e972ec80f1746489bac2eb15d0dc50

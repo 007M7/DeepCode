@@ -8,27 +8,29 @@ English | [中文](2026-08-03-web-search-source-scroll.zh.md)
 
 The `web_search` result card (`WebBlock`, `packages/client/ui-primitives/src/WebBlock.tsx`) rendered its source list with a head/tail collapse: past a `maxSources` count (16 in the details panel, 8 in the chat row via `CHAT_WEB_MAX_SOURCES`) it drew the first `ceil(max/2)` sources, an `… 其余 N 条来源` expand button, then the last `max - ceil(max/2)`, mirroring `TerminalBlock`'s output cap. A user reading the card saw `来源列表已截断` and assumed the frontend had dropped sources it was holding.
 
-It had not. The seam (`capSources`, `packages/web/web/src/index.ts`) cuts the provider's sources to the tool's `searchMaxResults` bound (default 8) and sets `truncated`, and that one capped list feeds both the model-facing render text and the card's `presentationMeta`. The card never holds more sources than the model saw. So the collapse was hiding sources the user was entitled to see in full — and, with the default bound at 8 and the panel cap at 16, it almost never even triggered, leaving only the `truncated` note with no way to reveal anything.
+It had not. The seam (`capSources`, `packages/web/web/src/index.ts`) cuts the provider's sources to the tool's `searchMaxResults` bound (default 8) and sets `truncated`, and that one capped list feeds both the model-facing render text and the card's `presentationMeta`. The card never holds more sources than that one cut produced. So the collapse was hiding sources the user was entitled to see in full — and, with the default bound at 8 and the panel cap at 16, it almost never even triggered, leaving only the `truncated` note with no way to reveal anything.
 
 ## Decision
 
 `WebBlock`'s search arm renders every source it receives in one `<ol className={css.sources}>`, with no head/tail slicing, no expand button, and no `maxSources` prop. `.sources` (`WebBlock.module.css`) gets a fixed `max-height` and `overflow-y: auto`, so a list longer than the card height scrolls in place rather than growing the card or hiding rows. The height is a design constant of the card geometry, so it lives in CSS, not a plugin config field.
 
-The model side is unchanged: the seam still caps sources at `searchMaxResults`, the model-facing render text is untouched, and the `truncated` flag and its `来源列表已截断` indicator stay. What the model sees and what the card shows remain the same list — the card just shows all of it, scrollable, instead of collapsing the middle.
+The model side is unchanged: the seam still caps sources at `searchMaxResults`, the model-facing render text is untouched, and the `truncated` flag and its `来源列表已截断` indicator stay. The card draws the list the seam produced, in full and scrollable, instead of collapsing its middle.
+
+That list is the one the model reads as long as nothing downstream of the tool rewrites the result content alone. A deployment mounting `dsh-spill-policy` breaks that correspondence for an oversized result: `tools/post-execute` replaces the model-facing `content` with a preview plus a spill locator and leaves `presentationMeta` whole, so the card still draws every source while the model reads a bounded excerpt. The card's contract is therefore the view it receives, not the model's context.
 
 `CHAT_WEB_MAX_SOURCES` and the primitive's `DEFAULT_WEB_MAX_SOURCES` are removed: with scroll, the chat row and the details panel show the same full list, differentiated only by their container height. `<li value={ordinal}>` still pins each source's 1-based citation index; without the collapse gap the ordinals are now simply contiguous.
 
 ## Alternatives considered
 
-**Raise `searchMaxResults` (or make it unbounded) so more sources reach both the model and the card.** Rejected by the user: it changes model-side behavior (more sources into every request's context, more tokens) and breaks the invariant that model-visible and frontend-visible sources are identical. The instruction was explicit — keep the cap and the truncation, add a scrollbar.
+**Raise `searchMaxResults` (or make it unbounded) so more sources reach both the model and the card.** Rejected by the user: it changes model-side behavior (more sources into every request's context, more tokens) and widens the gap between what the model reads and what the card draws. The instruction was explicit — keep the cap and the truncation, add a scrollbar.
 
 **Keep the head/tail collapse and add scroll only to the expanded region.** Rejected: two overlapping mechanisms for one concern. Once the whole list is always rendered, the collapse arithmetic, the expand/collapse state, and the button are dead weight; scroll alone bounds the height.
 
-**Make the scroll height a plugin config field.** Rejected: the height bounds the card's on-screen geometry, not a deployment policy, so per [web-card-model](2026-07-30-web-result-card.md)'s precedent for `CHAT_WEB_MAX_SOURCES` it belongs in CSS as a design constant.
+**Make the scroll height a plugin config field.** Rejected: the height bounds the card's on-screen geometry, not a deployment policy, so it belongs in `WebBlock.module.css` alongside the radius, surface, and margin that [the web result card frontend note](2026-07-30-web-result-card-frontend.md) already fixes there as this card's geometry.
 
 ## Consequences
 
-Every source the tool returned is always in the DOM, so no source the model saw is hidden behind an interaction. The card's height is bounded regardless of source count, and a list taller than the container scrolls in place. The cost is that the scroll affordance depends on the platform's scrollbar rendering: an overlay-scrollbar system (macOS default) shows no persistent bar when the pointer is away, so a capped list relies on the `来源列表已截断` note plus a clipped last row to signal there is more. `WebSearchBlockProps`/`WebFetchBlockProps` lose their `maxSources` prop and the primitive loses `DEFAULT_WEB_MAX_SOURCES`, so any future caller renders the full list by construction rather than by passing a large cap.
+Every source the tool returned is always in the DOM, so no source the view carries is hidden behind an interaction. The card's height is bounded regardless of source count, and a list taller than the container scrolls in place. The cost is that the scroll affordance depends on the platform's scrollbar rendering: an overlay-scrollbar system (macOS default) shows no persistent bar when the pointer is away, so a capped list relies on the `来源列表已截断` note plus a clipped last row to signal there is more. `WebSearchBlockProps`/`WebFetchBlockProps` lose their `maxSources` prop and the primitive loses `DEFAULT_WEB_MAX_SOURCES`, so any future caller renders the full list by construction rather than by passing a large cap.
 
 ## Testing
 
@@ -37,3 +39,4 @@ Every source the tool returned is always in the DOM, so no source the model saw 
 ## Related
 
 - [Web result card](2026-07-30-web-result-card.md) — the `card: 'web'` render-intent arm and `presentationMeta` route this card consumes; the source of the capped-once list.
+- [Web result card frontend](2026-07-30-web-result-card-frontend.md) — owns `WebBlock`, the single `web-card-model` derivation, and the render sites that draw the card; this note replaces the source-list collapse it specified, and its other decisions (one component for both kinds, the http(s) link allowlist, the single derivation, the resident posture) stand.

@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 // WebBlock: both kinds of the web card. The search card's answer, its citation
 // list with the title-or-hostname label fallback and optional snippet/date, the
-// full source list rendered inside a scroll container, and the truncated
-// indicator; the fetch card's linked URL, status, and truncation. Safe-link
+// full source list under one <ol>, and the truncated indicator; the fetch
+// card's linked URL, status, and truncation. Safe-link
 // attributes on both kinds: an http(s) URL becomes an external anchor
 // (target/rel), any other URL renders as plain text with no href.
 
@@ -123,10 +123,12 @@ describe('WebBlock search card', () => {
     expect(off.queryByText('来源列表已截断')).toBeNull()
   })
 
-  it('renders every source with no expand control, in one scroll container', () => {
-    // The card shows the whole list the tool returned — the same sources the
-    // model saw — with no head/tail collapse and no expand button; a long list
-    // scrolls within the .sources container instead.
+  it('renders every source in one <ol> with no expand control', () => {
+    // The card shows the whole list the tool returned, with no head/tail
+    // collapse and no expand button. jsdom does not resolve the CSS Modules
+    // layout, so the scroll geometry the `.sources` max-height produces is
+    // pinned by the assembled browser case in apps/web/tests/web-search-round.e2e.ts,
+    // not here.
     const view = render(<WebBlock kind="search" sources={sources(30)} truncated={false} />)
     expect(view.container.querySelectorAll('li[class^="_source_"]')).toHaveLength(30)
     expect(view.container.querySelector('[aria-expanded]')).toBeNull()

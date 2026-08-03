@@ -8,27 +8,29 @@ Status: implemented
 
 `web_search` 结果卡片（`WebBlock`，`packages/client/ui-primitives/src/WebBlock.tsx`）此前用首尾折叠渲染它的来源列表：超过 `maxSources` 数量（详情面板为 16，聊天行经由 `CHAT_WEB_MAX_SOURCES` 为 8）时，它画出前 `ceil(max/2)` 条来源、一个 `… 其余 N 条来源` 展开按钮，再画出末尾 `max - ceil(max/2)` 条，与 `TerminalBlock` 的输出上限一致。用户阅读该卡片时看到 `来源列表已截断`，会以为前端丢弃了它正持有的来源。
 
-其实并没有。seam（`capSources`，`packages/web/web/src/index.ts`）把 provider 的来源裁剪到工具的 `searchMaxResults` 上限（默认 8）并置位 `truncated`，而这一份被裁剪过一次的列表同时喂给面向模型的 render 文本与卡片的 `presentationMeta`。卡片持有的来源绝不会多于模型所见。因此这个折叠隐藏的正是用户本有权完整查看的来源——并且在默认上限为 8、面板上限为 16 时，它几乎从不触发，只留下 `truncated` 提示，却无从展开任何内容。
+其实并没有。seam（`capSources`，`packages/web/web/src/index.ts`）把 provider 的来源裁剪到工具的 `searchMaxResults` 上限（默认 8）并置位 `truncated`，而这一份被裁剪过一次的列表同时喂给面向模型的 render 文本与卡片的 `presentationMeta`。卡片持有的来源绝不会多于这一次裁剪的产物。因此这个折叠隐藏的正是用户本有权完整查看的来源——并且在默认上限为 8、面板上限为 16 时，它几乎从不触发，只留下 `truncated` 提示，却无从展开任何内容。
 
 ## Decision
 
 `WebBlock` 的 search 分支把它收到的每一条来源都渲染进单个 `<ol className={css.sources}>`，不做首尾切片、不设展开按钮、也不带 `maxSources` prop。`.sources`（`WebBlock.module.css`）获得一个固定的 `max-height` 与 `overflow-y: auto`，因此长于卡片高度的列表在原地滚动，而非撑大卡片或隐藏行。该高度是卡片几何形状的一个设计常量，因此放在 CSS 里，而非插件配置字段。
 
-模型侧不变：seam 仍在 `searchMaxResults` 处封顶来源，面向模型的 render 文本未动，`truncated` 标志及其 `来源列表已截断` 指示保留。模型所见与卡片所示仍是同一份列表——只不过卡片把它全部展示、可滚动，而非折叠中段。
+模型侧不变：seam 仍在 `searchMaxResults` 处封顶来源，面向模型的 render 文本未动，`truncated` 标志及其 `来源列表已截断` 指示保留。卡片完整且可滚动地画出 seam 产出的这份列表，而非折叠其中段。
+
+只要工具下游没有单独改写结果 content，这份列表就是模型读到的那份。挂载了 `dsh-spill-policy` 的部署会对超限结果打破这一对应：`tools/post-execute` 把面向模型的 `content` 替换为预览加 spill 定位符，而 `presentationMeta` 原样保留，因此卡片仍画出全部来源，模型读到的却是一段有界摘录。所以卡片的契约是它收到的 view，不是模型的上下文。
 
 `CHAT_WEB_MAX_SOURCES` 与该 primitive 的 `DEFAULT_WEB_MAX_SOURCES` 被移除：有了滚动，聊天行与详情面板展示同一份完整列表，仅以各自的容器高度区分。`<li value={ordinal}>` 仍钉住每条来源从 1 起算的引用序号；没有了折叠造成的间断，这些序号如今就是连续的。
 
 ## Alternatives considered
 
-**提高 `searchMaxResults`（或让它无上限），使更多来源同时抵达模型与卡片。** 被用户否决：它改变了模型侧行为（每个请求的上下文纳入更多来源、更多 token），并打破了模型可见来源与前端可见来源相同这一不变量。指令很明确——保留上限与截断，加一个滚动条。
+**提高 `searchMaxResults`（或让它无上限），使更多来源同时抵达模型与卡片。** 被用户否决：它改变了模型侧行为（每个请求的上下文纳入更多来源、更多 token），并拉大模型读到的内容与卡片画出的内容之间的差距。指令很明确——保留上限与截断，加一个滚动条。
 
 **保留首尾折叠，仅对展开区域加滚动。** 否决：一个关注点上两套重叠机制。一旦整份列表始终渲染，折叠的算术、展开/折叠状态与那个按钮都是死重；仅靠滚动即可约束高度。
 
-**把滚动高度做成插件配置字段。** 否决：该高度约束的是卡片在屏幕上的几何形状，而非部署策略，因此依据 [web-card-model](2026-07-30-web-result-card.md) 对 `CHAT_WEB_MAX_SOURCES` 的先例，它作为设计常量属于 CSS。
+**把滚动高度做成插件配置字段。** 否决：该高度约束的是卡片在屏幕上的几何形状，而非部署策略，因此它属于 `WebBlock.module.css`，与 [Web result 卡片前端笔记](2026-07-30-web-result-card-frontend.md) 已作为本卡片几何固定在那里的圆角、表面与外边距并列。
 
 ## Consequences
 
-工具返回的每一条来源始终存在于 DOM 中，因此模型看到的来源没有一条被藏在交互之后。无论来源数量多少，卡片高度都受限；高于容器的列表在原地滚动。代价是滚动提示依赖平台的滚动条渲染：overlay 滚动条系统（macOS 默认）在指针离开时不显示常驻滚动条，因此被裁剪的列表依靠 `来源列表已截断` 提示加上被裁切的最后一行来表明还有更多内容。`WebSearchBlockProps`/`WebFetchBlockProps` 失去 `maxSources` prop，primitive 失去 `DEFAULT_WEB_MAX_SOURCES`，因此未来任何调用方都从构造上渲染完整列表，而不是靠传入一个很大的上限值。
+工具返回的每一条来源始终存在于 DOM 中，因此 view 携带的来源没有一条被藏在交互之后。无论来源数量多少，卡片高度都受限；高于容器的列表在原地滚动。代价是滚动提示依赖平台的滚动条渲染：overlay 滚动条系统（macOS 默认）在指针离开时不显示常驻滚动条，因此被裁剪的列表依靠 `来源列表已截断` 提示加上被裁切的最后一行来表明还有更多内容。`WebSearchBlockProps`/`WebFetchBlockProps` 失去 `maxSources` prop，primitive 失去 `DEFAULT_WEB_MAX_SOURCES`，因此未来任何调用方都从构造上渲染完整列表，而不是靠传入一个很大的上限值。
 
 ## Testing
 
@@ -37,3 +39,4 @@ Status: implemented
 ## Related
 
 - [Web result card](2026-07-30-web-result-card.md) —— 本卡片消费的 `card: 'web'` 渲染意图分支与 `presentationMeta` 路由；那份裁剪过一次的列表的来源。
+- [Web result 卡片前端](2026-07-30-web-result-card-frontend.md) —— `WebBlock`、唯一的 `web-card-model` 派生，以及绘制该卡片的各渲染点由它拥有；本笔记替换掉它所规定的来源列表折叠，它的其余决策（一个组件绘制两种 kind、http(s) 链接 allowlist、单一派生、常驻姿态）依然成立。
