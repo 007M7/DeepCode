@@ -59,6 +59,17 @@ describe('DeepSeekHarness', () => {
       { method: 'session.status', params: { sessionId: 'owned', status: 'running' } },
       {
         method: 'session.event',
+        params: { sessionId: 'owned', event: { type: 'turn/start', data: { turn: 1 } } },
+      },
+      {
+        method: 'session.event',
+        params: {
+          sessionId: 'owned',
+          event: { type: 'agent/inbox/spliced', data: { inserted: null } },
+        },
+      },
+      {
+        method: 'session.event',
         params: {
           sessionId: 'owned',
           event: {

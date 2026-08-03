@@ -73,6 +73,35 @@ describe('agent loop', () => {
     expect(adapter.requests[0]?.maxTokens).toBe(256)
   })
 
+  it('cancels queued wakeup work together with an active maintenance task', async () => {
+    const adapter = new MockAdapter([textResponse('unused')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('cancel-maintenance-wakeup'), {
+      provider: 'mock',
+      model: 'mock',
+    })
+    const started = Promise.withResolvers<undefined>()
+    const maintenance = agent.runMaintenance(async (signal) => {
+      started.resolve(undefined)
+      await new Promise<void>((_resolve, reject) => {
+        signal.addEventListener('abort', () => {
+          reject(new Error('maintenance aborted', { cause: signal.reason }))
+        }, { once: true })
+      })
+    })
+    await started.promise
+
+    send(agent, 'discard this wakeup')
+    agent.cancel({ kind: 'user' })
+    send(agent, 'park after cancellation')
+
+    await expect(maintenance).rejects.toThrow('maintenance aborted')
+    await agent.whenIdle()
+    expect(agent.inbox.nextTurn).toHaveLength(1)
+    expect(adapter.requests).toEqual([])
+    agent.cancel({ kind: 'user' })
+  })
+
   it('runs a simple turn: queued message → model → idle, with ordered events', async () => {
     const adapter = new MockAdapter([textResponse('hello there')])
     const ctx = await harness(adapter)

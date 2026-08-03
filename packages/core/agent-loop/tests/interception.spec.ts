@@ -204,6 +204,33 @@ describe('agent/pre-step', () => {
     expect(sent).toContain('extra ctx')
   })
 
+  it('does not open another step when a completed turn rewrites pending input to empty', async () => {
+    const adapter = new MockAdapter([textResponse('done')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('empty-completed-continuation'), {
+      provider: 'mock',
+      model: 'mock',
+    })
+    ctx.on('agent/turn-stopping', (subject) => {
+      subject.inject(createUserMessage({
+        content: [{ type: 'text', text: 'pending context' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      }))
+    })
+    ctx.on('agent/pre-step', async (_subject, _messages, context, next) => {
+      const decision = await next()
+      return context.step === 1 || decision.kind === 'reject'
+        ? decision
+        : { kind: 'enter', messages: [] }
+    })
+
+    send(agent, 'finish once')
+    await agent.whenIdle()
+
+    expect(adapter.requests).toHaveLength(1)
+    expect(events(agent).filter(event => event.type === 'step/start')).toHaveLength(1)
+  })
+
   it('reject drops the claimed prompt before any turn or model call', async () => {
     const adapter = new MockAdapter([textResponse('should not run')])
     const ctx = await harness(adapter)

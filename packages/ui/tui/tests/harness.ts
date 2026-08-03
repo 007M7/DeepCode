@@ -228,6 +228,7 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
     cancel(cause) {
       cancelled.push(cause)
     },
+    runMaintenance: task => task(new AbortController().signal),
     whenIdle() {
       return Promise.resolve()
     },

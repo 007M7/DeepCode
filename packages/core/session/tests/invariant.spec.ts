@@ -188,6 +188,12 @@ describe('session-log invariants', () => {
     skipped.append('step/end', { turn: 1, step: 1 })
     expect(() => skipped.append('step/start', { turn: 1, step: 3 }))
       .toThrow(/expected step 2 in turn 1, got 3/)
+
+    expect(() => skipped.append('turn/end', {
+      turn: 1,
+      step: 0,
+      reason: { kind: 'completed' },
+    })).toThrow(/expected last step 1, got 0/)
   })
 
   it('requires step-scoped stream and tool events to name the open step', async () => {

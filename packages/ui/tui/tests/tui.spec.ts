@@ -5448,7 +5448,9 @@ describe('terminal mounting', () => {
       id: session.id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
       status: 'idle', ctx,
       send: () => {},
-      followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => {}, inject: () => {}, cancel() {},
+      runMaintenance: task => task(new AbortController().signal),
+      whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     mountTui(ctx, { theme: { color: false } }, { terminal, exit: vi.fn() })
@@ -5475,7 +5477,9 @@ describe('terminal mounting', () => {
       id: session.id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
       status: 'idle', ctx,
       send: () => {},
-      followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => {}, inject: () => {}, cancel() {},
+      runMaintenance: task => task(new AbortController().signal),
+      whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     // Mirror dsh-tui's own inject (minus loader, the absence under test).
@@ -5512,7 +5516,9 @@ describe('terminal mounting', () => {
       id: otherSession.id, options: {}, session: otherSession, inbox: new Inbox(otherSession, { inserted: () => {}, discarded: () => {} }),
       status: 'idle', ctx,
       send: () => {},
-      followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => {}, inject: () => {}, cancel() {},
+      runMaintenance: task => task(new AbortController().signal),
+      whenIdle: () => Promise.resolve(),
     })
     expect(terminal.started).toBe(0)
 
@@ -5521,7 +5527,9 @@ describe('terminal mounting', () => {
       id: session.id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
       status: 'idle', ctx,
       send: () => {},
-      followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => {}, inject: () => {}, cancel() {},
+      runMaintenance: task => task(new AbortController().signal),
+      whenIdle: () => Promise.resolve(),
     } as Agent
     ctx.agents.register(agent)
     await tick()
@@ -5554,7 +5562,9 @@ describe('terminal mounting', () => {
       id: session.id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
       status: 'idle', ctx,
       send: () => {},
-      followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => {}, inject: () => {}, cancel() {},
+      runMaintenance: task => task(new AbortController().signal),
+      whenIdle: () => Promise.resolve(),
     })
     await tick()
     expect(terminal.started).toBe(0)
@@ -5600,7 +5610,9 @@ describe('terminal mounting', () => {
       id: session.id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
       status: 'running', ctx,
       send: () => {},
-      followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => {}, inject: () => {}, cancel() {},
+      runMaintenance: task => task(new AbortController().signal),
+      whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     terminal.start = () => { throw new Error('terminal startup failed') }

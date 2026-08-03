@@ -94,106 +94,109 @@ export function QueueDock({ useSession, updateQueue, notify, t }: QueueDockProps
           </button>
         )}
         <ul id={listId} className={css.list} hidden={!listVisible}>
-          {listVisible && queue.map(row => (
-            <li key={row.id} className={css.row}>
-              {editing?.id === row.id
-                ? (
-                  <input
-                    autoFocus
-                    className={css.editor}
-                    aria-label={t('queue.edit')}
-                    value={editing.text}
-                    onChange={(event) => { setEditing({ id: row.id, text: event.currentTarget.value }) }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Escape') {
-                        setEditing(null)
-                        return
-                      }
-                      if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
-                        event.preventDefault()
-                        void saveEdit()
-                      }
-                    }}
-                  />
-                )
-                : <span className={css.preview}>{row.preview}</span>}
-              {queueMutable && <div className={css.actions}>
-                {editing?.id === row.id
+          {listVisible && queue.map((row) => {
+            const rowEditing = editing?.id === row.id ? editing : null
+            return (
+              <li key={row.id} className={css.row}>
+                {rowEditing !== null
                   ? (
-                    <>
-                      <button
-                        type="button"
-                        className={css.action}
-                        aria-label={t('queue.save')}
-                        title={t('queue.save')}
-                        disabled={busy !== null || editing.text.trim() === ''}
-                        onClick={() => { void saveEdit() }}
-                      >
-                        <IconCheckOutline16 size={14} />
-                      </button>
-                      <button
-                        type="button"
-                        className={css.action}
-                        aria-label={t('queue.cancelEdit')}
-                        title={t('queue.cancelEdit')}
-                        disabled={busy !== null}
-                        onClick={() => { setEditing(null) }}
-                      >
-                        <IconCloseOutline16 size={14} />
-                      </button>
-                    </>
+                    <input
+                      autoFocus
+                      className={css.editor}
+                      aria-label={t('queue.edit')}
+                      value={rowEditing.text}
+                      onChange={(event) => { setEditing({ id: row.id, text: event.currentTarget.value }) }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Escape') {
+                          setEditing(null)
+                          return
+                        }
+                        if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                          event.preventDefault()
+                          void saveEdit()
+                        }
+                      }}
+                    />
                   )
-                  : (
-                    <>
-                      <button
-                        type="button"
-                        className={css.action}
-                        aria-label={t('queue.edit')}
-                        title={row.text === null ? t('queue.edit.unsupported') : t('queue.edit')}
-                        disabled={busy !== null || row.text === null}
-                        onClick={() => {
-                          if (row.text !== null) setEditing({ id: row.id, text: row.text })
-                        }}
-                      >
-                        <IconEditOutline16 size={14} />
-                      </button>
-                      <button
-                        type="button"
-                        className={css.action}
-                        aria-label={t('queue.remove')}
-                        title={t('queue.remove')}
-                        disabled={busy !== null}
-                        onClick={() => {
-                          void applyAction(
-                            row.id,
-                            { kind: 'remove' },
-                            t('queue.removeFailed'),
-                          )
-                        }}
-                      >
-                        <IconTrashOutline16 size={14} />
-                      </button>
-                      <button
-                        type="button"
-                        className={css.action}
-                        aria-label={t('queue.steer')}
-                        title={running ? t('queue.steer') : t('queue.steer.unavailable')}
-                        disabled={busy !== null || !running}
-                        onClick={() => {
-                          void applyAction(
-                            row.id,
-                            { kind: 'steer' },
-                            t('queue.steerFailed'),
-                          )
-                        }}
-                      >
-                        <IconSendOutline16 size={14} />
-                      </button>
-                    </>
-                  )}
-              </div>}
-            </li>
-          ))}
+                  : <span className={css.preview}>{row.preview}</span>}
+                {queueMutable && <div className={css.actions}>
+                  {rowEditing !== null
+                    ? (
+                      <>
+                        <button
+                          type="button"
+                          className={css.action}
+                          aria-label={t('queue.save')}
+                          title={t('queue.save')}
+                          disabled={busy !== null || rowEditing.text.trim() === ''}
+                          onClick={() => { void saveEdit() }}
+                        >
+                          <IconCheckOutline16 size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          className={css.action}
+                          aria-label={t('queue.cancelEdit')}
+                          title={t('queue.cancelEdit')}
+                          disabled={busy !== null}
+                          onClick={() => { setEditing(null) }}
+                        >
+                          <IconCloseOutline16 size={14} />
+                        </button>
+                      </>
+                    )
+                    : (
+                      <>
+                        <button
+                          type="button"
+                          className={css.action}
+                          aria-label={t('queue.edit')}
+                          title={row.text === null ? t('queue.edit.unsupported') : t('queue.edit')}
+                          disabled={busy !== null || row.text === null}
+                          onClick={() => {
+                            if (row.text !== null) setEditing({ id: row.id, text: row.text })
+                          }}
+                        >
+                          <IconEditOutline16 size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          className={css.action}
+                          aria-label={t('queue.remove')}
+                          title={t('queue.remove')}
+                          disabled={busy !== null}
+                          onClick={() => {
+                            void applyAction(
+                              row.id,
+                              { kind: 'remove' },
+                              t('queue.removeFailed'),
+                            )
+                          }}
+                        >
+                          <IconTrashOutline16 size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          className={css.action}
+                          aria-label={t('queue.steer')}
+                          title={running ? t('queue.steer') : t('queue.steer.unavailable')}
+                          disabled={busy !== null || !running}
+                          onClick={() => {
+                            void applyAction(
+                              row.id,
+                              { kind: 'steer' },
+                              t('queue.steerFailed'),
+                            )
+                          }}
+                        >
+                          <IconSendOutline16 size={14} />
+                        </button>
+                      </>
+                    )}
+                </div>}
+              </li>
+            )
+          })}
         </ul>
       </div>
     </div>

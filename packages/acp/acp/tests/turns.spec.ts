@@ -31,28 +31,28 @@ describe('ACP prompt lifecycle', () => {
     harness = undefined
   })
 
-  it('settles after a max-token turn without losing its committed text', async () => {
+  it('maps a max-token turn without losing its committed text', async () => {
     harness = await makeBridgeHarness({ script: [maxTokensResponse('cut off')] })
     const sessionId = await newSession(harness)
     const result = await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] })
-    expect(result.stopReason).toBe('end_turn')
+    expect(result.stopReason).toBe('max_tokens')
     await vi.waitFor(() => { expect(messageText(harness!)).toBe('cut off') })
   })
 
-  it('settles after a failed turn and never publishes its partial chunks', async () => {
+  it('rejects a failed turn and never publishes its partial chunks', async () => {
     harness = await makeBridgeHarness({ script: [errorResponse('provider boom')] })
     const sessionId = await newSession(harness)
     await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))
-      .resolves.toEqual({ stopReason: 'end_turn' })
+      .rejects.toThrow(/turn failed: provider boom/)
     expect(messageText(harness)).toBe('')
   })
 
-  it('settles after an ordinary plugin failure', async () => {
+  it('rejects an ordinary plugin failure through the same prompt boundary', async () => {
     harness = await makeBridgeHarness({ script: [textResponse('must not run')] })
     harness.ctx.on('agent/pre-step', () => { throw new Error('plugin pre-step failed') })
     const sessionId = await newSession(harness)
     await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))
-      .resolves.toEqual({ stopReason: 'end_turn' })
+      .rejects.toThrow(/turn failed: plugin pre-step failed/)
   })
 
   it('settles even when an earlier turn observer throws', async () => {
@@ -221,13 +221,13 @@ describe('ACP prompt lifecycle', () => {
     await vi.waitFor(() => { expect(messageText(harness!)).toBe('recovered') })
   })
 
-  it('a failed turn with no retry settles at quiescence', async () => {
+  it('a failed turn with no retry still rejects', async () => {
     harness = await makeBridgeHarness({ script: [errorResponse('terminal boom')] })
     let offered = 0
     harness.ctx.on('agent/request-error', async () => { offered += 1 })
     const sessionId = await newSession(harness)
     await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))
-      .resolves.toEqual({ stopReason: 'end_turn' })
+      .rejects.toThrow(/turn failed: terminal boom/)
     expect(offered).toBe(1)
   })
 
@@ -238,7 +238,7 @@ describe('ACP prompt lifecycle', () => {
     }))
     const sessionId = await newSession(harness)
     await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))
-      .resolves.toEqual({ stopReason: 'end_turn' })
+      .resolves.toEqual({ stopReason: 'cancelled' })
     // The rejected prompt opened no turn and streamed nothing.
     expect(messageText(harness)).toBe('')
   })
@@ -249,6 +249,6 @@ describe('ACP prompt lifecycle', () => {
     const sessionId = await newSession(harness)
 
     await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))
-      .resolves.toEqual({ stopReason: 'end_turn' })
+      .rejects.toThrow(/turn failed: pre-step exploded/)
   })
 })

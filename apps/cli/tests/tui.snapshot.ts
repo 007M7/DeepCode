@@ -613,7 +613,14 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
           agent.session.events.slice(-12).map(event => event.type).join(',')
         }`)
       await settleTerminal(terminal)
-      expect(inbox).toEqual([inbox[0], `claimed:${inbox[0]?.slice('inserted:'.length) ?? ''}`])
+      const first = inbox[0]?.slice('inserted:'.length)
+      const second = inbox[1]?.slice('inserted:'.length)
+      expect(inbox).toEqual([
+        `inserted:${first}`,
+        `inserted:${second}`,
+        `claimed:${second}`,
+        `claimed:${first}`,
+      ])
     }
 
     const events: SessionEvent[] = [...agent.session.events]
@@ -660,23 +667,28 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
       const compactSummary = events.find(event => event.type === 'compact/summary')
       const compactCheckpoint = events.find(event => event.type === 'user/message'
         && event.data.source.kind === 'plugin' && event.data.source.plugin === 'compact')
-      const injectedEvent = events.find(event => event.type === 'user/message'
+      const queuedInjection = events.find(event => event.type === 'agent/inbox/spliced'
+        && event.data.inserted?.some(message => message.source.kind === 'plugin'
+          && message.source.plugin === 'snapshot-injector'))
+      const admittedInjection = events.find(event => event.type === 'user/message'
         && event.data.source.kind === 'plugin' && event.data.source.plugin === 'snapshot-injector')
       const compactEnd = events.find(event => event.type === 'compact/end')
       expect(compactStart?.data.turn).toBeNull()
       expect(compactEnd?.data.turn).toBeNull()
       expect(events.filter(event => event.type === 'compact/summary')).toHaveLength(1)
       if (compactStart === undefined || compactSummary === undefined
-        || compactCheckpoint === undefined || injectedEvent === undefined
+        || compactCheckpoint === undefined || queuedInjection === undefined
+        || admittedInjection === undefined
         || compactEnd === undefined) {
         throw new Error('manual compaction snapshot is missing its durable marker, summary, checkpoint, or injection')
       }
-      // The markers are time points, not an exclusive container: unrelated
-      // idle injection is allowed between them while the selected span stays stable.
-      expect(compactStart.seq).toBeLessThan(injectedEvent.seq)
-      expect(injectedEvent.seq).toBeLessThan(compactSummary.seq)
+      // Injection commits to the inbox during maintenance, then becomes
+      // model-visible only after the standalone compaction closes.
+      expect(compactStart.seq).toBeLessThan(queuedInjection.seq)
+      expect(queuedInjection.seq).toBeLessThan(compactSummary.seq)
       expect(compactSummary.seq).toBeLessThan(compactCheckpoint.seq)
       expect(compactCheckpoint.seq).toBeLessThan(compactEnd.seq)
+      expect(compactEnd.seq).toBeLessThan(admittedInjection.seq)
 
       const manualTimeline = manualOrder ?? []
       const commandRunIndex = manualTimeline.indexOf('command/run')
@@ -732,7 +744,7 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
       expect(derived).not.toContain('/compact')
       expect(derived).not.toContain('Compacted 2 history items (~387 tokens).')
       expect(derived.filter(text => text.includes('Injected while compaction was running.'))).toHaveLength(1)
-      expect(compactSummary.data.shadowedSeqs).not.toContain(injectedEvent.seq)
+      expect(compactSummary.data.shadowedSeqs).not.toContain(admittedInjection.seq)
       const queuedTurn = events.findLast(event => event.type === 'turn/start')
       expect(queuedTurn !== undefined && compactEnd.seq < queuedTurn.seq).toBe(true)
     }

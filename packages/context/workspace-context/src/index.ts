@@ -201,12 +201,8 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   const waitForProjections = async (agent: Agent): Promise<void> => {
-    while (true) {
-      const projection = projectionTails.get(agent)
-      if (projection === undefined) return
-      await projection
-      if (projectionTails.get(agent) === projection) return
-    }
+    let projection: Promise<void> | undefined
+    while ((projection = projectionTails.get(agent)) !== undefined) await projection
   }
 
   ctx.on('agent/pre-step', async (

@@ -160,6 +160,21 @@ describe('scanRows', () => {
 })
 
 describe('rowToMeta', () => {
+  it('restores optional origin metadata', () => {
+    expect(rowToMeta({
+      id: 'with-origin',
+      version: 0,
+      created_at: 1,
+      cwd: null,
+      parent_session: null,
+      seed_length: null,
+      origin: 'subagent',
+      incarnation: 'with-origin',
+      revision: 1,
+      delegation_depth: null,
+    })).toMatchObject({ id: 'with-origin', origin: 'subagent' })
+  })
+
   it('rejects fractional stored creation metadata', () => {
     expect(() => rowToMeta({
       id: 'fractional',

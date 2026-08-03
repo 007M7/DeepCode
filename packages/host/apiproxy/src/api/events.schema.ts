@@ -30,10 +30,10 @@ export const askUserQuestionItemSchema = z.object({
   ]).optional(),
 }) satisfies z.ZodType<Wire<AskUserQuestionItem>>
 
-/** User-message envelope carried by queue baselines. */
-const userMessageSchema = z.object({
-  id: messageIdSchema,
-  role: z.literal('user'),
+/** Unified message envelope carried by transient queue frames. */
+const messageSchema = z.object({
+  id: z.string().min(1),
+  role: z.union([z.literal('system'), z.literal('user'), z.literal('assistant')]),
   content: z.array(contentBlockSchema),
   source: z.looseObject({ kind: z.string() }),
 })
@@ -52,7 +52,11 @@ export const muxFrameSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('session/queue'),
     sessionId: sessionIdSchema,
-    items: z.array(userMessageSchema),
+    items: z.array(z.object({
+      id: messageIdSchema,
+      placement: z.union([z.literal('queued'), z.literal('steering')]),
+      message: messageSchema,
+    })),
   }),
   // value stays wide: it already passed its unit's own schema on the host,
   // and deep-validating here would import every domain's schema into the carrier.
@@ -62,7 +66,14 @@ export const muxFrameSchema = z.discriminatedUnion('type', [
 
 /** HostFrame union (payload slot of a host-stream ServerRequest). */
 export const hostFrameSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('host/session-added'), sessionId: sessionIdSchema, blank: z.boolean(), parentSessionId: sessionIdSchema.optional(), cwd: z.string().optional() }),
+  z.object({
+    type: z.literal('host/session-added'),
+    sessionId: sessionIdSchema,
+    blank: z.boolean(),
+    parentSessionId: sessionIdSchema.optional(),
+    origin: z.literal('subagent').optional(),
+    cwd: z.string().optional(),
+  }),
   z.object({ type: z.literal('host/session-removed'), sessionId: sessionIdSchema }),
   z.object({ type: z.literal('host/session-status'), sessionId: sessionIdSchema, running: z.boolean() }),
   z.object({ type: z.literal('host/agent-error'), sessionId: sessionIdSchema, message: z.string() }),

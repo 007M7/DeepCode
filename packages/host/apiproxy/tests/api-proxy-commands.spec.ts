@@ -339,7 +339,7 @@ describe('session.updateQueue', () => {
 })
 
 describe('session/queue frames', () => {
-  it('publishes authoritative next-turn snapshots without duplicating message identity', async () => {
+  it('publishes authoritative inbox snapshots without duplicating message identity', async () => {
     const ctx = await harness()
     const api = createApiProxy(ctx, DEFAULTS)
     const agent = stubAgent(ctx)
@@ -367,12 +367,18 @@ describe('session/queue frames', () => {
       {
         type: 'session/queue',
         sessionId: agent.id,
-        items: [queued],
+        items: [
+          { id: queued.id, placement: 'queued', message: queued },
+          { id: steering.id, placement: 'steering', message: steering },
+        ],
       },
       {
         type: 'session/queue',
         sessionId: agent.id,
-        items: [edited],
+        items: [
+          { id: edited.id, placement: 'queued', message: edited },
+          { id: steering.id, placement: 'steering', message: steering },
+        ],
       },
     ])
   })

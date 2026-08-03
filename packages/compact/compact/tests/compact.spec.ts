@@ -110,7 +110,7 @@ describe('CompactService seam', () => {
     const signal = new AbortController().signal
     expect(await svc.compactNow({
       ...stubAgent(session),
-      reserveTurnAdmission: () => () => undefined,
+      runMaintenance: task => task(new AbortController().signal),
     }, signal)).toBeNull()
     expect(svc.lastSignal).toBe(signal)
   })

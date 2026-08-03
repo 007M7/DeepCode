@@ -182,6 +182,7 @@ function stubAgent(cwd?: string, seed: SessionEvent[] = []): Agent {
     steer: () => {},
     inject: () => { throw new Error('workspace-context must append directly to the open step') },
     cancel() {},
+    runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
 }
@@ -2640,7 +2641,13 @@ describe('dynamic nested workspace context injection', () => {
           warmCache.set(agent.session, new Map(loaded.versions))
           const options = {
             authorityMessages,
-            scopeMessages: [],
+            scopeMessages: [createUserMessage({
+              content: [{ type: 'text', text: 'pending baseline duplicate' }],
+              source: {
+                kind: 'workspace-instructions',
+                changes: [{ action: 'set', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md' }],
+              },
+            })],
             touchedPaths: [],
             includeBaselineScopes: false,
             signal: testToolSignal,
@@ -3499,6 +3506,14 @@ describe('dynamic nested workspace context injection', () => {
       }), plainResult)
       ctx.emit('tools/result', stubToolExecution({
         signal: testToolSignal,
+        callId: CallId('missing-path'), name: 'read', arguments: {}, agent,
+      }), plainResult)
+      ctx.emit('tools/result', stubToolExecution({
+        signal: testToolSignal,
+        callId: CallId('non-string-path'), name: 'read', arguments: { file_path: 1 }, agent,
+      }), plainResult)
+      ctx.emit('tools/result', stubToolExecution({
+        signal: testToolSignal,
         callId: CallId('blank-path'), name: 'read', arguments: { file_path: ' ' }, agent,
       }), plainResult)
       ctx.emit('tools/result', stubToolExecution({
@@ -3509,6 +3524,35 @@ describe('dynamic nested workspace context injection', () => {
       await Promise.resolve()
       expect(fs.signals).toEqual([])
       expect(agent.inbox.nextStep).toEqual([])
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('warns when an asynchronous file-result projection fails', async () => {
+    const ctx = new Context()
+    try {
+      await ctx.plugin(RecordingFileSystem)
+      await ctx.plugin(workspaceContext, { maxBytes: 65536 })
+      const fs = ctx.fs as RecordingFileSystem
+      const agent = stubAgent('/')
+      const failure = new Error('projection failed')
+      const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+      fs.entries.set('/.git', { type: 'directory' })
+      fs.entries.set('/AGENTS.md', { type: 'file', content: 'workspace rule' })
+      vi.spyOn(agent.inbox, 'prepend').mockImplementationOnce(() => { throw failure })
+
+      ctx.emit('tools/result', stubToolExecution({
+        signal: testToolSignal,
+        callId: CallId('projection-failure'),
+        name: 'read',
+        arguments: { file_path: 'file.txt' },
+        agent,
+      }), { content: [], isError: false, value: null })
+
+      await vi.waitFor(() => {
+        expect(warn).toHaveBeenCalledWith('workspace instruction refresh failed: %o', failure)
+      })
     } finally {
       await ctx.fiber.dispose()
     }

@@ -20,12 +20,12 @@ buffer
   style 0-17 fg=bright-magenta bold
 8| "Enter send • Shift/Alt+Enter newline • Up/Down prompt history                               "
   style 0-60 dim
-9| "Esc cancel turn • Ctrl+O cycle cards (collapse/expand/hide) • Ctrl+R toggle reasoning •     "
+9| "Esc cancel active work • Ctrl+O cycle cards (collapse/expand/hide) • Ctrl+R toggle reasoning"
   style 0-91 dim
-10| "Ctrl+L redraw                                                                               "
-  style 0-12 dim
-11| "Ctrl+C cancel while running; clear input or exit while idle • Ctrl+D exit                   "
-  style 0-72 dim
+10| "• Ctrl+L redraw                                                                             "
+  style 0-14 dim
+11| "Ctrl+C cancel active work; clear input or exit while idle • Ctrl+D exit                     "
+  style 0-70 dim
 12| "                                                                                            "
 13| "/clear — Clear the transcript view (session history is unchanged)                           "
   style 0-64 dim

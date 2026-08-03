@@ -21,7 +21,9 @@ function fakeAgent(ctx: Context, rawId: string): Agent {
     id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
     status: 'idle', ctx: scope.ctx,
     send: () => {},
-    followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
+    followup: () => {}, steer: () => {}, inject: () => {}, cancel() {},
+    runMaintenance: task => task(new AbortController().signal),
+    whenIdle: () => Promise.resolve(),
   }
   ctx.agents.register(agent)
   return agent

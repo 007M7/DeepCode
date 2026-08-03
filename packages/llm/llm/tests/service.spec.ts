@@ -835,6 +835,21 @@ describe('LlmService', () => {
       ...prepared.config,
       messages: [],
     })).toThrow(expect.objectContaining({ code: 'INVALID_PREPARED_CALL' }))
+
+    const late = await ctx.llm.prepareCall({ provider: 'route', model: 'model' })
+    const lateOptions = { ...late.config, messages: [] }
+    const lateStream = late.stream(lateOptions)
+    lateOptions.model = 'other'
+    expect(await collect(lateStream)).toContainEqual({
+      type: 'finish',
+      reason: {
+        kind: 'error',
+        failure: {
+          message: 'prepared LLM call config changed before adapter dispatch',
+          code: 'INVALID_PREPARED_CALL',
+        },
+      },
+    })
   })
 
   it('reuses one exact-model lookup for prepared config and context metadata', async () => {

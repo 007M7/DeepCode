@@ -66,15 +66,11 @@ interface PromptSection {
 `PromptContext` 是与 `PromptSection` 对应的缓存安全结构。组装会解析这些贡献并排序；agent loop（智能体循环）仅在完整当前快照发生变化或被压缩（compaction）移除时，才会将其记录在保留的模型历史之后。
 
 ```ts type-equiv
-/**
- * One dynamic model-context contribution. Unlike a {@link PromptSection}, its
- * rendered text is materialized as a durable user-role snapshot at the request
- * tail, so changing runtime state preserves the stable system/history prefix.
- */
+/** Dynamic model context materialized as a durable user-role snapshot. */
 interface PromptContext {
   /** Unique name — a duplicate registration throws (see {@link SystemPrompt.context}). */
   readonly name: string
-  /** Contexts are joined in ascending order, independently of system-section order. */
+  /** Contexts are joined in ascending order. */
   readonly order: number
   /** Static text or a provider evaluated for each assembly. Empty text contributes nothing. */
   readonly text: string | ((context: AssembleContext) => string)

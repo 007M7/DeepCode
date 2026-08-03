@@ -387,11 +387,34 @@ describe('same-session goal driving', () => {
     expect(test.adapter.requests).toHaveLength(1)
   })
 
+  it('does not block a goal that downstream paused before rejecting its prompt', async () => {
+    const test = await harness([])
+    test.ctx.on('agent/pre-step', async (agent, messages, _context, next) => {
+      if (!messages.some(message => message.source.kind === 'goal' && message.source.round > 0)) {
+        return next()
+      }
+      const goal = test.ctx.goals.get(agent)
+      if (goal === undefined) throw new Error('missing goal before downstream pause')
+      test.ctx.goals.pause(agent, { id: goal.id, revision: goal.revision })
+      return { kind: 'reject' as const }
+    })
+    test.ctx.goals.create(test.agent, { objective: 'pause before rejection' })
+
+    const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'paused')
+
+    expect(goal).toMatchObject({ phase: 'paused' })
+    expect(test.adapter.requests).toEqual([])
+  })
+
   it('restores non-goal step context when a claimed reservation becomes stale', async () => {
     const test = await harness([textResponse('side contexts'), textResponse('revised goal')])
     const claimedContext = createUserMessage({
       content: [{ type: 'text', text: 'claimed context to restore' }],
       source: { kind: 'plugin', plugin: 'test' },
+    })
+    const roundZeroContext = createUserMessage({
+      content: [{ type: 'text', text: 'obsolete goal context' }],
+      source: { kind: 'goal', goalId: GoalId('old-goal'), revision: 1, round: 0 },
     })
     const queuedStepContext = createUserMessage({
       content: [{ type: 'text', text: 'context already queued for the next step' }],
@@ -406,6 +429,7 @@ describe('same-session goal driving', () => {
       if (message.source.kind !== 'goal' || message.source.round <= 0 || staged) return
       staged = true
       test.agent.inbox.prepend('next-step', claimedContext)
+      test.agent.inbox.prepend('next-step', roundZeroContext)
     })
     let edited = false
     test.ctx.on('agent/pre-step', async (agent, messages, _context, next) => {
@@ -432,6 +456,7 @@ describe('same-session goal driving', () => {
     expect(requestText(test.adapter.requests[0]!)).toContain('claimed context to restore')
     expect(requestText(test.adapter.requests[0]!)).toContain('context already queued for the next step')
     expect(requestText(test.adapter.requests[0]!)).toContain('context already queued for the next turn')
+    expect(requestText(test.adapter.requests[0]!)).not.toContain('obsolete goal context')
     expect(requestText(test.adapter.requests[0]!)).not.toContain('<goal_round>')
     expect(requestText(test.adapter.requests[1]!)).toContain('revised after claim')
     expect(requestText(test.adapter.requests[1]!)).not.toContain('stale before admission')
@@ -720,6 +745,19 @@ describe('same-session goal driving', () => {
 
     expect(test.adapter.requests).toHaveLength(0)
     expect(test.agent.session.events.some(event => event.type === 'turn/start')).toBe(false)
+  })
+
+  it('leaves round-zero goal context to the ordinary pre-step chain', async () => {
+    const test = await harness([textResponse('accepted context')])
+    test.agent.followup(createUserMessage({
+      content: [{ type: 'text', text: 'goal context' }],
+      source: { kind: 'goal', goalId: GoalId('context-goal'), revision: 1, round: 0 },
+    }))
+
+    await test.agent.whenIdle()
+
+    expect(test.adapter.requests).toHaveLength(1)
+    expect(requestText(test.adapter.requests[0]!)).toContain('goal context')
   })
 
   it('does not invent goal state when ordinary queued work is cancelled', async () => {

@@ -32,12 +32,13 @@ interface SessionEventMap {
    */
   'turn/start': { turn: number }
   /**
-   * Closes turn `turn` with the {@link TurnEndReason} that ended it. The loop
-   * awaits `session/flush` after an ordinary turn ends before claiming the next
-   * queued item. Success commits the turn; rejection is reported live and does
-   * not prevent later work.
+   * Closes turn `turn` after `step`, the last entered step (`0` when none),
+   * with the {@link TurnEndReason} that ended it. The loop awaits
+   * `session/flush` after an ordinary turn ends before claiming the next queued
+   * item. Success commits the turn; rejection is reported live and does not
+   * prevent later work.
    */
-  'turn/end': { turn: number; reason: TurnEndReason }
+  'turn/end': { turn: number; step: number; reason: TurnEndReason }
   /** Opens step `step` of turn `turn` — one model call plus the tool executions it requested. */
   'step/start': { turn: number; step: number }
   /** Closes step `step` of turn `turn`. */
@@ -93,21 +94,14 @@ interface SessionEventMap {
    */
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
   /**
-   * Registration-bound context metadata for the route a request resolved to,
-   * appended inside its step beside `request/header` and only when the route
-   * or capacity differs from the last record. It is log-only and deliberately
-   * NOT part of {@link EpochHeader}: capacity is adapter metadata about a
-   * route, not an input the request was built from, so it must not participate
-   * in request reconstruction or header equality. `contextWindow` is absent
-   * when the route's adapter advertises no capacity.
+   * Route metadata for the next request, logged only when the route or capacity
+   * changes. It does not participate in request reconstruction or header equality.
    */
   'request/context': RequestContext
   /**
    * Marks the end of a constructor seed. Events before it have smaller seq
    * values and came from the seed (resume, fork, or replay); this lifecycle
-   * produced none of them. An explicitly supplied empty seed puts the marker
-   * at seq 0, distinguishing an empty resumed session from a fresh session.
-   * This log-only event is the durable projection of
+   * produced none of them. This log-only event is the durable projection of
    * {@link Session.firstLiveSeq}. Its payload is empty — position and `time`
    * carry the meaning.
    *
@@ -186,17 +180,13 @@ interface EpochHeader {
 请求所解析到的路由的上下文元数据是独立的已记录状态，在同一步骤内紧随 `request/header` 追加，且仅在提供方、模型或容量与上一条记录不同时追加。它保持在 `EpochHeader` 之外，因为该类型是由 `headerEquals` 逐字段比较的重建契约：容量描述的是路由，不是请求输入，把它折叠进去会让一次容量变化被登记为请求信封的 `change`，也会把适配器元数据拉进 loop 的重建不变式。与 `request/header` 一样，它不是 `SurfaceEventType`，也不产生 LLM 消息。`session.requestContext()` 以增量方式归并最新一条记录。适配器不公布容量的路由会以缺失 `contextWindow` 的形式记录，因此新记录可以清除较早路由的容量。
 
 ```ts type-equiv
-/**
- * Registration-bound context metadata of one resolved model route. Adapter
- * metadata about a route rather than a request input, which is why it lives
- * outside {@link EpochHeader}.
- */
+/** Registration-bound metadata for one resolved model route. */
 interface RequestContext {
-  /** Registered provider route the metadata was resolved through. */
+  /** Registered provider route the metadata belongs to. */
   provider: string
   /** Provider-owned model id the metadata belongs to. */
   model: string
-  /** Maximum combined request and response context in tokens; absent when the adapter advertises none. */
+  /** Maximum combined request and response context in tokens, when advertised. */
   contextWindow?: number
 }
 ```
@@ -387,9 +377,7 @@ declare class Session {
    * start here. Distinct from `header.seedLength`, the DURABLE fork-lineage
    * boundary: a resumed session's constructor seed is its full stored log,
    * while its header keeps the original fork value — this field is the
-   * in-process construction fact. An explicitly supplied empty seed has the
-   * same value as no seed (0); its `session/end-seed` event preserves the
-   * lifecycle distinction.
+   * in-process construction fact.
    *
    * Not persisted itself: a seeded session projects it into the log as the
    * `session/end-seed` event, which is what a consumer reading STORED history
@@ -463,11 +451,9 @@ declare class Session {
    */
   requestHeader(): EpochHeader | undefined;
   /**
-   * The route metadata in force after the log's last `request/context` event —
-   * what the NEXT request deduplicates against — or undefined before any such
-   * record. Maintained incrementally like {@link requestHeader}, so a per-step
-   * read costs O(new events).
-   * @returns the folded context record, or undefined when none exists yet.
+   * Return the latest resolved route metadata, or `undefined` before the first
+   * `request/context` event. Each event is folded once.
+   * @returns the latest immutable route metadata.
    */
   requestContext(): RequestContext | undefined;
   /**

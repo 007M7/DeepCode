@@ -62,12 +62,12 @@ buffer
   style 0-17 fg=bright-magenta bold
 31| "Enter send • Shift/Alt+Enter newline • Up/Down prompt history                                       "
   style 0-60 dim
-32| "Esc cancel turn • Ctrl+O cycle cards (collapse/expand/hide) • Ctrl+R toggle reasoning • Ctrl+L      "
+32| "Esc cancel active work • Ctrl+O cycle cards (collapse/expand/hide) • Ctrl+R toggle reasoning •      "
   style 0-99 dim
-33| "redraw                                                                                              "
-  style 0-5 dim
-34| "Ctrl+C cancel while running; clear input or exit while idle • Ctrl+D exit                           "
-  style 0-72 dim
+33| "Ctrl+L redraw                                                                                       "
+  style 0-12 dim
+34| "Ctrl+C cancel active work; clear input or exit while idle • Ctrl+D exit                             "
+  style 0-70 dim
 35| "                                                                                                    "
 36| "/clear — Clear the transcript view (session history is unchanged)                                   "
   style 0-64 dim
@@ -92,20 +92,20 @@ buffer
 46| "/skill:<name> [instructions] — load a skill into the conversation                                   "
   style 0-64 dim
 47| <blank>
-48| "Context · snapshot-injector"
-  style 0-26 dim
-49| "Injected while compaction was running.                                                              "
-  style 0-37 dim
-50| <blank>
-51| "… earlier context was compacted …                                                                   "
+48| "… earlier context was compacted …                                                                   "
   style 0-32 dim
-52| <blank>
-53| "You                                                                                                 "
-  style 0-2 fg=bright-magenta bold underline
-54| "Reply with exactly the word: TWO. No tools.                                                         "
-55| <blank>
-56| "Compacted 2 history items (~387 tokens).                                                            "
+49| <blank>
+50| "Compacted 2 history items (~387 tokens).                                                            "
   style 0-39 dim
+51| <blank>
+52| "Context · snapshot-injector"
+  style 0-26 dim
+53| "Injected while compaction was running.                                                              "
+  style 0-37 dim
+54| <blank>
+55| "You                                                                                                 "
+  style 0-2 fg=bright-magenta bold underline
+56| "Reply with exactly the word: TWO. No tools.                                                         "
 57| <blank>
 58| "Assistant                                                                                           "
   style 0-8 fg=bright-magenta bold underline

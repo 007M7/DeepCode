@@ -51,6 +51,7 @@ function agentForCwd(cwd: string): Agent {
     steer: () => {},
     inject: () => { throw new Error('step-boundary catalog must not use agent.inject()') },
     cancel() {},
+    runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
 }
@@ -68,6 +69,7 @@ function sessionAgent(session: Session, id = 'tool-skill-agent'): Agent {
     steer: () => {},
     inject: () => { throw new Error('step-boundary catalog must not use agent.inject()') },
     cancel() {},
+    runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
 }
@@ -400,6 +402,26 @@ describe('dsh-tool-skill', () => {
     const decision = await proposeStep(ctx, sessionAgent(session), [stale])
 
     expect(decision).toEqual({ kind: 'enter', messages: [] })
+  })
+
+  it('keeps a proposed catalog that already matches the current snapshot', async () => {
+    const home = await tempDir('tool-matching-proposal')
+    const ctx = await setup(home)
+    ctx.skills.register({
+      name: 'first-skill',
+      description: 'First skill',
+      source: 'runtime',
+      content: 'First body.',
+    })
+    const session = new Session(SessionId('matching-proposal'))
+    const proposed = createUserMessage({
+      content: catalogContent(['- `first-skill`: First skill']),
+      source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
+    })
+
+    const decision = await proposeStep(ctx, sessionAgent(session), [proposed])
+
+    expect(decision).toEqual({ kind: 'enter', messages: [proposed] })
   })
 
   it('injects complete replacement catalogs for additions and an empty tombstone for removals', async () => {

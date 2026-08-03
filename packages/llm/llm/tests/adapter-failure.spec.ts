@@ -7,6 +7,28 @@ describe('adapter failure normalization', () => {
     expect(normalizeLlmFailure(thrown)).toEqual({ message: 'LLM adapter failed', code: 'UNKNOWN' })
   })
 
+  it('normalizes empty primitive throws and data descriptors without values', () => {
+    expect(normalizeLlmFailure('')).toEqual({ message: 'LLM adapter failed', code: 'UNKNOWN' })
+    expect(normalizeLlmFailure(null)).toEqual({ message: 'null', code: 'UNKNOWN' })
+
+    const error = new Error('provider failed')
+    Object.defineProperty(error, 'failure', { get: () => ({ message: 'ignored', code: 'IGNORED' }) })
+    Object.defineProperty(error, 'code', { get: () => 'IGNORED' })
+    expect(normalizeLlmFailure(error)).toEqual({ message: 'provider failed', code: 'UNKNOWN' })
+
+    const accessorCode = Object.assign(new Error('provider failed'), {
+      failure: { message: 'provider failed', code: 'FOREIGN' },
+    })
+    Object.defineProperty(accessorCode, 'code', { get: () => 'FOREIGN' })
+    expect(normalizeLlmFailure(accessorCode)).toEqual({ message: 'provider failed', code: 'UNKNOWN' })
+
+    const primitiveFailure = Object.assign(new Error('provider failed'), {
+      failure: null,
+      code: 'FOREIGN',
+    })
+    expect(normalizeLlmFailure(primitiveFailure)).toEqual({ message: 'provider failed', code: 'UNKNOWN' })
+  })
+
   it('contains hostile Error property reflection', () => {
     const withFailure = new Error('provider failed') as Error & { failure: unknown; code: string }
     withFailure.failure = { message: 'provider failed', code: 'FOREIGN' }

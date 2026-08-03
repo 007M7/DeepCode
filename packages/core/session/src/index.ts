@@ -30,6 +30,17 @@ export type { SessionSurface, SurfaceFoldReplacement, SurfaceFoldResult } from '
 export { foldSurface, isAppendSurfaceEvent, isReplacementSurfaceEvent, isSurfaceEvent, isSurfaceEligibleType } from './surface.ts'
 export { canonicalHeader, foldRequestHeader, headerEquals } from './request-header.ts'
 
+/**
+ * Find the latest completed model turn in an event sequence.
+ * @param events - session events, or an owned suffix, to inspect.
+ * @returns the latest turn end, or `undefined`.
+ */
+export function findLastMessageTurnEnd(
+  events: readonly SessionEvent[],
+): SessionEvent<'turn/end'> | undefined {
+  return events.findLast(event => event.type === 'turn/end')
+}
+
 declare module 'cordis' {
   interface Context {
     sessions: SessionStore

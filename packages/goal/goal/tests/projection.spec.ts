@@ -46,6 +46,7 @@ function liveAgent(ctx: Context, session: Session): Agent {
       inbox.append('next-step', input)
     },
     cancel() {},
+    runMaintenance: task => task(new AbortController().signal),
     whenIdle() { return Promise.resolve() },
   }
   ctx.agents.register(agent)

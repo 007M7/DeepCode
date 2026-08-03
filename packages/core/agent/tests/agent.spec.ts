@@ -30,6 +30,7 @@ function stubAgent(rawId: string, overrides: Partial<Agent> = {}): Agent {
     steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
     inject: () => {},
     cancel() {},
+    runMaintenance: task => task(new AbortController().signal),
     whenIdle: () => Promise.resolve(),
   }
   return Object.assign(agent, overrides)
@@ -67,6 +68,25 @@ describe('Inbox', () => {
     }).id, replacement)).toBe(false)
     expect(inbox.update('next-turn', original.id, replacement)).toBe(true)
     expect(inbox.nextTurn).toEqual([replacement])
+  })
+
+  it('normalizes splice coordinates, rejects duplicate identities, and reports missing removals', () => {
+    const session = new Session(SessionId('splice-inbox'))
+    const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {} })
+    const first = createUserMessage({
+      content: [{ type: 'text', text: 'first' }],
+      source: { kind: 'user' },
+    })
+    const second = createUserMessage({
+      content: [{ type: 'text', text: 'second' }],
+      source: { kind: 'user' },
+    })
+
+    inbox.splice('next-turn', Number.NaN, Number.NaN, [first, second])
+    expect(inbox.nextTurn).toEqual([first, second])
+    expect(inbox.splice('next-turn', -1, 1, [])).toEqual([second])
+    expect(inbox.remove('next-turn', second.id)).toBe(false)
+    expect(() => { inbox.append('next-step', first) }).toThrow(`message "${first.id}" is already pending`)
   })
 
   it('clears both pending lists as durable cancellations', () => {

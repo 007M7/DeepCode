@@ -39,7 +39,7 @@ Policy plugins call the service verbs and react to the scoped `goal/changed` eve
 
 #### What the model sees
 
-Goal mutations do not inject model context. Goal tools return the current state, and a continuation consumer may render the objective and round state when it schedules model work. A future always-visible goal context belongs in a separate context plugin rather than the persistence path.
+Goal mutations do not inject model context. Tools such as `get_goal` return the current state, and a continuation consumer may render the objective and round state when it schedules model work. A future always-visible goal context belongs in a separate context plugin rather than the persistence path.
 
 #### Token effect
 

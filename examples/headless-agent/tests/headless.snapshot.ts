@@ -458,19 +458,11 @@ describe('headless stream-json snapshots', () => {
         const probeContent = probeMessage?.content as JsonObject[] | undefined
         expect(probeContent?.[0]?.isError).toBe(true)
         expect((probeData?.error as JsonObject | undefined)?.code).toBe('GOAL_NOT_FOUND')
-        const goalChanges = records.filter((record) => {
-          if (record.type !== 'user/message') return false
-          const data = record.data as JsonObject | undefined
-          const source = data?.source as JsonObject | undefined
-          const change = source?.change as JsonObject | undefined
-          return source?.kind === 'goal' && change?.kind === 'goal/change'
-        })
+        const goalChanges = records.filter(record => record.type === 'goal/change')
         expect(goalChanges).toHaveLength(1)
         const data = goalChanges[0]?.data as JsonObject | undefined
-        const source = data?.source as JsonObject | undefined
-        const change = source?.change as JsonObject | undefined
-        const goal = change?.goal as JsonObject | undefined
-        expect(change?.operation).toBe('create')
+        const goal = data?.goal as JsonObject | undefined
+        expect(data?.operation).toBe('create')
         expect(goal).toMatchObject({
           objective: 'Finish the headless goal-tool snapshot proof',
           phase: 'active',

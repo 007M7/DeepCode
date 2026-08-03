@@ -410,6 +410,27 @@ describe('runOneShot and executeCli', () => {
     }))
     await started
 
+    const followup = agent.followup.bind(agent)
+    let injectedBeforeReceipt = false
+    agent.followup = (input) => {
+      if (!injectedBeforeReceipt && input.source.kind === 'user') {
+        injectedBeforeReceipt = true
+        agent.inbox.append('next-step', createUserMessage({
+          content: [{ type: 'text', text: 'wrong receipt' }],
+          source: { kind: 'plugin', plugin: 'test-wrong-receipt' },
+        }))
+        other.append('user/message', createUserMessage({
+          content: [{ type: 'text', text: 'unrelated session event' }],
+          source: { kind: 'plugin', plugin: 'test' },
+        }), { surfaceOp: 'append' })
+        agent.session.append('user/message', createUserMessage({
+          content: [{ type: 'text', text: 'uncorrelated main-session event' }],
+          source: { kind: 'plugin', plugin: 'test-before-receipt' },
+        }), { surfaceOp: 'append' })
+      }
+      followup(input)
+    }
+
     let replacementQueued = false
     ctx.on('agent/status', (subject, status) => {
       if (subject !== agent || status !== 'idle' || replacementQueued) return
@@ -438,6 +459,9 @@ describe('runOneShot and executeCli', () => {
     expect(events.some(event => event.type === 'user/message'
       && event.data.source.kind === 'plugin'
       && event.data.source.plugin === 'test')).toBe(false)
+    expect(events.some(event => event.type === 'user/message'
+      && event.data.source.kind === 'plugin'
+      && event.data.source.plugin === 'test-before-receipt')).toBe(false)
   })
 
   it('correlates a task whose step history is replaced', async () => {
@@ -510,6 +534,21 @@ describe('runOneShot and executeCli', () => {
       reason: undefined,
     } as unknown as AbortSignal
     await expect(runOneShot(early.ctx, { task: 'task', signal: fakeSignal })).rejects.toThrow('interrupted')
+
+    const raced = await harness([textResponse('unused')])
+    let registrations = 0
+    const racedSignal = {
+      aborted: false,
+      reason: 'cancel before followup',
+      addEventListener: (_type: string, listener: () => void) => {
+        registrations += 1
+        if (registrations === 2) listener()
+      },
+      removeEventListener: () => {},
+    } as unknown as AbortSignal
+    await expect(runOneShot(raced.ctx, { task: 'task', signal: racedSignal }))
+      .rejects.toThrow('cancel before followup')
+    expect(raced.agent.session.events.some(event => event.type === 'turn/start')).toBe(false)
 
     const preBootAbort = new AbortController()
     preBootAbort.abort('before boot completed')

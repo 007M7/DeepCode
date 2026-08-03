@@ -155,7 +155,6 @@ export function apply(ctx: Context): void {
 
     const attempt = state.attempt
     if (attempt !== undefined) {
-      if (attempt.phase === 'queued' || attempt.phase === 'claimed') return
       state.attempt = undefined
       state.needsCheckpoint = true
       state.requested = true
@@ -346,10 +345,10 @@ export function apply(ctx: Context): void {
     }
 
     ctx.on('agent/pre-step', async (agent, messages, { signal }, next): Promise<PreStepDecision> => {
-      const submitted = messages.find(message => isGoalRoundSource(message.source))
+      const submitted = messages.find((message): message is UserMessage & { source: GoalMessageSource } =>
+        isGoalRoundSource(message.source))
       if (submitted === undefined) return next()
       const { content, source } = submitted
-      if (!isGoalRoundSource(source)) return next()
       const state = stateFor(agent)
       let valid = false
       try {
@@ -377,11 +376,8 @@ export function apply(ctx: Context): void {
         // returns to idle without a turn, so a still-queued reservation would
         // starve every later drive pass. Clear it and let the driver
         // reschedule the round.
-        const attempt = state.attempt
-        if (attempt !== undefined && sameRound(source, attempt) && attempt.phase === 'claimed') {
-          state.attempt = undefined
-          requestDrive(state)
-        }
+        state.attempt = undefined
+        requestDrive(state)
         throw error
       }
       if (signal.aborted) {
@@ -389,8 +385,7 @@ export function apply(ctx: Context): void {
         return decision
       }
       if (decision.kind === 'reject') {
-        const attempt = state.attempt
-        if (attempt !== undefined && sameRound(source, attempt)) state.attempt = undefined
+        state.attempt = undefined
         const goal = currentGoal(state)
         if (goal !== undefined && goal.id === source.goalId && goal.revision === source.revision
           && goal.phase === 'active' && goal.activation === 'armed') {
@@ -409,11 +404,7 @@ export function apply(ctx: Context): void {
         valid = false
       }
       if (!valid) {
-        const attempt = state.attempt
-        if (attempt !== undefined && sameRound(source, attempt)) {
-          attempt.stale = true
-          state.attempt = undefined
-        }
+        state.attempt = undefined
         restoreOtherClaimed(agent, decision.messages, submitted.id)
         requestDrive(state)
         return { kind: 'reject' }
@@ -438,8 +429,8 @@ export function apply(ctx: Context): void {
         const attempt = state.attempt
         if (attempt !== undefined) {
           attempt.stale = true
-          if ((attempt.phase === 'claimed' || attempt.phase === 'admitted')
-            && state.agent.status === 'running') {
+          /* v8 ignore next -- followup reserves the live agent before publishing a queued attempt */
+          if (state.agent.status === 'running') {
             state.agent.cancel({ kind: 'parent' })
             waits.push(state.agent.whenIdle())
           }

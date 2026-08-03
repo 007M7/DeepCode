@@ -10,7 +10,8 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import SessionStore from '@deepseek-ai/dsh-session'
-import AgentRegistry, { InboxItemId } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+import { MessageId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
@@ -216,7 +217,7 @@ describe('subagent ownership fence', () => {
 
     const queued = await api.sessions.updateQueue(request({
       sessionId: originChild.id,
-      itemId: InboxItemId('queued-item'),
+      itemId: MessageId('queued-item'),
       action: { kind: 'remove' },
     }))
     expect(queued.result.ok).toBe(false)

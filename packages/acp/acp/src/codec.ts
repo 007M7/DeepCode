@@ -3,7 +3,31 @@
  * @module @deepseek-ai/dsh-acp/codec
  */
 
-import type { ContentBlock as AcpContentBlock } from '@agentclientprotocol/sdk'
+import type { ContentBlock as AcpContentBlock, StopReason } from '@agentclientprotocol/sdk'
+import type { TurnEndReason } from '@deepseek-ai/dsh-session'
+
+/**
+ * Map a harness turn ending to ACP's terminal reason vocabulary.
+ * @param reason - harness turn outcome.
+ * @returns the closest legal ACP stop reason.
+ */
+export function turnEndToStopReason(reason: TurnEndReason): StopReason {
+  switch (reason.kind) {
+    case 'completed':
+      return 'end_turn'
+    case 'max-tokens':
+      return 'max_tokens'
+    case 'aborted':
+    case 'interrupted':
+      return 'cancelled'
+    case 'blocked':
+    case 'error':
+      return 'end_turn'
+    /* v8 ignore next 2 -- TurnEndReason is closed and every member is handled above */
+    default:
+      return 'end_turn'
+  }
+}
 
 /**
  * Flatten an ACP prompt's baseline blocks to text. Text blocks concatenate

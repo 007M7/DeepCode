@@ -31,6 +31,7 @@ function stubAgent(ctx: Context, rawId: string): Agent {
     steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
     inject: () => {},
     cancel() {},
+    runMaintenance: <T>(task: (signal: AbortSignal) => Promise<T>) => task(new AbortController().signal),
     whenIdle() { return Promise.resolve() },
   }
   agentScopeDisposers.set(agent, async () => { await scopeFiber.dispose() })

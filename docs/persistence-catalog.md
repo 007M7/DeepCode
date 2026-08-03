@@ -78,7 +78,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-Sources: [`packages/core/session/src/types.ts:262`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:269`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:298`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:330`](../packages/core/session/src/types.ts)
+Sources: [`packages/core/session/src/types.ts:284`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:291`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:320`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:352`](../packages/core/session/src/types.ts)
 
 ## Events
 
@@ -101,7 +101,7 @@ Sources: [`packages/core/session/src/types.ts:262`](../packages/core/session/src
 }
 ```
 
-Source: [`packages/core/agent/src/types.ts:296`](../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:307`](../packages/core/agent/src/types.ts)
 
 ### `approval/*`
 
@@ -150,8 +150,8 @@ Source: [`packages/ui/user-approval/src/index.ts:55`](../packages/ui/user-approv
 /**
  * The session's approval policy was switched — log-only, durable,
  * replayable, never in the model transcript (the model learns the policy
- * from the cache-safe runtime-context snapshot). The LAST such
- * event is the session's override ({@link effectiveApprovalPolicy}).
+ * from the runtime-context snapshot and live switch notices). The LAST
+ * such event is the session's override ({@link effectiveApprovalPolicy}).
  * `source: 'delegation'` marks an override seeded into a child; an absent
  * source is a runtime switch.
  */
@@ -175,7 +175,7 @@ Source: [`packages/ui/user-approval/src/index.ts:67`](../packages/ui/user-approv
 
 Types: [StreamChunk](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:195`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:212`](../packages/core/session/src/types.ts)
 
 #### `assistant/message` — surface
 
@@ -191,7 +191,7 @@ Source: [`packages/core/session/src/types.ts:195`](../packages/core/session/src/
 
 Types: [TokenUsage](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:202`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:219`](../packages/core/session/src/types.ts)
 
 ### `command/*`
 
@@ -406,9 +406,21 @@ Source: [`packages/ui/permission/src/index.ts:50`](../packages/ui/permission/src
 'plan/mode': { active: boolean }
 ```
 
-Source: [`packages/plan/plan-mode/src/index.ts:51`](../packages/plan/plan-mode/src/index.ts)
+Source: [`packages/plan/plan-mode/src/index.ts:52`](../packages/plan/plan-mode/src/index.ts)
 
 ### `request/*`
+
+#### `request/context` — log-only
+
+```ts persistence-catalog
+/**
+ * Route metadata for the next request, logged only when the route or capacity
+ * changes. It does not participate in request reconstruction or header equality.
+ */
+'request/context': RequestContext
+```
+
+Source: [`packages/core/session/src/types.ts:257`](../packages/core/session/src/types.ts)
 
 #### `request/header` — log-only
 
@@ -420,7 +432,7 @@ Source: [`packages/plan/plan-mode/src/index.ts:51`](../packages/plan/plan-mode/s
 'request/header': { header: EpochHeader; reason: RequestHeaderReason }
 ```
 
-Source: [`packages/core/session/src/types.ts:235`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:252`](../packages/core/session/src/types.ts)
 
 ### `sandbox/*`
 
@@ -473,7 +485,7 @@ Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:33`](../packages/s
 'session/end-seed': Record<string, never>
 ```
 
-Source: [`packages/core/session/src/types.ts:258`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:280`](../packages/core/session/src/types.ts)
 
 #### `session/title` — log-only
 
@@ -509,7 +521,7 @@ Source: [`packages/session-title/session-title-llm/src/index.ts:43`](../packages
 'steering/message': { turn: number; message: UserMessage }
 ```
 
-Source: [`packages/core/session/src/types.ts:228`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:245`](../packages/core/session/src/types.ts)
 
 ### `step/*`
 
@@ -520,7 +532,7 @@ Source: [`packages/core/session/src/types.ts:228`](../packages/core/session/src/
 'step/end': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:185`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:202`](../packages/core/session/src/types.ts)
 
 #### `step/start` — log-only
 
@@ -529,7 +541,24 @@ Source: [`packages/core/session/src/types.ts:185`](../packages/core/session/src/
 'step/start': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:183`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:200`](../packages/core/session/src/types.ts)
+
+### `subagent/*`
+
+#### `subagent/descriptor` — log-only
+
+```ts persistence-catalog
+/**
+ * Durable identity and lifecycle mode of a session-backed subagent child,
+ * appended once by the establishing provider inside the child's initial
+ * turn, before its first request. Continuable records also carry their
+ * resumable composition. Log-only: it carries no `surfaceOp`, never enters
+ * model history, and survives compaction.
+ */
+'subagent/descriptor': SubagentDescriptorData
+```
+
+Source: [`packages/subagent/subagent/src/descriptor.ts:37`](../packages/subagent/subagent/src/descriptor.ts)
 
 ### `todo/*`
 
@@ -542,7 +571,7 @@ Source: [`packages/core/session/src/types.ts:183`](../packages/core/session/src/
 
 Types: [TodoItem](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:230`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:247`](../packages/core/session/src/types.ts)
 
 ### `tool/*`
 
@@ -559,7 +588,7 @@ Source: [`packages/core/session/src/types.ts:230`](../packages/core/session/src/
 
 Types: [CallId](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:208`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:225`](../packages/core/session/src/types.ts)
 
 #### `tool/code-dispatch` — log-only
 
@@ -632,7 +661,7 @@ Source: [`packages/core/tools/src/code-mode.ts:33`](../packages/core/tools/src/c
 }
 ```
 
-Source: [`packages/core/session/src/types.ts:220`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:237`](../packages/core/session/src/types.ts)
 
 ### `turn/*`
 
@@ -640,17 +669,18 @@ Source: [`packages/core/session/src/types.ts:220`](../packages/core/session/src/
 
 ```ts persistence-catalog
 /**
- * Closes turn `turn` with the {@link TurnEndReason} that ended it. The loop
- * awaits `session/flush` after an ordinary turn ends before claiming the next
- * queued item. Success commits the turn; rejection is reported live and does
- * not prevent later work.
+ * Closes turn `turn` after `step`, the last entered step (`0` when none),
+ * with the {@link TurnEndReason} that ended it. The loop awaits
+ * `session/flush` after an ordinary turn ends before claiming the next queued
+ * item. Success commits the turn; rejection is reported live and does not
+ * prevent later work.
  */
-'turn/end': { turn: number; reason: TurnEndReason }
+'turn/end': { turn: number; step: number; reason: TurnEndReason }
 ```
 
 Types: [TurnEndReason](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:181`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:198`](../packages/core/session/src/types.ts)
 
 #### `turn/start` — log-only
 
@@ -663,7 +693,7 @@ Source: [`packages/core/session/src/types.ts:181`](../packages/core/session/src/
 'turn/start': { turn: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:174`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:190`](../packages/core/session/src/types.ts)
 
 ### `user/*`
 
@@ -680,7 +710,7 @@ Source: [`packages/core/session/src/types.ts:174`](../packages/core/session/src/
 'user/message': UserMessage
 ```
 
-Source: [`packages/core/session/src/types.ts:193`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:210`](../packages/core/session/src/types.ts)
 
 ### `web/*`
 

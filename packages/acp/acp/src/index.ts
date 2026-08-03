@@ -14,7 +14,7 @@ import { randomUUID } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 import { Readable, Writable } from 'node:stream'
 import Schema from 'schemastery'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
 import {
   AgentSideConnection,
   ndJsonStream,
@@ -30,17 +30,31 @@ import {
   type PromptRequest,
   type PromptResponse,
   type SessionNotification,
+  type StopReason,
   type Stream,
 } from '@agentclientprotocol/sdk'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
 // Side-effect type import: declaration-merges the approval waterfall answered below.
 import type {} from '@deepseek-ai/dsh-user-approval'
-import { acpPromptToText, promptHasUnsupportedContent } from './codec.ts'
+import { acpPromptToText, promptHasUnsupportedContent, turnEndToStopReason } from './codec.ts'
 
 export const name = 'acp'
 /** The bridge creates and owns agents; every other concern is carried by the agent composition. */
 export const inject = ['agents']
+
+/**
+ * The single continuable-subagent teardown the bridge needs. Declared
+ * structurally so this package does not depend on the subagent seam for one
+ * shutdown hook; an absent service means nothing continuable was materialized.
+ */
+interface ContinuableDrain {
+  /**
+   * Close admission below exact host-owned parents, then dispose only their
+   * continuable descendants child-first.
+   */
+  drainContinuableDescendants(parents: readonly Agent[]): Promise<void>
+}
 
 /** Preserve invalid-parameter detail in the SDK wire error message. */
 function invalidParams(detail: string): RequestError {
@@ -74,7 +88,10 @@ interface SessionRecord {
   dispose: () => Promise<void>
   /** In-flight prompt and its captured turn number for exact settlement. */
   inflight: {
-    cancelled: boolean
+    resolve: (reason: StopReason) => void
+    reject: (error: Error) => void
+    messageId: string
+    turn: number | undefined
   } | undefined
 }
 
@@ -116,10 +133,18 @@ export function apply(ctx: Context, config: AcpConfig): void {
     })
   }
 
-  const cancelPrompt = (record: SessionRecord): void => {
+  const settlePrompt = (record: SessionRecord, reason: StopReason): void => {
     const inflight = record.inflight
     if (inflight === undefined) return
-    inflight.cancelled = true
+    record.inflight = undefined
+    inflight.resolve(reason)
+  }
+
+  const rejectFromError = (
+    inflight: NonNullable<SessionRecord['inflight']>,
+    reason: Extract<TurnEndReason, { kind: 'error' }>,
+  ): void => {
+    inflight.reject(internalError(`turn failed: ${errorChain(reason.error)}`))
   }
 
   // Emit only committed assistant text. Raw chunks, reasoning, tools, plans,
@@ -128,19 +153,46 @@ export function apply(ctx: Context, config: AcpConfig): void {
   ctx.on('session/event', (session, event: SessionEvent) => {
     const record = sessions.get(session.header.id)
     if (record === undefined || record.agent.session !== session) return
-    if (record.inflight !== undefined && event.type === 'assistant/message') {
-      for (const block of event.data.message.content) {
-        if (block.type === 'text' && block.text.length > 0) {
-          notify({
-            sessionId: record.agent.session.id,
-            update: {
-              sessionUpdate: 'agent_message_chunk',
-              content: { type: 'text', text: block.text },
-            },
-          })
+    try {
+      if (event.type === 'assistant/message') {
+        for (const block of event.data.message.content) {
+          if (block.type === 'text' && block.text.length > 0) {
+            notify({
+              sessionId: record.agent.session.id,
+              update: {
+                sessionUpdate: 'agent_message_chunk',
+                content: { type: 'text', text: block.text },
+              },
+            })
+          }
+        }
+      }
+    } finally {
+      const inflight = record.inflight
+      if (inflight !== undefined && event.type === 'turn/end' && inflight.turn === event.data.turn) {
+        if (event.data.reason.kind === 'error') {
+          record.inflight = undefined
+          rejectFromError(inflight, event.data.reason)
+        } else {
+          record.inflight = undefined
+          inflight.resolve(turnEndToStopReason(event.data.reason))
         }
       }
     }
+  })
+
+  ctx.on('agent/inbox/claimed', (agent, { message, turn }) => {
+    const record = ownedRecord(agent)
+    const inflight = record?.inflight
+    if (inflight !== undefined && inflight.messageId === message.id) inflight.turn = turn
+  })
+
+  ctx.on('agent/error', (agent, turn, _step, error) => {
+    const record = ownedRecord(agent)
+    const inflight = record?.inflight
+    if (record === undefined || inflight === undefined || inflight.turn === turn) return
+    record.inflight = undefined
+    inflight.reject(internalError(`turn failed: ${errorChain(error)}`))
   })
 
   // Permission requests are a machine policy channel for ACP clients such as
@@ -223,22 +275,44 @@ export function apply(ctx: Context, config: AcpConfig): void {
         if (ctx.agents.get(record.agent.id) !== record.agent) {
           throw internalError('prompt was not queued: the agent was disposed outside the bridge')
         }
-        const inflight: NonNullable<SessionRecord['inflight']> = { cancelled: false }
-        record.inflight = inflight
-        try {
-          record.agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
-          await record.agent.whenIdle()
-          return { stopReason: inflight.cancelled ? 'cancelled' : 'end_turn' }
-        } finally {
-          record.inflight = undefined
-        }
+        const message = createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } })
+        const stopReason = await new Promise<StopReason>((resolve, reject) => {
+          // Arm the slot before followup() so a listener-driven synchronous
+          // turn cannot slip past correlation; a synchronous followup()
+          // failure (invalid input) must free the slot again or the session
+          // would reject every later prompt as already in flight.
+          const inflight: NonNullable<SessionRecord['inflight']> = {
+            resolve, reject, messageId: message.id, turn: undefined,
+          }
+          record.inflight = inflight
+          try {
+            record.agent.followup(message)
+            // The machine's send() contains listener failures and accepts
+            // any typed input; this guards a future synchronous throw so the
+            // slot cannot wedge.
+            /* v8 ignore start -- future-proofing guard, see above */
+          } catch (error: unknown) {
+            record.inflight = undefined
+            const detail = error instanceof Error ? error.message : String(error)
+            throw internalError(`prompt was not queued: ${detail}`)
+          }
+          /* v8 ignore stop */
+          // A turnless slot settles only at quiescence: admission discarded
+          // the prompt before it could open a turn.
+          void record.agent.whenIdle().then(() => {
+            if (record.inflight !== inflight) return
+            record.inflight = undefined
+            inflight.resolve('cancelled')
+          })
+        })
+        return { stopReason }
       },
 
       cancel(params: CancelNotification): Promise<void> {
         const record = sessions.get(SessionId(params.sessionId))
         if (record === undefined) return Promise.resolve()
-        cancelPrompt(record)
         record.agent.cancel({ kind: 'user' })
+        settlePrompt(record, 'cancelled')
         return Promise.resolve()
       },
     }
@@ -257,10 +331,45 @@ export function apply(ctx: Context, config: AcpConfig): void {
     closed = true
     const records = [...sessions.values()]
     sessions.clear()
-    quiescing = Promise.all(records.map(async (record) => {
-      cancelPrompt(record)
-      await record.dispose()
-    })).then(() => {})
+    // Stop the bridge's own work before any await: a descendant drain can block
+    // on persistence or scoped cleanup, and the top-level agents must not keep
+    // running model and tool calls for its whole duration.
+    for (const record of records) {
+      record.agent.cancel({ kind: 'user' })
+      settlePrompt(record, 'cancelled')
+    }
+    quiescing = (async () => {
+      // Continuable subagents outlive the turn that started them, and their
+      // Activations own descendant teardown. Drain only these sessions' forests
+      // child-first BEFORE disposing the top-level agents, so no descendant is
+      // left holding a runtime its owner already released and another frontend
+      // sharing this Context remains live.
+      // Read the one teardown method structurally: the bridge needs no other
+      // part of the subagent seam, so it does not depend on that package.
+      const subagents = ctx.get('subagents') as ContinuableDrain | undefined
+      if (subagents !== undefined) {
+        try {
+          await subagents.drainContinuableDescendants(records.map(record => record.agent))
+        } catch (error: unknown) {
+          logger.warn(`acp: continuable subagent teardown failed: ${String(error)}`)
+        }
+      }
+      const disposals = await Promise.allSettled(records.map(record => record.dispose()))
+      const failures: unknown[] = []
+      for (const result of disposals) {
+        if (result.status === 'rejected') failures.push(result.reason as unknown)
+      }
+      if (failures.length > 0) {
+        // The production consumer logs this AggregateError through `String`,
+        // which renders only its message. Embed every per-session diagnostic,
+        // including nested causes and aggregate members, in that message.
+        const detail = failures.map(failure => errorChain(failure)).join('; ')
+        throw new AggregateError(
+          failures,
+          `ACP agent teardown failed for ${failures.length} session(s): ${detail}`,
+        )
+      }
+    })()
     return quiescing
   }
 
