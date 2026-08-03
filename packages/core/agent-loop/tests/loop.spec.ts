@@ -235,7 +235,7 @@ describe('agent loop', () => {
     const turnEnd = agent.session.events.find(e => e.type === 'turn/end')
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind).toBe('error')
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind === 'error'
-      ? turnEnd.data.reason.error
+      ? turnEnd.data.reason.error.message
       : '').toContain('no value for this assembly')
 
     // The loop survived: a waterfall listener rescues {{cwd}} and the SAME

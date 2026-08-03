@@ -193,7 +193,7 @@ describe('bounded retry through the real DeepSeek HTTP/SSE adapter', () => {
     expect(agent.session.events.some(event => event.type === 'llm/retry')).toBe(false)
     expect(agent.session.events.at(-1)).toMatchObject({
       type: 'turn/end',
-      data: { step: 1, reason: { kind: 'error', error: { code: 'STREAM_CLOSED' } } },
+      data: { step: 1, reason: { kind: 'error', error: { message: 'SSE stream ended without [DONE]', code: 'STREAM_CLOSED' } } },
     })
   })
 
@@ -233,9 +233,13 @@ describe('bounded retry through the real DeepSeek HTTP/SSE adapter', () => {
     expect(server.requests).toHaveLength(3)
     expect(agent.session.events.filter(event => event.type === 'step/start')).toHaveLength(1)
     expect(agent.session.events.filter(event => event.type === 'llm/retry')).toHaveLength(2)
-    expect(agent.session.events.at(-1)).toMatchObject({
+    const end = agent.session.events.at(-1)
+    expect(end).toMatchObject({
       type: 'turn/end',
       data: { step: 1, reason: { kind: 'error', error: { code: 'TRANSPORT' } } },
     })
+    if (end?.type === 'turn/end' && end.data.reason.kind === 'error') {
+      expect(end.data.reason.error.message).toContain('DeepSeek API request to')
+    }
   })
 })

@@ -448,10 +448,14 @@ describe('provider-routed retry policy', () => {
 
     expect(adapter.requests).toHaveLength(0)
     expect(agent.session.events.some(event => event.type === 'llm/retry')).toBe(false)
-    expect(agent.session.events.at(-1)).toMatchObject({
+    const end = agent.session.events.at(-1)
+    expect(end).toMatchObject({
       type: 'turn/end',
       data: { step: 1, reason: { kind: 'error', error: { code: 'NO_ADAPTER' } } },
     })
+    if (end?.type === 'turn/end' && end.data.reason.kind === 'error') {
+      expect(end.data.reason.error.message).toContain('no adapter registered for provider')
+    }
   })
 
   it('selects policy by the failed request provider', async () => {

@@ -278,7 +278,10 @@ declare module 'cordis' {
      * re-reads its inbox: fresh steering runs another step, none closes the
      * turn. Data decides, so listener order cannot change the outcome. The
      * inverse control (stop a tool loop early) is data too: a tool result
-     * carrying `concludesTurn` ends the turn at its step.
+     * carrying `concludesTurn` ends the turn at its step. The conclusion
+     * never short-circuits already-submitted next-step work: same-step
+     * `additionalContexts` or racing steering still runs, and the turn
+     * closes only when that inbox drains.
      * @param agent - the agent whose turn is at its stop boundary.
      * @param turn - the turn about to close.
      * @param signal - the current turn's explicit abort signal.

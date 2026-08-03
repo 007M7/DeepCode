@@ -9,7 +9,7 @@ describe('ACP codec', () => {
     [{ kind: 'aborted', reason: { kind: 'user' } }, 'cancelled'],
     [{ kind: 'interrupted' }, 'cancelled'],
     [{ kind: 'blocked' }, 'end_turn'],
-    [{ kind: 'error', error: 'failed' }, 'end_turn'],
+    [{ kind: 'error', error: { message: 'failed', code: 'UNKNOWN' } }, 'end_turn'],
   ] satisfies Array<[TurnEndReason, string]>)('maps %o to %s', (reason, expected) => {
     expect(turnEndToStopReason(reason)).toBe(expected)
   })

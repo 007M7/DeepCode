@@ -139,7 +139,7 @@ describe('SessionStore.fork', () => {
     const reasons: TurnEndReason[] = [
       { kind: 'completed' },
       { kind: 'aborted', reason: { kind: 'user' } },
-      { kind: 'error', error: 'model failed' },
+      { kind: 'error', error: { message: 'model failed', code: 'UNKNOWN' } },
       { kind: 'aborted', reason: { kind: 'disposed' } },
       { kind: 'max-tokens' },
       { kind: 'interrupted' },

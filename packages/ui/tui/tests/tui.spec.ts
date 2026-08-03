@@ -466,7 +466,7 @@ describe('goodbye message and /resume', () => {
 
   it.each([
     [{ kind: 'aborted', reason: { kind: 'user' } }, 'cancelled'],
-    [{ kind: 'error', step: 1, error: 'failed' }, 'error'],
+    [{ kind: 'error', error: { message: 'failed', code: 'UNKNOWN' } }, 'error'],
     [{ kind: 'aborted', reason: { kind: 'disposed' } }, 'disposed'],
     [{ kind: 'max-tokens' }, 'max tokens'],
     [{ kind: 'interrupted' }, 'interrupted'],
@@ -3981,9 +3981,9 @@ describe('pi-tui chat lifecycle and transcript', () => {
     agentEvents(events.ctx, unrelatedAgent).emit('agent/disposed')
     agentEvents(events.ctx, events.agent).emit('agent/error', 1, 1, new Error('live failure'))
     events.session.append('step/end', { turn: 1, step: 1 })
-    events.session.append('turn/end', { turn: 1, step: 1, reason: { kind: 'error', error: 'live failure' } })
+    events.session.append('turn/end', { turn: 1, step: 1, reason: { kind: 'error', error: { message: 'live failure', code: 'UNKNOWN' } } })
     events.session.append('turn/start', { turn: 2 })
-    events.session.append('turn/end', { turn: 2, step: 0, reason: { kind: 'error', error: 'durable failure' } })
+    events.session.append('turn/end', { turn: 2, step: 0, reason: { kind: 'error', error: { message: 'durable failure', code: 'UNKNOWN' } } })
     events.session.append('turn/start', { turn: 3 })
     events.session.append('turn/end', { turn: 3, step: 0, reason: { kind: 'aborted', reason: { kind: 'user' } },
     })

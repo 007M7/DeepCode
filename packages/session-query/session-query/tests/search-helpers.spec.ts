@@ -119,8 +119,8 @@ describe('session-query semantic extraction', () => {
 
   it('extracts meaningful turn outcomes and skips structural or unknown events', () => {
     const reasons: Array<[SessionEvent<'turn/end'>['data']['reason'], string]> = [
-      [{ kind: 'error', error: new Error('boom') }, 'error\nboom'],
-      [{ kind: 'error', error: 'provider boom' }, 'error\nprovider boom'],
+      [{ kind: 'error', error: { message: 'boom', code: 'UNKNOWN' } }, 'error\nboom'],
+      [{ kind: 'error', error: { message: 'provider boom', code: 'UNKNOWN' } }, 'error\nprovider boom'],
       [{ kind: 'aborted', reason: { kind: 'user' } }, 'aborted'],
       [{ kind: 'aborted', reason: { kind: 'disposed' } }, 'aborted'],
       [{ kind: 'max-tokens' }, 'max-tokens'],

@@ -526,9 +526,11 @@ interface TurnEndReasonMap {
 
   blocked: { kind: 'blocked' }
   /**
-   * The turn failed.
+   * The turn failed. `error` is always a structured failure: the `LlmError`
+   * facts verbatim, or `{ message: errorChain(error), code: 'UNKNOWN' }`
+   * flattened from any other error.
    */
-  error: { kind: 'error'; error: unknown }
+  error: { kind: 'error'; error: LlmFailure }
   /** At least one step reached its output-token ceiling, even if a plugin continued the turn. */
   'max-tokens': { kind: 'max-tokens' }
   /**

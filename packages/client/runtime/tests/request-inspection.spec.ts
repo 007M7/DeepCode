@@ -233,7 +233,7 @@ describe('inspectRequests', () => {
       }),
       at(2, 'step/start', { turn: 2, step: 1 }),
       at(3, 'turn/end', {
-        turn: 2, step: 1, reason: { kind: 'error', error: 'plugin exploded' },
+        turn: 2, step: 1, reason: { kind: 'error', error: { message: 'plugin exploded', code: 'UNKNOWN' } },
       }),
     ]))
 

@@ -331,7 +331,7 @@ describe('session-log invariants', () => {
       unresolved.append('step/start', { turn: 1, step: 1 })
       unresolved.append('tool/call', { turn: 1, step: 1, callId: CallId('c1'), name: 'echo', arguments: '{}' })
       unresolved.append('step/end', { turn: 1, step: 1 })
-      unresolved.append('turn/end', { turn: 1, step: 1, reason: { kind: 'error', error: 'boom' } })
+      unresolved.append('turn/end', { turn: 1, step: 1, reason: { kind: 'error', error: { message: 'boom', code: 'UNKNOWN' } } })
     }).not.toThrow()
   })
 

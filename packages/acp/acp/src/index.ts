@@ -146,7 +146,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
     inflight: NonNullable<SessionRecord['inflight']>,
     reason: Extract<TurnEndReason, { kind: 'error' }>,
   ): void => {
-    inflight.reject(internalError(`turn failed: ${errorChain(reason.error)}`))
+    inflight.reject(internalError(`turn failed: ${reason.error.message}`))
   }
 
   // Emit only committed assistant text. Raw chunks, reasoning, tools, plans,

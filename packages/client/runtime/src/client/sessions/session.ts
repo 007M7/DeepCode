@@ -829,8 +829,6 @@ export class Session implements SessionFace {
           && !this.derivedNodes.some(node => node.kind === 'model-retry' && node.turn === event.data.turn)
         ) {
           const failure = event.data.reason.error
-          const code = failure !== null && typeof failure === 'object' && 'code' in failure
-            && typeof failure.code === 'string' ? failure.code : undefined
           this.derivedNodes.push({
             kind: 'turn-error',
             seq: event.seq,
@@ -838,7 +836,7 @@ export class Session implements SessionFace {
             turn: event.data.turn,
             step: event.data.step,
             message: displayFailureMessage(failure),
-            ...(code === undefined ? {} : { code }),
+            code: failure.code,
           })
           this.derivedRev++
         }

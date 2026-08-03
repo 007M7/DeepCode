@@ -831,7 +831,7 @@ export function createTuiChat(
               liveErrors.delete(key)
               alreadyReported = true
             }
-            const message = errorChain(reason.error)
+            const message = reason.error.message
             if (!alreadyReported) appendNotice(message, 'error')
             break
           }

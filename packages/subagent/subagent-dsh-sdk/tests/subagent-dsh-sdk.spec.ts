@@ -74,7 +74,7 @@ describe('sdkStopReason', () => {
     expect(sdkStopReason({ kind: 'completed' })).toBe('completed')
     expect(sdkStopReason({ kind: 'max-tokens' })).toBe('max-tokens')
     expect(sdkStopReason({ kind: 'aborted', reason: { kind: 'user' } })).toBe('aborted')
-    expect(sdkStopReason({ kind: 'error', error: new Error('x') })).toBe('error')
+    expect(sdkStopReason({ kind: 'error', error: { message: 'x', code: 'UNKNOWN' } })).toBe('error')
     expect(sdkStopReason({ kind: 'interrupted' })).toBe('error')
     expect(sdkStopReason({ kind: 'aborted', reason: { kind: 'disposed' } })).toBe('aborted')
   })

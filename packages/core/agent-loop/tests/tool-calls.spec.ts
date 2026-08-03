@@ -683,7 +683,7 @@ describe('tool-call scheduler: failure quiescence', () => {
     expect(turnEndBeforeDrain).toBeUndefined()
     expect(gated.pending()).toEqual([])
     expect(events(agent).findLast(event => event.type === 'turn/end')).toMatchObject({
-      data: { step: 1, reason: { kind: 'error', error: schedulerError.message } },
+      data: { step: 1, reason: { kind: 'error', error: { message: schedulerError.message, code: 'UNKNOWN' } } },
     })
   })
 })

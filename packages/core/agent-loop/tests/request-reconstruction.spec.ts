@@ -361,10 +361,9 @@ describe('request stability across the loop', () => {
       expect(agent.session.events.findLast(event => event.type === 'turn/end')).toMatchObject({
         data: {
           step: 1,
-          reason: {
-            kind: 'error',
-            error: failure instanceof LlmError ? failure.failure : failure.message,
-          },
+          reason: failure instanceof LlmError
+            ? { kind: 'error', error: failure.failure }
+            : { kind: 'error', error: { message: failure.message, code: 'UNKNOWN' } },
         },
       })
       expect(adapter.requests).toHaveLength(0)
@@ -505,7 +504,7 @@ describe('request stability across the loop', () => {
     const turnEnd = agent.session.events.findLast(event => event.type === 'turn/end')
     expect(turnEnd).toMatchObject({ data: { reason: { kind: 'error' } } })
     if (turnEnd?.type !== 'turn/end' || turnEnd.data.reason.kind !== 'error') throw new Error()
-    expect(turnEnd.data.reason.error).toMatch(/not extensible|frozen|read only|readonly/i)
+    expect(turnEnd.data.reason.error.message).toMatch(/not extensible|frozen|read only|readonly/i)
   })
 
   it('a fresh loop instance over a seeded log anchors with a resume snapshot and stays cache-aligned', async () => {

@@ -234,7 +234,7 @@ describe('live event path', () => {
       ev.stepStart(12, 2, 1),
       at(13, {
         type: 'turn/end',
-        data: { turn: 2, step: 1, reason: { kind: 'error', error: 'plugin exploded' } },
+        data: { turn: 2, step: 1, reason: { kind: 'error', error: { message: 'plugin exploded', code: 'UNKNOWN' } } },
       }),
     ]
     for (const event of failedTurns) feed(event)
@@ -242,9 +242,10 @@ describe('live event path', () => {
     const errors = session.getSnapshot().nodes.filter(node => node.kind === 'turn-error')
     expect(errors).toMatchObject([
       { seq: 9, turn: 1, step: 0, code: 'AUTH', message: 'API key is invalid' },
-      { seq: 13, turn: 2, step: 1, message: 'plugin exploded' },
+      // Every failed turn carries a structured failure; unstructured errors
+      // flatten to the UNKNOWN code.
+      { seq: 13, turn: 2, step: 1, code: 'UNKNOWN', message: 'plugin exploded' },
     ])
-    expect('code' in errors[1]!).toBe(false)
 
     const replay = makeSession()
     replay.api.onHistory = () => histResponse([...plainTurn(0, 0, 'a', 'b'), ...failedTurns])
@@ -410,7 +411,7 @@ describe('live event path', () => {
     feed(ev.retry(7, 1))
     feed(at(8, {
       type: 'turn/end',
-      data: { turn: 1, step: 0, reason: { kind: 'error', error: 'retry failed' } },
+      data: { turn: 1, step: 0, reason: { kind: 'error', error: { message: 'retry failed', code: 'UNKNOWN' } } },
     }))
 
     expect(session.getSnapshot().nodes.at(-1)).toMatchObject({

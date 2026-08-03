@@ -44,7 +44,7 @@ export function extractSessionEventText(event: SessionEvent): string {
 function turnEndText(reason: SessionEvent<'turn/end'>['data']['reason']): string {
   switch (reason.kind) {
     case 'error':
-      return joinText(['error', reason.error instanceof Error ? reason.error.message : String(reason.error)])
+      return joinText(['error', reason.error.message])
     case 'aborted':
       return 'aborted'
     case 'max-tokens':

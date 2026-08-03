@@ -339,7 +339,7 @@ describe('plugin exceptions are contained', () => {
     send(agent, 'first')
     await waitForIdle(ctx, agent)
     expect(agent.session.events.findLast(event => event.type === 'turn/end')).toMatchObject({
-      data: { step: 1, reason: { kind: 'error', error: 'broken continuation plugin' } },
+      data: { step: 1, reason: { kind: 'error', error: { message: 'broken continuation plugin', code: 'UNKNOWN' } } },
     })
 
     // the loop is still alive: a second send works normally
@@ -426,10 +426,10 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
     await waitForIdle(ctx, agent)
     const turnEnd = agent.session.events.findLast(event => event.type === 'turn/end')
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind === 'error'
-      ? turnEnd.data.reason.error
+      ? turnEnd.data.reason.error.message
       : undefined).toContain('has no provider/model')
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind === 'error'
-      ? turnEnd.data.reason.error
+      ? turnEnd.data.reason.error.message
       : undefined).toContain('agent/request')
   })
 
@@ -762,7 +762,7 @@ describe('turn and step boundary recovery', () => {
       errors: 1,
     })
     expect(agent.session.events.findLast(event => event.type === 'turn/end')).toMatchObject({
-      data: { step: 0, reason: { kind: 'error', error: 'reject step-start before commit' } },
+      data: { step: 0, reason: { kind: 'error', error: { message: 'reject step-start before commit', code: 'UNKNOWN' } } },
     })
   })
 

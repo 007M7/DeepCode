@@ -641,7 +641,7 @@ describe('TUI terminal-state snapshots', () => {
           todos: [{ content: `Unsafe todo ${CONTROL_PROBE}`, status: 'in_progress' }],
         })
         session.append('step/end', { turn: 1, step: 1 })
-        session.append('turn/end', { turn: 1, step: 1, reason: { kind: 'error', error: `Unsafe turn error ${CONTROL_PROBE}` },
+        session.append('turn/end', { turn: 1, step: 1, reason: { kind: 'error', error: { message: `Unsafe turn error ${CONTROL_PROBE}`, code: 'UNKNOWN' } },
         })
       },
     }, { columns: 100, rows: 34 })
@@ -801,7 +801,7 @@ describe('TUI terminal-state snapshots', () => {
       harness.terminal.send('\r')
       agentEvents(harness.ctx, harness.agent).emit('agent/error', 1, 1, new Error('provider stream failed after partial output'))
       harness.session.append('step/end', { turn: 1, step: 1 })
-      harness.session.append('turn/end', { turn: 1, step: 1, reason: { kind: 'error', error: 'provider stream failed after partial output' },
+      harness.session.append('turn/end', { turn: 1, step: 1, reason: { kind: 'error', error: { message: 'provider stream failed after partial output', code: 'UNKNOWN' } },
       })
       harness.session.append('turn/start', { turn: 2 })
       harness.session.append('turn/end', { turn: 2, step: 0, reason: { kind: 'interrupted' },

@@ -60,6 +60,20 @@ function requestProposal(header: EpochHeader): LlmCallConfig {
 }
 
 /** Drives one session through turn and step boundaries. */
+/**
+ * Shape a caught turn error into its durable reason: every failure is a
+ * structured LlmFailure — an `LlmError` keeps its facts, anything else
+ * flattens to `errorChain` text under the `UNKNOWN` code.
+ */
+function turnErrorReason(error: unknown): Extract<TurnEndReason, { kind: 'error' }> {
+  return {
+    kind: 'error',
+    error: error instanceof LlmError
+      ? error.failure
+      : { message: errorChain(error), code: 'UNKNOWN' },
+  }
+}
+
 export class ReactLoopAgent implements Agent {
   readonly inbox: Inbox
   private phase: Phase
@@ -279,10 +293,7 @@ export class ReactLoopAgent implements Agent {
         turnEnds = { kind: 'aborted', reason: signal.reason as AgentCancelCause }
         throw error
       }
-      turnEnds = {
-        kind: 'error',
-        error: error instanceof LlmError ? error.failure : errorChain(error),
-      }
+      turnEnds = turnErrorReason(error)
       this.throwError(error)
     } finally {
       try {

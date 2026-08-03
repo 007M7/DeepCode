@@ -155,7 +155,7 @@ describe('thrown-value propagation', () => {
     await waitForIdle(ctx, agent)
     const turnEnd = agent.session.events.find(e => e.type === 'turn/end')
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind === 'error'
-      ? turnEnd.data.reason.error
+      ? turnEnd.data.reason.error.message
       : undefined).toBe('[object Object]')
   })
 })
@@ -464,7 +464,7 @@ describe('unrenderable failure settlement', () => {
     if (end?.type === 'turn/end' && end.data.reason.kind === 'error') {
       // The durable failure keeps the adapter facts' message, not the
       // unrenderable chain.
-      expect(errorChain(end.data.reason.error)).not.toBe('<unrenderable value>')
+      expect(errorChain(end.data.reason.error.message)).not.toBe('<unrenderable value>')
     }
   })
 })
