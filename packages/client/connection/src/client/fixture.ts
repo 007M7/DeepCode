@@ -2312,6 +2312,17 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         return ok(request, { matched: true as const, commandId })
       },
     },
+    agentPresets: {
+      // Two rows so a picker has something to choose between, and so the
+      // trust distinction a surface must present is visible in the fixture.
+      list: request => ok(request, {
+        presets: [
+          { id: 'standard', trust: 'system' as const, isDefault: true },
+          { id: 'core-web', trust: 'system' as const, isDefault: false },
+        ],
+      }),
+    },
+
     skills: {
       list: (request) => {
         const missing = requireSession(request)
@@ -2609,6 +2620,7 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'command.list': return this.api.commands.list(request)
       case 'command.execute': return this.api.commands.execute(request, signal)
       case 'skill.list': return this.api.skills.list(request)
+      case 'agentPreset.list': return this.api.agentPresets.list(request)
       case 'goal.create': return this.api.goals.create(request)
       case 'goal.edit': return this.api.goals.edit(request)
       case 'goal.pause': return this.api.goals.pause(request)

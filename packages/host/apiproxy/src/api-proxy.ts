@@ -2484,6 +2484,24 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
     },
 
+    agentPresets: {
+      // A deployment with no roster answers with an empty list rather than an
+      // error: composing no presets is a valid deployment, and the browser
+      // simply offers no choice.
+      async list(request) {
+        const presets = ctx.get('agentPresets')
+        if (presets === undefined) return ok(request, { presets: [] })
+        const defaultId = presets.defaultId
+        return ok(request, {
+          presets: (await presets.list()).map(preset => ({
+            id: preset.id,
+            trust: preset.trust,
+            isDefault: preset.id === defaultId,
+          })),
+        })
+      },
+    },
+
     skills: {
       // Skill lookup never touches the Agent registry: the session address
       // resolves to a canonical cwd from the host-resident session header, so

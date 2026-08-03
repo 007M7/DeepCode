@@ -235,3 +235,30 @@ describe('a capability the session\'s preset mounts', () => {
     expect(failure.error.message).toContain('neither this session')
   })
 })
+
+describe('agentPreset.list', () => {
+  it('marks the default and carries each preset\'s trust', async () => {
+    const { api } = await harness(['standard', 'core-web'])
+
+    const response = await api.agentPresets.list(request({}))
+
+    expect(response.result.ok).toBe(true)
+    if (!response.result.ok) throw new Error('unreachable')
+    expect(response.result.value.presets).toEqual([
+      { id: 'standard', trust: 'system', isDefault: true },
+      { id: 'core-web', trust: 'system', isDefault: false },
+    ])
+  })
+
+  it('answers with an empty roster when the deployment composes no presets', async () => {
+    const { api } = await harness()
+
+    const response = await api.agentPresets.list(request({}))
+
+    // Composing no presets is a valid deployment, not an error: every session
+    // then shares the host composition and the browser offers no choice.
+    expect(response.result.ok).toBe(true)
+    if (!response.result.ok) throw new Error('unreachable')
+    expect(response.result.value.presets).toEqual([])
+  })
+})

@@ -193,6 +193,11 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
         return { rpcId: request.rpcId, result: { ok: true, value: { matched: false } } }
       },
     },
+    agentPresets: {
+      list(request: RpcRequest<{}>) {
+        return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value: { presets: [] } } })
+      },
+    },
     skills: {
       async list(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { skills: [{ name: 'commit-helper', description: 'Git commits' }] } } }
