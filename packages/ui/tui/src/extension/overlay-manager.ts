@@ -12,7 +12,6 @@ import type { TuiExtensionService } from '../index.ts'
 import type {
   Component,
   Focusable,
-  OverlayHandle,
 } from '@earendil-works/pi-tui'
 import type {
   TuiComponent,
@@ -36,12 +35,18 @@ export interface TuiOverlayDriver {
   theme(): TuiTheme
   /** Escape text at the terminal display boundary. */
   display(value: string): string
-  /** Mount one guarded component and return its private pi-tui handle. */
-  show(component: Component, options: TuiOverlayOptions | undefined): OverlayHandle
+  /** Mount one guarded modal and return its private focus/lifecycle handle. */
+  show(component: Component, options: TuiOverlayOptions | undefined, placement: TuiOverlayPlacement): TuiModalHandle
   /** Invalidate the mounted UI and request a render. */
   invalidate(): void
   /** Report a contained extension failure. */
   reportError(error: unknown): void
+}
+
+type TuiOverlayPlacement = 'overlay' | 'inline'
+
+interface TuiModalHandle {
+  hide(): void
 }
 
 interface OverlayEntry {
@@ -51,9 +56,10 @@ interface OverlayEntry {
   readonly closed: Promise<TuiOverlayOutcome>
   readonly resolveClosed: (outcome: TuiOverlayOutcome) => void
   readonly session: TuiOverlaySession
+  readonly placement: TuiOverlayPlacement
   state: TuiOverlayState
   component?: GuardedOverlayComponent
-  handle?: OverlayHandle
+  handle?: TuiModalHandle
   removeRequestAbort?: () => void
   outcome?: TuiOverlayOutcome
   failing?: boolean
@@ -165,11 +171,12 @@ export class TuiOverlayManager {
   }
 
   /**
-   * Queue one overlay without assigning Cordis ownership.
+   * Queue one modal without assigning Cordis ownership.
    * @param request - component factory, constraints, and request signal.
+   * @param placement - terminal overlay for extensions, or inline for the built-in question panel.
    * @returns an internal session that can close with an ownership reason.
    */
-  open(request: TuiOverlayRequest): TuiOverlaySession & {
+  open(request: TuiOverlayRequest, placement: TuiOverlayPlacement = 'overlay'): TuiOverlaySession & {
     closeWith(reason: Exclude<TuiOverlayCloseReason, 'error'>): Promise<TuiOverlayOutcome>
   } {
     if (!this.accepting) throw new Error('TUI is shutting down')
@@ -202,6 +209,7 @@ export class TuiOverlayManager {
       closed: deferred.promise,
       resolveClosed: deferred.resolve,
       session,
+      placement,
       state: 'queued',
     }
     if (requestSignal?.aborted === true) {
@@ -251,7 +259,7 @@ export class TuiOverlayManager {
     })
     entry.component = guarded
     try {
-      const handle = this.driver.show(guarded, entry.request.options)
+      const handle = this.driver.show(guarded, entry.request.options, entry.placement)
       if (this.active !== entry) {
         this.hide(handle)
         return
@@ -306,7 +314,7 @@ export class TuiOverlayManager {
     }
   }
 
-  private hide(handle: OverlayHandle): void {
+  private hide(handle: TuiModalHandle): void {
     try {
       handle.hide()
     } catch (error) {
