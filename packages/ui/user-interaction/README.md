@@ -20,7 +20,7 @@ Abstract user-interaction seam. It owns `ctx.userInteraction`, the service a mod
 - `UserInteractionProvider` — UI implementation with `ask(request)`.
 - `UserInteractionError` — `HarnessError` subclass with codes such as `EMPTY_QUESTIONS`, `BAD_INTENT`, `NO_PROVIDER`, `DUPLICATE_PROVIDER`, and `ASK_ABORTED`.
 
-When an answer includes `custom`, `selected` is empty; custom text is an override rather than a supplement to selected choices. A UI may preserve a skipped item as `{ id, selected: [] }`, keeping the existing answer shape while retaining other answers in the batch.
+For a single-select question, `custom` overrides the selected choice and `selected` is empty. For a multi-select question, `custom` may supplement the labels in `selected`. A UI may preserve a skipped item as `{ id, selected: [] }`, keeping the existing answer shape while retaining other answers in the batch.
 
 ### Presentation intent
 

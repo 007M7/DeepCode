@@ -22,6 +22,6 @@ None; this package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 
-- **State dots have two live data states (running/none)** — the done/error/amber sources arrive with P-II approvals and notifications; the four-color primitive is already wired.
+- **Session state-dot rendering is owned by [ui-workspace](../ui-workspace/README.md)** — done/error notification sources remain deferred.
 - **Group-by menu ships by-workspace only** — Update/Status grouping strategies are drawn without specs and deferred.
 - **"New task completed" unread marking is local viewing state** — completion-time > last-seen never reaches the host.

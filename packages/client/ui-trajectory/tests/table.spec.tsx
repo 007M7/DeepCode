@@ -64,7 +64,7 @@ describe('TrajectoryTable', () => {
   it('shows assistant timing facts after keyboard selection', () => {
     render(<TrajectoryTable turns={TURNS} {...FOLD_PROPS} />)
     fireEvent.keyDown(screen.getByRole('row', { name: /ASSISTANT/ }), { key: 'Enter' })
-    fireEvent.click(screen.getByRole('button', { name: 'Timing' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Request Timing' }))
 
     expect(screen.getByText('500 ms')).toBeTruthy()
     expect(screen.getByText('1.00 s')).toBeTruthy()
@@ -101,10 +101,13 @@ describe('TrajectoryTable', () => {
     render(<TrajectoryTable turns={turns} {...FOLD_PROPS} />)
 
     fireEvent.click(screen.getByRole('row', { name: /ASSISTANT/ }))
-    const toggle = screen.getByRole('button', { name: 'Thinking ...' })
+    const toggle = screen.getByRole('button', { name: 'Thinking' })
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
     expect(screen.queryByText(thinking)).toBeNull()
 
     fireEvent.click(toggle)
+    expect(screen.getByRole('button', { name: 'Thinking' })).toBe(toggle)
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
     expect(toggle.parentElement?.textContent?.length).toBeGreaterThan(thinking.length)
   })
 
@@ -222,19 +225,79 @@ describe('TrajectoryTable', () => {
     expect(errorResult.closest('[class*="errorPayload"]')).toBeTruthy()
   })
 
-  it('renders responsive role icons with a custom tooltip', () => {
+  it('marks failed requests and lays coincident request markers left to right', () => {
+    const turns: readonly TrajectoryTurnModel[] = [
+      {
+        turn: 1,
+        groups: [{
+          title: 'Step 1',
+          cells: [{
+            index: 1,
+            kind: 'message',
+            text: '',
+            requestOnly: true,
+            isError: true,
+            timeSeconds: 0.1,
+          }],
+        }],
+      },
+      {
+        turn: 2,
+        groups: [{
+          title: 'Step 1',
+          cells: [{
+            index: 2,
+            kind: 'message',
+            text: '',
+            requestOnly: true,
+            isError: true,
+            timeSeconds: 0.1,
+          }],
+        }],
+      },
+      {
+        turn: 3,
+        groups: [{
+          title: 'Step 1',
+          cells: [{
+            index: 3,
+            kind: 'message',
+            text: 'Recovered response',
+            timeSeconds: 0.1,
+          }],
+        }],
+      },
+    ]
+    render(<TrajectoryTable turns={turns} {...FOLD_PROPS} />)
+
+    const failed = screen.getByRole('button', { name: 'Request #1' })
+    const retry = screen.getByRole('button', { name: 'Request #2' })
+    const recovered = screen.getByRole('button', { name: 'Request #3' })
+    expect(failed.getAttribute('data-request-status')).toBe('error')
+    expect(failed.getAttribute('data-request-run-index')).toBe('0')
+    expect(failed.style.getPropertyValue('--request-boundary-offset')).toBe('0px')
+    expect(retry.getAttribute('data-request-run-index')).toBe('1')
+    expect(retry.style.getPropertyValue('--request-boundary-offset')).toBe('8px')
+    expect(recovered.getAttribute('data-request-run-index')).toBe('2')
+    expect(recovered.style.getPropertyValue('--request-boundary-offset')).toBe('16px')
+  })
+
+  it('shows the custom role tooltip only from the responsive icon', () => {
     const view = render(<TrajectoryTable turns={TURNS} {...FOLD_PROPS} />)
     const toolTag = view.container.querySelector<HTMLElement>('[data-role-kind="tool"]')
+    const toolIcon = toolTag?.querySelector<HTMLElement>('[data-role-icon="wrench"]')
 
     expect(toolTag).not.toBeNull()
     expect(toolTag?.getAttribute('title')).toBeNull()
-    expect(toolTag?.querySelector('[data-role-icon="wrench"]')).toBeTruthy()
+    expect(toolIcon).toBeTruthy()
 
     fireEvent.mouseEnter(toolTag as HTMLElement)
+    expect(screen.queryByRole('tooltip')).toBeNull()
+    fireEvent.mouseEnter(toolIcon as HTMLElement)
     const tooltip = screen.getByRole('tooltip')
     expect(tooltip.textContent).toBe('TOOL')
     expect(tooltip.getAttribute('data-side')).toBe('right')
-    fireEvent.mouseLeave(toolTag as HTMLElement)
+    fireEvent.mouseLeave(toolIcon as HTMLElement)
     expect(screen.queryByRole('tooltip')).toBeNull()
   })
 

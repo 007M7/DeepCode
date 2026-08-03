@@ -117,8 +117,19 @@ class ScriptedTuiAdapter extends LlmAdapter {
 
     const blocks = lastMessage?.content ?? []
     if (blocks.some(block => block.type === 'tool-result')) {
-      const answered = blocks.some(block => block.type === 'tool-result' && block.toolCallId === BASH_FAILURE_CALL_ID)
-      for (const chunk of textChunks(answered ? BASH_FAILURE_TEXT : FINAL_TEXT)) yield chunk
+      const answeredBash = blocks.some(block =>
+        block.type === 'tool-result' && block.toolCallId === BASH_FAILURE_CALL_ID)
+      if (answeredBash) {
+        for (const chunk of textChunks(BASH_FAILURE_TEXT)) yield chunk
+        return
+      }
+      const toolResultText = blocks.flatMap(block => block.type === 'tool-result'
+        ? block.content.flatMap(content => content.type === 'text' ? [content.text] : [])
+        : []).join('\n')
+      if (toolResultText !== '{"answers":[{"id":"mode","selected":["Safe"],"custom":"Release notes"}]}') {
+        throw new Error(`the scripted TUI request received an unexpected question answer: ${toolResultText}`)
+      }
+      for (const chunk of textChunks(FINAL_TEXT)) yield chunk
       return
     }
     if (lastText.includes(BASH_FAILURE_PROBE)) {
@@ -140,6 +151,7 @@ class ScriptedTuiAdapter extends LlmAdapter {
         id: 'mode',
         header: 'Execution mode',
         question: 'How should the scripted run proceed?',
+        multi_select: true,
         options: [
           { label: 'Safe', description: 'Use the guarded path.' },
           { label: 'Fast', description: 'Use the shorter path.' },
