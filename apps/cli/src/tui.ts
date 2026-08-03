@@ -142,13 +142,15 @@ export async function runTui(
   const execve = process.execve?.bind(process)
   const app: { current?: Context } = {}
   // The Loader mounts entries concurrently, so `ui-tui` can already hold the
-  // terminal (raw mode, bracketed paste, keyboard protocol) when a sibling
-  // entry rejects — and that rejection arrives while `boot` is still in
-  // flight. Disposing the tree runs the TUI's own shutdown, which stops the
-  // terminal and hands the shell back; without it a failed boot returns to a
-  // corrupted prompt. `app.current` is captured from boot's `prepare` hook, so
-  // it holds the root context for the whole mounting window rather than only
-  // after boot resolves.
+  // terminal (raw mode, bracketed paste, keyboard protocol) when something
+  // else fails. A config-tree failure settles through `boot`, which disposes
+  // the tree itself; this release covers the rejections `boot` cannot see — a
+  // plugin's detached async work rejecting while mounting is still in flight
+  // or after the tree settled. Disposing the tree runs the TUI's own shutdown,
+  // which stops the terminal and hands the shell back; without it such a
+  // failure returns to a corrupted prompt. `app.current` is captured from
+  // boot's `prepare` hook, so it holds the root context for the whole mounting
+  // window rather than only after boot resolves.
   installFailLoud(NAME, process, async () => {
     await app.current?.fiber.dispose()
   })

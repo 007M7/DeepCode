@@ -418,10 +418,13 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
   }, PTY_SMOKE_TEST_TIMEOUT_MS)
 
   // The Loader mounts entries concurrently, so `ui-tui` can already own the
-  // terminal when a sibling entry rejects on its config. Exiting straight from
-  // the fail-loud handler left raw mode and bracketed paste set on the user's
+  // terminal when a sibling entry rejects on its config. Exiting without the
+  // tree's own teardown left raw mode and bracketed paste set on the user's
   // shell, and the pending Device Attributes reply landed there as literal
-  // text. The launcher's release hook must reach the TUI's own teardown.
+  // text. The transactional mount must settle (an HMR initial-scan refresh
+  // once deadlocked its rollback into a silent exit 13) so `boot` disposes
+  // the tree — reaching the TUI's own shutdown — and rejects with the
+  // labelled diagnostic.
   it('restores the terminal when a sibling entry fails to validate during boot', async () => {
     const output = await smoke({
       label: 'dsh invalid provider config',
@@ -429,7 +432,7 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
       configPath: invalidProviderConfigPath,
       expectedExitCode: 1,
     })
-    expect(output).toContain('dsh: fatal load failure:')
+    expect(output).toContain('dsh: plugin tree failed to load:')
     expect(output).toContain('$.providers')
     // Bracketed paste is disabled again, which only `ProcessTerminal.stop()`
     // writes — proof the tree was disposed rather than exited out from under.
