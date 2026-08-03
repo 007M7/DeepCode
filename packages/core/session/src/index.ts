@@ -928,10 +928,11 @@ export class SessionStore extends Service {
   /**
    * Dispatch the awaited `session/flush` durability checkpoint for `session`,
    * with the carrier captured at {@link enter}. THE flush entry point: the
-   * store owns the carrier, so callers (the loop's turn-end checkpoint, idle
-   * injection, teardown drains) must come through here rather than dispatch a
-   * raw `ctx.parallel('session/flush', …)` — one owner, one spelling, and the
-   * scoped-dispatch invariant can pin it.
+   * store owns the carrier, so callers (the checkpoint policy's per-request
+   * barrier, goal-session's idle checkpoint, teardown drains, and consumers
+   * that flush themselves before reading storage) must come through here
+   * rather than dispatch a raw `ctx.parallel('session/flush', …)` — one owner,
+   * one spelling, and the scoped-dispatch invariant can pin it.
    * @param session - the session whose buffered events must reach durable storage.
    * @returns whether at least one durability listener participated, after every
    *   listener has settled successfully.

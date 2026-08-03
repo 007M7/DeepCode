@@ -234,6 +234,10 @@ export class ReactLoopAgent implements Agent {
     try {
       decision = await this.preStep('next-turn', { turn: phase.turn + 1, step: 1 })
       if (decision.kind === 'reject') return false
+      // An empty admitted batch (claimed input removed before the wake, or no
+      // runtime-context change) parks the driver instead of opening a turn and
+      // spending a model call on nothing.
+      if (decision.messages.length === 0) return false
       signal.throwIfAborted()
     } catch (error: unknown) {
       if (signal.aborted) throw error
@@ -256,7 +260,12 @@ export class ReactLoopAgent implements Agent {
           for (const message of decision.messages) {
             this.session.append('user/message', message, { surfaceOp: 'append' })
           }
-          turnEnds = await this.step(decision.assembly)
+          // max-tokens is sticky: once any step hits the ceiling, later steps
+          // that complete normally must not downgrade the turn outcome.
+          const stepEnd = await this.step(decision.assembly)
+          // max-tokens stays sticky: a later completed step must not
+          // downgrade the turn outcome.
+          if (turnEnds === null || turnEnds.kind !== 'max-tokens') turnEnds = stepEnd
         } finally {
           this.session.append('step/end', { turn, step })
         }

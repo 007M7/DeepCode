@@ -18,7 +18,7 @@ The low-level SDK protocol answers `session/prompt` as soon as enqueue succeeds 
 
 High-level automation APIs return a `RunResult` only when they explicitly own an activity interval. The TypeScript and Python SDK `run()` methods collect from the submitted message's durable inbox receipt through the next whole-agent `idle`; their `finalResponse` is the last committed assistant message in that interval, not a response causally attributed to the submitted prompt. The one-shot CLI owns the analogous idle-to-idle interval. An isolated child-agent run may report a result because its caller owns the complete child lifecycle and any steering belongs to that run.
 
-ACP must return a protocol `stopReason`. Its bridge serializes one in-flight prompt per ACP session, waits for whole-agent idle, reports `cancelled` only for explicit ACP cancellation or disposal, and otherwise reports the generic `end_turn`. It does not infer token-limit or error attribution for the prompt.
+ACP must return a protocol `stopReason`. Its bridge serializes one in-flight prompt per ACP session, waits for whole-agent idle, and otherwise reports the generic `end_turn`. Token-limit endings are not attributed to the prompt: they settle as `end_turn`. A model error on the prompt's correlated turn does reject the prompt immediately (the error is attributed by its owning turn), and a turnless slot (admission discarded the prompt) settles as `cancelled` at idle alongside explicit ACP cancellation or disposal.
 
 Goal continuation retains `MessageId` only to recognize its durable queued and admitted goal message. It advances from durable goal state at whole-agent idle, without mapping the message to a turn result.
 

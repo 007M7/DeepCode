@@ -455,6 +455,17 @@ describe('events frame schemas', () => {
     }
   })
 
+  it('accepts every queue placement and rejects unknown placements', () => {
+    const item = (placement: string) => ({ type: 'session/queue', sessionId: 's', items: [{
+      id: 'm', placement,
+      message: { id: 'm', role: 'user', content: [], source: { kind: 'user' } },
+    }] })
+    for (const placement of ['queued', 'steering', 'context']) {
+      expect(() => muxFrameSchema.parse(item(placement))).not.toThrow()
+    }
+    expect(() => muxFrameSchema.parse(item('bogus'))).toThrow()
+  })
+
   it('rejects a queue snapshot with malformed items', () => {
     expect(() => muxFrameSchema.parse({ type: 'session/queue', sessionId: 's', items: 'x' })).toThrow()
     expect(() => muxFrameSchema.parse({ type: 'session/queue', sessionId: 's', items: [{ id: '', role: 'user', content: [], source: { kind: 'user' } }] })).toThrow()

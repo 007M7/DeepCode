@@ -967,7 +967,9 @@ describe('agent loop', () => {
         source: { kind: 'plugin', plugin: 'max-tokens-test' },
       },
     ])
-    expect(reasons).toEqual([{ kind: 'completed' }])
+    // A max-token step is sticky: the later completed step must not
+    // downgrade the turn outcome.
+    expect(reasons).toEqual([{ kind: 'max-tokens' }])
   })
 
   it('a completed step after no max-tokens keeps the turn completed (max-tokens does not leak across turns)', async () => {

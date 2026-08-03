@@ -187,6 +187,20 @@ describe('abort during tool execution ends the turn', () => {
       .toBeUndefined()
   })
 
+  it('parks an empty admitted batch instead of opening a turn', async () => {
+    const adapter = new MockAdapter([textResponse('must not run')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('a-empty-batch'), { provider: 'mock', model: 'mock' })
+    send(agent, 'go')
+    // The wake microtask has not run yet: remove the only pending message so
+    // the admission batch is empty.
+    agent.inbox.remove('next-turn', agent.inbox.nextTurn[0]!.id)
+    await waitForIdle(ctx, agent)
+    expect(adapter.requests).toHaveLength(0)
+    expect(agent.session.events.some(event => event.type === 'turn/start')).toBe(false)
+    expect(agent.inbox.nextTurn).toHaveLength(0)
+  })
+
   it('parks result context finalized after disposal cancellation without opening another turn', async () => {
     const adapter = new MockAdapter([toolCallResponse('c1', 'waiter', {})])
     const ctx = await harness(adapter)
