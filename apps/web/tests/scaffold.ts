@@ -166,7 +166,11 @@ export interface LaunchOptions {
   }
   /** Leave the current welcome notice unacknowledged; ordinary scenarios publish it as complete before browser boot. */
   welcomeNoticePending?: boolean
-  /** Browse through this trusted non-loopback hostname while the test server stays bound to loopback. */
+  /**
+   * Browse through a trusted non-loopback hostname that the browser resolves
+   * to loopback (for example `*.localhost`). The test server stays bound to
+   * 127.0.0.1; a non-resolving authority fails before Host trust is exercised.
+   */
   remoteAuthority?: string
 }
 

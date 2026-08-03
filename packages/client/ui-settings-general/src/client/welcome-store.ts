@@ -117,7 +117,9 @@ export class WelcomeNoticeStore {
 }
 
 /**
- * Refresh only after the welcome step has begun reading durable state.
+ * Refresh only after welcome state has left idle. A memory-mode load retains
+ * acknowledgement so reconnect and settings-change refreshes do not reopen a
+ * process-local notice.
  * @param controller - welcome state owner whose current status decides whether to load.
  */
 export function refreshWelcomeIfLoaded(controller: WelcomeNoticeStore): void {

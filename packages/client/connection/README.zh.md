@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-协议消费层：客户端插件的 apply 会挂载 `ctx.connection`（共享 API 客户端 + 单消费方流循环启动器）；导出表层携带协议契约类型、`AbstractApiClient` seam，以及循环的 sink／配置类型。node 半侧的 `/api` 路由让特权方法集（`host.pickDirectory`、`host.openPath`，以及整个配置面——`settings.describe`/`update`/`replace`/`mutate` 与 `credentials.describe`/`set`/`unset`，读取也在内，因为 describe 会返回已暴露的配置，而探测任意引用会报出某条凭据来自何处）以空信任表过信任 fence，从而钉在回环——已声明的 `trustedHosts` 授权可达其余全部方法，而这些方法在真正的认证层出现之前仍只限回环本机。平台子类（WebApiClient/FixtureApiClient）、ConnectionController 循环和 fixture 数据源都属于包内部：apply 负责选择并驱动它们，测试则通过 src 访问。契约：api-contracts v3 §3。
+协议消费层：客户端插件的 apply 会挂载 `ctx.connection`（共享 API 客户端 + 单消费方流循环启动器）；导出表层携带协议契约类型、`AbstractApiClient` seam，以及循环的 sink／配置类型。专用的 `./loopback-hostname` 源码子路径导出 `/api` Host fence 与浏览器欢迎页持久化选择共用的零依赖判定函数；客户端 bundler 会内联这一源码入口，而 plain Node 无法直接加载它，因此它必须保持浏览器安全且零依赖。node 半侧的 `/api` 路由让特权方法集（`host.pickDirectory`、`host.openPath`，以及整个配置面——`settings.describe`/`update`/`replace`/`mutate` 与 `credentials.describe`/`set`/`unset`，读取也在内，因为 describe 会返回已暴露的配置，而探测任意引用会报出某条凭据来自何处）以空信任表过信任 fence，从而钉在回环——已声明的 `trustedHosts` 授权可达其余全部方法，而这些方法在真正的认证层出现之前仍只限回环本机。平台子类（WebApiClient/FixtureApiClient）、ConnectionController 循环和 fixture 数据源都属于包内部：apply 负责选择并驱动它们，测试则通过 src 访问。契约：api-contracts v3 §3。
 
 ## /api 浏览器信任栅栏
 
