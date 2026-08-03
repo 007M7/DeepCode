@@ -271,6 +271,25 @@ describe('web e2e: shipped default web search', () => {
     expect(geometry.scrollHeight).toBeGreaterThan(geometry.clientHeight)
   })
 
+  it.skipIf(MODE === 'record')('reserves marker room a scroll container cannot clip back', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-search-marker-room'))
+    // `overflow-y: auto` clips inline-start overflow with no way to scroll it
+    // back, and markers are right-aligned to the content edge, so a marker wider
+    // than `padding-left` silently loses its leading digits. `searchMaxResults`
+    // is an unbounded positive integer, so measure the widest three-digit marker
+    // in the list's own font and require the shipped padding to hold it.
+    const marker = await page.locator('[data-web="search"] ol').evaluate((element) => {
+      const probe = document.createElement('span')
+      probe.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;font:inherit'
+      probe.textContent = '999. '
+      element.append(probe)
+      const widest = probe.getBoundingClientRect().width
+      probe.remove()
+      return { widest, paddingLeft: parseFloat(getComputedStyle(element).paddingLeft) }
+    })
+    expect(marker.paddingLeft).toBeGreaterThanOrEqual(marker.widest)
+  })
+
   it.skipIf(MODE === 'record')('stayed clean and kept the exact fixture inventory', async () => {
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])

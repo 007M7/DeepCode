@@ -11,7 +11,9 @@
 // plain text. Geometry, radius, and fonts mirror CodeBlock/TerminalBlock so a
 // web card reads as one family with them; the whole source list renders inside a
 // fixed-height scroll container (its `.sources` max-height), so a long list
-// scrolls in place rather than growing the card. The card draws every source the
+// scrolls in place rather than growing the card — and that container's
+// `padding-left` must stay wide enough for the widest `<li>` marker, since a
+// scroll container clips inline-start overflow irrecoverably. The card draws every source the
 // view carries: the tool already cut the list to its source cap, and `truncated`
 // reports that cut. A content-only transform downstream of the tool — spill-policy
 // replacing an oversized result's text while leaving its presentationMeta whole —

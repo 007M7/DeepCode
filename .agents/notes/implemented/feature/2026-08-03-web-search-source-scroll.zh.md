@@ -20,6 +20,8 @@ Status: implemented
 
 `CHAT_WEB_MAX_SOURCES` 与该 primitive 的 `DEFAULT_WEB_MAX_SOURCES` 被移除：有了滚动，聊天行与详情面板展示同一份完整列表，仅以各自的容器高度区分。`<li value={ordinal}>` 仍钉住每条来源从 1 起算的引用序号；没有了折叠造成的间断，这些序号如今就是连续的。
 
+把列表变成滚动容器，也把它的 `padding-left` 从间距变成了正确性约束。滚动容器裁掉 inline-start 方向的溢出且无从滚回，而 `::marker` 右对齐到内容边缘，因此宽于 padding 的序号会静默丢掉前导数字——在列表原本的 20px 下，两位数序号被画成 `0.` 与 `1.`，而本该是 `10.` 与 `11.`。`searchMaxResults` 是无上界的正整数，因此该 padding 以 `em` 计量——相对列表自身的字体，也就是序号所继承的那个——装得下三位数序号（`999. ` 在应用字体栈下量得 2.35em），并保留一位数情形原有的间隙。
+
 ## Alternatives considered
 
 **提高 `searchMaxResults`（或让它无上限），使更多来源同时抵达模型与卡片。** 被用户否决：它改变了模型侧行为（每个请求的上下文纳入更多来源、更多 token），并拉大模型读到的内容与卡片画出的内容之间的差距。指令很明确——保留上限与截断，加一个滚动条。
@@ -36,7 +38,7 @@ Status: implemented
 
 `packages/client/ui-primitives/tests/web-block.spec.tsx` 删去折叠相关用例（首尾切片、点击展开、折叠尾部编号、展开器不计入编号、仅首部、默认上限），并新增：一个 30 条来源的卡片渲染出全部 30 个 `<li>`，无 `[aria-expanded]`、无 `<button>`，每个 `<ol>` 子元素都是一条来源 `<li>`，且 `<li value>` 从 1 到 N 连续编号。`packages/client/ui-conversation/tests/web-card.spec.tsx` 删去 `CHAT_WEB_MAX_SOURCES` 上限断言；WebRow 展开测试仍断言卡片展示每一个来源字段。`packages/web/tool-web` 的测试不变——模型侧未曾移动。
 
-jsdom 不解析 CSS Modules 布局，对任何元素都报 `scrollHeight === clientHeight`，因此它根本无从见证这次滚动。几何改由组装态浏览器钉住，位于 `apps/web/tests/web-search-round.e2e.ts`：其确定性 search double 返回 12 条 provider 结果，每条带标题、引用摘录与日期。这首先在真实组合里端到端钉住 seam 的裁剪——出厂 `searchMaxResults` 保留 8 条，面向模型的 render 文本含这 8 条标题、不含被丢弃的 4 条 URL，并含 `(Showing the first 8 sources. Refine the query for more.)`，`meta.truncated` 为 true。随后位于 aria golden 之后的一个用例展开 `web_search` 行，对卡片的 `<ol>` 断言：8 个 `<li>`、卡片内任何位置都没有 `<button>`、`来源列表已截断` 指示可见，以及计算样式 `max-height: 320px` 与 `overflow-y: auto`，`scrollHeight` 为 574、`clientHeight` 为 320。录制的模型流与 aria golden 都未变动：replay 是对 fixture 中 `assistant/chunk` 条目的位置游标，而 search double 是 provider 经 `fetch` 抵达的另一个本地端点；捕获时卡片处于折叠状态，其 `<ol>` 不在 DOM 中，摘要行也不携带来源数量。
+jsdom 不解析 CSS Modules 布局，对任何元素都报 `scrollHeight === clientHeight`，因此它根本无从见证这次滚动。几何改由组装态浏览器钉住，位于 `apps/web/tests/web-search-round.e2e.ts`：其确定性 search double 返回 12 条 provider 结果，每条带标题、引用摘录与日期。这首先在真实组合里端到端钉住 seam 的裁剪——出厂 `searchMaxResults` 保留 8 条，面向模型的 render 文本含这 8 条标题、不含被丢弃的 4 条 URL，并含 `(Showing the first 8 sources. Refine the query for more.)`，`meta.truncated` 为 true。随后位于 aria golden 之后的一个用例展开 `web_search` 行，对卡片的 `<ol>` 断言：8 个 `<li>`、卡片内任何位置都没有 `<button>`、`来源列表已截断` 指示可见，以及计算样式 `max-height: 320px` 与 `overflow-y: auto`，`scrollHeight` 为 574、`clientHeight` 为 320。再后一个用例在列表自身继承的字体下量出 `999. ` 序号的宽度，要求计算后的 `padding-left` 不小于该宽度，从而把滚动容器无从滚回的那段序号空间钉在最宽序号上，而非钉在某一份 fixture 的来源条数上。录制的模型流与 aria golden 都未变动：replay 是对 fixture 中 `assistant/chunk` 条目的位置游标，而 search double 是 provider 经 `fetch` 抵达的另一个本地端点；捕获时卡片处于折叠状态，其 `<ol>` 不在 DOM 中，摘要行也不携带来源数量。
 
 ## Related
 
