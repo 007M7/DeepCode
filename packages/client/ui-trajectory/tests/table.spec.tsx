@@ -225,7 +225,7 @@ describe('TrajectoryTable', () => {
   it('marks failed requests and lays coincident request markers left to right', () => {
     const turns: readonly TrajectoryTurnModel[] = [
       {
-        turn: null,
+        turn: 1,
         groups: [{
           title: 'Step 1',
           cells: [{
@@ -239,14 +239,27 @@ describe('TrajectoryTable', () => {
         }],
       },
       {
-        turn: null,
+        turn: 2,
         groups: [{
-          title: 'Step 2',
+          title: 'Step 1',
           cells: [{
             index: 2,
             kind: 'message',
             text: '',
             requestOnly: true,
+            isError: true,
+            timeSeconds: 0.1,
+          }],
+        }],
+      },
+      {
+        turn: 3,
+        groups: [{
+          title: 'Step 1',
+          cells: [{
+            index: 3,
+            kind: 'message',
+            text: 'Recovered response',
             timeSeconds: 0.1,
           }],
         }],
@@ -256,11 +269,14 @@ describe('TrajectoryTable', () => {
 
     const failed = screen.getByRole('button', { name: 'Request #1' })
     const retry = screen.getByRole('button', { name: 'Request #2' })
+    const recovered = screen.getByRole('button', { name: 'Request #3' })
     expect(failed.getAttribute('data-request-status')).toBe('error')
     expect(failed.getAttribute('data-request-run-index')).toBe('0')
     expect(failed.style.getPropertyValue('--request-boundary-offset')).toBe('0px')
     expect(retry.getAttribute('data-request-run-index')).toBe('1')
     expect(retry.style.getPropertyValue('--request-boundary-offset')).toBe('8px')
+    expect(recovered.getAttribute('data-request-run-index')).toBe('2')
+    expect(recovered.style.getPropertyValue('--request-boundary-offset')).toBe('16px')
   })
 
   it('shows the custom role tooltip only from the responsive icon', () => {

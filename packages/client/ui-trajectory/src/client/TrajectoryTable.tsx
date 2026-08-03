@@ -459,17 +459,16 @@ function indexRequestNumbers(
 
 function indexRequestBoundaryRuns(records: readonly TableRecord[]): ReadonlyMap<number, number> {
   const indexes = new Map<number, number>()
-  let previous: TableRecord | undefined
-  let runIndex = 0
+  let runLength = 0
   for (const record of records) {
-    if (record.cell.requestOnly !== true) {
-      previous = record
-      runIndex = 0
+    if (record.cell.requestOnly === true) {
+      indexes.set(record.cell.index, runLength++)
       continue
     }
-    runIndex = previous?.cell.requestOnly === true ? runIndex + 1 : 0
-    indexes.set(record.cell.index, runIndex)
-    previous = record
+    if (runLength > 0 && record.groupStart && requestStep(record.group) !== undefined) {
+      indexes.set(record.cell.index, runLength)
+    }
+    runLength = 0
   }
   return indexes
 }
