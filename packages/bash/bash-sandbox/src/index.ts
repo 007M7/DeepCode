@@ -11,7 +11,14 @@
 import { Context } from 'cordis'
 import type { BashExecRequest, BashExecSpec, BashProcess, BashRunResult } from '@deepseek-ai/dsh-bash'
 import { SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
-import type { ConfinedSandboxMode, SandboxEnforcement, SandboxExecutionPolicy, SandboxMode, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
+import type {
+  ConfinedSandboxMode,
+  RunnerFailureRule,
+  SandboxEnforcement,
+  SandboxExecutionPolicy,
+  SandboxMode,
+  SandboxPolicy,
+} from '@deepseek-ai/dsh-sandbox'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import type { Config as LocalConfig } from '@deepseek-ai/dsh-bash-local'
@@ -51,7 +58,7 @@ export class SandboxBashExecutor extends LocalBashExecutor {
     mode: ConfinedSandboxMode
     enforcement: SandboxEnforcement
     denialSignatures: readonly string[]
-    runnerFailureSignatures: readonly string[]
+    runnerFailureRules: readonly RunnerFailureRule[]
   }>()
 
   constructor(ctx: Context, config: Config) {
@@ -84,10 +91,11 @@ export class SandboxBashExecutor extends LocalBashExecutor {
     }
     const confined = this.confine(spec.command, { ...policy, mode })
     const result = await super.run({ ...spec, command: confined.command })
-    // Runner failure outranks denial because the command did not run. Throw the
-    // same fail-closed error as confine-time discovery with the first stderr line.
-    if (classifyRunnerFailure(result, confined.runnerFailureSignatures)) {
-      throw new SandboxUnavailableError(mode, result.stderr.text.trim().split('\n')[0])
+    // Runner failure outranks denial because the command did not run. Carry
+    // the matched fatal line, not an informational line that preceded it.
+    const runnerFailure = classifyRunnerFailure(result.exitCode, result.stderr.text, confined.runnerFailureRules)
+    if (runnerFailure !== undefined) {
+      throw new SandboxUnavailableError(mode, runnerFailure.detail)
     }
     return { ...result, sandbox: { mode, denied: classifyDenial(result, confined.denialSignatures), enforcement: confined.enforcement } }
   }
@@ -99,8 +107,8 @@ export class SandboxBashExecutor extends LocalBashExecutor {
     // Install facts synchronously; promise settlement cannot run before start() returns.
     const confined = this.confine(spec.command, { ...policy, mode })
     const proc = super.start({ ...spec, command: confined.command })
-    const { enforcement, denialSignatures, runnerFailureSignatures } = confined
-    this.processFacts.set(proc, { mode, enforcement, denialSignatures, runnerFailureSignatures })
+    const { enforcement, denialSignatures, runnerFailureRules } = confined
+    this.processFacts.set(proc, { mode, enforcement, denialSignatures, runnerFailureRules })
     return proc
   }
 
@@ -113,7 +121,7 @@ export class SandboxBashExecutor extends LocalBashExecutor {
     if (facts !== undefined) {
       this.processFacts.delete(proc)
       // Runner failure outranks denial because its diagnostics may contain denial terms.
-      const runnerFailed = matchesSignature(proc.exitCode, stderr, facts.runnerFailureSignatures)
+      const runnerFailed = classifyRunnerFailure(proc.exitCode, stderr, facts.runnerFailureRules) !== undefined
       proc.sandbox = {
         mode: facts.mode,
         denied: !runnerFailed && matchesSignature(proc.exitCode, stderr, facts.denialSignatures),
@@ -136,14 +144,14 @@ export class SandboxBashExecutor extends LocalBashExecutor {
     command: string
     enforcement: SandboxEnforcement
     denialSignatures: readonly string[]
-    runnerFailureSignatures: readonly string[]
+    runnerFailureRules: readonly RunnerFailureRule[]
   } {
     const confined = this.ctx.sandbox.confine(['bash', '-c', command], policy)
     return {
       command: `exec ${confined.argv.map(shellQuote).join(' ')}`,
       enforcement: confined.enforcement,
       denialSignatures: confined.denialSignatures,
-      runnerFailureSignatures: confined.runnerFailureSignatures,
+      runnerFailureRules: confined.runnerFailureRules,
     }
   }
 }

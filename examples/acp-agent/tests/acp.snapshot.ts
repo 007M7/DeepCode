@@ -47,6 +47,7 @@ const SUBAGENT_DURABILITY_FAILURE_CONFIG = fileURLToPath(
 const LSP_CONFIG = fileURLToPath(new URL('./lsp.cordis.yml', import.meta.url))
 const WEB_CONFIG = fileURLToPath(new URL('../web.cordis.yml', import.meta.url))
 const FS_SEARCH_CONFIG = fileURLToPath(new URL('./fs-search.cordis.yml', import.meta.url))
+const PARTIAL_LANDLOCK_CONFIG = fileURLToPath(new URL('../partial-landlock.cordis.yml', import.meta.url))
 const FS_SEARCH_BIN = fileURLToPath(new URL('./fixtures/fs-search-bin', import.meta.url))
 const SNAPSHOTS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
 const PACKED_CHUNKS_SOURCE = 'hook-cc-pretool-deny'
@@ -131,6 +132,18 @@ const SCENARIOS: Scenario[] = [
     configPath: PTY_CONFIG,
   },
   { name: 'bash-tool-turn', hasModelTurn: true, recorded: true },
+  // Authored keyless replay through a test-only partial-Landlock provider:
+  // the exact compatibility notice must stay ordinary stderr when the wrapped
+  // `false` command exits 1, rather than becoming SANDBOX_UNAVAILABLE.
+  {
+    name: 'partial-landlock-child-failure',
+    hasModelTurn: true,
+    recorded: false,
+    headerClass: 'sandbox',
+    configPath: PARTIAL_LANDLOCK_CONFIG,
+    env: { DSH_PERMISSION_MODE: 'read-only' },
+    posixOnly: true,
+  },
   { name: 'todo-write', hasModelTurn: true, recorded: true },
   {
     name: 'skill-load',

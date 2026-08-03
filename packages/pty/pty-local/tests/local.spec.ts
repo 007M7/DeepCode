@@ -26,7 +26,7 @@ class PassthroughSandbox extends SandboxProvider {
 
   confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv {
     this.calls.push({ argv, policy })
-    return { argv: [...argv], enforcement: 'full', denialSignatures: [], runnerFailureSignatures: [] }
+    return { argv: [...argv], enforcement: 'full', denialSignatures: [], runnerFailureRules: [] }
   }
 }
 

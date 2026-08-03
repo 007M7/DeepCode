@@ -13,7 +13,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { join, sep } from 'node:path'
-import { createUserMessage, CallId  } from '@deepseek-ai/dsh-llm'
+import { CallId, HarnessError, createUserMessage } from '@deepseek-ai/dsh-llm'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { TOOL_ABORTED_BEFORE_DISPATCH, type ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 import { BashExecutor } from '@deepseek-ai/dsh-bash'
@@ -373,7 +373,7 @@ describe('workdir derivation and signal forwarding', () => {
     const controller = new AbortController()
     bash.handler = () => {
       controller.abort('cancel search')
-      throw new Error('executor stopped on abort')
+      throw new HarnessError('structured executor failure during abort', 'SANDBOX_UNAVAILABLE')
     }
 
     const result = await call(ctx, 'grep', { pattern: 'x' }, { signal: controller.signal })
@@ -402,6 +402,26 @@ describe('workdir derivation and signal forwarding', () => {
     expect(result.isError).toBe(true)
     expect(result.error).toMatchObject({ info: { name: 'SearchError', code: 'SEARCH_FAILED' } })
     expect(text(result)).toContain('could not start')
+  })
+
+  it('propagates an existing structured bash failure unchanged', async () => {
+    const { ctx, bash } = await setup()
+    const upstream = new HarnessError('sandbox runner failed', 'SANDBOX_UNAVAILABLE')
+    bash.handler = () => { throw upstream }
+
+    const rejection = ToolFsSearch.runRipgrep(
+      ctx,
+      { signal: testToolSignal } as never,
+      'grep',
+      "rg --json --regexp='x'",
+      20_000_000,
+    )
+    await expect(rejection).rejects.toBe(upstream)
+
+    const result = await call(ctx, 'grep', { pattern: 'x' })
+    expect(result.error).toMatchObject({ info: { name: 'HarnessError', code: 'SANDBOX_UNAVAILABLE' } })
+    expect(text(result)).toContain('sandbox runner failed')
+    expect(text(result)).not.toContain('could not start')
   })
 })
 

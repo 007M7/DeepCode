@@ -46,7 +46,7 @@ await ctx.plugin(LocalSpillStore)                           // @deepseek-ai/dsh-
 
 ## 错误
 
-搜索失败携带本包拥有的 `SearchError`（`HarnessError` 子类），以 `{ name, code }` 公开在 `isError` 结果上：`SEARCH_INVALID_PATTERN`（ripgrep 拒绝正则/glob）、`SEARCH_FAILED`（注册后 `rg` 在运行时消失、目标不可访问、信号终止、`--json` 输出格式错误）、`SEARCH_RAW_OUTPUT_OVERFLOW`（原始输出超过 `rawOutputMaxBytes`，或在请求 stdout 捕获预算后仍被截断）和 `SEARCH_ABORTED`（工具超时、调用方取消或 bash 执行器自身超时）。ripgrep 退出语义由工具拥有：退出 0 表示成功且有结果，退出 1 表示成功的空搜索（`No files found` / `No matches found`），只有其他退出值表示失败。模型参数错误（空白 pattern、列表值 `include`）仍是普通工具参数错误。
+搜索层自身的失败携带 `SearchError`（`HarnessError` 子类），以 `{ name, code }` 公开在 `isError` 结果上：`SEARCH_INVALID_PATTERN`（ripgrep 拒绝正则/glob）、`SEARCH_FAILED`（注册后 `rg` 在运行时消失、目标不可访问、信号终止、`--json` 输出格式错误）、`SEARCH_RAW_OUTPUT_OVERFLOW`（原始输出超过 `rawOutputMaxBytes`，或在请求 stdout 捕获预算后仍被截断）和 `SEARCH_ABORTED`（工具超时、调用方取消或 bash 执行器自身超时）。bash 执行器拒绝并返回的既有结构化 `HarnessError`（包括 `SANDBOX_UNAVAILABLE`）会原样传播；只有无类型的 spawn、cwd 或 shell 启动拒绝会转换为 `SEARCH_FAILED`，中止信号仍为 `SEARCH_ABORTED`。ripgrep 退出语义由工具拥有：退出 0 表示成功且有结果，退出 1 表示成功的空搜索（`No files found` / `No matches found`），只有其他退出值表示失败。模型参数错误（空白 pattern、列表值 `include`）仍是普通工具参数错误。
 
 ## 模型体验
 
@@ -114,7 +114,7 @@ glob 描述会说明配置所指定的超限结果排序方式。已生成的 [`
 
 #### 模型看到的内容
 
-失败会规范化为 `Error: <message>`，并向调用方提供结构化的 `SEARCH_INVALID_PATTERN`、`SEARCH_FAILED`、`SEARCH_RAW_OUTPUT_OVERFLOW` 或 `SEARCH_ABORTED` 元数据。
+搜索层自身的失败会渲染为 `Error: <message>`，并附带结构化的 `SEARCH_INVALID_PATTERN`、`SEARCH_FAILED`、`SEARCH_RAW_OUTPUT_OVERFLOW` 或 `SEARCH_ABORTED` 元数据；来自 bash 执行器的结构化失败则保留其原有名称和错误码。
 
 #### Token 影响
 

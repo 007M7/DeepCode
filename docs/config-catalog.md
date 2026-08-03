@@ -235,7 +235,7 @@ export type Config = LocalConfig
 
 Depends on: [`LocalConfig`](#deepseek-aidsh-bash-local)
 
-Source: [`packages/bash/bash-sandbox/src/index.ts:27`](../packages/bash/bash-sandbox/src/index.ts)
+Source: [`packages/bash/bash-sandbox/src/index.ts:34`](../packages/bash/bash-sandbox/src/index.ts)
 
 ## `@deepseek-ai/dsh-cli-demo`
 
@@ -1037,7 +1037,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/sandbox/sandbox-local/src/index.ts:19`](../packages/sandbox/sandbox-local/src/index.ts)
+Source: [`packages/sandbox/sandbox-local/src/index.ts:24`](../packages/sandbox/sandbox-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-sandbox-policy`
 

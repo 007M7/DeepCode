@@ -6,9 +6,9 @@
 
 包（package）根目录导出默认及命名的 `LocalSandboxProvider` 插件、`Config` 和公共测试注入 seam；平台 profile builder 仍为内部实现。
 
-不受支持的平台和不可用 runner 会以 `SANDBOX_UNAVAILABLE` 拒绝执行；执行绝不会静默回退为不受限制。每次包装都携带 runner 失败签名，使消费方能够区分损坏的沙箱与命令失败。[沙箱 Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md)负责说明选择依据与 profile 差异。
+不受支持的平台和不可用 runner 会以 `SANDBOX_UNAVAILABLE` 拒绝执行；执行绝不会静默回退为不受限制。每次包装都携带结构化 runner 失败规则，使消费方能够区分损坏的沙箱与命令失败。[沙箱 Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md)负责说明选择依据与 profile 差异。
 
-策略逐调用传入；提供方只存储机制与缓存的 runner 结论。每次包装都会报告强制执行完整度，以及后端专用的拒绝和 runner 失败签名。`runnerCommand` 是操作方对 bwrap 形式 runner 的断言，会跳过探测；但命令缺失或不可执行时，执行仍会被拒绝。由于其机制未知，它会同时携带两种 Linux 拒绝方言。`probeTimeoutMs` 限制功能探测。[沙箱 Agent Note](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md)负责说明选择与失败语义。
+策略逐调用传入；提供方只存储机制与缓存的 runner 结论。每次包装都会报告强制执行完整度，以及后端专用的拒绝签名和 runner 失败规则。Landlock 只有在退出码为 125，且排除唯一精确匹配的部分强制执行通知后仍存在一行 `landlock-run:` 致命诊断时，才判定 runner 失败；携带该通知的子进程即使以 1、2 或 125 退出，也仍按子进程结果处理。独立的外层 shell 规则使用解析后或配置的 argv0、缺失或不可执行诊断文本，以及退出码 126／127。`runnerCommand` 仍是面向运维人员的配置键，用于指定自定义 runner 的致命签名，并会跳过探测。由于其机制未知，它会同时携带两种 Linux 拒绝方言。`probeTimeoutMs` 限制功能探测。[沙箱 Agent Note](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md)负责说明选择与失败语义。
 
 Seatbelt profile 默认允许，但带 `(deny file-write*)` 和写入 allow-list，因此恰好约束相应模式承诺的文件操作：`read-only` 只授予 `/dev/null` 字面路径；`workspace-write` 另加工作区根目录、`/tmp` 和逐用户 darwin 临时目录（`os.tmpdir()`，即平台供 mkstemp 家族工具使用的真实临时区域）。每个根目录都经过规范化，因为 Seatbelt 匹配解析后的路径（`/tmp` 就是 `/private/tmp`）。Apple 将 `sandbox-exec` CLI（命令行界面）标为 deprecated，但所有 macOS 系统仍会提供它；若情况发生变化，功能探测会使执行被拒绝。
 

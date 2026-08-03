@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/postmortem/0004-landlock-partial-notice-misclassified-child-failures.md
+0004-landlock-partial-notice-misclassified-child-failures.md: ccedba6094ffec9de95fbd52d58add4a0e6e5105
+0004-landlock-partial-notice-misclassified-child-failures.zh.md: 89d85d835d58753721927be85a5581b12a490fcf

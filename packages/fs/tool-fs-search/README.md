@@ -46,7 +46,7 @@ Raw `rg` stdout is an internal transport detail. Each search requests `stdoutMax
 
 ## Errors
 
-Search failures carry the package-owned `SearchError` (a `HarnessError` subclass), surfaced as `{ name, code }` on `isError` results: `SEARCH_INVALID_PATTERN` (ripgrep rejected the regex/glob), `SEARCH_FAILED` (runtime `rg` disappearance after registration, inaccessible target, signal kill, malformed `--json` output), `SEARCH_RAW_OUTPUT_OVERFLOW` (raw output over `rawOutputMaxBytes`, or still truncated after the requested stdout capture budget), and `SEARCH_ABORTED` (tool timeout, caller cancellation, or the bash executor's own timeout). ripgrep exit semantics are tool-owned: exit 0 is success with results, exit 1 is a successful empty search (`No files found` / `No matches found`), and only other exits are failures. Model argument mistakes (blank pattern, a list-valued `include`) stay ordinary tool argument errors.
+Search-owned failures carry `SearchError` (a `HarnessError` subclass), surfaced as `{ name, code }` on `isError` results: `SEARCH_INVALID_PATTERN` (ripgrep rejected the regex/glob), `SEARCH_FAILED` (runtime `rg` disappearance after registration, inaccessible target, signal kill, malformed `--json` output), `SEARCH_RAW_OUTPUT_OVERFLOW` (raw output over `rawOutputMaxBytes`, or still truncated after the requested stdout capture budget), and `SEARCH_ABORTED` (tool timeout, caller cancellation, or the bash executor's own timeout). An existing structured `HarnessError` rejected by the bash executor, including `SANDBOX_UNAVAILABLE`, propagates unchanged; only an untyped spawn, cwd, or shell-start rejection becomes `SEARCH_FAILED`, while an aborted signal remains `SEARCH_ABORTED`. ripgrep exit semantics are tool-owned: exit 0 is success with results, exit 1 is a successful empty search (`No files found` / `No matches found`), and only other exits are failures. Model argument mistakes (blank pattern, a list-valued `include`) stay ordinary tool argument errors.
 
 ## Model Experience
 
@@ -114,7 +114,7 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 #### What the model sees
 
-Failures are normalized as `Error: <message>` with structured `SEARCH_INVALID_PATTERN`, `SEARCH_FAILED`, `SEARCH_RAW_OUTPUT_OVERFLOW`, or `SEARCH_ABORTED` metadata for callers.
+Search-owned failures render as `Error: <message>` with structured `SEARCH_INVALID_PATTERN`, `SEARCH_FAILED`, `SEARCH_RAW_OUTPUT_OVERFLOW`, or `SEARCH_ABORTED` metadata; structured bash-executor failures retain their owning name and code.
 
 #### Token effect
 

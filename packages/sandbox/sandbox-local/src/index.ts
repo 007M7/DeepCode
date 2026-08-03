@@ -1,18 +1,23 @@
 /**
  * Local sandbox backend. It selects the platform runner chain (Linux bwrap then
  * Landlock; macOS Seatbelt), functionally probes competing candidates once, and
- * reports each wrap's enforcement and stderr dialects. Missing or unusable
+ * reports each wrap's enforcement and stderr classification facts. Missing or unusable
  * confinement fails closed rather than returning the original argv.
  * @module @deepseek-ai/dsh-sandbox-local
  */
 
 import { spawnSync } from 'node:child_process'
-import { LAUNCHER_BIN, launcherPath as landlockLauncherPath, probe as defaultProbeLandlock } from 'node-addon-landlock-run'
+import {
+  LAUNCHER_BIN,
+  LAUNCHER_FAILURE_EXIT,
+  launcherPath as landlockLauncherPath,
+  probe as defaultProbeLandlock,
+} from 'node-addon-landlock-run'
 import { Context } from 'cordis'
 import z from 'schemastery'
 import { assertNever } from '@deepseek-ai/dsh-llm'
 import { SandboxProvider, SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
-import type { ConfinedArgv, ConfinedSandboxMode, SandboxEnforcement, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
+import type { ConfinedArgv, ConfinedSandboxMode, RunnerFailureRule, SandboxEnforcement, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import { bwrapProfileArgs, landlockProfileArgs, seatbeltProfileArgs } from './profiles.ts'
 
 /** Plugin config. All optional — `static Config` supplies the defaults. */
@@ -142,15 +147,36 @@ const DENIAL_SIGNATURES = {
 } as const satisfies Record<SelectedRunner['runner'] | 'runnerCommand', readonly string[]>
 
 /**
- * Runner-owned stderr prefixes cover both internal refusal and shell-level
- * not-found errors. Consumers match these before denial text because the
- * command never ran on this path.
+ * Runner-owned fatal diagnostics. Landlock's launcher contract reserves exit
+ * 125 for launcher failure and emits the partial-ABI notice before successful
+ * child execution, so both the status gate and the exact exclusion are needed.
  */
-const RUNNER_FAILURE_SIGNATURES = {
-  bwrap: ['bwrap: '],
-  landlock: [`${LAUNCHER_BIN}: `],
-  seatbelt: ['sandbox-exec: '],
-} as const satisfies Record<SelectedRunner['runner'], readonly string[]>
+const RUNNER_FAILURE_RULES = {
+  bwrap: [{ fatalSignatures: ['bwrap: '] }],
+  landlock: [{
+    allowedExitCodes: [LAUNCHER_FAILURE_EXIT],
+    fatalSignatures: [`${LAUNCHER_BIN}: `],
+    informationalLines: [`${LAUNCHER_BIN}: partial enforcement (older Landlock ABI)`],
+  }],
+  seatbelt: [{ fatalSignatures: ['sandbox-exec: '] }],
+} as const satisfies Record<SelectedRunner['runner'], readonly RunnerFailureRule[]>
+
+/**
+ * Failure shapes emitted by the outer `bash -c 'exec ...'` before the runner
+ * starts. Shells vary between 126 and 127 for a missing path containing `/`,
+ * but keep the configured/resolved argv0 and missing/unexecutable wording.
+ */
+function outerShellFailureRules(argv0: string): readonly RunnerFailureRule[] {
+  return [{
+    allowedExitCodes: [126, 127],
+    fatalSignatures: [
+      `exec: ${argv0}: not found`,
+      `${argv0}: No such file or directory`,
+      `${argv0}: Permission denied`,
+      `exec: ${argv0}: cannot execute`,
+    ],
+  }]
+}
 
 /**
  * Local process-sandbox provider. Registers as `ctx.sandbox`. Stateless
@@ -204,7 +230,7 @@ export class LocalSandboxProvider extends SandboxProvider {
    * @param argv - the exact argv the caller is about to spawn.
    * @param policy - the file-effect policy this execution runs under.
    * @returns the wrapped argv plus the selected backend's enforcement completeness, denial
-   *   signatures, and runner-failure signatures; throws the fail-closed
+   *   signatures, and structured runner-failure rules; throws the fail-closed
    *   `SANDBOX_UNAVAILABLE` error when the platform has no usable runner.
    */
   confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv {
@@ -214,23 +240,25 @@ export class LocalSandboxProvider extends SandboxProvider {
         argv: [...this.runnerCommand, ...bwrapProfileArgs(policy), '--', ...argv],
         enforcement: 'full',
         denialSignatures: DENIAL_SIGNATURES.runnerCommand,
-        // The operator names the configured runner's own pre-exec refusal dialect; the consumer
-        // additionally re-joins the wrap through an outer `bash -c 'exec …'`, so we can add the
-        // missing/unexecutable outer-shell shapes ourselves.
-        runnerFailureSignatures: [
-          ...this.configuredRunnerFailureSignatures,
-          `exec: ${argv0}: not found`,
-          `${argv0}: No such file or directory`,
-          `${argv0}: Permission denied`,
+        // Preserve the operator-facing signature config as one internal rule;
+        // outer-shell launch failures remain a separate, argv0-scoped rule.
+        runnerFailureRules: [
+          ...outerShellFailureRules(argv0),
+          { fatalSignatures: this.configuredRunnerFailureSignatures },
         ],
       }
     }
     const selected = this.selectRunner(policy.mode)
+    const runnerArgv = this.runnerArgv(selected.runner, policy)
+    const argv0 = runnerArgv[0] as string
     return {
-      argv: [...this.runnerArgv(selected.runner, policy), '--', ...argv],
+      argv: [...runnerArgv, '--', ...argv],
       enforcement: selected.enforcement,
       denialSignatures: DENIAL_SIGNATURES[selected.runner],
-      runnerFailureSignatures: RUNNER_FAILURE_SIGNATURES[selected.runner],
+      runnerFailureRules: [
+        ...outerShellFailureRules(argv0),
+        ...RUNNER_FAILURE_RULES[selected.runner],
+      ],
     }
   }
 

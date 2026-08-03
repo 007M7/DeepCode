@@ -23,6 +23,19 @@ import { bwrapProfileArgs, landlockProfileArgs, seatbeltProfileArgs } from '../s
 const RO: SandboxPolicy = { mode: 'read-only', workspaceRoot: '/ws' }
 const WW: SandboxPolicy = { mode: 'workspace-write', workspaceRoot: '/ws' }
 
+/** Expected argv0-scoped rule for failures in bash's outer `exec`. */
+function outerShellRule(argv0: string) {
+  return {
+    allowedExitCodes: [126, 127],
+    fatalSignatures: [
+      `exec: ${argv0}: not found`,
+      `${argv0}: No such file or directory`,
+      `${argv0}: Permission denied`,
+      `exec: ${argv0}: cannot execute`,
+    ],
+  }
+}
+
 async function setup(config: Config = {}, internals: LocalSandboxProvider['internals'] = {}) {
   const ctx = new Context()
   await ctx.plugin(LocalSandboxProvider, config)
@@ -115,11 +128,9 @@ describe('runnerCommand config', () => {
       // wrap through an outer `bash -c 'exec …'` — a missing or
       // unexecutable runner fails with the OUTER shell's argv0-scoped
       // shapes, and those classify as sandbox failures like any rung.
-      runnerFailureSignatures: [
-        'fake-runner: profile rejected',
-        'exec: fake-runner: not found',
-        'fake-runner: No such file or directory',
-        'fake-runner: Permission denied',
+      runnerFailureRules: [
+        outerShellRule('fake-runner'),
+        { fatalSignatures: ['fake-runner: profile rejected'] },
       ],
     })
     expect(probeBwrap).not.toHaveBeenCalled()
@@ -163,7 +174,10 @@ describe('the platform chains', () => {
       argv: ['bwrap', ...bwrapProfileArgs(RO), '--', 'true'],
       enforcement: 'full',
       denialSignatures: ['read-only file system'],
-      runnerFailureSignatures: ['bwrap: '],
+      runnerFailureRules: [
+        outerShellRule('bwrap'),
+        { fatalSignatures: ['bwrap: '] },
+      ],
     })
     expect(probeLandlock).not.toHaveBeenCalled()
   })
@@ -178,14 +192,21 @@ describe('the platform chains', () => {
       argv: [launcher, ...landlockProfileArgs(WW), '--', 'bash', '-c', 'echo hi'],
       enforcement: 'full',
       denialSignatures: ['permission denied'],
-      runnerFailureSignatures: ['landlock-run: '],
+      runnerFailureRules: [
+        outerShellRule(launcher),
+        {
+          allowedExitCodes: [125],
+          fatalSignatures: ['landlock-run: '],
+          informationalLines: ['landlock-run: partial enforcement (older Landlock ABI)'],
+        },
+      ],
     })
     expect(probeLandlock).toHaveBeenCalledWith(launcher)
   })
 
   it('darwin selects its sole candidate WITHOUT probing: nothing to arbitrate', async () => {
     // The safety property moves to execution time: an unusable sandbox-exec
-    // refuses to run the command, and the wrap's runnerFailureSignatures let
+    // refuses to run the command, and the wrap's runnerFailureRules let
     // the consumer classify that as a sandbox failure, not a task failure.
     const probeSeatbelt = vi.fn(() => true)
     const { sandbox } = await setup({}, { platform: 'darwin', probeSeatbelt })
@@ -194,7 +215,10 @@ describe('the platform chains', () => {
       argv: ['sandbox-exec', ...seatbeltProfileArgs(RO), '--', 'bash', '-c', 'echo hi'],
       enforcement: 'full',
       denialSignatures: ['operation not permitted'],
-      runnerFailureSignatures: ['sandbox-exec: '],
+      runnerFailureRules: [
+        outerShellRule('sandbox-exec'),
+        { fatalSignatures: ['sandbox-exec: '] },
+      ],
     })
     expect(probeSeatbelt).not.toHaveBeenCalled()
   })
@@ -360,7 +384,10 @@ describe('the default seatbelt probe (sandbox-exec contract)', () => {
       argv: [exec, ...seatbeltProfileArgs(RO), '--', 'true'],
       enforcement: 'full',
       denialSignatures: ['operation not permitted'],
-      runnerFailureSignatures: ['sandbox-exec: '],
+      runnerFailureRules: [
+        outerShellRule(exec),
+        { fatalSignatures: ['sandbox-exec: '] },
+      ],
     })
   })
 

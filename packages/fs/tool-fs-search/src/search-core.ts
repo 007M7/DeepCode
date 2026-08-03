@@ -152,10 +152,9 @@ function completeStdout(toolName: string, result: BashRunResult, rawOutputMaxByt
  * {@link SearchError} (abort/timeout → `SEARCH_ABORTED`, invalid pattern →
  * `SEARCH_INVALID_PATTERN`, the rest → `SEARCH_FAILED` /
  * `SEARCH_RAW_OUTPUT_OVERFLOW`). A `run()` REJECTION — the seam's
- * infrastructure failures (pre-aborted signal, unusable workdir, missing
- * shell) — is translated into the same taxonomy: a pre-aborted signal becomes
- * `SEARCH_ABORTED`, everything else `SEARCH_FAILED`, with the original as
- * `cause`.
+ * infrastructure failures becomes `SEARCH_ABORTED` when the forwarded signal
+ * aborted, propagates an existing structured {@link HarnessError} unchanged,
+ * and wraps only untyped spawn/workdir/shell-start errors as `SEARCH_FAILED`.
  *
  * @param ctx - the plugin context; execution uses its `bash` service.
  * @param exec - the tool-execution context; supplies the session cwd and the abort signal.
@@ -182,12 +181,13 @@ export async function runRipgrep(
   try {
     result = await ctx.bash.run(spec)
   } catch (error: unknown) {
-    // The seam contract: run() REJECTS only for infrastructure failures — a
-    // pre-aborted signal, an unusable workdir, a missing shell. Translate them
-    // so these failures stay machine-routable under the SEARCH_* taxonomy.
+    // Abort owns the outcome even when the executor rejects during teardown.
     if (spec.signal?.aborted === true) {
       throw new SearchError(`${toolName} was aborted before completion (tool timeout or caller cancellation)`, 'SEARCH_ABORTED', { cause: error })
     }
+    // Infrastructure implementations may already provide a stable harness
+    // error (notably SANDBOX_UNAVAILABLE); preserve that owning taxonomy.
+    if (error instanceof HarnessError) throw error
     throw new SearchError(`${toolName} could not start its search command (unusable working directory or missing shell)`, 'SEARCH_FAILED', { cause: error })
   }
   if (result.aborted) {

@@ -30,12 +30,12 @@ interface ConfineCall {
 /** The Linux file-denial dialects the fake wraps carry — matches the unix-permission denials the tests below produce. */
 const UNIX_SIGNATURES = ['read-only file system', 'permission denied'] as const
 
-/** The runner-failure prefix the fake wraps carry (a fake-runner: error line marks the sandbox itself failing). */
-const RUNNER_FAILURE = ['fake-runner: '] as const
+/** The runner-failure rule the fake wraps carry (a fake-runner: error line marks the sandbox itself failing). */
+const RUNNER_FAILURE = [{ fatalSignatures: ['fake-runner: '] }] as const
 
 /** A passthrough wrap: the caller's argv unchanged, asserted full — commands run unconfined, deterministically. */
 const passthrough = (argv: readonly string[]): ConfinedArgv =>
-  ({ argv: [...argv], enforcement: 'full', denialSignatures: UNIX_SIGNATURES, runnerFailureSignatures: RUNNER_FAILURE })
+  ({ argv: [...argv], enforcement: 'full', denialSignatures: UNIX_SIGNATURES, runnerFailureRules: RUNNER_FAILURE })
 
 /**
  * Boot a context with a recording fake `ctx.sandbox` (behavior injectable
@@ -93,7 +93,7 @@ describe('the provider hand-off', () => {
   it('a wrapped argv from the provider is what actually spawns (prefix survives, quoting round-trips)', async () => {
     // The fake wraps with `env MARKER=...` — a real (if tiny) runner prefix:
     // the sentinel only prints if the executor spawned the WRAPPED argv.
-    const { bash } = await setup({}, argv => ({ argv: ['env', 'DSH_WRAP=1', ...argv], enforcement: 'full', denialSignatures: UNIX_SIGNATURES, runnerFailureSignatures: RUNNER_FAILURE }))
+    const { bash } = await setup({}, argv => ({ argv: ['env', 'DSH_WRAP=1', ...argv], enforcement: 'full', denialSignatures: UNIX_SIGNATURES, runnerFailureRules: RUNNER_FAILURE }))
     const result = await bash.run(bash.resolve({ command: 'printf "%s" "$DSH_WRAP"' }))
     expect(result.stdout.text).toBe('1')
     expect(result.sandbox).toEqual({ mode: 'read-only', denied: false, enforcement: 'full' })
@@ -234,10 +234,47 @@ describe('classifyDenial', () => {
 })
 
 describe('classifyRunnerFailure', () => {
-  it('matches the dialect case-insensitively on BOTH sides — the seam declares it so, and producers compose signatures from runtime data (an argv0 path, the shell\'s `No such file or directory`)', () => {
-    const signatures = ['exec: /Opt/Runners/bwrap: not found', '/Opt/Runners/bwrap: No such file or directory']
-    expect(classifyRunnerFailure(runResult(127, 'bash: /Opt/Runners/bwrap: No such file or directory'), signatures)).toBe(true)
-    expect(classifyRunnerFailure(runResult(127, 'BASH: LINE 1: EXEC: /OPT/RUNNERS/BWRAP: NOT FOUND'), signatures)).toBe(true)
+  it('matches an outer-shell rule case-insensitively only at its exit codes and configured argv0', () => {
+    const rules = [{
+      allowedExitCodes: [126, 127],
+      fatalSignatures: ['exec: /Opt/Runners/bwrap: not found', '/Opt/Runners/bwrap: No such file or directory'],
+    }]
+    expect(classifyRunnerFailure(127, 'bash: /Opt/Runners/bwrap: No such file or directory', rules)?.detail)
+      .toBe('bash: /Opt/Runners/bwrap: No such file or directory')
+    expect(classifyRunnerFailure(126, 'BASH: LINE 1: EXEC: /OPT/RUNNERS/BWRAP: NOT FOUND', rules)?.detail)
+      .toBe('BASH: LINE 1: EXEC: /OPT/RUNNERS/BWRAP: NOT FOUND')
+    expect(classifyRunnerFailure(125, 'bash: /Opt/Runners/bwrap: No such file or directory', rules)).toBeUndefined()
+    expect(classifyRunnerFailure(127, 'bash: /other/bwrap: No such file or directory', rules)).toBeUndefined()
+  })
+
+  it('requires Landlock exit 125 plus a non-notice fatal line and returns that original line', () => {
+    const notice = 'landlock-run: partial enforcement (older Landlock ABI)'
+    const rules = [{ allowedExitCodes: [125], fatalSignatures: ['landlock-run: '], informationalLines: [notice] }]
+    expect(classifyRunnerFailure(1, notice, rules)).toBeUndefined()
+    expect(classifyRunnerFailure(2, notice, rules)).toBeUndefined()
+    expect(classifyRunnerFailure(125, notice, rules)).toBeUndefined()
+    expect(classifyRunnerFailure(125, notice.toUpperCase(), rules)).toBeUndefined()
+    expect(classifyRunnerFailure(125, `${notice}: extra detail`, rules))
+      .toEqual({ detail: `${notice}: extra detail` })
+    expect(classifyRunnerFailure(125, `${notice}\nlandlock-run: exec failed: No such file or directory`, rules))
+      .toEqual({ detail: 'landlock-run: exec failed: No such file or directory' })
+  })
+
+  it.each([
+    'landlock-run: usage error: missing `-- <argv>...` command',
+    'landlock-run: landlock is not enforced by this kernel (ABI unsupported or disabled)',
+    'landlock-run: cannot open rule path: /gone: No such file or directory',
+    'landlock-run: landlock ruleset error: Invalid argument',
+    'landlock-run: exec failed: Permission denied',
+    'landlock-run: out of memory',
+    'landlock-run: future fatal diagnostic',
+  ])('keeps known and future Landlock fatal diagnostics fail-closed: %s', (fatal) => {
+    const rules = [{
+      allowedExitCodes: [125],
+      fatalSignatures: ['landlock-run: '],
+      informationalLines: ['landlock-run: partial enforcement (older Landlock ABI)'],
+    }]
+    expect(classifyRunnerFailure(125, fatal, rules)).toEqual({ detail: fatal })
   })
 })
 
@@ -253,7 +290,7 @@ describe('result facts', () => {
   })
 
   it('carries the provider\'s partial-enforcement fact through unchanged', async () => {
-    const { bash } = await setup({}, argv => ({ argv: [...argv], enforcement: 'partial', denialSignatures: UNIX_SIGNATURES, runnerFailureSignatures: RUNNER_FAILURE }))
+    const { bash } = await setup({}, argv => ({ argv: [...argv], enforcement: 'partial', denialSignatures: UNIX_SIGNATURES, runnerFailureRules: RUNNER_FAILURE }))
     const result = await bash.run(bash.resolve({ command: 'true' }))
     expect(result.sandbox).toEqual({ mode: 'read-only', denied: false, enforcement: 'partial' })
   })
@@ -284,7 +321,7 @@ describe('background sandbox facts', () => {
   it('a foreground runner failure throws the fail-closed error, never a task result', async () => {
     // The wrap's runner prefix on a failed run means the SANDBOX broke and
     // the command never ran — the late twin of the confine-time throw, with
-    // the runner's own first stderr line carried as the cause.
+    // the matched fatal stderr line carried as the cause.
     const { bash } = await setup()
     const run = bash.run(bash.resolve({ command: 'echo "fake-runner: ruleset rejected" >&2; exit 125' }))
     await expect(run).rejects.toThrow(expect.objectContaining({ code: SANDBOX_UNAVAILABLE }))
@@ -315,7 +352,7 @@ describe('background sandbox facts', () => {
     let call = 0
     const { bash } = await setup({}, (argv) => {
       const wrap = wraps[Math.min(call++, wraps.length - 1)] as Pick<ConfinedArgv, 'enforcement' | 'denialSignatures'>
-      return { argv: [...argv], ...wrap, runnerFailureSignatures: RUNNER_FAILURE }
+      return { argv: [...argv], ...wrap, runnerFailureRules: RUNNER_FAILURE }
     })
     const slow = bash.start(bash.resolve({ command: 'sleep 0.4; echo "x: Permission denied" >&2; exit 1' }))
     const quick = bash.start(bash.resolve({ command: 'true' }))

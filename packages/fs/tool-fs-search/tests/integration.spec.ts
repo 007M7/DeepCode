@@ -18,6 +18,10 @@ import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
+import { SANDBOX_UNAVAILABLE } from '@deepseek-ai/dsh-sandbox'
+import { LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
+import { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
+import { SandboxBashExecutor } from '@deepseek-ai/dsh-bash-sandbox'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import * as ToolFsSearch from '@deepseek-ai/dsh-tool-fs-search'
 
@@ -68,6 +72,7 @@ describe.skipIf(!hasRg)('search tools over the real bash executor + real rg', ()
   })
 
   afterEach(async () => {
+    await ctx.fiber.dispose()
     await rm(dir, { recursive: true, force: true })
   })
 
@@ -191,5 +196,60 @@ describe.skipIf(!hasRg)('search tools over the real bash executor + real rg', ()
       expect(result.error).toMatchObject({ info: { name: 'SearchError', code: 'SEARCH_FAILED' } })
       expect(text(result)).toContain('could not start')
     })
+  })
+
+  it('preserves rg semantics through partial Landlock and propagates a real structured sandbox failure', async () => {
+    await ctx.fiber.dispose()
+    const launcher = join(dir, 'landlock-run')
+    const failMarker = join(dir, 'fail-runner')
+    await writeFile(launcher, `#!/bin/sh
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --ro|--rw) shift 2 ;;
+    --) shift; break ;;
+    *) printf '%s\\n' 'landlock-run: usage error: unexpected fake argument' >&2; exit 125 ;;
+  esac
+done
+printf '%s\\n' 'landlock-run: partial enforcement (older Landlock ABI)' >&2
+if [ -e ${ToolFsSearch.singleQuote(failMarker)} ]; then
+  printf '%s\\n' 'landlock-run: landlock ruleset error: fixture failure' >&2
+  exit 125
+fi
+exec "$@"
+`, { mode: 0o755 })
+
+    ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(LocalSandboxProvider, {})
+    ;(ctx.sandbox as LocalSandboxProvider).internals = {
+      platform: 'linux',
+      probeBwrap: () => false,
+      probeLandlock: () => 'partial',
+      landlockLauncher: launcher,
+    }
+    await ctx.plugin(SandboxPolicyService, { mode: 'workspace-write', workspaceRoot: dir })
+    await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(SandboxBashExecutor, { cwd: dir, timeoutMs: 20_000 })
+    await ctx.plugin(ToolFsSearch, { sampleOverCapGlobResults: true })
+
+    const grepNoMatch = await call('grep', { pattern: 'does-not-exist' })
+    expect(grepNoMatch.isError).toBe(false)
+    expect(text(grepNoMatch)).toBe('No matches found')
+
+    const globNoFiles = await call('glob', { pattern: '*.does-not-exist' })
+    expect(globNoFiles.isError).toBe(false)
+    expect(text(globNoFiles)).toBe('No files found')
+
+    const invalidRegex = await call('grep', { pattern: '(unclosed' })
+    expect(invalidRegex.error).toMatchObject({ info: { name: 'SearchError', code: 'SEARCH_INVALID_PATTERN' } })
+
+    await writeFile(failMarker, '')
+    const sandboxFailure = await call('grep', { pattern: 'alpha' })
+    expect(sandboxFailure.error).toMatchObject({
+      info: { name: 'SandboxUnavailableError', code: SANDBOX_UNAVAILABLE },
+    })
+    expect(text(sandboxFailure)).toContain('Runner failure: landlock-run: landlock ruleset error: fixture failure')
+    expect(text(sandboxFailure)).not.toContain('could not start its search command')
   })
 })
