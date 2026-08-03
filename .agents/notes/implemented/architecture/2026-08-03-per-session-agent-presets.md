@@ -25,7 +25,11 @@ Model routing stays out of presets. `installAgentLlmTarget` is already the per-a
 
 Mounting is per-session by default. Measured cost for a twelve-row composition is ~3ms and ~600KB per session, so isolation is the cheaper default than any sharing scheme, and a preset authored by a user or by an agent then has the smallest possible blast radius. A preset that genuinely owns an expensive singleton opts into sharing with Cordis's own `isolate` vocabulary: a named realm label is process-global, so two subtrees naming the same label resolve one instance.
 
+Which preset an unnamed session gets is a user setting (`agent-presets.default`) layered over the composition's own `default`, which becomes the `base`. Both layers are needed: the composition value is what a deployment ships and must keep working with no settings provider at all, and the setting is what a person changes without editing a `cordis.yml` they may not own.
+
 ## Consequences
+
+**The effective default is read per resolution, never snapshotted.** A cached value would need a `watch` subscription and a reload path to stay honest, and the resolved scope already re-reads a hot-reloaded document. Reading through is also what makes the boundary correct rather than merely cheap: the new value applies to the next session created, and every running session keeps the composition it was built from. That invariant is the same one the session header enforces from the other side — the header records the id a session actually runs, so a resume rebuilds that composition rather than today's default, and the gateway rejects an attempt to adopt a live session under a different one. A snapshot would make the two disagree at exactly the moment the setting changes.
 
 **A directly-plugged subtree is invisible to the boot audit.** It never links itself to an `Entry`, so it is absent from `ctx.loader.entries()` and `assertEntriesActivated` cannot see it. The mount audits its own rows instead, reading the tree through an `Include` subclass that publishes it.
 
@@ -34,6 +38,8 @@ Mounting is per-session by default. Measured cost for a twelve-row composition i
 **A preset may not publish into the root service realm.** Such a service is process-global rather than per-session, so the second session mounting the same preset collides with the first — and the collision surfaces as an unhandled rejection that `setup` never observes, leaving a half-composed agent that looks healthy. The mount rejects it instead, and the package invariant re-checks on every service notification because a row publishing from a timer or an asynchronous continuation would escape a one-shot audit.
 
 **Failure rolls the agent back.** `setup` runs before publication, so a rejected mount fails `ctx.agents.create()` and leaves nothing behind. This is why `setup` is the one supported call site.
+
+**A test that the preset file is never rewritten has to be able to fail.** The first version asserted the file was unchanged after an ordinary mount, and could not have caught anything: the Loader only reaches its write path when it decides the config changed, and nothing in that composition ever self-disposed. The regression plants a row that disposes itself — the shape a real preset hits every time an agent is torn down — and keeps the composition in a temp root rather than under `fixtures/`, because without the override the Loader rewrites the file it read: a committed fixture would be damaged by the very run that proves the bug, and every run after it would compare against the damaged file and pass.
 
 **Fiber membership is object identity, not `uid`.** A `uid` is a per-registry counter, so fibers in two different roots collide on it; comparing by `uid` made one runtime's subtree answer for a service published in another. `ctx.plugin()` returns a thenable `Object.create(fiber)` wrapper that is never identical to the fiber in a parent chain, so the subtree captures its own fiber during construction.
 

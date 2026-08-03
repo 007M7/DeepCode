@@ -201,10 +201,11 @@ export interface SessionsApi {
    * returns `workspace-attach-failed` with the published session id.
    *
    * `agentPreset` names the composition the new session's agent is built
-   * from; omitted, the deployment's default preset applies. The resolved id
-   * is stored on the session header, so a later resume rebuilds the same
-   * agent. An unknown id fails with `agent-preset-not-found`, and a preset
-   * whose composition cannot be mounted fails with `agent-preset-invalid`.
+   * from; omitted, the effective default applies — the user's stored choice
+   * where one exists, else the deployment's own. The resolved id is stored on
+   * the session header, so a later resume rebuilds the same agent. An unknown
+   * id fails with `agent-preset-not-found`, and a preset whose composition
+   * cannot be mounted fails with `agent-preset-invalid`.
    */
   create(request: RpcRequest<{ workspaceId?: WorkspaceId; cwd?: string; sessionId?: SessionId; agentPreset?: string }>):
   Promise<RpcResponse<{ sessionId: SessionId }>>

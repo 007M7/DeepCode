@@ -22,6 +22,9 @@
       "path": "../../core/scope"
     },
     {
+      "path": "../../settings/settings"
+    },
+    {
       "path": "../../util/paths"
     },
     {

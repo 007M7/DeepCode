@@ -1,4 +1,5 @@
-import { readFile } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { Context } from 'cordis'
@@ -7,7 +8,8 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { PatchOptions } from '@cordisjs/plugin-include'
 import { beforeAll, describe, expect, it } from 'vitest'
-import type {} from '@deepseek-ai/dsh-agent-presets'
+import { settingsNamespace } from '@deepseek-ai/dsh-settings'
+import { SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-presets'
 import type {} from '@deepseek-ai/dsh-tools'
 
 const CONFIG_DIR = fileURLToPath(new URL('../config/', import.meta.url))
@@ -19,9 +21,15 @@ const WEB_OVERLAY = join(CONFIG_DIR, 'web.cordis.yml')
  * touch the network, or write outside the test. Everything that decides an
  * agent's capabilities is the real thing, including both shipped presets.
  */
-async function bootWeb(): Promise<Context> {
+async function bootWeb(settingsFile: string): Promise<Context> {
   const patches: PatchOptions[] = [
     ...loadOverlayPatches('dsh-test', WEB_OVERLAY),
+    // The settings row defaults to `$DSH_HOME/settings.yaml`. Left alone it
+    // reads the developer's own document — and since the default preset is a
+    // setting, a stored `agent-presets.default` would decide this file's
+    // outcome. Point it at a temp file for the same reason the roster below
+    // names only the shipped root.
+    { id: 'settings', config: { path: settingsFile, watch: false } },
     // Host rows with side effects outside this process: a bound port, a
     // served asset tree, a telemetry exporter.
     { id: 'webserver', disabled: true },
@@ -37,6 +45,8 @@ async function bootWeb(): Promise<Context> {
     { id: 'directory-picker', disabled: true },
     // The roster AppCLIEntry would patch in; only the shipped root, so a
     // developer's own `~/.dsh/.preset` cannot change this test's outcome.
+    // `default` here is the COMPOSITION default — the base layer the settings
+    // document overrides.
     {
       id: 'agent-presets',
       config: { default: 'standard', roots: [{ path: join(CONFIG_DIR, 'agent-presets'), trust: 'system' }] },
@@ -50,7 +60,9 @@ const toolNames = (ctx: Context, agent?: Agent): string[] =>
 
 let ctx: Context
 beforeAll(async () => {
-  ctx = await bootWeb()
+  const settingsFile = join(await mkdtemp(join(tmpdir(), 'dsh-web-presets-')), 'settings.yaml')
+  await writeFile(settingsFile, '{}\n')
+  ctx = await bootWeb(settingsFile)
 }, 120_000)
 
 describe('the shipped Web composition', () => {
@@ -192,6 +204,43 @@ describe('a forked session', () => {
       await child.dispose()
       await parent.dispose()
     }
+  })
+})
+
+/**
+ * Which preset an unnamed session gets is a user setting layered over the
+ * composition's own default. The package suite proves the layering against a
+ * hand-built context; this proves it through the shipped `cordis.yml` — that
+ * the roster and the settings provider are actually wired to each other, and
+ * that the id the setting names is the one a session composes from.
+ */
+describe('the default preset as a user setting', () => {
+  it('composes an unnamed session from the stored default, not the composed one', async () => {
+    expect(ctx.agentPresets.defaultId).toBe('standard')
+
+    await ctx.settings.update(settingsNamespace(SETTINGS_NAMESPACE), { default: 'core-web' })
+    try {
+      expect(ctx.agentPresets.defaultId).toBe('core-web')
+
+      const handle = await ctx.agents.create({
+        sessionId: SessionId('preset-user-default'),
+        setup: agentCtx => ctx.agentPresets.mount(agentCtx).then(() => undefined),
+      })
+      try {
+        // `mount()` with no id resolves the effective default. Two tools, not
+        // `standard`'s catalog: the setting decided the composition.
+        expect(toolNames(ctx, handle.agent)).toEqual(['ask_user_question', 'bash', 'str_replace_editor'])
+      } finally {
+        await handle.dispose()
+      }
+    } finally {
+      // The context is shared with the rest of the file. `replace({})` drops
+      // the user section wholesale so the field re-inherits the composition
+      // base; `update` merges, and would leave the override standing.
+      await ctx.settings.replace(settingsNamespace(SETTINGS_NAMESPACE), {})
+    }
+
+    expect(ctx.agentPresets.defaultId).toBe('standard')
   })
 })
 

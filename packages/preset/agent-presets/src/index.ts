@@ -12,9 +12,24 @@
 
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
+import { settingsNamespace, type SettingsScope } from '@deepseek-ai/dsh-settings'
 import { discoverPresets } from './discovery.ts'
 import { mountPreset, serviceForAgent } from './mount.ts'
 import { UnknownPresetError, type AgentPreset, type Config } from './types.ts'
+
+/** Settings namespace carrying the user's chosen default preset. */
+export const SETTINGS_NAMESPACE = 'agent-presets'
+
+/** The user-writable slice of this plugin's config. */
+export interface AgentPresetSettings {
+  /** Preset mounted when a session names none. */
+  default?: string
+}
+
+/** Runtime schema for the user-writable slice. */
+export const AgentPresetSettingsSchema: z<AgentPresetSettings> = z.object({
+  default: z.string(),
+})
 
 export { COMPOSITION_FILE, discoverPresets, scanRoot } from './discovery.ts'
 export {
@@ -48,13 +63,39 @@ export class AgentPresets extends Service {
     })).default([]),
   }) as z<Config>
 
+  /**
+   * The user layer over `config.default`, present only while a settings
+   * provider is composed. Held rather than snapshotted so a hot-reloaded
+   * document takes effect without a restart.
+   */
+  private settings: SettingsScope<AgentPresetSettings> | undefined
+
   constructor(ctx: Context, public config: Config) {
     super(ctx, 'agentPresets')
+    // Deliberately not `installSettingsSection`: that helper exists to re-judge
+    // what a consumer DERIVED from the source — memoized resolutions,
+    // registration-level facts — across attach, detach, and change. Nothing
+    // here is derived. `defaultId` reads through on every call, so both of its
+    // hooks would be no-ops and the source thunk would restate this field.
+    ctx.inject(['settings'], (settingsCtx) => {
+      this.settings = settingsCtx.settings.register(
+        settingsNamespace(SETTINGS_NAMESPACE),
+        AgentPresetSettingsSchema,
+        { base: { default: config.default } },
+      )
+      settingsCtx.effect(() => () => { this.settings = undefined }, 'agentPresets.settings()')
+    })
   }
 
-  /** The preset id mounted when a caller names none. */
+  /**
+   * The preset id mounted when a caller names none.
+   *
+   * Read per call rather than cached: the settings document is hot-reloaded, so
+   * changing the default takes effect on the next session created and leaves
+   * every running session on the preset it was composed from.
+   */
   get defaultId(): string {
-    return this.config.default
+    return this.settings?.get().default ?? this.config.default
   }
 
   /**
@@ -72,7 +113,7 @@ export class AgentPresets extends Service {
    * @throws when no configured root supplies that id.
    */
   async resolve(id?: string): Promise<AgentPreset> {
-    const wanted = id ?? this.config.default
+    const wanted = id ?? this.defaultId
     const presets = await this.list()
     const found = presets.find(preset => preset.id === wanted)
     if (found === undefined) {

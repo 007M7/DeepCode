@@ -98,7 +98,7 @@ async mount(agentCtx: Context, id?: string): Promise<AgentPreset>
 serviceFor<K extends string & keyof Context>(agent: { ctx: Context }, name: K): Context[K] | undefined
 ```
 
-Source: [`packages/preset/agent-presets/src/index.ts:39`](../../packages/preset/agent-presets/src/index.ts)
+Source: [`packages/preset/agent-presets/src/index.ts:54`](../../packages/preset/agent-presets/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 
