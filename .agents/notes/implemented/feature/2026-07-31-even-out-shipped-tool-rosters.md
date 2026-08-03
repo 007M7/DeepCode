@@ -12,11 +12,11 @@ The result was a user-visible difference nobody had decided: the same model, ask
 
 ## Decision
 
-The rows that are not surface-specific move into [`base.cordis.yml`](../../../../apps/cli/config/base.cordis.yml), and three more join them: `tool-session-query`, `tool-str-replace-editor`, and `repeat-tool-guard`. Web search moves there too; its [deployment decision](2026-07-31-web-default-search.md) owns the security boundary while the shared base owns its surface-neutral mount. Both surfaces now assemble the same roster: twenty-five tools on every host, plus `glob` and `grep` when ripgrep is available.
+The rows that are not surface-specific move into [`base.cordis.yml`](../../../../apps/cli/config/base.cordis.yml), and three more join them: `tool-session-query`, `tool-str-replace-editor`, and `repeat-tool-guard`. Web search moves there too; its [deployment decision](2026-07-31-web-default-search.md) owns the security boundary while the shared base owns its surface-neutral mount. Both surfaces assemble the same roster: twenty tools on every host, plus `glob` and `grep` when ripgrep is available. `tool-session-query` joined and then left again — the [session-search-not-shipped-default decision](2026-08-02-session-search-not-shipped-default.md) keeps the model-facing consumer opt-in — while the rest of this roster stands.
 
 Two rows stay surface-specific. `tmux-context` is TUI-only because a browser surface has no terminal multiplexer to describe. `session-reference` is TUI-only because it drives the shared session-query index from the launcher's process-local path, and the browser sidebar reconciles that index on its own first search.
 
-**This change adds only.** No row is removed from either surface and no existing row's configuration is edited: the executors, the sandbox composition, the access defaults, `tools.mode`, and the workflow tool are exactly what they were. A reader comparing the two catalogs before and after should find additions and nothing else.
+**This roster decision added only at the time.** No tool row was removed from either surface when it landed, and a catalog comparison found additions and nothing else. One of those additions, `tool-session-query`, was subsequently removed by the [session-search-not-shipped-default decision](2026-08-02-session-search-not-shipped-default.md). The shared executors, sandbox composition, and access default are owned independently by the [workspace-write default decision](2026-07-31-workspace-write-surface-default.md).
 
 ### What stays unmounted, and why
 
@@ -42,7 +42,7 @@ The layer that would make MCP a default is the one this repository does not have
 
 That tail also inserts [`composition-settled.ts`](../../../../apps/cli/tests/fixtures/composition-settled.ts), which announces settled Loader activation on the terminal stream. The TUI renders as soon as its own fiber starts, so a prompt typed at the banner can reach the loop while tool rows and persistence are still activating and assemble a partial catalog; gating the smoke's first prompt on that marker is what makes the assertion deterministic.
 
-The same smoke pins the TUI's unchanged execution posture from the same artifact: `tool-bash` emits its `sandbox_permissions` escalation pair only when the mounted executor has wider modes to escalate to, so asserting its **absence** fails if a later change quietly sandboxes this surface.
+The same smoke also pins the TUI execution posture from the same artifact. Those sandbox-schema and initial-permission assertions belong to the [workspace-write default decision](2026-07-31-workspace-write-surface-default.md), independently of this roster.
 
 [`apps/web/tests/shipped-composition.e2e.ts`](../../../../apps/web/tests/shipped-composition.e2e.ts) covers the Web surface in the built lane, asserting its catalog, that its access default is untouched, and that `workspace-write`'s writable roots include the temp directories — a trap that makes sandbox tests lie when the workspace sits under `/tmp` ([`roots.ts`](../../../../packages/sandbox/sandbox/src/roots.ts)).
 
@@ -62,8 +62,8 @@ Beyond the committed tests, both surfaces were driven against a real key from th
 
 ## Consequences
 
-The same model gets the same tools on both surfaces, and the difference that existed for no recorded reason is gone. The tests assert the twenty-five unconditional names exactly and require the ripgrep-dependent pair to be either present together or absent together on both sides, so a later change that alters only one surface fails a check instead of shipping quietly.
+The same model gets the same tools on both surfaces, and the difference that existed for no recorded reason is gone. The tests assert the twenty unconditional names exactly and require the ripgrep-dependent pair to be either present together or absent together on both sides, so a later change that alters only one surface fails a check instead of shipping quietly; the [session-search-not-shipped-default decision](2026-08-02-session-search-not-shipped-default.md) is exactly such a later change, and both tests moved with it.
 
-`apps/cli` gains five workspace dependencies: four the shipped tree now mounts, plus `dsh-mcp-client`, which it does not mount and which exists so an installed `dsh` can.
+`apps/cli` gained five workspace dependencies: four the shipped tree mounted, plus `dsh-mcp-client`, which it does not mount and which exists so an installed `dsh` can. Four remain — the [session-search-not-shipped-default decision](2026-08-02-session-search-not-shipped-default.md) removed `@deepseek-ai/dsh-tool-session-query` along with its row.
 
-Nothing about execution changed. The TUI still runs the model's commands through unrestricted executors with no approval seam, and the Web surface still defaults to `danger-full-access`. Both are pinned by assertions in this change, which makes them visible rather than fixed — the sandbox decision is still open.
+Execution policy stays independent of the roster. The [shared workspace-write decision](2026-07-31-workspace-write-surface-default.md) owns both surfaces' sandboxed executors and default permission; changing that policy does not add or remove a tool.

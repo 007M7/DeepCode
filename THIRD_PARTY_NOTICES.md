@@ -58,6 +58,7 @@ External packages that a workspace package resolves at runtime. `scripts/install
 | [`immer`](https://github.com/immerjs/immer) | MIT |
 | [`js-yaml`](https://github.com/nodeca/js-yaml) | MIT |
 | [`jsonc-parser`](https://github.com/microsoft/node-jsonc-parser) | MIT |
+| [`katex`](https://github.com/KaTeX/KaTeX) | MIT |
 | [`koffi`](https://github.com/Koromix/koffi) | MIT |
 | [`mdast-util-from-markdown`](https://github.com/syntax-tree/mdast-util-from-markdown) | MIT |
 | [`mdast-util-gfm`](https://github.com/syntax-tree/mdast-util-gfm) | MIT |
@@ -65,10 +66,13 @@ External packages that a workspace package resolves at runtime. `scripts/install
 | [`node-addon-require-builtin`](https://www.npmjs.com/package/node-addon-require-builtin) | MIT |
 | [`node-pty`](https://github.com/microsoft/node-pty) | MIT |
 | [`picomatch`](https://github.com/micromatch/picomatch) | MIT |
+| [`pnpm`](https://github.com/pnpm/pnpm) | MIT |
 | [`react`](https://github.com/facebook/react) | MIT |
 | [`react-dom`](https://github.com/facebook/react) | MIT |
 | [`react-markdown`](https://github.com/remarkjs/react-markdown) | MIT |
+| [`rehype-katex`](https://github.com/remarkjs/remark-math/tree/main/packages/rehype-katex) | MIT |
 | [`remark-gfm`](https://github.com/remarkjs/remark-gfm) | MIT |
+| [`remark-math`](https://github.com/remarkjs/remark-math/tree/main/packages/remark-math) | MIT |
 | [`saxes`](https://github.com/lddubeau/saxes) | ISC |
 | [`shiki`](https://github.com/shikijs/shiki) | MIT |
 | [`supports-color`](https://github.com/chalk/supports-color) | MIT |

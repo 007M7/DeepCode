@@ -39,9 +39,9 @@ export interface ISession {
    */
   prompt(content: ContentBlock[], mode: 'queue' | 'steer'): Promise<RpcResult<{ accepted: true }>>
   /**
-   * Apply one mutation to a still-pending queue occurrence.
+   * Apply one edit, remove, or strict steer action to a still-pending queue occurrence.
    * @param itemId - agent-owned inbox occurrence identity.
-   * @param action - edit or remove operation.
+   * @param action - requested queue operation.
    * @returns acceptance, or a business/transport error.
    */
   updateQueue(itemId: InboxItemId, action: QueueAction): Promise<RpcResult<{ accepted: true }>>

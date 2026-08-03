@@ -1,5 +1,6 @@
 - banner:
-  - heading "Use the read tool twice" [level=1]
+  - navigation "Session hierarchy":
+    - button "Use the read tool twice" [disabled]
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
@@ -40,11 +41,11 @@
   - img
   - text: Context injection
 - img
-- text: permission preset workspace-write
+- text: permission preset read-only
 - textbox "Message the agent"
 - button "Commands":
   - img
-- 'button "Access mode, current: Workspace Write"': Workspace Write
+- 'button "Access mode, current: Read Only"': Read Only
 - button "Select model, current deepseek-v4-flash":
   - text: deepseek-v4-flash
   - img

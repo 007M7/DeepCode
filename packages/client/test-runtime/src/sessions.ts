@@ -5,6 +5,7 @@ import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   ConversationSnapshot, ISessions, ObservableSnapshot, ProjectionsFace, SessionFace, SessionId,
   SessionListState, SessionProvideDescriptor, SessionSearchResultItem, SessionSummary, SnapshotStore,
+  SubagentAddress,
 } from '@deepseek-ai/dsh-client-runtime/client'
 // The double reports the wire schema's own search bound, like the production
 // service — a transport-varying limit would be a fiction no client can see.
@@ -171,8 +172,12 @@ export class TestSessions implements ISessions {
   /** The production provide channel (roster, materialization rules, current projection) — no test-side mirror. */
   private readonly channel: SessionProvideChannel
 
-  /** Calls observed on the service-level face (open/clear/search/fork), newest last. */
-  readonly calls: { method: 'open' | 'clear' | 'search' | 'fork'; args: unknown[] }[] = []
+  /** Calls observed on the service-level face, newest last. */
+  readonly calls: {
+    method: 'open' | 'openSubagent' | 'setSubagentCatalogOpen' | 'refreshSubagents'
+      | 'clear' | 'search' | 'fork'
+    args: unknown[]
+  }[] = []
 
   /** The wire schema's `session.search` result bound (production parity). */
   readonly searchResultLimit = SESSION_SEARCH_RESULT_LIMIT
@@ -187,6 +192,7 @@ export class TestSessions implements ISessions {
   constructor(private readonly stabilize: Stabilizer, private readonly rootCtx: Context) {
     this.list = createSnapshotStore<SessionListState>({
       ids: [], byId: {}, current: undefined, phase: 'ready',
+      subagentsByParent: {}, currentAddress: undefined,
     })
     this.channel = new SessionProvideChannel({
       rebuildBundles: () => {
@@ -392,13 +398,46 @@ export class TestSessions implements ISessions {
   open(id: SessionId): void {
     this.calls.push({ method: 'open', args: [id] })
     this.require(id)
-    this.list.update((draft) => { draft.current = id })
+    this.list.update((draft) => {
+      draft.current = id
+      draft.currentAddress = undefined
+    })
+  }
+
+  /** Open an existing fixture through its catalog address. */
+  openSubagent(address: SubagentAddress): void {
+    this.calls.push({ method: 'openSubagent', args: [address] })
+    this.require(address.childSessionId)
+    this.list.update((draft) => {
+      draft.current = address.childSessionId
+      draft.currentAddress = address
+    })
+  }
+
+  /** Resolve the current fixture's retained catalog address. */
+  subagentAddress(id: SessionId): SubagentAddress | undefined {
+    const address = this.list.getSnapshot().currentAddress
+    return address?.childSessionId === id ? address : undefined
+  }
+
+  /** Record catalog consumption; fixture callers drive snapshots explicitly. */
+  setSubagentCatalogOpen(parentSessionId: SessionId, open: boolean): void {
+    this.calls.push({ method: 'setSubagentCatalogOpen', args: [parentSessionId, open] })
+  }
+
+  /** Record a catalog refresh; fixture callers drive snapshots explicitly. */
+  refreshSubagents(parentSessionId: SessionId): Promise<void> {
+    this.calls.push({ method: 'refreshSubagents', args: [parentSessionId] })
+    return Promise.resolve()
   }
 
   /** Clear the current selection (recorded; the production no-session flow). */
   clear(): void {
     this.calls.push({ method: 'clear', args: [] })
-    this.list.update((draft) => { draft.current = undefined })
+    this.list.update((draft) => {
+      draft.current = undefined
+      draft.currentAddress = undefined
+    })
   }
 
   /**

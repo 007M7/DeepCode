@@ -1,5 +1,6 @@
 - banner:
-  - heading "Use only Cordis tools. First" [level=1]
+  - navigation "Session hierarchy":
+    - button "Use only Cordis tools. First" [disabled]
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
@@ -53,7 +54,7 @@
 - textbox "Message the agent"
 - button "Commands":
   - img
-- 'button "Access mode, current: Full access"': Full access
+- 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img

@@ -49,7 +49,7 @@ function agentForCwd(cwd: string): Agent {
     send: () => {},
     updateInbox: () => 'not-found',
     followup: () => {},
-    steer: () => {},
+    steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
     inject(input) {
       session.append('user/message', input, { surfaceOp: 'append' })
     },
@@ -70,7 +70,7 @@ function sessionAgent(session: Session, id = 'tool-skill-agent'): Agent {
     send: () => {},
     updateInbox: () => 'not-found',
     followup: () => {},
-    steer: () => {},
+    steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
     inject(input) {
       session.append('user/message', input, { surfaceOp: 'append' })
     },

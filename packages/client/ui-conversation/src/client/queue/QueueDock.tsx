@@ -4,12 +4,12 @@
 // The 'conversation.input.dock' SlotMap declaration lives in
 // ../contract/slots.ts beside the other input-region slots.
 import type { Context } from 'cordis'
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import {
   IconCheckOutline16, IconChevronDownOutline14, IconChevronUpOutline14,
-  IconCloseOutline16, IconEditOutline16, IconTrashOutline16,
+  IconCloseOutline16, IconEditOutline16, IconSendOutline16, IconTrashOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { QueueAction, QueueItemId } from '../contract/queue.ts'
 import { NS } from '../locales.ts'
@@ -29,7 +29,10 @@ export type QueueDockProps = PropsRuntime<'conversation.input.dock'> & QueueDock
  * collapsible count header; an empty queue renders nothing.
  */
 export function QueueDock({ useSession, updateQueue, notify, t }: QueueDockProps) {
-  const queue = useSession(s => s.queue)
+  const inbox = useSession(s => s.queue)
+  const queue = useMemo(() => inbox.filter(row => row.placement === 'queued'), [inbox])
+  const running = useSession(s => s.running)
+  const queueMutable = useSession(s => s.subagent === null)
   const [editing, setEditing] = useState<{ id: QueueItemId; text: string } | null>(null)
   const [busy, setBusy] = useState<QueueItemId | null>(null)
   const [collapsed, setCollapsed] = useState(true)
@@ -37,12 +40,12 @@ export function QueueDock({ useSession, updateQueue, notify, t }: QueueDockProps
 
   useEffect(() => {
     if (queue.length === 0 && !collapsed) setCollapsed(true)
-    if (editing !== null && !queue.some(row => row.id === editing.id)) setEditing(null)
-  }, [collapsed, editing, queue])
+    if (editing !== null && (!queueMutable || !queue.some(row => row.id === editing.id))) setEditing(null)
+  }, [collapsed, editing, queue, queueMutable])
 
   if (queue.length === 0) return null
 
-  const interactionActive = editing !== null || busy !== null
+  const interactionActive = queueMutable && (editing !== null || busy !== null)
   const expanded = !collapsed || interactionActive
   const listVisible = queue.length === 1 || expanded
 
@@ -114,7 +117,7 @@ export function QueueDock({ useSession, updateQueue, notify, t }: QueueDockProps
                   />
                 )
                 : <span className={css.preview}>{row.preview}</span>}
-              <div className={css.actions}>
+              {queueMutable && <div className={css.actions}>
                 {editing?.id === row.id
                   ? (
                     <>
@@ -170,9 +173,25 @@ export function QueueDock({ useSession, updateQueue, notify, t }: QueueDockProps
                       >
                         <IconTrashOutline16 size={14} />
                       </button>
+                      <button
+                        type="button"
+                        className={css.action}
+                        aria-label={t('queue.steer')}
+                        title={running ? t('queue.steer') : t('queue.steer.unavailable')}
+                        disabled={busy !== null || !running}
+                        onClick={() => {
+                          void applyAction(
+                            row.id,
+                            { kind: 'steer' },
+                            t('queue.steerFailed'),
+                          )
+                        }}
+                      >
+                        <IconSendOutline16 size={14} />
+                      </button>
                     </>
                   )}
-              </div>
+              </div>}
             </li>
           ))}
         </ul>

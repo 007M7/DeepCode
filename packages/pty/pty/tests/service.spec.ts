@@ -29,7 +29,7 @@ function stubAgent(ctx: Context, rawId: string): Agent {
     acceptsNextStep: false,
     ctx: scopeFiber.ctx,
     followup: () => {},
-    steer: () => {},
+    steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
     inject: () => {},
     send: () => {},
     updateInbox: () => 'not-found',

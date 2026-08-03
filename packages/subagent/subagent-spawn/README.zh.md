@@ -52,5 +52,4 @@ spawn 声明 `{ outputSchema: true, depthLimit: true, toolFilter: true, persona:
 
 ## 已知限制与暂缓事项
 
-- **运行不公开 `sendMessage`/`resume`**：进程内运行不具备这些可选运行时能力。
 - **全新表示不含父 agent transcript（文本记录）**：子 agent 会继承 cwd、谱系、模型及显式配置的 persona/工具限制，但不继承父 agent 的任何对话；需要已完成轮次上下文时，请使用 fork 提供方。

@@ -470,7 +470,10 @@ describe('agent loop', () => {
       parameters: {},
       async execute() {
         // steer while the turn is running (during tool execution)
-        agent.steer(createUserMessage({ content: [{ type: 'text', text: 'change of plans' }], source: { kind: 'user' } }))
+        agent.send(
+          createUserMessage({ content: [{ type: 'text', text: 'change of plans' }], source: { kind: 'user' } }),
+          { target: 'next-step', wakeup: true },
+        )
         return [{ type: 'text', text: 'tool done' }]
       },
     }))
@@ -542,6 +545,120 @@ describe('agent loop', () => {
     expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(2)
     expect(agent.session.events.some(event => event.type === 'steering/message')).toBe(true)
     expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('pending steering')
+  })
+
+  it('rejects failed steering commits while preserving later context', async () => {
+    const adapter = new MockAdapter([textResponse('recovered')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('failed-steering-commit'), { provider: 'mock', model: 'mock' })
+    let receipt: ReturnType<Agent['steer']> | undefined
+    ctx.on('agent/step', (subject) => {
+      if (subject !== agent || receipt !== undefined) return
+      receipt = subject.steer(createUserMessage({
+        content: [{ type: 'text', text: 'rejected steering' }],
+        source: { kind: 'user' },
+      }))
+      subject.inject(createUserMessage({
+        content: [{ type: 'text', text: 'preserved context' }],
+        source: { kind: 'plugin', plugin: 'loop-test' },
+      }))
+    })
+    let rejected = false
+    ctx.on('internal/dispatch', (_mode, name, args) => {
+      if (name !== 'session/event') return
+      const event = args[1] as { type: string }
+      if (event.type === 'steering/message' && !rejected) {
+        rejected = true
+        throw new Error('reject steering commit')
+      }
+    })
+
+    send(agent, 'first prompt')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests).toHaveLength(0)
+    if (receipt === undefined) throw new Error('agent/step did not submit steering')
+    expect(await receipt.outcome).toEqual({ status: 'rejected' })
+    expect(agent.session.events.some(event => event.type === 'steering/message')).toBe(false)
+
+    send(agent, 'recover')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests).toHaveLength(1)
+    const request = JSON.stringify(adapter.requests[0]?.messages)
+    expect(request).toContain('preserved context')
+    expect(request).not.toContain('rejected steering')
+  })
+
+  it('rejects committed steering when the step boundary fails', async () => {
+    const adapter = new MockAdapter([])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('failed-step-boundary'), { provider: 'mock', model: 'mock' })
+    let receipt: ReturnType<Agent['steer']> | undefined
+    ctx.on('agent/step', (subject) => {
+      if (subject !== agent || receipt !== undefined) return
+      receipt = subject.steer(createUserMessage({
+        content: [{ type: 'text', text: 'committed steering' }],
+        source: { kind: 'user' },
+      }))
+    })
+    ctx.on('internal/dispatch', (_mode, name, args) => {
+      if (name !== 'session/event') return
+      const event = args[1] as { type: string }
+      if (event.type === 'step/start') throw new Error('reject step boundary')
+    })
+
+    send(agent, 'prompt')
+    await waitForIdle(ctx, agent)
+
+    if (receipt === undefined) throw new Error('agent/step did not submit steering')
+    expect(await receipt.outcome).toEqual({ status: 'rejected' })
+    expect(adapter.requests).toHaveLength(0)
+    expect(agent.session.events.some(event => event.type === 'steering/message')).toBe(true)
+    expect(agent.session.events.some(event => event.type === 'step/start')).toBe(false)
+  })
+
+  it('retries context and steering after a context commit fails', async () => {
+    const adapter = new MockAdapter([textResponse('recovered')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('failed-context-commit'), { provider: 'mock', model: 'mock' })
+    let receipt: ReturnType<Agent['steer']> | undefined
+    ctx.on('agent/step', (subject) => {
+      if (subject !== agent || receipt !== undefined) return
+      subject.inject(createUserMessage({
+        content: [{ type: 'text', text: 'preserved context' }],
+        source: { kind: 'plugin', plugin: 'loop-test' },
+      }))
+      receipt = subject.steer(createUserMessage({
+        content: [{ type: 'text', text: 'preserved steering' }],
+        source: { kind: 'user' },
+      }))
+    })
+    let rejected = false
+    ctx.on('internal/dispatch', (_mode, name, args) => {
+      if (name !== 'session/event') return
+      const event = args[1] as { type: string; data?: { source?: { kind: string } } }
+      if (event.type === 'user/message' && event.data?.source?.kind === 'plugin' && !rejected) {
+        rejected = true
+        throw new Error('reject context commit')
+      }
+    })
+
+    send(agent, 'first prompt')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests).toHaveLength(0)
+    expect(agent.session.events.some(event => event.type === 'steering/message')).toBe(false)
+
+    send(agent, 'recover')
+    await waitForIdle(ctx, agent)
+
+    if (receipt === undefined) throw new Error('agent/step did not submit steering')
+    expect(await receipt.outcome).toEqual({ status: 'admitted', turn: 2, step: 1 })
+    expect(adapter.requests).toHaveLength(1)
+    const request = JSON.stringify(adapter.requests[0]?.messages)
+    expect(request).toContain('preserved context')
+    expect(request).toContain('preserved steering')
   })
 
   it('inject() while idle appends context without opening a turn', async () => {
@@ -721,13 +838,24 @@ describe('agent loop', () => {
     ])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    let receipt: ReturnType<Agent['steer']> | undefined
+    let contextInjected = false
+    ctx.on('session/event', (session, event) => {
+      if (session !== agent.session || event.type !== 'step/end' || contextInjected) return
+      contextInjected = true
+      agent.inject(createUserMessage({
+        content: [{ type: 'text', text: 'final context' }],
+        source: { kind: 'plugin', plugin: 'finalize' },
+      }))
+    })
     ctx.tools.register(defineContentToolFixture({
       name: 'finalize',
       description: '',
       parameters: {},
       async execute(_args, exec) {
-        // Steering lands while the concluding tool is still executing.
-        agent.steer(createUserMessage({ content: [{ type: 'text', text: 'late steering' }], source: { kind: 'user' } }))
+        // Steering lands while the concluding tool is still executing; the
+        // step/end listener adds ordinary context after the normal result drain.
+        receipt = agent.steer(createUserMessage({ content: [{ type: 'text', text: 'late steering' }], source: { kind: 'user' } }))
         exec.concludeTurn()
         return [{ type: 'text', text: 'final' }]
       },
@@ -740,9 +868,12 @@ describe('agent loop', () => {
     expect(adapter.requests).toHaveLength(1)
     const events = agent.session.events.map(event => event.type)
     expect(events.filter(type => type === 'turn/end')).toHaveLength(1)
-    // The steering is durable inside the concluded turn and feeds the NEXT
-    // turn's request instead of being dropped or re-queued.
-    expect(events).toContain('steering/message')
+    if (receipt === undefined) throw new Error('concluding tool did not submit steering')
+    expect(await receipt.outcome).toEqual({ status: 'rejected' })
+    expect(events).not.toContain('steering/message')
+    expect(agent.session.events.some(event => event.type === 'user/message'
+      && event.data.source.kind === 'plugin'
+      && event.data.content.some(block => block.type === 'text' && block.text === 'final context'))).toBe(true)
 
     send(agent, 'follow up')
     await waitForIdle(ctx, agent)
@@ -751,7 +882,8 @@ describe('agent loop', () => {
       .flatMap(message => message.content)
       .filter(block => block.type === 'text')
       .map(block => block.text)
-    expect(texts).toContain('late steering')
+    expect(texts).toContain('final context')
+    expect(texts).not.toContain('late steering')
   })
 
   it('agent/request waterfall switches models by returning a replacement config; the switch is logged', async () => {

@@ -108,7 +108,7 @@ it('boots the built plugin graph and renders a fixture session end to end', asyn
   // Opening a session reaches chat content through the fixture transport.
   fireEvent.click(await within(tree).findByText('Fixture 历史会话'))
   await waitFor(() => {
-    expect(document.querySelector('[data-sample="bash-global"]')).not.toBeNull()
+    expect(document.querySelector('[data-sample="bash"]')).not.toBeNull()
   }, { timeout: 10_000 })
 
   // The write/edit turns render a real diff card through the assembled graph

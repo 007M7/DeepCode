@@ -38,7 +38,7 @@ Harnesses are [Cordis](cordis-primer.md) contexts; packages contribute services,
 | `ctx.skills` | [`skill/`](../packages/skill/README.md) | skill provider registry, progressive disclosure |
 | `ctx.web` | [`web/`](../packages/web/README.md) | search/fetch provider registries |
 | `ctx.compact`, `ctx.toolResultPrune` | [`compact/`](../packages/compact/README.md)/[`compact-tool-result-prune`](../packages/compact/compact-tool-result-prune/README.md) | summary compaction, optional model-free result pruning |
-| `ctx.subagents` | [`subagent/`](../packages/subagent/README.md) | named delegation providers |
+| `ctx.subagents` | [`subagent/`](../packages/subagent/README.md) | named delegation providers and Activation-based continuations |
 | `ctx.planMode` | [`plan/`](../packages/plan/README.md) | logged plan collaboration state |
 | `ctx.tasks` | [`tasks/`](../packages/tasks/README.md) | background task registry, generic `task_*` controls |
 | `ctx.workflows` | [`workflow/`](../packages/workflow/README.md) | script-driven multi-agent orchestration |
@@ -76,7 +76,7 @@ Creation without an id mints `<config-id>-session-<uuid>`; `sessionId` resumes o
 
 ```text
 choose declarative identity and fresh/resume path
-  -> prepare private session + agent.ctx -> await unpublished setup
+  -> prepare private session + agent.ctx -> await unpublished setup -> invoke optional synchronous setup commit
   -> enter session + agent -> session/created -> agent/created
   -> enable driving -> agent/session-start(source) -> start driver
 forever:
@@ -92,11 +92,12 @@ forever:
       append prompt + additional contexts as separate 'user/message' events
     STEP loop:
       agent/step
-      drain injected context and steering (steering bypasses prompt-submit)
       assemble system prompt and tools
       materialize changed runtime context as sourced 'user/message'
+      drain injected context and provisional steering (steering bypasses prompt-submit)
       snapshot the derived messages (the reconstruction boundary)
       'step/start'
+      admit the drained steering receipts
       agent/request (config only) -> prepare adapter defaults/provenance + context capacity under turn signal -> log request/header (+ request/context on route change) -> llm/stream (frozen, registration-bound)
       'assistant/chunk'
       'assistant/message'
@@ -105,10 +106,10 @@ forever:
         parallel -> rolling pool, <= maxParallelToolCalls; reclassify-at-start; scheduler failure -> stop starts, drain dispatches
         start -> 'tool/call' -> ordered tools/pre-execute -> concurrent tools/execute
         model-order result -> ordered tools/post-execute -> 'tool/result'
-      drain accepted tool context and steering
+      drain accepted tool context after all results; keep steering provisional
       'step/end'
-      continue for tools or steering unless a result concluded the turn
-      otherwise agent/turn-stopping -> drain -> continue only for steering
+      continue for tools or steering unless a result concluded the turn and rejects pending steering
+      otherwise agent/turn-stopping -> drain context -> continue only for steering
     close the next-step acceptance window
     'turn/end' -> agent/settled
   start the next waking queued message, or emit agent/status(idle)
@@ -120,7 +121,9 @@ idle inject:
 
 Each step assembles ordered stable system sections, cache-safe dynamic contexts, tool schemas, and variables; unknown references fail the turn. `dsh-system-prompt` owns identity and persona; the loop supplies `provider`, `model`, and `cwd` ([prompt ownership](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)).
 
-Admission-time and active-turn `inject()` stage for the next step; post-tool `additionalContexts` settles after results. Steering shares that staging boundary and requests another step. Idle `inject()` appends immediately without changing turn numbers; persistence drains eagerly.
+Admission-time and active-turn `inject()` stage for the next step; tool-time injection and post-tool `additionalContexts` settle after results. Steering shares the outbox but remains provisional until a request admits it. `steer()` returns a message-owned receipt: after `agent/step` and asynchronous prompt assembly succeed, the loop commits the stable batch, snapshots request history, opens `step/start`, then resolves its receipts as admitted with the turn and step; later arrivals wait. A turn-concluding tool result, broad cancellation, disposal, or a claimed idle-steering turn that never opens a step rejects affected receipts, while `cancel(..., { keepInbox: true })` and non-terminal routing preserve pending delivery. Idle `inject()` appends immediately without changing turn numbers; persistence drains eagerly.
+
+Before driver claim, `updateInbox()` may edit or remove a queued occurrence, or strictly transfer its immutable message into an open next-step window. That transfer ends the queued occurrence and accepts a new steering occurrence; a closed window leaves Queue unchanged. Direct `steer()` remains best-effort for newly submitted input and falls back to a waking follow-up outside the window ([decision](../.agents/notes/implemented/feature/2026-07-30-web-queue-steer-action.md)).
 
 Pruning precedes summaries; overflow retries require durable progress. `agent/request-error` may authorize one retry turn between failed-step and turn close; cancellation wins. Adapter-owned `retryPolicy` makes normal mode bounded; always mode delegates specialized recovery before retrying until success or cancellation ([compaction](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md), [retry foundation](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md), [provider policy](../.agents/notes/implemented/feature/2026-07-24-provider-retry-policies.md)).
 
@@ -134,11 +137,11 @@ Turn and step events are turn-enclosed. Idle `user/message` and standalone `comp
 
 ### Agent Handles
 
-`ctx.agents` owns agents, returning `AgentHandle { agent, dispose() }`. Plugins use `send()` or `followup()`, `steer()`, and `inject()` presets; [`reserveTurnAdmission()`](../packages/core/agent/README.md#agent-interface-typests) synchronously reserves idle for durable work without changing queued prompt identity. `cancel()` and `whenIdle()` control lifecycle. Awaited disposal owns teardown.
+`ctx.agents` owns agents, returning `AgentHandle { agent, dispose() }`. Plugins use `send()` or `followup()`, receipt-bearing `steer()`, and `inject()` presets; [`reserveTurnAdmission()`](../packages/core/agent/README.md#agent-interface-typests) synchronously reserves idle for durable work without changing queued prompt identity. Await a steering receipt when request admission matters; best-effort UI steering may ignore it. `cancel()` and `whenIdle()` control lifecycle. Caller, factory, and consumer co-own teardown through one awaited disposer.
 
 ### Agent Scope
 
-Each agent owns scoped `agent.ctx`; shared storage overlays its tool, prompt, and command entries on globals while preserving domain views ([decision](../.agents/notes/implemented/architecture/2026-07-12-scoped-layers-store.md)). Scoped listeners filter dispatch; contributions unwind with awaited cleanup. `CreateAgentOptions.setup(agentCtx)` composes before publication. Typed resolvers derive carrier checks from merged `Events` and `scopeTarget` ([semantic gates](../.agents/notes/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md)). Details: [agent scope](../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md), [subagent composition](../.agents/notes/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md). `AgentLoop` runs under `ctx.agents.withInitiator()`; private orchestration derives `agent.session`, but turn, step, signal, cwd, and authority stay explicit ([decision](../.agents/notes/implemented/architecture/2026-07-15-agent-initiator-scope.md)).
+Each agent owns scoped `agent.ctx`; shared storage overlays its tool, prompt, and command entries on globals while preserving domain views ([decision](../.agents/notes/implemented/architecture/2026-07-12-scoped-layers-store.md)). Scoped listeners filter dispatch; contributions unwind with awaited cleanup. `CreateAgentOptions.setup(agentCtx)` composes before publication and may return a synchronous commit that the factory invokes immediately before registry entry, after every setup await. Typed resolvers derive carrier checks from merged `Events` and `scopeTarget` ([semantic gates](../.agents/notes/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md)). Details: [agent scope](../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md), [subagent composition](../.agents/notes/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md). `AgentLoop` runs under `ctx.agents.withInitiator()`; private orchestration derives `agent.session`, but turn, step, signal, cwd, and authority stay explicit ([decision](../.agents/notes/implemented/architecture/2026-07-15-agent-initiator-scope.md)).
 
 ## State
 
