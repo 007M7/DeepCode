@@ -23,13 +23,14 @@
  * separator, and keeps the panes under the draft: the final segment
  * prefix-filters the level its directory part names (a dot-led prefix also
  * reveals the hidden entries it names, and a prefix nobody matches releases
- * the filter), while a directory part no pane lists is scanned after a short
+ * the filter), while any other directory part is scanned after a short
  * debounce and lands like any other navigation — selection-anchored and
- * two-pane away from the display root — so typing deeper descends and
- * erasing segments walks back up, moving the Miller view without leaving the
- * editor. Panes the draft walked to stay put when the editor closes
- * (cancellation included): the crumbs name where the walk ended, and Open's
- * fallback target follows them.
+ * two-pane away from the display root. The pane arity holds throughout: the
+ * last pane is the level the path names and the one beside it is its parent,
+ * so typing deeper descends and erasing segments walks back up, moving the
+ * Miller view without leaving the editor. Panes the draft walked to stay put
+ * when the editor closes (cancellation included): the crumbs name where the
+ * walk ended, and Open's fallback target follows them.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
@@ -151,12 +152,16 @@ function draftPrefixFor(listing: DirectoryListing, draft: string | null): string
 }
 
 /**
- * The directory a draft addresses that no rendered pane lists — the level the
- * editor must scan for the panes to keep following the typed path. Null when
- * a pane already lists it (the prefix filter alone answers the draft), when
- * no separator has been typed yet, and when no level is listed at all: the
- * platform separator is read off a listing, so the editor's
- * failed-home-listing recovery path types blind until Enter.
+ * The directory a draft addresses that the panes are not already presenting
+ * as the current level — what the editor must scan to keep the view under the
+ * typed path. The pane arity is the invariant this preserves: the LAST pane
+ * always lists the level the path names, with its parent beside it (a display
+ * root lists alone), so a draft naming any other level re-lands rather than
+ * leaving a deeper level standing to the right of the one being typed. Null
+ * when that level is already the last pane, when no separator has been typed
+ * yet, and when no level is listed at all: the platform separator is read off
+ * a listing, so the editor's failed-home-listing recovery path types blind
+ * until Enter.
  */
 function pendingPreviewDirectory(
   parent: DirectoryListing | null,
@@ -165,9 +170,8 @@ function pendingPreviewDirectory(
 ): string | null {
   if (parent === null) return null
   const directory = draftDirectory(parent, draft)
-  if (directory === null || directory === levelDirectory(parent)) return null
-  if (child !== null && directory === levelDirectory(child)) return null
-  return directory
+  if (directory === null) return null
+  return directory === levelDirectory(child ?? parent) ? null : directory
 }
 
 /**

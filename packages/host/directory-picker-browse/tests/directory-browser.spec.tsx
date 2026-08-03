@@ -707,11 +707,13 @@ describe('DirectoryBrowser', () => {
     fireEvent.change(input, { target: { value: `${DOCS}/zzz` } })
     expect(within(columns()[1]!).getByText('harness')).toBeTruthy()
     expect(within(columns()[0]!).getByText('Documents')).toBeTruthy()
-    // Erasing back into the parent's own path moves the filter to the LEFT
-    // pane and releases the right one — no scan, both levels are on screen.
+    // Erasing back into the parent's own path re-lands on it rather than
+    // filtering the LEFT pane: the level being typed is always the last pane,
+    // never a pane with a deeper level standing to its right. Home is the
+    // display root, so it lands alone.
     fireEvent.change(input, { target: { value: `${HOME}/zz` } })
-    expect(within(columns()[0]!).getAllByRole('listitem').map(item => item.textContent)).toEqual(['Documents'])
-    expect(within(columns()[1]!).getByText('harness')).toBeTruthy()
+    await waitFor(() => { expect(columns()).toHaveLength(1) })
+    expect(screen.getAllByRole('listitem').map(item => item.textContent)).toEqual(['Documents'])
   })
 
   it('follows the draft into a directory no pane lists, landing the two-pane Miller view', async () => {
@@ -738,6 +740,26 @@ describe('DirectoryBrowser', () => {
     await act(async () => { await new Promise((resolve) => { setTimeout(resolve, 400) }) })
     expect(b.listDirectory.mock.calls).toHaveLength(settled)
     expect(columns()).toHaveLength(2)
+  })
+
+  it('keeps the typed level in the last pane, its parent beside it, as the draft walks', async () => {
+    const b = mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    // Two levels down: the typed level on the right, its parent on the left.
+    fireEvent.change(input, { target: { value: `${HARNESS}/` } })
+    await waitFor(() => { expect(within(columns()[0]!).getByText('harness')).toBeTruthy() })
+    expect(columns()).toHaveLength(2)
+    expect(within(columns()[1]!).queryAllByRole('listitem')).toHaveLength(0)
+    // Erasing back to the parent's own path re-lands on it: the level being
+    // typed moves BACK into the last pane instead of staying on the left with
+    // its own child pane still to the right.
+    fireEvent.change(input, { target: { value: `${DOCS}/ha` } })
+    await waitFor(() => { expect(within(columns()[0]!).getByText('Documents')).toBeTruthy() })
+    expect(columns()).toHaveLength(2)
+    expect(within(columns()[1]!).getAllByRole('listitem').map(item => item.textContent)).toEqual(['harness'])
+    expect(b.listDirectory).toHaveBeenCalledWith(`${DOCS}/`, expect.anything())
   })
 
   it('walks the panes back up when erased segments leave the listed levels', async () => {
