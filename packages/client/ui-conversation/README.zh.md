@@ -14,7 +14,7 @@
 
 已记录的非用户消息渲染为默认折叠的 `上下文注入` 展开项。它通过包内部的 `DisclosureRow` 与 `ToolRow` 共享 Tool calls 标题栏的几何与交互，同时保留上下文语义：展开内容区的高度会随内容自适应，最大为 141px，超出后滚动，并以内联 JSON 展示 `content` 和 `source`，且不会合成工具状态、摘要或键控 toolview 分发（[决策](../../../.agents/notes/implemented/feature/2026-07-30-web-context-injection-disclosure.md)）。
 
-Think 行默认保持折叠，并在不展开思维链的情况下暴露实时推理吞吐：当 reasoning block 是流式尾部时，摘要从结算后的首行切换到最新的非空行，其单行滚动区会随每个 delta 追到行内末端。展开该行会移除移动摘要，让完整 reasoning 进入普通页面流，因此页面阅读不会与内部跟随器争夺滚动；结算后恢复左对齐的稳定首行摘要（[决策](../../../.agents/notes/implemented/feature/2026-08-02-web-thinking-tail-scroll.md)）。
+Think 行默认保持折叠，并在不展开思维链的情况下暴露实时推理（reasoning）吞吐：当推理块是流式输出尾部时，摘要从结算后的首行切换到最新的非空行，其单行滚动区会随每个 delta 追到行内末端。展开该行会移除移动摘要，让完整推理进入普通页面流，因此页面阅读不会与内部跟随器争夺滚动；结算后恢复左对齐的稳定首行摘要（[决策](../../../.agents/notes/implemented/feature/2026-08-02-web-thinking-tail-scroll.md)）。
 
 通用工具行把内置的 bash、read、search、write、edit 和 run_code 名称归入专用视觉变体。文件系统变体会渲染 edit 图标和路径摘要；该路径是悬停下划线链接，点击后通过宿主操作系统的默认应用打开文件（`host.openPath`，相对路径相对会话 cwd 解析）。工具行不再是整行点击目标，也不会打开 details 面板。code 变体以模型撰写的 `description` 作摘要，展开后显示程序本身；其已记录的子调用经由同一个键控 toolview 空位渲染为始终可见的嵌套行（自定义注册和 GenericToolCard fallback 原样适用于子行）。Cordis 生命周期工具复用这些通用变体，同时以统一的 Cordis 强调色呈现 `Inspect`、`Mount temporary Plugin` 和 `Unmount temporary Plugin`；mount 行保留 code 变体的可展开源码渲染。
 
@@ -38,7 +38,7 @@ todo 两个面就是在该形状上的两个注册项，都是普通注册方插
 
 `QueueDock` 是 `order: 20` 的末端 input-dock 条目。队列为空时隐藏；只有一个待处理项时直接渲染该行；存在两个或更多待处理项时，默认收起为 `"<n> 条排队消息"` 表头，其按钮可展开或收起完整列表。表头暴露 `aria-expanded` 和 `aria-controls`；展开后的列表以 180px 为高度上限，并可滚动。存在进行中的编辑或变更时，列表行会保持可见；队列清空后，下一次出现队列时会恢复默认收起状态。普通会话中的每条可见行仍是单行预览，并提供针对精确单次入队项的编辑、删除和严格 steering（中途引导）操作；已寻址 subagent 则保留只读行，因为其继续执行传输不提供 Queue 变更。如果严格 steering 输给已关闭的窗口，原单次入队项会留在 Queue 中正常投递；如果驱动器已经认领该项，正常投递就已开始。这两种已收敛的竞态都不显示失败，传输和未知错误仍会显示。
 
-Host 带 placement 的 `session/queue` 快照也会携带待处理 steering。QueueDock 会将其过滤掉，ChatView 则把它投影为会话流末尾带复制操作的用户样式气泡；消息尚未进入持久轮次，因此不显示 fork。Host 会等持久 `steering/message` 进入 mux 流之后再退役 steering。客户端运行时接纳该实时事件时，会在发布快照前退役第一个匹配的当前 steering 单次入队项；历史事件无法隐藏后来复用同一 `MessageId` 的单次入队项。气泡交接时因而不会产生空档或重复，会从持久节点恢复复制与 fork 操作，并能在重连后从同一权威恢复。
+Host 带 placement 的 `session/queue` 快照也会携带待处理 steering。QueueDock 会将其过滤掉，ChatView 则把它投影为会话流末尾带复制操作的用户样式气泡；消息尚未进入持久轮次，因此不显示 fork。Host 会等持久 `steering/message` 进入 mux 流之后再退役 steering。客户端运行时接纳该实时事件时，会在发布快照前退役第一个匹配的当前 steering 单次入队项；历史事件无法隐藏后来复用同一 `MessageId` 的单次入队项。气泡交接时因而不会产生空档或重复，会立即从持久节点恢复复制操作与分支控件，仅当该节点是已完成轮次的 transcript 尾部时才启用分支，并能在重连后从同一权威恢复。
 
 键盘消息提交会根据所寻址会话的运行状态和 steering 能力解析投递方式。空闲时，Enter 和 Cmd/Ctrl+Enter 都执行普通 Queue 发送。主会话运行期间，浏览器持久化的 General Settings 偏好会把普通 Enter 分配为 `Queue`（默认值）或 `Steer`，Cmd/Ctrl+Enter 则执行另一种行为；Shift+Enter 仍然换行。已寻址 subagent 即使正在运行，也会让这两个手势都使用其仅支持 Queue 的继续执行传输。该偏好只影响支持 steering 的繁忙态手势对，发送按钮与非键盘提交操作仍使用 Queue。Composer Steer 复用现有尽力而为的 `session.prompt(mode: 'steer')` 契约：如果当前 next-step 窗口在接纳前关闭，AgentLoop 会把消息接纳为下一条唤醒 Queue 轮次，不显示失败，也不会丢失草稿事务。
 
@@ -63,8 +63,8 @@ Host 带 placement 的 `session/queue` 快照也会携带待处理 steering。Qu
 - **压缩标记不显示规模**：该行尚不报告检查点替换了多少条消息或哪段范围。
 - **统计行的耗时只覆盖窗口内消息流**：LLM 与工具墙钟时间由快照的 assistant `timing` 与工具 call/result 配对折算，落在已加载事件窗口之外的节点（更早的历史）不计入。
 - **详情面板是最小形态，且当前没有入口**：以原始形式显示已选择调用的参数／结果；Input/Output/Metadata 切换、Prev/Next 步进与 See-in-trajectory 深链接暂缓实现。工具行已不再是详情面板的点击目标，且没有任何手势接替它，因此 `ChatViewInjected.openDetails` 虽已实现却无人调用，该面板（含其终端卡片）在组装后的应用中不可达；其渲染仍由直接以选中态挂载它来覆盖。
-- **assistant 逐消息分页是预留 slot**：设计中已有图稿，尚未实现。已定稿的内容 IconActions 行（复制／分支／时钟）只挂在每个轮次中最后一条带 text 内容的 assistant 下；轮次中间的叙述与纯 Think 节点不带 chrome。分支会 fork 到包含该消息的轮次末尾，在 client 端递增继承标题后打开子会话，而 fork 或改名失败时源会话保持选中。
-- **已发送的 user 消息无法编辑**：user 气泡的 IconActions 行只有时钟／复制／分支，从该消息分支是最接近的手势。该控件要与其背后的能力一起回归：既需要针对已定稿 user 消息的 client 变更，也需要 host 侧对已经消费过它的轮次给出行为（[决策](../../../.agents/notes/implemented/simplification/2026-07-31-drop-user-message-edit-stub.md)）。
+- **assistant 逐消息分页是预留 slot**：设计中已有图稿，尚未实现。已定稿的内容 IconActions 行（复制／时钟／分支）只挂在每个轮次中最后一条带 text 内容的 assistant 下；轮次中间的叙述与纯 Think 节点不带 chrome。除非该消息同时也是已完成轮次的最后一个 transcript 节点，否则分支保持禁用；启用后，它会 fork 到该轮次末尾，在 client 端递增继承标题并打开子会话。fork 或改名失败时源会话保持选中（[决策](../../../.agents/notes/implemented/bug-fix/2026-08-02-message-fork-actions-require-completed-turn-tail.md)）。
+- **已发送的 user 消息无法编辑**：user 气泡保留时钟、复制和分支；除非已完成轮次的 transcript 结束于该 user 消息，否则分支保持禁用。编辑功能要与其背后的能力一起回归：既需要针对已定稿 user 消息的 client 变更，也需要 host 侧对已经消费过它的轮次给出行为（[决策](../../../.agents/notes/implemented/simplification/2026-07-31-drop-user-message-edit-stub.md)）。
 - **others 工具行的闪光图标是手绘近似版本**：无法在本地导出设计字形的矢量几何；等到存在精确导出后再将其提升到 ui-primitives。
 - **审批面板的「始终允许此类」暂缓**：持久授权需要授权存储设计；今天只能回答允许一次／拒绝。
 - **TodoPanel 将过长条目截成单行省略号**：figma 条没有换行或展开入口，完整文本无法在行内读完。

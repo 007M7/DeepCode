@@ -461,7 +461,7 @@ export interface ChatViewInjected {
     /** Last recorded offset, or null when pinned or never recorded. */
     read: () => number | null
   }
-  /** Fork the session through the turn containing the message at `seq`, then open the child. */
+  /** Fork through the completed turn ending at the eligible message `seq`, then open the child. */
   forkAt: (seq: number) => void
 }
 
