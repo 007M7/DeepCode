@@ -51,6 +51,13 @@ const CLOSE_RETRY_MS = 150
 /** Abort-service attempts before force-terminating the worker. */
 const CLOSE_MAX_ATTEMPTS = 20
 
+/** Fail loudly if the closed worker-to-driver union gains an unhandled member. */
+/* v8 ignore start -- closed-union backstop; unreachable without a TypeScript contract violation */
+function assertNever(value: never): never {
+  throw new TypeError(`unknown win32 dialog worker message kind: ${String(value)}`)
+}
+/* v8 ignore stop */
+
 /**
  * Open the modern Win32 folder picker off the event loop.
  * @param signal - caller lifetime; abort closes the dialog and rejects.
@@ -133,6 +140,10 @@ export async function pickWin32Directory(
           settle(() => {
             reject(new Error(`win32 folder dialog failed: ${message.message}`))
           })
+          return
+        /* v8 ignore next 2 -- closed worker-owned union; a fourth kind becomes a compile error */
+        default:
+          assertNever(message)
       }
     })
     worker.on('error', (error: Error) => {
