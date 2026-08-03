@@ -34,4 +34,4 @@ export function spawnDialogWorker(data: Win32DialogWorkerData): Worker {
   return new Worker(new URL(`data:text/javascript,${encodeURIComponent(bootstrap)}`), { workerData: data })
 }
 
-export { closeThreadWindows } from './win32-dialog-bindings.ts'
+export { closeThreadWindows, raiseDialogWindow } from './win32-dialog-bindings.ts'

@@ -6,7 +6,11 @@
  * injectable so every driver path is testable on any platform.
  */
 
-import { closeThreadWindows as hostCloseThreadWindows, spawnDialogWorker } from './win32-dialog-host.ts'
+import {
+  closeThreadWindows as hostCloseThreadWindows,
+  raiseDialogWindow as hostRaiseDialogWindow,
+  spawnDialogWorker,
+} from './win32-dialog-host.ts'
 import type { Win32DialogWorkerData, Win32DialogWorkerMessage } from './win32-dialog-worker.ts'
 
 /** The worker surface the driver drives (satisfied by `node:worker_threads`). */
@@ -39,6 +43,8 @@ export interface Win32DialogInternals {
   spawnWorker?: (data: Win32DialogWorkerData) => Win32DialogWorkerLike
   /** Replaces the real `WM_CLOSE` poster (`win32-dialog-host.ts`). */
   closeThreadWindows?: (threadId: number) => Promise<void>
+  /** Replaces the real foreground raise (`win32-dialog-host.ts`). */
+  raiseDialogWindow?: (threadId: number) => Promise<boolean>
   /** Abort-service cadence override so tests never wait wall-clock time. */
   closeRetryMs?: number
 }
@@ -71,11 +77,13 @@ export async function pickWin32Directory(
   if (signal.aborted) throw new Error('native directory picker aborted')
   const spawnWorker = internals.spawnWorker ?? spawnDialogWorker
   const closeWindows = internals.closeThreadWindows ?? hostCloseThreadWindows
+  const raiseWindow = internals.raiseDialogWindow ?? hostRaiseDialogWindow
   const closeRetryMs = internals.closeRetryMs ?? CLOSE_RETRY_MS
 
   const worker = spawnWorker({ title: DIALOG_TITLE })
   let dialogThreadId: number | undefined
   let closeTimer: NodeJS.Timeout | undefined
+  let raiseTimer: NodeJS.Timeout | undefined
   let settled = false
 
   return await new Promise<string | null>((resolve, reject) => {
@@ -83,6 +91,7 @@ export async function pickWin32Directory(
       if (settled) return
       settled = true
       if (closeTimer !== undefined) clearInterval(closeTimer)
+      if (raiseTimer !== undefined) clearInterval(raiseTimer)
       signal.removeEventListener('abort', onAbort)
       worker.unref?.()
       outcome()
@@ -94,6 +103,26 @@ export async function pickWin32Directory(
       // rejected close attempt (EnumThreadWindows/PostMessageW refusing) is
       // discarded: the interval retries it and terminate is the backstop.
       if (dialogThreadId !== undefined) void closeWindows(dialogThreadId).catch(() => undefined)
+    }
+
+    // The `showing` notice precedes the blocking `Show`, so the dialog
+    // window does not exist yet; re-enumerate on the close cadence until it
+    // does and raise it — a window on a worker input queue is otherwise
+    // shown without activation. Stops on settle, abort, or a successful
+    // raise; a failing raise (e.g. koffi absent) never blocks the pick.
+    const startRaise = (): void => {
+      const attempt = (): void => {
+        if (settled || signal.aborted || dialogThreadId === undefined) return
+        void raiseWindow(dialogThreadId)
+          .then((raised) => {
+            if (raised || settled || signal.aborted) {
+              if (raiseTimer !== undefined) clearInterval(raiseTimer)
+            }
+          })
+          .catch(() => undefined)
+      }
+      attempt()
+      raiseTimer = setInterval(attempt, closeRetryMs)
     }
 
     // Sole caller: the once-registered abort listener, so no re-entry guard.
@@ -129,6 +158,7 @@ export async function pickWin32Directory(
           dialogThreadId = message.threadId
           // An abort that raced ahead of this notice now has a window to hit.
           if (signal.aborted) postClose()
+          else startRaise()
           return
         case 'done':
           settle(() => {

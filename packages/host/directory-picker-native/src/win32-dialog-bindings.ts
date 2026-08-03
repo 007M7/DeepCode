@@ -179,3 +179,44 @@ export async function closeThreadWindows(threadId: number): Promise<void> {
     koffi.unregister(callback)
   }
 }
+
+/**
+ * Bring a native thread's top-level window to the foreground. The dialog
+ * runs on a worker input queue, so Windows shows it without activating it
+ * (the app's main thread holds foreground association); the driver calls
+ * this on the `showing` notice: attach this thread's input queue to the
+ * dialog thread's, `SetForegroundWindow`, and detach. Returns whether the
+ * thread had a window to raise — the dialog window is created inside
+ * `Show`, after the `showing` notice, so callers retry until it exists.
+ * @param threadId - the dialog thread's native id (from the `showing` notice).
+ * @returns true when a window was found and raised.
+ */
+export async function raiseDialogWindow(threadId: number): Promise<boolean> {
+  const koffi = (await import('koffi')).default as unknown as Koffi
+  const user32 = koffi.load('user32.dll')
+  const kernel32 = koffi.load('kernel32.dll')
+  const enumThreadWindows = user32.func('__stdcall', 'EnumThreadWindows', 'int', ['uint32', 'void *', 'intptr'])
+  const attachThreadInput = user32.func('__stdcall', 'AttachThreadInput', 'int', ['uint32', 'uint32', 'int'])
+  const setForegroundWindow = user32.func('__stdcall', 'SetForegroundWindow', 'int', ['void *'])
+  const getCurrentThreadId = kernel32.func('__stdcall', 'GetCurrentThreadId', 'uint32', [])
+  const protoEnumProc = koffi.proto('int __stdcall DshEnumThreadWndProc(void *hwnd, intptr lparam)')
+  let target: unknown
+  const callback = koffi.register((hwnd: unknown) => {
+    if (target === undefined) target = hwnd
+    return 0 // stop after the first (top-level) window
+  }, koffi.pointer(protoEnumProc))
+  try {
+    enumThreadWindows(threadId, callback, 0)
+  } finally {
+    koffi.unregister(callback)
+  }
+  if (target === undefined) return false
+  const self = getCurrentThreadId()
+  try {
+    attachThreadInput(self, threadId, 1)
+    setForegroundWindow(target)
+  } finally {
+    attachThreadInput(self, threadId, 0)
+  }
+  return true
+}
