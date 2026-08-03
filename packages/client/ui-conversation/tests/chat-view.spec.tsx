@@ -325,14 +325,19 @@ describe('ChatView', () => {
     expect(view.getAllByText('interrupt now')).toHaveLength(1)
     expect(view.container.querySelector('[data-pending-steering]')).toBeNull()
     expect(view.getAllByRole('button', { name: '复制' })).toHaveLength(2)
-    expect(view.queryByRole('button', { name: '在新对话中分支' })).toBeNull()
+    const durableBubble = view.getByText('interrupt now').closest('[class*="userRow"]') as HTMLElement
+    const unavailable = within(durableBubble).getByRole('button', { name: '在新对话中分支' })
+    expect(unavailable.getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(unavailable)
+    expect(h.forkAt).not.toHaveBeenCalled()
 
     act(() => {
       h.set({ running: false, turnEnds: new Map([[1, 3]]) })
     })
     const branchButtons = view.getAllByRole('button', { name: '在新对话中分支' })
-    expect(branchButtons).toHaveLength(1)
-    fireEvent.click(branchButtons[0]!)
+    expect(branchButtons).toHaveLength(2)
+    expect(branchButtons.map(button => button.getAttribute('aria-disabled'))).toEqual(['true', null])
+    fireEvent.click(branchButtons[1]!)
     expect(h.forkAt).toHaveBeenCalledWith(2)
   })
 
@@ -435,24 +440,28 @@ describe('ChatView', () => {
       turnEnds: new Map([[1, 4], [2, 6]]),
     })
     const view = render(<h.ChatView {...h.props} />)
-    // User rows keep copy/clock, while only the two completed assistant tails may branch.
+    // Every message footer keeps branch visible; only completed assistant tails enable it.
     expect(view.getAllByRole('button', { name: '复制' })).toHaveLength(4)
-    expect(view.getAllByRole('button', { name: '在新对话中分支' })).toHaveLength(2)
+    const branchButtons = view.getAllByRole('button', { name: '在新对话中分支' })
+    expect(branchButtons).toHaveLength(4)
+    expect(branchButtons.map(button => button.getAttribute('aria-disabled'))).toEqual(['true', null, 'true', null])
   })
 
-  it('forks only from a finalized assistant at the completed transcript tail', () => {
+  it('enables fork only on the finalized assistant at the completed transcript tail', () => {
     const h = makeHarness({
       nodes: [user(1, 'question'), assistant(2, 'answer')],
       turnEnds: new Map([[1, 3]]),
     })
     const view = render(<h.ChatView {...h.props} />)
     const buttons = view.getAllByRole('button', { name: '在新对话中分支' })
-    expect(buttons).toHaveLength(1)
+    expect(buttons).toHaveLength(2)
+    expect(buttons.map(button => button.getAttribute('aria-disabled'))).toEqual(['true', null])
     fireEvent.click(buttons[0]!)
+    fireEvent.click(buttons[1]!)
     expect(h.forkAt.mock.calls).toEqual([[2]])
   })
 
-  it('keeps copy chrome but hides branch when tool and interrupted Think follow the response', () => {
+  it('keeps branch visible but unavailable when tool and interrupted Think follow the response', () => {
     const interruptedThink: AssistantMessageNode = {
       kind: 'assistant', seq: 4.1, time: 4_100, turn: 1, step: 2,
       blocks: [{ kind: 'reasoning', text: 'bad path' }], interrupted: true,
@@ -463,7 +472,12 @@ describe('ChatView', () => {
     })
     const view = render(<h.ChatView {...h.props} />)
     expect(view.getAllByRole('button', { name: '复制' })).toHaveLength(2)
-    expect(view.queryByRole('button', { name: '在新对话中分支' })).toBeNull()
+    const buttons = view.getAllByRole('button', { name: '在新对话中分支' })
+    expect(buttons).toHaveLength(2)
+    expect(buttons.every(button => button.getAttribute('aria-disabled') === 'true')).toBe(true)
+    fireEvent.click(buttons[0]!)
+    fireEvent.click(buttons[1]!)
+    expect(h.forkAt).not.toHaveBeenCalled()
   })
 
   it('renders assistant Markdown across history, streaming, final, and interrupted states while user text stays literal', () => {

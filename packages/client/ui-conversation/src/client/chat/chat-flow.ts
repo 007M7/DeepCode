@@ -50,8 +50,8 @@ export function assistantActionsSeqs(nodes: readonly ConversationNode[]): Readon
 /**
  * Seq set of message rows that may fork: the last transcript node of a
  * completed turn, when that node owns message chrome. A later tool, reasoning,
- * error, or other transcript node suppresses the earlier message's branch
- * action even though the Host would include the whole turn.
+ * error, or other transcript node leaves the earlier message's branch action
+ * unavailable because the Host would include the whole turn.
  * @param nodes - snapshot nodes in event order.
  * @param turnEnds - completed turn boundaries retained from the event window.
  * @returns Message seq values whose visible position matches the fork boundary.

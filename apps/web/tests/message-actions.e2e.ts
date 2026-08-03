@@ -95,7 +95,7 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
     await scaffold?.close()
   })
 
-  it.skipIf(MODE === 'record')('shows branch only on the completed transcript tail', async () => {
+  it.skipIf(MODE === 'record')('enables branch only on the completed transcript tail', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-message-actions'))
     const groupRow = page.locator('[role="treeitem"]').first()
     await groupRow.waitFor({ timeout: 15_000 })
@@ -107,13 +107,20 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
     await expect.poll(() => page.getByText('DONE', { exact: true }).count(), { timeout: 15_000 }).toBe(1)
 
     // Focus-reveal the footers (hover:hover keeps them opacity-hidden until
-    // hover/focus-within). All message rows keep copy, but only the final
-    // assistant at a completed transcript tail has branch.
+    // hover/focus-within). Every durable message footer keeps branch visible,
+    // but only the final assistant at a completed transcript tail enables it.
     const copyButtons = page.getByRole('button', { name: 'Copy' })
     await expect.poll(() => copyButtons.count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(4)
     await copyButtons.first().focus()
-    await expect.poll(() => page.getByRole('button', { name: 'Branch into a new conversation' }).count(), { timeout: 5_000 })
-      .toBe(1)
+    const branchButtons = page.getByRole('button', { name: 'Branch into a new conversation' })
+    await expect.poll(() => branchButtons.count(), { timeout: 5_000 }).toBe(4)
+    await expect.poll(
+      () => branchButtons.evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-disabled'))),
+      { timeout: 5_000 },
+    ).toEqual(['true', 'true', 'true', null])
+    await branchButtons.first().focus()
+    await expect.poll(() => page.getByRole('tooltip').textContent(), { timeout: 5_000 })
+      .toBe('Available only on the last message of a completed turn')
     await expect.poll(() => page.getByRole('button', { name: 'Edit' }).count(), { timeout: 5_000 }).toBe(0)
   }, 60_000)
 
@@ -132,7 +139,7 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
 
   it.skipIf(MODE === 'record')('forks through the settled-message and session-row actions', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-message-fork'))
-    // The sole message action belongs to the completed second-turn assistant.
+    // The last message action belongs to the completed second-turn assistant.
     await page.getByRole('button', { name: 'Branch into a new conversation' }).last().click()
     await expect.poll(
       () => scaffold.ctx.agents.list().find(agent => agent.session.header.parentSession === SessionId(SEED_ID)),

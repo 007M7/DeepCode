@@ -10,7 +10,7 @@ The Web conversation attached branch to the last assistant node with nonempty te
 
 ## Decision
 
-`ConversationSnapshot.turnEnds` retains the completed turn boundaries present in the raw event window. The conversation view walks transcript nodes through each boundary and exposes branch only when the boundary's last node is a user message, a durable steering message, or a content-bearing assistant message. Open turns have no eligible message, and a later tool result, reasoning-only interruption, turn error, or other transcript node suppresses branch on earlier messages. Copy and clock remain available under their existing message chrome, and the Host's completed-turn fork semantics remain unchanged.
+`ConversationSnapshot.turnEnds` retains the completed turn boundaries present in the raw event window. The conversation view walks transcript nodes through each boundary and enables branch only when the boundary's last node is a user message, a durable steering message, or a content-bearing assistant message. Open turns have no eligible message, and a later tool result, reasoning-only interruption, turn error, or other transcript node leaves branch unavailable on earlier messages. The unavailable control stays visible, focusable, and hoverable; `aria-disabled`, a tooltip, and `aria-describedby` explain the completed-tail requirement without sending a Host request. Copy and clock remain available under their existing message chrome, and the Host's completed-turn fork semantics remain unchanged.
 
 This narrows the message eligibility established by the earlier [Web session fork action decision](../feature/2026-07-27-web-session-fork-actions.md). Session-row forking still selects the latest completed turn, and eligible message actions still pass their event seq through the shared client runtime operation.
 
@@ -22,6 +22,8 @@ This narrows the message eligibility established by the earlier [Web session for
 
 **Hide branch from every interrupted turn.** Rejected because an aborted turn is durably closed and its final interrupted text can be the true transcript tail. Eligibility depends on the completed boundary and node order, not the outcome kind.
 
+**Hide ineligible message controls.** Rejected because a disappearing control does not explain the boundary requirement and shifts otherwise stable message chrome. A focusable unavailable control preserves the affordance while preventing the request.
+
 ## Consequences
 
-A branch icon now denotes the same completed-turn boundary that the Host will copy. In the reported response → tool → interrupted Think shape, the response keeps copy and clock but no longer advertises branch. This change deliberately does not provide same-turn transcript editing or a retry-before-turn operation; the Session-row action remains available when a reader wants to copy the latest completed turn in full. Runtime tests pin boundary projection and reference stability, while conversation tests cover assistant, user-only, and durable-steering tails plus suppression by later tool and interrupted reasoning rows.
+An enabled branch icon denotes the same completed-turn boundary that the Host will copy. In the reported response → tool → interrupted Think shape, the response keeps copy, clock, and a disabled branch control that explains why it cannot act. This change deliberately does not provide same-turn transcript editing or a retry-before-turn operation; the Session-row action remains available when a reader wants to copy the latest completed turn in full. Runtime tests pin boundary projection and reference stability, while conversation tests cover assistant, user-only, and durable-steering tails plus unavailable controls caused by later tool and interrupted reasoning rows.

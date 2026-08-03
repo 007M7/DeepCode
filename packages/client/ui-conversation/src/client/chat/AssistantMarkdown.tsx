@@ -5,7 +5,7 @@
 // step-summary flow). Shared by finalized nodes and the streaming partial;
 // the turn-level loading dots live in the chat view's tail, not here.
 // Finalized content (text) nodes append IconActions once streaming ends
-// (`time` is omitted for mid-turn narration); their branch action is present
+// (`time` is omitted for mid-turn narration); their branch action is enabled
 // only when the node is also the completed turn's transcript tail. Think /
 // tool-head-only nodes stay chrome-free.
 
@@ -29,8 +29,10 @@ export interface AssistantMarkdownProps {
   time?: number | undefined
   /** Event sequence used as the fork boundary; omitted while streaming. */
   seq?: number | undefined
-  /** Fork the session through this finalized message's completed turn. */
+  /** Fork the session through this finalized message's completed turn when eligible. */
   onFork?: ((seq: number) => void) | undefined
+  /** The message is not the transcript tail of a completed turn. */
+  forkUnavailable?: boolean | undefined
   /** The owning view's locale seat, passed down as a plain prop. */
   t: ChatViewSlotProps['t']
 }
@@ -77,7 +79,7 @@ function ThinkRow({ text, running, t }: { text: string; running: boolean; t: Ass
 }
 
 export const AssistantMarkdown = memo(function AssistantMarkdown({
-  blocks, streaming, interrupted, time, seq, onFork, t,
+  blocks, streaming, interrupted, time, seq, onFork, forkUnavailable, t,
 }: AssistantMarkdownProps) {
   // Stable per locale revision (t identity changes on switch): a fresh object
   // per render would rebuild MarkdownText's component table every chunk.
@@ -121,6 +123,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
           time={time}
           clock="end"
           onBranch={onFork === undefined || seq === undefined ? undefined : () => { onFork(seq) }}
+          branchUnavailable={forkUnavailable}
           className={css.actions}
           t={t}
         />

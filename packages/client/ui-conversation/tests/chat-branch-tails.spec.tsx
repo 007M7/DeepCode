@@ -78,6 +78,30 @@ describe('MessageItem arms', () => {
     expect(exec).toHaveBeenCalledWith('copy')
   })
 
+  it('keeps an unavailable branch focusable and explains why without sending a fork', () => {
+    const onFork = vi.fn()
+    render(
+      <MessageItem t={t} node={{
+        kind: 'user', seq: 1, time: 1_000,
+        content: [{ type: 'text', text: 'open turn' }] as never,
+        source: null,
+      }}
+      onFork={onFork}
+      forkUnavailable
+      />,
+    )
+    const branch = screen.getByRole('button', { name: '在新对话中分支' }) as HTMLButtonElement
+    expect(branch.disabled).toBe(false)
+    expect(branch.getAttribute('aria-disabled')).toBe('true')
+    const reasonId = branch.getAttribute('aria-describedby')
+    expect(reasonId).not.toBeNull()
+    expect(document.getElementById(reasonId!)?.textContent).toBe('仅可从已完成轮次的最后一条消息分支')
+    fireEvent.click(branch)
+    expect(onFork).not.toHaveBeenCalled()
+    fireEvent.focus(branch)
+    expect(screen.getByRole('tooltip').textContent).toBe('仅可从已完成轮次的最后一条消息分支')
+  })
+
   it('user copy stays quiet when execCommand throws or is absent', () => {
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,

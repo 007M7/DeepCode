@@ -414,7 +414,8 @@ export function ChatView({
           interrupted={node.interrupted}
           time={actionSeqs.has(node.seq) ? node.time : undefined}
           seq={node.seq}
-          onFork={branchSeqs.has(node.seq) ? forkAt : undefined}
+          onFork={forkAt}
+          forkUnavailable={!branchSeqs.has(node.seq)}
           t={t}
         />
       )
@@ -429,7 +430,8 @@ export function ChatView({
         key={item.key}
         node={node}
         retryActive={node.kind === 'model-retry' && node.seq === activeRetry}
-        {...branchSeqs.has(node.seq) ? { onFork: forkAt } : {}}
+        onFork={forkAt}
+        forkUnavailable={!branchSeqs.has(node.seq)}
         t={t}
       />
     )

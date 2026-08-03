@@ -8,6 +8,9 @@
 - button "Copy":
   - img
 - tooltip "Copy"
+- button "Branch into a new conversation" [disabled]:
+  - img
+- text: Available only on the last message of a completed turn
 - button "Think The user wants me to read a.txt and b.txt, then reply with \"DONE\". Let me do both reads in parallel.":
   - img
   - img
@@ -15,7 +18,9 @@
 - paragraph: I will read both files before answering.
 - button "Copy":
   - img
-- text: 7/25 {{clock}}
+- button "Branch into a new conversation" [disabled]:
+  - img
+- text: Available only on the last message of a completed turn 7/25 {{clock}}
 - button "Read a.txt":
   - img
   - img
@@ -33,6 +38,9 @@
 - text: Stopped Now give the final answer. 7/25 {{clock}}
 - button "Copy":
   - img
+- button "Branch into a new conversation" [disabled]:
+  - img
+- text: Available only on the last message of a completed turn
 - paragraph: DONE
 - button "Copy":
   - img
