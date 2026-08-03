@@ -49,6 +49,8 @@ const CHECKPOINTS = [
   'details-selector',
   'untrusted-controls',
   'question-dialog',
+  'question-dialog-detail-paged',
+  'question-dialog-paged',
   'question-dialog-single-option',
   'question-dialog-validation',
   'surface-before-compaction',
@@ -272,11 +274,30 @@ const ADVANCED_CARD_TOOLS: Record<string, ToolDefinition> = {
   edit: visualTool(
     'edit',
     () => ({ card: 'diff', title: 'Edit src/view.ts', diffs: [{ path: 'src/view.ts', oldText: 'old line', newText: 'new line' }] }),
-    // The real edit/write tools produce exactly one diff whose path the title
-    // already names, so the card omits the redundant per-file header.
+    // The fixed tool header never names a path, so the hunk retains its path.
     (): ToolResultView => ({
       card: 'diff',
       diffs: [{ path: 'src/view.ts', oldText: 'old line\nkeep', newText: 'new line\nkeep' }],
+    }),
+  ),
+  large_edit: visualTool(
+    'large_edit',
+    () => ({
+      card: 'diff',
+      title: 'Edit src/large.ts',
+      diffs: [{
+        path: 'src/large.ts',
+        oldText: 'old one\nold two\nold three',
+        newText: 'new one\nnew two\nnew three',
+      }],
+    }),
+    (): ToolResultView => ({
+      card: 'diff',
+      diffs: [{
+        path: 'src/large.ts',
+        oldText: 'old one\nold two\nold three',
+        newText: 'new one\nnew two\nnew three',
+      }],
     }),
   ),
   subagent: visualTool('subagent', args => ({
@@ -588,7 +609,7 @@ describe('TUI terminal-state snapshots', () => {
   it('pins terminal, diff, subagent, task, skill, collapsed, and expanded cards', async () => {
     const harness = await setupSnapshot({
       tools: ADVANCED_CARD_TOOLS,
-      config: { maxToolOutputLines: 3 },
+      config: { maxToolOutputLines: 3, maxDiffEditLength: 2 },
     }, { columns: 100, rows: 40 })
     const calls = [
       { id: 'advanced-1', name: 'bash', arguments: { command: 'pnpm run test:coverage' } },
@@ -596,6 +617,7 @@ describe('TUI terminal-state snapshots', () => {
       { id: 'advanced-3', name: 'subagent', arguments: { prompt: 'Review renderer ownership and report only gaps.' } },
       { id: 'advanced-4', name: 'task_output', arguments: { task_id: 'subagent-7', wait: true } },
       { id: 'advanced-5', name: 'skill', arguments: { name: 'dsh-code-review' } },
+      { id: 'advanced-6', name: 'large_edit', arguments: { file_path: 'src/large.ts' } },
     ]
     await renderAfter(harness, () => {
       appendToolCalls(harness.session, calls)
@@ -604,6 +626,7 @@ describe('TUI terminal-state snapshots', () => {
       appendToolResult(harness.session, 'advanced-3', [{ type: 'text', text: 'The renderer has explicit lifecycle ownership.' }])
       appendToolResult(harness.session, 'advanced-4', [{ type: 'text', text: 'audit complete\n[status: completed]' }])
       appendToolResult(harness.session, 'advanced-5', [{ type: 'text', text: 'Loaded review instructions.' }])
+      appendToolResult(harness.session, 'advanced-6', [{ type: 'text', text: 'large edit complete' }])
     })
     await checkpoint('advanced-cards-collapsed', harness.terminal, { includeScrollback: true })
 
@@ -765,9 +788,13 @@ describe('TUI terminal-state snapshots', () => {
           id: 'coverage',
           header: 'Coverage',
           question: 'Which advanced TUI states belong in the required matrix?',
+          detail: `Review the complete plan ${'including every required checkpoint '.repeat(12)}visible plan tail`,
           multiSelect: true,
           options: [
-            { label: 'Code Mode', description: 'run_code programs and captured output' },
+            {
+              label: 'Code Mode',
+              description: `run_code programs and captured output ${'with complete wrapped detail '.repeat(12)}visible tail`,
+            },
             { label: 'Workflows', description: 'phases and parallel agents' },
             { label: 'Cordis tools', description: 'inspect, mount, and unmount' },
             { label: 'Compaction', description: 'surface replacement and reflow' },
@@ -781,6 +808,14 @@ describe('TUI terminal-state snapshots', () => {
     const rejected = expect(answer).rejects.toMatchObject({ code: 'ASK_ABORTED' })
     await harness.terminal.waitForFrame(beforeQuestion)
     await checkpoint('question-dialog', harness.terminal)
+
+    await renderAfter(harness, () => { harness.terminal.send('\x1b[6~') })
+    await checkpoint('question-dialog-detail-paged', harness.terminal)
+
+    await renderAfter(harness, () => {
+      for (let page = 0; page < 30; page += 1) harness.terminal.send('\x1b[6~')
+    })
+    await checkpoint('question-dialog-paged', harness.terminal)
 
     await renderAfter(harness, () => { harness.terminal.send('\r') })
     await checkpoint('question-dialog-validation', harness.terminal)

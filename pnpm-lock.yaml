@@ -5838,6 +5838,9 @@ importers:
       '@earendil-works/pi-tui':
         specifier: 0.80.7
         version: 0.80.7(patch_hash=6c30c5386c0159131e1361023cddf31377f5728962524841964373312c1ed946)
+      diff:
+        specifier: ^9.0.0
+        version: 9.0.0
       saxes:
         specifier: 6.0.0
         version: 6.0.0
