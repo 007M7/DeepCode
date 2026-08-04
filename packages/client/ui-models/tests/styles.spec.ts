@@ -3,6 +3,10 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 const css = readFileSync(fileURLToPath(new URL('../src/client/ModelsSection.module.css', import.meta.url)), 'utf8')
+const tokens = readFileSync(
+  fileURLToPath(new URL('../../ui-theme/src/styles/design-platform.css', import.meta.url)),
+  'utf8',
+)
 
 /** The declarations of one top-level rule, by selector. */
 function block(selector: string): string {
@@ -12,12 +16,15 @@ function block(selector: string): string {
 }
 
 describe('ModelsSection theme styles', () => {
-  it('uses the shared theme tokens without light-only fallbacks', () => {
-    // The section once named `--border`/`--surface`/`--text-*`/`--accent-strong`,
-    // which nothing in this app defines, so it rendered the light-mode literals
-    // written as their fallbacks and stayed light under the dark theme.
+  it('names only theme variables the token sheet defines', () => {
+    // A `--dsw-*` name the sheet never declares is not a near miss: it silently
+    // resolves to whatever literal sits in its fallback slot, which is how this
+    // section stayed light under the dark theme before. Undeclared names have
+    // no fallback at all and inherit, so both spellings must fail here.
+    const named = [...css.matchAll(/var\((--dsw-[a-z0-9-]+)/g)].map(match => match[1])
+    const undeclared = [...new Set(named)].filter(name => !tokens.includes(`  ${String(name)}:`))
+    expect(undeclared).toEqual([])
     expect(css).not.toMatch(/var\(--(?:surface|text-|border|accent-strong)/)
-    expect(css).toContain('color: var(--dsw-alias-label-primary)')
   })
 
   it('separates the row card from the editor it expands into', () => {

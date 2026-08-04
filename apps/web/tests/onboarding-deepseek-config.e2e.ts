@@ -173,12 +173,15 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
     await deepSeek.waitFor({ timeout: 10_000 })
     await deepSeek.locator('xpath=ancestor::li').getByRole('button', { name: '编辑' }).click()
     await settings.getByText('自定义设置').click()
-    await settings.getByRole('button', { name: '删除模型' }).first().click()
+    await settings.getByRole('button', { name: /删除模型/ }).first().click()
     await settings.getByRole('button', { name: '添加模型' }).click()
     const customModelId = settings.getByLabel('模型 ID 2')
     await customModelId.fill('private-preview')
     await settings.getByLabel('显示名称 2').fill('Private Preview')
+    // Capacities live behind the row's own disclosure, as in the pi-ai form.
+    await settings.getByRole('button', { name: '容量 2' }).click()
     await settings.getByLabel('上下文窗口 2').fill('131072')
+    await settings.getByLabel('最大输出 token 数 2').fill('64K')
 
     const modelEditor = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(MODELS_EXPECTED, modelEditor, MODE)
@@ -190,6 +193,7 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
     expect(document).toContain('id: private-preview')
     expect(document).toContain('name: Private Preview')
     expect(document).toContain('contextWindow: 131072')
+    expect(document).toContain('maxTokens: 64000')
     expect(document).not.toContain('id: deepseek-v4-flash')
 
     await page.keyboard.press('Escape')

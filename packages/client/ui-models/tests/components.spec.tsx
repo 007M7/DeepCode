@@ -9,7 +9,7 @@ import { ModelsSection, needsSetup, removeProviderProfile } from '../src/client/
 import type { ModelsSectionInjected, ModelsSectionProps } from '../src/client/ModelsSection.tsx'
 import { pathOps } from '../src/client/ProviderEditor.tsx'
 import {
-  DeepSeekModelsEditor, formatContextWindow, modelDrafts, parseContextWindow, validateDeepSeekModels,
+  DeepSeekModelsEditor, formatCapacity, modelDrafts, parseCapacity, validateDeepSeekModels,
 } from '../src/client/DeepSeekModelsEditor.tsx'
 import { deriveKeyRef, ModelsSettingsStore } from '../src/client/store.ts'
 import type { ProviderRow } from '../src/client/store.ts'
@@ -18,6 +18,16 @@ import { en } from '../src/client/locales.ts'
 afterEach(cleanup)
 
 const t: ModelsSectionInjected['t'] = key => en[key]
+
+/** Open one row's capacity disclosure (1-based, as the labels read). */
+function expandRow(position: number): void {
+  fireEvent.click(screen.getByLabelText(`${en.modelAdvanced} ${String(position)}`))
+}
+
+/** The capacity inputs of every open row, in row order. */
+function capacityInputs(label: string): HTMLInputElement[] {
+  return screen.getAllByLabelText<HTMLInputElement>(new RegExp(label))
+}
 
 const PiAiConfig = Schema.object({
   token: Schema.string().role('secret'),
@@ -79,9 +89,10 @@ function wireNamespaces(): SettingsNamespaceView[] {
         baseURL: 'https://base',
         reasoningEffort: 'high',
         defaultContextWindow: 1_000_000,
+        maxTokens: 256_000,
         models: DEFAULT_DEEPSEEK_MODELS,
       },
-      base: { defaultContextWindow: 1_000_000, models: DEFAULT_DEEPSEEK_MODELS },
+      base: { defaultContextWindow: 1_000_000, maxTokens: 256_000, models: DEFAULT_DEEPSEEK_MODELS },
       user: { reasoningEffort: 'high' },
       applies: 'live',
       secrets: [{ path: ['apiKey'], set: false }],
@@ -297,10 +308,11 @@ describe('ModelsSection', () => {
     fireEvent.click(screen.getByText(en.addModel))
     const ids = screen.getAllByLabelText(new RegExp(en.modelId))
     const names = screen.getAllByLabelText(new RegExp(en.modelName))
-    const windows = screen.getAllByLabelText(new RegExp(en.contextWindow))
+    expandRow(3)
     fireEvent.change(ids[2] as HTMLInputElement, { target: { value: 'private-preview' } })
     fireEvent.change(names[2] as HTMLInputElement, { target: { value: 'Private Preview' } })
-    fireEvent.change(windows[2] as HTMLInputElement, { target: { value: '131072' } })
+    // Only row 3 is open, so its capacity is addressed by its own label.
+    fireEvent.change(screen.getByLabelText(`${en.contextWindow} 3`), { target: { value: '131072' } })
     fireEvent.click(screen.getByText(en.apply))
 
     await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
@@ -345,39 +357,46 @@ describe('ModelsSection', () => {
     expect(validateDeepSeekModels([{ id: 'model', contextWindow: 0 }]))
       .toEqual({ index: 0, key: 'modelContextInvalid' })
     expect(validateDeepSeekModels([{ id: 'model', contextWindow: 1 }])).toBeUndefined()
+    expect(validateDeepSeekModels([{ id: 'model', maxTokens: null }]))
+      .toEqual({ index: 0, key: 'modelMaxTokensInvalid' })
+    expect(validateDeepSeekModels([{ id: 'model', maxTokens: 1.5 }]))
+      .toEqual({ index: 0, key: 'modelMaxTokensInvalid' })
+    expect(validateDeepSeekModels([{ id: 'model', maxTokens: 0 }]))
+      .toEqual({ index: 0, key: 'modelMaxTokensInvalid' })
+    expect(validateDeepSeekModels([{ id: 'model', maxTokens: 8192 }])).toBeUndefined()
   })
 
   it('reads context windows written as counts, thousands, or millions', () => {
-    expect(parseContextWindow('')).toBeUndefined()
-    expect(parseContextWindow('   ')).toBeUndefined()
-    expect(parseContextWindow('131072')).toBe(131_072)
-    expect(parseContextWindow(' 256K ')).toBe(256_000)
-    expect(parseContextWindow('256k')).toBe(256_000)
-    expect(parseContextWindow('1M')).toBe(1_000_000)
-    expect(parseContextWindow('1m')).toBe(1_000_000)
+    expect(parseCapacity('')).toBeUndefined()
+    expect(parseCapacity('   ')).toBeUndefined()
+    expect(parseCapacity('131072')).toBe(131_072)
+    expect(parseCapacity(' 256K ')).toBe(256_000)
+    expect(parseCapacity('256k')).toBe(256_000)
+    expect(parseCapacity('1M')).toBe(1_000_000)
+    expect(parseCapacity('1m')).toBe(1_000_000)
     // 1M is 1000K, not 1024K: capacities are quoted in decimal.
-    expect(parseContextWindow('1M')).toBe(parseContextWindow('1000K'))
+    expect(parseCapacity('1M')).toBe(parseCapacity('1000K'))
     // 2.3 * 1e6 is a few ULPs high in binary floating point; an integral
     // intent must not become a fractional count the validator rejects.
-    expect(parseContextWindow('2.3M')).toBe(2_300_000)
-    expect(Number.isInteger(parseContextWindow('1.5M'))).toBe(true)
+    expect(parseCapacity('2.3M')).toBe(2_300_000)
+    expect(Number.isInteger(parseCapacity('1.5M'))).toBe(true)
     // A genuinely fractional count survives as one, for the validator to reject.
-    expect(parseContextWindow('0.0001K')).toBeCloseTo(0.1)
-    expect(parseContextWindow('abc')).toBeNaN()
-    expect(parseContextWindow('1G')).toBeNaN()
-    expect(parseContextWindow('1M1')).toBeNaN()
+    expect(parseCapacity('0.0001K')).toBeCloseTo(0.1)
+    expect(parseCapacity('abc')).toBeNaN()
+    expect(parseCapacity('1G')).toBeNaN()
+    expect(parseCapacity('1M1')).toBeNaN()
   })
 
   it('spells a stored count in the shortest form that round-trips', () => {
-    expect(formatContextWindow(1_000_000)).toBe('1M')
-    expect(formatContextWindow(256_000)).toBe('256K')
-    expect(formatContextWindow(1_500_000)).toBe('1500K')
-    expect(formatContextWindow(131_072)).toBe('131072')
+    expect(formatCapacity(1_000_000)).toBe('1M')
+    expect(formatCapacity(256_000)).toBe('256K')
+    expect(formatCapacity(1_500_000)).toBe('1500K')
+    expect(formatCapacity(131_072)).toBe('131072')
     // Values the validator will reject are shown as-is rather than dressed up.
-    expect(formatContextWindow(Number.NaN)).toBe('NaN')
-    expect(formatContextWindow(0)).toBe('0')
+    expect(formatCapacity(Number.NaN)).toBe('NaN')
+    expect(formatCapacity(0)).toBe('0')
     for (const text of ['1M', '256K', '131072', '1500K']) {
-      expect(formatContextWindow(parseContextWindow(text) as number)).toBe(text)
+      expect(formatCapacity(parseCapacity(text) as number)).toBe(text)
     }
   })
 
@@ -386,7 +405,9 @@ describe('ModelsSection', () => {
       mutate: vi.fn(() => Promise.resolve(ok(wireNamespaces()[0]))),
     })
     fireEvent.click(screen.getByText(en.customized))
-    const windows = screen.getAllByLabelText<HTMLInputElement>(new RegExp(en.contextWindow))
+    expandRow(1)
+    expandRow(2)
+    const windows = capacityInputs(en.contextWindow)
     // The inherited 1000000 reads back short.
     expect((windows[0] as HTMLInputElement).value).toBe('1M')
 
@@ -422,7 +443,9 @@ describe('ModelsSection', () => {
   it('keeps unreadable context-window text on screen and refuses the write', async () => {
     const { mutate } = await mountSection()
     fireEvent.click(screen.getByText(en.customized))
-    const windows = screen.getAllByLabelText<HTMLInputElement>(new RegExp(en.contextWindow))
+    expandRow(1)
+    expandRow(2)
+    const windows = capacityInputs(en.contextWindow)
     fireEvent.change(windows[0] as HTMLInputElement, { target: { value: '1 gazillion' } })
     // Blurring a row that is not the edited one leaves the buffer alone.
     fireEvent.blur(windows[1] as HTMLInputElement)
@@ -483,7 +506,9 @@ describe('ModelsSection', () => {
     // losing the text the user was told they could still correct.
     await mountSection()
     fireEvent.click(screen.getByText(en.customized))
-    const windows = screen.getAllByLabelText<HTMLInputElement>(new RegExp(en.contextWindow))
+    expandRow(1)
+    expandRow(2)
+    const windows = capacityInputs(en.contextWindow)
     fireEvent.change(windows[0] as HTMLInputElement, { target: { value: 'not a number' } })
     fireEvent.blur(windows[0] as HTMLInputElement)
     fireEvent.change(windows[1] as HTMLInputElement, { target: { value: '2M' } })
@@ -495,13 +520,15 @@ describe('ModelsSection', () => {
   it('re-keys the typed text around a removed row', async () => {
     await mountSection()
     fireEvent.click(screen.getByText(en.customized))
-    const windows = (): HTMLInputElement[] =>
-      screen.getAllByLabelText<HTMLInputElement>(new RegExp(en.contextWindow))
+    const windows = (): HTMLInputElement[] => capacityInputs(en.contextWindow)
     const removeRow = (at: number): void => {
-      fireEvent.click(screen.getAllByText(en.removeModel)[at] as HTMLElement)
+      fireEvent.click(screen.getAllByLabelText(new RegExp(en.removeModel))[at] as HTMLElement)
     }
     // Three rows, with text parked on the outer two.
     fireEvent.click(screen.getByText(en.addModel))
+    expandRow(1)
+    expandRow(2)
+    expandRow(3)
     fireEvent.change(windows()[0] as HTMLInputElement, { target: { value: 'top text' } })
     fireEvent.blur(windows()[0] as HTMLInputElement)
     fireEvent.change(windows()[2] as HTMLInputElement, { target: { value: 'bottom text' } })
@@ -529,12 +556,15 @@ describe('ModelsSection', () => {
       mutate: vi.fn(() => Promise.resolve(ok(wireNamespaces()[0]))),
     })
     fireEvent.click(screen.getByText(en.customized))
-    const windows = screen.getAllByLabelText<HTMLInputElement>(new RegExp(en.contextWindow))
+    expandRow(1)
+    const windows = capacityInputs(en.contextWindow)
     fireEvent.change(windows[0] as HTMLInputElement, { target: { value: 'garbage' } })
     fireEvent.blur(windows[0] as HTMLInputElement)
     fireEvent.click(screen.getByText(en.resetModels))
 
-    const restored = screen.getAllByLabelText<HTMLInputElement>(new RegExp(en.contextWindow))
+    // Reset collapses every row, so the restored capacity needs opening again.
+    expandRow(1)
+    const restored = capacityInputs(en.contextWindow)
     expect((restored[0] as HTMLInputElement).value).toBe('1M')
 
     // Reset put the draft back where it started, so Apply writes nothing at
@@ -542,6 +572,40 @@ describe('ModelsSection', () => {
     fireEvent.click(screen.getByText(en.apply))
     await waitFor(() => { expect(screen.getByText(en.apply)).toBeTruthy() })
     expect(mutate).not.toHaveBeenCalled()
+  })
+
+  it('edits an output cap per model and carries its text across a removal', async () => {
+    const { mutate } = await mountSection({
+      mutate: vi.fn(() => Promise.resolve(ok(wireNamespaces()[0]))),
+    })
+    fireEvent.click(screen.getByText(en.customized))
+    expandRow(1)
+    expandRow(2)
+    // The profile's own cap is the placeholder both rows inherit.
+    expect(capacityInputs(en.maxTokens).map(input => input.placeholder)).toEqual(['256K', '256K'])
+
+    fireEvent.change(screen.getByLabelText(`${en.maxTokens} 2`), { target: { value: '64K' } })
+    fireEvent.blur(screen.getByLabelText(`${en.maxTokens} 2`))
+    expect(screen.getByLabelText<HTMLInputElement>(`${en.maxTokens} 2`).value).toBe('64K')
+
+    // Dropping the row above carries the cap text down with its own row.
+    fireEvent.click(screen.getAllByLabelText(new RegExp(en.removeModel))[0] as HTMLElement)
+    expect(screen.getByLabelText<HTMLInputElement>(`${en.maxTokens} 1`).value).toBe('64K')
+    // The disclosure closes on a second press.
+    expandRow(1)
+    expect(screen.queryByLabelText(`${en.maxTokens} 1`)).toBeNull()
+
+    fireEvent.click(screen.getByText(en.apply))
+    await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
+    expect(mutate.mock.calls[0]?.[0]).toEqual({
+      ns: 'llm-deepseek',
+      ops: [{
+        op: 'set',
+        path: ['models'],
+        value: [{ ...DEFAULT_DEEPSEEK_MODELS[1], maxTokens: 64_000 }],
+      }],
+      expectedRevision: 0,
+    })
   })
 
   it('settles a pasted id and refuses whitespace that would never match', async () => {
@@ -567,14 +631,18 @@ describe('ModelsSection', () => {
       models={[{}]}
       overridden={false}
       defaultContextWindow={undefined}
+      defaultMaxTokens={undefined}
       t={t}
       disabled={true}
       onChange={vi.fn()}
       onReset={vi.fn()}
     />)
     expect(screen.getByLabelText<HTMLInputElement>(`${en.modelId} 1`).value).toBe('')
+    expandRow(1)
     expect(screen.getByLabelText<HTMLInputElement>(`${en.contextWindow} 1`).placeholder)
       .toBe(en.contextWindowPlaceholder)
+    expect(screen.getByLabelText<HTMLInputElement>(`${en.maxTokens} 1`).placeholder)
+      .toBe(en.maxTokensPlaceholder)
   })
 
   it('can empty and reset the model override, then clear optional fields without dropping hidden data', async () => {
@@ -582,14 +650,15 @@ describe('ModelsSection', () => {
       mutate: vi.fn(() => Promise.resolve(ok(wireNamespaces()[0]))),
     })
     fireEvent.click(screen.getByText(en.customized))
-    fireEvent.click(screen.getAllByText(en.removeModel)[0] as HTMLElement)
-    fireEvent.click(screen.getByText(en.removeModel))
+    fireEvent.click(screen.getAllByLabelText(new RegExp(en.removeModel))[0] as HTMLElement)
+    fireEvent.click(screen.getByLabelText(new RegExp(en.removeModel)))
     expect(screen.getByText(en.modelsEmpty)).toBeTruthy()
     fireEvent.click(screen.getByText(en.resetModels))
     expect(screen.getByText(en.modelsInherited)).toBeTruthy()
 
     const names = screen.getAllByLabelText(new RegExp(en.modelName))
-    const windows = screen.getAllByLabelText(new RegExp(en.contextWindow))
+    expandRow(1)
+    const windows = capacityInputs(en.contextWindow)
     fireEvent.change(names[0] as HTMLInputElement, { target: { value: '' } })
     fireEvent.change(windows[0] as HTMLInputElement, { target: { value: '' } })
     fireEvent.click(screen.getByText(en.apply))

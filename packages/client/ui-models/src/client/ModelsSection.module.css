@@ -156,8 +156,7 @@
 .dangerButton:disabled,
 .addButton:disabled,
 .linkButton:disabled,
-.addModelButton:disabled,
-.rowDelete:disabled {
+.addModelButton:disabled {
   opacity: 0.4;
   cursor: default;
 }
@@ -168,7 +167,7 @@
 .addButton:focus-visible,
 .linkButton:focus-visible,
 .addModelButton:focus-visible,
-.rowDelete:focus-visible,
+.iconButton:focus-visible,
 .customizedSummary:focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px var(--dsw-alias-border-l3);
@@ -347,13 +346,6 @@
   border-top: 1px solid var(--dsw-alias-border-l2);
 }
 
-.modelCatalogHeader {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
 .modelCatalogHeading {
   display: flex;
   flex-direction: column;
@@ -375,52 +367,87 @@
   line-height: 18px;
 }
 
-.modelTable {
+/* Model list, shared with the pi-ai provider form (PR #1368): one bordered
+   entry per model, id and display name on the row, capacities behind the
+   row's own disclosure. The token names are this file's, not that branch's —
+   `--dsw-alias-border-subtle`, `--dsw-alias-text-tertiary`, and
+   `--dsw-alias-text-primary` are undefined here and resolve to their
+   light-mode literals, which is the defect this section was just moved off. */
+.modelList {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-}
-
-/* Captions and rows share one track list so the columns line up. */
-.modelColumns,
-.modelRow {
-  display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1.25fr) minmax(88px, 0.75fr) 28px;
-  align-items: center;
   gap: 8px;
 }
 
-.modelColumns {
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 12px;
-  line-height: 18px;
+.modelListHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
 }
 
-/* The inset belongs on the caption cell, not the strip: padding on the grid
-   container would narrow its tracks against the rows' and walk the captions
-   left column by column. 1px border + 10px padding is the field text inset. */
-.modelColumns > span {
-  padding-left: 11px;
+.modelEntry {
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  padding: 6px;
 }
 
-.rowDelete {
-  box-sizing: border-box;
-  position: relative;
+.modelRow {
   display: grid;
-  place-items: center;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Square, label-free affordances: the row's own inputs carry the meaning, so
+   the actions stay glyphs and announce themselves through aria-label. */
+.iconButton {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 28px;
   height: 28px;
-  padding: 0;
   border: none;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
   color: var(--dsw-alias-label-tertiary);
   cursor: pointer;
 }
 
-.rowDelete:hover:not(:disabled) {
+.iconButton:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.iconButton:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+/* The delete glyph keeps the danger tint the rest of the section uses. */
+.iconButtonDanger:hover:not(:disabled) {
   background: var(--dsw-alias-interactive-bg-hover-danger);
   color: var(--dsw-alias-state-error-primary);
+}
+
+.modelAdvanced {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+  padding: 8px 4px 2px;
+}
+
+.modelField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.modelFieldLabel {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .modelEmpty {

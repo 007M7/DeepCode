@@ -262,6 +262,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
     const modelsOverridden = hasPath(draft, ['models'])
     const models = modelDrafts(modelsOverridden ? customModels : inheritedModels())
     const defaultContextWindow = getPath(fallback, ['defaultContextWindow'])
+    const defaultMaxTokens = getPath(fallback, ['maxTokens'])
     return (
       <>
         <div className={styles['field']}>
@@ -323,6 +324,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
                   defaultContextWindow={typeof defaultContextWindow === 'number'
                     ? defaultContextWindow
                     : undefined}
+                  defaultMaxTokens={typeof defaultMaxTokens === 'number' ? defaultMaxTokens : undefined}
                   t={t}
                   disabled={disabled}
                   onChange={(next) => { setDraft(current => setPath(current, ['models'], next)) }}
