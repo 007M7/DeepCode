@@ -179,7 +179,7 @@ export async function startCodexRun(
   const collectOutput = (): ContentBlock[] => wire.collectOutput()
   const result: Promise<SubagentResult> = settleRunResult({
     attempt: () => Promise.race([
-      wire.runTurn(texts, runAbort.signal, () => runAbort.signal.aborted),
+      wire.runTurn(texts, runAbort.signal),
       processFailure,
     ]),
     collectOutput,

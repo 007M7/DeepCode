@@ -168,13 +168,11 @@ export class CodexAppServerWire {
    * terminal notification.
    * @param texts - already validated task text blocks.
    * @param signal - local cancellation for the published run.
-   * @param cancelled - whether local cancellation has already won.
    * @returns the shared subagent result.
    */
   async runTurn(
     texts: readonly string[],
     signal: AbortSignal,
-    cancelled: () => boolean,
   ): Promise<SubagentResult> {
     const completion = Promise.withResolvers<JsonObject>()
     this.turnCompleted = completion
@@ -187,8 +185,6 @@ export class CodexAppServerWire {
     this.commitTurnId(string(turn.id, 'turn/start turn id'))
 
     const completed = await this.guarded(completion.promise, signal)
-    if (cancelled()) return { output: this.collectOutput(), stopReason: 'aborted' }
-
     const terminal = object(completed.turn, 'turn/completed turn')
     const status = terminal.status
     if (isContextWindowExceeded(terminal)) {
