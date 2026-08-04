@@ -208,7 +208,10 @@ describe('WebSocket downlinks', () => {
         sourceSignal = signal
         try {
           await gate
-          yield { rpcId: RpcId('late'), payload: { type: 'host/commands-changed' } }
+          yield {
+            rpcId: RpcId('late'),
+            payload: { type: 'session/subscribed', sessionId: 'session-late' as never, lastSeq: 0 },
+          }
         } finally {
           finish()
         }
@@ -233,7 +236,10 @@ describe('WebSocket downlinks', () => {
     const downlinks = new WebSocketDownlinks(api(
       async function * () {
         await gate
-        yield { rpcId: RpcId('send-failure'), payload: { type: 'host/commands-changed' } }
+        yield {
+          rpcId: RpcId('send-failure'),
+          payload: { type: 'session/subscribed', sessionId: 'session-send' as never, lastSeq: 0 },
+        }
       },
       idle,
     ))
