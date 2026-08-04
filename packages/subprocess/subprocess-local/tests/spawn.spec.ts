@@ -343,6 +343,19 @@ describe('stdin and extra env (set by in-process plugins)', () => {
     expect(result.stdout.text).toBe('alpha/beta\n')
   })
 
+  it('lets an explicit tombstone remove an ordinary ambient env entry', async () => {
+    process.env.SUBPROCESS_TOMBSTONE_PROBE = 'ambient-value'
+    try {
+      const result = await finish(spawnSubprocess(spec(
+        'echo "${SUBPROCESS_TOMBSTONE_PROBE:-absent}"',
+        { env: { SUBPROCESS_TOMBSTONE_PROBE: undefined } },
+      )))
+      expect(result.stdout.text).toBe('absent\n')
+    } finally {
+      delete process.env.SUBPROCESS_TOMBSTONE_PROBE
+    }
+  })
+
   it('an explicit extra env entry overrides the credential scrub', async () => {
     // EXPLICIT_OVERRIDE_PASSWORD matches the credential scrub pattern, yet an explicit
     // entry is still honored — the scrub only drops AMBIENT process.env creds.

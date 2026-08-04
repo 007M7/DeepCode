@@ -31,8 +31,8 @@ import * as claudeCode from '../src/index.ts'
 import * as invariant from '../src/invariant.ts'
 import {
   claudeSpawnSpec,
-  definedEnvironment,
   ManagedClaudeCodeProcess,
+  sdkEnvironmentOverlay,
 } from '../src/process.ts'
 import {
   claudeQueryOptions,
@@ -386,6 +386,7 @@ describe('task admission and package contracts', () => {
 
 describe('official spawn projection', () => {
   it('forwards command, arguments, cwd, environment, and signal exactly', () => {
+    vi.stubEnv('SDK_REMOVED_AMBIENT', 'ambient-value')
     const signal = new AbortController().signal
     const options = sdkSpawnOptions({
       command: '/official/claude',
@@ -394,15 +395,26 @@ describe('official spawn projection', () => {
       env: { A: 'one', B: undefined, C: 'three' },
       signal,
     })
-    expect(definedEnvironment(options.env)).toEqual({ A: 'one', C: 'three' })
-    expect(claudeSpawnSpec(options, 321)).toEqual({
+    expect(sdkEnvironmentOverlay(options.env)).toEqual(expect.objectContaining({
+      A: 'one',
+      B: undefined,
+      C: 'three',
+      SDK_REMOVED_AMBIENT: undefined,
+    }))
+    const spawnSpec = claudeSpawnSpec(options, 321)
+    expect(spawnSpec).toMatchObject({
       argv: ['/official/claude', '--one', 'two'],
       cwd: '/parent/workspace',
       stdio: { stdin: 'pipe', stdout: 'pipe', stderr: 'inherit' },
       graceMs: 321,
       signal,
-      env: { A: 'one', C: 'three' },
     })
+    expect(spawnSpec.env).toEqual(expect.objectContaining({
+      A: 'one',
+      B: undefined,
+      C: 'three',
+      SDK_REMOVED_AMBIENT: undefined,
+    }))
     const missingCwd = sdkSpawnOptions()
     delete missingCwd.cwd
     expect(() => claudeSpawnSpec(

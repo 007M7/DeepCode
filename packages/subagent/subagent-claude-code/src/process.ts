@@ -10,9 +10,10 @@ import type {
   SpawnedProcess,
   SpawnOptions,
 } from '@anthropic-ai/claude-agent-sdk'
-import type {
-  SubprocessHandle,
-  SubprocessSpawnSpec,
+import {
+  scrubbedParentEnv,
+  type SubprocessHandle,
+  type SubprocessSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
 
 function thrown(value: unknown): Error {
@@ -21,19 +22,18 @@ function thrown(value: unknown): Error {
 }
 
 /**
- * Convert the SDK environment to the shared subprocess seam's defined-value
- * overlay without changing the effective child environment.
- * @param env - SDK-composed child environment.
- * @returns entries whose values survive Node's subprocess environment.
+ * Encode the SDK's complete child environment as a subprocess overlay.
+ * @param env - SDK-composed child environment after its removals and replacements.
+ * @returns explicit values plus tombstones for surviving ambient names the SDK removed.
  */
-export function definedEnvironment(
+export function sdkEnvironmentOverlay(
   env: SpawnOptions['env'],
-): Record<string, string> {
-  const defined: Record<string, string> = {}
-  for (const [name, value] of Object.entries(env)) {
-    if (value !== undefined) defined[name] = value
+): NodeJS.ProcessEnv {
+  const overlay: NodeJS.ProcessEnv = { ...env }
+  for (const name of Object.keys(scrubbedParentEnv())) {
+    if (!(name in env)) overlay[name] = undefined
   }
-  return defined
+  return overlay
 }
 
 /**
@@ -55,7 +55,7 @@ export function claudeSpawnSpec(
     stdio: { stdin: 'pipe', stdout: 'pipe', stderr: 'inherit' },
     graceMs,
     signal: options.signal,
-    env: definedEnvironment(options.env),
+    env: sdkEnvironmentOverlay(options.env),
   }
 }
 

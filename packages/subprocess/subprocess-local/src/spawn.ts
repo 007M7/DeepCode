@@ -26,12 +26,12 @@ import type {
 
 /**
  * Build a child environment: explicit caller entries merge after the scrubbed
- * parent base, so a deliberately supplied credential or current `DSH_*` fact
- * wins over the scrub that dropped its ambient namesake.
- * @param extra - explicit caller entries, merged verbatim after the scrub.
+ * parent base. A string deliberately restores or overrides an entry; an
+ * explicit `undefined` tombstone removes an ordinary ambient entry.
+ * @param extra - explicit caller entries and tombstones, merged after the scrub.
  * @returns the environment to hand to `spawn` for the child process.
  */
-export function childEnv(extra?: Readonly<Record<string, string>>): NodeJS.ProcessEnv {
+export function childEnv(extra?: Readonly<NodeJS.ProcessEnv>): NodeJS.ProcessEnv {
   return { ...scrubbedParentEnv(), ...extra }
 }
 

@@ -94,13 +94,12 @@ export interface SubprocessSpawnSpec {
   signal?: AbortSignal | undefined
   /**
    * Explicit environment entries merged onto the implementation's scrubbed
-   * parent base (see `scrubbedParentEnv`), with no namespace validation:
-   * every entry is a deliberate caller opt-in, so a forwarded
-   * credential-shaped entry or a current `DSH_*` fact survives precisely
-   * because this layer merges after the scrub that drops its ambient
-   * namesake.
+   * parent base (see `scrubbedParentEnv`), with no namespace validation. A
+   * string is a deliberate caller opt-in, so a forwarded credential-shaped
+   * entry or current `DSH_*` fact survives the scrub; `undefined` is a
+   * tombstone that removes an ordinary ambient entry from the child.
    */
-  env?: Record<string, string> | undefined
+  env?: NodeJS.ProcessEnv | undefined
 }
 
 /**
