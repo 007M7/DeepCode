@@ -8,23 +8,23 @@ It uses an architecture where **everything is a plugin**.
 
 ## Internal testing notice
 
-Thank you for making time to try DeepSeek Harness.
+感谢您愿意拨冗试用 DeepSeek Harness。当前版本仍处于内部测试阶段，功能仍待完善，体验难免有些粗糙。
 
-This version is still in internal testing. Some features remain unfinished, and parts of the experience may feel rough.
+“如切如磋，如琢如磨。” 产品的成长，离不开一次次真实的碰撞与坦诚的反馈。您在真实使用中发现的问题，也可能促使我们重新审视，甚至推翻已有的设计。
 
-“As one cuts and files, as one carves and polishes.” Products grow through repeated encounters with real use and candid feedback. The problems you uncover in practice may lead us to re-examine, or even discard, existing designs.
-
-We especially want to hear about moments of failure, confusion, or friction. If DeepSeek Harness does not help—or instead makes your work harder—please leave a message in our <a href="https://wj.qq.com/s2/27234598/03eb/">WeCom group</a> and tell us about your experience. Every report will help us refine it.
+为了帮助我们更准确地还原您真实使用中的问题，内测版本默认会上传所有 Session Log；如需关闭，可以设置环境变量 `DSH_TELEMETRY_DISABLED=1`。另外，如果您有任何反馈与建议，请在企业微信群中留言告诉我们。每一条反馈，都会帮助我们把它打磨得更好。
 
 ## Install
 
-Install `dsh` with one command:
+Clone the repository, then run the installer:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/deepseek-harness/deepseek-harness/master/scripts/install.sh | sh
+git clone <repo-url>
+cd deepseek-harness
+scripts/install.sh
 ```
 
-The installer requires `git` and Node `^22.19 || >=24`, offers to install `pnpm` when it is missing, and prompts for a DeepSeek API key.
+The installer requires `git` and Node `^22.19 || >=24`, offers to install `pnpm` when it is missing, prompts for a DeepSeek API key, builds the required repository artifacts, and launches the Web UI.
 
 The installer keeps every checkout under `~/.dsh/source`: the master clone at `~/.dsh/source/master` and each install's staging checkout as a git worktree `~/.dsh/source/staging-<timestamp>`. The stable symlink `~/.dsh/source/current` points at the active staging worktree, and `dsh` in `~/.local/bin` links to `current/bin/dsh`, so an upgrade repoints one symlink and the `dsh` on PATH never moves. Re-running the command adds a fresh staging worktree from an updated master and repoints `current` at it. See [`scripts/install.sh`](scripts/install.sh) for alternate install locations and other options.
 
@@ -32,22 +32,24 @@ The installer keeps every checkout under `~/.dsh/source`: the master clone at `~
 
 ### Web UI
 
-For the recommended local interface, build the active checkout after installation and after each update, then start the Web UI:
+For the recommended local interface, choose Web UI when the installer finishes. To start it later, or after updating the active checkout, build the repository and run:
 
 ```sh
 (cd ~/.dsh/source/current && pnpm run build)
 dsh web
 ```
 
-The full build produces the library and client bundles plus the frontend dist. The path above is the installer's default. If you set `DSH_SOURCE` or `DSH_CURRENT`, or reused an existing checkout, replace `~/.dsh/source/current` with that checkout path; see [`scripts/install.sh`](scripts/install.sh) for details. The Web UI is served at `http://127.0.0.1:3080` by default.
+The path above is the installer's default. If you set `DSH_SOURCE` or `DSH_CURRENT`, or reused an existing checkout, replace `~/.dsh/source/current` with that checkout path; see [`scripts/install.sh`](scripts/install.sh) for details. The Web UI is served at `http://127.0.0.1:3080` by default.
 
-### TUI
+### Configured runtime
 
-Start the full-screen terminal interface:
+Raw `dsh` requires a patch-list configuration applied over the shipped base:
 
 ```sh
-dsh
+dsh --config ./app.cordis.yml
 ```
+
+The [CLI contract](apps/cli/README.md#raw-config) describes the base, overlay semantics, and config dump commands.
 
 ### Headless
 
@@ -69,7 +71,7 @@ The [Python SDK](python/README.md) drives a bundled JSON-RPC runtime. The [examp
 
 ## Why DeepSeek Harness
 
-Built-in capabilities cover file reading, editing, and search; shell and persistent PTY execution; reusable skills; task tracking, goals, plans, todos, and background tasks; subagents and workflows; sandboxing and approvals; settings and credentials; persistent, resumable, forkable, and queryable sessions; LSP and web access; context compaction; and telemetry. Each composition selects the subset appropriate to its surface. The TUI and Web UI both include Plan Mode.
+Built-in capabilities cover file reading, editing, and search; shell and persistent PTY execution; reusable skills; task tracking, goals, plans, todos, and background tasks; subagents and workflows; sandboxing and approvals; settings and credentials; persistent, resumable, forkable, and queryable sessions; LSP and web access; context compaction; and telemetry. Each composition selects the subset appropriate to its surface. The Web UI includes Plan Mode.
 
 - **Everything is a plugin.** Models, tools, policies, storage, context management, and interfaces are composable [Cordis plugins](docs/user/develop/basic/index.md), so deployments can extend or replace behavior without forking the agent loop. See the [architecture](docs/architecture.md) for the underlying design.
 - **Runs are reconstructable.** Anything visible to the model is logged in the authoritative session stream; persistence, resume/fork/query, replay, telemetry, and UIs derive from the same events. See the [session-log architecture](docs/architecture.md#session-log).
@@ -96,3 +98,5 @@ DeepSeek Harness is currently in internal testing.
 ## License
 
 [BSD 3-Clause](LICENSE)
+
+Third-party dependencies and their licenses are disclosed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

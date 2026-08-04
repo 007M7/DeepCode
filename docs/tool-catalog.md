@@ -23,7 +23,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-bash-persistent` | `bash` | `ctx.tools`, `ctx.pty`, `an owning Agent at execution time` | `tool/call`, `PTY shell state`, `tool/result` | - | One owner-isolated persistent bash tool; deployment composition supplies the PTY backend and may override the model-facing environment description. |
 | `@deepseek-ai/dsh-tool-str-replace-editor` | `str_replace_editor` | `ctx.tools`, `ctx.fs` | `tool/call`, `fs/observed after successful file operations`, `tool/result` | - | Standalone view/create/unique literal replace/line insert tool over the filesystem seam; it composes with any shell or terminal surface. |
 | `@deepseek-ai/dsh-tool-fs` | `edit`, `read`, `write` | `ctx.tools`, `ctx.fs`, `ctx.systemPrompt` | `tool/call`, `fs/write-intent or fs/edit-intent for mutations`, `fs/observed after successful file operations`, `tool/result` | - | The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. The tool schemas above are identical with or without the policy plugin. |
-| `@deepseek-ai/dsh-tool-fs-search` | `glob`, `grep` | `ctx.tools`, `ctx.bash`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | glob and grep are conditional bash-backed discovery tools: they register only when ctx.bash can find `rg`, then run fixed ripgrep commands through ctx.bash as ordinary foreground calls (never background tasks). The catalog uses `sampleOverCapGlobResults: true`; deployments must choose that behavior explicitly. Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments. |
+| `@deepseek-ai/dsh-tool-fs-search` | `glob`, `grep` | `ctx.tools`, `ctx.subprocess`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | glob and grep are unconditional discovery tools that spawn the packaged ripgrep binary (`@vscode/ripgrep`) through ctx.subprocess as ordinary foreground calls (never background tasks) — no host `rg` install and no shell layer. The catalog uses `sampleOverCapGlobResults: true`; deployments must choose that behavior explicitly. Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments. |
 | `@deepseek-ai/dsh-tool-pty` | `terminal_close`, `terminal_list`, `terminal_open`, `terminal_read`, `terminal_send`, `terminal_signal` | `ctx.tools`, `ctx.pty`, `ctx.systemPrompt`, `ctx.tasks at call time for run_in_background` | `tool/call`, `tool/result` | - | The six terminal tools are opt-in and complement one-shot bash/filesystem tools. `terminal_send(run_in_background: true)` registers with `ctx.tasks`; TUI, named key sequences, BEL, resize, auto-start, and cross-agent sharing are absent from the schema. |
 | `@deepseek-ai/dsh-tool-goal` | `create_goal`, `get_goal`, `update_goal` | `ctx.tools`, `ctx.agents`, `ctx.goals`, `ctx.systemPrompt`, `a calling Agent in an authorized open turn` | `tool/call`, `user/message goal snapshot for mutations`, `tool/result` | - | create, edit, pause, and resume require direct-human root authority; complete and blocked also accept the exact current goal round. The default blocked lower bound is three admitted rounds. |
 | `@deepseek-ai/dsh-tool-lsp` | `lsp` | `ctx.tools`, `ctx.lsp`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | The lsp tool keeps provider selection and language-server subprocesses behind ctx.lsp, so its model-visible schema stays stable across providers. Requires a registered provider (e.g. `@deepseek-ai/dsh-lsp-local`) at runtime; without one, a query returns the structured `LSP_UNAVAILABLE` error rather than changing the schema. |
@@ -31,6 +31,8 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-skill` | `skill` | `ctx.tools`, `ctx.agents`, `ctx.skills` | `tool/call`, `tool/result`, `user/message replacement catalogs via agent.inject()` | - | - |
 | `@deepseek-ai/dsh-tool-session-query` | `session_event_read`, `session_event_search`, `session_event_trace`, `session_search`, `session_trace` | `ctx.tools`, `ctx.systemPrompt`, `ctx.sessionQuery`, `a calling Agent for workspace authority` | `tool/call`, `tool/result` | - | The five read-only tools hide provider cursors and authorize every result from the immutable calling agent session. The package is opt-in; compositions that need enforced deadlines or bounded inline output also mount the generic timeout or spill policies. |
 | `@deepseek-ai/dsh-tool-subagent` | `subagent` | `ctx.tools`, `ctx.subagents` | `tool/call`, `tool/result`, `child session events through the chosen provider` | `subagent`, `subagent_fork` | The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped example agents load this package once per subagent backend, so the model additionally sees `subagent_fork` (bound to the fork backend) with an identical schema — see `apps/cli/config/base.cordis.yml` and `examples/acp-agent/cordis.yml`. |
+| `@deepseek-ai/dsh-tool-subagent-control` | `list_agents`, `send_message` | `ctx.tools`, `ctx.subagents`, `ctx.sessionQuery (list_agents only)` | `tool/call`, `tool/result`, `child session events through ctx.subagents` | - | The globally named control tools over continuable background subagents: provider-bound `tool-subagent` instances register distinct delegation tools, while this package registers `send_message` once, plus `list_agents` from its separately loaded `/list-agents` plugin (which additionally requires session query). |
+| `@deepseek-ai/dsh-tool-subagent-report` | `report` | `ctx.subagents`, `a live continuable in-process child Agent` | `tool/call`, `tool/result`, `a user-role message in the direct parent session` | - | Registered per continuable in-process child rather than globally, so this schema is visible only inside such a child and survives its global `toolFilter`. The parent-facing `send_message` tool is installed independently. |
 | `@deepseek-ai/dsh-tool-tasks` | `task_kill`, `task_list`, `task_output` | `ctx.tools`, `ctx.tasks`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `user/message via agent.inject() for background completion notices` | - | The kind-agnostic background-task control surface: background bash commands, PTY sends, and subagents are read, listed, and killed through the same three tools. Loading the plugin attaches the control surface that arms producers' `ctx.tasks.start()`. |
 | `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`, `owning Agent session` | `tool/call`, `todo/write`, `tool/result` | - | todo_write is session-owned state; UIs render the latest todo/write event as a checklist. |
 | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`, `ctx.workflows`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents the script children)` | `tool/call`, `tool/result` | - | - |
@@ -524,7 +526,7 @@ Search file contents with a ripgrep regular expression. Returns matching lines w
 
 Source: [`packages/fs/tool-fs-search/src/index.ts`](../packages/fs/tool-fs-search/src/index.ts)
 
-glob and grep are conditional bash-backed discovery tools: they register only when ctx.bash can find `rg`, then run fixed ripgrep commands through ctx.bash as ordinary foreground calls (never background tasks). The catalog uses `sampleOverCapGlobResults: true`; deployments must choose that behavior explicitly. Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments.
+glob and grep are unconditional discovery tools that spawn the packaged ripgrep binary (`@vscode/ripgrep`) through ctx.subprocess as ordinary foreground calls (never background tasks) — no host `rg` install and no shell layer. The catalog uses `sampleOverCapGlobResults: true`; deployments must choose that behavior explicitly. Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments.
 
 ## `@deepseek-ai/dsh-tool-pty`
 
@@ -1145,6 +1147,74 @@ Delegate a self-contained task to a subagent (a separate agent that works in its
 Source: [`packages/subagent/tool-subagent/src/index.ts`](../packages/subagent/tool-subagent/src/index.ts)
 
 The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped example agents load this package once per subagent backend, so the model additionally sees `subagent_fork` (bound to the fork backend) with an identical schema — see `apps/cli/config/base.cordis.yml` and `examples/acp-agent/cordis.yml`.
+
+## `@deepseek-ai/dsh-tool-subagent-control`
+
+### `list_agents`
+
+List your continuable background subagents by durable id and label. Status is a snapshot of the stored record: running means the subagent session is currently live in this process, complete means it exists only in storage and a `send_message` starts a new turn on the same conversation. The snapshot is not a delivery promise — `send_message` performs the authoritative check and may still fail. Children that could not be read are reported as diagnostics instead of being silently dropped.
+
+```json
+{
+  "type": "object",
+  "properties": {}
+}
+```
+
+Source: [`packages/subagent/tool-subagent-control/src/list-agents.ts`](../packages/subagent/tool-subagent-control/src/list-agents.ts)
+
+### `send_message`
+
+Send a message to a background subagent by its subagent id, continuing the same conversation. It becomes the subagent's next turn: if it is still working, the message waits until its current turn finishes, so it cannot redirect work already underway. This call returns no answer from the subagent — only confirmation that the message was delivered — so use it to give it more work. A failure means the message was NOT delivered.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "subagent_id": {
+      "type": "string",
+      "description": "The subagent id returned when the background subagent was started."
+    },
+    "message": {
+      "type": "string",
+      "description": "The message to deliver to the subagent."
+    }
+  },
+  "required": [
+    "subagent_id",
+    "message"
+  ]
+}
+```
+
+Source: [`packages/subagent/tool-subagent-control/src/index.ts`](../packages/subagent/tool-subagent-control/src/index.ts)
+
+The globally named control tools over continuable background subagents: provider-bound `tool-subagent` instances register distinct delegation tools, while this package registers `send_message` once, plus `list_agents` from its separately loaded `/list-agents` plugin (which additionally requires session query).
+
+## `@deepseek-ai/dsh-tool-subagent-report`
+
+### `report`
+
+Report selected content to the agent that started you. Call this zero or more times for progress, findings, or a final answer. Reporting does not end your turn or finish your work, and only your direct parent receives it. A failed call may still have arrived, so do not blindly repeat it.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "output": {
+      "type": "string",
+      "description": "Self-contained content for your parent; it does not see your private work."
+    }
+  },
+  "required": [
+    "output"
+  ]
+}
+```
+
+Source: [`packages/subagent/tool-subagent-report/src/index.ts`](../packages/subagent/tool-subagent-report/src/index.ts)
+
+Registered per continuable in-process child rather than globally, so this schema is visible only inside such a child and survives its global `toolFilter`. The parent-facing `send_message` tool is installed independently.
 
 ## `@deepseek-ai/dsh-tool-tasks`
 

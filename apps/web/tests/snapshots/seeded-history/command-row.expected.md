@@ -7,10 +7,9 @@
 - text: "Use the read tool twice in one assistant message: read a.txt and b.txt. Then reply with the single word DONE and stop. 7/25 {{clock}}"
 - button "Copy":
   - img
-- button "Branch into a new conversation":
+- button "Branch into a new conversation" [disabled]:
   - img
-- button "Edit":
-  - img
+- text: Available only on the last message of a completed turn
 - button "Think The user wants me to read a.txt and b.txt, then reply with \"DONE\". Let me do both reads in parallel.":
   - img
   - img
@@ -35,16 +34,19 @@
 - button "Branch into a new conversation":
   - img
 - text: 7/25 {{clock}}
+- button "Context compacted View compaction summary":
+  - img
+  - text: Context compacted View compaction summary
 - button "Context injection":
   - img
   - img
   - text: Context injection
 - img
-- text: permission preset workspace-write
+- text: permission preset read-only
 - textbox "Message the agent"
 - button "Commands":
   - img
-- 'button "Access mode, current: Workspace Write"': Workspace Write
+- 'button "Access mode, current: Read Only"': Read Only
 - button "Select model, current deepseek-v4-flash":
   - text: deepseek-v4-flash
   - img

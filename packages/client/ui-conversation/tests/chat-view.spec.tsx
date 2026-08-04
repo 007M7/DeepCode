@@ -8,7 +8,7 @@ import { Profiler } from 'react'
 import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
 import type {
   AssistantMessageNode, CommandNode, ConversationNode, ConversationSnapshot,
-  ModelRetryNode, RunningToolCall, SessionId, SessionListState, ToolResultNode,
+  ModelRetryNode, RunningToolCall, SessionId, SessionListState, ToolResultNode, TurnErrorNode,
   UserMessageNode, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
@@ -20,7 +20,7 @@ import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts
 import { createChatStore } from '../src/client/stores.ts'
 import { ChatView } from '../src/client/chat/ChatView.tsx'
 import { zh } from '../src/client/locales.ts'
-import { assistantActionsSeqs, deriveChatFlow, flowKeys } from '../src/client/chat/chat-flow.ts'
+import { assistantActionsSeqs, deriveChatFlow, flowKeys, messageBranchSeqs } from '../src/client/chat/chat-flow.ts'
 
 afterEach(cleanup)
 // Keyless create() persists under the bare declared key; clear between cases
@@ -33,9 +33,9 @@ const SID = 's1' as SessionId
 
 function snapshotBase(): ConversationSnapshot {
   return {
-    sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
+    sessionId: SID, nodes: [], turnEnds: new Map(), partial: null, runningCalls: [], codeDispatches: new Map(),
     pending: [], queue: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
-    hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
+    hasMore: false, loadingOlder: false, promptError: null, blank: false, subagent: null, lastAgentError: null,
   }
 }
 
@@ -75,6 +75,11 @@ const retry = (seq: number): ModelRetryNode => ({
   retry: 1, maxRetries: 2, delayMs: 450,
   failure: { code: 'TRANSPORT', message: '连接被重置' },
 })
+const turnError = (seq: number, code?: string): TurnErrorNode => ({
+  kind: 'turn-error', seq, time: seq * 1_000, turn: 1, step: 0,
+  message: seq === 2 ? 'API key is invalid' : 'plugin exploded',
+  ...(code === undefined ? {} : { code }),
+})
 const toolResult = (seq: number, callId: string, name = 'bash'): ToolResultNode => ({
   kind: 'tool-result', seq, time: seq * 1_000, callId,
   call: { name, argsRaw: `{"command":"cmd-${callId}","description":"run ${callId}"}` },
@@ -88,7 +93,7 @@ const runningCall = (callId: string, name = 'bash'): RunningToolCall => ({
 /** Empty sessions-list hook for the global standard-kit seat. */
 function emptySessions() {
   const store = createSnapshotStore<SessionListState>(
-    { ids: [], byId: {}, current: undefined, phase: 'ready' })
+    { ids: [], byId: {}, current: undefined, phase: 'ready', subagentsByParent: {}, currentAddress: undefined })
   return bindSnapshotSelector(store)
 }
 
@@ -206,6 +211,29 @@ describe('chat-flow derivation', () => {
     ])
     expect([...seqs].sort((a, b) => a - b)).toEqual([5, 7])
   })
+
+  it('messageBranchSeqs keeps only message rows at completed transcript tails', () => {
+    const interruptedThink: AssistantMessageNode = {
+      kind: 'assistant', seq: 4.1, time: 4_100, turn: 1, step: 2,
+      blocks: [{ kind: 'reasoning', text: 'bad path' }], interrupted: true,
+    }
+    const nodes: ConversationNode[] = [
+      user(1, 'first'),
+      assistant(2, 'answer before tools'),
+      toolResult(3, 'a'),
+      interruptedThink,
+      user(6, 'second'),
+      assistant(7, 'clean tail', 2),
+      user(10, 'user-only tail'),
+      {
+        kind: 'steering', messageId: 'steering-tail' as never,
+        seq: 13, time: 13_000, turn: 4,
+        content: [{ type: 'text', text: 'steering tail' }], source: null,
+      },
+    ]
+    const seqs = messageBranchSeqs(nodes, new Map([[1, 5], [2, 8], [3, 11], [4, 14]]))
+    expect([...seqs]).toEqual([7, 10, 13])
+  })
 })
 
 describe('ChatView', () => {
@@ -244,6 +272,97 @@ describe('ChatView', () => {
     expect(view.getByText('running tools')).toBeTruthy()
     expect(view.getAllByText('Bash')).toHaveLength(2)
     expect(view.getByText('run a')).toBeTruthy()
+  })
+
+  it('renders Host-pending steering at the flow tail and hands off to the durable node', () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+    const pending = {
+      id: 'steer-occurrence' as never,
+      messageId: 'steer-message' as never,
+      placement: 'steering' as const,
+      content: [{ type: 'text' as const, text: 'interrupt now' }],
+      preview: 'interrupt now',
+      text: 'interrupt now',
+    }
+    const queued = {
+      id: 'queued-occurrence' as never,
+      messageId: 'queued-message' as never,
+      placement: 'queued' as const,
+      content: [{ type: 'text' as const, text: 'later' }],
+      preview: 'later',
+      text: 'later',
+    }
+    const h = makeHarness({ nodes: [assistant(1, 'working')], queue: [queued, pending], running: true })
+    const view = render(<h.ChatView {...h.props} />)
+
+    expect(view.getByText('interrupt now').closest('[data-pending-steering]')).not.toBeNull()
+    expect(view.queryByText('later')).toBeNull()
+    const pendingBubble = view.getByText('interrupt now').closest('[data-pending-steering]')
+    expect(pendingBubble).not.toBeNull()
+    fireEvent.click(within(pendingBubble as HTMLElement).getByRole('button', { name: '复制' }))
+    expect(writeText).toHaveBeenCalledWith('interrupt now')
+    expect(within(pendingBubble as HTMLElement).queryByRole('button', { name: '在新对话中分支' })).toBeNull()
+    expect(view.getByRole('status').compareDocumentPosition(view.getByText('interrupt now'))
+      & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
+
+    act(() => {
+      h.set({
+        queue: [queued],
+        nodes: [
+          assistant(1, 'working'),
+          {
+            kind: 'steering', messageId: pending.messageId,
+            seq: 2, time: 2_000, turn: 1,
+            content: [{ type: 'text', text: 'interrupt now' }], source: null,
+          },
+        ],
+      })
+    })
+    expect(view.getAllByText('interrupt now')).toHaveLength(1)
+    expect(view.container.querySelector('[data-pending-steering]')).toBeNull()
+    expect(view.getAllByRole('button', { name: '复制' })).toHaveLength(2)
+    const durableBubble = view.getByText('interrupt now').closest('[class*="userRow"]') as HTMLElement
+    const unavailable = within(durableBubble).getByRole('button', { name: '在新对话中分支' })
+    expect(unavailable.getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(unavailable)
+    expect(h.forkAt).not.toHaveBeenCalled()
+
+    act(() => {
+      h.set({ running: false, turnEnds: new Map([[1, 3]]) })
+    })
+    const branchButtons = view.getAllByRole('button', { name: '在新对话中分支' })
+    expect(branchButtons).toHaveLength(2)
+    expect(branchButtons.map(button => button.getAttribute('aria-disabled'))).toEqual(['true', null])
+    fireEvent.click(branchButtons[1]!)
+    expect(h.forkAt).toHaveBeenCalledWith(2)
+  })
+
+  it('keeps a later pending occurrence visible when it reuses a durable MessageId', () => {
+    const pending = {
+      id: 'steer-occurrence-later' as never,
+      messageId: 'shared-steer-message' as never,
+      placement: 'steering' as const,
+      content: [{ type: 'text' as const, text: 'same steering' }],
+      preview: 'same steering',
+      text: 'same steering',
+    }
+    const h = makeHarness({
+      queue: [pending],
+      nodes: [{
+        kind: 'steering', messageId: pending.messageId,
+        seq: 2, time: 2_000, turn: 1,
+        content: pending.content, source: null,
+      }],
+      running: true,
+    })
+    const view = render(<h.ChatView {...h.props} />)
+
+    expect(view.getAllByText('same steering')).toHaveLength(2)
+    expect(view.container.querySelectorAll('[data-pending-steering]')).toHaveLength(1)
   })
 
   it('animates only the latest unresolved model retry', () => {
@@ -288,6 +407,16 @@ describe('ChatView', () => {
     expect(within(cancelledDisclosure).getByRole('status').textContent).toContain('重试已取消')
   })
 
+  it('renders terminal turn failures inline with their durable message and optional code', () => {
+    const h = makeHarness({ nodes: [user(1, 'try'), turnError(2, 'AUTH'), turnError(3)] })
+    const view = render(<h.ChatView {...h.props} />)
+    const statuses = view.getAllByRole('status')
+    expect(statuses.map(status => status.textContent)).toEqual([
+      '本轮运行失败API key is invalidAUTH',
+      '本轮运行失败plugin exploded',
+    ])
+  })
+
   it('the expanded row Inspect pill hands the call id to inspectCall', () => {
     const h = makeHarness({
       nodes: [toolResult(3, 'a')],
@@ -308,21 +437,47 @@ describe('ChatView', () => {
         user(5, 'next'),
         assistant(6, 'second turn', 2),
       ],
+      turnEnds: new Map([[1, 4], [2, 6]]),
     })
     const view = render(<h.ChatView {...h.props} />)
-    // 2 user + 2 turn-tail assistants; mid-turn text at seq 2 stays chrome-free.
+    // Every message footer keeps branch visible; only completed assistant tails enable it.
     expect(view.getAllByRole('button', { name: '复制' })).toHaveLength(4)
-    expect(view.getAllByRole('button', { name: '在新对话中分支' })).toHaveLength(4)
+    const branchButtons = view.getAllByRole('button', { name: '在新对话中分支' })
+    expect(branchButtons).toHaveLength(4)
+    expect(branchButtons.map(button => button.getAttribute('aria-disabled'))).toEqual(['true', null, 'true', null])
   })
 
-  it('forks from both user and finalized assistant message actions at their event seq', () => {
-    const h = makeHarness({ nodes: [user(1, 'question'), assistant(2, 'answer')] })
+  it('enables fork only on the finalized assistant at the completed transcript tail', () => {
+    const h = makeHarness({
+      nodes: [user(1, 'question'), assistant(2, 'answer')],
+      turnEnds: new Map([[1, 3]]),
+    })
     const view = render(<h.ChatView {...h.props} />)
     const buttons = view.getAllByRole('button', { name: '在新对话中分支' })
     expect(buttons).toHaveLength(2)
+    expect(buttons.map(button => button.getAttribute('aria-disabled'))).toEqual(['true', null])
     fireEvent.click(buttons[0]!)
     fireEvent.click(buttons[1]!)
-    expect(h.forkAt.mock.calls).toEqual([[1], [2]])
+    expect(h.forkAt.mock.calls).toEqual([[2]])
+  })
+
+  it('keeps branch visible but unavailable when tool and interrupted Think follow the response', () => {
+    const interruptedThink: AssistantMessageNode = {
+      kind: 'assistant', seq: 4.1, time: 4_100, turn: 1, step: 2,
+      blocks: [{ kind: 'reasoning', text: 'bad path' }], interrupted: true,
+    }
+    const h = makeHarness({
+      nodes: [user(1, 'question'), assistant(2, 'answer'), toolResult(3, 'a'), interruptedThink],
+      turnEnds: new Map([[1, 5]]),
+    })
+    const view = render(<h.ChatView {...h.props} />)
+    expect(view.getAllByRole('button', { name: '复制' })).toHaveLength(2)
+    const buttons = view.getAllByRole('button', { name: '在新对话中分支' })
+    expect(buttons).toHaveLength(2)
+    expect(buttons.every(button => button.getAttribute('aria-disabled') === 'true')).toBe(true)
+    fireEvent.click(buttons[0]!)
+    fireEvent.click(buttons[1]!)
+    expect(h.forkAt).not.toHaveBeenCalled()
   })
 
   it('renders assistant Markdown across history, streaming, final, and interrupted states while user text stays literal', () => {

@@ -1,11 +1,37 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 
 afterEach(cleanup)
 
 describe('Tooltip', () => {
+  it('can delay pointer hover without delaying keyboard focus', () => {
+    vi.useFakeTimers()
+    try {
+      render(
+        <Tooltip label="Timing details" delayMs={500}>
+          <button type="button">anchor</button>
+        </Tooltip>,
+      )
+      const anchor = screen.getByText('anchor')
+      fireEvent.mouseEnter(anchor)
+      act(() => { vi.advanceTimersByTime(499) })
+      expect(screen.queryByRole('tooltip')).toBeNull()
+      fireEvent.mouseLeave(anchor)
+      act(() => { vi.advanceTimersByTime(1) })
+      expect(screen.queryByRole('tooltip')).toBeNull()
+      fireEvent.mouseEnter(anchor)
+      act(() => { vi.advanceTimersByTime(500) })
+      expect(screen.getByRole('tooltip').textContent).toBe('Timing details')
+      fireEvent.mouseLeave(anchor)
+      fireEvent.focus(anchor)
+      expect(screen.getByRole('tooltip').textContent).toBe('Timing details')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('shows the bubble to the right on hover and hides it on leave', () => {
     render(
       <Tooltip label="Open sidebar">

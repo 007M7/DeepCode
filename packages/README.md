@@ -33,7 +33,7 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 | [`plan/`](plan/README.md) | Plan collaboration state with a direct entry command and reviewed exit | Product — stable surface |
 | [`timeout/`](timeout/README.md) | Tool-call timeout policy: the `tools/execute` deadline enforcer | Product — stable surface |
 | [`guard/`](guard/README.md) | Loop-hygiene guards: advisory repeat-call reminders | Product — stable surface |
-| [`cordis/`](cordis/README.md) | Self-referential runtime toolset: inspect the live runtime's plugins and services, mount/unmount model-written plugins ([design](../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md)) | Product — stable surface |
+| [`cordis/`](cordis/README.md) | Cordis runtime integration: self-inspection/model-written temporary Plugins and restricted repository Plugin loading | Product — stable surface |
 | [`hooks/`](hooks/README.md) | Hook bridges + the shared Claude Code / Codex wire-protocol library | Product — stable surface |
 | [`session-persistence/`](session-persistence/README.md) | Persistence seam + JSONL/SQLite backends | Product — stable surface |
 | [`session-projection/`](session-projection/README.md) | Projection seam: domain fold units serve whole values | Product — stable surface |
@@ -46,11 +46,11 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 | [`workspace/`](workspace/README.md) | Workspace entity | Product — stable surface |
 | [`sdk/`](sdk/README.md) | Project SDK tooling | Product — stable surface |
 | [`acp/`](acp/README.md) | Automation-only Agent Client Protocol server | Product — stable surface |
-| [`ui/`](ui/README.md) | TUI and JSON-RPC integrations, approval/interaction seams, ask-user tool | Product — stable surface |
+| [`ui/`](ui/README.md) | JSON-RPC integration, approval/interaction seams, ask-user tool | Product — stable surface |
 | [`host/`](host/README.md) | Web-GUI host half: API gateway + HTTP route server | Product — stable surface |
 | [`client/`](client/README.md) | Web-GUI browser half: shell, wire, object services, slots, `ui-*` plugins | Product — stable surface |
 | [`experimental/`](experimental/README.md) | Prototypes and internal plugins | Unreleased |
-| [`examples/`](examples/README.md) | Demo bundles (agent-spine + TUI/CLI/ACP/JSON-RPC bins) leaves load | Support — example infra |
+| [`examples/`](examples/README.md) | Demo bundles (agent-spine + CLI/ACP/JSON-RPC bins) leaves load | Support — example infra |
 | [`support/`](support/README.md) | Support infrastructure (testkits, invariants, replay, Loader smokes) | Support — lower compatibility expectations |
 | [`util/`](util/README.md) | Low-level zero-dependency utilities shared across groups (`Branded<B>`, Harness home/path helpers, timeout, retention) | Support — small, stable, harness-dep-free |
 

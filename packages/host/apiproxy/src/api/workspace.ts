@@ -22,7 +22,7 @@ export interface WorkspaceView {
   workspaceId: WorkspaceId
   /** Canonical directory path (host-side realpath canon). */
   path: string
-  /** Unique display title (defaults to the path basename at create). */
+  /** Display title (defaults to the path basename at create). */
   title: string
   /**
    * Sessions accounted under this workspace, in manually owned order
@@ -53,8 +53,8 @@ export interface WorkspaceApi {
    * root before registering. Either spelling resolving to a directory already
    * owned by a workspace returns that workspace (`created: false`) for the
    * existing-folder spelling. Create-by-name rejects an existing title with
-   * `workspace-name-conflict`; a new path whose basename duplicates another
-   * Workspace title is rejected by the registry with the same code.
+   * `workspace-name-conflict`; path adoption allows distinct canonical paths
+   * whose basenames produce the same display title.
    * A new name-created workspace uses `name` as both directory name and title;
    * a path-created workspace uses the registry's basename title default.
    */

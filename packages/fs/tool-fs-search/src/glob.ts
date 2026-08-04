@@ -1,22 +1,22 @@
 /**
  * The model-facing `glob` tool: discover files whose paths match a glob
- * pattern, sorted by modification time. Execution goes through the bash seam
- * (`ctx.bash`) with a fixed `rg --files` command — this module owns the
- * model-facing schema, argument validation, shell-safe command construction,
- * result parsing, inline sampling, and formatting; process concerns (defaulting,
- * scrubbing, kill, backend substitution) stay behind `ctx.bash`.
+ * pattern, sorted by modification time. Execution spawns the packaged
+ * ripgrep binary (`@vscode/ripgrep`) directly through the subprocess seam
+ * with a plain argv vector — this module owns the model-facing schema,
+ * argument validation, argv construction, result parsing, inline sampling,
+ * and formatting; process concerns (spawn execution, tree termination,
+ * environment scrubbing, output capture) stay behind `ctx.subprocess`.
  * @module @deepseek-ai/dsh-tool-fs-search/glob
  */
 
 import type { Context } from 'cordis'
 import { sep } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { GenericCallView } from '@deepseek-ai/dsh-tools'
+import type { GenericCallView, SearchResultView, ToolResult } from '@deepseek-ai/dsh-tools'
 import type { SpillRef } from '@deepseek-ai/dsh-spill'
-import type {} from '@deepseek-ai/dsh-bash'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { runRipgrep, toWorkdirRelative, trySaveFormattedResult } from './search-core.ts'
-import { singleQuote } from './shell-quote.ts'
+import { globSearchMeta, searchViewFromMeta } from './presentation.ts'
 import { acceptedSurfaceValue } from './surface.ts'
 
 /**
@@ -43,8 +43,14 @@ export interface GlobToolCaps {
   sampleOverCapGlobResults: boolean
   /** Max paths retained inline; later paths go to the formatted spill file. */
   maxResults: number
+  /** Max bytes of serialized `presentationMeta`; trailing paths drop past it. */
+  maxMetaBytes: number
   /** Cap on the complete raw `rg` stdout the tool will parse. */
   rawOutputMaxBytes: number
+  /** Terminate-escalation grace period (ms) for the search process. */
+  graceMs: number
+  /** Cap on the retained stderr diagnostic tail. */
+  stderrMaxBytes: number
   /** Cooperative tool-call budget (ms) attached as `ToolDefinition.timeoutMs`. */
   timeoutMs: number
 }
@@ -70,32 +76,35 @@ export function parseGlobArgs(args: { pattern: string; path?: string }): GlobInp
 }
 
 /**
- * Build the fixed `rg --files` command for one `glob` call. Every
+ * Build the fixed `rg --files` argv for one `glob` call. Every
  * model-controlled value ({@link GlobInput.pattern}, {@link GlobInput.path})
- * passes through {@link singleQuote}; the search root rides behind `--` so a
- * leading-dash path can never be parsed as a flag. `--sort=modified` orders by
- * modification time, `--no-ignore --hidden` searches ignored and hidden files,
- * and {@link GLOB_VCS_EXCLUDES} keeps VCS metadata out.
+ * is a plain argv element — no shell layer exists, so no quoting applies; the
+ * search root rides behind `--` so a leading-dash path can never be parsed as
+ * a flag. `--sort=modified` orders by modification time, `--no-ignore
+ * --hidden` searches ignored and hidden files, and
+ * {@link GLOB_VCS_EXCLUDES} keeps VCS metadata out.
  *
  * @param input - the validated arguments.
- * @returns the complete, shell-safe command string.
+ * @returns the complete ripgrep argument vector (excluding the binary itself).
  */
-export function buildGlobCommand(input: GlobInput): string {
+export function buildGlobCommand(input: GlobInput): string[] {
   const parts = [
-    'rg --files',
-    `--glob=${singleQuote(input.pattern)}`,
-    '--sort=modified --no-ignore --hidden',
+    '--files',
+    `--glob=${input.pattern}`,
+    '--sort=modified',
+    '--no-ignore',
+    '--hidden',
     // Two negated globs per VCS name: the bare form prunes the directory
     // during traversal; the /** form still excludes the contents when the
     // search root is AT or INSIDE the directory (where the bare form,
     // matched against root-prefixed paths, never fires).
     ...GLOB_VCS_EXCLUDES.flatMap(name => [
-      `--glob=${singleQuote(`!**/${name}`)}`,
-      `--glob=${singleQuote(`!**/${name}/**`)}`,
+      `--glob=!**/${name}`,
+      `--glob=!**/${name}/**`,
     ]),
   ]
-  if (input.path !== undefined) parts.push('--', singleQuote(input.path))
-  return parts.join(' ')
+  if (input.path !== undefined) parts.push('--', input.path)
+  return parts
 }
 
 /**
@@ -232,6 +241,24 @@ function renderGlobPaths(paths: string[], caps: GlobToolCaps, root: string, spil
 }
 
 /**
+ * The inline page of paths a completed `glob` card shows, computed the SAME way
+ * {@link renderGlobPaths} computes its model-facing page so the card and the text
+ * agree on which paths survived the cap. A result within the cap is shown whole;
+ * an over-cap result is either the modification-time head or the top-level sample,
+ * matching the deployment's `sampleOverCapGlobResults`.
+ *
+ * @param paths - the complete discovered path list, in modification-time order.
+ * @param caps - the resolved glob caps (the inline cap and the sampling switch).
+ * @param root - the search root in the same display-path space as `paths`.
+ * @returns the inline page and whether the complete result was capped.
+ */
+function globCardPage(paths: string[], caps: GlobToolCaps, root: string): { items: string[]; truncated: boolean } {
+  if (paths.length <= caps.maxResults) return { items: paths, truncated: false }
+  if (!caps.sampleOverCapGlobResults) return { items: paths.slice(0, caps.maxResults), truncated: true }
+  return { items: sampleAcrossTopLevel(paths, caps.maxResults, root).items, truncated: true }
+}
+
+/**
  * Pending-call presentation: a search card titled by the pattern (and root).
  *
  * @param args - the raw tool arguments; `pattern` and `path` feed the title.
@@ -243,10 +270,28 @@ export function presentGlobCall(args: { pattern: string; path?: string }): Gener
 }
 
 /**
+ * Completed-call presentation: the search card projected from the result's
+ * `presentationMeta` (the discovered path list, with the truncation signal). A UI
+ * without a search card falls back to the raw `tool/result` content, so the view
+ * carries no result text of its own. Malformed or absent metadata (an obsolete or
+ * hand-edited replayed log) falls back to the generic card.
+ *
+ * @param _args - the raw tool arguments; unused, the view derives from the result.
+ * @param result - the final model-facing tool result carrying the projected metadata.
+ * @returns the search card view, or `undefined` for the generic fallback.
+ */
+export function presentGlobResult(_args: { pattern: string; path?: string }, result: ToolResult): SearchResultView | undefined {
+  if (result.isError) return undefined
+  const view = searchViewFromMeta(result.meta)
+  if (view === undefined || view.shape !== 'paths') return undefined
+  return view
+}
+
+/**
  * Register the `glob` tool and its system-prompt guidance.
  *
  * @param ctx - the plugin context; registrations are effects scoped to it, and
- *   execution uses its `bash` service.
+ *   execution uses its `subprocess` service.
  * @param caps - the deployment's resolved glob caps (plugin config after defaulting).
  */
 export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
@@ -289,10 +334,14 @@ export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
         },
       },
       render: (_args, value) => [{ type: 'text', text: renderGlobPaths(value.paths, caps, value.root) }],
+      presentationMeta: (_args, value) => {
+        const page = globCardPage(value.paths, caps, value.root)
+        return globSearchMeta({ items: page.items, truncated: page.truncated, seen: value.paths.length }, caps.maxMetaBytes)
+      },
     },
     async execute(args, exec) {
       const input = parseGlobArgs(args)
-      const run = await runRipgrep(ctx, exec, 'glob', buildGlobCommand(input), caps.rawOutputMaxBytes)
+      const run = await runRipgrep(ctx, exec, 'glob', buildGlobCommand(input), caps.rawOutputMaxBytes, caps.graceMs, caps.stderrMaxBytes)
       const root = input.path === undefined ? '.' : toWorkdirRelative(input.path, run.workdir)
       if (run.noMatches) return { root, paths: [] }
 
@@ -305,6 +354,7 @@ export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
       return { root, paths: all }
     },
     presentCall: presentGlobCall,
+    presentResult: presentGlobResult,
   })
   ctx.tools.register(tool)
 

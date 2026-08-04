@@ -43,14 +43,22 @@ const WAIT_POLL_INTERVAL_MS = 10
  * reference, since a committed file cannot know the id in advance.
  *
  * `promptAndCancel` starts a prompt without awaiting completion, waits for a
- * readiness condition, then cancels and awaits completion. `waitForFile`
- * observes a cwd-relative marker; the default observes the durable turn start.
+ * readiness condition, then cancels and awaits completion. Its optional
+ * `waitForFile` observes a cwd-relative marker; otherwise it waits for the
+ * durable turn start. The standalone `waitForFile` holds the next script step
+ * behind the same marker.
  * `promptAndWaitForAgentMessage` arms an exact text-chunk waiter before sending
  * the prompt, then keeps the application live until that later update arrives.
  * `waitForTurnStart` waits for an open durable turn, optionally at or beyond a
  * specified turn number. `waitForTurnEnd` holds the subprocess open until the
  * selected session's latest complete raw-JSONL turn boundary is `turn/end`.
+ * `waitForSubagentTurnEnd` waits until one background child has persisted a
+ * closed model-work turn after its own descriptor; child progress has no ACP
+ * update to wait on.
  * `waitForTitleAfterTurnEnd` additionally waits for a later durable title.
+ * `waitForEventAfterTurnEnd` waits until a complete record of the given event
+ * type follows the latest closed turn — for scenarios whose asserted state
+ * (e.g. a goal pause) is appended only after cancellation reaches idle.
  * A standalone `cancel` may also wait for a cwd-relative readiness marker.
  * All wait timeouts default to 10s.
  */
@@ -66,9 +74,12 @@ export type InputStep =
     text: string
     waitForFile?: { path: string; timeoutMs?: number }
   }
+  | { op: 'waitForFile'; path: string; timeoutMs?: number }
   | { op: 'waitForTurnStart'; minimumTurn?: number; timeoutMs?: number }
   | { op: 'waitForTurnEnd'; timeoutMs?: number }
+  | { op: 'waitForSubagentTurnEnd'; child?: number; timeoutMs?: number }
   | { op: 'waitForTitleAfterTurnEnd'; timeoutMs?: number }
+  | { op: 'waitForEventAfterTurnEnd'; type: string; timeoutMs?: number }
   | { op: 'cancel'; waitForFile?: { path: string; timeoutMs?: number } }
 
 /** A scenario's `input.json`: an ordered list of input steps. */
@@ -290,7 +301,9 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
         (id) => { sessionId = id },
         (id, timeoutMs, minimumTurn) => waitForPersistedTurnStart(sessionsRoot, id, timeoutMs, minimumTurn),
         (id, timeoutMs) => waitForPersistedTurnEnd(sessionsRoot, id, timeoutMs),
+        (child, timeoutMs) => waitForPersistedChildTurnEnd(sessionsRoot, child, timeoutMs),
         (id, timeoutMs) => waitForPersistedTitleAfterTurnEnd(sessionsRoot, id, timeoutMs),
+        (id, type, timeoutMs) => waitForPersistedEventAfterTurnEnd(sessionsRoot, id, type, timeoutMs),
       )
       // A permission exchange happens while a step's request is in flight, so
       // by the time the step settles any script bug it exposed is captured —
@@ -364,7 +377,9 @@ async function runStep(
   setSessionId: (id: string) => void,
   waitForTurnStart: (sessionId: string, timeoutMs?: number, minimumTurn?: number) => Promise<void>,
   waitForTurnEnd: (sessionId: string, timeoutMs?: number) => Promise<void>,
+  waitForChildTurnEnd: (child: number, timeoutMs?: number) => Promise<void>,
   waitForTitleAfterTurnEnd: (sessionId: string, timeoutMs?: number) => Promise<void>,
+  waitForEventAfterTurnEnd: (sessionId: string, type: string, timeoutMs?: number) => Promise<void>,
 ): Promise<void> {
   switch (step.op) {
     case 'initialize':
@@ -436,16 +451,28 @@ async function runStep(
       await promptDone
       return
     }
+    case 'waitForFile':
+      await waitForWorkspaceFile(cwd, step.path, step.timeoutMs)
+      return
     case 'waitForTurnEnd': {
       const sessionId = getSessionId()
       if (sessionId === undefined) throw new Error('snapshot-harness: waitForTurnEnd before newSession')
       await waitForTurnEnd(sessionId, step.timeoutMs)
       return
     }
+    case 'waitForSubagentTurnEnd':
+      await waitForChildTurnEnd(step.child ?? 1, step.timeoutMs)
+      return
     case 'waitForTitleAfterTurnEnd': {
       const sessionId = getSessionId()
       if (sessionId === undefined) throw new Error('snapshot-harness: waitForTitleAfterTurnEnd before newSession')
       await waitForTitleAfterTurnEnd(sessionId, step.timeoutMs)
+      return
+    }
+    case 'waitForEventAfterTurnEnd': {
+      const sessionId = getSessionId()
+      if (sessionId === undefined) throw new Error('snapshot-harness: waitForEventAfterTurnEnd before newSession')
+      await waitForEventAfterTurnEnd(sessionId, step.type, step.timeoutMs)
       return
     }
     case 'waitForTurnStart': {
@@ -515,6 +542,41 @@ async function waitForPersistedTurnEnd(
   }, { interval: WAIT_POLL_INTERVAL_MS, timeout: timeoutMs })
 }
 
+/**
+ * Wait until the Nth harvested child Session closes a model work turn.
+ *
+ * Harvest order matches `session.1.jsonl`, `session.2.jsonl`, and so on. A
+ * continuable child appends its descriptor after any inherited history and
+ * before accepting its first prompt, so only a later request header proves its
+ * own model work reached a closed turn.
+ */
+async function waitForPersistedChildTurnEnd(
+  root: string,
+  child: number,
+  timeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
+): Promise<void> {
+  await vi.waitFor(async () => {
+    const log = (await harvestSessionLogs(root))[child]
+    if (log === undefined || !latestTurnIsClosed(log.content)
+      || !hasRequestHeaderAfterDescriptor(log.content)) {
+      throw new Error(
+        `snapshot-harness: subagent child #${child} did not persist a closed work turn within ${timeoutMs}ms`,
+      )
+    }
+  }, { interval: WAIT_POLL_INTERVAL_MS, timeout: timeoutMs })
+}
+
+/** Whether a child log contains model work after its own descriptor event. */
+function hasRequestHeaderAfterDescriptor(content: string): boolean {
+  const events = content.slice(0, content.lastIndexOf('\n') + 1)
+    .split('\n')
+    .filter(line => line.length > 0)
+    .map(line => JSON.parse(line) as { type?: unknown })
+  const descriptor = events.findLastIndex(event => event.type === 'subagent/descriptor')
+  return descriptor >= 0
+    && events.slice(descriptor + 1).some(event => event.type === 'request/header')
+}
+
 /** Wait until a complete provider or fallback title record follows the latest closed turn. */
 async function waitForPersistedTitleAfterTurnEnd(
   root: string,
@@ -525,6 +587,21 @@ async function waitForPersistedTitleAfterTurnEnd(
     const log = (await harvestSessionLogs(root)).find(candidate => candidate.id === sessionId)
     if (log === undefined || !latestTitleFollowsTurnEnd(log.content)) {
       throw new Error(`snapshot-harness: session "${sessionId}" did not persist session/title after turn/end within ${timeoutMs}ms`)
+    }
+  }, { interval: WAIT_POLL_INTERVAL_MS, timeout: timeoutMs })
+}
+
+/** Wait until a complete record of `type` follows the latest closed turn. */
+async function waitForPersistedEventAfterTurnEnd(
+  root: string,
+  sessionId: string,
+  type: string,
+  timeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
+): Promise<void> {
+  await vi.waitFor(async () => {
+    const log = (await harvestSessionLogs(root)).find(candidate => candidate.id === sessionId)
+    if (log === undefined || !latestEventFollowsTurnEnd(log.content, type)) {
+      throw new Error(`snapshot-harness: session "${sessionId}" did not persist ${type} after turn/end within ${timeoutMs}ms`)
     }
   }, { interval: WAIT_POLL_INTERVAL_MS, timeout: timeoutMs })
 }
@@ -555,6 +632,13 @@ function latestTitleFollowsTurnEnd(content: string): boolean {
   const complete = content.slice(0, content.lastIndexOf('\n') + 1)
   const turnEnd = complete.lastIndexOf('\n{"type":"turn/end",')
   return turnEnd >= 0 && complete.lastIndexOf('\n{"type":"session/title",') > turnEnd
+}
+
+/** Return whether a complete record of `type` occurs after the last complete turn end. */
+function latestEventFollowsTurnEnd(content: string, type: string): boolean {
+  const complete = content.slice(0, content.lastIndexOf('\n') + 1)
+  const turnEnd = complete.lastIndexOf('\n{"type":"turn/end",')
+  return turnEnd >= 0 && complete.lastIndexOf(`\n{"type":"${type}",`) > turnEnd
 }
 
 /** Return the latest open turn number, validating the persisted boundary record. */

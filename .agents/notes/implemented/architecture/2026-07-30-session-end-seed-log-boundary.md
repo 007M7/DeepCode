@@ -20,7 +20,7 @@ A bracket owner reads it positionally: an unmatched opening marker before `sessi
 
 The constructor is the placement because it is the single waist every seeded session passes through. All six entry points reach it: `agents.resume()`, config-driven startup on a persisted id (`restoreOrCreateConfigured`), `sessions.fork()`, a subagent fork child, `coordinator.adopt()`'s live-prefix path, and a bare `sessions.create(id, {seed})`. A boundary written at persistence load would miss both fork paths — and a forked child inheriting a still-running parent's open `compact/start` is precisely the case that must be classifiable. A boundary written at loop start would miss `fork()` and `adopt()`, and would have to fire on `SessionStartSource: 'startup'`, which is what a fork child publishes, so that field would stop discriminating.
 
-Two guards keep the marker precise. An omitted seed writes nothing because the session is fresh. A seed already ending in one is not re-marked, which makes the write idempotent. Idempotence is load-bearing rather than tidiness — `agentFor()` resumes a cold session on first touch, so merely opening one in a client is a pickup, and without the guard browsing would grow a log by one event per visit.
+Two guards keep the marker precise. An omitted seed writes nothing because the session is fresh. A seed already ending in one is not re-marked, which makes the write idempotent. Idempotence is load-bearing rather than tidiness: each Agent-bound pickup of a cold session passes through `agentFor()`, and without the guard repeated controls would grow the log even when they perform no work. The inspection-only `session.history` and `session.fork` source paths do not create this boundary in the source.
 
 ## Persistence needs no changes
 
@@ -52,4 +52,4 @@ Cost: a seeded session's log is one event longer, including an empty resumed log
 
 `session/end-seed` joins the on-disk vocabulary. Under the pre-release stance (`SESSION_FORMAT_VERSION` pinned at `0`, no compatibility promise) older logs simply lack it, and a log without a boundary correctly classifies nothing as constructor-seed history.
 
-Not built here: no plugin reads the boundary yet. Wiring the compaction seam's staleness check to it is the follow-up that motivated this boundary; the predicate helper belongs with that seam, where a real consumer decides its shape, rather than shipping into core untested against one.
+The [queued manual compaction decision](../feature/2026-07-30-queued-manual-compaction.md) now supplies the first consumer. Its tail scan independently finds the unmatched `compact/start` and newest end-seed, treats only a start after that boundary as live, and clears the invariant trace on the same replay transition. The predicate remains in the compaction package rather than becoming a generic core helper.

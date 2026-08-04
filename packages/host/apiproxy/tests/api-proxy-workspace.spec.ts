@@ -48,10 +48,11 @@ function stubAgent(session: Session): Agent {
     acceptsNextStep: false,
     ctx: new Context(),
     followup: () => {},
-    steer: () => {},
+    steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
     inject: () => {},
     send: () => {},
     updateInbox: () => 'not-found',
+    reserveTurnAdmission: () => undefined,
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }
@@ -292,18 +293,25 @@ describe('workspace.create', () => {
     }
   })
 
-  it('rejects different paths that derive the same Workspace title', async () => {
+  it('adopts different paths that derive the same Workspace title', async () => {
     const { api, workspaceRoot } = await harness()
     const first = join(workspaceRoot, 'one', 'project')
     const second = join(workspaceRoot, 'two', 'project')
     mkdirSync(first, { recursive: true })
     mkdirSync(second, { recursive: true })
-    expectOk(await api.workspace.create(request({ path: first })))
-    const conflict = await api.workspace.create(request({ path: second }))
-    expect(conflict.result).toMatchObject({
-      ok: false,
-      error: { code: 'workspace-name-conflict', details: { name: 'project' } },
+    const firstResult = expectOk(await api.workspace.create(request({ path: first })))
+    const secondResult = expectOk(await api.workspace.create(request({ path: second })))
+    expect(firstResult).toMatchObject({
+      created: true,
+      workspace: { path: first, title: 'project' },
     })
+    expect(secondResult).toMatchObject({
+      created: true,
+      workspace: { path: second, title: 'project' },
+    })
+    expect(secondResult.workspace.workspaceId).not.toBe(firstResult.workspace.workspaceId)
+    expect(expectOk(await api.workspace.list(request({}))).items.map(workspace => workspace.path))
+      .toEqual([second, first])
   })
 })
 
@@ -356,6 +364,36 @@ describe('session creation and Workspace membership', () => {
 })
 
 describe('Host Workspace increments', () => {
+  it('projects subagent origin in attached summaries and creation increments', async () => {
+    const { api, ctx } = await harness()
+    const abort = new AbortController()
+    const stream: AsyncIterator<RpcRequest<HostFrame>> =
+      api.events.host(request({}), abort.signal)[Symbol.asyncIterator]()
+    const pending = nextHostFrame(stream)
+    const childId = SessionId('session-subagent-child')
+
+    ctx.sessions.create(childId, {
+      meta: {
+        cwd: '/tmp',
+        parentSession: SessionId('session-parent'),
+        origin: 'subagent',
+      },
+    })
+
+    expect(await pending).toMatchObject({
+      payload: {
+        type: 'host/session-added',
+        sessionId: childId,
+        parentSessionId: 'session-parent',
+        origin: 'subagent',
+      },
+    })
+    expect(expectOk(await api.sessions.list(request({}))).items).toContainEqual(
+      expect.objectContaining({ sessionId: childId, origin: 'subagent' }),
+    )
+    abort.abort()
+  })
+
   it('streams committed Workspace and Session increments after empty baselines', async () => {
     const { api } = await harness()
     expect(expectOk(await api.workspace.list(request({}))).items).toEqual([])

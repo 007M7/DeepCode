@@ -54,6 +54,7 @@ export const muxFrameSchema = z.discriminatedUnion('type', [
     sessionId: sessionIdSchema,
     items: z.array(z.object({
       id: inboxItemIdSchema,
+      placement: z.union([z.literal('queued'), z.literal('steering')]),
       message: messageSchema,
     })),
   }),
@@ -65,7 +66,14 @@ export const muxFrameSchema = z.discriminatedUnion('type', [
 
 /** HostFrame union (payload slot of a host-stream ServerRequest). */
 export const hostFrameSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('host/session-added'), sessionId: sessionIdSchema, blank: z.boolean(), parentSessionId: sessionIdSchema.optional(), cwd: z.string().optional() }),
+  z.object({
+    type: z.literal('host/session-added'),
+    sessionId: sessionIdSchema,
+    blank: z.boolean(),
+    parentSessionId: sessionIdSchema.optional(),
+    origin: z.literal('subagent').optional(),
+    cwd: z.string().optional(),
+  }),
   z.object({ type: z.literal('host/session-removed'), sessionId: sessionIdSchema }),
   z.object({ type: z.literal('host/session-status'), sessionId: sessionIdSchema, running: z.boolean() }),
   z.object({ type: z.literal('host/agent-error'), sessionId: sessionIdSchema, message: z.string() }),

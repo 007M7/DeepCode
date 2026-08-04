@@ -7,6 +7,7 @@ import type { CommandNode, ConversationSnapshot, ObservableSnapshot, PendingInte
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ComposerKeyboard, EditSelection, InputActions, InputNotice, InputState } from '../input/contract.ts'
 import type { createChatStore } from '../stores.ts'
+import type { ComposerSubmitGesture, InputSubmitMode } from './composer-submission.ts'
 import type { CallId, SelectionTarget, ViewTab } from './views.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -17,6 +18,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * remounted when the current session id changes.
      */
     'conversation.session': { kind: 'single'; scope: 'session'; owner: ConversationSessionOwnerProps }
+    /** Session-header actions contributed by feature plugins. */
+    'conversation.session.header.actions': { kind: 'list'; scope: 'session'; owner: ConversationHeaderActionOwnerProps }
     /**
      * The conversation view ring: one list entry per view tab (chat here;
      * trajectory/waterfall from ui-trajectory), rendered one-at-a-time by
@@ -134,6 +137,9 @@ export interface ConversationSessionOwnerProps {
    */
   wrapActiveBody?: (view: ReactNode) => ReactNode
 }
+
+/** Header actions derive their state from the standard session/global kit. */
+export interface ConversationHeaderActionOwnerProps {}
 
 /**
  * The input-region slot currency (plan §1.4): dock/left/right entries read
@@ -280,6 +286,12 @@ export interface ComposerBarOwnerProps {
 export interface ComposerBarInjected {
   /** The InputBar-exclusive keyboard/DOM command face (decision 20 private plane); absent with the session. */
   keyboard: ComposerKeyboard | undefined
+  /** Resolve one keyboard submission gesture against the current running state and persisted preference. */
+  resolveSubmitMode: (
+    running: boolean,
+    gesture: ComposerSubmitGesture,
+    steeringAvailable: boolean,
+  ) => InputSubmitMode
   /** Toggle the shared slash menu with only its command source; absent without ui-slash or a session. */
   toggleCommandMenu: ((selection: EditSelection) => void) | undefined
   /** Cancel the in-flight turn; absent with the session. */
@@ -331,6 +343,8 @@ export type ComposerBarProps =
  */
 export interface ComposerChainProps {
   interactions: readonly PendingInteraction[]
+  /** Current conversation facts for feature-owned takeover selectors. */
+  session: ConversationSnapshot | undefined
 }
 
 /**
@@ -352,7 +366,7 @@ export type ConversationSlotProps =
 /** Full strict-session content props: per-session store, view ring, callbacks, and the locale seat. */
 export type ConversationSessionSlotProps =
   PropsRuntime<'conversation.session'>
-  & PropsRenderSlots<'conversation.view'>
+  & PropsRenderSlots<'conversation.view' | 'conversation.session.header.actions'>
   & PropsStore<ChatStore>
   & ConversationSessionInjected
   & PropsLocale<'conversation'>
@@ -447,7 +461,7 @@ export interface ChatViewInjected {
     /** Last recorded offset, or null when pinned or never recorded. */
     read: () => number | null
   }
-  /** Fork the session through the turn containing the message at `seq`, then open the child. */
+  /** Fork through the completed turn ending at the eligible message `seq`, then open the child. */
   forkAt: (seq: number) => void
 }
 

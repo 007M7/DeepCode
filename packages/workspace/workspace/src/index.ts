@@ -38,17 +38,6 @@ export function WorkspaceId(id: string): WorkspaceId {
   return id as WorkspaceId
 }
 
-/** A create request would give two Workspaces the same display name. */
-export class WorkspaceNameConflictError extends Error {
-  /**
-   * @param workspaceName - Conflicting display name.
-   */
-  constructor(readonly workspaceName: string) {
-    super(`workspace name '${workspaceName}' is already in use`)
-    this.name = 'WorkspaceNameConflictError'
-  }
-}
-
 /**
  * An archiveSession request named a session neither live nor in session
  * persistence — a definite miss only; storage faults propagate as themselves.
@@ -145,7 +134,7 @@ export class WorkspaceRegistry extends Service {
    * original error and a non-directory rejects. Repeated calls for the same
    * canonical path return the existing entity without changing its title.
    * A newly created workspace is prepended to the durable registry order.
-   * A different canonical path cannot create a duplicate display title.
+   * Different canonical paths may share a display title.
    * @param path - Existing directory to own, in any path spelling.
    * @param title - Display title used only when a new record is created.
    * @returns the existing or newly durable workspace.
@@ -259,10 +248,6 @@ export class WorkspaceRegistry extends Service {
     }
 
     const workspaceName = title ?? basename(canonical)
-    if ([...this.entities.values()].some(entity => entity.title === workspaceName)) {
-      throw new WorkspaceNameConflictError(workspaceName)
-    }
-
     const table = this.requireTable()
     const state = this.requireState()
     const id = WorkspaceId(randomUUID())

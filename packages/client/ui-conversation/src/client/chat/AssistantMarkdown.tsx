@@ -4,9 +4,10 @@
 // view groups them into tool rows through its keyed toolview slot (figma
 // step-summary flow). Shared by finalized nodes and the streaming partial;
 // the turn-level loading dots live in the chat view's tail, not here.
-// Finalized turn-tail content (text) nodes append IconActions once streaming
-// ends (`time` is omitted for mid-turn narration); Think / tool-head-only
-// nodes stay chrome-free.
+// Finalized content (text) nodes append IconActions once streaming ends
+// (`time` is omitted for mid-turn narration); their branch action is enabled
+// only when the node is also the completed turn's transcript tail. Think /
+// tool-head-only nodes stay chrome-free.
 
 import { memo, useMemo } from 'react'
 import type { AssistantBlock } from '@deepseek-ai/dsh-client-runtime/client'
@@ -28,8 +29,10 @@ export interface AssistantMarkdownProps {
   time?: number | undefined
   /** Event sequence used as the fork boundary; omitted while streaming. */
   seq?: number | undefined
-  /** Fork the session through the turn containing this finalized message. */
+  /** Fork the session through this finalized message's completed turn when eligible. */
   onFork?: ((seq: number) => void) | undefined
+  /** The message is not the transcript tail of a completed turn. */
+  forkUnavailable?: boolean | undefined
   /** The owning view's locale seat, passed down as a plain prop. */
   t: ChatViewSlotProps['t']
 }
@@ -37,6 +40,13 @@ export interface AssistantMarkdownProps {
 function firstLine(text: string): string {
   const nl = text.indexOf('\n')
   return nl === -1 ? text : text.slice(0, nl)
+}
+
+/** Latest non-blank reasoning line while the block is still streaming. */
+function latestLine(text: string): string {
+  const visible = text.trimEnd()
+  const nl = visible.lastIndexOf('\n')
+  return nl === -1 ? visible : visible.slice(nl + 1)
 }
 
 /** Joined text blocks for the copy action (reasoning / tool heads stay out). */
@@ -61,7 +71,7 @@ function ThinkRow({ text, running, t }: { text: string; running: boolean; t: Ass
       variant="think"
       icon={<IconThinkOutline14 size={14} />}
       title="Think"
-      summary={firstLine(text)}
+      summary={running ? latestLine(text) : firstLine(text)}
       body={text}
       state={running ? 'running' : 'ok'}
     />
@@ -69,7 +79,7 @@ function ThinkRow({ text, running, t }: { text: string; running: boolean; t: Ass
 }
 
 export const AssistantMarkdown = memo(function AssistantMarkdown({
-  blocks, streaming, interrupted, time, seq, onFork, t,
+  blocks, streaming, interrupted, time, seq, onFork, forkUnavailable, t,
 }: AssistantMarkdownProps) {
   // Stable per locale revision (t identity changes on switch): a fresh object
   // per render would rebuild MarkdownText's component table every chunk.
@@ -113,6 +123,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
           time={time}
           clock="end"
           onBranch={onFork === undefined || seq === undefined ? undefined : () => { onFork(seq) }}
+          branchUnavailable={forkUnavailable}
           className={css.actions}
           t={t}
         />

@@ -8,10 +8,13 @@
 - text: "plan Plan mode on. Use /plan off to leave. Plan a small change: add a --greeting flag to a CLI. Do not read or write any files. Call exit_plan_mode with a short plan of at most five bullet points. Once the plan is approved, reply with the single word DONE and stop. {{clock}}"
 - button "Copy":
   - img
-- button "Branch into a new conversation":
+- button "Branch into a new conversation" [disabled]:
   - img
-- button "Edit":
+- text: Available only on the last message of a completed turn
+- button "Context injection":
   - img
+  - img
+  - text: Context injection
 - 'button "Think The user wants me to plan a small change to add a `--greeting` flag to a CLI. They explicitly told me not to read or write any files, and to call exit_plan_mode with a short plan. Let me do that directly."':
   - img
   - img
@@ -37,9 +40,9 @@
 - textbox "Message the agent"
 - button "Commands":
   - img
-- 'button "Access mode, current: Full access"': Full access
+- 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
-- text: 1 turns · 2 steps Tool call {{duration}} Cache hit 51% Input 10.2K tok · Output 346 tok
+- text: 1 turns · 2 steps Tool call {{duration}} Context 4% of 128K Cache hit 51% Input 10.2K tok · Output 346 tok

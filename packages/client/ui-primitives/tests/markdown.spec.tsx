@@ -94,13 +94,40 @@ describe('MarkdownText', () => {
     expect(done.container.querySelector('pre.shiki')).not.toBeNull()
   })
 
-  it('neutralizes raw HTML, unsafe or relative links, and remote images', () => {
+  it('forwards localized labels to fenced code blocks', () => {
+    render(<MarkdownText text={'```ts\nconst answer = 42\n```'} codeLabels={{ copyLabel: 'Copy code', copiedLabel: 'Copied' }} />)
+    expect(screen.getByRole('button', { name: 'Copy code' })).toBeTruthy()
+  })
+
+  it('renders absolute HTTP(S) images with bounded presentation', () => {
+    const markdown = [
+      '![secure diagram](https://example.com/secure.png)',
+      '![plain diagram](http://example.com/plain.png)',
+    ].join('\n\n')
+    const { container } = render(<MarkdownText text={markdown} />)
+    const images = [...container.querySelectorAll('img')]
+    expect(images.map(image => image.getAttribute('src'))).toEqual([
+      'https://example.com/secure.png',
+      'http://example.com/plain.png',
+    ])
+    for (const image of images) {
+      expect(image.getAttribute('loading')).toBe('lazy')
+      expect(image.getAttribute('decoding')).toBe('async')
+      expect(image.getAttribute('referrerpolicy')).toBe('no-referrer')
+    }
+  })
+
+  it('neutralizes raw HTML, unsafe or relative links, and unsupported images', () => {
     const markdown = [
       '<script>globalThis.compromised = true</script>',
       '<img src="x" onerror="globalThis.compromised = true">',
       '[script](javascript:alert(1)) [relative](/settings)',
       '[mail](mailto:dev@example.com) [web](http://example.com) [upper](HTTPS://example.com)',
-      '![remote diagram](https://example.com/private.png)',
+      '![relative diagram](private.png)',
+      '![absolute diagram](/workspace/private.png)',
+      '![file diagram](file:///workspace/private.png)',
+      '![script diagram](javascript:alert(1))',
+      '![mail diagram](mailto:dev@example.com)',
     ].join('\n\n')
     const { container } = render(<MarkdownText text={markdown} />)
 
@@ -112,7 +139,11 @@ describe('MarkdownText', () => {
     expect(screen.getByRole('link', { name: 'mail' }).getAttribute('target')).toBeNull()
     expect(screen.getByRole('link', { name: 'web' }).getAttribute('rel')).toBe('noopener noreferrer')
     expect(screen.getByRole('link', { name: 'upper' }).getAttribute('target')).toBe('_blank')
-    expect(screen.getByText('remote diagram')).toBeTruthy()
+    expect(screen.getByText('relative diagram')).toBeTruthy()
+    expect(screen.getByText('absolute diagram')).toBeTruthy()
+    expect(screen.getByText('file diagram')).toBeTruthy()
+    expect(screen.getByText('script diagram')).toBeTruthy()
+    expect(screen.getByText('mail diagram')).toBeTruthy()
   })
 
   it('keeps incomplete streaming Markdown renderable', () => {
@@ -120,6 +151,39 @@ describe('MarkdownText', () => {
     expect(screen.getByRole('heading', { level: 2, name: 'Streaming' })).toBeTruthy()
     expect(container.querySelectorAll('li')).toHaveLength(2)
     expect(screen.getByText('**unfinished')).toBeTruthy()
+  })
+
+  it('renders inline and display TeX through KaTeX without enabling trusted commands', () => {
+    const source = [
+      'Einstein wrote $E = mc^2$.',
+      '',
+      '$$',
+      '\\frac{\\partial \\mathbf{u}}{\\partial t} + (\\mathbf{u} \\cdot \\nabla)\\mathbf{u} = -\\frac{1}{\\rho}\\nabla p',
+      '$$',
+      '',
+      '$\\href{javascript:alert(1)}{unsafe}$',
+    ].join('\n')
+    const { container } = render(<MarkdownText text={source} />)
+
+    expect(container.querySelectorAll('.katex')).toHaveLength(3)
+    expect(container.querySelectorAll('.katex-display')).toHaveLength(1)
+    expect(container.querySelector('.katex-display annotation')?.textContent).toContain('\\frac{\\partial \\mathbf{u}}')
+    expect(container.querySelector('a')).toBeNull()
+  })
+
+  it('defers TeX rendering while streaming so incomplete formulas never flash KaTeX errors', () => {
+    const partial = '$$\n\\frac{\\partial \\mathbf{u}}{\\partial'
+    const complete = '$$\n\\frac{\\partial \\mathbf{u}}{\\partial t}\n$$'
+    const live = render(<MarkdownText text={partial} streaming />)
+
+    expect(live.container.querySelector('.katex')).toBeNull()
+    expect(live.container.querySelector('.katex-error')).toBeNull()
+    expect(live.container.textContent).toContain('\\frac{\\partial \\mathbf{u}}{\\partial')
+
+    live.rerender(<MarkdownText text={complete} />)
+    expect(live.container.querySelectorAll('.katex')).toHaveLength(1)
+    expect(live.container.querySelectorAll('.katex-display')).toHaveLength(1)
+    expect(live.container.querySelector('.katex-error')).toBeNull()
   })
 })
 

@@ -1,23 +1,35 @@
-// MessageItem: simple chat nodes — user bubble (right-aligned, with
-// clock + copy / branch / edit IconActions), steering (badged bubble), context
-// injection, retry disclosure, and unknown-surface JSON rows.
+// MessageItem: simple chat nodes — user and consumed-steering bubbles
+// (right-aligned, with clock + copy / branch IconActions), pending steering
+// (copy only), context injection, compaction marker, retry disclosure, and
+// unknown-surface JSON rows.
 
 import { memo, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import type {
-  ContextMessageNode, ModelRetryNode, SteeringMessageNode, UnknownSurfaceNode, UserMessageNode,
+  CompactionSummaryNode, ContextMessageNode, ModelRetryNode, SteeringMessageNode,
+  TurnErrorNode, UnknownSurfaceNode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import { JsonBlock, MessageText } from '@deepseek-ai/dsh-client-ui-primitives'
+import { JsonBlock, MessageText, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
+import { CompactionItem } from './CompactionItem.tsx'
 import { ContextInjectionRow } from './ContextInjectionRow.tsx'
 import { MessageIconActions } from './MessageIconActions.tsx'
 import css from './MessageItem.module.css'
 
 export interface MessageItemProps {
-  node: UserMessageNode | SteeringMessageNode | ContextMessageNode | ModelRetryNode | UnknownSurfaceNode
+  node:
+    | UserMessageNode
+    | SteeringMessageNode
+    | ContextMessageNode
+    | CompactionSummaryNode
+    | ModelRetryNode
+    | TurnErrorNode
+    | UnknownSurfaceNode
   retryActive?: boolean
-  /** Fork the session through the turn containing this message (user-bubble branch action). */
+  /** Fork through this message's completed turn when eligible. */
   onFork?: (seq: number) => void
+  /** The message is not the transcript tail of a completed turn. */
+  forkUnavailable?: boolean
   /** The owning view's locale seat, passed down as a plain prop. */
   t: ChatViewSlotProps['t']
 }
@@ -107,6 +119,24 @@ function ModelRetryItem({ node, active, t }: {
     </details>
   )
 }
+
+/** Persistent, turn-positioned feedback for a terminal failure. */
+function TurnErrorItem({ node, t }: {
+  node: TurnErrorNode
+  t: ChatViewSlotProps['t']
+}) {
+  return (
+    <div className={css.turnErrorRow} role="status">
+      <StateDot state="error" className={css.turnErrorDot} />
+      <div className={css.turnErrorCopy}>
+        <span className={css.turnErrorTitle}>{t('message.turnError')}</span>
+        <span className={css.turnErrorMessage}>{node.message}</span>
+      </div>
+      {node.code !== undefined && <code className={css.turnErrorCode}>{node.code}</code>}
+    </div>
+  )
+}
+
 /**
  * Display projection of reference forms in a user bubble (free geometry — no
  * textarea alignment constraint here); everything else stays plain text. The
@@ -139,49 +169,92 @@ function projectUserText(text: string): ReactNode {
   return <>{parts}</>
 }
 
+/** Right-aligned bubble shared by user and steering rows. */
+function UserStyleBubble({
+  content, actions, pending = false, t,
+}: {
+  content: readonly unknown[]
+  /** Optional IconActions (or similar) below the bubble; receives the joined text. */
+  actions?: (text: string) => ReactNode
+  /** Whether this is the Host-authoritative pre-admission steering projection. */
+  pending?: boolean
+  t: ChatViewSlotProps['t']
+}): ReactNode {
+  const { text, rest } = contentText(content)
+  const truncated = (total: number): string => t('json.truncated', { total })
+  return (
+    <div className={css.userRow} data-pending-steering={pending || undefined}>
+      <div className={css.bubble}>
+        {projectUserText(text)}
+        {rest.map((block, i) => <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />)}
+      </div>
+      {actions?.(text)}
+    </div>
+  )
+}
+
+/**
+ * Render one Host-authoritative pending steering item with the same visual
+ * language as its eventual durable transcript node.
+ * @param props - Pending message content and conversation translator.
+ * @returns the pending steering bubble.
+ */
+export function PendingSteeringBubble({ content, t }: {
+  content: readonly unknown[]
+  t: ChatViewSlotProps['t']
+}): ReactNode {
+  return (
+    <UserStyleBubble
+      content={content}
+      pending
+      t={t}
+      actions={text => (
+        <MessageIconActions
+          text={text}
+          clock="start"
+          showBranch={false}
+          className={css.actions}
+          t={t}
+        />
+      )}
+    />
+  )
+}
+
 export const MessageItem = memo(function MessageItem({
-  node, retryActive = false, onFork, t,
+  node, retryActive = false, onFork, forkUnavailable = false, t,
 }: MessageItemProps) {
   const truncated = (total: number): string => t('json.truncated', { total })
   switch (node.kind) {
-    case 'user': {
-      const { text, rest } = contentText(node.content)
+    case 'user':
+    case 'steering':
       return (
-        <div className={css.userRow}>
-          <div className={css.bubble}>
-            {projectUserText(text)}
-            {rest.map((block, i) => <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />)}
-          </div>
-          <MessageIconActions
-            text={text}
-            time={node.time}
-            clock="start"
-            edit
-            onBranch={onFork === undefined ? undefined : () => { onFork(node.seq) }}
-            className={css.actions}
-            t={t}
-          />
-        </div>
+        <UserStyleBubble
+          content={node.content}
+          t={t}
+          actions={text => (
+            <MessageIconActions
+              text={text}
+              time={node.time}
+              clock="start"
+              onBranch={onFork === undefined ? undefined : () => { onFork(node.seq) }}
+              branchUnavailable={forkUnavailable}
+              className={css.actions}
+              t={t}
+            />
+          )}
+        />
       )
-    }
-    case 'steering': {
-      const { text, rest } = contentText(node.content)
-      return (
-        <div className={css.userRow}>
-          <div className={css.bubble}>
-            <span className={css.badge}>{t('message.steering')}</span>
-            {projectUserText(text)}
-            {rest.map((block, i) => <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />)}
-          </div>
-        </div>
-      )
-    }
     case 'context':
       return (
         <ContextInjectionRow content={node.content} source={node.source} t={t} />
       )
+    case 'compaction':
+      return <CompactionItem node={node} t={t} />
     case 'model-retry':
       return <ModelRetryItem node={node} active={retryActive} t={t} />
+    case 'turn-error':
+      return <TurnErrorItem node={node} t={t} />
     default:
       return (
         <div className={css.contextRow}>

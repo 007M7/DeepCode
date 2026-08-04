@@ -60,7 +60,6 @@ flowchart LR
   pkg_session_reference["session-reference"]
   pkg_tool_session_query["tool-session-query"]
   svc_sessionReferences["ctx.sessionReferences<br/>Cross-session snapshot preparation"]
-  pkg_tui["tui"]
   pkg_session_title["session-title"]
   svc_sessionTitle["ctx.sessionTitle<br/>Log-backed session titles"]
   pkg_session_title_first_message_llm["session-title-first-message-llm"]
@@ -88,13 +87,11 @@ flowchart LR
   pkg_host_apiproxy["host-apiproxy"]
   pkg_session_projection_cache["session-projection-cache"]
   svc_sessionProjectionCache["ctx.sessionProjectionCache<br/>Persisted projection cache"]
-  svc_tui["ctx.tui<br/>Mounted-terminal interaction service"]
   pkg_skill["skill"]
   svc_skills["ctx.skills<br/>Skill provider registry"]
   pkg_skill_local["skill-local"]
   svc_agents["ctx.agents<br/>Agent service"]
   pkg_acp["acp"]
-  pkg_tui_demo["tui-demo"]
   svc_agentLoop["ctx.agentLoop<br/>Concrete loop driver"]
   pkg_agent_spine_demo["agent-spine-demo"]
   pkg_goal["goal"]
@@ -132,9 +129,10 @@ flowchart LR
   pkg_compact["compact"]
   svc_compact["ctx.compact<br/>Compaction seam"]
   pkg_subagent["subagent"]
-  svc_subagents["ctx.subagents<br/>Subagent provider registry"]
+  svc_subagents["ctx.subagents<br/>Subagent provider and continuation service"]
   pkg_subagent_spawn["subagent-spawn"]
   pkg_subagent_fork["subagent-fork"]
+  pkg_tool_subagent_control["tool-subagent-control"]
   pkg_tool_ralph["tool-ralph"]
   pkg_tasks["tasks"]
   svc_tasks["ctx.tasks<br/>Background task registry"]
@@ -235,8 +233,6 @@ flowchart LR
   pkg_token_meter --> svc_tokenMeter
   pkg_tool_bash --> svc_bashEnv
   pkg_tools --> svc_tools
-  pkg_tui --> svc_tui
-  pkg_tui --> svc_userInteraction
   pkg_typert_registry --> svc_typert
   pkg_user_interaction --> svc_userInteraction
   pkg_web --> svc_web
@@ -253,7 +249,6 @@ flowchart LR
   svc_agents --> pkg_agent_loop
   svc_agents --> pkg_cli_demo
   svc_agents --> pkg_subagent_inprocess
-  svc_agents --> pkg_tui_demo
   svc_approval --> pkg_tool_bash
   svc_approval --> pkg_tools
   svc_bash --> pkg_hooks_claude
@@ -261,7 +256,6 @@ flowchart LR
   svc_bash --> pkg_tool_bash
   svc_clientModuleHost --> pkg_hmr
   svc_codeRuntime --> pkg_tools
-  svc_commands --> pkg_tui
   svc_compact --> pkg_compact_basic
   svc_credentials --> pkg_apiproxy
   svc_credentials --> pkg_llm_deepseek
@@ -295,7 +289,6 @@ flowchart LR
   svc_sessionProjections --> pkg_tool_todo
   svc_sessionQuery --> pkg_session_reference
   svc_sessionQuery --> pkg_tool_session_query
-  svc_sessionReferences --> pkg_tui
   svc_sessions --> pkg_agent
   svc_sessions --> pkg_agent_loop
   svc_sessions --> pkg_cli_demo
@@ -313,6 +306,7 @@ flowchart LR
   svc_storageDomain --> pkg_workspace
   svc_subagents --> pkg_tool_ralph
   svc_subagents --> pkg_tool_subagent
+  svc_subagents --> pkg_tool_subagent_control
   svc_subprocess --> pkg_bash_local
   svc_subprocess --> pkg_bash_sandbox
   svc_subprocess --> pkg_lsp_local
@@ -340,7 +334,6 @@ flowchart LR
   svc_tools --> pkg_tool_web
   svc_typert --> pkg_typert_loader
   svc_userInteraction --> pkg_tool_ask_user
-  svc_userInteraction --> pkg_tui
   svc_web --> pkg_tool_web
   svc_workflows --> pkg_tool_ralph
   svc_workflows --> pkg_tool_workflow
@@ -364,18 +357,17 @@ flowchart LR
 | `ctx.storageDomain` | `core` | [`storage-domain`](../packages/storage/storage-domain) | - | [`workspace`](../packages/workspace/workspace) | - | Waits for every configured backend, then publishes the domain form as one lifecycle-bound service for typed durable state. |
 | `ctx.workspace` | `core` | [`workspace`](../packages/workspace/workspace) | - | `apiproxy` | - | Owns WorkspaceId-branded records over the domain facility; stable sessionIds accounts drive Host RPC and GUI projections. |
 | `ctx.sessionQuery` | `seam` | [`session-query`](../packages/session-query/session-query) | [`session-query-sqlite`](../packages/session-query/session-query-sqlite) | [`session-reference`](../packages/context/session-reference), [`tool-session-query`](../packages/session-query/tool-session-query) | - | The interface supplies exact reads, filters, and traces; its concrete backend adds full-text reconciliation, ranking, snippets, and cursor generations, while the model consumer owns workspace authority and cursor-free rendering. |
-| `ctx.sessionReferences` | `core` | [`session-reference`](../packages/context/session-reference) | - | [`tui`](../packages/ui/tui) | - | Projects bounded current-surface conversation snapshots into durable untrusted message context; host adapters own mention syntax. |
+| `ctx.sessionReferences` | `core` | [`session-reference`](../packages/context/session-reference) | - | - | - | Projects bounded current-surface conversation snapshots into durable untrusted message context; host adapters own mention syntax. |
 | `ctx.sessionTitle` | `seam` | [`session-title`](../packages/session-title/session-title) | [`session-title-first-message-llm`](../packages/session-title/session-title-first-message-llm), [`session-title-all-messages-llm`](../packages/session-title/session-title-all-messages-llm) | - | - | Owns the deterministic fallback, latest-title fold, and sole optional asynchronous provider registration. |
 | `ctx.systemPrompt` | `core` | [`system-prompt`](../packages/core/system-prompt) | - | [`agent-loop`](../packages/core/agent-loop), [`tools`](../packages/core/tools), [`tool-fs`](../packages/fs/tool-fs), [`tool-pty`](../packages/pty/tool-pty), [`tool-web`](../packages/web/tool-web) | - | Collects prompt sections and model-facing tool schemas for each step. |
 | `ctx.tools` | `core` | [`tools`](../packages/core/tools) | - | [`agent-loop`](../packages/core/agent-loop), [`tool-ask-user`](../packages/ui/tool-ask-user), [`tool-bash`](../packages/bash/tool-bash), [`tool-cordis`](../packages/cordis/tool-cordis), [`tool-fs`](../packages/fs/tool-fs), [`tool-pty`](../packages/pty/tool-pty), [`tool-skill`](../packages/skill/tool-skill), [`tool-subagent`](../packages/subagent/tool-subagent), [`tool-todo`](../packages/todo/tool-todo), [`tool-web`](../packages/web/tool-web) | - | Registers capabilities, owns Code Mode transport, and routes calls through pre-policy, monotonic guards, around dispatch, post-policy, and final-result observation. |
-| `ctx.userInteraction` | `seam` | [`user-interaction`](../packages/ui/user-interaction) | [`tui`](../packages/ui/tui) | [`tool-ask-user`](../packages/ui/tool-ask-user), [`tui`](../packages/ui/tui) | - | UI front doors provide the active human-answer provider; tool-ask-user pauses a tool call on the provider-neutral ask() promise. |
+| `ctx.userInteraction` | `seam` | [`user-interaction`](../packages/ui/user-interaction) | - | [`tool-ask-user`](../packages/ui/tool-ask-user) | - | UI front doors provide the active human-answer provider; tool-ask-user pauses a tool call on the provider-neutral ask() promise. |
 | `ctx.planMode` | `core` | [`plan-mode`](../packages/plan/plan-mode) | - | - | - | Folds logged plan/mode state, flushes user selections at turn boundaries, renders deployment-owned guidance, registers /plan, and keeps the plan-exit schema stable across transitions. |
-| `ctx.commands` | `core` | [`commands`](../packages/ui/commands) | - | [`tui`](../packages/ui/tui) | - | Plugins register direct human commands; TUI consumes the effective per-agent catalog without sending invocations to the model. |
+| `ctx.commands` | `core` | [`commands`](../packages/ui/commands) | - | - | - | Plugins register direct human commands without sending invocations to the model. |
 | `ctx.sessionProjections` | `core` | [`session-projection`](../packages/session-projection/session-projection) | - | [`tool-todo`](../packages/todo/tool-todo), [`session-title`](../packages/session-title/session-title), [`host-apiproxy`](../packages/host/apiproxy) | - | Domains register state-driven fold units; the eager drive keeps per-session watermark states and api-proxy serves baselines and pushes changed values. |
 | `ctx.sessionProjectionCache` | `core` | [`session-projection-cache`](../packages/session-projection/session-projection-cache) | - | [`host-apiproxy`](../packages/host/apiproxy) | - | Durably checkpoints projection unit states per session (throttled + turn/end/detach mandatory points) and serves the cold-read ladder: cache row + persistence tail replay, so listings never load full logs. |
-| `ctx.tui` | `bundle` | [`tui`](../packages/ui/tui) | - | - | - | One TUI front door provides a FIFO overlay host; injected plugins receive caller-fiber ownership without access to pi-tui or terminal lifecycle state. |
 | `ctx.skills` | `seam` | [`skill`](../packages/skill/skill) | [`skill-local`](../packages/skill/skill-local) | [`tool-skill`](../packages/skill/tool-skill) | - | Merges provider skill catalogs; tool-skill renders the session-prefix catalog and loads complete skill bodies. |
-| `ctx.agents` | `core` | [`agent`](../packages/core/agent) | - | [`agent-loop`](../packages/core/agent-loop), [`acp`](../packages/acp/acp), [`cli-demo`](../packages/examples/cli-demo), [`subagent-inprocess`](../packages/subagent/subagent-inprocess), `tui-demo` | - | Owns live Agent handles, the create/resume factory seam, and process-local initiator propagation. |
+| `ctx.agents` | `core` | [`agent`](../packages/core/agent) | - | [`agent-loop`](../packages/core/agent-loop), [`acp`](../packages/acp/acp), [`cli-demo`](../packages/examples/cli-demo), [`subagent-inprocess`](../packages/subagent/subagent-inprocess) | - | Owns live Agent handles, the create/resume factory seam, and process-local initiator propagation. |
 | `ctx.agentLoop` | `bundle` | [`agent-loop`](../packages/core/agent-loop) | - | [`agent-spine-demo`](../packages/examples/agent-spine-demo) | - | The one concrete loop plugin; extension packages depend on dsh-agent events and services, not on this package. |
 | `ctx.goals` | `core` | [`goal`](../packages/goal/goal) | - | - | - | Folds revisioned objective state from the session log and keeps live continuation activation process-local. |
 | `ctx.subprocess` | `seam` | [`subprocess`](../packages/subprocess/subprocess) | [`subprocess-local`](../packages/subprocess/subprocess-local) | [`bash-local`](../packages/bash/bash-local), [`bash-sandbox`](../packages/bash/bash-sandbox), [`lsp-local`](../packages/lsp/lsp-local), [`subagent-acp`](../packages/subagent/subagent-acp) | - | The bash executors, the LSP host, and the ACP subagent backend spawn their children through ctx.subprocess; the service owns tree lifetime, stdio dispositions (pipes, inherit, bounded spill-backed collection), and kill escalation. |
@@ -389,7 +381,7 @@ flowchart LR
 | `ctx.codeRuntime` | `seam` | [`code-runtime`](../packages/code-runtime/code-runtime) | [`code-runtime-worker`](../packages/code-runtime/code-runtime-worker) | [`tools`](../packages/core/tools) | - | Runs one model-written program against host-provided async bindings; backends differ by substrate and language (the tool registry consumes it for Code Mode). |
 | `ctx.fs` | `seam` | [`fs`](../packages/fs/fs) | [`fs-local`](../packages/fs/fs-local), [`fs-sandbox`](../packages/fs/fs-sandbox) | [`tool-fs`](../packages/fs/tool-fs) | [`fs-policy`](../packages/fs/fs-policy) | tool-fs executes read/write/edit through ctx.fs; fs-sandbox fences mutations by the shared sandbox mode; fs-policy contributes observed-state checks through the fs/* event gate. |
 | `ctx.compact` | `seam` | [`compact`](../packages/compact/compact) | [`compact-basic`](../packages/compact/compact-basic) | [`compact-basic`](../packages/compact/compact-basic) | - | The basic backend consumes post-step pressure and request-error recovery events; a model-facing compact tool remains deferred. |
-| `ctx.subagents` | `seam` | [`subagent`](../packages/subagent/subagent) | [`subagent-spawn`](../packages/subagent/subagent-spawn), [`subagent-fork`](../packages/subagent/subagent-fork), [`subagent-acp`](../packages/subagent/subagent-acp) | [`tool-subagent`](../packages/subagent/tool-subagent), [`tool-ralph`](../packages/workflow/tool-ralph) | - | Providers implement transports; tool-subagent exposes configured delegation while tool-ralph requires one fresh structured-output route. |
+| `ctx.subagents` | `seam` | [`subagent`](../packages/subagent/subagent) | [`subagent-spawn`](../packages/subagent/subagent-spawn), [`subagent-fork`](../packages/subagent/subagent-fork), [`subagent-acp`](../packages/subagent/subagent-acp) | [`tool-subagent`](../packages/subagent/tool-subagent), [`tool-subagent-control`](../packages/subagent/tool-subagent-control), [`tool-ralph`](../packages/workflow/tool-ralph) | - | Providers implement transports; the service also owns optional Activation-based continuation orchestration, tool-subagent selects one-shot or continuable delegation, tool-subagent-control delivers follow-ups, and tool-ralph requires one fresh structured-output route. |
 | `ctx.tasks` | `seam` | [`tasks`](../packages/tasks/tasks) | [`tasks-local`](../packages/tasks/tasks-local) | [`tool-bash`](../packages/bash/tool-bash), [`tool-pty`](../packages/pty/tool-pty), [`tool-subagent`](../packages/subagent/tool-subagent), [`tool-tasks`](../packages/tasks/tool-tasks) | - | Producers (background bash, PTY sends, and subagent delegations) register running work; tool-tasks is the model-facing control surface that reads, lists, and kills it; tasks-local is the process-local registry. |
 | `ctx.web` | `seam` | [`web`](../packages/web/web) | [`web-search-exa`](../packages/web/web-search-exa), [`web-search-perplexity`](../packages/web/web-search-perplexity), [`web-search-deepseek`](../packages/web/web-search-deepseek), [`web-fetch-local`](../packages/web/web-fetch-local) | [`tool-web`](../packages/web/tool-web) | - | Search and fetch providers register into one ctx.web seam; tool-web owns the stable model-facing names. |
 | `ctx.spillStore` | `seam` | [`spill`](../packages/spill/spill) | [`spill-local`](../packages/spill/spill-local) | [`spill-policy`](../packages/spill/spill-policy) | - | The backend saves oversized tool text and returns a model-facing locator plus retrieval hint; spill-policy is the tools/post-execute consumer that decides when to spill. |

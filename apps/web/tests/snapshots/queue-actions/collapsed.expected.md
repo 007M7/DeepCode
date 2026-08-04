@@ -7,17 +7,20 @@
 - text: Reply with a one-sentence description of event sourcing, then stop. {{clock}}
 - button "Copy":
   - img
-- button "Branch into a new conversation":
+- button "Branch into a new conversation" [disabled]:
   - img
-- button "Edit":
+- text: Available only on the last message of a completed turn
+- button "Context injection":
   - img
+  - img
+  - text: Context injection
 - paragraph: partial
 - status: Deep diving...
 - button "2 queued messages"
 - textbox "Message the agent"
 - button "Commands":
   - img
-- 'button "Access mode, current: Full access"': Full access
+- 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img

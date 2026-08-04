@@ -2,37 +2,73 @@
 
 English | [中文](README.zh.md)
 
+The `dsh` command has three entry modes: a required raw config overlay, a one-shot headless prompt, and the Web UI. [`src/args.ts`](src/args.ts) owns the Commander grammar, and [`src/bin.ts`](src/bin.ts) dynamically imports only the selected runner. Unknown commands and leaked options fail with a nonzero exit code.
 
-Argv is parsed once through a [Commander](https://github.com/tj/commander.js) adapter ([`src/args.ts`](src/args.ts)): one program whose default (no subcommand) is the TUI/headless surface (`--config`, `-p`/`--prompt`, `--resume`), whose `meta` subcommand is the same TUI over this checkout, whose `upgrade` subcommand is an option-less guided-session entry, and whose `web` subcommand is the browser UI. `src/bin.ts` switches on the resolved mode and dynamic-imports only that mode's module. `dsh --help` lists every mode and `dsh web --help` renders the web usage, `dsh --version` prints this app's version, and an unknown option or a mistyped `--resume` fails loud (stderr, exit 1) instead of misrouting. Every subcommand that shares no option with the default surface — `upgrade`, `web`, `meta` — rejects a leaked `--config`/`-p`/`--resume` rather than running and dropping it. `dsh web`'s `--host`/`--port` are unvalidated pass-through overrides: the `dsh-host-webserver` schema is the single source of both the default (the shipped Web overlay value when a flag is absent) and validity, and rejects a bad value at boot. `--trusted-host` appends named authorities for the /api browser-trust fence; an all-interfaces bind additionally derives the machine's LAN IP literals itself ([`src/app-cli-entry.ts`](src/app-cli-entry.ts)), so the printed LAN URL works without flags.
+## Raw config
 
-The TUI surface:
+Raw `dsh` requires an explicit patch-list config:
 
-- boots `base.cordis.yml` plus `tui.cordis.yml` through [`dsh-app-boot`](../../packages/ui/app-boot/README.md); `--config <path>` applies a patch-list overlay instead of the personal overlay, while `--config-replace <path>` boots that file as the complete tree;
-- resumes a persisted session with `dsh --resume <session-id>` and, when the Node host exposes `process.execve`, supplies the TUI's in-place handoff host: after selector preflight and current-session flush, the host disposes the app and replaces the process with a normalized resume invocation; runtimes without process replacement leave the session running and say so. This CLI owns session identity and the exit line rather than the config: it mints or selects the `main` session id and provides it, plus the exact command that reproduces this invocation, on the boot context ([`MAIN_SESSION_ID_KEY`](../../packages/ui/tui/README.md) and `TUI_GOODBYE_MESSAGE_KEY`). No `cordis.yml` key can drop resume, and a missing or unreadable id fails loud instead of creating a fresh session;
-- treats the **invoking directory** as the workspace — sessions, relative paths, and workspace instructions resolve from the cwd (`dsh meta` is the sole exception, below);
-- tells the agent where its own source lives: after boot it adds a prompt section naming this harness checkout, resolved from the launcher's real path so it holds under a PATH symlink and an arbitrary cwd, so the self-referential `cordis` toolset can read and modify it;
-- applies the personal overlay from `~/.dsh` (see [app-boot's Personal config](../../packages/ui/app-boot/README.md#personal-config)): `config.yaml` patches the booted tree, while `.env` there is the credential provider's own store (never hoisted into the environment, so keys stay rotatable). Environment precedence is ambient > project `.env`.
+```sh
+dsh --config ./app.cordis.yml
+```
 
-`dsh meta` is that same TUI with this harness checkout as the workspace, so working on dsh itself needs no `cd`. It chdirs to the checkout root — resolved from the launcher's real path, the same root the source-path prompt section names — after the environment is settled, so precedence is unchanged while the session cwd and HMR watch root move together. Meta always starts a fresh session and accepts no default-surface options; use ordinary `dsh --resume <id>` to resume a persisted session.
+The named file is applied directly over [`config/base.cordis.yml`](config/base.cordis.yml) through the Include plugin's patch algorithm. It is not a complete replacement tree, and neither the personal `$DSH_HOME/config.yaml` nor another surface overlay is added. The base deliberately contains no startup agent or interaction front door; the required overlay selects those deployment details. Relative config paths resolve from the invoking directory. A parse, schema, resolution, or plugin boot failure is reported and exits nonzero. SIGINT and SIGTERM dispose the mounted root before exit.
 
-`dsh upgrade` is a guided fresh-session entry over the default TUI surface: it mints a fresh session in the invoking directory and seeds its first turn with the bundled `dsh-upgrade` skill, exactly as if the user typed `/skill:<name>`. The launcher passes the skill name on the boot context ([`INITIAL_SKILL_KEY`](../../packages/ui/tui/README.md)), which the TUI auto-invokes once the chat is live. Both take no options — `--config`, `-p`, and `--resume` fail loud — and seed only on this first launch, so a later `dsh --resume <id>` of the session is an ordinary TUI session with no re-injection.
+A patch targets a base row by `id` and replaces that row's complete `config` value rather than deep-merging keys. Patch lists may also insert new rows whose plugin modules the shipped Loader can resolve:
 
-The Web and headless surfaces boot `base.cordis.yml` plus `web.cordis.yml`, then apply `$DSH_HOME/config.yaml`; an explicit `--config <path>` replaces that personal overlay. Both surfaces otherwise share the same composition: both treat the invoking directory as the default project and Workspace root, create named Workspaces beneath that root unless `--workspace-root <path>` overrides it, load applicable `AGENTS.md`/`CLAUDE.md` instructions into each agent-loop request prefix with a 65,536-byte render budget, opt into first-message model titles, use the same bounded transient model-request retry policy as the TUI, and mount a disposable in-memory SQLite content-index service. That service is ACTIVE at boot, while its `node:sqlite` module and database handle open only on the first content search. This keeps Node 22 startup output free of SQLite's experimental warning before search is used; the first actual search may still emit the runtime warning. Each service instance owns its database, so parallel invocations neither share unsupported SQLite state nor leave derived index files behind, and the first search lazily reconciles live and persisted logs. Headless differs only in listening on an OS-assigned port (parallel `dsh -p` runs never collide; the stderr-printed URL opens the live session in a browser). Both need the frontend dist and client bundles built (`pnpm run build && pnpm run build:web`).
+```yaml
+- id: agent-loop
+  config:
+    agents:
+      - id: main
+        provider: deepseek-official
+        model: deepseek-v4-flash
+```
 
-The shipped TUI and Web compositions register the native DeepSeek adapter plus pi-ai OpenAI and Anthropic profiles. Credentials and endpoint overrides come from the provider-standard `DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL`, `OPENAI_API_KEY` / `OPENAI_BASE_URL`, and `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` pairs in the boot's layered environment.
+Inspect the effective tree without booting it:
 
-`DSH_TOOLS_MODE` selects the tool presentation mode for the whole Web/headless process: `native` (the schema default when unset), `code` (the `run_code`-only Code Mode wire), or `both`; any other value fails loud at boot through the `dsh-tools` config schema. It is a TEMPORARY seam — process-wide because Loader composition is static — and is removed once the web UI owns per-session tool-mode selection; the TUI surface ignores it (its config tree pins its own mode).
+```sh
+dsh --dump-default-config
+dsh --config ./app.cordis.yml --dump-config
+```
 
-Every `dsh` surface — TUI, Web, and headless — reports session telemetry by default (the row lives in the shared `base.cordis.yml`): every session-log event streams as OTLP/HTTP log records to `https://harness-telemetry.deepseeksvc.com/v1/logs` on a 10-second batch cadence. `DSH_TELEMETRY_OTLP_URL` points the exporter at a different collector; setting `DSH_TELEMETRY_DISABLED` to ANY non-empty value — including `0` or `false` — disables the row before it loads (a privacy switch prefers off-by-mistake over on-by-mistake). No redaction rule is mounted in this composition yet: exported records are the raw captured copy, including message text, tool arguments and results, and the session's working-directory path. The deployment rulings live in the [web-telemetry-default-mount Agent Note](../../.agents/notes/implemented/feature/2026-07-31-web-telemetry-default-mount.md).
+`--dump-default-config` prints only the shipped base. `--dump-config` requires `--config` and prints base plus overlay with provenance comments. Composition uses `applyEntryPatches` and `entryListSchema` from `@cordisjs/plugin-include`; `!!js` expressions remain unevaluated, and unmatched patch targets are reported on stderr.
 
-## Install (developer machine)
+## Web and headless
 
-Symlink the source-running launcher onto your PATH; it resolves the checkout through its own real path, so code changes apply on the next launch with no build step:
+`dsh web` boots `base.cordis.yml` plus [`config/web.cordis.yml`](config/web.cordis.yml), followed by `$DSH_HOME/config.yaml` when present. `dsh web --config <path>` replaces that personal layer with the explicit patch list. `--host`, `--port`, `--workspace-root`, and repeatable `--trusted-host` values become Web host patches; their owning plugin schemas validate them at boot. `--dev` mounts the client-plugin HMR receiver and expects a separate `pnpm run dev:web` watcher for no-refresh client bundle updates.
+
+```sh
+dsh web
+dsh web --config ./web-profile.cordis.yml
+dsh web --dump-default-config
+dsh web --dump-config
+```
+
+The production Web runner needs built package and frontend artifacts (`pnpm run build`). It serves `http://127.0.0.1:3080` by default. Binding all interfaces also trusts the machine's discovered LAN IP literals; `--trusted-host` adds named authorities accepted by the `/api` browser-trust fence.
+
+`dsh -p "task"` uses the same base and Web composition with the startup personal config, starts its Web host on an OS-assigned port, runs one fresh persisted session, prints the final answer, and exits. It accepts neither `--config` nor raw config-dump flags.
+
+Both modes treat the invoking directory as the default workspace root, load applicable `AGENTS.md` or `CLAUDE.md` instructions with a 65,536-byte render budget, and use an in-memory SQLite session content index. Web watches valid personal config edits; headless reads the file once at startup. The [app-boot personal-config contract](../../packages/ui/app-boot/README.md#personal-config) owns layer precedence, credential storage, live-update failure behavior, and `$DSH_HOME` resolution.
+
+New sessions default to the `workspace-write` permission preset. Bash and filesystem mutations are restricted to the session workspace and platform temporary roots; reads, network access, and process visibility are not confined. `DSH_PERMISSION_MODE` changes the process fallback. Stored General-settings permissions affect later Web sessions, not an already-open one.
+
+`DSH_TOOLS_MODE` selects `native`, `code`, or `both` for the Web/headless process; another value fails at boot. [`config/core-web.cordis.yml`](config/core-web.cordis.yml) is an optional Web overlay that reduces the native model surface to persistent `bash` and `str_replace_editor` while retaining the shipped host, browser, workspace, persistence, and permission composition.
+
+## Shared deployment behavior
+
+The base mounts the native DeepSeek adapter, settings and credential providers, stable `web_search`, repository Plugin support, and session telemetry. Provider credentials live in `$DSH_HOME/.env` or the ambient environment and remain rotatable because the launcher never hoists the credential file into `process.env`. Search uses `DEEPSEEK_API_KEY` and accepts `DEEPSEEK_SEARCH_BASE_URL`; `web_fetch` is disabled unless an overlay inserts a provider and enables it.
+
+Session events stream as OTLP/HTTP logs by default. `DSH_TELEMETRY_OTLP_URL` selects another collector. Any non-empty `DSH_TELEMETRY_DISABLED` disables the telemetry row before boot. The shipped base has no telemetry redaction rule, so exported records can contain message text, tool arguments and results, and workspace paths; the [telemetry Agent Note](../../.agents/notes/implemented/feature/2026-07-31-web-telemetry-default-mount.md) owns that deployment decision.
+
+The empty `repository-plugins` row lets Web/headless personal config and raw overlays mount prepared immutable repository Plugin generations. See the [repository Plugin contract](../../packages/cordis/repository-plugin/README.md#standalone-app-configuration). The CLI also ships `@deepseek-ai/dsh-mcp-client` as a dependency for overlays, but no MCP server is enabled by default because each server command is trusted executable code outside the agent sandbox.
+
+## Source launcher
+
+Link the source-running launcher onto PATH:
 
 ```sh
 ln -sf "$(pwd)/bin/dsh" ~/.local/bin/dsh
 ```
 
-Source launches run `apps/cli/src/bin.ts` through tsx's ESM-only hook (`node --import tsx/esm`), which transforms TypeScript and projects the root tsconfig `paths` map into module resolution. Node's native TypeScript modes are not used: Node 26 removed `--experimental-transform-types`, and strip-only mode rejects syntax the source graph relies on (vendored parameter properties, decorators, runtime enums/namespaces). The CJS hook stays off because the source graph is ESM-only and the CJS resolver adds ~0.4s of startup. `bin/dsh` pins `TSX_TSCONFIG_PATH` to the checkout's root tsconfig so resolution is cwd-independent, and the `dsh-source-launch-smoke` node-compat gate runs this exact launch vector on every supported Node line. tsx applies the `paths` map without checking dependency declarations, so declaration completeness rests on the static gates: the TUI configs resolve bare plugins through `examples/package.json`, the Web/headless `cordis.yml` through this package's `dependencies`, and `verify-cordis-config` requires every configured bare plugin to be declared, while allowing unrelated dependencies.
-
-`pnpm run dsh` runs the same entry from the repo root and forwards arguments directly, for example `pnpm run dsh -p "task"`. The built form (`lib/bin.js`, via `pnpm run build`) boots the same config under plain Node.
+It resolves the checkout through its real path and launches `apps/cli/src/bin.ts` with `node --import tsx/esm`. `TSX_TSCONFIG_PATH` is pinned to the checkout root, so workspace package resolution is independent of the invoking directory. `pnpm run dsh` uses the same entry and forwards arguments. The built form is `apps/cli/lib/bin.js` after `pnpm run build`.

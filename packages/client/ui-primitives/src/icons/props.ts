@@ -1,6 +1,6 @@
 /** Shared props for every ic_ds_* icon component. */
 export interface IconProps {
-  /** Square edge in px; defaults to the glyph's native size (14 or 16). */
+  /** Square edge in px; defaults to the glyph's own drawn size. */
   size?: number | undefined
   /** Extra class for layout placement; color rides currentColor.
    * (`| undefined` for exactOptionalPropertyTypes: callers forward their own optional prop.) */

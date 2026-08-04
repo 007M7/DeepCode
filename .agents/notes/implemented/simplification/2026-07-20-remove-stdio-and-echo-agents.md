@@ -18,7 +18,7 @@ The stdio and Echo agents are removed without compatibility packages, modes, com
 
 The remaining application roles are explicit:
 
-- [`@deepseek-ai/dsh-tui`](../../../../packages/ui/tui/README.md) owns terminal-interactive execution. It rejects non-TTY streams before Loader boot; `apps/cli/config/base.cordis.yml` plus the `tui.cordis.yml` overlay own the complete coding composition, with PTY plus terminal-snapshot coverage in `apps/cli/tests/`.
+- `@deepseek-ai/dsh-tui` owns terminal-interactive execution. It rejects non-TTY streams before Loader boot; `apps/cli/config/base.cordis.yml` plus the `tui.cordis.yml` overlay own the complete coding composition, with PTY plus terminal-snapshot coverage in `apps/cli/tests/`.
 - [`@deepseek-ai/dsh-cli-demo`](../../../../packages/examples/cli-demo/README.md) owns non-interactive execution, including pipes. `examples/headless-agent` owns the real-model one-shot composition, replay snapshots, generic real-agent suites, and test-only keyless Loader fixtures.
 - [`@deepseek-ai/dsh-acp-demo`](../../../../packages/examples/acp-demo/README.md) and `@deepseek-ai/dsh-jsonrpc` own their framed protocol integrations.
 

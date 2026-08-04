@@ -36,10 +36,11 @@ function agent(ctx: Context, cwd: string): Agent {
     acceptsNextStep: false,
     ctx: scope.ctx,
     followup: () => {},
-    steer: () => {},
+    steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
     inject: () => {},
     send: () => {},
     updateInbox: () => 'not-found',
+    reserveTurnAdmission: () => undefined,
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }
@@ -243,8 +244,10 @@ describe('tool-str-replace-editor', () => {
     expect(listing).not.toContain('too-deep.txt')
     expect(listing).not.toContain('index.js')
     expect(listing).not.toContain('module.pyc')
-    expect(listing).toContain('node_modules_old/kept.js')
-    expect(listing).toContain('__pycache__backup/kept.py')
+    // The listing carries absolute display paths; the POSIX-style substrings
+    // only match on Linux, so assert with platform separators.
+    expect(listing).toContain(join('node_modules_old', 'kept.js'))
+    expect(listing).toContain(join('__pycache__backup', 'kept.py'))
 
     const clipped = await setup({ maxOutputChars: 10 })
     await writeFile(join(clipped.root, 'large.txt'), 'x'.repeat(100))

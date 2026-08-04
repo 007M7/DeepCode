@@ -6,10 +6,10 @@
 // layers, per-plugin CSS injection, and a rendered journey reaching chat
 // content from the keyless FixtureApiClient transport.
 //
-// Behavior assertions do NOT belong here: component and wiring behavior is
-// pinned by the per-package suites (SlotTestRuntime benches over src), which
-// this smoke's plugin set cannot influence — bundling, module-table
-// resolution, and boot layering are the only failure modes left to it.
+// Component behavior remains owned by per-package suites (SlotTestRuntime
+// benches over src). This smoke additionally pins the resident approval
+// fixture's cross-plugin projection because only the built connection/runtime/
+// workspace graph can prove that transport-to-row path end to end.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
@@ -105,18 +105,35 @@ it('boots the built plugin graph and renders a fixture session end to end', asyn
   const tree = await screen.findByRole('tree', { name: 'Sessions' }, { timeout: 10_000 })
   await within(tree).findByText('4 sessions')
 
+  // The resident approval fixture proves the assembled workspace plugin
+  // distinguishes a blocked running session from an ordinarily busy one.
+  const waitingTitle = await within(tree).findByText('Fixture 历史会话')
+  const waitingRow = waitingTitle.closest<HTMLElement>('[role="treeitem"]')
+  if (waitingRow === null) throw new Error('fixture Session title must belong to a tree row')
+  expect(waitingRow.querySelector('[data-state="warning"]')).not.toBeNull()
+  expect(waitingRow.querySelector('[data-state="ongoing"]')).toBeNull()
+  within(waitingRow).getByText('Waiting for approval')
+
   // Opening a session reaches chat content through the fixture transport.
-  fireEvent.click(await within(tree).findByText('Fixture 历史会话'))
+  fireEvent.click(waitingTitle)
   await waitFor(() => {
-    expect(document.querySelector('[data-sample="bash-global"]')).not.toBeNull()
+    expect(document.querySelector('[data-sample="bash"]')).not.toBeNull()
   }, { timeout: 10_000 })
 
   // The write/edit turns render a real diff card through the assembled graph
-  // (the keyed FileMutationRow + DiffBlock), not just the fixture's raw text.
-  // The write turn's `hello fixture\n` proves the terminator rule end to end: a
-  // trailing newline terminates its line, so the footer reads `+1` (not a
-  // phantom `+2`) and one distinct file. The `+ ` prefix is a CSS ::before, so
-  // it is absent from textContent — assert on the line body and the footer.
+  // (the keyed FileMutationRow composing ToolRow + DiffBlock), not just the
+  // fixture's raw text. The card is collapsed by default, so expand each edit/
+  // write row first. The write turn's `hello fixture\n` proves the terminator
+  // rule end to end: a trailing newline terminates its line, so the footer reads
+  // `+1` (not a phantom `+2`) and one distinct file. The `+ ` prefix is a CSS
+  // ::before, so it is absent from textContent — assert on the line body and the
+  // footer.
+  const mutationRows = [...document.querySelectorAll('[data-variant="write"],[data-variant="edit"]')]
+  expect(mutationRows.length).toBeGreaterThan(0)
+  for (const row of mutationRows) {
+    const toggle = row.querySelector('[data-expandable]')
+    if (toggle !== null) act(() => { fireEvent.click(toggle) })
+  }
   const diffCards = [...document.querySelectorAll('[data-diff]')]
   expect(diffCards.length).toBeGreaterThan(0)
   const footers = diffCards.map(card => card.textContent ?? '')
@@ -125,13 +142,20 @@ it('boots the built plugin graph and renders a fixture session end to end', asyn
   // The web render intent reaches the assembled boot graph: the fixture's
   // web_search / web_fetch turns render their keyed WebRow cards, proving the
   // registration, wire projection, and card rendering survive the real bundle
-  // path (not just the per-package src benches). The selector pins the KEYED
-  // WebRow (its own `data-variant="web"` wrapper), not the `[data-web]` attribute
-  // WebBlock draws — the generic fallback renders the same WebBlock, so a silent
-  // keyed-registration failure would still satisfy a bare `[data-web]` check.
+  // path (not just the per-package src benches). WebRow composes ToolRow, so the
+  // card is collapsed behind the row; the keyed row is pinned by its `data-tool`
+  // (ToolRow sets it from the wire tool name).
+  const webSearchRow = await waitFor(() => {
+    const row = document.querySelector('[data-tool="web_search"]')
+    expect(row).not.toBeNull()
+    expect(document.querySelector('[data-tool="web_fetch"]')).not.toBeNull()
+    return row!
+  }, { timeout: 10_000 })
+  // Expand the web_search row to prove its WebBlock card renders end to end.
+  const webToggle = webSearchRow.querySelector('[data-expandable]')
+  if (webToggle !== null) act(() => { fireEvent.click(webToggle) })
   await waitFor(() => {
-    expect(document.querySelector('[data-variant="web"][data-tool="web_search"]')).not.toBeNull()
-    expect(document.querySelector('[data-variant="web"][data-tool="web_fetch"]')).not.toBeNull()
+    expect(webSearchRow.querySelector('[data-web]')).not.toBeNull()
   }, { timeout: 10_000 })
 
   // Every bundle injected its plugin-owned style tag (the loader's CSS path).

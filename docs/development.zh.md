@@ -9,7 +9,7 @@
 - Node.js 支持 22.19+ 与 24+。CI 覆盖 22.19、24 和 26；见 [Node 引擎下限 Agent Note](../.agents/notes/implemented/process/2026-07-06-node-engine-floor.md)。
 - 启用了 Corepack 的 pnpm。仓库在 `package.json` 中固定使用 `pnpm@11.7.0`；如果 `pnpm --version` 无法通过 Corepack 解析，请先运行 `corepack enable`。
 - Git 2.26 或更高版本；钩子设置会启用 Git 的 worktree 专属配置扩展。
-- 可选：一个 DeepSeek API key，用于 TUI、headless 和 ACP（Agent Client Protocol）自动化 agent（智能体）演示以及真实 API 的 e2e 测试。
+- 可选：一个 DeepSeek API key，用于 Web、headless 和 ACP（Agent Client Protocol）自动化 agent（智能体）演示以及真实 API 的 e2e 测试。
 
 ## 首次搭建
 
@@ -83,7 +83,7 @@ DEEPSEEK_BASE_URL=https://... # optional
 
 lefthook 在 `lefthook.yml` 中配置，作为快速的本地检查点：
 
-- `pre-commit` 应用仅用于格式化的 ESLint 修复，使用 Oxlint 验证暂存文件并应用其原生修复，然后检查暂存 diff 中的空白错误，并运行 vendor manifest（元数据清单）守卫；
+- `pre-commit` 应用仅用于格式化的 ESLint 修复，使用 Oxlint 验证暂存文件并应用其原生修复，在暂存文件属于 `THIRD_PARTY_NOTICES.md` 的输入时重新生成该文件，然后检查暂存 diff 中的空白错误，并运行 vendor manifest（元数据清单）守卫；
 - `pre-push` 只运行仓库增量类型检查（对根 solution 执行 `tsc -b`，覆盖 host 与 client 两个聚合）。
 
 vendor manifest 守卫检查 `vendor/*/src` 下的改动是否连同对应的 `vendor/README.md` manifest 更新一起暂存。请在编辑 vendor 代码前先阅读 `vendor/README.md`。
@@ -135,12 +135,6 @@ pnpm run hygiene        # knip, publint, workspace constraints, and NodeNext dec
 
 ```sh
 pnpm run demo:headless "summarize this workspace"
-```
-
-全屏交互式 coding agent 需要环境变量或仓库根目录 `.env` 中的 `DEEPSEEK_API_KEY`：
-
-```sh
-pnpm run demo:tui
 ```
 
 自指的 cordis 演示可以检查并修改其实时插件运行时，并需要相同的凭证（默认 `web`，也可用 `acp`）：

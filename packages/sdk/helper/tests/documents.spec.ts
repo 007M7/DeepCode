@@ -243,7 +243,7 @@ overrides:
     expect(() => loadHelperTemplate('../bad.tpl')).toThrow('must not contain a directory')
     expect(createBaselineProjectArtifacts({
       name: 'demo', description: 'demo', releaseVersion: '0.0.1', model: 'model', modelLiteral: '"model"', packageManager: 'yarn',
-      isAcp: false, isTui: false, isEmbed: true,
+      isAcp: false, isEmbed: true,
       installArgs: 'install', buildArgs: 'build',
     }).map(document => document.relativePath)).toContain('.yarnrc.yml')
     expect(() => new LocalPluginBlueprint('---', 'plugin')).toThrow('invalid local plugin name')

@@ -1,6 +1,0 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-24-configurable-tui-prompt-theme.md
-2026-07-24-configurable-tui-prompt-theme.md: f8815c6c1904c47ebb899c3da7ac62a50f7f88f0
-2026-07-24-configurable-tui-prompt-theme.zh.md: 831471860a9dcd8bb10408c492e1fc6299af6262

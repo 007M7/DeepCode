@@ -41,10 +41,11 @@ function liveAgent(ctx: Context, session: Session): Agent {
     send: () => {},
     updateInbox: () => 'not-found',
     followup: () => {},
-    steer: () => {},
+    steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
     inject(input: UserMessage) {
       session.append('user/message', input, { surfaceOp: 'append' })
     },
+    reserveTurnAdmission: () => undefined,
     cancel() {},
     whenIdle() { return Promise.resolve() },
   }

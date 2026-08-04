@@ -20,7 +20,7 @@
 - `UserInteractionProvider`：包含 `ask(request)` 的 UI 实现。
 - `UserInteractionError`：`HarnessError` 的子类，包含 `EMPTY_QUESTIONS`、`BAD_INTENT`、`NO_PROVIDER`、`DUPLICATE_PROVIDER` 和 `ASK_ABORTED` 等代码。
 
-当回答包含 `custom` 时，`selected` 为空；自定义文本是所选选项的替代，而不是补充。UI 可以把跳过的条目保留为 `{ id, selected: [] }`，既维持现有回答形态，也保留该批次中的其他回答。
+对于单选题，`custom` 会覆盖选中的选项，且 `selected` 为空。对于多选题，`custom` 可以补充 `selected` 中的标签。UI 可以把跳过的条目保留为 `{ id, selected: [] }`，既维持现有回答形态，也保留该批次中的其他回答。
 
 ### 呈现意图
 

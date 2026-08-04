@@ -291,6 +291,13 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
         setupStarted.resolve(undefined)
         await gate.promise
         order.push('setup:end')
+        return {
+          commit: () => {
+            expect(ctx.agents.get(sessionId)).toBeUndefined()
+            expect(ctx.sessions.get(sessionId)).toBeUndefined()
+            order.push('setup:commit')
+          },
+        }
       },
     })
 
@@ -304,6 +311,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     expect(order).toEqual([
       'setup:start',
       'setup:end',
+      'setup:commit',
       'session/created',
       'setup-listener:session/created',
       'agent/created',
@@ -347,6 +355,33 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
         throw new Error('resume setup failed')
       },
     })).rejects.toThrow('resume setup failed')
+
+    expect(published).toEqual([])
+    expect(ctx.agents.get(sessionId)).toBeUndefined()
+    expect(ctx.sessions.get(sessionId)).toBeUndefined()
+    const retry = await ctx.agents.resume({
+      resumeSessionId: sessionId,
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    await retry.dispose()
+    await ctx.fiber.dispose()
+  })
+
+  it('resume setup commit rejection publishes nothing and releases the identity', async () => {
+    const sessionId = SessionId('resume-setup-commit-reject')
+    const root = await persistSession(sessionId)
+    const ctx = await mountPersistentHarness(root, new MockAdapter([textResponse('next')]))
+    const published: string[] = []
+    ctx.on('session/created', () => void published.push('session/created'))
+    ctx.on('agent/created', () => void published.push('agent/created'))
+
+    await expect(ctx.agents.resume({
+      resumeSessionId: sessionId,
+      agentOptions: { provider: 'mock', model: 'mock' },
+      setup: () => ({
+        commit: () => { throw new Error('resume setup commit failed') },
+      }),
+    })).rejects.toThrow('resume setup commit failed')
 
     expect(published).toEqual([])
     expect(ctx.agents.get(sessionId)).toBeUndefined()

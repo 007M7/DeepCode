@@ -6,10 +6,11 @@
  * names resolve to that content (trigger: its own text; dialog:
  * aria-labelledby the title node; close: visually-hidden slot text). Modal
  * open state and the active section id are component-local viewing state;
- * the onboarding slot receives the sessions-derived empty-Hero fact and a
- * private callback that opens one registered section.
+ * the onboarding coordinator mounts exactly one ordered registrant while the
+ * sessions-derived empty-Hero fact is active.
  */
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import { IconCloseOutline16, IconDataOutline16, IconSettingsOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SettingsRootComponentProps, SettingsSectionRow } from './contract/slots.ts'
@@ -95,9 +96,10 @@ function SettingsPanel({ rows, renderSlot, activeId, onSelect, onClose }: PanelP
  * @returns the settings shell element tree.
  */
 export function SettingsRoot(props: SettingsRootComponentProps) {
-  const { wide, useSections, useSessions, renderSlot } = props
+  const { wide, useSections, useOnboardingSteps, useSessions, renderSlot } = props
   const [open, setOpen] = useState(false)
   const [activeId, setActiveId] = useState<string | undefined>(undefined)
+  const [completedOnboarding, setCompletedOnboarding] = useState<ReadonlySet<string>>(() => new Set())
   const close = useCallback(() => {
     setOpen(false)
     setActiveId(undefined)
@@ -111,9 +113,33 @@ export function SettingsRoot(props: SettingsRootComponentProps) {
   // freshly localized text on locale change, and the trigger/header/close
   // seats re-render through their own outlets' subscriptions.
   const rows = useSections(s => s)
+  const onboardingSteps = useOnboardingSteps(s => s)
   const onboardingActive = useSessions(state =>
     state.phase === 'ready'
     && (state.current === undefined || state.byId[state.current]?.blank === true))
+  const onboardingStep = onboardingActive
+    ? onboardingSteps.find(step => !completedOnboarding.has(step.id))
+    : undefined
+
+  useEffect(() => {
+    if (onboardingActive) return
+    setCompletedOnboarding(new Set())
+  }, [onboardingActive])
+
+  const completeOnboardingStep = useCallback((id: string) => {
+    setCompletedOnboarding((previous) => {
+      if (previous.has(id)) return previous
+      return new Set([...previous, id])
+    })
+  }, [])
+
+  useEffect(() => {
+    if (onboardingStep === undefined) return
+    const appRoot = document.getElementById('root')
+    if (appRoot === null) return
+    appRoot.inert = true
+    return () => { appRoot.inert = false }
+  }, [onboardingStep])
 
   return (
     <>
@@ -135,7 +161,18 @@ export function SettingsRoot(props: SettingsRootComponentProps) {
           onClose={close}
         />
       )}
-      {renderSlot('settings.onboarding', { active: onboardingActive, openSection })}
+      {onboardingStep !== undefined && createPortal((
+        <div className={css.onboardingOverlay} role="presentation">
+          <div className={css.onboardingMask} aria-hidden="true" />
+          <div className={css.onboardingStage}>
+            {renderSlot('settings.onboarding', {
+              stepId: onboardingStep.id,
+              complete: () => { completeOnboardingStep(onboardingStep.id) },
+              openSection,
+            }, { only: onboardingStep.id })}
+          </div>
+        </div>
+      ), document.body)}
     </>
   )
 }

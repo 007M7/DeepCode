@@ -34,7 +34,7 @@ export interface InputBarError {
 export type InputBarProps = ComposerBarProps
 
 export function InputBar({
-  useSession, useInput, inputActions, keyboard, toggleCommandMenu, stop, command, t,
+  useSession, useInput, inputActions, keyboard, resolveSubmitMode, toggleCommandMenu, stop, command, t,
   renderSlot, useNotices, useLexicon, useMenuLauncher,
   useProjection, sessionId, variant, disabled: inert = false, placeholder, accessory, overlay, leftItems, rightItems, footer,
 }: InputBarProps) {
@@ -44,6 +44,7 @@ export function InputBar({
   const commandMenuOpen = useMenuLauncher(source => source === 'command')
   const promptError = useSession(s => s.promptError) ?? null
   const running = useSession(s => s.running) ?? false
+  const subagent = useSession(s => s.subagent) ?? null
   const removed = useSession(s => s.removed) ?? false
   // Plan mode swaps the textarea placeholder (the projection is the folded
   // host value; owner-prop placeholders — hero, session-unavailable — win).
@@ -150,12 +151,12 @@ export function InputBar({
   }, [locked, sessionId, draft !== ''])
 
   // Caret restore after an edit the composer performs itself. The machine owns
-  // the draft and the undo log, so paste, ctrl/meta-Enter newline and cut all
-  // suppress the native edit and write the value through the machine — and a
+  // the draft and the undo log, so paste and cut suppress the native edit and
+  // write the value through the machine — and a
   // programmatic selection change reveals nothing: measured in chromium and
   // WebKit, pasting a long block leaves the view where it was while the caret
   // sits at the end of the draft. Native typing gets its reveal from the
-  // browser; these three have to ask for it, so they share one restore.
+  // browser; these two have to ask for it, so they share one restore.
   const restoreCaret = (el: HTMLTextAreaElement, caret: number): void => {
     requestAnimationFrame(() => {
       el.setSelectionRange(caret, caret)
@@ -230,22 +231,14 @@ export function InputBar({
       e.preventDefault()
       return
     }
-    if (e.ctrlKey || e.metaKey) {
-      // Newline as a machine transaction (the machine owns undo history; an
-      // execCommand write would fork a second, browser-owned history).
-      e.preventDefault()
-      if (!machineBusy && !locked) {
-        const el = e.currentTarget
-        const sel = selectionOf(el)
-        keyboard.newline(sel)
-        restoreCaret(el, sel.start + 1)
-      }
-      return
-    }
     e.preventDefault()
     if (e.repeat) return // held-down Enter must not machine-gun sends
     if (locked || machineBusy) return
-    inputActions.submit('queue')
+    keyboard.submit(resolveSubmitMode(
+      running,
+      e.ctrlKey || e.metaKey ? 'accelerated' : 'enter',
+      subagent === null,
+    ))
   }
 
   const onChange = (e: ChangeEvent<HTMLTextAreaElement>): void => {
@@ -338,15 +331,17 @@ export function InputBar({
     if (el !== null) toggleCommandMenu?.(selectionOf(el))
   }
 
-  const primaryLabel = running ? t('input.stop') : t('input.send')
+  const ordinary = subagent === null
+  const stopping = running && ordinary
+  const primaryLabel = stopping ? t('input.stop') : t('input.send')
   const onPrimary = (): void => {
-    if (inputActions === undefined || stop === undefined) return // absent machine: the button is disabled
-    if (running) {
-      stop()
+    if (stopping) {
+      stop?.()
       return
     }
+    if (inputActions === undefined) return // absent machine: the button is disabled
     /* v8 ignore next -- defensive: the primary button is disabled while empty||disabled, so a click cannot reach the false arm. */
-    if (!empty && !disabled && !machineBusy) inputActions.submit('queue')
+    if (!empty && !disabled && !machineBusy) inputActions.submit()
   }
 
   // The Access seat: the projection-fed permission chip (renders nothing
@@ -510,11 +505,11 @@ export function InputBar({
               className={css.primary}
               aria-label={primaryLabel}
               title={primaryLabel}
-              disabled={!running && (empty || disabled || machineBusy)}
+              disabled={stopping ? stop === undefined : empty || disabled || machineBusy}
               onMouseDown={keepFocus}
               onClick={onPrimary}
             >
-              {running ? (
+              {stopping ? (
                 <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
                   <rect x="3" y="3" width="10" height="10" rx="3" fill="currentColor" />
                 </svg>

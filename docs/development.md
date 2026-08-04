@@ -9,7 +9,7 @@ This onboarding guide helps project contributors get started with the local envi
 - Node.js supports 22.19+ and 24+. CI covers 22.19, 24, and 26; see the [Node engine floor Agent Note](../.agents/notes/implemented/process/2026-07-06-node-engine-floor.md).
 - Corepack-enabled pnpm. The repo pins `pnpm@11.7.0` in `package.json`; run `corepack enable` if `pnpm --version` does not resolve through Corepack.
 - Git 2.26 or newer; hook setup enables Git's worktree-specific configuration extension.
-- Optional: a DeepSeek API key for the TUI, headless, and ACP automation demos and real-API e2e tests.
+- Optional: a DeepSeek API key for the Web, headless, and ACP automation demos and real-API e2e tests.
 
 ## First-time setup
 
@@ -83,7 +83,7 @@ DEEPSEEK_BASE_URL=https://... # optional
 
 lefthook is configured in `lefthook.yml` as a fast local checkpoint:
 
-- `pre-commit` applies formatting-only ESLint fixes, validates the staged files with Oxlint and applies its native fixes, checks the staged diff for whitespace errors, and runs the vendor manifest guard.
+- `pre-commit` applies formatting-only ESLint fixes, validates the staged files with Oxlint and applies its native fixes, regenerates `THIRD_PARTY_NOTICES.md` when a staged file is one of its inputs, checks the staged diff for whitespace errors, and runs the vendor manifest guard.
 - `pre-push` runs only the incremental repository typecheck (`tsc -b` over the root solution, covering both the host and client aggregates).
 
 The vendor manifest guard checks that changes under `vendor/*/src` are staged with the matching `vendor/README.md` manifest update. See `vendor/README.md` before editing vendored code.
@@ -135,12 +135,6 @@ The one-shot Headless coding agent needs `DEEPSEEK_API_KEY` in the environment o
 
 ```sh
 pnpm run demo:headless "summarize this workspace"
-```
-
-The full-screen interactive coding agent needs `DEEPSEEK_API_KEY` in the environment or repo-root `.env`:
-
-```sh
-pnpm run demo:tui
 ```
 
 The self-referential cordis demo can inspect and modify its live plugin runtime and needs the same credentials (`web` by default, or `acp`):

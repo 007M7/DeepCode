@@ -1,5 +1,10 @@
 /**
- * Request, result, and capability contracts for {@link SubagentProvider}.
+ * The seam's consumer-facing contracts: request, result, and capability types
+ * for {@link SubagentProvider}, plus the `subagent/start` and `subagent/end`
+ * payloads that plugins and hosts observe. Internal control interfaces belong
+ * with their implementation — the lifecycle observer in `./lifecycle.ts`, the
+ * continuation host in `./continuation.ts` — so this module stays the published
+ * surface rather than a bag of everything type-shaped.
  *
  * @module @deepseek-ai/dsh-subagent/types
  */
@@ -7,8 +12,9 @@
 import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { ObjectJsonSchema, ToolRestriction } from '@deepseek-ai/dsh-tools'
+import type { SubagentDescriptorData } from './descriptor.ts'
 
 /** Identifies one accepted subagent run across its lifecycle event pair. */
 export type SubagentRunId = Branded<'SubagentRunId'>
@@ -23,13 +29,54 @@ export function SubagentRunId(id: string): SubagentRunId {
 }
 
 /**
+ * Observe-only identifying detail for a published subagent run, carried by
+ * `subagent/start`. One-shot runs and continuable Activation epochs share this
+ * payload, so an observer sees the same vocabulary for both.
+ */
+export interface SubagentRunInfo {
+  /** Unique identity shared with the paired terminal event. */
+  readonly runId: SubagentRunId
+  /**
+   * Provider provenance for this run or Activation epoch. The named provider
+   * may be absent when an accepted run becomes ready or a persisted Activation
+   * cold-resumes, because neither lifecycle depends on continued registration.
+   */
+  readonly provider: string
+  /** The child agent's id. */
+  readonly id: SessionId
+  /** Snapshot of whether `SubagentRun.localAgent` was present when start fulfilled. */
+  readonly local: boolean
+}
+
+/**
+ * Observe-only outcome detail for a settled subagent run, carried by
+ * `subagent/end` and paired with one {@link SubagentRunInfo} by `runId`.
+ */
+export interface SubagentRunEndInfo {
+  /** Unique identity shared with the paired start event. */
+  readonly runId: SubagentRunId
+  /** The same provider provenance carried by the paired start event. */
+  readonly provider: string
+  /** The child agent's id. */
+  readonly id: SessionId
+  /** Snapshot of whether `SubagentRun.localAgent` was present when start fulfilled. */
+  readonly local: boolean
+  /** The terminal stop reason. */
+  readonly stopReason: SubagentResult['stopReason']
+  /** The child's final assistant output, absent on infrastructure rejection. */
+  readonly lastAssistantMessage?: ContentBlock[]
+}
+
+/**
  * Which START-TIME features a provider supports. Checked by the service before delegating to
  * {@link SubagentProvider.start}: a request that needs a capability the chosen provider lacks
  * is rejected with a typed error rather than accepted-then-ignored (the "fail loud, no silent
- * degradation" rule). These static flags cover features needed before a run exists; runtime
- * capabilities such as steering and resume are optional {@link SubagentRun} methods whose presence
- * is the capability. Each flag corresponds one-to-one to a {@link SubagentStartRequest} option:
- * `depthLimit` to `maxDepth`; the other names match.
+ * degradation" rule). These flags describe the ONE-SHOT
+ * {@link SubagentProvider.start} path, where the provider composes the child;
+ * continuable children are composed by the continuation manager itself and are
+ * gated by {@link SubagentProvider.prepareContinuable} instead. Each flag
+ * corresponds one-to-one to a {@link SubagentStartRequest} option: `depthLimit`
+ * to `maxDepth`; the other names match.
  */
 export interface SubagentCapabilities {
   readonly outputSchema: boolean
@@ -39,12 +86,15 @@ export interface SubagentCapabilities {
 }
 
 /**
- * What a caller asks for when starting a subagent. The tool layer builds this
- * from the model's `{ description, prompt }` plus its own config; the service
- * validates {@link SubagentCapabilities} against the named provider, then
- * passes it to {@link SubagentProvider.start}.
+ * What a caller asks for when starting a ONE-SHOT subagent. The tool layer
+ * builds this from the model's `{ description, prompt }` plus its own config;
+ * the service validates {@link SubagentCapabilities} against the named provider
+ * and resolves the durable descriptor before dispatching to
+ * {@link SubagentProvider.start}.
  */
 export interface SubagentStartRequest {
+  /** Optional short display label persisted with a session-backed child. */
+  readonly label?: string
   /** Content delivered as the child's user message. */
   readonly prompt: ContentBlock[]
   /**
@@ -57,8 +107,8 @@ export interface SubagentStartRequest {
    * Cancellation signal from the spawning context (the tool's `exec.signal`).
    * This is the canonical cancellation channel both before and after startup:
    * a provider rejects `start()` after cleaning partial resources when it
-   * fires before publication, and cancels a published child when it fires
-   * afterward.
+   * fires before the run is published, and cancels the published run's
+   * remaining turn work when it fires afterward.
    */
   readonly signal: AbortSignal
   readonly agentOptions?: AgentOptions
@@ -91,6 +141,49 @@ export interface SubagentStartRequest {
    * persona (strict `{{…}}` interpolation against the registered variables).
    */
   readonly persona?: string
+}
+
+/**
+ * Provider-facing one-shot request after {@link SubagentService.start} resolves
+ * the durable child descriptor.
+ */
+export interface ResolvedSubagentStartRequest extends SubagentStartRequest {
+  /** Detached descriptor a session-backed provider persists in the child log. */
+  readonly descriptor: SubagentDescriptorData
+}
+
+/**
+ * What the continuation manager asks a provider for while materializing one
+ * continuable child's FIRST activation. The manager has already reserved the
+ * durable child identity and owns every later operation, so this request
+ * carries only what distinguishes a fresh child from one seeded with parent
+ * history.
+ */
+export interface ContinuableCreateRequest {
+  /** The reserved durable child session id, for provider diagnostics. */
+  readonly sessionId: SessionId
+  /** The delegating parent agent whose history a seeding provider reads. */
+  readonly parent: Agent
+  /**
+   * Caller cancellation, which owns preparation only until the manager accepts
+   * the initial prompt into the child's inbox.
+   */
+  readonly signal: AbortSignal
+}
+
+/**
+ * A provider's detached contribution to one continuable child's creation. This
+ * is DATA, never a capability: it carries no Agent, `AgentHandle`, prompt
+ * delivery, result, disposal, or resume operation, because the continuation
+ * manager owns the child's whole lifecycle after preparation.
+ */
+export interface ContinuableCreateSpec {
+  /**
+   * Completed-turn prefix of the parent's log to seed the child session with,
+   * or absent for a fresh child. Same durable contract as
+   * `CreateAgentOptions.seed`: contiguous from seq 0, lossless JSON, balanced.
+   */
+  readonly seed?: readonly SessionEvent[]
 }
 
 /**
@@ -134,9 +227,13 @@ export interface SubagentResult {
 }
 
 /**
- * Child handle returned only after readiness. Consumers await {@link result} and must always
- * {@link dispose} to cancel remaining work and reach quiescence. Optional methods are runtime
- * capability discovery; narrow their presence before calling.
+ * ONE-SHOT child handle returned after publication. Prompt submission, turn
+ * work, and infrastructure faults after that boundary belong to {@link result}.
+ * Consumers await that result and must always {@link dispose} to cancel
+ * remaining work and reach quiescence. A run is one disposable foreground
+ * delegation with one result; continuable conversations have no run — the
+ * continuation manager holds their `AgentHandle` directly and orders every
+ * turn through the child's own inbox.
  */
 export interface SubagentRun {
   /**
@@ -155,8 +252,8 @@ export interface SubagentRun {
    * Resolves with the child's terminal {@link SubagentResult} when the run
    * settles. Does NOT reject on a child-level failure — a model/transport
    * failure resolves with `stopReason: 'error'` so the consumer maps it to an
-   * `isError` tool result. Rejects only on an infrastructure fault the seam
-   * cannot represent as a stop reason.
+   * `isError` tool result. Rejects on an infrastructure fault the seam cannot
+   * represent as a stop reason.
    */
   readonly result: Promise<SubagentResult>
   /**
@@ -164,16 +261,6 @@ export interface SubagentRun {
    * Idempotent.
    */
   dispose(): Promise<void>
-  /**
-   * OPTIONAL (steering capability): send additional content to the running
-   * child between steps. Present only on providers that support live steering.
-   */
-  sendMessage?(content: ContentBlock[]): void
-  /**
-   * OPTIONAL (resume capability): send a follow-up task to a settled child,
-   * continuing its session, and return a fresh run for the continuation.
-   */
-  resume?(content: ContentBlock[]): Promise<SubagentRun>
 }
 
 /**
@@ -193,12 +280,28 @@ export interface SubagentProvider {
    */
   readonly inheritsParentContext: boolean
   /**
-   * Establish a child and return its handle only after publication. The
-   * service has already validated that every requested start-time capability
-   * is supported, so an implementation may assume e.g. `request.maxDepth` is
-   * honorable when present. If setup fails or `request.signal` aborts before
-   * fulfillment, the provider owns and cleans all partial resources before this
-   * promise rejects. Ownership transfers to the caller only on fulfillment.
+   * Establish a ONE-SHOT child and return its handle after publication.
+   * The service has already validated that every requested start-time
+   * capability is supported and resolved `request.descriptor`, so a
+   * session-backed implementation appends that descriptor inside the child's
+   * initial turn. Before fulfillment, the provider owns setup and cleans any
+   * unpublished partial resources before rejecting. Ownership transfers on
+   * fulfillment; subsequent turn or infrastructure failure settles through
+   * the returned run.
    */
-  start(request: SubagentStartRequest): Promise<SubagentRun>
+  start(request: ResolvedSubagentStartRequest): Promise<SubagentRun>
+  /**
+   * OPTIONAL (continuable-creation capability): contribute the detached
+   * creation inputs that distinguish this provider's continuable children —
+   * today only whether the child session is seeded with parent history. Method
+   * presence IS the capability: the service rejects continuable starts on
+   * providers without it, while a provider that has it may still serve
+   * ordinary one-shot delegations.
+   *
+   * This is the provider's ONLY participation in a continuable child. The
+   * continuation manager owns identity reservation, composition, Agent
+   * creation, prompt delivery, cold resume, ownership, and disposal, so a
+   * provider never sees the child's Agent, handle, turns, or teardown.
+   */
+  prepareContinuable?(request: ContinuableCreateRequest): Promise<ContinuableCreateSpec>
 }

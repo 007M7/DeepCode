@@ -1,11 +1,16 @@
 import { isValidElement, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import type { Components, UrlTransform } from 'react-markdown'
+import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
 import { CodeBlock } from './CodeBlock.tsx'
+import 'katex/dist/katex.min.css'
 import css from './MarkdownText.module.css'
 
-const remarkPlugins = [remarkGfm]
+const streamingRemarkPlugins = [remarkGfm]
+const settledRemarkPlugins = [remarkGfm, remarkMath]
+const settledRehypePlugins = [rehypeKatex]
 
 function sanitizeUrl(url: string): string {
   try {
@@ -32,6 +37,15 @@ export interface MarkdownCodeLabels {
   copiedLabel?: string | undefined
 }
 
+function remoteImageUrl(url: string): string | undefined {
+  try {
+    const protocol = new URL(url).protocol
+    return protocol === 'http:' || protocol === 'https:' ? url : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /** Build the component table; while `streaming`, fences render the plain arm (see CodeBlock). */
 function buildComponents(streaming: boolean, codeLabels?: MarkdownCodeLabels): Components {
   return {
@@ -48,7 +62,20 @@ function buildComponents(streaming: boolean, codeLabels?: MarkdownCodeLabels): C
         </a>
       )
     },
-    img: ({ alt = '' }) => <span className={css.imageAlt}>{alt}</span>,
+    img: ({ alt = '', src = '' }) => {
+      const imageSrc = remoteImageUrl(src)
+      if (imageSrc === undefined) return <span className={css.imageAlt}>{alt}</span>
+      return (
+        <img
+          className={css.image}
+          src={imageSrc}
+          alt={alt}
+          loading="lazy"
+          decoding="async"
+          referrerPolicy="no-referrer"
+        />
+      )
+    },
     table: ({ children }) => (
       <div className={css.tableScroll}>
         <table>{children}</table>
@@ -88,12 +115,14 @@ const streamingComponents = buildComponents(true)
 /**
  * Render untrusted assistant-authored Markdown as semantic React elements.
  * @param props - Markdown source text preserved by the session projection;
- * `streaming` renders fences plain (highlighting lands on the finalize swap);
+ * `streaming` renders fences and TeX plain (highlighting and KaTeX land on the finalize swap);
  * `codeLabels` forwards localized copy-button labels to fence CodeBlocks —
  * pass a reference-stable object (memoized per locale revision), because the
  * component table memoizes on its identity and a fresh literal per render
  * would rebuild it every streaming chunk.
- * @returns A GFM document with raw HTML, relative links, unsafe protocols, and remote images disabled.
+ * @returns A GFM document with TeX math rendered through KaTeX; raw HTML,
+ * relative links, and unsafe protocols are disabled, while absolute HTTP(S)
+ * images render directly.
  */
 export function MarkdownText({ text, streaming = false, codeLabels }: {
   text: string
@@ -109,7 +138,8 @@ export function MarkdownText({ text, streaming = false, codeLabels }: {
   return (
     <div className={css.markdown}>
       <ReactMarkdown
-        remarkPlugins={remarkPlugins}
+        remarkPlugins={streaming ? streamingRemarkPlugins : settledRemarkPlugins}
+        rehypePlugins={streaming ? undefined : settledRehypePlugins}
         components={components}
         urlTransform={safeUrl}
       >

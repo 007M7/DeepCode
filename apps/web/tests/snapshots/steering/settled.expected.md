@@ -7,10 +7,13 @@
 - text: Use the ask_user_question tool to ask me exactly one question with id "checkpoint", question "Ready to continue?", header "Checkpoint", and options labeled "Yes" and "No". After I answer, reply with one short sentence acknowledging my answer and stop. {{clock}}
 - button "Copy":
   - img
-- button "Branch into a new conversation":
+- button "Branch into a new conversation" [disabled]:
   - img
-- button "Edit":
+- text: Available only on the last message of a completed turn
+- button "Context injection":
   - img
+  - img
+  - text: Context injection
 - button "Think The user wants me to use the ask_user_question tool to ask them a specific question with the given parameters. Let me do exactly that.":
   - img
   - img
@@ -19,7 +22,12 @@
   - img
   - img
   - text: Ask question 1/1 answered
-- text: "Interjection Interjection: include the word BANANA in your final reply."
+- text: "Interjection: include the word BANANA in your final reply. {{clock}}"
+- button "Copy":
+  - img
+- button "Branch into a new conversation" [disabled]:
+  - img
+- text: Available only on the last message of a completed turn
 - button "Think The user selected \"Yes\" and wants me to include the word \"BANANA\" in my final reply. Let me acknowledge their answer.":
   - img
   - img
@@ -33,9 +41,9 @@
 - textbox "Message the agent"
 - button "Commands":
   - img
-- 'button "Access mode, current: Full access"': Full access
+- 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
-- text: 1 turns · 2 steps Tool call {{duration}} Cache hit 98% Input 15.8K tok · Output 156 tok
+- text: 1 turns · 2 steps Tool call {{duration}} Context 6% of 128K Cache hit 98% Input 15.8K tok · Output 156 tok

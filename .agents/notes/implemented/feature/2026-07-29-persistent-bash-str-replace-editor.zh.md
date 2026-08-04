@@ -18,6 +18,8 @@
 
 两个插件都进入 Python runtime 闭包。持久 Bash 的闭包还包含 PTY 服务／本地后端，以及该后端要求的沙箱服务。由于 `node-pty` 在 macOS 上会执行原生 `spawn-helper`，每个打包后的 macOS 运行时可执行文件都会携带一个 `-spawn-helper` 伴随文件；Linux 直接使用 `forkpty`。固定版本的 `node-pty` 补丁会先检查 `DSH_NODE_PTY_SPAWN_HELPER`，因此对当前提供非伴随 helper 的外部消费方而言，该变量仍是真正的覆盖项。未设置该覆盖时，补丁会在打包可执行文件的伴随文件存在时解析它，否则在普通 Node 运行中保留上游查找方式。若 helper 缺失或不可执行，macOS 构建器会在发布前失败。
 
+已交付的 [`core-web.cordis.yml`](../../../../apps/cli/config/core-web.cordis.yml) 覆盖层在常规 Web 界面之上组合这两个插件，禁用该界面的其他面向模型的消费方，并保留 Web 宿主、浏览器、Workspace、持久化、沙箱与权限栈。本地 PTY 后端会在创建 shell 时解析会话的有效沙箱模式。只要该所有者仍有打开的 shell 或仍在进行中的 spawn，另一种权限模式就会在对应的会话事件提交前遭到拒绝；编辑器则继续经由 Web 文件系统沙箱运行。
+
 ## 考虑过的替代方案
 
 **单一组合兼容插件。** 被拒绝，因为两个工具互不依赖，组合命名还会把可复用能力绑定到某个基准。
@@ -30,4 +32,4 @@
 
 ## 后果
 
-Profile 可以通过配置 persona 和描述复现外部 Agent，而底层包保持通用。持久 Bash 需要拥有它的 Agent 与真实 PTY 后端；shell 退出、超时或取消会丢失状态。编辑器把安全与变更策略委托给挂载的文件系统栈。运行时 wheel 包的消费方仍无需安装 Node；Linux wheel 包包含一个可执行文件，macOS wheel 包还包含其私有原生 helper。
+Profile 可以通过配置 persona 和描述复现外部 Agent，而底层包保持通用。持久 Bash 需要拥有它的 Agent 与真实 PTY 后端；shell 退出、超时或取消会丢失状态。编辑器把安全与变更策略委托给挂载的文件系统栈。Core Web profile 保留 Web 权限，但必须先关闭持久 shell 才能更改权限模式。运行时 wheel 包的消费方仍无需安装 Node；Linux wheel 包包含一个可执行文件，macOS wheel 包还包含其私有原生 helper。

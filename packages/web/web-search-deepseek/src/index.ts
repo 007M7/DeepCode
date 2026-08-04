@@ -7,6 +7,9 @@
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
+import type {} from '@deepseek-ai/dsh-agent'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import type {} from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-web'
 import {
   DeepSeekSearchProvider,
@@ -26,7 +29,7 @@ export {
   DEEPSEEK_DEFAULT_MODEL,
   DEEPSEEK_PROVIDER_ID,
 } from './provider.ts'
-export type { DeepSeekSearchProviderOptions } from './provider.ts'
+export type { DeepSeekSearchLlmRequest, DeepSeekSearchProviderOptions } from './provider.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'web-search-deepseek'
@@ -34,10 +37,14 @@ export const name = 'web-search-deepseek'
 /** The web seam this provider registers into. */
 export const inject = ['web']
 
+const DEFAULT_API_KEY_ENV = 'DEEPSEEK_API_KEY'
+
 /** Plugin config (all optional — `apply` fills env-var and constant defaults). */
 export interface Config {
-  /** DeepSeek API key. Falls back to `$DEEPSEEK_API_KEY`. Empty → unavailable. */
+  /** Literal DeepSeek API key; prefer {@link apiKeyEnv} so no secret enters configuration files. */
   apiKey?: string
+  /** Credential reference resolved for each search; defaults to `DEEPSEEK_API_KEY`. */
+  apiKeyEnv?: string
   /** Anthropic-compatible endpoint base; `/messages` is appended. */
   baseURL?: string
   /** Anthropic-format model name. Defaults to `deepseek-v4-flash`. */
@@ -51,7 +58,8 @@ export interface Config {
 }
 
 export const Config: z<Config> = z.object({
-  apiKey: z.string(),
+  apiKey: z.string().role('secret'),
+  apiKeyEnv: z.string().role('credential-ref').default(DEFAULT_API_KEY_ENV),
   baseURL: z.string(),
   model: z.string(),
   apiVersion: z.string(),
@@ -63,12 +71,29 @@ export const Config: z<Config> = z.object({
 export function apply(ctx: Context, config: Config): void {
   const maxTokens = config.maxTokens ?? DEEPSEEK_DEFAULT_MAX_TOKENS
   const maxUses = config.maxUses ?? DEEPSEEK_DEFAULT_MAX_USES
+  const apiKeyEnv = credentialRef(config.apiKeyEnv ?? DEFAULT_API_KEY_ENV)
+  const literalApiKey = config.apiKey !== undefined && config.apiKey.length > 0
+    ? config.apiKey
+    : undefined
   ctx.web.registerSearchProvider(new DeepSeekSearchProvider({
-    apiKey: config.apiKey ?? process.env.DEEPSEEK_API_KEY ?? '',
+    ...literalApiKey === undefined ? {} : { apiKey: literalApiKey },
+    resolveApiKey: async () => {
+      const credentials = ctx.get('credentials')
+      if (credentials !== undefined) return (await credentials.resolve(apiKeyEnv))?.value
+      const ambient = process.env[apiKeyEnv]
+      return ambient !== undefined && ambient.length > 0 ? ambient : undefined
+    },
+    apiKeyEnv,
     baseURL: config.baseURL ?? DEEPSEEK_DEFAULT_BASE_URL,
     model: config.model ?? DEEPSEEK_DEFAULT_MODEL,
     apiVersion: config.apiVersion ?? DEEPSEEK_DEFAULT_API_VERSION,
     maxTokens,
     maxUses,
+    recordRequest: (request) => {
+      ctx.get('agents')?.currentInitiator()?.session.append(
+        'web/deepseek-search-llm-request',
+        request,
+      )
+    },
   }))
 }

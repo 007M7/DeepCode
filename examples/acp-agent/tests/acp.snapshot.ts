@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import { readFileSync } from 'node:fs'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, utimes, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { homedir } from 'node:os'
 import { expect, it } from 'vitest'
@@ -41,10 +41,12 @@ const DEPTH_TWO_CONFIG = fileURLToPath(new URL('../depth-two.cordis.yml', import
 const SESSION_SANDBOX_ROOT_CONFIG = fileURLToPath(new URL('../session-sandbox-root.cordis.yml', import.meta.url))
 const RETRY_CONFIG = fileURLToPath(new URL('../retry.cordis.yml', import.meta.url))
 const SESSION_TITLE_CONFIG = fileURLToPath(new URL('../session-title.cordis.yml', import.meta.url))
+const SUBAGENT_DURABILITY_FAILURE_CONFIG = fileURLToPath(
+  new URL('../subagent-durability-failure.cordis.yml', import.meta.url),
+)
 const LSP_CONFIG = fileURLToPath(new URL('./lsp.cordis.yml', import.meta.url))
 const WEB_CONFIG = fileURLToPath(new URL('../web.cordis.yml', import.meta.url))
 const FS_SEARCH_CONFIG = fileURLToPath(new URL('./fs-search.cordis.yml', import.meta.url))
-const FS_SEARCH_BIN = fileURLToPath(new URL('./fixtures/fs-search-bin', import.meta.url))
 const SNAPSHOTS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
 const PACKED_CHUNKS_SOURCE = 'hook-cc-pretool-deny'
 
@@ -55,6 +57,33 @@ async function prepareDelimiterPathWorkspace(cwd: string): Promise<void> {
     writeFile(join(dir, 'AGENTS.md'), 'Delimiter path snapshot instruction.\n'),
     writeFile(join(dir, 'task.txt'), 'delimiter path snapshot task\n'),
   ])
+}
+
+/**
+ * Seed the over-cap glob fixture: eight files under `tree/` with fixed mtimes,
+ * so the packaged ripgrep's `--sort=modified` order is deterministic — three
+ * files under `archive/`, one each under `docs/`, `src/`, and `test/`, plus
+ * two flat files (six top-level entries). Scoping the search to `tree/` keeps
+ * the harness's own session artifacts out of the listing.
+ */
+async function prepareFsSearchWorkspace(cwd: string): Promise<void> {
+  const tree = join(cwd, 'tree')
+  const files: Array<[relative: string, mtime: Date]> = [
+    [join('archive', 'a.ts'), new Date(2000, 0, 1, 0, 0, 0, 1)],
+    [join('archive', 'b.ts'), new Date(2000, 0, 1, 0, 0, 0, 2)],
+    [join('archive', 'c.ts'), new Date(2000, 0, 1, 0, 0, 0, 3)],
+    [join('docs', 'guide.md'), new Date(2000, 0, 1, 0, 0, 0, 4)],
+    [join('src', 'index.ts'), new Date(2000, 0, 1, 0, 0, 0, 5)],
+    [join('test', 'spec.ts'), new Date(2000, 0, 1, 0, 0, 0, 6)],
+    ['top.txt', new Date(2000, 0, 1, 0, 0, 0, 7)],
+    ['notes.md', new Date(2000, 0, 1, 0, 0, 0, 8)],
+  ]
+  for (const [relative, mtime] of files) {
+    const target = join(tree, relative)
+    await mkdir(dirname(target), { recursive: true })
+    await writeFile(target, 'fixture\n')
+    await utimes(target, mtime, mtime)
+  }
 }
 
 // FIXME: Migrate backend-oriented scenarios to the headless stream-json suite;
@@ -113,6 +142,7 @@ const SCENARIOS: Scenario[] = [
     name: 'session-query-spill',
     hasModelTurn: true,
     recorded: false,
+    overridden: true,
     pinsHeader: true,
     headerClass: 'session-query',
     configPath: SESSION_QUERY_CONFIG,
@@ -149,18 +179,28 @@ const SCENARIOS: Scenario[] = [
     hasModelTurn: true,
     recorded: true,
   },
-  // The real Loader/app/bash path executes a deterministic rg stand-in at the
-  // external-process seam, pinning over-cap glob sampling without depending on
-  // a host-installed ripgrep binary.
+  // The real Loader/app/subprocess path executes the PACKAGED ripgrep binary
+  // against a prepared workspace whose fixed mtimes pin the
+  // `--sort=modified` order, pinning over-cap glob sampling without depending
+  // on a host-installed ripgrep binary or a PATH stand-in. POSIX-only because
+  // the displayed paths carry `/` separators the session-log comparison
+  // cannot normalize. Recorded (not authored): the assistant turn is a real
+  // model transcript; re-record with `test:snapshot:record -t fs-glob-sampling`
+  // and then `migrate:packed-session-fixtures`, which canonicalizes the live
+  // log's eager-drain-packed rows into the maximal-run layout replay produces.
+  // The recorded fixture's `request/header` config and `request/context` are
+  // normalized to the replay-produced minimal shape (the live adapter logs
+  // model capabilities like maxTokens/reasoningEffort that llm-replay has no
+  // data for), and its tool-result paths are canonicalized to `/` separators.
   {
     name: 'fs-glob-sampling',
     hasModelTurn: true,
-    recorded: false,
+    recorded: true,
+    posixOnly: true,
     pinsHeader: true,
     headerClass: 'fs-search',
     configPath: FS_SEARCH_CONFIG,
-    env: { PATH: `${FS_SEARCH_BIN}:${process.env.PATH ?? ''}` },
-    posixOnly: true,
+    prepareWorkspace: prepareFsSearchWorkspace,
   },
   { name: 'fs-read', hasModelTurn: true, recorded: true },
   { name: 'fs-write', hasModelTurn: true, recorded: true },
@@ -212,6 +252,50 @@ const SCENARIOS: Scenario[] = [
   { name: 'subagent-multi', hasModelTurn: true, recorded: true },
   { name: 'subagent-fork', hasModelTurn: true, recorded: true },
   { name: 'subagent-mixed', hasModelTurn: true, recorded: true },
+  // Authored continuable-subagent transcript: a background delegation returns
+  // only the durable subagent id, two send_message calls queue as later FIFO
+  // turns on that same child (the parent is never woken with their output),
+  // send_message to an unknown subagent id fails without delivering, and the
+  // child's retained handle is disposed child-first at teardown despite a
+  // failed final durability confirmation.
+  {
+    name: 'subagent-continuable',
+    hasModelTurn: true,
+    recorded: false,
+    pinsChildToolSchemas: [1],
+    configPath: SUBAGENT_DURABILITY_FAILURE_CONFIG,
+  },
+  // The in-process child is published before its first follow-up fails. The
+  // foreground tool retains both that run-result failure and an independent
+  // published-handle disposal failure.
+  {
+    name: 'subagent-published-run-failure',
+    env: { DSH_SUBAGENT_PUBLISHED_FAILURE: '1' },
+    hasModelTurn: true,
+    recorded: false,
+    overridden: true,
+    configPath: SUBAGENT_DURABILITY_FAILURE_CONFIG,
+  },
+  // Authored child-to-parent transcript: the child calls its scope-local
+  // `report`, quiet delivery reaches the idle parent without waking it, and a
+  // later parent turn consumes the logged report.
+  {
+    name: 'subagent-report',
+    hasModelTurn: true,
+    recorded: false,
+    pinsChildToolSchemas: [1],
+  },
+  // Authored durable-catalog transcript: the snapshot-only lifecycle marker
+  // fences the second parent turn behind the child's Activation end, so
+  // `list_agents` deterministically reads the persisted child as complete.
+  // The tool itself executes for real against the control service, session
+  // query, and JSONL persistence; the marker is not model-visible.
+  {
+    name: 'subagent-list-agents',
+    hasModelTurn: true,
+    recorded: false,
+    pinsChildToolSchemas: [1],
+  },
   {
     name: 'subagent-depth-two-rejection',
     hasModelTurn: true,
@@ -301,6 +385,7 @@ const SCENARIOS: Scenario[] = [
     recorded: true,
     pinsHeader: true,
     headerClass: 'sandbox',
+    systemPromptSource: 'text-turn',
     toolSchemasSource: 'text-turn',
     env: { DSH_PERMISSION_MODE: 'workspace-write' },
   },

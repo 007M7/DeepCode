@@ -4,11 +4,12 @@
 // string here (narrow to real brands when convenient).
 
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
+import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { LlmRetryEventData } from '@deepseek-ai/dsh-llm-retry/types'
 import type { TodoItem } from '@deepseek-ai/dsh-session/types'
 import type {
-  InboxItemId, RpcError, SessionId, ToolCallView, ToolResultView,
+  InboxItemId, RpcError, SessionId, SubagentAddress, ToolCallView, ToolResultView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type { PendingInteraction } from './pending.ts'
 export type { TodoItem }
@@ -104,6 +105,8 @@ export interface AssistantMessageNode {
 /** A steering message injected mid-turn. */
 export interface SteeringMessageNode {
   kind: 'steering'
+  /** Stable identity shared with its pre-admission inbox occurrence. */
+  messageId: MessageId
   seq: number
   /** Unix epoch ms from the source session event. */
   time: number
@@ -135,6 +138,19 @@ export type ModelRetryNode = LlmRetryEventData & {
   retryState: 'scheduled' | 'started' | 'cancelled'
 }
 
+/** Durable terminal failure for a turn that has no scheduled retry. */
+export interface TurnErrorNode {
+  kind: 'turn-error'
+  /** Seq of the owning turn/end event. */
+  seq: number
+  /** Unix epoch ms from the turn/end event. */
+  time: number
+  turn: number
+  step: number
+  message: string
+  code?: string
+}
+
 /** A tool result paired (when in-window) with its call head. */
 export interface ToolResultNode {
   kind: 'tool-result'
@@ -156,7 +172,32 @@ export interface ToolResultNode {
   resultView: ToolResultView | null
 }
 
-/** Fallback for surface events this UI version does not know. */
+/**
+ * One landed compaction, marked at the checkpoint's own log position. The
+ * conversation it shadowed on the model surface stays in the transcript above
+ * it: the marker reports where the model stopped seeing that history, it does
+ * not replace it. The framed checkpoint payload is an instruction envelope
+ * written for the model and never renders.
+ */
+export interface CompactionSummaryNode {
+  kind: 'compaction'
+  /** Seq of the replacement `user/message` that landed the checkpoint. */
+  seq: number
+  /** Unix epoch ms of the checkpoint event. */
+  time: number
+  /** Summary text from the checkpoint's `compact/summary` provenance; null when
+   *  the window cut left that provenance outside (the marker is then not expandable). */
+  summary: string | null
+}
+
+/**
+ * Fallback for surface events this UI version does not know: the documented
+ * default arm of `SessionEventMap`, which is merge-extensible, so the
+ * projection's switch cannot end in `assertNever`. No event produces this node
+ * today — `isAppendSurfaceEvent` admits only the four types in core's
+ * `SurfaceEventType`, and each has its own arm — and it exists so widening that
+ * set core-side degrades to a raw row instead of dropping the event silently.
+ */
 export interface UnknownSurfaceNode {
   kind: 'unknown'
   seq: number
@@ -169,7 +210,7 @@ export interface UnknownSurfaceNode {
 /**
  * One slash-command lifecycle folded from the log-only `command/run` /
  * `command/done` pair (paired by commandId, mirroring tool call↔result).
- * Log-only events never enter the surface fold, so the FoldAdapter indexes
+ * Log-only events are not surface events, so the TranscriptAdapter indexes
  * them separately and merges the nodes into the flow by seq. A window cut
  * between the pair soft-falls like tool pairs: a done with no in-window run
  * still builds a node (name/args null), and a run with no done renders as
@@ -198,8 +239,10 @@ export type ConversationNode =
   | SteeringMessageNode
   | ContextMessageNode
   | ModelRetryNode
+  | TurnErrorNode
   | ToolResultNode
   | CommandNode
+  | CompactionSummaryNode
   | UnknownSurfaceNode
 
 /**
@@ -209,7 +252,7 @@ export type ConversationNode =
  * {@link RunningToolCall} (rows derive the running state from the shape,
  * exactly as for native calls) and its `tool/code-dispatch` settlement
  * replaces it in place with the {@link ToolResultNode} form. Never part of
- * the surface `nodes` flow — sub-calls live under their parent via
+ * the transcript `nodes` flow — sub-calls live under their parent via
  * {@link ConversationSnapshot.codeDispatches}. `callId` is the deterministic
  * sub-call id (`<parent>:code:<n>`); the call side carries the sub-tool name
  * and its JSON-stringified logged arguments; `content`/`isError` are the
@@ -231,9 +274,15 @@ export interface RunningToolCall {
 }
 
 
-/** One independently addressable row from the transient queue snapshot. */
+/** One transient inbox occurrence from the authoritative `session/queue` snapshot. */
 export interface QueuedMessage {
   readonly id: InboxItemId
+  /** Stable message identity used for transient-to-durable steering handoff. */
+  readonly messageId: MessageId
+  /** Agent-resolved placement; only queued rows accept queue mutations. */
+  readonly placement: 'queued' | 'steering'
+  /** Complete content used to render pending steering before it becomes durable. */
+  readonly content: readonly ContentBlock[]
   readonly preview: string
   /** Complete editable text; null when the message contains non-text blocks. */
   readonly text: string | null
@@ -280,10 +329,10 @@ export interface PromptError {
 /** The immutable snapshot contract Session hands to uSES (see the web client architecture RFC). */
 export interface ConversationSnapshot {
   sessionId: SessionId
-  /** Finalized surface events and durable operational notices in event order. */
+  /** Human transcript plus retry notices and interrupted-turn terminal nodes in event order. */
   nodes: readonly ConversationNode[]
-  /** Fold degradation flag (cross-window replace defense): when true, nodes come from the lenient linear scan. */
-  foldDegraded: boolean
+  /** In-window completed turn number -> its `turn/end` event seq. */
+  turnEnds: ReadonlyMap<number, number>
   partial: PartialAssistant | null
   runningCalls: readonly RunningToolCall[]
   /**
@@ -294,9 +343,14 @@ export interface ConversationSnapshot {
    */
   codeDispatches: ReadonlyMap<string, readonly CodeSubCall[]>
   pending: readonly PendingInteraction[]
-  /** Authoritative transient inbox snapshot, replaced after every host-side change. */
+  /** Authoritative transient inbox snapshot, including queued and steering placements. */
   queue: readonly QueuedMessage[]
   running: boolean
+  /**
+   * Catalog-discovered continuation address. Its parent availability controls
+   * human input; null means ordinary session transport.
+   */
+  subagent: { address: SubagentAddress; parentAvailable: boolean } | null
   /** Input-area shape (see {@link ComposerPhase}); derived here, switched on by consumers. */
   composerPhase: ComposerPhase
   /** Set after host/session-removed; the UI grays out and disables input. */

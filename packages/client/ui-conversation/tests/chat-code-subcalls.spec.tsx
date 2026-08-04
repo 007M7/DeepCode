@@ -67,10 +67,10 @@ function snapshotWith(
   runningCalls: RunningToolCall[] = [],
 ): ConversationSnapshot {
   return {
-    sessionId: SID, nodes, foldDegraded: false, partial: null, runningCalls, codeDispatches,
+    sessionId: SID, nodes, turnEnds: new Map(), partial: null, runningCalls, codeDispatches,
     pending: [], queue: [], running: runningCalls.length > 0, composerPhase: 'active', removed: false,
     openState: 'open', openError: null,
-    hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
+    hasMore: false, loadingOlder: false, promptError: null, blank: false, subagent: null, lastAgentError: null,
   }
 }
 
@@ -92,7 +92,7 @@ async function bench(snapshot: ConversationSnapshot) {
     ids: [SID],
     byId: { [SID]: { id: SID, title: 'S', displayTitle: 'S', running: false, waitingApproval: false, blank: false, updatedAt: 1 } },
     current: SID,
-    phase: 'ready',
+    phase: 'ready', subagentsByParent: {}, currentAddress: undefined,
   })
   const scoped = { send: vi.fn(async () => {}), cancel: vi.fn(async () => {}) }
   const layout = { openDetails: vi.fn(), closeDetails: vi.fn() }
@@ -181,7 +181,7 @@ describe('run_code sub-calls through the real chat machinery', () => {
     // sub-tool fell back to GenericToolCard at the same render site.
     const nest = view.container.querySelector('[data-subcalls]')
     expect(nest).not.toBeNull()
-    expect(nest!.querySelector('[data-sample="bash-global"]')).not.toBeNull()
+    expect(nest!.querySelector('[data-sample="bash"]')).not.toBeNull()
     expect(view.getByText('Bash')).toBeTruthy()
     expect(view.getByText('List notes')).toBeTruthy()
     expect(view.getByText('Tool call')).toBeTruthy()
@@ -264,7 +264,7 @@ describe('run_code sub-calls through the real chat machinery', () => {
     expect(running).not.toBeNull()
     const nest = view.container.querySelector('[data-subcalls]')
     expect(nest).not.toBeNull()
-    expect(nest!.querySelector('[data-sample="bash-global"]')).not.toBeNull()
+    expect(nest!.querySelector('[data-sample="bash"]')).not.toBeNull()
   })
 
   it('a started-but-unsettled sub-call renders the running state exactly like a native in-flight row', async () => {

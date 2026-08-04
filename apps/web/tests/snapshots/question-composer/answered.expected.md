@@ -4,13 +4,16 @@
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
-- text: "Use the ask_user_question tool to ask me exactly one question with id \"color\", question \"Which color do you prefer?\", header \"Pick one\", and two options: label \"Blue\" with description \"A cool recessive hue that reads as calm and trustworthy in long reading sessions and dense dashboards.\", and label \"Green\" with description \"A restful mid-spectrum hue with the highest perceived brightness, easiest on the eye over long sessions.\" After I answer, reply with the single word DONE and stop. {{clock}}"
+- text: "Use the ask_user_question tool to ask me exactly one multi-select question with id \"color\", question \"Which color do you prefer?\", header \"Pick one\", and two options: label \"Blue\" with description \"A cool recessive hue that reads as calm and trustworthy in long reading sessions and dense dashboards.\", and label \"Green\" with description \"A restful mid-spectrum hue with the highest perceived brightness, easiest on the eye over long sessions.\" Set multi_select to true. After I answer, reply with the single word DONE and stop. {{clock}}"
 - button "Copy":
   - img
-- button "Branch into a new conversation":
+- button "Branch into a new conversation" [disabled]:
   - img
-- button "Edit":
+- text: Available only on the last message of a completed turn
+- button "Context injection":
   - img
+  - img
+  - text: Context injection
 - button "Think The user wants me to use the ask_user_question tool with specific parameters. Let me do exactly that.":
   - img
   - img
@@ -32,9 +35,9 @@
 - textbox "Message the agent"
 - button "Commands":
   - img
-- 'button "Access mode, current: Full access"': Full access
+- 'button "Access mode, current: Workspace Write"': Workspace Write
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
-- text: 1 turns · 2 steps Tool call {{duration}} Cache hit 95% Input 8.6K tok · Output 180 tok
+- text: 1 turns · 2 steps Tool call {{duration}} Context 3% of 128K Cache hit 95% Input 8.6K tok · Output 180 tok

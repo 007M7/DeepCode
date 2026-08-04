@@ -15,8 +15,9 @@ export const name = 'web-search-deepseek-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: this package exposes no independent event sequence or mutable data relation
- * beyond contracts enforced at its owning seam.
+ * No runtime invariant: the package emits a pre-dispatch log event but owns no
+ * later authoritative dispatch event to relate it to. Exact envelope equality
+ * is pinned at the provider boundary instead.
  */
 const install: InvariantInstaller = () => {}
 

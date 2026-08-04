@@ -87,10 +87,12 @@ export function deriveTrajectoryTimeline(
       group.cells.filter(cell => cell.requestOnly !== true),
     )
     if (cells.length === 0) continue
-    turnBoundaries.push({
-      turn: turn.turn,
-      time: spans.length,
-    })
+    if (turn.turn !== null) {
+      turnBoundaries.push({
+        turn: turn.turn,
+        time: spans.length,
+      })
+    }
     spans.push(...cells.map((cell, offset): TrajectoryTimelineSpan => ({
       start: spans.length + offset,
       end: spans.length + offset + 1,
@@ -114,14 +116,9 @@ export function deriveTrajectoryTimeline(
 function deriveTimedTimeline(
   turns: readonly TrajectoryTurnModel[],
   actualDuration: boolean,
-  removeUserIdle: boolean,
+  compressIdle: boolean,
 ): TrajectoryTimelineModel | null {
-  const spans: TrajectoryTimelineSpan[] = []
-  const turnBoundaries: TrajectoryTimelineTurnBoundary[] = []
-  let removedUserIdle = 0
-  let previousTurnEnd: number | null = null
-
-  for (const turn of turns) {
+  const timedTurns = turns.flatMap((turn) => {
     const rawSpans = turn.groups.flatMap(group =>
       group.cells.flatMap((cell): TrajectoryTimelineSpan[] => {
         if (cell.requestOnly === true) return []
@@ -138,28 +135,43 @@ function deriveTimedTimeline(
           }]
       }),
     )
-    if (rawSpans.length === 0) continue
+    return rawSpans.length === 0 ? [] : [{ turn: turn.turn, rawSpans }]
+  })
+  const rawSpans = timedTurns.flatMap(turn => turn.rawSpans)
+  if (rawSpans.length === 0) return null
 
-    const turnStart = Math.min(...rawSpans.map(span => span.start))
-    const turnEnd = Math.max(...rawSpans.map(span => span.end))
-    if (removeUserIdle && previousTurnEnd !== null) {
-      removedUserIdle += Math.max(0, turnStart - previousTurnEnd)
+  const removedIdleBySpan = new Map<TrajectoryTimelineSpan, number>()
+  let removedIdle = 0
+  let coveredUntil: number | null = null
+  for (const span of [...rawSpans].sort((left, right) =>
+    left.start - right.start || left.end - right.end)) {
+    if (compressIdle && coveredUntil !== null && span.start > coveredUntil) {
+      removedIdle += span.start - coveredUntil
     }
-    spans.push(...rawSpans.map(span => ({
-      ...span,
-      start: span.start - removedUserIdle,
-      end: (actualDuration ? span.end : span.start) - removedUserIdle,
-    })))
-    turnBoundaries.push({
-      turn: turn.turn,
-      time: turnStart - removedUserIdle,
-    })
-    previousTurnEnd = previousTurnEnd === null
-      ? turnEnd
-      : Math.max(previousTurnEnd, turnEnd)
+    removedIdleBySpan.set(span, removedIdle)
+    coveredUntil = coveredUntil === null ? span.end : Math.max(coveredUntil, span.end)
   }
 
-  if (spans.length === 0) return null
+  const spans: TrajectoryTimelineSpan[] = []
+  const turnBoundaries: TrajectoryTimelineTurnBoundary[] = []
+  for (const turn of timedTurns) {
+    const projected = turn.rawSpans.map((span): TrajectoryTimelineSpan => {
+      const offset = removedIdleBySpan.get(span) ?? 0
+      return {
+        ...span,
+        start: span.start - offset,
+        end: (actualDuration ? span.end : span.start) - offset,
+      }
+    })
+    spans.push(...projected)
+    if (turn.turn !== null) {
+      turnBoundaries.push({
+        turn: turn.turn,
+        time: Math.min(...projected.map(span => span.start)),
+      })
+    }
+  }
+
   return {
     start: Math.min(...spans.map(span => span.start)),
     end: Math.max(...spans.map(span => span.end)),

@@ -27,7 +27,7 @@ afterEach(() => {
 const t: MessageItemProps['t'] = makeTranslate(zh, commonZh)
 
 describe('MessageItem arms', () => {
-  it('user bubbles expose clock / copy / branch / edit; copy writes the text', () => {
+  it('user bubbles expose clock / copy / branch and no edit; copy writes the text', () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
@@ -36,20 +36,24 @@ describe('MessageItem arms', () => {
     // Same-day clock: construct "today at 14:24" so the label stays `HH:mm`.
     const now = new Date()
     const time = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 14, 24).getTime()
+    const onFork = vi.fn()
     render(
       <MessageItem t={t} node={{
         kind: 'user', seq: 1, time,
         content: [{ type: 'text', text: 'hello bubble' }] as never,
         source: null,
       }}
+      onFork={onFork}
       />,
     )
     expect(screen.getByText('14:24')).toBeTruthy()
     expect(screen.getByRole('button', { name: '复制' })).toBeTruthy()
     expect(screen.getByRole('button', { name: '在新对话中分支' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: '编辑' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '编辑' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '复制' }))
     expect(writeText).toHaveBeenCalledWith('hello bubble')
+    fireEvent.click(screen.getByRole('button', { name: '在新对话中分支' }))
+    expect(onFork).toHaveBeenCalledWith(1)
   })
 
   it('user copy falls back to execCommand when clipboard.writeText is unavailable', () => {
@@ -72,6 +76,30 @@ describe('MessageItem arms', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: '复制' }))
     expect(exec).toHaveBeenCalledWith('copy')
+  })
+
+  it('keeps an unavailable branch focusable and explains why without sending a fork', () => {
+    const onFork = vi.fn()
+    render(
+      <MessageItem t={t} node={{
+        kind: 'user', seq: 1, time: 1_000,
+        content: [{ type: 'text', text: 'open turn' }] as never,
+        source: null,
+      }}
+      onFork={onFork}
+      forkUnavailable
+      />,
+    )
+    const branch = screen.getByRole('button', { name: '在新对话中分支' }) as HTMLButtonElement
+    expect(branch.disabled).toBe(false)
+    expect(branch.getAttribute('aria-disabled')).toBe('true')
+    const reasonId = branch.getAttribute('aria-describedby')
+    expect(reasonId).not.toBeNull()
+    expect(document.getElementById(reasonId!)?.textContent).toBe('仅可从已完成轮次的最后一条消息分支')
+    fireEvent.click(branch)
+    expect(onFork).not.toHaveBeenCalled()
+    fireEvent.focus(branch)
+    expect(screen.getByRole('tooltip').textContent).toBe('仅可从已完成轮次的最后一条消息分支')
   })
 
   it('user copy stays quiet when execCommand throws or is absent', () => {
@@ -102,18 +130,28 @@ describe('MessageItem arms', () => {
     fireEvent.click(screen.getByRole('button', { name: '复制' }))
   })
 
-  it('steering bubbles carry the interjection badge and non-text rest blocks, without user actions', () => {
+  it('consumed steering renders copy and branch actions without a badge', () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+    const fork = vi.fn()
     const view = render(
       <MessageItem t={t} node={{
-        kind: 'steering', seq: 2, turn: 1, source: null,
+        kind: 'steering', messageId: 'steer-message', seq: 2, time: 1_000, turn: 1, source: null,
         content: [{ type: 'text', text: 'steer!' }, { type: 'image', data: 'x' }] as never,
       } as never}
+      onFork={fork}
       />,
     )
-    expect(view.getByText('插话')).toBeTruthy()
+    expect(view.queryByText('插话')).toBeNull()
     expect(view.getByText('steer!')).toBeTruthy()
     expect(view.getByText(/附加内容块/)).toBeTruthy()
-    expect(view.queryByRole('button', { name: '复制' })).toBeNull()
+    fireEvent.click(view.getByRole('button', { name: '复制' }))
+    expect(writeText).toHaveBeenCalledWith('steer!')
+    fireEvent.click(view.getByRole('button', { name: '在新对话中分支' }))
+    expect(fork).toHaveBeenCalledWith(2)
   })
 
   it('context uses the Tool calls disclosure chrome and keeps its JSON collapsed by default', () => {
@@ -162,6 +200,34 @@ describe('MessageItem arms', () => {
       <MessageItem t={t} node={{ kind: 'unknown', seq: 4, type: 'surface/next', data: { x: 1 } } as never} />,
     )
     expect(unknownView.getByText(/未知 surface 事件：surface\/next/)).toBeTruthy()
+  })
+
+  it('a compaction marker discloses its summary and never shows the framed checkpoint', () => {
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'compaction', seq: 5, time: 1_000,
+        summary: '## 摘要标题\n\n保留的事实。',
+      }}
+      />,
+    )
+    const row = view.getByRole('button', { name: /上下文已压缩/ })
+    expect(row.getAttribute('aria-expanded')).toBe('false')
+    expect(view.queryByText(/保留的事实/)).toBeNull()
+    fireEvent.click(row)
+    expect(row.getAttribute('aria-expanded')).toBe('true')
+    expect(view.getByRole('heading', { name: '摘要标题' })).toBeTruthy()
+    fireEvent.click(row)
+    expect(row.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('a marker whose provenance fell outside the window is not expandable', () => {
+    const view = render(<MessageItem t={t} node={{ kind: 'compaction', seq: 6, time: 1_000, summary: null }} />)
+    const row = view.getByRole('button', { name: /上下文已压缩/ })
+    expect(row).toHaveProperty('disabled', true)
+    expect(row.getAttribute('aria-expanded')).toBeNull()
+    expect(view.getByText('压缩摘要不可用')).toBeTruthy()
+    fireEvent.click(row) // a disabled control stays collapsed
+    expect(row.getAttribute('aria-expanded')).toBeNull()
   })
 
   it('collapses retry details behind the durable model retry status', () => {
@@ -382,12 +448,15 @@ describe('small branch tails', () => {
     })
     const now = new Date()
     const time = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 14, 24).getTime()
+    const onFork = vi.fn()
     const settled = render(
       <AssistantMarkdown
         t={t}
         blocks={[{ kind: 'text', text: 'answer body' }, { kind: 'reasoning', text: 'hidden' }]}
         streaming={false}
         time={time}
+        seq={3}
+        onFork={onFork}
       />,
     )
     expect(settled.getByText('14:24')).toBeTruthy()
@@ -395,6 +464,8 @@ describe('small branch tails', () => {
     expect(settled.getByRole('button', { name: '在新对话中分支' })).toBeTruthy()
     fireEvent.click(settled.getByRole('button', { name: '复制' }))
     expect(writeText).toHaveBeenCalledWith('answer body')
+    fireEvent.click(settled.getByRole('button', { name: '在新对话中分支' }))
+    expect(onFork).toHaveBeenCalledWith(3)
     settled.unmount()
 
     const thinkOnly = render(
@@ -417,14 +488,19 @@ describe('small branch tails', () => {
   })
 
   it('StatsLine omits the cache-hit segment when no input accounting exists at all', () => {
-    // cacheHitPct is null only when input+cacheRead are both zero (pure
-    // output accounting) — any input makes it a real 0%.
+    // Cache hit is null only when all three prompt buckets are zero (pure
+    // output accounting) — any billed input makes it a real 0%.
     const snap = {
       nodes: [{ kind: 'assistant', seq: 1, turn: 1, step: 1, blocks: [], usage: { outputTokens: 10 } }],
     }
     const source = { getSnapshot: () => snap, subscribe: () => () => {} }
     const view = render(
-      <StatsLine useSession={bindSnapshotSelector(source) as unknown as StatsLineProps['useSession']} />,
+      <StatsLine
+        useSession={bindSnapshotSelector(source) as unknown as StatsLineProps['useSession']}
+        useProjection={(key: string) => key === 'tokenUsage'
+          ? { uncachedInputTokens: 0, outputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0 }
+          : undefined}
+      />,
     )
     expect(view.container.textContent).toBe('1 turns · 1 steps|Input 0 tok · Output 10 tok')
   })

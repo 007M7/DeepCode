@@ -1,4 +1,4 @@
-/* Figma 10:2482: 24px Tool calls header, 4px gap, 141px clipped code block. */
+/* Figma 10:2482: 24px Tool calls header, 4px gap, 141px code block cap. */
 
 .root {
   min-width: 0;
@@ -15,7 +15,7 @@
 .body {
   box-sizing: border-box;
   width: calc(100% - 22px);
-  height: 141px;
+  max-height: 141px;
   margin: 4px 0 0 22px;
   overflow: auto;
   padding: 10px 16px 12px 12px;
