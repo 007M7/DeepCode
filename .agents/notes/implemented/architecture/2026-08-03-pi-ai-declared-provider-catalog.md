@@ -31,6 +31,12 @@ Resolution fails loud and names the route and model at fault: a model the catalo
 
 The configurable-provider directory is now the installed catalog **joined with** every route the current profiles declare, re-registered when that set changes. Without the join a hand-declared route would have no settings address and no configuration surface could show or edit it.
 
+### A capability whose only level does nothing is reported unavailable
+
+pi-ai reports a model with no reasoning metadata as supporting the single level `off`, and the adapter used to pass that straight through. It reaches the seam as a one-item effort list, which every surface renders as a picker holding one selectable control — and that control is a lie: `off` becomes an *omitted* reasoning option at dispatch, byte-for-byte the request that naming no effort already produces. A provider whose own default is to think keeps thinking while the surface shows `off` selected.
+
+`reasoningInfo` therefore omits the seam's `reasoning` field whenever `model.reasoning` is falsy. The condition is the model's own metadata, not where the model came from, so this covers every hand-declared model **and** the 251 installed-catalog models pi-ai marks as non-reasoning. Those previously offered the lone `off`; they now offer nothing, and the surface shows the provider default alone. Models that do carry reasoning metadata are untouched — their level list still crosses the seam unfiltered, `off` included, because there it selects between real alternatives.
+
 ### Credentials stay outside pi-ai
 
 pi-ai's `Models` carries its own credential concept — a `CredentialStore` keyed by provider id, with `envApiKeyAuth` resolving `credential.key ?? env(VAR)`. Adopting it would have created a second credential source of truth beside `ctx.credentials` and, worse, reintroduced the ambient fallback the harness deliberately forbids: a named-but-missing `apiKeyEnv` must fail with `MISSING_CREDENTIAL` rather than authenticate with whatever unrelated key the environment holds.
