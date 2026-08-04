@@ -33,6 +33,12 @@
       "path": "../../session-persistence/session-persistence"
     },
     {
+      "path": "../../session-projection/session-projection"
+    },
+    {
+      "path": "../../session-projection/session-projection-cache"
+    },
+    {
       "path": "../../session-query/session-query"
     },
     {

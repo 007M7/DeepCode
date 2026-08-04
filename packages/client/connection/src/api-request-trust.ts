@@ -14,6 +14,7 @@
  */
 
 import type { IncomingHttpHeaders } from 'node:http'
+import { isLoopbackHostname } from './loopback-hostname.ts'
 
 /** The request facts the fence reads (structural subset of IncomingMessage). */
 interface ApiTrustRequest {
@@ -23,14 +24,6 @@ interface ApiTrustRequest {
 function header(headers: IncomingHttpHeaders, name: string): string | undefined {
   const value = headers[name]
   return typeof value === 'string' ? value : undefined
-}
-
-function isLoopbackHostname(hostname: string): boolean {
-  if (hostname === 'localhost' || hostname === '[::1]') return true
-  const parts = hostname.split('.')
-  return parts.length === 4
-    && parts[0] === '127'
-    && parts.every(part => /^\d{1,3}$/.test(part) && Number(part) <= 255)
 }
 
 /** Normalized URL of a Host-header authority (hostname lowercased, default port stripped, IPv6 bracketed), or undefined when unparsable. */

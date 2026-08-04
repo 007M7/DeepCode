@@ -2451,7 +2451,7 @@ The concrete provider retains pi-tui, focus, and terminal lifecycle state. Plugi
 abstract openOverlay(request: TuiOverlayRequest): TuiOverlaySession
 ```
 
-Source: [`packages/ui/tui/src/index.ts:245`](../../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/index.ts:246`](../../packages/ui/tui/src/index.ts)
 
 ## `ctx.typert` — `TypertRegistry`
 

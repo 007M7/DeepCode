@@ -33,8 +33,8 @@ import { contentText, type ParsedArguments } from './content.ts'
 import {
   formatCompletionTime,
   formatTimingTotals,
-  stepTimingAt,
   type StepPosition,
+  type StepTimingTracker,
 } from '../chat/timing.ts'
 
 /** Concatenate the text of every block of one type, separated by blank lines. */
@@ -228,6 +228,7 @@ class StepTimingComponent extends Container {
   constructor(
     private readonly position: StepPosition,
     private readonly events: () => readonly SessionEvent[],
+    private readonly tracker: StepTimingTracker,
     private readonly now: () => number,
     private readonly palette: Palette,
   ) {
@@ -247,7 +248,7 @@ class StepTimingComponent extends Container {
 
   private rebuild(): void {
     this.clear()
-    const totals = stepTimingAt(this.events(), this.position, this.completionTime ?? this.now())
+    const totals = this.tracker.totalsAt(this.events(), this.position, this.completionTime ?? this.now())
     const timing = formatTimingTotals(totals, true)
     const header = this.completionTime === undefined
       ? timing
@@ -277,13 +278,14 @@ export class StreamingAssistantComponent extends Container {
     /** The step's turn/step coordinates, used to group steps into their turn. */
     readonly position: StepPosition,
     events: () => readonly SessionEvent[],
+    tracker: StepTimingTracker,
     now: () => number,
     private showReasoning: boolean,
     private readonly palette: Palette,
     private readonly mdTheme: MarkdownTheme,
   ) {
     super()
-    this.timing = new StepTimingComponent(position, events, now, palette)
+    this.timing = new StepTimingComponent(position, events, tracker, now, palette)
     this.rebuild()
   }
 
@@ -409,8 +411,43 @@ interface CardBody {
  */
 export type ToolCardVisibility = 'hidden' | 'collapsed' | 'expanded'
 
+/**
+ * Transcript card with a width-keyed rendered-row cache. pi-tui re-renders
+ * every component each frame and relies on per-component line caches (its own
+ * `Text`/`Markdown` do this); a card that rebuilds rows inside `render(width)`
+ * would re-wrap its output every frame
+ * ([rationale](../../../../../.agents/notes/implemented/bug-fix/2026-08-03-tui-long-session-render-costs.md)).
+ * Subclasses render through {@link renderLines} and call {@link dropLines}
+ * from every state mutator; with `invalidate()` (pi-tui's tree-wide cascade)
+ * also dropping, a state change always re-renders.
+ */
+abstract class CachedCardComponent implements Component {
+  private cached: { width: number; lines: string[] } | undefined
+
+  /** Discard the cached rows so the next render recomputes them. */
+  protected dropLines(): void {
+    this.cached = undefined
+  }
+
+  invalidate(): void {
+    this.cached = undefined
+  }
+
+  render(width: number): string[] {
+    if (this.cached?.width !== width) this.cached = { width, lines: this.renderLines(width) }
+    return this.cached.lines
+  }
+
+  /**
+   * Render the card's rows for `width` without caching.
+   * @param width - Render width the rows are wrapped to.
+   * @returns The card's rows.
+   */
+  protected abstract renderLines(width: number): string[]
+}
+
 /** A tool call and its result, rendered as a collapsible status card. */
-export class ToolCardComponent implements Component {
+export class ToolCardComponent extends CachedCardComponent {
   private result: { content: ContentBlock[]; isError: boolean; meta?: JsonValue } | undefined
   private visibility: ToolCardVisibility = 'collapsed'
   private callView: ToolCallView
@@ -426,6 +463,7 @@ export class ToolCardComponent implements Component {
     private readonly palette: Palette,
     private readonly mdTheme: MarkdownTheme,
   ) {
+    super()
     this.callView = this.presentCall()
   }
 
@@ -447,6 +485,7 @@ export class ToolCardComponent implements Component {
    */
   updateResult(event: Extract<SessionEvent, { type: 'tool/result' }>['data']): void {
     this.diffBodyCache = undefined
+    this.dropLines()
     const result = event.message.content[0]
     this.result = {
       content: [...result.content],
@@ -469,11 +508,10 @@ export class ToolCardComponent implements Component {
    */
   setVisibility(visibility: ToolCardVisibility): void {
     this.visibility = visibility
+    this.dropLines()
   }
 
-  invalidate(): void {}
-
-  render(width: number): string[] {
+  protected renderLines(width: number): string[] {
     // Hidden renders nothing — not even the leading gap — so the transcript
     // keeps only the conversation, the way Codex hides tool calls.
     if (this.visibility === 'hidden') return []
@@ -725,7 +763,7 @@ function stripReminderFrame(text: string): string {
  * well-formed XML, which made both the fold and the frame-line suppression
  * content-dependent.
  */
-export class ContextCardComponent implements Component {
+export class ContextCardComponent extends CachedCardComponent {
   private expanded = false
 
   constructor(
@@ -733,7 +771,9 @@ export class ContextCardComponent implements Component {
     private readonly text: string,
     private readonly maxOutputLines: number,
     private readonly palette: Palette,
-  ) {}
+  ) {
+    super()
+  }
 
   /**
    * Expand or collapse the card body.
@@ -741,11 +781,10 @@ export class ContextCardComponent implements Component {
    */
   setExpanded(expanded: boolean): void {
     this.expanded = expanded
+    this.dropLines()
   }
 
-  invalidate(): void {}
-
-  render(width: number): string[] {
+  protected renderLines(width: number): string[] {
     const header = this.palette.dim(`Context · ${displayText(this.label)}`)
     // Emptiness is decided on the stripped text: styling a blank body would yield
     // one escape-only row, which reads as a stray blank line under the header.

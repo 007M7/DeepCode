@@ -52,10 +52,10 @@ const EXPECTED_TUI_TOOLS = [
 ]
 
 /**
- * `glob` and `grep` come from `dsh-tool-fs-search`, which probes `command -v rg`
- * through the mounted bash executor at load and registers neither tool when
- * ripgrep is absent. That is a host dependency, not a composition decision, so the
- * pair is asserted separately — present together or absent together.
+ * `glob` and `grep` come from `dsh-tool-fs-search`, which spawns the PACKAGED
+ * ripgrep binary (`@vscode/ripgrep`) through the subprocess seam, so the pair
+ * is always present on every host — asserted as fixed members, not a host
+ * dependency.
  */
 const RIPGREP_TOOLS = ['glob', 'grep']
 
@@ -123,7 +123,9 @@ describe('shipped dsh composition (real Loader tree in a PTY)', () => {
     expect(output).toContain(COMPOSITION_REPLY_TEXT)
     expect(output).toContain(PERMISSION_SUMMARY)
     expect(observed?.names.filter(name => !RIPGREP_TOOLS.includes(name))).toEqual(EXPECTED_TUI_TOOLS)
-    expect([[], RIPGREP_TOOLS]).toContainEqual(observed?.names.filter(name => RIPGREP_TOOLS.includes(name)))
+    // The packaged ripgrep binary ships with the dependency, so the pair is a
+    // fixed roster member on every host.
+    expect(observed?.names.filter(name => RIPGREP_TOOLS.includes(name))).toEqual(RIPGREP_TOOLS)
     expect(observed?.bashArguments).toHaveProperty('sandbox_permissions')
     expect(observed?.bashArguments).toHaveProperty('justification')
     expect(observed?.permissionEvents).toEqual([

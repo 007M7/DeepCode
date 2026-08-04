@@ -181,6 +181,20 @@ export function parseReferences({ body, repository }) {
 }
 
 /**
+ * Retain only references that resolve to Issues rather than pull requests.
+ * @param {{all: number[], resolving: number[], related: number[]}} references Parsed references.
+ * @param {Map<number, unknown>} issues Resolved same-repository Issues.
+ * @returns {{all: number[], resolving: number[], related: number[]}} Issue-only references.
+ */
+export function retainIssueReferences(references, issues) {
+  return {
+    all: references.all.filter((number) => issues.has(number)),
+    resolving: references.resolving.filter((number) => issues.has(number)),
+    related: references.related.filter((number) => issues.has(number)),
+  }
+}
+
+/**
  * Validate one Issue with its Project status.
  * @param {{title: string, body: string, assignees: string[], labels: string[], type: string|null, priority: string|null, status: string|null, state: string, stateReason: string|null}} issue Issue snapshot.
  * @returns {string[]} Validation errors.
@@ -472,7 +486,7 @@ async function pullRequestSnapshot(number) {
     reviewRequestCount: reviewRequests.users.length + reviewRequests.teams.length,
     reviewCount: reviews.length,
     labels: pull.labels.map((label) => label.name),
-    references,
+    references: retainIssueReferences(references, issues),
     issues,
   }
 }
