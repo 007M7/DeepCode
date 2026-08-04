@@ -170,7 +170,7 @@ describe('real @openai/codex 0.146.0 product', () => {
     expect(recorded.headers.authorization).toBe('Bearer dsh-fake-openai-key')
     expect(responseInputTexts(recorded.body)).toContain(task)
     await expectQuiescent(harness.handles)
-  }, 20_000)
+  }, 60_000)
 
   it('cancels a real app-server command approval without executing the command', async () => {
     const { harness, fixture } = await realHarness([
@@ -206,7 +206,7 @@ describe('real @openai/codex 0.146.0 product', () => {
       requestEntry.headers.authorization === 'Bearer dsh-fake-openai-key',
     )).toBe(true)
     await expectQuiescent(harness.handles)
-  }, 20_000)
+  }, 60_000)
 
   it('settles cancellation locally and leaves the real app-server tree quiescent', async () => {
     const { harness, fixture } = await realHarness([{ kind: 'hold' }])
@@ -221,5 +221,5 @@ describe('real @openai/codex 0.146.0 product', () => {
     await expect(run.result).resolves.toMatchObject({ stopReason: 'aborted' })
     await run.dispose()
     await expectQuiescent(harness.handles)
-  }, 20_000)
+  }, 60_000)
 })

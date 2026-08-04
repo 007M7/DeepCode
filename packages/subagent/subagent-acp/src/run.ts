@@ -90,41 +90,15 @@ export const DEFAULT_DISPOSE_EOF_GRACE_MS = 6_000
 /** Default POSIX grace between SIGTERM and SIGKILL on dispose (the `disposeGraceMs` config). */
 export const DEFAULT_DISPOSE_GRACE_MS = 3_000
 
-/** Largest delay Node schedules without collapsing it to one millisecond. */
-const MAX_TIMER_DELAY_MS = 2_147_483_647n
-
-function scaledFiniteMilliseconds(ms: number, scale: number): bigint {
-  const whole = Math.floor(ms)
-  return BigInt(whole) * BigInt(scale)
-    + BigInt(Math.ceil((ms - whole) * scale))
-}
-
-/**
- * Bounded whole-tree exit wait across Node-safe timer segments.
- * @param child - process tree whose liveness is authoritative.
- * @param ms - positive finite base window in milliseconds.
- * @param scale - integer multiplier applied without Number overflow.
- */
-async function treeExitsWithin(
-  child: SubprocessHandle,
-  ms: number,
-  scale = 1,
-): Promise<boolean> {
-  let remaining = scaledFiniteMilliseconds(ms, scale)
-  while (remaining > 0n) {
-    const chunk = remaining > MAX_TIMER_DELAY_MS
-      ? MAX_TIMER_DELAY_MS
-      : remaining
-    remaining -= chunk
-    const controller = new AbortController()
-    const timer = setTimeout(() => { controller.abort() }, Number(chunk))
-    try {
-      if (await child.waitForExit(controller.signal)) return true
-    } finally {
-      clearTimeout(timer)
-    }
+/** Bounded whole-tree exit wait: polls the handle's tree liveness until it exits or `ms` elapses. */
+async function treeExitsWithin(child: SubprocessHandle, ms: number): Promise<boolean> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => { controller.abort() }, ms)
+  try {
+    return await child.waitForExit(controller.signal)
+  } finally {
+    clearTimeout(timer)
   }
-  return false
 }
 
 /**
@@ -151,7 +125,7 @@ export async function disposeAcpChild(child: SubprocessHandle, eofGraceMs: numbe
   // (this plugin passes disposeGraceMs there), so the bound covers both the
   // escalation window and an equal confirmation window after the SIGKILL.
   child.terminate()
-  if (!(await treeExitsWithin(child, graceMs, 2))) {
+  if (!(await treeExitsWithin(child, graceMs * 2))) {
     throw new Error('ACP child process tree did not exit within its dispose windows')
   }
 }
