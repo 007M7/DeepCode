@@ -8,7 +8,7 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { logPath, scanLog, sessionDir, toHeaderLine, type JsonlCompression } from '../src/format.ts'
-import { compressZstdFrame, decompressZstdFrame, scanZstdFrames } from '../src/zstd.ts'
+import { compressZstdFrame, decompressZstdFrame, decompressZstdPrefix, scanZstdFrames } from '../src/zstd.ts'
 import { runPersistenceContract, meta, oneTurnLog } from '../../session-persistence/tests/contract.ts'
 import { runCoordinatorContract, type CoordinatorFixture } from '../../session-persistence/tests/coordinator-contract.ts'
 
@@ -69,7 +69,7 @@ async function tornFrame(
     const candidate = frame.subarray(0, end)
     if (scanZstdFrames(candidate).tornStart !== 0) continue
     try {
-      const decoded = (await decompressZstdFrame(candidate)).toString('utf8')
+      const decoded = (await decompressZstdPrefix(candidate)).toString('utf8')
       if (accepts(decoded)) return candidate
     } catch {
       // Some early cuts precede the first decodable block; keep searching for
