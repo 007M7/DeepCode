@@ -88,6 +88,7 @@ import {
   runningPhaseGlyph,
   STATUS_ANIMATION_INTERVAL_MS,
   STATUS_FADE_MS,
+  StepTimingTracker,
   TIMING_BUCKET_GLYPHS,
   type StepPosition,
 } from './chat/timing.ts'
@@ -358,6 +359,9 @@ export function createTuiChat(
   let toolsVisibility: ToolCardVisibility = 'collapsed'
   let streaming: StreamingAssistantComponent | undefined
   let completedStreaming: StreamingAssistantComponent | undefined
+  // One shared accumulator serves every step's timing footer; per-footer
+  // replay of the whole log is quadratic on a long resumed session.
+  const stepTimingTracker = new StepTimingTracker()
   // Assistant step components in model order per turn, for hidden-mode folding:
   // with tool cards hidden, a turn keeps one Assistant header and later steps
   // render as headerless continuations (see applyTurnFolding).
@@ -769,6 +773,7 @@ export function createTuiChat(
     streaming = new StreamingAssistantComponent(
       position,
       () => agent.session.events,
+      stepTimingTracker,
       now,
       showReasoning,
       palette,

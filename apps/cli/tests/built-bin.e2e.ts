@@ -94,6 +94,8 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       expect(stdout).toContain('model: deepseek-v4-pro')
       expect(stdout).toContain('cwd: !!js process.cwd()')
       expect(stdout).toContain("name: '@deepseek-ai/dsh-tui'")
+      expect(stdout).not.toMatch(/name: ['"]@deepseek-ai\/dsh-invariants['"]/)
+      expect(stdout).not.toMatch(/name: ['"]@deepseek-ai\/dsh-[^'"]+\/invariant['"]/)
       expect(stdout).toContain([
         '- id: tool-web',
         "  name: '@deepseek-ai/dsh-tool-web'",
@@ -140,6 +142,8 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       expect(code).toBe(0)
       expect(stdout).toContain("name: '@deepseek-ai/dsh-host-webserver'")
       expect(stdout).not.toContain("name: '@deepseek-ai/dsh-tui'")
+      expect(stdout).not.toMatch(/name: ['"]@deepseek-ai\/dsh-invariants['"]/)
+      expect(stdout).not.toMatch(/name: ['"]@deepseek-ai\/dsh-[^'"]+\/invariant['"]/)
     }, 30_000)
   })
 })

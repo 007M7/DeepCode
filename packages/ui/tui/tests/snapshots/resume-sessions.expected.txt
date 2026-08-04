@@ -22,17 +22,15 @@ buffer
 8| "                                                                                            "
 9| "  ❯ Untitled session                                                                        "
   style 2-19 fg=bright-magenta bold
-10| "    2026-07-23T08:00:00.000Z · no completed turn · route unavailable                        "
-  style 2-67 dim
-11| "    current · live · main-session                                                           "
-  style 2-32 dim
-12| "    unavailable: current session                                                            "
+10| "    2026-07-23T08:00:00.000Z · current · live · main-session                                "
+  style 2-59 dim
+11| "    unavailable: current session                                                            "
   style 2-31 fg=yellow
-13| "    Resume selector design                                                                  "
-14| "    2024-01-01T00:00:08.000Z · turn 1: completed · deepseek-official/deepseek-v4-pro        "
-  style 2-83 dim
-15| "    persisted · earlier-session                                                             "
-  style 2-30 dim
+12| "    Resume selector design                                                                  "
+13| "    2024-01-01T00:00:00.000Z · persisted · earlier-session                                  "
+  style 2-57 dim
+14| "                                                                                            "
+15| "                                                                                            "
 16| "                                                                                            "
 17| "                                                                                            "
 18| "                                                                                            "
