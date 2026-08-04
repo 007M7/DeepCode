@@ -4,8 +4,55 @@
  * @module @deepseek-ai/dsh-bash-sandbox/helpers
  */
 
+import { accessSync, constants, statSync } from 'node:fs'
+import { delimiter, resolve } from 'node:path'
 import type { BashRunResult } from '@deepseek-ai/dsh-bash'
 import type { RunnerFailureRule } from '@deepseek-ai/dsh-sandbox'
+
+/** Spawn codes that can describe an unavailable executable. */
+const EXECUTABLE_SPAWN_CODES = new Set(['EACCES', 'ENOENT', 'ENOEXEC', 'ENOTDIR', 'EPERM'])
+
+/** Whether one resolved path is a regular executable file. */
+function isExecutableFile(path: string): boolean {
+  try {
+    if (!statSync(path).isFile()) return false
+    accessSync(path, constants.X_OK)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Require positive runner evidence instead of treating every spawn rejection
+ * as sandbox-owned. Node uses the same ENOENT/EACCES channel for unrelated
+ * launch failures, so the provider executable must also be absent or unusable.
+ * @param error - the original spawn rejection.
+ * @param runnerProgram - provider argv[0], the executable that establishes confinement.
+ * @param workdir - the spawn cwd, used to resolve relative executable paths.
+ * @param searchPath - the spawn environment's PATH value.
+ * @returns whether the rejection has executable-specific runner evidence.
+ */
+export function isRunnerSpawnFailure(
+  error: unknown,
+  runnerProgram: string | undefined,
+  workdir: string,
+  searchPath: string | undefined,
+): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  const code = (error as { code?: unknown }).code
+  if (typeof code !== 'string' || !EXECUTABLE_SPAWN_CODES.has(code) || runnerProgram === undefined) return false
+
+  const isPath = runnerProgram.includes('/') || runnerProgram.includes('\\')
+  const pathEntries = isPath ? [''] : searchPath?.split(delimiter) ?? []
+  if (pathEntries.length === 0) return false
+  return pathEntries.every((entry) => {
+    const candidate = isPath
+      ? resolve(workdir, runnerProgram)
+      : resolve(workdir, entry.length > 0 ? entry : '.', runnerProgram)
+    return !isExecutableFile(candidate)
+  })
+}
 
 /** Fatal runner evidence retained for infrastructure-error detail. */
 interface RunnerFailureMatch {
@@ -43,11 +90,10 @@ export function classifyRunnerFailure(
   for (const rule of rules) {
     if (rule.allowedExitCodes !== undefined && !rule.allowedExitCodes.includes(exitCode)) continue
     const informationalLines = new Set((rule.informationalLines ?? []).map(line => line.toLowerCase()))
-    // An empty substring matches every string in JavaScript. Ignore it so a
-    // malformed public rule cannot turn a gated exit status into evidence by
-    // itself; keep any valid signatures beside it active.
+    // An empty or whitespace-only substring is not meaningful runner evidence.
+    // Ignore it while keeping any valid signatures beside it active.
     const fatalSignatures = rule.fatalSignatures
-      .filter(signature => signature.length > 0)
+      .filter(signature => signature.trim().length > 0)
       .map(signature => signature.toLowerCase())
     for (const line of lines) {
       const lowered = line.toLowerCase()

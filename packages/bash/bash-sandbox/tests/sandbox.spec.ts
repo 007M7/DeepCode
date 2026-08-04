@@ -17,7 +17,7 @@ import { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import { SandboxBashExecutor } from '@deepseek-ai/dsh-bash-sandbox'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import type { SubprocessHandle, SubprocessOutputReader } from '@deepseek-ai/dsh-subprocess'
-import { classifyDenial, classifyRunnerFailure } from '../src/helpers.ts'
+import { classifyDenial, classifyRunnerFailure, isRunnerSpawnFailure } from '../src/helpers.ts'
 import type { Config } from '@deepseek-ai/dsh-bash-sandbox'
 
 const spillDir = mkdtempSync(join(tmpdir(), 'dsh-bash-sandbox-spec-'))
@@ -172,6 +172,22 @@ describe('fail closed', () => {
     controller.abort(reason)
     await expect(bash.run(bash.resolve({ command: 'true', signal: controller.signal }))).rejects.toBe(reason)
   })
+
+  it.each(['read-only', 'danger-full-access'] as const)(
+    'keeps an invalid workdir as an ordinary foreground spawn failure in %s mode',
+    async (mode) => {
+      const { bash } = await setup({ mode })
+      const parent = mkdtempSync(join(tmpdir(), 'dsh-sandbox-missing-cwd-'))
+      try {
+        const failure = await bash.run(bash.resolve({ command: 'true', workdir: join(parent, 'missing') }))
+          .catch((error: unknown) => error)
+        expect(failure).toMatchObject({ code: 'ENOENT' })
+        expect(failure).not.toBeInstanceOf(SandboxUnavailableError)
+      } finally {
+        rmSync(parent, { recursive: true, force: true })
+      }
+    },
+  )
 })
 
 describe('danger-full-access', () => {
@@ -273,10 +289,26 @@ describe('classifyDenial', () => {
   })
 })
 
+describe('isRunnerSpawnFailure', () => {
+  it('requires both an executable-class error and an independently unavailable provider executable', () => {
+    const missingRunner = join(spillDir, 'definitely-missing-runner')
+    const enoent = Object.assign(new Error('spawn failed'), { code: 'ENOENT' })
+    const emfile = Object.assign(new Error('spawn failed'), { code: 'EMFILE' })
+
+    expect(isRunnerSpawnFailure(enoent, missingRunner, process.cwd(), process.env.PATH)).toBe(true)
+    expect(isRunnerSpawnFailure(enoent, process.execPath, process.cwd(), process.env.PATH)).toBe(false)
+    expect(isRunnerSpawnFailure(enoent, spillDir, process.cwd(), process.env.PATH)).toBe(true)
+    expect(isRunnerSpawnFailure(emfile, missingRunner, process.cwd(), process.env.PATH)).toBe(false)
+    expect(isRunnerSpawnFailure(enoent, 'definitely-missing-runner', spillDir, '')).toBe(true)
+    expect(isRunnerSpawnFailure(enoent, 'definitely-missing-runner', spillDir, undefined)).toBe(false)
+    expect(isRunnerSpawnFailure(enoent, undefined, spillDir, process.env.PATH)).toBe(false)
+  })
+})
+
 describe('classifyRunnerFailure', () => {
-  it('ignores empty fatal signatures instead of treating exit status or notice text as evidence', () => {
+  it('ignores empty and whitespace-only fatal signatures instead of treating exit status or notice text as evidence', () => {
     const notice = 'landlock-run: partial enforcement (older Landlock ABI)'
-    const emptyRule = [{ allowedExitCodes: [125], fatalSignatures: [''] }]
+    const emptyRule = [{ allowedExitCodes: [125], fatalSignatures: ['', ' ', '\t'] }]
     expect(classifyRunnerFailure(125, '', emptyRule)).toBeUndefined()
     expect(classifyRunnerFailure(125, notice, emptyRule)).toBeUndefined()
   })
@@ -286,7 +318,7 @@ describe('classifyRunnerFailure', () => {
     const fatal = 'landlock-run: ruleset creation failed'
     const rules = [{
       allowedExitCodes: [125],
-      fatalSignatures: ['', 'landlock-run: '],
+      fatalSignatures: ['', ' ', 'landlock-run: '],
       informationalLines: [notice],
     }]
     expect(classifyRunnerFailure(125, `${notice}\nchild diagnostic\n${fatal}`, rules)).toEqual({ detail: fatal })
@@ -354,10 +386,10 @@ describe('result facts', () => {
 })
 
 describe('background sandbox facts', () => {
-  it('stamps facts and releases accounting when background spawn fails', async () => {
+  it('keeps an invalid-workdir spawn rejection ordinary and releases accounting', async () => {
     const { bash } = await setup()
-    const missingWorkdir = join(mkdtempSync(join(tmpdir(), 'dsh-sandbox-missing-cwd-')), 'missing')
-    const task = bash.start(bash.resolve({ command: 'true', workdir: missingWorkdir }))
+    const parent = mkdtempSync(join(tmpdir(), 'dsh-sandbox-missing-cwd-'))
+    const task = bash.start(bash.resolve({ command: 'true', workdir: join(parent, 'missing') }))
 
     await task.done
 
@@ -367,13 +399,13 @@ describe('background sandbox facts', () => {
       mode: 'read-only',
       denied: false,
       enforcement: 'full',
-      runnerFailed: true,
     })
     const accounting = (bash as unknown as { processFacts: Map<unknown, unknown> }).processFacts
     expect(accounting.size).toBe(0)
+    rmSync(parent, { recursive: true, force: true })
   })
 
-  it('classifies a spawn rejection whose reason is undefined', async () => {
+  it('does not invent runner evidence when a spawn rejection has no structured reason', async () => {
     const { ctx, bash } = await setup()
     const emptyReader: SubprocessOutputReader = {
       readFrom: () => ({ text: '', nextOffset: 0, lossy: false }),
@@ -399,7 +431,6 @@ describe('background sandbox facts', () => {
       mode: 'read-only',
       denied: false,
       enforcement: 'full',
-      runnerFailed: true,
     })
   })
 

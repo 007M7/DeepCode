@@ -17,7 +17,7 @@
 语义：
 
 - **拒绝是结果事实。** 如果一次失败运行的 stderr 包含所选后端自身的拒绝方言，即提供方在每次包装时加上的特征（bwrap 下的 EROFS 文本、Landlock 下的 EACCES、Seatbelt 下的 EPERM），则结果报告 `BashRunResult.sandbox.denied: true`（从已收集的 stderr 尾部进行保守分类）。每次受限制运行还会携带执行时模式（`result.sandbox.mode`）与提供方强制执行完整性（`result.sandbox.enforcement`：`full`，或在较旧 Landlock ABI 上为 `partial`）。
-- **Runner 失败是沙箱失败，绝不是命令失败。** spawn 提供方 argv 遭拒，是受限启动从未开始的带外证据：前台执行会抛出 `SANDBOX_UNAVAILABLE` 并附带原始 spawn 错误详情，后台结算则会标记 `runnerFailed: true` 和 `denied: false`。进程启动后，先按整行精确匹配排除信息性行，随后规则的可选退出码门控和余下 stderr 中的一行致命诊断必须同时匹配。匹配结果优先于拒绝；前台执行会抛出 `SANDBOX_UNAVAILABLE` 并附带匹配到的致命行，已结算的后台进程则会标记 `process.sandbox.runnerFailed`，Bash 结果生成方通过通用 `task_output` 渲染它。无论走哪条路径，受限制的后台句柄都会保留自身的模式／强制执行事实，并释放每进程计数。
+- **Runner 失败是沙箱失败，绝不是命令失败。** 进程启动前，只有当 spawn 拒绝的结构化错误码与一次独立查找均表明提供方可执行文件缺失或不可用时，才会将该拒绝归因于 runner：前台执行会抛出 `SANDBOX_UNAVAILABLE` 并附带原始 spawn 错误详情，后台结算则会标记 `runnerFailed: true` 和 `denied: false`。其他 spawn 拒绝保留本地执行器的命令启动失败语义。进程启动后，先按整行精确匹配排除信息性行，随后规则的可选退出码门控和余下 stderr 中的一行致命诊断必须同时匹配。匹配结果优先于拒绝；前台执行会抛出 `SANDBOX_UNAVAILABLE` 并附带匹配到的致命行，已结算的后台进程则会标记 `process.sandbox.runnerFailed`，Bash 结果生成方通过通用 `task_output` 渲染它。无论走哪条路径，受限制的后台句柄都会保留自身的模式／强制执行事实，并释放每进程计数。
 - **部署回退，每次调用策略。** [`ctx.sandboxPolicy`](../../sandbox/sandbox-policy/) 为每次工具调用解析完整的 `SandboxExecutionPolicy`：调用会话提供自身的模式覆盖与不可变 cwd 根目录，部署配置则为无 agent（智能体）调用提供回退。已批准的升权只更改该策略的模式，会话根目录仍然附着其上。`resolve()` 把策略带入 spec，因此来自不同项目的重叠命令会在各自的根目录与模式下运行、分类和报告。能力事实 `ctx.bash.sandboxMode` 报告已配置的默认值，因此工具层只在装载该执行器时才公布升权；静态 bash 工具描述则单独负责拒绝与升级引导。
 - **只限制文件影响。** 设计上不限制网络与进程可见性：模式词汇不会声称覆盖后端未强制执行的范围。
 - 进程机制（spawn、进程组终止、输出收集／spill、后台句柄、凭证清理）继承自 [`dsh-bash-local`](../bash-local/)；runner 选择位于 [`dsh-sandbox-local`](../../sandbox/sandbox-local/)。
@@ -72,7 +72,7 @@
 
 #### 模型看到的内容
 
-如果没有 runner 能强制执行受限模式，前台调用会传播 [`SANDBOX_UNAVAILABLE` 错误](../../sandbox/sandbox/README.md#confinement-error-indirectly)；该错误由 `dsh-sandbox` 定义。spawn 提供方 argv 遭拒时，以原始 spawn 错误作为详细信息；已结算的 runner 失败则以匹配到的致命 stderr 行作为详细信息，并保留原始 stderr 收集结果。
+如果没有 runner 能强制执行受限模式，前台调用会传播 [`SANDBOX_UNAVAILABLE` 错误](../../sandbox/sandbox/README.md#confinement-error-indirectly)；该错误由 `dsh-sandbox` 定义。提供方可执行文件的 spawn 失败会以原始 spawn 错误作为详细信息；没有 runner 特定证据的拒绝仍是普通的命令启动错误。已结算的 runner 失败则以匹配到的致命 stderr 行作为详细信息，并保留原始 stderr 收集结果。
 
 #### Token 影响
 

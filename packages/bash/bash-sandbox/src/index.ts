@@ -1,10 +1,10 @@
 /**
  * Sandbox-consuming bash executor. It wraps the exact local bash argv through
  * `ctx.sandbox`, inherits local process mechanics, and reports the selected
- * mode, enforcement, and denial facts. Runner failure means the command never
- * ran: foreground calls throw `SANDBOX_UNAVAILABLE`, while settled background
- * processes carry `runnerFailed`. The tool owns approval and passes a complete
- * per-call policy.
+ * mode, enforcement, and denial facts. Positive runner-launch evidence means
+ * the command never ran: foreground calls throw `SANDBOX_UNAVAILABLE`, while
+ * background processes carry `runnerFailed`; other spawn rejections retain
+ * local-executor semantics. The tool owns approval and passes a complete per-call policy.
  * @module @deepseek-ai/dsh-bash-sandbox
  */
 
@@ -23,7 +23,7 @@ import type {
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import type { Config as LocalConfig } from '@deepseek-ai/dsh-bash-local'
-import { classifyDenial, classifyRunnerFailure, matchesSignature } from './helpers.ts'
+import { classifyDenial, classifyRunnerFailure, isRunnerSpawnFailure, matchesSignature } from './helpers.ts'
 
 /**
  * Plugin config: the local executor's knobs, verbatim. The sandbox policy —
@@ -60,6 +60,9 @@ export class SandboxBashExecutor extends LocalBashExecutor {
     enforcement: SandboxEnforcement
     denialSignatures: readonly string[]
     runnerFailureRules: readonly RunnerFailureRule[]
+    runnerProgram: string | undefined
+    searchPath: string | undefined
+    workdir: string
   }>()
 
   constructor(ctx: Context, config: Config) {
@@ -97,7 +100,10 @@ export class SandboxBashExecutor extends LocalBashExecutor {
     } catch (error) {
       // An upstream abort remains cancellation even when it prevents spawn.
       if (spec.signal?.aborted === true) spec.signal.throwIfAborted()
-      throw new SandboxUnavailableError(mode, String(error))
+      if (isRunnerSpawnFailure(error, confined.argv[0], spec.workdir, spec.env?.PATH ?? process.env.PATH)) {
+        throw new SandboxUnavailableError(mode, String(error))
+      }
+      throw error
     }
     // Runner failure outranks denial because the command did not run. Carry
     // the matched fatal line, not an informational line that preceded it.
@@ -116,7 +122,15 @@ export class SandboxBashExecutor extends LocalBashExecutor {
     const confined = this.confine(spec.command, { ...policy, mode })
     const proc = this.startArgv(spec, confined.argv)
     const { enforcement, denialSignatures, runnerFailureRules } = confined
-    this.processFacts.set(proc, { mode, enforcement, denialSignatures, runnerFailureRules })
+    this.processFacts.set(proc, {
+      mode,
+      enforcement,
+      denialSignatures,
+      runnerFailureRules,
+      runnerProgram: confined.argv[0],
+      searchPath: spec.env?.PATH ?? process.env.PATH,
+      workdir: spec.workdir,
+    })
     return proc
   }
 
@@ -131,7 +145,8 @@ export class SandboxBashExecutor extends LocalBashExecutor {
       // A rejected spawn never started the confined launch. Otherwise runner
       // failure outranks denial because its diagnostics may contain denial terms.
       const runnerFailed = spawnFailed
-        || classifyRunnerFailure(proc.exitCode, stderr, facts.runnerFailureRules) !== undefined
+        ? isRunnerSpawnFailure(spawnError, facts.runnerProgram, facts.workdir, facts.searchPath)
+        : classifyRunnerFailure(proc.exitCode, stderr, facts.runnerFailureRules) !== undefined
       proc.sandbox = {
         mode: facts.mode,
         denied: !runnerFailed && matchesSignature(proc.exitCode, stderr, facts.denialSignatures),

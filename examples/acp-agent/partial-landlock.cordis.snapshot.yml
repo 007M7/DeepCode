@@ -1,5 +1,5 @@
-# Keyless partial-Landlock composition: replay the authored model turns and
-# replace the shipping provider with a deterministic older-ABI stand-in.
+# Keyless runner-classification composition: replay authored model turns and
+# replace the shipping provider with a deterministic process-launch stand-in.
 - id: base
   name: '@cordisjs/plugin-include'
   config:

@@ -1,5 +1,5 @@
-# Live counterpart for the partial-Landlock snapshot overlay. It replaces only
-# the sandbox provider; the authored scenario is skipped in record mode.
+# Live counterpart for the runner-classification snapshot overlay. It replaces
+# only the sandbox provider; authored scenarios are skipped in record mode.
 - id: base
   name: '@cordisjs/plugin-include'
   config:

@@ -170,6 +170,20 @@ const SCENARIOS: Scenario[] = [
     env: { DSH_PERMISSION_MODE: 'read-only' },
     posixOnly: true,
   },
+  // A valid cwd plus a missing provider executable exercises the assembled
+  // foreground error and background task marker without a platform runner.
+  {
+    name: 'missing-sandbox-runner',
+    hasModelTurn: true,
+    recorded: false,
+    headerClass: 'sandbox',
+    configPath: PARTIAL_LANDLOCK_CONFIG,
+    env: {
+      DSH_PERMISSION_MODE: 'read-only',
+      DSH_SNAPSHOT_MISSING_SANDBOX_RUNNER: '1',
+    },
+    posixOnly: true,
+  },
   { name: 'todo-write', hasModelTurn: true, recorded: true },
   {
     name: 'skill-load',
