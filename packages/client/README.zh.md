@@ -11,7 +11,7 @@ dsh web GUI 的浏览器侧：shell 内核、模块系统、协议消费层、�
 | `web-react/` | shell 侧 React 胶水：`createSlotRenderer` + `SessionProvider` 渲染座位 | （渲染器安装） |
 | `connection/` | 协议两端的消费者：浏览器侧 `ctx.connection`（共享 api 客户端 + 流循环），node 半侧挂载带浏览器信任栅栏的 `/api` 路由 | `ctx.connection` |
 | `runtime/` | 客户端 cordis 启动与无 React 对象服务：slots、Session、Workspace、逐会话绑定 | `ctx.slots` `ctx.sessions` `ctx.workspaces` |
-| `hmr/` | 仅开发用的 fetch 到达型客户端插件热重载（`--dev` 图） | （开发条目） |
+| `hmr/` | 仅开发用的外部脚本加载型客户端插件热重载（`--dev` 图） | （开发条目） |
 | `locale/` | 浏览器语言偏好（`zh`／`en`）与 ns×locale 词典注册表 | `ctx.locale` |
 | `ui-slots/` | slot 注册表纯核心：SlotMap 合并、单一 `register` API、四份额 props 族 | （类型 + 核心） |
 | `ui-theme/` | 基于 `--dsw-*` token 样式表的主题偏好（`light`／`dark`／`system`） | `ctx.theme` |

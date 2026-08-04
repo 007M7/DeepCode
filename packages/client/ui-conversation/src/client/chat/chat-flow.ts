@@ -9,7 +9,7 @@
  * flow share their gates.
  */
 import type {
-  AssistantBlock, ConversationNode, ToolResultNode,
+  AssistantBlock, ConversationNode, ConversationSnapshot, ToolResultNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 
 /** One renderable flow item; key is the React key and the parent's identity unit. */
@@ -45,6 +45,21 @@ export function assistantActionsSeqs(nodes: readonly ConversationNode[]): Readon
     lastByTurn.set(node.turn, node.seq)
   }
   return new Set(lastByTurn.values())
+}
+
+/**
+ * Exact start time of the latest in-window turn without a matching end time.
+ * @param turnTimings - In-window turn timings in event order.
+ * @returns Unix epoch ms, or null when the running turn started outside the window.
+ */
+export function runningTurnStartTime(
+  turnTimings: ConversationSnapshot['turnTimings'],
+): number | null {
+  let latest: number | null = null
+  for (const timing of turnTimings.values()) {
+    if (timing.endTime === undefined) latest = timing.startTime
+  }
+  return latest
 }
 
 /**

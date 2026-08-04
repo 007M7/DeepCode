@@ -183,7 +183,7 @@ function UserStyleBubble({
   const { text, rest } = contentText(content)
   const truncated = (total: number): string => t('json.truncated', { total })
   return (
-    <div className={css.userRow} data-pending-steering={pending || undefined}>
+    <div className={css.userRow} data-pending-steering={pending || undefined} data-time-hover-root>
       <div className={css.bubble}>
         {projectUserText(text)}
         {rest.map((block, i) => <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />)}

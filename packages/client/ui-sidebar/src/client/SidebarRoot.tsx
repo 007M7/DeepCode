@@ -8,6 +8,11 @@
  * button and the foot is the `sidebar.workspaces` registrant's, and the foot
  * is the `sidebar.settings` registrant's; the shell hands them the wide flag
  * (plus an expand request callback for the browser).
+ *
+ * The column also owns whether the scroll regions nested in it draw a
+ * scrollbar at all: the shell tracks the pointer and rebinds ui-theme's
+ * scrollbar indirection away while it is elsewhere, so a list the user is not
+ * pointing at carries no bar.
  */
 import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
@@ -21,6 +26,14 @@ import css from './SidebarRoot.module.css'
 
 /** Wide-content unmount delay; matches the 150ms wide-content fade-out. */
 const COLLAPSE_SETTLE_MS = 150
+
+/**
+ * How long the column's scrollbars stay drawn after the pointer leaves it.
+ * The bar is a pointer affordance here, and hiding it on the leave event
+ * itself makes it blink out while the pointer is only crossing the column's
+ * edge — on the way to the conversation, or around a portalled menu.
+ */
+const SCROLLBAR_LINGER_MS = 2000
 
 /**
  * Render the sidebar column shell.
@@ -56,10 +69,62 @@ export function SidebarRoot({
   const everWide = useRef(!collapsed)
   if (!collapsed) everWide.current = true
 
+  // Scrollbars in the column follow the pointer (.quietBars rebinds them
+  // away): drawn while it is inside, and for SCROLLBAR_LINGER_MS after it
+  // leaves. A pointer that returns within that window cancels the pending
+  // hide rather than restarting from a hidden bar.
+  const column = useRef<HTMLDivElement>(null)
+  const [pointerInside, setPointerInside] = useState(false)
+  const lingerTimer = useRef<number | undefined>(undefined)
+  const armLinger = (): void => {
+    if (lingerTimer.current !== undefined) return
+    lingerTimer.current = window.setTimeout(() => {
+      lingerTimer.current = undefined
+      setPointerInside(false)
+    }, SCROLLBAR_LINGER_MS)
+  }
+  const cancelLinger = (): void => {
+    window.clearTimeout(lingerTimer.current)
+    lingerTimer.current = undefined
+  }
+  // Leaving is decided by the column's BOX, not by DOM containment, and only
+  // while the bars are drawn. ui-settings renders its full-viewport panel as a
+  // fixed-position DESCENDANT of this column, so a pointer moved onto that
+  // panel — or onto the conversation once it closes — fires no `pointerleave`
+  // here, and the bars would stay drawn over a column nobody is pointing at.
+  // The element's own leave stays as the one signal geometry cannot give: a
+  // pointer that leaves the window emits no further moves.
+  useEffect(() => {
+    if (!pointerInside) return
+    const onMove = (event: PointerEvent): void => {
+      const rect = column.current?.getBoundingClientRect()
+      /* v8 ignore next -- the listener only exists while the column is mounted and revealed. */
+      if (rect === undefined) return
+      const inside = event.clientX >= rect.left && event.clientX < rect.right
+        && event.clientY >= rect.top && event.clientY < rect.bottom
+      if (inside) cancelLinger()
+      else armLinger()
+    }
+    document.addEventListener('pointermove', onMove)
+    return () => {
+      document.removeEventListener('pointermove', onMove)
+      cancelLinger()
+    }
+  }, [pointerInside])
+
   return (
     <div
-      className={clsx(css.root, !wide && css.collapsed, !wide && everWide.current && css.railIn, collapsed && wide && css.fading)}
+      ref={column}
+      className={clsx(
+        css.root, !wide && css.collapsed, !wide && everWide.current && css.railIn,
+        collapsed && wide && css.fading, !pointerInside && css.quietBars,
+      )}
       style={wide ? { width: collapsed ? lastWideWidth.current : width } : undefined}
+      onPointerEnter={() => {
+        cancelLinger()
+        setPointerInside(true)
+      }}
+      onPointerLeave={() => { armLinger() }}
     >
       <div className={css.logoRow}>
         {/* Expanded, the wordmark doubles as a New Session shortcut; the
@@ -76,7 +141,7 @@ export function SidebarRoot({
         )}
         {/* Rail resting state is the whale mark; hovering swaps in the panel
             icon (the expand affordance, figma sidebar-hover flow). */}
-        <Tooltip label={t('toggle.open')} disabled={wide}>
+        <Tooltip label={collapsed ? t('toggle.open') : t('toggle.collapse')} delayMs={500}>
           <button
             type="button"
             className={clsx(css.iconButton, css.toggle)}
@@ -90,7 +155,8 @@ export function SidebarRoot({
         </Tooltip>
       </div>
 
-      <Tooltip label={t('session.new.label')} disabled={wide}>
+      {/* Expanded, the button carries its own label — tooltip only on the rail. */}
+      <Tooltip label={t('session.new.label')} delayMs={500} disabled={wide}>
         <button
           type="button"
           className={css.newSession}

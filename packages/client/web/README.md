@@ -8,7 +8,7 @@ Shell self-sufficiency (web2 hard rule): the kernel value-imports no plugin pack
 
 `PLATFORM_MODULES` (src/platform.ts) is the single source of truth for the shared module surface: seed-table keys, tsdown client externals, and the vite alias set are its projections.
 
-The optional `seams` parameter forwards the module system's `fetchBundle`/`executeBundle` transport overrides (`BootSeams`); production callers omit it — it exists for test environments where `<script>` execution cannot reach the page context (jsdom).
+The optional `seams` parameter forwards the module system's `loadBundle` transport override (`BootSeams`); production callers omit it — it exists for test environments where external `<script>` execution cannot reach the page context (jsdom).
 
 The shell owns browser-title projection. With a selected session carrying a durable title, it renders `<session title> — <existing HTML title>` and reacts to later title revisions; no selection or a selected untitled session preserves the existing title, and shell unmount restores it. The existing HTML title remains the configurable product suffix.
 

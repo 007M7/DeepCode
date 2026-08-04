@@ -1,6 +1,6 @@
 /**
  * GoalBar: the goal indicator docked above the message composer (input dock
- * strip). A present goal shows a sparkle, a phase label, the truncated
+ * strip). A present goal shows a goal glyph, a phase label, the truncated
  * objective, and icon actions — resume when paused, edit (inline form in the
  * same strip), and clear. Goal creation lives on the `/goal` command, not
  * here: loading (undefined), no goal (null), and complete goals render
@@ -11,7 +11,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { GoalSnapshot } from '@deepseek-ai/dsh-goal/client'
 import {
-  IconCheckOutline16, IconCloseOutline16, IconEditOutline16, IconPauseOutline16, IconPlayOutline16, IconSparkle16, IconTrashOutline16,
+  IconCheckOutline16, IconCloseOutline16, IconEditOutline16, IconGoalOutline16,
+  IconPauseOutline16, IconPlayOutline16, IconTrashOutline16, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { GoalActionResult, GoalBarActions } from './slots.ts'
@@ -94,26 +95,28 @@ export function GoalBar({ goal, onEdit, onPause, onResume, onClear, t }: GoalBar
           />
           {actionError !== null && <span className={css.error} role="alert">{actionError}</span>}
           <div className={css.actions}>
-            <button
-              type="button"
-              className={css.iconBtn}
-              onClick={() => { void handleEdit() }}
-              disabled={pending || draft.trim() === ''}
-              title={t('action.save')}
-              aria-label={t('action.save')}
-            >
-              <IconCheckOutline16 />
-            </button>
-            <button
-              type="button"
-              className={css.iconBtn}
-              onClick={() => { setEditing(false) }}
-              disabled={pending}
-              title={t('action.cancel')}
-              aria-label={t('action.cancel')}
-            >
-              <IconCloseOutline16 />
-            </button>
+            <Tooltip label={t('action.save')} side="bottom" delayMs={500}>
+              <button
+                type="button"
+                className={css.iconBtn}
+                onClick={() => { void handleEdit() }}
+                disabled={pending || draft.trim() === ''}
+                aria-label={t('action.save')}
+              >
+                <IconCheckOutline16 size={14} />
+              </button>
+            </Tooltip>
+            <Tooltip label={t('action.cancel')} side="bottom" delayMs={500}>
+              <button
+                type="button"
+                className={css.iconBtn}
+                onClick={() => { setEditing(false) }}
+                disabled={pending}
+                aria-label={t('action.cancel')}
+              >
+                <IconCloseOutline16 size={14} />
+              </button>
+            </Tooltip>
           </div>
         </div>
       </div>
@@ -124,34 +127,41 @@ export function GoalBar({ goal, onEdit, onPause, onResume, onClear, t }: GoalBar
   return (
     <div className={css.dock} data-goal-bar>
       <div className={css.bar} title={title}>
-        <span className={css.sparkle}><IconSparkle16 /></span>
+        <span className={css.goalGlyph}><IconGoalOutline16 size={14} /></span>
         <span className={css.label}>{t(PHASE_LABELS[goal.phase])}</span>
         <span className={css.objective}>{goal.objective}</span>
         {actionError !== null && <span className={css.error} role="alert">{actionError}</span>}
         <div className={css.actions}>
           {goal.phase === 'active' && (
-            <button type="button" className={css.iconBtn} disabled={pending} onClick={() => { void runAction(onPause) }} title={t('action.pause')} aria-label={t('action.pause')}>
-              <IconPauseOutline16 />
-            </button>
+            <Tooltip label={t('action.pause')} side="bottom" delayMs={500}>
+              <button type="button" className={css.iconBtn} disabled={pending} onClick={() => { void runAction(onPause) }} aria-label={t('action.pause')}>
+                <IconPauseOutline16 size={14} />
+              </button>
+            </Tooltip>
           )}
           {goal.phase === 'paused' && (
-            <button type="button" className={css.iconBtn} disabled={pending} onClick={() => { void runAction(onResume) }} title={t('action.resume')} aria-label={t('action.resume')}>
-              <IconPlayOutline16 />
-            </button>
+            <Tooltip label={t('action.resume')} side="bottom" delayMs={500}>
+              <button type="button" className={css.iconBtn} disabled={pending} onClick={() => { void runAction(onResume) }} aria-label={t('action.resume')}>
+                <IconPlayOutline16 size={14} />
+              </button>
+            </Tooltip>
           )}
-          <button
-            type="button"
-            className={css.iconBtn}
-            disabled={pending}
-            onClick={() => { setDraft(goal.objective); setEditing(true) }}
-            title={t('action.edit')}
-            aria-label={t('action.edit')}
-          >
-            <IconEditOutline16 />
-          </button>
-          <button type="button" className={css.iconBtn} disabled={pending} onClick={() => { void handleClear(goal.id) }} title={t('action.clear')} aria-label={t('action.clear')}>
-            <IconTrashOutline16 />
-          </button>
+          <Tooltip label={t('action.edit')} side="bottom" delayMs={500}>
+            <button
+              type="button"
+              className={css.iconBtn}
+              disabled={pending}
+              onClick={() => { setDraft(goal.objective); setEditing(true) }}
+              aria-label={t('action.edit')}
+            >
+              <IconEditOutline16 size={14} />
+            </button>
+          </Tooltip>
+          <Tooltip label={t('action.clear')} side="bottom" delayMs={500}>
+            <button type="button" className={css.iconBtn} disabled={pending} onClick={() => { void handleClear(goal.id) }} aria-label={t('action.clear')}>
+              <IconTrashOutline16 size={14} />
+            </button>
+          </Tooltip>
         </div>
       </div>
     </div>
