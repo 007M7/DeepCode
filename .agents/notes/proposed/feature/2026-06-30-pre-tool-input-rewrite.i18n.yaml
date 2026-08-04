@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/proposed/feature/2026-06-30-pre-tool-input-rewrite.md
 2026-06-30-pre-tool-input-rewrite.md: f35e6af465ce8cec5685911c43e12b8dd66f2e6a
-2026-06-30-pre-tool-input-rewrite.zh.md: a260d53edd1f27f53e567ab23d205e125dd153b8
+2026-06-30-pre-tool-input-rewrite.zh.md: 5793b38293e117e328350722ad1efb3126fd176c

@@ -8,7 +8,7 @@ Status: rejected — 计划增加更多压缩后端，因此接口包与 basic �
 
 压缩（compaction）目前拆分在两个包中：`@deepseek-ai/dsh-compact` 拥有一个含两个方法的抽象服务和共享类型，`@deepseek-ai/dsh-compact-basic` 拥有唯一的完整实现。交付配置只加载 basic 包，除了该实现外，没有生产包独立消费接口包。
 
-该拆分增加了一份包manifest（元数据清单）、README、项目边界、依赖边、抽象转发类、生成目录项和组合接线，却没有实际的后端替换用例。[能力 seam 决策](../../implemented/architecture/2026-06-13-capability-seams.md)要求接口、实现和消费方都必须真实存在，而不能预先拆分；[压缩决策](../../implemented/feature/2026-06-18-compaction-capability-seam.md)也记录了独立消费方仍被推迟。
+该拆分增加了一份包 manifest（元数据清单）、README、项目边界、依赖边、抽象转发类、生成目录项和组合接线，却没有实际的后端替换用例。[能力 seam 决策](../../implemented/architecture/2026-06-13-capability-seams.md)要求接口、实现和消费方都必须真实存在，而不能预先拆分；[压缩决策](../../implemented/feature/2026-06-18-compaction-capability-seam.md)也记录了独立消费方仍被推迟。
 
 ## 提案
 

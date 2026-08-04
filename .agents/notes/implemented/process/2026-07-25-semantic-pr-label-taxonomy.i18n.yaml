@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-07-25-semantic-pr-label-taxonomy.md
 2026-07-25-semantic-pr-label-taxonomy.md: 3217b405e968d4d2c1eba1f1a5a08008b18ba514
-2026-07-25-semantic-pr-label-taxonomy.zh.md: 89be425165315dde5ec00fc197c88dd52edcf395
+2026-07-25-semantic-pr-label-taxonomy.zh.md: 60a863c4e37fb3fb905fd4b60bf949be3abfff65

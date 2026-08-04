@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/proposed/testing/2026-06-11-deterministic-and-stress-testing.md
 2026-06-11-deterministic-and-stress-testing.md: d9977be835af05f9ee303b63ec6015bc9e153170
-2026-06-11-deterministic-and-stress-testing.zh.md: 008ecab6c55311cdce1b617c5a1f95de7442031a
+2026-06-11-deterministic-and-stress-testing.zh.md: 3beb07e333253f63aeb09be438996e7d6e1156cc

@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-06-13-twin-llm-adapters.md
 2026-06-13-twin-llm-adapters.md: b922891d4438553fd96a7f4f4226f378e66e8ad2
-2026-06-13-twin-llm-adapters.zh.md: a24e62af5e78efd2afda6f710885387ab21ce5bc
+2026-06-13-twin-llm-adapters.zh.md: 391f9259172bc91bb4e5fc036e6064a207a7e308

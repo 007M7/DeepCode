@@ -2,7 +2,7 @@
 
 [English](commands.md) | 中文
 
-[`dsh-commands`](../../packages/ui/commands) 的用户命令 seam。交互式适配器用它发现插件拥有的命令，并针对确切的 agent（智能体）直接执行这些命令，而不创建模型消息。[命令 Agent Note](../../.agents/notes/implemented/feature/2026-07-19-plugin-command-registration.md) 负责分发与生命周期的决策依据；[包README](../../packages/ui/commands/README.md) 负责组合方式与限制。
+[`dsh-commands`](../../packages/ui/commands) 的用户命令 seam。交互式适配器用它发现插件拥有的命令，并针对确切的 agent（智能体）直接执行这些命令，而不创建模型消息。[命令 Agent Note](../../.agents/notes/implemented/feature/2026-07-19-plugin-command-registration.md) 负责分发与生命周期的决策依据；[包 README](../../packages/ui/commands/README.md) 负责组合方式与限制。
 
 来源：[`packages/ui/commands/src/index.ts`](../../packages/ui/commands/src/index.ts)
 

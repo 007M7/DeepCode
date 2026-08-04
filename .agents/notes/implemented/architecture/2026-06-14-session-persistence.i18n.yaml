@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-06-14-session-persistence.md
 2026-06-14-session-persistence.md: 137b2b01126214629952812f3dd3b71985a3acda
-2026-06-14-session-persistence.zh.md: 81aadc15d7da414e4404bc2915e91cc9aacb3ca2
+2026-06-14-session-persistence.zh.md: 889829d975b4a9278e9d356ab2cdc99ed2d10484

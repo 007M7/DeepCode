@@ -45,7 +45,7 @@ create 还提供一次 `none / plugin / tool` 选择。`plugin` 固定生成 `pl
 |---|---|---|---|
 | `provider` | required | `deepseek`（默认）/ `custom` | DeepSeek 收集 API key；custom 另收集 base URL，模型名可由 CLI 参数覆盖 |
 | `app` | required | `tui`（默认）/ `acp` / `embed` | 选择运行接口 |
-| `spine` | required | `default` | timer、LLM（大语言模型）可替换点、会话存储、系统提示词、工具注册表、agent 注册表，以及 agent loop（智能体循环） |
+| `spine` | required | `default` | timer、LLM（大语言模型）seam、会话存储、系统提示词、工具注册表、agent 注册表，以及 agent loop（智能体循环） |
 | `bash` | required | `local`（默认）/ `sandbox` | 两个功能选项互斥、与运行接口正交，且都安装面向模型的 bash 工具；sandbox 安装本地沙箱提供方和沙箱 bash 后端 |
 | `persistence` | required | `jsonl`（默认）/ `sqlite` | 每个工程恰好选择一个持久化后端 |
 | `hmr` | default | `default` | 加载 `@cordisjs/plugin-hmr`；dev 和 start 都启用，使用插件默认配置 |

@@ -1,6 +1,6 @@
 # Agent Note: 工具执行前输入重写——一致性设计
 
-状态：提议中
+Status: proposed
 
 [English](2026-06-30-pre-tool-input-rewrite.md) | 中文
 

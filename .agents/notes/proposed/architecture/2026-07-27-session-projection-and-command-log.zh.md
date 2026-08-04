@@ -1,6 +1,6 @@
 # Agent Note: 会话投影与命令生命周期日志记录
 
-状态：提议中
+Status: proposed
 
 [English](2026-07-27-session-projection-and-command-log.md) | 中文
 

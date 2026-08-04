@@ -62,7 +62,7 @@ exe 内支持 `dsh-workflow-workerthread` 与 `dsh-code-runtime-worker`。两个
 
 ## 测试
 
-验证面分三层。机制层：`--sea` 链路的实测结论内嵌在「决策」各节（VFS 内 ESM 动态 `import()`、单一 Cordis 实例、明确报错的配置链路、`node:sqlite`、macOS ad-hoc 签名可运行）。SDK 层：完整的无密钥 pytest 套件以 mock 运行时对端覆盖客户端协议、子进程清理、绝对 `cwd` 传递、双载体启动与载体解析；根 CI 在 Python 3.10 上运行全部用例。端到端层：每个平台构建都通过默认 SDK 路径、自定义配置和直接二进制协议，对 mock 端点完成一个轮次，并校验最终文本与 JSONL。自定义配置还会通过打包进 VFS 的真实工作线程文件执行 `run_code` 和不启动 agent 的 `workflow`。同一构建任务还会经 Python SDK 运行一组检入的 exe 专用快照：无密钥脚本化模型挂载一个会注册工具的 Cordis 插件，从 `run_code` 调用该工具，运行一个直接 spawn 的 subagent和一个会通过 spawn 启动第二个 subagent 的工作流，随后卸载该插件。该 fixture（测试前置数据）会显式禁用组合包中未使用的 Bash 和本地 skill（技能）发现，使其工具集不依赖仓库外部状态；比较时会规范化以下各处的不透明消息 ID：SDK 结果与通知流，以及父会话和两个子会话的 JSONL 日志。该 harness 与 ACP 的 `pnpm run test:snapshot` 保持独立，因为二者的协议和构建产物不同。随后把平台 wheel 包安装进干净的 venv，并在不传 `runtime_bin` 的情况下运行。
+验证面分三层。机制层：`--sea` 链路的实测结论内嵌在「决策」各节（VFS 内 ESM 动态 `import()`、单一 Cordis 实例、明确报错的配置链路、`node:sqlite`、macOS ad-hoc 签名可运行）。SDK 层：完整的无密钥 pytest 套件以 mock 运行时对端覆盖客户端协议、子进程清理、绝对 `cwd` 传递、双载体启动与载体解析；根 CI 在 Python 3.10 上运行全部用例。端到端层：每个平台构建都通过默认 SDK 路径、自定义配置和直接二进制协议，对 mock 端点完成一个轮次，并校验最终文本与 JSONL。自定义配置还会通过打包进 VFS 的真实工作线程文件执行 `run_code` 和不启动 agent 的 `workflow`。同一构建任务还会经 Python SDK 运行一组检入的 exe 专用快照：无密钥脚本化模型挂载一个会注册工具的 Cordis 插件，从 `run_code` 调用该工具，运行一个直接 spawn 的 subagent 和一个会通过 spawn 启动第二个 subagent 的工作流，随后卸载该插件。该 fixture（测试前置数据）会显式禁用组合包中未使用的 Bash 和本地 skill（技能）发现，使其工具集不依赖仓库外部状态；比较时会规范化以下各处的不透明消息 ID：SDK 结果与通知流，以及父会话和两个子会话的 JSONL 日志。该 harness 与 ACP 的 `pnpm run test:snapshot` 保持独立，因为二者的协议和构建产物不同。随后把平台 wheel 包安装进干净的 venv，并在不传 `runtime_bin` 的情况下运行。
 
 手工驱动注意：`bin` 将 stdin EOF 视为「客户端已离开」并立即 dispose，短命管道会中止进行中的轮次——管道驱动必须保持 stdin 打开，直到轮次结束。
 

@@ -1,4 +1,4 @@
-# Agent Note: 建议性 LLM目录与 ACP会话级模型选择
+# Agent Note: 建议性 LLM 目录与 ACP 会话级模型选择
 
 Status: implemented
 

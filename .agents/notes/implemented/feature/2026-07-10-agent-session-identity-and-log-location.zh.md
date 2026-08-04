@@ -1,4 +1,4 @@
-# Agent Note: 向工具与钩子公开 agent会话标识和 JSONL 位置
+# Agent Note: 向工具与钩子公开 agent 会话标识和 JSONL 位置
 
 Status: implemented
 

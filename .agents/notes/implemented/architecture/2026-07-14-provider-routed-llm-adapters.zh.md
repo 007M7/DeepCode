@@ -1,4 +1,4 @@
-# Agent Note: 基于提供方路由的 LLM适配器与通用 pi-ai 后端
+# Agent Note: 基于提供方路由的 LLM 适配器与通用 pi-ai 后端
 
 Status: implemented
 

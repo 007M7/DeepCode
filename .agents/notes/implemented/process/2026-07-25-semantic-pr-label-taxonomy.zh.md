@@ -1,4 +1,4 @@
-# Agent Note: 语义化 PR标签分类体系
+# Agent Note: 语义化 PR 标签分类体系
 
 Status: implemented
 

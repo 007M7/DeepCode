@@ -2,7 +2,7 @@
 
 [English](glossary.md) | 中文
 
-DeepSeek Harness SDK 的领域词汇为每个概念规定一个规范术语。各术语通过标准 Markdown 锚点链接到相应条目；实现细节留在各包的 README 与 Agent Note中。
+DeepSeek Harness SDK 的领域词汇为每个概念规定一个规范术语。各术语通过标准 Markdown 锚点链接到相应条目；实现细节留在各包的 README 与 Agent Note 中。
 
 FIXME(glossary-completeness): 首次发布前扩充本术语表，使其覆盖 SDK 的其他核心与能力子系统，而非仅限于 agent scope。
 

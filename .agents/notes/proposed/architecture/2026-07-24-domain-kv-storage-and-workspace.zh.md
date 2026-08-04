@@ -1,6 +1,6 @@
 # Agent Note: 领域 KV 存储能力 seam 与 workspace 实体
 
-状态：提议中
+Status: proposed
 
 [English](2026-07-24-domain-kv-storage-and-workspace.md) | 中文
 

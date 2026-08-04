@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/proposed/process/2026-07-26-remove-packed-session-fixture-migrator.md
 2026-07-26-remove-packed-session-fixture-migrator.md: 0a29ef98828ac07d291392d637b0508937c9a9a6
-2026-07-26-remove-packed-session-fixture-migrator.zh.md: 0ad63c1dcfd8340da47a50ca7445aa11a4eb0632
+2026-07-26-remove-packed-session-fixture-migrator.zh.md: aa9aece710587cef6c84ad9cf078821a2506deb1

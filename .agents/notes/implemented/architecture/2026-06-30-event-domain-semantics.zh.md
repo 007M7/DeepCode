@@ -1,4 +1,4 @@
-# Agent Note: 事件域语义——会话是事实日志，agent是运行时表面
+# Agent Note: 事件域语义——会话是事实日志，agent 是运行时表面
 
 Status: implemented
 

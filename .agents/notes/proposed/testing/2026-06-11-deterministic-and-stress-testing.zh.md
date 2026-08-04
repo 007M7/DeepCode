@@ -1,4 +1,4 @@
-# Agent Note: 确定性测试、回放不变式 fixture与竞态压力测试
+# Agent Note: 确定性测试、回放不变式 fixture 与竞态压力测试
 
 Status: proposed
 

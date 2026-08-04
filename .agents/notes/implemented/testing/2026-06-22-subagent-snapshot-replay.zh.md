@@ -1,4 +1,4 @@
-# Agent Note: 嵌套 agent的逐会话快照回放
+# Agent Note: 嵌套 agent 的逐会话快照回放
 
 Status: implemented
 
@@ -10,7 +10,7 @@ Status: implemented
 
 该层最初为每个进程只有一个会话而构建，这一假设硬编码在两处：
 
-- **`dsh-llm-replay` 没有做任何键控。** 它用一个全局游标，将第 N 次 `llm/stream` 调用对应到单一录制序列的第 N 条。当父 agent和一个进程内 subagent 在同一个上下文上同时流式输出时，调用交错，单一游标会把子 agent 的脚本发给父 agent（反之亦然）。
+- **`dsh-llm-replay` 没有做任何键控。** 它用一个全局游标，将第 N 次 `llm/stream` 调用对应到单一录制序列的第 N 条。当父 agent 和一个进程内 subagent 在同一个上下文上同时流式输出时，调用交错，单一游标会把子 agent 的脚本发给父 agent（反之亦然）。
 - **harness 只收集一份日志。** `findSessionLog` 遍历 sessions 根目录，返回找到的第一个 `.jsonl`。subagent 作为第二个 `Session` 运行并拥有自己的日志，因此子 agent 的 transcript（文本记录）被静默丢弃。
 
 这就是 [subagent seam Agent Note](../feature/2026-06-21-subagent-capability-seam.md)中通过 `TODO(subagent-snapshots)` 推迟的工作：进程内后端（PR2）落地时已有单元 + e2e 覆盖，但在这套基础设施落地前，完整 transcript 快照层无法表达嵌套 agent 形状。本 Agent Note 就是该堆叠式后续工作。

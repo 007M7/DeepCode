@@ -1,4 +1,4 @@
-# Agent Note: 每个包README 中受门禁保护的「已知限制」章节
+# Agent Note: 每个包 README 中受门禁保护的「已知限制」章节
 
 Status: implemented
 

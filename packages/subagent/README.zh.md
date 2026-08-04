@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-subagent seam 允许 agent（智能体）把工作委派给子 agent。与 [bash](../bash/README.md) 和 [llm](../llm/README.md) 能力家族一样，这也是一种能力 seam（见[能力 seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)），但有一个关键差异：**多个提供方实现在同一上下文中共存，并按名称注册**，而不是采用 bash 的单实现形态。该注册表仿照LLM（大语言模型）适配器注册表。
+subagent seam 允许 agent（智能体）把工作委派给子 agent。与 [bash](../bash/README.md) 和 [llm](../llm/README.md) 能力家族一样，这也是一种能力 seam（见[能力 seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)），但有一个关键差异：**多个提供方实现在同一上下文中共存，并按名称注册**，而不是采用 bash 的单实现形态。该注册表仿照 LLM（大语言模型）适配器注册表。
 
 | 包 | 角色 | ctx 键 |
 |---|---|---|
