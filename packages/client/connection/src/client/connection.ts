@@ -46,6 +46,9 @@ export interface ConnectionSinks {
   onHostEnvelope?: (envelope: RpcRequest<HostFrame>) => void
   /** After each connection generation is established (both streams open + describe succeeded), first connect included. */
   onConnected?: () => void
+  /** After every connection generation is invalidated, before any next-generation frame can arrive.
+   *  Unlike coarse state changes, consecutive failed generations each fire this sink. */
+  onDisconnected?: () => void
   /** Coarse state transitions (deduplicated: fires only on change). The initial pre-connect
    *  span reports nothing — the UI treats "no state yet" as connecting, not as an outage. */
   onStateChange?: (state: ConnectionState) => void
@@ -115,37 +118,46 @@ export class ConnectionController {
         new Promise<void>((resolve) => { hostOpened = resolve }),
       ])
 
-      const failed = new Promise<void>((resolve) => {
-        const settle = (): void => {
-          if (gen === this.generation && !ac.signal.aborted) ac.abort()
-          resolve()
-        }
-        void this.pumpStream(this.api.events.mux({}, ac.signal, muxOpened), this.sinks.onMuxEnvelope, settle)
-        void this.pumpStream(this.api.events.host({}, ac.signal, hostOpened), this.sinks.onHostEnvelope, settle)
-      })
+      /* v8 ignore next -- initializer placeholder: the Promise executor
+       * below runs synchronously and replaces it before settle can call it. */
+      let signalFailure = (): void => {}
+      const failed = new Promise<void>((resolve) => { signalFailure = resolve })
+      const settle = (): void => {
+        if (gen === this.generation && !ac.signal.aborted) ac.abort()
+        signalFailure()
+      }
+      void this.pumpStream(this.api.events.mux({}, ac.signal, muxOpened), this.sinks.onMuxEnvelope, settle, ac.signal)
+      void this.pumpStream(this.api.events.host({}, ac.signal, hostOpened), this.sinks.onHostEnvelope, settle, ac.signal)
 
+      const timeout = new AbortController()
       try {
         // Strict readiness handshake (audit C2): describe proves unary reachability, onOpen
         // proves each SSE transport is established (response headers in, before any frame) —
         // only then may onConnected fire, so the resync it triggers cannot outrun the
         // subscribed baseline. The timeout guards against a carrier that never fires onOpen
-        // (see ConnectionConfig.streamOpenTimeoutMs).
-        const timeout = new AbortController()
-        await Promise.all([
-          this.api.host.describe({}),
-          Promise.race([streamsOpen, sleep(this.config.streamOpenTimeoutMs, timeout.signal)]),
+        // (see ConnectionConfig.streamOpenTimeoutMs). Stream death also ends a handshake
+        // whose unary describe call has not settled.
+        const ready = await Promise.race([
+          Promise.all([
+            this.api.host.describe({}),
+            Promise.race([streamsOpen, sleep(this.config.streamOpenTimeoutMs, timeout.signal)]),
+          ]).then(() => true),
+          failed.then(() => false),
         ])
-        timeout.abort()
-        if (ac.signal.aborted) throw new Error('generation aborted during readiness handshake')
+        if (!ready || ac.signal.aborted) throw new Error('generation aborted during readiness handshake')
         this.attempt = 0
         this.emitState('connected')
         this.callSink(this.sinks.onConnected)
       } catch {
         // Transport failure: treat as generation failure, fall through to the shared backoff.
         if (!ac.signal.aborted) ac.abort()
+      } finally {
+        timeout.abort()
       }
 
       await failed
+      if (!this.isRunning()) return
+      this.callSink(this.sinks.onDisconnected)
       if (!this.isRunning()) return
       this.emitState('reconnecting')
       this.attempt += 1
@@ -166,9 +178,13 @@ export class ConnectionController {
     stream: AsyncIterable<RpcRequest<F>>,
     sink: ((envelope: RpcRequest<F>) => void) | undefined,
     onEnd: () => void,
+    signal: AbortSignal,
   ): Promise<void> {
     try {
       for await (const envelope of stream) {
+        // The sibling stream may have ended while this read was settling. Do
+        // not let a late dead-generation frame cross the disconnect boundary.
+        if (signal.aborted) break
         if (envelope.payload.type === 'stream/error') break
         if (sink !== undefined) this.callSink(() => { sink(envelope) })
       }

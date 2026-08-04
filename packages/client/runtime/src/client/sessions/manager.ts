@@ -78,10 +78,24 @@ function bufferedRequestKey(envelope: RpcRequest<MuxFrame>): string | undefined 
     case 'approval/requested': return `a:${frame.approvalId}`
     case 'question/requested': return `q:${envelope.rpcId}`
     case 'session/queue': return 'queue'
+    /* v8 ignore next -- pendingBuffers contains only the three frame types above. */
     default: return undefined
   }
 }
 
+/** Match ui-question's binary plan-review routing at the wire boundary. */
+function questionInteractionStatus(
+  questions: Extract<MuxFrame, { type: 'question/requested' }>['questions'],
+): PendingInteractionStatus {
+  if (questions.length !== 1) return 'question'
+  const question = questions[0] as typeof questions[number]
+  const intent = question.intent
+  if (intent?.kind !== 'plan-review' || question.detail === undefined) return 'question'
+  if (question.multiSelect === true) return 'question'
+  const options = question.options ?? []
+  if (options.length > 2) return 'question'
+  return options.some(option => option.label === intent.approve) ? 'plan-review' : 'question'
+}
 
 /** Instance cluster + frame entry + the session list (see the web client architecture RFC). */
 export class SessionManager {
@@ -620,11 +634,10 @@ export class SessionManager {
       // them so last-wins cannot pin a phantom value over recomputed truth.
       this.projectionStores.get(frame.sessionId)?.truncate(frame.lastSeq)
       this.notifier.markDirty()
-      // New mux-generation baseline: buffered session/queue frames belong to
-      // the previous generation and the host is about to resend the live
-      // snapshot — drop them, or every reconnect appends a duplicate batch
-      // (and enough reconnects push real approval/question frames past the
-      // cap). Same re-baseline signal Session uses for its own mirror.
+      // New mux-generation baseline: discard the previous queue snapshot.
+      // The host omits session/queue when the live queue is empty, so retaining
+      // it could replay stale work when the Session is instantiated later.
+      // This is the same re-baseline signal Session uses for its own mirror.
       const buffered = this.pendingBuffers.get(frame.sessionId)
       if (buffered !== undefined) {
         const kept = buffered.filter(item => item.payload.type !== 'session/queue')
@@ -644,9 +657,7 @@ export class SessionManager {
       this.trackPending(
         frame.sessionId,
         `q:${envelope.rpcId}`,
-        frame.questions.length === 1 && frame.questions[0]?.intent?.kind === 'plan-review'
-          ? 'plan-review'
-          : 'question',
+        questionInteractionStatus(frame.questions),
       )
     } else if (frame.type === 'question/resolved') {
       this.resolvePending(frame.sessionId, `q:${frame.questionRpcId}`)
@@ -782,14 +793,14 @@ export class SessionManager {
    * request with its live rpcId.
    */
   handleDisconnected(): void {
+    for (const session of this.sessions.values()) session.handleDisconnected()
     if (this.pendingInteractions.size > 0) {
       this.pendingInteractions.clear()
       this.notifier.markDirty()
     }
     for (const [sessionId, buffer] of [...this.pendingBuffers]) {
       const kept = buffer.filter(item =>
-        item.payload.type !== 'approval/requested' && item.payload.type !== 'approval/resolved'
-        && item.payload.type !== 'question/requested' && item.payload.type !== 'question/resolved')
+        item.payload.type !== 'approval/requested' && item.payload.type !== 'question/requested')
       if (kept.length === buffer.length) continue
       if (kept.length === 0) this.pendingBuffers.delete(sessionId)
       else this.pendingBuffers.set(sessionId, kept)
