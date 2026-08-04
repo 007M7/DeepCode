@@ -506,7 +506,7 @@ describe('running and lock semantics (queue cut 1)', () => {
   it('a persisted draft adopted after mount gets its caret revealed too', () => {
     // ConversationSession seeds the stored draft in its own mount effect, which
     // runs after this component's: the first reveal measures an empty mirror,
-    // so the draft's arrival has to run it again.
+    // so the draft's arrival has to run it again without reclaiming focus.
     const { view, textarea, shell } = bench()
     const scroll = view.container.querySelector<HTMLElement>('[data-input-scroll]')!
     const mirror = view.container.querySelector<HTMLElement>('[data-input-mirror]')!
@@ -519,8 +519,13 @@ describe('running and lock semantics (queue cut 1)', () => {
     Object.defineProperty(scroll, 'scrollHeight', { value: 964, configurable: true })
     Object.defineProperty(scroll, 'scrollTop', { value: 0, writable: true, configurable: true })
     Range.prototype.getBoundingClientRect = () => ({ top: 500, bottom: 524 }) as DOMRect
+    const other = document.createElement('input')
+    document.body.appendChild(other)
+    onTestFinished(() => { other.remove() })
+    other.focus()
     expect(scroll.scrollTop).toBe(0)
     act(() => { shell.setDraft('restored\n'.repeat(40)) })
+    expect(document.activeElement).toBe(other)
     // The caret the machine left at the draft's end, revealed once the draft exists.
     expect(textarea.selectionStart).toBe(textarea.value.length)
     expect(scroll.scrollTop).toBe(112) // (524 + 24) - 436

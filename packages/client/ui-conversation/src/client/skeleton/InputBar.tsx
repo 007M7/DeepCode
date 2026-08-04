@@ -124,6 +124,16 @@ export function InputBar({
     else if (rect.top + line < box.top) scrollEl.scrollTop -= box.top - rect.top - line
   }
 
+  // Reveal the focus end of the current selection. Today's entry paths leave a
+  // collapsed selection, but honoring direction keeps a future range-preserving
+  // path from revealing its anchor instead of its focus.
+  const revealSelectionFocus = (el: HTMLTextAreaElement): void => {
+    // selectionStart/End are number|null in lib.dom; the type-aware lint program narrows them.
+    const caret = el.selectionDirection === 'backward' ? el.selectionStart : el.selectionEnd
+    // oxlint-disable-next-line typescript/no-unnecessary-condition
+    revealCaret(caret ?? el.value.length)
+  }
+
   // Unlock (mount / session switch) returns focus to the box, and owns the
   // reveal that comes with it. `preventScroll` because this focus is ours, not
   // a gesture: the textarea is as tall as the draft, so the browser's reveal
@@ -133,22 +143,24 @@ export function InputBar({
   // offset while the value swap puts the caret at the new draft's end, which is
   // off screen (measured on all three engines: offset 0 with the caret 940px
   // down). Suppress the walk, then reveal in our own box.
-  //
-  // `draft !== ''` is the third dependency because a persisted draft arrives
-  // AFTER this effect: ConversationSession adopts it in its own mount effect,
-  // and a parent's mount effect runs after its children's. Without that
-  // dependency the reveal would measure an empty mirror and never run again for
-  // the draft that then appeared, leaving a restored long draft showing its head
-  // with the caret at its end. Clearing on send and typing the first character
-  // flip it too, where both the focus and the reveal are no-ops.
   useEffect(() => {
     const el = inputRef.current
     if (locked || el === null) return
     el.focus({ preventScroll: true })
-    // selectionStart is number|null in lib.dom; the type-aware lint program narrows it.
-    // oxlint-disable-next-line typescript/no-unnecessary-condition
-    revealCaret(el.selectionStart ?? el.value.length)
-  }, [locked, sessionId, draft !== ''])
+    revealSelectionFocus(el)
+  }, [locked, sessionId])
+
+  // A persisted draft arrives AFTER the unlock effect: ConversationSession
+  // adopts it in its own mount effect, and a parent's mount effect runs after
+  // its children's. Reveal when the draft becomes non-empty so a restored long
+  // draft does not stay at its head with the caret at its end. This effect does
+  // not focus: send-clear, failed-send restore, and first-character transitions
+  // must not steal focus from another control the user moved to.
+  useEffect(() => {
+    const el = inputRef.current
+    if (locked || draft === '' || el === null) return
+    revealSelectionFocus(el)
+  }, [draft !== ''])
 
   // Caret restore after an edit the composer performs itself. The machine owns
   // the draft and the undo log, so paste and cut suppress the native edit and
