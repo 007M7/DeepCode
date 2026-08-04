@@ -207,7 +207,9 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding-bottom: 12px;
+  /* Clears the 72px bottom fade overlay: at scroll end the last row sits
+     above the gradient instead of under it. */
+  padding-bottom: 48px;
   /* Row trailing content (the relative time, and the hover action buttons
      that replace it) sits flush against the row's 8px right padding, so an
      overlaid scrollbar covers it. Reserving the gutter keeps the bar beside
