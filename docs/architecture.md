@@ -73,11 +73,48 @@ A **session** is append-only. An ordinary **turn** claims one queued `send()` it
 ### Turn Flow
 
 ```text
-queued input -> prompt admission -> turn/start
-  -> [agent/step -> request -> chunks/message -> tools -> step/end]*
-  -> turn/end
+choose declarative identity and fresh/resume path
+  -> prepare private session + agent.ctx -> await unpublished setup -> invoke optional synchronous setup commit
+  -> enter session + agent -> session/created -> agent/created
+  -> enable driving -> agent/session-start(source) -> start driver
+forever:
+  wait for queued occurrence
+  claim (edit/remove end) -> emit agent/status(running) if starting an interval
+  open the next-step acceptance window
+  -> agent/prompt-submit
+    blocked or failed prompt -> close the window without opening a turn
+      append a context-only caller batch immediately
+      keep steering and context staged beside it pending for a later admitted turn
+    allowed prompt:
+      'turn/start'
+      append prompt + additional contexts as separate 'user/message' events
+    STEP loop:
+      agent/step
+      assemble system prompt and tools
+      materialize changed runtime context as sourced 'user/message'
+      drain injected context and provisional steering (steering bypasses prompt-submit)
+      snapshot the derived messages (the reconstruction boundary)
+      'step/start'
+      admit the drained steering receipts
+      agent/request (config only) -> prepare adapter defaults/provenance + context capacity under turn signal -> log request/header (+ request/context on route change) -> llm/stream (frozen, registration-bound)
+      'assistant/chunk'
+      'assistant/message'
+      schedule tool calls by ctx.tools.executionMode:
+        exclusive -> barrier
+        parallel -> rolling pool, <= maxParallelToolCalls; reclassify-at-start; scheduler failure -> stop starts, drain dispatches
+        start -> 'tool/call' -> ordered tools/pre-execute -> concurrent tools/execute
+        model-order result -> ordered tools/post-execute -> 'tool/result'
+      drain accepted tool context after all results; keep steering provisional
+      'step/end'
+      continue for tools or steering unless a result concluded the turn and rejects pending steering
+      otherwise agent/turn-stopping -> drain context -> continue only for steering
+    close the next-step acceptance window
+    'turn/end' -> agent/settled
+  start the next waking queued message, or emit agent/status(idle)
 
-idle injection -> user/message
+idle inject:
+  append 'user/message'
+  do not open a turn or run the model
 ```
 
 Each step assembles the prompt, tools, runtime context, adapter settings, and model history before recording its reconstruction boundary. Tool calls then run through the shared execution pipeline. `inject()` adds context without opening an idle turn; `steer()` targets a next-step admission window; queued input remains the source of ordinary turns. The generated [agent lifecycle](agent-lifecycle.md) owns exact event order, and the [agent-loop README](../packages/core/agent-loop/README.md) owns queue, steering, retry, and cancellation mechanics.

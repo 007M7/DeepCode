@@ -73,11 +73,48 @@ waterfall（瀑布式事件）是环绕中间件：监听器通过 `next()` 委�
 ### 轮次流程
 
 ```text
-queued input -> prompt admission -> turn/start
-  -> [agent/step -> request -> chunks/message -> tools -> step/end]*
-  -> turn/end
+choose declarative identity and fresh/resume path
+  -> prepare private session + agent.ctx -> await unpublished setup -> invoke optional synchronous setup commit
+  -> enter session + agent -> session/created -> agent/created
+  -> enable driving -> agent/session-start(source) -> start driver
+forever:
+  wait for queued occurrence
+  claim (edit/remove end) -> emit agent/status(running) if starting an interval
+  open the next-step acceptance window
+  -> agent/prompt-submit
+    blocked or failed prompt -> close the window without opening a turn
+      append a context-only caller batch immediately
+      keep steering and context staged beside it pending for a later admitted turn
+    allowed prompt:
+      'turn/start'
+      append prompt + additional contexts as separate 'user/message' events
+    STEP loop:
+      agent/step
+      assemble system prompt and tools
+      materialize changed runtime context as sourced 'user/message'
+      drain injected context and provisional steering (steering bypasses prompt-submit)
+      snapshot the derived messages (the reconstruction boundary)
+      'step/start'
+      admit the drained steering receipts
+      agent/request (config only) -> prepare adapter defaults/provenance + context capacity under turn signal -> log request/header (+ request/context on route change) -> llm/stream (frozen, registration-bound)
+      'assistant/chunk'
+      'assistant/message'
+      schedule tool calls by ctx.tools.executionMode:
+        exclusive -> barrier
+        parallel -> rolling pool, <= maxParallelToolCalls; reclassify-at-start; scheduler failure -> stop starts, drain dispatches
+        start -> 'tool/call' -> ordered tools/pre-execute -> concurrent tools/execute
+        model-order result -> ordered tools/post-execute -> 'tool/result'
+      drain accepted tool context after all results; keep steering provisional
+      'step/end'
+      continue for tools or steering unless a result concluded the turn and rejects pending steering
+      otherwise agent/turn-stopping -> drain context -> continue only for steering
+    close the next-step acceptance window
+    'turn/end' -> agent/settled
+  start the next waking queued message, or emit agent/status(idle)
 
-idle injection -> user/message
+idle inject:
+  append 'user/message'
+  do not open a turn or run the model
 ```
 
 每个步骤都会组装提示词、工具、运行时上下文、适配器设置和模型历史，随后记录其重建边界。之后，工具调用通过共享执行流水线运行。`inject()` 添加上下文但不打开空闲轮次；`steer()` 针对下一步骤的准入窗口；排队输入仍是普通轮次的来源。精确事件顺序由生成的 [agent 生命周期](agent-lifecycle.md)定义；队列、steering、重试与取消机制由 [agent-loop README](../packages/core/agent-loop/README.md)定义。
