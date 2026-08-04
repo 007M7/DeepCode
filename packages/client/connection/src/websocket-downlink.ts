@@ -27,8 +27,8 @@ function send(socket: WebSocket, frame: RpcRequest<Frame>): Promise<void> {
       return
     }
     socket.send(JSON.stringify(serverRequest(frame)), (error) => {
-      if (error === undefined) resolve()
-      else reject(error)
+      if (error) reject(error)
+      else resolve()
     })
   })
 }
@@ -129,7 +129,6 @@ export class WebSocketDownlinks {
     } finally {
       abort.abort()
       if (socket.readyState === WebSocket.OPEN) socket.close()
-      else if (socket.readyState === WebSocket.CONNECTING) socket.terminate()
     }
   }
 }

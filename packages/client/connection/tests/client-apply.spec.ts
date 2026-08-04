@@ -189,4 +189,18 @@ describe('connection client apply', () => {
     abort.abort()
     await expect(pending).resolves.toMatchObject({ done: true })
   })
+
+  it('closes a WebSocket immediately when its signal was already aborted', async () => {
+    ;(globalThis as Win).location = {
+      hostname: 'localhost', search: '', origin: 'http://localhost:3080',
+    }
+    ;(globalThis as WebSocketGlobal).WebSocket = FakeWebSocket as unknown as typeof WebSocket
+    const client = (await mount()).api
+    const abort = new AbortController()
+    abort.abort()
+    const iterator = client.events.mux({}, abort.signal)[Symbol.asyncIterator]()
+    await expect(iterator.next()).resolves.toMatchObject({ done: true })
+    expect(sockets).toHaveLength(1)
+    expect(sockets[0]?.readyState).toBe(FakeWebSocket.CLOSED)
+  })
 })

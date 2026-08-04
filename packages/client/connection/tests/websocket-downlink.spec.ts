@@ -63,6 +63,16 @@ function read(socket: WebSocket): Promise<ServerRequest> {
   return once(socket, 'message').then(([data]) => JSON.parse(String(data)) as ServerRequest)
 }
 
+async function acceptedSocket(downlinks: WebSocketDownlinks): Promise<WebSocket> {
+  const server = (downlinks as unknown as { server: { clients: Set<WebSocket> } }).server
+  let accepted: WebSocket | undefined
+  await vi.waitFor(() => {
+    accepted = server.clients.values().next().value
+    expect(accepted).toBeDefined()
+  })
+  return accepted as WebSocket
+}
+
 describe('WebSocket downlinks', () => {
   it('carries mux and host over independent downstream sockets and cancels each source on close', async () => {
     let muxAborted = false
@@ -160,5 +170,96 @@ describe('WebSocket downlinks', () => {
       error: { code: 'internal', message: 'Error: mux source failed', details: {} },
     })
     await closed
+  })
+
+  it('aborts the source when an accepted socket reports a transport error', async () => {
+    let aborted = false
+    const downlinks = new WebSocketDownlinks(api(
+      async function * (signal) {
+        try {
+          await untilAbort(signal)
+        } finally {
+          aborted = true
+        }
+      },
+      idle,
+    ))
+    const host = await serve(downlinks)
+    running.push(host.close)
+    const socket = new WebSocket(`${host.origin}${MUX_EVENTS_PATH}`)
+    await once(socket, 'open')
+    const accepted = await acceptedSocket(downlinks)
+    const closed = once(socket, 'close')
+    accepted.emit('error', new Error('transport failed'))
+    await closed
+    expect(aborted).toBe(true)
+  })
+
+  it('drops a source frame that races after the client has closed', async () => {
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    let finish!: () => void
+    const finished = new Promise<void>(resolve => { finish = resolve })
+    let sourceSignal: AbortSignal | undefined
+    const downlinks = new WebSocketDownlinks(api(
+      async function * (signal) {
+        sourceSignal = signal
+        try {
+          await gate
+          yield { rpcId: RpcId('late'), payload: { type: 'host/commands-changed' } }
+        } finally {
+          finish()
+        }
+      },
+      idle,
+    ))
+    const host = await serve(downlinks)
+    running.push(host.close)
+    const socket = new WebSocket(`${host.origin}${MUX_EVENTS_PATH}`)
+    await once(socket, 'open')
+    const closed = once(socket, 'close')
+    socket.close()
+    await closed
+    await vi.waitFor(() => { expect(sourceSignal?.aborted).toBe(true) })
+    release()
+    await finished
+  })
+
+  it('contains socket send callback failures and closes the downlink', async () => {
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const downlinks = new WebSocketDownlinks(api(
+      async function * () {
+        await gate
+        yield { rpcId: RpcId('send-failure'), payload: { type: 'host/commands-changed' } }
+      },
+      idle,
+    ))
+    const host = await serve(downlinks)
+    running.push(host.close)
+    const socket = new WebSocket(`${host.origin}${MUX_EVENTS_PATH}`)
+    await once(socket, 'open')
+    const accepted = await acceptedSocket(downlinks)
+    const send = vi.spyOn(accepted, 'send').mockImplementation(((
+      _data: unknown,
+      optionsOrCallback?: unknown,
+      callback?: (error?: Error) => void,
+    ) => {
+      const done = typeof optionsOrCallback === 'function'
+        ? optionsOrCallback as (error?: Error) => void
+        : callback
+      done?.(new Error('socket send failed'))
+    }) as WebSocket['send'])
+    const closed = once(socket, 'close')
+    release()
+    await closed
+    expect(send).toHaveBeenCalledTimes(2)
+    send.mockRestore()
+  })
+
+  it('rejects when its acceptor has already closed', async () => {
+    const downlinks = new WebSocketDownlinks(api(idle, idle))
+    await downlinks.close()
+    await expect(downlinks.close()).rejects.toThrow('The server is not running')
   })
 })
