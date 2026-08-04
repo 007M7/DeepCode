@@ -30,11 +30,12 @@ import type {
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
-import { assistantActionsSeqs, deriveChatFlow, messageBranchSeqs, type ChatFlowItem } from './chat-flow.ts'
+import { assistantActionsSeqs, deriveChatFlow, messageBranchSeqs, runningTurnStartTime, type ChatFlowItem } from './chat-flow.ts'
 import { AssistantMarkdown } from './AssistantMarkdown.tsx'
 import { GenericCommandCard } from './GenericCommandCard.tsx'
 import { GenericToolCard } from './GenericToolCard.tsx'
 import { MessageItem, PendingSteeringBubble } from './MessageItem.tsx'
+import { formatRunDuration } from './message-chrome.ts'
 import css from './ChatView.module.css'
 
 const FOLLOW_THRESHOLD = 24
@@ -282,10 +283,37 @@ const CommandRow = memo(function CommandRow({ renderSlot, node, t }: {
 })
 
 /** Turn-level model activity label retained across first-token, tool, and streaming phases. */
-function TurnStatus() {
+function TurnStatus({ startTime, t }: {
+  /** The running turn's logged `turn/start` time; null falls back to mount
+   *  time when that boundary is outside the window. */
+  startTime: number | null
+  /** The owning view's locale seat. */
+  t: ChatViewSlotProps['t']
+}) {
+  const [mountedAt] = useState(() => Date.now())
+  // Anchored to turn/start so a mid-turn reload keeps the real
+  // elapsed time and the final footer's Ran-for label matches this clock.
+  const anchor = startTime ?? mountedAt
+  const [elapsedMs, setElapsedMs] = useState(() => Math.max(0, Date.now() - anchor))
+  useEffect(() => {
+    const tick = (): void => {
+      setElapsedMs(Math.max(0, Date.now() - anchor))
+    }
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => { clearInterval(id) }
+  }, [anchor])
+  // Short turns keep the plain label; the clock only appears once the turn
+  // has clearly been running for a while.
+  const showClock = elapsedMs >= 15_000
   return (
     <div className={css.turnStatus} role="status" aria-live="polite">
       Deep diving...
+      {showClock && (
+        <span className={css.turnStatusClock} aria-hidden>
+          {formatRunDuration(elapsedMs, t)}
+        </span>
+      )}
     </div>
   )
 }
@@ -309,6 +337,7 @@ export function ChatView({
   useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, inspectCall, chatScroll, forkAt, t,
 }: ChatViewSlotProps) {
   const nodes = useSession(s => s.nodes)
+  const turnTimings = useSession(s => s.turnTimings)
   const turnEnds = useSession(s => s.turnEnds)
   const inbox = useSession(s => s.queue)
   // Workspace root off the session list row: path summaries display relative to it.
@@ -332,6 +361,7 @@ export function ChatView({
   // text (before tools) omits `time` so AssistantMarkdown stays chrome-free.
   const actionSeqs = useMemo(() => assistantActionsSeqs(nodes), [nodes])
   const branchSeqs = useMemo(() => messageBranchSeqs(nodes, turnEnds), [nodes, turnEnds])
+  const runningTurnStart = useMemo(() => runningTurnStartTime(turnTimings), [turnTimings])
 
   const listRef = useRef<HTMLDivElement | null>(null)
   const columnRef = useRef<HTMLDivElement | null>(null)
@@ -568,12 +598,16 @@ export function ChatView({
     }
     const node: ConversationNode = item.node
     if (node.kind === 'assistant') {
+      const timing = actionSeqs.has(node.seq) ? turnTimings.get(node.turn) : undefined
       return (
         <AssistantMarkdown
           blocks={node.blocks}
           streaming={false}
           interrupted={node.interrupted}
           time={actionSeqs.has(node.seq) ? node.time : undefined}
+          runMs={timing?.endTime === undefined
+            ? undefined
+            : Math.max(0, timing.endTime - timing.startTime)}
           seq={node.seq}
           onFork={forkAt}
           forkUnavailable={!branchSeqs.has(node.seq)}
@@ -651,7 +685,7 @@ export function ChatView({
               double-render the same wait. */}
           {/* Turn-level loading signal: rides the whole running turn (first-token
               wait, tool execution, streaming) so it never flickers per step. */}
-          {running && <TurnStatus />}
+          {running && <TurnStatus startTime={runningTurnStart} t={t} />}
           {pendingSteering.map(item => (
             <PendingSteeringBubble key={item.id} content={item.content} t={t} />
           ))}
