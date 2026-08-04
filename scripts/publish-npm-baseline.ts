@@ -22,7 +22,11 @@ import { validateTarballPayload } from './publication-payload.ts'
 
 const DEFAULT_REGISTRY = 'https://registry.npm.harnessment.com'
 const DEFAULT_OUTPUT_DIRECTORY = '.artifacts/npm-baseline'
-const PACKAGE_PATTERNS = ['packages/*/*/package.json', 'apps/*/package.json'] as const
+const PACKAGE_PATTERNS = [
+  'vendor/*/package.json',
+  'packages/*/*/package.json',
+  'apps/*/package.json',
+] as const
 const DEPENDENCY_SECTIONS = [
   'dependencies',
   'devDependencies',
@@ -101,13 +105,17 @@ interface CommandResult {
 interface PackageTarget {
   name: string
   directory: string
+  origin: PackageOrigin
 }
+
+type PackageOrigin = 'harness' | 'vendor'
 
 interface PackedPackage {
   name: string
   tarball: string
   sha256: string
   integrity: string
+  origin: PackageOrigin
 }
 
 interface ReleaseManifest {
@@ -237,7 +245,7 @@ class DetachedWorktree {
   }
 }
 
-/** Discovers and stages only two-level package entries and application entries. */
+/** Discovers and stages every package published in one repository baseline. */
 class WorkspacePackageSet {
   private constructor(
     readonly packages: PackageTarget[],
@@ -246,33 +254,38 @@ class WorkspacePackageSet {
 
   static discover(root: string): WorkspacePackageSet {
     const manifestPaths = globSync(PACKAGE_PATTERNS, { cwd: root }).sort()
-    if (manifestPaths.length === 0) throw new Error('no package manifests found under packages/ or apps/')
+    if (manifestPaths.length === 0) {
+      throw new Error('no package manifests found under vendor/, packages/, or apps/')
+    }
 
     const packages: PackageTarget[] = []
     const names = new Set<string>()
-    let baseVersion: string | undefined
+    const baseVersion = expectString(readObject(resolve(root, 'package.json')), 'version', 'package.json')
+    if (!/^\d+\.\d+\.\d+$/.test(baseVersion)) {
+      throw new Error(`package.json must have a stable X.Y.Z version, got ${baseVersion}`)
+    }
     for (const manifestPath of manifestPaths) {
       const manifest = readObject(resolve(root, manifestPath))
       const name = expectString(manifest, 'name', manifestPath)
       const version = expectString(manifest, 'version', manifestPath)
-      if (!name.startsWith('@deepseek-ai/')) {
+      const isVendored = manifestPath.startsWith('vendor/')
+      if (!isVendored && !name.startsWith('@deepseek-ai/')) {
         throw new Error(`${manifestPath} must name an @deepseek-ai package`)
       }
       if (name === '@deepseek-ai/dsh-root') {
         throw new Error(`${manifestPath} unexpectedly selected the workspace root`)
       }
       if (names.has(name)) throw new Error(`duplicate package name: ${name}`)
-      if (!/^\d+\.\d+\.\d+$/.test(version)) {
-        throw new Error(`${manifestPath} must have a stable X.Y.Z version, got ${version}`)
-      }
-      baseVersion ??= version
-      if (version !== baseVersion) {
+      if (!isVendored && version !== baseVersion) {
         throw new Error(`${manifestPath} has version ${version}; expected ${baseVersion}`)
       }
       names.add(name)
-      packages.push({ name, directory: dirname(manifestPath) })
+      packages.push({
+        name,
+        directory: dirname(manifestPath),
+        origin: isVendored ? 'vendor' : 'harness',
+      })
     }
-    if (baseVersion === undefined) throw new Error('could not determine the workspace version')
     packages.sort((left, right) => left.name.localeCompare(right.name))
     return new WorkspacePackageSet(packages, baseVersion)
   }
@@ -307,16 +320,18 @@ class ReleaseBundle {
     runner: CommandRunner,
   ): ReleaseBundle {
     const internalNames = new Set(expectedPackages.map(pkg => pkg.name))
+    const expectedByName = new Map(expectedPackages.map(pkg => [pkg.name, pkg]))
     const missingNames = new Set(internalNames)
     const packages = readdirSync(directory)
       .filter(name => name.endsWith('.tgz'))
       .sort()
       .map((tarball) => {
         const artifact = inspectTarball(resolve(directory, tarball), runner)
-        validateTarballPayload(artifact.files, tarball)
-        if (!missingNames.delete(artifact.name)) {
+        const expected = expectedByName.get(artifact.name)
+        if (expected === undefined || !missingNames.delete(artifact.name)) {
           throw new Error(`unexpected or duplicate packed package: ${artifact.name}`)
         }
+        if (expected.origin === 'harness') validateTarballPayload(artifact.files, tarball)
         if (artifact.version !== version) {
           throw new Error(`${tarball} has version ${artifact.version}; expected ${version}`)
         }
@@ -325,7 +340,7 @@ class ReleaseBundle {
           throw new Error(`${tarball} still contains a workspace: dependency`)
         }
         validateInternalDependencyPins(artifact.manifest, internalNames, version, tarball)
-        return packedPackage(artifact.name, resolve(directory, tarball))
+        return packedPackage(artifact.name, resolve(directory, tarball), expected.origin)
       })
       .sort((left, right) => left.name.localeCompare(right.name))
 
@@ -385,12 +400,12 @@ class ReleaseBundle {
         throw new Error(`invalid tarball path for ${pkg.name}: ${pkg.tarball}`)
       }
       const path = resolve(this.directory, pkg.tarball)
-      const actual = packedPackage(pkg.name, path)
+      const actual = packedPackage(pkg.name, path, pkg.origin)
       if (actual.sha256 !== pkg.sha256 || actual.integrity !== pkg.integrity) {
         throw new Error(`tarball checksum mismatch: ${pkg.tarball}`)
       }
       const artifact = inspectTarball(path, runner)
-      validateTarballPayload(artifact.files, pkg.tarball)
+      if (pkg.origin === 'harness') validateTarballPayload(artifact.files, pkg.tarball)
       if (artifact.name !== pkg.name || artifact.version !== this.manifest.version) {
         throw new Error(`tarball identity mismatch: ${pkg.tarball}`)
       }
@@ -565,6 +580,7 @@ class BaselinePackager {
       this.runner.run('pnpm', ['run', 'publint'], worktree.path)
       this.runner.run('pnpm', ['run', 'verify-built-package-invariants'], worktree.path)
       this.runner.run('pnpm', [
+        '--filter', './vendor/**',
         '--filter', './packages/**',
         '--filter', './apps/**',
         '--recursive',
@@ -765,13 +781,14 @@ function inspectTarball(path: string, runner: CommandRunner): InspectedTarball {
   }
 }
 
-function packedPackage(name: string, path: string): PackedPackage {
+function packedPackage(name: string, path: string, origin: PackageOrigin): PackedPackage {
   const bytes = readFileSync(path)
   return {
     name,
     tarball: basename(path),
     sha256: createHash('sha256').update(bytes).digest('hex'),
     integrity: `sha512-${createHash('sha512').update(bytes).digest('base64')}`,
+    origin,
   }
 }
 
@@ -779,7 +796,11 @@ function parsePackedPackage(value: unknown, index: number): PackedPackage {
   if (!isRecord(value)) throw new Error(`invalid release manifest package at index ${index}`)
   const context = `release manifest package at index ${index}`
   const name = expectString(value, 'name', context)
-  if (!name.startsWith('@deepseek-ai/') || name === '@deepseek-ai/dsh-root') {
+  const origin = value.origin === undefined ? 'harness' : value.origin
+  if (origin !== 'harness' && origin !== 'vendor') {
+    throw new Error(`invalid package origin in release manifest: ${JSON.stringify(origin)}`)
+  }
+  if (origin === 'harness' && (!name.startsWith('@deepseek-ai/') || name === '@deepseek-ai/dsh-root')) {
     throw new Error(`invalid package name in release manifest: ${name}`)
   }
   return {
@@ -787,6 +808,7 @@ function parsePackedPackage(value: unknown, index: number): PackedPackage {
     tarball: expectString(value, 'tarball', context),
     sha256: expectString(value, 'sha256', context),
     integrity: expectString(value, 'integrity', context),
+    origin,
   }
 }
 
