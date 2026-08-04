@@ -54,7 +54,6 @@ const coverageExemptExcludes = coverageExemptRaw === '1'
 // Keep the narrow exception in forks while the rest of the inventory avoids per-file processes.
 const processBoundTests = [
   'packages/subprocess/subprocess-local/tests/spawn.spec.ts',
-  'packages/subagent/subagent-codex/tests/real-product.spec.ts',
   'packages/context/time-context/tests/time-context.spec.ts',
   'packages/llm/llm-pi-ai/tests/adapter.spec.ts',
   'packages/ui/app-boot/tests/app-boot.spec.ts',
