@@ -50,6 +50,7 @@ function failureFrame(error: unknown): RpcRequest<Frame> {
  */
 export class WebSocketDownlinks {
   private readonly server = new WebSocketServer({ noServer: true })
+  private readonly pumps = new Set<Promise<void>>()
 
   /** @param api - host API supplying the typed event streams. */
   constructor(private readonly api: ApiProxy) {}
@@ -81,17 +82,18 @@ export class WebSocketDownlinks {
   }
 
   /**
-   * Terminate owned sockets and await the no-server acceptor's close.
-   * @returns A promise resolving after every accepted socket has closed.
+   * Terminate owned sockets and await the no-server acceptor plus frame pumps.
+   * @returns A promise resolving after every socket and source iterator stops.
    */
-  close(): Promise<void> {
+  async close(): Promise<void> {
     for (const socket of this.server.clients) socket.terminate()
-    return new Promise((resolve, reject) => {
+    await new Promise<void>((resolve, reject) => {
       this.server.close((error) => {
         if (error === undefined) resolve()
         else reject(error)
       })
     })
+    await Promise.all(this.pumps)
   }
 
   private upgrade<F extends Frame>(
@@ -107,7 +109,9 @@ export class WebSocketDownlinks {
       websocket.once('message', () => {
         websocket.close(1008, 'downlink only')
       })
-      void this.pump(websocket, open(abort.signal), abort)
+      const pump = this.pump(websocket, open(abort.signal), abort)
+      this.pumps.add(pump)
+      void pump.then(() => { this.pumps.delete(pump) })
     })
   }
 

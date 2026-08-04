@@ -21,7 +21,9 @@ afterEach(async () => {
 
 function untilAbort(signal: AbortSignal): Promise<void> {
   if (signal.aborted) return Promise.resolve()
-  return new Promise(resolve => signal.addEventListener('abort', () => { resolve() }, { once: true }))
+  return new Promise((resolve) => {
+    signal.addEventListener('abort', () => { resolve() }, { once: true })
+  })
 }
 
 async function * idle<F>(signal: AbortSignal): AsyncGenerator<RpcRequest<F>> {
@@ -147,7 +149,7 @@ describe('WebSocket downlinks', () => {
     await once(socket, 'open')
     const closed = once(socket, 'close')
     socket.send('upstream payload')
-    const [code, reason] = await closed
+    const [code, reason] = await closed as [number, Buffer]
     expect(code).toBe(1008)
     expect(String(reason)).toBe('downlink only')
     await vi.waitFor(() => { expect(aborted).toBe(true) })
@@ -197,9 +199,9 @@ describe('WebSocket downlinks', () => {
 
   it('drops a source frame that races after the client has closed', async () => {
     let release!: () => void
-    const gate = new Promise<void>(resolve => { release = resolve })
+    const gate = new Promise<void>((resolve) => { release = resolve })
     let finish!: () => void
-    const finished = new Promise<void>(resolve => { finish = resolve })
+    const finished = new Promise<void>((resolve) => { finish = resolve })
     let sourceSignal: AbortSignal | undefined
     const downlinks = new WebSocketDownlinks(api(
       async function * (signal) {
@@ -227,7 +229,7 @@ describe('WebSocket downlinks', () => {
 
   it('contains socket send callback failures and closes the downlink', async () => {
     let release!: () => void
-    const gate = new Promise<void>(resolve => { release = resolve })
+    const gate = new Promise<void>((resolve) => { release = resolve })
     const downlinks = new WebSocketDownlinks(api(
       async function * () {
         await gate
@@ -261,5 +263,40 @@ describe('WebSocket downlinks', () => {
     const downlinks = new WebSocketDownlinks(api(idle, idle))
     await downlinks.close()
     await expect(downlinks.close()).rejects.toThrow('The server is not running')
+  })
+
+  it('waits for source cleanup before teardown resolves', async () => {
+    let cleanupStarted!: () => void
+    const started = new Promise<void>((resolve) => { cleanupStarted = resolve })
+    let releaseCleanup!: () => void
+    const cleanupGate = new Promise<void>((resolve) => { releaseCleanup = resolve })
+    let cleaned = false
+    const downlinks = new WebSocketDownlinks(api(
+      async function * (signal) {
+        try {
+          await untilAbort(signal)
+        } finally {
+          cleanupStarted()
+          await cleanupGate
+          cleaned = true
+        }
+      },
+      idle,
+    ))
+    const host = await serve(downlinks)
+    const socket = new WebSocket(`${host.origin}${MUX_EVENTS_PATH}`)
+    await once(socket, 'open')
+    let closed = false
+    const closing = host.close().then(() => { closed = true })
+    try {
+      await started
+      expect(closed).toBe(false)
+      releaseCleanup()
+      await closing
+      expect(cleaned).toBe(true)
+    } finally {
+      releaseCleanup()
+      await closing
+    }
   })
 })

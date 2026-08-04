@@ -172,6 +172,15 @@ export class HttpServerService extends Service {
       })
     })
     this.server.on('upgrade', (req, socket, head) => {
+      const onError = (error: Error): void => {
+        this.ctx.logger.warn(error)
+        socket.destroy()
+      }
+      socket.on('error', onError)
+      socket.once('close', () => {
+        socket.off('error', onError)
+        this.upgradedSockets.delete(socket)
+      })
       let route: WebUpgradeRoute | undefined
       try {
         /* v8 ignore next -- node:http always sets url on server requests. */
@@ -186,7 +195,6 @@ export class HttpServerService extends Service {
         return
       }
       this.upgradedSockets.add(socket)
-      socket.once('close', () => { this.upgradedSockets.delete(socket) })
       try {
         Promise.resolve(route.handler(req, socket, head)).catch((error: unknown) => {
           this.ctx.logger.warn(error instanceof Error ? error : new Error(String(error)))
@@ -210,11 +218,17 @@ export class HttpServerService extends Service {
 
     // Node does not include upgraded sockets in closeAllConnections(), so the
     // service tracks and destroys them as part of the same ownership boundary.
-    this.ctx.effect(() => () => new Promise<void>((resolve) => {
-      this.server.close(() => { resolve() })
+    this.ctx.effect(() => async () => {
+      const serverClosed = new Promise<void>((resolve) => {
+        this.server.close(() => { resolve() })
+      })
       this.server.closeAllConnections()
-      for (const socket of this.upgradedSockets) socket.destroy()
-    }), 'httpServer.listen')
+      const upgradedClosed = [...this.upgradedSockets].map(socket => new Promise<void>((resolve) => {
+        socket.once('close', () => { resolve() })
+        socket.destroy()
+      }))
+      await Promise.all([serverClosed, ...upgradedClosed])
+    }, 'httpServer.listen')
   }
 
   /** Longest-prefix-wins over the prefix table after an exact-table miss. */

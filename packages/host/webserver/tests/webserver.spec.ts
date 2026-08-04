@@ -87,7 +87,7 @@ async function upgrade(port: number, path: string): Promise<ReturnType<typeof co
     '',
     '',
   ].join('\r\n'))
-  const [data] = await response
+  const [data] = await response as [Buffer]
   expect(String(data)).toContain('101 Switching Protocols')
   return socket
 }
@@ -154,9 +154,11 @@ describe('real Loader composition', () => {
     // Upgrade routes match exact pathnames, reject duplicate ownership, and
     // become registrable again after disposal. The accepted socket stays open
     // so the teardown assertion also covers upgraded-connection ownership.
+    let upgradedServerClosed = false
     const disposeUpgrade = server.registerUpgrade({
       path: '/events',
       handler: (_req, socket) => {
+        socket.once('close', () => { upgradedServerClosed = true })
         socket.write('HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: dsh-test\r\n\r\n')
       },
     })
@@ -166,10 +168,34 @@ describe('real Loader composition', () => {
     disposeUpgrade()
     expect(() => server.registerUpgrade({ path: '/events', handler: () => {} })).not.toThrow()
 
+    // The webserver contains raw-socket errors even before an upgrade handler
+    // has installed its protocol implementation.
+    server.registerUpgrade({
+      path: '/upgrade-error',
+      handler: async (_req, socket) => {
+        await Promise.resolve()
+        socket.destroy(new Error('test upgrade transport failure'))
+      },
+    })
+    const failedUpgrade = connect(port, '127.0.0.1')
+    failedUpgrade.on('error', () => { /* The server-side reset is the fixture outcome. */ })
+    await once(failedUpgrade, 'connect')
+    const failedUpgradeClosed = once(failedUpgrade, 'close')
+    failedUpgrade.write([
+      'GET /upgrade-error HTTP/1.1',
+      `Host: 127.0.0.1:${String(port)}`,
+      'Connection: Upgrade',
+      'Upgrade: dsh-test',
+      '',
+      '',
+    ].join('\r\n'))
+    await failedUpgradeClosed
+    expect(await request(port, '/probe')).toMatchObject({ status: 200, body: 'EXACT' })
+
     // Teardown closes both ordinary and upgraded sockets before it resolves.
-    const upgradedClosed = once(upgraded, 'close')
     await loaded.fiber.dispose()
-    await upgradedClosed
+    expect(upgradedServerClosed).toBe(true)
+    upgraded.destroy()
     await expect(request(port, '/probe')).rejects.toThrow()
   })
 
