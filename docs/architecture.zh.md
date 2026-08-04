@@ -173,7 +173,7 @@ idle inject:
 
 ### 组合包与应用
 
-`dsh-agent-spine-demo` 组合一套主干和可选目标。应用包负责 TUI、CLI（命令行界面）、ACP 自动化入口和 JSON-RPC 入口（[README](../packages/examples/agent-spine-demo/README.md)、[acp/](../packages/acp/README.md)、[ui/](../packages/ui/README.md)）。`dsh-jsonrpc-agent` 启动外部 `cordis.yml`；Python SDK 在配置缺失时提供默认项（[Python SDK](../python/README.md)）。轻量部署使用可替换后端和可选工具（[examples/](../examples/AGENTS.md)、[可运行接线](cookbook/extension-cookbook.md#runnable-wirings)、[图谱](graph-atlas.md)）。
+`dsh-agent-spine-demo` 组合一套主干和可选目标。应用包负责 CLI（命令行界面）、ACP 自动化入口和 JSON-RPC 入口（[README](../packages/examples/agent-spine-demo/README.md)、[acp/](../packages/acp/README.md)、[ui/](../packages/ui/README.md)）。`dsh-jsonrpc-agent` 启动外部 `cordis.yml`；Python SDK 在配置缺失时提供默认项（[Python SDK](../python/README.md)）。轻量部署使用可替换后端和可选工具（[examples/](../examples/AGENTS.md)、[可运行接线](cookbook/extension-cookbook.md#runnable-wirings)、[图谱](graph-atlas.md)）。
 
 ### 新行为的归属位置
 
@@ -191,7 +191,7 @@ idle inject:
 | 限制生成的进程 | 使用 `ctx.sandbox` 后端；消费方在生成前包装 argv |
 | 拦截请求、工具或轮次 | 使用相应的 `agent/*` 或 `tools/*` 事件；`agent/turn-stopping` 是停止边界 |
 | 添加模型可见上下文 | 调用 `agent.inject()`，追加带来源的 `user/message`，但不创建轮次 |
-| 添加 UI 或编辑器集成 | 驱动 `ctx.agents`，从 `session/event` 渲染；仅终端浮层使用 `ctx.tui` |
+| 添加 UI 或编辑器集成 | 驱动 `ctx.agents` 并从 `session/event` 渲染 |
 | 添加持久会话状态 | 扩展 `SessionEventMap`；从日志渲染和回放 |
 | 添加异步会话标题生成 | 注册唯一的 `ctx.sessionTitle` 提供方 |
 | 管理同会话目标 | 使用 `ctx.goals`；通过 `Agent` 和 `agent/*` 续跑 |

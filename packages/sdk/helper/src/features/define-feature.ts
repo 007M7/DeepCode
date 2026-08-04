@@ -250,7 +250,7 @@ class DefinedFeature extends Feature {
     this.required = spec.required ?? false
     this.requires = (spec.requires ?? []).map(requirement => featureId(requirement.id))
     this.suggests = (spec.suggests ?? []).map(featureId)
-    this.supportedInterfaces = spec.supportedInterfaces ?? ['acp', 'tui', 'embed']
+    this.supportedInterfaces = spec.supportedInterfaces ?? ['acp', 'embed']
   }
 
   override defaultOptions(): readonly string[] {

@@ -6,7 +6,7 @@
 
 ## 生命周期
 
-基线会在每个实时会话的第一个 `agent/step` 注入。它先读取 `$DSH_HOME/AGENTS.md`，随后针对项目根目录到 `agent.session.header.cwd` 的每个目录，先读取每个现有基础候选文件，再读取每个现有本地 overlay 候选文件。同一目录中，如果候选文件在去除首尾空白后字节完全一致，就会按已配置顺序折叠到最早候选文件，因此 `CLAUDE.md` 若只是复制同级 `AGENTS.md`，只会渲染一次。这条持久的带来源 `user/message` 与被认领的提示词进入同一个请求。如果后续表层替换（例如压缩（compaction））遮蔽了该基线，面向模型请求的 `system-prompt/assemble` 会在 loop 对该请求创建快照之前，重新组合并注入当前指令链；TUI `/status` 等仅检查组装不会改变会话。
+基线会在每个实时会话的第一个 `agent/step` 注入。它先读取 `$DSH_HOME/AGENTS.md`，随后针对项目根目录到 `agent.session.header.cwd` 的每个目录，先读取每个现有基础候选文件，再读取每个现有本地 overlay 候选文件。同一目录中，如果候选文件在去除首尾空白后字节完全一致，就会按已配置顺序折叠到最早候选文件，因此 `CLAUDE.md` 若只是复制同级 `AGENTS.md`，只会渲染一次。这条持久的带来源 `user/message` 与被认领的提示词进入同一个请求。如果后续表层替换（例如压缩（compaction））遮蔽了该基线，面向模型请求的 `system-prompt/assemble` 会在 loop 对该请求创建快照之前，重新组合并注入当前指令链；仅检查组装不会改变会话。
 
 该插件还会监听 `tools/post-execute` 中成功的第一方 `read`、`write` 和 `edit` 调用。每次 touch 都会检查新达到的后代 scope 以及之前加载的每个 scope。每个已配置候选名称都是所在目录中的独立 scope：新出现的文件通过结果的 `additionalContexts` 附加；已改变文件追加替换；文件消失或成为同一目录中较早候选文件的重复项时，追加移除通知。原生调用与 Code Mode 子分派共享该路径：`run_code` 将每个嵌套上下文延迟到外层结果，因此 loop 仍会在工具调用／结果相邻关系完成后追加更新。这种发现跟随结构化文件系统活动，而不是 shell `cd`，因为每次本地 bash 调用都启动新 shell，解析任意 shell 语法也不可靠。
 

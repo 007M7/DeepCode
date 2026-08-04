@@ -46,11 +46,11 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 | [`workspace/`](workspace/README.md) | Workspace entity | Product — stable surface |
 | [`sdk/`](sdk/README.md) | Project SDK tooling | Product — stable surface |
 | [`acp/`](acp/README.md) | Automation-only Agent Client Protocol server | Product — stable surface |
-| [`ui/`](ui/README.md) | TUI and JSON-RPC integrations, approval/interaction seams, ask-user tool | Product — stable surface |
+| [`ui/`](ui/README.md) | JSON-RPC integration, approval/interaction seams, ask-user tool | Product — stable surface |
 | [`host/`](host/README.md) | Web-GUI host half: API gateway + HTTP route server | Product — stable surface |
 | [`client/`](client/README.md) | Web-GUI browser half: shell, wire, object services, slots, `ui-*` plugins | Product — stable surface |
 | [`experimental/`](experimental/README.md) | Prototypes and internal plugins | Unreleased |
-| [`examples/`](examples/README.md) | Demo bundles (agent-spine + TUI/CLI/ACP/JSON-RPC bins) leaves load | Support — example infra |
+| [`examples/`](examples/README.md) | Demo bundles (agent-spine + CLI/ACP/JSON-RPC bins) leaves load | Support — example infra |
 | [`support/`](support/README.md) | Support infrastructure (testkits, invariants, replay, Loader smokes) | Support — lower compatibility expectations |
 | [`util/`](util/README.md) | Low-level zero-dependency utilities shared across groups (`Branded<B>`, Harness home/path helpers, timeout, retention) | Support — small, stable, harness-dep-free |
 

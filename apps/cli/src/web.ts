@@ -14,7 +14,7 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tool-bash'
 import { AppCLIEntry } from './app-cli-entry.ts'
 
-// The shared core every `dsh` surface mounts, plus this surface's overlay over it.
+// The shipped base plus the Web application's overlay.
 const BASE_CONFIG = fileURLToPath(new URL('../config/base.cordis.yml', import.meta.url))
 const WEB_OVERLAY = fileURLToPath(new URL('../config/web.cordis.yml', import.meta.url))
 const SOURCE_ROOT = fileURLToPath(new URL('../../..', import.meta.url))

@@ -52,4 +52,4 @@ The catalog is deterministic for a fixed root set and runtime registration revis
 
 ## Deferred
 
-Forked skill contexts (`context: fork`), parameter declarations and hints (`arguments` and `argument-hint`), and per-skill tool constraints (`allowed-tools` and `disallowed-tools`) are outside the shipped contract. The registry, local provider, and model-facing tool do not parse, advertise, or enforce these fields. Direct user invocation ships as a TUI affordance over the shared invocation policy and trusted `get()` primitive; see [the TUI skill slash command](2026-07-21-tui-skill-slash-command.md).
+Forked skill contexts (`context: fork`), parameter declarations and hints (`arguments` and `argument-hint`), and per-skill tool constraints (`allowed-tools` and `disallowed-tools`) are outside the shipped contract. The registry, local provider, and model-facing tool do not parse, advertise, or enforce these fields. Direct user invocation shipped as a TUI affordance over the shared invocation policy and trusted `get()` primitive; see [the archived TUI skill slash command](../../archived/feature/2026-07-21-tui-skill-slash-command.md).

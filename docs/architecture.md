@@ -173,7 +173,7 @@ Exceptions combine LLM interface/consumer, filesystem policy, web registries, an
 
 ### Bundles And Apps
 
-`dsh-agent-spine-demo` bundles a spine and optional goals. App packages own TUI, CLI, ACP automation, and JSON-RPC front doors ([README](../packages/examples/agent-spine-demo/README.md), [acp/](../packages/acp/README.md), [ui/](../packages/ui/README.md)). `dsh-jsonrpc-agent` boots external `cordis.yml`; the Python SDK defaults when config is absent ([Python SDK](../python/README.md)). Thin deployments use swappable backends and optional tools ([examples/](../examples/AGENTS.md), [runnable wirings](cookbook/extension-cookbook.md#runnable-wirings), [graph atlas](graph-atlas.md)).
+`dsh-agent-spine-demo` bundles a spine and optional goals. App packages own CLI, ACP automation, and JSON-RPC front doors ([README](../packages/examples/agent-spine-demo/README.md), [acp/](../packages/acp/README.md), [ui/](../packages/ui/README.md)). `dsh-jsonrpc-agent` boots external `cordis.yml`; the Python SDK defaults when config is absent ([Python SDK](../python/README.md)). Thin deployments use swappable backends and optional tools ([examples/](../examples/AGENTS.md), [runnable wirings](cookbook/extension-cookbook.md#runnable-wirings), [graph atlas](graph-atlas.md)).
 
 ### Where New Behavior Goes
 
@@ -191,7 +191,7 @@ New behavior attaches to a documented extension point; a loop change updates thi
 | Confine spawned processes | use a `ctx.sandbox` backend; consumers wrap argv before spawning |
 | Intercept a request, tool, or turn | use its `agent/*` or `tools/*` event; `agent/turn-stopping` is the stop boundary |
 | Add model-facing context | call `agent.inject()` to append a sourced `user/message` without a turn |
-| Add UI or editor integration | drive `ctx.agents`, render from `session/event`; terminal-only overlays use `ctx.tui` |
+| Add UI or editor integration | drive `ctx.agents` and render from `session/event` |
 | Add durable session state | extend `SessionEventMap`; render and replay from the log |
 | Add asynchronous session-title generation | register the sole `ctx.sessionTitle` provider |
 | Manage a same-session objective | use `ctx.goals`; continue through `Agent` and `agent/*` |
