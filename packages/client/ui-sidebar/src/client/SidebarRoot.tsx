@@ -73,25 +73,58 @@ export function SidebarRoot({
   // away): drawn while it is inside, and for SCROLLBAR_LINGER_MS after it
   // leaves. A pointer that returns within that window cancels the pending
   // hide rather than restarting from a hidden bar.
+  const column = useRef<HTMLDivElement>(null)
   const [pointerInside, setPointerInside] = useState(false)
   const lingerTimer = useRef<number | undefined>(undefined)
-  useEffect(() => () => { window.clearTimeout(lingerTimer.current) }, [])
+  const armLinger = (): void => {
+    if (lingerTimer.current !== undefined) return
+    lingerTimer.current = window.setTimeout(() => {
+      lingerTimer.current = undefined
+      setPointerInside(false)
+    }, SCROLLBAR_LINGER_MS)
+  }
+  const cancelLinger = (): void => {
+    window.clearTimeout(lingerTimer.current)
+    lingerTimer.current = undefined
+  }
+  // Leaving is decided by the column's BOX, not by DOM containment, and only
+  // while the bars are drawn. ui-settings renders its full-viewport panel as a
+  // fixed-position DESCENDANT of this column, so a pointer moved onto that
+  // panel — or onto the conversation once it closes — fires no `pointerleave`
+  // here, and the bars would stay drawn over a column nobody is pointing at.
+  // The element's own leave stays as the one signal geometry cannot give: a
+  // pointer that leaves the window emits no further moves.
+  useEffect(() => {
+    if (!pointerInside) return
+    const onMove = (event: PointerEvent): void => {
+      const rect = column.current?.getBoundingClientRect()
+      /* v8 ignore next -- the listener only exists while the column is mounted and revealed. */
+      if (rect === undefined) return
+      const inside = event.clientX >= rect.left && event.clientX < rect.right
+        && event.clientY >= rect.top && event.clientY < rect.bottom
+      if (inside) cancelLinger()
+      else armLinger()
+    }
+    document.addEventListener('pointermove', onMove)
+    return () => {
+      document.removeEventListener('pointermove', onMove)
+      cancelLinger()
+    }
+  }, [pointerInside])
 
   return (
     <div
+      ref={column}
       className={clsx(
         css.root, !wide && css.collapsed, !wide && everWide.current && css.railIn,
         collapsed && wide && css.fading, !pointerInside && css.quietBars,
       )}
       style={wide ? { width: collapsed ? lastWideWidth.current : width } : undefined}
       onPointerEnter={() => {
-        window.clearTimeout(lingerTimer.current)
+        cancelLinger()
         setPointerInside(true)
       }}
-      onPointerLeave={() => {
-        window.clearTimeout(lingerTimer.current)
-        lingerTimer.current = window.setTimeout(() => { setPointerInside(false) }, SCROLLBAR_LINGER_MS)
-      }}
+      onPointerLeave={() => { armLinger() }}
     >
       <div className={css.logoRow}>
         {/* Expanded, the wordmark doubles as a New Session shortcut; the

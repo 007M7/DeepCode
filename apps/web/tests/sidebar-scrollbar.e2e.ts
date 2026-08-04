@@ -220,6 +220,10 @@ async function measurePalette(page: Page): Promise<PaletteMetrics> {
   await expect.poll(async () => resolveThumb(page), { timeout: 10_000 }).toBe(NO_THUMB)
   const quietThumb = await resolveThumb(page)
   await pointAt(page, 'list')
+  // Poll the reveal too: the reading below is a colour, and taking it in the
+  // same tick as the pointer move would race React's flush and land a
+  // transparent thumb in the golden.
+  await expect.poll(async () => resolveThumb(page), { timeout: 10_000 }).not.toBe(NO_THUMB)
   return { hovered: await measureList(page), quietThumb }
 }
 
@@ -410,6 +414,13 @@ describe('web e2e: sidebar session list scrollbar (reserved gutter / themed thum
     expect(quiet.gutter).toBe('stable')
     expect(quiet.band).toBeGreaterThan(0)
     expect(quiet.timeCoveredBy).toBe(0)
+    // Scrolling without a pointer — what a keyboard or a touch drag does —
+    // leaves the column quiet. This is the change's one deliberate loss, and
+    // it is pinned here rather than only described, so making a scroll
+    // re-reveal the bar has to be a decision rather than a side effect.
+    await page.locator('[role="tree"][aria-label="Sessions"]').evaluate((el) => { el.scrollTop += 200 })
+    await page.waitForTimeout(500)
+    expect(await resolveThumb(page)).toBe(NO_THUMB)
     await pointAt(page, 'list')
     await expect.poll(async () => resolveThumb(page), { timeout: 10_000 }).toBe(revealed)
     expect(tripwire.pageErrors).toEqual([])
