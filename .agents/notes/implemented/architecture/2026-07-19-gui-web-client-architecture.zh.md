@@ -73,7 +73,7 @@ Notifier 微任务合批 ──► ConversationSnapshot 缓存 ──uSES──�
 - **SessionManager**（manager.ts）：实例簇 + 帧总入口 + 会话列表。带 sessionId 的帧只投已存在实例（mux 广播不得把每个会话都实例化）；例外是审批/问答 `requested` 帧——它们不落 history、open 无法回补，故缓冲进 `pendingBuffers`，实例化时回放。
 - **Notifier**（notifier.ts）：两条通知通道，按变更来源取用。`markDirty()`（默认；帧驱动一律用它）按微任务合批——N 次变更、一次通知、一次重渲染；flush 先重建快照缓存再通知。`notifyNow()`（仅用户手势的直接回响）同 tick 重建并通知——受控输入的回响若延到微任务，DOM 会回滚、光标跳尾。帧驱动代码用 notifyNow 会让合批塌回逐帧渲染；禁。
 - **TranscriptAdapter / PartialAccumulator**：对话记录是按日志顺序投影的 append 来源 surface（`@deepseek-ai/dsh-session/surface` 的 `isAppendSurfaceEvent`），外加每次落地的压缩检查点一个标记——绝不用模型 surface，后者遮蔽被替换的范围，会抹掉读者已经看过的对话。节点顺序天然按 seq 单调，因此既无核心 `seq === index` 断言需要满足，也没有降级分支。分片不贡献任何节点（O(1) 跳过）：累积器把 StreamChunk 折叠成 `AssistantBlock[]`，一次增量只换该块引用；定稿消息到达即在同一批内弃掉累积器（提升无闪烁）。成本模型：一个分片 = 一次字符串拼接 + 一个脏标记；帧风暴下未订阅的 Session 只花那个标记。
-- **ConnectionController**（在 `packages/client/connection`）：开 mux/host 双流、for-await 泵入，代际围栏之内指数退避重连（500ms 翻倍至 10s 封顶、抖动、无限重试）；sinks 单向注入（Controller 不认识 Session）。重连 = 重建：`onConnected` → 列表刷新 + 各已打开会话 resync。对象层只面向 `IApiClient`；Web 承载（HTTP POST 载两个 client→server 象限、SSE 载两个 server→client 象限）与客户端类族归分层 RFC 属地。
+- **ConnectionController**（在 `packages/client/connection`）：开 mux/host 双流、for-await 泵入，代际围栏之内指数退避重连（500ms 翻倍至 10s 封顶、抖动、无限重试）；sinks 单向注入（Controller 不认识 Session）。重连 = 重建：`onConnected` → 列表刷新 + 各已打开会话 resync。对象层只面向 `IApiClient`；Web 承载以 HTTP POST 载两个 client→server 象限、以[每逻辑流一条 WebSocket](2026-08-04-websocket-downlink-carrier.md)载两个 server→client 象限，客户端类族归分层 RFC 属地。
 
 ## React 面（`packages/client/web-react`）
 
