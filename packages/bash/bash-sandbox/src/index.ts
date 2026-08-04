@@ -124,13 +124,13 @@ export class SandboxBashExecutor extends LocalBashExecutor {
    * Stamp per-process sandbox facts before `done` settles. Full-access processes
    * have no facts; signal deaths are not denials.
    */
-  protected override onProcessDone(proc: BashProcess, stderr: string, spawnError?: unknown): void {
+  protected override onProcessDone(proc: BashProcess, stderr: string, spawnFailed: boolean, spawnError?: unknown): void {
     const facts = this.processFacts.get(proc)
     if (facts !== undefined) {
       this.processFacts.delete(proc)
       // A rejected spawn never started the confined launch. Otherwise runner
       // failure outranks denial because its diagnostics may contain denial terms.
-      const runnerFailed = spawnError !== undefined
+      const runnerFailed = spawnFailed
         || classifyRunnerFailure(proc.exitCode, stderr, facts.runnerFailureRules) !== undefined
       proc.sandbox = {
         mode: facts.mode,
@@ -139,7 +139,7 @@ export class SandboxBashExecutor extends LocalBashExecutor {
         ...(runnerFailed ? { runnerFailed } : {}),
       }
     }
-    super.onProcessDone(proc, stderr, spawnError)
+    super.onProcessDone(proc, stderr, spawnFailed, spawnError)
   }
 
   /**

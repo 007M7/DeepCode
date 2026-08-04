@@ -16,6 +16,7 @@ import type { ConfinedArgv, SandboxExecutionPolicy, SandboxMode, SandboxPolicy }
 import { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import { SandboxBashExecutor } from '@deepseek-ai/dsh-bash-sandbox'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
+import type { SubprocessHandle, SubprocessOutputReader } from '@deepseek-ai/dsh-subprocess'
 import { classifyDenial, classifyRunnerFailure } from '../src/helpers.ts'
 import type { Config } from '@deepseek-ai/dsh-bash-sandbox'
 
@@ -370,6 +371,36 @@ describe('background sandbox facts', () => {
     })
     const accounting = (bash as unknown as { processFacts: Map<unknown, unknown> }).processFacts
     expect(accounting.size).toBe(0)
+  })
+
+  it('classifies a spawn rejection whose reason is undefined', async () => {
+    const { ctx, bash } = await setup()
+    const emptyReader: SubprocessOutputReader = {
+      readFrom: () => ({ text: '', nextOffset: 0, lossy: false }),
+    }
+    vi.spyOn(ctx.subprocess, 'spawn').mockReturnValue({
+      pid: -1,
+      stdin: undefined,
+      stdout: undefined,
+      stderr: undefined,
+      collected: { stdout: emptyReader, stderr: emptyReader },
+      // Arbitrary subprocess providers can reject without a value; that edge is the point of this test.
+      // oxlint-disable-next-line typescript/prefer-promise-reject-errors
+      done: Promise.reject(undefined),
+      terminate: vi.fn(),
+      waitForExit: async () => true,
+    } satisfies SubprocessHandle)
+
+    const task = bash.start(bash.resolve({ command: 'true' }))
+    await task.done
+
+    expect(task.readOutput().delta).toContain('spawn failed: undefined')
+    expect(task.sandbox).toEqual({
+      mode: 'read-only',
+      denied: false,
+      enforcement: 'full',
+      runnerFailed: true,
+    })
   })
 
   it('stamps a settled denial: nonzero exit + permission stderr under a confined mode', async () => {

@@ -247,12 +247,12 @@ export class LocalBashExecutor extends BashExecutor {
         }
         proc.exitCode = outcome.exitCode
         proc.signal = outcome.signal
-        this.onProcessDone(proc, collected.stderr.readFrom(0).text)
+        this.onProcessDone(proc, collected.stderr.readFrom(0).text, false)
       }, (error: unknown) => {
         // Background spawn failures settle as killed and surface through the read path.
         proc.status = 'killed'
         spawnFailureNote = `spawn failed: ${String(error)}`
-        this.onProcessDone(proc, spawnFailureNote, error)
+        this.onProcessDone(proc, spawnFailureNote, true, error)
       }),
       readOutput: (): BashProcessRead => {
         const out = collected.stdout.readFrom(stdoutOffset)
@@ -292,9 +292,10 @@ export class LocalBashExecutor extends BashExecutor {
    * empty.
    * @param _proc - the settled process handle.
    * @param _stderr - the process's retained stderr tail used by subclasses for settlement classification.
-   * @param _spawnError - the original spawn rejection; absent after a process successfully started.
+   * @param _spawnFailed - whether the subprocess promise rejected before a process started.
+   * @param _spawnError - the original spawn rejection reason, which may itself be undefined.
    */
-  protected onProcessDone(_proc: BashProcess, _stderr: string, _spawnError?: unknown): void {}
+  protected onProcessDone(_proc: BashProcess, _stderr: string, _spawnFailed: boolean, _spawnError?: unknown): void {}
 }
 
 export default LocalBashExecutor
