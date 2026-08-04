@@ -1,5 +1,5 @@
 /**
- * events domain contract: signatures and frame unions for the two SSE
+ * events domain contract: signatures and frame unions for the two logical
  * streams. Four-quadrant: streams yield the narrow form `RpcRequest<Frame>` (server-request
  * view) — rpcId must be exposed to the business layer, because responses to answerable frames
  * (approval/question requested) echo it; for pure pushes it identifies that one push.
@@ -42,7 +42,7 @@ export interface QueuedInboxItem {
   message: Message
 }
 
-/** Streaming face of the contract: the two SSE stream openers (mux + host). */
+/** Streaming face of the contract: the two logical stream openers (mux + host). */
 export interface EventsApi {
   /**
    * All-session aggregated mux stream. On open, emits a subscribed control frame for every

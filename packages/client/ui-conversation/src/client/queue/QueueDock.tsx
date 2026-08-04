@@ -8,8 +8,8 @@ import { useEffect, useId, useMemo, useState } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import {
-  IconCheckOutline16, IconChevronDownOutline14, IconChevronUpOutline14,
-  IconCloseOutline16, IconEditOutline16, IconSendOutline16, IconTrashOutline16,
+  IconCheckOutline16, IconChevronDownOutline14, IconChevronUpOutline14, IconCloseOutline16,
+  IconEditOutline16, IconQueueOutline14, IconSendOutline14, IconTrashOutline16, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { QueueAction, QueueItemId } from '../contract/queue.ts'
 import { NS } from '../locales.ts'
@@ -87,6 +87,7 @@ export function QueueDock({ useSession, updateQueue, notify, t }: QueueDockProps
             disabled={interactionActive}
             onClick={() => { setCollapsed(value => !value) }}
           >
+            <span className={css.lead} aria-hidden><IconQueueOutline14 /></span>
             <span className={css.count}>{t('queue.count', { n: queue.length })}</span>
             <span className={css.chevron} aria-hidden>
               {expanded ? <IconChevronDownOutline14 /> : <IconChevronUpOutline14 />}
@@ -94,64 +95,69 @@ export function QueueDock({ useSession, updateQueue, notify, t }: QueueDockProps
           </button>
         )}
         <ul id={listId} className={css.list} hidden={!listVisible}>
-          {listVisible && queue.map((row) => {
-            const rowEditing = editing?.id === row.id ? editing : null
-            return (
-              <li key={row.id} className={css.row}>
-                {rowEditing !== null
+          {listVisible && queue.map(row => (
+            <li key={row.id} className={css.row}>
+              {/* Single-item strip has no count header, so the row itself carries the queue glyph. */}
+              {queue.length === 1 && <span className={css.lead} aria-hidden><IconQueueOutline14 /></span>}
+              {editing?.id === row.id
+                ? (
+                  <input
+                    autoFocus
+                    className={css.editor}
+                    aria-label={t('queue.edit')}
+                    value={editing.text}
+                    onChange={(event) => { setEditing({ id: row.id, text: event.currentTarget.value }) }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Escape') {
+                        setEditing(null)
+                        return
+                      }
+                      if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                        event.preventDefault()
+                        void saveEdit()
+                      }
+                    }}
+                  />
+                )
+                : <span className={css.preview}>{row.preview}</span>}
+              {queueMutable && <div className={css.actions}>
+                {editing?.id === row.id
                   ? (
-                    <input
-                      autoFocus
-                      className={css.editor}
-                      aria-label={t('queue.edit')}
-                      value={rowEditing.text}
-                      onChange={(event) => { setEditing({ id: row.id, text: event.currentTarget.value }) }}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Escape') {
-                          setEditing(null)
-                          return
-                        }
-                        if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
-                          event.preventDefault()
-                          void saveEdit()
-                        }
-                      }}
-                    />
-                  )
-                  : <span className={css.preview}>{row.preview}</span>}
-                {queueMutable && <div className={css.actions}>
-                  {rowEditing !== null
-                    ? (
-                      <>
+                    <>
+                      <Tooltip label={t('queue.save')} side="bottom" delayMs={500}>
                         <button
                           type="button"
                           className={css.action}
                           aria-label={t('queue.save')}
-                          title={t('queue.save')}
-                          disabled={busy !== null || rowEditing.text.trim() === ''}
+                          disabled={busy !== null || editing.text.trim() === ''}
                           onClick={() => { void saveEdit() }}
                         >
                           <IconCheckOutline16 size={14} />
                         </button>
+                      </Tooltip>
+                      <Tooltip label={t('queue.cancelEdit')} side="bottom" delayMs={500}>
                         <button
                           type="button"
                           className={css.action}
                           aria-label={t('queue.cancelEdit')}
-                          title={t('queue.cancelEdit')}
                           disabled={busy !== null}
                           onClick={() => { setEditing(null) }}
                         >
                           <IconCloseOutline16 size={14} />
                         </button>
-                      </>
-                    )
-                    : (
-                      <>
+                      </Tooltip>
+                    </>
+                  )
+                  : (
+                    <>
+                      <Tooltip label={t('queue.edit')} side="bottom" delayMs={500} disabled={row.text === null}>
                         <button
                           type="button"
                           className={css.action}
                           aria-label={t('queue.edit')}
-                          title={row.text === null ? t('queue.edit.unsupported') : t('queue.edit')}
+                          // Disabled buttons fire no hover events, so the
+                          // unsupported hint stays a native title.
+                          title={row.text === null ? t('queue.edit.unsupported') : undefined}
                           disabled={busy !== null || row.text === null}
                           onClick={() => {
                             if (row.text !== null) setEditing({ id: row.id, text: row.text })
@@ -159,11 +165,12 @@ export function QueueDock({ useSession, updateQueue, notify, t }: QueueDockProps
                         >
                           <IconEditOutline16 size={14} />
                         </button>
+                      </Tooltip>
+                      <Tooltip label={t('queue.remove')} side="bottom" delayMs={500}>
                         <button
                           type="button"
                           className={css.action}
                           aria-label={t('queue.remove')}
-                          title={t('queue.remove')}
                           disabled={busy !== null}
                           onClick={() => {
                             void applyAction(
@@ -175,11 +182,13 @@ export function QueueDock({ useSession, updateQueue, notify, t }: QueueDockProps
                         >
                           <IconTrashOutline16 size={14} />
                         </button>
+                      </Tooltip>
+                      <Tooltip label={t('queue.steer')} side="bottom" delayMs={500} disabled={!running}>
                         <button
                           type="button"
                           className={css.action}
                           aria-label={t('queue.steer')}
-                          title={running ? t('queue.steer') : t('queue.steer.unavailable')}
+                          title={running ? undefined : t('queue.steer.unavailable')}
                           disabled={busy !== null || !running}
                           onClick={() => {
                             void applyAction(
@@ -189,14 +198,14 @@ export function QueueDock({ useSession, updateQueue, notify, t }: QueueDockProps
                             )
                           }}
                         >
-                          <IconSendOutline16 size={14} />
+                          <IconSendOutline14 />
                         </button>
-                      </>
-                    )}
-                </div>}
-              </li>
-            )
-          })}
+                      </Tooltip>
+                    </>
+                  )}
+              </div>}
+            </li>
+          ))}
         </ul>
       </div>
     </div>

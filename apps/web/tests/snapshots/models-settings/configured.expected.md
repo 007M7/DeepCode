@@ -17,4 +17,6 @@
       - text: minimax-cn
       - button "编辑"
       - button "删除"
-  - button "+ 添加提供方"
+  - button "添加提供方":
+    - img
+    - text: 添加提供方

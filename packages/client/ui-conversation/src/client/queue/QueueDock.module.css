@@ -16,20 +16,21 @@
     var(--dsh-composer-dock-inset) -
     var(--dsh-composer-dock-inset)
   );
-  /* Flex gap still applies after this item; subtract it together with the
-     design's overlap so the later composer paints over the queue edge. */
-  margin: 0 auto calc(
-    0px - var(--dsh-composer-stack-gap) - var(--dsh-queue-composer-overlap)
-  );
-  padding: 2px 12px;
+  /* Cancel the stack gap after this item and tuck 3px under the input card
+     (square bottom), reading as one attached surface. */
+  margin: 0 auto calc(0px - var(--dsh-composer-stack-gap) - 3px);
+  /* Horizontal padding completes the shared dock inset (this wrapper only
+     subtracts two insets from its width); no vertical padding, so the visual
+     gap above the panel stays the uniform stack gap. */
+  padding: 0 var(--dsh-composer-dock-inset);
 }
 
 .panel {
   position: relative;
   overflow: hidden;
   width: 100%;
-  padding-top: 2px;
-  border-radius: 14px 14px 0 0;
+  padding: 2px 0;
+  border-radius: 12px 12px 0 0;
   background: var(--dsw-specific-tip);
   --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
@@ -39,6 +40,7 @@
   position: absolute;
   inset: 0;
   border: 1px solid var(--dsw-alias-border-l1);
+  /* The input card's own top border closes the shape below. */
   border-bottom: none;
   border-radius: inherit;
   content: '';
@@ -52,7 +54,9 @@
   gap: 10px;
   width: 100%;
   height: 36px;
-  padding: 4px 16px 4px 12px;
+  /* Right inset 12px puts the chevron on the same vertical line as the Todo
+     header's chevron (12px body padding there). */
+  padding: 4px 12px;
   border: none;
   border-radius: 8px;
   background: transparent;
@@ -70,11 +74,18 @@
   cursor: default;
 }
 
+.lead {
+  display: grid;
+  flex: none;
+  place-items: center;
+  color: var(--dsw-alias-label-tertiary);
+}
+
 .count {
   flex: 1 1 auto;
   min-width: 0;
   font-family: Inter, var(--dsw-font-family);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   line-height: 24px;
 }

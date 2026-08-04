@@ -52,7 +52,7 @@ describe('GoalBar', () => {
     expect(complete.container.firstChild).toBeNull()
   })
 
-  it('active goal: sparkle, "进行中的目标", truncated objective, edit and clear actions', () => {
+  it('active goal: goal glyph, "进行中的目标", truncated objective, edit and clear actions', () => {
     const actions = makeActions()
     render(<GoalBar goal={makeGoal()} {...actions} t={t} />)
     expect(screen.getByText('进行中的目标')).toBeTruthy()
