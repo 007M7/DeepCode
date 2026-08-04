@@ -94,7 +94,8 @@ export interface RequestInspectionSnapshot {
 /**
  * Derive the request-centric read model from one immutable history window.
  * Compaction participates as a request purpose rather than a parallel
- * top-level collection.
+ * top-level collection. A leading resume/change header exposes its prompt but
+ * cannot project a change until the preceding header enters the window.
  * @param entries - Contiguous raw session history.
  * @returns Requests and call-time schemas derived from that history.
  */
@@ -218,6 +219,7 @@ function promptChange(
   prompt: ConversationPromptSnapshot,
   event: SessionEvent<'request/header'>,
 ): RequestPromptChange | undefined {
+  if (previous === undefined && event.data.reason !== 'initial') return
   const systemChanged = previous !== undefined && previous.system !== prompt.system
   const toolsChanged = previous !== undefined
     && JSON.stringify(previous.tools) !== JSON.stringify(prompt.tools)
