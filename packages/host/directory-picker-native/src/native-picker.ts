@@ -1,6 +1,7 @@
 /** Cross-platform native single-directory chooser behind the native backend's capability. */
 
 import { runNativeCommand, type NativeCommandRunner } from '@deepseek-ai/dsh-native-command'
+import { pickWin32Directory } from './win32-dialog.ts'
 
 /** Testable command boundary; native implementations never invoke a shell. */
 export type DirectoryPickerRunner = NativeCommandRunner
@@ -9,6 +10,8 @@ export type DirectoryPickerRunner = NativeCommandRunner
 export interface DirectoryPickerInternals {
   platform?: NodeJS.Platform
   run?: DirectoryPickerRunner
+  /** Replaces the in-process Win32 dialog (`pickWin32Directory`) for deterministic tests. */
+  pickWin32Dialog?: (signal: AbortSignal) => Promise<string | null>
 }
 
 function outputPath(stdout: string): string | null {
@@ -64,20 +67,13 @@ export async function pickNativeDirectory(
   }
 
   if (platform === 'win32') {
-    const script = [
-      "$ErrorActionPreference = 'Stop'",
-      'Add-Type -AssemblyName System.Windows.Forms',
-      '$dialog = New-Object System.Windows.Forms.FolderBrowserDialog',
-      "$dialog.Description = 'Select Workspace Directory'",
-      '$dialog.ShowNewFolderButton = $true',
-      '$result = $dialog.ShowDialog()',
-      'if ($result -eq [System.Windows.Forms.DialogResult]::OK) {',
-      '  [Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
-      '  [Console]::WriteLine($dialog.SelectedPath)',
-      '}',
-    ].join('; ')
-    const result = await run('powershell.exe', ['-NoProfile', '-STA', '-Command', script], signal)
-    return outputPath(result.stdout)
+    // The koffi-backed IFileOpenDialog child process — the modern picker with
+    // per-monitor-v2 DPI and abort support. koffi is a packaged dependency
+    // whose availability the install guarantees, so there is no fallback
+    // tier: any failure surfaces as-is (the former PowerShell chain was
+    // removed — see the simplification Agent Note).
+    const pickDialog = internals.pickWin32Dialog ?? pickWin32Directory
+    return await pickDialog(signal)
   }
 
   if (platform === 'linux') {
