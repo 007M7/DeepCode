@@ -132,27 +132,52 @@ describe('partial Landlock runner-failure classification', () => {
     })
   })
 
-  it('keeps a real malformed executable ENOEXEC as an ordinary spawn failure', async () => {
+  it('keeps a real malformed executable ordinary across no-shebang spawn behavior', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dsh-malformed-sandbox-runner-'))
     tempDirs.push(dir)
     const runner = join(dir, 'malformed-runner')
     await writeFile(runner, 'not a native executable or shebang script\n', { mode: 0o755 })
     const bash = await setupConfiguredRunner(runner)
+    const request = { command: 'true' }
 
-    const foreground = await bash.run(bash.resolve({ command: 'true' })).catch((value: unknown) => value)
-    expect(foreground).toMatchObject({ code: 'ENOEXEC', syscall: 'spawn' })
-    expect((foreground as { path?: unknown }).path).toBeUndefined()
+    // Node/libuv may expose execve's ENOEXEC directly (Darwin) or retry a
+    // no-shebang executable through /bin/sh (Linux). Neither path supplies the
+    // provenanced ENOENT/EACCES evidence required for runner attribution.
+    const foreground = await bash.run(bash.resolve(request)).catch((value: unknown) => value)
     expect(foreground).not.toBeInstanceOf(SandboxUnavailableError)
 
-    let background: unknown
-    try {
-      bash.start(bash.resolve({ command: 'true' }))
-    } catch (error) {
-      background = error
+    if (foreground instanceof Error) {
+      expect(foreground).toMatchObject({ code: 'ENOEXEC', syscall: 'spawn' })
+      expect((foreground as { path?: unknown }).path).toBeUndefined()
+
+      let background: unknown
+      try {
+        bash.start(bash.resolve(request))
+      } catch (error) {
+        background = error
+      }
+      expect(background).toMatchObject({ code: 'ENOEXEC', syscall: 'spawn' })
+      expect((background as { path?: unknown }).path).toBeUndefined()
+      expect(background).not.toBeInstanceOf(SandboxUnavailableError)
+    } else {
+      expect(foreground).toMatchObject({
+        exitCode: 127,
+        signal: null,
+        sandbox: { mode: 'read-only', denied: false, enforcement: 'full' },
+      })
+      expect((foreground as { stderr: { text: string } }).stderr.text).toMatch(/not.*not found/)
+
+      const background = bash.start(bash.resolve(request))
+      await background.done
+      expect(background.status).toBe('completed')
+      expect(background.exitCode).toBe(127)
+      expect(background.signal).toBeNull()
+      expect(background.sandbox).toEqual({ mode: 'read-only', denied: false, enforcement: 'full' })
+      const output = background.readOutput().delta
+      expect(output).toMatch(/\[stderr\]\n[\s\S]*not.*not found/)
+      expect(output).not.toContain('spawn failed:')
     }
-    expect(background).toMatchObject({ code: 'ENOEXEC', syscall: 'spawn' })
-    expect((background as { path?: unknown }).path).toBeUndefined()
-    expect(background).not.toBeInstanceOf(SandboxUnavailableError)
+
     const accounting = (bash as unknown as { processFacts: Map<unknown, unknown> }).processFacts
     expect(accounting.size).toBe(0)
   })
