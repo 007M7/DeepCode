@@ -222,7 +222,6 @@ export class TestSessions implements ISessions {
       id,
       displayTitle: fixture.id,
       running: false,
-      waitingApproval: false,
       blank: false,
       updatedAt: this.records.size + 1,
       ...fixture.summary,
