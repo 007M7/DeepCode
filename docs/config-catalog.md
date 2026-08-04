@@ -1020,7 +1020,8 @@ export interface Config {
    * Override the runner argv; bwrap-shaped profile arguments are appended. A
    * non-empty override asserts full enforcement and skips built-in selection and
    * probing. A runner that starts but refuses its profile must be identifiable by
-   * {@link runnerFailureSignatures}; spawn rejection remains a consumer-owned
+   * {@link runnerFailureSignatures}. Consumers classify spawn rejection; only
+   * attributable `ENOENT` or `EACCES` with runner argv[0] provenance becomes an
    * infrastructure failure.
    */
   runnerCommand?: string[]
