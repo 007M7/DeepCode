@@ -55,12 +55,17 @@ export default defineConfig({
       'packages/sdk/*/tests/**/*.snapshot.ts',
       'packages/ui/tui/tests/**/*.snapshot.ts',
     ],
-    // Each test boots a subprocess; give it room and keep the worker file singular. Replay tests
-    // opt into bounded in-file concurrency, while record/refresh stay serial because they write
-    // fixtures. The environment knob restores serial replay with value 1 on constrained machines.
+    // Replay never writes committed outputs and every scenario owns its
+    // mutable runtime state (the subprocess suites use a unique temp dir and
+    // fixture set per scenario), so replay runs the snapshot files in
+    // parallel and bounds in-file concurrency with the environment knob
+    // (value 1 restores fully serial replay on constrained machines). Record
+    // and refresh stay serial: record spends real API quota per scenario, and
+    // refresh write-back harvests volatile values from fixtures already on
+    // disk, so concurrent writers would corrupt goldens.
     testTimeout: 120_000,
     hookTimeout: 30_000,
-    fileParallelism: false,
+    fileParallelism: (process.env.DSH_SNAPSHOT || 'replay') === 'replay' && snapshotMaxConcurrency > 1,
     maxConcurrency: snapshotMaxConcurrency,
   },
 })
