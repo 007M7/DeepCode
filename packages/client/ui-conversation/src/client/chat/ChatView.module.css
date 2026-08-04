@@ -99,6 +99,15 @@
   animation: dsh-turn-status-shimmer 1.8s linear infinite;
 }
 
+.turnStatusClock {
+  margin-left: 8px;
+  font: var(--dsw-font-xs-13);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-caption);
+  -webkit-text-fill-color: var(--dsw-alias-label-caption);
+}
+
 @keyframes dsh-turn-status-shimmer {
   to {
     background-position: 0 0;

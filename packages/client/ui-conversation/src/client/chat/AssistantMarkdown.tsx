@@ -27,6 +27,9 @@ export interface AssistantMarkdownProps {
   /** Unix epoch ms for the IconActions clock; omitted while streaming or when
    *  the parent withholds chrome (mid-turn content assistants). */
   time?: number | undefined
+  /** Turn wall time in ms for the IconActions run-time label; omitted when the
+   *  turn's triggering input is outside the loaded window. */
+  runMs?: number | undefined
   /** Event sequence used as the fork boundary; omitted while streaming. */
   seq?: number | undefined
   /** Fork the session through this finalized message's completed turn when eligible. */
@@ -79,7 +82,7 @@ function ThinkRow({ text, running, t }: { text: string; running: boolean; t: Ass
 }
 
 export const AssistantMarkdown = memo(function AssistantMarkdown({
-  blocks, streaming, interrupted, time, seq, onFork, forkUnavailable, t,
+  blocks, streaming, interrupted, time, runMs, seq, onFork, forkUnavailable, t,
 }: AssistantMarkdownProps) {
   // Stable per locale revision (t identity changes on switch): a fresh object
   // per render would rebuild MarkdownText's component table every chunk.
@@ -95,7 +98,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
   // Footer only under settled content text; Think-only / streaming omit it.
   const showActions = !streaming && time !== undefined && hasContentText(blocks)
   return (
-    <div className={css.root} data-streaming={streaming || undefined}>
+    <div className={css.root} data-streaming={streaming || undefined} data-time-hover-root>
       <div className={css.body}>
         {blocks.map((block, i) => {
           switch (block.kind) {
@@ -121,6 +124,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
         <MessageIconActions
           text={copyText(blocks)}
           time={time}
+          runMs={runMs}
           clock="end"
           onBranch={onFork === undefined || seq === undefined ? undefined : () => { onFork(seq) }}
           branchUnavailable={forkUnavailable}

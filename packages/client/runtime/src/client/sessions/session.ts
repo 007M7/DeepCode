@@ -115,6 +115,11 @@ export class Session implements SessionFace {
   private pendingCache: { rev: number; value: PendingInteraction[] } | null = null
   private derivedRev = 0
   private nodesCache: { projected: readonly ConversationNode[]; derivedRev: number; value: readonly ConversationNode[] } | null = null
+  /** Exact turn timing retained from the raw window so presentation never
+   *  infers elapsed time from transcript content. */
+  private turnTimings = new Map<number, { startTime: number; endTime?: number }>()
+  private turnTimingsRev = 0
+  private turnTimingsCache: { rev: number; value: ConversationSnapshot['turnTimings'] } | null = null
   /** Completed turn boundaries retained from the raw window so presentation
    *  actions never infer a safe fork point from transcript content alone. */
   private turnEnds = new Map<number, number>()
@@ -803,6 +808,8 @@ export class Session implements SessionFace {
     switch (event.type) {
       case 'turn/start':
         this.lastStepByTurn.set(event.data.turn, 0)
+        this.turnTimings.set(event.data.turn, { startTime: event.time })
+        this.turnTimingsRev++
         return
       case 'step/start':
         this.lastStepByTurn.set(event.data.turn, event.data.step)
@@ -837,6 +844,11 @@ export class Session implements SessionFace {
       }
       case 'turn/end': {
         const lastStep = this.lastStepByTurn.get(event.data.turn) ?? 0
+        const timing = this.turnTimings.get(event.data.turn)
+        if (timing !== undefined) {
+          this.turnTimings.set(event.data.turn, { ...timing, endTime: event.time })
+          this.turnTimingsRev++
+        }
         this.turnEnds.set(event.data.turn, event.seq)
         this.turnEndsRev++
         if (event.data.reason.kind === 'aborted') {
@@ -932,6 +944,8 @@ export class Session implements SessionFace {
     this.callsRev++
     this.derivedNodes = []
     this.derivedRev++
+    this.turnTimings = new Map()
+    this.turnTimingsRev++
     this.turnEnds = new Map()
     this.turnEndsRev++
     this.codeDispatches = new Map()
@@ -965,6 +979,9 @@ export class Session implements SessionFace {
     if (this.callsCache === null || this.callsCache.rev !== this.callsRev) {
       this.callsCache = { rev: this.callsRev, value: [...this.openCalls.values()] }
     }
+    if (this.turnTimingsCache === null || this.turnTimingsCache.rev !== this.turnTimingsRev) {
+      this.turnTimingsCache = { rev: this.turnTimingsRev, value: new Map(this.turnTimings) }
+    }
     if (this.turnEndsCache === null || this.turnEndsCache.rev !== this.turnEndsRev) {
       this.turnEndsCache = { rev: this.turnEndsRev, value: new Map(this.turnEnds) }
     }
@@ -981,6 +998,7 @@ export class Session implements SessionFace {
     return {
       sessionId: this.sessionId,
       nodes,
+      turnTimings: this.turnTimingsCache.value,
       turnEnds: this.turnEndsCache.value,
       partial,
       runningCalls: this.callsCache.value,
