@@ -10,9 +10,9 @@ This package registers the fixed `codex` subagent provider. Each accepted run st
 
 The published `run.result` starts exactly one turn. It accepts only notifications for that run's thread and turn, then waits for the authoritative `turn/completed` terminal notification. The latest `agentMessage` with `phase: "final_answer"` wins; when Codex emits no explicit final phase, the latest message with `phase: null` is the compatibility fallback. Commentary never replaces either answer, and a successful turn with no nonblank answer settles as an error.
 
-The unattended provider answers command and file approvals with `decline`, answers permission requests with an empty turn-scoped permission set, and declines MCP elicitation. Any other server request fails the run instead of waiting for interaction that this provider cannot supply.
+For command and file approvals, the unattended provider selects a non-approval decision offered by the request, preferring `cancel`; the stable 0.146.0 request shape without an offered-decision list falls back to `decline`. It answers permission requests with an empty turn-scoped permission set, answers user-input requests with no answers, and declines MCP elicitation. A request with no legal unattended response, or any unknown server request, fails the run.
 
-Local cancellation wins the result race and maps to `aborted`; a remote interrupted or failed turn maps to `error`. `dispose()` is idempotent: it requests a best-effort `turn/interrupt` when the current ids are known, closes the JSON-RPC wire, ends stdin, invokes the shared process-tree termination escalation, and waits for whole-tree exit. Result failure and independent teardown failure remain separate.
+Local cancellation wins the result race and maps to `aborted`. A failed turn whose `codexErrorInfo` is `contextWindowExceeded` maps to `max-tokens`; every other remote interrupted or failed turn maps to `error`, and this version produces no `refusal`. `dispose()` is idempotent: it requests a best-effort `turn/interrupt` with both current ids when they are known, closes the JSON-RPC wire, ends stdin, invokes the shared process-tree termination escalation, and waits for whole-tree exit. Result failure and independent teardown failure remain separate.
 
 ## Capabilities and context
 
@@ -26,6 +26,8 @@ The provider advertises no optional start-time capabilities and reports `inherit
 | `disposeGraceMs` | `3000` | Positive finite process-tree termination grace in milliseconds; the final exit proof is bounded at twice this value. |
 
 Production resolves `codex` from `PATH` and uses the host's native Codex configuration and authentication. The plugin does not install Codex, select a model, create `CODEX_HOME`, log in, or probe a version. Credential-shaped ambient variables are removed by the subprocess seam, so an API key intended for the child must be supplied explicitly in `env`; ordinary ambient values such as `PATH` and `HOME` remain available unless overridden.
+
+Install this package and add the following rows to your own `cordis.yml`. Shipped CLI configurations do not load this provider or expose `subagent_codex` by default.
 
 ```yaml
 - id: subagent-codex
@@ -45,7 +47,7 @@ Production resolves `codex` from `PATH` and uses the host's native Codex configu
 
 ## Product compatibility and evidence
 
-The production wire intentionally implements only the app-server methods required by this one-shot contract. Development evidence is pinned to `@openai/codex@0.146.0` / `codex-cli 0.146.0`: package tests drive the real binary against a loopback Responses service with a non-empty fake key, and the Loader snapshot fixes the model-visible tool schema, exact tool result, persisted parent Session, original child task, authentication header, and pre-teardown process-tree quiescence. The npm package is a test-only dependency; deployments still supply `codex` on `PATH`.
+The production wire intentionally implements only the app-server methods required by this one-shot contract. Development evidence is pinned to `@openai/codex@0.146.0` / `codex-cli 0.146.0`: the real-product spec drives the official binary against a loopback Responses service with a non-empty fake key and proves the task, authentication, exact answer, cancellation, approvals, and process-tree exit. A separate Loader composition e2e boots the README-shaped user configuration with no `codex` command available, verifies the fixed provider and foreground-only tool schema, and records zero child starts. The npm package is a test-only dependency; deployments still supply `codex` on `PATH`.
 
 ## Model Experience
 

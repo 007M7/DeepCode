@@ -724,9 +724,6 @@ importers:
       '@deepseek-ai/dsh-subagent-spawn':
         specifier: workspace:*
         version: link:../packages/subagent/subagent-spawn
-      '@deepseek-ai/dsh-subprocess':
-        specifier: workspace:*
-        version: link:../packages/subprocess/subprocess
       '@deepseek-ai/dsh-subprocess-local':
         specifier: workspace:*
         version: link:../packages/subprocess/subprocess-local
@@ -4969,6 +4966,9 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
+      '@deepseek-ai/dsh-loader-smoke':
+        specifier: workspace:^
+        version: link:../../support/loader-smoke
       '@deepseek-ai/dsh-sdk-protocol':
         specifier: workspace:^
         version: link:../../sdk/sdk-protocol

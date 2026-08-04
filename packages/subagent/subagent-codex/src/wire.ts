@@ -39,6 +39,25 @@ function string(value: unknown, label: string): string {
   return value
 }
 
+function unattendedDecision(params: JsonObject): 'cancel' | 'decline' {
+  const available = params.availableDecisions
+  if (available === undefined || available === null) return 'decline'
+  if (Array.isArray(available)) {
+    if (available.includes('cancel')) return 'cancel'
+    if (available.includes('decline')) return 'decline'
+  }
+  throw new Error('subagent-codex: app-server offered no unattended approval decision')
+}
+
+function isContextWindowExceeded(turn: JsonObject): boolean {
+  if (turn.status !== 'failed') return false
+  const error = turn.error
+  return error !== null
+    && typeof error === 'object'
+    && !Array.isArray(error)
+    && (error as JsonObject).codexErrorInfo === 'contextWindowExceeded'
+}
+
 function thrown(value: unknown): Error {
   /* v8 ignore next -- typed protocol and stream failures reject with Error. */
   return value instanceof Error ? value : new Error(String(value))
@@ -160,7 +179,7 @@ export class CodexAppServerWire {
    * @param texts - already validated task text blocks.
    * @param signal - local cancellation for the published run.
    * @param cancelled - whether local cancellation has already won.
-   * @returns the shared three-state subagent result.
+   * @returns the shared subagent result.
    */
   async runTurn(
     texts: readonly string[],
@@ -182,6 +201,9 @@ export class CodexAppServerWire {
 
     const terminal = object(completed.turn, 'turn/completed turn')
     const status = terminal.status
+    if (isContextWindowExceeded(terminal)) {
+      return { output: this.collectOutput(), stopReason: 'max-tokens' }
+    }
     if (status !== 'completed') {
       const detail = status === 'failed'
         ? `: ${JSON.stringify(terminal.error)}`
@@ -292,10 +314,13 @@ export class CodexAppServerWire {
         case 'item/commandExecution/requestApproval':
         case 'item/fileChange/requestApproval':
           this.validateRunIds(params)
-          return Promise.resolve({ decision: 'decline' })
+          return Promise.resolve({ decision: unattendedDecision(params) })
         case 'item/permissions/requestApproval':
           this.validateRunIds(params)
           return Promise.resolve({ permissions: {}, scope: 'turn' })
+        case 'item/tool/requestUserInput':
+          this.validateRunIds(params)
+          return Promise.resolve({ answers: {} })
         case 'mcpServer/elicitation/request':
           this.validateRunIds(params, true)
           return Promise.resolve({ action: 'decline', content: null, _meta: null })

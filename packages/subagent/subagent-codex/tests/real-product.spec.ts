@@ -172,8 +172,7 @@ describe('real @openai/codex 0.146.0 product', () => {
     await expectQuiescent(harness.handles)
   }, 20_000)
 
-  it('declines a real app-server command approval without executing the command', async () => {
-    const sentinel = 'REAL_CODEX_APPROVAL_DECLINED'
+  it('cancels a real app-server command approval without executing the command', async () => {
     const { harness, fixture } = await realHarness([
       {
         kind: 'functionCall',
@@ -184,7 +183,6 @@ describe('real @openai/codex 0.146.0 product', () => {
           justification: 'exercise the unattended approval boundary',
         },
       },
-      { kind: 'complete', text: sentinel },
     ])
     const sideEffect = join(harness.workspace, 'approval-side-effect')
     const run = await harness.ctx.subagents.start('codex', {
@@ -193,20 +191,17 @@ describe('real @openai/codex 0.146.0 product', () => {
       signal: new AbortController().signal,
     })
     await expect(run.result).resolves.toEqual({
-      output: [{ type: 'text', text: sentinel }],
-      stopReason: 'completed',
+      output: [],
+      stopReason: 'error',
     })
     await run.dispose()
 
     expect(existsSync(sideEffect)).toBe(false)
-    expect(fixture.requests).toHaveLength(2)
+    expect(fixture.requests).toHaveLength(1)
     const tools = fixture.requests[0]!.body.tools as Array<Record<string, unknown>>
     expect(tools).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'function', name: 'exec_command' }),
     ]))
-    const followup = JSON.stringify(fixture.requests[1]!.body)
-    expect(followup).toContain('call_fixture')
-    expect(followup).toContain('rejected by user')
     expect(fixture.requests.every(requestEntry =>
       requestEntry.headers.authorization === 'Bearer dsh-fake-openai-key',
     )).toBe(true)

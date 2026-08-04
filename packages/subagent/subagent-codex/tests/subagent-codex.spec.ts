@@ -417,6 +417,25 @@ describe('CodexAppServerWire', () => {
     wire.close()
   })
 
+  it('maps only an explicit context-window failure to max-tokens', async () => {
+    const { child, wire } = await initializeWire()
+    const result = wire.runTurn(['task'], new AbortController().signal, () => false)
+    const turnStart = await child.peer.nextMethod('turn/start')
+    child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
+    child.peer.send(
+      agentMessage('partial answer', null),
+      turnCompleted('failed', 'turn-1', 'thread-1', {
+        message: 'too much context',
+        codexErrorInfo: 'contextWindowExceeded',
+      }),
+    )
+    await expect(result).resolves.toEqual({
+      output: [{ type: 'text', text: 'partial answer' }],
+      stopReason: 'max-tokens',
+    })
+    wire.close()
+  })
+
   it('rejects invalid handshake, thread, and turn response shapes', async () => {
     {
       const child = fakeChild()
@@ -516,7 +535,7 @@ describe('CodexAppServerWire', () => {
     wire.close()
   })
 
-  it('answers all four unattended request classes without granting authority', async () => {
+  it('answers all five unattended request classes without granting authority', async () => {
     const { child, wire } = await initializeWire()
     const result = wire.runTurn(['task'], new AbortController().signal, () => false)
     const turnStart = await child.peer.nextMethod('turn/start')
@@ -524,10 +543,14 @@ describe('CodexAppServerWire', () => {
     child.peer.send({
       id: 'command',
       method: 'item/commandExecution/requestApproval',
-      params: { threadId: 'thread-1', turnId: 'turn-1' },
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        availableDecisions: ['decline', 'cancel'],
+      },
     })
     expect(await child.peer.nextResponse('command')).toMatchObject({
-      result: { decision: 'decline' },
+      result: { decision: 'cancel' },
     })
 
     child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
@@ -535,6 +558,16 @@ describe('CodexAppServerWire', () => {
     const requests = [
       {
         id: 'file',
+        method: 'item/fileChange/requestApproval',
+        params: {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          availableDecisions: ['decline'],
+        },
+        result: { decision: 'decline' },
+      },
+      {
+        id: 'file-default',
         method: 'item/fileChange/requestApproval',
         params: { threadId: 'thread-1', turnId: 'turn-1' },
         result: { decision: 'decline' },
@@ -544,6 +577,12 @@ describe('CodexAppServerWire', () => {
         method: 'item/permissions/requestApproval',
         params: { threadId: 'thread-1', turnId: 'turn-1' },
         result: { permissions: {}, scope: 'turn' },
+      },
+      {
+        id: 'user-input',
+        method: 'item/tool/requestUserInput',
+        params: { threadId: 'thread-1', turnId: 'turn-1', questions: [] },
+        result: { answers: {} },
       },
       {
         id: 'mcp',
@@ -568,8 +607,26 @@ describe('CodexAppServerWire', () => {
     for (const serverRequest of [
       {
         id: 'unknown',
-        method: 'item/tool/requestUserInput',
+        method: 'future/request',
         params: { threadId: 'thread-1', turnId: 'turn-1' },
+      },
+      {
+        id: 'approval',
+        method: 'item/commandExecution/requestApproval',
+        params: {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          availableDecisions: ['accept'],
+        },
+      },
+      {
+        id: 'malformed-approval',
+        method: 'item/fileChange/requestApproval',
+        params: {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          availableDecisions: 'decline',
+        },
       },
       {
         id: 'thread',

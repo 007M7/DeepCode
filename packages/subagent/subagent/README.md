@@ -15,6 +15,7 @@ The family separates the stable interface from implementations and model-facing 
 | `@deepseek-ai/dsh-subagent-fork` | In-process child seeded with completed parent turns; supports continuable children. |
 | `@deepseek-ai/dsh-subagent-acp` | Fresh out-of-process ACP child (one-shot). |
 | `@deepseek-ai/dsh-subagent-codex` | Fresh real Codex app-server child with one ephemeral thread and turn (one-shot). |
+| `@deepseek-ai/dsh-subagent-dsh-sdk` | Fresh out-of-process harness child driven through the TypeScript SDK client (one-shot). |
 | `@deepseek-ai/dsh-tool-subagent` | Model-facing delegation tool over one configured provider. |
 | `@deepseek-ai/dsh-tool-subagent-control` | The globally named `send_message` follow-up tool. |
 | `@deepseek-ai/dsh-tool-subagent-report` | Child-scoped return channel to the direct parent. |

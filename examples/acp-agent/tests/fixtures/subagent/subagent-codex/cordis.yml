@@ -1,5 +1,5 @@
-# Test-only composition: one real Codex app-server delegation through the
-# Loader, fixed provider tool, common foreground settlement, and JSONL store.
+# Test-only composition of the public opt-in provider and foreground tool.
+# The owning e2e boots this tree but never invokes the model or Codex.
 - id: fixture
   name: './fixture.ts'
 
@@ -11,17 +11,6 @@
 
 - id: subagent-codex
   name: '@deepseek-ai/dsh-subagent-codex'
-  config:
-    env:
-      OPENAI_API_KEY: !!js process.env.DSH_TEST_OPENAI_API_KEY
-      CODEX_HOME: !!js process.env.DSH_TEST_CODEX_HOME
-      HOME: !!js process.cwd()
-      XDG_CONFIG_HOME: !!js process.cwd() + '/xdg'
-      PATH: !!js process.env.PATH
-      HTTP_PROXY: ''
-      HTTPS_PROXY: ''
-      ALL_PROXY: ''
-      NO_PROXY: '127.0.0.1,localhost'
 
 - id: tool-subagent-codex
   name: '@deepseek-ai/dsh-tool-subagent'
@@ -36,7 +25,5 @@
   config:
     provider: mock
     model: mock-delegate
-    persona: 'Delegate the task through the fixed Codex tool.'
-    persistenceRoot: './.sessions'
-    persistenceCompression: 'none'
+    persona: 'This composition test must not start a model turn.'
     workspaceContext: false
