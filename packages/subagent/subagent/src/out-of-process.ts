@@ -119,12 +119,8 @@ export function resolveChildCwd(prefix: string, configured: string | undefined, 
   return assertUsableCwd(prefix, 'parent session cwd', parentCwd)
 }
 
-/**
- * Normalize an unknown thrown value to an Error.
- * @param value - the unknown catch binding.
- * @returns the original Error or a defensive Error wrapper.
- */
-export function thrownError(value: unknown): Error {
+/** Normalize an unknown thrown value to an Error (the catch binding is `unknown`). */
+function toError(value: unknown): Error {
   // The rejecting surfaces (wire clients, spawn failures) only throw
   // `Error`s; the `String(value)` arm is a defensive fallback for a non-Error
   // throw the typed surfaces cannot produce.
@@ -168,7 +164,7 @@ export async function settleRunResult(parts: RunResultSettlement): Promise<Subag
     if (parts.cancelled()) return { output: parts.collectOutput(), stopReason: 'aborted' }
     // Flatten post-publication transport failures while preserving diagnostics.
     try {
-      parts.onError?.(thrownError(error), 'error')
+      parts.onError?.(toError(error), 'error')
     } catch {
       // The diagnostic sink cannot reject the run result.
     }

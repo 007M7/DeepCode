@@ -13,7 +13,6 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import {
   settleRunResult,
   subprocessRunHandle,
-  thrownError,
   type SubagentResult,
   type SubagentRun,
   type SubagentStartRequest,
@@ -37,6 +36,11 @@ export interface CodexRunSpec {
   readonly spawn: (spec: SubprocessSpawnSpec) => SubprocessHandle
   /** Diagnostic sink for a post-publication error flattened into a result. */
   readonly onError?: (error: Error, stopReason: SubagentStopReason) => void
+}
+
+function thrown(value: unknown): Error {
+  /* v8 ignore next -- typed subprocess/wire failures reject with Error. */
+  return value instanceof Error ? value : new Error(String(value))
 }
 
 /**
@@ -120,7 +124,7 @@ export async function startCodexRun(
       'subagent-codex: app-server exited before the run settled '
       + `(code ${String(outcome.exitCode)}, signal ${String(outcome.signal)})`,
     )),
-    (error: unknown) => Promise.reject(thrownError(error)),
+    (error: unknown) => Promise.reject(thrown(error)),
   )
   // A normal post-result dispose also closes the process. Keep that expected
   // late rejection observed after the result race has already settled.
@@ -145,14 +149,14 @@ export async function startCodexRun(
       await disposeProcess()
     } catch (disposeError: unknown) {
       throw new AggregateError(
-        [thrownError(error), thrownError(disposeError)],
+        [thrown(error), thrown(disposeError)],
         'subagent-codex: startup failed and app-server cleanup also failed',
       )
     }
     if (runAbort.signal.aborted) {
       throw new Error('subagent-codex: request was aborted before run publication')
     }
-    throw thrownError(error)
+    throw thrown(error)
   }
 
   const collectOutput = (): ContentBlock[] => wire.collectOutput()

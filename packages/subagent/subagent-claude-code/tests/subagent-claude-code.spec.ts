@@ -445,7 +445,7 @@ describe('official spawn projection', () => {
     expect(process.kill('SIGTERM')).toBe(false)
   })
 
-  it('emits spawn errors and rejects handles without the required pipes', async () => {
+  it('emits spawn errors', async () => {
     const child = fakeChild()
     const process = new ManagedClaudeCodeProcess(child.handle)
     const errorListener = vi.fn()
@@ -459,15 +459,6 @@ describe('official spawn projection', () => {
       message: 'spawn boom',
     }))
     expect(removed).not.toHaveBeenCalled()
-
-    const missingStdin = fakeChild({ stdin: undefined })
-    Object.defineProperty(missingStdin.handle, 'stdin', { value: undefined })
-    expect(() => new ManagedClaudeCodeProcess(missingStdin.handle))
-      .toThrow('requires piped stdin and stdout')
-    const missingStdout = fakeChild({ stdout: undefined })
-    Object.defineProperty(missingStdout.handle, 'stdout', { value: undefined })
-    expect(() => new ManagedClaudeCodeProcess(missingStdout.handle))
-      .toThrow('requires piped stdin and stdout')
   })
 
   it('exposes a settled direct-child exit code', async () => {

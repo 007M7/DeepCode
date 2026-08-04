@@ -20,7 +20,6 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import {
   settleRunResult,
   subprocessRunHandle,
-  thrownError,
   type SubagentResult,
   type SubagentRun,
   type SubagentStartRequest,
@@ -39,6 +38,8 @@ import {
 /** Default POSIX grace between subprocess termination tiers. */
 export const DEFAULT_DISPOSE_GRACE_MS = 3_000
 
+/* jscpd:ignore-start -- sibling providers intentionally keep product-private
+ * run inputs and error normalization instead of adding a shared lifecycle owner. */
 /** Fully resolved inputs for one official Claude Agent SDK query. */
 export interface ClaudeCodeRunSpec {
   /** Parent Session workspace supplied to the SDK and real CLI. */
@@ -52,6 +53,12 @@ export interface ClaudeCodeRunSpec {
   /** Diagnostic sink for a post-publication error flattened into a result. */
   readonly onError?: (error: Error, stopReason: SubagentStopReason) => void
 }
+
+function thrown(value: unknown): Error {
+  /* v8 ignore next -- typed SDK and subprocess failures reject with Error. */
+  return value instanceof Error ? value : new Error(String(value))
+}
+/* jscpd:ignore-end */
 
 /**
  * Validate and preserve the one-shot task before crossing the SDK boundary.
@@ -131,7 +138,7 @@ export async function disposeClaudeCodeChild(
   try {
     query?.close()
   } catch (error: unknown) {
-    failures.push(thrownError(error))
+    failures.push(thrown(error))
   }
 
   if (child.pid > 0) {
@@ -139,13 +146,13 @@ export async function disposeClaudeCodeChild(
     try {
       await child.waitForExit()
     } catch (error: unknown) {
-      failures.push(thrownError(error))
+      failures.push(thrown(error))
     }
   }
   try {
     await child.done
   } catch (error: unknown) {
-    failures.push(thrownError(error))
+    failures.push(thrown(error))
   }
 
   const firstFailure = failures[0]
@@ -234,7 +241,7 @@ export async function startClaudeCodeRun(
         await disposeClaudeCodeChild(query, child)
       } catch (disposeError: unknown) {
         throw new AggregateError(
-          [thrownError(error), thrownError(disposeError)],
+          [thrown(error), thrown(disposeError)],
           'subagent-claude-code: startup failed and CLI cleanup also failed',
         )
       }
@@ -243,7 +250,7 @@ export async function startClaudeCodeRun(
         query.close()
       } catch (disposeError: unknown) {
         throw new AggregateError(
-          [thrownError(error), thrownError(disposeError)],
+          [thrown(error), thrown(disposeError)],
           'subagent-claude-code: startup failed and query cleanup also failed',
         )
       }
@@ -252,7 +259,7 @@ export async function startClaudeCodeRun(
     if (cancelledBeforeCleanup || request.signal.aborted) {
       throw new Error('subagent-claude-code: request was aborted before SDK startup')
     }
-    throw thrownError(error)
+    throw thrown(error)
   }
 
   const publishedQuery = query

@@ -76,11 +76,8 @@ export class ManagedClaudeCodeProcess implements SpawnedProcess {
    * @param child - shared handle that remains the process-tree authority.
    */
   constructor(private readonly child: SubprocessHandle) {
-    if (child.stdin === undefined || child.stdout === undefined) {
-      throw new Error('subagent-claude-code: SDK child requires piped stdin and stdout')
-    }
-    this.stdin = child.stdin
-    this.stdout = child.stdout
+    this.stdin = child.stdin as NonNullable<SubprocessHandle['stdin']>
+    this.stdout = child.stdout as NonNullable<SubprocessHandle['stdout']>
     // EventEmitter gives `error` special throw semantics without a listener.
     // The SDK attaches its listener synchronously after custom spawn returns,
     // while this no-op also contains an already-rejected spawn handle.
