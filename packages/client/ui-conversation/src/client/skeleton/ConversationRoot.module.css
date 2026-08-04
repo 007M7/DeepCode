@@ -182,6 +182,17 @@
   flex-direction: column;
   min-height: 0;
   overflow-y: auto;
+  /* One reserved gutter for every view, because the composer seat takes its
+     horizontal geometry from two different edges: in Chat it is a sticky CHILD
+     of this scroller and so rides the content box, which the scrollbar
+     shortens, while under a view's composer overlay it is positioned against
+     the padding box, which the scrollbar never reduces. `auto` would reserve
+     only while this box overflows, which is precisely the difference between
+     the two states, so the input card would move sideways by the bar's width
+     on every tab switch — and inside Chat alone the moment a growing
+     transcript starts to scroll. `stable` makes both edges the same edge at
+     every content height. */
+  scrollbar-gutter: stable;
 }
 
 .root[data-phase='active'] .viewArea {
@@ -212,7 +223,16 @@
    ownership of the seat geometry and its active-phase precedence. */
 .scrollBody:has([data-conversation-composer-overlay]) {
   position: relative;
-  overflow: hidden;
+  /* Still a box nothing scrolls out of — the view fills it and the seat is out
+     of flow — but declared as a scroll container on the same axes as the Chat
+     state instead of `overflow: hidden`, so the reservation above reaches this
+     state too: WebKit honours `scrollbar-gutter` on an `overflow-y: auto` box
+     and ignores it on a hidden one (measured for the composer's own layers,
+     see InputBar.module.css). The horizontal axis is declared rather than left
+     to compute, because a box that scrolls on one axis computes `visible` on
+     the other to `auto` and would grow a horizontal bar of its own. */
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .scrollBody:has([data-conversation-composer-overlay]) > .viewArea {
