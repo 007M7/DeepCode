@@ -10,6 +10,11 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
+import type {
+  Query,
+  SDKMessage,
+  SDKSystemMessage,
+} from '@anthropic-ai/claude-agent-sdk'
 import { Context } from 'cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -22,6 +27,39 @@ import {
   type MessagesBehavior,
   type MessagesFixture,
 } from './messages-fixture.ts'
+
+const observedSdkMessages = vi.hoisted((): SDKMessage[] => [])
+
+vi.mock('@anthropic-ai/claude-agent-sdk', async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import('@anthropic-ai/claude-agent-sdk')
+  >()
+  return {
+    ...actual,
+    query(options: Parameters<typeof actual.query>[0]): Query {
+      const query = actual.query(options)
+      // Observe the real SDK stream without replacing its protocol or CLI.
+      return new Proxy(query, {
+        get(target, property) {
+          if (property === Symbol.asyncIterator) {
+            return async function* (): AsyncGenerator<SDKMessage, void> {
+              for await (const message of target) {
+                observedSdkMessages.push(message)
+                yield message
+              }
+            }
+          }
+          const value: unknown = Reflect.get(target, property, target)
+          if (typeof value === 'function') {
+            const method = value as (...args: unknown[]) => unknown
+            return method.bind(target)
+          }
+          return value
+        },
+      })
+    },
+  }
+})
 
 const execFileAsync = promisify(execFile)
 const sdkRoot = dirname(fileURLToPath(
@@ -54,6 +92,7 @@ afterEach(async () => {
   for (const root of roots.splice(0)) {
     rmSync(root, { recursive: true, force: true })
   }
+  observedSdkMessages.length = 0
 })
 
 interface RealHarness {
@@ -168,10 +207,16 @@ describe('real Claude Agent SDK 0.3.220 and Claude Code 2.1.220', {
     })
     await run.dispose()
 
+    const initMessage = observedSdkMessages.find(
+      (message): message is SDKSystemMessage =>
+        message.type === 'system' && message.subtype === 'init',
+    )
+    expect(initMessage?.claude_code_version).toBe('2.1.220')
+
     expect(fixture.requests).toHaveLength(1)
     const recorded = fixture.requests[0]!
     expect(recorded.method).toBe('POST')
-    expect(recorded.path).toMatch(/^\/v1\/messages(?:\\?|$)/)
+    expect(recorded.path).toMatch(/^\/v1\/messages(?:\?.*)?$/)
     expect(recorded.headers['x-api-key']).toBe(fakeKey)
     expect(recorded.body.model).toBe(settingsModel)
     expect(Array.isArray(recorded.body.messages)).toBe(true)

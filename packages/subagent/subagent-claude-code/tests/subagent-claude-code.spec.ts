@@ -341,6 +341,17 @@ describe('task admission and package contracts', () => {
       disposeGraceMs: 29,
     })
 
+    await expect(ctx.subagents.start('claude-code', {
+      ...request(),
+      parent: {
+        id: 'parent-without-cwd',
+        session: { header: {} },
+      } as unknown as Agent,
+    })).rejects.toThrow(
+      'subagent-claude-code: no working directory for the child — delegate from a parent session that has one',
+    )
+    expect(queryMock).not.toHaveBeenCalled()
+
     const run = await ctx.subagents.start('claude-code', request())
     child.settle({ exitCode: 9, signal: null })
     child.stdout.end()

@@ -99,7 +99,7 @@ export async function startMessagesFixture(
     request.on('data', (chunk: Buffer) => { chunks.push(chunk) })
     request.on('end', () => {
       const path = request.url ?? ''
-      if (!path.startsWith('/v1/messages')) {
+      if (path !== '/v1/messages' && !path.startsWith('/v1/messages?')) {
         response.writeHead(404, { 'content-type': 'application/json' })
         response.end(JSON.stringify({
           type: 'error',

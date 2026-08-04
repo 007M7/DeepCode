@@ -60,11 +60,17 @@ class ClaudeCodeProvider implements SubagentProvider {
   ) {}
 
   start(request: ResolvedSubagentStartRequest) {
+    const parentCwd = request.parent.session.header.cwd
+    if (parentCwd === undefined) {
+      throw new Error(
+        'subagent-claude-code: no working directory for the child — delegate from a parent session that has one',
+      )
+    }
     const spec: ClaudeCodeRunSpec = {
       cwd: resolveChildCwd(
         'subagent-claude-code',
         undefined,
-        request.parent.session.header.cwd,
+        parentCwd,
       ),
       env: this.config.env,
       disposeGraceMs: this.config.disposeGraceMs,

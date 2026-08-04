@@ -54,7 +54,7 @@ bash seam（[能力 seam](../architecture/2026-06-13-capability-seams.md)）在�
 
 ### 子 agent 隔离与父日志
 
-每个 subagent 运行在**自己的 `Session`** 中（独立 id、`parentSession` 谱系），独立持久化。父日志仅记录 spawn `tool/call` 及其 `tool/result`（子 agent 的最终输出）——子 agent 的内部步骤和工具调用留在子 agent 自己的会话中，绝不注入父日志。这是唯一在所有传输方式下行为一致的设计：ACP 子 agent 的内部事件在物理上无法注入我们的父日志，因此让进程内行为保持一致，使 seam 真正与传输方式无关。
+每个进程内 subagent 运行在**自己的 `Session`** 中（独立 id、`parentSession` 谱系），独立持久化。远端 ACP 和一次性产品提供方则会生成一个父级作用域的生命周期 id，且不暴露本地 `Agent` 或子 `Session`；其内部状态留在远端进程中。两种形式下，父日志都仅记录 spawn `tool/call` 及其 `tool/result`（子 agent 的最终输出），而子 agent 的步骤和工具调用均留在父日志之外。
 
 ### 同步收集（首版）
 

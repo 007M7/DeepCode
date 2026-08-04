@@ -54,7 +54,7 @@ Fresh and forked children are separate providers, not a request flag. `dsh-subag
 
 ### Child isolation and the parent log
 
-Each subagent runs in its **own `Session`** (own id, `parentSession` lineage), persisted independently. The parent's log records only the spawn `tool/call` and its `tool/result` (the child's final output) — the child's internal steps and tool calls stay in the child's own session, never injected into the parent log. This is the only design that is identical across transports: an ACP child's internal events physically cannot be injected into our parent log, so making in-process behave the same keeps the seam transport-agnostic.
+Each in-process subagent runs in its **own `Session`** (own id, `parentSession` lineage), persisted independently. Remote ACP and one-shot product providers instead mint a parent-scoped lifecycle id and expose no local `Agent` or child `Session`; their internal state remains in the remote process. Across both forms, the parent's log records only the spawn `tool/call` and its `tool/result` (the child's final output), while child steps and tool calls remain outside the parent log.
 
 ### Synchronous collect (first cut)
 
