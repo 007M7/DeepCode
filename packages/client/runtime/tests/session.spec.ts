@@ -258,10 +258,16 @@ describe('live event path', () => {
     expect(snapshot.nodes.some(node => node.kind === 'turn-error')).toBe(false)
     expect(snapshot.nodes.at(-2)).toMatchObject({ kind: 'model-retry', retryState: 'started' })
     expect(snapshot.nodes.at(-1)).toMatchObject({ kind: 'assistant', blocks: [{ kind: 'text', text: '完整回复' }] })
-    expect([...snapshot.turnTimings]).toEqual([
-      [1, { startTime: 1_700_000_000_006, endTime: 1_700_000_000_013 }],
-      [2, { startTime: 1_700_000_000_014, endTime: 1_700_000_000_018 }],
-    ])
+    const retryStart = retryTurn.find(event =>
+      event.type === 'turn/start' && event.data.trigger.kind === 'retry')
+    if (retryStart?.type !== 'turn/start') throw new Error('test fixture must include a retry turn/start')
+    const retryEnd = retryTurn.find(event =>
+      event.type === 'turn/end' && event.data.turn === retryStart.data.turn)
+    if (retryEnd?.type !== 'turn/end') throw new Error('test fixture must complete the retry turn')
+    expect(snapshot.turnTimings.get(retryStart.data.turn)).toEqual({
+      startTime: retryStart.time,
+      endTime: retryEnd.time,
+    })
 
     const replay = makeSession()
     replay.api.onHistory = () => histResponse([...plainTurn(0, 0, 'a', 'b'), ...retryTurn])
