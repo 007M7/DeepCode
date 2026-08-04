@@ -6,7 +6,9 @@ import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type {
   SessionHistoryFace, SessionHistorySnapshot,
 } from '../contract/session-history.ts'
-import { createHistoryInspection } from '../sessions/history.ts'
+import {
+  compactHistoryInspectionEntries, createHistoryInspection,
+} from '../sessions/history.ts'
 import { Notifier } from '../sessions/notifier.ts'
 import { PartialAccumulator } from '../sessions/partial.ts'
 
@@ -18,7 +20,8 @@ function isAborted(signal: AbortSignal | undefined): boolean {
 
 /** Independent raw-history owner used only by inspection consumers. */
 export class SessionHistorySource implements SessionHistoryFace {
-  private entries: readonly HistoryEntry[] = []
+  private entries: HistoryEntry[] = []
+  private inspectionEntries: readonly HistoryEntry[] = []
   private baseSeq = 0
   private hasMore = false
   private state: SessionHistorySnapshot['state'] = 'cold'
@@ -135,6 +138,7 @@ export class SessionHistorySource implements SessionHistoryFace {
     this.liveBuffer = []
     this.subscribedLastSeq = null
     this.entries = []
+    this.inspectionEntries = []
     this.baseSeq = 0
     this.hasMore = false
     this.state = 'cold'
@@ -250,6 +254,7 @@ export class SessionHistorySource implements SessionHistoryFace {
           return
         }
         this.entries = [...older, ...this.entries]
+        this.inspectionEntries = compactHistoryInspectionEntries([...this.entries])
         this.baseSeq = older[0]?.event.seq ?? this.baseSeq
         this.hasMore = result.value.hasMore
       } catch (error) {
@@ -281,6 +286,7 @@ export class SessionHistorySource implements SessionHistoryFace {
       this.entries = [...prefix, ...tail]
     }
     this.baseSeq = this.entries[0]?.event.seq ?? 0
+    this.inspectionEntries = compactHistoryInspectionEntries([...this.entries])
     const buffered = this.liveBuffer
     this.liveBuffer = []
     for (const entry of buffered) this.appendLive(entry)
@@ -314,7 +320,11 @@ export class SessionHistorySource implements SessionHistoryFace {
   private appendLive(entry: HistoryEntry): void {
     const tailSeq = this.tailSeq()
     if (tailSeq !== null && entry.event.seq <= tailSeq) return
-    this.entries = [...this.entries, entry]
+    this.entries.push(entry)
+    this.inspectionEntries = [...this.inspectionEntries, entry]
+    if (entry.event.type === 'assistant/message') {
+      this.inspectionEntries = compactHistoryInspectionEntries(this.inspectionEntries)
+    }
   }
 
   /** Append a chunk against the cached finalized projection; false means no visible publish. */
@@ -326,7 +336,7 @@ export class SessionHistorySource implements SessionHistoryFace {
     if (!isVisibleAssistantChunk(chunk.type)) {
       const inspection = this.currentInspection()
       this.appendLive(entry)
-      this.inspectionCache = { entries: this.entries, value: inspection }
+      this.inspectionCache = { entries: this.inspectionEntries, value: inspection }
       return false
     }
     const base = this.currentInspection()
@@ -345,7 +355,7 @@ export class SessionHistorySource implements SessionHistoryFace {
     this.streamPartial.push(chunk)
     this.appendLive(entry)
     this.inspectionCache = {
-      entries: this.entries,
+      entries: this.inspectionEntries,
       value: { ...base, partial: this.streamPartial.toPartial() },
     }
     return true
@@ -410,8 +420,8 @@ export class SessionHistorySource implements SessionHistoryFace {
 
   /** Inspection pinned to the source's current immutable entry array. */
   private currentInspection(): SessionHistorySnapshot['inspection'] {
-    if (this.inspectionCache?.entries !== this.entries) {
-      const entries = this.entries
+    if (this.inspectionCache?.entries !== this.inspectionEntries) {
+      const entries = this.inspectionEntries
       this.inspectionCache = {
         entries,
         value: createHistoryInspection(() => entries),

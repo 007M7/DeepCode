@@ -164,7 +164,7 @@
   border-bottom: 0;
 }
 
-.table tbody tr[data-request-only='true']:last-child td {
+.table tbody tr[data-terminal-request-boundary='true'] td {
   /* Retain the lower half of the 16px boundary marker at the table's end. */
   height: 9px;
 }

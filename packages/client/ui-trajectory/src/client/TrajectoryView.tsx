@@ -373,10 +373,6 @@ export function TrajectoryView({
     selectedNodes, partialTurn, partialStep,
     runningCalls, selectedRequests, callSchemas, codeDispatches,
   ])
-  const turns = useMemo(
-    () => appendTrajectoryPartialLayout(finalized.turns, partial, finalized.lastIndex),
-    [finalized, partial],
-  )
   const timelinePartialSignature = partialStructureSignature(partial)
   const timelinePartial = useMemo<ConversationSnapshot['partial']>(() => partial === null
     ? null
@@ -400,6 +396,12 @@ export function TrajectoryView({
   const partialSearchTurns = useMemo(
     () => appendTrajectoryPartialLayout([], partial, finalized.lastIndex),
     [finalized.lastIndex, partial],
+  )
+  const streamingCells = useMemo(
+    () => partialSearchTurns.flatMap(turn =>
+      turn.groups.flatMap(group => group.cells),
+    ),
+    [partialSearchTurns],
   )
   const partialSearchMatches = useMemo(
     () => searchMatches(partialSearchTurns, searchQuery),
@@ -426,8 +428,22 @@ export function TrajectoryView({
       setTimelineSelection(null)
     }
   }, [timelineFocusIndexes])
+  const handleTimelineRangeChange = useCallback((range: TrajectoryTimeRange | null) => {
+    setTimelineSelection(range === null ? null : {
+      branchKey: currentBranch.key,
+      range,
+    })
+  }, [currentBranch.key])
+  const handleTimelineRecordSelect = useCallback((index: number) => {
+    setTimelineSelection(null)
+    setTimelineRecordSelection({ index })
+    setSelectedTimelineIndex(index)
+  }, [])
+  const handleTimelineRecordFocus = useCallback((index: number) => {
+    setTimelineRecordFocus({ index })
+  }, [])
   const collapsibleTurnIds = useMemo(
-    () => turns
+    () => timelineTurns
       .filter(turn =>
         turn.turn !== null
         &&
@@ -438,13 +454,13 @@ export function TrajectoryView({
           0,
         ) > 1)
       .flatMap(turn => turn.turn === null ? [] : [turn.turn]),
-    [turns],
+    [timelineTurns],
   )
   const allTurnsCollapsed = collapsibleTurnIds.length > 0
     && collapsibleTurnIds.every(turn => collapsedTurns.has(turn))
   const collapsibleAssistantIds = useMemo(() => {
     const ids: string[] = []
-    for (const turn of turns) {
+    for (const turn of timelineTurns) {
       const cells = turn.groups.flatMap(group => group.cells)
       for (let i = 0; i < cells.length; i++) {
         const cell = cells[i]
@@ -456,7 +472,7 @@ export function TrajectoryView({
       }
     }
     return ids
-  }, [turns])
+  }, [timelineTurns])
   const allAssistantsCollapsed = collapsibleAssistantIds.length > 0
     && collapsibleAssistantIds.every(index => collapsedAssistants.has(index))
 
@@ -537,26 +553,16 @@ export function TrajectoryView({
         onLoadEarlier={loadEarlierHistory}
         selectedIndex={selectedTimelineIndex}
         searchMatchIndexes={searchMatchIndexes}
-        onRangeChange={(range) => {
-          setTimelineSelection(range === null ? null : {
-            branchKey: currentBranch.key,
-            range,
-          })
-        }}
-        onRecordSelect={(index) => {
-          setTimelineSelection(null)
-          setTimelineRecordSelection({ index })
-          setSelectedTimelineIndex(index)
-        }}
-        onRecordFocus={(index) => {
-          setTimelineRecordFocus({ index })
-        }}
+        onRangeChange={handleTimelineRangeChange}
+        onRecordSelect={handleTimelineRecordSelect}
+        onRecordFocus={handleTimelineRecordFocus}
       />
       <div className={css.ledger}>
         <TrajectoryTable
           key={currentBranch.key}
           requestNumbers={requestNumbers}
-          turns={turns}
+          turns={timelineTurns}
+          streamingCells={streamingCells}
           timelineFocusIndexes={timelineFocusIndexes}
           searchMatchIndexes={searchMatchIndexes}
           onSelectedIndexChange={setSelectedTimelineIndex}

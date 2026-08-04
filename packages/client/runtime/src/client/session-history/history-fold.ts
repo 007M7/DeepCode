@@ -78,28 +78,61 @@ function isTokenDelta(chunk: SessionEvent<'assistant/chunk'>['data']['chunk']): 
 
 function foldContexts(
   events: readonly SessionEvent[],
-  baseSeq: number,
 ): readonly FoldedContext[] {
   const replay: SessionEvent[] = []
-  const surface = new SurfaceManager(replay, baseSeq)
+  const originalSeqs: number[] = []
+  const rebasedSeqByOriginal = new Map<number, number>()
+  const surface = new SurfaceManager(replay)
   const contexts: FoldedContext[] = []
   let generation = 0
   let originSeq: number | undefined
+  const originalNodes = () => surface.nodes.map((seq) => {
+    const original = originalSeqs[seq]
+    if (original === undefined) throw new Error(`rebased surface seq ${seq} has no origin`)
+    return original
+  })
   for (const event of events) {
-    if (isSurfaceEvent(event) && event.surfaceOp !== 'append') {
+    if (!isSurfaceEvent(event)) continue
+    if (event.surfaceOp !== 'append') {
       contexts.push({
         generation,
-        nodes: [...surface.nodes],
+        nodes: originalNodes(),
         ...(originSeq === undefined ? {} : { originSeq }),
       })
       generation++
       originSeq = event.seq
     }
-    replay.push(event)
+    const rebasedSeq = replay.length
+    const {
+      sourceEventSeqs: rawSources,
+      ...eventWithoutSources
+    } = event as SessionEvent & { sourceEventSeqs?: readonly number[] }
+    const mappedSourceEventSeqs = rawSources?.flatMap((seq) => {
+      const rebased = rebasedSeqByOriginal.get(seq)
+      return rebased === undefined ? [] : [rebased]
+    })
+    const sourceEventSeqs = mappedSourceEventSeqs?.length === 0
+      ? undefined
+      : mappedSourceEventSeqs
+    const surfaceOp = event.surfaceOp === 'append'
+      ? event.surfaceOp
+      : {
+        ...event.surfaceOp,
+        start: rebasedSeqByOriginal.get(event.surfaceOp.start) ?? event.surfaceOp.start,
+        end: rebasedSeqByOriginal.get(event.surfaceOp.end) ?? event.surfaceOp.end,
+      }
+    originalSeqs.push(event.seq)
+    rebasedSeqByOriginal.set(event.seq, rebasedSeq)
+    replay.push({
+      ...eventWithoutSources,
+      seq: rebasedSeq,
+      surfaceOp,
+      ...(sourceEventSeqs === undefined ? {} : { sourceEventSeqs }),
+    } as SessionEvent)
   }
   contexts.push({
     generation,
-    nodes: [...surface.nodes],
+    nodes: originalNodes(),
     ...(originSeq === undefined ? {} : { originSeq }),
   })
   return contexts
@@ -327,6 +360,7 @@ export function projectConversationHistory(
 ): ConversationHistoryProjection {
   const events = entries.map(entry => entry.event)
   const baseSeq = events[0]?.seq ?? 0
+  const eventsBySeq = new Map(events.map(event => [event.seq, event]))
   const callIndex = new Map<string, CallIndexEntry>()
   const resultViews = new Map<number, ToolResultView>()
   const assistantSteps = new Map<string, AssistantStepMetadata>()
@@ -396,7 +430,7 @@ export function projectConversationHistory(
   const materialize = (seq: number): ConversationNode | undefined => {
     const cached = nodeCache.get(seq)
     if (cached !== undefined) return cached
-    const event = events[seq - baseSeq]
+    const event = eventsBySeq.get(seq)
     if (event === undefined || !isSurfaceEligibleType(event.type)) return
     const node = materializeNode(
       event,
@@ -422,7 +456,7 @@ export function projectConversationHistory(
     }]
   } else {
     try {
-      contexts = foldContexts(events, baseSeq).map((context): ConversationContext => {
+      contexts = foldContexts(events).map((context): ConversationContext => {
         const nodes = context.nodes.flatMap((seq) => {
           const node = materialize(seq)
           return node === undefined ? [] : [node]
@@ -435,7 +469,7 @@ export function projectConversationHistory(
             nodes,
           }
         }
-        const originEvent = events[context.originSeq - baseSeq]
+        const originEvent = eventsBySeq.get(context.originSeq)
         return {
           id: context.generation,
           parentId: context.generation - 1,

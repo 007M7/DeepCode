@@ -323,7 +323,7 @@ describe('TrajectoryTable', () => {
     expect(tablePane.scrollTop).toBe(20)
   })
 
-  it('loads one older page at the top and preserves the visible anchor', async () => {
+  it('preserves the visible anchor when the last older page disables virtualization', async () => {
     let resolveOlder: ((advanced: boolean) => void) | undefined
     const older = new Promise<boolean>((resolve) => { resolveOlder = resolve })
     const onLoadOlder = vi.fn(() => older)
@@ -362,7 +362,6 @@ describe('TrajectoryTable', () => {
         }, ...TURNS]}
         {...FOLD_PROPS}
         historyStartSeq={0}
-        hasOlderRecords
         onLoadOlder={onLoadOlder}
       />,
     )
@@ -382,6 +381,21 @@ describe('TrajectoryTable', () => {
 
     expect(screen.queryByRole('status')).toBeNull()
     expect(screen.getByRole('table').getAttribute('data-scroll-ready')).toBe('true')
+  })
+
+  it('keeps a paged tail virtualized before its loaded window crosses the row threshold', async () => {
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(600)
+    Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
+      configurable: true,
+      value: vi.fn(),
+    })
+    const view = render(
+      <TrajectoryTable turns={TURNS} {...FOLD_PROPS} hasOlderRecords />,
+    )
+
+    await waitFor(() => {
+      expect(view.container.querySelector('tr[data-virtual-position]')).toBeTruthy()
+    })
   })
 
   it('mounts only the visible window for a long ledger', async () => {
@@ -409,6 +423,9 @@ describe('TrajectoryTable', () => {
     })
     expect(view.container.querySelectorAll('tr[data-virtual-position]').length)
       .toBeLessThan(cells.length)
+    expect(screen.getByRole('table').getAttribute('aria-rowcount')).toBe('500')
+    expect(view.container.querySelector('tr[data-trajectory-row-key]')
+      ?.getAttribute('aria-rowindex')).toBe('1')
     expect(scrollTo).toHaveBeenCalled()
     expect(view.container.querySelector('tr[data-virtual-spacer="bottom"]')).toBeTruthy()
     expect(screen.getByText('Context 1')).toBeTruthy()
@@ -424,6 +441,47 @@ describe('TrajectoryTable', () => {
     })
     expect(view.container.querySelector('tr[data-virtual-spacer="top"]')).toBeTruthy()
     expect(screen.queryByText('Context 1')).toBeNull()
+  })
+
+  it('does not re-scroll a virtual ledger when streaming only changes row content', async () => {
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(600)
+    const scrollTo = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
+      configurable: true,
+      value: scrollTo,
+    })
+    const cells = Array.from({ length: 500 }, (_, index) => ({
+      index: index + 1,
+      kind: 'context' as const,
+      sourceSeq: index + 1,
+      text: `Context ${index + 1}`,
+      timeSeconds: 0,
+    }))
+    const turns: readonly TrajectoryTurnModel[] = [{
+      turn: 1,
+      groups: [{ title: 'Context', cells }],
+    }]
+    const view = render(
+      <TrajectoryTable
+        turns={turns}
+        {...FOLD_PROPS}
+      />,
+    )
+    await waitFor(() => {
+      expect(view.container.querySelector('tr[data-virtual-position]')).toBeTruthy()
+    })
+    scrollTo.mockClear()
+
+    view.rerender(
+      <TrajectoryTable
+        turns={turns}
+        streamingCells={[{ ...cells[0]!, text: 'Context 1 streaming update' }]}
+        {...FOLD_PROPS}
+      />,
+    )
+
+    expect(scrollTo).not.toHaveBeenCalled()
+    expect(screen.getByText('Context 1 streaming update')).toBeTruthy()
   })
 
   it('keeps the virtual tail reachable with collapsed-summary row heights', async () => {

@@ -20,15 +20,16 @@ import type {
   AssistantMetricDetail, TrajectoryCellKind, TrajectoryCellProps, TrajectorySourceBlock,
 } from './trajectory-record.ts'
 import { formatElapsedSeconds, trajectoryRecordId } from './trajectory-record.ts'
+import {
+  groupTrajectoryVirtualRows, trajectoryVirtualRecordKey,
+} from './trajectory-virtual-rows.ts'
+import type { TrajectoryVirtualRow } from './trajectory-virtual-rows.ts'
 import { trajectoryPreviewText, type TrajectoryTurnModel } from './layout.ts'
 import css from './TrajectoryTable.module.css'
 
 const BOTTOM_FOLLOW_THRESHOLD_PX = 2
 const OLDER_LOAD_THRESHOLD_PX = 48
 const VIRTUALIZATION_THRESHOLD = 100
-const VIRTUAL_ROW_HEIGHT_PX = 30
-const COLLAPSED_SUMMARY_HEIGHT_PX = 20
-const VIRTUAL_FINAL_REQUEST_HEIGHT_PX = 9
 const VIRTUAL_OVERSCAN_ROWS = 12
 const VIRTUAL_INITIAL_VIEWPORT_HEIGHT_PX = 600
 
@@ -123,6 +124,30 @@ interface TableRecord {
   turnEnd: boolean
   collapsedSummary?: string
   collapsedSummaryKind?: 'turn' | 'assistant'
+}
+
+interface VirtualRowStructure {
+  height: number
+  key: string
+}
+
+function useStableVirtualRowStructure(
+  rows: readonly TrajectoryVirtualRow<TableRecord>[],
+): readonly VirtualRowStructure[] {
+  const cache = useRef<{
+    rows: readonly TrajectoryVirtualRow<TableRecord>[]
+    structure: readonly VirtualRowStructure[]
+  }>({ rows: [], structure: [] })
+  if (cache.current.rows === rows) return cache.current.structure
+  const structure = cache.current.structure.length === rows.length
+    && rows.every((row, index) => {
+      const previous = cache.current.structure[index]
+      return previous?.key === row.key && previous.height === row.height
+    })
+    ? cache.current.structure
+    : rows.map(row => ({ key: row.key, height: row.height }))
+  cache.current = { rows, structure }
+  return structure
 }
 
 type DetailTab =
@@ -319,6 +344,8 @@ export interface TrajectoryTableProps {
   requestNumbers?: readonly TrajectoryRequestNumber[]
   /** Grouped records in display order. */
   turns: readonly TrajectoryTurnModel[]
+  /** In-flight cells whose content replaces the matching structural record index. */
+  streamingCells?: readonly TrajectoryCellProps[]
   /** Record indexes emphasized by the active timeline focus. */
   timelineFocusIndexes?: ReadonlySet<number> | null
   /** Record indexes retained by the active live search, or null without a query. */
@@ -424,12 +451,6 @@ function flattenRecords(turns: readonly TrajectoryTurnModel[]): TableRecord[] {
     if (last !== undefined) last.turnEnd = true
     return records
   })
-}
-
-function virtualRecordHeight(record: TableRecord, final: boolean): number {
-  if (record.collapsedSummary !== undefined) return COLLAPSED_SUMMARY_HEIGHT_PX
-  if (record.cell.requestOnly !== true) return VIRTUAL_ROW_HEIGHT_PX
-  return final ? VIRTUAL_FINAL_REQUEST_HEIGHT_PX : 0
 }
 
 function filterRecords(
@@ -1567,6 +1588,7 @@ function OverviewSection({
 export function TrajectoryTable({
   requestNumbers: sessionRequestNumbers,
   turns,
+  streamingCells = [],
   timelineFocusIndexes = null,
   searchMatchIndexes = null,
   onSelectedIndexChange,
@@ -1605,9 +1627,21 @@ export function TrajectoryTable({
   const [olderLoading, setOlderLoading] = useState(false)
   const olderLoadAnchor = useRef<OlderLoadAnchor | null>(null)
   const allRecords = useMemo(() => flattenRecords(turns), [turns])
-  const selected = selectedRecordId === null
+  const streamingCellsByIndex = useMemo(
+    () => new Map(streamingCells.map(cell => [cell.index, cell])),
+    [streamingCells],
+  )
+  const currentRecord = useCallback((record: TableRecord): TableRecord => {
+    const cell = streamingCellsByIndex.get(record.cell.index)
+    return cell === undefined ? record : { ...record, cell }
+  }, [streamingCellsByIndex])
+  const selectedTemplate = useMemo(() => selectedRecordId === null
     ? undefined
-    : allRecords.find(record => trajectoryRecordId(record.cell) === selectedRecordId)
+    : allRecords.find(record => trajectoryRecordId(record.cell) === selectedRecordId),
+  [allRecords, selectedRecordId])
+  const selected = selectedTemplate === undefined
+    ? undefined
+    : currentRecord(selectedTemplate)
   const selectedIndex = selected?.cell.index ?? null
   useEffect(() => {
     onSelectedIndexChange?.(selectedIndex)
@@ -1625,38 +1659,72 @@ export function TrajectoryTable({
       ? turnRecords
       : collapseAssistantRecords(turnRecords, collapsedAssistants)
   }, [allRecords, collapsedAssistants, collapsedTurns, searchMatchIndexes])
-  const virtualizationEnabled = records.length > VIRTUALIZATION_THRESHOLD
+  const projectedVirtualRows = useMemo(
+    () => groupTrajectoryVirtualRows(records),
+    [records],
+  )
+  const virtualRowStructure = useStableVirtualRowStructure(projectedVirtualRows)
+  const virtualizationEnabled = hasOlderRecords
+    || records.length > VIRTUALIZATION_THRESHOLD
+  const estimateVirtualRowSize = useCallback(
+    (index: number) => virtualRowStructure[index]?.height ?? 30,
+    [virtualRowStructure],
+  )
+  const getVirtualRowKey = useCallback(
+    (index: number) => virtualRowStructure[index]?.key ?? index,
+    [virtualRowStructure],
+  )
+  const getTableScrollElement = useCallback(() => tablePaneRef.current, [])
   const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLTableRowElement>({
-    count: virtualizationEnabled ? records.length : 0,
+    count: virtualizationEnabled ? virtualRowStructure.length : 0,
     enabled: virtualizationEnabled,
-    estimateSize: (index) => {
-      const record = records[index]
-      return record === undefined
-        ? VIRTUAL_ROW_HEIGHT_PX
-        : virtualRecordHeight(record, index === records.length - 1)
-    },
-    getItemKey: (index) => {
-      const record = records[index]
-      return record === undefined
-        ? index
-        : `${trajectoryRecordId(record.cell)}:${record.collapsedSummaryKind ?? 'record'}`
-    },
-    getScrollElement: () => tablePaneRef.current,
+    estimateSize: estimateVirtualRowSize,
+    getItemKey: getVirtualRowKey,
+    getScrollElement: getTableScrollElement,
     initialRect: { width: 0, height: VIRTUAL_INITIAL_VIEWPORT_HEIGHT_PX },
+    anchorTo: 'end',
     overscan: VIRTUAL_OVERSCAN_ROWS,
+    scrollEndThreshold: BOTTOM_FOLLOW_THRESHOLD_PX,
   })
-  const virtualRows = virtualizationEnabled ? rowVirtualizer.getVirtualItems() : []
-  const virtualTop = virtualRows[0]?.start ?? 0
-  const virtualBottom = virtualRows.length === 0
+  const virtualIndexByRecordId = useMemo(() => {
+    const indexes = new Map<string, number>()
+    for (const [virtualIndex, row] of projectedVirtualRows.entries()) {
+      for (const entry of row.entries) {
+        if (entry.record.collapsedSummary === undefined) {
+          indexes.set(trajectoryRecordId(entry.record.cell), virtualIndex)
+        }
+      }
+    }
+    return indexes
+  }, [projectedVirtualRows])
+  const virtualItems = virtualizationEnabled ? rowVirtualizer.getVirtualItems() : []
+  const virtualTop = virtualItems[0]?.start ?? 0
+  const virtualBottom = virtualItems.length === 0
     ? 0
-    : Math.max(0, rowVirtualizer.getTotalSize() - (virtualRows.at(-1)?.end ?? 0))
+    : Math.max(0, rowVirtualizer.getTotalSize() - (virtualItems.at(-1)?.end ?? 0))
   const renderedRecords = virtualizationEnabled
-    ? virtualRows.flatMap((row) => {
-      const record = records[row.index]
-      return record === undefined ? [] : [{ record, position: row.index }]
+    ? virtualItems.flatMap((item) => {
+      const row = projectedVirtualRows[item.index]
+      if (row === undefined) return []
+      return row.entries.map((entry, entryIndex) => ({
+        record: currentRecord(entry.record),
+        position: entry.logicalIndex,
+        terminalRequestBoundary:
+          entry.record.cell.requestOnly === true
+          && row.entries.at(-1)?.record.cell.requestOnly === true
+          && entryIndex === row.entries.length - 1,
+      }))
     })
-    : records.map((record, position) => ({ record, position }))
-  const requestBoundaryRuns = indexRequestBoundaryRuns(records)
+    : records.map((record, position) => ({
+      record: currentRecord(record),
+      position,
+      terminalRequestBoundary:
+        record.cell.requestOnly === true && position === records.length - 1,
+    }))
+  const requestBoundaryRuns = useMemo(
+    () => indexRequestBoundaryRuns(records),
+    [records],
+  )
   const selectedPrompt = selected?.cell.kind === 'system'
     ? selected.cell.promptDetail
     : undefined
@@ -1665,12 +1733,13 @@ export function TrajectoryTable({
     : undefined
   const promptSelected = selectedPrompt !== undefined
   const selectedState = selected === undefined ? undefined : stateOf(selected)
-  const selectedRequestRecords = selectedRequest === null
+  const selectedRequestRecordTemplates = useMemo(() => selectedRequest === null
     ? []
     : allRecords.filter(record =>
       record.turn === selectedRequest.turn
         && record.group === selectedRequest.group,
-    )
+    ), [allRecords, selectedRequest])
+  const selectedRequestRecords = selectedRequestRecordTemplates.map(currentRecord)
   const selectedRequestAssistant = selectedRequestRecords.find(
     record => record.cell.kind === 'message',
   )
@@ -1698,9 +1767,12 @@ export function TrajectoryTable({
   const selectedRequestSubtoolCalls = selectedRequestRecords.filter(
     record => record.cell.kind === 'subtool',
   ).length
-  const selectedRequestResult = selectedRequestInfo?.resultSeq === undefined
+  const selectedRequestResultTemplate = selectedRequestInfo?.resultSeq === undefined
     ? selectedRequestAssistant
     : allRecords.find(record => record.cell.sourceSeq === selectedRequestInfo.resultSeq)
+  const selectedRequestResult = selectedRequestResultTemplate === undefined
+    ? undefined
+    : currentRecord(selectedRequestResultTemplate)
   const selectedRequestUsage = selectedRequestInfo?.usage ?? (
     selectedRequestAssistant === undefined
       ? undefined
@@ -1862,11 +1934,16 @@ export function TrajectoryTable({
     const position = records.findIndex(record =>
       trajectoryRecordId(record.cell) === id && record.collapsedSummary === undefined)
     if (position === -1) return
-    pendingScrollRecordId.current = null
     if (virtualizationEnabled) {
-      rowVirtualizer.scrollToIndex(position, { behavior: 'smooth', align: 'center' })
+      const virtualIndex = virtualIndexByRecordId.get(id)
+      if (virtualIndex === undefined) return
+      pendingScrollRecordId.current = null
+      followsTableTail.current = false
+      rowVirtualizer.scrollToIndex(virtualIndex, { behavior: 'smooth', align: 'center' })
       return
     }
+    pendingScrollRecordId.current = null
+    followsTableTail.current = false
     const recordIndex = records[position]?.cell.index
     const row = recordIndex === undefined
       ? null
@@ -1875,7 +1952,7 @@ export function TrajectoryTable({
     if (row !== undefined && row !== null && typeof row.scrollIntoView === 'function') {
       row.scrollIntoView({ behavior: 'smooth', block: 'center' })
     }
-  }, [records, rowVirtualizer, virtualizationEnabled])
+  }, [records, rowVirtualizer, virtualIndexByRecordId, virtualizationEnabled])
   useEffect(() => {
     if (timelineFocusIndexes === null || timelineFocusIndexes.size === 0) return
     const focusedPositions = records.flatMap((record, position) =>
@@ -1903,6 +1980,7 @@ export function TrajectoryTable({
         : focusedRows[Math.floor((focusedRows.length - 1) / 2)]
       /* v8 ignore next -- jsdom lacks scrollIntoView; browsers always have it. */
       if (target !== undefined && typeof target.scrollIntoView === 'function') {
+        followsTableTail.current = false
         target.scrollIntoView({
           behavior: 'smooth',
           block: focusHeight > ledger.clientHeight ? 'start' : 'center',
@@ -1910,24 +1988,38 @@ export function TrajectoryTable({
       }
       return
     }
-    const paneHeight = tablePaneRef.current?.clientHeight ?? 0
-    let focusHeight = 0
-    for (let position = first; position <= last; position++) {
+    const focusedVirtualIndexes = [...new Set(focusedPositions.flatMap((position) => {
       const record = records[position]
-      if (record === undefined) continue
-      focusHeight += virtualRecordHeight(
-        record,
-        position === records.length - 1,
-      )
-    }
+      if (record === undefined) return []
+      const virtualIndex = virtualIndexByRecordId.get(trajectoryRecordId(record.cell))
+      return virtualIndex === undefined ? [] : [virtualIndex]
+    }))].sort((left, right) => left - right)
+    const firstVirtual = focusedVirtualIndexes.at(0)
+    const lastVirtual = focusedVirtualIndexes.at(-1)
+    if (firstVirtual === undefined || lastVirtual === undefined) return
+    const paneHeight = tablePaneRef.current?.clientHeight ?? 0
+    const focusHeight = projectedVirtualRows
+      .slice(firstVirtual, lastVirtual + 1)
+      .reduce((height, row) => height + row.height, 0)
+    followsTableTail.current = false
     rowVirtualizer.scrollToIndex(
-      focusHeight > paneHeight ? first : focusedPositions[Math.floor((focusedPositions.length - 1) / 2)] ?? first,
+      focusHeight > paneHeight
+        ? firstVirtual
+        : focusedVirtualIndexes[Math.floor((focusedVirtualIndexes.length - 1) / 2)]
+          ?? firstVirtual,
       {
         behavior: 'smooth',
         align: focusHeight > paneHeight ? 'start' : 'center',
       },
     )
-  }, [records, rowVirtualizer, timelineFocusIndexes, virtualizationEnabled])
+  }, [
+    projectedVirtualRows,
+    records,
+    rowVirtualizer,
+    timelineFocusIndexes,
+    virtualIndexByRecordId,
+    virtualizationEnabled,
+  ])
   const requestOlder = useCallback((pane: HTMLDivElement) => {
     if (
       !hasOlderRecords
@@ -1954,7 +2046,9 @@ export function TrajectoryTable({
     if (pane === null) return
     const anchor = olderLoadAnchor.current
     if (anchor !== null && anchor.historyStartSeq !== historyStartSeq) {
-      pane.scrollTop = anchor.scrollTop + pane.scrollHeight - anchor.scrollHeight
+      if (!virtualizationEnabled) {
+        pane.scrollTop = anchor.scrollTop + pane.scrollHeight - anchor.scrollHeight
+      }
       olderLoadAnchor.current = null
       followsTableTail.current = false
       return
@@ -1971,7 +2065,13 @@ export function TrajectoryTable({
     if (!followsTableTail.current) return
     if (virtualizationEnabled) rowVirtualizer.scrollToEnd({ behavior: 'auto' })
     else pane.scrollTop = pane.scrollHeight
-  }, [historyLoading, historyStartSeq, rowVirtualizer, turns, virtualizationEnabled])
+  }, [
+    historyLoading,
+    historyStartSeq,
+    rowVirtualizer,
+    virtualRowStructure,
+    virtualizationEnabled,
+  ])
 
   const loadingLabel = olderLoading
     ? 'Loading earlier history…'
@@ -1983,6 +2083,7 @@ export function TrajectoryTable({
       <div
         ref={tablePaneRef}
         className={css.tablePane}
+        data-trajectory-scroll=""
         onScroll={(event) => {
           const pane = event.currentTarget
           followsTableTail.current =
@@ -2005,6 +2106,7 @@ export function TrajectoryTable({
         <table
           className={css.table}
           data-scroll-ready={tableScrollReady || undefined}
+          aria-rowcount={records.length}
         >
           <colgroup>
             <col className={css.eventColumn} />
@@ -2021,7 +2123,7 @@ export function TrajectoryTable({
                 />
               </tr>
             )}
-            {renderedRecords.map(({ record, position }) => {
+            {renderedRecords.map(({ record, position, terminalRequestBoundary }) => {
               const displayText = recordDisplayText(record.cell)
               const toolCallOnly = isToolCallOnly(record.cell)
               const toolCallText = toolCallTextParts(record.cell.kind, displayText)
@@ -2059,8 +2161,9 @@ export function TrajectoryTable({
                 : activeTurn === record.turn
               return (
                 <tr
-                  key={`${trajectoryRecordId(record.cell)}:${record.collapsedSummaryKind ?? 'record'}`}
+                  key={trajectoryVirtualRecordKey(record)}
                   tabIndex={isRequestOnly ? -1 : 0}
+                  aria-rowindex={position + 1}
                   aria-label={isCollapsedSummary
                     ? `Collapsed ${record.collapsedSummaryKind} summary, ${record.collapsedSummary}`
                     : isRequestOnly
@@ -2068,11 +2171,13 @@ export function TrajectoryTable({
                       : `${request === undefined ? '' : `Request ${request}, `}${KIND_LABEL[record.cell.kind]}, ${listDisplayText || 'no content'}`}
                   aria-selected={!isCollapsedSummary && !isRequestOnly && selectedIndex === record.cell.index}
                   data-kind={record.cell.kind}
+                  data-trajectory-row-key={trajectoryVirtualRecordKey(record)}
                   data-virtual-position={virtualizationEnabled ? position : undefined}
                   data-record-index={!isCollapsedSummary && !isRequestOnly
                     ? record.cell.index
                     : undefined}
                   data-request-only={isRequestOnly || undefined}
+                  data-terminal-request-boundary={terminalRequestBoundary || undefined}
                   data-group-start={record.groupStart || undefined}
                   data-turn-start={record.turnStart || undefined}
                   data-error={record.cell.isError || undefined}
