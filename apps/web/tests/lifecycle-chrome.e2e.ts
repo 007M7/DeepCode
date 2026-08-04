@@ -33,6 +33,7 @@ const RELOADED_EXPECTED = join(SNAPSHOT_DIR, 'reloaded.expected.md')
 const MODE = webSnapshotMode()
 
 const PROMPT = 'Reply with the single word LIGHTHOUSE and stop.'
+const REPLAY_PACE_MS = 100
 
 describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', () => {
   let scaffold: WebScaffold
@@ -42,7 +43,7 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
   const sessionEvents: SessionEvent[] = []
 
   beforeAll(async () => {
-    scaffold = await launchWebScaffold(MODE === 'record' ? {} : { replayFixture: FIXTURE, paceMs: 15 })
+    scaffold = await launchWebScaffold(MODE === 'record' ? {} : { replayFixture: FIXTURE, paceMs: REPLAY_PACE_MS })
     scaffold.ctx.on('session/event', (_session, event: SessionEvent) => { sessionEvents.push(event) })
     browser = await chromium.launch()
     page = await newEnglishPage(browser)

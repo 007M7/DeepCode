@@ -20,7 +20,7 @@
 // independent); an error row's collapsed summary is the failure's first line in
 // the error color.
 
-import { useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import clsx from 'clsx'
 import {
   CodeBlock, DiffBlock, ReadBlock, SearchBlock, StateDot, TerminalBlock, WebBlock,
@@ -33,6 +33,7 @@ import { CHAT_SEARCH_MAX_LINES, type SearchCardModel } from '../contract/search-
 import { terminalBlockLabels, type TerminalCardModel } from '../contract/terminal-card-model.ts'
 import type { ToolRowState, ToolRowVariant } from '../contract/tool-call-model.ts'
 import { DisclosureRow } from './DisclosureRow.tsx'
+import { useThrottledVisualUpdate } from './use-throttled-visual-update.ts'
 import css from './ToolRow.module.css'
 
 export interface ToolRowProps {
@@ -176,13 +177,17 @@ export function ToolRow({
   const fileLink = filePath !== undefined && onOpenFile !== undefined && failureLine === null
   const isThink = variant === 'think'
   const followSummaryEnd = isThink && state === 'running' && !open
-  useLayoutEffect(() => {
+  const scheduleSummaryScroll = useThrottledVisualUpdate(() => {
     const summaryElement = summaryRef.current
     if (summaryElement === null) return
     summaryElement.scrollLeft = followSummaryEnd
       ? summaryElement.scrollWidth - summaryElement.clientWidth
       : 0
-  }, [followSummaryEnd, summaryText])
+  })
+  useEffect(() => {
+    if (!isThink) return
+    scheduleSummaryScroll()
+  }, [followSummaryEnd, isThink, scheduleSummaryScroll, summaryText])
   const toggleExpand = () => {
     setExpanded(v => !v)
   }
