@@ -125,12 +125,13 @@ async function wheelHorizontally(page: Page): Promise<number> {
   })
   await page.mouse.move(origin.x, origin.y)
   await page.mouse.wheel(300, 0)
-  // Two frames: the scroll applies during the frame the wheel is dispatched
-  // into, and is readable in the next. Polling for a settled value cannot be
+  // A fixed settle, then two frames. Polling for a settled value cannot be
   // used here — the value under test is 0, which a poll starting at 0 accepts
-  // before the gesture has had any chance to move it. The timing is the same
-  // on both sides of the mutation control below, which is what makes a 0
-  // reading evidence rather than a race won.
+  // before the gesture has had any chance to move it — so the wait is
+  // generous enough to cover a smooth-scroll animation on any engine the lane
+  // runs on. The timing is identical on both sides of the mutation control
+  // below, which is what makes a 0 reading evidence rather than a race won.
+  await page.waitForTimeout(400)
   return page.evaluate(() => new Promise<number>((resolve) => {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
