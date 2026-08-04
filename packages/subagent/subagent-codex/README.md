@@ -23,7 +23,7 @@ The provider advertises no optional start-time capabilities and reports `inherit
 | Key | Default | Meaning |
 |---|---|---|
 | `env` | `{}` | Explicit child environment layered over the subprocess seam's credential-scrubbed parent environment. |
-| `disposeGraceMs` | `3000` | Positive finite process-tree termination grace in milliseconds; the final exit proof is bounded at twice this value. |
+| `disposeGraceMs` | `3000` | Positive finite grace in milliseconds between the shared process-tree owner's termination tiers; disposal then waits for whole-tree exit. |
 
 Production resolves `codex` from `PATH` and uses the host's native Codex configuration and authentication. The plugin does not install Codex, select a model, create `CODEX_HOME`, log in, or probe a version. Credential-shaped ambient variables are removed by the subprocess seam, so an API key intended for the child must be supplied explicitly in `env`; ordinary ambient values such as `PATH` and `HOME` remain available unless overridden.
 
