@@ -8,6 +8,37 @@ const at = (seq: number, event: Record<string, unknown>): SessionEvent =>
   ({ seq, time: 1_700_000_000_000 + seq, ...event }) as unknown as SessionEvent
 
 describe('projectConversationHistory', () => {
+  it('projects a high-sequence history window without synthesizing its unloaded prefix', () => {
+    const baseSeq = 400_000
+    const events = [
+      ev.user(baseSeq, 'loaded tail'),
+      at(baseSeq + 1, {
+        type: 'assistant/message',
+        surfaceOp: { op: 'replace', start: baseSeq, end: baseSeq },
+        sourceEventSeqs: [baseSeq],
+        data: {
+          turn: 80,
+          step: 1,
+          message: createMessage({
+            role: 'assistant',
+            content: [{ type: 'text', text: 'tail summary' }],
+            source: { kind: 'model', provider: 'fake', model: 'fake' },
+          }),
+        },
+      }),
+    ]
+
+    const projection = projectConversationHistory(events.map(event => ({ event })))
+    expect(projection.eventNodes.map(node => node.seq)).toEqual([baseSeq, baseSeq + 1])
+    expect(projection.contexts.map(context => ({
+      originSeq: context.originSeq,
+      nodes: context.nodes.map(node => node.seq),
+    }))).toEqual([
+      { originSeq: undefined, nodes: [baseSeq] },
+      { originSeq: baseSeq + 1, nodes: [baseSeq + 1] },
+    ])
+  })
+
   it('projects frozen surface generations without widening the core live surface', () => {
     const events = [
       ev.user(0, 'a'),

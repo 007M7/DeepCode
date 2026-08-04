@@ -49,18 +49,10 @@ function assistantStepKey(turn: number, step: number): string {
   return `${turn}\u0000${step}`
 }
 
-// Trajectory owns surface-window reconstruction so its immutable ledger does
-// not depend on Chat's live fold adapter or Session's mutable state.
-/* jscpd:ignore-start */
-function paddingEvent(seq: number): SessionEvent {
-  return { type: 'noop/padding', seq, time: 0, data: {} } as unknown as SessionEvent
-}
-
 function replacementCrossesWindowHead(event: SessionEvent, baseSeq: number): boolean {
   if (!isSurfaceEvent(event) || event.surfaceOp === 'append') return false
   return event.surfaceOp.start < baseSeq || event.surfaceOp.end < baseSeq
 }
-/* jscpd:ignore-end */
 
 function contextOriginKind(event: SessionEvent | undefined): ConversationContextOriginKind {
   if (event?.type !== 'user/message') return 'rewrite'
@@ -84,9 +76,12 @@ function isTokenDelta(chunk: SessionEvent<'assistant/chunk'>['data']['chunk']): 
   }
 }
 
-function foldContexts(events: readonly SessionEvent[]): readonly FoldedContext[] {
+function foldContexts(
+  events: readonly SessionEvent[],
+  baseSeq: number,
+): readonly FoldedContext[] {
   const replay: SessionEvent[] = []
-  const surface = new SurfaceManager(replay)
+  const surface = new SurfaceManager(replay, baseSeq)
   const contexts: FoldedContext[] = []
   let generation = 0
   let originSeq: number | undefined
@@ -332,10 +327,6 @@ export function projectConversationHistory(
 ): ConversationHistoryProjection {
   const events = entries.map(entry => entry.event)
   const baseSeq = events[0]?.seq ?? 0
-  const padded = [
-    ...Array.from({ length: baseSeq }, (_, seq) => paddingEvent(seq)),
-    ...events,
-  ]
   const callIndex = new Map<string, CallIndexEntry>()
   const resultViews = new Map<number, ToolResultView>()
   const assistantSteps = new Map<string, AssistantStepMetadata>()
@@ -405,7 +396,7 @@ export function projectConversationHistory(
   const materialize = (seq: number): ConversationNode | undefined => {
     const cached = nodeCache.get(seq)
     if (cached !== undefined) return cached
-    const event = padded[seq]
+    const event = events[seq - baseSeq]
     if (event === undefined || !isSurfaceEligibleType(event.type)) return
     const node = materializeNode(
       event,
@@ -431,7 +422,7 @@ export function projectConversationHistory(
     }]
   } else {
     try {
-      contexts = foldContexts(padded).map((context): ConversationContext => {
+      contexts = foldContexts(events, baseSeq).map((context): ConversationContext => {
         const nodes = context.nodes.flatMap((seq) => {
           const node = materialize(seq)
           return node === undefined ? [] : [node]
@@ -444,7 +435,7 @@ export function projectConversationHistory(
             nodes,
           }
         }
-        const originEvent = padded[context.originSeq]
+        const originEvent = events[context.originSeq - baseSeq]
         return {
           id: context.generation,
           parentId: context.generation - 1,

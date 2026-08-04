@@ -58,7 +58,7 @@
 - `SurfaceOp`：事件进入有序 surface 的方式，即 `'append'`（正常尾部追加）或 `{ op: 'replace', start, end }`（替换从 `start` 到 `end` 的条目，含两端；二者都必须是有效的 surface 序号；`start === end` 时替换一个条目）。压缩用它遮蔽旧事件而不删除它们。
 - `SurfaceIntent`：`{ surfaceOp: SurfaceOp; sourceEventSeqs?: number[] }`，可进入 surface 的类型调用 `session.append()` 时必需的第三个参数。
 - `SessionSurface`：实时只读 `nodes` 和 `replaceGeneration` 投影，由 `session.surface` 暴露；候选校验仍由 `Session` 私有。
-- `foldSurface(events)`：回放规范 surface 契约，得到脱离的当前事件序列与实际替换范围。同一趟处理会拒绝不连续序号、错位或畸形元数据、空或重复溯源信息、来源并非更早事件、无效位置范围，以及没有引用所有已遮蔽 surface 条目的替换。如果一个 `tool/result` 替换修改了当前某个结果的 `content` 之外的任何内容，也会被拒绝；`SurfaceManager` 共享该原子状态转换，但只保留自己的增量序列缓存。
+- `foldSurface(events)`：回放规范 surface 契约，得到脱离的当前事件序列与实际替换范围。同一趟处理会拒绝不连续序号、错位或畸形元数据、空或重复溯源信息、来源并非更早事件、无效位置范围，以及没有引用所有已遮蔽 surface 条目的替换。如果一个 `tool/result` 替换修改了当前某个结果的 `content` 之外的任何内容，也会被拒绝；`SurfaceManager` 共享该原子状态转换，但只保留自己的增量序列缓存。其可选 `baseSeq` 可使用绝对事件序号折叠连续的已加载窗口，而无需构造合成前缀；替换范围必须位于该窗口内。
 - `isSurfaceEvent(event)`／`isSurfaceEligibleType(type)`：前者将 `SessionEvent` 收窄为形态完整的 surface 事件；后者在校验种子或已加载日志时，检测缺少标记的可进入 surface 事件。
 - `isAppendSurfaceEvent(event)`／`isReplacementSurfaceEvent(event)`：按标记变体拆分形态完整的 surface 事件。追加来源的事件是人类可读记录（transcript）的持久来源，而该记录并非模型可见的 surface：已落地的替换会遮蔽它所概括的范围，因此从 `session.surface` 投影记录会抹掉读者已经看到的对话。必须准确发送模型所见内容的消费方仍继续读取 `session.surface`。
 
