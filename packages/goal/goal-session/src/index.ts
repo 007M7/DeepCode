@@ -320,7 +320,9 @@ export function apply(ctx: Context): void {
             return
           }
           if (event.data.reason.kind !== 'aborted') return
-          if (state.attempt?.phase === 'admitted') state.attempt.cancelled = true
+          if (state.attempt?.phase === 'claimed' || state.attempt?.phase === 'admitted') {
+            state.attempt.cancelled = true
+          }
           else disarm(state)
           return
         default:
@@ -372,10 +374,9 @@ export function apply(ctx: Context): void {
         decision = await next()
       } catch (error: unknown) {
         if (signal.aborted) throw error
-        // A throwing downstream hook drops the whole step proposal: the loop
-        // returns to idle without a turn, so a still-queued reservation would
-        // starve every later drive pass. Clear it and let the driver
-        // reschedule the round.
+        // A throwing downstream hook drops the whole step proposal. Clear the
+        // reservation before the balanced no-step turn returns to idle so the
+        // next drive pass can reschedule the round.
         state.attempt = undefined
         requestDrive(state)
         throw error

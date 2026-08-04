@@ -1516,7 +1516,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         },
       })
       append(sessionId, { type: 'step/end', data: { turn: scenario.turn, step: 1 } })
-      append(sessionId, { type: 'turn/end', data: { turn: scenario.turn, step: 1, reason: { kind: 'aborted', reason: { kind: 'user' } },
+      append(sessionId, { type: 'turn/end', data: { turn: scenario.turn, reason: { kind: 'aborted', reason: { kind: 'user' } },
       } })
       retryScenarios.delete(sessionId)
       setRunning(sessionId, false)
@@ -1542,7 +1542,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         },
       })
       append(sessionId, { type: 'step/end', data: { turn: scenario.turn, step: 1 } })
-      append(sessionId, { type: 'turn/end', data: { turn: scenario.turn, step: 1, reason: { kind: 'completed' } } })
+      append(sessionId, { type: 'turn/end', data: { turn: scenario.turn, reason: { kind: 'completed' } } })
       setRunning(sessionId, false)
     },
     /** Log append WITHOUT the mux emit: a frame lost in transit — history still serves it, the client must repull. */

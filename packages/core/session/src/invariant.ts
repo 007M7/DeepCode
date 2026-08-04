@@ -87,10 +87,6 @@ function validateEvent(
       if (trace.openStep !== null) {
         fail(`turn/end ${event.data.turn} while step ${trace.openStep} is still open`)
       }
-      const lastStep = trace.nextStep - 1
-      if (event.data.step !== lastStep) {
-        fail(`turn/end ${event.data.turn} expected last step ${lastStep}, got ${event.data.step}`)
-      }
       openTurn = null
       nextTurn += 1
       break

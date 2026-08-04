@@ -71,7 +71,7 @@ export interface PersistenceBackend<TornMarker = unknown> {
    * region strictly below `fromSeq` is limited to seq contiguity — the
    * service contract scopes this read to the suffix — unless that suffix
    * contains a supported legacy shape whose normalization needs earlier
-   * step or message-identity facts, in which case the coordinator falls back
+   * message-identity facts, in which case the coordinator falls back
    * to the complete stored prefix.
    * @param id - persisted session id to resolve.
    * @param fromSeq - first event seq to include (non-negative safe integer,
@@ -214,7 +214,6 @@ function needsLegacyPrefix(event: SessionEvent): boolean {
   const data = asRecord(event.data)
   const legacySteeringType: string = 'steering/message'
   if (event.type === legacySteeringType) return true
-  if (event.type === 'turn/end' && data !== undefined && !Object.hasOwn(data, 'step')) return true
   if (data === undefined) return false
   switch (event.type) {
     case 'user/message':
@@ -270,11 +269,11 @@ function migrateLegacyTurnStartEvent(event: SessionEvent, id: SessionId): Sessio
   return { ...event, data: { turn: data['turn'] } } as SessionEvent
 }
 
-/** Upgrade the turn boundary emitted immediately before the loop refactor. */
-function migrateLegacyTurnEndEvent(event: SessionEvent, id: SessionId, lastStep: number): SessionEvent {
+/** Upgrade an obsolete turn ending while preserving the latest-master envelope. */
+function migrateLegacyTurnEndEvent(event: SessionEvent, id: SessionId): SessionEvent {
   if (event.type !== 'turn/end') return event
   const data = asRecord(event.data)
-  if (data === undefined || Object.hasOwn(data, 'step')) return event
+  if (data === undefined) return event
   const malformed = (): never => {
     throw new Error(`session "${id}" contains malformed pre-react-loop turn/end at seq ${event.seq}`)
   }
@@ -283,15 +282,16 @@ function migrateLegacyTurnEndEvent(event: SessionEvent, id: SessionId, lastStep:
     || !hasOnlyKeys(data, ['turn', 'reason'])
     || reason === undefined || typeof reason['kind'] !== 'string') return malformed()
 
-  let currentReason: Record<string, unknown>
+  let currentReason: Record<string, unknown> | undefined
   switch (reason['kind']) {
     case 'completed':
+    case 'blocked':
     case 'max-tokens':
     case 'interrupted':
       if (!hasOnlyKeys(reason, ['kind'])) return malformed()
-      currentReason = { kind: reason['kind'] }
-      break
+      return event
     case 'aborted':
+      if (Object.hasOwn(reason, 'reason')) return event
       if (!hasOnlyKeys(reason, ['kind'])) return malformed()
       currentReason = { kind: 'aborted', reason: { kind: 'legacy' } }
       break
@@ -300,6 +300,7 @@ function migrateLegacyTurnEndEvent(event: SessionEvent, id: SessionId, lastStep:
       currentReason = { kind: 'aborted', reason: { kind: 'disposed' } }
       break
     case 'error': {
+      if (Object.hasOwn(reason, 'error')) return event
       if (!Number.isSafeInteger(reason['step']) || (reason['step'] as number) < 0) return malformed()
       const failure = asRecord(reason['failure'])
       if (failure !== undefined && hasOnlyKeys(reason, ['kind', 'step', 'failure'])
@@ -327,14 +328,13 @@ function migrateLegacyTurnEndEvent(event: SessionEvent, id: SessionId, lastStep:
       break
     }
     default:
-      return malformed()
+      return event
   }
 
   return {
     ...event,
     data: {
       ...data,
-      step: lastStep,
       reason: currentReason,
     },
   } as SessionEvent
@@ -431,16 +431,9 @@ function eventMessageId(event: SessionEvent): PersistedMessageId | undefined {
 function snapshotStoredEvents(events: readonly SessionEvent[], id: SessionId): SessionEvent[] {
   assertSupportedEvents(events, id)
   const messageIds = new Map<number, PersistedMessageId>()
-  const lastSteps = new Map<number, number>()
   return events.map((event) => {
-    const stepData = event.type === 'step/end' ? asRecord(event.data) : undefined
-    if (typeof stepData?.['turn'] === 'number' && typeof stepData['step'] === 'number') {
-      lastSteps.set(stepData['turn'], stepData['step'])
-    }
-    const turnData = event.type === 'turn/end' ? asRecord(event.data) : undefined
-    const lastStep = typeof turnData?.['turn'] === 'number' ? lastSteps.get(turnData['turn']) ?? 0 : 0
     const migratedStart = migrateLegacyTurnStartEvent(event, id)
-    const migratedTurn = migrateLegacyTurnEndEvent(migratedStart, id, lastStep)
+    const migratedTurn = migrateLegacyTurnEndEvent(migratedStart, id)
     const migratedSteering = migrateLegacySteeringEvent(migratedTurn, id)
     const snapshot = snapshotSessionEvent(migrateLegacyMessageEvent(migratedSteering, id, messageIds))
     const messageId = eventMessageId(snapshot)

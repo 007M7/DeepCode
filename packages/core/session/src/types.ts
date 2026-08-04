@@ -196,14 +196,14 @@ export interface SessionEventMap {
    */
   'turn/start': { turn: number }
   /**
-   * Closes turn `turn` after `step`, the last entered step (`0` when none),
-   * with the {@link TurnEndReason} that ended it. The loop does not await a
+   * Closes turn `turn` with the {@link TurnEndReason} that ended it. A turn
+   * with no entered step has no `step/start` or `step/end`. The loop does not await a
    * flush at turn boundaries: `dsh-session-checkpoint-policy` owns the
    * per-request durability checkpoint, and consumers that read storage after
    * `whenIdle()` flush themselves. Success commits the turn; rejection is
    * reported live and does not prevent later work.
    */
-  'turn/end': { turn: number; step: number; reason: TurnEndReason }
+  'turn/end': { turn: number; reason: TurnEndReason }
   /** Opens step `step` of turn `turn` — one model call plus the tool executions it requested. */
   'step/start': { turn: number; step: number }
   /** Closes step `step` of turn `turn`. */

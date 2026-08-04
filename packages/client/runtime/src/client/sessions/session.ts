@@ -98,6 +98,8 @@ export class Session implements SessionFace {
   private readonly transcript = new TranscriptAdapter()
   private partial: PartialAccumulator | null = null
   private openCalls = new Map<string, RunningToolCall>()
+  /** Last entered step per turn, folded from step/start for terminal error placement. */
+  private lastStepByTurn = new Map<number, number>()
   /** Operational notices and interrupted-turn terminal nodes merged into the flow by seq.
    *  Derived from window events and rebuilt with partial/openCalls; the transcript is
    *  seq-monotonic, so a plain seq merge preserves event order. */
@@ -796,6 +798,10 @@ export class Session implements SessionFace {
     }
     switch (event.type) {
       case 'turn/start':
+        this.lastStepByTurn.set(event.data.turn, 0)
+        return
+      case 'step/start':
+        this.lastStepByTurn.set(event.data.turn, event.data.step)
         return
       case 'assistant/chunk': {
         const { turn, step, chunk } = event.data
@@ -826,6 +832,7 @@ export class Session implements SessionFace {
         return
       }
       case 'turn/end': {
+        const lastStep = this.lastStepByTurn.get(event.data.turn) ?? 0
         this.turnEnds.set(event.data.turn, event.seq)
         this.turnEndsRev++
         if (event.data.reason.kind === 'aborted') {
@@ -841,7 +848,7 @@ export class Session implements SessionFace {
             seq: event.seq,
             time: event.time,
             turn: event.data.turn,
-            step: event.data.step,
+            step: lastStep,
             message: displayFailureMessage(failure),
             code: failure.code,
           })
@@ -882,6 +889,7 @@ export class Session implements SessionFace {
           })
           this.derivedRev++
         }
+        this.lastStepByTurn.delete(event.data.turn)
         return
       }
       default:
@@ -916,6 +924,7 @@ export class Session implements SessionFace {
   private rebuildDerivedFromWindow(): void {
     this.partial = null
     this.openCalls.clear()
+    this.lastStepByTurn.clear()
     this.callsRev++
     this.derivedNodes = []
     this.derivedRev++
