@@ -10,8 +10,10 @@ import { Context, Service } from 'cordis'
 import type {
   GenerateOptions,
   LlmConfigurableProvider,
+  LlmDiscoveredModel,
   LlmFailure,
   LlmModelContext,
+  LlmModelDiscoveryRequest,
   LlmModelInfo,
   LlmResolvedModelInfo,
   LlmProviderInfo,
@@ -253,6 +255,10 @@ export interface DirectoryRegistrationHandle {
 export class LlmService extends Service {
   private adapters = new Map<string, AdapterRegistration>()
   private directory = new Map<string, LlmConfigurableProvider>()
+  private discoveries = new Map<
+    string,
+    (request: LlmModelDiscoveryRequest) => Promise<readonly LlmDiscoveredModel[]>
+  >()
 
   constructor(ctx: Context) {
     super(ctx, 'llm')
@@ -454,6 +460,80 @@ export class LlmService extends Service {
    */
   listConfigurableProviders(): LlmConfigurableProvider[] {
     return [...this.directory.values()].map(entry => ({ ...entry, settingsPath: [...entry.settingsPath] }))
+  }
+
+  /**
+   * Offer to interrogate provider endpoints on behalf of the settings
+   * namespace this plugin owns. The namespace is the key because that is what
+   * a configuration surface already holds from the configurable-provider
+   * directory, and because a provider being *added* has no route to name yet.
+   * Disposed with the fiber.
+   * @param settingsNs - the namespace whose profiles this discovery serves.
+   * @param discover - interrogates one endpoint; must honor `request.signal`.
+   * @returns the disposer that withdraws the offer.
+   */
+  registerModelDiscovery(
+    settingsNs: string,
+    discover: (request: LlmModelDiscoveryRequest) => Promise<readonly LlmDiscoveredModel[]>,
+  ): () => void {
+    const dispose = this.ctx.effect(function* (this: LlmService) {
+      if (settingsNs.length === 0) {
+        throw new LlmError('model discovery needs a non-empty settings namespace', 'INVALID_DISCOVERY')
+      }
+      if (this.discoveries.has(settingsNs)) {
+        throw new LlmError(`model discovery for "${settingsNs}" is already registered`, 'DUPLICATE_DISCOVERY')
+      }
+      this.discoveries.set(settingsNs, discover)
+      yield () => {
+        this.discoveries.delete(settingsNs)
+      }
+    }.bind(this), 'llm.registerModelDiscovery()')
+    return () => void dispose()
+  }
+
+  /**
+   * List the settings namespaces that can interrogate a provider endpoint, so
+   * a surface can offer the action only where it will work.
+   * @returns the namespaces in registration order.
+   */
+  listModelDiscoveryNamespaces(): string[] {
+    return [...this.discoveries.keys()]
+  }
+
+  /**
+   * Interrogate one provider endpoint for the models it advertises. The
+   * request describes a draft, not a stored route, so nothing here reads or
+   * writes settings or credentials — the caller owns both, and the reply is
+   * candidate metadata a surface may offer for adoption.
+   * @param settingsNs - namespace whose registered discovery serves this draft.
+   * @param request - the endpoint, protocol, and one-shot credential to use.
+   * @returns the advertised models, deduplicated in endpoint order.
+   */
+  async discoverModels(
+    settingsNs: string,
+    request: LlmModelDiscoveryRequest,
+  ): Promise<LlmDiscoveredModel[]> {
+    const discover = this.discoveries.get(settingsNs)
+    if (discover === undefined) {
+      throw new LlmError(`no model discovery is registered for "${settingsNs}"`, 'NO_DISCOVERY')
+    }
+    if (request.baseURL.length === 0) {
+      throw new LlmError('model discovery needs a non-empty baseURL', 'INVALID_DISCOVERY')
+    }
+    const discovered = await discover(request)
+    const seen = new Set<string>()
+    const models: LlmDiscoveredModel[] = []
+    for (const model of discovered) {
+      if (typeof model.id !== 'string' || model.id.length === 0 || seen.has(model.id)) continue
+      seen.add(model.id)
+      models.push({
+        id: model.id,
+        ...model.name === undefined ? {} : { name: model.name },
+        ...model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow },
+        ...model.maxTokens === undefined ? {} : { maxTokens: model.maxTokens },
+      })
+    }
+    return models
   }
 
   /**

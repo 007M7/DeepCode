@@ -2588,6 +2588,29 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       async models(request) {
         return ok(request, await buildModelCatalog(ctx))
       },
+
+      async discoverModels(request, signal) {
+        const { settingsNs, baseURL, api, apiKey } = request.payload
+        try {
+          const models = await ctx.llm.discoverModels(settingsNs, {
+            baseURL,
+            ...api === undefined ? {} : { api },
+            ...apiKey === undefined ? {} : { apiKey },
+            ...signal === undefined ? {} : { signal },
+          })
+          return ok(request, { models })
+        } catch (error: unknown) {
+          // Every failure here is the user's next move, not a transport fault:
+          // a wrong endpoint, a rejected key, or a protocol with no listing all
+          // end at the same place — fill the models in by hand. The details
+          // repeat only what the caller already sent, never the credential.
+          return err(request, {
+            code: 'model-discovery-failed',
+            message: error instanceof Error ? error.message : String(error),
+            details: { settingsNs, baseURL },
+          })
+        }
+      },
     },
 
     events: {

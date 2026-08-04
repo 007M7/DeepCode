@@ -1,0 +1,50 @@
+# Agent Note: Interrogating a draft provider endpoint
+
+Status: implemented
+
+English | [中文](2026-08-04-draft-provider-endpoint-interrogation.zh.md)
+
+## Problem
+
+Once a pi-ai route became [a declaration rather than a catalog lookup](2026-08-03-pi-ai-declared-provider-catalog.md), a person adding an OpenAI-compatible gateway had to know its model ids before they could configure it. The adapter no longer constrains them to an installed catalog, which is the point, but it also means nothing tells the user what the endpoint actually serves — and most of these endpoints do publish that list at `GET /models`.
+
+The obvious answer, a dynamic runtime catalog refreshed in the background, was rejected with the layer below it: it makes a route's model list external mutable state needing a cache, an invalidation story, and an offline path, while the product need is narrower. What is needed is a *question asked once*, whose answer the user adopts into `settings.yaml` — so `settings.yaml` remains the only thing deciding what a route serves.
+
+The awkward part is that the question is about something that does not exist yet. The provider being added has no route, no stored profile, and no stored credential; the endpoint and key are values in a form the user is still typing. Every existing seam operation is keyed by a registered provider route, so none of them can carry this.
+
+## Decision
+
+Interrogation is keyed by **settings namespace**, not by provider route:
+
+- `ctx.llm.registerModelDiscovery(settingsNs, discover)` lets an adapter plugin offer to interrogate endpoints for the namespace it owns; `ctx.llm.listModelDiscoveryNamespaces()` lets a surface offer the action only where it works; `ctx.llm.discoverModels(settingsNs, request)` asks. The namespace is the right key because a configuration surface already holds it from the configurable-provider directory, and because a provider being added has no route to name.
+- `LlmModelDiscoveryRequest` carries the draft — `baseURL`, an optional `api`, an optional `apiKey`, and a signal. Nothing in this path reads or writes settings or credentials; the caller owns both.
+- `LlmDiscoveredModel` makes every field but `id` optional, because most listings disclose an id and nothing else. The reply is candidates, not a catalog: a surface adopting one still owes the capacities the adapter requires.
+- `llm.discoverModels` carries the same draft over the wire. Its `apiKey` is the third and last payload on which a secret may ride, alongside `settings.update`/`mutate` and `credentials.set`, and it is never stored, logged, or echoed. Every refusal folds into `model-discovery-failed`, whose message is the adapter's own text and whose details name the endpoint asked but never the credential offered.
+
+`dsh-llm-pi-ai` implements it as a plain `GET {baseURL}/models` for OpenAI-compatible protocols only. Their listing shape is the one a gateway, a self-hosted server, and the official endpoints all agree on, which is the case this action exists for. Every other protocol answers `DISCOVERY_UNSUPPORTED`, so the surface falls back to hand-entry rather than reporting a guessed response shape as an empty provider. `baseURL` is treated as a prefix rather than a URL to resolve against, so a deployment path such as `https://gateway.example/openai/v1` keeps its segments. The reply is read under a four-megabyte ceiling enforced on the bytes actually received — the endpoint is a URL the user typed, so a declared `content-length` is checked first as a courtesy but never trusted as the bound, matching `dsh-web-fetch`'s two-stage shape for its own caller-supplied URLs.
+
+### Why not pi-ai's own refresh machinery
+
+pi-ai supplies `createProvider({ fetchModels })` plus `Models.refresh()` and a `ModelsStore`, and the layer below already builds pi-ai `Provider` objects. Routing interrogation through them would have meant constructing a throwaway provider and collection per question, with a store whose entire purpose — persisting a catalog across runs — contradicts the decision that `settings.yaml` owns the catalog. It would also have bought nothing: **no built-in pi-ai provider implements `fetchModels`**, so the HTTP call and its response parsing are this package's code either way. A direct fetch says what is actually happening.
+
+## Alternatives considered
+
+**Key interrogation by provider route.** Symmetric with every other seam operation, and it would let the request omit the endpoint. But the case that motivates the feature — adding a provider — has no route, so the operation would only work for providers already configured, which are the ones that need it least.
+
+**Put the capability on `LlmAdapter`.** Adapters are reached through a route registration, so this has the same problem, plus it would make an adapter instance answer questions about endpoints it does not serve.
+
+**Have the host read the stored profile instead of accepting a draft.** No secret would cross the wire for an already-configured provider. But adding a provider would then require saving an unusable configuration first, and a form whose endpoint was edited but not yet saved would silently interrogate the old one. Accepting the draft keeps what the user sees and what is asked identical.
+
+**Interrogate every pi-ai protocol.** Anthropic's listing happens to share OpenAI's envelope, and Google's does not. Supporting the ones that are easy would make coverage arbitrary and, worse, make a wrong guess at a response shape indistinguishable from a provider with no models. A protocol that says it cannot be interrogated sends the user to hand-entry, which is the documented fallback.
+
+**Buffer the reply with `response.text()` and check its length.** Simpler, but the bound would arrive after the bytes did, and the endpoint is whatever URL the user typed.
+
+## Consequences
+
+A person adding a gateway can ask it what it serves instead of hunting through its documentation, and the answer arrives as candidates they choose from rather than as configuration written behind their back. The seam gained a registry that is deliberately small: one offer per namespace, no storage, no lifecycle beyond the fiber.
+
+What it costs: the wire gained a third secret-carrying payload, so the configuration plane's write-only surface is now three methods rather than two. Discovery coverage is protocol-shaped rather than provider-shaped — an Anthropic-compatible gateway must be filled in by hand even though its listing would parse. And because nothing re-runs the question, a model list is still only as current as its last edit; that is the same trade the layer below made deliberately.
+
+## Testing
+
+`packages/llm/llm/tests/topology.spec.ts` covers the registry: one offer per namespace, disposal with the fiber, normalization that drops duplicate and unusable ids without inventing capacities, and the `NO_DISCOVERY`/`INVALID_DISCOVERY` refusals. `packages/llm/llm-pi-ai/tests/discovery.spec.ts` drives the probe against local HTTP servers — a listing with and without disclosed capacities, a preserved deployment path, an absent credential, dropped rows, 401/403 versus a server fault, a non-listing and a non-JSON body, an unreachable endpoint, caller cancellation, an unsupported protocol, and the size ceiling in both its declared-length and streamed forms. `packages/host/apiproxy/tests/api-proxy-config.spec.ts` covers the RPC over a real proxy: the draft reaching its namespace whole, absent fields staying absent, no namespace or credential being written, and a failure surfacing as `model-discovery-failed` with the credential absent from the serialized error.

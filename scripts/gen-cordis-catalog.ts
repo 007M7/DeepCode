@@ -43,6 +43,8 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   LlmModelInfo: 'core.md',
   LlmProviderInfo: 'core.md',
   LlmConfigurableProvider: 'core.md',
+  LlmModelDiscoveryRequest: 'core.md',
+  LlmDiscoveredModel: 'core.md',
   ResolvedRetryPolicy: 'llm-streaming.md',
   Message: 'core.md',
   MessageSource: 'core.md',

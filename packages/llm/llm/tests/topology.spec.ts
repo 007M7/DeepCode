@@ -205,3 +205,55 @@ describe('configurable-provider directory', () => {
     expect(ctx.llm.listConfigurableProviders()).toHaveLength(1)
   })
 })
+
+describe('model discovery registry', () => {
+  it('offers one interrogation per settings namespace and disposes with its fiber', async () => {
+    const ctx = await setup()
+    const discover = vi.fn(() => Promise.resolve([{ id: 'from-endpoint' }]))
+
+    const dispose = ctx.llm.registerModelDiscovery('llm-example', discover)
+    expect(ctx.llm.listModelDiscoveryNamespaces()).toEqual(['llm-example'])
+
+    await expect(ctx.llm.discoverModels('llm-example', { baseURL: 'https://gateway.example/v1' }))
+      .resolves.toEqual([{ id: 'from-endpoint' }])
+    expect(discover).toHaveBeenCalledWith({ baseURL: 'https://gateway.example/v1' })
+
+    dispose()
+    expect(ctx.llm.listModelDiscoveryNamespaces()).toEqual([])
+  })
+
+  it('rejects an unnamed namespace and a second registration of the same one', async () => {
+    const ctx = await setup()
+    const discover = (): Promise<never[]> => Promise.resolve([])
+
+    expect(() => ctx.llm.registerModelDiscovery('', discover)).toThrow(/non-empty settings namespace/)
+    ctx.llm.registerModelDiscovery('llm-example', discover)
+    expect(() => ctx.llm.registerModelDiscovery('llm-example', discover)).toThrow(/already registered/)
+    expect(ctx.llm.listModelDiscoveryNamespaces()).toEqual(['llm-example'])
+  })
+
+  it('normalizes what an interrogation returns without inventing capacities', async () => {
+    const ctx = await setup()
+    ctx.llm.registerModelDiscovery('llm-example', () => Promise.resolve([
+      { id: 'keep', name: 'Keep', contextWindow: 1024, maxTokens: 256 },
+      { id: '' },
+      { id: 'keep' },
+      { id: 'bare' },
+    ] as never))
+
+    expect(await ctx.llm.discoverModels('llm-example', { baseURL: 'https://gateway.example/v1' })).toEqual([
+      { id: 'keep', name: 'Keep', contextWindow: 1024, maxTokens: 256 },
+      { id: 'bare' },
+    ])
+  })
+
+  it('refuses a namespace nothing serves and a draft with no endpoint', async () => {
+    const ctx = await setup()
+    ctx.llm.registerModelDiscovery('llm-example', () => Promise.resolve([]))
+
+    await expect(ctx.llm.discoverModels('llm-absent', { baseURL: 'https://gateway.example/v1' }))
+      .rejects.toMatchObject({ code: 'NO_DISCOVERY' })
+    await expect(ctx.llm.discoverModels('llm-example', { baseURL: '' }))
+      .rejects.toMatchObject({ code: 'INVALID_DISCOVERY' })
+  })
+})

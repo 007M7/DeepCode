@@ -834,15 +834,45 @@ listProviders(): LlmProviderInfo[]
  * entry, or a provider already declared by any registration throws
  * `LlmError` without registering the rest. Disposed with the fiber.
  * @param entries - every configurable provider this plugin owns.
- * @returns a handle that withdraws all of them, and can atomically replace them.
+ * @returns the disposer that withdraws all of them.
  */
-registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle
+registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): () => void
 
 /**
  * List every declared configurable provider, registered or dormant.
  * @returns detached directory entries in declaration order.
  */
 listConfigurableProviders(): LlmConfigurableProvider[]
+
+/**
+ * Offer to interrogate provider endpoints on behalf of the settings
+ * namespace this plugin owns. The namespace is the key because that is what
+ * a configuration surface already holds from the configurable-provider
+ * directory, and because a provider being *added* has no route to name yet.
+ * Disposed with the fiber.
+ * @param settingsNs - the namespace whose profiles this discovery serves.
+ * @param discover - interrogates one endpoint; must honor `request.signal`.
+ * @returns the disposer that withdraws the offer.
+ */
+registerModelDiscovery( settingsNs: string, discover: (request: LlmModelDiscoveryRequest) => Promise<readonly LlmDiscoveredModel[]>, ): () => void
+
+/**
+ * List the settings namespaces that can interrogate a provider endpoint, so
+ * a surface can offer the action only where it will work.
+ * @returns the namespaces in registration order.
+ */
+listModelDiscoveryNamespaces(): string[]
+
+/**
+ * Interrogate one provider endpoint for the models it advertises. The
+ * request describes a draft, not a stored route, so nothing here reads or
+ * writes settings or credentials — the caller owns both, and the reply is
+ * candidate metadata a surface may offer for adoption.
+ * @param settingsNs - namespace whose registered discovery serves this draft.
+ * @param request - the endpoint, protocol, and one-shot credential to use.
+ * @returns the advertised models, deduplicated in endpoint order.
+ */
+async discoverModels( settingsNs: string, request: LlmModelDiscoveryRequest, ): Promise<LlmDiscoveredModel[]>
 
 /**
  * Resolve the retry policy captured when one provider route was registered.
@@ -908,9 +938,9 @@ async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<Prepared
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
-Types: [AdapterRegistrationHandle](../core-data-structures/core.md) · [DirectoryRegistrationHandle](../core-data-structures/core.md) · [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmConfigurableProvider](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
+Types: [AdapterRegistrationHandle](../core-data-structures/core.md) · [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmConfigurableProvider](../core-data-structures/core.md) · [LlmDiscoveredModel](../core-data-structures/core.md) · [LlmModelDiscoveryRequest](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:253`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:234`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 

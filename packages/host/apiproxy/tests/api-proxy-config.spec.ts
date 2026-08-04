@@ -560,3 +560,89 @@ describe('llm domain', () => {
     expect(frames).toEqual([{ type: 'host/models-changed' }, { type: 'host/models-changed' }])
   })
 })
+
+describe('llm.discoverModels', () => {
+  it('carries a draft to its namespace and returns candidates without storing anything', async () => {
+    const ctx = await harness()
+    const seen: unknown[] = []
+    ctx.llm.registerModelDiscovery('llm-pi-ai', (probe) => {
+      seen.push({ baseURL: probe.baseURL, api: probe.api, apiKey: probe.apiKey })
+      return Promise.resolve([
+        { id: 'acme-large', name: 'Acme Large', contextWindow: 65_536, maxTokens: 4096 },
+        { id: 'acme-small' },
+      ])
+    })
+    const api = createApiProxy(ctx, DEFAULTS)
+
+    const value = expectOk(await api.llm.discoverModels(request({
+      settingsNs: 'llm-pi-ai',
+      baseURL: 'https://gateway.acme.example/v1',
+      api: 'openai-completions',
+      apiKey: 'probe-key',
+    })))
+
+    expect(value.models).toEqual([
+      { id: 'acme-large', name: 'Acme Large', contextWindow: 65_536, maxTokens: 4096 },
+      { id: 'acme-small' },
+    ])
+    expect(seen).toEqual([{
+      baseURL: 'https://gateway.acme.example/v1',
+      api: 'openai-completions',
+      apiKey: 'probe-key',
+    }])
+    // Interrogating a draft is a read: no namespace gained a section, and no
+    // credential reference was written.
+    expect(expectOk(await api.settings.describe(request({}))).namespaces.map(view => view.ns))
+      .not.toContain('llm-pi-ai')
+  })
+
+  it('omits a credential and protocol the draft does not name', async () => {
+    const ctx = await harness()
+    let probe: unknown
+    ctx.llm.registerModelDiscovery('llm-pi-ai', (request_) => {
+      probe = request_
+      return Promise.resolve([])
+    })
+    const api = createApiProxy(ctx, DEFAULTS)
+
+    expectOk(await api.llm.discoverModels(request({
+      settingsNs: 'llm-pi-ai',
+      baseURL: 'https://gateway.acme.example/v1',
+    })))
+
+    // Absent fields stay absent rather than crossing as explicit undefined:
+    // the adapter distinguishes "no protocol named" from "protocol undefined".
+    expect(probe).toEqual({ baseURL: 'https://gateway.acme.example/v1' })
+  })
+
+  it('reports a failed interrogation as the form\'s next move, naming no credential', async () => {
+    const ctx = await harness()
+    ctx.llm.registerModelDiscovery('llm-pi-ai', () =>
+      Promise.reject(new Error('https://gateway.acme.example/v1/models answered 401; check the API key')))
+    const api = createApiProxy(ctx, DEFAULTS)
+
+    const error = expectErr(await api.llm.discoverModels(request({
+      settingsNs: 'llm-pi-ai',
+      baseURL: 'https://gateway.acme.example/v1',
+      apiKey: 'wrong',
+    })))
+
+    expect(error.code).toBe('model-discovery-failed')
+    expect(error.message).toContain('answered 401; check the API key')
+    expect(error.details).toEqual({ settingsNs: 'llm-pi-ai', baseURL: 'https://gateway.acme.example/v1' })
+    expect(JSON.stringify(error)).not.toContain('wrong')
+  })
+
+  it('reports a namespace no adapter family serves', async () => {
+    const ctx = await harness()
+    const api = createApiProxy(ctx, DEFAULTS)
+
+    const error = expectErr(await api.llm.discoverModels(request({
+      settingsNs: 'llm-deepseek',
+      baseURL: 'https://api.deepseek.com',
+    })))
+
+    expect(error.code).toBe('model-discovery-failed')
+    expect(error.message).toContain('no model discovery is registered')
+  })
+})

@@ -6,7 +6,7 @@
 import { z } from 'zod'
 import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
-import type { ConfigurableProviderView } from './llm.ts'
+import type { ConfigurableProviderView, DiscoveredModelView } from './llm.ts'
 import { modelCatalogFailureSchema, modelProviderGroupSchema } from './sessions.schema.ts'
 
 /** ConfigurableProviderView row of llm.providers. */
@@ -34,3 +34,27 @@ export const llmModelsValueSchema = z.object({
   groups: z.array(modelProviderGroupSchema),
   failures: z.array(modelCatalogFailureSchema),
 }) satisfies z.ZodType<Wire<ResponseValue<'llm.models'>>>
+
+/** DiscoveredModelView row of llm.discoverModels. */
+export const discoveredModelViewSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1).optional(),
+  contextWindow: z.number().int().positive().optional(),
+  maxTokens: z.number().int().positive().optional(),
+}) satisfies z.ZodType<Wire<DiscoveredModelView>>
+
+/** llm.discoverModels request payload. */
+export const llmDiscoverModelsRequestSchema = z.object({
+  settingsNs: z.string().min(1),
+  baseURL: z.string().min(1),
+  api: z.string().min(1).optional(),
+  // Write-only: the host uses it for this one interrogation and never stores,
+  // logs, or returns it. Kept out of any redacted echo for the same reason
+  // `credentials.set` never reads a value back.
+  apiKey: z.string().min(1).optional(),
+}) satisfies z.ZodType<Wire<RequestPayload<'llm.discoverModels'>>>
+
+/** llm.discoverModels response value. */
+export const llmDiscoverModelsValueSchema = z.object({
+  models: z.array(discoveredModelViewSchema),
+}) satisfies z.ZodType<Wire<ResponseValue<'llm.discoverModels'>>>

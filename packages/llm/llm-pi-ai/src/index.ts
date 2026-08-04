@@ -50,6 +50,7 @@ import { PiAiAdapter } from './adapter.ts'
 import { catalogProviderIds } from './catalog.ts'
 import { assertServiceable, Config, resolveProfiles } from './config.ts'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
+import { discoverModels } from './discovery.ts'
 
 export { PiAiAdapter } from './adapter.ts'
 export type { PiAiAdapterOptions } from './adapter.ts'
@@ -176,6 +177,10 @@ export function apply(ctx: Context, config: Config): void {
     directoryFacts = entries
   }
   ensureDirectory()
+  // Interrogating an endpoint is a configuration-time action over a draft, so
+  // it is offered for the whole namespace rather than per route: the provider
+  // a surface is adding does not exist yet.
+  ctx.llm.registerModelDiscovery(NS, discoverModels)
   // Route effects bind to this apply fiber via the stable `ctx` reference,
   // even when a swap runs inside the scoped settings callback below. A bare
   // mount (zero routes) is the dormant posture: nothing registers until a

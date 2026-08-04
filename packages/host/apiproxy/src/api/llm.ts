@@ -40,4 +40,38 @@ export interface LlmApi {
    * failures ride `failures` without failing the sound groups.
    */
   models(request: RpcRequest<{}>): Promise<RpcResponse<{ groups: ModelProviderGroup[]; failures: ModelCatalogFailure[] }>>
+
+  /**
+   * Interrogate a provider endpoint the configuration surface is still
+   * drafting, and return the models it advertises for the user to adopt.
+   *
+   * The payload is the draft, not a stored route: `settingsNs` selects the
+   * adapter family that knows how to read the listing, and the endpoint,
+   * protocol, and key come from the form. Nothing is written — the reply is
+   * candidates, and only a later `settings.mutate` decides what a route
+   * serves. `apiKey` is therefore accepted here but never stored, logged, or
+   * echoed back; a provider whose key is already stored omits it and the
+   * endpoint answers unauthenticated or refuses.
+   */
+  discoverModels(
+    request: RpcRequest<{
+      settingsNs: string
+      baseURL: string
+      api?: string
+      apiKey?: string
+    }>,
+    signal?: AbortSignal,
+  ): Promise<RpcResponse<{ models: DiscoveredModelView[] }>>
+}
+
+/** Wire view of one model an interrogated endpoint advertises. */
+export interface DiscoveredModelView {
+  /** Model id the endpoint accepts. */
+  id: string
+  /** Human-readable name when the endpoint supplies one. */
+  name?: string
+  /** Maximum combined request and response context, when disclosed. */
+  contextWindow?: number
+  /** Maximum output tokens, when disclosed. */
+  maxTokens?: number
 }
