@@ -23,6 +23,8 @@ Composition splits into two planes, decided by what must be shared rather than b
 
 Model routing stays out of presets. `installAgentLlmTarget` is already the per-agent seam for provider, model, and reasoning effort, and an LLM adapter mounted inside a preset would never be resolved by `agent-loop`, which lives in the host plane.
 
+The deployment ships three presets — `standard` (the full coding agent), `core-web` (a two-tool benchmark surface), and `cordis` (the standard agent plus the self-referential toolset and a composition-authoring skill).
+
 Mounting is per-session by default. Measured cost for a twelve-row composition is ~3ms and ~600KB per session, so isolation is the cheaper default than any sharing scheme, and a preset authored by a user or by an agent then has the smallest possible blast radius. A preset that genuinely owns an expensive singleton opts into sharing with Cordis's own `isolate` vocabulary: a named realm label is process-global, so two subtrees naming the same label resolve one instance.
 
 Which preset an unnamed session gets is a user setting (`agent-presets.default`) layered over the composition's own `default`, which becomes the `base`. Both layers are needed: the composition value is what a deployment ships and must keep working with no settings provider at all, and the setting is what a person changes without editing a `cordis.yml` they may not own.
@@ -43,7 +45,15 @@ Which preset an unnamed session gets is a user setting (`agent-presets.default`)
 
 **Fiber membership is object identity, not `uid`.** A `uid` is a per-registry counter, so fibers in two different roots collide on it; comparing by `uid` made one runtime's subtree answer for a service published in another. `ctx.plugin()` returns a thenable `Object.create(fiber)` wrapper that is never identical to the fiber in a parent chain, so the subtree captures its own fiber during construction.
 
-**The preset id is model-visible and must be logged.** It determines the tool set and prompt, so a resumed session has to restore the same composition; recording it is a session fact, not runtime state.
+**A preset file is an input, never a persistence target.** `EntryTree.write()` persists a tree whenever the Loader decides the config changed, and a plugin self-disposing is enough — tearing an agent down disposes its whole subtree. Inherited, that rewrites the composition it read, in practice truncating a shipped preset to `[]` the first time a session ends. The subtree overrides `write()` to do nothing.
+
+**A plugin that looks itself up in the global registry breaks inside a preset.** `ctx.tools.register()` files into the CALLING context's scope, so a plugin mounted in a preset registers for one agent and an unscoped `ctx.tools.get(name)` correctly finds nothing. `dsh-tool-skill` did exactly that and threw on every preset mount; it now compares against the definition it registered. Any plugin meant to be preset-mountable must hold its own registration rather than re-read it by name.
+
+**An entry-local `isolate` realm is invisible to the agent's own scope, not only to the host.** Only rows inside that group resolve the service. That is what makes a preset's `skills` registry belong to one agent rather than being shared — and it means a consumer left outside its provider's group silently resolves the host registry and contributes nothing.
+
+**Switching is allowed only while a session is blank.** Once a turn has run, that history was produced under the preset's tools and swapping them would strand logged tool calls, so `agentPreset.select` answers `agent-preset-locked`. A blank switch keeps the agent and the session and replaces only the subtree, because the host discards the `AgentHandle` it creates and there is no delete RPC — and keeping them is the better outcome anyway, since the session id, its workspace attachment, and its projections all stay put. The swap is unmount-then-mount (two compositions would register the same tool names into one layer), so it resolves the new preset before tearing anything down and restores the previous one when the new mount fails.
+
+**The preset id is model-visible and must be logged.** It determines the tool set and prompt, so a resumed session has to restore the same composition; recording it is a session fact, not runtime state. It rides the session header beside `cwd`, and the summary carries it so a picker shows what a session actually runs rather than the deployment's current default.
 
 ## Alternatives considered
 

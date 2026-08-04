@@ -28,6 +28,7 @@ packages/    @deepseek-ai/dsh-<pkg> workspaces at packages/<group>/<pkg>/
   workflow/    workflow seam + worker-thread engine + workflow tool
   todo/        todo_write tool
   plan/        plan mode as logged per-agent collaboration state
+  preset/      per-session agent composition from preset cordis.yml files
   guard/       loop-hygiene plugins
   cordis/      self-referential toolset: the agent inspects/mounts plugins in its own runtime
   hooks/       Claude Code/Codex hook bridges + shared wire-protocol library
