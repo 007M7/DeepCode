@@ -8,9 +8,9 @@ The package owns the builtin typed-spec catalog, provider/app behavior entities,
 
 All business and document validation completes before commit writes any affected file. Commit detects external edits made after the session opened, but deliberately provides no cross-file rollback after writing starts.
 
-Builtin features are provider, bash, app, persistence, HMR, filesystem, todo, skill, web, subagent, workflow, compaction, hooks, repeat-tool guard, timeout policy, and ask-user. The catalog owns feature options, required and non-default Cordis plugin config, feature requirements, resource contribution, and round-trip markers; create and config use the same registry and configurator. The ACP app option contributes only the automation bridge; interactive services belong to TUI or Web compositions.
+Builtin features are provider, bash, app, persistence, HMR, filesystem, todo, skill, web, subagent, workflow, compaction, hooks, repeat-tool guard, and timeout policy. The catalog owns feature options, required and non-default Cordis plugin config, feature requirements, resource contribution, and round-trip markers; create and config use the same registry and configurator. The ACP app option contributes only the automation bridge; interactive services belong to host compositions.
 
-`SdkProject.open()` requires only readable root `package.json` and `cordis.yml`. A Cordis config entry anchors feature installation; a package present only through a linked NPM dependency closure leaves the feature absent. Once an owned Cordis config entry exists, an incomplete resource shape is `inconsistent` and cannot be modified automatically.
+`SdkProject.open()` requires only readable root `package.json` and `cordis.yml`, but rejects a config that references the removed `@deepseek-ai/dsh-tui` root or a subpath. A Cordis config entry anchors feature installation; a package present only through a linked NPM dependency closure leaves the feature absent. Once an owned Cordis config entry exists, an incomplete resource shape is `inconsistent` and cannot be modified automatically.
 
 `.env.example` follows the currently selected features. `.env` is append-only: helper may add a missing differently named variable, but never updates or removes existing content.
 

@@ -25,7 +25,7 @@ const SEATS = [
   ['settings.onboarding', WelcomeNotice],
 ] as const
 
-async function bench() {
+async function bench(isLoopback = true) {
   const ctx = new Context()
   await ctx.plugin(SlotsService).await()
   const locale = new LocaleService(ctx)
@@ -47,7 +47,7 @@ async function bench() {
       },
     },
   }))
-  ctx.provide('connection', { api: { settings: { describe: settingsDescribe } } } as never)
+  ctx.provide('connection', { api: { settings: { describe: settingsDescribe } }, isLoopback } as never)
   return { ctx, slots: ctx.get('slots') as SlotsService, locale, settingsDescribe }
 }
 
@@ -157,6 +157,19 @@ describe('ui-settings-general apply', () => {
     await vi.waitFor(() => { expect(b.settingsDescribe).toHaveBeenCalledTimes(2) })
     b.ctx.emit('connection/reset')
     await vi.waitFor(() => { expect(b.settingsDescribe).toHaveBeenCalledTimes(3) })
+  })
+
+  it('keeps remote welcome acknowledgement process-local', async () => {
+    const b = await bench(false)
+    declare(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const entry = b.slots.entries('settings.onboarding')[0]!
+    const { controller } = (entry.inject as unknown as () => WelcomeNoticeInjected)()
+
+    await controller.load()
+    await expect(controller.acknowledge()).resolves.toBe(true)
+    expect(controller.store.getSnapshot()).toMatchObject({ status: 'ready', acknowledged: true })
+    expect(b.settingsDescribe).not.toHaveBeenCalled()
   })
 
   it('re-registers after an HMR collapse of the declaring chain (stale disposers must not block)', async () => {

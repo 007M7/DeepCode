@@ -21,7 +21,7 @@ import { PendingWait } from './pending.ts'
 import { TranscriptAdapter } from './transcript-adapter.ts'
 import { displayFailureMessage } from './failure-display.ts'
 import { Notifier } from './notifier.ts'
-import { PartialAccumulator } from './partial.ts'
+import { isVisibleAssistantChunk, PartialAccumulator } from './partial.ts'
 import { ProjectionValueStore } from './projection-store.ts'
 import type { ProjectionsBaseline } from './projection-store.ts'
 
@@ -687,6 +687,10 @@ export class Session implements SessionFace {
       return
     }
     this.appendLive(event, view)
+    if (event.type === 'assistant/chunk') {
+      if (isVisibleAssistantChunk(event.data.chunk.type)) this.notifier.markFrameDirty()
+      return
+    }
     this.notifier.markDirty()
   }
 

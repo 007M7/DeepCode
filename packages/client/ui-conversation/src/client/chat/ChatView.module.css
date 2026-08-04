@@ -42,6 +42,12 @@
   gap: 16px;
 }
 
+/* Settled-flow identity boundary. It is neutral today and becomes the natural
+   measurement/mount unit for a virtualizer without changing the column gap. */
+.flowItem {
+  min-width: 0;
+}
+
 .toolGroup {
   display: flex;
   flex-direction: column;

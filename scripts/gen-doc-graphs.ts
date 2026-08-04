@@ -218,7 +218,6 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'session-reference',
     title: 'Cross-session snapshot preparation',
     mode: 'core',
-    consumers: ['tui'],
     note: 'Projects bounded current-surface conversation snapshots into durable untrusted message context; host adapters own mention syntax.',
   },
   {
@@ -250,8 +249,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'user-interaction',
     title: 'Human question/answer seam',
     mode: 'seam',
-    implementations: ['tui'],
-    consumers: ['tool-ask-user', 'tui'],
+    consumers: ['tool-ask-user'],
     note: 'UI front doors provide the active human-answer provider; tool-ask-user pauses a tool call on the provider-neutral ask() promise.',
   },
   {
@@ -266,8 +264,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'commands',
     title: 'Human command registry',
     mode: 'core',
-    consumers: ['tui'],
-    note: 'Plugins register direct human commands; TUI consumes the effective per-agent catalog without sending invocations to the model.',
+    note: 'Plugins register direct human commands without sending invocations to the model.',
   },
   {
     key: 'sessionProjections',
@@ -286,13 +283,6 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Durably checkpoints projection unit states per session (throttled + turn/end/detach mandatory points) and serves the cold-read ladder: cache row + persistence tail replay, so listings never load full logs.',
   },
   {
-    key: 'tui',
-    pkg: 'tui',
-    title: 'Mounted-terminal interaction service',
-    mode: 'bundle',
-    note: 'One TUI front door provides a FIFO overlay host; injected plugins receive caller-fiber ownership without access to pi-tui or terminal lifecycle state.',
-  },
-  {
     key: 'skills',
     pkg: 'skill',
     title: 'Skill provider registry',
@@ -306,7 +296,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'agent',
     title: 'Agent service',
     mode: 'core',
-    consumers: ['agent-loop', 'acp', 'cli-demo', 'subagent-inprocess', 'tui-demo'],
+    consumers: ['agent-loop', 'acp', 'cli-demo', 'subagent-inprocess'],
     note: 'Owns live Agent handles, the create/resume factory seam, and process-local initiator propagation.',
   },
   {
@@ -626,12 +616,12 @@ function stripYamlScalar(value: string): string {
 
 const APP_EXAMPLES = [
   {
-    id: 'tui',
+    id: 'dsh_base',
     rel: 'apps/cli/composition.md',
-    title: 'TUI Agent App Composition',
-    label: 'apps/cli/config',
+    title: 'DSH Base Composition',
+    label: 'apps/cli/config/base.cordis.yml',
     config: 'apps/cli/config/base.cordis.yml',
-    summary: 'The TUI surface combines the shared CLI base with its surface overlay and full-screen terminal package.',
+    summary: 'The raw CLI applies one required caller-selected patch list over this shared base; Web and headless apply their own shipped overlays.',
   },
   {
     id: 'headless',
@@ -658,9 +648,7 @@ function renderAppExpansion(lines: string[], appNode: string, pluginName: string
   const jsonl = nodeId('bundle', 'jsonl')
   lines.push(`  ${appNode} --> ${agentCore}["@deepseek-ai/dsh-agent-spine-demo"]`)
   lines.push(`  ${appNode} --> ${jsonl}["@deepseek-ai/dsh-session-persistence-jsonl"]`)
-  if (pluginName === '@deepseek-ai/dsh-tui-demo') {
-    lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'tui')}["@deepseek-ai/dsh-tui<br/>pre-created main agent"]`)
-  } else if (pluginName === '@deepseek-ai/dsh-cli-demo') {
+  if (pluginName === '@deepseek-ai/dsh-cli-demo') {
     lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'cli')}["one-shot driver<br/>format-pure stdout<br/>fresh top-level agent"]`)
   } else if (pluginName === '@deepseek-ai/dsh-acp-demo') {
     lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'acp')}["@deepseek-ai/dsh-acp<br/>automation-only JSON-RPC stdio<br/>fresh sessions created by client"]`)
@@ -688,7 +676,7 @@ function renderAppComposition(example: AppExample): string {
     const pluginNode = nodeId(`plugin_${example.id}`, plugin.id)
     lines.push(`  ${pluginNode}["${escLabel(plugin.id)}<br/>${escLabel(plugin.name)}"]`)
     lines.push(`  cfg --> ${pluginNode}`)
-    if (plugin.name === '@deepseek-ai/dsh-tui-demo' || plugin.name === '@deepseek-ai/dsh-cli-demo' || plugin.name === '@deepseek-ai/dsh-acp-demo') {
+    if (plugin.name === '@deepseek-ai/dsh-cli-demo' || plugin.name === '@deepseek-ai/dsh-acp-demo') {
       renderAppExpansion(lines, pluginNode, plugin.name)
     }
   }
@@ -1303,8 +1291,8 @@ function renderDocs(): GraphDoc[] {
 function renderIndex(docs: GraphDoc[]): string {
   const labels: Record<string, string> = {
     'docs/capability-seams.md': 'capability seams and core services',
+    'apps/cli/composition.md': 'dsh shared base composition',
     'examples/headless-agent/composition.md': 'headless-agent app composition',
-    'examples/tui-agent/composition.md': 'tui-agent app composition',
     'examples/cordis-agent/composition.md': 'cordis-agent app composition',
     'examples/acp-agent/composition.md': 'acp-agent app composition',
     'docs/event-producer-consumer.md': 'event producer/consumer matrix',
@@ -1313,8 +1301,8 @@ function renderIndex(docs: GraphDoc[]): string {
   }
   const modes: Record<string, string> = {
     'docs/capability-seams.md': 'hybrid generated',
+    'apps/cli/composition.md': 'hybrid generated',
     'examples/headless-agent/composition.md': 'hybrid generated',
-    'examples/tui-agent/composition.md': 'hybrid generated',
     'examples/cordis-agent/composition.md': 'hybrid generated',
     'examples/acp-agent/composition.md': 'hybrid generated',
     'docs/event-producer-consumer.md': 'hybrid generated',

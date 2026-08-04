@@ -4,9 +4,8 @@
  * @module @deepseek-ai/dsh-helper/features/builtin/app
  */
 
-import { JsExpression } from '../../documents/cordis-yaml-file.ts'
 import { featureId } from '../../ids.ts'
-import type { ProjectProfile } from '../../project/types.ts'
+import type { ProjectProfile, RunInterface } from '../../project/types.ts'
 import {
   createAppPackageScripts,
   createAppProjectArtifacts,
@@ -18,9 +17,7 @@ import {
 } from '../feature.ts'
 import { ProjectContribution, type ProjectResource } from '../resources.ts'
 import {
-  cordisConfigEntry,
   npmCordisConfigEntry,
-  optionalString,
   ownedTextFile,
   packageScript,
   requiredString,
@@ -30,10 +27,10 @@ const ID = featureId('app')
 
 function appProjectResources(
   profile: ProjectProfile,
-  runInterface: 'acp' | 'tui' | 'embed',
+  runInterface: RunInterface,
 ): readonly ProjectResource[] {
   const context = createProjectTemplateContext(profile, runInterface)
-  const scripts = createAppPackageScripts(context)
+  const scripts = createAppPackageScripts()
   return [
     ...createAppProjectArtifacts(context).map(document => (
       ownedTextFile(ID, document.relativePath, document.serialize())
@@ -44,10 +41,10 @@ function appProjectResources(
 }
 
 class AppOption extends FeatureOption {
-  override readonly id: 'acp' | 'tui' | 'embed'
+  override readonly id: RunInterface
   override readonly label: string
 
-  constructor(id: 'acp' | 'tui' | 'embed', label: string) {
+  constructor(id: RunInterface, label: string) {
     super()
     this.id = id
     this.label = label
@@ -57,7 +54,6 @@ class AppOption extends FeatureOption {
   override markerConfigEntries(): readonly { id: string; name: string }[] {
     switch (this.id) {
       case 'acp': return [{ id: 'acp', name: '@deepseek-ai/dsh-acp' }]
-      case 'tui': return [{ id: 'tui', name: '@deepseek-ai/dsh-tui' }]
       case 'embed': return []
     }
   }
@@ -66,7 +62,7 @@ class AppOption extends FeatureOption {
   override matchesConfigEntries(entries: readonly { id: string; name: string }[], profile: ProjectProfile): boolean {
     if (this.id !== 'embed') return super.matchesConfigEntries(entries, profile)
     return entries.some(entry => entry.id === 'agent-loop' && entry.name === '@deepseek-ai/dsh-agent-loop')
-      && !entries.some(entry => entry.name === '@deepseek-ai/dsh-acp' || entry.name === '@deepseek-ai/dsh-tui')
+      && !entries.some(entry => entry.name === '@deepseek-ai/dsh-acp')
   }
 
   override contribution(profile: ProjectProfile): ProjectContribution {
@@ -80,36 +76,13 @@ class AppOption extends FeatureOption {
             config: { model: profile.runtime.model },
           }, ['model'], config => requiredString(config, 'model')),
         ])
-      case 'tui':
-        return new ProjectContribution([
-          ...appProjectResources(profile, this.id),
-          ...npmCordisConfigEntry(ID, {
-            id: 'user-interaction',
-            name: '@deepseek-ai/dsh-user-interaction',
-          }),
-          cordisConfigEntry(ID, {
-            id: 'tui-prompt',
-            name: '@deepseek-ai/dsh-tui/prompt',
-          }),
-          ...npmCordisConfigEntry(ID, {
-            id: 'tui',
-            name: '@deepseek-ai/dsh-tui',
-            config: {
-              welcome: 'TUI agent ready. Give it a coding task.',
-              sessionId: new JsExpression('process.env.DSH_SDK_SESSION_ID'),
-            },
-          }, ['welcome', 'sessionId'], config => [
-            ...optionalString(config, 'welcome'),
-            ...config.sessionId instanceof JsExpression ? [] : requiredString(config, 'sessionId'),
-          ]),
-        ])
       case 'embed':
         return new ProjectContribution(appProjectResources(profile, this.id))
     }
   }
 }
 
-/** Required app selection represented by ACP, TUI, or embed options. */
+/** Required app selection represented by ACP or embed options. */
 export class AppFeature extends ExclusiveOptionFeature {
   override readonly id = ID
   override readonly summary = 'Run interface'
@@ -117,7 +90,6 @@ export class AppFeature extends ExclusiveOptionFeature {
   override readonly requires = [featureId('spine')]
   override readonly options = [
     new AppOption('acp', 'ACP automation server'),
-    new AppOption('tui', 'Terminal TUI'),
     new AppOption('embed', 'Embedded context'),
   ]
 
