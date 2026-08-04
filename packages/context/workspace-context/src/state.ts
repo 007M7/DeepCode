@@ -41,6 +41,8 @@ export interface WorkspaceInstructionSource {
   kind: 'workspace-instructions'
   /** Marks a complete baseline rather than a later delta. */
   baseline?: true
+  /** Discovery, precedence, and budget identity for safe baseline reuse. */
+  baselineIdentity?: string
   changes: WorkspaceInstructionChange[]
 }
 
@@ -386,7 +388,7 @@ function relativeScope(projectRoot: string, dir: string): string {
  * @param pendingBySession - short pending window before returned context is logged.
  * @param versionCache - per-session scope metadata used to skip unchanged reads.
  * @param fileSystem - provider used for current file probes.
- * @param options - touched path and whether baseline scopes should participate.
+ * @param options - touched path and baseline-scope selection.
  * @returns rendered context plus deferred cache updates, or undefined when unchanged/unavailable.
  */
 export async function reconcileInstructionContext(
@@ -395,7 +397,13 @@ export async function reconcileInstructionContext(
   pendingBySession: WeakMap<object, Map<string, PendingInstructionChange>>,
   versionCache: InstructionVersionCache,
   fileSystem: FileSystem,
-  options: { touchedPath?: string; includeBaselineScopes: boolean; signal?: AbortSignal },
+  options: {
+    touchedPath?: string
+    includeBaselineScopes: boolean
+    retainedBaselineScopes?: ReadonlySet<string>
+    projectRoot?: string
+    signal?: AbortSignal
+  },
 ): Promise<ReconciledInstructionContext | undefined> {
   const session = agent.session
   const pending = pendingChangesFor(session, pendingBySession)
@@ -404,7 +412,8 @@ export async function reconcileInstructionContext(
   const cwd = session.header.cwd ?? process.cwd()
   // TODO(frozen-project-root): retain the baseline root for the loop instance;
   // recomputing it after marker edits reinterprets the existing relative scope keys.
-  const projectRoot = await findProjectRoot(cwd, resolved.projectRootMarkers, fileSystem, options.signal)
+  const projectRoot = options.projectRoot
+    ?? await findProjectRoot(cwd, resolved.projectRootMarkers, fileSystem, options.signal)
   const scopes = new Set<string>()
   const baselineScopes = new Set<string>()
   const addDirScopes = (target: Set<string>, directory: string): void => {
@@ -455,6 +464,13 @@ export async function reconcileInstructionContext(
   for (const scope of scopes) {
     const { directory } = decodeScopeKey(scope)
     const previous = effective.get(scope)
+    if (options.retainedBaselineScopes !== undefined
+      && baselineScopes.has(scope)
+      && !options.retainedBaselineScopes.has(scope)) {
+      if (previous === undefined || previous.action === 'remove') versions.delete(scope)
+      else pushRemoval(scope, previous.path)
+      continue
+    }
     const probe = await probeScopeInstruction(scope, projectRoot, resolved, fileSystem, options.signal)
     if (probe.kind === 'unavailable') {
       // Last-good-state: the candidate stays effective, so its cached trimmed

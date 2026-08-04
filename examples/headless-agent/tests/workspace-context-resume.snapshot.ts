@@ -19,12 +19,14 @@ import SessionStore, {
 } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { renderWorkspaceContext } from '@deepseek-ai/dsh-workspace-context'
+import { resolveConfig, workspaceBaselineIdentity } from '@deepseek-ai/dsh-workspace-context/src/config.ts'
 import { describe, expect, it } from 'vitest'
 
 const fixtureDir = join(dirname(fileURLToPath(import.meta.url)), 'workspace-context-resume-snapshots/offline-edit')
 const replayFixture = join(fixtureDir, 'replay.jsonl')
 const replayOverride = join(fixtureDir, 'replay.override.json')
 const sessionExpected = join(fixtureDir, 'session.expected.jsonl')
+const precedenceExpected = join(dirname(fixtureDir), 'precedence-change/session.expected.jsonl')
 const configPath = fileURLToPath(new URL('../workspace-context-resume.cordis.snapshot.yml', import.meta.url))
 const binScript = fileURLToPath(new URL('../../../packages/examples/cli-demo/src/bin.ts', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
@@ -33,7 +35,16 @@ const refreshing = process.env.DSH_SNAPSHOT === 'refresh'
 const oldInstruction = 'Old workspace instruction.'
 const newInstruction = 'New workspace instruction after offline edit.'
 
-async function seedVisibleBaseline(root: string, cwd: string): Promise<string> {
+interface SeedBaselineOptions {
+  files?: Array<{ name: string; content: string }>
+  instructionFileCandidates?: string[]
+}
+
+async function seedVisibleBaseline(
+  root: string,
+  cwd: string,
+  options: SeedBaselineOptions = {},
+): Promise<string> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionPersistenceJsonl, { root, compression: 'none' })
@@ -44,11 +55,19 @@ async function seedVisibleBaseline(root: string, cwd: string): Promise<string> {
     cwd,
     delegationDepth: 0,
   }
-  const baseline = renderWorkspaceContext([{
-    absolutePath: join(cwd, 'AGENTS.md'),
-    displayPath: 'AGENTS.md',
-    content: oldInstruction,
-  }], { maxBytes: 65536 })
+  const files = options.files ?? [{ name: 'AGENTS.md', content: oldInstruction }]
+  const baseline = renderWorkspaceContext(files.map(file => ({
+    absolutePath: join(cwd, file.name),
+    displayPath: file.name,
+    content: file.content,
+  })), { maxBytes: 65536 })
+  const config = resolveConfig({
+    dshHome: join(cwd, '.dsh'),
+    maxBytes: 65536,
+    ...options.instructionFileCandidates === undefined
+      ? {}
+      : { instructionFileCandidates: options.instructionFileCandidates },
+  })
   const events: SessionEvent[] = [
     { type: 'turn/start', seq: 0, time: 10, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
     {
@@ -67,12 +86,13 @@ async function seedVisibleBaseline(root: string, cwd: string): Promise<string> {
         source: {
           kind: 'workspace-instructions',
           baseline: true,
-          changes: [{
+          baselineIdentity: workspaceBaselineIdentity(config, cwd, cwd),
+          changes: files.map(file => ({
             action: 'set',
-            scope: '.\0AGENTS.md',
-            path: 'AGENTS.md',
-            digest: createHash('sha1').update(oldInstruction).digest('hex'),
-          }],
+            scope: `.\0${file.name}`,
+            path: file.name,
+            digest: createHash('sha1').update(file.content).digest('hex'),
+          })),
         },
       }),
       surfaceOp: 'append',
@@ -147,5 +167,70 @@ describe('workspace-context resume snapshot', () => {
       result: 'RESUME_DONE',
       reason: { kind: 'completed' },
     })
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
+  it('recomposes a compatible current-order baseline when precedence changed offline', async () => {
+    let cwd = ''
+    let sessionPath = ''
+    const result = await runLoaderSmoke({
+      label: 'workspace-context precedence-change resume snapshot',
+      tempDirPrefix: 'dsh-workspace-context-precedence-',
+      binScript,
+      configPath,
+      binArgs: ['--config', configPath, '--output-format', 'stream-json', 'Acknowledge the current workspace instruction.'],
+      tsconfigPath,
+      env: {
+        DSH_SNAPSHOT_FILE: replayFixture,
+        DSH_SNAPSHOT_OVERRIDE: replayOverride,
+      },
+      prepare: async (runCwd) => {
+        cwd = runCwd
+        await mkdir(join(runCwd, '.git'), { recursive: true })
+        await writeFile(join(runCwd, 'AGENTS.md'), 'Current AGENTS rule.\n')
+        await writeFile(join(runCwd, 'CLAUDE.md'), 'Current CLAUDE rule.\n')
+        sessionPath = await seedVisibleBaseline(join(runCwd, '.sessions'), runCwd, {
+          files: [
+            { name: 'CLAUDE.md', content: 'Old CLAUDE rule.' },
+            { name: 'AGENTS.md', content: 'Old AGENTS rule.' },
+          ],
+          instructionFileCandidates: ['CLAUDE.md', 'AGENTS.md'],
+        })
+      },
+      inspect: async () => {
+        const normalization: NormalizeContext = { sessionIds: [sessionId], cwd }
+        const session = scrubRequestHeaders(normalizeSessionLog(await readFile(sessionPath, 'utf8'), normalization))
+        if (refreshing) {
+          await mkdir(dirname(precedenceExpected), { recursive: true })
+          await writeFile(precedenceExpected, session)
+        }
+        expect(session).toBe(await readFile(precedenceExpected, 'utf8'))
+
+        const records = session.trimEnd().split('\n').map(line => JSON.parse(line) as {
+          type?: string
+          data?: {
+            source?: { kind?: string; baseline?: boolean }
+            content?: Array<{ type?: string; text?: string }>
+          }
+        })
+        const baselines = records.filter(record => record.type === 'user/message'
+          && record.data?.source?.kind === 'workspace-instructions'
+          && record.data.source.baseline === true)
+        expect(baselines).toHaveLength(2)
+        const replacement = JSON.stringify(baselines.at(-1)?.data?.content)
+        expect(replacement).toContain('replaces all earlier workspace instruction baselines')
+        expect(replacement.indexOf('Instructions from: AGENTS.md'))
+          .toBeLessThan(replacement.indexOf('Instructions from: CLAUDE.md'))
+      },
+    })
+
+    expect(result.stderr).toBe('')
+    expect(result.stdout.trimEnd().split('\n').map(line => JSON.parse(line) as Record<string, unknown>).at(-1))
+      .toMatchObject({
+        type: 'result',
+        success: true,
+        sessionId,
+        result: 'RESUME_DONE',
+        reason: { kind: 'completed' },
+      })
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 })

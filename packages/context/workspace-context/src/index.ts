@@ -15,8 +15,8 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type { PostToolDecision, ToolExecution, ToolExecutionResult, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
-import { Config, resolveConfig, type ResolvedConfig } from './config.ts'
-import { loadBaselineInstructionSet } from './files.ts'
+import { Config, resolveConfig, workspaceBaselineIdentity, type ResolvedConfig } from './config.ts'
+import { findProjectRoot, loadBaselineInstructionSet } from './files.ts'
 import {
   applyInstructionVersionUpdates,
   baselineInstructionState,
@@ -31,6 +31,7 @@ import {
   type InstructionVersionCache,
   type InstructionVersionUpdate,
   type PendingInstructionChange,
+  type WorkspaceInstructionSource,
 } from './state.ts'
 import type { WorkspaceInstructionChange } from './render.ts'
 
@@ -46,13 +47,18 @@ export type {
 export { renderWorkspaceContext } from './render.ts'
 export type { RenderedWorkspaceContext, TruncatedInstruction } from './render.ts'
 
-function hasVisibleBaseline(session: Agent['session']): boolean {
-  return session.surface.nodes.some((seq) => {
+function visibleBaselineSource(session: Agent['session']): WorkspaceInstructionSource | undefined {
+  for (const seq of session.surface.nodes.toReversed()) {
     const event = session.events[seq]
-    return event?.type === 'user/message'
+    if (event?.type === 'user/message'
       && event.data.source.kind === 'workspace-instructions'
-      && event.data.source.baseline === true
-  })
+      && event.data.source.baseline === true) return event.data.source
+  }
+  return undefined
+}
+
+function hasVisibleBaseline(session: Agent['session']): boolean {
+  return visibleBaselineSource(session) !== undefined
 }
 
 function hasBaselineHistory(session: Agent['session']): boolean {
@@ -88,7 +94,7 @@ export function apply(ctx: Context, config: Config): void {
   const prepareBaseline = async (
     agent: Agent,
     signal: AbortSignal | undefined,
-    keepVisibleBaseline: boolean,
+    retainCompatibleBaseline: boolean,
     deduplicateRestore = false,
   ): Promise<void> => {
     if (resolved.maxBytes <= 0 || !Number.isFinite(resolved.maxBytes)) {
@@ -106,6 +112,21 @@ export function apply(ctx: Context, config: Config): void {
     }
     /* v8 ignore next -- normal agents carry an absolute session cwd. */
     const cwd = agent.session.header.cwd ?? process.cwd()
+    const projectRoot = await findProjectRoot(
+      cwd,
+      resolved.projectRootMarkers,
+      fileSystem,
+      signal,
+    )
+    const identity = workspaceBaselineIdentity(resolved, cwd, projectRoot)
+    const visibleBaseline = visibleBaselineSource(agent.session)
+    const keepVisibleBaseline = retainCompatibleBaseline
+      && visibleBaseline !== undefined
+      && typeof visibleBaseline.baselineIdentity === 'string'
+      && visibleBaseline.baselineIdentity === identity
+    const replacePreviousBaseline = retainCompatibleBaseline
+      && visibleBaseline !== undefined
+      && !keepVisibleBaseline
     const instructions = await loadBaselineInstructionSet({
       cwd,
       dshHome: resolved.dshHome,
@@ -114,6 +135,8 @@ export function apply(ctx: Context, config: Config): void {
       maxSourceBytes: resolved.maxSourceBytes,
       instructionFileCandidates: resolved.instructionFileCandidates,
       localInstructionFileCandidates: resolved.localInstructionFileCandidates,
+      projectRoot,
+      replacePreviousBaseline,
       ...signal === undefined ? {} : { signal },
     }, fileSystem)
     const baseline = baselineInstructionState(instructions?.included ?? [])
@@ -126,7 +149,12 @@ export function apply(ctx: Context, config: Config): void {
       pendingNestedChanges,
       instructionVersions,
       fileSystem,
-      { includeBaselineScopes: keepVisibleBaseline, ...signal === undefined ? {} : { signal } },
+      {
+        includeBaselineScopes: keepVisibleBaseline,
+        ...keepVisibleBaseline ? { retainedBaselineScopes: new Set(baseline.changes.keys()) } : {},
+        projectRoot,
+        ...signal === undefined ? {} : { signal },
+      },
     )
     signal?.throwIfAborted()
     const generation = agent.session.surface.replaceGeneration
@@ -141,6 +169,15 @@ export function apply(ctx: Context, config: Config): void {
     }
     if (!keepVisibleBaseline && instructions !== undefined && instructions.rendered.text.length > 0) {
       const baselineMessage = workspaceContextMessage(instructions.rendered.text)
+      const replacementScopes = new Set(baseline.changes.keys())
+      const visibleBaselineChanges = visibleBaseline?.changes ?? []
+      const replacementRemovals = replacePreviousBaseline
+        ? visibleBaselineChanges.flatMap(change => (
+          change.action === 'remove' || replacementScopes.has(change.scope)
+            ? []
+            : [{ action: 'remove' as const, scope: change.scope, path: change.path }]
+        ))
+        : []
       baselineSettledGeneration.delete(agent.session)
       baselineQueuedGeneration.set(agent.session, generation)
       try {
@@ -149,7 +186,8 @@ export function apply(ctx: Context, config: Config): void {
           source: {
             kind: 'workspace-instructions',
             baseline: true,
-            changes: [...baseline.changes.values()],
+            baselineIdentity: identity,
+            changes: [...replacementRemovals, ...baseline.changes.values()],
           },
         }))
       } catch (error: unknown) {
@@ -165,8 +203,7 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.on('agent/step', async (agent: Agent, _turn, _step, signal): Promise<void> => {
     if (baselineLoaded.has(agent.session)) return
-    const keepVisibleBaseline = hasVisibleBaseline(agent.session)
-    await prepareBaseline(agent, signal, keepVisibleBaseline)
+    await prepareBaseline(agent, signal, true)
   })
 
   ctx.on('system-prompt/assemble', async (_assembly, context, next) => {

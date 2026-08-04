@@ -1063,6 +1063,208 @@ describe('workspace context request injection', () => {
     }
   })
 
+  it('does not promote an unchanged budget-omitted baseline file during resume', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      const cwd = join(root, 'pkg')
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'root '.repeat(200))
+      await write(join(cwd, 'AGENTS.md'), 'package rule')
+      const ctx = new Context()
+      await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 700 })
+      const original = stubAgent(cwd)
+      await composeBaselinePrefix(ctx, original)
+
+      const firstResume = stubAgent(cwd, [...original.session.events])
+      await composeBaselinePrefix(ctx, firstResume)
+      const secondResume = stubAgent(cwd, [...firstResume.session.events])
+      await composeBaselinePrefix(ctx, secondResume)
+
+      expect(baselineEvents(secondResume)).toHaveLength(1)
+      expect(secondResume.session.events.filter(event => event.type === 'user/message'
+        && event.data.source.kind === 'workspace-instructions')).toHaveLength(1)
+      expect(blocksText(secondResume.session.deriveMessages()[0]?.content)).toContain('omitted AGENTS.md')
+      expect(blocksText(secondResume.session.deriveMessages()[0]?.content)).not.toContain('root root')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('removes a previously visible baseline file that leaves the retained budget set', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      const cwd = join(root, 'pkg')
+      await mkdir(join(root, '.git'), { recursive: true })
+      await mkdir(cwd, { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'root '.repeat(200))
+      const ctx = new Context()
+      await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 700 })
+      const original = stubAgent(cwd)
+      await composeBaselinePrefix(ctx, original)
+
+      await write(join(cwd, 'AGENTS.md'), 'package rule')
+      const resumed = stubAgent(cwd, [...original.session.events])
+      await composeBaselinePrefix(ctx, resumed)
+
+      expect(baselineEvents(resumed)).toHaveLength(1)
+      const update = resumed.session.events.findLast(event => event.type === 'user/message'
+        && event.data.source.kind === 'workspace-instructions'
+        && event.data.source.baseline !== true)
+      expect(update?.type === 'user/message' && update.data.source.changes).toMatchObject([
+        { action: 'remove', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md' },
+        { action: 'set', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') },
+      ])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('recomposes the baseline when candidate precedence changes between resumes', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    const originalCtx = new Context()
+    const resumedCtx = new Context()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'agents rule')
+      await write(join(root, 'CLAUDE.md'), 'claude rule')
+      await mountWorkspaceContext(originalCtx, { dshHome: home, maxBytes: 65536 })
+      const original = stubAgent(root)
+      await composeBaselinePrefix(originalCtx, original)
+
+      await mountWorkspaceContext(resumedCtx, {
+        dshHome: home,
+        maxBytes: 65536,
+        instructionFileCandidates: ['CLAUDE.md', 'AGENTS.md'],
+      })
+      const resumed = stubAgent(root, [...original.session.events])
+      await composeBaselinePrefix(resumedCtx, resumed)
+
+      const baselines = baselineEvents(resumed)
+      expect(baselines).toHaveLength(2)
+      const replacement = baselines.at(-1)
+      const replacementText = replacement?.type === 'user/message'
+        ? blocksText(replacement.data.content)
+        : ''
+      expect(replacementText).toContain('replaces all earlier workspace instruction baselines')
+      expect(replacementText.indexOf('Instructions from: CLAUDE.md'))
+        .toBeLessThan(replacementText.indexOf('Instructions from: AGENTS.md'))
+      const baselineIdentities: string[] = []
+      for (const event of baselines) {
+        if (event.type !== 'user/message' || event.data.source.kind !== 'workspace-instructions') continue
+        if (typeof event.data.source.baselineIdentity === 'string') {
+          baselineIdentities.push(event.data.source.baselineIdentity)
+        }
+      }
+      expect(new Set(baselineIdentities).size).toBe(2)
+
+      const repeated = stubAgent(root, [...resumed.session.events])
+      await composeBaselinePrefix(resumedCtx, repeated)
+      expect(baselineEvents(repeated)).toHaveLength(2)
+    } finally {
+      await originalCtx.fiber.dispose()
+      await resumedCtx.fiber.dispose()
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('tombstones candidates removed across successive baseline configurations', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    const agentsCtx = new Context()
+    const claudeCtx = new Context()
+    const restoredCtx = new Context()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'agents rule')
+      await write(join(root, 'CLAUDE.md'), 'claude rule')
+      await mountWorkspaceContext(agentsCtx, {
+        dshHome: home,
+        maxBytes: 65536,
+        instructionFileCandidates: ['AGENTS.md'],
+      })
+      const original = stubAgent(root)
+      await composeBaselinePrefix(agentsCtx, original)
+
+      await mountWorkspaceContext(claudeCtx, {
+        dshHome: home,
+        maxBytes: 65536,
+        instructionFileCandidates: ['CLAUDE.md'],
+      })
+      const claudeResume = stubAgent(root, [...original.session.events])
+      await composeBaselinePrefix(claudeCtx, claudeResume)
+      const claudeBaseline = baselineEvents(claudeResume).at(-1)
+      expect(claudeBaseline?.type === 'user/message' && claudeBaseline.data.source.changes).toMatchObject([
+        { action: 'remove', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md' },
+        { action: 'set', scope: sk('.', 'CLAUDE.md'), path: 'CLAUDE.md' },
+      ])
+
+      await mountWorkspaceContext(restoredCtx, {
+        dshHome: home,
+        maxBytes: 65536,
+        instructionFileCandidates: ['AGENTS.md'],
+      })
+      const restored = stubAgent(root, [...claudeResume.session.events])
+      await composeBaselinePrefix(restoredCtx, restored)
+      const restoredBaseline = baselineEvents(restored).at(-1)
+      expect(restoredBaseline?.type === 'user/message' && restoredBaseline.data.source.changes).toMatchObject([
+        { action: 'remove', scope: sk('.', 'CLAUDE.md'), path: 'CLAUDE.md' },
+        { action: 'set', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md' },
+      ])
+    } finally {
+      await agentsCtx.fiber.dispose()
+      await claudeCtx.fiber.dispose()
+      await restoredCtx.fiber.dispose()
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('supersedes an incompatible visible baseline when no current candidate exists', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    const originalCtx = new Context()
+    const resumedCtx = new Context()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'agents rule')
+      await mountWorkspaceContext(originalCtx, { dshHome: home, maxBytes: 65536 })
+      const original = stubAgent(root)
+      await composeBaselinePrefix(originalCtx, original)
+
+      await mountWorkspaceContext(resumedCtx, {
+        dshHome: home,
+        maxBytes: 65536,
+        instructionFileCandidates: ['POLICY.md'],
+      })
+      const resumed = stubAgent(root, [...original.session.events])
+      await composeBaselinePrefix(resumedCtx, resumed)
+
+      const baselines = baselineEvents(resumed)
+      expect(baselines).toHaveLength(2)
+      const replacement = baselines.at(-1)
+      expect(replacement?.type === 'user/message' && blocksText(replacement.data.content))
+        .toContain('No workspace instructions are currently active.')
+      expect(replacement?.type === 'user/message' && replacement.data.source.changes).toMatchObject([
+        { action: 'remove', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md' },
+      ])
+
+      const repeated = stubAgent(root, [...resumed.session.events])
+      await composeBaselinePrefix(resumedCtx, repeated)
+      expect(baselineEvents(repeated)).toHaveLength(2)
+    } finally {
+      await originalCtx.fiber.dispose()
+      await resumedCtx.fiber.dispose()
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
   it('ignores a restored baseline during a file tool call before resume reconciliation', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
