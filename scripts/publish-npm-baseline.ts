@@ -34,20 +34,17 @@ const DEPENDENCY_SECTIONS = [
   'peerDependencies',
 ] as const
 const RELEASE_MANIFEST_NAME = 'manifest.json'
-const POSIX_TUI_PROBE = String.raw`
-import errno, fcntl, os, pty, select, signal, struct, sys, termios, time
+const POSIX_WEB_PROBE = String.raw`
+import errno, os, pty, select, signal, sys, time
 node, bin_path, cwd, timeout_seconds = sys.argv[1:]
 pid, fd = pty.fork()
 if pid == 0:
     os.chdir(cwd)
-    os.execvpe(node, [node, bin_path], os.environ.copy())
-fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
+    os.execvpe(node, [node, bin_path, "web", "--host", "127.0.0.1", "--port", "0"], os.environ.copy())
 
 output = bytearray()
-welcome_dismissed = False
-welcome_dismissed_at = None
-session_seen_at = None
-exit_sent = False
+ready_seen = False
+termination_sent = False
 deadline = time.monotonic() + float(timeout_seconds)
 status = None
 while time.monotonic() < deadline:
@@ -62,21 +59,11 @@ while time.monotonic() < deadline:
         if chunk:
             output.extend(chunk)
 
-    now = time.monotonic()
     snapshot = bytes(output)
-    if not welcome_dismissed and b"Enter  " in snapshot:
-        os.write(fd, b"\r")
-        welcome_dismissed = True
-        welcome_dismissed_at = now
-    if b"main-session-" in snapshot and session_seen_at is None:
-        session_seen_at = now
-    if not exit_sent and session_seen_at is not None:
-        if welcome_dismissed_at is not None and now - welcome_dismissed_at >= 0.2:
-            os.write(fd, b"/exit\r")
-            exit_sent = True
-        elif not welcome_dismissed and now - session_seen_at >= 1.0:
-            os.write(fd, b"/exit\r")
-            exit_sent = True
+    if not termination_sent and b"dsh web: http://127.0.0.1:" in snapshot:
+        ready_seen = True
+        os.kill(pid, signal.SIGTERM)
+        termination_sent = True
 
     waited, candidate = os.waitpid(pid, os.WNOHANG)
     if waited == pid:
@@ -87,12 +74,12 @@ if status is None:
     os.kill(pid, signal.SIGKILL)
     _, status = os.waitpid(pid, 0)
 sys.stdout.buffer.write(output)
-if session_seen_at is None:
-    sys.stderr.write("installed dsh TUI did not reach its main-session ready signal\n")
+if not ready_seen:
+    sys.stderr.write("installed dsh web did not reach its ready URL\n")
     sys.exit(124)
 actual_exit = os.waitstatus_to_exitcode(status)
 if actual_exit != 0:
-    sys.stderr.write(f"installed dsh TUI exited {actual_exit}, expected 0\n")
+    sys.stderr.write(f"installed dsh web exited {actual_exit}, expected 0\n")
     sys.exit(125)
 `
 
@@ -481,25 +468,25 @@ class InstalledBundleSmoke {
         environment,
       )
       if (config === '') throw new Error('installed dsh --dump-default-config returned no output')
-      this.probeTui(bin, consumerRoot, environment)
-      console.log('publish-npm-baseline: installed dsh entry and TUI probes passed')
+      this.probeWeb(bin, consumerRoot, environment)
+      console.log('publish-npm-baseline: installed dsh entry and Web startup probes passed')
     } finally {
       rmSync(consumerRoot, { recursive: true, force: true })
     }
   }
 
-  private probeTui(bin: string, consumerRoot: string, environment: NodeJS.ProcessEnv): void {
+  private probeWeb(bin: string, consumerRoot: string, environment: NodeJS.ProcessEnv): void {
     if (process.platform === 'win32') {
-      throw new Error('installed dsh TUI probe requires a POSIX host with python3')
+      throw new Error('installed dsh Web probe requires a POSIX host with python3')
     }
     const result = this.runner.result(
       'python3',
-      ['-c', POSIX_TUI_PROBE, process.execPath, bin, consumerRoot, '60'],
+      ['-c', POSIX_WEB_PROBE, process.execPath, bin, consumerRoot, '60'],
       consumerRoot,
       environment,
     )
     if (result.status !== 0) {
-      throw commandFailure('python3', ['installed-dsh-tui-probe'], result)
+      throw commandFailure('python3', ['installed-dsh-web-probe'], result)
     }
   }
 }
@@ -910,7 +897,7 @@ function installedArtifactEnvironment(consumerRoot: string): NodeJS.ProcessEnv {
   environment.DSH_HOME = resolve(consumerRoot, '.dsh')
   environment.DSH_AGENTS_HOME = resolve(consumerRoot, '.agents')
   environment.DSH_TELEMETRY_DISABLED = '1'
-  environment.DEEPSEEK_API_KEY = 'keyless-installed-tui-no-call'
+  environment.DEEPSEEK_API_KEY = 'keyless-installed-web-no-call'
   environment.LANG = 'en_US.UTF-8'
   environment.LC_ALL = 'en_US.UTF-8'
   environment.LC_CTYPE = 'en_US.UTF-8'
