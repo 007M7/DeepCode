@@ -14,6 +14,7 @@
 // grant storage.
 
 import { useMemo, useState } from 'react'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { RunningToolCall } from '@deepseek-ai/dsh-client-runtime/client'
 import { PendingApproval, type ApprovalComposerProps } from '../contract/slots.ts'
 import css from './ApprovalPanel.module.css'
@@ -69,12 +70,12 @@ function ApprovalFlow({ pending, command, t }: {
           {command !== undefined && <div className={css.command}>{command}</div>}
         </div>
         <div className={css.actionRow}>
-          <button type="button" className={css.reject} disabled={answered} onClick={() => { answer('rejected') }}>
+          <Button variant="outline" className={css.reject} disabled={answered} onClick={() => { answer('rejected') }}>
             {t('approval.reject')}
-          </button>
-          <button type="button" className={css.allow} disabled={answered} onClick={() => { answer('allowed-once') }}>
+          </Button>
+          <Button variant="primary" disabled={answered} onClick={() => { answer('allowed-once') }}>
             {t('approval.allowOnce')}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

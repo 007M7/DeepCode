@@ -143,7 +143,6 @@ function bench(over?: BenchOptions) {
   }
   const view = render(<InputBar {...props} />)
   const textarea = view.container.querySelector('textarea')!
-  // aria-label (not role name): title carries the same label and would double-match.
   const stopping = over?.running === true && over.subagent === undefined
   const button = view.container.querySelector<HTMLButtonElement>(
     `button[aria-label="${stopping ? '停止生成' : '发送消息'}"]`,
@@ -724,6 +723,8 @@ describe('command launcher chrome and control seats', () => {
     const trigger = view.getByLabelText(/^访问模式/) as HTMLButtonElement
     // Title-case display is presentation only; the menu ids stay machine names.
     expect(trigger.textContent).toBe('Read Only')
+    expect([...trigger.querySelectorAll('svg')]
+      .every(icon => icon.closest('[aria-hidden="true"]') !== null)).toBe(true)
     fireEvent.click(trigger)
     const items = view.getAllByRole('menuitem')
     expect(items.map(o => o.textContent)).toEqual(['Read Only', 'Workspace Write', 'Full access'])

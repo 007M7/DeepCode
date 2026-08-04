@@ -104,6 +104,9 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
       await input.press('Enter')
       const planButton = activePage.getByRole('button', { name: 'Plan mode on, press to turn off' })
       await planButton.waitFor({ timeout: 10_000 })
+      // WebSocket projection and HTTP command receipt are independent; wait
+      // for both the plan chip and the successful-submit draft clear.
+      await expect.poll(() => input.inputValue()).toBe('')
       const planSnapshot = await captureStableAria(activePage, '[class*="frame"]', activeScaffold.workspaceCwd)
       await compareOrRefreshGolden(PLAN_ACTIVE_EXPECTED, planSnapshot, MODE)
       const planStyle = await planButton.evaluate((element) => {

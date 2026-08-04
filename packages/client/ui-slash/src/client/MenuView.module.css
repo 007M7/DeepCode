@@ -9,8 +9,11 @@
   bottom: calc(100% + 4px);
   left: 0;
   z-index: 100;
-  min-width: 260px;
-  max-width: 537px;
+  min-width: min(260px, 100%);
+  /* 537 is the design cap; the 100% clamp keeps the menu inside the composer
+     card when a narrow viewport shrinks the card below the cap (the overlay
+     anchor is exactly the card's width). */
+  max-width: min(537px, 100%);
   /* Height cap: the 320px design maximum, clamped at runtime to the space
    * above the composer (inline max-height set in MenuView.tsx). */
   max-height: 320px;
