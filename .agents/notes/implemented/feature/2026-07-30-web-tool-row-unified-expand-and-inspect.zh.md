@@ -10,14 +10,14 @@
 
 ## 决定
 
-**所有可展开工具行共享同一交互——整行即开关（点击 / Enter / 空格），图标 hover 时渐变为 chevron 预览——以及同一展开体：带 IN/OUT 侧栏标签的卡片，各分区独立滚动上限；hover 显示的 Inspect 胶囊通过 store 的一次性交接跳到该调用的 trajectory 记录；聊天视图用内存态的按会话 Map 在视图切换间保留滚动位置。**
+**所有可展开工具行共享同一交互——整行即开关（点击 / Enter / 空格），图标 hover 时渐变为 chevron 预览——以及同一展开体：带 IN/OUT 侧栏标签的卡片，各分区独立滚动上限；hover 显示的 Inspect 胶囊通过 store 的一次性交接跳到该调用的 trajectory 记录；聊天视图用内存态的按会话 Map 在视图切换间保留语义阅读位置。**
 
 - `toolRowModel` 在 args 之外同时派生结果材料：`output`（`resultText` 拍平逻辑从 DetailsPanel 移入 contract）和 `errorSummary`（失败首行，以错误色作为折叠摘要）。有 body、output 或 terminal 材料的行即可展开；行本身是开关（`role="button"`、`aria-expanded`），文件路径摘要通过 `stopPropagation` 保持独立链接。
 - 展开卡片（figma 1249:35657）是 IN/OUT 分区列：每个分区是独立滚动区（max-height 150px），侧栏标签 sticky 固定，l2 分割线横贯整卡宽度。Think 的推理文本和 run_code 的 CodeBlock 保持非卡片体；上下文注入复用此行并以无标签的 `plainBody` 卡片展开。
 - `terminalFailed` 读取已结算 terminal 卡片的退出状态，让 BashRow 和 GenericToolCard 把失败命令显示为行的红色状态点——这是折叠行唯一的失败信号，因为调用本身结算为 `isError:false`。
 - TerminalBlock 的横幅并入同一阅读模型：与卡片共用同一表面（不再用 banner token），与正文之间是 l2 细线，命令列上限 150px 内部滚动，复制/状态控件 sticky 且顶对齐第一行提示符。
 - Inspect：`ToolRowOwnerProps.inspect`（无调用身份的行不提供）在展开体左下角以真实布局位置渲染胶囊，hover 整个 tool call 任意位置显示。点击将 `{ callId }` 写入 chat store 的一次性 `inspect` 字段并切换到 trajectory 视图；TrajectoryTable 找到记录、打开其摘要，并通过清空字段确认。
-- 滚动保留：聊天视图在每次滚动时保存偏移（贴底时为 null）到 apply 作用域的 `Map<SessionId, number>`，经注入 props 的 `chatScroll` 暴露；重挂载时 open-jump 分支恢复它。刻意不持久化——新页面加载保持打开即贴底的默认行为。
+- 滚动保留：每次非贴底滚动时，聊天视图把 `{ anchorKey, anchorTop, scrollTop }` 保存到 apply 作用域的按会话 Map，并经注入 props 的 `chatScroll` 暴露；重挂载时先用 `scrollTop` 到达近似窗口，再按稳定 node／call 锚点的矩形差值校正，因此宽度重排后仍把同一阅读行保持在原位。包括「回到底部」在内的每条贴底路径都会在切换 tab 或会话前同步清除该项。Map 仍刻意不持久化——新页面加载保持打开即贴底的默认行为。
 
 ## 曾考虑的替代方案
 
