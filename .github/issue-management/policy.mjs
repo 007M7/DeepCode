@@ -12,7 +12,12 @@ const AUDIT_MARKER = '<!-- dsh-issue-policy -->'
 const OWNER_LINE = /^Owner: @([A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?)$/
 const TYPES = new Set(['Idea', 'Feature', 'Bug', 'Research', 'Task'])
 const PRIORITIES = ['p0', 'p1', 'p2', 'p3']
-const ACTIVE_STATUS_ORDER = ['Inbox', 'Backlog', 'Ready', 'In progress', 'In review']
+const TERMINAL_STATUSES = new Set(['Done', 'No action'])
+const ACTIVE_STATUS_ORDER = config.statuses.filter((status) => !TERMINAL_STATUSES.has(status))
+
+for (const status of ['In progress', 'In review']) {
+  if (!ACTIVE_STATUS_ORDER.includes(status)) throw new Error(`config.statuses 缺少 ${status}`)
+}
 
 /**
  * Return Markdown outside balanced details elements.
@@ -418,8 +423,7 @@ async function ensureProjectItem(number) {
   }
 }
 
-async function setStatus(number, status) {
-  const context = await ensureProjectItem(number)
+async function updateStatus(context, status) {
   const option = context.statusField.options.find((candidate) => candidate.name === status)
   if (!option) throw new Error(`Status 不存在：${status}`)
   if (context.item.fieldValueByName?.name === status) return
@@ -439,6 +443,10 @@ async function setStatus(number, status) {
       optionId: option.id,
     },
   )
+}
+
+async function setStatus(number, status) {
+  await updateStatus(await ensureProjectItem(number), status)
 }
 
 async function upsertAudit(number, errors) {
@@ -510,11 +518,12 @@ async function pullRequestSnapshot(number) {
 
 async function advanceResolvingIssues(pull) {
   for (const number of pull.references.resolving) {
-    const current = await issueSnapshot(number)
-    if (!current) continue
-    const target = nextResolvingIssueStatus(current.status, pull)
+    const context = await projectContext(number)
+    const target = nextResolvingIssueStatus(context.item?.fieldValueByName?.name ?? null, pull)
     if (!target) continue
-    await setStatus(number, target)
+    // TODO: Replace this latest-state guard with per-Issue serialization or a
+    // conditional ProjectV2 update; GraphQL currently has no compare-and-swap.
+    await updateStatus(context, target)
     await auditIssue(number)
   }
 }
