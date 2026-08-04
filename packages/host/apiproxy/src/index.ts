@@ -5,7 +5,7 @@
  * platform subclasses on the client side), and the host-side implementation
  * (api-proxy.ts: createApiProxy + the ApiProxyService gateway plugin providing
  * `ctx.apiProxy`). Transport-agnostic by design: this package registers no
- * routes — carriers (HTTP today, IPC later) wrap `ctx.apiProxy` themselves.
+ * routes — physical carriers wrap `ctx.apiProxy` themselves.
  */
 
 import { resolve } from 'node:path'

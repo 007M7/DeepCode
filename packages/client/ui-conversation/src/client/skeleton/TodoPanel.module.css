@@ -1,6 +1,7 @@
 /* Todo strip in the composer context stack (Figma 1236:32276): tip surface,
-   14px radius, status icons + secondary item labels. Its visible card aligns
-   with the GoalBar and the Queue panel inside their shared dock column. */
+   status icons + secondary item labels. Its visible card aligns with the
+   GoalBar and the Queue panel inside their shared dock column: 12px radius,
+   36px collapsed row, 12px side padding, 14px tertiary leading glyph. */
 
 .root {
   box-sizing: border-box;
@@ -24,7 +25,7 @@
     var(--dsh-composer-dock-inset)
   );
   border: 1px solid var(--dsw-alias-border-l1);
-  border-radius: 14px;
+  border-radius: 12px;
   background: var(--dsw-specific-tip);
   /* Elevated surface: `--dsw-specific-tip` is the same dark rung as the menu
      surface, and `.list` scrolls inside this card, so the thumb takes the l2
@@ -39,7 +40,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 9px 15px;
+  padding: 6px 12px;
 }
 
 .header {
@@ -54,9 +55,16 @@
   cursor: pointer;
 }
 
+.lead {
+  display: grid;
+  flex: none;
+  place-items: center;
+  color: var(--dsw-alias-label-tertiary);
+}
+
 .title {
   flex: none;
-  font-size: 14px;
+  font-size: 13px;
   line-height: 24px;
   font-weight: 500;
   color: var(--dsw-alias-label-primary);

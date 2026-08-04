@@ -155,7 +155,7 @@ describe('ModelsSection', () => {
     expect(screen.getByText('openai')).toBeTruthy()
     expect(screen.queryByText('Active')).toBeNull()
     expect(screen.queryByText('Inactive')).toBeNull()
-    expect(screen.getByText(`+ ${en.add}`)).toBeTruthy()
+    expect(screen.getByText(en.add)).toBeTruthy()
   })
 
   it('turns the setup card into a row once the credential reports configured', async () => {
@@ -332,7 +332,7 @@ describe('ModelsSection', () => {
 
   it('adds a dormant provider with a derived reference and stores its key', async () => {
     const { mutate, set } = await mountSection()
-    fireEvent.click(screen.getByText(`+ ${en.add}`))
+    fireEvent.click(screen.getByText(en.add))
     const pick = await screen.findByLabelText<HTMLSelectElement>(en.provider)
     expect([...pick.options].map(option => option.value)).toEqual(['anthropic', 'broken', 'plain'])
     expect(pick.value).toBe('anthropic')
@@ -356,7 +356,7 @@ describe('ModelsSection', () => {
 
   it('switches the add card target and degrades unknown or broken targets loudly', async () => {
     await mountSection()
-    fireEvent.click(screen.getByText(`+ ${en.add}`))
+    fireEvent.click(screen.getByText(en.add))
     const pick = await screen.findByLabelText<HTMLSelectElement>(en.provider)
     fireEvent.change(pick, { target: { value: 'broken' } })
     await screen.findByText(/unresolvable settings path/)
@@ -374,7 +374,7 @@ describe('ModelsSection', () => {
     const { set } = await mountSection({
       mutate: vi.fn(() => Promise.resolve(fail('llm-pi-ai: unknown pi-ai provider "bogus"'))),
     })
-    fireEvent.click(screen.getByText(`+ ${en.add}`))
+    fireEvent.click(screen.getByText(en.add))
     await screen.findByLabelText(en.provider)
     const keys = screen.getAllByLabelText<HTMLInputElement>(en.keyInput)
     fireEvent.change(keys[keys.length - 1] as HTMLInputElement, { target: { value: 'sk-x' } })
@@ -554,7 +554,7 @@ describe('ModelsSection', () => {
     />)
     expect(screen.getByText(en.readOnly)).toBeTruthy()
     expect(screen.getAllByText<HTMLButtonElement>(en.remove).every(button => button.disabled)).toBe(true)
-    expect(screen.getByText<HTMLButtonElement>(`+ ${en.add}`).disabled).toBe(true)
+    expect(screen.getByText<HTMLButtonElement>(en.add).disabled).toBe(true)
   })
 
   it('toggles the row editor closed on a second edit click and on cancel', async () => {
@@ -573,10 +573,10 @@ describe('ModelsSection', () => {
 
   it('cancels the add card back to the add button', async () => {
     await mountSection()
-    fireEvent.click(screen.getByText(`+ ${en.add}`))
+    fireEvent.click(screen.getByText(en.add))
     await screen.findByLabelText(en.provider)
     fireEvent.click(screen.getAllByText(en.cancel)[1] as HTMLElement)
-    await screen.findByText(`+ ${en.add}`)
+    await screen.findByText(en.add)
     expect(screen.queryByLabelText(en.provider)).toBeNull()
   })
 
