@@ -125,6 +125,23 @@ describe('PiAiAdapter provider routing', () => {
     expect(result.message.content).toEqual([{ type: 'text', text: 'hello' }])
   })
 
+  it('names a route by its displayName, and by its own key once the profiles drop it', () => {
+    const adapter = adapterOf({ 'acme-gateway': {
+      apiKey: 'k',
+      displayName: 'Acme Gateway',
+      api: 'openai-completions',
+      baseURL: 'https://acme.test/v1',
+      models: [{ id: 'acme-large' }],
+    } })
+    expect(adapter.providerInfo('acme-gateway')).toEqual({ id: 'acme-gateway', name: 'Acme Gateway' })
+
+    // The registry and the profiles can disagree for a moment: a refused
+    // registration swap leaves the previous routes serving while resolution
+    // has already moved on, so a selector may ask about a route the current
+    // profiles no longer describe. It gets the key rather than nothing.
+    expect(adapter.providerInfo('departed')).toEqual({ id: 'departed', name: 'departed' })
+  })
+
   it('rejects stop sequences rather than silently ignoring them', async () => {
     const server = await mockServer([])
     const ctx = await harness(server.url)
