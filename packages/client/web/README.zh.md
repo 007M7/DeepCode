@@ -8,7 +8,7 @@ Web 外壳内核：`new AppWebEntry(el, seams?).run()` 通过两阶段启动（w
 
 `PLATFORM_MODULES`（src/platform.ts）是共享模块表层的唯一真源：种子表 key、tsdown 客户端 external 和 vite alias 集都是它的投影。
 
-可选 `seams` 参数会转发模块系统的 `fetchBundle`／`executeBundle` 传输覆盖（`BootSeams`）；生产调用方省略此参数。它用于 `<script>` 执行无法到达页面上下文的测试环境（jsdom）。
+可选 `seams` 参数会转发模块系统的 `loadBundle` 传输覆盖（`BootSeams`）；生产调用方省略此参数。它用于外部 `<script>` 执行无法到达页面上下文的测试环境（jsdom）。
 
 外壳拥有浏览器标题投影。选中带有持久标题的会话时，它会渲染 `<session title> — <existing HTML title>` 并响应后续标题修订；未选择会话或选中无标题会话时，会保留现有标题；外壳卸载时恢复标题。现有 HTML 标题仍是可配置的产品后缀。
 
