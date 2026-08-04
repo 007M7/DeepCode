@@ -182,16 +182,10 @@
   flex-direction: column;
   min-height: 0;
   overflow-y: auto;
-  /* One reserved gutter for every view, because the composer seat takes its
-     horizontal geometry from two different edges: in Chat it is a sticky CHILD
-     of this scroller and so rides the content box, which the scrollbar
-     shortens, while under a view's composer overlay it is positioned against
-     the padding box, which the scrollbar never reduces. `auto` would reserve
-     only while this box overflows, which is precisely the difference between
-     the two states, so the input card would move sideways by the bar's width
-     on every tab switch — and inside Chat alone the moment a growing
-     transcript starts to scroll. `stable` makes both edges the same edge at
-     every content height. */
+  /* Reserved unconditionally: the composer seat rides this box's content box in
+     Chat and its padding box under a view's composer overlay, so an `auto`
+     gutter moves the input card sideways by the bar's width whenever the two
+     differ ([decision](../../../../../../.agents/notes/implemented/bug-fix/2026-08-04-composer-tab-gutter-reservation.md)). */
   scrollbar-gutter: stable;
 }
 
@@ -223,15 +217,11 @@
    ownership of the seat geometry and its active-phase precedence. */
 .scrollBody:has([data-conversation-composer-overlay]) {
   position: relative;
-  /* Still a box nothing scrolls out of — the view fills it and the seat is out
-     of flow — but declared as a scroll container on the same axes as the Chat
-     state instead of `overflow: hidden`, so the reservation above reaches this
-     state too: WebKit honours `scrollbar-gutter` on an `overflow-y: auto` box
-     and ignores it on a hidden one (measured for the composer's own layers —
-     .agents/notes/implemented/bug-fix/2026-08-04-composer-tab-gutter-reservation.md
-     cites the measurement). The horizontal axis is declared rather than left
-     to compute, because a box that scrolls on one axis computes `visible` on
-     the other to `auto` and would grow a horizontal bar of its own. */
+  /* A clipping box nothing scrolls out of, stated as a scroll container on both
+     axes rather than `overflow: hidden`: WebKit honours the reservation above
+     only in the `overflow-y: auto` form, and a single-axis scroller computes
+     the other axis to `auto`
+     ([decision](../../../../../../.agents/notes/implemented/bug-fix/2026-08-04-composer-tab-gutter-reservation.md)). */
   overflow-x: hidden;
   overflow-y: auto;
 }
