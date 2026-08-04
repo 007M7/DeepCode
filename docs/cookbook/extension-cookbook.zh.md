@@ -91,7 +91,7 @@ export function apply(ctx: Context) {
 
 ## 可运行的组装示例
 
-可运行叶子从 `examples/*/cordis.yml` 加载各自的插件树；根目录的 `demo:*` 脚本和这些叶子目录是权威清单。交互式叶子使用 [`@deepseek-ai/dsh-tui`](../../packages/ui/tui)，非交互式叶子使用 [`@deepseek-ai/dsh-cli-demo`](../../packages/examples/cli-demo)，ACP 叶子使用 [`@deepseek-ai/dsh-acp-demo`](../../packages/examples/acp-demo)，应用包共享 [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo)。
+可运行叶子从 `examples/*/cordis.yml` 加载各自的插件树；根目录的 `demo:*` 脚本和这些叶子目录是权威清单。非交互式叶子使用 [`@deepseek-ai/dsh-cli-demo`](../../packages/examples/cli-demo)，ACP 叶子使用 [`@deepseek-ai/dsh-acp-demo`](../../packages/examples/acp-demo)，JSON-RPC 叶子使用 [`@deepseek-ai/dsh-jsonrpc-demo`](../../packages/examples/jsonrpc-demo)，应用包共享 [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo)。
 
 ## 功能→机制映射
 

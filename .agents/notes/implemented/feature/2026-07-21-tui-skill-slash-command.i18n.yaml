@@ -1,6 +1,0 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-21-tui-skill-slash-command.md
-2026-07-21-tui-skill-slash-command.md: 872e1f109728731e0d55e81a538c81e794724856
-2026-07-21-tui-skill-slash-command.zh.md: 772e25745ea7ab25f715208a9c6b1d10cf0c6e65

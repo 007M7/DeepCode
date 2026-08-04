@@ -1,32 +1,16 @@
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { execa } from 'execa'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-/**
- * Published-entry smoke for the `dsh` bin: run the built `lib/bin.js` under
- * plain Node (no tsx) with PIPED stdio and assert the TUI refuses to boot.
- * `dsh` is the sole terminal front door; the TUI owns no non-TTY fallback, so a
- * piped launch must exit nonzero with a stderr pointer at the one-shot `-p`
- * mode. The guard fires inside `runTui` BEFORE the Loader resolves the config
- * tree — a compose-time throw inside the tree is logged per-entry, not
- * rethrown, so without this guard a piped launch would settle into an idle
- * UI-less process. The bin resolves its workspace deps through the repo's
- * node_modules, so no external consumer is assembled; missing-config fail-loud
- * and full-boot coverage for the shared dsh-app-boot glue live in cli-demo's
- * built-bin suite, and interactive TTY behavior is PTY-covered by
- * apps/cli/tests. Skips before the bin is built.
- */
-
+/** Published-entry acceptance for raw argument errors and boot-free config dumps. */
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url))
 const dshBin = join(repoRoot, 'apps/cli/lib/bin.js')
+const rawOverlay = fileURLToPath(new URL('./fixtures/raw-overlay.cordis.yml', import.meta.url))
+const rawInvalidProvider = fileURLToPath(new URL('./fixtures/raw-invalid-provider.cordis.yml', import.meta.url))
 
-/**
- * Run the built bin with PIPED stdio (stdin closed at EOF); resolve with output
- * + exit code. `env` isolates the Harness home for surfaces that read it.
- */
 async function runBuiltBin(
   args: readonly string[] = [],
   env: Record<string, string> = {},
@@ -44,106 +28,178 @@ async function runBuiltBin(
   return { stdout: result.stdout, code: result.exitCode ?? -1, stderr: result.stderr }
 }
 
+async function waitForFile(file: string): Promise<void> {
+  const deadline = Date.now() + 20_000
+  while (!existsSync(file)) {
+    if (Date.now() >= deadline) throw new Error(`dsh raw lifecycle marker did not appear: ${file}`)
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
+}
+
+interface RawLifecycleFixture {
+  home: string
+  ready: string
+  settled: string
+  disposed: string
+  overlay: string
+}
+
+function createRawLifecycleFixture(): RawLifecycleFixture {
+  const home = mkdtempSync(join(tmpdir(), 'dsh-raw-lifecycle-'))
+  const ready = join(home, 'ready')
+  const settled = join(home, 'settled')
+  const disposed = join(home, 'disposed')
+  const plugin = join(home, 'lifecycle.mjs')
+  const overlay = join(home, 'overlay.cordis.yml')
+  writeFileSync(plugin, [
+    "import { writeFileSync } from 'node:fs'",
+    "export const name = 'raw-lifecycle-fixture'",
+    "export const inject = ['sessionQuery']",
+    'export function apply(ctx) {',
+    '  let active = true',
+    "  writeFileSync(process.env.RAW_READY_FILE, 'ready')",
+    '  void ctx.loader.await().then(() => {',
+    "    if (active) writeFileSync(process.env.RAW_SETTLED_FILE, 'settled')",
+    '  })',
+    '  ctx.effect(() => () => {',
+    '    active = false',
+    "    writeFileSync(process.env.RAW_DISPOSED_FILE, 'disposed')",
+    '  })',
+    '}',
+    '',
+  ].join('\n'))
+  writeFileSync(overlay, [
+    '- insert:',
+    '    - id: raw-lifecycle-fixture',
+    `      name: ${pathToFileURL(plugin).href}`,
+    '',
+  ].join('\n'))
+  return { home, ready, settled, disposed, overlay }
+}
+
+function startRawLifecycle(fixture: RawLifecycleFixture) {
+  return execa(process.execPath, [dshBin, '--config', fixture.overlay], {
+    cwd: fixture.home,
+    input: '',
+    reject: false,
+    env: {
+      DSH_HOME: fixture.home,
+      DSH_TELEMETRY_DISABLED: '1',
+      RAW_READY_FILE: fixture.ready,
+      RAW_SETTLED_FILE: fixture.settled,
+      RAW_DISPOSED_FILE: fixture.disposed,
+    },
+  })
+}
+
 describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', () => {
-  it('refuses pipes LOUD (non-zero exit + stderr) before booting the Loader', async () => {
-    const { stdout, code, stderr } = await runBuiltBin()
-    expect(code).not.toBe(0)
-    expect(stderr).toContain('requires stdin and stdout to be interactive TTYs')
-    expect(stderr).toContain('dsh -p')
-    // The refusal happens before any plugin mounts: stdout stays silent.
-    expect(stdout).toBe('')
+  it('requires --config for the raw command and rejects removed commands', async () => {
+    const bare = await runBuiltBin()
+    expect(bare.code).toBe(1)
+    expect(bare.stdout).toBe('')
+    expect(bare.stderr).toContain('--config <path> is required')
+    const help = await runBuiltBin(['--help'])
+    expect(help.code).toBe(0)
+    expect(help.stdout).toContain('dsh --config ./app.cordis.yml')
+    expect(help.stdout).not.toMatch(/^\s+(?:tui|meta|upgrade)\b/mu)
+    for (const command of ['tui', 'meta', 'upgrade']) {
+      const removed = await runBuiltBin([command])
+      expect(removed.code).toBe(1)
+      expect(removed.stderr).not.toContain('experimental')
+    }
   }, 30_000)
 
-  describe('experimental subcommand gate', () => {
-    // The gate has two halves: a per-invocation --experimental flag parsed by
-    // Commander and an env opt-in read by bin.ts as exactly '1'. Passing the
-    // gate is proven by reaching the NEXT failure — the TUI's piped-stdio
-    // refusal — instead of the gate diagnostic.
-    it('rejects bare `meta`/`upgrade` LOUD, naming both opt-ins', async () => {
-      for (const command of ['meta', 'upgrade']) {
-        const { code, stderr } = await runBuiltBin([command], { DSH_EXPERIMENTAL: '' })
-        expect(code).toBe(1)
-        expect(stderr).toContain(`${command} is experimental; pass --experimental or set DSH_EXPERIMENTAL=1`)
-      }
-    }, 30_000)
+  it('reports a raw overlay boot failure without hanging', async () => {
+    const result = await runBuiltBin(['--config', rawInvalidProvider], {
+      DEEPSEEK_API_KEY: 'keyless-invalid-config',
+      DSH_TELEMETRY_DISABLED: '1',
+    })
+    expect(result.code).toBe(1)
+    expect(result.stdout).toBe('')
+    expect(result.stderr).toContain('llm-pi-ai')
+  }, 30_000)
 
-    it('admits --experimental and DSH_EXPERIMENTAL=1, but not other env values', async () => {
-      const flagged = await runBuiltBin(['meta', '--experimental'], { DSH_EXPERIMENTAL: '' })
-      expect(flagged.stderr).toContain('requires stdin and stdout to be interactive TTYs')
-      const env = await runBuiltBin(['meta'], { DSH_EXPERIMENTAL: '1' })
-      expect(env.stderr).toContain('requires stdin and stdout to be interactive TTYs')
-      // The env opt-in is exact: '0' (or any other value) does not enable.
-      const zero = await runBuiltBin(['meta'], { DSH_EXPERIMENTAL: '0' })
-      expect(zero.code).toBe(1)
-      expect(zero.stderr).toContain('meta is experimental')
-    }, 30_000)
-  })
+  it('applies an inserted raw plugin and disposes it on a startup-time signal', async () => {
+    const fixture = createRawLifecycleFixture()
+    const child = startRawLifecycle(fixture)
+    try {
+      await waitForFile(fixture.ready)
+      child.kill('SIGTERM')
+      const result = await child
+      expect(result.exitCode).toBe(0)
+      expect(result.signal).toBeUndefined()
+      expect(existsSync(fixture.disposed)).toBe(true)
+    } finally {
+      child.kill('SIGKILL')
+      rmSync(fixture.home, { recursive: true, force: true })
+    }
+  }, 30_000)
 
-  describe('dsh --dump-config', () => {
+  it('fully settles a valid raw overlay and disposes it on a signal', async () => {
+    const fixture = createRawLifecycleFixture()
+    const child = startRawLifecycle(fixture)
+    try {
+      await waitForFile(fixture.settled)
+      child.kill('SIGTERM')
+      const result = await child
+      expect(result.exitCode).toBe(0)
+      expect(result.signal).toBeUndefined()
+      expect(existsSync(fixture.disposed)).toBe(true)
+    } finally {
+      child.kill('SIGKILL')
+      rmSync(fixture.home, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  describe('config dump', () => {
     let home: string
     beforeEach(() => { home = mkdtempSync(join(tmpdir(), 'dsh-dump-bin-')) })
     afterEach(() => { rmSync(home, { recursive: true, force: true }) })
 
-    it('prints the shipped TUI composition without booting or needing a TTY', async () => {
+    it('prints the shipped base without a user layer', async () => {
       const { stdout, code, stderr } = await runBuiltBin(['--dump-default-config'], { DSH_HOME: home })
       expect(code).toBe(0)
       expect(stderr).toBe('')
-      // Base rows composed with the TUI overlay's surface values, `!!js`
-      // expressions verbatim (unevaluated), and TUI-only inserted rows present.
       expect(stdout).toContain("name: '@deepseek-ai/dsh-agent-loop'")
-      expect(stdout).toContain('model: deepseek-v4-pro')
-      expect(stdout).toContain('cwd: !!js process.cwd()')
-      expect(stdout).toContain("name: '@deepseek-ai/dsh-tui'")
-      expect(stdout).not.toMatch(/name: ['"]@deepseek-ai\/dsh-invariants['"]/)
-      expect(stdout).not.toMatch(/name: ['"]@deepseek-ai\/dsh-[^'"]+\/invariant['"]/)
-      expect(stdout).toContain([
-        '- id: tool-web',
-        "  name: '@deepseek-ai/dsh-tool-web'",
-        '  config:',
-        '    fetch: false',
-        '    searchTimeoutMs: 60000',
-      ].join('\n'))
-      // Provenance comment separators name each section's source file.
+      expect(stdout).toContain('agents: []')
       expect(stdout).toContain('# == base.cordis.yml')
-      expect(stdout).toContain('# == base.cordis.yml, patched by tui.cordis.yml')
-      expect(stdout).toContain('# == tui.cordis.yml')
     }, 30_000)
 
-    it('layers the personal overlay in --dump-config and reports an unmatched patch on stderr', async () => {
+    it('composes the required raw overlay directly over the base', async () => {
       writeFileSync(join(home, 'config.yaml'), [
         '- id: agent-loop',
         '  config:',
         '    agents:',
-        '      - id: main',
-        '        provider: custom-provider',
-        '        model: custom-model',
-        '- id: only-on-web',
-        '  config:',
-        '    value: 1',
+        '      - id: personal',
+        '        provider: personal-provider',
+        '        model: personal-model',
         '',
       ].join('\n'))
-      const { stdout, code, stderr } = await runBuiltBin(['--dump-config'], { DSH_HOME: home })
+      const { stdout, code, stderr } = await runBuiltBin(
+        ['--config', rawOverlay, '--dump-config'],
+        { DSH_HOME: home },
+      )
       expect(code).toBe(0)
-      expect(stdout).toContain('provider: custom-provider')
-      expect(stdout).not.toContain('model: deepseek-v4-pro')
-      // The personal layer appears in the patched row's provenance and the
-      // skipped-patch warning carries its label.
-      expect(stdout).toContain(`patched by tui.cordis.yml, ${join(home, 'config.yaml')}`)
-      expect(stderr).toContain('patch: entry "only-on-web" not found')
-
-      // The shipped view ignores the personal overlay entirely.
-      const shipped = await runBuiltBin(['--dump-default-config'], { DSH_HOME: home })
-      expect(shipped.stdout).not.toContain('custom-provider')
-      expect(shipped.stdout).toContain('model: deepseek-v4-pro')
+      expect(stdout).toContain('provider: configured-provider')
+      expect(stdout).not.toContain('personal-provider')
+      expect(stdout).toContain(`patched by ${rawOverlay}`)
+      expect(stderr).toContain('patch: entry "absent-row" not found')
     }, 30_000)
 
-    it('composes the web overlay for `dsh web --dump-config`', async () => {
+    it('keeps the Web overlay and personal layer on the Web command', async () => {
+      writeFileSync(join(home, 'config.yaml'), [
+        '- id: agent-loop',
+        '  config:',
+        '    agents:',
+        '      - id: personal',
+        '        provider: personal-provider',
+        '        model: personal-model',
+        '',
+      ].join('\n'))
       const { stdout, code } = await runBuiltBin(['web', '--dump-config'], { DSH_HOME: home })
       expect(code).toBe(0)
       expect(stdout).toContain("name: '@deepseek-ai/dsh-host-webserver'")
-      expect(stdout).not.toContain("name: '@deepseek-ai/dsh-tui'")
-      expect(stdout).not.toMatch(/name: ['"]@deepseek-ai\/dsh-invariants['"]/)
-      expect(stdout).not.toMatch(/name: ['"]@deepseek-ai\/dsh-[^'"]+\/invariant['"]/)
+      expect(stdout).toContain('provider: personal-provider')
     }, 30_000)
   })
 })

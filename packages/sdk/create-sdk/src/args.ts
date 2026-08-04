@@ -61,7 +61,7 @@ function createProgram(): Command {
     .option('--base-url <url>')
     .option('--api-key <key>')
     .option('--model <name>')
-    .addOption(new Option('--interface <name>').choices(['acp', 'tui', 'embed']))
+    .addOption(new Option('--interface <name>').choices(['acp', 'embed']))
     .addOption(new Option('--pm <name>').choices(['npm', 'pnpm', 'yarn']))
     .addOption(new Option('--install').default(undefined))
     .addOption(new Option('--no-install').default(undefined))

@@ -10,9 +10,8 @@
 # `pnpm install`, points the stable `~/.dsh/source/current` symlink
 # at that staging worktree and symlinks `dsh` onto PATH at `current/bin/dsh`,
 # records your API credentials in the Harness home (`~/.dsh`) dsh reads at boot,
-# and lets you launch the Web UI or TUI. The Web choice builds the repository
-# artifacts first; the TUI runs directly from TypeScript source through the
-# repo's own tsx. Keeping every checkout under ~/.dsh/source keeps successive
+# builds the repository artifacts, and launches the Web UI. Keeping every
+# checkout under ~/.dsh/source keeps successive
 # upgrades in one place instead of scattered sibling clones, and lets staging
 # worktrees share the master clone's object store. The PATH symlink resolves through
 # `current`, so an upgrade repoints one stable symlink instead of relinking PATH:
@@ -414,33 +413,15 @@ if [ "${SKIP_CREDS:-0}" != 1 ]; then
   fi
 fi
 
-# --- 6. choose and launch an interface -----------------------------------------
+# --- 6. build and launch the Web interface -------------------------------------
 step "Done"
 if [ "$HAS_TTY" = 1 ]; then
-  printf '    1) Web UI (recommended)\n'
-  printf '    2) TUI\n'
-  while :; do
-    LAUNCH_INTERFACE=$(ask "Choose an interface [1/2]:" 1)
-    case "$LAUNCH_INTERFACE" in
-      1|web|Web|WEB)
-        step "Building DeepSeek Harness for Web UI"
-        ( cd "$DSH_STAGING" && pnpm run build )
-        info "launching Web UI — run 'dsh web' anytime to start again"
-        exec "$DSH_BIN_DIR/dsh" web </dev/tty
-        ;;
-      2|tui|Tui|TUI)
-        info "launching TUI — run 'dsh' anytime to start again"
-        exec "$DSH_BIN_DIR/dsh" </dev/tty
-        ;;
-      *)
-        warn "choose 1 for Web UI or 2 for TUI"
-        ;;
-    esac
-  done
+  step "Building DeepSeek Harness for Web UI"
+  ( cd "$DSH_STAGING" && pnpm run build )
+  info "launching Web UI — run 'dsh web' anytime to start again"
+  exec "$DSH_BIN_DIR/dsh" web </dev/tty
 else
   info "install complete. Build and start the Web UI with:"
   printf '    (cd %s && pnpm run build)\n' "$DSH_STAGING"
   printf '    %s web\n' "$DSH_BIN_DIR/dsh"
-  info "or start the TUI with:"
-  printf '    %s\n' "$DSH_BIN_DIR/dsh"
 fi
