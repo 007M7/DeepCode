@@ -939,7 +939,7 @@ describe('run lifecycle and quiescence', () => {
     const threadStart = await child.peer.nextMethod('thread/start')
     child.peer.respond(threadStart, { thread: { id: 'thread-1', ephemeral: true } })
     controller.abort('startup race')
-    await expect(starting).rejects.toThrow('aborted before app-server startup')
+    await expect(starting).rejects.toThrow('aborted before run publication')
     expect(child.terminate).toHaveBeenCalledTimes(1)
   })
 

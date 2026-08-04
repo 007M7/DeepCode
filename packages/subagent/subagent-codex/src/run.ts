@@ -150,7 +150,7 @@ export async function startCodexRun(
       )
     }
     if (runAbort.signal.aborted) {
-      throw new Error('subagent-codex: request was aborted before app-server startup')
+      throw new Error('subagent-codex: request was aborted before run publication')
     }
     throw thrownError(error)
   }
