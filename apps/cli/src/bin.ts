@@ -6,7 +6,7 @@
  * @module @deepseek-ai/dsh/bin
  */
 
-/* v8 ignore file -- built-bin and PTY tests exercise this self-executing dispatch. */
+/* v8 ignore file -- built-bin acceptance exercises this self-executing dispatch. */
 
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -25,10 +25,14 @@ function readVersion(): string {
 }
 
 const environment = loadLayeredEnv('dsh')
-// The env opt-in is read at the process boundary; `1` is the documented value.
-const invocation = parseDshArgs(process.argv.slice(2), readVersion(), process.env.DSH_EXPERIMENTAL === '1')
+const invocation = parseDshArgs(process.argv.slice(2), readVersion())
 
 switch (invocation.mode) {
+  case 'config': {
+    const { runConfig } = await import('./config.ts')
+    await runConfig(environment, invocation.config)
+    break
+  }
   case 'web': {
     const { runWeb } = await import('./web.ts')
     await runWeb(
@@ -39,27 +43,12 @@ switch (invocation.mode) {
   }
   case 'headless': {
     const { runHeadless } = await import('./headless.ts')
-    await runHeadless(environment, invocation.prompt, invocation.config, invocation.configReplace)
-    break
-  }
-  case 'tui': {
-    const { runTui } = await import('./tui.ts')
-    await runTui(environment, invocation.config, invocation.resume, undefined, undefined, invocation.configReplace)
+    await runHeadless(environment, invocation.prompt, invocation.config)
     break
   }
   case 'dump-config': {
     const { runDumpConfig } = await import('./dump-config.ts')
     runDumpConfig(invocation.surface, invocation.defaultOnly, invocation.config)
-    break
-  }
-  case 'meta': {
-    const { runTui, SOURCE_ROOT } = await import('./tui.ts')
-    await runTui(environment, invocation.config, undefined, SOURCE_ROOT, undefined, invocation.configReplace)
-    break
-  }
-  case 'upgrade': {
-    const { runTui } = await import('./tui.ts')
-    await runTui(environment, invocation.config, undefined, undefined, `dsh-${invocation.mode}`, invocation.configReplace)
     break
   }
   default:

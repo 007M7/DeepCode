@@ -18,8 +18,6 @@ import SessionQuerySqlite from '@deepseek-ai/dsh-session-query-sqlite'
 import GoalService from '@deepseek-ai/dsh-goal'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
-import { BashExecutor } from '@deepseek-ai/dsh-bash'
-import type { BashExecRequest, BashExecSpec, BashProcess, BashRunResult } from '@deepseek-ai/dsh-bash'
 import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
@@ -60,44 +58,6 @@ import * as ToolWorkflow from '@deepseek-ai/dsh-tool-workflow'
 
 const root = resolve(import.meta.dirname, '..')
 const OUT = 'docs/tool-catalog.md'
-const CATALOG_RG_PROBE_COMMAND = 'command -v rg >/dev/null 2>&1'
-
-/**
- * Minimal bash service for harvesting `dsh-tool-fs-search` schemas. The search
- * plugin now probes `rg` at registration time, but the generated catalog must
- * remain independent of the host PATH and never execute a real search.
- */
-class CatalogSearchBashExecutor extends BashExecutor {
-  override resolve(request: BashExecRequest): BashExecSpec {
-    return {
-      command: request.command,
-      workdir: request.workdir ?? root,
-      timeoutMs: request.timeoutMs ?? 60_000,
-      stdoutMaxBytes: request.stdoutMaxBytes ?? 64_000,
-      signal: request.signal,
-      sandboxPolicy: request.sandboxPolicy,
-    }
-  }
-
-  override run(spec: BashExecSpec): Promise<BashRunResult> {
-    if (spec.command !== CATALOG_RG_PROBE_COMMAND) {
-      throw new Error(`gen-tool-catalog: unexpected search bash command during schema harvest: ${spec.command}`)
-    }
-    return Promise.resolve({
-      exitCode: 0,
-      signal: null,
-      timedOut: false,
-      aborted: false,
-      timeoutMs: spec.timeoutMs,
-      stdout: { text: '', truncated: false },
-      stderr: { text: '', truncated: false },
-    })
-  }
-
-  override start(): BashProcess {
-    throw new Error('gen-tool-catalog: search schema harvest must not start background processes')
-  }
-}
 
 /**
  * Register the descriptor needed to mount schema-producing consumers. Declares
@@ -297,19 +257,19 @@ const TOOL_PACKAGES: ToolPackage[] = [
     pkg: '@deepseek-ai/dsh-tool-fs-search',
     dir: 'tool-fs-search',
     source: 'packages/fs/tool-fs-search/src/index.ts',
-    requires: ['ctx.tools', 'ctx.bash', 'ctx.systemPrompt'],
+    requires: ['ctx.tools', 'ctx.subprocess', 'ctx.systemPrompt'],
     writes: ['tool/call', 'tool/result'],
     async mount(ctx) {
-      // The tools inject `bash` (search executes fixed `rg` commands through
-      // the executor seam, not ctx.fs). Use a catalog-only executor so the
-      // registration-time `rg` probe stays deterministic and the generator
-      // never depends on the host PATH. `ctx.spillStore` is optional (read via
-      // ctx.get) and does not affect the schemas, so no spill backend is mounted.
-      await ctx.plugin(CatalogSearchBashExecutor)
+      // The tools inject `subprocess` (search spawns the packaged ripgrep
+      // binary through the seam, not ctx.fs); registration itself never
+      // spawns, so the real local service is inert here. `ctx.spillStore` is
+      // optional (read via ctx.get) and does not affect the schemas, so no
+      // spill backend is mounted.
+      await ctx.plugin(LocalSubprocessService)
       await ctx.plugin(ToolFsSearch, { sampleOverCapGlobResults: true })
     },
     note:
-      'glob and grep are conditional bash-backed discovery tools: they register only when ctx.bash can find `rg`, then run fixed ripgrep commands through ctx.bash as ordinary foreground calls (never background tasks). The catalog uses `sampleOverCapGlobResults: true`; deployments must choose that behavior explicitly. Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments.',
+      'glob and grep are unconditional discovery tools that spawn the packaged ripgrep binary (`@vscode/ripgrep`) through ctx.subprocess as ordinary foreground calls (never background tasks) — no host `rg` install and no shell layer. The catalog uses `sampleOverCapGlobResults: true`; deployments must choose that behavior explicitly. Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-pty',

@@ -1,11 +1,11 @@
 /**
  * AppCLIEntry — the pre-cordis boot glue the config-tree dsh surfaces share
- * (`dsh web` and `dsh -p`; the TUI composes dsh-app-boot directly).
+ * (`dsh web` and `dsh -p`).
  * Everything here is what must exist before the Loader runs: the patch
- * composition over the shipped base and surface overlay (CLI flags + the
- * resolved frontend dist), and the fail-loud activation audit after the tree
- * settles. The environment is what the bin already loaded (ambient over the
- * invoking directory's `.env` over `$DSH_HOME/.env`); credentials live in
+ * composition over the shipped base and Web overlay (CLI flags + the resolved
+ * frontend dist), and the fail-loud activation audit after the tree settles.
+ * The environment is what the bin already loaded (ambient over the invoking
+ * directory's `.env` over `$DSH_HOME/.env`); credentials live in
  * `$DSH_HOME/.credentials.yaml` and are never hoisted into it.
  */
 
@@ -80,7 +80,7 @@ export function resolveTelemetryPatch(disabledEnv: string | undefined, hasRow: b
 /**
  * Whether a config file carries the telemetry row, parsed under the same
  * `!!js`-tolerant dialect the boot uses — the `hasRow` input for launchers
- * that compose their patch lists outside {@link AppCLIEntry} (the TUI).
+ * that compose their patch lists outside {@link AppCLIEntry} (raw `dsh`).
  * @param file - absolute path of the config or overlay file.
  * @returns true when a top-level (or inserted) row has the telemetry id.
  */
@@ -116,14 +116,6 @@ export interface AppCLIEntryOptions {
   overlayPath: string
   /** Optional `--config` overlay applied after {@link overlayPath} and before this entry's own flag patches. */
   extraOverlayPath?: string
-  /**
-   * Optional `--config-replace` tree: booted INSTEAD of {@link configPath},
-   * {@link overlayPath}, {@link extraOverlayPath}, and every generated patch,
-   * so the caller's file is the whole composition. It must still supply the
-   * serving rows this entry needs — {@link run} rejects a settled tree with no
-   * `httpServer`.
-   */
-  configReplacePath?: string
   /** Whether to append client-bundle HMR (the Web surface's prod/dev difference). */
   dev: boolean
   /** --host when explicitly passed; undefined keeps the yml engineering default. */
@@ -175,15 +167,8 @@ export class AppCLIEntry {
     await this.bootTree()
     this.assertBoot()
     const port = this.ctx.get('httpServer')?.port
-    if (port === undefined) {
-      // The shipped tree always carries the webserver row, so this is only
-      // reachable through --config-replace: name the missing contract rather
-      // than report a bare missing service.
-      throw new Error(
-        `dsh: no httpServer after booting ${this.bootConfigPath()}; this surface serves over HTTP, so a`
-        + ' --config-replace tree must mount a webserver row',
-      )
-    }
+    /* v8 ignore next -- the sweep above guarantees an ACTIVE webserver row */
+    if (port === undefined) throw new Error('dsh: httpServer service missing after settled boot')
     return { ctx: this.ctx, port }
   }
 
@@ -194,16 +179,6 @@ export class AppCLIEntry {
    */
   private composePatches(): void {
     const rows = this.parseYmlRows()
-    if (this.options.configReplacePath !== undefined) {
-      // A replacement tree is the caller's whole composition: the generated
-      // patches target shipped row ids this file cannot assume exist, and a
-      // patch whose id is absent is a silent no-op rather than a diagnostic.
-      // Telemetry stays, judged against the tree actually booting, because a
-      // privacy switch that silently no-ops is worse than a loud one.
-      const replaceTelemetry = resolveTelemetryPatch(process.env.DSH_TELEMETRY_DISABLED, rows.has(TELEMETRY_ROW_ID))
-      this.patches = replaceTelemetry === undefined ? [] : [replaceTelemetry]
-      return
-    }
     const overrides = new Map<string, Record<string, unknown>>()
     const put = (entryId: string, key: string, value: unknown): void => {
       const bag = overrides.get(entryId) ?? {}
@@ -247,17 +222,14 @@ export class AppCLIEntry {
     // list: patches never cross an include boundary, so nesting them would
     // silently stop reaching base rows. The surface overlay applies first, then
     // any --config overlay, then this entry's CLI-flag patches, which win.
-    // --config-replace discards all three and boots the named file alone.
-    const patches = this.options.configReplacePath !== undefined
-      ? this.patches
-      : [
-        ...loadOverlayPatches('dsh', this.options.overlayPath),
-        ...this.options.extraOverlayPath === undefined
-          ? []
-          : loadOverlayPatches('dsh', this.options.extraOverlayPath),
-        ...this.patches,
-      ]
-    this.ctx = await boot('dsh', resolve(this.bootConfigPath()), patches, async (ctx) => {
+    const patches = [
+      ...loadOverlayPatches('dsh', this.options.overlayPath),
+      ...this.options.extraOverlayPath === undefined
+        ? []
+        : loadOverlayPatches('dsh', this.options.extraOverlayPath),
+      ...this.patches,
+    ]
+    this.ctx = await boot('dsh', resolve(this.options.configPath), patches, async (ctx) => {
       // Before any config-tree entry mounts, so a plugin that resolves a
       // user-facing value at construction already sees this run's layers.
       ctx.provide(DSH_ENVIRONMENT_KEY, this.options.environment)
@@ -266,10 +238,6 @@ export class AppCLIEntry {
     })
   }
 
-  /** The file the Loader includes: the replacement tree when named, otherwise the shared base. */
-  private bootConfigPath(): string {
-    return this.options.configReplacePath ?? this.options.configPath
-  }
 
   /** Install the diagnostic for plugin rejections that happen after settled boot. */
   private assertBoot(): void {
@@ -284,17 +252,6 @@ export class AppCLIEntry {
    */
   private parseYmlRows(): Map<string, { config?: unknown }> {
     const rows = new Map<string, { config?: unknown }>()
-    // A replacement tree stands alone, so only its own rows are indexed —
-    // the telemetry-row check must judge the tree that actually boots.
-    if (this.options.configReplacePath !== undefined) {
-      for (const row of this.parseRowList(this.options.configReplacePath)) {
-        if (typeof row.id === 'string') rows.set(row.id, row)
-        for (const inserted of row.insert ?? []) {
-          if (typeof inserted.id === 'string') rows.set(inserted.id, inserted)
-        }
-      }
-      return rows
-    }
     const files = [this.options.configPath, this.options.overlayPath]
     if (this.options.extraOverlayPath !== undefined) files.push(this.options.extraOverlayPath)
     for (const file of files) {

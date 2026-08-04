@@ -88,11 +88,11 @@
   box-shadow: var(--dsw-shadow-lv2);
   font-size: 16px;
   line-height: 24px;
-  /* Elevated surface in dark, same as the menus: the textarea inside scrolls
-     once the composer hits its height cap, so the thumb takes the l2 pair.
-     Declared on the card because the elevation belongs to the surface, and the
-     custom properties inherit down to the textarea that actually scrolls (see
-     ui-theme styles/scrollbar.css for the rebinding contract). */
+  /* Elevated surface in dark, same as the menus: the draft scrollport inside
+     scrolls once the composer hits its height cap, so the thumb takes the l2
+     pair. Declared on the card because the elevation belongs to the surface,
+     and the custom properties inherit down to the box that actually scrolls
+     (see ui-theme styles/scrollbar.css for the rebinding contract). */
   --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
@@ -112,8 +112,21 @@
   height: 0;
 }
 
-/* Mirror-div auto-grow wrapper: the hidden mirror is in normal flow and sets the height
-   (min 2 lines / max 14 lines); the textarea rides it absolutely. Mirror and textarea
+/* The draft's scrollport, and the ONLY scrolling box in the composer: the
+   caret is the textarea's and every visible glyph is the backdrop's, so the two
+   layers stay together only by riding one offset the browser applies to both at
+   once. Scrolling one box and assigning the offset to the other cannot hold —
+   a wheel gesture is composited off the main thread, so the assignment lands
+   frames late and the words visibly trail the caret. The 14-line cap lives here
+   because this is the box the cap describes. */
+.scroll {
+  max-height: var(--dsh-composer-text-max-height);
+  overflow-y: auto;
+}
+
+/* Mirror-div auto-grow stack: the hidden mirror is in normal flow and sets the FULL draft
+   height (min 2 lines in hero); backdrop and textarea ride it absolutely, so both layers are
+   as tall as the draft and the scrollport above shows a window onto them. Mirror and textarea
    MUST share font, line-height, padding and wrapping rules or heights diverge. */
 .grow {
   position: relative;
@@ -165,7 +178,11 @@
   width: 100%;
   height: 100%;
   resize: none;
-  overflow-y: auto;
+  /* Never a scroller of its own: it is as tall as the draft, so it has no
+     scrollable overflow to hold an offset that could differ from the glyphs'.
+     The browser still reveals the caret — the scroll-into-view walks up to
+     .scroll and moves both layers together. */
+  overflow: hidden;
   border: none;
   outline: none;
   background: transparent;
@@ -189,22 +206,24 @@
      share the stack, so placeholder advances agree by construction. */
   font-family: 'DshChipCell', var(--dsw-font-family);
   font-size: inherit;
+  /* Three consumers, not two: the mirror sizes the stack, the layers must break
+     lines identically, and the caret reveal parses this value to step one line
+     down for a caret that sits after a newline. That parse needs a length, so a
+     theme resolving this to `normal` would make the reveal a silent no-op. */
   line-height: inherit;
   white-space: pre-wrap;
   word-break: break-word;
   overflow-wrap: anywhere;
-  /* These three MUST wrap at one width, because InputBar mirrors a single
-     scroll offset between .input and .backdrop and a layer that wraps onto
-     more lines is taller, has a larger scroll maximum, and clamps the mirrored
-     offset below the caret. Only .input scrolls, so only .input can lose
-     content width to a scrollbar that consumes layout space.
-     `scrollbar-gutter: stable` here does NOT buy that guarantee and was
-     removed after measuring: WebKit applies it to overflow-y:auto but not to
-     the overflow:hidden layers, so it left .input at 768 against 776 — the
-     same gap it was meant to close — while costing chromium 8px of text width
-     unconditionally. The gap it would have closed is measured and recorded in
-     the Agent Note (2026-07-31-composer-glyph-layer-tracks-the-textarea);
-     closing it needs one geometry every engine agrees on, not this property. */
+  /* These three MUST wrap at one width: the mirror decides the box height
+     the other two are laid out in, and a glyph layer that breaks lines
+     elsewhere than the textarea puts the words under the wrong caret. They do
+     so by construction now that all three sit INSIDE .scroll — a scrollbar
+     that consumes layout space narrows the scrollport, which is their shared
+     containing block, so it costs all three the same width on every engine.
+     Scrolling the textarea itself is what used to break this, and no property
+     fixed it: WebKit reserved gutter space for the overflow-y:auto textarea
+     and not for the overflow:hidden layers beside it, leaving them 8px apart
+     (768 against 776) — worth 2 to 5 wrapped lines on a long draft. */
 }
 
 /* figma 34:10434: #ADB2B8 light / #81858C dark — the caption pair exactly. */
@@ -222,10 +241,6 @@
 .mirror {
   visibility: hidden;
   pointer-events: none;
-  /* 14-line cap, shared with the composer takeovers (declared on
-     ConversationRoot .composerSeat). */
-  max-height: var(--dsh-composer-text-max-height);
-  overflow: hidden;
 }
 
 /* Hero (centered empty-state) keeps the 2-line floor (figma min-h 52 = ~2 × 24

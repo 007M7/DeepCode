@@ -1,6 +1,0 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write
-2026-07-24-tui-message-header-timing.md: 94a4d04c75f9b0ad76e2460738a07ba82ac3bb9f
-2026-07-24-tui-message-header-timing.zh.md: 4713555290bbc47bb3af56cd3b4d0c493c81e6f1
