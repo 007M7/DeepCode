@@ -196,7 +196,12 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+  margin-right: -12px;
   overflow: hidden;
+}
+
+.collapsed .regionArea {
+  margin-right: 0;
 }
 
 /* Foot seat: a pure layout socket pinned under the region; the ui-settings

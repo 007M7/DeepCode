@@ -1,8 +1,7 @@
 /**
  * WorkspaceBrowser scroll-region style contract, asserted against the CSS text
- * on disk: the session list reserves its scrollbar gutter so the scrollbar
- * cannot overlay row trailing content, and reserves it whether or not the list
- * currently overflows so expanding a group does not shift rows sideways.
+ * on disk: the session list keeps one stable right inset for row hover fills,
+ * with or without overflow, while outer clip seats add no hidden second inset.
  */
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -32,17 +31,25 @@ function declarations(className: string): Map<string, string> | undefined {
 }
 
 describe('WorkspaceBrowser.module.css list', () => {
+  const root = declarations('root')
+  const listArea = declarations('listArea')
   const list = declarations('list')
+  const treeBody = declarations('treeBody')
 
   it('is the scrolling region', () => {
     expect(list).toBeDefined()
     expect(list!.get('overflow-y')).toBe('auto')
   })
 
-  it('reserves the scrollbar gutter unconditionally', () => {
-    // Row trailing content sits flush against the row's right padding, so an
-    // overlay scrollbar covers it. `stable` keeps the reservation when the list
-    // is short enough not to scroll, so expanding a group does not shift rows.
+  it('keeps row backgrounds edge-flush with the scrolling region', () => {
+    expect(root?.get('padding-right')).toBe('12px')
+    expect(listArea?.get('margin-right')).toBe('-12px')
+    expect(treeBody?.get('margin-right')).toBeUndefined()
+    expect(list?.get('margin-right')).toBeUndefined()
+    expect(list?.get('padding-right')).toBe('var(--dsh-session-list-edge-inset)')
+  })
+
+  it('reserves the scrollbar inside the stable visual inset', () => {
     expect(list!.get('scrollbar-gutter')).toBe('stable')
   })
 })
