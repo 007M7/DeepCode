@@ -31,14 +31,24 @@ export { foldSurface, isAppendSurfaceEvent, isReplacementSurfaceEvent, isSurface
 export { canonicalHeader, foldRequestHeader, headerEquals } from './request-header.ts'
 
 /**
- * Find the latest completed model turn in an event sequence.
+ * Find the latest closed turn that entered at least one model step, ignoring
+ * balanced no-step turns produced by rejection, empty input, or cancellation.
  * @param events - session events, or an owned suffix, to inspect.
- * @returns the latest turn end, or `undefined`.
+ * @returns the latest matching turn end, or `undefined`.
  */
 export function findLastMessageTurnEnd(
   events: readonly SessionEvent[],
 ): SessionEvent<'turn/end'> | undefined {
-  return events.findLast(event => event.type === 'turn/end')
+  const steppedTurns = new Set<number>()
+  let latest: SessionEvent<'turn/end'> | undefined
+  for (const event of events) {
+    if (event.type === 'step/start') {
+      steppedTurns.add(event.data.turn)
+      continue
+    }
+    if (event.type === 'turn/end' && steppedTurns.delete(event.data.turn)) latest = event
+  }
+  return latest
 }
 
 declare module 'cordis' {
