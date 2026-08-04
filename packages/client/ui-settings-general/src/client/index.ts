@@ -17,7 +17,7 @@ import { CloseLabel, HeaderContent, TriggerContent } from './chrome.tsx'
 import { GeneralSection } from './GeneralSection.tsx'
 import { SettingsDocumentAction } from './SettingsDocumentAction.tsx'
 import type { SettingsDocumentActionInjected } from './SettingsDocumentAction.tsx'
-import { SettingsDocumentStore } from './settings-document-store.ts'
+import { refreshDocumentIfLoaded, SettingsDocumentStore } from './settings-document-store.ts'
 import type { WelcomeNoticeInjected } from './WelcomeNotice.tsx'
 import { WelcomeNotice } from './WelcomeNotice.tsx'
 import { refreshWelcomeIfLoaded, WelcomeNoticeStore } from './welcome-store.ts'
@@ -90,10 +90,13 @@ export function apply(ctx: ClientContext): void {
     }
     const disposers = [
       ctx.on('settings/changed', refresh),
-      ctx.on('connection/reset', () => { refresh() }),
+      ctx.on('connection/reset', () => {
+        refresh()
+        refreshDocumentIfLoaded(documentController)
+      }),
     ]
     return () => { for (const dispose of disposers) dispose() }
-  }, 'ui-settings-general: welcome invalidations')
+  }, 'ui-settings-general: metadata invalidations')
   ctx.effect(() => {
     const trigger = deferRegistration(ctx.slots, 'settings.trigger', TriggerContent, () =>
       ctx.slots.register({ name: 'settings.trigger', locale: NS }, TriggerContent))

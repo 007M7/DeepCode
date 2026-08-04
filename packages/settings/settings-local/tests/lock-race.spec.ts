@@ -72,10 +72,13 @@ describe('writer-lock failure cleanup', () => {
     const dir = await tempDir()
     const path = join(dir, 'settings.yaml')
     const ctx = new Context()
-    const fiber = ctx.plugin(SettingsLocal, { path, watch: true, debounceMs: 0 })
+    const fiber = ctx.plugin(SettingsLocal, { path, watch: false })
     cleanups.push(async () => { await fiber.dispose() })
     await fiber
     const settings = ctx.settings
+    settings.register(settingsNamespace('alpha'), AlphaSchema)
+    const published: number[] = []
+    ctx.on('settings/document-updated', (_ns, revision) => { published.push(revision) })
     let markStarted!: () => void
     const started = new Promise<void>((resolve) => { markStarted = resolve })
     let releaseCreate!: () => void
@@ -85,14 +88,18 @@ describe('writer-lock failure cleanup', () => {
 
     const preparing = settings.prepareDocument()
     await started
+    let disposed = false
     const disposing = fiber.dispose()
+    void disposing.then(() => { disposed = true })
     await vi.waitFor(() => {
       expect((settings as unknown as { closed: boolean }).closed).toBe(true)
     })
+    expect(disposed).toBe(false)
     releaseCreate()
     await expect(preparing).resolves.toBe(path)
     await disposing
     expect(await readFile(path, 'utf8')).toBe('')
+    expect(published).toEqual([])
   })
 
   it('surfaces an exclusive document-create failure and releases the lock', async () => {

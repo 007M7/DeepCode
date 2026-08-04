@@ -48,6 +48,16 @@ describe('native path opener', () => {
     )
   })
 
+  it('uses the Windows desktop association for text documents', async () => {
+    const run = vi.fn<PathOpenerRunner>(async () => ({ stdout: '', stderr: '' }))
+    await openNativeTextFile('C:\\work\\settings.yaml', signal(), { platform: 'win32', run })
+    expect(run).toHaveBeenCalledWith(
+      'powershell.exe',
+      ['-NoProfile', '-Command', "Invoke-Item -LiteralPath 'C:\\work\\settings.yaml'"],
+      expect.any(AbortSignal),
+    )
+  })
+
   it('opens with Linux xdg-open', async () => {
     const run = vi.fn<PathOpenerRunner>(async () => ({ stdout: '', stderr: '' }))
     await openNativePath('/tmp/a.txt', signal(), { platform: 'linux', run })

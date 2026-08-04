@@ -21,7 +21,7 @@ export type SettingsDocumentActionProps =
   PropsRuntime<'settings.action'> & PropsLocale<'settings'> & SettingsDocumentActionInjected
 
 /**
- * Render the open-document action only after Host metadata confirms a local file.
+ * Render the open-document action only after Host metadata confirms document availability.
  * @param props - header owner props, localized copy, and injected document state.
  * @returns the action, or null while unavailable or unresolved.
  */
@@ -29,8 +29,8 @@ export function SettingsDocumentAction({ controller, useSnapshot, t }: SettingsD
   const state = useSnapshot(snapshot => snapshot)
 
   useEffect(() => {
-    if (state.status === 'idle') void controller.load()
-  }, [controller, state.status])
+    void controller.load()
+  }, [controller])
 
   if (state.status !== 'ready') return null
 

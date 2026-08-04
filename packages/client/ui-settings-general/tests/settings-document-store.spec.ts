@@ -2,16 +2,16 @@ import { describe, expect, it, vi } from 'vitest'
 import type { RpcResponse } from '@deepseek-ai/dsh-client-connection/client'
 import { SettingsDocumentStore } from '../src/client/settings-document-store.ts'
 
-function response(documentPath?: string): RpcResponse<{
+function response(hasDocument = false): RpcResponse<{
   writable: boolean
-  documentPath?: string
+  hasDocument: boolean
   namespaces: []
 }> {
   return {
     rpcId: 'settings-document' as never,
     result: {
       ok: true,
-      value: { writable: true, ...documentPath === undefined ? {} : { documentPath }, namespaces: [] },
+      value: { writable: true, hasDocument, namespaces: [] },
     },
   }
 }
@@ -32,7 +32,7 @@ function describeFailed(message: string): RpcResponse<never> {
 
 describe('SettingsDocumentStore', () => {
   it('loads provider metadata and asks the settings domain to open its document', async () => {
-    const describe = vi.fn(() => Promise.resolve(response('/home/test/settings.yaml')))
+    const describe = vi.fn(() => Promise.resolve(response(true)))
     const openDocument = vi.fn(() => Promise.resolve(opened()))
     const controller = new SettingsDocumentStore({ settings: { describe, openDocument } } as never)
     await controller.load()
@@ -72,7 +72,7 @@ describe('SettingsDocumentStore', () => {
     let resolveOpen!: (response: RpcResponse<{ opened: true }>) => void
     const openDocument = vi.fn(() => new Promise<RpcResponse<{ opened: true }>>((resolve) => { resolveOpen = resolve }))
     const controller = new SettingsDocumentStore({
-      settings: { describe: () => Promise.resolve(response('/tmp/settings.yaml')), openDocument },
+      settings: { describe: () => Promise.resolve(response(true)), openDocument },
     } as never)
     await controller.load()
     const first = controller.open()
@@ -93,7 +93,7 @@ describe('SettingsDocumentStore', () => {
     const first = new Promise<ReturnType<typeof response>>((resolve) => { resolveFirst = resolve })
     const describe = vi.fn()
       .mockReturnValueOnce(first)
-      .mockResolvedValueOnce(response('/tmp/current.yaml'))
+      .mockResolvedValueOnce(response(true))
     let rejectOpen!: (reason?: unknown) => void
     const controller = new SettingsDocumentStore({
       settings: {
@@ -119,7 +119,7 @@ describe('SettingsDocumentStore', () => {
       settings: {
         describe: vi.fn()
           .mockReturnValueOnce(rejectedFirst)
-          .mockResolvedValueOnce(response('/tmp/current.yaml')),
+          .mockResolvedValueOnce(response(true)),
         openDocument: vi.fn(),
       },
     } as never)

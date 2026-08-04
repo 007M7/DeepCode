@@ -2390,7 +2390,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       // editor; real schema-driven forms ride the HTTP transport.
       describe: request => ok(request, {
         writable: true,
-        documentPath: `${FIXTURE_HOME}/settings.yaml`,
+        hasDocument: true,
         namespaces: [{
           ns: 'llm-deepseek',
           schema: {},
@@ -2400,6 +2400,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           revision: 0,
         }],
       }),
+      // Native opens are deterministic no-op successes in this fixture, as is host.openPath.
       openDocument: request => ok(request, { opened: true as const }),
       update: request => err(request, {
         code: 'settings-rejected',

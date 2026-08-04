@@ -234,34 +234,36 @@ export class SettingsLocal extends Settings {
     // failure: an existing-but-invalid document must fail loud, never be
     // silently ignored or overwritten.
     yield* super[Service.init]()
-    if (!this.spec.watch) return
-    const watcher = chokidarWatch(this.spec.filename, {
-      ignoreInitial: true,
-      awaitWriteFinish: {
-        stabilityThreshold: this.spec.debounceMs,
-        pollInterval: Math.max(1, Math.min(this.spec.debounceMs, 10)),
-      },
-    })
-    watcher.on('all', () => {
-      if (this.closed) return
-      this.queueRefresh()
-    })
-    watcher.on('ready', () => {
-      // The base init's load raced the watcher's own setup: a change written
-      // between that read and the watcher becoming active never fires an
-      // event. One reconcile at ready closes the gap.
-      if (this.closed) return
-      this.queueRefresh()
-    })
-    watcher.on('error', (error) => {
-      this.ctx.logger.warn('settings-local: watcher error on %s', this.spec.filename)
-      this.ctx.logger.warn(error)
-    })
+    const watcher = this.spec.watch
+      ? chokidarWatch(this.spec.filename, {
+        ignoreInitial: true,
+        awaitWriteFinish: {
+          stabilityThreshold: this.spec.debounceMs,
+          pollInterval: Math.max(1, Math.min(this.spec.debounceMs, 10)),
+        },
+      })
+      : undefined
+    if (watcher !== undefined) {
+      watcher.on('all', () => {
+        if (this.closed) return
+        this.queueRefresh()
+      })
+      watcher.on('ready', () => {
+        // The base init's load raced the watcher's own setup: a change written
+        // between that read and the watcher becoming active never fires an
+        // event. One reconcile at ready closes the gap.
+        if (this.closed) return
+        this.queueRefresh()
+      })
+      watcher.on('error', (error) => {
+        this.ctx.logger.warn('settings-local: watcher error on %s', this.spec.filename)
+        this.ctx.logger.warn(error)
+      })
+    }
     yield async () => {
-      // Quiesce: stop accepting events, close the watcher, then wait out any
-      // queued or in-flight operation so nothing publishes after disposal.
+      // Quiesce every operation chain, even when no watcher is configured.
       this.closed = true
-      await watcher.close()
+      await watcher?.close()
       await this.operations
     }
   }

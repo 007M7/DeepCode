@@ -5,7 +5,7 @@
  * invalidation frames (settings/credentials/models changed).
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import z from 'schemastery'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
@@ -235,7 +235,7 @@ describe('settings domain', () => {
     const api = createApiProxy(ctx, DEFAULTS)
     const value = expectOk(await api.settings.describe(request({})))
     expect(value.writable).toBe(true)
-    expect(value.documentPath).toBe('/tmp/custom-settings.yaml')
+    expect(value.hasDocument).toBe(true)
     expect(value.namespaces).toHaveLength(1)
     const view = value.namespaces[0]!
     expect(view.ns).toBe('llm-deepseek')
@@ -270,9 +270,38 @@ describe('settings domain', () => {
   it('refuses to open settings when the provider has no local document', async () => {
     const ctx = await harness()
     const api = createApiProxy(ctx, DEFAULTS)
+    expect(expectOk(await api.settings.describe(request({}))).hasDocument).toBe(false)
     const error = expectErr(await api.settings.openDocument(request({}), new AbortController().signal))
     expect(error.code).toBe('internal')
     expect(error.message).toContain('no local document')
+  })
+
+  it('does not prepare or open a settings document after cancellation', async () => {
+    const ctx = await harness({ settings: { documentPath: '/tmp/settings.yaml' } })
+    const opened: string[] = []
+    const api = createApiProxy(ctx, {
+      ...DEFAULTS,
+      openTextFile: (path) => {
+        opened.push(path)
+        return Promise.resolve()
+      },
+    })
+    const prepare = vi.spyOn(ctx.settings, 'prepareDocument')
+    const cancelled = new AbortController()
+    cancelled.abort()
+    expect(expectErr(await api.settings.openDocument(request({}), cancelled.signal)).code)
+      .toBe('cancelled')
+    expect(prepare).not.toHaveBeenCalled()
+
+    const pending = Promise.withResolvers<string | undefined>()
+    prepare.mockReturnValueOnce(pending.promise)
+    const duringPrepare = new AbortController()
+    const opening = api.settings.openDocument(request({}), duringPrepare.signal)
+    await vi.waitFor(() => { expect(prepare).toHaveBeenCalledOnce() })
+    duringPrepare.abort()
+    pending.resolve('/tmp/settings.yaml')
+    expect(expectErr(await opening).code).toBe('cancelled')
+    expect(opened).toEqual([])
   })
 
   it('serves model-provider and explicitly allowlisted Web namespaces only', async () => {

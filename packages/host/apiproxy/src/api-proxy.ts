@@ -2471,7 +2471,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const exposed = exposedNamespaces()
         return Promise.resolve(ok(request, {
           writable: settings.writable,
-          ...settings.documentPath === undefined ? {} : { documentPath: settings.documentPath },
+          hasDocument: settings.documentPath !== undefined,
           namespaces: settings.describe({ redactSecrets: true })
             .filter(descriptor => exposed.has(String(descriptor.ns)))
             .map(namespaceView),

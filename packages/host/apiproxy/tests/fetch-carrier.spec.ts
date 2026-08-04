@@ -220,7 +220,7 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
     },
     settings: {
       async describe(request) {
-        return { rpcId: request.rpcId, result: { ok: true, value: { writable: true, namespaces: [] } } }
+        return { rpcId: request.rpcId, result: { ok: true, value: { writable: true, hasDocument: false, namespaces: [] } } }
       },
       async openDocument(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { opened: true as const } } }

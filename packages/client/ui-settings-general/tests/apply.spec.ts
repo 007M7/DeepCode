@@ -39,7 +39,7 @@ async function bench(isLoopback = true) {
       ok: true as const,
       value: {
         writable: true,
-        documentPath: '/tmp/test-settings.yaml',
+        hasDocument: true,
         namespaces: [{
           ns: WELCOME_NOTICE_SETTINGS_NAMESPACE,
           schema: {},
@@ -175,10 +175,25 @@ describe('ui-settings-general apply', () => {
     await vi.waitFor(() => { expect(b.settingsDescribe).toHaveBeenCalledTimes(3) })
   })
 
+  it('refreshes loaded document availability on reconnect without reading it eagerly', async () => {
+    const b = await bench()
+    declare(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const entry = b.slots.entries('settings.action')[0]!
+    const { controller } = (entry.inject as unknown as () => SettingsDocumentActionInjected)()
+    b.ctx.emit('connection/reset')
+    expect(b.settingsDescribe).not.toHaveBeenCalled()
+    await controller.load()
+    expect(b.settingsDescribe).toHaveBeenCalledOnce()
+    b.ctx.emit('connection/reset')
+    await vi.waitFor(() => { expect(b.settingsDescribe).toHaveBeenCalledTimes(2) })
+  })
+
   it('keeps remote welcome acknowledgement process-local', async () => {
     const b = await bench(false)
     declare(b.slots)
-    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const fiber = b.ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
     const entry = b.slots.entries('settings.onboarding')[0]!
     const { controller } = (entry.inject as unknown as () => WelcomeNoticeInjected)()
 
@@ -187,6 +202,8 @@ describe('ui-settings-general apply', () => {
     expect(controller.store.getSnapshot()).toMatchObject({ status: 'ready', acknowledged: true })
     expect(b.settingsDescribe).not.toHaveBeenCalled()
     expect(b.slots.entries('settings.action')).toEqual([])
+    await fiber.dispose()
+    for (const [name] of SEATS) expect(b.slots.entries(name)).toEqual([])
   })
 
   it('re-registers after an HMR collapse of the declaring chain (stale disposers must not block)', async () => {

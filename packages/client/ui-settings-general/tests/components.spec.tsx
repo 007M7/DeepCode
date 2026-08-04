@@ -70,7 +70,7 @@ describe('SettingsDocumentAction', () => {
           rpcId: 'document-action' as never,
           result: {
             ok: true as const,
-            value: { writable: true, documentPath: '/tmp/custom.yaml', namespaces: [] },
+            value: { writable: true, hasDocument: true, namespaces: [] },
           },
         })),
         openDocument,
@@ -87,17 +87,23 @@ describe('SettingsDocumentAction', () => {
     await waitFor(() => { expect(openDocument).toHaveBeenCalledWith({}) })
   })
 
-  it('stays absent when the provider has no local document', async () => {
+  it('stays absent without a document and retries availability after remount', async () => {
+    const describe = vi.fn()
+      .mockResolvedValueOnce({
+        rpcId: 'document-action-absent' as never,
+        result: { ok: true as const, value: { writable: true, hasDocument: false, namespaces: [] } },
+      })
+      .mockResolvedValueOnce({
+        rpcId: 'document-action-ready' as never,
+        result: { ok: true as const, value: { writable: true, hasDocument: true, namespaces: [] } },
+      })
     const controller = new SettingsDocumentStore({
       settings: {
-        describe: vi.fn(() => Promise.resolve({
-          rpcId: 'document-action' as never,
-          result: { ok: true as const, value: { writable: true, namespaces: [] } },
-        })),
+        describe,
         openDocument: vi.fn(),
       },
     } as never)
-    render(<SettingsDocumentAction
+    const first = render(<SettingsDocumentAction
       {...kit}
       t={t}
       controller={controller}
@@ -105,6 +111,15 @@ describe('SettingsDocumentAction', () => {
     />)
     await waitFor(() => { expect(controller.store.getSnapshot().status).toBe('unavailable') })
     expect(screen.queryByRole('button', { name: 'Open configuration file' })).toBeNull()
+    first.unmount()
+    render(<SettingsDocumentAction
+      {...kit}
+      t={t}
+      controller={controller}
+      useSnapshot={bindSnapshotSelector(controller.store)}
+    />)
+    expect(await screen.findByRole('button', { name: 'Open configuration file' })).toBeTruthy()
+    expect(describe).toHaveBeenCalledTimes(2)
   })
 
   it('keeps the action available and reports a native-open failure', async () => {
@@ -114,7 +129,7 @@ describe('SettingsDocumentAction', () => {
           rpcId: 'document-action' as never,
           result: {
             ok: true as const,
-            value: { writable: true, documentPath: '/tmp/settings.yaml', namespaces: [] },
+            value: { writable: true, hasDocument: true, namespaces: [] },
           },
         })),
         openDocument: vi.fn(() => Promise.resolve({

@@ -5,7 +5,7 @@ import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client
 
 /** Browser state of the Host-owned settings document. */
 export interface SettingsDocumentState {
-  /** Metadata-loading phase; unavailable means the provider has no local file or the read failed. */
+  /** Metadata-loading phase; unavailable means the provider has no local document or the read failed. */
   status: 'idle' | 'loading' | 'ready' | 'unavailable'
   /** Whether one native-open request is in flight. */
   opening: boolean
@@ -32,7 +32,7 @@ export class SettingsDocumentStore {
   constructor(private readonly api: Pick<IApiClient, 'settings'>) {}
 
   /**
-   * Load the current provider's optional local document path.
+   * Load whether the current provider owns a local document.
    * @returns after the latest metadata response updates the store.
    */
   async load(): Promise<void> {
@@ -52,7 +52,7 @@ export class SettingsDocumentStore {
         return
       }
       this.store.update((state) => {
-        state.status = result.value.documentPath === undefined ? 'unavailable' : 'ready'
+        state.status = result.value.hasDocument ? 'ready' : 'unavailable'
         state.error = null
       })
     } catch (error) {
@@ -84,4 +84,13 @@ export class SettingsDocumentStore {
       this.store.update((state) => { state.opening = false })
     }
   }
+}
+
+/**
+ * Refresh document availability after reconnect only when a surface has already requested it.
+ * @param controller - optional loopback document state owner.
+ */
+export function refreshDocumentIfLoaded(controller: SettingsDocumentStore | undefined): void {
+  if (controller === undefined || controller.store.getSnapshot().status === 'idle') return
+  void controller.load()
 }
