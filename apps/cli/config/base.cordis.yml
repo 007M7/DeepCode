@@ -254,6 +254,9 @@
   config:
     providerName: fork
 
+- id: subagent-codex
+  name: '@deepseek-ai/dsh-subagent-codex'
+
 # Continuable background children are selected per delegation tool. The
 # separately loaded follow-up tool registers the one global `send_message`.
 - id: tool-subagent-control
@@ -275,6 +278,14 @@
     provider: fork
     toolName: subagent_fork
     backgroundMode: continuable
+
+- id: tool-subagent-codex
+  name: '@deepseek-ai/dsh-tool-subagent'
+  config:
+    provider: codex
+    toolName: subagent_codex
+    enableRunInBackground: false
+    maxDepth: 'provider-managed'
 
 # Optional direct-child return channel; absent from roots and one-shot agents.
 - id: tool-subagent-report
