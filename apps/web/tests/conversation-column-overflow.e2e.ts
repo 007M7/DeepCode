@@ -49,6 +49,8 @@ const MODE = webSnapshotMode()
 const WIDTHS = [1680, 1200, 1000, 800, 600]
 /** Element id of the mutation control's injected sheet, so the test can take it back out. */
 const CONTROL_STYLE_ID = 'dsh-column-overflow-control'
+/** Horizontal wheel delta per gesture; must exceed the widest bleed the sweep can produce. */
+const WHEEL_DELTA = 300
 
 /** One viewport stop: whether the glow bleeds past the column, and whether that bleed scrolls. */
 interface ColumnMetrics {
@@ -124,7 +126,7 @@ async function wheelHorizontally(page: Page): Promise<number> {
     return { x: box.left + box.width / 2, y: box.top + 60 }
   })
   await page.mouse.move(origin.x, origin.y)
-  await page.mouse.wheel(300, 0)
+  await page.mouse.wheel(WHEEL_DELTA, 0)
   // A fixed settle, then two frames. Polling for a settled value cannot be
   // used here — the value under test is 0, which a poll starting at 0 accepts
   // before the gesture has had any chance to move it — so the wait is
@@ -190,28 +192,45 @@ describe('web e2e: the conversation column scrolls on one axis', () => {
   })
 
   /**
-   * Sweep the stops once and hand the readings to every assertion below, so
-   * the golden and the assertions describe the same measurement rather than
-   * two runs that could disagree.
+   * Resize to a viewport and read the column once its width stops moving.
+   *
+   * The glow rides the hero box, which rides the column, and the frame eases
+   * its column tracks over `--ds-transition-duration-slow`: reading straight
+   * after a resize can report the previous viewport's relation, or a width
+   * caught mid-transition.
+   * @param width - viewport width to settle at.
+   * @returns the column's readings at that width.
+   */
+  const settleAt = async (width: number): Promise<ColumnMetrics> => {
+    await page.setViewportSize({ width, height: 900 })
+    let previous = -1
+    await expect.poll(async () => {
+      const current = (await measureColumn(page, width)).columnWidth
+      const settled = current === previous
+      previous = current
+      return settled
+    }, { timeout: 10_000 }).toBe(true)
+    return measureColumn(page, width)
+  }
+
+  /**
+   * Sweep the stops once per run and hand the SAME readings to every assertion
+   * below, so the golden and the assertions describe one measurement instead of
+   * two runs that could disagree. Memoized rather than re-run per test: the
+   * gestures below move the viewport, and a second sweep would be a second
+   * chance for a resize to settle differently.
    * @returns the stops in {@link WIDTHS} order.
    */
-  const sweep = async (): Promise<ColumnStop[]> => {
-    const stops: ColumnStop[] = []
-    for (const width of WIDTHS) {
-      await page.setViewportSize({ width, height: 900 })
-      // The glow rides the hero box, which rides the column, and the column's
-      // track animates: settle on a column width that stops moving, or a stop
-      // gets read mid-transition and reports the previous viewport's relation.
-      let previous = -1
-      await expect.poll(async () => {
-        const current = (await measureColumn(page, width)).columnWidth
-        const settled = current === previous
-        previous = current
-        return settled
-      }, { timeout: 10_000 }).toBe(true)
-      stops.push({ ...await measureColumn(page, width), scrollLeftAfterWheel: await wheelHorizontally(page) })
-    }
-    return stops
+  let swept: Promise<ColumnStop[]> | undefined
+  const sweep = (): Promise<ColumnStop[]> => {
+    swept ??= (async () => {
+      const stops: ColumnStop[] = []
+      for (const width of WIDTHS) {
+        stops.push({ ...await settleAt(width), scrollLeftAfterWheel: await wheelHorizontally(page) })
+      }
+      return stops
+    })()
+    return swept
   }
 
   it('never scrolls horizontally, at any width the glow bleeds past', async () => {
@@ -242,7 +261,10 @@ describe('web e2e: the conversation column scrolls on one axis', () => {
     // that a one-axis scroller computes to `auto` — and shows the same gesture,
     // at the same timing, carrying the column to the full bleed. Without it a
     // `scrollLeft` of 0 could equally mean the wheel never arrived.
-    await page.setViewportSize({ width: 1200, height: 900 })
+    // Settle the resize first: this test runs at 1680 on its own and after the
+    // sweep's 600 in a full run, and an unsettled column reports the previous
+    // viewport's bleed.
+    await settleAt(1200)
     // Injected with an id rather than through `addStyleTag`, so the teardown
     // below can take the sheet out again by selector: it must not outlive this
     // test, or the golden ends up reading the control.
@@ -255,8 +277,16 @@ describe('web e2e: the conversation column scrolls on one axis', () => {
     try {
       const before = await measureColumn(page, 1200)
       expect(before.overflowX).toBe('auto')
-      expect(await wheelHorizontally(page)).toBe(before.bleedRange)
       expect(before.bleedRange).toBeGreaterThan(0)
+      // The gesture has to be able to reach the far edge, or the equality below
+      // would fail on the clamp and read as a broken fix. Stated as its own
+      // assertion so that failure names itself.
+      expect(before.bleedRange).toBeLessThan(WHEEL_DELTA)
+      // Rounded: `scrollLeft` is fractional under a fractional layout while
+      // `scrollWidth - clientWidth` is integral, and the claim is that the
+      // column travelled the whole bleed — not that two engines agree on a
+      // sub-pixel.
+      expect(Math.round(await wheelHorizontally(page))).toBe(before.bleedRange)
     } finally {
       await page.evaluate((id: string) => {
         document.getElementById(id)?.remove()
