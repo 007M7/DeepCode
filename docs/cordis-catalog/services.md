@@ -2430,29 +2430,6 @@ Types: [ScopeKey](../core-data-structures/scope.md) · [ToolDefinition](../core-
 
 Source: [`packages/core/tools/src/index.ts:714`](../../packages/core/tools/src/index.ts)
 
-## `ctx.tui` — `TuiExtensionService` (abstract seam)
-
-Optional terminal-local interaction service provided by one mounted TUI.
-
-The concrete provider retains pi-tui, focus, and terminal lifecycle state. Plugins receive only effect-owned overlay sessions.
-
-```ts cordis-catalog
-/**
- * Queue an interactive overlay owned by the calling plugin fiber.
- *
- * The TUI displays one overlay at a time in FIFO order. Disposing the caller
- * removes a queued overlay or closes an active one before plugin teardown
- * settles. This live presentation is neither logged nor replayed.
- *
- * @param request - component factory, layout constraints, and cancellation.
- * @returns the effect-owned overlay session.
- * @throws when the TUI has begun shutting down.
- */
-abstract openOverlay(request: TuiOverlayRequest): TuiOverlaySession
-```
-
-Source: [`packages/ui/tui/src/index.ts:246`](../../packages/ui/tui/src/index.ts)
-
 ## `ctx.typert` — `TypertRegistry`
 
 Registry of generated schemas and package reflection.

@@ -94,7 +94,7 @@ async function baseProject(): Promise<SdkProject> {
     features: [
       { id: featureId('provider'), options: ['deepseek-official'], secrets: { apiKey: 'key' } },
       { id: featureId('bash'), options: ['local'] },
-      { id: featureId('app'), options: ['tui'] },
+      { id: featureId('app'), options: ['acp'] },
       { id: featureId('persistence'), options: ['jsonl'] },
     ],
     localPlugins: [],

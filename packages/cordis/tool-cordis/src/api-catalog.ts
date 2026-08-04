@@ -1085,16 +1085,6 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
-    key: 'tui',
-    summary: 'Optional terminal-local interaction service provided by one mounted TUI.',
-    methods: [
-      {
-        signature: 'abstract openOverlay(request: TuiOverlayRequest): TuiOverlaySession',
-        jsDoc: '/**\n * Queue an interactive overlay owned by the calling plugin fiber.\n *\n * The TUI displays one overlay at a time in FIFO order. Disposing the caller\n * removes a queued overlay or closes an active one before plugin teardown\n * settles. This live presentation is neither logged nor replayed.\n *\n * @param request - component factory, layout constraints, and cancellation.\n * @returns the effect-owned overlay session.\n * @throws when the TUI has begun shutting down.\n */',
-      },
-    ],
-  },
-  {
     key: 'typert',
     summary: 'Registry of generated schemas and package reflection.',
     methods: [

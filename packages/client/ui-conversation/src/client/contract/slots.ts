@@ -435,6 +435,16 @@ export class PendingApproval {
 export type ApprovalComposerProps =
   PropsRuntime<'conversation.composer'> & { matched: ApprovalWait } & PropsLocale<'conversation'>
 
+/** In-memory reader position resilient to transcript width reflow. */
+export interface ChatScrollPosition {
+  /** Stable rendered node/call identity nearest the visible reading edge. */
+  readonly anchorKey: string
+  /** Anchor top relative to the transcript scrollport when saved. */
+  readonly anchorTop: number
+  /** Approximate offset used before the semantic anchor is measured. */
+  readonly scrollTop: number
+}
+
 /**
  * Injected share of the chat view entry: the two callbacks whose targets live
  * outside the view (layout orchestration; the session object layer).
@@ -456,10 +466,10 @@ export interface ChatViewInjected {
    * fresh page load starts empty and keeps the open-jump-to-bottom default.
    */
   chatScroll: {
-    /** Record the scroll offset; null clears it (pinned to bottom). */
-    save: (top: number | null) => void
-    /** Last recorded offset, or null when pinned or never recorded. */
-    read: () => number | null
+    /** Record a semantic reader position; null clears it when pinned. */
+    save: (position: ChatScrollPosition | null) => void
+    /** Last reader position, or null when pinned or never recorded. */
+    read: () => ChatScrollPosition | null
   }
   /** Fork through the completed turn ending at the eligible message `seq`, then open the child. */
   forkAt: (seq: number) => void

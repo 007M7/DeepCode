@@ -14,17 +14,13 @@ Harness 将一个 AI Agent（智能体） 所需要的所有能力——LLM 调�
   config:
     apiKey: !!js process.env.DEEPSEEK_API_KEY
 
-# Select the agent the interactive front door drives
-- id: agent-loop
-  name: '@deepseek-ai/dsh-agent-loop'
+# Select the one-shot application
+- id: cli-agent
+  name: '@deepseek-ai/dsh-cli-demo'
   config:
-    agents:
-      - id: main
-        provider: deepseek-official
-        model: deepseek-v4-flash
-
-# Select the interactive front door
-- name: '@deepseek-ai/dsh-tui'
+    provider: deepseek-official
+    model: deepseek-v4-flash
+    workspaceContext: false
 ```
 
 ## 适合谁
