@@ -1,8 +1,8 @@
 /**
  * Settings ownerless-copy plugin, browser half: registers everything on the
  * Settings surface that belongs to no single feature — the trigger/header
- * chrome content, the General section, and the `settings` dictionaries.
- * Feature-owned rows and sections stay with their features.
+ * chrome content, local-document action, General section, and `settings`
+ * dictionaries. Feature-owned rows and sections stay with their features.
  * Export discipline: packages/client/AGENTS.md.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
@@ -15,6 +15,9 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { CloseLabel, HeaderContent, TriggerContent } from './chrome.tsx'
 import { GeneralSection } from './GeneralSection.tsx'
+import { SettingsDocumentAction } from './SettingsDocumentAction.tsx'
+import type { SettingsDocumentActionInjected } from './SettingsDocumentAction.tsx'
+import { SettingsDocumentStore } from './settings-document-store.ts'
 import type { WelcomeNoticeInjected } from './WelcomeNotice.tsx'
 import { WelcomeNotice } from './WelcomeNotice.tsx'
 import { refreshWelcomeIfLoaded, WelcomeNoticeStore } from './welcome-store.ts'
@@ -27,6 +30,9 @@ export type {
 export type {
   GeneralSectionComponentProps,
 } from './GeneralSection.tsx'
+export type { SettingsDocumentActionInjected, SettingsDocumentActionProps } from './SettingsDocumentAction.tsx'
+export type { SettingsDocumentState } from './settings-document-store.ts'
+export { SettingsDocumentStore } from './settings-document-store.ts'
 export type { WelcomeNoticeInjected, WelcomeNoticeProps } from './WelcomeNotice.tsx'
 export type { WelcomeNoticeState } from './welcome-store.ts'
 export type { SettingsKey } from './locales.ts'
@@ -61,6 +67,15 @@ export function apply(ctx: ClientContext): void {
   // locale/change re-registration wiring.
   const t = ctx.locale.bind(NS)
   const connection = ctx.get('connection') as ConnectionHandle
+  const documentController = connection.isLoopback
+    ? new SettingsDocumentStore(connection.api)
+    : undefined
+  const documentInjected = documentController === undefined
+    ? undefined
+    : (() => {
+      const useSnapshot = bindSnapshotSelector(documentController.store)
+      return (): SettingsDocumentActionInjected => ({ controller: documentController, useSnapshot })
+    })()
   const welcomeController = new WelcomeNoticeStore(connection.api, connection.isLoopback ? 'host' : 'memory')
   const useWelcomeSnapshot = bindSnapshotSelector(welcomeController.store)
   const welcomeInjected = (): WelcomeNoticeInjected => ({
@@ -84,6 +99,16 @@ export function apply(ctx: ClientContext): void {
       ctx.slots.register({ name: 'settings.trigger', locale: NS }, TriggerContent))
     const header = deferRegistration(ctx.slots, 'settings.header', HeaderContent, () =>
       ctx.slots.register({ name: 'settings.header', locale: NS }, HeaderContent))
+    const action = documentInjected === undefined
+      ? undefined
+      : deferRegistration(ctx.slots, 'settings.action', SettingsDocumentAction, () =>
+        ctx.slots.register({
+          name: 'settings.action',
+          id: 'open-document',
+          order: 0,
+          locale: NS,
+          inject: documentInjected,
+        }, SettingsDocumentAction))
     const close = deferRegistration(ctx.slots, 'settings.close', CloseLabel, () =>
       ctx.slots.register({ name: 'settings.close', locale: NS }, CloseLabel))
     const general = deferRegistration(ctx.slots, 'settings.section', GeneralSection, () =>
@@ -106,9 +131,10 @@ export function apply(ctx: ClientContext): void {
     return () => {
       trigger.dispose()
       header.dispose()
+      action?.dispose()
       close.dispose()
       general.dispose()
       welcome.dispose()
     }
-  }, 'ui-settings-general: chrome, section, and onboarding registrations')
+  }, 'ui-settings-general: chrome, action, section, and onboarding registrations')
 }

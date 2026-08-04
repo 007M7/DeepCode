@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import type { GeneralSectionComponentProps } from '../src/client/GeneralSection.tsx'
 import { GeneralSection } from '../src/client/GeneralSection.tsx'
 import { CloseLabel, HeaderContent, TriggerContent } from '../src/client/chrome.tsx'
 import type { TriggerContentProps } from '../src/client/chrome.tsx'
+import { SettingsDocumentAction } from '../src/client/SettingsDocumentAction.tsx'
+import { SettingsDocumentStore } from '../src/client/settings-document-store.ts'
 import { en } from '../src/client/locales.ts'
 
 afterEach(cleanup)
@@ -52,5 +55,82 @@ describe('GeneralSection', () => {
     const { renderSlot } = mount()
     expect(renderSlot).toHaveBeenCalledWith('settings.general.item', {})
     expect(screen.getByTestId('slot-settings.general.item')).toBeTruthy()
+  })
+})
+
+describe('SettingsDocumentAction', () => {
+  it('appears only for a file-backed provider and requests its Host-owned document', async () => {
+    const openDocument = vi.fn(() => Promise.resolve({
+      rpcId: 'document-open' as never,
+      result: { ok: true as const, value: { opened: true as const } },
+    }))
+    const controller = new SettingsDocumentStore({
+      settings: {
+        describe: vi.fn(() => Promise.resolve({
+          rpcId: 'document-action' as never,
+          result: {
+            ok: true as const,
+            value: { writable: true, documentPath: '/tmp/custom.yaml', namespaces: [] },
+          },
+        })),
+        openDocument,
+      },
+    } as never)
+    render(<SettingsDocumentAction
+      {...kit}
+      t={t}
+      controller={controller}
+      useSnapshot={bindSnapshotSelector(controller.store)}
+    />)
+    const action = await screen.findByRole('button', { name: 'Open configuration file' })
+    fireEvent.click(action)
+    await waitFor(() => { expect(openDocument).toHaveBeenCalledWith({}) })
+  })
+
+  it('stays absent when the provider has no local document', async () => {
+    const controller = new SettingsDocumentStore({
+      settings: {
+        describe: vi.fn(() => Promise.resolve({
+          rpcId: 'document-action' as never,
+          result: { ok: true as const, value: { writable: true, namespaces: [] } },
+        })),
+        openDocument: vi.fn(),
+      },
+    } as never)
+    render(<SettingsDocumentAction
+      {...kit}
+      t={t}
+      controller={controller}
+      useSnapshot={bindSnapshotSelector(controller.store)}
+    />)
+    await waitFor(() => { expect(controller.store.getSnapshot().status).toBe('unavailable') })
+    expect(screen.queryByRole('button', { name: 'Open configuration file' })).toBeNull()
+  })
+
+  it('keeps the action available and reports a native-open failure', async () => {
+    const controller = new SettingsDocumentStore({
+      settings: {
+        describe: vi.fn(() => Promise.resolve({
+          rpcId: 'document-action' as never,
+          result: {
+            ok: true as const,
+            value: { writable: true, documentPath: '/tmp/settings.yaml', namespaces: [] },
+          },
+        })),
+        openDocument: vi.fn(() => Promise.resolve({
+          rpcId: 'document-open-failed' as never,
+          result: { ok: false as const, error: { code: 'internal' as const, message: 'xdg-open missing', details: {} } },
+        })),
+      },
+    } as never)
+    render(<SettingsDocumentAction
+      {...kit}
+      t={t}
+      controller={controller}
+      useSnapshot={bindSnapshotSelector(controller.store)}
+    />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Open configuration file' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('Could not open configuration file')
+    expect(screen.getByRole('button', { name: 'Open configuration file' })).toBeTruthy()
   })
 })

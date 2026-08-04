@@ -11,6 +11,10 @@ import { SettingsLocal } from '../src/index.ts'
 
 const state = vi.hoisted(() => ({
   failTempWrite: false,
+  failDocumentCreate: false,
+  holdDocumentCreate: false,
+  documentCreateStarted: undefined as (() => void) | undefined,
+  continueDocumentCreate: undefined as Promise<void> | undefined,
 }))
 
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -18,6 +22,15 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   return {
     ...actual,
     writeFile: (async (path: unknown, ...rest: never[]) => {
+      if (state.holdDocumentCreate && String(path).endsWith('settings.yaml')) {
+        state.holdDocumentCreate = false
+        state.documentCreateStarted!()
+        await state.continueDocumentCreate!
+      }
+      if (state.failDocumentCreate && String(path).endsWith('settings.yaml')) {
+        state.failDocumentCreate = false
+        throw Object.assign(new Error('ENOSPC: injected document create failure'), { code: 'ENOSPC' })
+      }
       if (state.failTempWrite && String(path).endsWith('.tmp')) {
         state.failTempWrite = false
         throw Object.assign(new Error('ENOSPC: injected writeFile failure'), { code: 'ENOSPC' })
@@ -33,6 +46,10 @@ const cleanups: Array<() => Promise<void>> = []
 
 afterEach(async () => {
   state.failTempWrite = false
+  state.failDocumentCreate = false
+  state.holdDocumentCreate = false
+  state.documentCreateStarted = undefined
+  state.continueDocumentCreate = undefined
   while (cleanups.length > 0) await cleanups.pop()!()
 })
 
@@ -51,6 +68,42 @@ async function boot(config: ConstructorParameters<typeof SettingsLocal>[1]): Pro
 }
 
 describe('writer-lock failure cleanup', () => {
+  it('skips publication when an in-flight document create completes during teardown', async () => {
+    const dir = await tempDir()
+    const path = join(dir, 'settings.yaml')
+    const ctx = new Context()
+    const fiber = ctx.plugin(SettingsLocal, { path, watch: true, debounceMs: 0 })
+    cleanups.push(async () => { await fiber.dispose() })
+    await fiber
+    const settings = ctx.settings
+    let markStarted!: () => void
+    const started = new Promise<void>((resolve) => { markStarted = resolve })
+    let releaseCreate!: () => void
+    state.continueDocumentCreate = new Promise<void>((resolve) => { releaseCreate = resolve })
+    state.documentCreateStarted = markStarted
+    state.holdDocumentCreate = true
+
+    const preparing = settings.prepareDocument()
+    await started
+    const disposing = fiber.dispose()
+    await vi.waitFor(() => {
+      expect((settings as unknown as { closed: boolean }).closed).toBe(true)
+    })
+    releaseCreate()
+    await expect(preparing).resolves.toBe(path)
+    await disposing
+    expect(await readFile(path, 'utf8')).toBe('')
+  })
+
+  it('surfaces an exclusive document-create failure and releases the lock', async () => {
+    const dir = await tempDir()
+    const path = join(dir, 'settings.yaml')
+    const ctx = await boot({ path, watch: false })
+    state.failDocumentCreate = true
+    await expect(ctx.settings.prepareDocument()).rejects.toThrow(/ENOSPC/)
+    await expect(access(`${path}.lock`)).rejects.toThrow()
+  })
+
   it('cleans up the temp file and releases the lock when the write fails mid-cycle', async () => {
     const dir = await tempDir()
     const path = join(dir, 'settings.yaml')

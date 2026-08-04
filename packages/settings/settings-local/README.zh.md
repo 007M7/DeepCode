@@ -26,6 +26,7 @@
 - **watcher 的 ready 信号做一次对账。** 初始加载与 watcher 自身的建立存在竞态，因此其间写入的变更绝不会触发事件；ready 时的对账补上这个启动缺口。
 - **Dispose 保证静止。** 卸载先停止接收 watcher 事件、关闭 watcher，再等完排队与进行中的操作，之后不再有任何发布。
 - **按内容抑制自写。** provider 缓存最后可用文本；watcher 事件内容与缓存相同（含自己的写入）即为 no-op。
+- **本地配置界面会收到解析后的路径。** `ctx.settings.documentPath` 是 `resolveSpec()` 得出的绝对文件名，包括自定义 YAML/JSON 路径；`prepareDocument()` 会保留现有文件，或在 Host 打开文档前，以仅属主可访问的权限独占创建缺失的空文件。浏览器绝不重建 `$DSH_HOME`，也不提交文件系统目标。
 
 ## Model Experience
 

@@ -48,12 +48,37 @@ describe('resolveSpec', () => {
 describe('boot and reads', () => {
   it('resolves defaults over an absent file and reports writable', async () => {
     const dir = await tempDir()
-    const ctx = await boot({ path: join(dir, 'settings.yaml'), watch: false })
+    const path = join(dir, 'settings.yaml')
+    const ctx = await boot({ path, watch: false })
     const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema, {
       base: { fontSize: 16 },
     })
     expect(scope.get()).toEqual({ theme: 'dark', fontSize: 16 })
     expect(ctx.settings.writable).toBe(true)
+    expect(ctx.settings.documentPath).toBe(path)
+  })
+
+  it('prepares an absent owner-only document without changing resolved settings', async () => {
+    const dir = await tempDir()
+    const path = join(dir, 'nested', 'settings.yaml')
+    const ctx = await boot({ path, watch: false })
+    const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
+
+    await expect(ctx.settings.prepareDocument()).resolves.toBe(path)
+    expect(await readFile(path, 'utf8')).toBe('')
+    expect((await stat(path)).mode & 0o777).toBe(0o600)
+    expect(scope.get()).toEqual({ theme: 'dark', fontSize: 14 })
+  })
+
+  it('preparing an existing document preserves its contents', async () => {
+    const dir = await tempDir()
+    const path = join(dir, 'settings.yaml')
+    const contents = 'ui-theme:\n  theme: light\n'
+    await writeFile(path, contents)
+    const ctx = await boot({ path, watch: false })
+
+    await expect(ctx.settings.prepareDocument()).resolves.toBe(path)
+    expect(await readFile(path, 'utf8')).toBe(contents)
   })
 
   it('reads sections from an existing yaml document', async () => {
@@ -77,6 +102,7 @@ describe('boot and reads', () => {
   it('defaults the file location under the configured harness home', async () => {
     const dir = await tempDir()
     const ctx = await boot({ dshHome: dir, watch: false })
+    expect(ctx.settings.documentPath).toBe(join(dir, 'settings.yaml'))
     const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
     await scope.update({ theme: 'light' })
     const written = await readFile(join(dir, 'settings.yaml'), 'utf8')

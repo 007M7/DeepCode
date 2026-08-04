@@ -53,10 +53,27 @@ export type SettingsPathOpView =
 export interface SettingsApi {
   /**
    * Describe every registered namespace: redacted layered values plus the
-   * serialized schema a client renders its form from. `writable: false`
-   * (read-only provider) tells the client to disable every write control.
+   * serialized schema a client renders its form from. `documentPath` is the
+   * absolute Host path only for a file-backed provider; this method is
+   * loopback-only, and clients use it only to decide whether to offer the
+   * pathless `openDocument` action instead of attempting browser filesystem
+   * access. `writable: false` (read-only provider) tells the client to disable
+   * every write control.
    */
-  describe(request: RpcRequest<{}>): Promise<RpcResponse<{ writable: boolean; namespaces: SettingsNamespaceView[] }>>
+  describe(request: RpcRequest<{}>): Promise<RpcResponse<{
+    writable: boolean
+    documentPath?: string
+    namespaces: SettingsNamespaceView[]
+  }>>
+
+  /**
+   * Materialize the configured local document when absent and ask the Host to
+   * open it with the platform default application. The request carries no
+   * path, so the browser cannot choose an arbitrary Host filesystem target.
+   */
+  openDocument(
+    request: RpcRequest<{}>, signal: AbortSignal,
+  ): Promise<RpcResponse<{ opened: true }>>
 
   /**
    * Merge a patch into one namespace's user layer (validate → persist →

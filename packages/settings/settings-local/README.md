@@ -26,6 +26,7 @@ Defaulting is one explicit `resolveSpec(config)` step; an unsupported extension 
 - **The watcher's ready signal reconciles once.** The initial load races the watcher's own setup, so a change written in between never fires an event; the reconcile at ready closes that startup gap.
 - **Dispose quiesces.** Teardown stops accepting watcher events, closes the watcher, then waits out any queued or in-flight operation, so nothing publishes after disposal.
 - **Self-write suppression by content.** The provider caches the last good text; a watcher event whose content equals the cache (its own write included) is a no-op.
+- **Local configuration surfaces receive the resolved path.** `ctx.settings.documentPath` is the absolute `resolveSpec()` filename, including a custom YAML/JSON path; `prepareDocument()` preserves an existing file or exclusively creates an absent empty file with owner-only permissions before the Host opens it. The browser never reconstructs `$DSH_HOME` or submits a filesystem target.
 
 ## Model Experience
 
