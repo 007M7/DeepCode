@@ -383,7 +383,6 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
   const stderrCollector = collectStream(errMode, child.stderr, 'stderr')
 
   let graceTimer: ReturnType<typeof scheduleFiniteTimeout> | undefined
-  let terminationStarted = false
   let treeExitObserved = false
   let treeExitObservation: Promise<void> | undefined
   let settled = false
@@ -427,7 +426,6 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
     treeExitObservation ??= (async () => {
       while (treeAlive()) await sleepTick()
       treeExitObserved = true
-      terminationStarted = true
       graceTimer?.cancel()
       graceTimer = undefined
     })()
@@ -447,11 +445,11 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
   }
 
   const terminate = (): void => {
-    if (terminationStarted) return
-    terminationStarted = true
+    if (treeExitObserved || graceTimer !== undefined) return
     // Observe from the first termination tier onward, even when inherited
     // pipes delay `done` and no consumer has begun its own teardown wait.
     void observeTreeExit()
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- observer can record absence before its first await.
     if (treeExitObserved) return
     kill('SIGTERM')
     // The escalation must survive direct-child settlement — the leader dying
