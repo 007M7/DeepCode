@@ -85,7 +85,12 @@ function responseObject(text: string): Record<string, unknown> {
   }
 }
 
-function completeEvents(text: string): Record<string, unknown>[] {
+/**
+ * Build the minimal Responses SSE event sequence consumed by Codex 0.146.0.
+ * @param text - exact assistant answer.
+ * @returns ordered response lifecycle events.
+ */
+export function completeResponsesEvents(text: string): Record<string, unknown>[] {
   const completed = responseObject(text)
   const message = (completed.output as Record<string, unknown>[])[0]!
   const part = (message.content as Record<string, unknown>[])[0]!
@@ -250,7 +255,7 @@ export async function startResponsesFixture(
       })
       if (behavior.kind === 'hold') return
       const events = behavior.kind === 'complete'
-        ? completeEvents(behavior.text)
+        ? completeResponsesEvents(behavior.text)
         : functionCallEvents(behavior.name, behavior.arguments)
       for (const event of events) {
         response.write(`data: ${JSON.stringify(event)}\n\n`)

@@ -47,7 +47,7 @@ Install this package and add the following rows to your own `cordis.yml`. Shippe
 
 ## Product compatibility and evidence
 
-The production wire intentionally implements only the app-server methods required by this one-shot contract. Development evidence is pinned to `@openai/codex@0.146.0` / `codex-cli 0.146.0`: the real-product spec drives the official binary against a loopback Responses service with a non-empty fake key and proves the task, authentication, exact answer, cancellation, approvals, and process-tree exit. A separate Loader composition e2e boots the README-shaped user configuration with no `codex` command available, verifies the fixed provider and foreground-only tool schema, and records zero child starts. The npm package is a test-only dependency; deployments still supply `codex` on `PATH`.
+The production wire intentionally implements only the app-server methods required by this one-shot contract. Development evidence is pinned to `@openai/codex@0.146.0` / `codex-cli 0.146.0`: the keyless real-product spec drives the official binary against a loopback Responses service with a non-empty fake key and proves the task, authentication, exact answer, cancellation, approvals, and process-tree exit. A separate Loader composition e2e boots the README-shaped user configuration with no `codex` command available, verifies the fixed provider and foreground-only tool schema, and records zero child starts. A credentialed e2e starts the production provider and real Codex, then obtains a unique answer from the fixed official DeepSeek service through a loopback-only test bridge from Responses to Chat Completions; that bridge is not production functionality or native Codex support for DeepSeek's Chat Completions API. The npm package is a test-only dependency; deployments still supply `codex` on `PATH`.
 
 ## Model Experience
 
@@ -83,7 +83,7 @@ Append-only: the new tool result follows the reusable parent request prefix.
 
 - **One fresh process, thread, and turn per run** — there is no continuation, resume, pooling, progress stream, or product-session persistence.
 - **Host-managed product installation and account state** — a missing or incompatible `codex`, configuration error, or authentication failure is surfaced as a startup or run error; the plugin provides no installer, login flow, or runtime version gate.
-- **Compatibility is pinned by development evidence** — upgrading from the verified 0.146.0 protocol baseline requires regenerating upstream schema evidence and rerunning handshake, answer-selection, approval, cancellation, and real-product tests.
+- **Compatibility is pinned by development evidence** — upgrading from the verified 0.146.0 protocol baseline requires regenerating upstream schema evidence and rerunning handshake, answer-selection, approval, cancellation, keyless real-product, and credentialed DeepSeek nonce tests.
 - **No human approval path** — known unattended approval requests are denied and unknown server requests fail closed; deployments cannot configure an allow policy through this package.
 - **Final text only** — reasoning, commentary, intermediate messages, tool traffic, usage, stderr, and workspace diffs remain product-local.
 - **No optional shared capabilities** — output schemas, child personas, tool filtering, and harness depth enforcement are rejected by the shared service for this provider.
