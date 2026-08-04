@@ -475,6 +475,61 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
   ].sort((left, right) => firstCellIndex(left) - firstCellIndex(right))
 }
 
+/**
+ * Append the changing in-flight assistant cells to a stable finalized layout.
+ * @param turns - Finalized layout derived with an empty-block partial anchor.
+ * @param partial - Current in-flight assistant projection.
+ * @param lastIndex - Highest cell index in the finalized layout.
+ * @returns The original layout without a partial, otherwise a layout sharing every unaffected turn.
+ */
+export function appendTrajectoryPartialLayout(
+  turns: readonly TrajectoryTurnModel[],
+  partial: ConversationSnapshot['partial'],
+  lastIndex: number,
+): readonly TrajectoryTurnModel[] {
+  if (partial === null) return turns
+  const partialTurn = deriveTrajectoryLayout({
+    nodes: [],
+    partial,
+    runningCalls: [],
+    codeDispatches: new Map(),
+  }).at(0)
+  if (partialTurn === undefined) return turns
+  const streamed: TrajectoryTurnModel = {
+    ...partialTurn,
+    groups: partialTurn.groups.map(group => ({
+      ...group,
+      cells: group.cells.map(cell => ({ ...cell, index: cell.index + lastIndex })),
+    })),
+  }
+  const turnIndex = turns.findIndex(turn => turn.turn === streamed.turn)
+  if (turnIndex === -1) return [...turns, streamed]
+  const current = turns[turnIndex]
+  /* v8 ignore next -- findIndex proved the dense array position exists. */
+  if (current === undefined) return turns
+  const groups = [...current.groups]
+  for (const streamedGroup of streamed.groups) {
+    const groupIndex = groups.findIndex(group => group.title === streamedGroup.title)
+    if (groupIndex === -1) {
+      groups.push(streamedGroup)
+      continue
+    }
+    const group = groups[groupIndex]
+    /* v8 ignore next -- findIndex proved the dense array position exists. */
+    if (group === undefined) continue
+    groups[groupIndex] = {
+      ...streamedGroup,
+      cells: [
+        ...group.cells.filter(cell => cell.requestOnly !== true),
+        ...streamedGroup.cells,
+      ],
+    }
+  }
+  const updated = [...turns]
+  updated[turnIndex] = { ...current, groups }
+  return updated
+}
+
 function attachToolSchema(
   laid: LaidCell,
   callSchemas: RequestInspectionSnapshot['callSchemas'] | undefined,
@@ -566,6 +621,7 @@ function expandAssistant(
   callStarts: ReadonlyMap<string, number>,
   opts?: { streaming?: boolean },
 ): LaidCell[] {
+  if (opts?.streaming === true && node.blocks.length === 0) return []
   const out: LaidCell[] = []
   let index = startIndex - 1
   const usage = node.usage as UsageLike | undefined

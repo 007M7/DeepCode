@@ -36,7 +36,6 @@ export class SessionHistorySource implements SessionHistoryFace {
     value: SessionHistorySnapshot['inspection']
   } | null = null
   private streamPublishToken: object | null = null
-  private streamBaseInspection: SessionHistorySnapshot['inspection'] | null = null
   private streamPartial: PartialAccumulator | null = null
   private snapshotCache: SessionHistorySnapshot
   private readonly notifier = new Notifier(() => {
@@ -73,37 +72,34 @@ export class SessionHistorySource implements SessionHistoryFace {
   }
 
   /**
-   * Load the tail and exhaust all available older pages.
+   * Load the current tail without reading older pages.
    * @param signal - Consumer lifetime.
-   * @returns When paging completes, fails to advance, or is aborted.
+   * @returns When the tail is ready or loading fails.
    */
-  async loadAll(signal?: AbortSignal): Promise<void> {
-    if (signal?.aborted === true) return
+  async loadTail(signal?: AbortSignal): Promise<void> {
+    if (isAborted(signal)) return
     this.trackConsumer(signal)
     await this.open()
-    while (
-      !isAborted(signal)
-      && this.state === 'ready'
-      && this.hasMore
-    ) {
-      const previousBaseSeq = this.baseSeq
-      await this.loadOlder()
-      if (isAborted(signal) || this.baseSeq === previousBaseSeq) return
-    }
   }
 
-  /** Rebuild and page for whichever mounted consumers survive a reconnect. */
+  /**
+   * Prepend one older page when the current window has a predecessor.
+   * @param signal - Consumer lifetime.
+   * @returns Whether the loaded window advanced.
+   */
+  async loadOlder(signal?: AbortSignal): Promise<boolean> {
+    if (isAborted(signal)) return false
+    this.trackConsumer(signal)
+    await this.open()
+    if (isAborted(signal)) return false
+    const previousBaseSeq = this.baseSeq
+    await this.loadOlderPage()
+    return this.baseSeq !== previousBaseSeq
+  }
+
+  /** Rebuild the tail for whichever mounted consumers survive a reconnect. */
   private async loadForConsumers(): Promise<void> {
     await this.open()
-    while (
-      this.hasConsumer()
-      && this.state === 'ready'
-      && this.hasMore
-    ) {
-      const previousBaseSeq = this.baseSeq
-      await this.loadOlder()
-      if (!this.hasConsumer() || this.baseSeq === previousBaseSeq) return
-    }
   }
 
   /**
@@ -161,7 +157,6 @@ export class SessionHistorySource implements SessionHistoryFace {
     this.olderPromise = null
     this.liveBuffer = []
     this.streamPublishToken = null
-    this.streamBaseInspection = null
     this.streamPartial = null
   }
 
@@ -234,7 +229,7 @@ export class SessionHistorySource implements SessionHistoryFace {
     }
   }
 
-  private loadOlder(): Promise<void> {
+  private loadOlderPage(): Promise<void> {
     if (this.olderPromise !== null) return this.olderPromise
     if (this.state !== 'ready' || !this.hasMore) return Promise.resolve()
     const generation = this.generation
@@ -339,8 +334,7 @@ export class SessionHistorySource implements SessionHistoryFace {
       this.inspectionCache = { entries: this.entries, value: inspection }
       return false
     }
-    const base = this.streamBaseInspection ?? this.currentInspection()
-    this.streamBaseInspection = base
+    const base = this.currentInspection()
     if (
       this.streamPartial === null
       || this.streamPartial.turn !== turn
@@ -382,7 +376,6 @@ export class SessionHistorySource implements SessionHistoryFace {
   /** Publish structural changes immediately and invalidate an older scheduled stream publish. */
   private publishDirtyNow(): void {
     this.streamPublishToken = null
-    this.streamBaseInspection = null
     this.streamPartial = null
     this.notifier.markDirty()
   }

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import {
   IconChevronRightOutline14,
   IconSettingsOutline16,
@@ -23,6 +24,12 @@ import { trajectoryPreviewText, type TrajectoryTurnModel } from './layout.ts'
 import css from './TrajectoryTable.module.css'
 
 const BOTTOM_FOLLOW_THRESHOLD_PX = 2
+const OLDER_LOAD_THRESHOLD_PX = 48
+const VIRTUALIZATION_THRESHOLD = 100
+const VIRTUAL_ROW_HEIGHT_PX = 30
+const VIRTUAL_FINAL_REQUEST_HEIGHT_PX = 9
+const VIRTUAL_OVERSCAN_ROWS = 12
+const VIRTUAL_INITIAL_VIEWPORT_HEIGHT_PX = 600
 
 const KIND_LABEL: Record<TrajectoryCellKind, string> = {
   system: 'SYSTEM',
@@ -195,6 +202,16 @@ type RequestBoundaryStyle = CSSProperties & {
   '--request-boundary-offset': string
 }
 
+type VirtualSpacerStyle = CSSProperties & {
+  '--trajectory-virtual-spacer-height': string
+}
+
+interface OlderLoadAnchor {
+  readonly historyStartSeq: number | undefined
+  readonly scrollHeight: number
+  readonly scrollTop: number
+}
+
 function clampDetailsWidth(width: number, splitWidth: number): number {
   const maxWidth = Math.max(
     DETAILS_MIN_WIDTH,
@@ -312,6 +329,16 @@ export interface TrajectoryTableProps {
   onRecordSelect?: (index: number) => void
   /** One externally requested record selection; a new object repeats the request. */
   recordSelection?: { readonly index: number } | null
+  /** One externally requested record focus without changing inspector selection. */
+  recordFocus?: { readonly index: number } | null
+  /** Whether the initial history tail is still loading. */
+  historyLoading?: boolean
+  /** First loaded history node, used to preserve scroll position after prepending a page. */
+  historyStartSeq?: number | undefined
+  /** Whether one older history page can be requested. */
+  hasOlderRecords?: boolean
+  /** Load one older history page. */
+  onLoadOlder?: () => Promise<boolean>
   /** Clear selection state owned by the ledger host. */
   onClearSelection?: () => void
   /** Turn ids whose rows after the first are folded into a summary. */
@@ -397,6 +424,11 @@ function flattenRecords(turns: readonly TrajectoryTurnModel[]): TableRecord[] {
     if (last !== undefined) last.turnEnd = true
     return records
   })
+}
+
+function virtualRecordHeight(record: TableRecord, final: boolean): number {
+  if (record.cell.requestOnly !== true) return VIRTUAL_ROW_HEIGHT_PX
+  return final ? VIRTUAL_FINAL_REQUEST_HEIGHT_PX : 0
 }
 
 function filterRecords(
@@ -492,7 +524,6 @@ function collapseTurnRecords(
   records: readonly TableRecord[],
   collapsedTurns: ReadonlySet<number>,
 ): TableRecord[] {
-  if (collapsedTurns.size === 0) return [...records]
   const recordsByTurn = new Map<number, TableRecord[]>()
   for (const record of records) {
     if (record.turn === null) continue
@@ -552,7 +583,6 @@ function collapseAssistantRecords(
   records: readonly TableRecord[],
   collapsedAssistants: ReadonlySet<number>,
 ): TableRecord[] {
-  if (collapsedAssistants.size === 0) return [...records]
   const out: TableRecord[] = []
   for (let i = 0; i < records.length; i++) {
     const record = records[i]
@@ -1538,6 +1568,11 @@ export function TrajectoryTable({
   onSelectedIndexChange,
   onRecordSelect,
   recordSelection = null,
+  recordFocus = null,
+  historyLoading = false,
+  historyStartSeq,
+  hasOlderRecords = false,
+  onLoadOlder,
   onClearSelection,
   collapsedTurns,
   onToggleTurn,
@@ -1554,18 +1589,65 @@ export function TrajectoryTable({
   const [toolRequestOffset, setToolRequestOffset] = useState<number | null>(null)
   const detailsResizeDrag = useRef<DetailsResizeDrag | null>(null)
   const appliedRecordSelection = useRef<TrajectoryTableProps['recordSelection']>(null)
+  const appliedRecordFocus = useRef<TrajectoryTableProps['recordFocus']>(null)
   const tabHistory = useRef<Set<DetailTab>>(new Set(['overview']))
+  const rootRef = useRef<HTMLDivElement>(null)
+  const tablePaneRef = useRef<HTMLDivElement>(null)
+  const followsTableTail = useRef(false)
+  const tableScrollInitialized = useRef(false)
+  const [tableScrollReady, setTableScrollReady] = useState(false)
+  const pendingScrollIndex = useRef<number | null>(null)
+  const loadingOlder = useRef(false)
+  const [olderLoading, setOlderLoading] = useState(false)
+  const olderLoadAnchor = useRef<OlderLoadAnchor | null>(null)
   useEffect(() => {
     onSelectedIndexChange?.(selectedIndex)
   }, [onSelectedIndexChange, selectedIndex])
   const allRecords = useMemo(() => flattenRecords(turns), [turns])
-  const requestNumbers = indexRequestNumbers(allRecords, sessionRequestNumbers)
-  const records = searchMatchIndexes === null
-    ? collapseAssistantRecords(
-      collapseTurnRecords(allRecords, collapsedTurns),
-      collapsedAssistants,
-    )
-    : filterRecords(allRecords, searchMatchIndexes)
+  const requestNumbers = useMemo(
+    () => indexRequestNumbers(allRecords, sessionRequestNumbers),
+    [allRecords, sessionRequestNumbers],
+  )
+  const records = useMemo(() => {
+    if (searchMatchIndexes !== null) return filterRecords(allRecords, searchMatchIndexes)
+    const turnRecords = collapsedTurns.size === 0
+      ? allRecords
+      : collapseTurnRecords(allRecords, collapsedTurns)
+    return collapsedAssistants.size === 0
+      ? turnRecords
+      : collapseAssistantRecords(turnRecords, collapsedAssistants)
+  }, [allRecords, collapsedAssistants, collapsedTurns, searchMatchIndexes])
+  const virtualizationEnabled = records.length > VIRTUALIZATION_THRESHOLD
+  const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLTableRowElement>({
+    count: virtualizationEnabled ? records.length : 0,
+    enabled: virtualizationEnabled,
+    estimateSize: (index) => {
+      const record = records[index]
+      return record === undefined
+        ? VIRTUAL_ROW_HEIGHT_PX
+        : virtualRecordHeight(record, index === records.length - 1)
+    },
+    getItemKey: (index) => {
+      const record = records[index]
+      return record === undefined
+        ? index
+        : `${record.cell.index}:${record.collapsedSummaryKind ?? 'record'}`
+    },
+    getScrollElement: () => tablePaneRef.current,
+    initialRect: { width: 0, height: VIRTUAL_INITIAL_VIEWPORT_HEIGHT_PX },
+    overscan: VIRTUAL_OVERSCAN_ROWS,
+  })
+  const virtualRows = virtualizationEnabled ? rowVirtualizer.getVirtualItems() : []
+  const virtualTop = virtualRows[0]?.start ?? 0
+  const virtualBottom = virtualRows.length === 0
+    ? 0
+    : Math.max(0, rowVirtualizer.getTotalSize() - (virtualRows.at(-1)?.end ?? 0))
+  const renderedRecords = virtualizationEnabled
+    ? virtualRows.flatMap((row) => {
+      const record = records[row.index]
+      return record === undefined ? [] : [{ record, position: row.index }]
+    })
+    : records.map((record, position) => ({ record, position }))
   const requestBoundaryRuns = indexRequestBoundaryRuns(records)
   const selected = allRecords.find(record => record.cell.index === selectedIndex)
   const selectedPrompt = selected?.cell.kind === 'system'
@@ -1697,7 +1779,13 @@ export function TrajectoryTable({
     ) return
     appliedRecordSelection.current = recordSelection
     selectRecord(recordSelection.index)
+    pendingScrollIndex.current = recordSelection.index
   }, [recordSelection, selectRecord])
+  useEffect(() => {
+    if (recordFocus === null || appliedRecordFocus.current === recordFocus) return
+    appliedRecordFocus.current = recordFocus
+    pendingScrollIndex.current = recordFocus.index
+  }, [recordFocus])
 
   const selectRequest = (
     request: SelectedRequest,
@@ -1734,11 +1822,6 @@ export function TrajectoryTable({
   // open its summary, and remember the row to scroll once the un-collapsed
   // ledger has rendered. Not-found leaves the request pending (`turns` in the
   // deps retries as history pages in); the ack clears the store field.
-  const rootRef = useRef<HTMLDivElement>(null)
-  const tablePaneRef = useRef<HTMLDivElement>(null)
-  const followsTableTail = useRef(false)
-  const tableScrollInitialized = useRef(false)
-  const pendingScrollIndex = useRef<number | null>(null)
   const openRecordSummaryRef = useRef(openRecordSummary)
   openRecordSummaryRef.current = openRecordSummary
   useEffect(() => {
@@ -1752,27 +1835,122 @@ export function TrajectoryTable({
   useEffect(() => {
     const index = pendingScrollIndex.current
     if (index === null) return
+    const position = records.findIndex(record =>
+      record.cell.index === index && record.collapsedSummary === undefined)
+    if (position === -1) return
+    pendingScrollIndex.current = null
+    if (virtualizationEnabled) {
+      rowVirtualizer.scrollToIndex(position, { behavior: 'smooth', align: 'center' })
+      return
+    }
     const row = rootRef.current
       ?.querySelector<HTMLElement>(`tr[data-record-index="${index}"]`)
-    if (row === undefined || row === null) return
-    pendingScrollIndex.current = null
     /* v8 ignore next -- jsdom lacks scrollIntoView; browsers always have it. */
-    if (typeof row.scrollIntoView === 'function') {
+    if (row !== undefined && row !== null && typeof row.scrollIntoView === 'function') {
       row.scrollIntoView({ behavior: 'smooth', block: 'center' })
     }
-  })
+  }, [records, rowVirtualizer, virtualizationEnabled])
+  useEffect(() => {
+    if (timelineFocusIndexes === null || timelineFocusIndexes.size === 0) return
+    const focusedPositions = records.flatMap((record, position) =>
+      record.collapsedSummary === undefined
+      && record.cell.requestOnly !== true
+      && timelineFocusIndexes.has(record.cell.index)
+        ? [position]
+        : [])
+    const first = focusedPositions.at(0)
+    const last = focusedPositions.at(-1)
+    if (first === undefined || last === undefined) return
+    if (!virtualizationEnabled) {
+      const ledger = rootRef.current
+      if (ledger === null) return
+      const focusedRows = [
+        ...ledger.querySelectorAll<HTMLElement>('tr[data-timeline-focus="inside"]'),
+      ]
+      const firstRow = focusedRows.at(0)
+      const lastRow = focusedRows.at(-1)
+      if (firstRow === undefined || lastRow === undefined) return
+      const focusHeight =
+        lastRow.getBoundingClientRect().bottom - firstRow.getBoundingClientRect().top
+      const target = focusHeight > ledger.clientHeight
+        ? firstRow
+        : focusedRows[Math.floor((focusedRows.length - 1) / 2)]
+      /* v8 ignore next -- jsdom lacks scrollIntoView; browsers always have it. */
+      if (target !== undefined && typeof target.scrollIntoView === 'function') {
+        target.scrollIntoView({
+          behavior: 'smooth',
+          block: focusHeight > ledger.clientHeight ? 'start' : 'center',
+        })
+      }
+      return
+    }
+    const paneHeight = tablePaneRef.current?.clientHeight ?? 0
+    let focusHeight = 0
+    for (let position = first; position <= last; position++) {
+      const record = records[position]
+      if (record === undefined) continue
+      focusHeight += virtualRecordHeight(
+        record,
+        position === records.length - 1,
+      )
+    }
+    rowVirtualizer.scrollToIndex(
+      focusHeight > paneHeight ? first : focusedPositions[Math.floor((focusedPositions.length - 1) / 2)] ?? first,
+      {
+        behavior: 'smooth',
+        align: focusHeight > paneHeight ? 'start' : 'center',
+      },
+    )
+  }, [records, rowVirtualizer, timelineFocusIndexes, virtualizationEnabled])
+  const requestOlder = useCallback((pane: HTMLDivElement) => {
+    if (
+      !hasOlderRecords
+      || onLoadOlder === undefined
+      || loadingOlder.current
+      || pane.scrollTop > OLDER_LOAD_THRESHOLD_PX
+    ) return
+    loadingOlder.current = true
+    setOlderLoading(true)
+    olderLoadAnchor.current = {
+      historyStartSeq,
+      scrollHeight: pane.scrollHeight,
+      scrollTop: pane.scrollTop,
+    }
+    void onLoadOlder().then((advanced) => {
+      if (!advanced) olderLoadAnchor.current = null
+    }).finally(() => {
+      loadingOlder.current = false
+      setOlderLoading(false)
+    })
+  }, [hasOlderRecords, historyStartSeq, onLoadOlder])
   useLayoutEffect(() => {
     const pane = tablePaneRef.current
     if (pane === null) return
-    if (!tableScrollInitialized.current) {
-      tableScrollInitialized.current = true
-      followsTableTail.current =
-        pane.scrollHeight - pane.clientHeight - pane.scrollTop
-          <= BOTTOM_FOLLOW_THRESHOLD_PX
+    const anchor = olderLoadAnchor.current
+    if (anchor !== null && anchor.historyStartSeq !== historyStartSeq) {
+      pane.scrollTop = anchor.scrollTop + pane.scrollHeight - anchor.scrollHeight
+      olderLoadAnchor.current = null
+      followsTableTail.current = false
       return
     }
-    if (followsTableTail.current) pane.scrollTop = pane.scrollHeight
-  }, [turns])
+    if (!tableScrollInitialized.current) {
+      if (historyLoading) return
+      tableScrollInitialized.current = true
+      followsTableTail.current = true
+      if (virtualizationEnabled) rowVirtualizer.scrollToEnd({ behavior: 'auto' })
+      else pane.scrollTop = pane.scrollHeight
+      setTableScrollReady(true)
+      return
+    }
+    if (!followsTableTail.current) return
+    if (virtualizationEnabled) rowVirtualizer.scrollToEnd({ behavior: 'auto' })
+    else pane.scrollTop = pane.scrollHeight
+  }, [historyLoading, historyStartSeq, rowVirtualizer, turns, virtualizationEnabled])
+
+  const loadingLabel = olderLoading
+    ? 'Loading earlier history…'
+    : 'Loading trajectory…'
+  const showLoading = historyLoading || olderLoading || !tableScrollReady
 
   return (
     <div ref={rootRef} className={css.split} style={splitStyle}>
@@ -1784,23 +1962,48 @@ export function TrajectoryTable({
           followsTableTail.current =
             pane.scrollHeight - pane.clientHeight - pane.scrollTop
               <= BOTTOM_FOLLOW_THRESHOLD_PX
+          requestOlder(pane)
         }}
         onClick={(event) => {
           if (event.target === event.currentTarget) clearAllSelections()
         }}
       >
-        <table className={css.table}>
+        {showLoading && (
+          <div className={css.historyLoading} role="status" aria-live="polite">
+            <span className={css.historyLoadingBar}>
+              <span className={css.historyLoadingSpinner} aria-hidden="true" />
+              {loadingLabel}
+            </span>
+          </div>
+        )}
+        <table
+          className={css.table}
+          data-scroll-ready={tableScrollReady || undefined}
+        >
           <colgroup>
             <col className={css.eventColumn} />
             <col className={css.contentColumn} />
           </colgroup>
           <tbody>
-            {records.map((record) => {
+            {virtualTop > 0 && (
+              <tr className={css.virtualSpacer} data-virtual-spacer="top" aria-hidden="true">
+                <td
+                  colSpan={2}
+                  style={{
+                    '--trajectory-virtual-spacer-height': `${virtualTop}px`,
+                  } as VirtualSpacerStyle}
+                />
+              </tr>
+            )}
+            {renderedRecords.map(({ record, position }) => {
               const displayText = recordDisplayText(record.cell)
+              const toolCallOnly = isToolCallOnly(record.cell)
               const toolCallText = toolCallTextParts(record.cell.kind, displayText)
-              const listDisplayText = toolCallText === undefined
-                ? displayText
-                : [toolCallText.name, toolCallText.args].filter(Boolean).join(' ')
+              const listDisplayText = toolCallOnly
+                ? '(tool call only)'
+                : toolCallText === undefined
+                  ? displayText
+                  : [toolCallText.name, toolCallText.args].filter(Boolean).join(' ')
               const isCollapsedSummary = record.collapsedSummary !== undefined
               const isRequestOnly = record.cell.requestOnly === true
               const isInitialSystem = record.cell.kind === 'system'
@@ -1840,6 +2043,7 @@ export function TrajectoryTable({
                       : `${request === undefined ? '' : `Request ${request}, `}${KIND_LABEL[record.cell.kind]}, ${listDisplayText || 'no content'}`}
                   aria-selected={!isCollapsedSummary && !isRequestOnly && selectedIndex === record.cell.index}
                   data-kind={record.cell.kind}
+                  data-virtual-position={virtualizationEnabled ? position : undefined}
                   data-record-index={!isCollapsedSummary && !isRequestOnly
                     ? record.cell.index
                     : undefined}
@@ -2013,8 +2217,8 @@ export function TrajectoryTable({
                               : `${listDisplayText} → ${record.cell.result}`}
                           >
                             <span className={record.cell.result === undefined ? undefined : css.resultRequest}>
-                              {isToolCallOnly(record.cell)
-                                ? null
+                              {toolCallOnly
+                                ? <span className={css.toolCallOnly}>(tool call only)</span>
                                 : toolCallText === undefined
                                   ? listDisplayText || '—'
                                   : (
@@ -2047,6 +2251,16 @@ export function TrajectoryTable({
                 </tr>
               )
             })}
+            {virtualBottom > 0 && (
+              <tr className={css.virtualSpacer} data-virtual-spacer="bottom" aria-hidden="true">
+                <td
+                  colSpan={2}
+                  style={{
+                    '--trajectory-virtual-spacer-height': `${virtualBottom}px`,
+                  } as VirtualSpacerStyle}
+                />
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

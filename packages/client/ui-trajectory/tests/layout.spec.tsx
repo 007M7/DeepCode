@@ -11,7 +11,9 @@ import type {
 import { TrajectoryGroupHeader } from '../src/client/TrajectoryGroupHeader.tsx'
 import { TrajectoryTurn } from '../src/client/TrajectoryTurn.tsx'
 import { TrajectoryTurnHeader } from '../src/client/TrajectoryTurnHeader.tsx'
-import { deriveTrajectoryLayout } from '../src/client/layout.ts'
+import {
+  appendTrajectoryPartialLayout, deriveTrajectoryLayout,
+} from '../src/client/layout.ts'
 
 afterEach(cleanup)
 
@@ -100,6 +102,42 @@ describe('deriveTrajectoryLayout', () => {
     expect(turns[0]?.groups[0]?.cells[0]).toMatchObject({
       kind: 'tool', text: 'bash · {"command":"pwd"}', timeSeconds: null,
     })
+  })
+
+  it('appends a streaming partial without rebuilding unaffected finalized turns', () => {
+    const nodes = [{
+      kind: 'assistant', seq: 2, time: 2_000, turn: 1, step: 1,
+      blocks: [{ kind: 'text', text: 'finalized' }],
+    }] as unknown as ConversationSnapshot['nodes']
+    const partial = {
+      turn: 2,
+      step: 1,
+      blocks: [{ kind: 'reasoning' as const, text: 'streaming' }],
+    }
+    const request = {
+      purpose: 'assistant', startSeq: 3, turn: 2, step: 1,
+      startedAt: 3_000, completedAt: null, status: 'running',
+    } as unknown as RequestView
+    const base = deriveTrajectoryLayout({
+      codeDispatches: new Map(),
+      nodes,
+      partial: { ...partial, blocks: [] },
+      requests: [request],
+      runningCalls: [],
+    })
+    expect(base).toHaveLength(1)
+
+    const streamed = appendTrajectoryPartialLayout(base, partial, 1)
+
+    expect(streamed[0]).toBe(base[0])
+    expect(streamed).toHaveLength(2)
+    expect(streamed[1]?.groups[0]?.cells).toMatchObject([{
+      index: 2,
+      kind: 'message',
+      text: 'streaming',
+      timeSeconds: null,
+    }])
+    expect(streamed[1]?.groups[0]?.cells[0]?.requestOnly).toBeUndefined()
   })
 
   it('omits duration when node times are missing instead of rendering NaN', () => {

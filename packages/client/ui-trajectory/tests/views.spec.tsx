@@ -89,11 +89,15 @@ function historySnapshot(
 
 function standaloneHistory(
   snapshot: SessionHistorySnapshot,
-): Pick<ComponentProps<typeof TrajectoryView>, 'useHistory' | 'loadAllHistory'> {
+): Pick<
+  ComponentProps<typeof TrajectoryView>,
+  'useHistory' | 'loadHistoryTail' | 'loadOlderHistory'
+> {
   const store = createSnapshotStore(snapshot)
   return {
     useHistory: bindSnapshotSelector(store),
-    loadAllHistory: () => Promise.resolve(),
+    loadHistoryTail: () => Promise.resolve(),
+    loadOlderHistory: () => Promise.resolve(false),
   }
 }
 
@@ -145,13 +149,15 @@ function standaloneProps(nodes: ConversationSnapshot['nodes']): ConvViewProps {
 async function bench(snapshot = historySnapshot(NODES)) {
   const ctx = new Context()
   const slots = new SlotsService(ctx)
-  const loadAllHistory = vi.fn((_signal: AbortSignal) => Promise.resolve())
+  const loadHistoryTail = vi.fn((_signal: AbortSignal) => Promise.resolve())
+  const loadOlderHistory = vi.fn((_signal: AbortSignal) => Promise.resolve(false))
   const historyStore = createSnapshotStore(snapshot)
   const history: SessionHistoryFace = {
     sessionId: SID,
     getSnapshot: () => historyStore.getSnapshot(),
     subscribe: listener => historyStore.subscribe(listener),
-    loadAll: loadAllHistory,
+    loadTail: loadHistoryTail,
+    loadOlder: loadOlderHistory,
   }
   // The conversation entry's role: declare the ring, then seed the chat entry.
   slots.register({
@@ -167,7 +173,7 @@ async function bench(snapshot = historySnapshot(NODES)) {
   ctx.provide('sessionHistory', { source: () => history })
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
-  return { ctx, slots, fiber, loadAllHistory }
+  return { ctx, slots, fiber, loadHistoryTail, loadOlderHistory }
 }
 
 /** Tab projection twin of apply's viewTabs (the render-side consumption path). */
@@ -201,7 +207,8 @@ function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES
       ? (() => {
         const trajectory = injected as TrajectoryViewInjected
         return {
-          loadAllHistory: trajectory.loadAllHistory,
+          loadHistoryTail: trajectory.loadHistoryTail,
+          loadOlderHistory: trajectory.loadOlderHistory,
           setActualDuration: trajectory.setActualDuration,
           useHistory: bindSnapshotSelector(trajectory.hooks.history),
           useDuration: bindSnapshotSelector(trajectory.hooks.duration),
@@ -295,9 +302,9 @@ describe('tab switching in ConversationRoot', () => {
     expect(screen.getByRole('row', { name: /USER/ })).toBeTruthy()
     expect(screen.queryByTestId('chat-body')).toBeNull()
     await vi.waitFor(() => {
-      expect(b.loadAllHistory).toHaveBeenCalledOnce()
+      expect(b.loadHistoryTail).toHaveBeenCalledOnce()
     })
-    const signal = b.loadAllHistory.mock.calls[0]?.[0]
+    const signal = b.loadHistoryTail.mock.calls[0]?.[0]
     expect(signal?.aborted).toBe(false)
     fireEvent.click(screen.getByRole('tab', { name: 'Chat' }))
     expect(signal?.aborted).toBe(true)
@@ -580,6 +587,45 @@ describe('timeline projection', () => {
     }
   })
 
+  it('marks an unloaded history prefix without inventing timeline duration', () => {
+    const onLoadEarlier = vi.fn(() => new Promise<boolean>(() => {}))
+    const view = render(
+      <TrajectoryTimeline
+        turns={turns}
+        mode="sequence"
+        range={null}
+        hasEarlierRecords
+        onLoadEarlier={onLoadEarlier}
+        onRangeChange={vi.fn()}
+      />,
+    )
+
+    const boundary = screen.getByLabelText('Load earlier history')
+    expect(boundary.getAttribute('data-earlier-history')).not.toBeNull()
+    const plot = screen.getByLabelText('Timeline overview; drag horizontally to focus events')
+    fireEvent.pointerMove(plot, { clientX: 50, pointerId: 1 })
+    expect(view.container.querySelector('[data-timeline-hover-line]')).toBeTruthy()
+    fireEvent.pointerEnter(boundary)
+    expect(view.container.querySelector('[data-timeline-hover-line]')).toBeNull()
+    fireEvent.focus(boundary)
+    expect(screen.getByRole('tooltip').textContent)
+      .toContain('Click to load earlier history')
+    fireEvent.click(boundary)
+    expect(onLoadEarlier).toHaveBeenCalledOnce()
+    expect(screen.getByLabelText('Loading earlier history')).toBeTruthy()
+
+    view.rerender(
+      <TrajectoryTimeline
+        turns={turns}
+        mode="sequence"
+        range={null}
+        onRangeChange={vi.fn()}
+      />,
+    )
+    expect(screen.queryByLabelText('Load earlier history')).toBeNull()
+    expect(screen.queryByLabelText('Loading earlier history')).toBeNull()
+  })
+
   it('cancels native scrolling across the timeline while zooming', () => {
     render(
       <TrajectoryTimeline
@@ -614,7 +660,35 @@ describe('timeline projection', () => {
     const span = view.container.querySelector<HTMLElement>('[data-timeline-span]')
     expect(span?.style.getPropertyValue('--trajectory-span-width')).toBe('10%')
     expect(span?.style.getPropertyValue('--trajectory-span-gap'))
-      .toBe('clamp(0.25px, 0.8%, 1px)')
+      .toBe('min(0.8%, 1px)')
+  })
+
+  it('keeps dense sequence spans proportional before applying the pixel floor', () => {
+    const denseTurns = [{
+      turn: 1,
+      groups: [{
+        title: 'Step 1',
+        cells: Array.from({ length: 400 }, (_, index) => ({
+          index,
+          kind: 'message' as const,
+          text: `message ${index}`,
+          timeSeconds: 1,
+        })),
+      }],
+    }]
+    const view = render(
+      <TrajectoryTimeline
+        turns={denseTurns}
+        mode="sequence"
+        range={null}
+        onRangeChange={vi.fn()}
+      />,
+    )
+
+    const span = view.container.querySelector<HTMLElement>('[data-timeline-span]')
+    expect(span?.style.getPropertyValue('--trajectory-span-width')).toBe('0.25%')
+    expect(span?.style.getPropertyValue('--trajectory-span-gap'))
+      .toBe('min(0.02%, 1px)')
   })
 
   it('clears the selection without changing zoom on a zoomed right click', () => {
@@ -624,15 +698,18 @@ describe('timeline projection', () => {
         turns={longTurns}
         mode="sequence"
         range={{ start: 2, end: 4 }}
+        hasEarlierRecords
         onRangeChange={onRangeChange}
       />,
     )
     const plot = screen.getByLabelText('Timeline overview; drag horizontally to focus events')
+    expect(screen.getByLabelText('Load earlier history')).toBeTruthy()
     vi.spyOn(plot, 'getBoundingClientRect').mockReturnValue({
       x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 72, width: 100, height: 72,
       toJSON: () => ({}),
     })
     fireEvent.wheel(plot, { clientX: 50, deltaY: -1_000 })
+    expect(screen.queryByLabelText('Load earlier history')).toBeNull()
     const domain = view.container.querySelector<HTMLElement>('[data-timeline-domain]')
     const domainWidth = domain?.style.getPropertyValue('--trajectory-domain-width')
     expect(domainWidth).not.toBe('100%')
@@ -1065,7 +1142,8 @@ describe('TrajectoryView branches', () => {
         {...standaloneProps([])}
         {...standaloneDuration()}
         useHistory={bindSnapshotSelector(store)}
-        loadAllHistory={vi.fn(() => Promise.resolve())}
+        loadHistoryTail={vi.fn(() => Promise.resolve())}
+        loadOlderHistory={vi.fn(() => Promise.resolve(false))}
       />,
     )
 
@@ -1108,7 +1186,8 @@ describe('TrajectoryView branches', () => {
         {...standaloneProps([])}
         {...standaloneDuration()}
         useHistory={bindSnapshotSelector(store)}
-        loadAllHistory={vi.fn(() => Promise.resolve())}
+        loadHistoryTail={vi.fn(() => Promise.resolve())}
+        loadOlderHistory={vi.fn(() => Promise.resolve(false))}
       />,
     )
 

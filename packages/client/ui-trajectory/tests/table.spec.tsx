@@ -2,11 +2,15 @@
 /** Trajectory ledger selection, details, status, and fold behavior. */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { TrajectoryTable } from '../src/client/TrajectoryTable.tsx'
 import type { TrajectoryTurnModel } from '../src/client/layout.ts'
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+  Reflect.deleteProperty(HTMLElement.prototype, 'scrollTo')
+})
 
 const TURNS: readonly TrajectoryTurnModel[] = [{
   turn: 1,
@@ -61,6 +65,28 @@ const FOLD_PROPS = {
 }
 
 describe('TrajectoryTable', () => {
+  it('shows a muted placeholder for an assistant response containing only tool calls', () => {
+    const turns: readonly TrajectoryTurnModel[] = [{
+      turn: 1,
+      groups: [{
+        title: 'Step 1',
+        cells: [{
+          index: 1,
+          kind: 'message',
+          text: 'Tool call only',
+          sourceBlocks: [{
+            type: 'tool-call', content: '{}', callId: 'call-1', toolName: 'read',
+          }],
+          timeSeconds: 1,
+        }],
+      }],
+    }]
+
+    render(<TrajectoryTable turns={turns} {...FOLD_PROPS} />)
+
+    expect(screen.getByText('(tool call only)')).toBeTruthy()
+  })
+
   it('shows assistant timing facts after keyboard selection', () => {
     render(<TrajectoryTable turns={TURNS} {...FOLD_PROPS} />)
     fireEvent.keyDown(screen.getByRole('row', { name: /ASSISTANT/ }), { key: 'Enter' })
@@ -208,6 +234,109 @@ describe('TrajectoryTable', () => {
       />,
     )
     expect(tablePane.scrollTop).toBe(20)
+  })
+
+  it('loads one older page at the top and preserves the visible anchor', async () => {
+    let resolveOlder: ((advanced: boolean) => void) | undefined
+    const older = new Promise<boolean>((resolve) => { resolveOlder = resolve })
+    const onLoadOlder = vi.fn(() => older)
+    const view = render(
+      <TrajectoryTable
+        turns={TURNS}
+        {...FOLD_PROPS}
+        historyStartSeq={1}
+        hasOlderRecords
+        onLoadOlder={onLoadOlder}
+      />,
+    )
+    const tablePane = screen.getByRole('table').parentElement as HTMLElement
+    let scrollHeight = 200
+    Object.defineProperties(tablePane, {
+      clientHeight: { configurable: true, get: () => 100 },
+      scrollHeight: { configurable: true, get: () => scrollHeight },
+    })
+    tablePane.scrollTop = 0
+    fireEvent.scroll(tablePane)
+    fireEvent.scroll(tablePane)
+
+    await waitFor(() => { expect(onLoadOlder).toHaveBeenCalledOnce() })
+    expect(screen.getByRole('status').textContent).toContain('Loading earlier history…')
+    resolveOlder?.(true)
+    await waitFor(() => { expect(screen.queryByRole('status')).toBeNull() })
+    scrollHeight = 260
+    view.rerender(
+      <TrajectoryTable
+        turns={[{
+          turn: 0,
+          groups: [{
+            title: 'Step 1',
+            cells: [{ index: 0, kind: 'user', text: 'older prompt', timeSeconds: 0 }],
+          }],
+        }, ...TURNS]}
+        {...FOLD_PROPS}
+        historyStartSeq={0}
+        hasOlderRecords
+        onLoadOlder={onLoadOlder}
+      />,
+    )
+
+    expect(tablePane.scrollTop).toBe(60)
+  })
+
+  it('covers the ledger while the initial tail is loading', () => {
+    const view = render(
+      <TrajectoryTable turns={TURNS} {...FOLD_PROPS} historyLoading />,
+    )
+
+    expect(screen.getByRole('status').textContent).toContain('Loading trajectory…')
+    expect(screen.getByRole('table').getAttribute('data-scroll-ready')).toBeNull()
+
+    view.rerender(<TrajectoryTable turns={TURNS} {...FOLD_PROPS} />)
+
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(screen.getByRole('table').getAttribute('data-scroll-ready')).toBe('true')
+  })
+
+  it('mounts only the visible window for a long ledger', async () => {
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(600)
+    const scrollTo = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
+      configurable: true,
+      value: scrollTo,
+    })
+    const cells = Array.from({ length: 500 }, (_, index) => ({
+      index: index + 1,
+      kind: 'context' as const,
+      text: `Context ${index + 1}`,
+      timeSeconds: 0,
+    }))
+    const turns: readonly TrajectoryTurnModel[] = [{
+      turn: 1,
+      groups: [{ title: 'Context', cells }],
+    }]
+    const view = render(<TrajectoryTable turns={turns} {...FOLD_PROPS} />)
+
+    await waitFor(() => {
+      expect(view.container.querySelectorAll('tr[data-virtual-position]').length)
+        .toBeGreaterThan(0)
+    })
+    expect(view.container.querySelectorAll('tr[data-virtual-position]').length)
+      .toBeLessThan(cells.length)
+    expect(scrollTo).toHaveBeenCalled()
+    expect(view.container.querySelector('tr[data-virtual-spacer="bottom"]')).toBeTruthy()
+    expect(screen.getByText('Context 1')).toBeTruthy()
+    expect(screen.queryByText('Context 500')).toBeNull()
+
+    const tablePane = screen.getByRole('table').parentElement as HTMLElement
+    tablePane.scrollTop = 9_000
+    fireEvent.scroll(tablePane)
+    await waitFor(() => {
+      expect(Number(view.container.querySelector(
+        'tr[data-virtual-position]',
+      )?.getAttribute('data-virtual-position'))).toBeGreaterThan(0)
+    })
+    expect(view.container.querySelector('tr[data-virtual-spacer="top"]')).toBeTruthy()
+    expect(screen.queryByText('Context 1')).toBeNull()
   })
 
   it('keeps running and failure semantics distinct from record roles', () => {
