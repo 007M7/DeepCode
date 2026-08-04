@@ -248,6 +248,8 @@ describe('fail closed', () => {
       denialSignatures: UNIX_SIGNATURES,
       runnerFailureRules: RUNNER_FAILURE,
     }))
+    // This pins an alternative SubprocessService's synchronous seam, not the
+    // shipped local behavior.
     vi.spyOn(ctx.subprocess, 'spawn').mockImplementation(() => {
       throw Object.assign(new Error('spawn EACCES'), { code: 'EACCES', syscall: 'spawn', path: runner })
     })

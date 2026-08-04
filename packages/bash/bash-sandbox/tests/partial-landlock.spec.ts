@@ -108,29 +108,38 @@ describe('partial Landlock runner-failure classification', () => {
     expect(accounting.size).toBe(0)
   })
 
-  it('classifies a bare-name runner whose shebang interpreter is missing', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'dsh-bare-sandbox-runner-'))
-    tempDirs.push(dir)
-    const runner = 'bare-missing-interpreter-runner'
-    await writeFile(join(dir, runner), '#!/dsh-definitely-missing-sandbox-interpreter\nexit 0\n', { mode: 0o755 })
-    const bash = await setupConfiguredRunner(runner)
-    const request = { command: 'true', env: { PATH: dir } }
+  it.each(['bare-name', 'relative'] as const)(
+    'classifies a %s runner whose shebang interpreter is missing',
+    async (form) => {
+      const dir = await mkdtemp(join(tmpdir(), 'dsh-argv-form-sandbox-runner-'))
+      tempDirs.push(dir)
+      const filename = 'missing-interpreter-runner'
+      const runner = form === 'bare-name' ? filename : `./${filename}`
+      await writeFile(join(dir, filename), '#!/dsh-definitely-missing-sandbox-interpreter\nexit 0\n', { mode: 0o755 })
+      const bash = await setupConfiguredRunner(runner)
+      const request = form === 'bare-name'
+        ? { command: 'true', env: { PATH: dir } }
+        : { command: 'true', workdir: dir }
 
-    const error = await bash.run(bash.resolve(request)).catch((value: unknown) => value)
-    expect(error).toMatchObject({ name: 'SandboxUnavailableError', code: SANDBOX_UNAVAILABLE })
-    expect(error).toBeInstanceOf(Error)
-    expect((error as Error).message).toContain(`spawn ${runner} ENOENT`)
+      const error = await bash.run(bash.resolve(request)).catch((value: unknown) => value)
+      expect(error).toMatchObject({ name: 'SandboxUnavailableError', code: SANDBOX_UNAVAILABLE })
+      expect(error).toBeInstanceOf(Error)
+      // Empirically, Darwin and Linux Node 24 preserve the passed bare/relative
+      // argv[0] in this spawn error rather than resolving it to an absolute path.
+      expect((error as Error).message).toContain(`spawn ${runner} ENOENT`)
 
-    const task = bash.start(bash.resolve(request))
-    await task.done
-    expect(task.readOutput().delta).toContain(`spawn failed: Error: spawn ${runner} ENOENT`)
-    expect(task.sandbox).toEqual({
-      mode: 'read-only',
-      denied: false,
-      enforcement: 'full',
-      runnerFailed: true,
-    })
-  })
+      const task = bash.start(bash.resolve(request))
+      await task.done
+      expect(task.status).toBe('killed')
+      expect(task.readOutput().delta).toContain(`spawn failed: Error: spawn ${runner} ENOENT`)
+      expect(task.sandbox).toEqual({
+        mode: 'read-only',
+        denied: false,
+        enforcement: 'full',
+        runnerFailed: true,
+      })
+    },
+  )
 
   it('keeps a real malformed executable ordinary across no-shebang spawn behavior', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dsh-malformed-sandbox-runner-'))
