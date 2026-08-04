@@ -273,6 +273,7 @@ function migrateLegacyTurnStartEvent(event: SessionEvent, id: SessionId): Sessio
 function migrateLegacyTurnEndEvent(event: SessionEvent, id: SessionId): SessionEvent {
   if (event.type !== 'turn/end') return event
   const data = asRecord(event.data)
+  /* v8 ignore next -- a non-record current envelope cannot match a legacy shape. */
   if (data === undefined) return event
   const malformed = (): never => {
     throw new Error(`session "${id}" contains malformed pre-react-loop turn/end at seq ${event.seq}`)
@@ -328,7 +329,6 @@ function migrateLegacyTurnEndEvent(event: SessionEvent, id: SessionId): SessionE
       break
     }
     default:
-      /* v8 ignore next -- turn-end reasons are merge-extensible beyond the current vocabulary. */
       return event
   }
 

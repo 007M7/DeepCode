@@ -559,6 +559,20 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
             content: [{ type: 'text', text: 'flat steering' }],
           },
         })
+
+        const extendedId = SessionId('current-extended-turn-end')
+        await ctx.sessionPersistence.create(meta(extendedId, WORK))
+        await ctx.sessionPersistence.append(extendedId, [
+          { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
+          {
+            type: 'turn/end', seq: 1, time: 2,
+            data: { turn: 1, reason: { kind: 'extension-reason' } },
+          } as unknown as SessionEvent,
+        ])
+        expect((await ctx.sessionPersistence.inspect(extendedId)).events[1]).toMatchObject({
+          type: 'turn/end',
+          data: { reason: { kind: 'extension-reason' } },
+        })
       } finally {
         await fiber.dispose()
         await fix.cleanup()
