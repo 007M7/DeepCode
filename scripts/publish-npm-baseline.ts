@@ -34,6 +34,8 @@ const DEPENDENCY_SECTIONS = [
   'peerDependencies',
 ] as const
 const RELEASE_MANIFEST_NAME = 'manifest.json'
+const RELEASE_ENTRY_PACKAGE = '@deepseek-ai/dsh'
+const LATEST_DIST_TAG = 'latest'
 const POSIX_WEB_PROBE = String.raw`
 import errno, os, pty, select, signal, sys, time
 node, bin_path, cwd, timeout_seconds = sys.argv[1:]
@@ -645,14 +647,17 @@ class RegistryPublication {
           `publish-npm-baseline: already published ${pkg.name}@${this.bundle.manifest.version}`,
         )
       }
-      this.ensureDistTag(pkg.name)
+      this.ensureDistTag(pkg.name, this.bundle.manifest.distTag)
     }
+    this.ensureDistTag(RELEASE_ENTRY_PACKAGE, LATEST_DIST_TAG)
     this.verifyRemote()
+    this.verifyReleaseEntryDistTag()
   }
 
   verify(): void {
     this.pingRegistry()
     this.verifyRemote()
+    this.verifyReleaseEntryDistTag()
   }
 
   private verifyRemote(): void {
@@ -664,7 +669,7 @@ class RegistryPublication {
       if (integrity !== pkg.integrity) {
         throw new Error(`integrity mismatch: ${pkg.name}@${this.bundle.manifest.version}`)
       }
-      const tagVersion = this.remoteDistTag(pkg.name)
+      const tagVersion = this.remoteDistTag(pkg.name, this.bundle.manifest.distTag)
       if (tagVersion !== this.bundle.manifest.version) {
         throw new Error(
           `${pkg.name}@${this.bundle.manifest.distTag} points to ${tagVersion ?? '<missing>'}; `
@@ -676,6 +681,20 @@ class RegistryPublication {
     console.log(
       `publish-npm-baseline: verified ${this.bundle.manifest.packages.length} packages and `
       + `dist-tag ${this.bundle.manifest.distTag}`,
+    )
+  }
+
+  private verifyReleaseEntryDistTag(): void {
+    const tagVersion = this.remoteDistTag(RELEASE_ENTRY_PACKAGE, LATEST_DIST_TAG)
+    if (tagVersion !== this.bundle.manifest.version) {
+      throw new Error(
+        `${RELEASE_ENTRY_PACKAGE}@${LATEST_DIST_TAG} points to ${tagVersion ?? '<missing>'}; `
+        + `expected ${this.bundle.manifest.version}`,
+      )
+    }
+    console.log(
+      `publish-npm-baseline: verified ${RELEASE_ENTRY_PACKAGE}@${LATEST_DIST_TAG} at `
+      + this.bundle.manifest.version,
     )
   }
 
@@ -723,8 +742,8 @@ class RegistryPublication {
     return value
   }
 
-  private remoteDistTag(name: string): string | undefined {
-    const { registry, distTag } = this.bundle.manifest
+  private remoteDistTag(name: string, distTag: string): string | undefined {
+    const { registry } = this.bundle.manifest
     const raw = this.runner.capture(
       'npm',
       ['dist-tag', 'ls', name, `--registry=${registry}`],
@@ -734,9 +753,9 @@ class RegistryPublication {
     return parseDistTagListing(raw, name).get(distTag)
   }
 
-  private ensureDistTag(name: string): void {
-    if (this.remoteDistTag(name) === this.bundle.manifest.version) return
-    const { registry, version, distTag } = this.bundle.manifest
+  private ensureDistTag(name: string, distTag: string): void {
+    if (this.remoteDistTag(name, distTag) === this.bundle.manifest.version) return
+    const { registry, version } = this.bundle.manifest
     this.runner.run(
       'npm',
       ['dist-tag', 'add', `${name}@${version}`, distTag, `--registry=${registry}`],
