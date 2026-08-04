@@ -184,7 +184,6 @@ export function createChatScrollFixture(options: ChatScrollFixtureOptions): Chat
   for (let turn = 1; turn <= turns; turn += 1) {
     session.append('turn/start', {
       turn,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
     const user = session.append('user/message', createUserMessage({
       content: text(
