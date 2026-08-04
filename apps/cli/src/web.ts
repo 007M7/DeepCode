@@ -11,7 +11,7 @@ import type { Context } from 'cordis'
 import { addHarnessSourceSection, resolveConfigPath } from '@deepseek-ai/dsh-app-boot'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-system-prompt'
-import type {} from '@deepseek-ai/dsh-tool-bash'
+import type {} from '@deepseek-ai/dsh-bash-env'
 import { AppCLIEntry } from './app-cli-entry.ts'
 import { createProcessShutdown } from './process-shutdown.ts'
 
