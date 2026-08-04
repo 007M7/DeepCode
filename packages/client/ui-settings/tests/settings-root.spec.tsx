@@ -24,6 +24,7 @@ function mount({
   rows = [
     { id: 'general', order: 0, label: 'General' },
     { id: 'models', order: 10, label: 'Models' },
+    { id: 'agent-presets', order: 20, label: 'Agent presets' },
   ],
   steps = [
     { id: 'welcome', order: -100 },

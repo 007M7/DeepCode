@@ -26,7 +26,8 @@ import {
 // Type-only: brings the `ctx.tools` Context merge into this program (viewFor reads presenters).
 import {
   InvalidCompositionError, InvalidPresetIdError, PresetMountError,
-  PresetNotWritableError, resolveSessionPreset, UnknownPresetError,
+  PresetNotWritableError, resolveSessionPreset,
+  SETTINGS_NAMESPACE as AGENT_PRESET_SETTINGS_NAMESPACE, UnknownPresetError,
 } from '@deepseek-ai/dsh-agent-presets'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {
@@ -89,8 +90,15 @@ const COLD_SUMMARY_BATCH_SIZE = 16
 /** Conversation message event types (the pagination counting unit). */
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message'])
 
-/** Product settings intentionally exposed beside model-provider namespaces. */
-const PRODUCT_SETTINGS_NAMESPACES = new Set(['ui-onboarding'])
+/**
+ * Product settings intentionally exposed beside model-provider namespaces.
+ *
+ * The agent-preset namespace carries one field — which preset a session with
+ * no explicit choice is composed from — and both browser surfaces that offer
+ * that choice write it through `settings.update`, so it has to cross the
+ * configuration boundary or the pickers silently fail to persist.
+ */
+const PRODUCT_SETTINGS_NAMESPACES = new Set(['ui-onboarding', AGENT_PRESET_SETTINGS_NAMESPACE])
 
 /** Read live abort state across awaits without treating it as synchronously immutable. */
 function isAborted(signal: AbortSignal): boolean {

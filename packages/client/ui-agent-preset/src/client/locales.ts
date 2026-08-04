@@ -59,7 +59,7 @@ export const zh: Record<AgentPresetSettingsKey, string> = {
   userTrust: '本地',
   seatHint: '本会话的 agent preset —— 发送第一条消息前可切换',
   lockedHint: '会话开始后，其 agent preset 即固定',
-  nav: 'Agent preset',
+  nav: '智能体',
   sectionIntro: 'preset 即一个会话的 agent 所运行的插件组装 —— 它的工具、提示词与能力。内置 preset 只读；复制一份即可改成自己的。',
   builtIn: '内置',
   defaultBadge: '默认',
