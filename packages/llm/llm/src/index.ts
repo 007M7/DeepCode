@@ -492,15 +492,6 @@ export class LlmService extends Service {
   }
 
   /**
-   * List the settings namespaces that can interrogate a provider endpoint, so
-   * a surface can offer the action only where it will work.
-   * @returns the namespaces in registration order.
-   */
-  listModelDiscoveryNamespaces(): string[] {
-    return [...this.discoveries.keys()]
-  }
-
-  /**
    * Interrogate one provider endpoint for the models it advertises. The
    * request describes a draft, not a stored route, so nothing here reads or
    * writes settings or credentials — the caller owns both, and the reply is

@@ -22,12 +22,6 @@ export interface ConfigurableProviderView {
   settingsPath: string[]
   /** Whether the route is currently registered (its models are requestable). */
   active: boolean
-  /**
-   * Whether `llm.discoverModels` can answer for this entry's namespace. A
-   * surface offers the action only where it works instead of naming an adapter
-   * family it would have to hardcode.
-   */
-  supportsDiscovery: boolean
 }
 
 /** Llm-domain unary methods (the map keys llm.* of RpcMethodMap). */

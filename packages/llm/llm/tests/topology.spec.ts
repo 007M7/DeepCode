@@ -212,14 +212,15 @@ describe('model discovery registry', () => {
     const discover = vi.fn(() => Promise.resolve([{ id: 'from-endpoint' }]))
 
     const dispose = ctx.llm.registerModelDiscovery('llm-example', discover)
-    expect(ctx.llm.listModelDiscoveryNamespaces()).toEqual(['llm-example'])
-
     await expect(ctx.llm.discoverModels('llm-example', { baseURL: 'https://gateway.example/v1' }))
       .resolves.toEqual([{ id: 'from-endpoint' }])
     expect(discover).toHaveBeenCalledWith({ baseURL: 'https://gateway.example/v1' })
 
+    // Disposal is observed through the offer itself, which is the only thing
+    // the registration ever produced.
     dispose()
-    expect(ctx.llm.listModelDiscoveryNamespaces()).toEqual([])
+    await expect(ctx.llm.discoverModels('llm-example', { baseURL: 'https://gateway.example/v1' }))
+      .rejects.toThrow(/no model discovery is registered/)
   })
 
   it('rejects an unnamed namespace and a second registration of the same one', async () => {
@@ -229,7 +230,9 @@ describe('model discovery registry', () => {
     expect(() => ctx.llm.registerModelDiscovery('', discover)).toThrow(/non-empty settings namespace/)
     ctx.llm.registerModelDiscovery('llm-example', discover)
     expect(() => ctx.llm.registerModelDiscovery('llm-example', discover)).toThrow(/already registered/)
-    expect(ctx.llm.listModelDiscoveryNamespaces()).toEqual(['llm-example'])
+    // The refused second registration left the first one serving.
+    await expect(ctx.llm.discoverModels('llm-example', { baseURL: 'https://gateway.example/v1' }))
+      .resolves.toEqual([])
   })
 
   it('normalizes what an interrogation returns without inventing capacities', async () => {

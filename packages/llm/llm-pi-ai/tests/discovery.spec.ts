@@ -245,7 +245,7 @@ describe('draft-provider model discovery', () => {
   it('is offered for the namespace, and refuses one it does not serve', async () => {
     const ctx = await harness()
 
-    expect(ctx.llm.listModelDiscoveryNamespaces()).toEqual(['llm-pi-ai'])
+    await expect(ctx.llm.discoverModels('llm-pi-ai', { provider: 'openai' })).resolves.not.toHaveLength(0)
     await expect(ctx.llm.discoverModels('llm-deepseek', { baseURL: 'https://api.deepseek.com' }))
       .rejects.toMatchObject({ code: 'NO_DISCOVERY' })
     await expect(ctx.llm.discoverModels('llm-pi-ai', { baseURL: '' }))
@@ -256,10 +256,11 @@ describe('draft-provider model discovery', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     const fiber = await ctx.plugin(LlmPiAi, {})
-    expect(ctx.llm.listModelDiscoveryNamespaces()).toEqual(['llm-pi-ai'])
+    await expect(ctx.llm.discoverModels('llm-pi-ai', { provider: 'openai' })).resolves.not.toHaveLength(0)
 
     await fiber.dispose()
 
-    expect(ctx.llm.listModelDiscoveryNamespaces()).toEqual([])
+    await expect(ctx.llm.discoverModels('llm-pi-ai', { provider: 'openai' }))
+      .rejects.toMatchObject({ code: 'NO_DISCOVERY' })
   })
 })

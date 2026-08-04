@@ -433,10 +433,6 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Offer to interrogate provider endpoints on behalf of the settings\n * namespace this plugin owns. The namespace is the key because that is what\n * a configuration surface already holds from the configurable-provider\n * directory, and because a provider being *added* has no route to name yet.\n * Disposed with the fiber.\n * @param settingsNs - the namespace whose profiles this discovery serves.\n * @param discover - interrogates one endpoint; must honor `request.signal`.\n * @returns the disposer that withdraws the offer.\n */',
       },
       {
-        signature: 'listModelDiscoveryNamespaces(): string[]',
-        jsDoc: '/**\n * List the settings namespaces that can interrogate a provider endpoint, so\n * a surface can offer the action only where it will work.\n * @returns the namespaces in registration order.\n */',
-      },
-      {
         signature: 'async discoverModels( settingsNs: string, request: LlmModelDiscoveryRequest, ): Promise<LlmDiscoveredModel[]>',
         jsDoc: '/**\n * Interrogate one provider endpoint for the models it advertises. The\n * request describes a draft, not a stored route, so nothing here reads or\n * writes settings or credentials — the caller owns both, and the reply is\n * candidate metadata a surface may offer for adoption.\n * @param settingsNs - namespace whose registered discovery serves this draft.\n * @param request - the endpoint, protocol, and one-shot credential to use.\n * @returns the advertised models, deduplicated in endpoint order.\n */',
       },

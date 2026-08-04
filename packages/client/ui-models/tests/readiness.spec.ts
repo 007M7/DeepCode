@@ -13,7 +13,7 @@ function row(overrides: Partial<ProviderRow> = {}): ProviderRow {
       displayName: 'DeepSeek',
       settingsNs: 'llm-deepseek',
       settingsPath: [],
-      active: true, supportsDiscovery: false,
+      active: true,
     },
     configured: true,
     removable: false,

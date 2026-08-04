@@ -191,6 +191,12 @@ export async function discoverModels(
       'DISCOVERY_FAILED',
     )
   }
+  // A draft that has not chosen a protocol yet is asked as OpenAI Chat
+  // Completions: it is the shape a gateway is overwhelmingly likely to speak,
+  // and the alternative — refusing until the field is filled — would withhold
+  // the action from the case it exists for. The cost is a misdirected message
+  // when the endpoint speaks something else (an Anthropic gateway answers 401,
+  // which reads as a credential problem), and hand-entry remains the way out.
   const api = request.api ?? 'openai-completions'
   if (!LISTABLE_PROTOCOLS.has(api)) {
     throw new LlmError(
