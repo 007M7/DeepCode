@@ -166,6 +166,35 @@ function preReactLoopLog(): SessionEvent[] {
       type: 'turn/end', seq: 17, time: 18,
       data: { turn: 5, reason: { kind: 'error', step: 1, message: 'old thrown value' } },
     },
+    {
+      type: 'turn/start', seq: 18, time: 19,
+      data: { turn: 6, trigger: { kind: 'message', source: { kind: 'user' } } },
+    },
+    {
+      type: 'turn/end', seq: 19, time: 20,
+      data: {
+        turn: 6,
+        reason: {
+          kind: 'error',
+          step: 0,
+          failure: {
+            message: 'old detailed provider failure',
+            code: 'RATE_LIMIT',
+            status: 429,
+            providerRetryAfterMs: 1000,
+            requestId: 'request-1',
+          },
+        },
+      },
+    },
+    {
+      type: 'turn/start', seq: 20, time: 21,
+      data: { turn: 7, trigger: { kind: 'message', source: { kind: 'user' } } },
+    },
+    {
+      type: 'turn/end', seq: 21, time: 22,
+      data: { turn: 7, reason: { kind: 'error', step: 0, message: 'old coded error', code: 'CODED' } },
+    },
   ] as unknown as SessionEvent[]
 }
 
@@ -459,7 +488,9 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         for (const snapshot of snapshots) {
           expect(snapshot.events.some(event => (event.type as string) === 'steering/message')).toBe(false)
           expect(snapshot.events.filter(event => event.type === 'turn/start').map(event => event.data))
-            .toEqual([{ turn: 1 }, { turn: 2 }, { turn: 3 }, { turn: 4 }, { turn: 5 }])
+            .toEqual([
+              { turn: 1 }, { turn: 2 }, { turn: 3 }, { turn: 4 }, { turn: 5 }, { turn: 6 }, { turn: 7 },
+            ])
           expect(snapshot.events.filter(event => event.type === 'turn/end').map(event => event.data)).toEqual([
             { turn: 1, step: 1, reason: { kind: 'completed' } },
             {
@@ -473,6 +504,25 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
               turn: 5,
               step: 1,
               reason: { kind: 'error', error: { message: 'old thrown value', code: 'UNKNOWN' } },
+            },
+            {
+              turn: 6,
+              step: 0,
+              reason: {
+                kind: 'error',
+                error: {
+                  message: 'old detailed provider failure',
+                  code: 'RATE_LIMIT',
+                  status: 429,
+                  providerRetryAfterMs: 1000,
+                  requestId: 'request-1',
+                },
+              },
+            },
+            {
+              turn: 7,
+              step: 0,
+              reason: { kind: 'error', error: { message: 'old coded error', code: 'CODED' } },
             },
           ])
 
@@ -490,7 +540,29 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
           data: { id: legacySteering.data.message.id },
         })
         expect(suffix.events.filter(event => event.type === 'turn/end').map(event => event.data.step))
-          .toEqual([1, 1, 0, 0, 1])
+          .toEqual([1, 1, 0, 0, 1, 0, 0])
+
+        const flatId = SessionId('pre-react-loop-flat-steering')
+        await ctx.sessionPersistence.create(meta(flatId, WORK))
+        await ctx.sessionPersistence.append(flatId, [{
+          type: 'steering/message',
+          seq: 0,
+          time: 1,
+          data: {
+            turn: 1,
+            content: [{ type: 'text', text: 'flat steering' }],
+            source: { kind: 'user' },
+          },
+          surfaceOp: 'append',
+        } as unknown as SessionEvent])
+        expect((await ctx.sessionPersistence.inspect(flatId)).events[0]).toMatchObject({
+          type: 'user/message',
+          data: {
+            id: `legacy-message:${flatId}:0`,
+            role: 'user',
+            content: [{ type: 'text', text: 'flat steering' }],
+          },
+        })
       } finally {
         await fiber.dispose()
         await fix.cleanup()
@@ -539,10 +611,65 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
             message: 'malformed pre-react-loop steering/message',
           },
           {
+            id: 'invalid-old-steering-data',
+            event: {
+              type: 'steering/message', seq: 0, time: 1, surfaceOp: 'append', data: null,
+            } as unknown as SessionEvent,
+            message: 'malformed pre-react-loop steering/message',
+          },
+          {
             id: 'invalid-old-turn-end',
             event: {
               type: 'turn/end', seq: 0, time: 1,
               data: { turn: 1, reason: { kind: 'completed', extra: true } },
+            } as unknown as SessionEvent,
+            message: 'malformed pre-react-loop turn/end',
+          },
+          {
+            id: 'invalid-old-turn-end-reason',
+            event: {
+              type: 'turn/end', seq: 0, time: 1,
+              data: { turn: 1, reason: null },
+            } as unknown as SessionEvent,
+            message: 'malformed pre-react-loop turn/end',
+          },
+          {
+            id: 'invalid-old-turn-end-aborted',
+            event: {
+              type: 'turn/end', seq: 0, time: 1,
+              data: { turn: 1, reason: { kind: 'aborted', extra: true } },
+            } as unknown as SessionEvent,
+            message: 'malformed pre-react-loop turn/end',
+          },
+          {
+            id: 'invalid-old-turn-end-disposed',
+            event: {
+              type: 'turn/end', seq: 0, time: 1,
+              data: { turn: 1, reason: { kind: 'disposed', extra: true } },
+            } as unknown as SessionEvent,
+            message: 'malformed pre-react-loop turn/end',
+          },
+          {
+            id: 'invalid-old-turn-end-error-step',
+            event: {
+              type: 'turn/end', seq: 0, time: 1,
+              data: { turn: 1, reason: { kind: 'error', step: -1, message: 'bad step' } },
+            } as unknown as SessionEvent,
+            message: 'malformed pre-react-loop turn/end',
+          },
+          {
+            id: 'invalid-old-turn-end-error-code',
+            event: {
+              type: 'turn/end', seq: 0, time: 1,
+              data: { turn: 1, reason: { kind: 'error', step: 0, message: 'bad code', code: 1 } },
+            } as unknown as SessionEvent,
+            message: 'malformed pre-react-loop turn/end',
+          },
+          {
+            id: 'invalid-old-turn-end-kind',
+            event: {
+              type: 'turn/end', seq: 0, time: 1,
+              data: { turn: 1, reason: { kind: 'unknown' } },
             } as unknown as SessionEvent,
             message: 'malformed pre-react-loop turn/end',
           },
@@ -579,6 +706,22 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         } as unknown as SessionEvent])
         await expect(ctx.sessionPersistence.inspect(pluginId))
           .resolves.toMatchObject({ events: [{ type: 'plugin/test', data: null }] })
+        await expect(ctx.sessionPersistence.readFrom(pluginId, 0))
+          .resolves.toMatchObject({ events: [{ type: 'plugin/test', data: null }] })
+
+        for (const type of ['user/message', 'assistant/message'] as const) {
+          const missingContentId = SessionId(`invalid-${type}-without-content`)
+          await ctx.sessionPersistence.create(meta(missingContentId, WORK))
+          await ctx.sessionPersistence.append(missingContentId, [{
+            type,
+            seq: 0,
+            time: 1,
+            surfaceOp: 'append',
+            data: {},
+          } as unknown as SessionEvent])
+          await expect(ctx.sessionPersistence.readFrom(missingContentId, 0))
+            .rejects.toThrow('lacks an identified message')
+        }
       } finally {
         await fiber.dispose()
         await fix.cleanup()
@@ -969,6 +1112,28 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         }, { inject: ['sessions'] }))
         await expect(ctx.sessions.flush(fresh))
           .rejects.toThrow(/do not match this live session|already has a persisted log|id collision/)
+      } finally {
+        await fiber.dispose()
+        await fix.cleanup()
+      }
+    })
+
+    it('a live session whose complete seed matches loaded ownerless state claims it without appending', async () => {
+      const fix = await makeFixture()
+      const { ctx, fiber } = await freshCtx(fix)
+      try {
+        const id = SessionId('claim-exact')
+        const completeSeed = [
+          ...oneTurnLog(),
+          { type: 'session/end-seed', seq: 6, time: 7, data: {} },
+        ] as SessionEvent[]
+        await ctx.sessionPersistence.create(meta(id, WORK))
+        await ctx.sessionPersistence.append(id, completeSeed)
+        const { events } = await ctx.sessionPersistence.load(id)
+
+        const live = ctx.sessions.create(id, { seed: events, meta: { cwd: WORK } })
+        await expect(ctx.sessions.flush(live)).resolves.toBe(true)
+        expect((await ctx.sessionPersistence.load(id)).events).toEqual(events)
       } finally {
         await fiber.dispose()
         await fix.cleanup()
