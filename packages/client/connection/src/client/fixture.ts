@@ -1179,6 +1179,16 @@ interface StreamConn<F> {
   push(envelope: RpcRequest<F>): void
 }
 
+interface ReasoningChunkStormState {
+  sessionId: string
+  chunkCount: number
+  chunksPerInterval: number
+  intervalMs: number
+  emitted: number
+  marker: string
+  emitting: boolean
+}
+
 /** Deterministic fixture branches used by keyless Web assembly tests. */
 export interface FixtureOptions {
   /** Start with no real Workspace or Session. */
@@ -1461,6 +1471,8 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
   const streamBreakers = new Set<() => void>()
   /** Retry scenarios opened by timing hooks and completed in a later browser assertion phase. */
   const retryScenarios = new Map<SessionId, { turn: number; stepStarted: boolean }>()
+  /** The single opt-in browser stress producer; normal fixture journeys never start it. */
+  let activeReasoningChunkStorm: ReasoningChunkStormState | null = null
 
   // Timing-acceptance hooks (browser test backdoor): the in-memory fixture is ideally timed, which
   // is exactly what masked the open-window and reconnect-gap bugs (audit S1/S3). These let
@@ -1483,6 +1495,86 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       const log = logOf(sid(id))
       const messageSeqs = log.filter(event => event.type === 'user/message').map(event => event.seq)
       append(sid(id), { type: 'session/title', data: { title, messageSeqs, source: { kind: 'provider', provider: 'fixture' } } })
+    },
+    /** Start an externally paced reasoning stream for the opt-in browser stress lane. */
+    startReasoningChunkStorm(
+      id: string,
+      chunkCount: number,
+      chunksPerInterval: number,
+      intervalMs: number,
+    ): string {
+      if (!Number.isSafeInteger(chunkCount) || chunkCount < 1) {
+        throw new Error('fixture: reasoning chunk count must be a positive safe integer')
+      }
+      if (!Number.isSafeInteger(chunksPerInterval) || chunksPerInterval < 1) {
+        throw new Error('fixture: reasoning chunks per interval must be a positive safe integer')
+      }
+      if (!Number.isSafeInteger(intervalMs) || intervalMs < 1) {
+        throw new Error('fixture: reasoning interval must be a positive safe integer')
+      }
+      if (activeReasoningChunkStorm?.emitting === true) {
+        throw new Error('fixture: reasoning chunk storm already running')
+      }
+
+      const sessionId = sid(id)
+      const log = logOf(sessionId)
+      let turn = nextTurn.get(sessionId) ?? 0
+      for (const event of log) {
+        const candidate = (event as unknown as { data?: { turn?: unknown } }).data?.turn
+        if (typeof candidate === 'number') turn = Math.max(turn, candidate + 1)
+      }
+      nextTurn.set(sessionId, turn + 1)
+      const marker = `REASONING_STRESS_COMPLETE:${String(turn)}:${String(chunkCount)}`
+      const state: ReasoningChunkStormState = {
+        sessionId: id,
+        chunkCount,
+        chunksPerInterval,
+        intervalMs,
+        emitted: 0,
+        marker,
+        emitting: true,
+      }
+      activeReasoningChunkStorm = state
+
+      setRunning(sessionId, true)
+      append(sessionId, { type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
+      append(sessionId, {
+        type: 'user/message', surfaceOp: 'append',
+        data: userMessage(text(`Reasoning chunk stress: ${String(chunkCount)} chunks.`)),
+      })
+      append(sessionId, { type: 'step/start', data: { turn, step: 0 } })
+      append(sessionId, {
+        type: 'assistant/chunk',
+        data: { turn, step: 0, chunk: { type: 'block-start', index: 0, blockType: 'reasoning' } },
+      })
+
+      const startedAt = Date.now()
+      const pump = (): void => {
+        const elapsedIntervals = Math.floor((Date.now() - startedAt) / intervalMs) + 1
+        const due = Math.max(state.emitted + chunksPerInterval, elapsedIntervals * chunksPerInterval)
+        const end = Math.min(due, chunkCount)
+        for (let index = state.emitted; index < end; index++) {
+          const chunkText = index === chunkCount - 1
+            ? `\n${marker}`
+            : index % 64 === 63 ? '推理\n' : '推理'
+          append(sessionId, {
+            type: 'assistant/chunk',
+            data: { turn, step: 0, chunk: { type: 'reasoning-delta', index: 0, text: chunkText } },
+          })
+        }
+        state.emitted = end
+        if (end < chunkCount) {
+          setTimeout(pump, intervalMs)
+        } else {
+          state.emitting = false
+        }
+      }
+      setTimeout(pump, 0)
+      return marker
+    },
+    /** Return a copy so browser probes cannot mutate the active producer. */
+    reasoningChunkStormState(): ReasoningChunkStormState | null {
+      return activeReasoningChunkStorm === null ? null : { ...activeReasoningChunkStorm }
     },
     /** Open one failed model step whose partial remains visible until llm/retry arrives. */
     beginModelRetry(id: string): void {

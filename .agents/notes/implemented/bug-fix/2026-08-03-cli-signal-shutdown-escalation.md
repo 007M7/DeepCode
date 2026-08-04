@@ -23,7 +23,7 @@ Web and headless share `createProcessShutdown`, one process-level controller aro
 - Normal shutdown calls coalesce onto one disposal and retain the first requested exit code; they never escalate one another.
 - The first signal starts the same graceful disposal and a referenced five-second exit backstop. Disposal success or failure exits once; neither can cancel the process exit.
 - A signal received while shutdown is pending forces immediate exit with that signal path's code. This includes the first `Ctrl+C` after headless normal completion has already entered disposal, and a second signal after a signal initiated the drain.
-- The five-second bound is a process-safety invariant, not a deployment tunable. It matches the existing TUI root-disposal allowance and is long enough for the telemetry deployment's ordinary drain ceiling.
+- The five-second bound is a process-safety invariant, not a deployment tunable. It is long enough for the telemetry deployment's ordinary drain ceiling while still bounding any wedged disposer at the launcher boundary.
 
 Headless preserves exit 0 for a completed turn, exit 1 for another turn-end reason or API business error, 130 for SIGINT, and 143 for SIGTERM. Web preserves its existing SIGTERM exit 0 and SIGINT exit 130 behavior.
 

@@ -10,11 +10,11 @@ Status: implemented
 
 ## Decision
 
-`dsh` 共享核心（`apps/cli/config/base.cordis.yml`）默认挂载 `telemetry-otel` 行，内置生产 endpoint，因此所有 surface——TUI、web、headless——都上报；这是**内部测试期的部署立场**——有 endpoint 就报，用户可经环境变量退出。各 surface 的退出路径都会排空队列：web/headless 在 SIGINT/SIGTERM 时使用[有界、可升级的进程关闭控制器](../bug-fix/2026-08-03-cli-signal-shutdown-escalation.md)，TUI 的正常退出走 `disposeRootAndExit`（根 dispose，5s 兜底——高于后端的 3s 关闭截止时间），其 `/resume` 移交也在 `execve` 前 dispose 根。
+`dsh` 共享 base（`apps/cli/config/base.cordis.yml`）默认挂载 `telemetry-otel` 行，内置生产 endpoint，因此 Web 与 headless 都会上报；原始配置命令也会先挂载该行，再应用其必需的部署 overlay。这是**内部测试期的部署立场**——有 endpoint 就上报，用户可通过环境变量退出。Web 与 headless 在 SIGINT/SIGTERM 时使用[有界、可升级的进程关闭控制器](../bug-fix/2026-08-03-cli-signal-shutdown-escalation.md)，在启动器 5 秒上限到期前，先给后端 3 秒关闭截止时间完成排空。
 
 | 决策项 | 取值 | 理由 |
 |---|---|---|
-| 挂载面 | base.cordis.yml（TUI + web + headless） | 所有 surface 一个部署立场；按 surface 分化需要理由，而当前没有 |
+| 挂载面 | base.cordis.yml（原始配置 + Web + headless） | 所有加载共享 base 的配置树采用同一个部署立场；原始配置 overlay 决定该部署是否创建会话 |
 | endpoint | `DSH_TELEMETRY_OTLP_URL`，缺省 `https://harness-telemetry.deepseeksvc.com/v1/logs` | 内部 collector；env 覆盖供本地/联调 |
 | 退出开关 | `DSH_TELEMETRY_DISABLED` 非空（含 `0`/`false`）即关 | 隐私向开关取「宁关勿误开」；行级 disable 只能在 AppCLIEntry 的 patch 层做（config 无 disable 语义，且必须先于 `exporter.url` 的加载期校验生效） |
 | 上报节奏 | `processor.scheduledDelayMillis: 10000`（10s/批） | 流式回流，非退出才报；崩溃至多丢最后一个未导出间隔 |

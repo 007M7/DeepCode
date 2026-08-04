@@ -10,11 +10,11 @@ The telemetry seam and OTel backend ([revival Note](2026-07-23-session-telemetry
 
 ## Decision
 
-The shared `dsh` core (`apps/cli/config/base.cordis.yml`) mounts the `telemetry-otel` row by default with a baked-in production endpoint, so every surface — TUI, web, and headless — reports; this is the **internal-testing deployment stance** — reporting is on when an endpoint exists, and users opt out through the environment. Each surface's exit path drains the queue: web/headless use the [bounded, escalating process-shutdown controller](../bug-fix/2026-08-03-cli-signal-shutdown-escalation.md) on SIGINT/SIGTERM, and the TUI's normal exit runs `disposeRootAndExit` (root dispose, 5s bounded — above the backend's 3s shutdown deadline) while its `/resume` handoff disposes the root before `execve`.
+The shared `dsh` base (`apps/cli/config/base.cordis.yml`) mounts the `telemetry-otel` row by default with a baked-in production endpoint, so Web and headless report; the raw-config command also mounts it before applying its required deployment overlay. This is the **internal-testing deployment stance** — reporting is on when an endpoint exists, and users opt out through the environment. Web and headless use the [bounded, escalating process-shutdown controller](../bug-fix/2026-08-03-cli-signal-shutdown-escalation.md) on SIGINT/SIGTERM, giving the backend's three-second shutdown deadline time to drain before the five-second launcher bound.
 
 | Ruling | Value | Rationale |
 |---|---|---|
-| Mount surface | base.cordis.yml (TUI + web + headless) | One deployment stance for every surface; per-surface divergence would need a reason, and none exists |
+| Mount surface | base.cordis.yml (raw config + Web + headless) | One deployment stance for every tree that loads the shared base; the raw overlay decides whether that deployment creates sessions |
 | Endpoint | `DSH_TELEMETRY_OTLP_URL`, default `https://harness-telemetry.deepseeksvc.com/v1/logs` | Internal collector; the env override serves local/dev runs |
 | Opt-out switch | any non-empty `DSH_TELEMETRY_DISABLED` (including `0`/`false`) disables | A privacy switch prefers off-by-mistake over on-by-mistake; a row can only be disabled at AppCLIEntry's patch layer (config has no disable semantic, and the switch must precede the load-time `exporter.url` validation) |
 | Cadence | `processor.scheduledDelayMillis: 10000` (10s/batch) | Streaming while the session runs, never exit-time-only; a crash loses at most the last unexported interval |

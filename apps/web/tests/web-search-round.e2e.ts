@@ -11,6 +11,7 @@ import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { WEB_SEARCH_MAX_RESULTS } from '@deepseek-ai/dsh-tool-web'
 import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
   launchWebScaffold, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
@@ -25,7 +26,37 @@ const QUERY = 'DeepSeek Harness snapshot search'
 const PROMPT = `Use web_search to search exactly "${QUERY}". Then reply exactly SEARCH_DONE and stop.`
 const SEARCH_CREDENTIAL_REF = credentialRef('DSH_WEB_SEARCH_E2E_KEY')
 const SEARCH_CREDENTIAL = 'snapshot-search-key'
-const RESULT_URL = 'https://docs.example.test/search'
+
+/**
+ * Provider results the double returns, exceeding the shipped `searchMaxResults`
+ * so the seam's cap and the card's scroll container are both exercised. Each row
+ * carries a title, a snippet, and a date, so 8 kept rows exceed the `.sources`
+ * 320px max-height.
+ */
+const PROVIDER_RESULT_COUNT = 12
+
+/** One provider result's URL, by 1-based provider order. */
+function resultUrl(ordinal: number): string {
+  return `https://docs.example.test/search/${ordinal}`
+}
+
+/** One provider result's title, by 1-based provider order. */
+function resultTitle(ordinal: number): string {
+  return `Snapshot Search Result ${ordinal}`
+}
+
+/** One provider result's citation excerpt, by 1-based provider order. */
+function resultSnippet(ordinal: number): string {
+  return `Snapshot search excerpt ${ordinal}: the harness replays this source list from a local endpoint.`
+}
+
+/** One provider result's `page_age`, by 1-based provider order (July 2026 days 01..12). */
+function resultPageAge(ordinal: number): string {
+  return `2026-07-${String(ordinal).padStart(2, '0')}`
+}
+
+/** The 1-based provider ordinals, in provider order. */
+const RESULT_ORDINALS = Array.from({ length: PROVIDER_RESULT_COUNT }, (_value, index) => index + 1)
 
 interface CapturedSearchRequest {
   path: string
@@ -50,21 +81,21 @@ async function startSearchServer(captured: CapturedSearchRequest[]): Promise<{ s
         content: [
           {
             type: 'text',
-            text: 'Found one source.',
-            citations: [{
+            text: `Found ${PROVIDER_RESULT_COUNT} sources.`,
+            citations: RESULT_ORDINALS.map(ordinal => ({
               type: 'web_search_result_location',
-              url: RESULT_URL,
-              cited_text: 'Snapshot search excerpt.',
-            }],
+              url: resultUrl(ordinal),
+              cited_text: resultSnippet(ordinal),
+            })),
           },
           {
             type: 'web_search_tool_result',
-            content: [{
+            content: RESULT_ORDINALS.map(ordinal => ({
               type: 'web_search_result',
-              url: RESULT_URL,
-              title: 'Snapshot Search Result',
-              page_age: '2026-07-31',
-            }],
+              url: resultUrl(ordinal),
+              title: resultTitle(ordinal),
+              page_age: resultPageAge(ordinal),
+            })),
           },
         ],
       }))
@@ -141,7 +172,7 @@ describe('web e2e: shipped default web search', () => {
     if (MODE === 'record') await recordFixture(scaffold, sessionId, FIXTURE)
   }, 200_000)
 
-  it.skipIf(MODE === 'record')('uses the real provider and persists the structured result', () => {
+  it.skipIf(MODE === 'record')('uses the real provider and persists the capped structured result', () => {
     expect(searchRequests).toHaveLength(1)
     expect(searchRequests[0]).toMatchObject({
       path: '/messages',
@@ -177,16 +208,27 @@ describe('web e2e: shipped default web search', () => {
     if (searchResult === undefined) throw new Error('web_search produced no durable result')
     const content = searchResult.data.message.content[0]
     expect(content.isError).toBe(false)
-    expect(content.content.filter(block => block.type === 'text').map(block => block.text).join(''))
-      .toContain(`[Snapshot Search Result](${RESULT_URL})`)
+    const rendered = content.content.filter(block => block.type === 'text').map(block => block.text).join('')
+    // The seam caps the provider's list at the shipped searchMaxResults before
+    // the tool renders it, so the kept prefix is model-visible and the dropped
+    // suffix is not.
+    for (const ordinal of RESULT_ORDINALS.slice(0, WEB_SEARCH_MAX_RESULTS)) {
+      expect(rendered).toContain(`[${resultTitle(ordinal)}](${resultUrl(ordinal)})`)
+    }
+    for (const ordinal of RESULT_ORDINALS.slice(WEB_SEARCH_MAX_RESULTS)) {
+      expect(rendered).not.toContain(resultUrl(ordinal))
+    }
+    expect(rendered).toContain(
+      `(Showing the first ${WEB_SEARCH_MAX_RESULTS} sources. Refine the query for more.)`,
+    )
     expect(searchResult.data.meta).toMatchObject({
-      sources: [{
-        url: RESULT_URL,
-        title: 'Snapshot Search Result',
-        snippet: 'Snapshot search excerpt.',
-        publishedAt: '2026-07-31',
-      }],
-      truncated: false,
+      sources: RESULT_ORDINALS.slice(0, WEB_SEARCH_MAX_RESULTS).map(ordinal => ({
+        url: resultUrl(ordinal),
+        title: resultTitle(ordinal),
+        snippet: resultSnippet(ordinal),
+        publishedAt: resultPageAge(ordinal),
+      })),
+      truncated: true,
     })
   })
 
@@ -197,6 +239,55 @@ describe('web e2e: shipped default web search', () => {
     await page.locator('[data-tool="web_search"]').waitFor({ timeout: 10_000 })
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
+  })
+
+  it.skipIf(MODE === 'record')('scrolls the capped source list inside the fixed-height container', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-search-sources-scroll'))
+    const row = page.locator('[data-tool="web_search"] [data-expandable]').first()
+    await row.click()
+    await expect.poll(() => row.getAttribute('aria-expanded'), { timeout: 5_000 }).toBe('true')
+
+    const card = page.locator('[data-web="search"]')
+    const sources = card.locator('ol')
+    await sources.waitFor({ timeout: 10_000 })
+    // The card draws exactly the sources the model saw: the seam's cap, not the
+    // provider's list length.
+    expect(await sources.locator('li').count()).toBe(WEB_SEARCH_MAX_RESULTS)
+    // The list is complete in the DOM, so the card carries no expand control.
+    expect(await card.locator('button').count()).toBe(0)
+    expect(await card.getByText('来源列表已截断').isVisible()).toBe(true)
+
+    const geometry = await sources.evaluate((element) => {
+      const computed = getComputedStyle(element)
+      return {
+        maxHeight: computed.maxHeight,
+        overflowY: computed.overflowY,
+        scrollHeight: element.scrollHeight,
+        clientHeight: element.clientHeight,
+      }
+    })
+    expect(geometry.maxHeight).toBe('320px')
+    expect(geometry.overflowY).toBe('auto')
+    expect(geometry.scrollHeight).toBeGreaterThan(geometry.clientHeight)
+  })
+
+  it.skipIf(MODE === 'record')('reserves marker room a scroll container cannot clip back', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-search-marker-room'))
+    // `overflow-y: auto` clips inline-start overflow with no way to scroll it
+    // back, and markers are right-aligned to the content edge, so a marker wider
+    // than `padding-left` silently loses its leading digits. `searchMaxResults`
+    // is an unbounded positive integer, so measure the widest three-digit marker
+    // in the list's own font and require the shipped padding to hold it.
+    const marker = await page.locator('[data-web="search"] ol').evaluate((element) => {
+      const probe = document.createElement('span')
+      probe.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;font:inherit'
+      probe.textContent = '999. '
+      element.append(probe)
+      const widest = probe.getBoundingClientRect().width
+      probe.remove()
+      return { widest, paddingLeft: parseFloat(getComputedStyle(element).paddingLeft) }
+    })
+    expect(marker.paddingLeft).toBeGreaterThanOrEqual(marker.widest)
   })
 
   it.skipIf(MODE === 'record')('stayed clean and kept the exact fixture inventory', async () => {
