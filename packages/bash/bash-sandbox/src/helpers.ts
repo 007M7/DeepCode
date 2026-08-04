@@ -1,5 +1,5 @@
 /**
- * Internal shell-quoting and sandbox-result classification helpers.
+ * Internal sandbox-result classification helpers.
  *
  * @module @deepseek-ai/dsh-bash-sandbox/helpers
  */
@@ -11,15 +11,6 @@ import type { RunnerFailureRule } from '@deepseek-ai/dsh-sandbox'
 interface RunnerFailureMatch {
   /** The original stderr line that matched a fatal signature. */
   detail: string
-}
-
-/**
- * Quote one string as a single-quoted POSIX shell word.
- * @param text - raw argv element to preserve through the outer shell parse.
- * @returns the quoted shell word.
- */
-export function shellQuote(text: string): string {
-  return `'${text.replaceAll("'", String.raw`'\''`)}'`
 }
 
 /**

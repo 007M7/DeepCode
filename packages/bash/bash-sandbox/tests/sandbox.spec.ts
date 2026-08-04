@@ -5,7 +5,7 @@
  * the Unix denial signature used by the classifier without requiring a real sandbox runner.
  */
 
-import { chmodSync, mkdirSync, mkdtempSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -16,7 +16,7 @@ import type { ConfinedArgv, SandboxExecutionPolicy, SandboxMode, SandboxPolicy }
 import { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import { SandboxBashExecutor } from '@deepseek-ai/dsh-bash-sandbox'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
-import { classifyDenial, classifyRunnerFailure, shellQuote } from '../src/helpers.ts'
+import { classifyDenial, classifyRunnerFailure } from '../src/helpers.ts'
 import type { Config } from '@deepseek-ai/dsh-bash-sandbox'
 
 const spillDir = mkdtempSync(join(tmpdir(), 'dsh-bash-sandbox-spec-'))
@@ -90,13 +90,47 @@ describe('the provider hand-off', () => {
     }])
   })
 
-  it('a wrapped argv from the provider is what actually spawns (prefix survives, quoting round-trips)', async () => {
-    // The fake wraps with `env MARKER=...` — a real (if tiny) runner prefix:
-    // the sentinel only prints if the executor spawned the WRAPPED argv.
-    const { bash } = await setup({}, argv => ({ argv: ['env', 'DSH_WRAP=1', ...argv], enforcement: 'full', denialSignatures: UNIX_SIGNATURES, runnerFailureRules: RUNNER_FAILURE }))
+  it('hands the provider\'s returned argv directly to ctx.subprocess.spawn', async () => {
+    const returnedArgv = ['env', 'DSH_WRAP=1', 'bash', '-c', 'printf "%s" "$DSH_WRAP"']
+    const { ctx, bash } = await setup({}, () => ({ argv: returnedArgv, enforcement: 'full', denialSignatures: UNIX_SIGNATURES, runnerFailureRules: RUNNER_FAILURE }))
+    const spawn = vi.spyOn(ctx.subprocess, 'spawn')
     const result = await bash.run(bash.resolve({ command: 'printf "%s" "$DSH_WRAP"' }))
     expect(result.stdout.text).toBe('1')
+    expect(spawn).toHaveBeenCalledTimes(1)
+    expect(spawn.mock.calls[0]?.[0].argv).toEqual(returnedArgv)
     expect(result.sandbox).toEqual({ mode: 'read-only', denied: false, enforcement: 'full' })
+  })
+
+  it('starts a non-Bash runner before the confined inner Bash evaluates BASH_ENV', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-bash-env-order-'))
+    const hook = join(dir, 'hook.sh')
+    const order = join(dir, 'order.txt')
+    writeFileSync(hook, 'printf "hook\\n" >> "$DSH_ORDER_FILE"\n')
+    const runnerScript = [
+      'const { appendFileSync } = require("node:fs");',
+      'const { spawnSync } = require("node:child_process");',
+      'appendFileSync(process.env.DSH_ORDER_FILE, "runner\\n");',
+      'const child = spawnSync(process.argv[1], process.argv.slice(2), { env: process.env, stdio: "inherit" });',
+      'process.exit(child.status ?? 125);',
+    ].join('')
+    const { bash } = await setup({}, argv => ({
+      argv: [process.execPath, '-e', runnerScript, ...argv],
+      enforcement: 'full',
+      denialSignatures: UNIX_SIGNATURES,
+      runnerFailureRules: RUNNER_FAILURE,
+    }))
+
+    try {
+      const result = await bash.run(bash.resolve({
+        command: 'true',
+        env: { BASH_ENV: hook },
+        dshEnv: { DSH_ORDER_FILE: order },
+      }))
+      expect(result.exitCode).toBe(0)
+      expect(readFileSync(order, 'utf8')).toBe('runner\nhook\n')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   it('workspace-write rides the policy, workspaceRoot falling back to process.cwd() when not configured', async () => {
@@ -120,9 +154,6 @@ describe('the provider hand-off', () => {
     expect(calls).toHaveLength(2)
   })
 
-  it('shellQuote survives embedded single quotes (the argv re-assembly primitive)', () => {
-    expect(shellQuote('a\'b')).toBe(String.raw`'a'\''b'`)
-  })
 })
 
 describe('fail closed', () => {
@@ -131,6 +162,14 @@ describe('fail closed', () => {
     const spec = bash.resolve({ command: 'echo hi' })
     await expect(bash.run(spec)).rejects.toMatchObject({ name: 'SandboxUnavailableError', code: SANDBOX_UNAVAILABLE })
     expect(() => bash.start(spec)).toThrow(SandboxUnavailableError)
+  })
+
+  it('preserves an already-aborted foreground call as cancellation', async () => {
+    const { bash } = await setup()
+    const controller = new AbortController()
+    const reason = new Error('caller cancelled before spawn')
+    controller.abort(reason)
+    await expect(bash.run(bash.resolve({ command: 'true', signal: controller.signal }))).rejects.toBe(reason)
   })
 })
 
@@ -252,19 +291,6 @@ describe('classifyRunnerFailure', () => {
     expect(classifyRunnerFailure(125, `${notice}\nchild diagnostic\n${fatal}`, rules)).toEqual({ detail: fatal })
   })
 
-  it('matches an outer-shell rule case-insensitively only at its exit codes and configured argv0', () => {
-    const rules = [{
-      allowedExitCodes: [126, 127],
-      fatalSignatures: ['exec: /Opt/Runners/bwrap: not found', '/Opt/Runners/bwrap: No such file or directory'],
-    }]
-    expect(classifyRunnerFailure(127, 'bash: /Opt/Runners/bwrap: No such file or directory', rules)?.detail)
-      .toBe('bash: /Opt/Runners/bwrap: No such file or directory')
-    expect(classifyRunnerFailure(126, 'BASH: LINE 1: EXEC: /OPT/RUNNERS/BWRAP: NOT FOUND', rules)?.detail)
-      .toBe('BASH: LINE 1: EXEC: /OPT/RUNNERS/BWRAP: NOT FOUND')
-    expect(classifyRunnerFailure(125, 'bash: /Opt/Runners/bwrap: No such file or directory', rules)).toBeUndefined()
-    expect(classifyRunnerFailure(127, 'bash: /other/bwrap: No such file or directory', rules)).toBeUndefined()
-  })
-
   it('requires Landlock exit 125 plus a non-notice fatal line and returns that original line', () => {
     const notice = 'landlock-run: partial enforcement (older Landlock ABI)'
     const rules = [{ allowedExitCodes: [125], fatalSignatures: ['landlock-run: '], informationalLines: [notice] }]
@@ -297,6 +323,18 @@ describe('classifyRunnerFailure', () => {
 })
 
 describe('result facts', () => {
+  it.each([126, 127])('keeps a successfully launched wrapped child exit %i as an ordinary outcome', async (exitCode) => {
+    const { bash } = await setup({}, argv => ({
+      argv: ['env', ...argv],
+      enforcement: 'full',
+      denialSignatures: UNIX_SIGNATURES,
+      runnerFailureRules: RUNNER_FAILURE,
+    }))
+    const result = await bash.run(bash.resolve({ command: `exit ${exitCode}` }))
+    expect(result.exitCode).toBe(exitCode)
+    expect(result.sandbox).toEqual({ mode: 'read-only', denied: false, enforcement: 'full' })
+  })
+
   it('reports a real permission failure as a sandbox denial with the mode it ran under', async () => {
     const { bash } = await setup()
     const lockedDir = join(mkdtempSync(join(tmpdir(), 'dsh-sandbox-denied-')), 'locked')
@@ -324,7 +362,12 @@ describe('background sandbox facts', () => {
 
     expect(task.status).toBe('killed')
     expect(task.readOutput().delta).toContain('spawn failed:')
-    expect(task.sandbox).toEqual({ mode: 'read-only', denied: false, enforcement: 'full' })
+    expect(task.sandbox).toEqual({
+      mode: 'read-only',
+      denied: false,
+      enforcement: 'full',
+      runnerFailed: true,
+    })
     const accounting = (bash as unknown as { processFacts: Map<unknown, unknown> }).processFacts
     expect(accounting.size).toBe(0)
   })

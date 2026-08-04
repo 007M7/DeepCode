@@ -8,8 +8,9 @@
 
 import { spawnSync } from 'node:child_process'
 import {
-  LAUNCHER_BIN,
+  LAUNCHER_FATAL_PREFIX,
   LAUNCHER_FAILURE_EXIT,
+  PARTIAL_ENFORCEMENT_NOTICE,
   launcherPath as landlockLauncherPath,
   probe as defaultProbeLandlock,
 } from 'node-addon-landlock-run'
@@ -25,17 +26,17 @@ export interface Config {
   /**
    * Override the runner argv; bwrap-shaped profile arguments are appended. A
    * non-empty override asserts full enforcement and skips built-in selection and
-   * probing; a broken runner then fails at execution and must be identifiable by
-   * {@link runnerFailureSignatures}.
+   * probing. A runner that starts but refuses its profile must be identifiable by
+   * {@link runnerFailureSignatures}; spawn rejection remains a consumer-owned
+   * infrastructure failure.
    */
   runnerCommand?: string[]
   /**
    * Case-insensitive stderr substrings emitted when a configured
    * {@link runnerCommand} refuses its profile before executing the wrapped
    * command. Required and non-empty with `runnerCommand`; rejected without
-   * it. Missing/unexecutable runner errors are added automatically from
-   * `runnerCommand[0]`, while these signatures cover an executable runner's
-   * own failure dialect.
+   * it. Each entry is a non-empty, single-line, case-insensitive substring
+   * covering the executable runner's own failure dialect.
    */
   runnerFailureSignatures?: string[]
   /** Positive timeout for each functional probe; zero would mean unbounded to Node. */
@@ -147,36 +148,20 @@ const DENIAL_SIGNATURES = {
 } as const satisfies Record<SelectedRunner['runner'] | 'runnerCommand', readonly string[]>
 
 /**
- * Runner-owned fatal diagnostics. Landlock's launcher contract reserves exit
- * 125 for launcher failure and emits the partial-ABI notice before successful
- * child execution, so both the status gate and the exact exclusion are needed.
+ * Runner-owned fatal diagnostics. Landlock has a versioned exit-125 plus
+ * fatal-line launcher-failure contract. Bubblewrap's current fatal paths exit
+ * 1 but its public contract does not reserve that status, while sandbox-exec
+ * publishes no launcher-failure status; those backends remain signature-only.
  */
 const RUNNER_FAILURE_RULES = {
   bwrap: [{ fatalSignatures: ['bwrap: '] }],
   landlock: [{
     allowedExitCodes: [LAUNCHER_FAILURE_EXIT],
-    fatalSignatures: [`${LAUNCHER_BIN}: `],
-    informationalLines: [`${LAUNCHER_BIN}: partial enforcement (older Landlock ABI)`],
+    fatalSignatures: [LAUNCHER_FATAL_PREFIX],
+    informationalLines: [PARTIAL_ENFORCEMENT_NOTICE],
   }],
   seatbelt: [{ fatalSignatures: ['sandbox-exec: '] }],
 } as const satisfies Record<SelectedRunner['runner'], readonly RunnerFailureRule[]>
-
-/**
- * Failure shapes emitted by the outer `bash -c 'exec ...'` before the runner
- * starts. Shells vary between 126 and 127 for a missing path containing `/`,
- * but keep the configured/resolved argv0 and missing/unexecutable wording.
- */
-function outerShellFailureRules(argv0: string): readonly RunnerFailureRule[] {
-  return [{
-    allowedExitCodes: [126, 127],
-    fatalSignatures: [
-      `exec: ${argv0}: not found`,
-      `${argv0}: No such file or directory`,
-      `${argv0}: Permission denied`,
-      `exec: ${argv0}: cannot execute`,
-    ],
-  }]
-}
 
 /**
  * Local process-sandbox provider. Registers as `ctx.sandbox`. Stateless
@@ -213,8 +198,8 @@ export class LocalSandboxProvider extends SandboxProvider {
     if (runner.length > 0 && runnerFailureSignatures.length === 0) {
       throw new Error('sandbox-local: runnerCommand requires at least one runnerFailureSignatures entry')
     }
-    if (runnerFailureSignatures.some(signature => signature.trim().length === 0)) {
-      throw new Error('sandbox-local: runnerFailureSignatures entries must be non-empty')
+    if (runnerFailureSignatures.some(signature => signature.trim().length === 0 || /[\r\n]/u.test(signature))) {
+      throw new Error('sandbox-local: runnerFailureSignatures entries must be non-empty single-line strings')
     }
     this.runnerCommand = runner.length > 0 ? runner : undefined
     this.configuredRunnerFailureSignatures = runnerFailureSignatures
@@ -235,30 +220,20 @@ export class LocalSandboxProvider extends SandboxProvider {
    */
   confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv {
     if (this.runnerCommand !== undefined) {
-      const argv0 = this.runnerCommand[0] as string
       return {
         argv: [...this.runnerCommand, ...bwrapProfileArgs(policy), '--', ...argv],
         enforcement: 'full',
         denialSignatures: DENIAL_SIGNATURES.runnerCommand,
-        // Preserve the operator-facing signature config as one internal rule;
-        // outer-shell launch failures remain a separate, argv0-scoped rule.
-        runnerFailureRules: [
-          ...outerShellFailureRules(argv0),
-          { fatalSignatures: this.configuredRunnerFailureSignatures },
-        ],
+        runnerFailureRules: [{ fatalSignatures: this.configuredRunnerFailureSignatures }],
       }
     }
     const selected = this.selectRunner(policy.mode)
     const runnerArgv = this.runnerArgv(selected.runner, policy)
-    const argv0 = runnerArgv[0] as string
     return {
       argv: [...runnerArgv, '--', ...argv],
       enforcement: selected.enforcement,
       denialSignatures: DENIAL_SIGNATURES[selected.runner],
-      runnerFailureRules: [
-        ...outerShellFailureRules(argv0),
-        ...RUNNER_FAILURE_RULES[selected.runner],
-      ],
+      runnerFailureRules: RUNNER_FAILURE_RULES[selected.runner],
     }
   }
 

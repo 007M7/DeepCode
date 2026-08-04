@@ -21,11 +21,18 @@ import { fileURLToPath } from 'node:url'
 /** The launcher binary's file name inside each platform package's `bin/`. */
 export const LAUNCHER_BIN = 'landlock-run'
 
+/** Prefix on every launcher-owned fatal stderr line. */
+export const LAUNCHER_FATAL_PREFIX = 'landlock-run: '
+
+/** Informational stderr line emitted before child execution under partial enforcement. */
+export const PARTIAL_ENFORCEMENT_NOTICE = 'landlock-run: partial enforcement (older Landlock ABI)'
+
 /**
  * The exit code for every launcher-level failure (usage error, unenforcing
- * kernel, unopenable grant root, failed exec) — chosen because the wrapped
- * command itself is unlikely to use it, so a consumer can tell launcher
- * failures from command failures. Part of the CLI contract.
+ * kernel, unopenable grant root, failed exec). After a successful `exec`, the
+ * wrapped command may also return 125, so consumers require a matching
+ * {@link LAUNCHER_FATAL_PREFIX} diagnostic to attribute launcher failure.
+ * Part of the CLI contract.
  */
 export const LAUNCHER_FAILURE_EXIT = 125
 

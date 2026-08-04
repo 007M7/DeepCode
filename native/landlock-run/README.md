@@ -39,7 +39,7 @@ The public API is intentionally small:
 - `launcherPath()`: absolute path of this host's launcher (existence deliberately unchecked — the probe is the availability signal).
 - `probe(launcher?, { timeoutMs? })`: functional enforcement probe — `'full' | 'partial' | 'unusable'`.
 - `grantArgs({ readOnly?, readWrite? })`: the launcher's grant argv; everything not granted is denied.
-- `LAUNCHER_BIN`, `LAUNCHER_FAILURE_EXIT` (125): contract constants.
+- `LAUNCHER_BIN`, `LAUNCHER_FAILURE_EXIT` (125), `LAUNCHER_FATAL_PREFIX`, and `PARTIAL_ENFORCEMENT_NOTICE`: contract constants. Every launcher failure uses 125, but a successfully exec'd child may also return 125, so failure attribution requires the fatal prefix too.
 
 The full binary contract (argv grammar, exit codes, report lines) is pinned in [docs/cli-contract.md](docs/cli-contract.md).
 

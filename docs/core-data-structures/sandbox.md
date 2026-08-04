@@ -139,10 +139,10 @@ interface ConfinedArgv {
 }
 ```
 
-The operator-facing local-provider key remains `runnerFailureSignatures`: an operator-configured runner must supply at least one entry for its own pre-exec refusal dialect. The provider maps those entries into one rule and adds a separate argv0-scoped rule for outer-shell missing or unexecutable failures. This makes an executable custom runner rejecting its profile distinguishable from the wrapped command exiting with the same status.
+The operator-facing local-provider key remains `runnerFailureSignatures`: an operator-configured runner must supply at least one non-empty, single-line, case-insensitive substring for its own pre-exec refusal dialect. The provider maps those entries into one rule. Consumers directly spawn `ConfinedArgv.argv`, so a missing or unexecutable runner rejects through the spawn channel rather than a stderr rule; after a process starts, child exits such as 126 or 127 remain ordinary unless the selected runner's documented fatal signature matches.
 
 ## Provider and fail-closed errors
 
-`ctx.sandbox.confine(argv, policy)` returns a `ConfinedArgv` or throws `SandboxUnavailableError` with code `SANDBOX_UNAVAILABLE` when no usable backend exists. A selected runner can also fail closed at execution time, in which case a matching structured rule carries the same infrastructure meaning. Silent unconfined passthrough is never legal for a confined policy.
+`ctx.sandbox.confine(argv, policy)` returns a `ConfinedArgv` or throws `SandboxUnavailableError` with code `SANDBOX_UNAVAILABLE` when no usable backend exists. A direct spawn rejection of the returned argv proves the confined launch never started and carries the same infrastructure meaning with the original error as detail. After a process starts, a matching structured rule identifies a runner refusal. Silent unconfined passthrough is never legal for a confined policy.
 
 Provider probing arbitrates between multiple candidates and is cached for the provider lifetime. A platform with one candidate may select it directly; execution-time refusal retains the safety property. The local provider reports bwrap and Seatbelt as full and preserves the Landlock launcher's full/partial kernel verdict.

@@ -41,10 +41,10 @@ Stderr remains an in-band attribution channel. A confined child can deliberately
 ## Guardrails added
 
 - [`RunnerFailureRule`](../core-data-structures/sandbox.md#wrapped-argv-and-classification-dialects) carries optional allowed exit codes, case-insensitive per-line fatal signatures, and case-insensitive exact informational-line exclusions.
-- [`dsh-sandbox-local`](../../packages/sandbox/sandbox-local/) maps Landlock to exit 125 plus a non-notice `landlock-run:` line, keeps bwrap/Seatbelt/custom behavior, and separates argv0-scoped outer-shell failures using exit 126/127.
-- [`dsh-bash-sandbox`](../../packages/bash/bash-sandbox/) uses one evidence-returning classifier for foreground and background execution. Fatal evidence outranks denial, and foreground errors report the matched fatal line without changing captured stderr.
+- [`dsh-sandbox-local`](../../packages/sandbox/sandbox-local/) maps Landlock to exit 125 plus a non-notice `landlock-run:` line while bwrap, Seatbelt, and custom runners remain signature-only.
+- [`dsh-bash-sandbox`](../../packages/bash/bash-sandbox/) directly spawns the provider argv, so a pre-start rejection uses the spawn-error channel instead of localized shell diagnostics. Settled foreground and background execution share one evidence-returning classifier; fatal evidence outranks denial, and foreground errors report the matched fatal line without changing captured stderr.
 - Current [`dsh-tool-fs-search`](../../packages/fs/tool-fs-search/) uses packaged ripgrep through `ctx.subprocess` and no longer consumes the sandboxed bash seam; the base reconciliation keeps that architecture unchanged.
-- Deterministic tests use a POSIX fake partial-Landlock launcher to cover `true`, `false`, child exit 125, permission denial, real fatal diagnostics, and foreground/background parity.
+- Deterministic tests use a POSIX fake partial-Landlock launcher to cover notice-only child exits 1, 2, and 125, ordinary child exits 126 and 127, gated fatal diagnostics, permission denial, and foreground/background parity.
 - The `examples/acp-agent` keyless snapshot runs direct bash `false` through a test-only partial-Landlock provider, keeping the product regression pinned independently of filesystem-search implementation choices.
 
 ## Lessons

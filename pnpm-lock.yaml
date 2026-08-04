@@ -848,6 +848,9 @@ importers:
       '@deepseek-ai/dsh-workspace-context':
         specifier: workspace:*
         version: link:../packages/context/workspace-context
+      node-addon-landlock-run:
+        specifier: 0.0.0-test.0
+        version: 0.0.0-test.0
 
   packages/acp/acp:
     dependencies:

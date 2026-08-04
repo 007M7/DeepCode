@@ -1,7 +1,10 @@
 import type { ConfinedArgv, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import { SandboxProvider } from '@deepseek-ai/dsh-sandbox'
-
-const NOTICE = 'landlock-run: partial enforcement (older Landlock ABI)'
+import {
+  LAUNCHER_FAILURE_EXIT,
+  LAUNCHER_FATAL_PREFIX,
+  PARTIAL_ENFORCEMENT_NOTICE,
+} from 'node-addon-landlock-run'
 
 /** Snapshot-only provider that reproduces an older-ABI Landlock launch. */
 export default class PartialLandlockSandboxProvider extends SandboxProvider {
@@ -10,16 +13,16 @@ export default class PartialLandlockSandboxProvider extends SandboxProvider {
       argv: [
         'bash',
         '-c',
-        `printf '%s\\n' '${NOTICE}' >&2; exec "$@"`,
+        `printf '%s\\n' '${PARTIAL_ENFORCEMENT_NOTICE}' >&2; exec "$@"`,
         'partial-landlock-run',
         ...argv,
       ],
       enforcement: 'partial',
       denialSignatures: ['permission denied'],
       runnerFailureRules: [{
-        allowedExitCodes: [125],
-        fatalSignatures: ['landlock-run: '],
-        informationalLines: [NOTICE],
+        allowedExitCodes: [LAUNCHER_FAILURE_EXIT],
+        fatalSignatures: [LAUNCHER_FATAL_PREFIX],
+        informationalLines: [PARTIAL_ENFORCEMENT_NOTICE],
       }],
     }
   }

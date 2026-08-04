@@ -12,6 +12,8 @@ import path from 'node:path';
 import {
   LAUNCHER_BIN,
   LAUNCHER_FAILURE_EXIT,
+  LAUNCHER_FATAL_PREFIX,
+  PARTIAL_ENFORCEMENT_NOTICE,
   grantArgs,
   launcherPath,
   probe,
@@ -20,6 +22,8 @@ import {
 // --- constants are part of the CLI contract ---
 assert.equal(LAUNCHER_BIN, 'landlock-run');
 assert.equal(LAUNCHER_FAILURE_EXIT, 125);
+assert.equal(LAUNCHER_FATAL_PREFIX, 'landlock-run: ');
+assert.equal(PARTIAL_ENFORCEMENT_NOTICE, 'landlock-run: partial enforcement (older Landlock ABI)');
 
 // --- grantArgs: flag spelling, ordering, and empty grants ---
 assert.deepEqual(grantArgs({}), []);
