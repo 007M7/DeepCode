@@ -8,7 +8,7 @@ English | [中文](2026-08-04-claude-code-and-codex-subagent-backends.zh.md)
 
 The named [`ctx.subagents`](../../implemented/feature/2026-06-21-subagent-capability-seam.md) registry lets a parent agent delegate work without knowing how the child runs, but the harness needs first-party routes to the real Codex and Claude Code products. A useful first version must hand either product one self-contained task, let it work in the parent Session's workspace, return a final answer or an explicit failure or cancellation, and leave no managed product process behind.
 
-The product integrations must not become second owners for task text, cwd, cancellation, result settlement, or process trees. Required keyless evidence therefore separates two facts: a real-product test proves the official protocol, native authentication shape, final answer, and teardown, while a Loader composition test proves that the public package and documented tool configuration load without starting the product. Direct model HTTP or a product double cannot replace the former; a hand-mounted plugin cannot replace the latter.
+The product integrations must not become second owners for task text, cwd, cancellation, result settlement, or process trees. Required evidence therefore separates three facts: a keyless real-product test proves the official protocol, native authentication shape, deterministic answer, and teardown; a Loader composition test proves that the public package and documented tool configuration load without starting the product; and a credentialed e2e proves that the production provider and real product can obtain a unique answer from the real DeepSeek service. Direct model HTTP or a product double cannot replace either product-running tier, and a hand-mounted plugin cannot replace the Loader tier.
 
 ## Proposal
 
@@ -45,15 +45,19 @@ For command and file approvals, the unattended wire selects a non-approval decis
 
 An unpublished startup failure closes the wire, terminates the acquired process tree, waits for exit, and then rejects `start()`. Published disposal best-effort interrupts a known turn, closes the wire, ends stdin, invokes the shared termination escalation, and waits for whole-tree exit. Result failure and teardown failure stay independently observable.
 
+Codex 0.146.0 speaks the Responses protocol, while DeepSeek's public OpenAI-compatible endpoint speaks Chat Completions. The credentialed Codex e2e therefore uses a loopback-only, test-private bridge for one no-tool nonce request: real Codex sends Responses to the bridge, the bridge forwards the received bearer credential and extracted task to the fixed official DeepSeek endpoint, and it wraps the real text in the minimal Responses SSE lifecycle. The bridge is neither a production proxy nor evidence that Codex connects to DeepSeek Chat Completions natively.
+
 ## Claude Code provider
 
 The Claude Code sibling is not yet implemented. Its product version, official integration, terminal mapping, product-specific configuration, interaction policy, and evidence are not fixed by this intermediate proposal. Its eventual implementation must preserve the shared fixed-name, standalone-task, parent-cwd, shared-result, and managed-tree boundaries above before this Note can become implemented.
 
 ## Evidence contract
 
-Each product owns branch-complete package tests, a required real-product spec, and a Loader composition e2e. The real-product tier uses the exact official distribution under test, a non-empty fake product key, an isolated temporary workspace and product home, and a loopback fixed-answer model. Missing product requests, wrong authentication, altered task text, a non-exact answer, a skipped real product, or a surviving managed handle fails the required test. The separate Loader tier boots the README-shaped user configuration, verifies the fixed provider and foreground-only common tool, and must not start a product process.
+Each product owns branch-complete package tests, a required keyless real-product spec, a Loader composition e2e, and a credentialed DeepSeek e2e. The keyless product tier uses the exact official distribution under test, a non-empty fake product key, an isolated temporary workspace and product home, and a loopback fixed-answer model. Missing product requests, wrong authentication, altered task text, a non-exact answer, a skipped real product, or a surviving managed handle fails the required test. The separate Loader tier boots the README-shaped user configuration, verifies the fixed provider and foreground-only common tool, and must not start a product process. The credentialed tier starts the same production provider and real product with a runtime-only key, requires a unique nonce from the fixed official DeepSeek service, and proves quiescence again; it self-skips only when a local operator supplied no key, while trusted CI preflights the secret.
 
 The Codex evidence pins `@openai/codex@0.146.0` and `codex-cli 0.146.0`. Its real-product spec observes the exact Bearer key, original task, byte-exact final answer, unattended command rejection with no file side effect, local cancellation, and whole-tree exit. Its Loader e2e resolves `@deepseek-ai/dsh-subagent-codex` by package name, verifies the `codex` registration and `subagent_codex` schema with background omitted, accepts `maxDepth: 'provider-managed'`, and records zero child starts while no `codex` command is available. The npm package is a development dependency for reproducible real-product evidence; production still supplies `codex` on `PATH`.
+
+The Codex credentialed e2e registers the production provider, starts the same real app-server, and requests one random nonce through the test-private bridge described above. It fixes the external endpoint and model, stores no credential or request payload, requires exactly one completed upstream response, compares the trimmed product answer byte-for-byte with the nonce, and waits for every managed handle to exit.
 
 The combined contract is complete only when the Claude sibling has equivalent real-product evidence and both public Loader configurations prove the fixed tools use the unchanged common subagent contract.
 
@@ -73,7 +77,7 @@ The combined contract is complete only when the Claude sibling has equivalent re
 
 ## Acceptance criteria
 
-Both public provider packages load from user-owned Cordis configurations and form their fixed foreground tools without appearing in the shipped CLI defaults. Separate required real-product specs return exact final answers or explicit failure or cancellation and prove managed process-tree quiescence. Both packages document their configuration, lifecycle, failure behavior, model experience, and limitations; generated package, configuration, capability, dependency, and third-party records agree with the shipped manifests.
+Both public provider packages load from user-owned Cordis configurations and form their fixed foreground tools without appearing in the shipped CLI defaults. Separate required keyless real-product specs return exact final answers or explicit failure or cancellation, and separate credentialed e2e tests traverse each production provider and real product to a unique DeepSeek answer; both tiers prove managed process-tree quiescence. Both packages document their configuration, lifecycle, failure behavior, model experience, and limitations; generated package, configuration, capability, dependency, and third-party records agree with the shipped manifests.
 
 The implemented Codex half satisfies this contract for its fixed tool and 0.146.0 baseline. The proposal becomes implemented only after the Claude Code sibling and the combined two-product evidence satisfy the same ownership and lifecycle boundaries.
 
@@ -81,6 +85,7 @@ The implemented Codex half satisfies this contract for its fixed tool and 0.146.
 
 - The product protocols are versioned and may change. Production performs no runtime version probe, so every supported baseline change requires refreshed compatibility evidence.
 - Product-native configuration makes behavior depend on the deployment's installed product and account state. Required tests isolate those inputs, while production deliberately leaves them under the product's authority.
+- Credentialed e2e runs spend external API quota and depend on the official DeepSeek endpoint; deterministic protocol, failure, cancellation, and approval coverage remains in the keyless tier.
 - Every delegation pays for a fresh process and independent model context, and only final text reaches the parent.
 - Product tool or file side effects are not rolled back when a run fails or is cancelled.
 - Unattended interaction denial prevents hidden approval hangs but cannot satisfy tasks that require new permission or human input.
