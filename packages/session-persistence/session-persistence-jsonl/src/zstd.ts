@@ -14,6 +14,9 @@ const zstdDecompressAsync = promisify(zstdDecompress)
 const CHECKSUM_OPTIONS: ZstdOptions = {
   params: { [constants.ZSTD_c_checksumFlag]: 1 },
 }
+const PARTIAL_DECOMPRESS_OPTIONS: ZstdOptions = {
+  finishFlush: constants.ZSTD_e_flush,
+}
 
 /** Byte range occupied by one structurally complete Zstandard frame. */
 export interface ZstdFrameRange {
@@ -112,5 +115,5 @@ export async function compressZstdFrame(input: Buffer | string): Promise<Buffer>
  * @returns plaintext produced from the available input.
  */
 export async function decompressZstdFrame(input: Buffer): Promise<Buffer> {
-  return zstdDecompressAsync(input)
+  return zstdDecompressAsync(input, PARTIAL_DECOMPRESS_OPTIONS)
 }
