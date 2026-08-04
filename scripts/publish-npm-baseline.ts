@@ -8,13 +8,15 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   readdirSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, dirname, isAbsolute, join, normalize, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path'
 import { createInterface } from 'node:readline/promises'
+import { pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
 
 const DEFAULT_REGISTRY = 'https://registry.npm.harnessment.com'
@@ -27,6 +29,67 @@ const DEPENDENCY_SECTIONS = [
   'peerDependencies',
 ] as const
 const RELEASE_MANIFEST_NAME = 'manifest.json'
+const POSIX_TUI_PROBE = String.raw`
+import errno, fcntl, os, pty, select, signal, struct, sys, termios, time
+node, bin_path, cwd, timeout_seconds = sys.argv[1:]
+pid, fd = pty.fork()
+if pid == 0:
+    os.chdir(cwd)
+    os.execvpe(node, [node, bin_path], os.environ.copy())
+fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
+
+output = bytearray()
+welcome_dismissed = False
+welcome_dismissed_at = None
+session_seen_at = None
+exit_sent = False
+deadline = time.monotonic() + float(timeout_seconds)
+status = None
+while time.monotonic() < deadline:
+    ready, _, _ = select.select([fd], [], [], 0.05)
+    if ready:
+        try:
+            chunk = os.read(fd, 65536)
+        except OSError as error:
+            if error.errno != errno.EIO:
+                raise
+            chunk = b""
+        if chunk:
+            output.extend(chunk)
+
+    now = time.monotonic()
+    snapshot = bytes(output)
+    if not welcome_dismissed and b"Enter  " in snapshot:
+        os.write(fd, b"\r")
+        welcome_dismissed = True
+        welcome_dismissed_at = now
+    if b"main-session-" in snapshot and session_seen_at is None:
+        session_seen_at = now
+    if not exit_sent and session_seen_at is not None:
+        if welcome_dismissed_at is not None and now - welcome_dismissed_at >= 0.2:
+            os.write(fd, b"/exit\r")
+            exit_sent = True
+        elif not welcome_dismissed and now - session_seen_at >= 1.0:
+            os.write(fd, b"/exit\r")
+            exit_sent = True
+
+    waited, candidate = os.waitpid(pid, os.WNOHANG)
+    if waited == pid:
+        status = candidate
+        break
+
+if status is None:
+    os.kill(pid, signal.SIGKILL)
+    _, status = os.waitpid(pid, 0)
+sys.stdout.buffer.write(output)
+if session_seen_at is None:
+    sys.stderr.write("installed dsh TUI did not reach its main-session ready signal\n")
+    sys.exit(124)
+actual_exit = os.waitstatus_to_exitcode(status)
+if actual_exit != 0:
+    sys.stderr.write(f"installed dsh TUI exited {actual_exit}, expected 0\n")
+    sys.exit(125)
+`
 
 interface CommandResult {
   status: number
@@ -132,8 +195,8 @@ class CommandRunner {
     if (result.error !== undefined) throw result.error
     return {
       status: result.status ?? 1,
-      stdout: result.stdout ?? '',
-      stderr: result.stderr ?? '',
+      stdout: result.stdout,
+      stderr: result.stderr,
     }
   }
 }
@@ -346,6 +409,83 @@ class ReleaseBundle {
   }
 }
 
+/** Installs one complete bundle outside the workspace and probes the shipped dsh entry. */
+class InstalledBundleSmoke {
+  constructor(
+    private readonly bundle: ReleaseBundle,
+    private readonly runner: CommandRunner,
+  ) {}
+
+  run(): void {
+    const consumerRoot = mkdtempSync(join(tmpdir(), 'dsh-npm-consumer-'))
+    try {
+      const dependencies = Object.fromEntries(this.bundle.manifest.packages.map(pkg => [
+        pkg.name,
+        pathToFileURL(this.bundle.tarballPath(pkg)).href,
+      ]))
+      writeFileSync(resolve(consumerRoot, 'package.json'), `${JSON.stringify({
+        name: 'dsh-npm-baseline-consumer',
+        version: '0.0.0',
+        private: true,
+        dependencies,
+      }, null, 2)}\n`)
+
+      console.log(
+        `publish-npm-baseline: installing ${this.bundle.manifest.packages.length} local tarballs`,
+      )
+      this.runner.run('npm', [
+        'install',
+        '--no-audit',
+        '--no-fund',
+        '--package-lock=false',
+        `--registry=${this.bundle.manifest.registry}`,
+      ], consumerRoot, npmClientEnvironment())
+
+      const bin = resolve(consumerRoot, 'node_modules/@deepseek-ai/dsh/lib/bin.js')
+      assertPathWithin(consumerRoot, bin, 'installed dsh bin')
+      const environment = installedArtifactEnvironment(consumerRoot)
+      const version = this.runner.capture(
+        process.execPath,
+        [bin, '--version'],
+        consumerRoot,
+        environment,
+      )
+      if (version !== this.bundle.manifest.version) {
+        throw new Error(
+          `installed dsh --version returned ${JSON.stringify(version)}; `
+          + `expected ${this.bundle.manifest.version}`,
+        )
+      }
+      const config = this.runner.capture(
+        process.execPath,
+        [bin, '--dump-default-config'],
+        consumerRoot,
+        environment,
+      )
+      if (config === '') throw new Error('installed dsh --dump-default-config returned no output')
+      this.probeTui(bin, consumerRoot, environment)
+      console.log('publish-npm-baseline: installed dsh entry and TUI probes passed')
+    } finally {
+      rmSync(consumerRoot, { recursive: true, force: true })
+    }
+  }
+
+  private probeTui(bin: string, consumerRoot: string, environment: NodeJS.ProcessEnv): void {
+    if (process.platform === 'win32') {
+      throw new Error('installed dsh TUI probe requires a POSIX host with python3')
+    }
+    const result = this.runner.result(
+      'python3',
+      ['-c', POSIX_TUI_PROBE, process.execPath, bin, consumerRoot, '60'],
+      consumerRoot,
+      environment,
+    )
+    if (result.status !== 0) {
+      throw commandFailure('python3', ['installed-dsh-tui-probe'], result)
+    }
+  }
+}
+
 /** Builds a release bundle without mutating the caller's checkout. */
 class BaselinePackager {
   constructor(
@@ -410,6 +550,7 @@ class BaselinePackager {
 
       console.log(`publish-npm-baseline: installing detached worktree ${plan.shortCommit}`)
       this.runner.run('pnpm', ['install', '--frozen-lockfile'], worktree.path)
+      this.runner.run('pnpm', ['run', 'constraints'], worktree.path)
       packageSet.stage(worktree.path, plan.version)
       mkdirSync(artifactDirectory, { recursive: true })
       createdArtifactDirectory = true
@@ -437,6 +578,7 @@ class BaselinePackager {
         plan.registry,
         this.runner,
       )
+      new InstalledBundleSmoke(bundle, this.runner).run()
       createdArtifactDirectory = false
       console.log(`publish-npm-baseline: packed ${bundle.manifest.packages.length} packages`)
       console.log(`  version:  ${bundle.manifest.version}`)
@@ -474,7 +616,8 @@ class RegistryPublication {
   ) {}
 
   async publish(assumeYes: boolean): Promise<void> {
-    this.preflight()
+    this.pingRegistry()
+    this.requireIdentity()
     if (!assumeYes) await this.confirm()
 
     for (const pkg of this.bundle.manifest.packages) {
@@ -498,13 +641,15 @@ class RegistryPublication {
       }
       this.ensureDistTag(pkg.name)
     }
-    console.log(
-      `publish-npm-baseline: published or confirmed ${this.bundle.manifest.packages.length} packages`,
-    )
+    this.verifyRemote()
   }
 
   verify(): void {
-    this.preflight()
+    this.pingRegistry()
+    this.verifyRemote()
+  }
+
+  private verifyRemote(): void {
     for (const pkg of this.bundle.manifest.packages) {
       const integrity = this.remoteIntegrity(pkg.name)
       if (integrity === undefined) {
@@ -528,11 +673,15 @@ class RegistryPublication {
     )
   }
 
-  private preflight(): void {
+  private pingRegistry(): void {
     const { registry } = this.bundle.manifest
     this.runner.capture(
       'npm', ['ping', `--registry=${registry}`], this.npmWorkingDirectory, this.npmEnvironment,
     )
+  }
+
+  private requireIdentity(): void {
+    const { registry } = this.bundle.manifest
     const identity = this.runner.capture(
       'npm', ['whoami', `--registry=${registry}`], this.npmWorkingDirectory, this.npmEnvironment,
     )
@@ -648,13 +797,8 @@ function stageInternalDependencies(
   releaseVersion: string,
   context: string,
 ): void {
-  for (const section of DEPENDENCY_SECTIONS) {
-    const dependencies = manifest[section]
-    if (dependencies === undefined) continue
-    if (!isRecord(dependencies)) throw new Error(`${context} ${section} must be an object`)
-    for (const name of Object.keys(dependencies)) {
-      if (internalNames.has(name)) dependencies[name] = releaseVersion
-    }
+  for (const { dependencies, name } of internalDependencyEntries(manifest, internalNames, context)) {
+    dependencies[name] = releaseVersion
   }
 }
 
@@ -664,18 +808,33 @@ function validateInternalDependencyPins(
   releaseVersion: string,
   context: string,
 ): void {
+  for (const { section, name, range } of internalDependencyEntries(manifest, internalNames, context)) {
+    if (range !== releaseVersion) {
+      throw new Error(
+        `${context} has internal ${section} ${name}@${String(range)}; `
+        + `expected exact version ${releaseVersion}`,
+      )
+    }
+  }
+}
+
+function* internalDependencyEntries(
+  manifest: Record<string, unknown>,
+  internalNames: ReadonlySet<string>,
+  context: string,
+): Generator<{
+  section: typeof DEPENDENCY_SECTIONS[number]
+  dependencies: Record<string, unknown>
+  name: string
+  range: unknown
+}> {
   for (const section of DEPENDENCY_SECTIONS) {
     const dependencies = manifest[section]
     if (dependencies === undefined) continue
     if (!isRecord(dependencies)) throw new Error(`${context} ${section} must be an object`)
     for (const [name, range] of Object.entries(dependencies)) {
       if (!internalNames.has(name)) continue
-      if (range !== releaseVersion) {
-        throw new Error(
-          `${context} has internal ${section} ${name}@${String(range)}; `
-          + `expected exact version ${releaseVersion}`,
-        )
-      }
+      yield { section, dependencies, name, range }
     }
   }
 }
@@ -715,6 +874,33 @@ function npmClientEnvironment(): NodeJS.ProcessEnv {
   delete environment.npm_config_user_agent
   delete environment.NPM_CONFIG_USER_AGENT
   return environment
+}
+
+function installedArtifactEnvironment(consumerRoot: string): NodeJS.ProcessEnv {
+  const environment = npmClientEnvironment()
+  delete environment.NODE_OPTIONS
+  delete environment.NODE_PATH
+  environment.DSH_HOME = resolve(consumerRoot, '.dsh')
+  environment.DSH_AGENTS_HOME = resolve(consumerRoot, '.agents')
+  environment.DSH_TELEMETRY_DISABLED = '1'
+  environment.DEEPSEEK_API_KEY = 'keyless-installed-tui-no-call'
+  environment.LANG = 'en_US.UTF-8'
+  environment.LC_ALL = 'en_US.UTF-8'
+  environment.LC_CTYPE = 'en_US.UTF-8'
+  environment.TERM = 'xterm-256color'
+  environment.COLUMNS = '100'
+  environment.LINES = '30'
+  delete environment.COLORTERM
+  return environment
+}
+
+function assertPathWithin(root: string, path: string, label: string): void {
+  const rootPath = realpathSync.native(root)
+  const candidate = realpathSync.native(path)
+  const fromRoot = relative(rootPath, candidate)
+  if (fromRoot === '..' || fromRoot.startsWith(`..${sep}`) || isAbsolute(fromRoot)) {
+    throw new Error(`${label} resolved outside the isolated consumer: ${candidate}`)
+  }
 }
 
 function validateDistTag(value: string): void {
@@ -779,7 +965,9 @@ function formatCopyableCommand(command: string, args: string[]): string {
 
 function quoteShellArgument(value: string): string {
   if (/^[\w./:@=+-]+$/.test(value)) return value
-  return `'${value.replaceAll("'", `'"'"'`)}'`
+  const singleQuote = String.fromCodePoint(39)
+  const escapedSingleQuote = `${singleQuote}"${singleQuote}"${singleQuote}`
+  return `${singleQuote}${value.replaceAll(singleQuote, escapedSingleQuote)}${singleQuote}`
 }
 
 function printUsage(): void {

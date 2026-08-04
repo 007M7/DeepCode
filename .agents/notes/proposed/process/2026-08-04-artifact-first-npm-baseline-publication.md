@@ -23,16 +23,22 @@ The prerelease version consists of the package stable base version, a second-pre
 The pack phase runs in this order:
 
 1. Resolve the ref to an immutable commit, capture the UTC timestamp, derive the version from that commit's root manifest, and display the commit, timestamp, version, tag, registry, and output path. Both `pack` and `release` wait for Enter at this point before expensive work; `--yes` skips this confirmation for automation.
-2. Install the frozen lockfile in an isolated detached worktree. Uncommitted files and old build output from the caller's working tree must not affect publication.
+2. Install the frozen lockfile in an isolated detached worktree and run source-manifest publication constraints before staging. Uncommitted files and old build output from the caller's working tree must not affect publication.
 3. Stage every target manifest with the derived version, remove its publication-time `private` marker, and rewrite internal workspace dependencies in `dependencies`, `devDependencies`, `optionalDependencies`, and `peerDependencies` to the same exact version.
-4. Build the target commit completely, then run publint, built-package invariants, and publication-payload gates.
+4. Build the target commit completely, then run publint and built-package invariants.
 5. Pack every package in the target set without performing a registry write.
 6. Inspect each tarball's package manifest, file inventory, internal dependency versions, name, and version, rejecting missing, duplicate, or extra tarballs.
 7. Generate a release manifest and checksums containing the commit, version, tag, registry, and each package's tarball path, SHA-256, and npm integrity.
-8. Install isolated consumers from the local tarballs and run the artifact-plane integration tests defined below.
+8. Install an isolated consumer from the local tarballs and run the installed-artifact probes available in the current implementation; expand those probes to the complete artifact-plane integration matrix defined below.
 9. Print one directly executable publish command only after the complete set passes. The pack command itself always remains free of remote writes.
 
 The local `release` command composes pack and publish. It first uses the pack confirmation above to fix the expected timestamp and version, then waits for Enter again after a successful pack before publishing the same manifest; `release --yes` skips both confirmations. Separate `pack` and `publish --manifest` operations remain the primitives used by split CI jobs and recovery.
+
+## Current implementation boundary
+
+The checked-in pack command implements fixed-commit staging, exact internal dependency pins, static and tarball payload checks, the immutable manifest, and an isolated npm installation with every release tarball as a local top-level dependency. It runs the installed `dsh --version` and `dsh --dump-default-config` entries under plain Node, then starts the installed default TUI in a POSIX PTY, waits for its `main-session-` ready signal, and exits through `/exit` before printing the publish command. Publish supports integrity-based resumption, separates read-only registry verification from the authenticated identity check, and finishes with a complete remote integrity and dist-tag verification pass.
+
+Pull-request CI does not invoke the pack command; the installed-entry probes are local release checks rather than merge gates. Credential-free CI execution, package-owned probes for every other bin and public runtime entry, workflow-artifact transfer, and the protected publication job remain proposal scope.
 
 ## Publication payload contract
 

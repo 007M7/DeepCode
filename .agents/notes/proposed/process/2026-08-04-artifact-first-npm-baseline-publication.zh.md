@@ -23,16 +23,22 @@ monorepo 中可运行的源码并不能证明发布后的包可运行。workspac
 pack 阶段按以下顺序执行：
 
 1. 将 ref 解析成不可变 commit，采集 UTC 时间戳，从该 commit 的根 manifest 派生版本，并显示 commit、时间戳、版本、tag、注册表和输出路径。`pack` 与 `release` 此时都会在昂贵操作开始前等待 Enter；自动化可用 `--yes` 跳过该确认。
-2. 在隔离的 detached worktree 中安装 frozen lockfile；调用方工作树中的未提交文件和旧构建输出不得参与发布。
+2. 在隔离的 detached worktree 中安装 frozen lockfile，并在暂存发布 manifest 之前运行源码 manifest 发布约束；调用方工作树中的未提交文件和旧构建输出不得参与发布。
 3. 将所有目标 manifest 暂存为派生版本，移除发布时的 `private` 标记，并把 `dependencies`、`devDependencies`、`optionalDependencies` 与 `peerDependencies` 中的内部 workspace 依赖全部改写为同一精确版本。
-4. 完整构建目标 commit，再运行 publint、已构建包不变式和发布 payload 门禁。
+4. 完整构建目标 commit，再运行 publint 和已构建包不变式。
 5. 为目标集合中的每个包执行 pack，但不执行任何注册表写入。
 6. 检查 tarball 内的 package manifest、文件清单、内部依赖版本、包名和版本，并拒绝缺失、重复或额外的 tarball。
 7. 生成包含 commit、版本、tag、注册表、每个包的 tarball 路径、SHA-256 与 npm integrity 的 release manifest 和校验和文件。
-8. 从本地 tarball 安装隔离消费方并运行下文定义的产物平面集成测试。
+8. 从本地 tarball 安装一个隔离消费方，运行当前实现已有的安装态产物探测，并将这些探测扩展为下文定义的完整产物平面集成测试矩阵。
 9. 仅当整个集合通过时输出一个可直接执行的 publish 命令；pack 命令本身始终保持无远端写入。
 
 本地 `release` 命令组合 pack 与 publish。它先通过上述 pack 确认确定预期时间戳和版本，再在 pack 成功后等待第二次 Enter，随后发布同一 manifest；`release --yes` 跳过两次确认。独立的 `pack` 与 `publish --manifest` 仍是 CI 分 job 和断点恢复使用的基础操作。
+
+## 当前实现边界
+
+已提交的 pack 命令实现了固定 commit 暂存、内部依赖精确固化、静态与 tarball payload 检查、不可变 manifest，以及把每个发布 tarball 都作为本地顶层依赖的隔离 npm 安装。它在输出 publish 命令前，用普通 Node 运行安装后的 `dsh --version` 与 `dsh --dump-default-config` 入口，再在 POSIX PTY 中启动安装后的默认 TUI，等待其 `main-session-` 就绪信号，并通过 `/exit` 退出。Publish 支持按 integrity 恢复，将只读注册表验证与认证身份检查分离，并以完整的远端 integrity 和 dist-tag 验证结束。
+
+拉取请求 CI 不会调用 pack 命令；安装态入口探测属于本地发布检查，而不是合并门禁。免凭据 CI 执行、其他每个 bin 与公开运行时入口的包自有探测、workflow artifact 传递及受保护 publish job 仍属于提案范围。
 
 ## 发布 payload 契约
 
