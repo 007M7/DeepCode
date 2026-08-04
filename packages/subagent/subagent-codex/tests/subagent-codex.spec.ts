@@ -210,7 +210,7 @@ async function initializeWire(): Promise<{
   const starting = wire.startThread(process.cwd(), new AbortController().signal)
   const threadStart = await child.peer.nextMethod('thread/start')
   child.peer.respond(threadStart, { thread: { id: 'thread-1', ephemeral: true } })
-  await expect(starting).resolves.toBe('thread-1')
+  await starting
   return { child, wire }
 }
 
@@ -514,6 +514,21 @@ describe('CodexAppServerWire', () => {
       await expect(result).rejects.toThrow(scenario.message)
       wire.close()
     }
+  })
+
+  it('keeps an earlier fatal frame authoritative over later completion in the same chunk', async () => {
+    const { child, wire } = await initializeWire()
+    const result = wire.runTurn(['task'], new AbortController().signal, () => false)
+    const turnStart = await child.peer.nextMethod('turn/start')
+    child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
+    await nextTask()
+    child.peer.send(
+      agentMessage('invalid', 'future_phase'),
+      agentMessage('late answer', 'final_answer'),
+      turnCompleted('completed'),
+    )
+    await expect(result).rejects.toThrow('unknown agent message phase')
+    wire.close()
   })
 
   it('gives local cancellation precedence over a remote completed turn', async () => {
@@ -1036,6 +1051,37 @@ describe('disposeCodexChild', () => {
     expect(end).toHaveBeenCalled()
     expect(child.terminate).toHaveBeenCalledTimes(1)
     expect(child.waitForExit).toHaveBeenCalledTimes(1)
+  })
+
+  it('accepts fractional and larger-than-Node grace windows', async () => {
+    for (const graceMs of [0.25, Number.MAX_VALUE]) {
+      const child = fakeChild()
+      const wire = new CodexAppServerWire(child.handle.stdout!, child.handle.stdin!)
+      await expect(disposeCodexChild(wire, child.handle, graceMs))
+        .resolves.toBeUndefined()
+      const signal = vi.mocked(child.waitForExit).mock.calls[0]?.[0]
+      expect(signal?.aborted).toBe(false)
+    }
+  })
+
+  it('chains a doubled grace window beyond one Node timer segment', async () => {
+    vi.useFakeTimers()
+    try {
+      const child = fakeChild({ exitOnTerminate: false })
+      const wire = new CodexAppServerWire(child.handle.stdout!, child.handle.stdin!)
+      const disposal = disposeCodexChild(
+        wire,
+        child.handle,
+        1_073_741_823.75,
+      )
+      const rejected = expect(disposal)
+        .rejects.toThrow('did not exit within its dispose window')
+      await vi.advanceTimersByTimeAsync(2_147_483_647)
+      await vi.advanceTimersByTimeAsync(1)
+      await rejected
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('contains a concurrently closed stdin error', async () => {

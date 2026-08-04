@@ -2,7 +2,13 @@ import { mkdtempSync, readFileSync, statSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { killGroup, OutputCollector, spawnSubprocess, taskkillProcessTree } from '../src/spawn.ts'
+import {
+  killGroup,
+  OutputCollector,
+  scheduleFiniteTimeout,
+  spawnSubprocess,
+  taskkillProcessTree,
+} from '../src/spawn.ts'
 import type { SubprocessHandle, SubprocessOutputReader } from '@deepseek-ai/dsh-subprocess'
 
 const { failNextClose, failNextUnlink } = vi.hoisted(() => ({
@@ -101,6 +107,30 @@ async function waitForPidFile(path: string, timeoutMs = 5_000): Promise<number> 
   throw new Error(`pid file ${path} was not written after ${timeoutMs}ms`)
 }
 
+describe('scheduleFiniteTimeout', () => {
+  it('rounds fractions up, chains Node-safe segments, and cancels idempotently', async () => {
+    vi.useFakeTimers()
+    try {
+      const fired = vi.fn()
+      const chained = scheduleFiniteTimeout(2_147_483_647.25, fired)
+      await vi.advanceTimersByTimeAsync(2_147_483_647)
+      expect(fired).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(fired).toHaveBeenCalledOnce()
+      chained.cancel()
+
+      const cancelled = vi.fn()
+      const timer = scheduleFiniteTimeout(0.25, cancelled)
+      timer.cancel()
+      timer.cancel()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(cancelled).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
 describe('spawnSubprocess', () => {
   it('captures stdout on success', async () => {
     const result = await finish(spawnSubprocess(spec('echo hello')))
@@ -162,6 +192,17 @@ describe('spawnSubprocess', () => {
     running.terminate()
     const result = await running.done
     expect(result.signal).toBe('SIGKILL')
+  })
+
+  it('cancels a larger-than-Node escalation timer once SIGTERM removes the tree', async () => {
+    const running = spawnSubprocess(spec('echo ready; sleep 60', {
+      graceMs: Number.MAX_VALUE,
+    }))
+    await waitForStdout(running, 'ready\n')
+    running.terminate()
+    const result = await running.done
+    expect(result.signal).toBe('SIGTERM')
+    await expect(running.waitForExit()).resolves.toBe(true)
   })
 
   it('terminates the whole process group (grandchildren die too)', async () => {

@@ -17,12 +17,17 @@ type JsonObject = Record<string, unknown>
 interface Deferred<T> {
   readonly promise: Promise<T>
   readonly resolve: (value: T) => void
+  readonly reject: (reason?: unknown) => void
 }
 
 function deferred<T>(): Deferred<T> {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>((settle) => { resolve = settle })
-  return { promise, resolve }
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((settle, fail) => {
+    resolve = settle
+    reject = fail
+  })
+  return { promise, resolve, reject }
 }
 
 function object(value: unknown, label: string): JsonObject {
@@ -93,7 +98,7 @@ async function raceAbort<T>(pending: Promise<T>, signal: AbortSignal): Promise<T
  */
 export class CodexAppServerWire {
   private readonly transport: JsonRpcLineTransport
-  private readonly fatal = deferred<Error>()
+  private readonly fatal = deferred<never>()
   private threadId: string | undefined
   private turnId: string | undefined
   private pendingTurnId: string | undefined
@@ -111,6 +116,10 @@ export class CodexAppServerWire {
     output: Writable,
   ) {
     this.transport = new JsonRpcLineTransport(input, output)
+    // Fatal protocol state can arrive after the current guarded operation has
+    // already settled. Keep the shared rejection observed without inserting
+    // another promise-adoption hop into active races.
+    void this.fatal.promise.catch(() => {})
     this.transport.onRequest((method, params) => this.handleServerRequest(method, params))
     this.transport.onNotification((method, params) => {
       try {
@@ -157,9 +166,8 @@ export class CodexAppServerWire {
    * Create the run's private ephemeral thread and retain its identity.
    * @param cwd - parent Session workspace.
    * @param signal - unpublished-start cancellation.
-   * @returns the app-server thread id.
    */
-  async startThread(cwd: string, signal: AbortSignal): Promise<string> {
+  async startThread(cwd: string, signal: AbortSignal): Promise<void> {
     const response = object(await this.guarded(this.transport.request('thread/start', {
       cwd,
       ephemeral: true,
@@ -170,7 +178,6 @@ export class CodexAppServerWire {
       throw new Error('subagent-codex: app-server did not create an ephemeral thread')
     }
     this.threadId = id
-    return id
   }
 
   /**
@@ -249,15 +256,12 @@ export class CodexAppServerWire {
   }
 
   private async guarded<T>(pending: Promise<T>, signal: AbortSignal): Promise<T> {
-    const withFatal = Promise.race([
-      pending,
-      this.fatal.promise.then((error): Promise<never> => Promise.reject(error)),
-    ])
+    const withFatal = Promise.race([pending, this.fatal.promise])
     return raceAbort(withFatal, signal)
   }
 
   private fail(error: Error): void {
-    this.fatal.resolve(error)
+    this.fatal.reject(error)
   }
 
   private readonly onInputError = (error: Error): void => {

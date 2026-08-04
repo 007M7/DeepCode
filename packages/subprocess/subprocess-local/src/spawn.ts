@@ -55,6 +55,47 @@ function sleepTick(): Promise<void> {
   return sleepMs(15)
 }
 
+/** Largest delay Node schedules without collapsing it to one millisecond. */
+const MAX_TIMER_DELAY_MS = 2_147_483_647n
+
+/**
+ * Schedule a positive finite millisecond delay across as many Node-safe timer
+ * segments as necessary. Fractional milliseconds round up so a grace never
+ * expires earlier than configured.
+ * @param delayMs - positive finite delay in milliseconds.
+ * @param callback - work to run after the complete delay.
+ * @returns a handle that cancels the active segment and all future segments.
+ */
+export function scheduleFiniteTimeout(
+  delayMs: number,
+  callback: () => void,
+): { cancel(): void } {
+  let remaining = BigInt(Math.ceil(delayMs))
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const arm = (): void => {
+    const chunk = remaining > MAX_TIMER_DELAY_MS
+      ? MAX_TIMER_DELAY_MS
+      : remaining
+    remaining -= chunk
+    timer = setTimeout(() => {
+      timer = undefined
+      if (remaining === 0n) {
+        callback()
+      } else {
+        arm()
+      }
+    }, Number(chunk))
+  }
+  arm()
+  return {
+    cancel(): void {
+      if (timer === undefined) return
+      clearTimeout(timer)
+      timer = undefined
+    },
+  }
+}
+
 let spillCounter = 0
 let defaultSpillDir: string | undefined
 
@@ -341,7 +382,7 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
   const stdoutCollector = collectStream(outMode, child.stdout, 'stdout')
   const stderrCollector = collectStream(errMode, child.stderr, 'stderr')
 
-  let graceTimer: NodeJS.Timeout | undefined
+  let graceTimer: ReturnType<typeof scheduleFiniteTimeout> | undefined
   let settled = false
 
   // Failed spawns use pid -1 so signalling remains a no-op.
@@ -377,6 +418,8 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
   // child and must stay signalable, while a fully-dead tree (possible pid
   // reuse) must not be re-signalled by a later tier.
   const kill = (sig: NodeJS.Signals): void => {
+    /* v8 ignore next -- the exit monitor cancels the ordinary dead-tree timer;
+       this remains the timer/death race guard and cannot be staged deterministically. */
     if (!treeAlive()) return
     signalTree(platform, pid, sig, child, taskkill)
   }
@@ -390,7 +433,15 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
     // kill() re-probes tree liveness before force-killing. It stays ref'd:
     // the pending SIGKILL is a commitment, and a parent exiting before it
     // fires would orphan a trapped survivor. Self-bounds at graceMs.
-    graceTimer = setTimeout(() => { kill('SIGKILL') }, spec.graceMs)
+    const timer = scheduleFiniteTimeout(spec.graceMs, () => { kill('SIGKILL') })
+    graceTimer = timer
+    // A very large configured grace must not pin the parent after TERM already
+    // removed the whole tree. Keep the escalation armed only while its target
+    // remains alive; direct-child settlement alone is not sufficient.
+    void waitForExit().then(() => {
+      timer.cancel()
+      graceTimer = undefined
+    })
   }
 
   // The caller owns timeout classification; this layer only reacts to abort.
@@ -405,7 +456,7 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
   }
 
   const done = new Promise<SubprocessOutcome>((resolve, reject) => {
-    let pipeDrainTimer: NodeJS.Timeout | undefined
+    let pipeDrainTimer: ReturnType<typeof scheduleFiniteTimeout> | undefined
     const settle = (exitCode: number | null, signal: NodeJS.Signals | null): void => {
       if (settled) return
       settled = true
@@ -428,13 +479,15 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
       // A surviving descendant that inherited a pipe must not hold the
       // outcome open indefinitely: after exit, the same bounded grace that
       // governs kills also bounds the close wait.
-      pipeDrainTimer = setTimeout(() => { settle(exitCode, signal) }, spec.graceMs)
+      pipeDrainTimer = scheduleFiniteTimeout(spec.graceMs, () => {
+        settle(exitCode, signal)
+      })
     })
     child.on('close', settle)
     function cleanup(): void {
       // graceTimer deliberately NOT cleared: the SIGKILL escalation must be
       // able to reach tree survivors after the direct child settles.
-      if (pipeDrainTimer !== undefined) clearTimeout(pipeDrainTimer)
+      pipeDrainTimer?.cancel()
       spec.signal?.removeEventListener('abort', onAbort)
     }
   })
