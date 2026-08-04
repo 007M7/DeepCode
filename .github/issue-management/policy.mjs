@@ -12,6 +12,7 @@ const AUDIT_MARKER = '<!-- dsh-issue-policy -->'
 const OWNER_LINE = /^Owner: @([A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?)$/
 const TYPES = new Set(['Idea', 'Feature', 'Bug', 'Research', 'Task'])
 const PRIORITIES = ['p0', 'p1', 'p2', 'p3']
+const ACTIVE_STATUS_ORDER = ['Inbox', 'Backlog', 'Ready', 'In progress', 'In review']
 
 /**
  * Return Markdown outside balanced details elements.
@@ -127,6 +128,22 @@ export function requiresPullRequestPolicy({
 }) {
   const automated = authorType === 'Bot' || authorType === 'App'
   return !isDraft && !automated && (reviewRequestCount > 0 || reviewCount > 0)
+}
+
+/**
+ * Derive a forward-only Issue status from the current PR phase.
+ * @param {string|null} currentStatus Current Project status.
+ * @param {{isDraft: boolean, reviewRequestCount: number, reviewCount: number}} pull PR phase.
+ * @returns {string|null} Status to write, or null when no forward transition exists.
+ */
+export function nextResolvingIssueStatus(currentStatus, pull) {
+  const target =
+    !pull.isDraft && (pull.reviewRequestCount > 0 || pull.reviewCount > 0)
+      ? 'In review'
+      : 'In progress'
+  const currentIndex = ACTIVE_STATUS_ORDER.indexOf(currentStatus)
+  const targetIndex = ACTIVE_STATUS_ORDER.indexOf(target)
+  return currentIndex >= 0 && currentIndex < targetIndex ? target : null
 }
 
 function stripIgnoredMarkdown(body) {
@@ -491,11 +508,13 @@ async function pullRequestSnapshot(number) {
   }
 }
 
-async function moveResolvingIssues(pull, from, to) {
+async function advanceResolvingIssues(pull) {
   for (const number of pull.references.resolving) {
     const current = await issueSnapshot(number)
-    if (!current || current.status !== from) continue
-    await setStatus(number, to)
+    if (!current) continue
+    const target = nextResolvingIssueStatus(current.status, pull)
+    if (!target) continue
+    await setStatus(number, target)
     await auditIssue(number)
   }
 }
@@ -530,12 +549,7 @@ async function runLifecycle(eventName, event) {
 
   if (eventName === 'pull_request' || eventName === 'pull_request_review') {
     const pull = await pullRequestSnapshot(event.pull_request.number)
-    const errors = validatePullRequest(pull)
-    if (errors.length > 0) return
-    await moveResolvingIssues(pull, 'Ready', 'In progress')
-    if (pull.reviewRequestCount > 0 || pull.reviewCount > 0) {
-      await moveResolvingIssues(pull, 'In progress', 'In review')
-    }
+    await advanceResolvingIssues(pull)
   }
 }
 
