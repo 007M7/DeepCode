@@ -64,7 +64,7 @@ function liveAgent(
       content: [{ type: 'text', text: `prompt ${String(turn)}` }],
       source: { kind: 'user' },
     }), { surfaceOp: 'append' })
-    session.append('turn/end', { turn, step: 0, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn, reason: { kind: 'completed' } })
   }
   if (tail !== 'none') {
     session.append('turn/start', { turn: turns + 1 })
@@ -74,7 +74,6 @@ function liveAgent(
     }), { surfaceOp: 'append' })
     if (tail === 'aborted') session.append('turn/end', {
       turn: turns + 1,
-      step: 0,
       reason: { kind: 'aborted', reason: { kind: 'user' } },
     })
   }

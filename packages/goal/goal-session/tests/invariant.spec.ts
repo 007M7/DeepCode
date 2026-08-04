@@ -41,7 +41,7 @@ function appendRound(session: Session, turn: number, content = renderGoalRoundPr
   session.append('user/message', createUserMessage({
     content, source,
   }), { surfaceOp: 'append' })
-  session.append('turn/end', { turn, step: 0, reason: { kind: 'completed' } })
+  session.append('turn/end', { turn, reason: { kind: 'completed' } })
 }
 
 async function mount(sessionFirst = false): Promise<{ ctx: Context; session: Session }> {
@@ -73,7 +73,7 @@ describe('goal-session prompt invariants', () => {
       content: [{ type: 'text', text: 'ordinary human message' }],
       source: userSource,
     }), { surfaceOp: 'append' })
-    session.append('turn/end', { turn: 4, step: 0, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn: 4, reason: { kind: 'completed' } })
 
     const stateSource = {
       kind: 'goal', goalId: change.goal.id, revision: change.goal.revision, round: 0,

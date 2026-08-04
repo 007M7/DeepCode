@@ -74,7 +74,7 @@ function appendRound(session: Session, ref: GoalRef, round: number): void {
   session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: `round ${round}` }], source,
   }), { surfaceOp: 'append' })
-  session.append('turn/end', { turn, step: 0, reason: { kind: 'completed' } })
+  session.append('turn/end', { turn, reason: { kind: 'completed' } })
 }
 
 describe('GoalService creation and replay', () => {
@@ -582,7 +582,7 @@ describe('goal replay validation', () => {
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'ordinary' }], source,
     }), { surfaceOp: 'append' })
-    session.append('turn/end', { turn, step: 0, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn, reason: { kind: 'completed' } })
     expect(foldGoal(session.events)).toEqual({ roundsStarted: 0 })
   })
 
@@ -724,7 +724,7 @@ describe('goal replay validation', () => {
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'missing' }], source,
     }), { surfaceOp: 'append' })
-    session.append('turn/end', { turn, step: 0, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn, reason: { kind: 'completed' } })
     expect(() => foldGoal(session.events)).toThrow('goal message source is invalid')
   })
 

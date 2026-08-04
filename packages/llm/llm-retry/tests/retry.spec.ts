@@ -337,7 +337,7 @@ describe('provider-routed retry policy', () => {
     expect(agent.session.events.filter(event => event.type === 'llm/retry')).toHaveLength(2)
     expect(agent.session.events.at(-1)).toMatchObject({
       type: 'turn/end',
-      data: { step: 1, reason: { kind: 'error', error: { message: 'busy three', code: 'SERVER' } } },
+      data: { reason: { kind: 'error', error: { message: 'busy three', code: 'SERVER' } } },
     })
   })
 
@@ -451,7 +451,7 @@ describe('provider-routed retry policy', () => {
     const end = agent.session.events.at(-1)
     expect(end).toMatchObject({
       type: 'turn/end',
-      data: { step: 1, reason: { kind: 'error', error: { code: 'NO_ADAPTER' } } },
+      data: { reason: { kind: 'error', error: { code: 'NO_ADAPTER' } } },
     })
     if (end?.type === 'turn/end' && end.data.reason.kind === 'error') {
       expect(end.data.reason.error.message).toContain('no adapter registered for provider')

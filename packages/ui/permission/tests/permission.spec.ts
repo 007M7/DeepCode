@@ -221,7 +221,7 @@ describe('new-session default', () => {
     })
     const legacy = freshSession('legacy-source')
     legacy.append('turn/start', { turn: 1 })
-    legacy.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
+    legacy.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     const resumed = ctx.sessions.create(SessionId('legacy-resumed'), { seed: legacy.events })
     expect(ctx.permission.current(resumed.events)).toBe('workspace-write')
     expect(resumed.events.slice(-3).map(event => event.type)).toEqual([

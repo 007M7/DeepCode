@@ -248,7 +248,7 @@ describe('durable step context', () => {
       surfaceOp: { op: 'replace', start: user.seq, end: reading.seq },
       sourceEventSeqs: [user.seq, reading.seq],
     })
-    original.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
+    original.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     expect(JSON.stringify(original.deriveMessages())).not.toContain('Time sampled while preparing')
 
     const resumed = new Session(SessionId('resumed'), [...original.events])
@@ -277,7 +277,7 @@ describe('durable step context', () => {
     const firstAgent = sessionAgent(first, 'first-agent')
     openMessageTurn(first, 1)
     await fire(ctx, firstAgent, 1, 1)
-    first.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
+    first.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
 
     vi.setSystemTime(BASE + 500)
     openMessageTurn(first, 2)

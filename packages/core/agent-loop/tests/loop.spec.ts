@@ -565,14 +565,15 @@ describe('agent loop', () => {
     await waitForIdle(ctx, agent)
 
     expect(adapter.requests).toHaveLength(0)
-    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(0)
+    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
+    expect(agent.session.events.filter(event => event.type === 'turn/end')).toHaveLength(1)
     expect(agent.inbox.nextStep).toHaveLength(1)
 
     send(agent, 'resume')
     await waitForIdle(ctx, agent)
 
     expect(adapter.requests).toHaveLength(1)
-    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
+    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(2)
     expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('pending steering')
   })
 
@@ -867,11 +868,11 @@ describe('agent loop', () => {
 
     send(agent, 'first')
     await waitForIdle(ctx, agent)
-    // The first proposal failed before opening a turn or calling the model.
+    // The first proposal failed inside a balanced turn without calling the model.
     expect(errors.map(error => error.message)).toEqual(['boom in pre-step'])
     expect(adapter.requests.length).toBe(0)
-    expect(agent.session.events.some(event => event.type === 'turn/start')).toBe(false)
-    expect(agent.session.events.some(event => event.type === 'turn/end')).toBe(false)
+    expect(agent.session.events.some(event => event.type === 'turn/start')).toBe(true)
+    expect(agent.session.events.some(event => event.type === 'turn/end')).toBe(true)
 
     // The loop survived: a second prompt runs a normal completed turn.
     send(agent, 'second')

@@ -44,5 +44,5 @@
 {"type":"session_event","sessionId":"{{sessionId}}","event":{"type":"assistant/chunk","seq":43,"time":0,"data":{"turn":1,"step":4,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}}
 {"type":"session_event","sessionId":"{{sessionId}}","event":{"type":"assistant/message","seq":44,"time":0,"data":{"turn":1,"step":4,"message":{"role":"assistant","content":[{"type":"text","text":"GOAL READY"}],"source":{"kind":"model","provider":"deepseek-official","model":"deepseek-v4-flash"},"id":"{{sessionId}}"},"usage":{"inputTokens":35,"outputTokens":2}},"sourceEventSeqs":[39,40,41,42,43],"surfaceOp":"append"}}
 {"type":"session_event","sessionId":"{{sessionId}}","event":{"type":"step/end","seq":45,"time":0,"data":{"turn":1,"step":4}}}
-{"type":"session_event","sessionId":"{{sessionId}}","event":{"type":"turn/end","seq":46,"time":0,"data":{"turn":1,"step":4,"reason":{"kind":"completed"}}}}
+{"type":"session_event","sessionId":"{{sessionId}}","event":{"type":"turn/end","seq":46,"time":0,"data":{"turn":1,"reason":{"kind":"completed"}}}}
 {"type":"result","sessionId":"{{sessionId}}","output":"GOAL READY","usage":{"inputTokens":100,"outputTokens":20}}

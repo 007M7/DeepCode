@@ -260,7 +260,7 @@ describe('same-session goal driving', () => {
       message: 'Goal round was rejected before entering its step.',
     })
     expect(test.adapter.requests).toHaveLength(0)
-    expect(test.agent.session.events.some(event => event.type === 'turn/start')).toBe(false)
+    expect(test.agent.session.events.some(event => event.type === 'turn/start')).toBe(true)
   })
 
   it('does not reserve again when a stopped-goal observer queues cancel-scoped work', async () => {
@@ -744,7 +744,7 @@ describe('same-session goal driving', () => {
     await test.agent.whenIdle()
 
     expect(test.adapter.requests).toHaveLength(0)
-    expect(test.agent.session.events.some(event => event.type === 'turn/start')).toBe(false)
+    expect(test.agent.session.events.some(event => event.type === 'turn/start')).toBe(true)
   })
 
   it('leaves round-zero goal context to the ordinary pre-step chain', async () => {
@@ -1023,7 +1023,7 @@ describe('same-session goal driving', () => {
 
     expect(test.ctx.goals.get(test.agent)).toMatchObject({ phase: 'active', roundsStarted: 0 })
     expect(test.adapter.requests).toHaveLength(0)
-    expect(test.agent.session.events.some(event => event.type === 'turn/start')).toBe(false)
+    expect(test.agent.session.events.some(event => event.type === 'turn/start')).toBe(true)
   })
 
   it('ignores session events without an exact owning agent and retires disposed agent state', async () => {
@@ -1032,7 +1032,7 @@ describe('same-session goal driving', () => {
     orphan.append('turn/start', {
       turn: 1,
     })
-    orphan.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
+    orphan.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
 
     const handle = await test.ctx.agents.create({
       sessionId: SessionId('goal-session-disposed'),

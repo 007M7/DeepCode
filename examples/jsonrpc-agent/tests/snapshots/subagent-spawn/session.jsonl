@@ -30,4 +30,4 @@
 {"type":"assistant/chunk","seq":138,"time":1785730507362,"data":{"turn":1,"step":2,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
 {"type":"assistant/message","seq":139,"time":1785730507362,"data":{"turn":1,"step":2,"message":{"role":"assistant","content":[{"type":"reasoning","text":"The subagent replied with \"child answer 42.\" Now I need to reply with the subagent's final answer verbatim."},{"type":"text","text":"child answer 42."}],"source":{"kind":"model","provider":"deepseek-official","model":"deepseek-v4-flash"},"id":"7e4e2067-1d5f-4009-a397-acd58c3b3ba3"},"usage":{"inputTokens":19,"outputTokens":32,"cacheReadTokens":1920,"reasoningTokens":26}},"sourceEventSeqs":[102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133,134,135,136,137,138],"surfaceOp":"append"}
 {"type":"step/end","seq":140,"time":1785730507362,"data":{"turn":1,"step":2}}
-{"type":"turn/end","seq":141,"time":1785730507362,"data":{"turn":1,"step":2,"reason":{"kind":"completed"}}}
+{"type":"turn/end","seq":141,"time":1785730507362,"data":{"turn":1,"reason":{"kind":"completed"}}}

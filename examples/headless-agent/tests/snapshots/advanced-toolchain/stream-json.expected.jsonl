@@ -65,5 +65,5 @@
 {"type":"session_event","sessionId":"{{sessionId}}","event":{"type":"assistant/chunk","seq":64,"time":0,"data":{"turn":1,"step":6,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}}
 {"type":"session_event","sessionId":"{{sessionId}}","event":{"type":"assistant/message","seq":65,"time":0,"data":{"turn":1,"step":6,"message":{"role":"assistant","content":[{"type":"text","text":"ADVANCED_HEADLESS_OK"}],"source":{"kind":"model","provider":"deepseek-official","model":"deepseek-v4-flash"},"id":"{{sessionId}}"},"usage":{"inputTokens":3,"outputTokens":3}},"sourceEventSeqs":[60,61,62,63,64],"surfaceOp":"append"}}
 {"type":"session_event","sessionId":"{{sessionId}}","event":{"type":"step/end","seq":66,"time":0,"data":{"turn":1,"step":6}}}
-{"type":"session_event","sessionId":"{{sessionId}}","event":{"type":"turn/end","seq":67,"time":0,"data":{"turn":1,"step":6,"reason":{"kind":"completed"}}}}
+{"type":"session_event","sessionId":"{{sessionId}}","event":{"type":"turn/end","seq":67,"time":0,"data":{"turn":1,"reason":{"kind":"completed"}}}}
 {"type":"result","sessionId":"{{sessionId}}","output":"ADVANCED_HEADLESS_OK","usage":{"inputTokens":18,"outputTokens":18}}

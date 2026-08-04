@@ -45,4 +45,4 @@
 {"type":"assistant/chunk","seq":146,"time":1785730435701,"data":{"turn":1,"step":3,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
 {"type":"assistant/message","seq":147,"time":1785730435701,"data":{"turn":1,"step":3,"message":{"role":"assistant","content":[{"type":"reasoning","text":"The file has been replaced successfully. Now I just reply with \"DONE\"."},{"type":"text","text":"DONE"}],"source":{"kind":"model","provider":"deepseek-official","model":"deepseek-v4-flash"},"id":"1411eb9b-9cc6-48fa-8d1e-2f4b91b8b9aa"},"usage":{"inputTokens":225,"outputTokens":19,"cacheReadTokens":2944,"reasoningTokens":16}},"sourceEventSeqs":[123,124,125,126,127,128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,143,144,145,146],"surfaceOp":"append"}
 {"type":"step/end","seq":148,"time":1785730435701,"data":{"turn":1,"step":3}}
-{"type":"turn/end","seq":149,"time":1785730435702,"data":{"turn":1,"step":3,"reason":{"kind":"completed"}}}
+{"type":"turn/end","seq":149,"time":1785730435702,"data":{"turn":1,"reason":{"kind":"completed"}}}

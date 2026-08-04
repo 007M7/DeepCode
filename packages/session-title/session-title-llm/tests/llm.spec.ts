@@ -89,7 +89,7 @@ function request(ctx: Context, signal = new AbortController().signal): SessionTi
     content: [{ type: 'text', text: '第二个问题' }],
     source: { kind: 'user' },
   }), { surfaceOp: 'append' })
-  session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
+  session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
   return {
     session,
     messages: [

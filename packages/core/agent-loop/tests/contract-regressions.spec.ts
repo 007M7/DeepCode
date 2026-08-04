@@ -201,7 +201,7 @@ describe('abort during tool execution ends the turn', () => {
       || event.type === 'step/start' || event.type === 'turn/end').map(event => event.type))
       .toEqual(['turn/start', 'turn/end'])
     expect(agent.session.events.find(event => event.type === 'turn/end')?.data)
-      .toEqual({ turn: 1, step: 0, reason: { kind: 'completed' } })
+      .toEqual({ turn: 1, reason: { kind: 'completed' } })
     expect(agent.inbox.nextTurn).toHaveLength(0)
   })
 
@@ -357,7 +357,7 @@ describe('plugin exceptions are contained', () => {
     send(agent, 'first')
     await waitForIdle(ctx, agent)
     expect(agent.session.events.findLast(event => event.type === 'turn/end')).toMatchObject({
-      data: { step: 1, reason: { kind: 'error', error: { message: 'broken continuation plugin', code: 'UNKNOWN' } } },
+      data: { reason: { kind: 'error', error: { message: 'broken continuation plugin', code: 'UNKNOWN' } } },
     })
 
     // the loop is still alive: a second send works normally
@@ -601,7 +601,7 @@ describe('a finish-error stream chunk ends the turn as error, not completed', ()
 
     const events = [...agent.session.events]
     const turnEnd = events.find(event => event.type === 'turn/end')
-    expect(turnEnd).toMatchObject({ data: { step: 1, reason: { kind: 'error', error: failure } } })
+    expect(turnEnd).toMatchObject({ data: { reason: { kind: 'error', error: failure } } })
     // A failed step must not synthesize an assistant message.
     expect(events.some(event => event.type === 'assistant/message')).toBe(false)
   })
@@ -781,7 +781,7 @@ describe('turn and step boundary recovery', () => {
       errors: 1,
     })
     expect(agent.session.events.findLast(event => event.type === 'turn/end')).toMatchObject({
-      data: { step: 0, reason: { kind: 'error', error: { message: 'reject step-start before commit', code: 'UNKNOWN' } } },
+      data: { reason: { kind: 'error', error: { message: 'reject step-start before commit', code: 'UNKNOWN' } } },
     })
   })
 

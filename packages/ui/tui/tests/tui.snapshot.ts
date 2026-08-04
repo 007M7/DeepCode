@@ -407,7 +407,7 @@ describe('TUI terminal-state snapshots', () => {
           ],
         })
         session.append('step/end', { turn: 1, step: 1 })
-        session.append('turn/end', { turn: 1, step: 1, reason: { kind: 'completed' } })
+        session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
         session.append('turn/start', {
           turn: 2,
         })
@@ -454,7 +454,7 @@ describe('TUI terminal-state snapshots', () => {
         },
       }),
     }, { surfaceOp: 'append' })
-    harness.session.append('turn/end', { turn: 1, step: 1, reason: { kind: 'completed' } })
+    harness.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     await checkpoint('retry-recovered', harness.terminal, { includeScrollback: true })
     await disposeSnapshot(harness)
   })
@@ -473,7 +473,7 @@ describe('TUI terminal-state snapshots', () => {
         delayMs: 1_000,
         failure: { message: 'temporary transport failure', code: 'TRANSPORT' },
       })
-      harness.session.append('turn/end', { turn: 1, step: 1, reason: { kind: 'aborted', reason: { kind: 'user' } },
+      harness.session.append('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } },
       })
     })
     await checkpoint('retry-cancelled', harness.terminal, { includeScrollback: true })
@@ -489,7 +489,7 @@ describe('TUI terminal-state snapshots', () => {
         step: 3,
         chunk: { type: 'text-delta', index: 0, text: 'discarded terminal partial output' },
       })
-      harness.session.append('turn/end', { turn: 1, step: 3, reason: { kind: 'error', error: { message: 'provider still unavailable', code: 'SERVER', status: 503 },
+      harness.session.append('turn/end', { turn: 1, reason: { kind: 'error', error: { message: 'provider still unavailable', code: 'SERVER', status: 503 },
       },
       })
     })
@@ -645,7 +645,7 @@ describe('TUI terminal-state snapshots', () => {
       harness.session.append('step/start', { turn: 1, step: 2 })
       appendAssistant(harness.session, [{ type: 'text', text: 'The renderer is sound; no refactor needed.' }], undefined, { turn: 1, step: 2 })
       harness.session.append('step/end', { turn: 1, step: 2 })
-      harness.session.append('turn/end', { turn: 1, step: 1, reason: { kind: 'completed' } })
+      harness.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     })
     // collapsed -> expanded -> hidden: one Assistant header, no tool card.
     await renderAfter(harness, () => { harness.terminal.send('\x0f') })
@@ -672,7 +672,7 @@ describe('TUI terminal-state snapshots', () => {
       ])
       appendToolResult(harness.session, 'details-1', [{ type: 'text', text: 'all tests pass' }])
       harness.session.append('step/end', { turn: 1, step: 1 })
-      harness.session.append('turn/end', { turn: 1, step: 1, reason: { kind: 'completed' } })
+      harness.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     })
     await renderAfter(harness, () => {
       harness.terminal.send('/details hidden reasoning off')
@@ -733,7 +733,7 @@ describe('TUI terminal-state snapshots', () => {
           todos: [{ content: `Unsafe todo ${CONTROL_PROBE}`, status: 'in_progress' }],
         })
         session.append('step/end', { turn: 1, step: 1 })
-        session.append('turn/end', { turn: 1, step: 1, reason: { kind: 'error', error: { message: `Unsafe turn error ${CONTROL_PROBE}`, code: 'UNKNOWN' } },
+        session.append('turn/end', { turn: 1, reason: { kind: 'error', error: { message: `Unsafe turn error ${CONTROL_PROBE}`, code: 'UNKNOWN' } },
         })
       },
     }, { columns: 100, rows: 34 })
@@ -905,18 +905,18 @@ describe('TUI terminal-state snapshots', () => {
       harness.terminal.send('\r')
       agentEvents(harness.ctx, harness.agent).emit('agent/error', 1, 1, new Error('provider stream failed after partial output'))
       harness.session.append('step/end', { turn: 1, step: 1 })
-      harness.session.append('turn/end', { turn: 1, step: 1, reason: { kind: 'error', error: { message: 'provider stream failed after partial output', code: 'UNKNOWN' } },
+      harness.session.append('turn/end', { turn: 1, reason: { kind: 'error', error: { message: 'provider stream failed after partial output', code: 'UNKNOWN' } },
       })
       harness.session.append('turn/start', { turn: 2 })
-      harness.session.append('turn/end', { turn: 2, step: 0, reason: { kind: 'interrupted' },
+      harness.session.append('turn/end', { turn: 2, reason: { kind: 'interrupted' },
       })
       harness.session.append('turn/start', { turn: 3 })
-      harness.session.append('turn/end', { turn: 3, step: 0, reason: { kind: 'aborted', reason: { kind: 'disposed' } },
+      harness.session.append('turn/end', { turn: 3, reason: { kind: 'aborted', reason: { kind: 'disposed' } },
       })
       harness.session.append('turn/start', { turn: 4 })
       // A merge-extensible turn-end kind unknown to the TUI still surfaces its
       // name so the agent never stops without a visible reason.
-      harness.session.append('turn/end', { turn: 4, step: 0, reason: { kind: 'plugin-policy' } as never })
+      harness.session.append('turn/end', { turn: 4, reason: { kind: 'plugin-policy' } as never })
     })
     await checkpoint('errors-and-help', harness.terminal, { includeScrollback: true })
 
@@ -967,7 +967,7 @@ describe('TUI terminal-state snapshots', () => {
           }),
         }, surfaceOp: 'append' },
         { type: 'step/end', seq: 5, time: Date.parse(`${day}T00:00:06Z`), data: { turn: 1, step: 1 } },
-        { type: 'turn/end', seq: 6, time: Date.parse(`${day}T00:00:07Z`), data: { turn: 1, step: 1, reason: { kind: 'completed' } } },
+        { type: 'turn/end', seq: 6, time: Date.parse(`${day}T00:00:07Z`), data: { turn: 1, reason: { kind: 'completed' } } },
         { type: 'session/title', seq: 7, time: Date.parse(`${day}T00:00:08Z`), data: { title, messageSeqs: [1], source: { kind: 'fallback' } } },
       ],
     })

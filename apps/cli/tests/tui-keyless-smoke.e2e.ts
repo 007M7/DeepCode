@@ -129,7 +129,7 @@ async function seedResumeSession(cwd: string): Promise<void> {
     { type: 'step/end', seq: 5, time: 1_700_000_000_006, data: { turn: 1, step: 1 } },
     { type: 'session/title', seq: 6, time: 1_700_000_000_007, data: { title: 'Resume selector design', messageSeqs: [1], source: { kind: 'fallback' } } },
     { type: 'todo/write', seq: 7, time: 1_700_000_000_008, data: { todos: [{ content: 'Preserve restored state', status: 'in_progress' }] } },
-    { type: 'turn/end', seq: 8, time: 1_700_000_000_009, data: { turn: 1, step: 1, reason: { kind: 'completed' } } },
+    { type: 'turn/end', seq: 8, time: 1_700_000_000_009, data: { turn: 1, reason: { kind: 'completed' } } },
   ]
   const file = logPath(join(cwd, '.sessions'), sessionCwd, id, 'none')
   await mkdir(dirname(file), { recursive: true })

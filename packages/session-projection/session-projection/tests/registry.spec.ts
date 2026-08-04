@@ -225,7 +225,7 @@ describe('SessionProjectionRegistry drive', () => {
     ctx.sessionProjections.register(countUnit())
     const tail: SessionEvent[] = [
       { type: 'test/mark', seq: 3, time: 3, data: { marks: ['new'] } },
-      { type: 'turn/end', seq: 4, time: 4, data: { turn: 1, step: 0, reason: { kind: 'completed' } } },
+      { type: 'turn/end', seq: 4, time: 4, data: { turn: 1, reason: { kind: 'completed' } } },
     ]
     // marks row usable (watermark 2, tail starts at 3); count row mismatched — but
     // a mismatch with baseSeq > 0 cannot silently refold: it throws for a re-read.
@@ -262,7 +262,7 @@ describe('SessionProjectionRegistry drive', () => {
     }
     const tail: SessionEvent[] = [
       { type: 'turn/start', seq: 3, time: 3, data: { turn: 2 } },
-      { type: 'turn/end', seq: 4, time: 4, data: { turn: 2, step: 0, reason: { kind: 'completed' } } },
+      { type: 'turn/end', seq: 4, time: 4, data: { turn: 2, reason: { kind: 'completed' } } },
     ]
     const { snapshot } = ctx.sessionProjections.restore(rows, tail, 3)
     expect(snapshot.asOfSeq).toBe(4)
@@ -302,7 +302,7 @@ describe('SessionProjectionRegistry drive', () => {
     const floor = ctx.sessionProjections.restoreFloor(rows)
     expect(floor).toBe(9)
     // …an intact log serves the anchor event and the checkpoint stands as-is.
-    const anchor: SessionEvent = { type: 'turn/end', seq: 9, time: 9, data: { turn: 2, step: 0, reason: { kind: 'completed' } } }
+    const anchor: SessionEvent = { type: 'turn/end', seq: 9, time: 9, data: { turn: 2, reason: { kind: 'completed' } } }
     expect(ctx.sessionProjections.restore(rows, [anchor], 9).snapshot.values['test/count']).toBe(10)
     // …while a log crash-repaired down to fewer events returns an empty tail:
     // the row overreaches the proven end and a tail read cannot fix this key.
@@ -310,7 +310,7 @@ describe('SessionProjectionRegistry drive', () => {
     // The full re-read discards the overreaching row and refolds from init.
     const events: SessionEvent[] = [
       { type: 'turn/start', seq: 0, time: 0, data: { turn: 1 } },
-      { type: 'turn/end', seq: 1, time: 1, data: { turn: 1, step: 0, reason: { kind: 'completed' } } },
+      { type: 'turn/end', seq: 1, time: 1, data: { turn: 1, reason: { kind: 'completed' } } },
     ]
     const { snapshot } = ctx.sessionProjections.restore(rows, events, 0)
     expect(snapshot.asOfSeq).toBe(1)

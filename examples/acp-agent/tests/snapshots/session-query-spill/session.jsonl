@@ -35,4 +35,4 @@
 {"type":"assistant/chunk","seq":33,"time":1785730422336,"data":{"turn":1,"step":3,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
 {"type":"assistant/message","seq":34,"time":1785730422337,"data":{"turn":1,"step":3,"message":{"role":"assistant","content":[{"type":"text","text":"DONE"}],"source":{"kind":"model","provider":"deepseek-official","model":"deepseek-v4-flash"},"id":"59890792-9e9c-4be8-b4f4-d25ff06855d2"},"usage":{"inputTokens":10,"outputTokens":2}},"sourceEventSeqs":[29,30,31,32,33],"surfaceOp":"append"}
 {"type":"step/end","seq":35,"time":1785730422337,"data":{"turn":1,"step":3}}
-{"type":"turn/end","seq":36,"time":1785730422337,"data":{"turn":1,"step":3,"reason":{"kind":"completed"}}}
+{"type":"turn/end","seq":36,"time":1785730422337,"data":{"turn":1,"reason":{"kind":"completed"}}}

@@ -39,7 +39,7 @@ describe('all-messages LLM title provider', () => {
     seeded.append('session/title', {
       title: 'Inherited fallback', messageSeqs: [inherited.seq], source: { kind: 'fallback' },
     })
-    seeded.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
+    seeded.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
 
     const ctx = new Context()
     await ctx.plugin(LlmService)

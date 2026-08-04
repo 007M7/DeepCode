@@ -32,4 +32,4 @@
 {"type":"assistant/chunk","seq":30,"time":1785730426852,"data":{"turn":1,"step":2,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
 {"type":"assistant/message","seq":31,"time":1785730426853,"data":{"turn":1,"step":2,"message":{"role":"assistant","content":[{"type":"reasoning","text":"The skill is loaded."},{"type":"text","text":"DONE"}],"source":{"kind":"model","provider":"deepseek-official","model":"deepseek-v4-flash"},"id":"abdbdc3b-06a3-4b5f-b807-15d6566154a0"},"usage":{"inputTokens":180,"outputTokens":10,"cacheReadTokens":0,"reasoningTokens":4}},"sourceEventSeqs":[23,24,25,26,27,28,29,30],"surfaceOp":"append"}
 {"type":"step/end","seq":32,"time":1785730426853,"data":{"turn":1,"step":2}}
-{"type":"turn/end","seq":33,"time":1785730426853,"data":{"turn":1,"step":2,"reason":{"kind":"completed"}}}
+{"type":"turn/end","seq":33,"time":1785730426853,"data":{"turn":1,"reason":{"kind":"completed"}}}

@@ -30,7 +30,7 @@ async function appendPersistedTitle(ctx: Context, id: ReturnType<typeof SessionI
     content: [{ type: 'text', text: 'Persist this session title' }],
     source: { kind: 'user' },
   }), { surfaceOp: 'append' })
-  session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
+  session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
   await ctx.sessionTitle.refresh(session)
 }
 

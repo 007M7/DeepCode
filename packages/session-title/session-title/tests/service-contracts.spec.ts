@@ -168,7 +168,7 @@ describe('SessionTitleService configuration and refresh boundaries', () => {
       turn: 1,
     })
     const source = appendPrompt(seed, 'Create exactly one fallback title')
-    seed.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
+    seed.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     const session = ctx.sessions.create(SessionId('fallback-concurrency'), { seed: seed.events })
 
     const results = await Promise.all([
@@ -210,7 +210,7 @@ describe('SessionTitleService configuration and refresh boundaries', () => {
     const session = startSession(ctx, 'refresh-order')
     const source = appendPrompt(session, 'Keep the newest explicit refresh')
     await settle()
-    session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     const requests: SessionTitleProviderRequest[] = []
     const results: Array<ReturnType<typeof deferred<SessionTitleProviderResult>>> = []
     ctx.sessionTitle.register({

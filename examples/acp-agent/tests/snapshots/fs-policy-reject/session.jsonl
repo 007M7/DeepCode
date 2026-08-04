@@ -58,4 +58,4 @@
 {"type":"assistant/chunk","seq":258,"time":1785730437959,"data":{"turn":1,"step":4,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
 {"type":"assistant/message","seq":259,"time":1785730437959,"data":{"turn":1,"step":4,"message":{"role":"assistant","content":[{"type":"reasoning","text":"The replacement was successful. I'll reply with just \"DONE\" as instructed."},{"type":"text","text":"DONE"}],"source":{"kind":"model","provider":"deepseek-official","model":"deepseek-v4-flash"},"id":"5ccbca9e-74e5-45d1-b3c8-5c4c2edc19c3"},"usage":{"inputTokens":202,"outputTokens":20,"cacheReadTokens":3456,"reasoningTokens":17}},"sourceEventSeqs":[234,235,236,237,238,239,240,241,242,243,244,245,246,247,248,249,250,251,252,253,254,255,256,257,258],"surfaceOp":"append"}
 {"type":"step/end","seq":260,"time":1785730437960,"data":{"turn":1,"step":4}}
-{"type":"turn/end","seq":261,"time":1785730437960,"data":{"turn":1,"step":4,"reason":{"kind":"completed"}}}
+{"type":"turn/end","seq":261,"time":1785730437960,"data":{"turn":1,"reason":{"kind":"completed"}}}

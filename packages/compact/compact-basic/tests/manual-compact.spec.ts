@@ -193,7 +193,7 @@ function closedConversation(turns = 2, lastTurnNumber = turns): Session {
       }),
     }, { surfaceOp: 'append' })
     session.append('step/end', { turn, step: 1 })
-    session.append('turn/end', { turn, step: 1, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn, reason: { kind: 'completed' } })
   }
   return session
 }
@@ -437,7 +437,7 @@ describe('compactNow transaction and failure classification', () => {
     const original = closedConversation(2)
     original.append('compact/start', { turn: null })
     original.append('turn/start', { turn: 3 })
-    original.append('turn/end', { turn: 3, step: 0, reason: { kind: 'interrupted' } })
+    original.append('turn/end', { turn: 3, reason: { kind: 'interrupted' } })
     const reloaded = new Session(SessionId('reloaded-orphan'), [...original.events])
     const agent = fakeAgent(reloaded, () => () => undefined)
 

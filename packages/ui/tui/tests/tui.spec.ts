@@ -281,7 +281,7 @@ describe('goodbye message and /resume', () => {
       }),
     }, surfaceOp: 'append' },
     { type: 'step/end', seq: 5, time: time + 5, data: { turn: 1, step: 1 } },
-    { type: 'turn/end', seq: 6, time: time + 6, data: { turn: 1, step: 1, reason } },
+    { type: 'turn/end', seq: 6, time: time + 6, data: { turn: 1, reason } },
     { type: 'session/title', seq: 7, time: time + 7, data: { title, messageSeqs: [1], source: { kind: 'fallback' } } },
   ]
   /** Derive the selector's batch title read from a fake per-session readSession. */
@@ -1681,10 +1681,10 @@ describe('pi-tui chat lifecycle and transcript', () => {
     }), { surfaceOp: 'append' })
     appendAssistant(result.session, [])
     result.session.append('step/end', { turn: 1, step: 1 })
-    result.session.append('turn/end', { turn: 1, step: 1, reason: { kind: 'aborted', reason: { kind: 'user' } },
+    result.session.append('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } },
     })
     result.session.append('turn/start', { turn: 2 })
-    result.session.append('turn/end', { turn: 2, step: 0, reason: { kind: 'completed' } })
+    result.session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
     result.session.append('turn/start', { turn: 3 })
     result.session.append('step/start', { turn: 3, step: 1 })
     result.session.append('assistant/chunk', {
@@ -2172,7 +2172,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
           session.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'done' } })
           clock += 1_000
           session.append('step/end', { turn: 1, step: 1 })
-          session.append('turn/end', { turn: 1, step: 1, reason: { kind: 'completed' } })
+          session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
         },
       })
       result.agent.status = 'running'
@@ -4384,25 +4384,25 @@ describe('pi-tui chat lifecycle and transcript', () => {
     agentEvents(events.ctx, unrelatedAgent).emit('agent/disposed')
     agentEvents(events.ctx, events.agent).emit('agent/error', 1, 1, new Error('live failure'))
     events.session.append('step/end', { turn: 1, step: 1 })
-    events.session.append('turn/end', { turn: 1, step: 1, reason: { kind: 'error', error: { message: 'live failure', code: 'UNKNOWN' } } })
+    events.session.append('turn/end', { turn: 1, reason: { kind: 'error', error: { message: 'live failure', code: 'UNKNOWN' } } })
     events.session.append('turn/start', { turn: 2 })
-    events.session.append('turn/end', { turn: 2, step: 0, reason: { kind: 'error', error: { message: 'durable failure', code: 'UNKNOWN' } } })
+    events.session.append('turn/end', { turn: 2, reason: { kind: 'error', error: { message: 'durable failure', code: 'UNKNOWN' } } })
     events.session.append('turn/start', { turn: 3 })
-    events.session.append('turn/end', { turn: 3, step: 0, reason: { kind: 'aborted', reason: { kind: 'user' } },
+    events.session.append('turn/end', { turn: 3, reason: { kind: 'aborted', reason: { kind: 'user' } },
     })
     events.session.append('turn/start', { turn: 4 })
-    events.session.append('turn/end', { turn: 4, step: 0, reason: { kind: 'max-tokens' } })
+    events.session.append('turn/end', { turn: 4, reason: { kind: 'max-tokens' } })
     events.session.append('turn/start', { turn: 5 })
-    events.session.append('turn/end', { turn: 5, step: 0, reason: { kind: 'interrupted' } })
+    events.session.append('turn/end', { turn: 5, reason: { kind: 'interrupted' } })
     events.session.append('turn/start', { turn: 6 })
-    events.session.append('turn/end', { turn: 6, step: 0, reason: { kind: 'error', error: { message: 'structured provider failure', code: 'SERVER' } },
+    events.session.append('turn/end', { turn: 6, reason: { kind: 'error', error: { message: 'structured provider failure', code: 'SERVER' } },
     })
     events.session.append('turn/start', { turn: 8 })
-    events.session.append('turn/end', { turn: 8, step: 0, reason: { kind: 'aborted', reason: { kind: 'disposed' } },
+    events.session.append('turn/end', { turn: 8, reason: { kind: 'aborted', reason: { kind: 'disposed' } },
     })
     events.session.append('turn/start', { turn: 9 })
     // Merge-extensible reason kind unknown to the TUI still names the stop.
-    events.session.append('turn/end', { turn: 9, step: 0, reason: { kind: 'plugin-policy' } as never })
+    events.session.append('turn/end', { turn: 9, reason: { kind: 'plugin-policy' } as never })
     agentEvents(events.ctx, events.agent).emit('agent/disposed')
     await tick()
     expect(events.terminal.output).toContain('live failure')
@@ -5612,7 +5612,7 @@ describe('tool cards and surface replay', () => {
     session.append('step/start', { turn: 1, step: 2 })
     appendAssistant(session, [{ type: 'text', text: 'second step text' }], undefined, { turn: 1, step: 2 })
     session.append('step/end', { turn: 1, step: 2 })
-    session.append('turn/end', { turn: 1, step: 1, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
   }
 
   it('folds a turn to one Assistant header in hidden mode and restores headers on cycle', async () => {
@@ -5664,14 +5664,14 @@ describe('tool cards and surface replay', () => {
     result.session.append('step/start', { turn: 1, step: 2 })
     appendAssistant(result.session, [{ type: 'text', text: 'late turn-one text' }], undefined, { turn: 1, step: 2 })
     result.session.append('step/end', { turn: 1, step: 2 })
-    result.session.append('turn/end', { turn: 1, step: 1, reason: { kind: 'completed' } })
+    result.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     // Turn 2 keeps its own header.
     result.session.append('turn/start', { turn: 2 })
     appendUser(result.session, 'next turn')
     result.session.append('step/start', { turn: 2, step: 1 })
     appendAssistant(result.session, [{ type: 'text', text: 'turn-two text' }], undefined, { turn: 2, step: 1 })
     result.session.append('step/end', { turn: 2, step: 1 })
-    result.session.append('turn/end', { turn: 2, step: 1, reason: { kind: 'completed' } })
+    result.session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
     await tick()
 
     result.terminal.send('\x0f')

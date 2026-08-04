@@ -96,7 +96,7 @@ function openTurn(session: Session, turn = 0): void {
 
 /** Close the open turn (the between-turns shape: selections commit immediately). */
 function closeTurn(session: Session, turn = 0): void {
-  session.append('turn/end', { turn, step: 0, reason: { kind: 'completed' } })
+  session.append('turn/end', { turn, reason: { kind: 'completed' } })
 }
 
 /** Append a minimal `request/header` snapshot so the log has a "what the model was told" anchor. */

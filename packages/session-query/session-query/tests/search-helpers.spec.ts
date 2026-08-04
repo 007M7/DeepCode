@@ -129,7 +129,7 @@ describe('session-query semantic extraction', () => {
       [{ kind: 'future-status' } as never, ''],
     ]
     for (const [reason, text] of reasons) {
-      expect(extractSessionEventText({ type: 'turn/end', seq: 0, time: 1, data: { turn: 1, step: 1, reason } })).toBe(text)
+      expect(extractSessionEventText({ type: 'turn/end', seq: 0, time: 1, data: { turn: 1, reason } })).toBe(text)
     }
     const structural: SessionEvent[] = [
       { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
@@ -160,7 +160,7 @@ describe('session-query document and filter helpers', () => {
         },
       }),
     }, surfaceOp: { op: 'replace', start: 0, end: 0 }, sourceEventSeqs: [0] },
-    { type: 'turn/end', seq: 3, time: 13, data: { turn: 1, step: 1, reason: { kind: 'interrupted' } } },
+    { type: 'turn/end', seq: 3, time: 13, data: { turn: 1, reason: { kind: 'interrupted' } } },
   ]
 
   it('classifies every event and omits non-semantic documents', () => {

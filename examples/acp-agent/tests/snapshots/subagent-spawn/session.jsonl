@@ -31,4 +31,4 @@
 {"type":"assistant/chunk","seq":160,"time":1785730446743,"data":{"turn":1,"step":2,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
 {"type":"assistant/message","seq":161,"time":1785730446744,"data":{"turn":1,"step":2,"message":{"role":"assistant","content":[{"type":"reasoning","text":"The subagent returned \"CHILD_OK\" as expected. Now I need to reply with the single word \"PARENT_DONE\" and stop."},{"type":"text","text":"PARENT_DONE"}],"source":{"kind":"model","provider":"deepseek-official","model":"deepseek-v4-flash"},"id":"82643563-e845-4bfa-9e47-98b353d54a39"},"usage":{"inputTokens":120,"outputTokens":35,"cacheReadTokens":2944,"reasoningTokens":30}},"sourceEventSeqs":[121,122,123,124,125,126,127,128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,143,144,145,146,147,148,149,150,151,152,153,154,155,156,157,158,159,160],"surfaceOp":"append"}
 {"type":"step/end","seq":162,"time":1785730446744,"data":{"turn":1,"step":2}}
-{"type":"turn/end","seq":163,"time":1785730446744,"data":{"turn":1,"step":2,"reason":{"kind":"completed"}}}
+{"type":"turn/end","seq":163,"time":1785730446744,"data":{"turn":1,"reason":{"kind":"completed"}}}

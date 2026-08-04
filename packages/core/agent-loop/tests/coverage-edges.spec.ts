@@ -134,7 +134,7 @@ describe('thrown-value propagation', () => {
     expect(starts).toHaveLength(0)
     expect(ends).toHaveLength(0)
     expect(messages).toHaveLength(0)
-    expect(agent.inbox.nextTurn).toHaveLength(1)
+    expect(agent.inbox.nextTurn).toHaveLength(2)
   })
 
   it('preserves non-Error throws from the agent/request waterfall', async () => {

@@ -225,7 +225,7 @@ describe('inspectRequests', () => {
     const snapshot = inspectRequests(entriesOf([
       at(0, 'step/start', { turn: 1, step: 1 }),
       at(1, 'turn/end', {
-        turn: 1, step: 1, reason: { kind: 'error', error: {
+        turn: 1, reason: { kind: 'error', error: {
           code: 'AUTH',
           message: 'Authentication Fails, Your api key: sk-preview-secret is invalid',
         },
@@ -233,7 +233,7 @@ describe('inspectRequests', () => {
       }),
       at(2, 'step/start', { turn: 2, step: 1 }),
       at(3, 'turn/end', {
-        turn: 2, step: 1, reason: { kind: 'error', error: { message: 'plugin exploded', code: 'UNKNOWN' } },
+        turn: 2, reason: { kind: 'error', error: { message: 'plugin exploded', code: 'UNKNOWN' } },
       }),
     ]))
 

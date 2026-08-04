@@ -32,4 +32,4 @@
 {"type":"assistant/chunk","seq":106,"time":1785730432330,"data":{"turn":1,"step":2,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
 {"type":"assistant/message","seq":107,"time":1785730432330,"data":{"turn":1,"step":2,"message":{"role":"assistant","content":[{"type":"reasoning","text":"The user asked me to read the file and then reply with exactly the single word \"DONE\". I've read the file. Now I just need to reply with \"DONE\"."},{"type":"text","text":"DONE"}],"source":{"kind":"model","provider":"deepseek-official","model":"deepseek-v4-flash"},"id":"90e72cf4-dc61-4349-8c5e-6b835ea94f4d"},"usage":{"inputTokens":200,"outputTokens":40,"cacheReadTokens":2816,"reasoningTokens":37}},"sourceEventSeqs":[62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106],"surfaceOp":"append"}
 {"type":"step/end","seq":108,"time":1785730432330,"data":{"turn":1,"step":2}}
-{"type":"turn/end","seq":109,"time":1785730432330,"data":{"turn":1,"step":2,"reason":{"kind":"completed"}}}
+{"type":"turn/end","seq":109,"time":1785730432330,"data":{"turn":1,"reason":{"kind":"completed"}}}

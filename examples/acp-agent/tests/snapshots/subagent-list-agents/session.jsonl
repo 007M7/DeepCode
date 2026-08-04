@@ -25,7 +25,7 @@
 {"type":"assistant/chunk","seq":23,"time":1785730454820,"data":{"turn":1,"step":2,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
 {"type":"assistant/message","seq":24,"time":1785730454820,"data":{"turn":1,"step":2,"message":{"role":"assistant","content":[{"type":"text","text":"STARTED"}],"source":{"kind":"model","provider":"deepseek-official","model":"deepseek-v4-flash"},"id":"2ee459fa-21f9-48c6-a42e-3c38eca1e4c9"},"usage":{"inputTokens":10,"outputTokens":5}},"sourceEventSeqs":[19,20,21,22,23],"surfaceOp":"append"}
 {"type":"step/end","seq":25,"time":1785730454821,"data":{"turn":1,"step":2}}
-{"type":"turn/end","seq":26,"time":1785730454821,"data":{"turn":1,"step":2,"reason":{"kind":"completed"}}}
+{"type":"turn/end","seq":26,"time":1785730454821,"data":{"turn":1,"reason":{"kind":"completed"}}}
 {"type":"agent/inbox/spliced","seq":27,"time":1785730454857,"data":{"target":"next-turn","start":0,"inserted":[{"content":[{"type":"text","text":"Call list_agents once and observe the subagent you started. Then reply with the single word DONE. Do not call any other tool."}],"source":{"kind":"user"},"role":"user","id":"3bcac2a3-e0db-465b-94b4-4e2761236475"}]}}
 {"type":"turn/start","seq":28,"time":1785821412840,"data":{"turn":2}}
 {"type":"agent/inbox/spliced","seq":29,"time":1785821412840,"data":{"target":"next-turn","start":0,"removedCount":1,"inserted":[]}}
@@ -48,4 +48,4 @@
 {"type":"assistant/chunk","seq":46,"time":1785730454907,"data":{"turn":2,"step":2,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
 {"type":"assistant/message","seq":47,"time":1785730454907,"data":{"turn":2,"step":2,"message":{"role":"assistant","content":[{"type":"text","text":"DONE"}],"source":{"kind":"model","provider":"deepseek-official","model":"deepseek-v4-flash"},"id":"17c1a7c5-84f5-493e-adb5-6a65219e6ad6"},"usage":{"inputTokens":10,"outputTokens":2}},"sourceEventSeqs":[42,43,44,45,46],"surfaceOp":"append"}
 {"type":"step/end","seq":48,"time":1785730454908,"data":{"turn":2,"step":2}}
-{"type":"turn/end","seq":49,"time":1785730454908,"data":{"turn":2,"step":2,"reason":{"kind":"completed"}}}
+{"type":"turn/end","seq":49,"time":1785730454908,"data":{"turn":2,"reason":{"kind":"completed"}}}

@@ -18,7 +18,7 @@
 {"type":"assistant/chunk","seq":33,"time":1785730439022,"data":{"turn":1,"step":1,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
 {"type":"assistant/message","seq":34,"time":1785730439022,"data":{"turn":1,"step":1,"message":{"role":"assistant","content":[{"type":"reasoning","text":"The user wants me to reply with exactly the word \"ONE\" and use no tools."},{"type":"text","text":"ONE"}],"source":{"kind":"model","provider":"deepseek-official","model":"deepseek-v4-flash"},"id":"4ce3ae64-c2c0-407e-8aa9-46b65ecb0145"},"usage":{"inputTokens":2864,"outputTokens":20,"cacheReadTokens":0,"reasoningTokens":18}},"sourceEventSeqs":[9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33],"surfaceOp":"append"}
 {"type":"step/end","seq":35,"time":1785730439022,"data":{"turn":1,"step":1}}
-{"type":"turn/end","seq":36,"time":1785730439022,"data":{"turn":1,"step":1,"reason":{"kind":"completed"}}}
+{"type":"turn/end","seq":36,"time":1785730439022,"data":{"turn":1,"reason":{"kind":"completed"}}}
 {"type":"agent/inbox/spliced","seq":37,"time":1785498786019,"data":{"target":"next-turn","start":0,"inserted":[{"content":[{"type":"text","text":"Reply with exactly the word: TWO. No tools."}],"source":{"kind":"user"},"role":"user","id":"99ed2338-f25f-47c5-b2d9-17f9f73f90f8"}]}}
 {"type":"turn/start","seq":38,"time":1785821395209,"data":{"turn":2}}
 {"type":"agent/inbox/spliced","seq":39,"time":1785821395209,"data":{"target":"next-turn","start":0,"removedCount":1,"inserted":[]}}
@@ -35,4 +35,4 @@
 {"type":"assistant/chunk","seq":67,"time":1785730439038,"data":{"turn":2,"step":1,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
 {"type":"assistant/message","seq":68,"time":1785730439038,"data":{"turn":2,"step":1,"message":{"role":"assistant","content":[{"type":"reasoning","text":"The user wants me to reply with exactly the word \"TWO\" and no tools."},{"type":"text","text":"TWO"}],"source":{"kind":"model","provider":"deepseek-official","model":"deepseek-v4-flash"},"id":"62c5b1a1-dfbb-4b31-af28-346d1ad87333"},"usage":{"inputTokens":64,"outputTokens":21,"cacheReadTokens":2816,"reasoningTokens":18}},"sourceEventSeqs":[42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67],"surfaceOp":"append"}
 {"type":"step/end","seq":69,"time":1785730439038,"data":{"turn":2,"step":1}}
-{"type":"turn/end","seq":70,"time":1785730439038,"data":{"turn":2,"step":1,"reason":{"kind":"completed"}}}
+{"type":"turn/end","seq":70,"time":1785730439038,"data":{"turn":2,"reason":{"kind":"completed"}}}

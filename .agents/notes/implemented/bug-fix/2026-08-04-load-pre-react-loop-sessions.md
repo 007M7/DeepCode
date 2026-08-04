@@ -6,21 +6,21 @@ English | [中文](2026-08-04-load-pre-react-loop-sessions.zh.md)
 
 ## Problem
 
-The react-loop simplification changed durable events while retaining `SESSION_FORMAT_VERSION` 0. Stored sessions from the change's base contain `steering/message`, a `turn/start.trigger`, and `turn/end` records without the current top-level `step`; their terminal reasons also use coarse `aborted`, separate `disposed`, and two older error payloads. Current surface and turn invariants cannot replay those records directly.
+The react-loop simplification changed durable events while retaining `SESSION_FORMAT_VERSION` 0. Stored sessions from the change's base contain `steering/message` and `turn/start.trigger`; their terminal reasons also use coarse `aborted`, separate `disposed`, and two older error payloads. Current surface and turn invariants cannot replay those records directly.
 
 The new durable inbox is not part of this compatibility problem. The base emitted process-local inbox notifications but no `agent/inbox/*` session events, so replaying old history as pending work would resurrect already claimed or discarded prompts.
 
 ## Decision
 
-`PersistenceCoordinator` recognizes the exact pre-react-loop shapes after backend decoding and projects them into the current read view. It removes the obsolete `turn/start.trigger`, converts `steering/message` to the same identified `user/message`, adds the last entered step to `turn/end`, maps old failure facts into the current structured error, folds `disposed` into an aborted turn with the `disposed` cause, and represents coarse aborted records with the persistence-only `{ kind: 'legacy' }` cause because their caller is unavailable.
+`PersistenceCoordinator` recognizes the exact pre-react-loop shapes after backend decoding and projects them into the current read view. It removes the obsolete `turn/start.trigger`, converts `steering/message` to the same identified `user/message`, maps old failure facts into the current structured error, folds `disposed` into an aborted turn with the `disposed` cause, and represents coarse aborted records with the persistence-only `{ kind: 'legacy' }` cause because their caller is unavailable.
 
-The coordinator applies the projection to `load`, `inspect`, adoption, HMR prefix comparison, and `readFrom`. A seek-capable `readFrom` normally reads only its suffix; when that suffix contains a legacy event needing an earlier step or replacement identity, the coordinator loads and normalizes the complete prefix before returning the requested seq range.
+The coordinator applies the projection to `load`, `inspect`, adoption, HMR prefix comparison, and `readFrom`. A seek-capable `readFrom` normally reads only its suffix; when that suffix contains a legacy event needing an earlier replacement identity, the coordinator loads and normalizes the complete prefix before returning the requested seq range.
 
 The importer does not synthesize inbox splices. A resumed pre-react-loop agent begins with empty pending lists, matching the base runtime's inability to persist pending inbox work. The stored artifact remains append-only and later events use the current format.
 
 ## Alternatives considered
 
-**Treat the same-version records as unsupported.** This follows the pre-release default but strands sessions produced by the PR base even though the removed steering content, turn step, and terminal facts have complete mappings.
+**Treat the same-version records as unsupported.** This follows the pre-release default but strands sessions produced by the PR base even though the removed steering content and terminal facts have complete mappings.
 
 **Replay old inbox notifications into durable splices.** Those notifications were not session events and do not provide a trustworthy pending-state snapshot. Inferring insertions without every claim and discard would re-run consumed work.
 

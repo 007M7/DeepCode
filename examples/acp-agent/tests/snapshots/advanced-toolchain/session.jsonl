@@ -67,4 +67,4 @@
 {"type":"assistant/chunk","seq":65,"time":1785730458751,"data":{"turn":1,"step":6,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
 {"type":"assistant/message","seq":66,"time":1785730458751,"data":{"turn":1,"step":6,"message":{"role":"assistant","content":[{"type":"text","text":"ADVANCED_ACP_OK"}],"source":{"kind":"model","provider":"deepseek-official","model":"deepseek-v4-flash"},"id":"a32b89ce-13ed-48ba-a7f9-24144b94ec56"},"usage":{"inputTokens":3,"outputTokens":3}},"sourceEventSeqs":[61,62,63,64,65],"surfaceOp":"append"}
 {"type":"step/end","seq":67,"time":1785730458751,"data":{"turn":1,"step":6}}
-{"type":"turn/end","seq":68,"time":1785730458751,"data":{"turn":1,"step":6,"reason":{"kind":"completed"}}}
+{"type":"turn/end","seq":68,"time":1785730458751,"data":{"turn":1,"reason":{"kind":"completed"}}}

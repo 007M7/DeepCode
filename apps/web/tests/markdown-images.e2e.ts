@@ -115,7 +115,7 @@ function markdownImageFixture(remoteUrl: string): string {
     }),
   }, { surfaceOp: 'append' })
   session.append('step/end', { turn: 1, step: 1 })
-  session.append('turn/end', { turn: 1, step: 1, reason: { kind: 'completed' } })
+  session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
 
   const header = {
     type: 'session',

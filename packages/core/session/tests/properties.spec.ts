@@ -71,7 +71,7 @@ const messageEventArb: fc.Arbitrary<Appendable> = fc.oneof(
 // A non-message event (trace/replay data — must NOT affect derived history).
 const nonMessageEventArb: fc.Arbitrary<Appendable> = fc.oneof(
   fc.constant<Appendable>({ type: 'turn/start', data: { turn: 1 } }),
-  fc.constant<Appendable>({ type: 'turn/end', data: { turn: 1, step: 0, reason: { kind: 'completed' } } }),
+  fc.constant<Appendable>({ type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } }),
   fc.constant<Appendable>({ type: 'step/start', data: { turn: 1, step: 1 } }),
   fc.constant<Appendable>({ type: 'step/end', data: { turn: 1, step: 1 } }),
   fc.string().map((text): Appendable => ({ type: 'assistant/chunk', data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text } } })),

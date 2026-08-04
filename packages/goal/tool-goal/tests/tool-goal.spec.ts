@@ -66,7 +66,7 @@ function openTurn(stub: StubAgent, source: MessageSource, text = 'prompt'): numb
 
 /** Close the currently open test turn. */
 function closeTurn(stub: StubAgent, turn: number): void {
-  stub.session.append('turn/end', { turn, step: 0, reason: { kind: 'completed' } })
+  stub.session.append('turn/end', { turn, reason: { kind: 'completed' } })
 }
 
 async function harness(config: toolGoal.Config = {}) {

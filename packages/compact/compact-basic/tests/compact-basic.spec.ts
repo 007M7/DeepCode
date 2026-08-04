@@ -130,7 +130,7 @@ function conversation(turns = 4, text = 'fixture '.repeat(40).trim()): Session {
       }),
     }, { surfaceOp: 'append' })
     session.append('step/end', { turn, step: 1 })
-    session.append('turn/end', { turn, step: 1, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn, reason: { kind: 'completed' } })
   }
   session.append('turn/start', {
     turn: turns + 1,
@@ -180,7 +180,7 @@ function toolConversation(): Session {
       }),
     }, { surfaceOp: 'append' })
     session.append('step/end', { turn, step: 1 })
-    session.append('turn/end', { turn, step: 1, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn, reason: { kind: 'completed' } })
   }
   session.append('turn/start', { turn: 4 })
   return session
@@ -226,7 +226,7 @@ function oversizedToolResult(chars = 3_000, withCompactablePrompt = false): Sess
     meta: { presentation: 'preserved' },
   }, { surfaceOp: 'append' })
   session.append('step/end', { turn: 1, step: 1 })
-  session.append('turn/end', { turn: 1, step: 1, reason: { kind: 'completed' } })
+  session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
   session.append('turn/start', { turn: 2 })
   return session
 }
@@ -935,7 +935,7 @@ describe('compaction region transaction', () => {
   it('requires an open turn and an idle compaction bracket', async () => {
     const compact = service()
     const closed = conversation(1)
-    closed.append('turn/end', { turn: 2, step: 0, reason: { kind: 'completed' } })
+    closed.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
     const nodes = closed.surface.nodes
     await expect(compact.compactRegion(
       nodes[0]!,

@@ -45,4 +45,4 @@
 {"type":"assistant/chunk","seq":159,"time":1785730434565,"data":{"turn":1,"step":3,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
 {"type":"assistant/message","seq":160,"time":1785730434565,"data":{"turn":1,"step":3,"message":{"role":"assistant","content":[{"type":"reasoning","text":"Done. The user wants me to reply with exactly \"DONE\"."},{"type":"text","text":"DONE"}],"source":{"kind":"model","provider":"deepseek-official","model":"deepseek-v4-flash"},"id":"1b426931-4d0f-4595-af9d-6eb1f5241f92"},"usage":{"inputTokens":244,"outputTokens":17,"cacheReadTokens":2944,"reasoningTokens":14}},"sourceEventSeqs":[138,139,140,141,142,143,144,145,146,147,148,149,150,151,152,153,154,155,156,157,158,159],"surfaceOp":"append"}
 {"type":"step/end","seq":161,"time":1785730434565,"data":{"turn":1,"step":3}}
-{"type":"turn/end","seq":162,"time":1785730434565,"data":{"turn":1,"step":3,"reason":{"kind":"completed"}}}
+{"type":"turn/end","seq":162,"time":1785730434565,"data":{"turn":1,"reason":{"kind":"completed"}}}

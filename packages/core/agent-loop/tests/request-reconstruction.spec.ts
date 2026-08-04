@@ -360,7 +360,6 @@ describe('request stability across the loop', () => {
 
       expect(agent.session.events.findLast(event => event.type === 'turn/end')).toMatchObject({
         data: {
-          step: 1,
           reason: failure instanceof LlmError
             ? { kind: 'error', error: failure.failure }
             : { kind: 'error', error: { message: failure.message, code: 'UNKNOWN' } },

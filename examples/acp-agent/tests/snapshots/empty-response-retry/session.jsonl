@@ -18,4 +18,4 @@
 {"type":"assistant/chunk","seq":16,"time":1785730441209,"data":{"turn":1,"step":1,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
 {"type":"assistant/message","seq":17,"time":1785730441209,"data":{"turn":1,"step":1,"message":{"role":"assistant","content":[{"type":"text","text":"Recovered."}],"source":{"kind":"model","provider":"deepseek-official","model":"deepseek-v4-flash"},"id":"422eae65-9975-4a95-8cde-1ddfe21fff4e"},"usage":{"inputTokens":12,"outputTokens":3}},"sourceEventSeqs":[12,13,14,15,16],"surfaceOp":"append"}
 {"type":"step/end","seq":18,"time":1785730441209,"data":{"turn":1,"step":1}}
-{"type":"turn/end","seq":19,"time":1785730441209,"data":{"turn":1,"step":1,"reason":{"kind":"completed"}}}
+{"type":"turn/end","seq":19,"time":1785730441209,"data":{"turn":1,"reason":{"kind":"completed"}}}

@@ -38,4 +38,4 @@
 {"type":"step/end","seq":69,"time":1785730470785,"data":{"turn":1,"step":2}}
 {"type":"hook/invoked","seq":70,"time":1785730470785,"data":{"turn":1,"point":"Stop","dialect":"claude","handlerId":"claude:Stop:2"}}
 {"type":"hook/result","seq":71,"time":1785730470788,"data":{"turn":1,"point":"Stop","handlerId":"claude:Stop:2","decision":"pass","exitCode":0,"durationMs":2.633624999999938}}
-{"type":"turn/end","seq":72,"time":1785730470788,"data":{"turn":1,"step":2,"reason":{"kind":"completed"}}}
+{"type":"turn/end","seq":72,"time":1785730470788,"data":{"turn":1,"reason":{"kind":"completed"}}}

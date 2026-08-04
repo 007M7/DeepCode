@@ -181,7 +181,7 @@ describe('llm-retry invariants', () => {
 
     const closedTurn = openStep(ctx, 'retry-invariant-closed-turn')
     closedTurn.append('step/end', { turn: 1, step: 1 })
-    closedTurn.append('turn/end', { turn: 1, step: 1, reason: { kind: 'aborted', reason: { kind: 'user' } },
+    closedTurn.append('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } },
     })
     expect(() => {
       closedTurn.append('llm/retry', { turn: 1, step: 1, ...normal })
@@ -228,7 +228,7 @@ describe('llm-retry invariants', () => {
     appendRetryTurn(missingEnd, 2)
 
     const nonFailureEnd = ctx.sessions.create(SessionId('retry-invariant-non-failure-end'))
-    nonFailureEnd.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
+    nonFailureEnd.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     nonFailureEnd.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'idle context' }],
       source: { kind: 'user' },
@@ -236,7 +236,7 @@ describe('llm-retry invariants', () => {
     appendRetryTurn(nonFailureEnd, 2)
 
     const missingStart = ctx.sessions.create(SessionId('retry-invariant-missing-start'))
-    missingStart.append('turn/end', { turn: 1, step: 0, reason: { kind: 'error', error: failure },
+    missingStart.append('turn/end', { turn: 1, reason: { kind: 'error', error: failure },
     })
     appendRetryTurn(missingStart, 2)
 

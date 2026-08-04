@@ -10,4 +10,4 @@
 {"type":"request/context","seq":8,"time":1785730686100,"data":{"provider":"deepseek-official","model":"deepseek-v4-flash"}}
 {"type":"assistant/chunk","seq":9,"time":1785730686108,"data":{"turn":1,"step":1,"chunk":{"type":"finish","reason":{"kind":"error","failure":{"message":"simulated provider error (HTTP 401)","code":"AUTH"}}}}}
 {"type":"step/end","seq":10,"time":1785730686108,"data":{"turn":1,"step":1}}
-{"type":"turn/end","seq":11,"time":1785730686109,"data":{"turn":1,"step":1,"reason":{"kind":"error","error":{"message":"simulated provider error (HTTP 401)","code":"AUTH"}}}}
+{"type":"turn/end","seq":11,"time":1785730686109,"data":{"turn":1,"reason":{"kind":"error","error":{"message":"simulated provider error (HTTP 401)","code":"AUTH"}}}}

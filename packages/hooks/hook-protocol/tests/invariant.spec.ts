@@ -54,7 +54,7 @@ describe('hook-protocol invariants', () => {
     await ctx.plugin(InvariantService)
     await ctx.plugin(HookInvariant)
     expect(() => session.append('hook/result', result())).not.toThrow()
-    session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
   })
 
   it('adopts a bare session first observed through publication', async () => {
@@ -87,7 +87,7 @@ describe('hook-protocol invariants', () => {
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create()
     startTurn(session)
-    session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     session.append('hook/invoked', invoked())
     await ctx.plugin(InvariantService)
     await expect(ctx.plugin(HookInvariant).then(() => undefined)).rejects.toThrow(/outside any open turn/)

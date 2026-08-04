@@ -48,4 +48,4 @@
 {"type":"assistant/chunk","seq":177,"time":1785730468639,"data":{"turn":1,"step":3,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
 {"type":"assistant/message","seq":178,"time":1785730468639,"data":{"turn":1,"step":3,"message":{"role":"assistant","content":[{"type":"reasoning","text":"The second attempt succeeded. The final result is \"HELLO\"."},{"type":"text","text":"The final tool result verbatim:\n\n```\nHELLO\n```"}],"source":{"kind":"model","provider":"deepseek-official","model":"deepseek-v4-flash"},"id":"144a17d3-106c-4f62-867d-a9d4d97aceab"},"usage":{"inputTokens":36,"outputTokens":28,"cacheReadTokens":3456,"reasoningTokens":14}},"sourceEventSeqs":[145,146,147,148,149,150,151,152,153,154,155,156,157,158,159,160,161,162,163,164,165,166,167,168,169,170,171,172,173,174,175,176,177],"surfaceOp":"append"}
 {"type":"step/end","seq":179,"time":1785730468639,"data":{"turn":1,"step":3}}
-{"type":"turn/end","seq":180,"time":1785730468639,"data":{"turn":1,"step":3,"reason":{"kind":"completed"}}}
+{"type":"turn/end","seq":180,"time":1785730468639,"data":{"turn":1,"reason":{"kind":"completed"}}}

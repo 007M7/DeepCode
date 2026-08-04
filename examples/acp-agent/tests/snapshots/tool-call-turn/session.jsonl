@@ -32,4 +32,4 @@
 {"type":"assistant/chunk","seq":100,"time":1785730417600,"data":{"turn":1,"step":2,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
 {"type":"assistant/message","seq":101,"time":1785730417600,"data":{"turn":1,"step":2,"message":{"role":"assistant","content":[{"type":"reasoning","text":"The command executed successfully and printed SNAPSHOT_OK. Now I need to reply with the single word DONE."},{"type":"text","text":"DONE"}],"source":{"kind":"model","provider":"deepseek-official","model":"deepseek-v4-flash"},"id":"ad76b9dd-271f-4b2b-bcda-80bb9e169513"},"usage":{"inputTokens":170,"outputTokens":28,"cacheReadTokens":2816,"reasoningTokens":25}},"sourceEventSeqs":[68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100],"surfaceOp":"append"}
 {"type":"step/end","seq":102,"time":1785730417601,"data":{"turn":1,"step":2}}
-{"type":"turn/end","seq":103,"time":1785730417601,"data":{"turn":1,"step":2,"reason":{"kind":"completed"}}}
+{"type":"turn/end","seq":103,"time":1785730417601,"data":{"turn":1,"reason":{"kind":"completed"}}}

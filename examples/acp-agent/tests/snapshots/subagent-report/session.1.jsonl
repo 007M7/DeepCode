@@ -27,4 +27,4 @@
 {"type":"assistant/chunk","seq":25,"time":1785730453668,"data":{"turn":1,"step":2,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
 {"type":"assistant/message","seq":26,"time":1785730453668,"data":{"turn":1,"step":2,"message":{"role":"assistant","content":[{"type":"text","text":"Reported."}],"source":{"kind":"model","provider":"deepseek-official","model":"deepseek-v4-flash"},"id":"96784835-2d0f-4d00-aef5-ee3a14820dd1"},"usage":{"inputTokens":10,"outputTokens":5}},"sourceEventSeqs":[21,22,23,24,25],"surfaceOp":"append"}
 {"type":"step/end","seq":27,"time":1785730453668,"data":{"turn":1,"step":2}}
-{"type":"turn/end","seq":28,"time":1785730453668,"data":{"turn":1,"step":2,"reason":{"kind":"completed"}}}
+{"type":"turn/end","seq":28,"time":1785730453668,"data":{"turn":1,"reason":{"kind":"completed"}}}

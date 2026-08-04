@@ -222,7 +222,7 @@ describe('live event path', () => {
       ev.stepStart(8, 1),
       at(9, {
         type: 'turn/end',
-        data: { turn: 1, step: 0, reason: { kind: 'error', error: {
+        data: { turn: 1, reason: { kind: 'error', error: {
           code: 'AUTH',
           message: 'Authentication Fails, Your api key: sk-preview-secret is invalid',
         },
@@ -234,7 +234,7 @@ describe('live event path', () => {
       ev.stepStart(12, 2, 1),
       at(13, {
         type: 'turn/end',
-        data: { turn: 2, step: 1, reason: { kind: 'error', error: { message: 'plugin exploded', code: 'UNKNOWN' } } },
+        data: { turn: 2, reason: { kind: 'error', error: { message: 'plugin exploded', code: 'UNKNOWN' } } },
       }),
     ]
     for (const event of failedTurns) feed(event)
@@ -411,7 +411,7 @@ describe('live event path', () => {
     feed(ev.retry(7, 1))
     feed(at(8, {
       type: 'turn/end',
-      data: { turn: 1, step: 0, reason: { kind: 'error', error: { message: 'retry failed', code: 'UNKNOWN' } } },
+      data: { turn: 1, reason: { kind: 'error', error: { message: 'retry failed', code: 'UNKNOWN' } } },
     }))
 
     expect(session.getSnapshot().nodes.at(-1)).toMatchObject({

@@ -44,4 +44,4 @@
 {"type":"assistant/chunk","seq":208,"time":1785730447907,"data":{"turn":1,"step":3,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
 {"type":"assistant/message","seq":209,"time":1785730447907,"data":{"turn":1,"step":3,"message":{"role":"assistant","content":[{"type":"reasoning","text":"Both subagents have returned: first with \"ALPHA\", second with \"BETA\". Now I should reply with \"PARENT_DONE\"."},{"type":"text","text":"PARENT_DONE"}],"source":{"kind":"model","provider":"deepseek-official","model":"deepseek-v4-flash"},"id":"b51ff9b8-1c06-485e-8e42-5eac7675c590"},"usage":{"inputTokens":115,"outputTokens":35,"cacheReadTokens":3072,"reasoningTokens":30}},"sourceEventSeqs":[169,170,171,172,173,174,175,176,177,178,179,180,181,182,183,184,185,186,187,188,189,190,191,192,193,194,195,196,197,198,199,200,201,202,203,204,205,206,207,208],"surfaceOp":"append"}
 {"type":"step/end","seq":210,"time":1785730447907,"data":{"turn":1,"step":3}}
-{"type":"turn/end","seq":211,"time":1785730447907,"data":{"turn":1,"step":3,"reason":{"kind":"completed"}}}
+{"type":"turn/end","seq":211,"time":1785730447907,"data":{"turn":1,"reason":{"kind":"completed"}}}

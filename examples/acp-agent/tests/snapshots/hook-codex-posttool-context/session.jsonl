@@ -36,4 +36,4 @@
 {"type":"assistant/chunk","seq":118,"time":1785730474989,"data":{"turn":1,"step":2,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
 {"type":"assistant/message","seq":119,"time":1785730474989,"data":{"turn":1,"step":2,"message":{"role":"assistant","content":[{"type":"reasoning","text":"The user asked me to report the tool result verbatim. The result I got back is:\n\nHELLO\n\nThat's it."},{"type":"text","text":"The tool result I received is:\n\n```\nHELLO\n```"}],"source":{"kind":"model","provider":"deepseek-official","model":"deepseek-v4-flash"},"id":"12bf71d7-c8bb-404f-84fb-e5964de5c19f"},"usage":{"inputTokens":188,"outputTokens":41,"cacheReadTokens":2816,"reasoningTokens":27}},"sourceEventSeqs":[73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118],"surfaceOp":"append"}
 {"type":"step/end","seq":120,"time":1785730474989,"data":{"turn":1,"step":2}}
-{"type":"turn/end","seq":121,"time":1785730474989,"data":{"turn":1,"step":2,"reason":{"kind":"completed"}}}
+{"type":"turn/end","seq":121,"time":1785730474989,"data":{"turn":1,"reason":{"kind":"completed"}}}

@@ -32,4 +32,4 @@
 {"type":"assistant/chunk","seq":126,"time":1785730429294,"data":{"turn":1,"step":2,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
 {"type":"assistant/message","seq":127,"time":1785730429294,"data":{"turn":1,"step":2,"message":{"role":"assistant","content":[{"type":"reasoning","text":"The user asked me to fetch the URL, then reply with exactly \"DONE\". I've fetched it. Now I just reply with \"DONE\"."},{"type":"text","text":"DONE"}],"source":{"kind":"model","provider":"deepseek-official","model":"deepseek-v4-pro"},"id":"63a38279-bed6-48ff-8420-b8e72839f3be"},"usage":{"inputTokens":239,"outputTokens":34,"cacheReadTokens":5376,"reasoningTokens":31}},"sourceEventSeqs":[88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126],"surfaceOp":"append"}
 {"type":"step/end","seq":128,"time":1785730429294,"data":{"turn":1,"step":2}}
-{"type":"turn/end","seq":129,"time":1785730429294,"data":{"turn":1,"step":2,"reason":{"kind":"completed"}}}
+{"type":"turn/end","seq":129,"time":1785730429294,"data":{"turn":1,"reason":{"kind":"completed"}}}

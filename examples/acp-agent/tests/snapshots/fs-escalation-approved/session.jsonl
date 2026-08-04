@@ -34,4 +34,4 @@
 {"type":"assistant/chunk","seq":124,"time":1785730482702,"data":{"turn":1,"step":2,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
 {"type":"assistant/message","seq":125,"time":1785730482702,"data":{"turn":1,"step":2,"message":{"role":"assistant","content":[{"type":"reasoning","text":"The file was created successfully. The user asked me to reply with exactly the single word DONE."},{"type":"text","text":"DONE"}],"source":{"kind":"model","provider":"deepseek-official","model":"deepseek-v4-flash"},"id":"8d322465-9e9a-4872-a0d5-f920a666153c"},"usage":{"inputTokens":107,"outputTokens":23,"cacheReadTokens":3968,"reasoningTokens":20}},"sourceEventSeqs":[97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124],"surfaceOp":"append"}
 {"type":"step/end","seq":126,"time":1785730482702,"data":{"turn":1,"step":2}}
-{"type":"turn/end","seq":127,"time":1785730482702,"data":{"turn":1,"step":2,"reason":{"kind":"completed"}}}
+{"type":"turn/end","seq":127,"time":1785730482702,"data":{"turn":1,"reason":{"kind":"completed"}}}

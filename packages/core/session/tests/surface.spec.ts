@@ -36,7 +36,7 @@ function surfaceSession(): Session {
       },
     }),
   }, { surfaceOp: 'append' })
-  s.append('turn/end', { turn: 1, step: 1, reason: { kind: 'completed' } })
+  s.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
   return s
 }
 
@@ -401,7 +401,7 @@ describe('SurfaceManager', () => {
     s.append('turn/start', { turn: 1 })
     s.append('step/start', { turn: 1, step: 1 })
     s.append('step/end', { turn: 1, step: 1 })
-    s.append('turn/end', { turn: 1, step: 1, reason: { kind: 'completed' } })
+    s.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     expect(s.surface.nodes.length).toBe(0)
     expect(s.deriveMessages()).toEqual([])
   })
@@ -684,7 +684,7 @@ describe('deriveMessages with surface', () => {
         },
       }),
     }, { surfaceOp: 'append' })
-    s.append('turn/end', { turn: 1, step: 1, reason: { kind: 'completed' } })
+    s.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     // Chunks and boundaries are NOT in the surface, so only 2 messages.
     expect(s.deriveMessages()).toHaveLength(2)
   })
@@ -772,7 +772,7 @@ describe('Session.append surface opts', () => {
         }),
       }, surfaceOp: 'append' },
       { type: 'step/end', seq: 3, time: 4, data: { turn: 1, step: 1 } },
-      { type: 'turn/end', seq: 4, time: 5, data: { turn: 1, step: 1, reason: { kind: 'completed' } } },
+      { type: 'turn/end', seq: 4, time: 5, data: { turn: 1, reason: { kind: 'completed' } } },
     ]
     const s = new Session(SessionId('nomessage'), seed)
     // The empty assistant/message is on the surface but _deriveOneMessage returns null for it.

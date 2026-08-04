@@ -75,4 +75,4 @@
 {"type":"assistant/chunk","seq":73,"time":1785730508642,"data":{"turn":1,"step":7,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
 {"type":"assistant/message","seq":74,"time":1785730508642,"data":{"turn":1,"step":7,"message":{"role":"assistant","content":[{"type":"text","text":"PERSISTENT_TOOLS_OK"}],"source":{"kind":"model","provider":"deepseek-official","model":"deepseek-v4-flash"},"id":"43efc58a-46a1-4813-995f-1dc489438942"},"usage":{"inputTokens":3,"outputTokens":3}},"sourceEventSeqs":[69,70,71,72,73],"surfaceOp":"append"}
 {"type":"step/end","seq":75,"time":1785730508642,"data":{"turn":1,"step":7}}
-{"type":"turn/end","seq":76,"time":1785730508642,"data":{"turn":1,"step":7,"reason":{"kind":"completed"}}}
+{"type":"turn/end","seq":76,"time":1785730508642,"data":{"turn":1,"reason":{"kind":"completed"}}}

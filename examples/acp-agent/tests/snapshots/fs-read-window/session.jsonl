@@ -32,4 +32,4 @@
 {"type":"assistant/chunk","seq":134,"time":1785730436802,"data":{"turn":1,"step":2,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
 {"type":"assistant/message","seq":135,"time":1785730436803,"data":{"turn":1,"step":2,"message":{"role":"assistant","content":[{"type":"reasoning","text":"The read tool returned lines 5 through 8 as expected. Now I need to reply with exactly the single word \"DONE\"."},{"type":"text","text":"DONE"}],"source":{"kind":"model","provider":"deepseek-official","model":"deepseek-v4-flash"},"id":"4f7f5f2a-8fbd-4221-b813-b2a5272e4d4e"},"usage":{"inputTokens":292,"outputTokens":30,"cacheReadTokens":2816,"reasoningTokens":27}},"sourceEventSeqs":[100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133,134],"surfaceOp":"append"}
 {"type":"step/end","seq":136,"time":1785730436803,"data":{"turn":1,"step":2}}
-{"type":"turn/end","seq":137,"time":1785730436803,"data":{"turn":1,"step":2,"reason":{"kind":"completed"}}}
+{"type":"turn/end","seq":137,"time":1785730436803,"data":{"turn":1,"reason":{"kind":"completed"}}}

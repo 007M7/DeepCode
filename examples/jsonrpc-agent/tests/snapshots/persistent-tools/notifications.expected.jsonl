@@ -75,5 +75,5 @@
 {"method":"session.event","params":{"sessionId":"{{sessionId}}","event":{"type":"assistant/chunk","seq":73,"time":0,"data":{"turn":1,"step":7,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}}}
 {"method":"session.event","params":{"sessionId":"{{sessionId}}","event":{"type":"assistant/message","seq":74,"time":0,"data":{"turn":1,"step":7,"message":{"role":"assistant","content":[{"type":"text","text":"PERSISTENT_TOOLS_OK"}],"source":{"kind":"model","provider":"deepseek-official","model":"deepseek-v4-flash"},"id":"{{sessionId}}"},"usage":{"inputTokens":3,"outputTokens":3}},"sourceEventSeqs":[69,70,71,72,73],"surfaceOp":"append"}}}
 {"method":"session.event","params":{"sessionId":"{{sessionId}}","event":{"type":"step/end","seq":75,"time":0,"data":{"turn":1,"step":7}}}}
-{"method":"session.event","params":{"sessionId":"{{sessionId}}","event":{"type":"turn/end","seq":76,"time":0,"data":{"turn":1,"step":7,"reason":{"kind":"completed"}}}}}
+{"method":"session.event","params":{"sessionId":"{{sessionId}}","event":{"type":"turn/end","seq":76,"time":0,"data":{"turn":1,"reason":{"kind":"completed"}}}}}
 {"method":"session.status","params":{"sessionId":"{{sessionId}}","status":"idle"}}

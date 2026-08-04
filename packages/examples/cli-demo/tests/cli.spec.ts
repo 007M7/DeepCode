@@ -440,7 +440,7 @@ describe('runOneShot and executeCli', () => {
         source: { kind: 'plugin', plugin: 'test' },
       }))
       other.append('turn/start', { turn: 1 })
-      other.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
+      other.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     })
     const streamed: { sessionId: string; event: SessionEvent }[] = []
     const result = runOneShot(ctx, {

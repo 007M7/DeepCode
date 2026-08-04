@@ -18,7 +18,7 @@
 {"type":"assistant/chunk","seq":32,"time":1785730450146,"data":{"turn":1,"step":1,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
 {"type":"assistant/message","seq":33,"time":1785730450146,"data":{"turn":1,"step":1,"message":{"role":"assistant","content":[{"type":"reasoning","text":"The user wants me to remember a codeword and just reply with \"OK\"."},{"type":"text","text":"OK"}],"source":{"kind":"model","provider":"deepseek-official","model":"deepseek-v4-flash"},"id":"cf8355ae-a447-4c41-b01f-beaf74c3e70e"},"usage":{"inputTokens":2883,"outputTokens":19,"cacheReadTokens":0,"reasoningTokens":17}},"sourceEventSeqs":[9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32],"surfaceOp":"append"}
 {"type":"step/end","seq":34,"time":1785730450146,"data":{"turn":1,"step":1}}
-{"type":"turn/end","seq":35,"time":1785730450146,"data":{"turn":1,"step":1,"reason":{"kind":"completed"}}}
+{"type":"turn/end","seq":35,"time":1785730450146,"data":{"turn":1,"reason":{"kind":"completed"}}}
 {"type":"session/end-seed","seq":36,"time":1785730450227,"data":{}}
 {"type":"agent/inbox/spliced","seq":37,"time":1785498797482,"data":{"target":"next-turn","start":0,"inserted":[{"content":[{"type":"text","text":"What is the project codeword mentioned earlier in this conversation? Reply with exactly that one word and nothing else."}],"source":{"kind":"user"},"role":"user","id":"86e9f144-764f-460d-b72b-262cffe43d77"}]}}
 {"type":"turn/start","seq":38,"time":1785821407808,"data":{"turn":2}}
@@ -37,4 +37,4 @@
 {"type":"assistant/chunk","seq":83,"time":1785730450254,"data":{"turn":2,"step":1,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
 {"type":"assistant/message","seq":84,"time":1785730450254,"data":{"turn":2,"step":1,"message":{"role":"assistant","content":[{"type":"reasoning","text":"The user is asking me to recall the project codeword that was mentioned earlier in the conversation. I was told to remember it: SAFFRON."},{"type":"text","text":"SAFFRON"}],"source":{"kind":"model","provider":"deepseek-official","model":"deepseek-v4-flash"},"id":"e1f347c1-ce65-4ca9-8a9e-05e4366ef365"},"usage":{"inputTokens":95,"outputTokens":35,"cacheReadTokens":2816,"reasoningTokens":31}},"sourceEventSeqs":[44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83],"surfaceOp":"append"}
 {"type":"step/end","seq":85,"time":1785730450254,"data":{"turn":2,"step":1}}
-{"type":"turn/end","seq":86,"time":1785730450254,"data":{"turn":2,"step":1,"reason":{"kind":"completed"}}}
+{"type":"turn/end","seq":86,"time":1785730450254,"data":{"turn":2,"reason":{"kind":"completed"}}}

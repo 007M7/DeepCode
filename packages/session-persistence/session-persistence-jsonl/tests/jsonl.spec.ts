@@ -64,7 +64,7 @@ function appendClosedTurn(session: Session): void {
     content: [{ type: 'text', text: 'hello' }],
     source: { kind: 'user' },
   }), { surfaceOp: 'append' })
-  session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
+  session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
 }
 
 // Run the shared backend contract against the real JSONL backend.
@@ -224,7 +224,7 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
         }),
       }, surfaceOp: 'append', sourceEventSeqs: [2, 3] },
       { type: 'step/end', seq: 5, time: 6, data: { turn: 1, step: 1 } },
-      { type: 'turn/end', seq: 6, time: 7, data: { turn: 1, step: 1, reason: { kind: 'completed' } } },
+      { type: 'turn/end', seq: 6, time: 7, data: { turn: 1, reason: { kind: 'completed' } } },
     ]
     await ctx.sessionPersistence.create(m)
     await ctx.sessionPersistence.append(m.id, log)
@@ -344,7 +344,7 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
       JSON.stringify(toHeaderLine(m)),
       JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } }),
       JSON.stringify({ type: 'request/header-delta', seq: 1, time: 2, data: { config: { model: 'legacy' } } }),
-      JSON.stringify({ type: 'turn/end', seq: 2, time: 3, data: { turn: 1, step: 0, reason: { kind: 'completed' } } }),
+      JSON.stringify({ type: 'turn/end', seq: 2, time: 3, data: { turn: 1, reason: { kind: 'completed' } } }),
       '',
     ].join('\n'))
 
@@ -419,7 +419,7 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     // The next append continues at seq 10 (the balanced length).
     const turn3 = [
       { type: 'turn/start', seq: 10, time: 11, data: { turn: 3 } },
-      { type: 'turn/end', seq: 11, time: 12, data: { turn: 3, step: 0, reason: { kind: 'completed' } } },
+      { type: 'turn/end', seq: 11, time: 12, data: { turn: 3, reason: { kind: 'completed' } } },
     ] as SessionEvent[]
     await ctx.sessionPersistence.append(m.id, turn3)
     const reloaded = await ctx.sessionPersistence.load(m.id)
@@ -438,7 +438,7 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     await ctx.sessionPersistence.load(m.id)
     await ctx.sessionPersistence.append(m.id, [
       { type: 'turn/start', seq: 6, time: 9, data: { turn: 2 } },
-      { type: 'turn/end', seq: 7, time: 10, data: { turn: 2, step: 0, reason: { kind: 'completed' } } },
+      { type: 'turn/end', seq: 7, time: 10, data: { turn: 2, reason: { kind: 'completed' } } },
     ] as SessionEvent[])
     const after = await readFile(rawLogPath(root, undefined, m.id), 'utf8')
     // the committed prefix is byte-for-byte intact at the head of the file
@@ -466,7 +466,7 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
 
     const turn2 = [
       { type: 'turn/start', seq: 6, time: 9, data: { turn: 2 } },
-      { type: 'turn/end', seq: 7, time: 10, data: { turn: 2, step: 0, reason: { kind: 'completed' } } },
+      { type: 'turn/end', seq: 7, time: 10, data: { turn: 2, reason: { kind: 'completed' } } },
     ] as SessionEvent[]
     // The append rejects, but the partial bytes are truncated back: the file is
     // its pre-append size and the cursor is unchanged.
@@ -529,7 +529,7 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     mutableHeader(loaded.meta).cwd = '/evil'
     await ctx.sessionPersistence.append(m.id, [
       { type: 'turn/start', seq: 6, time: 9, data: { turn: 2 } },
-      { type: 'turn/end', seq: 7, time: 10, data: { turn: 2, step: 0, reason: { kind: 'completed' } } },
+      { type: 'turn/end', seq: 7, time: 10, data: { turn: 2, reason: { kind: 'completed' } } },
     ] as SessionEvent[])
     // The append landed in the ORIGINAL /proj log, not beside an /evil path.
     const reloaded = await ctx.sessionPersistence.load(m.id)
@@ -606,8 +606,8 @@ describe('SessionPersistenceJsonl: write path (session/event → flush)', () => 
     b.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'B' }], source: { kind: 'user' },
     }), { surfaceOp: 'append' })
-    a.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
-    b.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
+    a.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    b.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     await ctx.sessions.flush(a)
     await ctx.sessions.flush(b)
 
@@ -694,7 +694,7 @@ describe('SessionPersistenceJsonl: scanLog unit', () => {
       JSON.stringify({ type: 'session', version: 0, id: 'g2', createdAt: 1, delegationDepth: 0 }),
       JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } }),
       JSON.stringify({ type: 'step/start', seq: 2, time: 2, data: { turn: 1, step: 1 } }), // gap: missing seq 1
-      JSON.stringify({ type: 'turn/end', seq: 3, time: 3, data: { turn: 1, step: 1, reason: { kind: 'completed' } } }),
+      JSON.stringify({ type: 'turn/end', seq: 3, time: 3, data: { turn: 1, reason: { kind: 'completed' } } }),
     ].join('\n') + '\n'
     // A turn/end exists, so the prefix up to it is committed — but it has a hole.
     // Truncating it would silently drop committed data → unloadable.
@@ -705,7 +705,7 @@ describe('SessionPersistenceJsonl: scanLog unit', () => {
     const log = [
       JSON.stringify({ type: 'session', version: 0, id: 'c', createdAt: 1, delegationDepth: 0 }),
       '{not json', // corrupt, sits in the committed region (a turn/end follows)
-      JSON.stringify({ type: 'turn/end', seq: 1, time: 2, data: { turn: 1, step: 0, reason: { kind: 'completed' } } }),
+      JSON.stringify({ type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'completed' } } }),
     ].join('\n') + '\n'
     expect(() => scanLog(Buffer.from(log))).toThrow(/unparsable committed event/)
   })
@@ -733,7 +733,7 @@ describe('SessionPersistenceJsonl: scanLog unit', () => {
     const log = [
       JSON.stringify({ type: 'session', version: 0, id: 't', createdAt: 1, delegationDepth: 0 }),
       JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } }),
-      JSON.stringify({ type: 'turn/end', seq: 1, time: 2, data: { turn: 1, step: 0, reason: { kind: 'completed' } } }),
+      JSON.stringify({ type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'completed' } } }),
       JSON.stringify({ type: 'step/start', seq: 9, time: 3, data: { turn: 2, step: 1 } }), // gap in uncommitted tail
     ].join('\n') + '\n'
     const { events } = scanLog(Buffer.from(log))
@@ -777,7 +777,7 @@ describe('SessionPersistenceJsonl: default packed chunk rows', () => {
         }),
       }, surfaceOp: 'append', sourceEventSeqs: [2, 3, 4, 5, 6] },
       { type: 'step/end', seq: 8, time: 9, data: { turn: 1, step: 1 } },
-      { type: 'turn/end', seq: 9, time: 10, data: { turn: 1, step: 1, reason: { kind: 'completed' } } },
+      { type: 'turn/end', seq: 9, time: 10, data: { turn: 1, reason: { kind: 'completed' } } },
     ]
   }
 
@@ -855,7 +855,7 @@ describe('SessionPersistenceJsonl: default packed chunk rows', () => {
       JSON.stringify({ type: 'session', version: 0, id: 'rows', createdAt: 1, delegationDepth: 0 }),
       JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } }),
       JSON.stringify({ type: 'text-chunks', seq0: 1, time0: 2, data: { turn: 1, step: 1, index: 0, dt: [1, 1], texts: ['a', 'b', 'c'] } }),
-      JSON.stringify({ type: 'turn/end', seq: 4, time: 5, data: { turn: 1, step: 1, reason: { kind: 'completed' } } }),
+      JSON.stringify({ type: 'turn/end', seq: 4, time: 5, data: { turn: 1, reason: { kind: 'completed' } } }),
     ].join('\n') + '\n'
     const { events } = scanLog(Buffer.from(logText))
     expect(events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4])
@@ -867,7 +867,7 @@ describe('SessionPersistenceJsonl: default packed chunk rows', () => {
       JSON.stringify({ type: 'session', version: 0, id: 'bad-row', createdAt: 1, delegationDepth: 0 }),
       // dt arity mismatch — row validation throws, so the line is a committed hole.
       JSON.stringify({ type: 'text-chunks', seq0: 0, time0: 1, data: { turn: 1, step: 1, index: 0, dt: [], texts: ['a', 'b'] } }),
-      JSON.stringify({ type: 'turn/end', seq: 2, time: 3, data: { turn: 1, step: 1, reason: { kind: 'completed' } } }),
+      JSON.stringify({ type: 'turn/end', seq: 2, time: 3, data: { turn: 1, reason: { kind: 'completed' } } }),
     ].join('\n') + '\n'
     expect(() => scanLog(Buffer.from(logText))).toThrow(/unparsable committed event/)
   })
@@ -1154,7 +1154,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     const firstFiber = await ctx.plugin(Object.assign((inner: Context) => {
       const a = inner.sessions.create(SessionId('bound'), { meta: { cwd: '/a' } })
       a.append('turn/start', { turn: 1 })
-      a.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
+      a.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     }, { inject: ['sessions'] }))
     for (const s of ctx.sessions.list()) await ctx.sessions.flush(s)
     await firstFiber.dispose()
@@ -1232,7 +1232,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await ctx2.plugin(SessionPersistenceJsonl, { root, compression: 'none' })
     await ctx2.sessionPersistence.append(m.id, [
       { type: 'turn/start', seq: 6, time: 9, data: { turn: 2 } },
-      { type: 'turn/end', seq: 7, time: 10, data: { turn: 2, step: 0, reason: { kind: 'completed' } } },
+      { type: 'turn/end', seq: 7, time: 10, data: { turn: 2, reason: { kind: 'completed' } } },
     ] as SessionEvent[])
     const loaded = await ctx2.sessionPersistence.load(m.id)
     expect(loaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
@@ -1282,7 +1282,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },
     }), { surfaceOp: 'append' })
-    session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     // Make the durable materialize fail on the next flush.
     const backend = ctx2.sessionPersistence as unknown as { materialize: (...args: unknown[]) => Promise<void> }
     const origMat = backend.materialize.bind(backend)

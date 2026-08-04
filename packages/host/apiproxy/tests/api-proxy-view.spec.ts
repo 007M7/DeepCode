@@ -316,7 +316,7 @@ describe('mux live view computation', () => {
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1 })
     session.append('tool/call', { turn: 1, step: 1, callId: CallId('c-late'), name: 'term', arguments: '{"cmd":"tail"}' })
-    session.append('turn/end', { turn: 1, step: 0, reason: { kind: 'completed' } })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     // The turn/end above cleared the live table; pairing must fall back to
     // scanning the session's in-memory events.
     session.append('tool/result', {
