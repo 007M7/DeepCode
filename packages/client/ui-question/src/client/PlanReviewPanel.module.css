@@ -9,7 +9,9 @@
 .frame {
   display: flex;
   justify-content: center;
-  padding: 6px 24px 10px;
+  /* Sides = clearance + 16px: the card lands on the shared content width
+     (input card - 32) at every viewport. */
+  padding: 6px calc(var(--dsh-composer-side-clearance) + 16px) 10px;
 }
 
 .card {
@@ -17,7 +19,7 @@
   overflow: hidden;
   flex-direction: column;
   width: 100%;
-  max-width: 776px;
+  max-width: var(--dsh-chat-content-width);
   /* Composer seat sits in a fixed-height conversation column (overflow
      hidden): cap the card against the viewport and scroll the plan, so the
      strip and the decision row stay reachable on a long plan. */
@@ -93,11 +95,19 @@
   gap: 8px;
 }
 
-@media (max-width: 720px) {
-  .frame {
-    padding: 6px 10px 10px;
-  }
+/* The discuss verb stays a quiet text button beside the two decision
+   capsules: 14px glyph against the 14px label with a slightly wider gap, so
+   the icon reads as a prefix rather than a peer-sized control. */
+.discuss {
+  gap: 6px;
+  color: var(--dsw-alias-label-secondary);
+}
 
+.discuss:hover:not(:disabled) {
+  color: var(--dsw-alias-label-primary);
+}
+
+@media (max-width: 720px) {
   .card {
     border-radius: 16px;
   }

@@ -102,16 +102,10 @@ describe('MessageItem arms', () => {
     expect(screen.getByRole('tooltip').textContent).toBe('仅可从已完成轮次的最后一条消息分支')
   })
 
-  it('user copy stays quiet when execCommand throws or is absent', () => {
+  it('user copy never claims success when the host rejects the write', async () => {
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
-      value: undefined,
-    })
-    Object.defineProperty(document, 'execCommand', {
-      configurable: true,
-      value: () => {
-        throw new Error('denied')
-      },
+      value: { writeText: vi.fn().mockRejectedValue(new Error('denied')) },
     })
     render(
       <MessageItem t={t} node={{
@@ -122,12 +116,91 @@ describe('MessageItem arms', () => {
       />,
     )
     fireEvent.click(screen.getByRole('button', { name: '复制' }))
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(screen.getByRole('button', { name: '复制' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '复制成功' })).toBeNull()
+  })
 
-    Object.defineProperty(document, 'execCommand', {
+  it('copy swaps to the check success chrome, gates re-clicks, and reverts after a second', async () => {
+    vi.useFakeTimers()
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
-      value: undefined,
+      value: { writeText },
+    })
+    render(
+      <MessageItem t={t} node={{
+        kind: 'user', seq: 1, time: 1_000,
+        content: [{ type: 'text', text: 'copied body' }] as never,
+        source: null,
+      }}
+      />,
+    )
+    const copy = screen.getByRole('button', { name: '复制' })
+    fireEvent.click(copy)
+    fireEvent.click(copy)
+    expect(writeText).toHaveBeenCalledTimes(1)
+    // Two microtask ticks: writeClipboard's own await, then the .then that
+    // lands the success chrome.
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    const done = screen.getByRole('button', { name: '复制成功' })
+    fireEvent.click(done)
+    expect(writeText).toHaveBeenCalledTimes(1)
+    act(() => { vi.advanceTimersByTime(1000) })
+    expect(screen.getByRole('button', { name: '复制' })).toBeTruthy()
+  })
+
+  it('clears copy feedback work when the message unmounts', async () => {
+    vi.useFakeTimers()
+    let finishWrite!: () => void
+    const writeText = vi.fn(() => new Promise<void>((resolve) => { finishWrite = resolve }))
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'user', seq: 1, time: 1_000,
+        content: [{ type: 'text', text: 'copied body' }] as never,
+        source: null,
+      }}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '复制' }))
+    view.unmount()
+    await act(async () => {
+      finishWrite()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(vi.getTimerCount()).toBe(0)
+
+    const mounted = render(
+      <MessageItem t={t} node={{
+        kind: 'user', seq: 2, time: 1_000,
+        content: [{ type: 'text', text: 'copied body' }] as never,
+        source: null,
+      }}
+      />,
+    )
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
     })
     fireEvent.click(screen.getByRole('button', { name: '复制' }))
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(screen.getByRole('button', { name: '复制成功' })).toBeTruthy()
+    mounted.unmount()
+    expect(vi.getTimerCount()).toBe(0)
   })
 
   it('consumed steering renders copy and branch actions without a badge', () => {
@@ -502,6 +575,6 @@ describe('small branch tails', () => {
           : undefined}
       />,
     )
-    expect(view.container.textContent).toBe('1 turns · 1 steps|Input 0 tok · Output 10 tok')
+    expect(view.container.textContent).toBe('1 turns · 1 steps| Input 0 tok · Output 10 tok')
   })
 })

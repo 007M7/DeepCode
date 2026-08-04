@@ -1,18 +1,19 @@
 // Hover/focus label bubble (figma tooltip pill: dark plate, white text).
-// TODO: interaction is a placeholder (no flip on viewport collision or
-// arrow) — visuals and behavior get a proper pass later.
+// TODO: interaction is a placeholder (horizontal overflow clamps, but there
+// is no vertical flip on viewport collision and no arrow) — visuals and
+// behavior get a proper pass later.
 // The anchor is the child element itself (cloneElement, no wrapper node), so
 // attaching a tooltip never changes the anchor's layout context. The bubble is
 // position:fixed and coordinates come from the anchor's rect at show time, so
 // it escapes ancestor overflow clipping (the sidebar rail clips its column)
 // without a portal.
 
-import { cloneElement, useCallback, useEffect, useRef, useState } from 'react'
+import { cloneElement, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { FocusEventHandler, MouseEventHandler, MutableRefObject, ReactElement, Ref } from 'react'
 import css from './Tooltip.module.css'
 
 /** Bubble placement relative to the anchor. */
-export type TooltipSide = 'right' | 'bottom'
+export type TooltipSide = 'right' | 'bottom' | 'top'
 
 /** Props Tooltip injects into its anchor child; the child's own handlers are chained ahead of the tooltip's. */
 interface AnchorProps {
@@ -44,6 +45,29 @@ export function Tooltip({ label, side = 'right', delayMs = 0, disabled = false, 
     else if (childRef != null) (childRef as MutableRefObject<HTMLElement | null>).current = el
   }, [childRef])
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
+  const bubble = useRef<HTMLSpanElement | null>(null)
+  // Horizontal viewport clamp: fixed positioning knows nothing about edges, so
+  // a centered bubble near the right edge would clip. Each measurement resets
+  // the base position before applying a direct style offset, allowing a shorter
+  // label or wider viewport to release a previous clamp without another render.
+  useLayoutEffect(() => {
+    if (pos === null) return
+    const clamp = () => {
+      const el = bubble.current
+      /* v8 ignore next -- pos is set only while the bubble is mounted. */
+      if (el === null) return
+      const EDGE_MARGIN = 12
+      el.style.left = `${pos.x}px`
+      const r = el.getBoundingClientRect()
+      let dx = 0
+      if (r.right > window.innerWidth - EDGE_MARGIN) dx = window.innerWidth - EDGE_MARGIN - r.right
+      if (r.left + dx < EDGE_MARGIN) dx = EDGE_MARGIN - r.left
+      el.style.left = `${pos.x + dx}px`
+    }
+    clamp()
+    window.addEventListener('resize', clamp)
+    return () => { window.removeEventListener('resize', clamp) }
+  }, [label, pos])
   const showTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Hover and focus are independent triggers: the bubble hides only after
   // BOTH clear (hovering away from a focused anchor must not drop it).
@@ -73,7 +97,9 @@ export function Tooltip({ label, side = 'right', delayMs = 0, disabled = false, 
     const r = el.getBoundingClientRect()
     setPos(side === 'right'
       ? { x: r.right + 10, y: r.top + r.height / 2 }
-      : { x: r.left + r.width / 2, y: r.bottom + 8 })
+      : side === 'top'
+        ? { x: r.left + r.width / 2, y: r.top - 8 }
+        : { x: r.left + r.width / 2, y: r.bottom + 8 })
   }
   const showAfterHoverDelay = () => {
     cancelShow()
@@ -101,7 +127,7 @@ export function Tooltip({ label, side = 'right', delayMs = 0, disabled = false, 
         onBlur: (e) => { children.props.onBlur?.(e); triggers.current.focus = false; hide() },
       })}
       {pos !== null && (
-        <span className={css.bubble} data-side={side} style={{ left: pos.x, top: pos.y }} role="tooltip">
+        <span ref={bubble} className={css.bubble} data-side={side} style={{ left: pos.x, top: pos.y }} role="tooltip">
           {label}
         </span>
       )}
