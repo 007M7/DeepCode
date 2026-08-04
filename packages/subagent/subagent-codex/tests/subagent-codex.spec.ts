@@ -15,6 +15,7 @@ import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import * as codex from '../src/index.ts'
 import * as invariant from '../src/invariant.ts'
 import {
+  codexAppServerArgv,
   DEFAULT_DISPOSE_GRACE_MS,
   disposeCodexChild,
   startCodexRun,
@@ -259,6 +260,19 @@ function turnCompleted(
 }
 
 describe('task admission and package contracts', () => {
+  it('resolves the fixed app-server command through the Windows npm shim boundary', () => {
+    expect(codexAppServerArgv('win32')).toEqual([
+      'cmd.exe',
+      '/d',
+      '/s',
+      '/c',
+      'codex',
+      'app-server',
+      '--stdio',
+    ])
+    expect(codexAppServerArgv('linux')).toEqual(['codex', 'app-server', '--stdio'])
+  })
+
   it('accepts one or more text blocks and rejects empty or non-text tasks', () => {
     expect(textTask([
       { type: 'text', text: 'one' },
@@ -868,7 +882,7 @@ describe('run lifecycle and quiescence', () => {
     child.peer.respond(threadStart, { thread: { id: 'thread-1', ephemeral: true } })
     const run = await starting
     expect(spawn).toHaveBeenCalledWith({
-      argv: ['codex', 'app-server', '--stdio'],
+      argv: codexAppServerArgv(),
       cwd: process.cwd(),
       stdio: { stdin: 'pipe', stdout: 'pipe', stderr: 'inherit' },
       graceMs: DEFAULT_DISPOSE_GRACE_MS,
