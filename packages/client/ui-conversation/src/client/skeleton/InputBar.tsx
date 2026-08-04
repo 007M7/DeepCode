@@ -63,7 +63,8 @@ export function InputBar({
   const draft = input?.draft ?? ''
   const empty = draft.trim() === ''
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
-  const backdropRef = useRef<HTMLDivElement | null>(null)
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const mirrorRef = useRef<HTMLDivElement | null>(null)
   // IME guard: composition Enter picks a candidate, it must not send. The ref outlives renders;
   // clearing is deferred one tick because Safari delivers the closing keydown AFTER compositionend.
   const composingRef = useRef(false)
@@ -88,29 +89,101 @@ export function InputBar({
   const locked = disabled
   const machineBusy = input?.phase === 'adjudicating' || input?.phase === 'submitting'
 
-  // Unlock (mount / session switch) returns focus to the box.
-  useEffect(() => {
-    if (!locked) inputRef.current?.focus()
-  }, [locked, sessionId])
+  // Scroll the draft scrollport the minimum that brings `caret` into view — the
+  // browser's own behavior for typing, performed for the paths where it does
+  // not act.
+  //
+  // The mirror is the caret's ruler: it renders the same draft at the same
+  // metrics and the same wrap width in the same stack (that is what makes it
+  // the height authority), so a Range collapsed at the caret's index reports
+  // where the caret is without a caret API.
+  const revealCaret = (caret: number): void => {
+    const scrollEl = scrollRef.current
+    const mirrorEl = mirrorRef.current
+    const text = mirrorEl?.firstChild
+    if (scrollEl === null || mirrorEl === null || !(text instanceof Text)) return
+    // A box that cannot scroll has nothing to reveal: the draft fits, so every
+    // caret is already in view and the assignment below would clamp to itself.
+    if (scrollEl.scrollHeight <= scrollEl.clientHeight) return
+    const at = Math.min(caret, text.data.length)
+    // A caret straight after a newline sits on a line with nothing on it to
+    // measure — the shape a trailing-newline draft ends in — and the engines
+    // disagree there: chromium returns NO client rects at all (an all-zero box,
+    // which would scroll the wrong way), firefox reports the line above, WebKit
+    // the right one. Measure the newline itself instead, which is the line the
+    // caret just left, and step one line down; that they all agree on.
+    const afterNewline = at > 0 && text.data[at - 1] === '\n'
+    const range = document.createRange()
+    range.setStart(text, afterNewline ? at - 1 : at)
+    if (afterNewline) range.setEnd(text, at)
+    else range.collapse(true)
+    const line = afterNewline ? Number.parseFloat(getComputedStyle(mirrorEl).lineHeight) : 0
+    const rect = range.getBoundingClientRect()
+    const box = scrollEl.getBoundingClientRect()
+    if (rect.bottom + line > box.bottom) scrollEl.scrollTop += rect.bottom + line - box.bottom
+    else if (rect.top + line < box.top) scrollEl.scrollTop -= box.top - rect.top - line
+  }
 
-  // Two DOM listeners on the textarea, one lifetime (it is never unmounted —
-  // the inert state renders the same element disabled).
-  //
-  // wheel — active conversation scrollport: chain the gesture. While the
-  // textarea (capped at 14 lines with overflow-y:auto) can still move in this
-  // direction, keep the native scroll; only at its own edge forward delta to
-  // the host so a short draft never traps the gesture and a long draft stays
-  // scrollable. Hero mounts have no host and keep native wheel scrolling.
-  //
-  // scroll — the backdrop paints every visible glyph (the textarea's own text
-  // is transparent) but is clipped, not scrolled, so it does not follow the
-  // textarea on its own: without this mirror a draft past the cap moves the
-  // caret while the words stay frozen in place. Every way the box moves ends
-  // in a `scroll` event, edits included (the caret is scrolled into view), and
-  // the layers share an extent, so a draft that shrinks past the offset clamps
-  // both to the same maximum — one listener covers the coupling.
+  // Reveal the focus end of the current selection. Today's entry paths leave a
+  // collapsed selection, but honoring direction keeps a future range-preserving
+  // path from revealing its anchor instead of its focus.
+  const revealSelectionFocus = (el: HTMLTextAreaElement): void => {
+    // selectionStart/End are number|null in lib.dom; the type-aware lint program narrows them.
+    const caret = el.selectionDirection === 'backward' ? el.selectionStart : el.selectionEnd
+    // oxlint-disable-next-line typescript/no-unnecessary-condition
+    revealCaret(caret ?? el.value.length)
+  }
+
+  // Unlock (mount / session switch) returns focus to the box, and owns the
+  // reveal that comes with it. `preventScroll` because this focus is ours, not
+  // a gesture: the textarea is as tall as the draft, so the browser's reveal
+  // would walk up to the conversation scrollport and move the transcript under
+  // a user who only switched session. That leaves the caret to us — the DOM is
+  // reused across sessions, so switching to a longer draft keeps the previous
+  // offset while the value swap puts the caret at the new draft's end, which is
+  // off screen (measured on all three engines: offset 0 with the caret 940px
+  // down). Suppress the walk, then reveal in our own box.
   useEffect(() => {
     const el = inputRef.current
+    if (locked || el === null) return
+    el.focus({ preventScroll: true })
+    revealSelectionFocus(el)
+  }, [locked, sessionId])
+
+  // A persisted draft arrives AFTER the unlock effect: ConversationSession
+  // adopts it in its own mount effect, and a parent's mount effect runs after
+  // its children's. Reveal when the draft becomes non-empty so a restored long
+  // draft does not stay at its head with the caret at its end. This effect does
+  // not focus: send-clear, failed-send restore, and first-character transitions
+  // must not steal focus from another control the user moved to.
+  useEffect(() => {
+    const el = inputRef.current
+    if (locked || draft === '' || el === null) return
+    revealSelectionFocus(el)
+  }, [draft !== ''])
+
+  // Caret restore after an edit the composer performs itself. The machine owns
+  // the draft and the undo log, so paste and cut suppress the native edit and
+  // write the value through the machine — and a
+  // programmatic selection change reveals nothing: measured in chromium and
+  // WebKit, pasting a long block leaves the view where it was while the caret
+  // sits at the end of the draft. Native typing gets its reveal from the
+  // browser; these two have to ask for it, so they share one restore.
+  const restoreCaret = (el: HTMLTextAreaElement, caret: number): void => {
+    requestAnimationFrame(() => {
+      el.setSelectionRange(caret, caret)
+      revealCaret(caret)
+    })
+  }
+
+  // Wheel chaining on the draft scrollport, one lifetime (it is never
+  // unmounted — the inert state renders the same element disabled). While the
+  // capped box can still move in this direction, keep the native scroll; only
+  // at its own edge forward the delta to the active conversation scrollport, so
+  // a short draft never traps the gesture and a long draft stays scrollable.
+  // Hero mounts have no host and keep native wheel scrolling.
+  useEffect(() => {
+    const el = scrollRef.current
     if (el === null) return
     const onWheel = (e: WheelEvent): void => {
       const host = el.closest('[data-conversation-scroll]')
@@ -121,16 +194,8 @@ export function InputBar({
       e.preventDefault()
       host.scrollTop += e.deltaY
     }
-    const onScroll = (): void => {
-      const backdropEl = backdropRef.current
-      if (backdropEl !== null) backdropEl.scrollTop = el.scrollTop
-    }
     el.addEventListener('wheel', onWheel, { passive: false })
-    el.addEventListener('scroll', onScroll, { passive: true })
-    return () => {
-      el.removeEventListener('wheel', onWheel)
-      el.removeEventListener('scroll', onScroll)
-    }
+    return () => { el.removeEventListener('wheel', onWheel) }
   }, [])
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -234,7 +299,7 @@ export function InputBar({
     e.clipboardData.setData('text/plain', text)
     if (cut && !machineBusy && !locked) {
       keyboard.setDraft(draft.slice(0, start) + draft.slice(end), { start, end, insertedLength: 0 })
-      requestAnimationFrame(() => { el.setSelectionRange(start, start) })
+      restoreCaret(el, start)
     }
     void slice
   }
@@ -253,7 +318,7 @@ export function InputBar({
     // land (paste-upgrade). The DOM layer only starts the transaction.
     keyboard.pasteBegin(text, sel)
     const caret = sel.start + text.length
-    requestAnimationFrame(() => { el.setSelectionRange(caret, caret) })
+    restoreCaret(el, caret)
     keyboard.track(keyboard.snapshot.draft, caret)
   }
 
@@ -264,10 +329,13 @@ export function InputBar({
     void e
   }
 
-  // Button presses steal focus from the textarea; suppress at mousedown so typing continues seamlessly.
+  // Button presses steal focus from the textarea; suppress at mousedown so
+  // typing continues seamlessly. `preventScroll` for the same reason as the
+  // unlock effect, and with no reveal of its own: the caret has not moved, and
+  // the next keystroke gets the browser's native one.
   const keepFocus = (e: MouseEvent<HTMLButtonElement>): void => {
     e.preventDefault()
-    inputRef.current?.focus()
+    inputRef.current?.focus({ preventScroll: true })
   }
 
   const onToggleCommandMenu = (): void => {
@@ -369,22 +437,6 @@ export function InputBar({
       const displayHint = translated !== hintKey ? translated : deco.hint
       backdrop.push(<span key="hint" className={css.hint} data-decoration="hint">{displayHint}</span>)
     }
-    // Trailing-line sentinel, the same one the mirror div carries and for the
-    // same reason: a textarea reserves a line box for the caret after a final
-    // newline, while `white-space: pre-wrap` collapses a text node's trailing
-    // newline and generates none. Without it a draft ending in a newline makes
-    // the backdrop exactly one line SHORTER than the textarea, so mirroring the
-    // offset at the very bottom clamps and the glyphs sit a line behind the
-    // caret. The extra newline is absorbed by that same collapse when the draft
-    // does not end in one, so it costs no height in the ordinary case.
-    //
-    // The mirror only fails one way — a backdrop SHORTER than the textarea
-    // clamps the assignment, while a taller one takes every offset exactly and
-    // hides the surplus below the clip. That is why the ghost hint needs no
-    // handling of its own: it can only add content after the draft and before
-    // this sentinel, never remove a line box, so it moves the pair to equal or
-    // to the safe side.
-    backdrop.push('\n')
   }
 
   return (
@@ -402,32 +454,38 @@ export function InputBar({
       <div className={css.card} data-composer-card>
         {overlay !== undefined && <div className={css.overlayAnchor}>{overlay}</div>}
         {accessory !== undefined && <div className={css.accessory}>{accessory}</div>}
-        {/* Mirror-div auto-grow: the hidden mirror renders draft+'\n' and stretches the wrapper
-            (min/max capped in CSS); the absolutely-positioned textarea rides its height. Counting
-            rows by '\n' cannot see soft wraps. */}
-        <div className={css.grow}>
-          <div ref={backdropRef} aria-hidden className={css.backdrop} data-input-backdrop>{backdrop}</div>
-          <textarea
-            ref={inputRef}
-            className={css.input}
-            value={draft}
-            disabled={locked}
-            readOnly={machineBusy}
-            data-phase={input?.phase ?? 'inert'}
-            placeholder={placeholder ?? (disabled
-              ? t('placeholder.unavailable')
-              : planActive ? t('placeholder.plan') : t('placeholder.default'))}
-            rows={2}
-            onChange={onChange}
-            onKeyDown={onKeyDown}
-            onSelect={onSelect}
-            onCopy={(e) => { onCopyOrCut(e, false) }}
-            onCut={(e) => { onCopyOrCut(e, true) }}
-            onPaste={onPaste}
-            onCompositionStart={onCompositionStart}
-            onCompositionEnd={onCompositionEnd}
-          />
-          <div aria-hidden className={css.mirror}>{`${draft}\n`}</div>
+        {/* One scrollport, two text layers. The hidden mirror renders draft+'\n' and stretches the
+            stack to the draft's FULL height (counting rows by '\n' cannot see soft wraps); the
+            absolutely-positioned backdrop and textarea ride that height, and .scroll — capped at 14
+            lines in CSS — is the only thing that scrolls. The caret belongs to the textarea and the
+            glyphs to the backdrop, so they can only stay together by moving together: one scroll
+            offset the browser applies to both layers at once, never a JS mirror between two boxes,
+            which a compositor-driven gesture outruns and leaves the words trailing the caret. */}
+        <div ref={scrollRef} className={css.scroll} data-input-scroll>
+          <div className={css.grow}>
+            <div aria-hidden className={css.backdrop} data-input-backdrop>{backdrop}</div>
+            <textarea
+              ref={inputRef}
+              className={css.input}
+              value={draft}
+              disabled={locked}
+              readOnly={machineBusy}
+              data-phase={input?.phase ?? 'inert'}
+              placeholder={placeholder ?? (disabled
+                ? t('placeholder.unavailable')
+                : planActive ? t('placeholder.plan') : t('placeholder.default'))}
+              rows={2}
+              onChange={onChange}
+              onKeyDown={onKeyDown}
+              onSelect={onSelect}
+              onCopy={(e) => { onCopyOrCut(e, false) }}
+              onCut={(e) => { onCopyOrCut(e, true) }}
+              onPaste={onPaste}
+              onCompositionStart={onCompositionStart}
+              onCompositionEnd={onCompositionEnd}
+            />
+            <div ref={mirrorRef} aria-hidden className={css.mirror} data-input-mirror>{`${draft}\n`}</div>
+          </div>
         </div>
         <div className={css.row}>
           <div className={css.tools}>

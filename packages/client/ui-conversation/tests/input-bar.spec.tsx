@@ -4,7 +4,7 @@
 // semantics (input stays free; primary turns stop), the machine pending lock,
 // decoration backdrop, error/notice strips, and the focus-keeping mousedown.
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
@@ -17,6 +17,18 @@ import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
 import { zh } from '../src/client/locales.ts'
 
 afterEach(cleanup)
+
+// jsdom implements no Range geometry at all — `Range.prototype.getBoundingClientRect`
+// is absent — and the composer measures the caret with one when it restores the
+// selection after an edit it performed itself. Every case here runs against a
+// zero rect; the reveal case below substitutes its own and restores this one.
+const ZERO_RECT = (): DOMRect => ({ top: 0, bottom: 0 }) as DOMRect
+Range.prototype.getBoundingClientRect = ZERO_RECT
+
+// Read through the descriptor so the native method is never referenced unbound;
+// the reveal case below wraps it to record what it was asked to measure.
+const NATIVE_SET_START = Object.getOwnPropertyDescriptor(Range.prototype, 'setStart')!
+  .value as (this: Range, node: Node, offset: number) => void
 
 const SCTX = {} as ClientContext
 const SID = 's1' as SessionId
@@ -321,7 +333,7 @@ describe('running and lock semantics (queue cut 1)', () => {
     expect((textarea).value).toBe('typed')
   })
 
-  it('wheel over a non-overflowing textarea forwards to the conversation host', () => {
+  it('wheel over a non-overflowing draft forwards to the conversation host', () => {
     const host = document.createElement('div')
     host.setAttribute('data-conversation-scroll', '')
     Object.defineProperty(host, 'scrollTop', { value: 40, writable: true, configurable: true })
@@ -337,17 +349,18 @@ describe('running and lock semantics (queue cut 1)', () => {
     }
   })
 
-  it('wheel chains: long drafts scroll inside the textarea until each edge, then the host', () => {
+  it('wheel chains: long drafts scroll inside the draft scrollport until each edge, then the host', () => {
     const host = document.createElement('div')
     host.setAttribute('data-conversation-scroll', '')
     Object.defineProperty(host, 'scrollTop', { value: 40, writable: true, configurable: true })
     const { view, textarea } = bench()
     host.appendChild(view.container)
     document.body.appendChild(host)
-    Object.defineProperty(textarea, 'clientHeight', { value: 100, configurable: true })
-    Object.defineProperty(textarea, 'scrollHeight', { value: 400, configurable: true })
+    const scrollport = view.container.querySelector<HTMLElement>('[data-input-scroll]')!
+    Object.defineProperty(scrollport, 'clientHeight', { value: 100, configurable: true })
+    Object.defineProperty(scrollport, 'scrollHeight', { value: 400, configurable: true })
     let scrollTop = 150
-    Object.defineProperty(textarea, 'scrollTop', {
+    Object.defineProperty(scrollport, 'scrollTop', {
       configurable: true,
       get: () => scrollTop,
       set: (value: number) => { scrollTop = value },
@@ -371,35 +384,151 @@ describe('running and lock semantics (queue cut 1)', () => {
     }
   })
 
-  it('the decoration backdrop tracks the textarea offset (it paints every visible glyph)', () => {
+  it('the caret layer and the glyph layer ride one scrollport', () => {
     const { view, textarea } = bench({ draft: 'line\n'.repeat(40) })
+    const scroll = view.container.querySelector<HTMLElement>('[data-input-scroll]')!
     const backdrop = view.container.querySelector<HTMLElement>('[data-input-backdrop]')!
-    Object.defineProperty(backdrop, 'scrollTop', { value: 0, writable: true, configurable: true })
-    Object.defineProperty(textarea, 'scrollTop', { value: 0, writable: true, configurable: true })
-    // A scrolled draft: the textarea moves, the clipped backdrop must follow.
-    textarea.scrollTop = 120
-    fireEvent.scroll(textarea)
-    expect(backdrop.scrollTop).toBe(120)
-    // Every later move tracks too, including back to the top — a one-shot
-    // mirror would leave the glyphs parked at the first offset it saw.
-    textarea.scrollTop = 0
-    fireEvent.scroll(textarea)
-    expect(backdrop.scrollTop).toBe(0)
+    // The caret is the textarea's and every visible glyph is the backdrop's, so
+    // one box has to carry both or an offset can exist in one and not the other.
+    // jsdom has no layout and loads no stylesheet — which box scrolls is the
+    // browser scenario's to assert; what is checkable here is that the
+    // scrollport element holds both layers.
+    expect(scroll.contains(textarea)).toBe(true)
+    expect(scroll.contains(backdrop)).toBe(true)
+    // The glyph layer carries the draft and nothing else: with one scrollport
+    // it no longer pads its own height to match a second box's scroll extent.
+    expect(backdrop.textContent).toBe('line\n'.repeat(40))
   })
 
-  it('the backdrop carries the trailing-line sentinel that keeps its extent equal to the textarea', () => {
-    // jsdom has no layout, so the HEIGHTS this protects cannot be asserted here
-    // (the browser scenario owns that); what is checkable is that the backdrop's
-    // text is the draft plus exactly one newline. A textarea reserves a line box
-    // after a final newline and `pre-wrap` collapses one, so without the
-    // sentinel a draft ending in a newline leaves the backdrop a line short and
-    // the mirrored offset clamps.
-    const withNewline = bench({ draft: 'alpha\nbeta\n' })
-    const backdrop = withNewline.view.container.querySelector<HTMLElement>('[data-input-backdrop]')!
-    expect(backdrop.textContent).toBe('alpha\nbeta\n\n')
-    const withoutNewline = bench({ draft: 'alpha\nbeta' })
-    const plain = withoutNewline.view.container.querySelector<HTMLElement>('[data-input-backdrop]')!
-    expect(plain.textContent).toBe('alpha\nbeta\n')
+  it('an edit the composer performs itself scrolls the caret back into view', async () => {
+    // Paste and cut suppress the native edit, so no engine reveals the caret
+    // for them. jsdom has no layout: the rects are stubbed,
+    // and what is asserted is the arithmetic — minimal scroll, in both
+    // directions, and nothing at all for a caret already inside the box.
+    const { view, textarea } = bench({ draft: 'line\n'.repeat(40) })
+    const scroll = view.container.querySelector<HTMLElement>('[data-input-scroll]')!
+    const mirror = view.container.querySelector<HTMLElement>('[data-input-mirror]')!
+    expect(mirror.firstChild).toBeInstanceOf(Text)
+    scroll.getBoundingClientRect = () => ({ top: 100, bottom: 436 }) as DOMRect
+    // jsdom reports scrollHeight === clientHeight for every element, which is
+    // the composer's own "nothing to reveal" case; a scrollable box is what
+    // puts the reveal on the table at all.
+    Object.defineProperty(scroll, 'clientHeight', { value: 336, configurable: true })
+    Object.defineProperty(scroll, 'scrollHeight', { value: 964, configurable: true })
+    Object.defineProperty(scroll, 'scrollTop', { value: 0, writable: true, configurable: true })
+    onTestFinished(() => {
+      Range.prototype.getBoundingClientRect = ZERO_RECT
+      Range.prototype.setStart = NATIVE_SET_START
+    })
+    // Which layer the caret is measured against, and at which index: the stub
+    // records `setStart` so a helper that measured the backdrop instead, or
+    // always collapsed at 0, fails here rather than only in the browser lane.
+    let measured: { node: Node; offset: number } | null = null
+    Range.prototype.setStart = function setStart(node: Node, offset: number): void {
+      measured = { node, offset }
+      NATIVE_SET_START.call(this, node, offset)
+    }
+    const caretAt = (top: number): void => {
+      Range.prototype.getBoundingClientRect = () => ({ top, bottom: top + 24 }) as DOMRect
+    }
+    const settle = async (): Promise<void> => {
+      await act(async () => { await new Promise((resolve) => { requestAnimationFrame(() => { resolve(null) }) }) })
+    }
+    // Pasted text lands below the fold: scroll down by exactly the overshoot.
+    caretAt(500)
+    fireEvent.paste(textarea, { clipboardData: { getData: () => 'pasted' } })
+    await settle()
+    expect(scroll.scrollTop).toBe(88) // 524 - 436
+    // Measured on the mirror's own text, at the index the paste left the caret
+    // (an empty draft's selection start, 0, plus the pasted length).
+    expect(measured!.node).toBe(mirror.firstChild)
+    expect(measured!.offset).toBe('pasted'.length)
+    // A caret already inside the box does not move it.
+    caretAt(200)
+    fireEvent.paste(textarea, { clipboardData: { getData: () => 'more' } })
+    await settle()
+    expect(scroll.scrollTop).toBe(88)
+    // Above the fold (a cut can leave it there): scroll back up.
+    caretAt(60)
+    fireEvent.paste(textarea, { clipboardData: { getData: () => 'again' } })
+    await settle()
+    expect(scroll.scrollTop).toBe(48) // 88 - (100 - 60)
+    // A caret straight after a newline has nothing on its line to measure, so
+    // the newline it just left is measured instead and one line is added.
+    // chromium reports no client rects at all for the collapsed position.
+    mirror.style.lineHeight = '24px'
+    caretAt(500)
+    fireEvent.paste(textarea, { clipboardData: { getData: () => 'block\n' } })
+    await settle()
+    // The four pastes accumulate at the draft's head, so the caret is at the
+    // end of what they inserted — and the measured index is the newline before it.
+    expect(measured!.offset).toBe('pastedmoreagainblock\n'.length - 1)
+    expect(scroll.scrollTop).toBe(48 + 112) // from 48, by (524 + 24) - 436
+  })
+
+  it('a session switch refocuses without moving the transcript, and reveals the new draft caret', () => {
+    // The composer DOM is reused across sessions, so the previous session's
+    // offset survives while the value swap puts the caret at the new draft's
+    // end. `preventScroll` keeps the browser from revealing it through the
+    // conversation scrollport, which leaves the reveal to the effect itself.
+    const { view, textarea, props } = bench({ draft: 'line\n'.repeat(40) })
+    const scroll = view.container.querySelector<HTMLElement>('[data-input-scroll]')!
+    const mirror = view.container.querySelector<HTMLElement>('[data-input-mirror]')!
+    onTestFinished(() => { Range.prototype.getBoundingClientRect = ZERO_RECT })
+    scroll.getBoundingClientRect = () => ({ top: 100, bottom: 436 }) as DOMRect
+    Object.defineProperty(scroll, 'clientHeight', { value: 336, configurable: true })
+    Object.defineProperty(scroll, 'scrollHeight', { value: 964, configurable: true })
+    Object.defineProperty(scroll, 'scrollTop', { value: 0, writable: true, configurable: true })
+    Range.prototype.getBoundingClientRect = () => ({ top: 500, bottom: 524 }) as DOMRect
+    // The draft ends in a newline, so the reveal takes the after-newline path
+    // and needs a resolvable line-height (jsdom computes `normal`).
+    mirror.style.lineHeight = '24px'
+    // Which index the effect reveals at, not merely that it scrolled: a
+    // revealCaret(0) would land the same offset without this.
+    onTestFinished(() => { Range.prototype.setStart = NATIVE_SET_START })
+    let measured: { node: Node; offset: number } | null = null
+    Range.prototype.setStart = function setStart(node: Node, offset: number): void {
+      measured = { node, offset }
+      NATIVE_SET_START.call(this, node, offset)
+    }
+    const focused: (boolean | undefined)[] = []
+    textarea.focus = (options?: FocusOptions) => { focused.push(options?.preventScroll) }
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length)
+    act(() => { view.rerender(<InputBar {...props} sessionId={'s2' as SessionId} />) })
+    expect(focused).toEqual([true])
+    expect(scroll.scrollTop).toBe(112) // (524 + 24) - 436
+    // The draft ends in a newline, so the rule measures that newline: the
+    // caret's own index is the mirror text's length minus its sentinel.
+    expect(measured!.node).toBe(mirror.firstChild)
+    expect(measured!.offset).toBe(textarea.value.length - 1)
+  })
+
+  it('a persisted draft adopted after mount gets its caret revealed too', () => {
+    // ConversationSession seeds the stored draft in its own mount effect, which
+    // runs after this component's: the first reveal measures an empty mirror,
+    // so the draft's arrival has to run it again without reclaiming focus.
+    const { view, textarea, shell } = bench()
+    const scroll = view.container.querySelector<HTMLElement>('[data-input-scroll]')!
+    const mirror = view.container.querySelector<HTMLElement>('[data-input-mirror]')!
+    // The restored draft ends in a newline, so the reveal takes the
+    // after-newline path and needs a resolvable line-height (jsdom says `normal`).
+    mirror.style.lineHeight = '24px'
+    onTestFinished(() => { Range.prototype.getBoundingClientRect = ZERO_RECT })
+    scroll.getBoundingClientRect = () => ({ top: 100, bottom: 436 }) as DOMRect
+    Object.defineProperty(scroll, 'clientHeight', { value: 336, configurable: true })
+    Object.defineProperty(scroll, 'scrollHeight', { value: 964, configurable: true })
+    Object.defineProperty(scroll, 'scrollTop', { value: 0, writable: true, configurable: true })
+    Range.prototype.getBoundingClientRect = () => ({ top: 500, bottom: 524 }) as DOMRect
+    const other = document.createElement('input')
+    document.body.appendChild(other)
+    onTestFinished(() => { other.remove() })
+    other.focus()
+    expect(scroll.scrollTop).toBe(0)
+    act(() => { shell.setDraft('restored\n'.repeat(40)) })
+    expect(document.activeElement).toBe(other)
+    // The caret the machine left at the draft's end, revealed once the draft exists.
+    expect(textarea.selectionStart).toBe(textarea.value.length)
+    expect(scroll.scrollTop).toBe(112) // (524 + 24) - 436
   })
 
   it('disabled state shows the unavailable placeholder; custom placeholder wins', () => {

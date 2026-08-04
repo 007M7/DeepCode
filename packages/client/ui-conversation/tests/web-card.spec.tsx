@@ -17,7 +17,7 @@ import type {
 import type { ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import type { SelectionTarget, ToolRowOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { CHAT_WEB_MAX_SOURCES, webCardModel } from '../src/client/contract/web-card-model.ts'
+import { webCardModel } from '../src/client/contract/web-card-model.ts'
 import { createChatStore } from '../src/client/stores.ts'
 import { GenericToolCard } from '../src/client/chat/GenericToolCard.tsx'
 import { DetailsPanel } from '../src/client/skeleton/DetailsPanel.tsx'
@@ -135,8 +135,7 @@ describe('chat row web body', () => {
     fireEvent.click(view.container.querySelector('[data-expandable]')!)
   }
 
-  it('the WebRow collapses to the summary row, expanding to the search card capped tighter than the panel', () => {
-    expect(CHAT_WEB_MAX_SOURCES).toBeLessThan(16)
+  it('the WebRow collapses to the summary row, expanding to the full search card', () => {
     const view = render(<WebRow {...rowProps(settledSearch(), 'web_search')} />)
     // Collapsed: the summary row alone, no card in the DOM.
     expect(view.getByText('Search')).toBeTruthy()

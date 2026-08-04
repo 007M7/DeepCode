@@ -20,7 +20,7 @@ Beyond the schema's type/required/enum checks, `execute` rejects an empty or dup
 
 ## Rendering
 
-The canonical result is `{ todos, counts: { pending, inProgress, completed } }`; its Native renderer returns the compact update acknowledgement. The tool also writes the full `todo/write` session event. UIs subscribe to the event stream and render that durable list themselves: the [TUI app](../../ui/tui) and the [web client](../../client/ui-conversation) show a plan strip (plus a dedicated web tool row) off the standing plan — latest `todo/write` with no later `turn/start` ([display](../../../.agents/notes/implemented/feature/2026-07-23-web-todo-display.md), [lifetime](../../../.agents/notes/implemented/feature/2026-07-28-todo-plan-clears-on-next-turn.md)).
+The canonical result is `{ todos, counts: { pending, inProgress, completed } }`; its Native renderer returns the compact update acknowledgement. The tool also writes the full `todo/write` session event. UIs subscribe to the event stream and render that durable list themselves: the [web client](../../client/ui-conversation) shows a plan strip plus a dedicated tool row off the standing plan — latest `todo/write` with no later `turn/start` ([display](../../../.agents/notes/implemented/feature/2026-07-23-web-todo-display.md), [lifetime](../../../.agents/notes/implemented/feature/2026-07-28-todo-plan-clears-on-next-turn.md)).
 
 ## Session projection
 

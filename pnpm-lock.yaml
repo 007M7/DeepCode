@@ -5,7 +5,6 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
-  '@earendil-works/pi-tui@0.80.7': 6c30c5386c0159131e1361023cddf31377f5728962524841964373312c1ed946
   node-pty@1.1.0: 7a0c04f1f49d798a9ffe2f7f414c01064a44ca2489772d0c3e1235ab336755e6
 
 importers:
@@ -342,9 +341,6 @@ importers:
       '@deepseek-ai/dsh-session-query-sqlite':
         specifier: workspace:^
         version: link:../../packages/session-query/session-query-sqlite
-      '@deepseek-ai/dsh-session-reference':
-        specifier: workspace:^
-        version: link:../../packages/context/session-reference
       '@deepseek-ai/dsh-session-telemetry-otel':
         specifier: workspace:^
         version: link:../../packages/telemetry/session-telemetry-otel
@@ -399,15 +395,9 @@ importers:
       '@deepseek-ai/dsh-timeout-policy':
         specifier: workspace:^
         version: link:../../packages/timeout/timeout-policy
-      '@deepseek-ai/dsh-tmux-context':
-        specifier: workspace:^
-        version: link:../../packages/context/tmux-context
       '@deepseek-ai/dsh-token-meter':
         specifier: workspace:^
         version: link:../../packages/llm/token-meter
-      '@deepseek-ai/dsh-tool-ask-user':
-        specifier: workspace:^
-        version: link:../../packages/ui/tool-ask-user
       '@deepseek-ai/dsh-tool-bash':
         specifier: workspace:^
         version: link:../../packages/bash/tool-bash
@@ -459,9 +449,6 @@ importers:
       '@deepseek-ai/dsh-tools':
         specifier: workspace:^
         version: link:../../packages/core/tools
-      '@deepseek-ai/dsh-tui':
-        specifier: workspace:^
-        version: link:../../packages/ui/tui
       '@deepseek-ai/dsh-user-approval':
         specifier: workspace:^
         version: link:../../packages/ui/user-approval
@@ -483,9 +470,6 @@ importers:
       '@deepseek-ai/dsh-workspace-context':
         specifier: workspace:^
         version: link:../../packages/context/workspace-context
-      '@earendil-works/pi-tui':
-        specifier: 0.80.7
-        version: 0.80.7(patch_hash=6c30c5386c0159131e1361023cddf31377f5728962524841964373312c1ed946)
       commander:
         specifier: ^15.0.0
         version: 15.0.0
@@ -496,18 +480,12 @@ importers:
         specifier: ^4.2.0
         version: 4.2.0
     devDependencies:
-      '@deepseek-ai/dsh-llm-mock-server':
-        specifier: workspace:^
-        version: link:../../packages/support/llm-mock-server
       '@types/js-yaml':
         specifier: ^4.0.9
         version: 4.0.9
       execa:
         specifier: ^10.0.0
         version: 10.0.0
-      node-pty:
-        specifier: 1.1.0
-        version: 1.1.0(patch_hash=7a0c04f1f49d798a9ffe2f7f414c01064a44ca2489772d0c3e1235ab336755e6)
 
   apps/web:
     dependencies:
@@ -824,9 +802,6 @@ importers:
       '@deepseek-ai/dsh-tools':
         specifier: workspace:*
         version: link:../packages/core/tools
-      '@deepseek-ai/dsh-tui':
-        specifier: workspace:*
-        version: link:../packages/ui/tui
       '@deepseek-ai/dsh-user-approval':
         specifier: workspace:*
         version: link:../packages/ui/user-approval
@@ -5830,103 +5805,6 @@ importers:
         specifier: ^4.0.0-rc.7
         version: link:../../../vendor/cordis
 
-  packages/ui/tui:
-    dependencies:
-      '@earendil-works/pi-tui':
-        specifier: 0.80.7
-        version: 0.80.7(patch_hash=6c30c5386c0159131e1361023cddf31377f5728962524841964373312c1ed946)
-      diff:
-        specifier: ^9.0.0
-        version: 9.0.0
-      saxes:
-        specifier: 6.0.0
-        version: 6.0.0
-      schemastery:
-        specifier: ^3.18.0
-        version: link:../../../vendor/schemastery
-    devDependencies:
-      '@cordisjs/plugin-loader':
-        specifier: workspace:^
-        version: link:../../../vendor/loader
-      '@deepseek-ai/dsh-agent':
-        specifier: workspace:^
-        version: link:../../core/agent
-      '@deepseek-ai/dsh-agent-loop':
-        specifier: workspace:^
-        version: link:../../core/agent-loop
-      '@deepseek-ai/dsh-commands':
-        specifier: workspace:^
-        version: link:../commands
-      '@deepseek-ai/dsh-compact':
-        specifier: workspace:^
-        version: link:../../compact/compact
-      '@deepseek-ai/dsh-goal':
-        specifier: workspace:^
-        version: link:../../goal/goal
-      '@deepseek-ai/dsh-invariants':
-        specifier: workspace:^
-        version: link:../../support/invariants
-      '@deepseek-ai/dsh-llm':
-        specifier: workspace:^
-        version: link:../../llm/llm
-      '@deepseek-ai/dsh-llm-retry':
-        specifier: workspace:^
-        version: link:../../llm/llm-retry
-      '@deepseek-ai/dsh-session':
-        specifier: workspace:^
-        version: link:../../core/session
-      '@deepseek-ai/dsh-session-persistence':
-        specifier: workspace:^
-        version: link:../../session-persistence/session-persistence
-      '@deepseek-ai/dsh-session-projection':
-        specifier: workspace:^
-        version: link:../../session-projection/session-projection
-      '@deepseek-ai/dsh-session-projection-cache':
-        specifier: workspace:^
-        version: link:../../session-projection/session-projection-cache
-      '@deepseek-ai/dsh-session-query':
-        specifier: workspace:^
-        version: link:../../session-query/session-query
-      '@deepseek-ai/dsh-session-reference':
-        specifier: workspace:^
-        version: link:../../context/session-reference
-      '@deepseek-ai/dsh-session-title':
-        specifier: workspace:^
-        version: link:../../session-title/session-title
-      '@deepseek-ai/dsh-skill':
-        specifier: workspace:^
-        version: link:../../skill/skill
-      '@deepseek-ai/dsh-subprocess':
-        specifier: workspace:^
-        version: link:../../subprocess/subprocess
-      '@deepseek-ai/dsh-system-prompt':
-        specifier: workspace:^
-        version: link:../../core/system-prompt
-      '@deepseek-ai/dsh-token-meter':
-        specifier: workspace:^
-        version: link:../../llm/token-meter
-      '@deepseek-ai/dsh-tool-cordis':
-        specifier: workspace:^
-        version: link:../../cordis/tool-cordis
-      '@deepseek-ai/dsh-tool-workflow':
-        specifier: workspace:^
-        version: link:../../workflow/tool-workflow
-      '@deepseek-ai/dsh-tools':
-        specifier: workspace:^
-        version: link:../../core/tools
-      '@deepseek-ai/dsh-user-interaction':
-        specifier: workspace:^
-        version: link:../user-interaction
-      '@deepseek-ai/dsh-workflow':
-        specifier: workspace:^
-        version: link:../../workflow/workflow
-      '@xterm/headless':
-        specifier: 5.5.0
-        version: 5.5.0
-      cordis:
-        specifier: ^4.0.0-rc.7
-        version: link:../../../vendor/cordis
-
   packages/ui/user-approval:
     dependencies:
       schemastery:
@@ -7224,10 +7102,6 @@ packages:
     resolution: {integrity: sha512-3WFYRhEp3lQB3444EhPMBcM7zSaEUE3eJgHOR7s4081NLqbw/FsWilIKWXSua0Gv3sRr7m9xMidR3pPDE7jI/A==}
     engines: {node: '>=22.19.0'}
     hasBin: true
-
-  '@earendil-works/pi-tui@0.80.7':
-    resolution: {integrity: sha512-1B2++fLZfgI3XMzW2BTpuDuam2uyHnUUEmsOvi5R0Ne9RAt59WjFV0G8ozX6l1Xafa9P5Y3eT4aDtRr/v/CUTA==}
-    engines: {node: '>=22.19.0'}
 
   '@emnapi/core@1.10.0':
     resolution: {integrity: sha512-yq6OkJ4p82CAfPl0u9mQebQHKPJkY7WrIuk205cTYnYe+k2Z8YBh11FrbRG/H6ihirqcacOgl2BIO8oyMQLeXw==}
@@ -9352,9 +9226,6 @@ packages:
   '@vueuse/shared@12.8.2':
     resolution: {integrity: sha512-dznP38YzxZoNloI0qpEfpkms8knDtaoQ6Y/sfS0L7Yki4zh40LFHEhur0odJC6xTHG5dxWVPiUWBXn+wCG2s5w==}
 
-  '@xterm/headless@5.5.0':
-    resolution: {integrity: sha512-5xXB7kdQlFBP82ViMJTwwEc3gKCLGKR/eoxQm4zge7GPBl86tCdI0IdPJjoKd8mUSFXz5V7i/25sfsEkP4j46g==}
-
   '@yarnpkg/cli-dist@4.17.1':
     resolution: {integrity: sha512-2tiSQuJNl/L3QwTdrq6lKWDpkcnp9MGvCT/rIldHcbu3SWfnLdmehvt3eulX1hT7FFt1Gjfq3CesF+kvhFip6g==}
     engines: {node: '>=18.12.0'}
@@ -10168,10 +10039,6 @@ packages:
     resolution: {integrity: sha512-3hN7NaskYvMDLQY55gnW3NQ+mesEAepTqlg+VEbj7zzqEMBVNhzcGYYeqFo/TlYz6eQiFcp1HcsCZO+nGgS8zg==}
     engines: {node: '>=6.9.0'}
 
-  get-east-asian-width@1.6.0:
-    resolution: {integrity: sha512-QRbvDIbx6YklUe6RxeTeleMR0yv3cYH6PsPZHcnVn7xv7zO1BHN8r0XETu8n6Ye3Q+ahtSarc3WgtNWmehIBfA==}
-    engines: {node: '>=18'}
-
   get-intrinsic@1.3.0:
     resolution: {integrity: sha512-9fSjSaos/fRIVIp+xSJlE6lfwhES7LNtKaCBIamHsjr2na1BiABJPo0mOjjz8GJDURarmCPGqaiVg5mfjb98CQ==}
     engines: {node: '>= 0.4'}
@@ -10751,11 +10618,6 @@ packages:
 
   marked@16.4.2:
     resolution: {integrity: sha512-TI3V8YYWvkVf3KJe1dRkpnjs68JUPyEa5vjKrp1XEEJUAOaQc+Qj+L1qWbPd0SJuAdQkFU0h73sXXqwDYxsiDA==}
-    engines: {node: '>= 20'}
-    hasBin: true
-
-  marked@18.0.5:
-    resolution: {integrity: sha512-S6GcvALHg6K4ohtu4E7x0a1AqhAjp6cV8KhLSyN9qVapnzJkusVBxZRcIU9AeYsbe6P1hKDusSbEOzGyyuce6w==}
     engines: {node: '>= 20'}
     hasBin: true
 
@@ -12771,11 +12633,6 @@ snapshots:
       - ws
       - zod
 
-  '@earendil-works/pi-tui@0.80.7(patch_hash=6c30c5386c0159131e1361023cddf31377f5728962524841964373312c1ed946)':
-    dependencies:
-      get-east-asian-width: 1.6.0
-      marked: 18.0.5
-
   '@emnapi/core@1.10.0':
     dependencies:
       '@emnapi/wasi-threads': 1.2.1
@@ -14474,8 +14331,6 @@ snapshots:
     transitivePeerDependencies:
       - typescript
 
-  '@xterm/headless@5.5.0': {}
-
   '@yarnpkg/cli-dist@4.17.1': {}
 
   accepts@2.0.0:
@@ -15383,8 +15238,6 @@ snapshots:
 
   gensync@1.0.0-beta.2: {}
 
-  get-east-asian-width@1.6.0: {}
-
   get-intrinsic@1.3.0:
     dependencies:
       call-bind-apply-helpers: 1.0.2
@@ -15993,8 +15846,6 @@ snapshots:
   markdown-table@3.0.4: {}
 
   marked@16.4.2: {}
-
-  marked@18.0.5: {}
 
   math-intrinsics@1.1.0: {}
 

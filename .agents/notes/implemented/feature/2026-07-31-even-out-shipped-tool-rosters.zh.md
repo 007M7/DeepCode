@@ -38,9 +38,9 @@ Status: implemented
 
 ## 测试
 
-[`apps/cli/tests/shipped-composition.e2e.ts`](../../../../apps/cli/tests/shipped-composition.e2e.ts) 在伪终端中通过真实 Loader 启动交付树,并从会话日志持久化的 `request/header` 中读出工具名,因此断言的正是模型实际收到的目录。它传入的 `--config` overlay [`composition-keyless-tail.cordis.yml`](../../../../apps/cli/tests/fixtures/composition-keyless-tail.cordis.yml) 只做测试隔离:一个无网络适配器,以及落在工作区内的会话产物。
+`apps/cli/tests/shipped-composition.e2e.ts` 曾在伪终端中通过真实 Loader 启动交付树，并从会话日志持久化的 `request/header` 中读出工具名，因此断言的是模型实际收到的目录。它传入的 `--config` overlay `composition-keyless-tail.cordis.yml` 只用于测试隔离：一个无网络适配器，以及落在工作区内的会话产物。
 
-该尾部还插入了 [`composition-settled.ts`](../../../../apps/cli/tests/fixtures/composition-settled.ts),它在终端字节流上宣告 Loader 激活已 settle。TUI 在自己的 fiber 一启动就渲染,因此在 banner 处敲下的提示词可能在工具行与持久化仍在激活时就抵达循环,从而组装出不完整的目录;把冒烟的首个提示词 gate 在该标记上,正是断言得以确定的原因。
+该尾部还曾插入 `composition-settled.ts`，用于在终端字节流上宣告 Loader 激活已 settle。TUI 在自己的 fiber 一启动就渲染，因此在 banner 处敲下的提示词可能在工具行与持久化仍在激活时就抵达循环，从而组装出不完整的目录；把冒烟的首个提示词 gate 在该标记上，正是断言得以确定的原因。
 
 同一份冒烟还根据同一份产物固定 TUI 的执行姿态。那些沙箱 schema 与初始权限断言归[workspace-write 默认值决策](2026-07-31-workspace-write-surface-default.md)所有，独立于本工具清单决策。
 
