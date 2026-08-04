@@ -567,9 +567,6 @@
       "project": [
         "src/**/*.ts",
         "tests/**/*.ts"
-      ],
-      "ignoreBinaries": [
-        "rg"
       ]
     },
     "packages/mcp/mcp-client": {

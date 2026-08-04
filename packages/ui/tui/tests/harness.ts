@@ -69,6 +69,8 @@ export interface TuiHarnessOptions {
   sessionPersistence?: {
     list(): Promise<SessionHeader[]>
     load?(id: ReturnType<typeof SessionId>): Promise<{ meta: SessionHeader; events: Session['events'] }>
+    /** Per-session artifact location for mtime-based activity; defaults to none. */
+    locate?(meta: SessionHeader): { kind: string; path: string } | undefined
   }
   handoffResume?: TuiRuntime['handoffResume']
   /** Host-supplied exit line; absent exercises the no-message path. */
@@ -156,7 +158,7 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
     const persistence = options.sessionPersistence
     ctx.provide('sessionPersistence', {
       ...persistence,
-      locate: () => undefined,
+      locate: (meta: SessionHeader) => persistence.locate?.(meta),
       create: () => Promise.resolve(),
       append: () => Promise.resolve(),
       load: persistence.load === undefined

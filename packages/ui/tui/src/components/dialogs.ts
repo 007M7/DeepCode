@@ -23,14 +23,8 @@ import {
   type AgentLlmTarget,
 } from '@deepseek-ai/dsh-agent'
 import type { LlmModelInfo, LlmModelReasoningInfo, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
-import { lastActivityTime } from '@deepseek-ai/dsh-session'
 import type { SessionId } from '@deepseek-ai/dsh-session'
-import { foldGoal, type GoalPhase } from '@deepseek-ai/dsh-goal'
-import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
-import type {
-  SessionLogSnapshot,
-  SessionRecord,
-} from '@deepseek-ai/dsh-session-query'
+import type { SessionRecord } from '@deepseek-ai/dsh-session-query'
 import type { AskUserQuestionItem } from '@deepseek-ai/dsh-user-interaction'
 import { BRACKETED_PASTE_END, BRACKETED_PASTE_START, displayText, sanitizePastedText } from './text.ts'
 import { dialogSelectTheme, type Palette } from './theme.ts'
@@ -506,95 +500,53 @@ export class DetailsDialog implements Component {
   }
 }
 
-/** The provider/model route recovered from a resume candidate's log. */
-export interface ResumeRoute {
-  provider: string
-  model: string
-}
-
-/** A preflighted resume selector row summarizing one persisted session. */
+/** A resume selector row summarizing one session from metadata and its folded title. */
 export interface ResumeCandidate {
   record: SessionRecord
   title: string
+  /** Last observed change: live last-event time or artifact mtime, falling back to creation. */
   lastActivityAt: number
-  lastTurn: string
   /** Whether the session's workspace is the one the current session runs in, which selects the picker scope that lists it. */
   currentWorkspace: boolean
   /** The session's own workspace as a prompt-style label; the all-workspaces scope shows it per row. */
   workspaceLabel: string
-  route?: ResumeRoute
-  goalPhase?: GoalPhase
   disabledReason?: string
 }
 
-function resumeTurnLabel(snapshot: SessionLogSnapshot): string {
-  const event = snapshot.events.findLast(item => item.type === 'turn/end')
-  if (event === undefined) return 'no completed turn'
-  const reason = event.data.reason
-  switch (reason.kind) {
-    case 'completed': return `turn ${event.data.turn}: completed`
-    case 'aborted': return `turn ${event.data.turn}: cancelled`
-    case 'error': return `turn ${event.data.turn}: error`
-    case 'disposed': return `turn ${event.data.turn}: disposed`
-    case 'max-tokens': return `turn ${event.data.turn}: max tokens`
-    case 'interrupted': return `turn ${event.data.turn}: interrupted`
-    default: return `turn ${event.data.turn}: unknown result`
-  }
-}
-
-function resumeRoute(snapshot: SessionLogSnapshot): ResumeRoute | undefined {
-  const header = snapshot.events.findLast(item => item.type === 'request/header')
-  if (header?.type === 'request/header') {
-    return { provider: header.data.header.config.provider, model: header.data.header.config.model }
-  }
-  const assistant = snapshot.events.findLast(item => item.type === 'assistant/message')
-  return assistant?.type === 'assistant/message'
-    ? { provider: assistant.data.message.source.provider, model: assistant.data.message.source.model }
-    : undefined
-}
-
 /**
- * Build one resume selector row from a record and its log snapshot, deriving the
- * title, route, goal phase, workspace scope, and any reason the session cannot
- * be resumed here. A workspace other than the current one is a scope, not a
- * disabled reason: resuming it hands the process off into that directory.
+ * Build one resume selector row from a record, its batch-folded title, and a
+ * metadata-derived activity time, deriving the workspace scope and any reason
+ * the session cannot be resumed here. A workspace other than the current one
+ * is a scope, not a disabled reason: resuming it hands the process off into
+ * that directory. Rows carry no per-log detail beyond the title — route and
+ * replay validity are checked by the Enter-time preflight against the one
+ * chosen log.
  * @param record - The session record.
- * @param snapshot - The session's log snapshot.
+ * @param title - The session's batch-folded title, absent for an untitled log.
+ * @param lastActivityAt - Metadata activity time; absent falls back to the header's creation time.
  * @param currentId - The current session id.
  * @param cwd - The CURRENT session's workspace, which decides the picker scope this row falls in.
- * @param availableProviders - Providers registered in this runtime.
  * @param formatWorkspace - Renders THIS record's own cwd as its prompt-style label.
  * @returns The summarized resume candidate.
  */
 export function summarizeResumeCandidate(
   record: SessionRecord,
-  snapshot: SessionLogSnapshot,
+  title: string | undefined,
+  lastActivityAt: number | undefined,
   currentId: SessionId,
   cwd: string | undefined,
-  availableProviders: ReadonlySet<string>,
   formatWorkspace: (cwd: string | undefined) => string,
 ): ResumeCandidate {
-  const title = foldSessionTitle(snapshot.events)?.title ?? 'Untitled session'
-  const route = resumeRoute(snapshot)
-  const foldedGoal = foldGoal(snapshot.events).goal
   let disabledReason: string | undefined
   if (record.header.id === currentId) disabledReason = 'current session'
   else if (record.live) disabledReason = 'session is already live in this runtime'
   else if (record.header.cwd === undefined) disabledReason = 'session has no recorded workspace'
-  else if (route !== undefined && !availableProviders.has(route.provider)) {
-    disabledReason = `session is complete, but route is currently unavailable (${route.provider}/${route.model})`
-  }
   return {
     record,
-    title,
-    // Excludes a prior pickup's boundary, or every browsed session floats up.
-    lastActivityAt: lastActivityTime(snapshot.events) ?? snapshot.session.createdAt,
-    lastTurn: resumeTurnLabel(snapshot),
+    title: title ?? 'Untitled session',
+    lastActivityAt: lastActivityAt ?? record.header.createdAt,
     currentWorkspace: record.header.cwd === cwd,
     workspaceLabel: formatWorkspace(record.header.cwd),
-    ...route === undefined ? {} : { route },
-    /* v8 ignore next -- goal-bearing resume records are covered by the goal/session integration surface. */
-    ...foldedGoal === undefined ? {} : { goalPhase: foldedGoal.phase },
     ...disabledReason === undefined ? {} : { disabledReason },
   }
 }
@@ -609,6 +561,10 @@ export type ResumeScope = 'workspace' | 'all'
  * current session's workspace, `all` lists every workspace and labels each row
  * with its own. Tab toggles between them; the search query and selection reset
  * on a scope change so the highlighted row always belongs to the visible list.
+ *
+ * The picker opens before the session scan settles: an `undefined` candidate
+ * set renders a loading placeholder that keeps input away from the editor,
+ * and `setCandidates` swaps the scanned rows in without replacing the overlay.
  */
 export class ResumePicker implements Component, Focusable {
   private readonly search = new Input()
@@ -616,27 +572,43 @@ export class ResumePicker implements Component, Focusable {
   private selectedIndex = 0
   private error = ''
   private scope: ResumeScope = 'workspace'
+  private candidates: readonly ResumeCandidate[] | undefined
   focused = false
 
   constructor(
-    private readonly candidates: readonly ResumeCandidate[],
+    candidates: readonly ResumeCandidate[] | undefined,
     private readonly maxVisible: number,
     private readonly workspaceLabel: string,
     private readonly viewportRows: () => number,
     private readonly palette: Palette,
     private readonly done: (candidate: ResumeCandidate) => void,
     private readonly cancel: () => void,
-  ) {}
+  ) {
+    this.candidates = candidates
+  }
 
   invalidate(): void {
     this.search.invalidate()
   }
 
+  /**
+   * Replace the loading placeholder with the scanned candidate set.
+   * @param candidates - the summarized rows the finished scan produced.
+   */
+  setCandidates(candidates: readonly ResumeCandidate[]): void {
+    this.candidates = candidates
+    this.selectedIndex = 0
+    // A still-loading error is false the moment rows exist.
+    this.error = ''
+    this.invalidate()
+  }
+
   /** Candidates in the active scope, before the search query narrows them. */
   private scoped(): ResumeCandidate[] {
+    const candidates = this.candidates ?? []
     return this.scope === 'all'
-      ? [...this.candidates]
-      : this.candidates.filter(candidate => candidate.currentWorkspace)
+      ? [...candidates]
+      : candidates.filter(candidate => candidate.currentWorkspace)
   }
 
   private filtered(): ResumeCandidate[] {
@@ -653,7 +625,7 @@ export class ResumePicker implements Component, Focusable {
   private visibleCandidateCount(): number {
     // The all-workspaces scope adds a per-row workspace line, so a row costs
     // one more terminal row there than in the single-workspace scope.
-    const rowHeight = this.scope === 'all' ? 5 : 4
+    const rowHeight = this.scope === 'all' ? 4 : 3
     const candidateBudget = Math.max(1, Math.floor((Math.max(1, this.viewportRows()) - 13) / rowHeight))
     return Math.min(this.maxVisible, candidateBudget)
   }
@@ -718,7 +690,8 @@ export class ResumePicker implements Component, Focusable {
       this.error = ''
     } else if (matchesKey(data, Key.enter)) {
       const selected = filtered[this.selectedIndex]
-      if (selected === undefined) this.error = 'No session matches this search.'
+      if (this.candidates === undefined) this.error = 'Sessions are still loading.'
+      else if (selected === undefined) this.error = 'No session matches this search.'
       else if (selected.disabledReason !== undefined) this.error = selected.disabledReason
       else this.done(selected)
     } else {
@@ -738,12 +711,13 @@ export class ResumePicker implements Component, Focusable {
    * workspace it means, and the inactive scope with the count Tab would reveal.
    */
   private renderScopeLine(): string {
-    const inWorkspace = this.candidates.filter(candidate => candidate.currentWorkspace).length
+    const candidates = this.candidates ?? []
+    const inWorkspace = candidates.filter(candidate => candidate.currentWorkspace).length
     const active = this.scope === 'workspace'
       ? `this workspace ${displayText(this.workspaceLabel)}`
-      : `all workspaces (${this.candidates.length})`
+      : `all workspaces (${candidates.length})`
     const other = this.scope === 'workspace'
-      ? `all workspaces (${this.candidates.length})`
+      ? `all workspaces (${candidates.length})`
       : `this workspace (${inWorkspace})`
     return `${this.palette.accent(active)}${this.palette.dim(`  ⇥ ${other}`)}`
   }
@@ -758,9 +732,12 @@ export class ResumePicker implements Component, Focusable {
     if (this.selectedIndex >= filtered.length) this.selectedIndex = Math.max(0, filtered.length - 1)
     const selected = filtered[this.selectedIndex]
     const position = selected === undefined ? 0 : this.selectedIndex + 1
+    const title = this.candidates === undefined
+      ? 'Resume session'
+      : `Resume session (${position} of ${filtered.length})`
     const lines: string[] = [
       '',
-      `${indent}${this.palette.bold(this.palette.accent(`Resume session (${position} of ${filtered.length})`))}`,
+      `${indent}${this.palette.bold(this.palette.accent(title))}`,
       '',
     ]
 
@@ -795,11 +772,7 @@ export class ResumePicker implements Component, Focusable {
       ].filter((value): value is string => value !== undefined).join(' · ')
       const lead = `${active ? '❯' : ' '} ${displayText(candidate.title)}`
       push(active ? this.palette.bold(this.palette.accent(lead)) : lead)
-      const route = candidate.route === undefined ? 'route unavailable' : `${candidate.route.provider}/${candidate.route.model}`
-      /* v8 ignore next -- only goal-bearing resume records add this integration-owned suffix. */
-      const goal = candidate.goalPhase === undefined ? '' : ` · goal ${candidate.goalPhase}`
-      push(this.palette.dim(`  ${new Date(candidate.lastActivityAt).toISOString()} · ${candidate.lastTurn} · ${route}${goal}`))
-      push(this.palette.dim(`  ${status} · ${displayText(candidate.record.header.id)}`))
+      push(this.palette.dim(`  ${new Date(candidate.lastActivityAt).toISOString()} · ${status} · ${displayText(candidate.record.header.id)}`))
       // Only the all-workspaces scope mixes directories, so the per-row
       // workspace is redundant in the scope that already names one.
       if (this.scope === 'all') {
@@ -809,7 +782,8 @@ export class ResumePicker implements Component, Focusable {
         push(this.palette.warning(`  unavailable: ${displayText(candidate.disabledReason)}`))
       }
     }
-    if (filtered.length === 0) push(this.palette.warning('No matching sessions.'))
+    if (this.candidates === undefined) push(this.palette.dim('Loading sessions…'))
+    else if (filtered.length === 0) push(this.palette.warning('No matching sessions.'))
     if (this.error !== '') {
       lines.push('')
       push(this.palette.error(displayText(this.error)))
