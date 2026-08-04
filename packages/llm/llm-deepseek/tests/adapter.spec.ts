@@ -13,7 +13,7 @@ import LlmService, { createUserMessage,
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
-import { DeepSeekAdapter, PUBLIC_BASE_URL, resolveAdapterOptions } from '@deepseek-ai/dsh-llm-deepseek'
+import { DeepSeekAdapter, resolveAdapterOptions } from '@deepseek-ai/dsh-llm-deepseek'
 import { httpErrorCode } from '../src/adapter.ts'
 import { assemble } from './assemble.ts'
 import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
@@ -26,9 +26,12 @@ afterEach(async () => {
 })
 
 async function harness(baseURL: string, config: object = {}) {
+  // Configuration carries only the reference; the key comes from the
+  // environment, which is the whole credential plane without a mounted seam.
+  vi.stubEnv('DEEPSEEK_API_KEY', 'test-key')
   const ctx = new Context()
   await ctx.plugin(LlmService)
-  await ctx.plugin(LlmDeepSeek, { apiKey: 'test-key', baseURL, ...config })
+  await ctx.plugin(LlmDeepSeek, { baseURL, ...config })
   return ctx
 }
 
@@ -567,7 +570,6 @@ describe('plugin registration and config', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     const fiber = await ctx.plugin(LlmDeepSeek, {
-      apiKey: 'k',
       baseURL: server.url,
     })
     expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek-official', name: 'DeepSeek' }])
@@ -586,7 +588,6 @@ describe('plugin registration and config', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(LlmDeepSeek, {
-      apiKey: 'k',
       baseURL: 'http://127.0.0.1:1',
       retryPolicy: {
         mode: 'always',
@@ -605,7 +606,7 @@ describe('plugin registration and config', () => {
   it('owns the deepseek provider and advertises the default models', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
-    await ctx.plugin(LlmDeepSeek, { apiKey: 'k', baseURL: 'http://127.0.0.1:1' })
+    await ctx.plugin(LlmDeepSeek, { baseURL: 'http://127.0.0.1:1' })
     expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek-official', name: 'DeepSeek' }])
     await expect(ctx.llm.listModels('deepseek-official')).resolves.toEqual([
       { provider: 'deepseek-official', id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash' },
@@ -633,7 +634,6 @@ describe('plugin registration and config', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(LlmDeepSeek, {
-      apiKey: 'k',
       baseURL: 'http://127.0.0.1:1',
       reasoningEffort: effort,
     })
@@ -654,7 +654,6 @@ describe('plugin registration and config', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(LlmDeepSeek, {
-      apiKey: 'k',
       baseURL: 'http://127.0.0.1:1',
       thinking: 'disabled',
       reasoningEffort: 'off',
@@ -674,7 +673,6 @@ describe('plugin registration and config', () => {
       const ctx = new Context()
       await ctx.plugin(LlmService)
       await expect(ctx.plugin(LlmDeepSeek, {
-        apiKey: 'k',
         baseURL: 'http://127.0.0.1:1',
         thinking: 'disabled',
         reasoningEffort,
@@ -704,7 +702,7 @@ describe('plugin registration and config', () => {
   it('uses the default model catalog when apply is called directly', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
-    LlmDeepSeek.apply(ctx, { apiKey: 'k', baseURL: 'http://127.0.0.1:1' })
+    LlmDeepSeek.apply(ctx, { baseURL: 'http://127.0.0.1:1' })
     await expect(ctx.llm.listModels('deepseek-official')).resolves.toEqual([
       { provider: 'deepseek-official', id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash' },
       { provider: 'deepseek-official', id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro' },
@@ -715,7 +713,6 @@ describe('plugin registration and config', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(LlmDeepSeek, {
-      apiKey: 'k',
       baseURL: 'http://127.0.0.1:1',
       models: [
         { id: 'private-fast', contextWindow: 32_000 },
@@ -749,7 +746,6 @@ describe('plugin registration and config', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(LlmDeepSeek, {
-      apiKey: 'k',
       baseURL: 'http://127.0.0.1:1',
       defaultContextWindow: 256_000,
       models: [
@@ -770,7 +766,6 @@ describe('plugin registration and config', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(LlmDeepSeek, {
-      apiKey: 'k',
       baseURL: 'http://127.0.0.1:1',
       models: [],
     })
@@ -787,7 +782,6 @@ describe('plugin registration and config', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await expect(ctx.plugin(LlmDeepSeek, {
-      apiKey: 'k',
       baseURL: 'http://127.0.0.1:1',
       models: [...models],
     })).rejects.toThrow(message)
@@ -799,7 +793,6 @@ describe('plugin registration and config', () => {
     await ctx.plugin(LlmService)
     expect(() => {
       LlmDeepSeek.apply(ctx, {
-        apiKey: 'k',
         baseURL: 'http://127.0.0.1:1',
         models: [{ id: 'invalid-context', contextWindow: 0 }],
       })
@@ -816,7 +809,6 @@ describe('plugin registration and config', () => {
       const ctx = new Context()
       await ctx.plugin(LlmService)
       await expect(ctx.plugin(LlmDeepSeek, {
-        apiKey: 'k',
         baseURL: 'http://127.0.0.1:1',
         defaultContextWindow,
       })).rejects.toThrow(/defaultContextWindow/)
@@ -833,7 +825,6 @@ describe('plugin registration and config', () => {
       const ctx = new Context()
       await ctx.plugin(LlmService)
       await expect(ctx.plugin(LlmDeepSeek, {
-        apiKey: 'k',
         baseURL: 'http://127.0.0.1:1',
         maxTokens,
       })).rejects.toThrow(/maxTokens/)
@@ -864,7 +855,7 @@ describe('plugin registration and config', () => {
     // The guidance leads with the credential store — the path that keeps the
     // secret out of configuration files — and mentions a literal key last.
     await expect(assemble(ctx, { model: 'deepseek-v4-flash', messages: [] }))
-      .rejects.toThrow(/store DEEPSEEK_API_KEY through the credentials service.*as a last resort.*"apiKey"/s)
+      .rejects.toThrow(/store DEEPSEEK_API_KEY through the credentials service.*export DEEPSEEK_API_KEY/s)
   })
 
   it('reads the ambient variable when no credentials seam is mounted', async () => {
@@ -900,25 +891,26 @@ describe('plugin registration and config', () => {
   it('uses DEEPSEEK_BASE_URL when config omits baseURL', async () => {
     const server = await mockServer([{ kind: 'sse', events: textEvents }])
     vi.stubEnv('DEEPSEEK_BASE_URL', server.url)
+    vi.stubEnv('DEEPSEEK_API_KEY', 'test-key')
     const ctx = new Context()
     await ctx.plugin(LlmService)
-    await ctx.plugin(LlmDeepSeek, { apiKey: 'k' })
+    await ctx.plugin(LlmDeepSeek, {})
     await assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
     expect(server.requests).toHaveLength(1)
   })
 
 
-  it('takes DEEPSEEK_BASE_URL from the launching shell or the user .env, never from the project', () => {
+  it('takes DEEPSEEK_BASE_URL from any environment layer, with explicit config still on top', () => {
     const trusted = createEnvironmentSnapshot([
       { source: 'user-env', path: '/home/.dsh/.env', values: { DEEPSEEK_BASE_URL: 'https://user.example' } },
     ])
     expect(resolveAdapterOptions({}, trusted).baseURL).toBe('https://user.example')
-    // A base URL decides where the resolved API key is sent, so a file inside
-    // a model-writable workspace must not be able to redirect it.
+    // The product trusts the project it is launched in, so a checkout can
+    // point its own agent at the gateway that checkout is meant to use.
     const project = createEnvironmentSnapshot([
-      { source: 'project-env', path: '/work/.env', values: { DEEPSEEK_BASE_URL: 'https://attacker.example' } },
+      { source: 'project-env', path: '/work/.env', values: { DEEPSEEK_BASE_URL: 'https://project.example' } },
     ])
-    expect(resolveAdapterOptions({}, project).baseURL).toBe(PUBLIC_BASE_URL)
+    expect(resolveAdapterOptions({}, project).baseURL).toBe('https://project.example')
     // An explicitly configured endpoint outranks every environment layer, so a
     // stale shell value cannot rewrite a deployment's own gateway.
     const shell = createEnvironmentSnapshot([
@@ -966,12 +958,10 @@ describe('plugin registration and config', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await expect(ctx.plugin(LlmDeepSeek, {
-      apiKey: 'k',
       baseURL: 'http://127.0.0.1:1',
       streamIdleTimeoutMs: 0,
     })).rejects.toThrow(/streamIdleTimeoutMs/)
     await expect(ctx.plugin(LlmDeepSeek, {
-      apiKey: 'k',
       baseURL: 'http://127.0.0.1:1',
       streamIdleTimeoutMs: MAX_TIMER_DELAY_MS + 1,
     })).rejects.toThrow(/streamIdleTimeoutMs/)
@@ -982,7 +972,6 @@ describe('plugin registration and config', () => {
     await ctx.plugin(LlmService)
 
     await expect(ctx.plugin(LlmDeepSeek, {
-      apiKey: 'k',
       baseURL: 'http://127.0.0.1:1',
       retryPolicy: { mode: 'normal', maxRetries: -1 },
     })).rejects.toThrow(/retryPolicy/)

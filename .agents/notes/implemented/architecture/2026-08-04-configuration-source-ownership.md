@@ -16,24 +16,35 @@ And `!!js process.env.X` in the shipped composition made the same value reachabl
 
 ## Decision
 
-**One ordering, four kinds of source.** Every user-facing value resolves in the same order; the domains differ only in which tiers exist.
+**One ordering for non-secret values.** Every configurable value that is not itself a credential resolves in the same order; the domains differ only in which tiers exist.
 
 ```text
 explicit for this run     per-operation override, CLI argument
-> authored by deployment  --config / --config-replace
+> user settings           settings.yaml
+> composition             --config / --config-replace, shipped base
 > this launch's shell     inherited process environment
-> product-managed store   settings.yaml, .credentials.yaml
 > discovered file         $DSH_HOME/.env
-> defaults                schema default, shipped base, provider public default
+> defaults                schema default, provider public default
 ```
 
-Credentials have no deployment tier (configuration carries a reference, never a value) and no default. Endpoints have every tier. Model selection has CLI, settings, and the shipped default. The earlier proposal ranked a UI-written credential *below* the environment while ranking UI-written settings *above* it; the distinguishing fact is not the domain but who authored the file, so `.credentials.yaml` and `settings.yaml` now sit together, both under the launching shell and both over a discovered `.env`.
+Settings sit above composition because that is what the [settings seam](2026-07-28-user-settings-seam.md) does: a plugin registers its cordis entry config as the `base` layer and the user's section layers over it, and the seam cannot tell a value the shipped base set from one a `--config` overlay set — both arrive as entry config. A deployment that must pin a field against a user's stored settings therefore uses `--config-replace`, which bypasses the tree the settings base is derived from. Composition still outranks the environment, so a stale `DEEPSEEK_BASE_URL` in a shell cannot rewrite a configured endpoint.
 
-**The invoking directory's `.env` decides no credential and no route.** `EnvironmentSnapshot.getFrom(name, sources)` searches only the layers a caller names, and omitting one is a refusal rather than a demotion: the adapters ask for `['process', 'user-env']`, so no future reordering can let a project file back into a decision it was excluded from. A project `.env` remains an ordinary environment layer for ordinary variables.
+**Credentials keep a narrower, separate ordering**, and this note does not unify them:
 
-**A discovered file may not decide how the process starts.** `isBootstrapOnly` rejects, at load and before anything is materialized, any `.env` that sets a variable governing how a process launches (`PATH`, `SHELL`, `NODE_OPTIONS`, `LD_PRELOAD`, …), where code or model-visible instructions load from (the whole `DSH_*` namespace, `HOME`, `XDG_*`), or how the network is reached and trusted (proxy and CA variables). Matching is case-insensitive, so `https_proxy` is not a bypass.
+```text
+inherited process environment      (read-only, wins)
+> $DSH_HOME/.credentials.yaml      (provider-managed, writable)
+> <invocation cwd>/.env
+> $DSH_HOME/.env
+```
 
-The whole `DSH_*` namespace is denied rather than an audited subset. The harness's own switches — the permission mode, the agents home that holds model-visible skills, the bundled skill root — are exactly what a hostile project would reach for, and a switch added later must not become settable by being forgotten. There is no opt-out: an escape hatch would have to be readable from somewhere, and anything a discovered file could set is the hole itself.
+The launching environment wins because `DEEPSEEK_API_KEY=… dsh`, a CI secret, and a container `-e` are the one override an operator must be able to apply per run without editing machine state, and because it cannot be edited from inside it must be *visibly* read-only. Configuration is meant to carry only the *reference* — which name to resolve — and that name follows the non-secret ordering above.
+
+**The project the harness is launched in is trusted, by default and without a prompt.** A checkout may carry its own endpoint, its own ordinary variables, and its own key; the key ranks below the managed store, so a key stored through the web page or TUI is never displaced by one a checkout happens to contain. `EnvironmentSnapshot.getFrom(name, sources)` still searches only the layers a caller names, and omitting one is a refusal rather than a demotion — the mechanism exists for the decisions where a layer must be unreachable, not because the project is one of them today.
+
+**Trust does not extend to changing the harness itself.** `isBootstrapOnly` rejects, at load and before anything is materialized, any `.env` that sets a variable governing how a process launches (`PATH`, `SHELL`, `NODE_OPTIONS`, `LD_PRELOAD`), what code a runtime executes before the program it was asked to run (`BASH_ENV`, `PERL5OPT`, `PYTHONSTARTUP`, `RUBYOPT`, `JAVA_TOOL_OPTIONS`, the Git hook commands), where model-visible instructions load from (the whole `DSH_*` namespace, `HOME`, `XDG_*`), or how the network is reached and trusted (proxy and CA variables). Matching is case-insensitive, so `https_proxy` is not a bypass.
+
+The line is that these take effect with no user action, before any turn, outside the permission policy and the sandbox. `DSH_PERMISSION_MODE` would switch off the approvals that make trusting a project meaningful at all, and `BASH_ENV` runs a file of the project's choosing on every single `bash -c` the bash tool issues — the project's code running under the agent's policy is the deal; the project rewriting that policy is not. Enumerating these is a losing game one variable at a time, which is why the whole `DSH_*` namespace is denied rather than an audited subset, and why the list is organised by what a variable *does* rather than by which runtime owns it. There is no opt-out: an escape hatch would have to be readable from somewhere, and anything a discovered file could set is the hole itself.
 
 **`packages/util/environment` owns the snapshot**, deliberately as a utility rather than a three-package capability seam. The snapshot is frozen before Cordis starts and injected once by the launcher, so there is no runtime implementation to swap; consumers need types and pure functions, which a `util/` package gives them without depending on a UI package. `environmentOf(ctx)` returns the launcher's snapshot, or the inherited environment as the only layer — an SDK host or bare `cordis.yml` discovered no files, so its single layer really is what it was launched with, and the same trusted lookups keep working there unchanged.
 
@@ -43,16 +54,16 @@ The whole `DSH_*` namespace is denied rather than an audited subset. The harness
 
 - The web credential form now takes effect against an older key in the user's `.env`; only a key exported in the launching shell still makes it read-only, and the diagnostic says so.
 - A `.env` holding `DSH_*`, `PATH`, or a proxy variable fails the launch instead of being applied. Developers keeping switches in a repository `.env` move them to their shell — a deliberate, loud break.
-- `--config` is no longer overridable by a stale shell endpoint, so a deployment can pin an enterprise gateway.
-- Given up: an endpoint or key in the invoking directory's `.env` no longer applies. Per-project routing is a `--config` overlay or an `export` in that project's shell.
+- `--config` is no longer overridable by a stale shell endpoint. It is still overridable by a user's stored `settings.yaml`, which is the settings seam's layering and not something this note changes; a deployment that must win against stored settings uses `--config-replace`.
 - Not solved: the layers are still materialized into `process.env`, so ordinary project variables continue to reach child processes under the subprocess scrub. Bootstrap variables cannot come from a file at all, which closes the escalation path; a project `.env` setting something like `GIT_SSH_COMMAND` for the tools an agent runs remains possible and is recorded as a limitation on the package.
+- The adapters no longer accept a literal `apiKey`: configuration carries the reference and nothing else, so a settings document cannot become a second credential store. No adapter namespace is strict, so writing one is dropped rather than rejected.
 - Exa and Perplexity still capture their key at load time rather than through the credential seam. They no longer read raw `process.env` — they resolve through the trusted layers — but converting them to per-request seam resolution is separate work.
 
 ## Alternatives considered
 
-**Keep the proposal's split ladders (credentials env-over-file, endpoints settings-over-env).** Rejected on its own inconsistency: both arguments — "an export is this run's intent" and "a deployment's file should not be rewritten by a stale shell" — apply to both domains. Sorting by *who authored the source* explains both and produces one table instead of four.
+**Unify credentials into the non-secret ordering, by who authored each source.** Attempted and abandoned: it reads well, but the settings seam already fixes composition *below* the user section, so "authored by deployment" is not a tier the seam can express — and moving `.credentials.yaml` above the launching environment would take away the one override CI, containers, and a per-run `DEEPSEEK_API_KEY=…` depend on. Two orderings that each say why they are shaped that way beat one that describes neither accurately.
 
-**Let the invoking directory's `.env` supply a credential, ranked below the managed store.** Rejected: with no key stored, a hostile project's key would be used silently, and the account holder reads every prompt sent under it. That is the same exfiltration the endpoint rule exists to prevent, so it takes the same answer.
+**Withhold routing and credentials from the invoking project until it is explicitly trusted.** Rejected as the product's stance: a checkout is trusted by default, with no prompt and no stored trust record. The residual is real and worth naming — cloning a repository that carries a `.env` naming another endpoint or key routes that session through it — and a later project-trust gate is where that gets addressed, not a rule that makes the common case require ceremony.
 
 **Audit an allowlist of `DSH_*` variables a `.env` may set.** Rejected: the list would have to be re-audited on every new switch, and the failure mode of forgetting is silent. Denying the namespace fails safe.
 

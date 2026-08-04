@@ -100,9 +100,8 @@ export function apply(ctx: Context, config: Config): void {
     const credentials = ctx.get('credentials')
     const hit = credentials !== undefined
       ? (await credentials.resolve(ref))?.value
-      // Without the seam the launching environment is the whole credential
-      // plane — but only that layer, never a discovered project file.
-      : environmentOf(ctx).getFrom(ref, ['process'])?.value
+      // Without the seam the environment is the whole credential plane.
+      : environmentOf(ctx).getFrom(ref, ['process', 'project-env', 'user-env'])?.value
     if (hit !== undefined && hit.length > 0) return hit
     throw new LlmError(
       `llm-pi-ai: no credential for provider route "${provider}"; its profile resolves ${ref}, which is not`

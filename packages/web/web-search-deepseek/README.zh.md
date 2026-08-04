@@ -20,7 +20,7 @@ Exa 和 Perplexity 提供专用搜索端点，DeepSeek 则没有。该提供方�
 |---|---|---|
 | `apiKey` | 未设置 | DeepSeek API 密钥字面值。优先使用 `apiKeyEnv`，避免密钥进入配置；非空字面值优先。 |
 | `apiKeyEnv` | `DEEPSEEK_API_KEY` | 每次搜索都会通过 `ctx.credentials` 解析该凭据引用；没有该 seam 时则从进程环境解析。值缺失时，调用以 `WEB_PROVIDER_CREDENTIAL_MISSING` 失败。 |
-| `baseURL` | `https://api.deepseek.com/anthropic/v1` | Anthropic 兼容端点基址；追加 `/messages`。覆盖时使用 `$DEEPSEEK_SEARCH_BASE_URL` 等独立环境变量；禁止复用属于 chat-completions LLM 适配器的 `$DEEPSEEK_BASE_URL`。无法解析时提供方不可用。 |
+| `baseURL` | `https://api.deepseek.com/anthropic/v1` | Anthropic 兼容端点基址；追加 `/messages`。缺省时回退到任一环境层中的 `$DEEPSEEK_SEARCH_BASE_URL`；禁止复用属于 chat-completions LLM 适配器的 `$DEEPSEEK_BASE_URL`。无法解析时提供方不可用。 |
 | `model` | `deepseek-v4-flash` | Anthropic 格式模型名称。 |
 | `apiVersion` | `2023-06-01` | `anthropic-version` 标头值。 |
 | `maxTokens` | `4096` | Messages 请求生成 token 的正整数上限。 |
@@ -31,7 +31,7 @@ Exa 和 Perplexity 提供专用搜索端点，DeepSeek 则没有。该提供方�
   name: '@deepseek-ai/dsh-web-search-deepseek'
   config:
     apiKeyEnv: DEEPSEEK_API_KEY
-    baseURL: !!js process.env.DEEPSEEK_SEARCH_BASE_URL
+    baseURL: https://gateway.internal/anthropic/v1
 ```
 
 ## 映射

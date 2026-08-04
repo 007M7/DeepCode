@@ -68,6 +68,14 @@ export const Config: z<Config> = z.object({
   maxUses: z.number().step(1).min(1),
 })
 
+/**
+ * Environment variable naming this provider's endpoint. Deliberately distinct
+ * from `$DEEPSEEK_BASE_URL`, which belongs to the chat-completions adapter:
+ * search speaks the Anthropic-compatible Messages API, so one variable cannot
+ * serve both.
+ */
+const SEARCH_BASE_URL_ENV = 'DEEPSEEK_SEARCH_BASE_URL'
+
 /** Register the DeepSeek search provider with `ctx.web`. */
 export function apply(ctx: Context, config: Config): void {
   const maxTokens = config.maxTokens ?? DEEPSEEK_DEFAULT_MAX_TOKENS
@@ -81,13 +89,14 @@ export function apply(ctx: Context, config: Config): void {
     resolveApiKey: async () => {
       const credentials = ctx.get('credentials')
       if (credentials !== undefined) return (await credentials.resolve(apiKeyEnv))?.value
-      // Without the seam the launching environment is the whole credential
-      // plane — but only that layer, never a discovered project file.
-      const inherited = environmentOf(ctx).getFrom(apiKeyEnv, ['process'])
-      return inherited !== undefined && inherited.value.length > 0 ? inherited.value : undefined
+      // Without the seam the environment is the whole credential plane.
+      const ambient = environmentOf(ctx).getFrom(apiKeyEnv, ['process', 'project-env', 'user-env'])
+      return ambient !== undefined && ambient.value.length > 0 ? ambient.value : undefined
     },
     apiKeyEnv,
-    baseURL: config.baseURL ?? DEEPSEEK_DEFAULT_BASE_URL,
+    baseURL: config.baseURL
+      ?? environmentOf(ctx).getFrom(SEARCH_BASE_URL_ENV, ['process', 'project-env', 'user-env'])?.value
+      ?? DEEPSEEK_DEFAULT_BASE_URL,
     model: config.model ?? DEEPSEEK_DEFAULT_MODEL,
     apiVersion: config.apiVersion ?? DEEPSEEK_DEFAULT_API_VERSION,
     maxTokens,

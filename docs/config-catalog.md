@@ -423,7 +423,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/credentials/credentials-local/src/index.ts:54`](../packages/credentials/credentials-local/src/index.ts)
+Source: [`packages/credentials/credentials-local/src/index.ts:55`](../packages/credentials/credentials-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-fs-local`
 
@@ -628,8 +628,6 @@ Requires: `llm`
  * reasoning effort resolves to `high`.
  */
 export interface Config {
-  /** Literal API key; prefer {@link apiKeyEnv} so no secret enters configuration files. */
-  apiKey?: string
   /** Credential reference (environment-variable name) resolved per request; defaults to `DEEPSEEK_API_KEY`. */
   apiKeyEnv?: string
   /** Endpoint base; falls back to $DEEPSEEK_BASE_URL from a trusted environment layer, then the public API. */

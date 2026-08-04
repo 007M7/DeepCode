@@ -3,9 +3,10 @@
  * against the environment by how much each layer is trusted:
  *
  * ```text
- * inherited process environment  (read-only, wins)
- * > $DSH_HOME/.credentials.yaml  (provider-managed, writable)
- * > $DSH_HOME/.env               (read-only fallback)
+ * inherited process environment      (read-only, wins)
+ * > $DSH_HOME/.credentials.yaml      (provider-managed, writable)
+ * > <invocation cwd>/.env            (read-only fallback)
+ * > $DSH_HOME/.env                   (read-only fallback)
  * ```
  *
  * The inherited environment wins because `DEEPSEEK_API_KEY=… dsh`, a CI
@@ -15,10 +16,10 @@
  * web page or TUI writes takes effect immediately even when an older key sits
  * in the user's `.env`.
  *
- * The invoking directory's `.env` supplies no credential at all. A project
- * directory can be written by the model, and a substituted key would send
- * every request — prompts included — through an account someone else reads;
- * that decision belongs to the launching shell, not to a discovered file.
+ * The invoking project may supply a key, because the product trusts the
+ * project it is launched in. It ranks below the managed store, so a key stored
+ * through the web page or TUI is never displaced by one a checkout happens to
+ * carry.
  *
  * The file is the provider-managed writable source: every write re-reads the
  * document under a cross-process writer lock before patching only its own key
@@ -37,7 +38,7 @@
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import { watch as chokidarWatch } from 'chokidar'
-import { mkdir, readFile } from 'node:fs/promises'
+import { mkdir, readFile, stat } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { Document, parseDocument } from 'yaml'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
@@ -83,9 +84,54 @@ export function resolveSpec(config: Config): ResolvedSpec {
   }
 }
 
+/** Permission bits outside the owner; a credentials document must have none of them. */
+const GROUP_OTHER_BITS = 0o077
+
+/**
+ * Reject a credentials document other OS users can read, before its contents
+ * are read at all. The provider creates and replaces the file at `0600`, but a
+ * hand-written or externally generated one carries whatever umask produced it,
+ * and silently serving secrets out of a world-readable file would make the
+ * mode the provider promises meaningless.
+ *
+ * POSIX only: Windows has no mode to inspect — its ACLs are not expressible
+ * here — so the check is skipped rather than faked, and the file's protection
+ * there is whatever the create and replace APIs express.
+ * @param filename - absolute path of the document.
+ * @throws when the file exists with group or other permission bits set.
+ */
+async function assertOwnerOnly(filename: string): Promise<void> {
+  if (process.platform === 'win32') return
+  let mode: number
+  try {
+    mode = (await stat(filename)).mode
+  } catch (error) {
+    if (!isENOENT(error)) throw error
+    return
+  }
+  const offending = mode & GROUP_OTHER_BITS
+  if (offending === 0) return
+  throw new Error(
+    `credentials-local: ${filename} is readable beyond its owner (mode ${(mode & 0o777).toString(8)});`
+    + ` run "chmod 600 ${filename}" before starting again`,
+  )
+}
+
 /** Whether a filesystem error means absence; every non-ENOENT failure must surface. */
 function isENOENT(error: unknown): boolean {
   return (error as NodeJS.ErrnoException | null)?.code === 'ENOENT'
+}
+
+/**
+ * Describe one YAML parse failure without quoting the source. The parser's own
+ * message embeds the offending line, which here holds a secret.
+ * @param error - the parser's error.
+ * @returns the error code with its line and column.
+ */
+function describeYamlError(error: { code?: string; linePos?: [{ line: number; col: number }, ...unknown[]] }): string {
+  const at = error.linePos?.[0]
+  const where = at === undefined ? '' : ` at line ${String(at.line)}, column ${String(at.col)}`
+  return `${error.code ?? 'YAML_ERROR'}${where}`
 }
 
 /**
@@ -101,10 +147,15 @@ function isENOENT(error: unknown): boolean {
  * @returns the parsed entries, keyed by reference.
  */
 export function parseCredentialsDocument(text: string, filename: string): Map<string, string> {
+  // `prettyErrors` is on only for `linePos`; `error.message` is never used,
+  // because the parser quotes the offending source line and in this document
+  // that line is a secret. Only the code and position leave this function, and
+  // the same rule governs every other diagnostic here — a key name is safe to
+  // print, a value is not.
   const document = parseDocument(text, { prettyErrors: true, uniqueKeys: true })
   if (document.errors.length > 0) {
     throw new Error(`credentials-local: invalid document at ${filename}: ${
-      document.errors.map(error => error.message).join('; ')}`)
+      document.errors.map(describeYamlError).join('; ')}`)
   }
   const root: unknown = document.toJS() ?? {}
   if (typeof root !== 'object' || root === null || Array.isArray(root)) {
@@ -116,6 +167,8 @@ export function parseCredentialsDocument(text: string, filename: string): Map<st
     // is exactly the constraint a stored reference must satisfy to be
     // addressable through the seam.
     credentialRef(key)
+    // The key name is quoted, never the value: a wrong-typed entry is still a
+    // secret the user meant to store.
     if (typeof value !== 'string') {
       throw new TypeError(`credentials-local: the value for "${key}" in ${filename} must be a string`)
     }
@@ -194,9 +247,13 @@ export class CredentialsLocal extends Credentials {
     return entry !== undefined && entry.value.length > 0 ? entry.value : undefined
   }
 
-  /** The user `.env` fallback for a reference — below the managed store, never above it. */
-  private userEnvFallback(ref: CredentialRef): EnvironmentEntry | undefined {
-    const entry = environmentOf(this.ctx).getFrom(ref, ['user-env'])
+  /**
+   * The `.env` fallback for a reference — below the managed store, never above
+   * it. The invoking project ranks over the user's home file, matching the
+   * environment layering: the more specific location wins.
+   */
+  private dotenvFallback(ref: CredentialRef): EnvironmentEntry | undefined {
+    const entry = environmentOf(this.ctx).getFrom(ref, ['project-env', 'user-env'])
     return entry !== undefined && entry.value.length > 0 ? entry : undefined
   }
 
@@ -249,8 +306,8 @@ export class CredentialsLocal extends Credentials {
     if (inherited !== undefined) return Promise.resolve({ value: inherited, source: 'env' })
     const stored = this.values.get(ref)
     if (stored !== undefined) return Promise.resolve({ value: stored, source: 'file' })
-    const fallback = this.userEnvFallback(ref)
-    if (fallback !== undefined) return Promise.resolve({ value: fallback.value, source: 'user-env' })
+    const fallback = this.dotenvFallback(ref)
+    if (fallback !== undefined) return Promise.resolve({ value: fallback.value, source: fallback.source })
     return Promise.resolve(undefined)
   }
 
@@ -263,9 +320,8 @@ export class CredentialsLocal extends Credentials {
     }
     const stored = this.values.get(ref)
     if (stored !== undefined) return Promise.resolve({ configured: true, source: 'file', writable: true })
-    if (this.userEnvFallback(ref) !== undefined) {
-      return Promise.resolve({ configured: true, source: 'user-env', writable: true })
-    }
+    const fallback = this.dotenvFallback(ref)
+    if (fallback !== undefined) return Promise.resolve({ configured: true, source: fallback.source, writable: true })
     return Promise.resolve({ configured: false, writable: true })
   }
 
@@ -361,6 +417,7 @@ export class CredentialsLocal extends Credentials {
    * cannot be trusted must never be treated as "no credentials stored".
    */
   private async loadInitial(): Promise<void> {
+    await assertOwnerOnly(this.spec.filename)
     let text: string
     try {
       text = await readFile(this.spec.filename, 'utf8')
@@ -401,6 +458,9 @@ export class CredentialsLocal extends Credentials {
    * overwriting a document it could not understand.
    */
   private async reconcileFromDisk(): Promise<void> {
+    // Re-checked on every reload and before every write: an external editor or
+    // a restored backup can loosen the mode after boot.
+    await assertOwnerOnly(this.spec.filename)
     let text: string | undefined
     try {
       text = await readFile(this.spec.filename, 'utf8')

@@ -10,6 +10,11 @@ import { join } from 'node:path'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { CredentialsLocal } from '../src/index.ts'
 
+/** Credential documents are seeded owner-only, exactly as the provider creates them. */
+function writeCredentials(file: string, text: string): Promise<void> {
+  return writeFile(file, text, { mode: 0o600 })
+}
+
 const ALPHA = credentialRef('DSH_REVIEW_ALPHA')
 const BETA = credentialRef('DSH_REVIEW_BETA')
 const INNER = credentialRef('DSH_REVIEW_INNER')
@@ -44,7 +49,7 @@ describe('read-modify-write', () => {
     await ctx.credentials.set(ALPHA, 'one')
     // The external edit has landed on disk but no watcher reported it (watch
     // is off — the same blind spot as a debounce window or a missed event).
-    await writeFile(path, `${ALPHA}: one\n${BETA}: external\n`)
+    await writeCredentials(path, `${ALPHA}: one\n${BETA}: external\n`)
     await ctx.credentials.set(ALPHA, 'two')
     const text = await readFile(path, 'utf8')
     expect(text).toContain(`${BETA}: external`)
@@ -124,7 +129,7 @@ describe('document editor', () => {
     const dir = await tempDir()
     const path = join(dir, '.credentials.yaml')
     const wrapped = `DSH_REVIEW_WRAPPED: |-\n  line1\n  line2\n${ALPHA}: a\n`
-    await writeFile(path, wrapped)
+    await writeCredentials(path, wrapped)
     const ctx = await boot({ path, watch: false })
     await ctx.credentials.set(ALPHA, 'b')
     expect(await readFile(path, 'utf8')).toBe(`DSH_REVIEW_WRAPPED: |-\n  line1\n  line2\n${ALPHA}: b\n`)

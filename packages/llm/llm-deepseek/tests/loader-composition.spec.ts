@@ -51,7 +51,7 @@ async function loadComposition(
   const credentialsPath = join(root, '.credentials.yaml')
   if (options.withDynamic && fresh) {
     await writeFile(settingsPath, '# personal settings\n')
-    await writeFile(credentialsPath, 'DEEPSEEK_API_KEY: boot-key\n')
+    await writeFile(credentialsPath, 'DEEPSEEK_API_KEY: boot-key\n', { mode: 0o600 })
   }
 
   const configPath = join(root, 'cordis.yml')
@@ -76,7 +76,6 @@ async function loadComposition(
     "  name: '@deepseek-ai/dsh-llm-deepseek'",
     '  config:',
     `    baseURL: ${JSON.stringify(options.baseURL)}`,
-    ...options.withDynamic ? [] : ['    apiKey: entry-key'],
     '',
   ].join('\n'))
 
@@ -122,7 +121,7 @@ describe('llm-deepseek real dynamic composition', () => {
     await vi.waitFor(() => {
       expect((ctx.get('settings')!.get(NS) as { baseURL?: string }).baseURL).toBe(serverB.url)
     }, { timeout: 5000 })
-    await writeFile(credentialsPath, 'DEEPSEEK_API_KEY: rotated-key\n')
+    await writeFile(credentialsPath, 'DEEPSEEK_API_KEY: rotated-key\n', { mode: 0o600 })
     await vi.waitFor(async () => {
       expect(await ctx.get('credentials')!.resolve(KEY_REF)).toEqual({ value: 'rotated-key', source: 'file' })
     }, { timeout: 5000 })
@@ -161,8 +160,10 @@ describe('llm-deepseek real dynamic composition', () => {
     expect(second.headers[0]?.authorization).toBe('Bearer rotated-after-restart')
   })
 
-  it('boots the same adapter without settings or credentials entries on entry config alone', async () => {
-    vi.stubEnv('DEEPSEEK_API_KEY', '')
+  it('boots the same adapter on entry config alone, resolving the reference from the environment', async () => {
+    // No settings and no credentials provider: configuration carries only the
+    // reference, so the environment is the whole credential plane here.
+    vi.stubEnv('DEEPSEEK_API_KEY', 'entry-key')
     const server = await mockServer([{ kind: 'sse', events: textEvents }])
     const { ctx } = await loadComposition({ withDynamic: false, baseURL: server.url })
 

@@ -5,7 +5,6 @@
     patches:
       - id: llm-deepseek
         config:
-          apiKey: snapshot-key
           baseURL: !!js process.env.DSH_SNAPSHOT_BASE_URL
           thinking: disabled
       - id: cli-agent

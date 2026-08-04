@@ -8,6 +8,11 @@ import { createEnvironmentSnapshot, DSH_ENVIRONMENT_KEY } from '@deepseek-ai/dsh
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
 import { CredentialsLocal, resolveSpec } from '../src/index.ts'
 
+/** Credential documents are seeded owner-only, exactly as the provider creates them. */
+function writeCredentials(file: string, text: string): Promise<void> {
+  return writeFile(file, text, { mode: 0o600 })
+}
+
 const KEY = credentialRef('DSH_CRED_TEST')
 const OTHER = credentialRef('DSH_CRED_OTHER')
 
@@ -65,7 +70,7 @@ describe('layering and reads', () => {
   it('serves file entries alongside comments and quoted values', async () => {
     const dir = await tempDir()
     const path = join(dir, '.credentials.yaml')
-    await writeFile(path, '# notes\nDSH_CRED_TEST: plain\nDSH_CRED_OTHER: "with space"\n')
+    await writeCredentials(path, '# notes\nDSH_CRED_TEST: plain\nDSH_CRED_OTHER: "with space"\n')
     const ctx = await boot({ path, watch: false })
     expect(await ctx.credentials.resolve(KEY)).toEqual({ value: 'plain', source: 'file' })
     expect(await ctx.credentials.resolve(OTHER)).toEqual({ value: 'with space', source: 'file' })
@@ -75,7 +80,7 @@ describe('layering and reads', () => {
   it('lets a non-empty process environment win read-only over the file', async () => {
     const dir = await tempDir()
     const path = join(dir, '.credentials.yaml')
-    await writeFile(path, 'DSH_CRED_TEST: from-file\n')
+    await writeCredentials(path, 'DSH_CRED_TEST: from-file\n')
     const ctx = await boot({ path, watch: false })
     vi.stubEnv('DSH_CRED_TEST', 'from-env')
     expect(await ctx.credentials.resolve(KEY)).toEqual({ value: 'from-env', source: 'env' })
@@ -85,7 +90,7 @@ describe('layering and reads', () => {
   it('treats an empty environment value as absent, falling through to the file', async () => {
     const dir = await tempDir()
     const path = join(dir, '.credentials.yaml')
-    await writeFile(path, 'DSH_CRED_TEST: stored\n')
+    await writeCredentials(path, 'DSH_CRED_TEST: stored\n')
     const ctx = await boot({ path, watch: false })
     vi.stubEnv('DSH_CRED_TEST', '')
     expect(await ctx.credentials.resolve(KEY)).toEqual({ value: 'stored', source: 'file' })
@@ -119,7 +124,7 @@ describe('layer ladder', () => {
   it('lets the stored value beat the user .env, so a UI write takes effect immediately', async () => {
     const dir = await tempDir()
     const path = join(dir, '.credentials.yaml')
-    await writeFile(path, 'DSH_CRED_TEST: stored\n')
+    await writeCredentials(path, 'DSH_CRED_TEST: stored\n')
     const ctx = await bootLayered(path, [
       { source: 'process', values: {} },
       { source: 'user-env', path: '/home/.dsh/.env', values: { DSH_CRED_TEST: 'older-user-env' } },
@@ -143,22 +148,41 @@ describe('layer ladder', () => {
     expect(await ctx.credentials.describe(KEY)).toEqual({ configured: true, source: 'user-env', writable: true })
   })
 
-  it('ignores the invoking directory .env entirely', async () => {
+  it('serves the invoking project .env over the user one, but never over the store', async () => {
     const dir = await tempDir()
-    const ctx = await bootLayered(join(dir, '.credentials.yaml'), [
-      { source: 'process', values: {} },
-      { source: 'project-env', path: '/work/.env', values: { DSH_CRED_TEST: 'from-project' } },
-    ])
-    // A project directory can be written by the model, and a substituted key
-    // would route every request through an account someone else reads.
-    expect(await ctx.credentials.resolve(KEY)).toBeUndefined()
-    expect(await ctx.credentials.describe(KEY)).toEqual({ configured: false, writable: true })
+    const path = join(dir, '.credentials.yaml')
+    // The product trusts the project it is launched in, so a checkout may
+    // carry its own key — ranked above the user's home file (more specific
+    // wins) and below the managed store, which a stored key must never lose to.
+    const layers = [
+      { source: 'process' as const, values: {} },
+      { source: 'project-env' as const, path: '/work/.env', values: { DSH_CRED_TEST: 'from-project' } },
+      { source: 'user-env' as const, path: '/home/.dsh/.env', values: { DSH_CRED_TEST: 'from-user' } },
+    ]
+    const bare = await bootLayered(path, layers)
+    expect(await bare.credentials.resolve(KEY)).toEqual({ value: 'from-project', source: 'project-env' })
+    expect(await bare.credentials.describe(KEY)).toEqual({ configured: true, source: 'project-env', writable: true })
+
+    await writeCredentials(path, 'DSH_CRED_TEST: stored\n')
+    const stored = await bootLayered(path, layers)
+    expect(await stored.credentials.resolve(KEY)).toEqual({ value: 'stored', source: 'file' })
+  })
+
+  it('refuses a document other OS users can read', async () => {
+    const dir = await tempDir()
+    const path = join(dir, '.credentials.yaml')
+    await writeFile(path, 'DSH_CRED_TEST: leaked\n', { mode: 0o644 })
+    const ctx = new Context()
+    // Before the contents are read at all: serving secrets out of a
+    // world-readable file would make the 0600 the provider writes meaningless.
+    await expect(ctx.plugin(CredentialsLocal, { path, watch: false }))
+      .rejects.toThrow(/readable beyond its owner \(mode 644\)/)
   })
 
   it('lets only the inherited environment shadow the store, read-only', async () => {
     const dir = await tempDir()
     const path = join(dir, '.credentials.yaml')
-    await writeFile(path, 'DSH_CRED_TEST: stored\n')
+    await writeCredentials(path, 'DSH_CRED_TEST: stored\n')
     const ctx = await bootLayered(path, [
       { source: 'process', values: { DSH_CRED_TEST: 'from-shell' } },
       { source: 'user-env', path: '/home/.dsh/.env', values: { DSH_CRED_TEST: 'from-user-env' } },
@@ -184,15 +208,36 @@ describe('document validation', () => {
   ])('fails boot on %s', async (_case, text, message) => {
     const dir = await tempDir()
     const path = join(dir, '.credentials.yaml')
-    await writeFile(path, text)
+    await writeCredentials(path, text)
     const ctx = new Context()
     await expect(ctx.plugin(CredentialsLocal, { path, watch: false })).rejects.toThrow(message)
+  })
+
+  it('never puts a credential value in a diagnostic', async () => {
+    const dir = await tempDir()
+    const path = join(dir, '.credentials.yaml')
+    const secret = 'sk-live-DO-NOT-LOG-abcdef123456'
+    // The yaml parser's own message quotes the offending source line, which in
+    // this document is the secret itself. Boot stderr and the watcher's logger
+    // both receive whatever this throws.
+    await writeCredentials(path, `DSH_CRED_TEST: "${secret}\n`)
+    let failure: unknown
+    try {
+      await new Context().plugin(CredentialsLocal, { path, watch: false })
+    } catch (error) {
+      failure = error
+    }
+    expect(String(failure)).toMatch(/invalid document/)
+    // The position survives; the line's contents do not.
+    expect(String(failure)).toMatch(/line 2, column 1/)
+    expect(String(failure)).not.toContain(secret)
+    expect((failure as Error).stack ?? '').not.toContain(secret)
   })
 
   it('reads an empty document as an empty store', async () => {
     const dir = await tempDir()
     const path = join(dir, '.credentials.yaml')
-    await writeFile(path, '# nothing stored yet\n')
+    await writeCredentials(path, '# nothing stored yet\n')
     const ctx = await boot({ path, watch: false })
     expect(await ctx.credentials.resolve(KEY)).toBeUndefined()
   })
@@ -214,7 +259,7 @@ describe('document writes', () => {
   it('patches one entry, preserving comments and every untouched entry', async () => {
     const dir = await tempDir()
     const path = join(dir, '.credentials.yaml')
-    await writeFile(path, '# deployment notes\nDSH_CRED_OTHER: keep\n\n# the one under edit\nDSH_CRED_TEST: old\n')
+    await writeCredentials(path, '# deployment notes\nDSH_CRED_OTHER: keep\n\n# the one under edit\nDSH_CRED_TEST: old\n')
     const ctx = await boot({ path, watch: false })
     await ctx.credentials.set(KEY, 'new value!')
     expect(await readFile(path, 'utf8')).toBe(
@@ -242,7 +287,7 @@ describe('document writes', () => {
     // Comments above an entry are that entry's annotation and go with it when
     // it is removed — including anything above the document's first entry.
     // Every other entry keeps its own comments.
-    await writeFile(path, '# about the doomed one\nDSH_CRED_TEST: gone\n# about the survivor\nDSH_CRED_OTHER: stays\n')
+    await writeCredentials(path, '# about the doomed one\nDSH_CRED_TEST: gone\n# about the survivor\nDSH_CRED_OTHER: stays\n')
     const ctx = await boot({ path, watch: false })
     const seen = updates(ctx)
     await ctx.credentials.unset(KEY)
@@ -254,7 +299,7 @@ describe('document writes', () => {
   it('rejects empty values and writes the environment would shadow', async () => {
     const dir = await tempDir()
     const path = join(dir, '.credentials.yaml')
-    await writeFile(path, 'DSH_CRED_TEST: stored\n')
+    await writeCredentials(path, 'DSH_CRED_TEST: stored\n')
     const ctx = await boot({ path, watch: false })
 
     await expect(ctx.credentials.set(KEY, '')).rejects.toThrow(/empty value/)
@@ -267,7 +312,7 @@ describe('document writes', () => {
   it('leaves an empty mapping after unsetting the only entry', async () => {
     const dir = await tempDir()
     const path = join(dir, '.credentials.yaml')
-    await writeFile(path, 'DSH_CRED_TEST: only\n')
+    await writeCredentials(path, 'DSH_CRED_TEST: only\n')
     const ctx = await boot({ path, watch: false })
     await ctx.credentials.unset(KEY)
     expect(await readFile(path, 'utf8')).toBe('{}\n')
@@ -282,7 +327,7 @@ describe('document writes', () => {
     const ctx = await boot({ path, watch: false })
     // An external editor left the document unparsable: the read-modify-write
     // must refuse rather than overwrite content it cannot understand.
-    await writeFile(path, 'DSH_CRED_TEST: "unterminated\n')
+    await writeCredentials(path, 'DSH_CRED_TEST: "unterminated\n')
     await expect(ctx.credentials.set(OTHER, 'lands')).rejects.toThrow(/invalid document/)
   })
 
@@ -326,17 +371,17 @@ describe('real hot reload', () => {
     const path = join(dir, '.credentials.yaml')
     // Watching starts on an existing document: creation racing watcher setup
     // is a chokidar readiness gap, not the reload contract under test.
-    await writeFile(path, 'DSH_CRED_TEST: boot\n')
+    await writeCredentials(path, 'DSH_CRED_TEST: boot\n')
     const ctx = await boot({ path, debounceMs: 10 })
     const seen = updates(ctx)
 
-    await writeFile(path, 'DSH_CRED_TEST: live\nDSH_CRED_OTHER: extra\n')
+    await writeCredentials(path, 'DSH_CRED_TEST: live\nDSH_CRED_OTHER: extra\n')
     await vi.waitFor(async () => {
       expect(await ctx.credentials.resolve(KEY)).toEqual({ value: 'live', source: 'file' })
     })
 
     // Wholesale replacement: an entry deleted on disk never lingers in memory.
-    await writeFile(path, 'DSH_CRED_TEST: live\n')
+    await writeCredentials(path, 'DSH_CRED_TEST: live\n')
     await vi.waitFor(async () => {
       expect(await ctx.credentials.resolve(OTHER)).toBeUndefined()
     })

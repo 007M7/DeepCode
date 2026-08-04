@@ -61,7 +61,7 @@ describe('request-level dynamic configuration', () => {
   it('routes the next request with the freshly resolved base URL and credential', async () => {
     vi.stubEnv('DEEPSEEK_API_KEY', '')
     const dir = await home()
-    await writeFile(join(dir, '.credentials.yaml'), 'DEEPSEEK_API_KEY: first-key\n')
+    await writeFile(join(dir, '.credentials.yaml'), 'DEEPSEEK_API_KEY: first-key\n', { mode: 0o600 })
     const serverA = await mockServer([{ kind: 'sse', events: textEvents }])
     const serverB = await mockServer([{ kind: 'sse', events: textEvents }])
     const { ctx } = await boot(dir, { baseURL: serverA.url })
@@ -78,16 +78,21 @@ describe('request-level dynamic configuration', () => {
     expect(serverB.headers[0]?.authorization).toBe('Bearer second-key')
   })
 
-  it('prefers a literal settings apiKey over the credential layers', async () => {
+  it('refuses a literal apiKey in settings and keeps serving the stored credential', async () => {
     vi.stubEnv('DEEPSEEK_API_KEY', '')
     const dir = await home()
-    await writeFile(join(dir, '.credentials.yaml'), 'DEEPSEEK_API_KEY: file-key\n')
+    await writeFile(join(dir, '.credentials.yaml'), 'DEEPSEEK_API_KEY: file-key\n', { mode: 0o600 })
     const server = await mockServer([{ kind: 'sse', events: textEvents }])
     const { ctx } = await boot(dir, { baseURL: server.url })
 
+    // Configuration carries a reference, never a value. The namespace has no
+    // `apiKey` field, so writing one is dropped by the schema rather than
+    // rejected (no adapter namespace is strict); what matters is that a
+    // settings document cannot become a second credential store outranking
+    // `.credentials.yaml` and the environment.
     await ctx.settings.update(NS, { apiKey: 'literal-key' })
     await prompt(ctx)
-    expect(server.headers[0]?.authorization).toBe('Bearer literal-key')
+    expect(server.headers[0]?.authorization).toBe('Bearer file-key')
   })
 
   it('starts keyless and serves the next request once the key arrives', async () => {
@@ -152,17 +157,16 @@ describe('request-level dynamic configuration', () => {
     ])
   })
 
-  it('sends the whole last-good snapshot when a rejected one changed both the key and the URL', async () => {
-    vi.stubEnv('DEEPSEEK_API_KEY', '')
+  it('keeps the whole last-good snapshot when a rejected one changed the URL', async () => {
     const dir = await home()
     const good = await mockServer([{ kind: 'sse', events: textEvents }])
     const rejected = await mockServer([{ kind: 'sse', events: textEvents }])
-    const { ctx } = await boot(dir, { apiKey: 'good-key', baseURL: good.url })
+    vi.stubEnv('DEEPSEEK_API_KEY', 'good-key')
+    const { ctx } = await boot(dir, { baseURL: good.url })
 
-    // One snapshot moves the endpoint AND the literal key, and fails the
-    // resolve step beyond the schema (duplicate catalog ids).
+    // One snapshot moves the endpoint and fails the resolve step beyond the
+    // schema (duplicate catalog ids).
     await ctx.settings.update(NS, {
-      apiKey: 'rejected-key',
       baseURL: rejected.url,
       models: [{ id: 'dup' }, { id: 'dup' }],
     })
@@ -178,7 +182,7 @@ describe('request-level dynamic configuration', () => {
   it('falls back to the composition entry when settings detach', async () => {
     vi.stubEnv('DEEPSEEK_API_KEY', '')
     const dir = await home()
-    await writeFile(join(dir, '.credentials.yaml'), 'DEEPSEEK_API_KEY: steady-key\n')
+    await writeFile(join(dir, '.credentials.yaml'), 'DEEPSEEK_API_KEY: steady-key\n', { mode: 0o600 })
     const serverA = await mockServer([{ kind: 'sse', events: textEvents }])
     const serverB = await mockServer([{ kind: 'sse', events: textEvents }])
     const { ctx, settingsFiber } = await boot(dir, { baseURL: serverA.url })

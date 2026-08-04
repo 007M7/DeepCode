@@ -59,10 +59,9 @@ export const Config: z<Config> = z.object({
 /** Register the Exa search provider with `ctx.web`. */
 export function apply(ctx: Context, config: Config): void {
   ctx.web.registerSearchProvider(new ExaSearchProvider({
-    // Only the launching shell and the user's own `.env` may name this key:
-    // a project directory can be written by the model, and a substituted key
-    // would route every request through an account someone else reads.
-    apiKey: config.apiKey ?? environmentOf(ctx).getFrom('EXA_API_KEY', ['process', 'user-env'])?.value ?? '',
+    // Every environment layer may name this key: the product trusts the
+    // project it is launched in, and the managed store is not involved here.
+    apiKey: config.apiKey ?? environmentOf(ctx).getFrom('EXA_API_KEY', ['process', 'project-env', 'user-env'])?.value ?? '',
     baseURL: config.baseURL ?? EXA_DEFAULT_BASE_URL,
     searchType: config.searchType ?? EXA_DEFAULT_SEARCH_TYPE,
     highlightsPerResult: config.highlightsPerResult ?? EXA_DEFAULT_HIGHLIGHTS_PER_RESULT,

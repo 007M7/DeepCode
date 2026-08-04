@@ -53,10 +53,9 @@ export const Config: z<Config> = z.object({
 /** Register the Perplexity search provider with `ctx.web`. */
 export function apply(ctx: Context, config: Config): void {
   ctx.web.registerSearchProvider(new PerplexitySearchProvider({
-    // Only the launching shell and the user's own `.env` may name this key:
-    // a project directory can be written by the model, and a substituted key
-    // would route every request through an account someone else reads.
-    apiKey: config.apiKey ?? environmentOf(ctx).getFrom('PERPLEXITY_API_KEY', ['process', 'user-env'])?.value ?? '',
+    // Every environment layer may name this key: the product trusts the
+    // project it is launched in, and the managed store is not involved here.
+    apiKey: config.apiKey ?? environmentOf(ctx).getFrom('PERPLEXITY_API_KEY', ['process', 'project-env', 'user-env'])?.value ?? '',
     baseURL: config.baseURL ?? PERPLEXITY_DEFAULT_BASE_URL,
     model: config.model ?? PERPLEXITY_DEFAULT_MODEL,
     maxTokens: config.maxTokens ?? PERPLEXITY_DEFAULT_MAX_TOKENS,

@@ -16,26 +16,37 @@ endpoint 可以被项目重定向。调用目录的 `.env` 和其他层一样会
 
 ## Decision
 
-**一条顺序，四类来源。** 每个面向用户的值按同一顺序解析；各领域的差别只在于哪些层存在。
+**非密钥值走同一条顺序。** 每个本身不是凭据的可配置值都按同一顺序解析；各领域的差别只在于哪些层存在。
 
 ```text
 explicit for this run     per-operation override, CLI argument
-> authored by deployment  --config / --config-replace
+> user settings           settings.yaml
+> composition             --config / --config-replace, shipped base
 > this launch's shell     inherited process environment
-> product-managed store   settings.yaml, .credentials.yaml
 > discovered file         $DSH_HOME/.env
-> defaults                schema default, shipped base, provider public default
+> defaults                schema default, provider public default
 ```
 
-自上而下依次是：本次运行的显式意图、部署授权、本次启动的 shell、产品受管存储、被发现的文件、默认值。
+自上而下依次是：本次运行的显式意图、用户 settings、composition、本次启动的 shell、被发现的文件、默认值。
 
-凭据没有部署层（配置携带引用，从不携带值），也没有默认值层。endpoint 拥有全部层。模型选择只有 CLI、settings 与已交付默认值。此前的方案把 UI 写入的凭据排在环境*之下*，却把 UI 写入的 settings 排在环境*之上*；真正的区分依据不是领域，而是这个文件由谁书写，因此 `.credentials.yaml` 与 `settings.yaml` 现在并列，同在启动 shell 之下、同在被发现的 `.env` 之上。
+settings 在 composition 之上，因为 [settings seam](2026-07-28-user-settings-seam.md) 就是这么做的：插件把自己的 cordis entry config 注册为 `base` 层，用户 section 叠加其上，而 seam 无法区分某个值是交付基座设的还是 `--config` overlay 设的——两者都以 entry config 的形式抵达。因此，需要把某字段钉死、不被用户已存 settings 覆盖的部署方，应使用 `--config-replace`，它绕过了 settings base 所派生的那棵树。composition 仍然高于环境，所以 shell 里陈旧的 `DEEPSEEK_BASE_URL` 无法改写已配置的 endpoint。
 
-**调用目录的 `.env` 不决定任何凭据与路由。** `EnvironmentSnapshot.getFrom(name, sources)` 只搜索调用方点名的层，省略某层是拒绝而不是降级：适配器请求的是 `['process', 'user-env']`，因此后续任何重新排序都无法让项目文件重新进入一个它被排除在外的决策。对普通变量而言，项目 `.env` 仍然是普通环境层。
+**凭据保留一条更窄的独立顺序**，本 Note 不把它并入上表：
 
-**被发现的文件不得决定进程如何启动。** `isBootstrapOnly` 会在加载时、且在物化任何内容之前，拒绝任何设置了下列变量的 `.env`：决定进程如何启动的（`PATH`、`SHELL`、`NODE_OPTIONS`、`LD_PRELOAD` 等）、决定代码或模型可见指令从哪里加载的（整个 `DSH_*` 命名空间、`HOME`、`XDG_*`），以及决定网络如何抵达与信任的（proxy 与 CA 变量）。匹配不区分大小写，因此 `https_proxy` 不是绕过手段。
+```text
+inherited process environment      (read-only, wins)
+> $DSH_HOME/.credentials.yaml      (provider-managed, writable)
+> <invocation cwd>/.env
+> $DSH_HOME/.env
+```
 
-被拒绝的是整个 `DSH_*` 命名空间，而不是一份经过审查的子集。harness 自己的开关——权限模式、存放模型可见 skill（技能）的 agents home、内置 skill 根目录——恰恰是敌意项目最想伸手的地方，而后来新增的开关不能因为被遗忘就变得可设置。不设逃生门：逃生门本身总得从某处读取，而任何被发现的文件能设置的东西，就是那个漏洞本身。
+继承环境优先，因为 `DEEPSEEK_API_KEY=… dsh`、CI 机密与容器 `-e` 是运维必须能按次施加、且无需改动机器状态的那一种覆盖；而它无法从进程内部修改，就必须*可见地*只读。配置本应只携带*引用*——解析哪个名字——该名字本身遵循上面的非密钥顺序。
+
+**harness 被启动于其中的项目默认可信，且不做询问。** 一个 checkout 可以携带自己的 endpoint、自己的普通变量和自己的密钥；密钥排在受管存储之下，因此通过 Web 页面或 TUI 存下的密钥绝不会被 checkout 中恰好带有的那一个顶掉。`EnvironmentSnapshot.getFrom(name, sources)` 仍然只搜索调用方点名的层，省略某层仍是拒绝而不是降级——该机制是为「某一层必须不可达」的那些决策准备的，而项目层今天不在其列。
+
+**信任不延伸到改变 harness 本身。** `isBootstrapOnly` 会在加载时、且在物化任何内容之前，拒绝任何设置了下列变量的 `.env`：决定进程如何启动的（`PATH`、`SHELL`、`NODE_OPTIONS`、`LD_PRELOAD`）、决定运行时在执行被要求运行的程序之前先执行哪些代码的（`BASH_ENV`、`PERL5OPT`、`PYTHONSTARTUP`、`RUBYOPT`、`JAVA_TOOL_OPTIONS`、Git 的钩子命令）、决定模型可见指令从哪里加载的（整个 `DSH_*` 命名空间、`HOME`、`XDG_*`），以及决定网络如何抵达与信任的（proxy 与 CA 变量）。匹配不区分大小写，因此 `https_proxy` 不是绕过手段。
+
+这条界线在于：它们无需任何用户动作、在任何一轮开始之前、且在权限策略与沙箱之外就生效。`DSH_PERMISSION_MODE` 会关掉让「信任项目」根本成立的那道审批，而 `BASH_ENV` 会在 bash 工具发出的每一次 `bash -c` 上执行项目指定的文件——项目的代码在 agent 的策略下运行是约定，项目改写那份策略不是。一个变量一个变量地枚举是必输的游戏，所以整个 `DSH_*` 命名空间被拒绝而不是只拒绝一份经审查的子集，也所以这份清单是按变量*做什么*而不是按哪个运行时拥有它来组织的。不设逃生门：逃生门本身总得从某处读取，而任何被发现的文件能设置的东西，就是那个漏洞本身。
 
 **`packages/util/environment` 拥有该快照**，刻意做成 utility 而不是三包能力 seam。快照在 Cordis 启动前就冻结，并由启动器一次性注入，因此不存在需要切换的运行时实现；消费方需要的只是类型和纯函数，而 `util/` 包能提供这些且不必依赖 UI 包。`environmentOf(ctx)` 返回启动器的快照，或者返回只含继承环境的那一层——SDK 宿主或裸 `cordis.yml` 从未发现过任何文件，它那唯一一层确实就是它被启动时的环境，因此同样的受信查询在那里原样继续工作。
 
@@ -45,16 +56,16 @@ explicit for this run     per-operation override, CLI argument
 
 - Web 凭据表单现在能压过用户 `.env` 里更旧的密钥；只有在启动 shell 里 export 的密钥才会让它变成只读，诊断信息也会这么说。
 - 含 `DSH_*`、`PATH` 或 proxy 变量的 `.env` 会导致启动失败而不是被应用。把开关放在仓库 `.env` 里的开发者需要改放到 shell——这是一次刻意且响亮的破坏。
-- `--config` 不再会被陈旧的 shell endpoint 覆盖，因此部署方可以钉住企业网关。
-- 放弃的：调用目录 `.env` 里的 endpoint 或密钥不再生效。按项目切换路由请用 `--config` overlay 或该项目 shell 里的 `export`。
+- `--config` 不再会被陈旧的 shell endpoint 覆盖。但它仍然会被用户已存的 `settings.yaml` 覆盖，这是 settings seam 的分层方式，本 Note 不改变它；需要压过已存 settings 的部署方应使用 `--config-replace`。
 - 未解决的：各层仍然会被物化进 `process.env`，因此普通项目变量继续按子进程清洗规则抵达子进程。bootstrap 变量完全不能来自文件，提权路径已封闭；项目 `.env` 为 agent 运行的工具设置诸如 `GIT_SSH_COMMAND` 之类的变量仍然可能，已作为限制记录在该包上。
+- 适配器不再接受字面 `apiKey`：配置只携带引用，因此 settings 文档无法成为第二个凭据存储。由于没有任何适配器 namespace 是 strict 的，写入该键会被 schema 丢弃而不是报错。
 - Exa 与 Perplexity 仍在加载时捕获密钥，而不是经凭据 seam。它们不再读裸 `process.env`——改为经受信层解析——但把它们改造成按请求经 seam 解析是另一件事。
 
 ## Alternatives considered
 
-**沿用方案里分开的两条 ladder（凭据环境压过文件、endpoint settings 压过环境）。** 因其自身的不自洽而否决：两条理由——「export 是本次运行的意图」和「部署方的文件不该被陈旧 shell 改写」——对两个领域同样成立。按*来源由谁书写*排序能同时解释两者，并且把四张表变成一张。
+**按「来源由谁书写」把凭据并入非密钥顺序。** 尝试过并放弃：它读起来很顺，但 settings seam 已经把 composition 固定在用户 section *之下*，因此「部署授权」根本不是该 seam 能表达的一层；而把 `.credentials.yaml` 抬到启动环境之上，会夺走 CI、容器和一次性 `DEEPSEEK_API_KEY=…` 所依赖的那唯一一种覆盖。两条各自说清自身形状成因的顺序，好过一条两边都描述不准的顺序。
 
-**允许调用目录 `.env` 提供凭据，排在受管存储之下。** 否决：在没有存储密钥时，敌意项目的密钥会被静默使用，而该账号持有者能读到以它发出的每一条提示词。这与 endpoint 规则要防的外泄是同一件事，因此答案也相同。
+**在项目被显式信任之前，不给它路由与凭据能力。** 作为产品立场被否决：checkout 默认可信，不询问，也不存储信任记录。残留风险是真实的、值得写明——克隆一个携带 `.env`、其中指定了另一个 endpoint 或密钥的仓库，会让该会话经由它——处理它的地方是日后的 project trust 门禁，而不是一条让常见情形都要走仪式的规则。
 
 **审查出一份 `.env` 可设置的 `DSH_*` 白名单。** 否决：每新增一个开关都要重新审查，而遗漏的失败模式是静默的。拒绝整个命名空间是 fail safe。
 
