@@ -7,6 +7,8 @@
 
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { mkdir } from 'node:fs/promises'
+import { once } from 'node:events'
+import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -72,6 +74,24 @@ async function request(port: number, path: string, init?: RequestInit): Promise<
   return { status: response.status, body: (await response.text()).slice(0, 80) }
 }
 
+/** Open one raw upgrade request and return after the handler writes its response. */
+async function upgrade(port: number, path: string): Promise<ReturnType<typeof connect>> {
+  const socket = connect(port, '127.0.0.1')
+  await once(socket, 'connect')
+  const response = once(socket, 'data')
+  socket.write([
+    `GET ${path} HTTP/1.1`,
+    `Host: 127.0.0.1:${String(port)}`,
+    'Connection: Upgrade',
+    'Upgrade: dsh-test',
+    '',
+    '',
+  ].join('\r\n'))
+  const [data] = await response
+  expect(String(data)).toContain('101 Switching Protocols')
+  return socket
+}
+
 describe('real Loader composition', () => {
   // Real-Loader composition resolves workspace packages through tsx at test
   // time; first resolution after the host/client program split is slow enough
@@ -131,8 +151,25 @@ describe('real Loader composition', () => {
     expect((await request(port, '/once')).body).toContain('shell') // back to the SPA fallback
     expect(() => server.register({ kind: 'exact', path: '/once', handler: () => {} })).not.toThrow()
 
-    // Teardown: fiber dispose closes the socket and severs held connections.
+    // Upgrade routes match exact pathnames, reject duplicate ownership, and
+    // become registrable again after disposal. The accepted socket stays open
+    // so the teardown assertion also covers upgraded-connection ownership.
+    const disposeUpgrade = server.registerUpgrade({
+      path: '/events',
+      handler: (_req, socket) => {
+        socket.write('HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: dsh-test\r\n\r\n')
+      },
+    })
+    expect(() => server.registerUpgrade({ path: '/events', handler: () => {} }))
+      .toThrow(/duplicate upgrade route/)
+    const upgraded = await upgrade(port, '/events?stream=mux')
+    disposeUpgrade()
+    expect(() => server.registerUpgrade({ path: '/events', handler: () => {} })).not.toThrow()
+
+    // Teardown closes both ordinary and upgraded sockets before it resolves.
+    const upgradedClosed = once(upgraded, 'close')
     await loaded.fiber.dispose()
+    await upgradedClosed
     await expect(request(port, '/probe')).rejects.toThrow()
   })
 
