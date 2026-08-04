@@ -72,21 +72,11 @@ export function apply(ctx: Context, config: Config): void {
   // interval before an injected baseline becomes a durable surface event.
   const baselineSettledGeneration = new WeakMap<object, number>()
   const baselineQueuedGeneration = new WeakMap<object, number>()
-  // Sessions whose lifecycle start this mount witnessed. A startup or resume
-  // emits agent/session-start before the first step; a hot remount attaches to
-  // an already-live session and never sees it. Resumes always re-compose the
-  // baseline from current files. Hot remounts retain a baseline only while its
-  // typed event remains model-visible.
-  const lifecycleWitnessed = new WeakSet<object>()
   const pendingByParent = new Map<ToolExecutionToken, {
     agent: Agent
     changes: WorkspaceInstructionChange[]
     versionUpdates: InstructionVersionUpdate[]
   }>()
-
-  ctx.on('agent/session-start', (agent: Agent) => {
-    lifecycleWitnessed.add(agent.session)
-  })
 
   ctx.on('session/event', (session, event) => {
     observeInstructionSessionEvent(session, event, pendingNestedChanges, instructionVersions)
@@ -136,7 +126,7 @@ export function apply(ctx: Context, config: Config): void {
       pendingNestedChanges,
       instructionVersions,
       fileSystem,
-      { includeBaselineScopes: false, ...signal === undefined ? {} : { signal } },
+      { includeBaselineScopes: keepVisibleBaseline, ...signal === undefined ? {} : { signal } },
     )
     signal?.throwIfAborted()
     const generation = agent.session.surface.replaceGeneration
@@ -175,7 +165,7 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.on('agent/step', async (agent: Agent, _turn, _step, signal): Promise<void> => {
     if (baselineLoaded.has(agent.session)) return
-    const keepVisibleBaseline = !lifecycleWitnessed.has(agent.session) && hasVisibleBaseline(agent.session)
+    const keepVisibleBaseline = hasVisibleBaseline(agent.session)
     await prepareBaseline(agent, signal, keepVisibleBaseline)
   })
 

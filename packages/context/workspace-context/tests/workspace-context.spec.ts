@@ -1035,6 +1035,34 @@ describe('workspace context request injection', () => {
     }
   })
 
+  it('retains one visible baseline across repeated session resumes', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'repo rule')
+      const ctx = new Context()
+      await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
+      const original = stubAgent(root)
+      await composeBaselinePrefix(ctx, original)
+
+      const firstResume = stubAgent(root, [...original.session.events])
+      agentEvents(ctx, firstResume).emit('agent/session-start', 'resume')
+      await composeBaselinePrefix(ctx, firstResume)
+      const secondResume = stubAgent(root, [...firstResume.session.events])
+      agentEvents(ctx, secondResume).emit('agent/session-start', 'resume')
+      await composeBaselinePrefix(ctx, secondResume)
+
+      expect(baselineEvents(firstResume)).toHaveLength(1)
+      expect(baselineEvents(secondResume)).toHaveLength(1)
+      expect(secondResume.session.events.filter(event => event.type === 'user/message'
+        && event.data.source.kind === 'workspace-instructions')).toHaveLength(1)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
   it('retains a visible baseline after a plugin remount', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
@@ -1307,7 +1335,7 @@ describe('workspace context request injection', () => {
     }
   })
 
-  it('recomposes the baseline from current files when a resumed session edited it offline', async () => {
+  it('appends a replacement without duplicating the baseline when a resumed session edited it offline', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {
@@ -1318,28 +1346,70 @@ describe('workspace context request injection', () => {
       const original = stubAgent(root)
       await composeBaselinePrefix(ctx, original)
 
-      // Offline edit to the baseline file, then resume on a fresh session whose
-      // seeded log already carries the original baseline. A resumed session is
-      // registered after this mount's apply(), so the remount guard never seeds
-      // it: its first step re-composes a fresh baseline from current files,
-      // reflecting the offline edit before the first resumed request. The old
-      // baseline stays in history unmutated (note: resume without mutating an
-      // earlier history event).
       await write(join(root, 'AGENTS.md'), 'new root rule after offline edit')
       const resumed = stubAgent(root, [...original.session.events])
 
-      // Resume announces its lifecycle start before the first step.
       agentEvents(ctx, resumed).emit('agent/session-start', 'resume')
       await composeBaselinePrefix(ctx, resumed)
 
       const baselines = baselineEvents(resumed)
-      expect(baselines).toHaveLength(2)
-      const latest = baselines.at(-1)
-      expect(latest?.type === 'user/message' && blocksText(latest.data.content))
-        .toContain('new root rule after offline edit')
-      const original0 = baselines[0]
-      expect(original0?.type === 'user/message' && blocksText(original0.data.content))
+      expect(baselines).toHaveLength(1)
+      expect(baselines[0]?.type === 'user/message' && blocksText(baselines[0].data.content))
         .toContain('old root rule')
+      const update = resumed.session.events.findLast(event => event.type === 'user/message'
+        && event.data.source.kind === 'workspace-instructions'
+        && event.data.source.baseline !== true)
+      expect(update?.type === 'user/message' && update.data.source).toMatchObject({
+        changes: [{ action: 'replace', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md' }],
+      })
+      expect(update?.type === 'user/message' && blocksText(update.data.content))
+        .toContain('new root rule after offline edit')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it.each([
+    {
+      name: 'adds a newly applicable baseline file',
+      action: 'set',
+      prepare: (root: string): Promise<void> => write(join(root, 'pkg/AGENTS.md'), 'new package rule'),
+      scope: sk('pkg', 'AGENTS.md'),
+      path: join('pkg', 'AGENTS.md'),
+    },
+    {
+      name: 'removes a deleted baseline file',
+      action: 'remove',
+      prepare: (root: string): Promise<void> => rm(join(root, 'AGENTS.md')),
+      scope: sk('.', 'AGENTS.md'),
+      path: 'AGENTS.md',
+    },
+  ])('$name during resume without duplicating the visible baseline', async ({ action, prepare, scope, path }) => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      const cwd = join(root, 'pkg')
+      await mkdir(join(root, '.git'), { recursive: true })
+      await mkdir(cwd, { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'root rule')
+      const ctx = new Context()
+      await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
+      const original = stubAgent(cwd)
+      await composeBaselinePrefix(ctx, original)
+
+      await prepare(root)
+      const resumed = stubAgent(cwd, [...original.session.events])
+      agentEvents(ctx, resumed).emit('agent/session-start', 'resume')
+      await composeBaselinePrefix(ctx, resumed)
+
+      expect(baselineEvents(resumed)).toHaveLength(1)
+      const update = resumed.session.events.findLast(event => event.type === 'user/message'
+        && event.data.source.kind === 'workspace-instructions'
+        && event.data.source.baseline !== true)
+      expect(update?.type === 'user/message' && update.data.source).toMatchObject({
+        changes: [{ action, scope, path }],
+      })
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })

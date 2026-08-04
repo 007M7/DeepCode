@@ -39,7 +39,7 @@ const FILE_TOUCH_TOOL_NAMES = new Set(['read', 'write', 'edit'])
 /** Durable provenance and reconciliation facts for one workspace context. */
 export interface WorkspaceInstructionSource {
   kind: 'workspace-instructions'
-  /** Marks the complete startup/resume baseline rather than a later delta. */
+  /** Marks a complete baseline rather than a later delta. */
   baseline?: true
   changes: WorkspaceInstructionChange[]
 }
