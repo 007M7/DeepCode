@@ -130,7 +130,7 @@ export class CodexAppServerWire {
    * @param signal - unpublished-start cancellation.
    */
   async initialize(signal: AbortSignal): Promise<void> {
-    const response = object(await this.guarded(this.transport.request('initialize', {
+    object(await this.guarded(this.transport.request('initialize', {
       clientInfo: {
         name: 'deepseek-harness',
         title: 'DeepSeek Harness',
@@ -141,7 +141,6 @@ export class CodexAppServerWire {
         requestAttestation: false,
       },
     }, signal), signal), 'initialize response')
-    string(response.userAgent, 'initialize userAgent')
     this.transport.notify('initialized')
     await this.guarded(this.transport.flush(), signal)
   }
