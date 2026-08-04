@@ -10,6 +10,7 @@ import type { IApiClient } from '@deepseek-ai/dsh-client-connection/client'
 import {
   AGENT_PRESET_SETTINGS_NS, AgentPresetSettingsController,
 } from '../src/client/settings-store.ts'
+import { AgentPresetSeatController } from '../src/client/seat-store.ts'
 
 interface Recorded { ns: string; patch: unknown }
 
@@ -118,5 +119,102 @@ describe('the agent-preset settings controller', () => {
     const state = controller.store.getSnapshot()
     expect(state.status).toBe('error')
     expect(state.error).toBe('host down')
+  })
+})
+
+describe('the composer seat controller', () => {
+  /** A seat over a fixed session summary. */
+  function seat(
+    presets: { id: string; trust: 'system' | 'user'; isDefault: boolean }[],
+    summary: { blank: boolean; agentPreset?: string } | undefined,
+    options: { writes?: Recorded[]; failSelect?: string } = {},
+  ): AgentPresetSeatController {
+    const api = {
+      agentPresets: {
+        list: () => Promise.resolve({ rpcId: 'r', result: { ok: true as const, value: { presets } } }),
+        select: (payload: { agentPreset: string }) => {
+          options.writes?.push({ ns: 'select', patch: payload.agentPreset })
+          return Promise.resolve(options.failSelect === undefined
+            ? { rpcId: 'r', result: { ok: true as const, value: { agentPreset: payload.agentPreset } } }
+            : { rpcId: 'r', result: { ok: false as const, error: { code: 'agent-preset-locked', message: options.failSelect, details: {} } } })
+        },
+      },
+    } as unknown as IApiClient
+    return new AgentPresetSeatController(api, 's1' as never, () => summary)
+  }
+
+  const ROSTER: { id: string; trust: 'system' | 'user'; isDefault: boolean }[] = [
+    { id: 'standard', trust: 'system', isDefault: true },
+    { id: 'core-web', trust: 'system', isDefault: false },
+  ]
+
+  it('shows what the session runs, not the deployment default', async () => {
+    const controller = seat(ROSTER, { blank: true, agentPreset: 'core-web' })
+
+    await controller.load()
+
+    // A resumed session runs what it was created with; showing `standard`
+    // because it is the current default would be a lie about this session.
+    expect(controller.store.getSnapshot().current).toBe('core-web')
+    expect(controller.store.getSnapshot().switchable).toBe(true)
+  })
+
+  it('falls back to the roster default when the session records none', async () => {
+    const controller = seat(ROSTER, { blank: true })
+
+    await controller.load()
+
+    expect(controller.store.getSnapshot().current).toBe('standard')
+  })
+
+  it('is not switchable once the conversation has started', async () => {
+    const controller = seat(ROSTER, { blank: false, agentPreset: 'standard' })
+
+    await controller.load()
+
+    expect(controller.store.getSnapshot().switchable).toBe(false)
+  })
+
+  it('refuses to switch a session that already started', async () => {
+    const writes: Recorded[] = []
+    const controller = seat(ROSTER, { blank: false, agentPreset: 'standard' }, { writes })
+    await controller.load()
+
+    await controller.select('core-web')
+
+    // The host enforces the same rule; the seat simply never asks.
+    expect(writes).toEqual([])
+    expect(controller.store.getSnapshot().current).toBe('standard')
+  })
+
+  it('switches a blank session and keeps the host\'s answer', async () => {
+    const writes: Recorded[] = []
+    const controller = seat(ROSTER, { blank: true, agentPreset: 'standard' }, { writes })
+    await controller.load()
+
+    await controller.select('core-web')
+
+    expect(writes).toEqual([{ ns: 'select', patch: 'core-web' }])
+    expect(controller.store.getSnapshot().current).toBe('core-web')
+  })
+
+  it('restores the previous value when the host rejects the switch', async () => {
+    const controller = seat(ROSTER, { blank: true, agentPreset: 'standard' }, { failSelect: 'already started' })
+    await controller.load()
+
+    await controller.select('core-web')
+
+    const state = controller.store.getSnapshot()
+    expect(state.current).toBe('standard')
+    expect(state.error).toBe('already started')
+  })
+
+  it('reports no options when the session is unknown to the list yet', async () => {
+    const controller = seat([], undefined)
+
+    await controller.load()
+
+    expect(controller.store.getSnapshot().options).toEqual([])
+    expect(controller.store.getSnapshot().switchable).toBe(false)
   })
 })

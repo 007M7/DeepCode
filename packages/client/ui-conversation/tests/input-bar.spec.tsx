@@ -686,13 +686,15 @@ describe('strips and variants', () => {
 })
 
 describe('command launcher chrome and control seats', () => {
-  it('renders the command launcher; the Access chip is absent without the permissions projection; plan/model seats render EMPTY without entries (B ruling)', () => {
+  it('renders the command launcher; the Access chip is absent without the permissions projection; the control seats render EMPTY without entries (B ruling)', () => {
     const { view, slotCalls } = bench()
     expect(view.getByLabelText('命令')).toBeTruthy()
     // Capability absent (no projection value): the chip renders nothing.
     expect(view.queryByLabelText(/^访问模式/)).toBeNull()
-    // Both seats dispatched, nothing rendered.
-    expect(slotCalls.map(c => c.key)).toEqual(['conversation.input.plan', 'conversation.input.model'])
+    // Every seat dispatched, nothing rendered.
+    expect(slotCalls.map(c => c.key)).toEqual([
+      'conversation.input.plan', 'conversation.input.agentPreset', 'conversation.input.model',
+    ])
     expect(view.queryByLabelText('Plan mode')).toBeNull()
     expect(view.queryByLabelText('Model')).toBeNull()
   })

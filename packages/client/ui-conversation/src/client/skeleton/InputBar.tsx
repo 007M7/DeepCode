@@ -512,6 +512,7 @@ export function InputBar({
           </div>
           <div className={css.trailing}>
             {rightItems}
+            {renderSlot('conversation.input.agentPreset', { locked })}
             {renderSlot('conversation.input.model', { locked })}
             <ContextMeter useProjection={useProjection} t={t} />
             {/* {machineBusy && <span className={css.pending} data-input-pending aria-label="处理中" />} */}

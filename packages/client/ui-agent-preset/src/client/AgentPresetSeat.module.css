@@ -1,0 +1,34 @@
+/* Agent-preset seat: a compact selector pill in the composer tool row. */
+
+.seat {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 28px;
+  padding: 0 6px 0 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.seat:hover:not(:disabled) {
+  background: var(--dsw-alias-fill-tsp-secondary);
+}
+
+.seat:disabled {
+  cursor: default;
+  color: var(--dsw-alias-label-quaternary);
+}
+
+.chevron {
+  flex: none;
+  opacity: 0.6;
+}
+
+.locked {
+  cursor: default;
+}

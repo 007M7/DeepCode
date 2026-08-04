@@ -12,13 +12,18 @@
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { AgentPresetRow } from './AgentPresetRow.tsx'
 import type { AgentPresetRowInjected } from './AgentPresetRow.tsx'
+import { AgentPresetSeat } from './AgentPresetSeat.tsx'
+import type { AgentPresetSeatInjected } from './AgentPresetSeat.tsx'
+import { AgentPresetSeatController } from './seat-store.ts'
 import { en, zh } from './locales.ts'
 import { AGENT_PRESET_SETTINGS_NS, AgentPresetSettingsController } from './settings-store.ts'
 
 export type { AgentPresetRowInjected, AgentPresetRowProps } from './AgentPresetRow.tsx'
+export type { AgentPresetSeatInjected, AgentPresetSeatProps } from './AgentPresetSeat.tsx'
+export type { AgentPresetSeatState } from './seat-store.ts'
 export type { AgentPresetOption, AgentPresetSettingsState } from './settings-store.ts'
 export { AGENT_PRESET_SETTINGS_NS } from './settings-store.ts'
 
@@ -53,6 +58,37 @@ export function apply(ctx: ClientContext): void {
     ]
     return () => { for (const dispose of disposers) dispose() }
   }, 'ui-agent-preset: settings refresh')
+
+  // The composer seat: one controller per session, because the switch and the
+  // "may it still switch" bit are both per-session facts.
+  ctx.inject(['slots', 'conversation', 'sessions'], (scope: ClientContext) => {
+    const api = (scope.get('connection') as ConnectionHandle).api
+    const seats = new Map<SessionId, AgentPresetSeatController>()
+    const seatFor = (sessionId: SessionId): AgentPresetSeatController => {
+      const existing = seats.get(sessionId)
+      if (existing !== undefined) return existing
+      const created = new AgentPresetSeatController(api, sessionId, () => {
+        const summary = scope.sessions.list.getSnapshot().byId[sessionId]
+        return summary === undefined
+          ? undefined
+          : { blank: summary.blank, ...summary.agentPreset === undefined ? {} : { agentPreset: summary.agentPreset } }
+      })
+      seats.set(sessionId, created)
+      return created
+    }
+    scope.effect(() => scope.slots.register({
+      name: 'conversation.input.agentPreset',
+      locale: 'settings.agentPreset',
+      inject: (sessionId: SessionId): AgentPresetSeatInjected => {
+        const seat = seatFor(sessionId)
+        return {
+          hooks: { agentPresetSeat: seat.store },
+          load: () => seat.load(),
+          select: (id: string) => seat.select(id),
+        }
+      },
+    }, AgentPresetSeat), 'ui-agent-preset: composer seat registration')
+  })
 
   ctx.slots.inject('settings.general.item', () => ctx.slots.register({
     name: 'settings.general.item',

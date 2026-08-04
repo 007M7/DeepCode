@@ -102,6 +102,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * empty-until-registered contract as the plan seat.
      */
     'conversation.input.model': { kind: 'single'; scope: 'session'; owner: InputControlOwnerProps }
+    /**
+     * The agent-preset seat in the composer tool row, left of the model.
+     * Same empty-until-registered contract as the other two; its owner
+     * decides on its own whether the session may still switch.
+     */
+    'conversation.input.agentPreset': { kind: 'single'; scope: 'session'; owner: InputControlOwnerProps }
   }
 
   /**
@@ -325,7 +331,7 @@ export interface InputControlOwnerProps {
 /** Full composer-bar props: standard kit & owner share & control-seat render share & injected share (hooks bound) & locale seat. */
 export type ComposerBarProps =
   PropsRuntime<'conversation.composer.bar'>
-  & PropsRenderSlots<'conversation.input.plan' | 'conversation.input.model'>
+  & PropsRenderSlots<'conversation.input.plan' | 'conversation.input.model' | 'conversation.input.agentPreset'>
   & InjectFace<ComposerBarInjected>
   & PropsLocale<'conversation'>
 

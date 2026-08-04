@@ -169,6 +169,8 @@ export class FakeApiClient implements IApiClient {
 
   readonly agentPresets: IApiClient['agentPresets'] = {
     list: (payload: unknown) => this.record('agentPreset.list', payload, Promise.resolve(ok({ presets: [] }))),
+    select: (payload: { agentPreset: string }) =>
+      this.record('agentPreset.select', payload, Promise.resolve(ok({ agentPreset: payload.agentPreset }))),
   }
 
   readonly skills: IApiClient['skills'] = {

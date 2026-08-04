@@ -260,11 +260,13 @@ function sessionListFields(header: SessionHeader): {
   parentSessionId?: SessionId
   origin?: 'subagent'
   cwd?: string
+  agentPreset?: string
 } {
   return {
     ...header.parentSession === undefined ? {} : { parentSessionId: header.parentSession },
     ...header.origin === undefined ? {} : { origin: header.origin },
     ...header.cwd === undefined ? {} : { cwd: header.cwd },
+    ...header.agentPreset === undefined ? {} : { agentPreset: header.agentPreset },
   }
 }
 

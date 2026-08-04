@@ -157,6 +157,13 @@ export interface SessionSummary {
   /** Session working directory (header.cwd passthrough); absent when unrecorded. */
   cwd?: string
   /**
+   * Agent preset this session's agent was composed from (header passthrough);
+   * absent when the deployment composes no presets. A surface offering a
+   * switch reads this to show what the session actually runs rather than what
+   * the deployment currently defaults to.
+   */
+  agentPreset?: string
+  /**
    * Projection baseline for this row, with zero log loads: attached sessions
    * read the registry's live watermark cut; cold sessions read the persisted
    * projection cache's stored rows — as stale as that session's last durable
