@@ -2,6 +2,7 @@ import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { createUserMessage, CallId, createMessage, createToolResultMessage, MessageId, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import SessionStore, {
+  adoptSessionEvent,
   findLastMessageTurnEnd,
   SESSION_FORMAT_VERSION,
   Session,
@@ -387,6 +388,45 @@ describe('Session', () => {
     } as unknown as SessionEvent)
     expect(extended.type === 'user/message' && extended.data.content)
       .toEqual([{ type: 'plugin-block', value: 1 }])
+  })
+
+  it('adopts exclusively owned messages in place and keeps snapshots detached', () => {
+    const owned = {
+      type: 'user/message',
+      seq: 0,
+      time: 1,
+      surfaceOp: 'append',
+      data: {
+        id: 'owned-message',
+        role: 'user',
+        content: [{ type: 'text', text: 'owned' }],
+        source: { kind: 'user' },
+      },
+    } as SessionEvent<'user/message'>
+    expect(adoptSessionEvent(owned)).toBe(owned)
+    expect(Object.isFrozen(owned.data)).toBe(true)
+    expect(Object.isFrozen(owned.data.content)).toBe(true)
+
+    const source = structuredClone(owned)
+    const snapshot = snapshotSessionEvent(source)
+    expect(snapshot).not.toBe(source)
+    expect(snapshot.data).not.toBe(source.data)
+    expect(snapshot.data.content).not.toBe(source.data.content)
+  })
+
+  it('validates message shape before adopting ownership', () => {
+    const malformed = {
+      type: 'user/message',
+      seq: 0,
+      time: 1,
+      data: {
+        id: 'wrong-role',
+        role: 'assistant',
+        content: [],
+        source: { kind: 'user' },
+      },
+    } as unknown as SessionEvent
+    expect(() => adoptSessionEvent(malformed)).toThrow('message must have role "user"')
   })
 
   it('round-trips a non-empty reasoning effort and rejects invalid durable values', () => {
