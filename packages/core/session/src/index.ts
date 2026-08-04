@@ -455,8 +455,8 @@ export class Session {
   readonly firstLiveSeq: number
 
   /**
-   * Create a detached session with the same validation and snapshot semantics
-   * formerly provided by direct construction.
+   * Create a detached session by validating and snapshotting borrowed seed
+   * events and storage metadata.
    * @param id - session identity.
    * @param seed - optional borrowed replay or fork events.
    * @param header - optional borrowed storage metadata.
