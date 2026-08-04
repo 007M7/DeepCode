@@ -85,7 +85,6 @@ function startRawLifecycle(fixture: RawLifecycleFixture) {
     env: {
       DSH_HOME: fixture.home,
       DSH_TELEMETRY_DISABLED: '1',
-      PATH: fixture.home,
       RAW_READY_FILE: fixture.ready,
       RAW_SETTLED_FILE: fixture.settled,
       RAW_DISPOSED_FILE: fixture.disposed,
@@ -164,11 +163,6 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       expect(stdout).toContain("name: '@deepseek-ai/dsh-agent-loop'")
       expect(stdout).toContain('agents: []')
       expect(stdout).toContain('# == base.cordis.yml')
-      expect(stdout).toContain("name: '@deepseek-ai/dsh-subagent-codex'")
-      expect(stdout).toContain('provider: codex')
-      expect(stdout).toContain('toolName: subagent_codex')
-      expect(stdout).toContain('enableRunInBackground: false')
-      expect(stdout).toContain('maxDepth: provider-managed')
     }, 30_000)
 
     it('composes the required raw overlay directly over the base', async () => {

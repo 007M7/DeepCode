@@ -16,7 +16,7 @@ The harness provides two sibling one-shot providers behind two fixed model-facin
 
 The Codex provider is implemented against Codex 0.146.0. The Claude Code provider remains unimplemented. This Note remains proposed until both siblings and their combined evidence are present.
 
-Both providers report `inheritsParentContext: false`, advertise no optional start capabilities, and pass the parent Session cwd without copying the parent conversation. Their fixed tools use `maxDepth: 'provider-managed'` because each out-of-process product owns any delegation budget inside its own harness; the parent sends no recursion cap that the provider cannot enforce. Every call creates a fresh product process and a non-resumable product conversation. The shared subagent service continues to own request resolution, lifecycle events, result settlement, and foreground collection; the shared subprocess service owns credential scrubbing, process-tree termination, and whole-tree exit observation.
+Both providers report `inheritsParentContext: false`, advertise no optional start capabilities, and pass the parent Session cwd without copying the parent conversation. Every call creates a fresh product process and a non-resumable product conversation. The shared subagent service continues to own request resolution, lifecycle events, result settlement, and foreground collection; the shared subprocess service owns credential scrubbing, process-tree termination, and whole-tree exit observation.
 
 ```text
 fixed tool → shared subagent service → product provider → official product process
@@ -36,8 +36,6 @@ fixed tool → shared subagent service → product provider → official product
 ## Codex provider
 
 `@deepseek-ai/dsh-subagent-codex` registers the fixed `codex` provider and always starts `codex app-server --stdio` from `PATH`. Its public configuration contains only an explicit `env` overlay and a positive finite `disposeGraceMs`. Installation, login, `CODEX_HOME`, model selection, base URL, sandbox, approval policy, and product-session settings remain native Codex or deployment responsibilities.
-
-The shipped `apps/cli/config/base.cordis.yml` loads this provider and a fixed `subagent_codex` tool by default, while `apps/cli/package.json` carries the provider package in the CLI dependency closure. Loading the base does not probe the Codex binary or authentication; missing native availability fails only when the tool is called.
 
 Before publication, the provider validates a non-empty text-only task, starts the managed app-server in the parent workspace, completes `initialize` → `initialized`, and creates an `ephemeral: true` thread. The published run owns exactly one `turn/start`; its thread and turn ids remain private and are never persisted in the parent Session.
 

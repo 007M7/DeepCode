@@ -16,7 +16,7 @@ harness 在两个固定的面向模型工具背后提供两个一次性兄弟提
 
 Codex 提供方基于 Codex 0.146.0 实现。Claude Code 提供方仍未实现。在两个兄弟提供方及其组合证据全部具备之前，本 Agent Note 将保持提案状态。
 
-这两个提供方都报告 `inheritsParentContext: false`，不声明任何可选的启动时功能，并传递父会话 cwd，但不会复制父级对话。固定工具使用 `maxDepth: 'provider-managed'`，因为每个进程外产品都负责其自身 harness 内部的委派预算；父级不会传入提供方无法执行的递归上限。每次调用都会创建一个全新的产品进程和一次不可续接的产品对话。共享 subagent 服务继续负责请求解析、生命周期事件、结果结算和前台收集；共享子进程服务负责凭证清洗、进程树终止以及整棵进程树的退出观测。
+这两个提供方都报告 `inheritsParentContext: false`，不声明任何可选的启动时功能，并传递父会话 cwd，但不会复制父级对话。每次调用都会创建一个全新的产品进程和一次不可续接的产品对话。共享 subagent 服务继续负责请求解析、生命周期事件、结果结算和前台收集；共享子进程服务负责凭证清洗、进程树终止以及整棵进程树的退出观测。
 
 ```text
 fixed tool → shared subagent service → product provider → official product process
@@ -36,8 +36,6 @@ fixed tool → shared subagent service → product provider → official product
 ## Codex 提供方
 
 `@deepseek-ai/dsh-subagent-codex` 注册固定的 `codex` 提供方，并始终启动 `codex app-server --stdio`，该命令从 `PATH` 解析。其公开配置仅包含显式的 `env` 覆盖项和须为正有限值的 `disposeGraceMs`。安装、登录、`CODEX_HOME`、模型选择、基础 URL、沙箱、审批策略和产品会话设置仍由 Codex 原生机制或部署环境负责。
-
-正式发布的 `apps/cli/config/base.cordis.yml` 默认加载这个提供方和固定的 `subagent_codex` 工具，而 `apps/cli/package.json` 将提供方包纳入 CLI 依赖闭包。加载基础配置时不会探测 Codex 二进制程序或身份验证；缺少原生可用条件只会在工具实际调用时失败。
 
 发布前，提供方会验证非空的纯文本任务，在父级工作区中启动受管的 app-server，完成 `initialize` → `initialized` 握手，并创建一个 `ephemeral: true` 线程。已发布的运行只拥有一次 `turn/start`；其线程 ID 与轮次 ID 保持私有，绝不会持久化到父会话。
 
