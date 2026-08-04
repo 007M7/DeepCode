@@ -8,6 +8,7 @@
 |---|---|
 | `resolveConfigPath(path, snapshotMode, cwd?)` | 生成绝对配置路径；当 `snapshotMode === 'replay'` 时，把 basename 为 `cordis.yml`/`.yaml` 的文件替换为同级 `cordis.snapshot.yml` |
 | `loadEnv(binName, dir?, warn?)` | 加载已被 git 忽略的 `.env`（Node `process.loadEnvFile`）；文件不存在不影响启动，文件无法加载时输出一行带标签的警告（默认写入 stderr） |
+| `loadLayeredEnv(binName, cwd?, warn?)` | `dsh` 产品 CLI（命令行界面）的用户环境：先对调用目录、再对 Harness home 调用 `loadEnv`，得到 `用户 < 项目 < 继承` 的层次。Harness home 先从继承的环境解析，因此项目 `.env` 无法改变它的指向 |
 | `installFailLoud(binName, proc?, release?)` | 将启动期或后续未处理的 Loader rejection 转换为一行带标签的 stderr 消息并执行 `exit(1)`；两者之间会等待可选的 `release` 拆卸回调（以 `FAIL_LOUD_RELEASE_TIMEOUT_MS` 为上限），使持有终端的界面能在退出前恢复终端；返回卸载函数（供测试使用） |
 | `FAIL_LOUD_RELEASE_TIMEOUT_MS` | `installFailLoud` 等待其 `release` 回调的时长；卡住的 disposer 只会延迟致命退出，而不会取消它 |
 | `assertEntriesLoaded(ctx, binName)` | 树结算后，如果其中存在已启用但没有 fiber 的条目，则抛出异常，并以 Cordis 启动故障的形式报告每个未解析插件的名称 |
@@ -33,7 +34,7 @@ Loader 并发挂载各个条目，因此当其他环节失败时，某个界面�
 
 开发者的机器本地偏好位于所有仓库之外的 Harness home 中（默认 `~/.dsh`，可由 `$DSH_HOME` 覆盖；统一由根级 [`resolveDshHome`](../../util/paths/README.md) 解析），并由 `dsh` CLI（命令行界面）的 TUI、Web 和无头界面（[`apps/cli`](../../../apps/cli/README.md)）使用；demo bin 会原样启动仓库中提交的树。这里有两个可选文件：
 
-- **`.env`**：[`dsh-credentials-local`](../../credentials/credentials-local/README.md) 的凭据存储，只由该 provider 读取。没有任何表层会把它提升进 `process.env`：那样做会让每个已存密钥在下次运行时看起来都像只读的启动时覆盖，从而阻断从 TUI 与 Web 页面轮换密钥。环境层次由环境中的值与调用目录的 `.env` 构成（由 bin 加载；`process.loadEnvFile` 从不覆盖已有值），没有凭据 provider 的组合仍然只从这两者解析密钥。
+- **`.env`**：用户的普通环境层，由 `dsh` bin 经 `loadLayeredEnv` 加载，位于调用目录的 `.env` 与继承环境之下。它是具有普通环境作用域的普通环境值，而不是密钥边界：由 Harness 拥有并隔离的东西放在 `.credentials.yaml` 里，后者不会被任何表层提升。因此放进本文件的密钥仍然可以解析——但会作为只读的 `env` 层遮蔽已存储的那一份，并阻断从 TUI 与 Web 页面轮换密钥。
 - **`config.yaml`**：在发布的默认配置上应用 Loader overlay patch，语义与交付的 surface overlay 相同：按 id 定位的 patch 会替换对应条目的整个 `config`（未改字段也要重述），`insert` 会添加条目，`!!js` 表达式则在挂载时插值。如果 patch 指定的条目 id 不在已启动树中，则静默不执行任何操作。空文件或仅含注释的文件会抛出异常（其解析结果为空，而不是列表）；如需禁用 overlay，请使用 `[]` 或删除该文件。
 
 TUI 和 Web 会持续应用 `config.yaml` 的变更，具体由 `watchPersonalPatches` 负责；一次性无头运行只读取启动时的值。即使该文件或其直接父目录不存在，watcher 仍会监视确切的个人配置路径；它会串行处理突发变更，并按调用方的层次顺序重新组合个人 patch（surface overlay 在下、应用生成的 patch 在上）。读取失败、解析失败或 Loader 候选被拒时，最后一个可用树会继续运行；HMR 服务记录错误后广播 `hmr/config-update-failed(filename, Error)`，并隔离 observer 失败。上下文 dispose 时会关闭 watcher，并等待进行中的刷新结束。
@@ -52,5 +53,5 @@ TUI 和 Web 会持续应用 `config.yaml` 的变更，具体由 `watchPersonalPa
 
 - **裸包 specifier 依赖 Loader 内部机制**：生产 bin 需要 Loader 的可选原生 helper；没有该 helper 的进程内调用方必须使用可解析的相对／file specifier，或提供自己的模块解析钩子。
 - **快照回放替换仅识别特定 basename**：只有以 `cordis.yml` 或 `cordis.yaml` 结尾的配置会映射到同级 `cordis.snapshot.yml`；自定义配置名称需要调用方自行选择。
-- **环境加载局限于 cwd 且为可选操作**：helper 只加载一个 `.env` 文件，并在失败时发出警告；它不会搜索父目录、合并 profile 或验证必需变量。
+- **环境加载按目录划分且为可选操作**：每一层都是一个指定目录下的 `.env`，失败时发出警告；两个 helper 都不会搜索父目录，也不验证必需变量。`loadLayeredEnv` 的两层固定为调用目录与 Harness home，需要其他层次的调用方请自行组合 `loadEnv`。
 - **个人配置采用 patch 形式**：按 id 定位的 patch 会替换条目的整个 `config`，而不是深度合并，因此个人覆盖必须重述需要保留的基础字段。

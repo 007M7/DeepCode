@@ -412,7 +412,7 @@ Source: [`packages/compact/compact-tool-result-prune/src/types.ts:4`](../package
 ```ts config-catalog
 /** Plugin config: file location and hot-reload behavior. */
 export interface Config {
-  /** Credentials document path; defaults to `.env` under the harness home. */
+  /** Credentials document path; defaults to `.credentials.yaml` under the harness home. */
   path?: string
   /** Harness home used when `path` is omitted; defaults to `$DSH_HOME` or `~/.dsh`. */
   dshHome?: string
@@ -423,7 +423,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/credentials/credentials-local/src/index.ts:26`](../packages/credentials/credentials-local/src/index.ts)
+Source: [`packages/credentials/credentials-local/src/index.ts:35`](../packages/credentials/credentials-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-fs-local`
 

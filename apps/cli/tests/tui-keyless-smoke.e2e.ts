@@ -667,40 +667,41 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
     expect(output).toContain('\u001B[?2004l')
   }, PTY_SMOKE_TEST_TIMEOUT_MS)
 
-  it('applies the personal overlay: config.yaml patches an overlay-inserted row, the invoking directory\'s .env feeds its !!js, and the home .env stays out of the environment', async () => {
-    // The whole personal-config chain in one boot, plus the environment layer
-    // it deliberately excludes. config.yaml patches the `tui` row — a row the
+  it('applies the personal overlay: config.yaml patches an overlay-inserted row, and both .env layers feed its !!js with the project one winning', async () => {
+    // The whole personal-config chain in one boot, plus the environment
+    // layering underneath it. config.yaml patches the `tui` row — a row the
     // SURFACE OVERLAY inserted, not one the base declares — proving a later
-    // patch list reaches a row an earlier one inserted. The single `!!js`
-    // expression prefers the PERSONAL variable, so the welcome can only render
-    // the project value while the harness home's .env — the credential store
-    // of `dsh-credentials-local` — is NOT hoisted into `process.env`; hoisting
-    // it would make every stored key read as a read-only launch override on
-    // the next run and hand it to every subprocess the agent starts.
+    // patch list reaches a row an earlier one inserted. The `!!js` expression
+    // renders both halves of the layering in one line: `DSH_LAYER_WELCOME` is
+    // set by BOTH .env files and must render the project value, while
+    // `DSH_USER_ONLY` exists only in the harness home's .env and must still
+    // arrive. Credentials are not part of this: they live in
+    // `.credentials.yaml`, which is never hoisted into `process.env`.
     const output = await smoke({
       label: 'dsh personal overlay',
       tempDirPrefix: 'dsh-personal-overlay-',
       binScript: dshBinScript,
       configArgs: [],
       prepare: seedWorkspace({
-        workspace: { '.env': 'DSH_PROJECT_WELCOME=PROJECT OVERLAY READY.\n' },
+        workspace: { '.env': 'DSH_LAYER_WELCOME=PROJECT WINS.\n' },
         personal: {
-          '.env': 'DSH_PERSONAL_WELCOME=HOME ENV LEAKED.\n',
+          '.env': 'DSH_LAYER_WELCOME=USER LAYER LOST.\nDSH_USER_ONLY=USER LAYER LOADED.\n',
           'config.yaml': [
             '- id: workspace-context',
             '  disabled: true',
             '- id: tui',
             '  config:',
             "    sessionId: !!js configuredAgentIdentities?.main?.id ?? 'main'",
-            '    welcome: !!js process.env.DSH_PERSONAL_WELCOME ?? process.env.DSH_PROJECT_WELCOME',
+            '    welcome: !!js "(process.env.DSH_LAYER_WELCOME ?? \'PROJECT LAYER MISSING.\')'
+            + ' + \' \' + (process.env.DSH_USER_ONLY ?? \'USER LAYER MISSING.\')"',
             '',
           ].join('\n'),
         },
       }),
-      actions: [{ waitFor: 'PROJECT OVERLAY READY.', send: '/exit\r' }],
+      actions: [{ waitFor: 'PROJECT WINS. USER LAYER LOADED.', send: '/exit\r' }],
     })
-    expect(output).toContain('PROJECT OVERLAY READY.')
-    expect(output).not.toContain('HOME ENV LEAKED.')
+    expect(output).toContain('PROJECT WINS. USER LAYER LOADED.')
+    expect(output).not.toContain('USER LAYER LOST.')
     expect(output).toContain('\u001B[?2004l')
   }, PTY_SMOKE_TEST_TIMEOUT_MS)
 

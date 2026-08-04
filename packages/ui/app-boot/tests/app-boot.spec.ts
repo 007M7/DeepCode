@@ -7,7 +7,7 @@ import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import {
   addHarnessSourceSection, assertEntriesActivated, assertEntriesLoaded, boot,
   FAIL_LOUD_RELEASE_TIMEOUT_MS, HARNESS_SOURCE_SECTION,
-  installFailLoud, loadEnv, loadOverlayPatches, resolveConfigPath, type FailLoudProcess,
+  installFailLoud, loadEnv, loadLayeredEnv, loadOverlayPatches, resolveConfigPath, type FailLoudProcess,
 } from '../src/index.ts'
 
 const NAME = 'dsh-test-bin'
@@ -83,6 +83,66 @@ describe('loadEnv', () => {
     }
     expect(written).toHaveLength(1)
     expect(written[0]).toContain(`${NAME}: failed to load .env: `)
+  })
+})
+
+describe('loadLayeredEnv', () => {
+  const NAMES = ['DSH_APP_BOOT_LAYERED_SHARED', 'DSH_APP_BOOT_LAYERED_USER', 'DSH_APP_BOOT_LAYERED_PROJECT'] as const
+
+  function clear(): void {
+    for (const name of NAMES) Reflect.deleteProperty(process.env, name)
+  }
+
+  it('layers user under project under the inherited environment', () => {
+    const home = tmp()
+    const project = tmp()
+    writeFileSync(join(home, '.env'), [
+      `${NAMES[0]}=user`,
+      `${NAMES[1]}=user-only`,
+      'DSH_APP_BOOT_LAYERED_INHERITED=user-loses',
+      '',
+    ].join('\n'))
+    writeFileSync(join(project, '.env'), [
+      `${NAMES[0]}=project`,
+      `${NAMES[2]}=project-only`,
+      'DSH_APP_BOOT_LAYERED_INHERITED=project-loses',
+      '',
+    ].join('\n'))
+    clear()
+    vi.stubEnv('DSH_HOME', home)
+    vi.stubEnv('DSH_APP_BOOT_LAYERED_INHERITED', 'inherited')
+    const warn = vi.fn()
+    try {
+      loadLayeredEnv(NAME, project, warn)
+      // Both files load; the project layer wins the name they share, and the
+      // inherited environment wins over both.
+      expect(process.env[NAMES[0]]).toBe('project')
+      expect(process.env[NAMES[1]]).toBe('user-only')
+      expect(process.env[NAMES[2]]).toBe('project-only')
+      expect(process.env['DSH_APP_BOOT_LAYERED_INHERITED']).toBe('inherited')
+      expect(warn).not.toHaveBeenCalled()
+    } finally {
+      clear()
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('resolves the harness home before the project file can redirect it', () => {
+    const home = tmp()
+    const decoy = tmp()
+    const project = tmp()
+    writeFileSync(join(home, '.env'), `${NAMES[1]}=real-home\n`)
+    writeFileSync(join(decoy, '.env'), `${NAMES[1]}=decoy-home\n`)
+    writeFileSync(join(project, '.env'), `DSH_HOME=${decoy}\n`)
+    clear()
+    vi.stubEnv('DSH_HOME', home)
+    try {
+      loadLayeredEnv(NAME, project, vi.fn())
+      expect(process.env[NAMES[1]]).toBe('real-home')
+    } finally {
+      clear()
+      vi.unstubAllEnvs()
+    }
   })
 })
 

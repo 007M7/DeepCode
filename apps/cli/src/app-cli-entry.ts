@@ -4,9 +4,9 @@
  * Everything here is what must exist before the Loader runs: the patch
  * composition over the shipped base and surface overlay (CLI flags + the
  * resolved frontend dist), and the fail-loud activation audit after the tree
- * settles. The environment is what the bin already loaded (ambient plus the
- * invoking directory's `.env`); `$DSH_HOME/.env` belongs to the credential
- * provider and is never hoisted here.
+ * settles. The environment is what the bin already loaded (ambient over the
+ * invoking directory's `.env` over `$DSH_HOME/.env`); credentials live in
+ * `$DSH_HOME/.credentials.yaml` and are never hoisted into it.
  */
 
 import { readFileSync } from 'node:fs'

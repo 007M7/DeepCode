@@ -1,6 +1,6 @@
 /**
  * Shared boot glue for the app bins (`dsh`, `dsh-cli-demo`, `dsh-acp-demo`): load the gitignored
- * `.env`, install the fail-loud Loader guards, resolve the config path (snapshot-aware), load the
+ * `.env` files, install the fail-loud Loader guards, resolve the config path (snapshot-aware), load the
  * optional personal overlay patches from the Harness home (`~/.dsh`), expose its path resolver to
  * config expressions, and drive the Cordis Loader against a leaf `cordis.yml` until the tree settles.
  * @module @deepseek-ai/dsh-app-boot
@@ -63,6 +63,36 @@ export function loadEnv(
     }
     // ENOENT (no .env) is fine — rely on the ambient environment.
   }
+}
+
+/**
+ * Load the dsh product CLI's user environment: the invoking directory's `.env`
+ * over the Harness home's `.env`, both under the inherited process
+ * environment. `process.loadEnvFile` never replaces a name that is already
+ * set, so loading the project file first and the user file second is what
+ * makes the layering `user < project < inherited`; the app-boot tests pin all
+ * three layers because that ordering is the whole contract.
+ *
+ * The Harness home is resolved from the inherited environment *before* either
+ * file loads, so a project `.env` can never redirect which user document is
+ * read. Only the product CLI layers these files: an SDK or example bin loads
+ * its own directory through {@link loadEnv} and must not inherit a developer's
+ * `$DSH_HOME`.
+ *
+ * These are ordinary environment values with ordinary environment reach. A
+ * secret the Harness should own and isolate belongs in the credentials
+ * document, which is never materialized here.
+ * @param binName - the diagnostic prefix on the warn lines.
+ * @param cwd - the invoking directory whose `.env` is the project layer.
+ * @param warn - sink for the one-line misconfiguration diagnostics.
+ */
+export function loadLayeredEnv(
+  binName: string, cwd: string = process.cwd(),
+  warn: (line: string) => void = line => void process.stderr.write(line),
+): void {
+  const home = resolveDshHome()
+  loadEnv(binName, cwd, warn)
+  loadEnv(binName, home, warn)
 }
 
 /** File inside the Harness home holding the personal loader overlay patches. */

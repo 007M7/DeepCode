@@ -10,7 +10,7 @@
 
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { loadEnv } from '@deepseek-ai/dsh-app-boot'
+import { loadLayeredEnv } from '@deepseek-ai/dsh-app-boot'
 import { parseDshArgs } from './args.ts'
 
 // Both the source tree (apps/cli/src) and the bundled bin (apps/cli/lib) sit
@@ -24,7 +24,7 @@ function readVersion(): string {
   return typeof manifest.version === 'string' ? manifest.version : '0.0.0'
 }
 
-loadEnv('dsh')
+loadLayeredEnv('dsh')
 // The env opt-in is read at the process boundary; `1` is the documented value.
 const invocation = parseDshArgs(process.argv.slice(2), readVersion(), process.env.DSH_EXPERIMENTAL === '1')
 

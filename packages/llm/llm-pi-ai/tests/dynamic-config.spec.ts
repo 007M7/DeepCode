@@ -44,7 +44,7 @@ async function boot(dir: string, config: LlmPiAi.Config): Promise<Context> {
   })
   await ctx.plugin(LlmService)
   await ctx.plugin(SettingsLocal, { path: join(dir, 'settings.yaml'), watch: false })
-  await ctx.plugin(CredentialsLocal, { path: join(dir, '.env'), watch: false })
+  await ctx.plugin(CredentialsLocal, { path: join(dir, '.credentials.yaml'), watch: false })
   await ctx.plugin(LlmPiAi, config)
   return ctx
 }
@@ -53,7 +53,7 @@ describe('request-level dynamic profiles', () => {
   it('mounts bare and dormant, then registers routes the moment settings supply providers', async () => {
     vi.stubEnv('PI_DYNAMIC_KEY', '')
     const dir = await home()
-    await writeFile(join(dir, '.env'), 'PI_DYNAMIC_KEY=pk-from-settings\n')
+    await writeFile(join(dir, '.credentials.yaml'), 'PI_DYNAMIC_KEY: pk-from-settings\n')
     const server = await mockServer([{ events: textEvents }])
     // The exact product posture: `- id: llm-pi-ai` with no config at all.
     const ctx = await boot(dir, {})
@@ -112,7 +112,7 @@ describe('request-level dynamic profiles', () => {
   it('rotates the per-request credential referenced by apiKeyEnv', async () => {
     vi.stubEnv('PI_DYNAMIC_KEY', '')
     const dir = await home()
-    await writeFile(join(dir, '.env'), 'PI_DYNAMIC_KEY=pk-one\n')
+    await writeFile(join(dir, '.credentials.yaml'), 'PI_DYNAMIC_KEY: pk-one\n')
     const server = await mockServer([{ events: textEvents }, { events: textEvents }])
     const ctx = await boot(dir, {
       providers: { deepseek: { apiKeyEnv: 'PI_DYNAMIC_KEY', baseURL: server.url } },

@@ -115,12 +115,11 @@ export async function runTui(
     )
     process.exit(1)
   }
-  // The bin already loaded the invoking directory's .env, and that is the
-  // whole environment: $DSH_HOME/.env is credentials-local's writable store,
-  // and hoisting it would make every stored key read as a read-only ambient
-  // override on the next run — unrotatable from the TUI or the web page.
-  // The environment is settled, so switching the workspace here cannot alter
-  // its precedence. The cwd IS the workspace seam: the shipped config
+  // The bin already loaded both environment files, and that is the whole
+  // environment: credentials live in `$DSH_HOME/.credentials.yaml`, which is
+  // never hoisted, so a stored key stays rotatable from the TUI and the web
+  // page. The environment is settled, so switching the workspace here cannot
+  // alter its precedence — the project layer is the *invoking* directory's. The cwd IS the workspace seam: the shipped config
   // resolves the session cwd and the HMR watch root from it, so one chdir moves
   // both together. Sessions themselves live under the Harness home so `/resume`
   // spans every workspace, and are unaffected by this chdir.
