@@ -345,6 +345,11 @@
     },
     {
       "doc": "docs/core-data-structures/session.md",
+      "symbol": "TurnEndCancelCause",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.md",
       "symbol": "TurnEndReasonMap",
       "source": "packages/core/session/src/types.ts"
     },

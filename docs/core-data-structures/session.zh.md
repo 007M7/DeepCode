@@ -513,7 +513,12 @@ declare class Session {
 
 ## 轮次的结束原因：`TurnEndReasonMap`
 
-`turn/start` 没有 trigger 字段。返回 enter 的 pre-step 所产生的 `user/message` 批次记录进入轮次的内容，`llm/retry` 记录请求恢复，idle 注入则保持待处理，直到后续边界领取并让它进入步骤。`aborted.reason` 保留停止驱动器的类型化 [`AgentCancelCause`](core.md#the-agent-handle)。
+`turn/start` 没有 trigger 字段。返回 enter 的 pre-step 所产生的 `user/message` 批次记录进入轮次的内容，`llm/retry` 记录请求恢复，idle 注入则保持待处理，直到唤醒交付抵达后续 pre-step。实时轮次会保留停止驱动器的类型化 [`AgentCancelCause`](core.md#the-agent-handle)；只有在导入受支持的粗粒度取消记录且记录未保存调用方时，持久化才使用额外的 `{ kind: 'legacy' }` 原因。
+
+```ts type-equiv
+/** Durable cancellation cause, including imports whose original coarse record carried no cause. */
+type TurnEndCancelCause = AgentCancelCause | { readonly kind: 'legacy' }
+```
 
 ```ts type-equiv
 /**
@@ -522,7 +527,7 @@ declare class Session {
 interface TurnEndReasonMap {
   completed: { kind: 'completed' }
   /** A cancellation request interrupted the live turn. */
-  aborted: { kind: 'aborted'; reason: AgentCancelCause }
+  aborted: { kind: 'aborted'; reason: TurnEndCancelCause }
 
   blocked: { kind: 'blocked' }
   /**

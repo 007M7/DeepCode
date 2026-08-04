@@ -509,7 +509,12 @@ An explicit `boundary` lets callers fork from any stable between-turn position, 
 
 ## Why a turn ended: `TurnEndReasonMap`
 
-`turn/start` has no trigger field. The entered `user/message` batch records what entered each step, `llm/retry` records request recovery, and idle injection remains pending until a waking delivery reaches a later pre-step. `aborted.reason` retains the typed [`AgentCancelCause`](core.md#the-agent-handle) that stopped the driver.
+`turn/start` has no trigger field. The entered `user/message` batch records what entered each step, `llm/retry` records request recovery, and idle injection remains pending until a waking delivery reaches a later pre-step. Live turns retain the typed [`AgentCancelCause`](core.md#the-agent-handle) that stopped the driver; persistence uses the additional `{ kind: 'legacy' }` cause only when importing a supported coarse cancellation record that did not store its caller.
+
+```ts type-equiv
+/** Durable cancellation cause, including imports whose original coarse record carried no cause. */
+type TurnEndCancelCause = AgentCancelCause | { readonly kind: 'legacy' }
+```
 
 ```ts type-equiv
 /**
@@ -518,7 +523,7 @@ An explicit `boundary` lets callers fork from any stable between-turn position, 
 interface TurnEndReasonMap {
   completed: { kind: 'completed' }
   /** A cancellation request interrupted the live turn. */
-  aborted: { kind: 'aborted'; reason: AgentCancelCause }
+  aborted: { kind: 'aborted'; reason: TurnEndCancelCause }
 
   blocked: { kind: 'blocked' }
   /**

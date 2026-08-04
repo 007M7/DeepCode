@@ -108,6 +108,67 @@ function legacyMessageLog(): SessionEvent[] {
   ] as unknown as SessionEvent[]
 }
 
+/** A complete log in the durable event vocabulary of the react-loop refactor base. */
+function preReactLoopLog(): SessionEvent[] {
+  const prompt = createUserMessage({
+    content: [{ type: 'text', text: 'old prompt' }],
+    source: { kind: 'user' },
+  })
+  const steering = createUserMessage({
+    content: [{ type: 'text', text: 'old steering' }],
+    source: { kind: 'user' },
+  })
+  return [
+    {
+      type: 'turn/start', seq: 0, time: 1,
+      data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+    },
+    { type: 'user/message', seq: 1, time: 2, data: prompt, surfaceOp: 'append' },
+    { type: 'step/start', seq: 2, time: 3, data: { turn: 1, step: 1 } },
+    {
+      type: 'steering/message', seq: 3, time: 4,
+      data: { turn: 1, message: steering },
+      surfaceOp: 'append',
+    },
+    { type: 'step/end', seq: 4, time: 5, data: { turn: 1, step: 1 } },
+    { type: 'turn/end', seq: 5, time: 6, data: { turn: 1, reason: { kind: 'completed' } } },
+    { type: 'turn/start', seq: 6, time: 7, data: { turn: 2, trigger: { kind: 'retry' } } },
+    { type: 'step/start', seq: 7, time: 8, data: { turn: 2, step: 1 } },
+    { type: 'step/end', seq: 8, time: 9, data: { turn: 2, step: 1 } },
+    {
+      type: 'turn/end', seq: 9, time: 10,
+      data: {
+        turn: 2,
+        reason: {
+          kind: 'error',
+          step: 1,
+          failure: { message: 'old provider failure', code: 'SERVER' },
+        },
+      },
+    },
+    {
+      type: 'turn/start', seq: 10, time: 11,
+      data: { turn: 3, trigger: { kind: 'message', source: { kind: 'user' } } },
+    },
+    { type: 'turn/end', seq: 11, time: 12, data: { turn: 3, reason: { kind: 'aborted' } } },
+    {
+      type: 'turn/start', seq: 12, time: 13,
+      data: { turn: 4, trigger: { kind: 'message', source: { kind: 'user' } } },
+    },
+    { type: 'turn/end', seq: 13, time: 14, data: { turn: 4, reason: { kind: 'disposed' } } },
+    {
+      type: 'turn/start', seq: 14, time: 15,
+      data: { turn: 5, trigger: { kind: 'message', source: { kind: 'user' } } },
+    },
+    { type: 'step/start', seq: 15, time: 16, data: { turn: 5, step: 1 } },
+    { type: 'step/end', seq: 16, time: 17, data: { turn: 5, step: 1 } },
+    {
+      type: 'turn/end', seq: 17, time: 18,
+      data: { turn: 5, reason: { kind: 'error', step: 1, message: 'old thrown value' } },
+    },
+  ] as unknown as SessionEvent[]
+}
+
 /** A live session created inside its OWN fiber, so it survives a backend reload. */
 async function liveSessionInFiber(
   ctx: Context, id: string, cwd: string | undefined,
@@ -367,6 +428,69 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
             `legacy-message:${id}:5`,
           ])
         }
+
+        const replacementSuffix = await ctx.sessionPersistence.readFrom(id, 6)
+        expect(replacementSuffix.events[0]).toMatchObject({
+          type: 'tool/result',
+          seq: 6,
+          data: { message: { id: `legacy-message:${id}:5` } },
+        })
+      } finally {
+        await fiber.dispose()
+        await fix.cleanup()
+      }
+    })
+
+    it('loads pre-react-loop session logs into resumable current sessions', async () => {
+      const fix = await makeFixture()
+      const { ctx, fiber } = await freshCtx(fix)
+      try {
+        const id = SessionId('pre-react-loop-load')
+        const log = preReactLoopLog()
+        const legacySteering = log[3] as unknown as { data: { message: { id: string } } }
+        await ctx.sessionPersistence.create(meta(id, WORK))
+        await ctx.sessionPersistence.append(id, log)
+
+        const snapshots = [
+          await ctx.sessionPersistence.inspect(id),
+          await ctx.sessionPersistence.readFrom(id, 0),
+          await ctx.sessionPersistence.load(id),
+        ]
+        for (const snapshot of snapshots) {
+          expect(snapshot.events.some(event => (event.type as string) === 'steering/message')).toBe(false)
+          expect(snapshot.events.filter(event => event.type === 'turn/start').map(event => event.data))
+            .toEqual([{ turn: 1 }, { turn: 2 }, { turn: 3 }, { turn: 4 }, { turn: 5 }])
+          expect(snapshot.events.filter(event => event.type === 'turn/end').map(event => event.data)).toEqual([
+            { turn: 1, step: 1, reason: { kind: 'completed' } },
+            {
+              turn: 2,
+              step: 1,
+              reason: { kind: 'error', error: { message: 'old provider failure', code: 'SERVER' } },
+            },
+            { turn: 3, step: 0, reason: { kind: 'aborted', reason: { kind: 'legacy' } } },
+            { turn: 4, step: 0, reason: { kind: 'aborted', reason: { kind: 'disposed' } } },
+            {
+              turn: 5,
+              step: 1,
+              reason: { kind: 'error', error: { message: 'old thrown value', code: 'UNKNOWN' } },
+            },
+          ])
+
+          const resumed = new Session(id, snapshot.events, snapshot.meta)
+          expect(resumed.deriveMessages().map(message => message.content)).toEqual([
+            [{ type: 'text', text: 'old prompt' }],
+            [{ type: 'text', text: 'old steering' }],
+          ])
+        }
+
+        const suffix = await ctx.sessionPersistence.readFrom(id, 3)
+        expect(suffix.events[0]).toMatchObject({
+          type: 'user/message',
+          seq: 3,
+          data: { id: legacySteering.data.message.id },
+        })
+        expect(suffix.events.filter(event => event.type === 'turn/end').map(event => event.data.step))
+          .toEqual([1, 1, 0, 0, 1])
       } finally {
         await fiber.dispose()
         await fix.cleanup()
@@ -396,6 +520,40 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
           .rejects.toThrow('message must have role "user"')
         await expect(ctx.sessionPersistence.load(id))
           .rejects.toThrow('message must have role "user"')
+
+        const malformedLegacy: { id: string; event: SessionEvent; message: string }[] = [
+          {
+            id: 'invalid-old-turn-start',
+            event: {
+              type: 'turn/start', seq: 0, time: 1,
+              data: { turn: 1, trigger: null },
+            } as unknown as SessionEvent,
+            message: 'malformed pre-react-loop turn/start',
+          },
+          {
+            id: 'invalid-old-steering',
+            event: {
+              type: 'steering/message', seq: 0, time: 1, surfaceOp: 'append',
+              data: { turn: 1, content: [], source: { kind: 'user' }, extra: true },
+            } as unknown as SessionEvent,
+            message: 'malformed pre-react-loop steering/message',
+          },
+          {
+            id: 'invalid-old-turn-end',
+            event: {
+              type: 'turn/end', seq: 0, time: 1,
+              data: { turn: 1, reason: { kind: 'completed', extra: true } },
+            } as unknown as SessionEvent,
+            message: 'malformed pre-react-loop turn/end',
+          },
+        ]
+        for (const malformed of malformedLegacy) {
+          const malformedId = SessionId(malformed.id)
+          await ctx.sessionPersistence.create(meta(malformedId, WORK))
+          await ctx.sessionPersistence.append(malformedId, [malformed.event])
+          await expect(ctx.sessionPersistence.inspect(malformedId)).rejects.toThrow(malformed.message)
+          await expect(ctx.sessionPersistence.readFrom(malformedId, 0)).rejects.toThrow(malformed.message)
+        }
 
         for (const type of ['tool/result'] as const) {
           const malformedId = SessionId(`invalid-${type}`)

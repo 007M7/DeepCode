@@ -100,13 +100,16 @@ export type AgentCancelCause =
   | { readonly kind: 'hook'; readonly reason: string }
   | { readonly kind: 'disposed' }
 
+/** Durable cancellation cause, including imports whose original coarse record carried no cause. */
+export type TurnEndCancelCause = AgentCancelCause | { readonly kind: 'legacy' }
+
 /**
  * Why a turn ended. Merge-extensible sum type.
  */
 export interface TurnEndReasonMap {
   completed: { kind: 'completed' }
   /** A cancellation request interrupted the live turn. */
-  aborted: { kind: 'aborted'; reason: AgentCancelCause }
+  aborted: { kind: 'aborted'; reason: TurnEndCancelCause }
 
   blocked: { kind: 'blocked' }
   /**
