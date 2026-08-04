@@ -6,7 +6,7 @@ Status: resolved
 
 ## Executive summary
 
-On kernels with an older Landlock ABI, the launcher prints a benign partial-enforcement notice before executing every child. The harness treated that shared `landlock-run:` prefix plus any nonzero child exit as launcher failure, so ordinary outcomes such as ripgrep's exit 1 for no matches surfaced as `SANDBOX_UNAVAILABLE`; filesystem search then hid that structured error behind `SEARCH_FAILED`. Broad signature rules and missing partial-ABI composition coverage let the defect through. Runner classification now requires status-gated fatal evidence after exact informational exclusions, search preserves structured executor errors, and an assembled keyless scenario pins the affected product path.
+On kernels with an older Landlock ABI, the launcher prints a benign partial-enforcement notice before executing every child. The harness treated that shared `landlock-run:` prefix plus any nonzero child exit as launcher failure, so ordinary outcomes such as ripgrep's exit 1 for no matches surfaced as `SANDBOX_UNAVAILABLE`; the then-bash-backed filesystem search also hid that structured error behind `SEARCH_FAILED`. Broad signature rules and missing partial-ABI composition coverage let the defect through. Runner classification now requires status-gated fatal evidence after exact informational exclusions, and an assembled keyless scenario pins the surviving bash path. Filesystem search has since moved to packaged ripgrep through the subprocess seam and no longer crosses sandboxed bash.
 
 ## Summary
 
@@ -14,7 +14,7 @@ The native launcher contract distinguishes two kinds of stderr lines. A partiall
 
 The harness represented both with one case-insensitive `landlock-run: ` substring. Its consumer classified any nonzero exit carrying that substring as runner failure. The child's status was therefore attached to the launcher's informational line: `false`, ripgrep's no-match exit 1, invalid-pattern exit 2, and even a child-selected exit 125 could be blamed on the sandbox despite successful confinement and execution.
 
-Filesystem search added a second attribution error. `runRipgrep()` caught every rejected bash run that was not aborted and replaced it with a generic cwd/shell-start `SEARCH_FAILED`, including the structured `SandboxUnavailableError` produced by the sandbox executor.
+At the time of the incident, filesystem search added a second attribution error. Its bash-backed `runRipgrep()` caught every rejected bash run that was not aborted and replaced it with a generic cwd/shell-start `SEARCH_FAILED`, including the structured `SandboxUnavailableError` produced by the sandbox executor.
 
 ## Impact
 
@@ -28,13 +28,13 @@ The defect did not weaken confinement or run a command unconfined. Its security 
 - The sandbox provider reduced that contract to `runnerFailureSignatures: ['landlock-run: ']`; the bash consumer combined the prefix with any nonzero exit and reported stderr's first line.
 - Unit tests covered clean success, denial diagnostics, and fatal runner prefixes. Real-runner tests self-skipped without a usable kernel and did not force partial enforcement followed by a nonzero child.
 - A minimal POSIX wrapper that prints the notice and `exec`s its payload reproduced the failure with `false` and ripgrep no-match.
-- Structured rules, shared foreground/background classification, search error preservation, and assembled replay coverage closed the two attribution gaps.
+- Structured rules plus shared foreground/background classification and assembled replay coverage closed the surviving sandbox attribution gap. Before this fix was reconciled with current `master`, filesystem search moved to packaged ripgrep through `ctx.subprocess`; the obsolete bash-adapter patch and tests were dropped instead of reintroducing the old architecture.
 
 ## Root cause
 
 The public sandbox result type could express only a bag of substrings. It could not state that Landlock failure requires exit 125, that evidence must occur within one fatal line, or that one exact line under the same prefix is informational. The boolean consumer consequently joined unrelated facts from different processes and selected the first stderr line for detail even when a later line was the fatal evidence.
 
-The test matrix mirrored that representation. Fake providers emitted either no runner line or an unambiguously fatal prefix; they never emitted a benign runner line before a child-controlled nonzero exit. Real Landlock coverage depended on the host ABI, so full-ABI hosts could not exercise the notice. Filesystem-search tests modeled raw spawn errors but not a structured error thrown by the real sandboxed bash composition.
+The test matrix mirrored that representation. Fake providers emitted either no runner line or an unambiguously fatal prefix; they never emitted a benign runner line before a child-controlled nonzero exit. Real Landlock coverage depended on the host ABI, so full-ABI hosts could not exercise the notice. In the incident-era search implementation, filesystem-search tests modeled raw spawn errors but not a structured error thrown by the real sandboxed bash composition.
 
 Stderr remains an in-band attribution channel. A confined child can deliberately reproduce a runner's gated fatal line and exit status, causing an availability/diagnostic false attribution. The tighter conjunction prevents the accidental collision in this incident but does not authenticate the writer; an out-of-band status protocol remains separate hardening, not a sandbox-bypass fix.
 
@@ -43,8 +43,8 @@ Stderr remains an in-band attribution channel. A confined child can deliberately
 - [`RunnerFailureRule`](../core-data-structures/sandbox.md#wrapped-argv-and-classification-dialects) carries optional allowed exit codes, case-insensitive per-line fatal signatures, and case-insensitive exact informational-line exclusions.
 - [`dsh-sandbox-local`](../../packages/sandbox/sandbox-local/) maps Landlock to exit 125 plus a non-notice `landlock-run:` line, keeps bwrap/Seatbelt/custom behavior, and separates argv0-scoped outer-shell failures using exit 126/127.
 - [`dsh-bash-sandbox`](../../packages/bash/bash-sandbox/) uses one evidence-returning classifier for foreground and background execution. Fatal evidence outranks denial, and foreground errors report the matched fatal line without changing captured stderr.
-- [`dsh-tool-fs-search`](../../packages/fs/tool-fs-search/) retains abort as `SEARCH_ABORTED`, propagates existing `HarnessError` instances unchanged, and applies `SEARCH_FAILED` only to untyped start failures. Ripgrep still owns exit 0/1/other semantics inside the adapter.
-- Deterministic tests use a POSIX fake partial-Landlock launcher to cover `true`, `false`, child exit 125, permission denial, real fatal diagnostics, and foreground/background parity. A real search composition covers empty grep/glob, invalid regex, and `SANDBOX_UNAVAILABLE` propagation.
+- Current [`dsh-tool-fs-search`](../../packages/fs/tool-fs-search/) uses packaged ripgrep through `ctx.subprocess` and no longer consumes the sandboxed bash seam; the base reconciliation keeps that architecture unchanged.
+- Deterministic tests use a POSIX fake partial-Landlock launcher to cover `true`, `false`, child exit 125, permission denial, real fatal diagnostics, and foreground/background parity.
 - The `examples/acp-agent` keyless snapshot runs direct bash `false` through a test-only partial-Landlock provider, keeping the product regression pinned independently of filesystem-search implementation choices.
 
 ## Lessons

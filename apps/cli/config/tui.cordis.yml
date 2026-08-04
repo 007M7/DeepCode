@@ -58,24 +58,33 @@
 # ── TUI-only rows ───────────────────────────────────────────────────────────
 
 - insert:
-    # Relational runtime checks over the authoritative event streams; each
-    # companion registers the assertions its own package owns.
-    - id: invariants
-      name: '@deepseek-ai/dsh-invariants'
-    - id: session-invariant
-      name: '@deepseek-ai/dsh-session/invariant'
-    - id: agent-invariant
-      name: '@deepseek-ai/dsh-agent/invariant'
-    - id: scope-invariant
-      name: '@deepseek-ai/dsh-scope/invariant'
-    - id: agent-loop-invariant
-      name: '@deepseek-ai/dsh-agent-loop/invariant'
-
     # The derived query index behind `/resume`. The launcher provides a unique
     # process-local path because this SQLite backend has one writer owner; the
     # project-local fallback applies when no launcher sets the typed slot.
     - id: session-reference
       name: '@deepseek-ai/dsh-session-reference'
+
+    # The projection registry plus its durable checkpoint cache (over the same
+    # storage root the web surface uses): `/resume` reads titles from the
+    # zero-I/O checkpoint row or a tail-only cold read instead of scanning
+    # whole logs, and checkpoints written by either surface serve both.
+    - id: session-projection
+      name: '@deepseek-ai/dsh-session-projection'
+    - id: storage
+      name: '@deepseek-ai/dsh-storage'
+    - id: storage-json
+      name: '@deepseek-ai/dsh-storage-json'
+      config:
+        root: !!js dshHomePath('storages')
+    - id: storage-domain
+      name: '@deepseek-ai/dsh-storage-domain'
+      config:
+        backend: json
+    - id: session-projection-cache
+      name: '@deepseek-ai/dsh-session-projection-cache'
+      config:
+        writeEveryEvents: 200
+        writeIntervalMs: 5000
 
     # Terminal-multiplexer context, mounted only where a terminal exists.
     - id: tmux-context

@@ -49,6 +49,8 @@ const CHECKPOINTS = [
   'details-selector',
   'untrusted-controls',
   'question-dialog',
+  'question-dialog-detail-paged',
+  'question-dialog-paged',
   'question-dialog-single-option',
   'question-dialog-validation',
   'surface-before-compaction',
@@ -60,6 +62,7 @@ const CHECKPOINTS = [
   'model-switching',
   'errors-and-help',
   'disposed-terminal',
+  'resume-sessions-loading',
   'resume-sessions',
   'resume-sessions-all-workspaces',
   'status-diagnostics',
@@ -272,11 +275,30 @@ const ADVANCED_CARD_TOOLS: Record<string, ToolDefinition> = {
   edit: visualTool(
     'edit',
     () => ({ card: 'diff', title: 'Edit src/view.ts', diffs: [{ path: 'src/view.ts', oldText: 'old line', newText: 'new line' }] }),
-    // The real edit/write tools produce exactly one diff whose path the title
-    // already names, so the card omits the redundant per-file header.
+    // The fixed tool header never names a path, so the hunk retains its path.
     (): ToolResultView => ({
       card: 'diff',
       diffs: [{ path: 'src/view.ts', oldText: 'old line\nkeep', newText: 'new line\nkeep' }],
+    }),
+  ),
+  large_edit: visualTool(
+    'large_edit',
+    () => ({
+      card: 'diff',
+      title: 'Edit src/large.ts',
+      diffs: [{
+        path: 'src/large.ts',
+        oldText: 'old one\nold two\nold three',
+        newText: 'new one\nnew two\nnew three',
+      }],
+    }),
+    (): ToolResultView => ({
+      card: 'diff',
+      diffs: [{
+        path: 'src/large.ts',
+        oldText: 'old one\nold two\nold three',
+        newText: 'new one\nnew two\nnew three',
+      }],
     }),
   ),
   subagent: visualTool('subagent', args => ({
@@ -588,7 +610,7 @@ describe('TUI terminal-state snapshots', () => {
   it('pins terminal, diff, subagent, task, skill, collapsed, and expanded cards', async () => {
     const harness = await setupSnapshot({
       tools: ADVANCED_CARD_TOOLS,
-      config: { maxToolOutputLines: 3 },
+      config: { maxToolOutputLines: 3, maxDiffEditLength: 2 },
     }, { columns: 100, rows: 40 })
     const calls = [
       { id: 'advanced-1', name: 'bash', arguments: { command: 'pnpm run test:coverage' } },
@@ -596,6 +618,7 @@ describe('TUI terminal-state snapshots', () => {
       { id: 'advanced-3', name: 'subagent', arguments: { prompt: 'Review renderer ownership and report only gaps.' } },
       { id: 'advanced-4', name: 'task_output', arguments: { task_id: 'subagent-7', wait: true } },
       { id: 'advanced-5', name: 'skill', arguments: { name: 'dsh-code-review' } },
+      { id: 'advanced-6', name: 'large_edit', arguments: { file_path: 'src/large.ts' } },
     ]
     await renderAfter(harness, () => {
       appendToolCalls(harness.session, calls)
@@ -604,6 +627,7 @@ describe('TUI terminal-state snapshots', () => {
       appendToolResult(harness.session, 'advanced-3', [{ type: 'text', text: 'The renderer has explicit lifecycle ownership.' }])
       appendToolResult(harness.session, 'advanced-4', [{ type: 'text', text: 'audit complete\n[status: completed]' }])
       appendToolResult(harness.session, 'advanced-5', [{ type: 'text', text: 'Loaded review instructions.' }])
+      appendToolResult(harness.session, 'advanced-6', [{ type: 'text', text: 'large edit complete' }])
     })
     await checkpoint('advanced-cards-collapsed', harness.terminal, { includeScrollback: true })
 
@@ -765,9 +789,13 @@ describe('TUI terminal-state snapshots', () => {
           id: 'coverage',
           header: 'Coverage',
           question: 'Which advanced TUI states belong in the required matrix?',
+          detail: `Review the complete plan ${'including every required checkpoint '.repeat(12)}visible plan tail`,
           multiSelect: true,
           options: [
-            { label: 'Code Mode', description: 'run_code programs and captured output' },
+            {
+              label: 'Code Mode',
+              description: `run_code programs and captured output ${'with complete wrapped detail '.repeat(12)}visible tail`,
+            },
             { label: 'Workflows', description: 'phases and parallel agents' },
             { label: 'Cordis tools', description: 'inspect, mount, and unmount' },
             { label: 'Compaction', description: 'surface replacement and reflow' },
@@ -781,6 +809,14 @@ describe('TUI terminal-state snapshots', () => {
     const rejected = expect(answer).rejects.toMatchObject({ code: 'ASK_ABORTED' })
     await harness.terminal.waitForFrame(beforeQuestion)
     await checkpoint('question-dialog', harness.terminal)
+
+    await renderAfter(harness, () => { harness.terminal.send('\x1b[6~') })
+    await checkpoint('question-dialog-detail-paged', harness.terminal)
+
+    await renderAfter(harness, () => {
+      for (let page = 0; page < 30; page += 1) harness.terminal.send('\x1b[6~')
+    })
+    await checkpoint('question-dialog-paged', harness.terminal)
 
     await renderAfter(harness, () => { harness.terminal.send('\r') })
     await checkpoint('question-dialog-validation', harness.terminal)
@@ -946,14 +982,18 @@ describe('TUI terminal-state snapshots', () => {
         { type: 'step/end', seq: 5, time: Date.parse(`${day}T00:00:06Z`), data: { turn: 1, step: 1 } },
         { type: 'turn/end', seq: 6, time: Date.parse(`${day}T00:00:07Z`), data: { turn: 1, reason: { kind: 'completed' } } },
         { type: 'session/title', seq: 7, time: Date.parse(`${day}T00:00:08Z`), data: { title, messageSeqs: [1], source: { kind: 'fallback' } } },
-        // A prior pickup, dated well after the work: the picker must still
-        // show the work's date, not the pickup's.
-        { type: 'session/end-seed', seq: 8, time: Date.parse('2026-07-23T07:59:00.000Z'), data: {} },
       ],
     })
+    const listGate = Promise.withResolvers<undefined>()
+    // Rows show metadata activity (here the created-at fallback: the fake
+    // store locates no per-session artifact to stat) plus each log's one
+    // batch-folded title; nothing else is read from the logs.
     const harness = await setupSnapshot({
       sessionPersistence: {
-        list: async () => [earlier, elsewhere],
+        list: async () => {
+          await listGate.promise
+          return [earlier, elsewhere]
+        },
         load: async id => id === elsewhere.id
           ? log(elsewhere, 'Other workspace work', '2024-02-02')
           : log(earlier, 'Resume selector design', '2024-01-01'),
@@ -961,8 +1001,15 @@ describe('TUI terminal-state snapshots', () => {
     }, { columns: 92, rows: 32 })
     harness.terminal.send('/resume')
     harness.terminal.send('\r')
-    // `/resume` scans persistence asynchronously, so the listing renders a tick
-    // after submit (the unit suite waits the same way); settle, then flush.
+    // The picker opens as soon as the command dispatches and owns input while
+    // the persistence scan is still pending, rendering a loading placeholder
+    // in place of rows; only the scan is gated, so this settle never lists.
+    await new Promise(resolve => setTimeout(resolve, 60))
+    await harness.terminal.flush()
+    await checkpoint('resume-sessions-loading', harness.terminal, { includeScrollback: true })
+    listGate.resolve(undefined)
+    // With the scan released, the listing renders a tick later (the unit suite
+    // waits the same way); settle, then flush.
     await new Promise(resolve => setTimeout(resolve, 60))
     await harness.terminal.flush()
     await checkpoint('resume-sessions', harness.terminal, { includeScrollback: true })
