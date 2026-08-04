@@ -47,19 +47,27 @@ export function Tooltip({ label, side = 'right', delayMs = 0, disabled = false, 
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
   const bubble = useRef<HTMLSpanElement | null>(null)
   // Horizontal viewport clamp: fixed positioning knows nothing about edges, so
-  // a centered bubble near the right edge would clip. Measured after paint and
-  // written straight to the style (no state), so it cannot re-trigger itself.
-  // EDGE_MARGIN keeps the bubble 12px off the viewport edges instead of flush.
+  // a centered bubble near the right edge would clip. Each measurement resets
+  // the base position before applying a direct style offset, allowing a shorter
+  // label or wider viewport to release a previous clamp without another render.
   useLayoutEffect(() => {
-    const el = bubble.current
-    if (el === null || pos === null) return
-    const EDGE_MARGIN = 12
-    const r = el.getBoundingClientRect()
-    let dx = 0
-    if (r.right > window.innerWidth - EDGE_MARGIN) dx = window.innerWidth - EDGE_MARGIN - r.right
-    if (r.left + dx < EDGE_MARGIN) dx = EDGE_MARGIN - r.left
-    if (dx !== 0) el.style.left = `${pos.x + dx}px`
-  }, [pos])
+    if (pos === null) return
+    const clamp = () => {
+      const el = bubble.current
+      /* v8 ignore next -- pos is set only while the bubble is mounted. */
+      if (el === null) return
+      const EDGE_MARGIN = 12
+      el.style.left = `${pos.x}px`
+      const r = el.getBoundingClientRect()
+      let dx = 0
+      if (r.right > window.innerWidth - EDGE_MARGIN) dx = window.innerWidth - EDGE_MARGIN - r.right
+      if (r.left + dx < EDGE_MARGIN) dx = EDGE_MARGIN - r.left
+      el.style.left = `${pos.x + dx}px`
+    }
+    clamp()
+    window.addEventListener('resize', clamp)
+    return () => { window.removeEventListener('resize', clamp) }
+  }, [label, pos])
   const showTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Hover and focus are independent triggers: the bubble hides only after
   // BOTH clear (hovering away from a focused anchor must not drop it).

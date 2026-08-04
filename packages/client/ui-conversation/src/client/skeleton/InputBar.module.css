@@ -11,17 +11,18 @@
 /* Floating capsule input (figma Input_Bottom 75:8208): card floats above the
    viewport bottom inside the centered message column; textarea on top, action
    row below, one primary circle button bottom-right. Input width rides the
-   column (--dsh-composer-card-max-width = chat content + 16px is a cap, not a
-   fixed size — layout rule: the box shrinks with the center column keeping
-   its clearance). Hero variant = the same card centered in the empty state;
-   the transition between the two is a position move of one component. */
+   column (--dsh-composer-card-max-width = chat content + 32px, 16px per side,
+   is a cap, not a fixed size — layout rule: the box shrinks with the center
+   column keeping its clearance). Hero variant = the same card centered in the
+   empty state; the transition between the two is a position move of one
+   component. */
 
 .root {
   display: flex;
   flex-direction: column;
   align-items: center;
   /* Side pads ride the shared clearance (figma Input_Bottom drew L32/R32/B8;
-     the sides narrowed with the chat+16 width axis); the bottom gradient mask
+     the sides narrow with the shared width axis); the bottom gradient mask
      is owned by the chat scroller. No top pad: the composer stack's gap owns
      the space above; error/status strips still carry their own margin. */
   padding: 0 var(--dsh-composer-side-clearance) 8px;

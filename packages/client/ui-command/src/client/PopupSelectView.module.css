@@ -54,9 +54,8 @@
 }
 
 .label {
-  /* Grows (detail stays right-aligned) but never shrinks: when the row runs
-     out of width the detail alone truncates, keeping the name readable. */
-  flex: 1 0 auto;
+  flex: 1 1 auto;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

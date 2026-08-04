@@ -92,6 +92,37 @@ describe('Tooltip', () => {
     }
   })
 
+  it('reclamps after label and viewport width changes', () => {
+    const originalWidth = window.innerWidth
+    const spy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      if (this.getAttribute('role') !== 'tooltip') return rect(900, 1000)
+      return this.textContent === 'Wide' ? rect(900, 1100) : rect(850, 950)
+    })
+    try {
+      const view = render(
+        <Tooltip label="Wide" side="bottom">
+          <button type="button">anchor</button>
+        </Tooltip>,
+      )
+      fireEvent.mouseEnter(screen.getByText('anchor'))
+      expect(screen.getByRole('tooltip').style.left).toBe('862px')
+
+      view.rerender(
+        <Tooltip label="Short" side="bottom">
+          <button type="button">anchor</button>
+        </Tooltip>,
+      )
+      expect(screen.getByRole('tooltip').style.left).toBe('950px')
+
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: 900 })
+      fireEvent(window, new Event('resize'))
+      expect(screen.getByRole('tooltip').style.left).toBe('888px')
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
+      spy.mockRestore()
+    }
+  })
+
   it('clamps a bubble past the left viewport edge back inside', () => {
     const spy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue(rect(-20, 80))
     try {

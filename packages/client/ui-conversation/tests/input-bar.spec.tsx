@@ -143,7 +143,6 @@ function bench(over?: BenchOptions) {
   }
   const view = render(<InputBar {...props} />)
   const textarea = view.container.querySelector('textarea')!
-  // aria-label (not role name): title carries the same label and would double-match.
   const stopping = over?.running === true && over.subagent === undefined
   const button = view.container.querySelector<HTMLButtonElement>(
     `button[aria-label="${stopping ? '停止生成' : '发送消息'}"]`,

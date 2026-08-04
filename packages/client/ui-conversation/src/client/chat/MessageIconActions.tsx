@@ -1,12 +1,12 @@
 // Shared IconActions chrome for user, steering, and assistant messages: copy
 // live, optional branch wiring, and an optional date-aware clock.
 
-import { useCallback, useId, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import {
-  IconBranchOutline16, IconCheckOutline16, IconCopyOutline16, Tooltip,
+  IconBranchOutline16, IconCheckOutline16, IconCopyOutline16, Tooltip, writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
-import { formatMessageClock, writeClipboard } from './message-chrome.ts'
+import { formatMessageClock } from './message-chrome.ts'
 import { useCalendarDay } from './use-calendar-day.ts'
 import css from './MessageIconActions.module.css'
 
@@ -42,11 +42,27 @@ export function MessageIconActions({
   // Same success chrome as CodeBlock: a short check swap after the write,
   // gated so re-clicks during the window neither re-copy nor stack timers.
   const [copied, setCopied] = useState(false)
+  const copyPending = useRef(false)
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const copyEpoch = useRef(0)
+  useEffect(() => () => {
+    copyEpoch.current += 1
+    copyPending.current = false
+    if (copyTimer.current !== null) clearTimeout(copyTimer.current)
+  }, [])
   const onCopy = useCallback(() => {
-    if (copied) return
-    void writeClipboard(text).then(() => {
+    if (copied || copyPending.current) return
+    const epoch = copyEpoch.current
+    copyPending.current = true
+    void writeClipboard(text).then((ok) => {
+      if (epoch !== copyEpoch.current) return
+      copyPending.current = false
+      if (!ok) return
       setCopied(true)
-      window.setTimeout(() => { setCopied(false) }, 1000)
+      copyTimer.current = window.setTimeout(() => {
+        copyTimer.current = null
+        setCopied(false)
+      }, 1000)
     })
   }, [copied, text])
   const clockEl = time === undefined ? null : (

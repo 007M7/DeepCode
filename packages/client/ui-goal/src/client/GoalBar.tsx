@@ -127,7 +127,7 @@ export function GoalBar({ goal, onEdit, onPause, onResume, onClear, t }: GoalBar
   return (
     <div className={css.dock} data-goal-bar>
       <div className={css.bar} title={title}>
-        <span className={css.sparkle}><IconGoalOutline16 size={14} /></span>
+        <span className={css.goalGlyph}><IconGoalOutline16 size={14} /></span>
         <span className={css.label}>{t(PHASE_LABELS[goal.phase])}</span>
         <span className={css.objective}>{goal.objective}</span>
         {actionError !== null && <span className={css.error} role="alert">{actionError}</span>}
