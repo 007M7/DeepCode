@@ -1063,6 +1063,35 @@ describe('workspace context request injection', () => {
     }
   })
 
+  it('ignores a restored baseline during a file tool call before resume reconciliation', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'repo rule')
+      await write(join(root, 'file.txt'), 'hello')
+      const ctx = new Context()
+      await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
+      const original = stubAgent(root)
+      await composeBaselinePrefix(ctx, original)
+
+      const resumed = stubAgent(root, [...original.session.events])
+      const result = await ctx.tools.execute({
+        signal: testToolSignal,
+        callId: CallId('read-before-resume-reconciliation'),
+        name: 'read',
+        arguments: { file_path: 'file.txt' },
+        agent: resumed,
+      })
+
+      expect(workspaceContextOf(result)).toBeUndefined()
+      expect(baselineEvents(resumed)).toHaveLength(1)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
   it('retains a visible baseline after a plugin remount', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
