@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-agent loop 曾将其控制流暴露为大量 Cordis 事件。`pre-step` 和 `post-step` 两个独立检查点分列步骤前后，`session-prefix` 和 `step-result` 分别变换请求消息与响应消息，`request-error` 决定失败的请求是否在当前轮次内重试，`turn-continuation` 与 `turn-stop` 则组合相互竞争的继续执行决策。
+agent loop（智能体循环）曾将其控制流暴露为大量 Cordis 事件。`pre-step` 和 `post-step` 两个独立检查点分列步骤前后，`session-prefix` 和 `step-result` 分别变换请求消息与响应消息，`request-error` 决定失败的请求是否在当前轮次内重试，`turn-continuation` 与 `turn-stop` 则组合相互竞争的继续执行决策。
 
 即使持久会话日志已经记录了对应的轮次与步骤事实，这些事件仍会将内部阶段公开。它们还混用了两种扩展模型：部分监听器观察边界并发出 agent 命令，另一些监听器则返回由循环解释的控制决策。因此，要理解公开状态机，必须同时还原事件顺序、waterfall（瀑布式事件）优先级和特殊的终止覆盖规则。
 

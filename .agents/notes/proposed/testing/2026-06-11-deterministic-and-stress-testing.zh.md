@@ -13,7 +13,7 @@ Status: proposed
 三项措施：
 
 1. **测试中禁止挂钟睡眠。** 将 `setTimeout(N)` 等待替换为事件驱动等待（既有的 `waitForIdle` 模式，扩展为 `waitForStatus`、`waitForEvent(n)`），或在需要测试时间本身时使用 vitest 的 fake timer。通过 lint 规则禁止 `setTimeout`，适用范围是 `packages/*/tests`，白名单辅助模块除外。
-2. **通用回放 fixture。** 一个共享测试辅助函数包装 agent loop harness，使每个测试结束后，agent 的会话日志被回放到一个全新的 Session 中，并自动断言 `deriveMessages()` 相等。这样该不变式在每次 CI 运行中会被套件产生的所有场景检查数百次，而非仅两次。
+2. **通用回放 fixture（测试前置数据）。** 一个共享测试辅助函数包装 agent loop harness，使每个测试结束后，agent 的会话日志被回放到一个全新的 Session 中，并自动断言 `deriveMessages()` 相等。这样该不变式在每次 CI 运行中会被套件产生的所有场景检查数百次，而非仅两次。
 3. **夜间竞态压力测试。** 一个 CI job 以 `vitest --repeat=200`（加 `--shuffle`）运行 agent-loop 和 inbox 套件，以暴露调度依赖的失败；发现的任何不稳定现象都视为需要修复的 bug，绝不靠重试掩盖。
 
 ## 计划

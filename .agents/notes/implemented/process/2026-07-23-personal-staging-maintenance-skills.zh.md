@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-仓库从其根 `skills/` 目录分发 [`dsh-customize`](../../../../skills/dsh-customize/SKILL.md)、[`dsh-upgrade`](../../../../skills/dsh-upgrade/SKILL.md) 和 [`dsh-upstream-customization`](../../../../skills/dsh-upstream-customization/SKILL.md)。它们的描述同时说明操作内容和选择该 skill 的用户请求。分发的 TUI 在启动时将该目录提供给本地 skill 提供方，在发现优先级上位于项目根目录和用户根目录之后。这些 skill 根据已安装的启动器而非个人路径或分支名称定位当前生效的检出和集成分支，遵从仓库内指令，要求使用任务 worktree，并利用集成分支所在 worktree 的既有 `.agents/merge.lock`，串行执行每一次个人集成分支修改。
+仓库从其根 `skills/` 目录分发 [`dsh-customize`](../../../../skills/dsh-customize/SKILL.md)、[`dsh-upgrade`](../../../../skills/dsh-upgrade/SKILL.md) 和 [`dsh-upstream-customization`](../../../../skills/dsh-upstream-customization/SKILL.md)。它们的描述同时说明操作内容和选择该 skill（技能）的用户请求。分发的 TUI 在启动时将该目录提供给本地 skill 提供方，在发现优先级上位于项目根目录和用户根目录之后。这些 skill 根据已安装的启动器而非个人路径或分支名称定位当前生效的检出和集成分支，遵从仓库内指令，要求使用任务 worktree，并利用集成分支所在 worktree 的既有 `.agents/merge.lock`，串行执行每一次个人集成分支修改。
 
 升级流程在变基前检查 Git 日志和提交范围，以识别将进入升级的上游变更、个人提交、重复内容和可能发生冲突的区域。它会丢弃上游已经提供的定制；如果这类定制在本地只剩文档差异，也会一并丢弃，除非该说明包含上游缺失且可独立使用的当前契约。每次升级尝试使用同一个 UTC 基本格式时间戳，用于其独立的 `dsh-staging-<timestamp>` 同级克隆、本地 `dsh-upgrade/prepare-<timestamp>` 分支、新的 `dsh-staging/<timestamp>` 分支、私有的上游引用与恢复引用，以及启动器备份。同级克隆的名称不派生自当前目录名，名称冲突会直接失败，而不是追加临时后缀。流程根据进程命令和运行时环境而非 shell 工作目录推导当前 DSH 进程的源码位置，随后将已安装启动器所指向的仓库和检出视为不可变，唯一例外是持有其既有合并锁。
 

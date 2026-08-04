@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/rejected/simplification/2026-07-04-prune-unimplemented-subagent-vocabulary.md
 2026-07-04-prune-unimplemented-subagent-vocabulary.md: 276e832af695acbcf70103def8b51fb8c6e1033f
-2026-07-04-prune-unimplemented-subagent-vocabulary.zh.md: d9b572664c3e5ed18682e6b505c079d19cca3117
+2026-07-04-prune-unimplemented-subagent-vocabulary.zh.md: 81b79c77a055f97785c6a96b7b17802878ded623

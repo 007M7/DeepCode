@@ -1,6 +1,6 @@
 # Agent Note: 整个 /api 接口共用一道载体级浏览器信任边界
 
-状态：已实现
+Status: implemented
 
 [English](2026-07-28-api-browser-trust-boundary.md) | 中文
 

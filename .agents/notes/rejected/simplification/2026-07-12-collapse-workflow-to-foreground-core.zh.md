@@ -6,7 +6,7 @@ Status: rejected — 工作流进度是有意设计的观测接口面；应通�
 
 ## 问题
 
-工作流能力在前台执行用于编排 subagent 的 JavaScript，但它同时携带了一套无人消费的进度观测系统。没有任何生产环境的监听器订阅六个 `workflow/*` 事件中的任何一个；监听器仅存在于工作流测试中。尽管如此，seam 定义了 run/phase/agent outcome 载荷，worker 发送 phase/log/agent 生命周期协议消息，host 通过一个 `liveAgents` 配对账本转发它们，引擎维护 run id 仅仅是为了关联这些通知。
+工作流能力在前台执行用于编排 subagent 的 JavaScript，但它同时携带了一套无人消费的进度观测系统。没有任何生产环境的监听器订阅六个 `workflow/*` 事件中的任何一个；监听器仅存在于工作流测试中。尽管如此，seam 定义了 run/phase/agent（智能体）outcome 载荷，worker 发送 phase/log/agent 生命周期协议消息，host 通过一个 `liveAgents` 配对账本转发它们，引擎维护 run id 仅仅是为了关联这些通知。
 
 这套进度词汇不仅仅是未被使用；它在不经重新设计的情况下也无法服务于其唯一已命名的未来消费方。`WorkflowRunInfo` 包含 `{id, meta}` 但没有父 agent、会话或工具调用标识，而面向模型的工具也从不暴露 run id。一个全局 ACP（Agent Client Protocol）监听器无法将事件路由到正确的客户端会话。`meta.phases` 从未被查询，`phase(title)` 不对其做校验，phase 的 `detail`/`model` 和 agent 的 `label`/`phase` 仅供事件消费，`whenToUse` 被校验和复制但从未被渲染或用于选择。`phase()` 和 `log()` 仍然跨越 worker 边界，尽管没有接收方。
 

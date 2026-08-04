@@ -135,4 +135,4 @@ agent-spine 演示组合包加载该插件，因此共享的 stdio/TUI、一次�
 - [可重建请求](../../implemented/architecture/2026-07-05-reconstructable-requests.md)使提供方／模型和完整请求输入在分发前持久化。
 - [超时 deadline 库](../../implemented/architecture/2026-07-06-timeout-deadline-library.md)将共享的 deadline 分类与能力自身拥有的终止操作分开。
 - [调用后压缩压力与上下文溢出恢复](../../implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)负责当前已关闭步骤的请求恢复 seam 与有界溢出重试。
-- [提供方路由的 LLM 适配器](../../implemented/architecture/2026-07-14-provider-routed-llm-adapters.md)负责显式提供方／模型路由与每个提供方仅有一个适配器的不变量。
+- [提供方路由的 LLM（大语言模型）适配器](../../implemented/architecture/2026-07-14-provider-routed-llm-adapters.md)负责显式提供方／模型路由与每个提供方仅有一个适配器的不变量。

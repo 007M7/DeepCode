@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/simplification/2026-06-20-unify-agent-and-session-id.md
 2026-06-20-unify-agent-and-session-id.md: c55152f4f13fe0acb530503e84f465799007cff7
-2026-06-20-unify-agent-and-session-id.zh.md: 1738d76a183608b8418b6709112c4acd0a60892b
+2026-06-20-unify-agent-and-session-id.zh.md: 92774a3a1b2ff90ccc6163967b4281552a253575

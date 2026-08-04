@@ -23,7 +23,7 @@ Status: implemented
 
 将 `session/event` 作为唯一的实时边界/transcript 流。需要渲染轮次、工具调用、工具结果、助手消息和持久化边界的消费方统一订阅 `session/event`，从持久化层使用的同一套事件词汇中派生 UI。
 
-四个持久边界镜像——`agent/turn-start`、`agent/turn-end`、`agent/step-start`、`agent/step-end`——已从 agent 事件分类体系中移除。希望在边界处取得 agent handle 的 UI 会保留来自 `agent/created`/`agent/disposed` 的实时目标对象，并直接比较其会话；`dsh-ui-stdio` 据此为应用拥有的 agent 标记 `[main turn N]` 头部，其他会话则渲染其持久 id。规范记录仍是事件溯源会话日志。
+四个持久边界镜像——`agent/turn-start`、`agent/turn-end`、`agent/step-start`、`agent/step-end`——已从 agent（智能体）事件分类体系中移除。希望在边界处取得 agent handle 的 UI 会保留来自 `agent/created`/`agent/disposed` 的实时目标对象，并直接比较其会话；`dsh-ui-stdio` 据此为应用拥有的 agent 标记 `[main turn N]` 头部，其他会话则渲染其持久 id。规范记录仍是事件溯源会话日志。
 
 步骤镜像（完全没有消费方）最先在[事件域语义 Agent Note](../architecture/2026-06-30-event-domain-semantics.md) 中移除；该 Agent Note 当时以 stdio UI 需要在轮次边界取得 `Agent` handle 为由，保留了轮次镜像。本 Agent Note 完成余下工作：`dsh-ui-stdio` 是可随时丢弃的测试 REPL，其渲染可以自由变化，因此「ui-stdio 需要它」并不是保留镜像的理由——它读取 `session/event`，只保留自己的实时目标对象。
 

@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-一个实时 agent/会话对需要使用同一 identity 完成注册表路由、事件溯源和持久化。让 factory 接受相互独立的 `agentId` 和 `sessionId` 输入，会允许任何生产路径都无法使用的配对，同时迫使每个消费方为同一生命周期在两个名称之间选择或转换。
+一个实时 agent（智能体）/会话对需要使用同一 identity 完成注册表路由、事件溯源和持久化。让 factory 接受相互独立的 `agentId` 和 `sessionId` 输入，会允许任何生产路径都无法使用的配对，同时迫使每个消费方为同一生命周期在两个名称之间选择或转换。
 
 ACP（Agent Client Protocol）对两种 identity 使用相同值。Stdio 和钩子也在会话事件流上工作，并且直接需要对应的实时 agent；没有生产路径会把一个实时 agent 对象重新附着到多个会话，或通过多个 agent id 驱动一个会话。
 

@@ -6,7 +6,7 @@ Status: proposed
 
 ## 问题
 
-subagent seam（[seam Agent Note](../../implemented/feature/2026-06-21-subagent-capability-seam.md)）在 `ctx.subagents` 上托管多个命名提供方，ACP（Agent Client Protocol）后端（[ACP 后端 Agent Note](../../implemented/feature/2026-06-22-acp-subagent-backend.md)）证明了该 seam 能跨越进程边界泛化；其「未来提供方」一节明确将 Codex app-server 与 Claude Code Agent SDK 列为实现机制相似的同类方案。如今真正值得委派的就是这两个引擎：harness 的一个轮次应能把一个自包含任务交给真实的 Claude Code 或真实的 Codex——一个拥有自身模型、工具与沙箱的独立产品——并取回一个最终答案，同时父部署不向子进程泄漏密钥，子进程行为也不静默依赖宿主机上碰巧存在的 `~/.claude` / `~/.codex` 状态。
+subagent seam（[seam Agent Note](../../implemented/feature/2026-06-21-subagent-capability-seam.md)）在 `ctx.subagents` 上托管多个命名提供方，ACP（Agent Client Protocol）后端（[ACP 后端 Agent Note](../../implemented/feature/2026-06-22-acp-subagent-backend.md)）证明了该 seam 能跨越进程边界泛化；其「未来提供方」一节明确将 Codex app-server 与 Claude Code Agent SDK 列为实现机制相似的同类方案。如今真正值得委派的就是这两个编码 agent（智能体）引擎：harness 的一个轮次应能把一个自包含任务交给真实的 Claude Code 或真实的 Codex——一个拥有自身模型、工具与沙箱的独立产品——并取回一个最终答案，同时父部署不向子进程泄漏密钥，子进程行为也不静默依赖宿主机上碰巧存在的 `~/.claude` / `~/.codex` 状态。
 
 ## 提案
 

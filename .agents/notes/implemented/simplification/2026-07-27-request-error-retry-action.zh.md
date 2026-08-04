@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-模型请求恢复由 `agent/request-error` 内部决定，却通过 `Agent.retry()` 传达。这个公开命令只在一个狭窄的 waterfall（瀑布式事件）窗口内和空闲时有效，在其他运行状态下会被拒绝，并要求 `ReactLoopAgent` 在 waterfall 结果旁保留一个可变的重试窗口。恢复插件是仅有的生产调用方，因此更宽泛的活跃 agent 能力暴露了与其策略决策无关的状态与行为。
+模型请求恢复由 `agent/request-error` 内部决定，却通过 `Agent.retry()` 传达。这个公开命令只在一个狭窄的 waterfall（瀑布式事件）窗口内和空闲时有效，在其他运行状态下会被拒绝，并要求 `ReactLoopAgent` 在 waterfall 结果旁保留一个可变的重试窗口。恢复插件是仅有的生产调用方，因此更宽泛的活跃 agent（智能体）能力暴露了与其策略决策无关的状态与行为。
 
 ## 决策
 
