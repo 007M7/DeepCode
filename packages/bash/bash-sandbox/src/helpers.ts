@@ -23,10 +23,11 @@ function isUsableWorkdir(path: string): boolean {
 }
 
 /**
- * Attribute only executable-class failures with Node spawn provenance after
- * independently ruling out the caller-owned cwd. With a usable cwd, these
- * codes describe resolution, permissions, or loading of the provider's
- * argv[0], including a script whose shebang interpreter is unavailable.
+ * Attribute only executable-class failures with positive Node argv[0]
+ * provenance after independently ruling out the caller-owned cwd. A supplied
+ * error path must exactly identify the runner; without one, the syscall must.
+ * With a usable cwd, these codes describe resolution, permissions, or loading
+ * of that argv[0], including a script whose shebang interpreter is unavailable.
  * @param error - the original spawn rejection.
  * @param runnerProgram - provider argv[0], the executable that establishes confinement.
  * @param workdir - the caller-owned spawn cwd, checked independently for usability.
@@ -41,9 +42,11 @@ export function isRunnerSpawnFailure(
   if (typeof error !== 'object' || error === null) return false
   const { code, path, syscall } = error as { code?: unknown; path?: unknown; syscall?: unknown }
   if (typeof code !== 'string' || !EXECUTABLE_SPAWN_CODES.has(code)) return false
-  if (typeof syscall !== 'string' || (syscall !== 'spawn' && !syscall.startsWith('spawn '))) return false
-  if (path !== undefined && (typeof path !== 'string' || (path.length > 0 && path !== runnerProgram))) return false
-  return true
+  if (typeof syscall !== 'string') return false
+  const exactSyscall = `spawn ${runnerProgram}`
+  if (path === undefined) return syscall === exactSyscall
+  if (typeof path !== 'string' || path.length === 0 || path !== runnerProgram) return false
+  return syscall === 'spawn' || syscall === exactSyscall
 }
 
 /** Fatal runner evidence retained for infrastructure-error detail. */

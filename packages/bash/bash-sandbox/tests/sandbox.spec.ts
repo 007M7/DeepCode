@@ -384,6 +384,8 @@ describe('isRunnerSpawnFailure', () => {
     const missingRunner = join(spillDir, 'definitely-missing-runner')
     const spawnError = (code: unknown, syscall: unknown = `spawn ${missingRunner}`, path: unknown = missingRunner) =>
       Object.assign(new Error('spawn failed'), { code, syscall, path })
+    const spawnErrorWithoutPath = (syscall: string) =>
+      Object.assign(new Error('spawn failed'), { code: 'ENOENT', syscall })
 
     expect(isRunnerSpawnFailure(spawnError('EMFILE'), missingRunner, process.cwd())).toBe(false)
     expect(isRunnerSpawnFailure(spawnError('ENOMEM'), missingRunner, process.cwd())).toBe(false)
@@ -392,11 +394,23 @@ describe('isRunnerSpawnFailure', () => {
     expect(isRunnerSpawnFailure(spawnError('ENOENT', 1), missingRunner, process.cwd())).toBe(false)
     expect(isRunnerSpawnFailure(spawnError('ENOENT', 'spawn', process.execPath), missingRunner, process.cwd())).toBe(false)
     expect(isRunnerSpawnFailure(spawnError('ENOENT', 'spawn', 1), missingRunner, process.cwd())).toBe(false)
-    expect(isRunnerSpawnFailure(spawnError('ENOENT', 'spawn', ''), missingRunner, process.cwd())).toBe(true)
-    expect(isRunnerSpawnFailure(spawnError('ENOENT', 'spawn', undefined), missingRunner, process.cwd())).toBe(true)
+    expect(isRunnerSpawnFailure(spawnError('ENOENT', 'spawn', ''), missingRunner, process.cwd())).toBe(false)
+    expect(isRunnerSpawnFailure(spawnErrorWithoutPath('spawn'), missingRunner, process.cwd())).toBe(false)
+    expect(isRunnerSpawnFailure(spawnErrorWithoutPath('spawn other-runner'), missingRunner, process.cwd())).toBe(false)
     expect(isRunnerSpawnFailure(undefined, missingRunner, process.cwd())).toBe(false)
     expect(isRunnerSpawnFailure(null, missingRunner, process.cwd())).toBe(false)
     expect(isRunnerSpawnFailure(spawnError('ENOENT'), undefined, process.cwd())).toBe(false)
+  })
+
+  it('accepts only syscall provenance compatible with the exact runner program', () => {
+    const runner = join(spillDir, 'runner with spaces')
+    const spawnError = (syscall: string, path?: string) =>
+      Object.assign(new Error('spawn failed'), { code: 'ENOEXEC', syscall, path })
+
+    expect(isRunnerSpawnFailure(spawnError('spawn', runner), runner, process.cwd())).toBe(true)
+    expect(isRunnerSpawnFailure(spawnError(`spawn ${runner}`, runner), runner, process.cwd())).toBe(true)
+    expect(isRunnerSpawnFailure(spawnError(`spawn ${runner}`), runner, process.cwd())).toBe(true)
+    expect(isRunnerSpawnFailure(spawnError('spawn other-runner', runner), runner, process.cwd())).toBe(false)
   })
 })
 
