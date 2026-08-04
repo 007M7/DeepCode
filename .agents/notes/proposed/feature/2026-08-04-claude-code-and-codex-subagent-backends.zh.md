@@ -39,7 +39,7 @@ fixed tool → shared subagent service → product provider → official product
 
 发布前，提供方会验证非空的纯文本任务，在父级工作区中启动受管的 app-server，完成 `initialize` → `initialized` 握手，并创建一个 `ephemeral: true` 线程。已发布的运行只拥有一次 `turn/start`；其线程 ID 与轮次 ID 保持私有，绝不会持久化到父会话。
 
-`turn/completed` 是权威的远端终止事实。以最后一条非空白的 `agentMessage` 为准，但它必须带有 `phase: "final_answer"`。若产品没有发出明确的最终阶段，则以最后一条 `phase: null` 的消息作为兼容性回退；过程说明绝不会取代上述任一答案。带有 `error.codexErrorInfo: "contextWindowExceeded"` 的失败轮次会成为 `max-tokens`。轮次完成却没有答案、其他任何远端失败或中断轮次、协议数据格式错误、协议关闭、进程提前退出或未知的服务器请求，都会产生 `error`；本版本没有原生的拒绝终止状态，因此不会产生 `refusal`。本地取消在竞态中胜出并保持为 `aborted`。
+`turn/completed` 是权威的远端终止事实。以最后一条带有 `phase: "final_answer"` 的 `agentMessage` 为准，且选中的消息必须包含非空白文本。若产品没有发出明确的最终阶段，则以最后一条 `phase: null` 的消息作为兼容性回退，该消息也必须包含非空白文本；过程说明绝不会取代上述任一答案。带有 `error.codexErrorInfo: "contextWindowExceeded"` 的失败轮次会成为 `max-tokens`。轮次完成却没有答案、其他任何远端失败或中断轮次、协议数据格式错误、协议关闭、进程提前退出或未知的服务器请求，都会产生 `error`；本版本没有原生的拒绝终止状态，因此不会产生 `refusal`。本地取消在竞态中胜出并保持为 `aborted`。
 
 对于命令与文件审批，无人值守的协议连接会从请求给出的决策选项中选择一项不予批准的决策，并优先选择 `cancel`；稳定的 0.146.0 请求形态没有决策选项列表，因此回退到 `decline`。它不授予该轮次请求的任何权限，不向用户输入请求提供任何答案，并拒绝 MCP elicitation。若请求在无人值守模式下没有合法响应，或是未知服务器请求，此次运行就会失败，而不会等待本提供方没有提供的用户界面。
 

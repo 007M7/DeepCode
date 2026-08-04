@@ -223,7 +223,7 @@ export interface Config {
   maxOutputBytes?: number
   /** Per-stream spill-file cap; larger streams retain only their in-memory tail. */
   maxSpillBytes?: number
-  /** Grace period for kill escalation and for inherited pipes after shell exit. */
+  /** Grace period for kill escalation and inherited pipes; at most `MAX_TIMER_DELAY_MS`. */
   graceMs?: number
 }
 ```
@@ -992,7 +992,7 @@ export interface Config {
   maxOutputBytes?: number
   /** Per-stream spill-file cap; larger streams retain only their in-memory tail. */
   maxSpillBytes?: number
-  /** Grace period for kill escalation and for inherited pipes after shell exit. */
+  /** Grace period for kill escalation and inherited pipes; at most `MAX_TIMER_DELAY_MS`. */
   graceMs?: number
   /**
    * Explicit pwsh executable. When omitted, well-known Windows install
@@ -1550,10 +1550,11 @@ export interface Config {
   /**
    * Grace period (ms) for the child's EOF-driven quiesce on dispose — its
    * window to flush persistence and tear down its own nested subprocesses
-   * before the parent escalates to a signal.
+   * before the parent escalates to a signal. Must not exceed
+   * `MAX_TIMER_DELAY_MS`.
    */
   disposeEofGraceMs?: number
-  /** Termination confirmation window (ms), including forced exit on every platform. */
+  /** Termination-escalation grace (ms); must not exceed `MAX_TIMER_DELAY_MS`. */
   disposeGraceMs?: number
 }
 
@@ -1561,7 +1562,7 @@ export interface Config {
 export type PermissionPolicy = 'allow' | 'reject'
 ```
 
-Source: [`packages/subagent/subagent-acp/src/index.ts:26`](../packages/subagent/subagent-acp/src/index.ts)
+Source: [`packages/subagent/subagent-acp/src/index.ts:27`](../packages/subagent/subagent-acp/src/index.ts)
 
 ## `@deepseek-ai/dsh-subagent-codex`
 
@@ -1814,7 +1815,7 @@ export interface Config {
   searchMetaMaxBytes?: number
   /** Max complete raw `rg` stdout bytes a search will parse; larger raw output fails with `SEARCH_RAW_OUTPUT_OVERFLOW`. */
   rawOutputMaxBytes?: number
-  /** Terminate-escalation grace period (ms) for one search process, handed to the subprocess seam. */
+  /** Terminate-escalation grace (ms), handed to the subprocess seam and bounded by `MAX_TIMER_DELAY_MS`. */
   graceMs?: number
   /** Max bytes retained for one search's stderr tail; the excerpt is embedded in `SEARCH_*` error messages, never shown on success. */
   stderrMaxBytes?: number
@@ -1823,7 +1824,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/fs/tool-fs-search/src/index.ts:72`](../packages/fs/tool-fs-search/src/index.ts)
+Source: [`packages/fs/tool-fs-search/src/index.ts:73`](../packages/fs/tool-fs-search/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-goal`
 
