@@ -7,6 +7,7 @@
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
+import { isForbiddenPublicationFile } from './publication-payload.ts'
 
 const root = resolve(import.meta.dirname, '..')
 // vendor/* is single-level; packages/<group>/<pkg> nests one level deeper
@@ -30,7 +31,7 @@ const vendoredPackages = new Set([
 
 const localArtifactDirs = new Set(['node_modules'])
 const appPackageFiles: Readonly<Record<string, readonly string[]>> = {
-  '@deepseek-ai/dsh': ['lib/*.js', 'config', 'src'],
+  '@deepseek-ai/dsh': ['lib/*.js', 'config'],
   '@deepseek-ai/dsh-frontend': ['dist'],
 }
 
@@ -140,8 +141,6 @@ function expectedDshPackageFiles(manifest: PackageManifest): readonly string[] {
     // declarations.
     ...usesEmittedTreeDefaults(manifest) ? ['lib/types/**/*.js'] : [],
     'lib/types/**/*.d.ts',
-    'lib/types/**/*.d.ts.map',
-    'src',
   ]
 }
 
@@ -169,6 +168,14 @@ function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
 
   if (manifest.name && vendoredPackages.has(manifest.name)) {
     return errors
+  }
+
+  if (manifest.name?.startsWith('@deepseek-ai/')) {
+    for (const file of manifest.files ?? []) {
+      if (isForbiddenPublicationFile(file)) {
+        errors.push(`${label}: package.json files must not publish ${JSON.stringify(file)}`)
+      }
+    }
   }
 
   if (dir.startsWith('apps/') && manifest.name?.startsWith('@deepseek-ai/')) {

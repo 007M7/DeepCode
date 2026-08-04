@@ -18,6 +18,7 @@ import { basename, dirname, isAbsolute, join, normalize, relative, resolve, sep 
 import { createInterface } from 'node:readline/promises'
 import { pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
+import { validateTarballPayload } from './publication-payload.ts'
 
 const DEFAULT_REGISTRY = 'https://registry.npm.harnessment.com'
 const DEFAULT_OUTPUT_DIRECTORY = '.artifacts/npm-baseline'
@@ -312,6 +313,7 @@ class ReleaseBundle {
       .sort()
       .map((tarball) => {
         const artifact = inspectTarball(resolve(directory, tarball), runner)
+        validateTarballPayload(artifact.files, tarball)
         if (!missingNames.delete(artifact.name)) {
           throw new Error(`unexpected or duplicate packed package: ${artifact.name}`)
         }
@@ -388,6 +390,7 @@ class ReleaseBundle {
         throw new Error(`tarball checksum mismatch: ${pkg.tarball}`)
       }
       const artifact = inspectTarball(path, runner)
+      validateTarballPayload(artifact.files, pkg.tarball)
       if (artifact.name !== pkg.name || artifact.version !== this.manifest.version) {
         throw new Error(`tarball identity mismatch: ${pkg.tarball}`)
       }
@@ -745,6 +748,7 @@ interface InspectedTarball {
   version: string
   private: unknown
   manifest: Record<string, unknown>
+  files: string[]
 }
 
 function inspectTarball(path: string, runner: CommandRunner): InspectedTarball {
@@ -757,6 +761,7 @@ function inspectTarball(path: string, runner: CommandRunner): InspectedTarball {
     version: expectString(manifest, 'version', path),
     private: manifest.private,
     manifest,
+    files: runner.capture('tar', ['-tf', path], dirname(path)).split(/\r?\n/),
   }
 }
 

@@ -9,8 +9,7 @@
   },
   "files": [
     "lib/*.js",
-    "config",
-    "src"
+    "config"
   ],
   "license": "BSD-3-Clause",
   "dependencies": {

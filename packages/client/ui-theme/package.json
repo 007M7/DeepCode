@@ -57,9 +57,7 @@
     "lib/invariant.js",
     "lib/client.js",
     "lib/styles",
-    "lib/types/**/*.d.ts",
-    "lib/types/**/*.d.ts.map",
-    "src"
+    "lib/types/**/*.d.ts"
   ],
   "scripts": {
     "bundle": "tsdown",
