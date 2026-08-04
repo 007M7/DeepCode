@@ -7,7 +7,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { ViewTab } from './contract/views.ts'
 import type {
-  ApprovalWait, ChatViewInjected, ComposerBarInjected, ComposerChainProps, ConversationInjected,
+  ApprovalWait, ChatScrollPosition, ChatViewInjected, ComposerBarInjected, ComposerChainProps, ConversationInjected,
   ConversationSessionInjected, DetailsInjected,
 } from './contract/slots.ts'
 import type { InputNotice } from './input/contract.ts'
@@ -113,10 +113,10 @@ export function apply(ctx: Context): void {
     return () => { row.dispose() }
   }, 'ui-conversation: Enter behavior settings row')
 
-  // Chat scroll offsets by session, surviving view switches (the chat view
-  // unmounts under the tab ring). Deliberately not persisted: a fresh page
-  // load should keep the open-jump-to-bottom default.
-  const chatScrollTops = new Map<SessionId, number>()
+  // Chat semantic reader positions by session, surviving view switches and
+  // width reflow when the tab ring remounts the view. Deliberately not
+  // persisted: a fresh page load keeps the open-jump-to-bottom default.
+  const chatScrollPositions = new Map<SessionId, ChatScrollPosition>()
 
   const viewTabs = (): ViewTab[] => {
     const tabs: ViewTab[] = []
@@ -316,11 +316,11 @@ export function apply(ctx: Context): void {
           actions.setView('trajectory')
         },
         chatScroll: {
-          save: (top) => {
-            if (top === null) chatScrollTops.delete(sessionId)
-            else chatScrollTops.set(sessionId, top)
+          save: (position) => {
+            if (position === null) chatScrollPositions.delete(sessionId)
+            else chatScrollPositions.set(sessionId, position)
           },
-          read: () => chatScrollTops.get(sessionId) ?? null,
+          read: () => chatScrollPositions.get(sessionId) ?? null,
         },
         forkAt: (seq) => {
           sessions.fork({ sessionId, atSeq: seq, increaseTitle: true })
