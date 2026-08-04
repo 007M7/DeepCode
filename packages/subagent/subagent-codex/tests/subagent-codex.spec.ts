@@ -393,7 +393,6 @@ describe('CodexAppServerWire', () => {
     const result = wire.runTurn(
       ['first', 'second'],
       new AbortController().signal,
-      () => false,
     )
     const turnStart = await child.peer.nextMethod('turn/start')
     expect(turnStart.params).toEqual({
@@ -437,7 +436,7 @@ describe('CodexAppServerWire', () => {
 
   it('uses the last nullable-phase answer when no explicit final exists', async () => {
     const { child, wire } = await initializeWire()
-    const result = wire.runTurn(['task'], new AbortController().signal, () => false)
+    const result = wire.runTurn(['task'], new AbortController().signal)
     const turnStart = await child.peer.nextMethod('turn/start')
     child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
     child.peer.send(
@@ -454,7 +453,7 @@ describe('CodexAppServerWire', () => {
 
   it('maps only an explicit context-window failure to max-tokens', async () => {
     const { child, wire } = await initializeWire()
-    const result = wire.runTurn(['task'], new AbortController().signal, () => false)
+    const result = wire.runTurn(['task'], new AbortController().signal)
     const turnStart = await child.peer.nextMethod('turn/start')
     child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
     child.peer.send(
@@ -494,7 +493,7 @@ describe('CodexAppServerWire', () => {
     }
     {
       const { child, wire } = await initializeWire()
-      const pending = wire.runTurn(['task'], new AbortController().signal, () => false)
+      const pending = wire.runTurn(['task'], new AbortController().signal)
       const frame = await child.peer.nextMethod('turn/start')
       child.peer.respond(frame, { turn: { id: '' } })
       await expect(pending).rejects.toThrow('turn/start turn id')
@@ -542,7 +541,7 @@ describe('CodexAppServerWire', () => {
     ]
     for (const scenario of scenarios) {
       const { child, wire } = await initializeWire()
-      const result = wire.runTurn(['task'], new AbortController().signal, () => false)
+      const result = wire.runTurn(['task'], new AbortController().signal)
       const turnStart = await child.peer.nextMethod('turn/start')
       child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
       child.peer.send(...scenario.frames)
@@ -553,7 +552,7 @@ describe('CodexAppServerWire', () => {
 
   it('fails closed when terminal notification params are not an object', async () => {
     const { child, wire } = await initializeWire()
-    const result = wire.runTurn(['task'], new AbortController().signal, () => false)
+    const result = wire.runTurn(['task'], new AbortController().signal)
     const turnStart = await child.peer.nextMethod('turn/start')
     child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
     child.peer.send({ method: 'turn/completed', params: null })
@@ -563,7 +562,7 @@ describe('CodexAppServerWire', () => {
 
   it('keeps an unsupported request authoritative over an early terminal in the same chunk', async () => {
     const { child, wire } = await initializeWire()
-    const result = wire.runTurn(['task'], new AbortController().signal, () => false)
+    const result = wire.runTurn(['task'], new AbortController().signal)
     const turnStart = await child.peer.nextMethod('turn/start')
     child.peer.send(
       { id: turnStart.id, result: { turn: { id: 'turn-1' } } },
@@ -575,28 +574,9 @@ describe('CodexAppServerWire', () => {
     wire.close()
   })
 
-  it('gives local cancellation precedence over a remote completed turn', async () => {
-    const { child, wire } = await initializeWire()
-    let cancelled = false
-    const result = wire.runTurn(
-      ['task'],
-      new AbortController().signal,
-      () => cancelled,
-    )
-    const turnStart = await child.peer.nextMethod('turn/start')
-    child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
-    cancelled = true
-    child.peer.send(agentMessage('late', 'final_answer'), turnCompleted('completed'))
-    await expect(result).resolves.toEqual({
-      output: [{ type: 'text', text: 'late' }],
-      stopReason: 'aborted',
-    })
-    wire.close()
-  })
-
   it('answers all five unattended request classes without granting authority', async () => {
     const { child, wire } = await initializeWire()
-    const result = wire.runTurn(['task'], new AbortController().signal, () => false)
+    const result = wire.runTurn(['task'], new AbortController().signal)
     const turnStart = await child.peer.nextMethod('turn/start')
 
     child.peer.send({
@@ -699,7 +679,7 @@ describe('CodexAppServerWire', () => {
       },
     ]) {
       const { child, wire } = await initializeWire()
-      const result = wire.runTurn(['task'], new AbortController().signal, () => false)
+      const result = wire.runTurn(['task'], new AbortController().signal)
       const turnStart = await child.peer.nextMethod('turn/start')
       child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
       await nextTask()
@@ -713,7 +693,7 @@ describe('CodexAppServerWire', () => {
 
   it('rejects conflicting early turn identities before accepting output', async () => {
     const { child, wire } = await initializeWire()
-    const result = wire.runTurn(['task'], new AbortController().signal, () => false)
+    const result = wire.runTurn(['task'], new AbortController().signal)
     const turnStart = await child.peer.nextMethod('turn/start')
     child.peer.send({
       method: 'turn/started',
@@ -738,7 +718,7 @@ describe('CodexAppServerWire', () => {
     }
     {
       const { child, wire } = await initializeWire()
-      const result = wire.runTurn(['task'], new AbortController().signal, () => false)
+      const result = wire.runTurn(['task'], new AbortController().signal)
       await child.peer.nextMethod('turn/start')
       child.peer.send(
         {
@@ -755,7 +735,7 @@ describe('CodexAppServerWire', () => {
   it('interrupts only an active open turn and contains remote interrupt failure', async () => {
     const { child, wire } = await initializeWire()
     wire.interrupt()
-    const result = wire.runTurn(['task'], new AbortController().signal, () => false)
+    const result = wire.runTurn(['task'], new AbortController().signal)
     const turnStart = await child.peer.nextMethod('turn/start')
     child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
     await nextTask()
@@ -790,7 +770,7 @@ describe('CodexAppServerWire', () => {
     )
     await nextTask()
 
-    const result = wire.runTurn(['task'], new AbortController().signal, () => false)
+    const result = wire.runTurn(['task'], new AbortController().signal)
     const turnStart = await child.peer.nextMethod('turn/start')
     child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
     await nextTask()
