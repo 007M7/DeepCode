@@ -238,7 +238,7 @@ function FlatList({ useSessions, open, forkSession, onSessionRename, onSessionAr
   const now = Date.now()
   return (
     <div className={clsx(css.treeBody, css.wide)}>
-      <div className={css.list} role="tree" aria-label={t('section.sessions')}>
+      <div className={clsx(css.list, css.flatList)} role="tree" aria-label={t('section.sessions')}>
         {rows.length === 0 && (
           <div className={css.empty}>{t('empty.none')}</div>
         )}
