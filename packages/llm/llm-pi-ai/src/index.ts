@@ -44,7 +44,7 @@
 
 import type { Context } from 'cordis'
 import { LlmError } from '@deepseek-ai/dsh-llm'
-import type { AdapterRegistrationHandle, LlmConfigurableProvider } from '@deepseek-ai/dsh-llm'
+import type { AdapterRegistrationHandle, DirectoryRegistrationHandle, LlmConfigurableProvider } from '@deepseek-ai/dsh-llm'
 import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { PiAiAdapter } from './adapter.ts'
 import { catalogProviderIds } from './catalog.ts'
@@ -151,13 +151,21 @@ export function apply(ctx: Context, config: Config): void {
   // mounts — dormant or not — so configuration surfaces can offer every
   // pi-ai provider before any route exists. Hand-declared routes join it as
   // profiles appear, and leave with them.
-  let directory: (() => void) | undefined
+  let directory: DirectoryRegistrationHandle | undefined
   let directoryFacts: unknown
   const ensureDirectory = (): void => {
     const entries = directoryEntries(profiles())
     if (deepEqualJson(entries, directoryFacts)) return
-    directory?.()
-    directory = ctx.llm.registerConfigurableProviders(entries)
+    // Atomic replace, never dispose-then-register: a route another adapter
+    // family already declares (a profile keyed `deepseek-official`) would
+    // otherwise leave this plugin's whole directory withdrawn and the Models
+    // page empty. The candidate set is validated first, so a collision keeps
+    // the previous entries serving and only costs a diagnostic.
+    if (directory === undefined) {
+      directory = ctx.llm.registerConfigurableProviders(entries)
+    } else {
+      directory.replace(entries)
+    }
     directoryFacts = entries
   }
   ensureDirectory()
@@ -199,8 +207,16 @@ export function apply(ctx: Context, config: Config): void {
     onChange: () => {
       ensureRegistrationFacts()
       // The directory follows the profiles the registry accepted, so a route
-      // that failed to register is not advertised as configurable.
-      ensureDirectory()
+      // that failed to register is not advertised as configurable. A refused
+      // directory swap is contained here for the same reason the registry's
+      // is: the previous entries keep serving, and `directoryFacts` stays put
+      // so returning to a working configuration re-applies.
+      try {
+        ensureDirectory()
+      } catch (error) {
+        ctx.logger.error('llm-pi-ai: keeping the previous configurable-provider directory after a refused update')
+        ctx.logger.error(error)
+      }
     },
   })
 }

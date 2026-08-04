@@ -226,6 +226,27 @@ export interface AdapterRegistrationHandle {
 }
 
 /**
+ * A live configurable-provider registration, disposable and atomically
+ * replaceable — the directory counterpart of {@link AdapterRegistrationHandle}.
+ */
+export interface DirectoryRegistrationHandle {
+  /** Withdraw every entry this registration currently holds. */
+  (): void
+  /**
+   * Replace this registration's entries with `entries`. The candidate set is
+   * validated in full first — an entry another registration already declares,
+   * a duplicate within the set, or invalid metadata throws and leaves the
+   * current entries untouched — and the swap is one synchronous section, so no
+   * reader observes a gap. An empty array is legal here, unlike an empty
+   * initial registration.
+   *
+   * Throws `LlmError` with code `REGISTRATION_DISPOSED` once the registration
+   * has been disposed.
+   */
+  replace(entries: readonly LlmConfigurableProvider[]): void
+}
+
+/**
  * The abstract `llm` service: an adapter registry plus a streaming model-call
  * surface, interceptable via the `llm/stream` waterfall.
  */
@@ -370,34 +391,61 @@ export class LlmService extends Service {
    * entry, or a provider already declared by any registration throws
    * `LlmError` without registering the rest. Disposed with the fiber.
    * @param entries - every configurable provider this plugin owns.
-   * @returns the disposer that withdraws all of them.
+   * @returns a handle that withdraws all of them, and can atomically replace them.
    */
-  registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): () => void {
-    const dispose = this.ctx.effect(function* (this: LlmService) {
-      if (entries.length === 0) {
-        throw new LlmError('a configurable-provider registration must declare at least one provider', 'INVALID_DIRECTORY')
-      }
+  registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle {
+    let held: LlmConfigurableProvider[] = []
+    let disposed = false
+    /**
+     * Validate a candidate set in full against everything this registration
+     * does not already hold, then publish it. Nothing is written until the
+     * whole set passes, so a refused candidate leaves the current entries in
+     * place — the property that makes `replace` a swap rather than a
+     * delete-then-add that can strand the directory empty.
+     */
+    const commit = (candidates: readonly LlmConfigurableProvider[]): void => {
       const detached: LlmConfigurableProvider[] = []
-      for (const entry of entries) {
+      const own = new Set(held.map(entry => entry.provider))
+      for (const entry of candidates) {
         if (entry.provider.length === 0 || entry.displayName.length === 0 || entry.settingsNs.length === 0) {
           throw new LlmError('configurable providers need a non-empty provider, displayName, and settingsNs', 'INVALID_DIRECTORY')
         }
         if (entry.settingsPath.some(segment => segment.length === 0)) {
           throw new LlmError(`configurable provider "${entry.provider}" has an empty settingsPath segment`, 'INVALID_DIRECTORY')
         }
-        if (this.directory.has(entry.provider) || detached.some(seen => seen.provider === entry.provider)) {
+        if ((this.directory.has(entry.provider) && !own.has(entry.provider))
+          || detached.some(seen => seen.provider === entry.provider)) {
           throw new LlmError(`configurable provider "${entry.provider}" is already declared`, 'DUPLICATE_DIRECTORY')
         }
         detached.push({ ...entry, settingsPath: [...entry.settingsPath] })
       }
+      for (const entry of held) this.directory.delete(entry.provider)
       for (const entry of detached) this.directory.set(entry.provider, entry)
+      held = detached
       this.emitAdaptersUpdated()
+    }
+
+    const dispose = this.ctx.effect(function* (this: LlmService) {
+      if (entries.length === 0) {
+        throw new LlmError('a configurable-provider registration must declare at least one provider', 'INVALID_DIRECTORY')
+      }
+      commit(entries)
       yield () => {
-        for (const entry of detached) this.directory.delete(entry.provider)
+        disposed = true
+        for (const entry of held) this.directory.delete(entry.provider)
+        held = []
         this.emitAdaptersUpdated()
       }
     }.bind(this), 'llm.registerConfigurableProviders()')
-    return () => void dispose()
+
+    const handle = ((): void => void dispose()) as DirectoryRegistrationHandle
+    handle.replace = (next: readonly LlmConfigurableProvider[]): void => {
+      if (disposed) {
+        throw new LlmError('this configurable-provider registration was disposed', 'REGISTRATION_DISPOSED')
+      }
+      commit(next)
+    }
+    return handle
   }
 
   /**

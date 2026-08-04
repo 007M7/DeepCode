@@ -746,7 +746,11 @@ export interface PiAiModelProfile {
   name?: string
   /** Maximum combined request and response context in tokens. */
   contextWindow?: number
-  /** Per-request output cap materialized when a caller omits one. */
+  /**
+   * Maximum output tokens. Configuring one also makes it this model's
+   * per-request default; the value inherited from the installed catalog is the
+   * model's capability and never becomes a request default on its own.
+   */
   maxTokens?: number
   /** Whether the model exposes reasoning; defaults to the catalog capability. */
   reasoning?: boolean
@@ -755,7 +759,7 @@ export interface PiAiModelProfile {
 
 Depends on: `CacheRetention` (`@earendil-works/pi-ai`) · `ModelThinkingLevel` (`@earendil-works/pi-ai`) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · `ThinkingBudgets` (`@earendil-works/pi-ai`) · `Transport` (`@earendil-works/pi-ai`)
 
-Source: [`packages/llm/llm-pi-ai/src/config.ts:98`](../packages/llm/llm-pi-ai/src/config.ts)
+Source: [`packages/llm/llm-pi-ai/src/config.ts:104`](../packages/llm/llm-pi-ai/src/config.ts)
 
 ## `@deepseek-ai/dsh-llm-replay`
 

@@ -79,7 +79,11 @@ export interface PiAiModelProfile {
   name?: string
   /** Maximum combined request and response context in tokens. */
   contextWindow?: number
-  /** Per-request output cap materialized when a caller omits one. */
+  /**
+   * Maximum output tokens. Configuring one also makes it this model's
+   * per-request default; the value inherited from the installed catalog is the
+   * model's capability and never becomes a request default on its own.
+   */
   maxTokens?: number
   /** Whether the model exposes reasoning; defaults to the catalog capability. */
   reasoning?: boolean
@@ -116,15 +120,32 @@ function sharedCatalogApi(defaults: ReadonlyMap<string, Model<Api>>): string | u
   return apis.size === 1 ? [...apis][0] : undefined
 }
 
+/** One route's materialized catalog, plus the request caps its profile chose. */
+export interface RouteCatalog {
+  /** The materialized models in configuration order. */
+  models: readonly Model<Api>[]
+  /**
+   * Per-request output caps this profile explicitly configured, by model id.
+   *
+   * Separate from `Model.maxTokens` because the two answer different
+   * questions: pi-ai requires `maxTokens` as the model's output *capability*,
+   * while the harness seam's `defaultMaxTokens` is a cap the deployment chose
+   * to send on requests that name none. Materializing a catalog capability as
+   * a request default would start capping every request at a number nobody
+   * picked, so only an explicit configuration lands here.
+   */
+  configuredMaxTokens: ReadonlyMap<string, number>
+}
+
 /**
  * Materialize one route's catalog by merging the installed catalog defaults
  * under the configured entries. A route with no configured `models` serves the
  * installed catalog unchanged, which is what keeps an existing
  * `providers: { deepseek: { apiKeyEnv: … } }` profile working untouched.
  * @param request - the route-level catalog facts.
- * @returns the materialized models in configuration order.
+ * @returns the materialized models and the explicitly configured request caps.
  */
-export function resolveRouteModels(request: RouteCatalogRequest): readonly Model<Api>[] {
+export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
   const { provider } = request
   const defaults = catalogModels(provider)
   const providerBaseUrl = catalogProvider(provider)?.baseUrl
@@ -141,7 +162,8 @@ export function resolveRouteModels(request: RouteCatalogRequest): readonly Model
   }
   const routeApi = sharedCatalogApi(defaults)
   const seen = new Set<string>()
-  return entries.map((entry) => {
+  const configuredMaxTokens = new Map<string, number>()
+  const models = entries.map((entry) => {
     if (entry.id.length === 0) invalid(provider, 'has a model with an empty id')
     if (seen.has(entry.id)) invalid(provider, `lists model "${entry.id}" more than once`)
     seen.add(entry.id)
@@ -171,6 +193,9 @@ export function resolveRouteModels(request: RouteCatalogRequest): readonly Model
     if (!Number.isInteger(maxTokens) || maxTokens <= 0) {
       invalid(provider, `model "${entry.id}" maxTokens must be a positive integer`)
     }
+    // Only a value the profile named is a deployment choice; the catalog's is
+    // the model's capability and stays out of request defaults.
+    if (entry.maxTokens !== undefined) configuredMaxTokens.set(entry.id, entry.maxTokens)
     return {
       id: entry.id,
       name: entry.name ?? base?.name ?? entry.id,
@@ -190,4 +215,5 @@ export function resolveRouteModels(request: RouteCatalogRequest): readonly Model
       ...base?.headers === undefined ? {} : { headers: base.headers },
     }
   })
+  return { models, configuredMaxTokens }
 }

@@ -1,14 +1,43 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { StreamChunk } from '@deepseek-ai/dsh-llm'
+import SettingsLocal from '@deepseek-ai/dsh-settings-local'
+import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
+import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { resolveProfiles } from '../src/config.ts'
-import { buildProvider } from '../src/provider.ts'
+import { buildProvider, supportedProtocols } from '../src/provider.ts'
 import { assemble } from './assemble.ts'
 import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
 
-afterEach(async () => { await closeMockServers() })
+const homes: string[] = []
+
+afterEach(async () => {
+  await closeMockServers()
+  await Promise.all(homes.splice(0).map(dir => rm(dir, { recursive: true, force: true })))
+})
+
+/** A throwaway $DSH_HOME with an empty settings document. */
+async function home(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'dsh-pi-catalog-'))
+  homes.push(dir)
+  await writeFile(join(dir, 'settings.yaml'), '')
+  return dir
+}
+
+/** The dormant composition plus a real settings service, as the product mounts it. */
+async function bootWithSettings(dir: string, config: LlmPiAi.Config): Promise<Context> {
+  const ctx = new Context()
+  await ctx.plugin(LlmService)
+  await ctx.plugin(SettingsLocal, { path: join(dir, 'settings.yaml'), watch: false })
+  await ctx.plugin(LlmPiAi, config)
+  return ctx
+}
 
 /** A complete hand-declared route: nothing about it exists in pi-ai's catalog. */
 function gateway(baseURL: string, overrides: Record<string, unknown> = {}): LlmPiAi.Config {
@@ -106,6 +135,19 @@ describe('hand-declared providers', () => {
       'acme-gateway': { api: 'openai-completions', models: [{ id: 'm', contextWindow: 1, maxTokens: 1 }] },
     })).toThrow(/needs a baseURL/)
   })
+
+  it.each(['bedrock-converse-stream', 'google-vertex', 'azure-openai-responses', 'openai-codex-responses'])(
+    'refuses %s, whose authentication a profile cannot express',
+    (api) => {
+      // These need SigV4 credentials and a region, a project plus ADC, provider
+      // environment and an api-version, or OAuth — none of which a key, an
+      // endpoint, and headers can carry, so a route naming one would be built
+      // unable to authenticate.
+      expect(supportedProtocols()).not.toContain(api)
+      expect(() => buildProvider({ provider: 'acme-gateway', displayName: 'Acme', api, models: [] }))
+        .toThrow(/cannot serve; supported protocols are/)
+    },
+  )
 
   it('rejects a protocol this build cannot serve, and a route that names none', () => {
     const spec = { provider: 'acme-gateway', displayName: 'Acme Gateway', models: [] }
@@ -206,12 +248,33 @@ describe('catalog routes with per-model configuration', () => {
     })
 
     const info = await ctx.llm.resolveModelInfo('deepseek', catalogModel.id)
-    // The configured field wins; name and output cap still come from the catalog.
+    // The configured field wins and the name still comes from the catalog. The
+    // catalog's own output cap is the model's capability, not a cap anyone
+    // chose, so it must not arrive as the request default.
     expect(info.context).toEqual({ contextWindow: 4096 })
     expect(info.name).toBe(catalogModel.name)
-    expect(info.defaultMaxTokens).toBe(catalogModel.maxTokens)
+    expect(info.defaultMaxTokens).toBeUndefined()
     // An explicit list replaces the catalog rather than adding to it.
     expect((await ctx.llm.listModels('deepseek')).map(model => model.id)).toEqual([catalogModel.id])
+  })
+
+  it('materializes a request default only from a configured output cap', async () => {
+    const server = await mockServer([])
+    const [catalogModel] = getBuiltinModels('deepseek')
+    if (catalogModel === undefined) throw new Error('the installed catalog ships no deepseek model')
+    const ctx = await harness({
+      providers: {
+        deepseek: {
+          apiKey: 'k',
+          baseURL: server.url,
+          models: [{ id: catalogModel.id, maxTokens: 4096 }],
+        },
+      },
+    })
+
+    // Configuring the cap is the deployment choosing one, so it becomes the
+    // default the seam materializes into requests that name none.
+    expect((await ctx.llm.resolveModelInfo('deepseek', catalogModel.id)).defaultMaxTokens).toBe(4096)
   })
 
   it('adds a model the installed catalog does not describe to a catalog route', async () => {
@@ -262,6 +325,23 @@ describe('catalog routes with per-model configuration', () => {
     expect(model?.contextWindow).toBe(4096)
   })
 
+  it('delegates both stream methods back to the reused catalog provider', async () => {
+    const server = await mockServer([{ events: textEvents }, { events: textEvents }])
+    const resolved = resolveProfiles({ deepseek: { apiKey: 'k', baseURL: `${server.url}/v1` } })
+    const built = resolved.get('deepseek')?.piProvider
+    if (built === undefined) throw new Error('the deepseek route built no provider')
+    const [model] = built.getModels()
+    if (model === undefined) throw new Error('the deepseek route resolved no models')
+    const context = { messages: [{ role: 'user' as const, content: 'hi', timestamp: 0 }] }
+
+    // `stream` is interface-required and unused by the harness adapter, which
+    // only calls `streamSimple`; both must still reach the catalog provider.
+    for await (const _event of built.stream(model, context, { apiKey: 'k' })) { /* drain */ }
+    for await (const _event of built.streamSimple(model, context, { apiKey: 'k' })) { /* drain */ }
+
+    expect(server.paths).toEqual(['/v1/chat/completions', '/v1/chat/completions'])
+  })
+
   it('keeps each model its own endpoint when the catalog route declares none', () => {
     // `opencode` ships no provider-level endpoint: the address lives on every
     // catalog model, so the route resolves without any configured baseURL.
@@ -298,5 +378,114 @@ describe('catalog routes with per-model configuration', () => {
 
     await assemble(ctx, { provider: 'openai', model: 'gpt-4.1', messages: [] })
     expect(server.paths).toEqual(['/v1/chat/completions'])
+  })
+})
+
+describe('resolution snapshots', () => {
+  it('finishes an in-flight request under the configuration it started with', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    let current = resolveProfiles({ deepseek: { apiKey: 'k', baseURL: `${server.url}/v1` } })
+    let release: () => void = () => {}
+    const held = new Promise<void>((resolve) => { release = resolve })
+    const adapter = new PiAiAdapter({
+      profiles: () => current,
+      // Credential resolution is the real await inside a stream call, and the
+      // window a configuration change has to land in.
+      resolveApiKey: async () => { await held; return 'k' },
+    })
+
+    const chunks: StreamChunk[] = []
+    const inFlight = (async () => {
+      for await (const chunk of adapter.stream({
+        provider: 'deepseek',
+        model: 'deepseek-v4-flash',
+        messages: [],
+      })) chunks.push(chunk)
+    })()
+
+    // The route set changes while the request waits, and something else reads
+    // the adapter meanwhile, which is what would rebuild a shared collection.
+    current = resolveProfiles({ openai: { apiKey: 'k', baseURL: `${server.url}/v1` } })
+    await expect(adapter.listModels('openai')).resolves.not.toHaveLength(0)
+    release()
+    await inFlight
+
+    // The in-flight request keeps its own snapshot: it reaches the endpoint it
+    // resolved against instead of failing on a provider that no longer exists.
+    expect(chunks.at(-1)).toMatchObject({ type: 'finish', reason: { kind: 'stop' } })
+    expect(server.paths).toEqual(['/v1/chat/completions'])
+  })
+
+  it('serves the next request from the new configuration', async () => {
+    const first = await mockServer([{ events: textEvents }])
+    const second = await mockServer([{ events: textEvents }])
+    let current = resolveProfiles({ deepseek: { apiKey: 'k', baseURL: `${first.url}/v1` } })
+    const adapter = new PiAiAdapter({ profiles: () => current, resolveApiKey: () => Promise.resolve('k') })
+    const drain = async (): Promise<void> => {
+      for await (const _chunk of adapter.stream({
+        provider: 'deepseek', model: 'deepseek-v4-flash', messages: [],
+      })) { /* drain */ }
+    }
+
+    await drain()
+    current = resolveProfiles({ deepseek: { apiKey: 'k', baseURL: `${second.url}/v1` } })
+    await drain()
+
+    expect(first.paths).toHaveLength(1)
+    expect(second.paths).toHaveLength(1)
+  })
+})
+
+describe('configurable-provider directory', () => {
+  it('keeps the previous directory when a route collides with another adapter family', async () => {
+    const dir = await home()
+    const ctx = await bootWithSettings(dir, {})
+    // Another adapter family owns this route id, exactly as llm-deepseek does.
+    ctx.llm.registerConfigurableProviders([
+      { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [] },
+    ])
+    const before = ctx.llm.listConfigurableProviders().length
+    expect(before).toBeGreaterThan(30)
+
+    await ctx.settings.update(settingsNamespace('llm-pi-ai'), {
+      providers: {
+        'deepseek-official': {
+          apiKey: 'k',
+          api: 'openai-completions',
+          baseURL: 'https://acme.test/v1',
+          models: [{ id: 'm', contextWindow: 1, maxTokens: 1 }],
+        },
+      },
+    })
+
+    // The refused swap costs a diagnostic, not the directory: every entry the
+    // page needs is still declared.
+    expect(ctx.llm.listConfigurableProviders()).toHaveLength(before)
+    expect(ctx.llm.listConfigurableProviders().find(entry => entry.provider === 'deepseek-official')?.settingsNs)
+      .toBe('llm-deepseek')
+  })
+
+  it('replaces its entries atomically as declared routes come and go', async () => {
+    const dir = await home()
+    const ctx = await bootWithSettings(dir, {})
+    const catalogOnly = ctx.llm.listConfigurableProviders().length
+
+    await ctx.settings.update(settingsNamespace('llm-pi-ai'), {
+      providers: {
+        'acme-gateway': {
+          apiKey: 'k',
+          displayName: 'Acme Gateway',
+          api: 'openai-completions',
+          baseURL: 'https://acme.test/v1',
+          models: [{ id: 'm', contextWindow: 1, maxTokens: 1 }],
+        },
+      },
+    })
+    expect(ctx.llm.listConfigurableProviders()).toHaveLength(catalogOnly + 1)
+    expect(ctx.llm.listConfigurableProviders().find(entry => entry.provider === 'acme-gateway')?.displayName)
+      .toBe('Acme Gateway')
+
+    await ctx.settings.replace(settingsNamespace('llm-pi-ai'), {})
+    expect(ctx.llm.listConfigurableProviders()).toHaveLength(catalogOnly)
   })
 })

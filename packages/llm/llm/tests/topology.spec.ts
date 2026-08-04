@@ -170,6 +170,32 @@ describe('configurable-provider directory', () => {
     expect(ctx.llm.listConfigurableProviders()).toEqual([])
   })
 
+  it('replaces its entries atomically, keeping the old set when a candidate collides', async () => {
+    const ctx = await setup()
+    const handle = ctx.llm.registerConfigurableProviders([entry(), entry({ provider: 'second' })])
+    ctx.llm.registerConfigurableProviders([entry({ provider: 'owned-elsewhere' })])
+
+    // A candidate another registration already declares refuses the whole swap.
+    expect(() =>{  handle.replace([entry({ provider: 'owned-elsewhere' })]); }).toThrow(/already declared/)
+    expect(ctx.llm.listConfigurableProviders().map(view => view.provider).sort())
+      .toEqual(['owned-elsewhere', 'second', entry().provider].sort())
+
+    // Its own entries are not "already declared" against itself, so a swap that
+    // keeps one and drops another lands whole.
+    handle.replace([entry({ displayName: 'Renamed' })])
+    expect(ctx.llm.listConfigurableProviders().map(view => view.provider).sort())
+      .toEqual(['owned-elsewhere', entry().provider].sort())
+    expect(ctx.llm.listConfigurableProviders().find(view => view.provider === entry().provider)?.displayName)
+      .toBe('Renamed')
+
+    // An empty replace is legal, unlike an empty initial registration.
+    handle.replace([])
+    expect(ctx.llm.listConfigurableProviders().map(view => view.provider)).toEqual(['owned-elsewhere'])
+
+    handle()
+    expect(() =>{  handle.replace([entry()]); }).toThrow(/was disposed/)
+  })
+
   it('rejects duplicates within one registration and across registrations', async () => {
     const ctx = await setup()
     expect(() => ctx.llm.registerConfigurableProviders([entry(), entry()])).toThrow(/already declared/)

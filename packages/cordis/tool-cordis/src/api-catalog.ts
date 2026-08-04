@@ -421,8 +421,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Describe provider routes with a registered adapter.\n * @returns detached provider metadata in registration order.\n */',
       },
       {
-        signature: 'registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): () => void',
-        jsDoc: '/**\n * Declare provider routes an adapter plugin can activate through\n * configuration. Registration is all-or-nothing: an empty list, invalid\n * entry, or a provider already declared by any registration throws\n * `LlmError` without registering the rest. Disposed with the fiber.\n * @param entries - every configurable provider this plugin owns.\n * @returns the disposer that withdraws all of them.\n */',
+        signature: 'registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle',
+        jsDoc: '/**\n * Declare provider routes an adapter plugin can activate through\n * configuration. Registration is all-or-nothing: an empty list, invalid\n * entry, or a provider already declared by any registration throws\n * `LlmError` without registering the rest. Disposed with the fiber.\n * @param entries - every configurable provider this plugin owns.\n * @returns a handle that withdraws all of them, and can atomically replace them.\n */',
       },
       {
         signature: 'listConfigurableProviders(): LlmConfigurableProvider[]',
@@ -1888,6 +1888,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'DirectoryPickerNativeCapability',
     declaration: 'export interface DirectoryPickerNativeCapability {\n    kind: \'native\';\n    pick(signal: AbortSignal): Promise<string | null>;\n}',
+  },
+  {
+    name: 'DirectoryRegistrationHandle',
+    declaration: 'export interface DirectoryRegistrationHandle {\n    (): void;\n    replace(entries: readonly LlmConfigurableProvider[]): void;\n}',
   },
   {
     name: 'Domain',

@@ -1,10 +1,17 @@
 /**
  * Generic pi-ai-backed implementation of the Harness LLM seam.
  *
- * The adapter owns one pi-ai `Models` collection and keeps it in step with the
- * resolved profiles: each route contributes the `Provider` its resolution built,
- * so model lookup, protocol dispatch, and request auth all reach pi-ai through
- * its supported runtime rather than the deprecated global compatibility entry.
+ * Each resolution produces one **immutable** snapshot — the profiles plus a
+ * `Models` collection holding the `Provider` each route built — and an
+ * operation captures a whole snapshot before its first `await`. A
+ * configuration change builds a *new* collection rather than mutating the one
+ * in use, because `Models.streamSimple()` is lazy: it resolves the provider
+ * when the stream is first consumed, which is after the credential await, so a
+ * mutated collection would let a request that started under one configuration
+ * finish under another — or fail with a provider that no longer exists. This is
+ * what makes the seam's per-step call freeze (`llm.prepareCall()`) hold all the
+ * way down: switching models mid-reply takes effect on the next step, never
+ * inside the one in flight.
  *
  * Credentials stay outside that collection. The harness resolves a route's key
  * through its own seam and passes it as the request's `apiKey` option, which
@@ -18,6 +25,7 @@ import { createModels, getSupportedThinkingLevels } from '@earendil-works/pi-ai'
 import type {
   Api,
   Model,
+  Models,
   ModelThinkingLevel,
   MutableModels,
   SimpleStreamOptions,
@@ -41,6 +49,14 @@ import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { toPiContext } from './context.ts'
 import { toStreamChunks } from './stream.ts'
+
+/** One resolution's frozen view: the profiles and the collection built from them. */
+interface PiAiSnapshot {
+  /** The resolved profiles this collection was built from, used as its identity. */
+  profiles: ReadonlyMap<string, ResolvedPiAiProviderProfile>
+  /** Providers for exactly those profiles; never mutated once published. */
+  models: Models
+}
 
 /** Constructor options for {@link PiAiAdapter}: the two resolution seams the plugin owns. */
 export interface PiAiAdapterOptions {
@@ -107,41 +123,40 @@ function requestHeaders(headers: Readonly<Record<string, string>> | undefined): 
  * restart; model descriptors come from the collection those profiles built.
  */
 export class PiAiAdapter extends LlmAdapter {
-  private readonly models: MutableModels = createModels()
-  private registered: ReadonlyMap<string, ResolvedPiAiProviderProfile> | undefined
+  private snapshot: PiAiSnapshot | undefined
 
   constructor(private readonly config: PiAiAdapterOptions) {
     super()
   }
 
   /**
-   * The `Models` collection for the current profiles. Resolution memoizes its
-   * result, so an unchanged configuration is recognized by identity and the
-   * collection is rebuilt only when the route set or any profile actually
-   * changes.
+   * The snapshot for the current profiles. Resolution memoizes its result, so
+   * an unchanged configuration is recognized by identity; a changed one gets a
+   * brand-new collection, leaving any snapshot an operation already captured
+   * untouched for as long as that operation holds it.
    */
-  private collection(): MutableModels {
+  private current(): PiAiSnapshot {
     const profiles = this.config.profiles()
-    if (profiles === this.registered) return this.models
-    this.models.clearProviders()
-    for (const profile of profiles.values()) this.models.setProvider(profile.piProvider)
-    this.registered = profiles
-    return this.models
+    if (this.snapshot?.profiles === profiles) return this.snapshot
+    const models: MutableModels = createModels()
+    for (const profile of profiles.values()) models.setProvider(profile.piProvider)
+    this.snapshot = { profiles, models }
+    return this.snapshot
   }
 
-  /** The profile for one route, or the seam's own not-owned failure. */
-  private profileOf(provider: string): ResolvedPiAiProviderProfile {
-    const profile = this.config.profiles().get(provider)
+  /** The profile for one route within one snapshot, or the not-owned failure. */
+  private profileOf(snapshot: PiAiSnapshot, provider: string): ResolvedPiAiProviderProfile {
+    const profile = snapshot.profiles.get(provider)
     if (profile === undefined) {
       throw new LlmError(`pi-ai adapter does not own provider "${provider}"`, 'NO_ADAPTER')
     }
     return profile
   }
 
-  /** The configured descriptor for one exact route/model pair. */
-  private modelOf(provider: string, model: string): Model<Api> {
-    this.profileOf(provider)
-    const resolved = this.collection().getModel(provider, model)
+  /** The configured descriptor for one exact route/model pair within one snapshot. */
+  private modelOf(snapshot: PiAiSnapshot, provider: string, model: string): Model<Api> {
+    this.profileOf(snapshot, provider)
+    const resolved = snapshot.models.getModel(provider, model)
     if (resolved === undefined) {
       throw new LlmError(`pi-ai provider "${provider}" has no configured model "${model}"`, 'UNKNOWN_MODEL')
     }
@@ -149,13 +164,14 @@ export class PiAiAdapter extends LlmAdapter {
   }
 
   override providerRetryPolicy(provider: string): ResolvedRetryPolicy | undefined {
-    return this.config.profiles().get(provider)?.retryPolicy
+    return this.current().profiles.get(provider)?.retryPolicy
   }
 
   override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
     return Promise.resolve().then(() => {
-      this.profileOf(provider)
-      return this.collection().getModels(provider).map(model => ({
+      const snapshot = this.current()
+      this.profileOf(snapshot, provider)
+      return snapshot.models.getModels(provider).map(model => ({
         provider,
         id: model.id,
         name: model.name,
@@ -169,16 +185,20 @@ export class PiAiAdapter extends LlmAdapter {
     _signal?: AbortSignal,
   ): Promise<LlmResolvedModelInfo> {
     return Promise.resolve().then(() => {
-      const profile = this.profileOf(provider)
-      const resolvedModel = this.modelOf(provider, model)
+      const snapshot = this.current()
+      const profile = this.profileOf(snapshot, provider)
+      const resolvedModel = this.modelOf(snapshot, provider, model)
       const levels = getSupportedThinkingLevels(resolvedModel)
       const defaultLevel = resolveReasoningLevel(resolvedModel, profile.reasoning)
+      // Only a cap the deployment configured is a request default; the
+      // catalog's `maxTokens` sizes the model and stops there.
+      const configuredMaxTokens = profile.configuredMaxTokens.get(model)
       return {
         provider,
         id: model,
         name: resolvedModel.name,
         context: { contextWindow: resolvedModel.contextWindow },
-        defaultMaxTokens: resolvedModel.maxTokens,
+        ...configuredMaxTokens === undefined ? {} : { defaultMaxTokens: configuredMaxTokens },
         reasoning: {
           efforts: levels.map(level => ({
             id: ReasoningEffortId(level),
@@ -196,13 +216,14 @@ export class PiAiAdapter extends LlmAdapter {
     if (options.stop !== undefined) {
       throw new LlmError('llm-pi-ai does not support GenerateOptions.stop', 'UNSUPPORTED_OPTION')
     }
-    // One resolution per stream call: the profile snapshot, the model
-    // descriptor, and the credential freeze here and hold for this whole
-    // request, so an in-flight stream never observes a configuration change and
-    // the next call re-resolves.
-    const profile = this.profileOf(options.provider)
-    const collection = this.collection()
-    const model = this.modelOf(options.provider, options.model)
+    // One capture per stream call, taken before any await: the profile, the
+    // model descriptor, and the collection all come from the same immutable
+    // snapshot, and the credential freezes with them. A configuration change
+    // mid-request builds a separate snapshot, so this request finishes under
+    // the one it started with and the next call picks up the new one.
+    const snapshot = this.current()
+    const profile = this.profileOf(snapshot, options.provider)
+    const model = this.modelOf(snapshot, options.provider, options.model)
     const reasoning = resolveReasoningLevel(
       model,
       options.reasoningEffort ?? profile.reasoning,
@@ -217,7 +238,7 @@ export class PiAiAdapter extends LlmAdapter {
     using watchdog = idleWatchdog(upstream, streamIdleTimeoutMs, 'LLM_STREAM_IDLE_TIMEOUT')
 
     try {
-      const events = collection.streamSimple(model, toPiContext(options), {
+      const events = snapshot.models.streamSimple(model, toPiContext(options), {
         ...profileOptions(profile, reasoning, apiKey),
         ...options.temperature === undefined ? {} : { temperature: options.temperature },
         ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },

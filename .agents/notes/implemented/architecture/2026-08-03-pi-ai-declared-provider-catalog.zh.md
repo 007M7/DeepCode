@@ -15,8 +15,17 @@ Status: implemented
 提供方路由是一份**声明**，已安装 catalog 是它的默认值。`resolveProfiles` 不再拿路由键去核对 `getBuiltinProviders()`，而是把每条路由解析成一份物化模型列表，外加服务它的 pi-ai `Provider`：
 
 - `catalog.ts` 把已安装 catalog 合并到 profile 自身条目之下。profile 的 `models` 列表*替换*该路由的 catalog（列表缺席或为空则原样服务），每个条目从同 `id` 的已安装模型继承自身未设置的字段。只有 harness 会消费的字段可配置——`id`、`name`、`contextWindow`、`maxTokens`、`reasoning`。定价与输入模态不出现在配置面，因为没有任何读取方：`replay.ts` 把 pi-ai 的成本元数据清零，`context.ts` 只保留文本块。思考级别拼写、OpenAI 兼容性怪癖与模型标头沿用已安装条目，因为在配置里重述它们无法被校验。
-- `provider.ts` 构造路由的 `Provider`。保持 catalog 协议不变的 catalog 路由会**复用**已安装提供方，只替换 `getModels()`；其余路由都由 `createProvider()` 基于一张协议表构造，表中条目正是 pi-ai 自己的提供方工厂所用的 `@earendil-works/pi-ai/api/*.lazy` factory。
-- `adapter.ts` 持有一个 `createModels()` 集合，在解析产出新的 profile 映射时重新同步，并由它服务 `listModels`、`resolveModel` 与 `stream`。模型已配置的 `maxTokens` 会成为 seam 的 `defaultMaxTokens`，因此未点名输出上限的请求现在会携带已配置的那一个。
+- `provider.ts` 构造路由的 `Provider`。保持 catalog 协议不变的 catalog 路由会**复用**已安装提供方，只替换 `getModels()`；其余路由都由 `createProvider()` 基于一张协议表构造，表中条目正是 pi-ai 自己的提供方工厂所用的 `@earendil-works/pi-ai/api/*.lazy` factory。该表刻意窄于 pi-ai 的完整 API 集合——只保留 profile 能用密钥、端点与标头完整描述的协议，因此 Bedrock（SigV4 加 region）、Vertex（project、location、ADC）、Azure（提供方环境加 api-version）与 Codex（OAuth）不在其中，而不是被当作无法认证的路由提供出去。catalog 路由仍可经自己的 provider 抵达它们；被拒的只有显式覆盖。
+- `adapter.ts` 把每次解析变成一份**不可变快照**——profiles 加上持有这些 provider 的 `createModels()` 集合——每个操作都在自己第一个 `await` 之前整体捕获一份。
+- 模型**显式配置**的 `maxTokens` 会成为 seam 的 `defaultMaxTokens`；从已安装 catalog 继承来的那份不会：pi-ai 要求 `Model.maxTokens` 表示模型的输出**能力**，而 `defaultMaxTokens` 是部署选定、发给未点名上限的请求的那个值，把前者物化成后者会让每个请求都被一个无人选择的数字封顶。
+
+### 快照，而不是共享集合
+
+`Models.streamSimple()` 惰性解析 provider——在返回的流首次被消费时，而那已在适配器 await 路由凭据之后。因此就地改动的单一集合，会让一个在旧配置下开始的请求在新配置下结束，或者撞上一个已不存在的 provider，尽管 `llm.prepareCall()` 早已冻结了该步的 config 并捕获了其适配器注册。配置变化改为构造**新**集合，正在被使用的那个原封不动，于是 seam 的每步冻结得以贯通到底：回复途中切换模型在下一步生效，绝不影响在途的那一步。
+
+### 目录原子替换
+
+可配置提供方目录跟随 profiles，因此每当一条声明路由出现或离开它都会变化。「撤销旧注册再新建一个」表达不了这件事：注册表拒绝的候选集合——比如一份键为 `deepseek-official` 的 profile，而 `llm-deepseek` 已声明了它——会让本插件的整个目录被撤走、Models 页变空，而且是静默的，因为 settings 变更回调把失败容住了。因此 `registerConfigurableProviders` 改为返回带 `replace(entries)` 的句柄，其「候选集先整体校验」的原子性与 `registerAdapter` 相同，插件改用它。被拒的替换只付出一条诊断；先前的条目继续服务。
 
 解析失败得响亮，并点名出问题的路由与模型：catalog 未描述的模型需要显式的 `contextWindow` 与 `maxTokens`；catalog 未提供的路由需要 `api`、`baseURL` 和非空的 `models` 列表。由于构造出的 `Provider` 是解析结果的一部分，协议或模型出错时最后可用的路由集合会继续服务——与此前坏的 settings 快照的行为完全一致。
 
@@ -34,14 +43,17 @@ pi-ai 的 `Models` 自带一套凭据概念——按提供方 id 索引的 `Cred
 - **catalog 路由复用已安装提供方，只有声明式路由走 `createProvider()`**，且两者不共享解析。对 catalog 行为零风险，但 catalog 物化、端点覆盖与每模型配置这三件事都要各写两遍，而改指协议的 catalog 路由还得在解析中途跳到另一条路径。已采纳的拆法把不对称收敛在提供方构造这一处——那里的不对称是 pi-ai 不暴露已构造提供方的 API 实现所强加的。
 - **让每条路由都经 `createProvider()` 重建**，包括 catalog 路由。完全对称，但已构造的 `Provider` 不暴露自己的 `api`，于是协议表会成为「哪些提供方能用」的天花板——Bedrock 经独立入口加载其 Smithy 模块，会因此静默失效。
 - **完整暴露 pi-ai 的 `Model` 形状**（成本、输入模态、`thinkingLevelMap`、`compat`）。可配置性最大，但这些字段当前没有任何读取方，因此配了价格或模态什么也不会改变，却看起来像是受支持的。
+
+- **保留单个可变 `Models` 集合并重新同步。** 分配更少，且对每个同步完成解析的操作都是正确的；唯独对那个不同步的操作恰恰是错的：`stream()` 会在捕获模型与派发模型之间 await 一次凭据。
+- **用「先 dispose 再注册」模拟目录原子替换。** 无需改 seam，且在新集合有效时确实可用——而那正是从不需要原子性的那种情形。
 - **运行时动态 catalog**——`fetchModels` 加 `ModelsStore`，后台刷新。本次变更拒绝：它把模型列表变成需要缓存、失效与离线路径的外部可变状态，而产品需求是一次性的发现动作、其结果由用户采纳进 `settings.yaml`。该动作属于配置界面，与之一并暂缓；`settings.yaml` 始终是「路由服务什么」的唯一事实源。
 
 ## Consequences
 
-配置一个提供方不再取决于 pi-ai 的发布节奏。网关、自建服务，或比锁定 catalog 更新的模型，都是一次 `settings.yaml` 编辑，过期的上下文窗口也能就地更正。废弃的 `/compat` 导入已经消失，因此 pi-ai 删除它不再是破坏性事件。`defaultMaxTokens` 现在自配置流出，堵上了「请求完全不带输出上限」的情形。
+配置一个提供方不再取决于 pi-ai 的发布节奏。网关、自建服务，或比锁定 catalog 更新的模型，都是一次 `settings.yaml` 编辑，过期的上下文窗口也能就地更正。废弃的 `/compat` 导入已经消失，因此 pi-ai 删除它不再是破坏性事件。`defaultMaxTokens` 现在只在部署明确给出时才自配置流出，不会从 catalog 元数据里发明一个上限。
 
 代价是：声明式路由会让 `settings.yaml` 变长，因为 catalog 无法默认的模型必须自报容量。`api` 作用于整条路由，因此混合协议的 catalog 路由无法承载另一种协议的模型——把它拆成两个路由键是变通办法。没有任何环节查询提供方的 `/models`，因此模型列表的新鲜度只到最近一次编辑为止。有一种情形下报错形状发生变化：auth 解析不出任何值的路由，现在会在任何网络调用之前把 pi-ai 自己的诊断作为错误 `finish` 分片呈现，而此前的适配器会发出无密钥请求并呈现提供方的 401。
 
 ## Testing
 
-`tests/catalog.spec.ts` 针对本地 mock 服务器端到端覆盖该契约：手工声明的路由带着自己的凭据流向自己的端点、它在可配置提供方目录中的出现、每模型覆盖从已安装 catalog 继承默认值、向 catalog 路由添加模型、带与不带端点覆盖的协议改指、catalog 独有元数据在覆盖后存活、无密钥姿态及其 `Authorization` 标头变通，以及每一种点名路由或模型的解析失败。`tests/sdk-options.spec.ts` 把 SDK 边界从已移除的 `/compat` 导入改指到协议表的 lazy api 模块，同时钉住「setup 失败以终止性错误分片而非抛出的形式抵达」。twin 的[设计验证角色](2026-06-13-twin-llm-adapters.md)不变。
+`tests/catalog.spec.ts` 针对本地 mock 服务器端到端覆盖该契约：手工声明的路由带着自己的凭据流向自己的端点、它在可配置提供方目录中的出现、每模型覆盖从已安装 catalog 继承默认值、向 catalog 路由添加模型、带与不带端点覆盖的协议改指、catalog 独有元数据在覆盖后存活、无密钥姿态及其 `Authorization` 标头变通，以及每一种点名路由或模型的解析失败。`tests/catalog.spec.ts` 还钉住了快照与目录两项契约：在途请求即便其路由集在 credential await 期间改变，仍抵达它解析时对应的端点；下一个请求取用新配置；冲突的声明路由让目录保持完好；声明路由的条目随其 profile 出现与离开。`packages/llm/llm/tests/topology.spec.ts` 覆盖 `replace`——拒绝他人已拥有的候选同时保住当前集合、接受对自身条目的替换、允许空集合，以及 dispose 之后失败。`tests/sdk-options.spec.ts` 把 SDK 边界从已移除的 `/compat` 导入改指到协议表的 lazy api 模块，同时钉住「setup 失败以终止性错误分片而非抛出的形式抵达」。twin 的[设计验证角色](2026-06-13-twin-llm-adapters.md)不变。

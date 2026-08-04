@@ -92,6 +92,12 @@ export interface ResolvedPiAiProviderProfile
    * serving requests.
    */
   piProvider: Provider
+  /**
+   * Per-request output caps this profile explicitly configured, by model id.
+   * The seam materializes one only into a request that names no cap of its
+   * own, so a catalog capability must not appear here.
+   */
+  configuredMaxTokens: ReadonlyMap<string, number>
 }
 
 /** Plugin configuration: the provider routes this instance owns. */
@@ -200,7 +206,7 @@ export function resolveProfiles(
     // always shown route keys, and a catalog route must not silently rename
     // itself on every configuration surface just because it gained a profile.
     const displayName = source.displayName ?? provider
-    const models = resolveRouteModels({
+    const catalog = resolveRouteModels({
       provider,
       ...source.api === undefined ? {} : { api: source.api },
       ...source.baseURL === undefined ? {} : { baseURL: source.baseURL },
@@ -216,12 +222,13 @@ export function resolveProfiles(
       retryPolicy: resolveRetryPolicy(retryPolicy, `llm-pi-ai: provider "${provider}" retryPolicy`),
       ...rest.headers === undefined ? {} : { headers: { ...rest.headers } },
       ...rest.thinkingBudgets === undefined ? {} : { thinkingBudgets: { ...rest.thinkingBudgets } },
+      configuredMaxTokens: catalog.configuredMaxTokens,
       piProvider: buildProvider({
         provider,
         displayName,
         ...source.api === undefined ? {} : { api: source.api },
         ...source.baseURL === undefined ? {} : { baseURL: source.baseURL },
-        models,
+        models: catalog.models,
       }),
     })
   }
