@@ -8,6 +8,11 @@
  * button and the foot is the `sidebar.workspaces` registrant's, and the foot
  * is the `sidebar.settings` registrant's; the shell hands them the wide flag
  * (plus an expand request callback for the browser).
+ *
+ * The column also owns whether the scroll regions nested in it draw a
+ * scrollbar at all: the shell tracks the pointer and rebinds ui-theme's
+ * scrollbar indirection away while it is elsewhere, so a list the user is not
+ * pointing at carries no bar.
  */
 import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
@@ -21,6 +26,14 @@ import css from './SidebarRoot.module.css'
 
 /** Wide-content unmount delay; matches the 150ms wide-content fade-out. */
 const COLLAPSE_SETTLE_MS = 150
+
+/**
+ * How long the column's scrollbars stay drawn after the pointer leaves it.
+ * The bar is a pointer affordance here, and hiding it on the leave event
+ * itself makes it blink out while the pointer is only crossing the column's
+ * edge — on the way to the conversation, or around a portalled menu.
+ */
+const SCROLLBAR_LINGER_MS = 2000
 
 /**
  * Render the sidebar column shell.
@@ -56,10 +69,29 @@ export function SidebarRoot({
   const everWide = useRef(!collapsed)
   if (!collapsed) everWide.current = true
 
+  // Scrollbars in the column follow the pointer (.quietBars rebinds them
+  // away): drawn while it is inside, and for SCROLLBAR_LINGER_MS after it
+  // leaves. A pointer that returns within that window cancels the pending
+  // hide rather than restarting from a hidden bar.
+  const [pointerInside, setPointerInside] = useState(false)
+  const lingerTimer = useRef<number | undefined>(undefined)
+  useEffect(() => () => { window.clearTimeout(lingerTimer.current) }, [])
+
   return (
     <div
-      className={clsx(css.root, !wide && css.collapsed, !wide && everWide.current && css.railIn, collapsed && wide && css.fading)}
+      className={clsx(
+        css.root, !wide && css.collapsed, !wide && everWide.current && css.railIn,
+        collapsed && wide && css.fading, !pointerInside && css.quietBars,
+      )}
       style={wide ? { width: collapsed ? lastWideWidth.current : width } : undefined}
+      onPointerEnter={() => {
+        window.clearTimeout(lingerTimer.current)
+        setPointerInside(true)
+      }}
+      onPointerLeave={() => {
+        window.clearTimeout(lingerTimer.current)
+        lingerTimer.current = window.setTimeout(() => { setPointerInside(false) }, SCROLLBAR_LINGER_MS)
+      }}
     >
       <div className={css.logoRow}>
         {/* Expanded, the wordmark doubles as a New Session shortcut; the

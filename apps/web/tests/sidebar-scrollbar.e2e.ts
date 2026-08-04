@@ -44,6 +44,12 @@
 // overlap, and `timeCoveredBy` measures it at 7. Each was mutation-checked with
 // the other assertions in its test silenced.
 //
+// The thumb is a pointer affordance (ui-sidebar rebinds the indirection pair
+// to `transparent` while the pointer is outside the column), so every
+// measurement below states which pointer position it was taken at: the
+// scenario parks the pointer over the sidebar before asserting a colour, and
+// the quiet state and its linger get their own test.
+//
 // Chromium also takes the `::-webkit-scrollbar*` path, not the standard
 // properties: scrollbar.css gates `scrollbar-width`/`scrollbar-color` behind
 // `@supports not selector(::-webkit-scrollbar)`, which is false here. The
@@ -193,6 +199,30 @@ function measureList(page: Page): Promise<ListMetrics> {
   })
 }
 
+/** One palette's readings, taken at both pointer positions. */
+interface PaletteMetrics {
+  /** Everything measured with the pointer over the list, which is when a thumb exists. */
+  hovered: ListMetrics
+  /** `--dsh-scrollbar-thumb` with the pointer parked outside the column. */
+  quietThumb: string
+}
+
+/**
+ * Read one palette at both pointer positions, ending with the pointer back
+ * over the list so a caller measuring further leaves it revealed.
+ * @param page - the page under test.
+ * @returns the palette's quiet thumb and its hovered metrics.
+ */
+async function measurePalette(page: Page): Promise<PaletteMetrics> {
+  await pointAt(page, 'away')
+  // Poll rather than sleep the linger out: the wait is the column's, and a
+  // fixed sleep would either race it or pad every palette.
+  await expect.poll(async () => resolveThumb(page), { timeout: 10_000 }).toBe(NO_THUMB)
+  const quietThumb = await resolveThumb(page)
+  await pointAt(page, 'list')
+  return { hovered: await measureList(page), quietThumb }
+}
+
 /**
  * Render the golden body: the resolved scrollbar style of the list in each
  * palette, plus the geometric relations the fix establishes.
@@ -208,18 +238,19 @@ function measureList(page: Page): Promise<ListMetrics> {
  * @param dark - metrics measured under the dark palette.
  * @returns the golden body, without a trailing newline.
  */
-function renderGeometry(light: ListMetrics, dark: ListMetrics): string {
-  const palette = (name: string, metrics: ListMetrics): string[] => [
+function renderGeometry(light: PaletteMetrics, dark: PaletteMetrics): string {
+  const palette = (name: string, { hovered: metrics, quietThumb }: PaletteMetrics): string[] => [
     `## ${name}`,
     '',
+    `- --dsh-scrollbar-thumb, pointer outside the sidebar: ${quietThumb}`,
     `- scrollbar-gutter: ${metrics.gutter}`,
     `- ::-webkit-scrollbar width: ${metrics.width}`,
     `- ::-webkit-scrollbar-track background: ${metrics.track}`,
     `- scrollbar-width: ${metrics.standardWidth}`,
     `- scrollbar-color: ${metrics.standardColor}`,
     `- ::-webkit-scrollbar-thumb:hover declarations: ${metrics.hoverRules.join(' | ')}`,
-    `- --dsh-scrollbar-thumb: ${metrics.token}`,
-    `- --dsh-scrollbar-thumb-hover: ${metrics.hoverToken}`,
+    `- --dsh-scrollbar-thumb, pointer over the list: ${metrics.token}`,
+    `- --dsh-scrollbar-thumb-hover, pointer over the list: ${metrics.hoverToken}`,
     `- list overflows: ${String(metrics.overflows)}`,
     `- reserved band: ${String(metrics.band)}px`,
     `- relative time covered by the bar: ${String(metrics.timeCoveredBy)}px`,
@@ -233,6 +264,48 @@ function renderGeometry(light: ListMetrics, dark: ListMetrics): string {
     ...palette('Light palette', light),
     ...palette('Dark palette', dark),
   ].join('\n').trimEnd()
+}
+
+/**
+ * Resolve `--dsh-scrollbar-thumb` as the list sees it, without the rest of the
+ * geometry. Own probe element for the same reason {@link measureList} uses
+ * one: `getComputedStyle` returns a live declaration.
+ * @param page - the page under test.
+ * @returns the resolved thumb colour, serialized as `rgb`/`rgba`.
+ */
+function resolveThumb(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const list = document.querySelector<HTMLElement>('[role="tree"][aria-label="Sessions"]')
+    if (list === null) throw new Error('sidebar session list not in the DOM')
+    const probe = document.createElement('span')
+    probe.style.color = 'var(--dsh-scrollbar-thumb)'
+    list.append(probe)
+    const value = getComputedStyle(probe).color
+    probe.remove()
+    return value
+  })
+}
+
+/** Fully transparent, which is how the quiet column spells "no thumb". */
+const NO_THUMB = 'rgba(0, 0, 0, 0)'
+
+/**
+ * Park the pointer over the session list or outside the sidebar entirely. The
+ * column reveals its scrollbars from real pointer movement, so a scenario that
+ * never moves the mouse measures the quiet state whatever it intended to.
+ * @param page - the page under test.
+ * @param where - `list` to point at the session list, `away` for the far side
+ * of the viewport (the conversation column).
+ */
+async function pointAt(page: Page, where: 'list' | 'away'): Promise<void> {
+  const box = await page.locator('[role="tree"][aria-label="Sessions"]').boundingBox()
+  if (box === null) throw new Error('sidebar session list has no layout box')
+  const viewport = page.viewportSize()
+  if (viewport === null) throw new Error('page has no viewport')
+  const target = where === 'list'
+    ? { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+    : { x: viewport.width - 5, y: box.y + box.height / 2 }
+  await page.mouse.move(target.x, target.y)
 }
 
 /**
@@ -280,6 +353,10 @@ describe('web e2e: sidebar session list scrollbar (reserved gutter / themed thum
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     await expandSeededSessions(page)
+    // Every assertion about a thumb colour needs a drawn thumb, and the column
+    // only draws one under the pointer; the quiet state is asserted where it is
+    // the subject rather than left as an ambient condition of the whole file.
+    await pointAt(page, 'list')
   }, 180_000)
 
   afterAll(async () => {
@@ -314,6 +391,27 @@ describe('web e2e: sidebar session list scrollbar (reserved gutter / themed thum
     // the two assertions above.
     expect(metrics.timeRight).toBeLessThanOrEqual(metrics.clientRight)
     expect(metrics.clientRight).toBeLessThan(metrics.borderRight)
+    expect(tripwire.pageErrors).toEqual([])
+  }, 60_000)
+
+  it('draws no thumb until the pointer is over the column, and lingers on the way out', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-sidebar-scrollbar-pointer'))
+    const revealed = await resolveThumb(page)
+    expect(revealed).not.toBe(NO_THUMB)
+    await pointAt(page, 'away')
+    // The linger, measured as a state rather than a duration: the thumb is
+    // still drawn on the leave itself, and gone once the window has passed. A
+    // tighter timing assertion would pin the wall clock of a CI machine.
+    expect(await resolveThumb(page)).toBe(revealed)
+    await expect.poll(async () => resolveThumb(page), { timeout: 10_000 }).toBe(NO_THUMB)
+    // The reservation is unconditional, so nothing moved while the bar was
+    // hidden — this is what buys `transparent` over hiding the bar itself.
+    const quiet = await measureList(page)
+    expect(quiet.gutter).toBe('stable')
+    expect(quiet.band).toBeGreaterThan(0)
+    expect(quiet.timeCoveredBy).toBe(0)
+    await pointAt(page, 'list')
+    await expect.poll(async () => resolveThumb(page), { timeout: 10_000 }).toBe(revealed)
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 
@@ -354,9 +452,9 @@ describe('web e2e: sidebar session list scrollbar (reserved gutter / themed thum
 
   it('matches the committed scrollbar geometry golden in both palettes', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-sidebar-scrollbar-golden'))
-    const light = await measureList(page)
+    const light = await measurePalette(page)
     await page.evaluate(() => { document.body.setAttribute('data-ds-dark-theme', '') })
-    const dark = await measureList(page)
+    const dark = await measurePalette(page)
     await page.evaluate(() => { document.body.removeAttribute('data-ds-dark-theme') })
     await compareOrRefreshGolden(GEOMETRY_EXPECTED, renderGeometry(light, dark), MODE)
     expect(tripwire.pageErrors).toEqual([])

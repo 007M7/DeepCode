@@ -31,6 +31,8 @@ const DARK_ATTRIBUTE = '[data-ds-dark-theme]'
 const TOKEN_PREFIX = '--dsw-alias-scrollbar-'
 /** Prefix of the rebindable indirection scrollbar.css owns. */
 const INDIRECTION_PREFIX = '--dsh-scrollbar-'
+/** The one non-token rebind value: a surface that draws no thumb at all. */
+const HIDDEN_THUMB = 'transparent'
 
 /**
  * Flatten a stylesheet into rules. Whitespace, declaration order, and trailing
@@ -452,11 +454,19 @@ describe('elevated surface rebinds', () => {
     }
   })
 
-  it('every rebind targets the l2 elevation pair', () => {
+  it('every rebind targets the l2 elevation pair or hides the bar outright', () => {
+    // Two targets, and nothing else. An elevated surface moves the pair to l2;
+    // a surface that draws no bar at all states `transparent` (ui-sidebar's
+    // column, whose scrollbars follow the pointer). What this rejects is a
+    // rebind to l1, which restates the base-surface default under a name that
+    // reads as an elevation, and a literal colour, which leaves the palette.
     for (const { file, rule } of rebindRules) {
       for (const [property, value] of rule.declarations) {
         if (!property.startsWith(INDIRECTION_PREFIX)) continue
-        for (const token of varReferences(value)) {
+        if (value === HIDDEN_THUMB) continue
+        const tokens = varReferences(value)
+        expect(tokens, `${file}: ${property}: ${value}`).not.toEqual([])
+        for (const token of tokens) {
           expect(token, `${file}: ${property}`).toMatch(/-l2$/)
         }
       }
