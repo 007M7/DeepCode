@@ -10,18 +10,18 @@ The Web chat shows when a message arrived but not how long the agent worked on i
 
 ## Decision
 
-Turn wall time derives from adjacent logged timestamps, with no new session events: `turnStartTimes` maps each turn to the nearest preceding user/steering node's time, and the actions-owning assistant footer renders `time - turnStart` as a `Ran for {duration}` label next to the clock. The running `TurnStatus` label gains a live elapsed clock anchored to `lastInputTime` — the same logged instant the footer measures from — so a mid-turn reload keeps the real elapsed time and the final label matches the live clock. The clock appears only after 15 seconds so short turns keep the plain label.
+Turn wall time uses the existing logged `turn/start` and `turn/end` timestamps, with no new session events. The client Session folds each in-window pair into `turnTimings`; the actions-owning assistant footer renders `endTime - startTime` as a localized `Ran for {duration}` label after the turn ends. The running `TurnStatus` clock uses the latest timing without an end, so reload preserves elapsed time, steering does not reset it, and a retry starts from its own logged boundary. Both readings use the same localized formatter and whole-second floor. The clock appears only after 15 seconds and is hidden from the live region so screen readers announce the activity status without replaying every tick.
 
 Time chrome (clock and run time) is hover-revealed: message containers opt in with a `data-time-hover-root` attribute, and `MessageIconActions.module.css` fades the time label in on container `:hover`/`:focus-within`. The rule is scoped to `@media (hover: hover)`, so touch devices keep the always-visible label; opacity (not display) keeps the layout stable. Copy/branch icons stay always visible.
 
 ## Alternatives considered
 
-**A dedicated turn-start session event.** Precise, but adds a model-invisible event type solely for UI display; the adjacent-timestamp fold matches the trajectory table's existing derivation family and needs no log change. A turn whose trigger is outside the loaded window simply omits the label.
+**Deriving timing from message nodes.** The nearest user or steering timestamp is available in the rendered transcript, but it mismeasures retry turns and lets mid-turn steering reset the live clock. Existing turn boundary events provide the authoritative timestamps without changing the log format.
 
-**Anchoring the live clock to component mount.** Simpler, but a mid-turn reload would restart the clock at zero and disagree with the eventual footer label. Mount time remains only the fallback when no input node is in-window.
+**Anchoring the live clock to component mount.** Simpler, but a mid-turn reload would restart the clock at zero and disagree with the eventual footer label. Mount time remains only the fallback when `turn/start` is outside the loaded window.
 
-**Hiding the whole actions row until hover.** Rejected in review: copy/branch are affordances worth discovering, and row-level show/hide risks layout shift. Only the passive time text is hover-gated.
+**Hiding the whole actions row until hover.** Copy and branch are affordances worth discovering, and row-level show/hide risks layout shift. Only the passive time text is hover-gated.
 
 ## Consequences
 
-Turn duration is visible live and after settlement without new session state, and the two readings agree by construction. The run-time label is absent for turns whose triggering input fell outside the loaded window. Time chrome no longer competes with message content at rest; ARIA-tree snapshots are unaffected because the label stays in the DOM.
+Turn duration is visible live and after settlement without new session events, and both readings share exact log boundaries and formatting. The settled duration includes activity after the last assistant text up to `turn/end`; the label is absent when `turn/start` is outside the loaded window. Time chrome no longer competes with message content at rest, and the ticking clock remains visual rather than repeatedly announced.

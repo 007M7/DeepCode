@@ -50,7 +50,7 @@ export function MessageIconActions({
       {runMs !== undefined && (
         <>
           <span className={css.runTimeDot} aria-hidden>·</span>
-          {t('message.ranFor', { duration: formatRunDuration(runMs) })}
+          {t('message.ranFor', { duration: formatRunDuration(runMs, t) })}
         </>
       )}
     </span>

@@ -9,7 +9,7 @@
  * flow share their gates.
  */
 import type {
-  AssistantBlock, ConversationNode, ToolResultNode,
+  AssistantBlock, ConversationNode, ConversationSnapshot, ToolResultNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 
 /** One renderable flow item; key is the React key and the parent's identity unit. */
@@ -48,40 +48,18 @@ export function assistantActionsSeqs(nodes: readonly ConversationNode[]): Readon
 }
 
 /**
- * Approximate turn start times: turn number -> the time of the nearest
- * user/steering node preceding the turn's first assistant node. Same
- * derivation family as the trajectory fold (adjacent logged timestamps, no
- * dedicated turn/start state); a turn whose triggering input is outside the
- * loaded window is simply absent.
- * @param nodes - snapshot nodes in event order.
- * @returns Unix epoch ms per in-window turn with a visible trigger.
+ * Exact start time of the latest in-window turn without a matching end time.
+ * @param turnTimings - In-window turn timings in event order.
+ * @returns Unix epoch ms, or null when the running turn started outside the window.
  */
-export function turnStartTimes(nodes: readonly ConversationNode[]): ReadonlyMap<number, number> {
-  const starts = new Map<number, number>()
-  let lastInputTime: number | null = null
-  for (const node of nodes) {
-    if (node.kind === 'user' || node.kind === 'steering') {
-      lastInputTime = node.time
-    } else if (node.kind === 'assistant' && lastInputTime !== null && !starts.has(node.turn)) {
-      starts.set(node.turn, lastInputTime)
-    }
+export function runningTurnStartTime(
+  turnTimings: ConversationSnapshot['turnTimings'],
+): number | null {
+  let latest: number | null = null
+  for (const timing of turnTimings.values()) {
+    if (timing.endTime === undefined) latest = timing.startTime
   }
-  return starts
-}
-
-/**
- * Time of the last user/steering node in the window: the running turn's
- * trigger, anchoring the live TurnStatus clock to the same logged instant the
- * finalized footer's run time is measured from.
- * @param nodes - snapshot nodes in event order.
- * @returns Unix epoch ms, or null when no input node is in-window.
- */
-export function lastInputTime(nodes: readonly ConversationNode[]): number | null {
-  for (let i = nodes.length - 1; i >= 0; i--) {
-    const node = nodes[i]
-    if (node?.kind === 'user' || node?.kind === 'steering') return node.time
-  }
-  return null
+  return latest
 }
 
 /**

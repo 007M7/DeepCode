@@ -20,7 +20,7 @@ import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts
 import { createChatStore } from '../src/client/stores.ts'
 import { ChatView } from '../src/client/chat/ChatView.tsx'
 import { zh } from '../src/client/locales.ts'
-import { assistantActionsSeqs, deriveChatFlow, flowKeys, lastInputTime, messageBranchSeqs, turnStartTimes } from '../src/client/chat/chat-flow.ts'
+import { assistantActionsSeqs, deriveChatFlow, flowKeys, messageBranchSeqs, runningTurnStartTime } from '../src/client/chat/chat-flow.ts'
 import { formatRunDuration } from '../src/client/chat/message-chrome.ts'
 
 afterEach(() => {
@@ -37,7 +37,7 @@ const SID = 's1' as SessionId
 
 function snapshotBase(): ConversationSnapshot {
   return {
-    sessionId: SID, nodes: [], turnEnds: new Map(), partial: null, runningCalls: [], codeDispatches: new Map(),
+    sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [], codeDispatches: new Map(),
     pending: [], queue: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
     hasMore: false, loadingOlder: false, promptError: null, blank: false, subagent: null, lastAgentError: null,
   }
@@ -242,33 +242,23 @@ describe('chat-flow derivation', () => {
     expect([...seqs].sort((a, b) => a - b)).toEqual([5, 7])
   })
 
-  it('turnStartTimes anchors each turn to the nearest preceding input node', () => {
-    const starts = turnStartTimes([
-      user(1, 'hi'),
-      assistant(2, 'mid', 1),
-      assistant(5, 'done', 1),
-      {
-        kind: 'steering', messageId: 'st' as never,
-        seq: 6, time: 6_000, turn: 1,
-        content: [{ type: 'text', text: 'also' }], source: null,
-      },
-      assistant(7, 'second turn', 2),
-    ])
-    expect([...starts]).toEqual([[1, 1_000], [2, 6_000]])
-    // No input in-window before the turn's first assistant: the turn is absent.
-    expect(turnStartTimes([assistant(2, 'orphan', 1)]).size).toBe(0)
+  it('runningTurnStartTime selects the latest turn/start without a turn/end', () => {
+    expect(runningTurnStartTime(new Map([
+      [1, { startTime: 1_000, endTime: 5_000 }],
+      [2, { startTime: 6_000 }],
+    ]))).toBe(6_000)
+    expect(runningTurnStartTime(new Map([
+      [1, { startTime: 1_000, endTime: 5_000 }],
+      [2, { startTime: 6_000, endTime: 9_000 }],
+    ]))).toBeNull()
   })
 
-  it('formatRunDuration matches the running clock format', () => {
-    expect(formatRunDuration(0)).toBe('0s')
-    expect(formatRunDuration(-500)).toBe('0s')
-    expect(formatRunDuration(15_400)).toBe('15s')
-    expect(formatRunDuration(125_000)).toBe('2m 05s')
-  })
-
-  it('lastInputTime returns the trailing input node time', () => {
-    expect(lastInputTime([user(1, 'hi'), assistant(2, 'mid', 1)])).toBe(1_000)
-    expect(lastInputTime([assistant(2, 'orphan', 1)])).toBeNull()
+  it('formatRunDuration localizes units and floors partial seconds', () => {
+    const t = makeTranslate(zh, commonZh)
+    expect(formatRunDuration(0, t)).toBe('0秒')
+    expect(formatRunDuration(-500, t)).toBe('0秒')
+    expect(formatRunDuration(15_999, t)).toBe('15秒')
+    expect(formatRunDuration(125_000, t)).toBe('2分05秒')
   })
 
   it('messageBranchSeqs keeps only message rows at completed transcript tails', () => {
@@ -539,18 +529,21 @@ describe('ChatView', () => {
       nodes: [
         user(1, 'hi'), // time 1_000
         assistant(2, 'mid-turn text'),
-        assistant(16, 'final answer'), // time 16_000 → 15s
+        assistant(16, 'final answer'),
+        toolResult(18, 'trailing'),
       ],
-      turnEnds: new Map([[1, 16]]),
+      turnTimings: new Map([[1, { startTime: 1_000, endTime: 20_000 }]]),
+      turnEnds: new Map([[1, 20]]),
     })
     const view = render(<h.ChatView {...h.props} />)
-    // Only the turn-tail footer carries the label; mid-turn chrome stays bare.
-    expect(view.getAllByText(/用时 15s/)).toHaveLength(1)
+    // The exact turn/end includes trailing tool activity after the final text.
+    expect(view.getAllByText(/用时 19秒/)).toHaveLength(1)
   })
 
   it('user and assistant message containers scope the hover-revealed time chrome', () => {
     const h = makeHarness({
       nodes: [user(1, 'hi'), assistant(2, 'answer')],
+      turnTimings: new Map([[1, { startTime: 1_000, endTime: 2_000 }]]),
       turnEnds: new Map([[1, 2]]),
     })
     const view = render(<h.ChatView {...h.props} />)
@@ -727,12 +720,24 @@ describe('ChatView', () => {
     expect(view.getByRole('status').textContent).toBe('Deep diving...')
   })
 
-  it('the running TurnStatus clock anchors to the logged trigger time, surviving reload', () => {
-    const trigger: UserMessageNode = { ...user(1, 'go'), time: Date.now() - 125_000 }
-    const h = makeHarness({ nodes: [trigger], running: true })
+  it('the running clock uses turn/start, ignores steering, and stays out of the live region', () => {
+    const startTime = Date.now() - 125_000
+    const trigger: UserMessageNode = { ...user(1, 'go'), time: startTime + 1 }
+    const h = makeHarness({
+      nodes: [trigger], turnTimings: new Map([[1, { startTime }]]), running: true,
+    })
     const view = render(<h.ChatView {...h.props} />)
     // Freshly mounted (as after a reload) yet already past the 15s gate.
-    expect(view.getByRole('status').textContent).toMatch(/^Deep diving\.\.\.2m 0\ds$/)
+    const status = view.getByRole('status')
+    expect(status.textContent).toMatch(/^Deep diving\.\.\.2分0\d秒$/)
+    expect(status.querySelector('[aria-hidden="true"]')).not.toBeNull()
+    act(() => {
+      h.set({ nodes: [trigger, {
+        kind: 'steering', messageId: 'st' as never, seq: 2, time: Date.now(), turn: 1,
+        content: [{ type: 'text', text: 'also' }], source: null,
+      }] })
+    })
+    expect(status.textContent).toMatch(/^Deep diving\.\.\.2分0\d秒$/)
   })
 
   it('dispatches each tool row through the keyed slot with the tool name as entryKey', () => {
