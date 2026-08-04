@@ -16,13 +16,13 @@ Status: implemented
 
 `presentationMeta` 携带 render 文本无法携带的东西。工具从 `execute` 返回的结构化结果对象**不会**经由 wire 抵达客户端——只有面向模型的 `render` 文本，以及（声明时）投影到 `tool/result` 事件 `meta` 上的 `output.presentationMeta` JSON 会。对 `web_search`，meta 是得到 `{url, title?, snippet?, publishedAt?}` 的**唯一**忠实途径：render 把这些字段压进一行有损的自由文本，消费者无法重新解析。对 `web_fetch`，meta 是更小但真实的收益：`url`/`statusCode` 可从确定格式的 `Fetched <url> (HTTP <n>)` header 行还原，但 `truncated` 是有效截断——provider cap、转换前源截断，或部署的 `fetchMaxOutputChars` 输出上限——客户端无法重算，因为它不知道那个上限。抓取卡片与面向模型的文本都从同一个 `renderFetchOutput(result, maxOutputChars)` helper 派生 `truncated`，因此卡片绝不会与模型看到的脚注分叉。这照搬 write/edit 的 diff 模板（`packages/fs/tool-fs/src/diff.ts`）：一个 `*MetaFromValue` 投影器喂给 `output.presentationMeta`，一个 `*MetaFromResult` 收窄器读回 `result.meta`，并在失败时防御性回退到 generic 卡片。`web_fetch` 的正文已是结果内容中的 markdown，因此不重复写入 meta。
 
-两个结果视图都不携带 `content` 副本。不渲染结构化 `web` 卡片的 UI 回退到原始 `tool/result` 内容。把该内容复制进视图会在同一投递帧上重复最多 `fetchMaxOutputChars` 个字符却毫无收益（与 meta 一节对抓取正文的否决同理），因此视图省略它。每个视图从调用参数设置其结果期 `title`（`args.query`／`args.url`），因此丢掉了调用头的窗口截断重放仍有标题，与 write/edit 在结果期重设 title 的做法一致。
+两个结果视图都不携带 `content` 副本。不渲染结构化 `web` 卡片的 UI 回退到原始 `tool/result` 内容，这也是 generic 卡片消费的输入。把结果内容复制进视图会在同一投递帧上重复最多 `fetchMaxOutputChars` 个字符却毫无收益（与 meta 一节对抓取正文的否决同理），因此视图省略它，回退路径渲染完全相同的文本。每个视图从调用参数设置其结果期 `title`（`args.query`／`args.url`），因此丢掉了调用头的窗口截断重放仍有标题，与 write/edit 在结果期重设 title 的做法一致。
 
 `presentResult` 在错误结果、以及 `meta` 缺失或畸形时返回 `undefined`（即 generic 卡片），因为 presentation 会在对任意已记录结果（可能来自旧 schema）的重放中运行，绝不能抛错。收窄器防御性地校验每个字段；空来源列表是有效 meta，而非畸形。
 
 ## Consequences
 
-`web_search`/`web_fetch` 的 `tool/result` 事件持久化一个 `data.meta` 载荷，其面向模型的 render 文本保持不变。Web 客户端通过 [web 卡片前端](2026-07-30-web-result-card-frontend.md)消费该视图。任何做穷尽 switch 的 `ToolResultView` 消费方都要新增一个 `web` 分支；generic 消费方回退到原始结果内容。`apiproxy` 的会话 schema 接受任意 `card` 字符串（`packages/host/apiproxy/src/api/sessions.schema.ts`），因此该视图无需 schema 变更即可跨 wire。
+前端消费方由后续独立 PR 交付：本次生产者变更新增契约分支并让两个工具发出它，不含客户端渲染。其唯一可观察的变化是 `web_search`/`web_fetch` 的 `tool/result` 事件持久化一个 `data.meta` 载荷（`web-fetch` keyless 快照当时随之刷新）；面向模型的 render 文本与 generic 回退内容保持不变。渲染 `web` 卡片的组装应用 transcript 快照属于渲染它的消费方变更。任何做穷尽 switch 的 `ToolResultView` 消费方都必须新增一个 `web` 分支；非穷尽消费方可以使用原始结果回退。`apiproxy` 的会话 schema 已接受任意 `card` 字符串（`packages/host/apiproxy/src/api/sessions.schema.ts`），因此新视图无需 schema 变更即可跨 wire。
 
 未来想用此卡片的 web 工具，声明一个返回带自有 `kind` 的 `card: 'web'` 视图的 `presentResult`；新增第三个 `kind` 是一次联合类型编辑加前端的分岔，而非一个新的 card 标签。
 
@@ -41,4 +41,4 @@ Status: implemented
 ## Related
 
 - [标签化的工具调用渲染意图联合类型](../architecture/2026-07-02-tool-render-intent-union.md) —— 本卡片以 `web` 分支扩展的 `card` 标签词汇表。
-- [Web terminal card](2026-07-28-web-terminal-card.md) —— 把 bash `terminal` 渲染意图带到浏览器的先例；web 前端消费方沿用同一模式。
+- [Web terminal card](2026-07-28-web-terminal-card.md) —— 把 bash `terminal` 渲染意图带到浏览器的先例；本分支的 web 前端消费者是它的对应物，推迟到后续 PR。
