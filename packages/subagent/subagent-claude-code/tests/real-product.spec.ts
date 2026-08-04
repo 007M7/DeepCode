@@ -64,7 +64,7 @@ interface RealHarness {
   readonly env: Record<string, string>
 }
 
-async function realHarness(script: readonly MessagesBehavior[]): Promise<{
+async function realHarness(behavior: MessagesBehavior): Promise<{
   readonly harness: RealHarness
   readonly fixture: MessagesFixture
 }> {
@@ -80,7 +80,7 @@ async function realHarness(script: readonly MessagesBehavior[]): Promise<{
     join(claudeConfig, 'settings.json'),
     `${JSON.stringify({ model: settingsModel }, null, 2)}\n`,
   )
-  const fixture = await startMessagesFixture(script)
+  const fixture = await startMessagesFixture(behavior)
   fixtures.push(fixture)
   const env = {
     ANTHROPIC_API_KEY: fakeKey,
@@ -149,9 +149,10 @@ describe('real Claude Agent SDK 0.3.220 and Claude Code 2.1.220', {
   it('inherits host settings and sends the exact task and fake key to local Messages', async () => {
     const sentinel = 'REAL_CLAUDE_CODE_SENTINEL_2_1_220'
     const task = 'Return the fixture sentinel exactly.'
-    const { harness, fixture } = await realHarness([
-      { kind: 'complete', text: sentinel },
-    ])
+    const { harness, fixture } = await realHarness({
+      kind: 'complete',
+      text: sentinel,
+    })
     expect(sdkPackage.version).toBe('0.3.220')
     expect(sdkPackage.claudeCodeVersion).toBe('2.1.220')
     expect(sdkPackage.optionalDependencies[platformPackage]).toBe('0.3.220')
@@ -191,7 +192,7 @@ describe('real Claude Agent SDK 0.3.220 and Claude Code 2.1.220', {
   })
 
   it('maps a real CLI process failure to error', async () => {
-    const { harness, fixture } = await realHarness([{ kind: 'hold' }])
+    const { harness, fixture } = await realHarness({ kind: 'hold' })
     const run = await startRequest(harness, 'Exercise the failure path.')
     await fixture.requestStarted
     expect(harness.handles).toHaveLength(1)
@@ -207,7 +208,7 @@ describe('real Claude Agent SDK 0.3.220 and Claude Code 2.1.220', {
   })
 
   it('settles cancellation and leaves the real SDK-spawned CLI tree quiescent', async () => {
-    const { harness, fixture } = await realHarness([{ kind: 'hold' }])
+    const { harness, fixture } = await realHarness({ kind: 'hold' })
     const controller = new AbortController()
     const run = await startRequest(
       harness,

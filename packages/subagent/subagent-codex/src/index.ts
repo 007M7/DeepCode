@@ -8,6 +8,7 @@
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import {
   assertPositiveFinite,
   NO_START_CAPABILITIES,
@@ -85,5 +86,10 @@ export function apply(ctx: Context, config: Config): void {
     'disposeGraceMs',
     resolved.disposeGraceMs,
   )
+  if (resolved.disposeGraceMs > MAX_TIMER_DELAY_MS) {
+    throw new Error(
+      `subagent-codex: disposeGraceMs must be no greater than ${MAX_TIMER_DELAY_MS}`,
+    )
+  }
   ctx.subagents.registerProvider(new CodexProvider(ctx, resolved))
 }

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-04-claude-code-and-codex-subagent-backends.md
-2026-08-04-claude-code-and-codex-subagent-backends.md: 27e805b142ed3541d5157e2440cb0a0d57ae461b
-2026-08-04-claude-code-and-codex-subagent-backends.zh.md: 633a0de7653b8e985b5bd6dcf5b9424d1764bf43
+2026-08-04-claude-code-and-codex-subagent-backends.md: e576065d7629bad4f41cabf4dbce3a99d0119f52
+2026-08-04-claude-code-and-codex-subagent-backends.zh.md: 1209d73c8c0a1a99061fa951ea25afb010289d61

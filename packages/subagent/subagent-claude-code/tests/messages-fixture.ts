@@ -83,18 +83,17 @@ function complete(
 
 /**
  * Start a loopback-only Anthropic Messages SSE fixture.
- * @param script - one behavior per Messages request.
+ * @param behavior - the single response behavior for this fixture.
  * @returns the bound server and its recorded requests.
  */
 export async function startMessagesFixture(
-  script: readonly MessagesBehavior[],
+  behavior: MessagesBehavior,
 ): Promise<MessagesFixture> {
   const requests: RecordedMessagesRequest[] = []
   let requestStartedResolve!: () => void
   const requestStarted = new Promise<void>((resolve) => {
     requestStartedResolve = resolve
   })
-  let behaviorIndex = 0
   const server = createServer((request, response) => {
     const chunks: Buffer[] = []
     request.on('data', (chunk: Buffer) => { chunks.push(chunk) })
@@ -117,18 +116,6 @@ export async function startMessagesFixture(
         body,
       })
       requestStartedResolve()
-      const behavior = script[behaviorIndex++]
-      if (behavior === undefined) {
-        response.writeHead(500, { 'content-type': 'application/json' })
-        response.end(JSON.stringify({
-          type: 'error',
-          error: {
-            type: 'api_error',
-            message: 'Messages fixture script was exhausted',
-          },
-        }))
-        return
-      }
       if (behavior.kind === 'complete') {
         complete(response, body, behavior.text)
       }

@@ -27,7 +27,7 @@ The provider advertises no optional start-time capabilities and reports `inherit
 | Key | Default | Meaning |
 |---|---|---|
 | `env` | `{}` | Explicit SDK/CLI environment layered over the shared credential-scrubbed parent environment. |
-| `disposeGraceMs` | `3000` | Positive finite grace in milliseconds between the shared process-tree owner's termination tiers; disposal then waits for whole-tree exit. |
+| `disposeGraceMs` | `3000` | Positive finite grace in milliseconds, no greater than [`MAX_TIMER_DELAY_MS`](../../util/timeout/README.md), between the shared process-tree owner's termination tiers; disposal then waits for whole-tree exit. |
 
 Production uses the Claude Code CLI supplied by `@anthropic-ai/claude-agent-sdk` and the host's native settings and authentication. The plugin does not install another CLI, select a model, create a product home, log in, or probe an account. Credential-shaped ambient variables are removed before the explicit `env` overlay is applied, so an API key or endpoint intended for the child must be supplied there; ordinary ambient values such as `PATH` and `HOME` remain available unless overridden.
 
@@ -51,7 +51,7 @@ Install this package and add the following rows to your own `cordis.yml`. Shippe
 
 ## Product compatibility and evidence
 
-The runtime dependency is pinned to `@anthropic-ai/claude-agent-sdk@0.3.220`, whose platform optional dependency supplies Claude Code 2.1.220. The keyless real-product spec drives that official SDK and CLI against a loopback Anthropic Messages SSE service with a non-empty fake key. It proves the exact task, authentication, byte-exact answer, inherited host-setting marker, process failure, cancellation, and process-tree exit. A separate Loader composition e2e boots the README-shaped user configuration alongside the Codex provider with neither product command available, verifies both fixed foreground-only tools, and records zero child starts. A credentialed e2e maps a runtime-only DeepSeek key to the official Claude Code environment contract, starts the production provider and real SDK/CLI against the fixed official `/anthropic` endpoint, requires a unique nonce, and proves process-tree exit without persisting the key or calling the Messages API directly from the test.
+The runtime dependency is pinned to `@anthropic-ai/claude-agent-sdk@0.3.220`, whose platform optional dependency supplies Claude Code 2.1.220. Required evidence exercises that official distribution through a keyless loopback product path and a credentialed DeepSeek path, while Loader composition proves that both opt-in product packages coexist without starting either product.
 
 The project owner's identity-scoped distribution authorization covers the official SDK and the official CLI/platform payloads declared by each SDK version. [`THIRD_PARTY_NOTICES.md`](../../../THIRD_PARTY_NOTICES.md) discloses the current optional payload closure without classifying its declared terms as permissive; unrelated non-permissive runtime dependencies continue to fail the notices gate.
 

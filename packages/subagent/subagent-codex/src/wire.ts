@@ -14,22 +14,6 @@ import { JsonRpcLineTransport } from '@deepseek-ai/dsh-sdk-protocol'
 
 type JsonObject = Record<string, unknown>
 
-interface Deferred<T> {
-  readonly promise: Promise<T>
-  readonly resolve: (value: T) => void
-  readonly reject: (reason?: unknown) => void
-}
-
-function deferred<T>(): Deferred<T> {
-  let resolve!: (value: T) => void
-  let reject!: (reason?: unknown) => void
-  const promise = new Promise<T>((settle, fail) => {
-    resolve = settle
-    reject = fail
-  })
-  return { promise, resolve, reject }
-}
-
 function object(value: unknown, label: string): JsonObject {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`subagent-codex: app-server returned invalid ${label}`)
@@ -98,11 +82,11 @@ async function raceAbort<T>(pending: Promise<T>, signal: AbortSignal): Promise<T
  */
 export class CodexAppServerWire {
   private readonly transport: JsonRpcLineTransport
-  private readonly fatal = deferred<never>()
+  private readonly fatal = Promise.withResolvers<never>()
   private threadId: string | undefined
   private turnId: string | undefined
   private pendingTurnId: string | undefined
-  private turnCompleted: Deferred<JsonObject> | undefined
+  private turnCompleted: PromiseWithResolvers<JsonObject> | undefined
   private readonly earlyTurnNotifications: Array<{
     readonly method: string
     readonly params: JsonObject
@@ -193,7 +177,7 @@ export class CodexAppServerWire {
     signal: AbortSignal,
     cancelled: () => boolean,
   ): Promise<SubagentResult> {
-    const completion = deferred<JsonObject>()
+    const completion = Promise.withResolvers<JsonObject>()
     this.turnCompleted = completion
     const threadId = this.threadId as string
     const response = object(await this.guarded(this.transport.request('turn/start', {
@@ -340,7 +324,8 @@ export class CodexAppServerWire {
 
   private handleNotification(method: string, params: JsonObject): void {
     if (method === 'turn/started') {
-      if (params.threadId !== this.threadId) return
+      const threadId = string(params.threadId, 'turn/started thread id')
+      if (threadId !== this.threadId) return
       const turn = object(params.turn, 'turn/started turn')
       if (this.turnCompleted !== undefined && this.turnId === undefined) {
         this.observePendingTurnId(string(turn.id, 'turn/started turn id'))
@@ -348,7 +333,8 @@ export class CodexAppServerWire {
       return
     }
     if (method === 'item/completed') {
-      if (params.threadId !== this.threadId) return
+      const threadId = string(params.threadId, 'item/completed thread id')
+      if (threadId !== this.threadId) return
       const id = string(params.turnId, 'item/completed turn id')
       if (this.turnId === undefined) {
         if (this.turnCompleted !== undefined) {
@@ -373,7 +359,8 @@ export class CodexAppServerWire {
       return
     }
     if (method !== 'turn/completed') return
-    if (params.threadId !== this.threadId) return
+    const threadId = string(params.threadId, 'turn/completed thread id')
+    if (threadId !== this.threadId) return
     const turn = object(params.turn, 'turn/completed turn')
     const id = string(turn.id, 'turn/completed turn id')
     const turnCompleted = this.turnCompleted

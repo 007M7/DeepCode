@@ -27,6 +27,7 @@ import type {
   SubprocessSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import * as claudeCode from '../src/index.ts'
 import * as invariant from '../src/invariant.ts'
 import {
@@ -74,8 +75,6 @@ async function nextTask(): Promise<void> {
 
 interface FakeChildOptions {
   readonly pid?: number
-  readonly stdin?: PassThrough | undefined
-  readonly stdout?: PassThrough | undefined
   readonly exitOnTerminate?: boolean
   readonly waitForExitError?: Error
   readonly doneError?: Error
@@ -145,8 +144,8 @@ function fakeChild(options: FakeChildOptions = {}): FakeChild {
   })
   const handle: SubprocessHandle = {
     pid: options.pid ?? 1234,
-    stdin: options.stdin === undefined ? stdin : options.stdin,
-    stdout: options.stdout === undefined ? stdout : options.stdout,
+    stdin,
+    stdout,
     stderr: undefined,
     collected: {},
     done,
@@ -232,7 +231,6 @@ function sdkSpawnOptions(
 
 interface FakeRun {
   readonly child: FakeChild
-  readonly query: Query
   readonly close: ReturnType<typeof vi.fn>
   readonly spawnSpecs: SubprocessSpawnSpec[]
   readonly options: Options[]
@@ -262,7 +260,7 @@ function fakeRun(
     params.options.spawnClaudeCodeProcess!(sdkSpawnOptions())
     return query
   })
-  return { child, query, close, spawnSpecs, options, spec }
+  return { child, close, spawnSpecs, options, spec }
 }
 
 beforeEach(() => {
@@ -318,6 +316,11 @@ describe('task admission and package contracts', () => {
       await expect(ctx.plugin(claudeCode, { disposeGraceMs }))
         .rejects.toThrow('disposeGraceMs must be a positive finite number')
     }
+    await expect(ctx.plugin(claudeCode, {
+      disposeGraceMs: MAX_TIMER_DELAY_MS + 1,
+    })).rejects.toThrow(
+      `disposeGraceMs must be no greater than ${MAX_TIMER_DELAY_MS}`,
+    )
     await ctx.fiber.dispose()
   })
 

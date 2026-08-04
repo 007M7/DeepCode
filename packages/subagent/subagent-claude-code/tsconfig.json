@@ -28,6 +28,9 @@
       "path": "../../subprocess/subprocess"
     },
     {
+      "path": "../../util/timeout"
+    },
+    {
       "path": "../../support/invariants"
     }
   ]
