@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compressZstdFrame, decompressZstdFrame, scanZstdFrames } from '../src/zstd.ts'
+import { compressZstdFrame, decompressZstdFrame, decompressZstdPrefix, scanZstdFrames } from '../src/zstd.ts'
 
 describe('JSONL Zstandard compatibility', () => {
   it('round-trips concatenated checksummed frames through the built-in Node API', async () => {
@@ -19,6 +19,6 @@ describe('JSONL Zstandard compatibility', () => {
     const eventFrame = encoded.subarray(frames[1]!.start, frames[1]!.end)
     const missingChecksumByte = eventFrame.subarray(0, -1)
     expect(scanZstdFrames(missingChecksumByte)).toEqual({ frames: [], tornStart: 0 })
-    expect((await decompressZstdFrame(missingChecksumByte)).toString()).toContain('"type":"turn/start"')
+    expect((await decompressZstdPrefix(missingChecksumByte)).toString()).toContain('"type":"turn/start"')
   })
 })

@@ -8,7 +8,7 @@ import type {
 } from '../contract/session-history.ts'
 import { createHistoryInspection } from '../sessions/history.ts'
 import { Notifier } from '../sessions/notifier.ts'
-import { PartialAccumulator } from '../sessions/partial.ts'
+import { isVisibleAssistantChunk, PartialAccumulator } from '../sessions/partial.ts'
 
 const HISTORY_PAGE_MESSAGES = 50
 
@@ -430,12 +430,4 @@ export class SessionHistorySource implements SessionHistoryFace {
     }
     return this.inspectionCache.value
   }
-}
-
-function isVisibleAssistantChunk(type: string): boolean {
-  return type === 'block-start'
-    || type === 'text-delta'
-    || type === 'reasoning-delta'
-    || type === 'tool-call-delta'
-    || type === 'block-end'
 }

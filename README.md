@@ -24,7 +24,7 @@ cd deepseek-harness
 scripts/install.sh
 ```
 
-The installer requires `git` and Node `^22.19 || >=24`, offers to install `pnpm` when it is missing, prompts for a DeepSeek API key, then lets you launch the Web UI or TUI. Choosing Web UI builds the required repository artifacts first.
+The installer requires `git` and Node `^22.19 || >=24`, offers to install `pnpm` when it is missing, prompts for a DeepSeek API key, builds the required repository artifacts, and launches the Web UI.
 
 The installer keeps every checkout under `~/.dsh/source`: the master clone at `~/.dsh/source/master` and each install's staging checkout as a git worktree `~/.dsh/source/staging-<timestamp>`. The stable symlink `~/.dsh/source/current` points at the active staging worktree, and `dsh` in `~/.local/bin` links to `current/bin/dsh`, so an upgrade repoints one symlink and the `dsh` on PATH never moves. Re-running the command adds a fresh staging worktree from an updated master and repoints `current` at it. See [`scripts/install.sh`](scripts/install.sh) for alternate install locations and other options.
 
@@ -41,13 +41,15 @@ dsh web
 
 The path above is the installer's default. If you set `DSH_SOURCE` or `DSH_CURRENT`, or reused an existing checkout, replace `~/.dsh/source/current` with that checkout path; see [`scripts/install.sh`](scripts/install.sh) for details. The Web UI is served at `http://127.0.0.1:3080` by default.
 
-### TUI
+### Configured runtime
 
-Start the full-screen terminal interface:
+Raw `dsh` requires a patch-list configuration applied over the shipped base:
 
 ```sh
-dsh
+dsh --config ./app.cordis.yml
 ```
+
+The [CLI contract](apps/cli/README.md#raw-config) describes the base, overlay semantics, and config dump commands.
 
 ### Headless
 
@@ -69,7 +71,7 @@ The [Python SDK](python/README.md) drives a bundled JSON-RPC runtime. The [examp
 
 ## Why DeepSeek Harness
 
-Built-in capabilities cover file reading, editing, and search; shell and persistent PTY execution; reusable skills; task tracking, goals, plans, todos, and background tasks; subagents and workflows; sandboxing and approvals; settings and credentials; persistent, resumable, forkable, and queryable sessions; LSP and web access; context compaction; and telemetry. Each composition selects the subset appropriate to its surface. The TUI and Web UI both include Plan Mode.
+Built-in capabilities cover file reading, editing, and search; shell and persistent PTY execution; reusable skills; task tracking, goals, plans, todos, and background tasks; subagents and workflows; sandboxing and approvals; settings and credentials; persistent, resumable, forkable, and queryable sessions; LSP and web access; context compaction; and telemetry. Each composition selects the subset appropriate to its surface. The Web UI includes Plan Mode.
 
 - **Everything is a plugin.** Models, tools, policies, storage, context management, and interfaces are composable [Cordis plugins](docs/user/develop/basic/index.md), so deployments can extend or replace behavior without forking the agent loop. See the [architecture](docs/architecture.md) for the underlying design.
 - **Runs are reconstructable.** Anything visible to the model is logged in the authoritative session stream; persistence, resume/fork/query, replay, telemetry, and UIs derive from the same events. See the [session-log architecture](docs/architecture.md#session-log).

@@ -24,7 +24,7 @@
  * synchronous cross-package require edges (e.g. locale → runtime/client) that
  * fiber inject waiting cannot protect — a bundle's factory must be
  * registered before any dependent entry materializes. Per-row prefetch
- * failures still resolve silently (the create-side import refetches and
+ * failures still resolve silently (the create-side import reloads and
  * owns the loud failure), so the barrier never turns one bad bundle into a
  * boot-wide fail-fast.
  *
@@ -47,8 +47,8 @@ import { getStaticModules } from './seed.ts'
 import { STATE_LABELS, createLoaderStatusStore, createSignal } from './loader-status.ts'
 import './base.css'
 
-/** Module transport seams the shell passes through (jsdom tests replace the <script> path). */
-export type BootSeams = Pick<ClientModuleSystemOptions, 'fetchBundle' | 'executeBundle'>
+/** Module transport seam the shell passes through (jsdom tests replace the <script> path). */
+export type BootSeams = Pick<ClientModuleSystemOptions, 'loadBundle'>
 
 /**
  * The modules package's own graph row id. The kernel adopts that entry
@@ -152,7 +152,7 @@ export class AppWebEntry {
     await Promise.all(this.manifest.plugins
       .filter(row => row.immediately)
       .map(row => this.modules.prefetch(row.id).catch(() => {
-        // Import refetches and reports this loudly per entry; swallowing
+        // Import reloads and reports this loudly per entry; swallowing
         // here keeps one failing prefetch from masking the others.
       })))
   }
@@ -189,7 +189,7 @@ export class AppWebEntry {
     const rows = [MODULES_ID, ...this.manifest.plugins.map(row => row.id).filter(id => id !== MODULES_ID), APP_SHELL_ID]
     // Entry creation order carries no semantics (fiber inject waiting owns
     // activation order); creating concurrently lets non-prefetched bundle
-    // fetches parallelize. The app-shell assembly entry is appended by the
+    // loads parallelize. The app-shell assembly entry is appended by the
     // kernel: it is shell-own code (host graph rows are all plugin bundles),
     // and mounting the assembly is not a composition decision — it rides the
     // same entry lifecycle so the sweep and status cover it uniformly.

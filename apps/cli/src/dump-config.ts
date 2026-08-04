@@ -1,12 +1,6 @@
 /**
- * `dsh --dump-config` / `dsh web --dump-config` — print the composed config
- * tree without booting: the shipped base, the surface overlay, and (unless
- * `--dump-default-config`) the `--config` or personal overlay, composed
- * through the include's own patch algorithm so the printed tree is exactly
- * what that surface would mount. `!!js` expressions print verbatim,
- * unevaluated — the dump shows composition, not one process's environment.
- * Launcher-provided boot-context values (session identity, CLI-flag patches)
- * are per-invocation facts outside the config tree and do not appear.
+ * Config-dump entry for raw `dsh --config` and `dsh web`: compose through the
+ * include plugin's patch algorithm without booting or evaluating `!!js`.
  * @module @deepseek-ai/dsh/dump-config
  */
 
@@ -22,38 +16,35 @@ import {
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 
 const NAME = 'dsh'
-
 const BASE_CONFIG = fileURLToPath(new URL('../config/base.cordis.yml', import.meta.url))
-const SURFACE_OVERLAYS = {
-  tui: fileURLToPath(new URL('../config/tui.cordis.yml', import.meta.url)),
-  web: fileURLToPath(new URL('../config/web.cordis.yml', import.meta.url)),
-} as const
+const WEB_OVERLAY = fileURLToPath(new URL('../config/web.cordis.yml', import.meta.url))
 
-/* v8 ignore start -- composition over the unit-tested renderConfigDump; the
-   built-bin e2e drives this path end to end */
+/* v8 ignore start -- built-bin acceptance drives this boot-free dispatch */
 /**
- * Print one surface's composed config tree to stdout, with a comment
- * separator naming the file each section of rows comes from (and the layers
- * that patched it).
- * @param surface - which surface overlay to compose over the shared base.
- * @param defaultOnly - stop at the surface overlay (no `--config`/personal layer).
- * @param config - the `--config` overlay path composed instead of the personal
- * one, or `undefined` to use `$DSH_HOME/config.yaml`.
+ * Print a raw or Web composition with provenance comments.
+ * @param surface - raw base-plus-config composition, or the Web composition.
+ * @param defaultOnly - omit the explicit or personal user layer.
+ * @param config - explicit overlay path; required for a non-default raw dump.
  */
-export function runDumpConfig(surface: 'tui' | 'web', defaultOnly: boolean, config?: string): void {
-  const overlay = SURFACE_OVERLAYS[surface]
-  const layers: ConfigDumpLayer[] = [
-    { label: basename(overlay), patches: loadOverlayPatches(NAME, overlay) },
-  ]
-  if (!defaultOnly) {
-    if (config === undefined) {
-      const personal = loadPersonalPatches(NAME)
-      // The personal file may be absent; the shipped layers still print.
-      if (personal !== undefined) {
-        layers.push({ label: join(resolveDshHome(), PERSONAL_CONFIG_FILENAME), patches: personal })
-      }
-    } else {
+export function runDumpConfig(surface: 'config' | 'web', defaultOnly: boolean, config?: string): void {
+  const layers: ConfigDumpLayer[] = []
+  if (surface === 'config') {
+    if (!defaultOnly) {
+      /* v8 ignore next -- parseDshArgs requires this combination */
+      if (config === undefined) throw new Error('dsh: raw config dump requires an overlay')
       layers.push({ label: config, patches: loadOverlayPatches(NAME, config) })
+    }
+  } else {
+    layers.push({ label: basename(WEB_OVERLAY), patches: loadOverlayPatches(NAME, WEB_OVERLAY) })
+    if (!defaultOnly) {
+      if (config === undefined) {
+        const personal = loadPersonalPatches(NAME)
+        if (personal !== undefined) {
+          layers.push({ label: join(resolveDshHome(), PERSONAL_CONFIG_FILENAME), patches: personal })
+        }
+      } else {
+        layers.push({ label: config, patches: loadOverlayPatches(NAME, config) })
+      }
     }
   }
   process.stdout.write(renderConfigDump(NAME, BASE_CONFIG, layers))

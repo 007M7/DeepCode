@@ -30,9 +30,6 @@
       "path": "../../packages/bash/tool-bash"
     },
     {
-      "path": "../../packages/ui/tui"
-    },
-    {
       "path": "../../packages/util/paths"
     },
     {

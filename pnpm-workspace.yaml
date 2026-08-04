@@ -32,8 +32,7 @@ peerDependencyRules:
 allowBuilds:
   esbuild: true
   lefthook: true
-  # Cross-platform PTY boundary for the TUI process smoke and persistent PTY backend,
-  # including ConPTY on Windows.
+  # Cross-platform boundary for the persistent PTY backend, including ConPTY on Windows.
   node-pty: true
   # Pulled in by @earendil-works/pi-ai (optional LLM API backend). pnpm lists
   # them only because they ship lifecycle scripts, but those are no-ops we don't
@@ -64,5 +63,4 @@ minimumReleaseAgeExclude:
   - '@earendil-works/pi-ai@0.82.1'
 
 patchedDependencies:
-  '@earendil-works/pi-tui@0.80.7': patches/@earendil-works__pi-tui@0.80.7.patch
   node-pty@1.1.0: patches/node-pty@1.1.0.patch

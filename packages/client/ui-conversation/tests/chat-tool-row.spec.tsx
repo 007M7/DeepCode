@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 
-afterEach(cleanup)
 import type { RunningToolCall, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
@@ -11,6 +10,36 @@ import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
 import { ToolRow } from '../src/client/chat/ToolRow.tsx'
 import { GenericToolCard, type GenericToolCardProps } from '../src/client/chat/GenericToolCard.tsx'
 import { zh } from '../src/client/locales.ts'
+
+let nextAnimationFrameId = 1
+let animationFrames = new Map<number, FrameRequestCallback>()
+
+function flushAnimationFrames(count: number): void {
+  for (let index = 0; index < count; index += 1) {
+    const callbacks = [...animationFrames.values()]
+    animationFrames.clear()
+    for (const callback of callbacks) callback(index)
+  }
+}
+
+beforeEach(() => {
+  nextAnimationFrameId = 1
+  animationFrames = new Map()
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    const id = nextAnimationFrameId
+    nextAnimationFrameId += 1
+    animationFrames.set(id, callback)
+    return id
+  })
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => {
+    animationFrames.delete(id)
+  })
+})
+
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 
 // Mirrors the real lookup chain (conversation namespace, then common).
 const t: GenericToolCardProps['t'] = makeTranslate(zh, commonZh)
@@ -341,6 +370,10 @@ describe('ThinkRow', () => {
         streaming
       />,
     )
+    expect(summary.scrollLeft).toBe(0)
+    flushAnimationFrames(2)
+    expect(summary.scrollLeft).toBe(0)
+    flushAnimationFrames(1)
     expect(summary.scrollLeft).toBe(200)
     expect(summary.getAttribute('data-follow-end')).toBe('true')
 
@@ -351,6 +384,7 @@ describe('ThinkRow', () => {
         streaming={false}
       />,
     )
+    flushAnimationFrames(3)
     expect(view.getByText('Inspect the session')).toBeTruthy()
     expect(summary.scrollLeft).toBe(0)
     expect(summary.hasAttribute('data-follow-end')).toBe(false)

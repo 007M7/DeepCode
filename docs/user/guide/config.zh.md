@@ -8,7 +8,8 @@ Harness 使用 `cordis.yml` 描述 Agent 加载哪些插件以及每个插件的
 
 仓库中的示例就是可以运行的配置，也是新项目最可靠的起点：
 
-- [共享的 `dsh` base](../../../apps/cli/config/base.cordis.yml) 叠加 [`tui.cordis.yml`](../../../apps/cli/config/tui.cordis.yml) overlay，组合 DeepSeek 模型、Bash、文件系统、压缩、子代理、工作流和交互式 TUI。
+- [共享的 `dsh` base](../../../apps/cli/config/base.cordis.yml) 提供通用的模型、工具、持久化、策略与遥测配置项；原始 `dsh --config <path>` 要求传入一份 patch 列表，用于选择部署特定的 agent 和前端入口。
+- [Web overlay](../../../apps/cli/config/web.cordis.yml) 添加浏览器宿主、Workspace 管理、浏览器交互与客户端插件。
 - [headless-agent](../../../examples/headless-agent/cordis.yml) 以单次任务形式暴露 coding 组装。
 - [acp-agent](../../../examples/acp-agent/cordis.yml) 向程序化 ACP（Agent Client Protocol）客户端提供全新会话。
 
@@ -50,7 +51,7 @@ Harness 使用 `cordis.yml` 描述 Agent 加载哪些插件以及每个插件的
 
 ## CLI 覆盖层
 
-TUI 先组合 `base.cordis.yml` 与 `tui.cordis.yml`，再应用一个可选补丁列表。默认的最后一层是 `~/.dsh/config.yaml`；`dsh --config <path>` 会以指定覆盖替代个人补丁列表。`dsh --config-replace <path>` 则把指定文件作为完整配置树启动，不使用已交付配置或个人层。`dsh web --config <path>` 会在共享基础配置与 Web 界面默认值之后、Web profile 与命令行标志补丁之前添加覆盖。
+原始 `dsh --config <path>` 要求传入一份 patch 列表，并将其直接应用在 `base.cordis.yml` 之上。它不会添加 surface overlay 或 `~/.dsh/config.yaml`，指定文件也不是完整替换树。`dsh web` 先组合 `base.cordis.yml` 与 `web.cordis.yml`，再应用 `~/.dsh/config.yaml`；`dsh web --config <path>` 会以指定 overlay 替代该个人层。Web profile 与 CLI（命令行界面）标志 patch 位于用户层之后。
 
 补丁会替换目标行的整个 `config` 值，而不是深度合并各个键。例如，只用 `config: { thinking: disabled }` 修补 `llm-deepseek`，也会移除该行原有的 `apiKey` 与 `baseURL`；因此必须重新写出该行需要保留的全部键。
 

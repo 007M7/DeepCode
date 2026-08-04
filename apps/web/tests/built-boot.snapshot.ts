@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // The built-bundle boot smoke: the ONE assembled-jsdom test that loads the
 // real `packages/client/*/lib/client.js` artifacts through AppWebEntry's
-// ModuleLoader path (fetchBundle/executeBundle) and proves the boot graph
+// ModuleLoader path (loadBundle) and proves the boot graph
 // assembles — staged activation across the immediately tier and the inject
 // layers, per-plugin CSS injection, and a rendered journey reaching chat
 // content from the keyless FixtureApiClient transport.
@@ -91,11 +91,11 @@ it('boots the built plugin graph and renders a fixture session end to end', asyn
   win.__DSH_BOOT__ = { rev: 'fx', entries: PLUGINS.map(({ dir: _dir, ...plugin }) => plugin) }
   act(() => {
     const entry = new AppWebEntry(root, {
-      fetchBundle: (url) => {
+      loadBundle: async (url) => {
         const code = bundles.get(url)
-        return code === undefined ? Promise.reject(new Error(`missing built bundle ${url}`)) : Promise.resolve(code)
+        if (code === undefined) throw new Error(`missing built bundle ${url}`)
+        ;(0, eval)(code)
       },
-      executeBundle: (code) => { (0, eval)(code) },
     })
     void entry.run()
     unmount = () => { entry.dispose() }
