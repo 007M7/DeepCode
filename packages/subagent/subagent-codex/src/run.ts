@@ -24,6 +24,23 @@ import { CodexAppServerWire } from './wire.ts'
 /** Default POSIX grace between subprocess termination tiers. */
 export const DEFAULT_DISPOSE_GRACE_MS = 3_000
 
+/**
+ * Resolve the fixed app-server command for a platform.
+ *
+ * Windows npm and pnpm installs expose `codex.cmd`, which requires `cmd.exe`;
+ * the argv is constant so no task or configuration text enters the
+ * shell boundary.
+ * @param platform - host platform used to select the executable boundary.
+ * @returns argv for the fixed Codex app-server command.
+ */
+export function codexAppServerArgv(
+  platform: NodeJS.Platform = process.platform,
+): string[] {
+  return platform === 'win32'
+    ? ['cmd.exe', '/d', '/s', '/c', 'codex', 'app-server', '--stdio']
+    : ['codex', 'app-server', '--stdio']
+}
+
 /** Fully resolved inputs for one Codex app-server run. */
 export interface CodexRunSpec {
   /** Parent Session workspace, also supplied to `thread/start`. */
@@ -106,7 +123,7 @@ export async function startCodexRun(
   }
 
   const child = spec.spawn({
-    argv: ['codex', 'app-server', '--stdio'],
+    argv: codexAppServerArgv(),
     cwd: spec.cwd,
     stdio: { stdin: 'pipe', stdout: 'pipe', stderr: 'inherit' },
     graceMs: spec.disposeGraceMs,
