@@ -151,6 +151,8 @@ const DENIAL_SIGNATURES = {
  * fatal-line launcher-failure contract. Bubblewrap's current fatal paths exit
  * 1 but its public contract does not reserve that status, while sandbox-exec
  * publishes no launcher-failure status; those backends remain signature-only.
+ * Keep the Landlock tuple aligned with the assembled snapshot fixture at
+ * `examples/acp-agent/tests/fixtures/partial-landlock-sandbox.ts`.
  */
 const RUNNER_FAILURE_RULES = {
   bwrap: [{ fatalSignatures: ['bwrap: '] }],
