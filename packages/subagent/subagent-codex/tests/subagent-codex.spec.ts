@@ -300,6 +300,27 @@ describe('task admission and package contracts', () => {
     await ctx.fiber.dispose()
   })
 
+  it('requires a parent session cwd without suggesting unsupported config', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SubagentService)
+    await ctx.plugin(LocalSubprocessService)
+    const spawn = vi.spyOn(ctx.subprocess, 'spawn')
+    await ctx.plugin(codex, {})
+
+    await expect(ctx.subagents.start('codex', {
+      prompt: [{ type: 'text', text: 'task' }],
+      parent: {
+        id: 'parent-without-cwd',
+        session: { header: {} },
+      } as unknown as Agent,
+      signal: new AbortController().signal,
+    })).rejects.toThrow(
+      'subagent-codex: no working directory for the child — delegate from a parent session that has one',
+    )
+    expect(spawn).not.toHaveBeenCalled()
+    await ctx.fiber.dispose()
+  })
+
   it('keeps the namespace export shape and package-owned empty invariant', async () => {
     expect('default' in codex).toBe(false)
     expect(codex.name).toBe('subagent-codex')

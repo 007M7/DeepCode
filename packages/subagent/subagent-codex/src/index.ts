@@ -55,11 +55,17 @@ class CodexProvider implements SubagentProvider {
   ) {}
 
   start(request: ResolvedSubagentStartRequest) {
+    const parentCwd = request.parent.session.header.cwd
+    if (parentCwd === undefined) {
+      throw new Error(
+        'subagent-codex: no working directory for the child — delegate from a parent session that has one',
+      )
+    }
     const spec: CodexRunSpec = {
       cwd: resolveChildCwd(
         'subagent-codex',
         undefined,
-        request.parent.session.header.cwd,
+        parentCwd,
       ),
       env: this.config.env,
       disposeGraceMs: this.config.disposeGraceMs,
