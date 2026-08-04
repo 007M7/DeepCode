@@ -595,6 +595,8 @@ describe('command launcher chrome and control seats', () => {
     const trigger = view.getByLabelText(/^访问模式/) as HTMLButtonElement
     // Title-case display is presentation only; the menu ids stay machine names.
     expect(trigger.textContent).toBe('Read Only')
+    expect([...trigger.querySelectorAll('svg')]
+      .every(icon => icon.closest('[aria-hidden="true"]') !== null)).toBe(true)
     fireEvent.click(trigger)
     const items = view.getAllByRole('menuitem')
     expect(items.map(o => o.textContent)).toEqual(['Read Only', 'Workspace Write', 'Full access'])

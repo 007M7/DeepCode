@@ -24,8 +24,8 @@
 - scrollbar-width: auto
 - scrollbar-color: auto
 - ::-webkit-scrollbar-thumb:hover declarations: var(--dsh-scrollbar-thumb-hover)
-- --dsh-scrollbar-thumb: rgb(60, 60, 61)
-- --dsh-scrollbar-thumb-hover: rgb(84, 85, 87)
+- --dsh-scrollbar-thumb: rgb(84, 85, 87)
+- --dsh-scrollbar-thumb-hover: rgb(101, 103, 107)
 - list overflows: true
 - reserved band: 8px
 - relative time covered by the bar: 0px

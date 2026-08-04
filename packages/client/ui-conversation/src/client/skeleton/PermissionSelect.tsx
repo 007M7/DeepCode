@@ -148,7 +148,9 @@ export function PermissionSelect({ value, locked, command, t }: PermissionSelect
             )}
             <span className={css.triggerLabel}>{current === undefined ? displayName(currentValue) : optionLabel(current)}</span>
             {/* Same glyph + open rotation as the sibling ModelSelect trigger. */}
-            <IconChevronDownOutline14 className={clsx(css.chevron, open && css.chevronOpen)} />
+            <span className={clsx(css.chevron, open && css.chevronOpen)} aria-hidden>
+              <IconChevronDownOutline14 />
+            </span>
           </button>
         }
       />
