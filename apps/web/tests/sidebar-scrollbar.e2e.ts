@@ -106,7 +106,9 @@ interface ListMetrics {
   overflows: boolean
   /** Border-box width minus client width: the space the scrollbar takes out of the content area. */
   band: number
-  /** Distance from the first row background's right edge to the list border box. */
+  /** Distance from the scrollbar's right edge to the sidebar edge. */
+  scrollbarEdgeOffset: number
+  /** Distance from the first row background's right edge to the sidebar edge. */
   rowEdgeInset: number
   /** Client-area right edge in viewport coordinates (`clientWidth` excludes the scrollbar band). */
   clientRight: number
@@ -172,6 +174,8 @@ function measureList(page: Page): Promise<ListMetrics> {
     const pseudoWidth = getComputedStyle(list, '::-webkit-scrollbar').width
     const barWidth = pseudoWidth === 'auto' ? 15 : Number.parseFloat(pseudoWidth)
     const listRect = list.getBoundingClientRect()
+    const sidebarEdge = list.parentElement?.getBoundingClientRect().right
+    if (sidebarEdge === undefined) throw new Error('sidebar session list has no layout parent')
     return {
       gutter: style.scrollbarGutter,
       width: pseudoWidth,
@@ -183,7 +187,8 @@ function measureList(page: Page): Promise<ListMetrics> {
       hoverToken: resolve('--dsh-scrollbar-thumb-hover'),
       overflows: list.scrollHeight > list.clientHeight,
       band: listRect.width - list.clientWidth,
-      rowEdgeInset: listRect.right - row.getBoundingClientRect().right,
+      scrollbarEdgeOffset: sidebarEdge - listRect.right,
+      rowEdgeInset: sidebarEdge - row.getBoundingClientRect().right,
       clientRight: listRect.left + list.clientWidth,
       borderRight: listRect.right,
       timeRight: time.getBoundingClientRect().right,
@@ -211,9 +216,11 @@ function measureRowInset(page: Page): Promise<Pick<ListMetrics, 'overflows' | 'r
     if (list === null) throw new Error('sidebar session list not in the DOM')
     const row = list.querySelector<HTMLElement>('[role="treeitem"]')
     if (row === null) throw new Error('no row in the sidebar list')
+    const sidebarEdge = list.parentElement?.getBoundingClientRect().right
+    if (sidebarEdge === undefined) throw new Error('sidebar session list has no layout parent')
     return {
       overflows: list.scrollHeight > list.clientHeight,
-      rowEdgeInset: list.getBoundingClientRect().right - row.getBoundingClientRect().right,
+      rowEdgeInset: sidebarEdge - row.getBoundingClientRect().right,
     }
   })
 }
@@ -247,6 +254,7 @@ function renderGeometry(light: ListMetrics, dark: ListMetrics): string {
     `- --dsh-scrollbar-thumb-hover: ${metrics.hoverToken}`,
     `- list overflows: ${String(metrics.overflows)}`,
     `- reserved band: ${String(metrics.band)}px`,
+    `- scrollbar inset from the sidebar edge: ${String(metrics.scrollbarEdgeOffset)}px`,
     `- row background inset from the sidebar edge: ${String(metrics.rowEdgeInset)}px`,
     `- relative time covered by the bar: ${String(metrics.timeCoveredBy)}px`,
     `- relative time ends inside the content area: ${String(metrics.timeRight <= metrics.clientRight)}`,
@@ -325,6 +333,7 @@ describe('web e2e: sidebar session list scrollbar (reserved gutter / themed thum
     // drawn over it. Removing the declaration makes it exactly 0. The value
     // itself is not pinned — it tracks `scrollbar-width` and the platform.
     expect(metrics.band).toBeGreaterThan(0)
+    expect(metrics.scrollbarEdgeOffset).toBe(2)
     expect(metrics.rowEdgeInset).toBe(12)
     // The reported symptom, stated directly: no part of the row's relative time
     // lies under the bar. Measures 7 on clean master — the `h` of `1h` is the
