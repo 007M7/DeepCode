@@ -14,6 +14,7 @@ const root = resolve(import.meta.dirname, '..')
 const workspaceGlobs = [
   { dir: 'vendor', depth: 1 },
   { dir: 'packages', depth: 2 },
+  { dir: 'apps', depth: 1 },
 ] as const
 const vendoredPackages = new Set([
   'cordis',
@@ -28,6 +29,10 @@ const vendoredPackages = new Set([
 ])
 
 const localArtifactDirs = new Set(['node_modules'])
+const appPackageFiles: Readonly<Record<string, readonly string[]>> = {
+  '@deepseek-ai/dsh': ['lib/*.js', 'config', 'src'],
+  '@deepseek-ai/dsh-frontend': ['dist'],
+}
 
 /** The subset of package.json fields this constraint check cares about. */
 interface PackageManifest {
@@ -96,6 +101,7 @@ function workspaceManifests(): WorkspaceManifest[] {
 }
 
 const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
+  '@deepseek-ai/dsh-client-ui-theme': ['lib/styles'],
   '@deepseek-ai/dsh-helper': ['lib/assets'],
   '@deepseek-ai/dsh-pty-local': ['scripts/ensure-spawn-helper.mjs'],
   '@deepseek-ai/dsh-scripts': [
@@ -165,7 +171,16 @@ function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
     return errors
   }
 
-  if (manifest.name?.startsWith('@deepseek-ai/dsh-') && manifest.name !== '@deepseek-ai/dsh-root') {
+  if (dir.startsWith('apps/') && manifest.name?.startsWith('@deepseek-ai/')) {
+    const expectedFiles = appPackageFiles[manifest.name]
+    if (expectedFiles === undefined) {
+      errors.push(`${label}: app package has no publication files policy`)
+    } else if (!sameStringList(manifest.files, expectedFiles)) {
+      errors.push(`${label}: package.json files must be ${JSON.stringify(expectedFiles)}`)
+    }
+  }
+
+  if (dir.startsWith('packages/') && manifest.name?.startsWith('@deepseek-ai/dsh-')) {
     const peer = manifest.peerDependencies?.cordis
     const dev = manifest.devDependencies?.cordis
 
