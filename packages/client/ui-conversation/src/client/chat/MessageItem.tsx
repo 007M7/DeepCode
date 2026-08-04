@@ -1,7 +1,8 @@
 // MessageItem: simple chat nodes — user and consumed-steering bubbles
-// (right-aligned, with clock + copy / branch IconActions), pending steering
-// (copy only), context injection, compaction marker, retry disclosure, and
-// unknown-surface JSON rows.
+// (right-aligned, with clock + copy / branch IconActions; steering adds the
+// interjection caption that names it), pending steering (caption + copy only),
+// context injection, compaction marker, retry disclosure, and unknown-surface
+// JSON rows.
 
 import { memo, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
