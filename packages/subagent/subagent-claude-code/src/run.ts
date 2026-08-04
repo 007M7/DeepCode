@@ -18,9 +18,9 @@ import {
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import {
-  doubledGraceWindow,
   settleRunResult,
   subprocessRunHandle,
+  thrownError,
   type SubagentResult,
   type SubagentRun,
   type SubagentStartRequest,
@@ -39,30 +39,18 @@ import {
 /** Default POSIX grace between subprocess termination tiers. */
 export const DEFAULT_DISPOSE_GRACE_MS = 3_000
 
-type QueryFactory = (params: {
-  prompt: string
-  options: Options
-}) => Query
-
 /** Fully resolved inputs for one official Claude Agent SDK query. */
 export interface ClaudeCodeRunSpec {
   /** Parent Session workspace supplied to the SDK and real CLI. */
   readonly cwd: string
   /** Explicit deployment/test environment layered after shared scrubbing. */
   readonly env: Record<string, string>
-  /** Subprocess termination grace and final tree-exit bound. */
+  /** Subprocess termination grace passed to the shared process-tree owner. */
   readonly disposeGraceMs: number
   /** Shared subprocess service spawn operation. */
   readonly spawn: (spec: SubprocessSpawnSpec) => SubprocessHandle
-  /** Official query entrypoint; replaced only by package-local unit tests. */
-  readonly query?: QueryFactory
   /** Diagnostic sink for a post-publication error flattened into a result. */
   readonly onError?: (error: Error, stopReason: SubagentStopReason) => void
-}
-
-function thrown(value: unknown): Error {
-  /* v8 ignore next -- SDK and subprocess failures reject with Error. */
-  return value instanceof Error ? value : new Error(String(value))
 }
 
 /**
@@ -110,18 +98,15 @@ export function successfulResult(message: SDKResultMessage): string {
  * Consume the complete SDK stream and require one strict success plus normal
  * iterator completion.
  * @param query - published official SDK query.
- * @param setOutput - captures the candidate result for error diagnostics.
  * @returns the completed shared result.
  */
 export async function consumeClaudeQuery(
   query: AsyncIterable<SDKMessage>,
-  setOutput: (output: ContentBlock[]) => void,
 ): Promise<SubagentResult> {
   let answer: string | undefined
   for await (const message of query) {
     if (message.type !== 'result') continue
     answer = successfulResult(message)
-    setOutput([{ type: 'text', text: answer }])
   }
   if (answer === undefined) {
     throw new Error('subagent-claude-code: Claude Code ended without a result')
@@ -137,48 +122,30 @@ export async function consumeClaudeQuery(
  * the subprocess owner to prove it is gone.
  * @param query - official SDK query, when creation reached that point.
  * @param child - shared-service handle that owns the CLI process tree.
- * @param graceMs - termination grace used to bound final exit observation.
  */
 export async function disposeClaudeCodeChild(
   query: Pick<Query, 'close'> | undefined,
   child: SubprocessHandle,
-  graceMs: number,
 ): Promise<void> {
   const failures: Error[] = []
-  let treeExited = child.pid <= 0
   try {
     query?.close()
   } catch (error: unknown) {
-    failures.push(thrown(error))
+    failures.push(thrownError(error))
   }
 
   if (child.pid > 0) {
     child.terminate()
-    const exitWindow = doubledGraceWindow(graceMs)
     try {
-      treeExited = await child.waitForExit(exitWindow.signal)
-      if (!treeExited) {
-        failures.push(new Error(
-          'subagent-claude-code: Claude Code process tree did not exit within its dispose window',
-        ))
-      }
+      await child.waitForExit()
     } catch (error: unknown) {
-      failures.push(thrown(error))
-    } finally {
-      exitWindow.cancel()
+      failures.push(thrownError(error))
     }
   }
-  if (treeExited) {
-    try {
-      await child.done
-    } catch (error: unknown) {
-      failures.push(thrown(error))
-    }
-  } else {
-    // The bounded tree observation owns teardown completion. Keep a later
-    // direct-child spawn failure observed without turning that bound into an
-    // unbounded wait.
-    void child.done.catch(() => {})
+  try {
+    await child.done
+  } catch (error: unknown) {
+    failures.push(thrownError(error))
   }
 
   const firstFailure = failures[0]
@@ -244,7 +211,7 @@ export async function startClaudeCodeRun(
   let child: SubprocessHandle | undefined
   let query: Query | undefined
   try {
-    query = (spec.query ?? officialQuery)({
+    query = officialQuery({
       prompt,
       options: claudeQueryOptions(spec, controller, (captured) => {
         child = captured
@@ -264,10 +231,10 @@ export async function startClaudeCodeRun(
     requestCancel()
     if (child !== undefined) {
       try {
-        await disposeClaudeCodeChild(query, child, spec.disposeGraceMs)
+        await disposeClaudeCodeChild(query, child)
       } catch (disposeError: unknown) {
         throw new AggregateError(
-          [thrown(error), thrown(disposeError)],
+          [thrownError(error), thrownError(disposeError)],
           'subagent-claude-code: startup failed and CLI cleanup also failed',
         )
       }
@@ -276,7 +243,7 @@ export async function startClaudeCodeRun(
         query.close()
       } catch (disposeError: unknown) {
         throw new AggregateError(
-          [thrown(error), thrown(disposeError)],
+          [thrownError(error), thrownError(disposeError)],
           'subagent-claude-code: startup failed and query cleanup also failed',
         )
       }
@@ -285,17 +252,14 @@ export async function startClaudeCodeRun(
     if (cancelledBeforeCleanup || request.signal.aborted) {
       throw new Error('subagent-claude-code: request was aborted before SDK startup')
     }
-    throw thrown(error)
+    throw thrownError(error)
   }
 
-  let output: ContentBlock[] = []
   const publishedQuery = query
   const publishedChild = child
   const result = settleRunResult({
-    attempt: () => consumeClaudeQuery(publishedQuery, (value) => {
-      output = value
-    }),
-    collectOutput: () => output,
+    attempt: () => consumeClaudeQuery(publishedQuery),
+    collectOutput: () => [],
     cancelled: () => controller.signal.aborted,
     onError: spec.onError,
     signal: request.signal,
@@ -311,7 +275,6 @@ export async function startClaudeCodeRun(
     teardown: () => disposeClaudeCodeChild(
       publishedQuery,
       publishedChild,
-      spec.disposeGraceMs,
     ),
   })
 }

@@ -11,9 +11,9 @@ import { randomUUID } from 'node:crypto'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import {
-  doubledGraceWindow,
   settleRunResult,
   subprocessRunHandle,
+  thrownError,
   type SubagentResult,
   type SubagentRun,
   type SubagentStartRequest,
@@ -31,17 +31,12 @@ export interface CodexRunSpec {
   readonly cwd: string
   /** Explicit deployment/test environment layered after the shared scrub. */
   readonly env: Record<string, string>
-  /** Subprocess termination grace and final tree-exit bound. */
+  /** Subprocess termination grace passed to the shared process-tree owner. */
   readonly disposeGraceMs: number
   /** Shared subprocess service spawn operation. */
   readonly spawn: (spec: SubprocessSpawnSpec) => SubprocessHandle
   /** Diagnostic sink for a post-publication error flattened into a result. */
   readonly onError?: (error: Error, stopReason: SubagentStopReason) => void
-}
-
-function thrown(value: unknown): Error {
-  /* v8 ignore next -- typed subprocess/wire failures reject with Error. */
-  return value instanceof Error ? value : new Error(String(value))
 }
 
 /**
@@ -71,12 +66,10 @@ export function textTask(prompt: readonly ContentBlock[]): string[] {
  * subprocess owner to prove it is gone.
  * @param wire - private app-server protocol connection.
  * @param child - shared-service handle that owns the process tree.
- * @param graceMs - termination grace used to bound final exit observation.
  */
 export async function disposeCodexChild(
   wire: CodexAppServerWire,
   child: SubprocessHandle,
-  graceMs: number,
 ): Promise<void> {
   wire.close()
   if (child.pid <= 0) {
@@ -89,14 +82,7 @@ export async function disposeCodexChild(
     // A concurrently closed stdin does not change tree ownership below.
   }
   child.terminate()
-  const exitWindow = doubledGraceWindow(graceMs)
-  try {
-    if (!(await child.waitForExit(exitWindow.signal))) {
-      throw new Error('subagent-codex: app-server process tree did not exit within its dispose window')
-    }
-  } finally {
-    exitWindow.cancel()
-  }
+  await child.waitForExit()
   await child.done
 }
 
@@ -127,15 +113,14 @@ export async function startCodexRun(
     child.stdout as NonNullable<SubprocessHandle['stdout']>,
     child.stdin as NonNullable<SubprocessHandle['stdin']>,
   )
-  const disposeProcess = (): Promise<void> =>
-    disposeCodexChild(wire, child, spec.disposeGraceMs)
+  const disposeProcess = (): Promise<void> => disposeCodexChild(wire, child)
 
   const processFailure: Promise<never> = child.done.then(
     outcome => Promise.reject(new Error(
       'subagent-codex: app-server exited before the run settled '
       + `(code ${String(outcome.exitCode)}, signal ${String(outcome.signal)})`,
     )),
-    (error: unknown) => Promise.reject(thrown(error)),
+    (error: unknown) => Promise.reject(thrownError(error)),
   )
   // A normal post-result dispose also closes the process. Keep that expected
   // late rejection observed after the result race has already settled.
@@ -160,14 +145,14 @@ export async function startCodexRun(
       await disposeProcess()
     } catch (disposeError: unknown) {
       throw new AggregateError(
-        [thrown(error), thrown(disposeError)],
+        [thrownError(error), thrownError(disposeError)],
         'subagent-codex: startup failed and app-server cleanup also failed',
       )
     }
     if (runAbort.signal.aborted) {
       throw new Error('subagent-codex: request was aborted before app-server startup')
     }
-    throw thrown(error)
+    throw thrownError(error)
   }
 
   const collectOutput = (): ContentBlock[] => wire.collectOutput()

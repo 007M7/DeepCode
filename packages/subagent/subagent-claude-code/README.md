@@ -27,7 +27,7 @@ The provider advertises no optional start-time capabilities and reports `inherit
 | Key | Default | Meaning |
 |---|---|---|
 | `env` | `{}` | Explicit SDK/CLI environment layered over the shared credential-scrubbed parent environment. |
-| `disposeGraceMs` | `3000` | Positive finite process-tree termination grace in milliseconds; the final exit proof is bounded at twice this value. |
+| `disposeGraceMs` | `3000` | Positive finite grace in milliseconds between the shared process-tree owner's termination tiers; disposal then waits for whole-tree exit. |
 
 Production uses the Claude Code CLI supplied by `@anthropic-ai/claude-agent-sdk` and the host's native settings and authentication. The plugin does not install another CLI, select a model, create a product home, log in, or probe an account. Credential-shaped ambient variables are removed before the explicit `env` overlay is applied, so an API key or endpoint intended for the child must be supplied there; ordinary ambient values such as `PATH` and `HOME` remain available unless overridden.
 

@@ -42,49 +42,6 @@ export function assertPositiveFinite(prefix: string, name: string, value: number
   }
 }
 
-/** Largest delay Node schedules without collapsing it to one millisecond. */
-const MAX_TIMER_DELAY_MS = 2_147_483_647n
-
-/**
- * Bound final exit observation at twice a positive finite grace without
- * narrowing public provider config to Node's single-timer integer range.
- * @param graceMs - the already validated positive finite termination grace.
- * @returns a cancellable abort signal for the doubled observation window.
- */
-export function doubledGraceWindow(graceMs: number): {
-  readonly signal: AbortSignal
-  readonly cancel: () => void
-} {
-  const whole = Math.floor(graceMs)
-  let remaining = BigInt(whole) * 2n
-    + BigInt(Math.ceil((graceMs - whole) * 2))
-  const controller = new AbortController()
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const arm = (): void => {
-    const chunk = remaining > MAX_TIMER_DELAY_MS
-      ? MAX_TIMER_DELAY_MS
-      : remaining
-    remaining -= chunk
-    timer = setTimeout(() => {
-      timer = undefined
-      if (remaining === 0n) {
-        controller.abort()
-      } else {
-        arm()
-      }
-    }, Number(chunk))
-  }
-  arm()
-  return {
-    signal: controller.signal,
-    cancel: () => {
-      if (timer === undefined) return
-      clearTimeout(timer)
-      timer = undefined
-    },
-  }
-}
-
 /**
  * Whether `path` names an existing directory the harness can ENTER. The
  * search-permission probe matters: `statSync().isDirectory()` is true for a
@@ -162,8 +119,12 @@ export function resolveChildCwd(prefix: string, configured: string | undefined, 
   return assertUsableCwd(prefix, 'parent session cwd', parentCwd)
 }
 
-/** Normalize an unknown thrown value to an Error (the catch binding is `unknown`). */
-function toError(value: unknown): Error {
+/**
+ * Normalize an unknown thrown value to an Error.
+ * @param value - the unknown catch binding.
+ * @returns the original Error or a defensive Error wrapper.
+ */
+export function thrownError(value: unknown): Error {
   // The rejecting surfaces (wire clients, spawn failures) only throw
   // `Error`s; the `String(value)` arm is a defensive fallback for a non-Error
   // throw the typed surfaces cannot produce.
@@ -175,9 +136,9 @@ function toError(value: unknown): Error {
 export interface RunResultSettlement {
   /** The turn attempt (typically racing local cancellation); returns the terminal result. */
   attempt: () => Promise<SubagentResult>
-  /** Snapshot of the child output streamed so far (a partial answer survives failure). */
+  /** Snapshot the provider exposes when cancellation or failure wins settlement. */
   collectOutput: () => ContentBlock[]
-  /** Whether local cancellation settled (an in-flight rejection then reads as `aborted`). */
+  /** Whether local cancellation settled before the attempt's outcome is observed. */
   cancelled: () => boolean
   /** Diagnostic sink for a failure flattened to a stop reason; a throw from it is contained. */
   onError?: ((error: Error, stopReason: SubagentStopReason) => void) | undefined
@@ -189,22 +150,25 @@ export interface RunResultSettlement {
 
 /**
  * Settle an out-of-process run result under the seam contract: `result` never
- * rejects after publication. A rejection from the attempt resolves as
- * `aborted` when cancellation already settled locally, else it is flattened
- * to `stopReason: 'error'` through the contained diagnostic sink; the abort
- * listener is removed on every path.
+ * rejects after publication. A normally completed or rejected attempt resolves
+ * as `aborted` when cancellation already settled locally; another rejection is
+ * flattened to `stopReason: 'error'` through the contained diagnostic sink.
+ * The abort listener is removed on every path.
  * @param parts - the attempt, output snapshot, cancellation state, sink, and signal wiring.
  * @returns the terminal result (never a rejection).
  */
 export async function settleRunResult(parts: RunResultSettlement): Promise<SubagentResult> {
   try {
-    return await parts.attempt()
+    const result = await parts.attempt()
+    return parts.cancelled()
+      ? { output: parts.collectOutput(), stopReason: 'aborted' }
+      : result
   } catch (error: unknown) {
     // Cover a rejection already queued when cancellation arrives.
     if (parts.cancelled()) return { output: parts.collectOutput(), stopReason: 'aborted' }
     // Flatten post-publication transport failures while preserving diagnostics.
     try {
-      parts.onError?.(toError(error), 'error')
+      parts.onError?.(thrownError(error), 'error')
     } catch {
       // The diagnostic sink cannot reject the run result.
     }

@@ -91,7 +91,6 @@ class ProtocolPeer {
 interface FakeChildOptions {
   readonly pid?: number
   readonly exitOnTerminate?: boolean
-  readonly waitForExitResult?: boolean
   readonly doneError?: Error
 }
 
@@ -134,9 +133,6 @@ function fakeChild(options: FakeChildOptions = {}): FakeChild {
     if (options.exitOnTerminate !== false) settle()
   })
   const waitForExit = vi.fn(async (signal?: AbortSignal) => {
-    if (options.waitForExitResult !== undefined) {
-      return options.waitForExitResult
-    }
     if (exited) return true
     if (signal === undefined) {
       await done.catch(() => {})
@@ -964,19 +960,6 @@ describe('run lifecycle and quiescence', () => {
     expect(child.terminate).toHaveBeenCalledTimes(1)
   })
 
-  it('reports both startup and rollback failures', async () => {
-    const child = fakeChild({ waitForExitResult: false, exitOnTerminate: false })
-    const starting = startCodexRun(
-      request(),
-      runSpec(child, { disposeGraceMs: 1 }),
-    )
-    const initialize = await child.peer.nextMethod('initialize')
-    child.peer.respond(initialize, { userAgent: '' })
-    await expect(starting).rejects.toThrow(
-      'startup failed and app-server cleanup also failed',
-    )
-  })
-
   it('keeps overlapping runs isolated', async () => {
     const first = fakeChild()
     const second = fakeChild()
@@ -1047,41 +1030,25 @@ describe('disposeCodexChild', () => {
     const child = fakeChild()
     const wire = new CodexAppServerWire(child.handle.stdout!, child.handle.stdin!)
     const end = vi.spyOn(child.toChild, 'end')
-    await disposeCodexChild(wire, child.handle, 100)
+    await disposeCodexChild(wire, child.handle)
     expect(end).toHaveBeenCalled()
     expect(child.terminate).toHaveBeenCalledTimes(1)
     expect(child.waitForExit).toHaveBeenCalledTimes(1)
+    expect(child.waitForExit).toHaveBeenCalledWith()
   })
 
-  it('accepts fractional and larger-than-Node grace windows', async () => {
-    for (const graceMs of [0.25, Number.MAX_VALUE]) {
-      const child = fakeChild()
-      const wire = new CodexAppServerWire(child.handle.stdout!, child.handle.stdin!)
-      await expect(disposeCodexChild(wire, child.handle, graceMs))
-        .resolves.toBeUndefined()
-      const signal = vi.mocked(child.waitForExit).mock.calls[0]?.[0]
-      expect(signal?.aborted).toBe(false)
-    }
-  })
-
-  it('chains a doubled grace window beyond one Node timer segment', async () => {
-    vi.useFakeTimers()
-    try {
-      const child = fakeChild({ exitOnTerminate: false })
-      const wire = new CodexAppServerWire(child.handle.stdout!, child.handle.stdin!)
-      const disposal = disposeCodexChild(
-        wire,
-        child.handle,
-        1_073_741_823.75,
-      )
-      const rejected = expect(disposal)
-        .rejects.toThrow('did not exit within its dispose window')
-      await vi.advanceTimersByTimeAsync(2_147_483_647)
-      await vi.advanceTimersByTimeAsync(1)
-      await rejected
-    } finally {
-      vi.useRealTimers()
-    }
+  it('does not finish disposal before the managed tree exits', async () => {
+    const child = fakeChild({ exitOnTerminate: false })
+    const wire = new CodexAppServerWire(child.handle.stdout!, child.handle.stdin!)
+    let disposed = false
+    const disposal = disposeCodexChild(wire, child.handle).then(() => {
+      disposed = true
+    })
+    await new Promise<void>((resolve) => { setImmediate(resolve) })
+    expect(disposed).toBe(false)
+    child.settle()
+    await disposal
+    expect(disposed).toBe(true)
   })
 
   it('contains a concurrently closed stdin error', async () => {
@@ -1090,7 +1057,7 @@ describe('disposeCodexChild', () => {
     vi.spyOn(child.toChild, 'end').mockImplementation(() => {
       throw new Error('already closed')
     })
-    await expect(disposeCodexChild(wire, child.handle, 100))
+    await expect(disposeCodexChild(wire, child.handle))
       .resolves.toBeUndefined()
   })
 
@@ -1100,34 +1067,26 @@ describe('disposeCodexChild', () => {
       doneError: new Error('spawn failed'),
     })
     const wire = new CodexAppServerWire(child.handle.stdout!, child.handle.stdin!)
-    await expect(disposeCodexChild(wire, child.handle, 100))
+    await expect(disposeCodexChild(wire, child.handle))
       .resolves.toBeUndefined()
     expect(child.terminate).not.toHaveBeenCalled()
     expect(child.waitForExit).not.toHaveBeenCalled()
   })
 
-  it('fails when the tree misses the release window or done rejects', async () => {
-    {
-      const child = fakeChild({
-        exitOnTerminate: false,
-      })
-      const wire = new CodexAppServerWire(child.handle.stdout!, child.handle.stdin!)
-      await expect(disposeCodexChild(wire, child.handle, 1))
-        .rejects.toThrow('did not exit within its dispose window')
-    }
+  it('reports direct-child observer failure and accepts absent stdin', async () => {
     {
       const child = fakeChild({
         doneError: new Error('close observer failed'),
       })
       const wire = new CodexAppServerWire(child.handle.stdout!, child.handle.stdin!)
-      await expect(disposeCodexChild(wire, child.handle, 1))
+      await expect(disposeCodexChild(wire, child.handle))
         .rejects.toThrow('close observer failed')
     }
     {
       const child = fakeChild()
       const handle = { ...child.handle, stdin: undefined }
       const wire = new CodexAppServerWire(child.handle.stdout!, child.handle.stdin!)
-      await expect(disposeCodexChild(wire, handle, 1)).resolves.toBeUndefined()
+      await expect(disposeCodexChild(wire, handle)).resolves.toBeUndefined()
     }
   })
 })

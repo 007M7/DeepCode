@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-06-21-subagent-capability-seam.md) | 中文
 
-> 完整 seam 已交付：`dsh-subagent` 接口与 `dsh-tool-subagent` 消费方；两个进程内后端（`dsh-subagent-spawn`、`dsh-subagent-fork`）；嵌套 agent 快照基础设施（[逐会话快照回放](../testing/2026-06-22-subagent-snapshot-replay.md)）；以及进程外后端 `dsh-subagent-acp`（[其 Agent Note](2026-06-22-acp-subagent-backend.md)）。
+> 完整 seam 已交付：`dsh-subagent` 接口与 `dsh-tool-subagent` 消费方；两个进程内后端（`dsh-subagent-spawn`、`dsh-subagent-fork`）；嵌套 agent 快照基础设施（[逐会话快照回放](../testing/2026-06-22-subagent-snapshot-replay.md)）；以及进程外的 ACP、Codex 与 Claude Code 后端（[ACP Agent Note](2026-06-22-acp-subagent-backend.md)、[产品提供方 Agent Note](2026-08-04-claude-code-and-codex-subagent-backends.md)）。
 
 ## 问题
 
@@ -14,8 +14,8 @@ harness 有一个长期搁置的 seam 用于 **subagent**：一个 agent（智�
 
 - **进程内**：在同一个 `Context` 上创建一个具体的子 `Agent`（最廉价，且鉴于现有 agent 工厂几乎零成本）；
 - **ACP**：作为 ACP *客户端*驱动另一个 agent 进程（可以是自身的另一个实例）；
-- **Codex app-server**：当前的一次性兄弟提供方，将同一个命名提供方 seam 应用于官方产品进程（[产品提供方 Agent Note](../../implemented/feature/2026-08-04-claude-code-and-codex-subagent-backends.md)）；
-- 后续：**A2A** 与 **Claude Code Agent SDK**——两者采用同样的进程外形态：「启动子 agent、发送提示词、结算、取消」；Claude 兄弟提供方仍在产品提供方提案中。
+- **Codex app-server 与 Claude Code Agent SDK**：当前的一次性兄弟提供方，将同一个命名提供方 seam 应用于官方产品进程（[产品提供方 Agent Note](2026-08-04-claude-code-and-codex-subagent-backends.md)）；
+- 后续：**A2A**，采用同样的进程外形态：「启动子 agent、发送提示词、结算、取消」。
 
 ## 曾考虑的替代方案
 
@@ -35,6 +35,8 @@ bash seam（[能力 seam](../architecture/2026-06-13-capability-seams.md)）在�
 | `@deepseek-ai/dsh-subagent-spawn` | 实现：通过 `ctx.agents.create` 创建全新的进程内子 agent |
 | `@deepseek-ai/dsh-subagent-fork` | 实现：用父 agent 日志快照初始化的进程内子 agent |
 | `@deepseek-ai/dsh-subagent-acp` | 实现：作为 ACP 客户端驱动已配置的子进程 |
+| `@deepseek-ai/dsh-subagent-codex` | 实现：一次性官方 Codex app-server 进程 |
+| `@deepseek-ai/dsh-subagent-claude-code` | 实现：通过 Agent SDK 运行的一次性官方 Claude Code 进程 |
 | `@deepseek-ai/dsh-tool-subagent` | 消费方：基于 `ctx.subagents` 的面向模型的 `subagent` 工具 |
 
 ### 原语：异步 `start → SubagentRun`
