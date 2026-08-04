@@ -7,10 +7,11 @@
    mid-slide. */
 
 .root {
+  --dsh-sidebar-inline-padding: 12px;
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding: 6px 12px;
+  padding: 6px var(--dsh-sidebar-inline-padding);
   box-sizing: border-box;
   background: var(--dsw-specific-sidebar-fill);
   color: var(--dsw-alias-label-primary);
@@ -189,14 +190,20 @@
   max-width: 0;
 }
 
-/* Region seat: always mounted so the foot never moves; the browser inside
-   handles its own wide/rail content. */
+/* Region seat: always mounted so the foot never moves. Its trailing margin
+   cancels the wide shell inset so the nested scrollbar can sit at the sidebar
+   edge; the browser restores that inset inside its own rows. */
 .regionArea {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  margin-right: calc(-1 * var(--dsh-sidebar-inline-padding));
   overflow: hidden;
+}
+
+.collapsed .regionArea {
+  margin-right: 0;
 }
 
 /* Foot seat: a pure layout socket pinned under the region; the ui-settings
