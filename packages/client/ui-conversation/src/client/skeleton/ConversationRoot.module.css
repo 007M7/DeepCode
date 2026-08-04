@@ -227,8 +227,9 @@
      of flow — but declared as a scroll container on the same axes as the Chat
      state instead of `overflow: hidden`, so the reservation above reaches this
      state too: WebKit honours `scrollbar-gutter` on an `overflow-y: auto` box
-     and ignores it on a hidden one (measured for the composer's own layers,
-     see InputBar.module.css). The horizontal axis is declared rather than left
+     and ignores it on a hidden one (measured for the composer's own layers —
+     .agents/notes/implemented/bug-fix/2026-08-04-composer-tab-gutter-reservation.md
+     cites the measurement). The horizontal axis is declared rather than left
      to compute, because a box that scrolls on one axis computes `visible` on
      the other to `auto` and would grow a horizontal bar of its own. */
   overflow-x: hidden;

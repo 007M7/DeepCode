@@ -18,7 +18,7 @@ composer 座位在组件树中只有一个节点、一个位置，但它究竟�
 
 这两半是同一处改动。预留使两种状态依附于同一个宽度；把 overlay 分支声明为滚动容器，才使这条预留真正抵达它。选 `stable` 而非 `auto`，是因为 `auto` 只在盒子确实溢出时才预留，而"溢出与否"恰恰就是两个标签页之间的那点差别——`auto` 的写法只是把缺陷重述一遍，并不能修掉它。
 
-overlay 状态是一个没有任何东西会去滚动它的滚动容器：视图把它填满（`flex: 1 1 0`，且自带裁剪），座位不在常规流中，因此没有任何手势与裁剪行为发生变化。变化的是引擎会认哪些声明。WebKit 对 `overflow-y: auto` 的盒子应用 `scrollbar-gutter`，对 hidden 的盒子则忽略它——这是在本应用 composer 自身的图层上实测所得，并记录于 [composer 字形层记录](2026-07-31-composer-glyph-layer-tracks-the-textarea.md)——所以把预留留在一个 hidden 盒子上，会在 Chromium 上成立，在 Safari 上悄无声息地不成立。
+overlay 状态是一个没有任何东西会去滚动它的滚动容器：视图把它填满（`flex: 1 1 0`，且自带裁剪），座位不在常规流中，因此没有任何手势与裁剪行为发生变化。变化的是引擎会认哪些声明。WebKit 对 `overflow-y: auto` 的盒子应用 `scrollbar-gutter`，对 hidden 的盒子则忽略它——这是在本应用 composer 自身的图层上实测所得，并记录于 [composer 滚动容器记录](2026-07-31-composer-text-layers-share-one-scrollport.md)——所以把预留留在一个 hidden 盒子上，会在 Chromium 上成立，在 Safari 上悄无声息地不成立。
 
 横向轴是显式声明的，而不是交给推导：单轴滚动的盒子会把另一轴的 `visible` 计算为 `auto`，于是只要某个视图的内容第一次伸出列外，它就会长出自己的横向滚动条。
 
