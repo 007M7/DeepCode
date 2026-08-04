@@ -28,7 +28,7 @@
   - img
 - button "Branch into a new conversation":
   - img
-- text: {{clock}} Now give the same explanation to a human reader. {{clock}}
+- text: {{clock}}Ran for {{duration}} Now give the same explanation to a human reader. {{clock}}
 - button "Copy":
   - img
 - button "Branch into a new conversation" [disabled]:
@@ -43,7 +43,7 @@
   - img
 - button "Branch into a new conversation":
   - img
-- text: {{clock}}
+- text: {{clock}}Ran for {{duration}}
 - textbox "Message the agent"
 - button "Commands":
   - img
