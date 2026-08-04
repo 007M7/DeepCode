@@ -22,28 +22,25 @@ buffer
 8| "                                                                                            "
 9| "  ❯ Untitled session                                                                        "
   style 2-19 fg=bright-magenta bold
-10| "    2026-07-23T08:00:00.000Z · no completed turn · route unavailable                        "
-  style 2-67 dim
-11| "    current · live · main-session                                                           "
-  style 2-32 dim
-12| "    workspace /workspace/project                                                            "
+10| "    2026-07-23T08:00:00.000Z · current · live · main-session                                "
+  style 2-59 dim
+11| "    workspace /workspace/project                                                            "
   style 2-31 dim
-13| "    unavailable: current session                                                            "
+12| "    unavailable: current session                                                            "
   style 2-31 fg=yellow
-14| "    Other workspace work                                                                    "
-15| "    2024-02-02T00:00:08.000Z · turn 1: completed · deepseek-official/deepseek-v4-pro        "
-  style 2-83 dim
-16| "    persisted · elsewhere-session                                                           "
-  style 2-32 dim
-17| "    workspace /workspace/other                                                              "
+13| "    Other workspace work                                                                    "
+14| "    2024-02-02T00:00:00.000Z · persisted · elsewhere-session                                "
+  style 2-59 dim
+15| "    workspace /workspace/other                                                              "
   style 2-29 dim
-18| "    Resume selector design                                                                  "
-19| "    2024-01-01T00:00:08.000Z · turn 1: completed · deepseek-official/deepseek-v4-pro        "
-  style 2-83 dim
-20| "    persisted · earlier-session                                                             "
-  style 2-30 dim
-21| "    workspace /workspace/project                                                            "
+16| "    Resume selector design                                                                  "
+17| "    2024-01-01T00:00:00.000Z · persisted · earlier-session                                  "
+  style 2-57 dim
+18| "    workspace /workspace/project                                                            "
   style 2-31 dim
+19| "                                                                                            "
+20| "                                                                                            "
+21| "                                                                                            "
 22| "                                                                                            "
 23| "                                                                                            "
 24| "                                                                                            "
