@@ -8,6 +8,7 @@
           apiKey: snapshot-key
           baseURL: !!js process.env.DSH_SNAPSHOT_BASE_URL
           thinking: disabled
+          streamIdleTimeoutMs: 100
       - id: cli-agent
         config:
           provider: deepseek-official

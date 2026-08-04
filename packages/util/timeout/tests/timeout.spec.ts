@@ -229,6 +229,28 @@ describe('idleWatchdog', () => {
     await expect(secondNext).rejects.toBe(stableSignal.reason)
   })
 
+  it('rearms outstanding demand on an out-of-band activity pulse', async () => {
+    vi.useFakeTimers()
+    const pending = Promise.withResolvers<IteratorResult<number>>()
+    const watchdog = idleWatchdog(undefined, 100, 'LLM_STREAM_IDLE_TIMEOUT')
+    watchdog.pulse()
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(watchdog.signal.aborted).toBe(false)
+
+    const next = watchdog.next({ next: () => pending.promise })
+    await vi.advanceTimersByTimeAsync(99)
+    watchdog.pulse()
+    await vi.advanceTimersByTimeAsync(99)
+    expect(watchdog.signal.aborted).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(timeoutOf(watchdog.signal, 'LLM_STREAM_IDLE_TIMEOUT')).toMatchObject({ timeoutMs: 100 })
+    pending.reject(watchdog.signal.reason)
+    await expect(next).rejects.toBe(watchdog.signal.reason)
+
+    watchdog[Symbol.dispose]()
+    watchdog.pulse()
+  })
+
   it('keeps an earlier upstream abort distinct from its own timeout', async () => {
     vi.useFakeTimers()
     const upstream = new AbortController()

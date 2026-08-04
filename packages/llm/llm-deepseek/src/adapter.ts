@@ -215,7 +215,13 @@ export class DeepSeekAdapter extends LlmAdapter {
       ? consumer.signal
       : AbortSignal.any([options.signal, consumer.signal])
     using watchdog = idleWatchdog(upstream, connection.streamIdleTimeoutMs, STREAM_IDLE_TIMEOUT_CODE)
-    const iterator = this.request(options, watchdog.signal, connection, apiKey)[Symbol.asyncIterator]()
+    const iterator = this.request(
+      options,
+      watchdog.signal,
+      connection,
+      apiKey,
+      () => { watchdog.pulse() },
+    )[Symbol.asyncIterator]()
     let exhausted = false
     try {
       while (true) {
@@ -256,6 +262,7 @@ export class DeepSeekAdapter extends LlmAdapter {
     signal: AbortSignal,
     connection: DeepSeekConnectionOptions,
     apiKey: string,
+    onComment: () => void,
   ): AsyncIterable<StreamChunk> {
     const body = serializeRequest(options, connection.defaults)
     // Prepared outside the try so the TRANSPORT label below covers exactly the
@@ -321,6 +328,6 @@ export class DeepSeekAdapter extends LlmAdapter {
       throw new LlmError('DeepSeek API returned no response body', 'EMPTY_RESPONSE')
     }
 
-    yield* translate(parseSse(response.body))
+    yield* translate(parseSse(response.body, onComment))
   }
 }
