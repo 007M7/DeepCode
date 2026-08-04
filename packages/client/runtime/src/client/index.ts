@@ -219,14 +219,17 @@ export function apply(ctx: Context): void {
         console.error('[web-runtime] history reconnect failed:', error)
       }
     },
-    onDisconnected: () => {
-      // Reconnect replays flow from stream open, ahead of onConnected, so each
-      // generation death is the only safe moment to drop generation-owned state.
-      sessions.handleDisconnected()
-      try {
-        sessionHistory.handleDisconnected()
-      } catch (error) {
-        console.error('[web-runtime] history disconnect failed:', error)
+    onStateChange: (state) => {
+      // Generation death fires before any next-generation frame can arrive
+      // (reconnect replays flow from stream open, ahead of onConnected):
+      // the only safe moment to drop generation-scoped interaction state.
+      if (state === 'reconnecting') {
+        sessions.handleDisconnected()
+        try {
+          sessionHistory.handleDisconnected()
+        } catch (error) {
+          console.error('[web-runtime] history disconnect failed:', error)
+        }
       }
     },
   })

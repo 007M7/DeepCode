@@ -393,9 +393,8 @@ export class Session implements SessionFace {
   }
 
   /** Reconnect rebuild (manager calls this on onConnected for instances that were opened):
-   *  reset the window and rerun open. Pending waits reset at generation death, before the next
-   *  baseline replay can arrive, so this method preserves freshly replayed waits. Invalidates
-   *  any in-flight open first — its history request rode the dead connection and must not settle
+   *  reset the window and rerun open; pending waits for the baseline replay. Invalidates any
+   *  in-flight open first — its history request rode the dead connection and must not settle
    *  the fresh generation into 'error' (audit S4). */
   async resync(): Promise<void> {
     // The queue mirror is NOT cleared here: onConnected (which drives resync)
@@ -411,6 +410,10 @@ export class Session implements SessionFace {
     this.events = []
     this.views = []
     this.baseSeq = 0
+    // Superseded, not settled: the baseline replay re-sends still-pending requested frames verbatim
+    // (same rpcId), re-minting fresh waits; a stale reference's respond() still reaches the host.
+    this.pending.clear()
+    this.pendingRev++
     this.subscribedLastSeq = null
     this.liveBuffer = []
     this.notifier.markDirty()
@@ -438,16 +441,6 @@ export class Session implements SessionFace {
   }
 
   // ---- Manager-only entry points (@internal; never called by the UI) ----
-
-  /** Discard generation-scoped waits before a next-generation replay can arrive. */
-  handleDisconnected(): void {
-    if (this.pending.size === 0) return
-    // Superseded, not settled: a stale reference may already be responding,
-    // and the replay re-mints each still-pending request with the same rpcId.
-    this.pending.clear()
-    this.pendingRev++
-    this.notifier.markDirty()
-  }
 
   /**
    * Mux frame arrival (the dispatch switch).

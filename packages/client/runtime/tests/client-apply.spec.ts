@@ -76,9 +76,8 @@ describe('runtime client apply', () => {
     })
     await Promise.resolve()
     expect(workspaces.list.getSnapshot().items[0]?.workspaceId).toBe('w-new')
-    // Mux and generation-lifecycle sinks route without throwing (manager semantics own the behavior).
+    // Mux sink and onConnected route without throwing (manager semantics own the behavior).
     bench.sinks?.onMuxEnvelope?.({ rpcId: 'r2' as never, payload: { type: 'stream/error', message: 'x' } as never })
-    bench.sinks?.onDisconnected?.()
     bench.sinks?.onConnected?.()
   })
 

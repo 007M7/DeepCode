@@ -1098,19 +1098,16 @@ describe('remaining branches', () => {
 })
 
 describe('resync', () => {
-  it('rebuilds the window without clearing a fresh-generation wait; cold instances no-op', async () => {
+  it('rebuilds the window and clears pending; cold instances no-op', async () => {
     const { api, session } = makeSession()
     api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'))
     await session.open()
-    session.handleMuxEnvelope('ra' as never, { type: 'approval/requested', sessionId: SID, approvalId: 'ap1' as never, toolName: 'rm' })
-    session.handleDisconnected()
-    expect(session.getSnapshot().pending).toEqual([])
     session.handleMuxEnvelope('ra' as never, { type: 'approval/requested', sessionId: SID, approvalId: 'ap1' as never, toolName: 'rm' })
     api.onHistory = () => histResponse([...plainTurn(0, 0, 'a', 'b'), ...plainTurn(6, 1, 'c', 'd')])
     await session.resync()
     const snapshot = session.getSnapshot()
     expect(snapshot.openState).toBe('open')
-    expect(snapshot.pending).toMatchObject([{ key: 'a:ra', kind: 'approval' }])
+    expect(snapshot.pending).toEqual([]) // baseline replay re-sends still-pending frames
     expect(snapshot.nodes).toHaveLength(4)
 
     const cold = makeSession()

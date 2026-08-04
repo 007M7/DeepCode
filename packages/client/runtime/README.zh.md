@@ -8,7 +8,7 @@
 
 Workspace 和 Session 列表各自具有单调的 `pending` → `ready` 基线阶段，也有各自的刷新活动／错误状态。列表请求期间到达的增量插入或更新／移除帧与一元变更回显会在其响应之上回放。第一次成功的基线建立 Host 顺序；后续刷新更新行和成员关系，但不改变已经显示的标识之间的相对顺序。已移除的 Workspace id 会保留进程本地删除标记，避免延迟到达的 changed 帧将其复活；重连仍以 `workspace.list` 作为基线。Workspace 新近程度只在两条基线都 ready 后派生，且绝不改变 Workspace 列表顺序。
 
-`SessionSummary.pendingInteraction` 将阻塞 Session 的实时用户操作分类为 `approval`、`plan-review` 或 `question`。`SessionManager` 依据稳定的请求标识跟踪可应答请求的 requested/resolved mux 帧，即使 `Session` 对象尚未实例化也不例外；实例化前的缓冲会保留每个仍有效的请求，替换回放产生的重复项，并移除已解决的请求，因此打开 Session 时，列表状态始终有一个对应的可应答 `PendingWait`。审批与问题并发时，第一个 pending 问题具有更高的呈现优先级，以匹配 composer 路由；只有满足 plan-review composer 二元呈现约束的请求才会保留独立的 `plan-review` 状态。该状态的作用域限定在连接代次内：每个代次结束时清除，mux 打开时的回放只恢复仍处于 pending 的请求。
+`SessionSummary.pendingInteraction` 将阻塞 Session 的实时用户操作分类为 `approval`、`plan-review` 或 `question`。`SessionManager` 依据稳定的请求标识跟踪可应答请求的 requested/resolved mux 帧，即使 `Session` 对象尚未实例化也不例外；实例化前的缓冲会保留每个仍有效的请求，替换回放产生的重复项，并移除已解决的请求，因此打开 Session 时，列表状态始终有一个对应的可应答 `PendingWait`。审批与问题并发时，第一个 pending 问题具有更高的呈现优先级，以匹配 composer 路由；只有满足 plan-review composer 二元呈现约束的请求才会保留独立的 `plan-review` 状态。该状态的作用域限定在连接代次内：断连时清除，mux 打开时的回放只恢复仍处于 pending 的请求。
 
 `WorkspacesService.delete(workspaceId)` 在一元响应成功后从客户端投影中移除注册记录；对应的 `host/workspace-removed` 帧具有幂等性，并负责同步其他标签页。Session 状态与当前 Session selection 相互独立，因此 Workspace 消失后，其已纳入客户端投影的 Session 会立即投影到 Ungrouped 下。
 

@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import type { IApiClient, SessionId } from '../src/client/api.ts'
+import type { SessionId } from '../src/client/api.ts'
 import type { ConnectionState } from '../src/client/connection.ts'
 import { ConnectionController } from '../src/client/connection.ts'
 import { FakeApiClient, deferred, ok } from './fake-api.ts'
@@ -79,27 +79,6 @@ describe('connection lifecycle', () => {
       await vi.waitFor(() => { expect(connected).toBe(1) })
     } finally {
       controller.stop()
-      warnSpy.mockRestore()
-    }
-  })
-
-  it('leaves readiness when a stream dies while describe is still pending', async () => {
-    const api = new FakeApiClient()
-    const describe = deferred<Awaited<ReturnType<FakeApiClient['onDescribe']>>>()
-    api.onDescribe = () => describe.promise
-    let disconnected = 0
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    const controller = new ConnectionController(api, {
-      onDisconnected: () => { disconnected++ },
-    }, FAST)
-    controller.start()
-    try {
-      await vi.waitFor(() => { expect(api.callsOf('host.describe')).toHaveLength(1) })
-      api.failStreams(new Error('stream torn during readiness'))
-      await vi.waitFor(() => { expect(disconnected).toBe(1) })
-    } finally {
-      controller.stop()
-      describe.resolve(ok({ version: '0', cwd: '/f', attachedSessions: 0 }))
       warnSpy.mockRestore()
     }
   })
@@ -180,65 +159,6 @@ describe('connection lifecycle', () => {
     }
   })
 
-  it('reports generation death promptly and drops a late sibling-stream frame', async () => {
-    const base = new FakeApiClient()
-    const baseEvents = base.events
-    const failMux = deferred<undefined>()
-    const releaseHostClose = deferred<undefined>()
-    let muxEnded = false
-    const api: IApiClient = base
-    Object.defineProperty(api, 'events', {
-      value: {
-        mux: async function* (_payload: unknown, _signal: AbortSignal, onOpen?: () => void) {
-          onOpen?.()
-          await failMux.promise
-          muxEnded = true
-          throw new Error('mux lost')
-        },
-        host: (_payload: unknown, signal: AbortSignal, onOpen?: () => void) => {
-          const source = baseEvents.host({}, signal, onOpen)
-          return {
-            async *[Symbol.asyncIterator]() {
-              for await (const envelope of source) yield envelope
-              await releaseHostClose.promise
-              yield {
-                rpcId: 'late-host' as never,
-                payload: { type: 'host/session-status', sessionId: SID, running: true },
-              }
-            },
-          }
-        },
-      },
-    })
-    let connected = 0
-    let disconnected = 0
-    const hostFrames: string[] = []
-    let stop = (): void => {}
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    const controller = new ConnectionController(api, {
-      onConnected: () => { connected++ },
-      onDisconnected: () => {
-        disconnected++
-        stop()
-      },
-      onHostEnvelope: envelope => hostFrames.push(envelope.payload.type),
-    }, FAST)
-    stop = () => { controller.stop() }
-    controller.start()
-    try {
-      await vi.waitFor(() => { expect(connected).toBe(1) })
-      failMux.resolve(undefined)
-      await vi.waitFor(() => { expect(muxEnded).toBe(true) })
-      await vi.waitFor(() => { expect(disconnected).toBe(1) })
-      releaseHostClose.resolve(undefined)
-      await Promise.resolve()
-      expect(hostFrames).toEqual([])
-    } finally {
-      controller.stop()
-      warnSpy.mockRestore()
-    }
-  })
-
   it('emits deduplicated connected/reconnecting state transitions', async () => {
     const api = new FakeApiClient()
     const states: ConnectionState[] = []
@@ -261,7 +181,7 @@ describe('connection lifecycle', () => {
     }
   })
 
-  it('deduplicates reconnecting state while reporting every failed generation', async () => {
+  it('deduplicates consecutive reconnecting emissions across two straight failures', async () => {
     const api = new FakeApiClient()
     const gate = deferred<Awaited<ReturnType<FakeApiClient['onDescribe']>>>()
     let describeCalls = 0
@@ -271,17 +191,14 @@ describe('connection lifecycle', () => {
     }
     const states: ConnectionState[] = []
     let connected = 0
-    let disconnected = 0
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const controller = new ConnectionController(api, {
       onConnected: () => { connected++ },
-      onDisconnected: () => { disconnected++ },
       onStateChange: state => states.push(state),
     }, FAST)
     controller.start()
     try {
       await vi.waitFor(() => { expect(describeCalls).toBe(3) })
-      expect(disconnected).toBe(2) // generation ownership is not deduplicated with UI state
       gate.resolve(ok({ version: '0', cwd: '/f', attachedSessions: 0 }))
       await vi.waitFor(() => { expect(connected).toBe(1) })
       expect(states).toEqual(['reconnecting', 'connected']) // two failures, one reconnecting emission

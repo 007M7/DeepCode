@@ -956,30 +956,19 @@ describe('pending-interaction list status', () => {
     expect(manager.getListSnapshot().items).toHaveLength(0)
   })
 
-  it('drops stale waits at generation death and preserves replay arriving before onConnected', async () => {
-    const api = new FakeApiClient()
-    api.onHistory = () => Promise.resolve(ok({
-      events: entries(plainTurn(0, 0, 'a', 'b')) as never[],
-      hasMore: false,
-      modelTarget: { provider: 'deepseek-official', model: 'deepseek-chat' },
-    }))
-    const manager = new SessionManager(api)
+  it('drops stale status at generation death before replay re-adds live interactions', () => {
+    const manager = new SessionManager(new FakeApiClient())
     manager.handleHostEnvelope({ rpcId: 'h1' as never, payload: { type: 'host/session-added', sessionId: S1, blank: false } })
-    const session = manager.get(S1)
-    await session.open()
     manager.handleMuxEnvelope({ rpcId: 'ra' as never, payload: { type: 'approval/requested', sessionId: S1, approvalId: 'ap1' as never, toolName: 'rm' } })
     expect(manager.getListSnapshot().items[0]?.pendingInteraction).toBe('approval')
-    expect(session.getSnapshot().pending).toMatchObject([{ key: 'a:ra' }])
     // Generation death clears (resolved-while-disconnected questions send no frame)…
     manager.handleDisconnected()
     expect(manager.getListSnapshot().items[0]?.pendingInteraction).toBeUndefined()
-    expect(session.getSnapshot().pending).toEqual([])
     // …and a replayed frame arriving before onConnected (stream open precedes
-    // the readiness handshake) survives the later resync untouched.
+    // the readiness handshake) survives the later handleConnected untouched.
     manager.handleMuxEnvelope({ rpcId: 'ra' as never, payload: { type: 'approval/requested', sessionId: S1, approvalId: 'ap1' as never, toolName: 'rm' } })
     manager.handleConnected()
     expect(manager.getListSnapshot().items[0]?.pendingInteraction).toBe('approval')
-    expect(session.getSnapshot().pending).toMatchObject([{ key: 'a:ra' }])
   })
 
   it('generation death drops buffered answerable frames (a dead generation cannot be answered)', () => {
