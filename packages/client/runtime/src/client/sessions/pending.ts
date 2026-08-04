@@ -15,6 +15,9 @@ export interface PendingPayloads {
 /** Pending-interaction discriminant (the keys of PendingPayloads). */
 export type PendingKind = keyof PendingPayloads
 
+/** Session-list summary of the user action currently blocking progress. */
+export type PendingInteractionStatus = 'approval' | 'plan-review' | 'question'
+
 /** Kind-discriminated union of concrete waits: narrowing on `kind` types `payload`. */
 export type PendingInteraction = { [K in PendingKind]: PendingWait<K> }[PendingKind]
 
