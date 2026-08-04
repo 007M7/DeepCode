@@ -208,7 +208,9 @@ describe('TranscriptAdapter', () => {
           source: { kind: 'plugin', plugin: 'compact' },
         }) }),
       ])
-      expect(adapter.nodes()).toMatchObject([{ kind: 'context', seq: 0 }])
+      expect(adapter.nodes()).toMatchObject([{
+        kind: 'context', seq: 0, provenance: { role: 'inject', label: 'compact' },
+      }])
     })
 
     it('ignores a foreign plugin s replacement user/message', () => {

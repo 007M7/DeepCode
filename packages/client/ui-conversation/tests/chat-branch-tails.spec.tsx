@@ -130,7 +130,7 @@ describe('MessageItem arms', () => {
     fireEvent.click(screen.getByRole('button', { name: '复制' }))
   })
 
-  it('consumed steering renders copy and branch actions without a badge', () => {
+  it('consumed steering is captioned as an interjection and keeps copy and branch actions', () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
@@ -145,7 +145,7 @@ describe('MessageItem arms', () => {
       onFork={fork}
       />,
     )
-    expect(view.queryByText('插话')).toBeNull()
+    expect(view.getByText('插话')).toBeTruthy()
     expect(view.getByText('steer!')).toBeTruthy()
     expect(view.getByText(/附加内容块/)).toBeTruthy()
     fireEvent.click(view.getByRole('button', { name: '复制' }))
@@ -161,10 +161,11 @@ describe('MessageItem arms', () => {
         seq: 3,
         content: [{ type: 'text', text: 'x\n"y":,[{}]' }],
         source: { kind: 'plugin', plugin: 'fixture', empty: {}, list: [] },
+        provenance: { role: 'inject', label: 'fixture' },
       } as never}
       />,
     )
-    const disclosure = ctxView.getByRole('button', { name: '上下文注入' })
+    const disclosure = ctxView.getByRole('button', { name: /^上下文注入\s*· fixture$/ })
     expect(disclosure.getAttribute('aria-expanded')).toBe('false')
     expect(ctxView.container.querySelector('[data-context-injection-body]')).toBeNull()
     expect(ctxView.container.querySelector('svg')).not.toBeNull()
@@ -187,12 +188,57 @@ describe('MessageItem arms', () => {
         seq: 3,
         content: [{ type: 'text', text: 'x'.repeat(21_000) }],
         source: null,
+        provenance: { role: 'inject', label: null },
       } as never}
       />,
     )
     fireEvent.click(view.getByRole('button', { name: '上下文注入' }))
     expect(view.container.querySelector('[data-context-injection-body]')?.textContent)
       .toMatch(/… 已截断，共 \d+ 字符$/)
+  })
+
+  it('a recalled session titles its row by role and names the sessions it read', () => {
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context',
+        seq: 3,
+        content: [{ type: 'text', text: 'snapshot' }],
+        source: { kind: 'session-reference', version: 1, references: [{ label: '重构 loader' }] },
+        provenance: { role: 'recall', label: '重构 loader' },
+      } as never}
+      />,
+    )
+    expect(view.getByRole('button', { name: /^跨会话召回\s*· 重构 loader$/ })).toBeTruthy()
+    expect(view.queryByText('上下文注入')).toBeNull()
+  })
+
+  it('keeps the producer name visible while the context body is expanded', () => {
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context',
+        seq: 3,
+        content: [{ type: 'text', text: 'instructions' }],
+        source: { kind: 'workspace-instructions', changes: [{ path: 'AGENTS.md' }] },
+        provenance: { role: 'inject', label: 'AGENTS.md' },
+      } as never}
+      />,
+    )
+    const disclosure = view.getByRole('button', { name: /^上下文注入\s*· AGENTS\.md$/ })
+    fireEvent.click(disclosure)
+    expect(disclosure.getAttribute('aria-expanded')).toBe('true')
+    expect(view.container.querySelector('[data-context-source]')?.textContent).toBe('· AGENTS.md')
+  })
+
+  it('a context source that names no producer shows the role alone', () => {
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context', seq: 3, content: [{ type: 'text', text: 'x' }], source: null,
+        provenance: { role: 'inject', label: null },
+      } as never}
+      />,
+    )
+    expect(view.getByRole('button', { name: '上下文注入' })).toBeTruthy()
+    expect(view.container.querySelector('[data-context-source]')).toBeNull()
   })
 
   it('unknown nodes retain the generic JSON row', () => {

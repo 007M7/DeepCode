@@ -171,19 +171,22 @@ function projectUserText(text: string): ReactNode {
 
 /** Right-aligned bubble shared by user and steering rows. */
 function UserStyleBubble({
-  content, actions, pending = false, t,
+  content, actions, pending = false, steering = false, t,
 }: {
   content: readonly unknown[]
   /** Optional IconActions (or similar) below the bubble; receives the joined text. */
   actions?: (text: string) => ReactNode
   /** Whether this is the Host-authoritative pre-admission steering projection. */
   pending?: boolean
+  /** Marks the bubble as mid-turn steering rather than a turn-opening prompt. */
+  steering?: boolean
   t: ChatViewSlotProps['t']
 }): ReactNode {
   const { text, rest } = contentText(content)
   const truncated = (total: number): string => t('json.truncated', { total })
   return (
     <div className={css.userRow} data-pending-steering={pending || undefined} data-time-hover-root>
+      {steering && <span className={css.steeringMark} data-steering-mark>{t('message.steering')}</span>}
       <div className={css.bubble}>
         {projectUserText(text)}
         {rest.map((block, i) => <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />)}
@@ -207,6 +210,7 @@ export function PendingSteeringBubble({ content, t }: {
     <UserStyleBubble
       content={content}
       pending
+      steering
       t={t}
       actions={text => (
         <MessageIconActions
@@ -231,6 +235,7 @@ export const MessageItem = memo(function MessageItem({
       return (
         <UserStyleBubble
           content={node.content}
+          steering={node.kind === 'steering'}
           t={t}
           actions={text => (
             <MessageIconActions
@@ -247,7 +252,12 @@ export const MessageItem = memo(function MessageItem({
       )
     case 'context':
       return (
-        <ContextInjectionRow content={node.content} source={node.source} t={t} />
+        <ContextInjectionRow
+          content={node.content}
+          source={node.source}
+          provenance={node.provenance}
+          t={t}
+        />
       )
     case 'compaction':
       return <CompactionItem node={node} t={t} />

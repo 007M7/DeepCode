@@ -28,6 +28,7 @@ Keep host and runtime steering intact. Remove only the Web UI entry and chrome:
 
 ## Consequences
 
+- **Superseded in part.** Composer steering shipped afterwards, so the first Decision bullet and the first consequence below no longer describe master: `InputMachine` carries the `queue`/`steer` mode union again and Web users can steer. The [context-source and steer marks decision](../feature/2026-08-04-web-context-source-and-steer-marks.md) then supplied the product decision this note's reintroduction clause required and restored the `插话` caption on steering bubbles. Host steering ownership, `ConversationService.send`'s queue-only contract, and the rejection of hiding `steering/message` from the transcript still hold.
 - Web users cannot steer from the composer or `ctx.conversation.send`; stop/cancel and Queue remain the only mid-turn controls.
 - Host-wire and non-Web clients can still steer; the Web client shows those messages without labeling them as interjections.
 - Reintroducing a dedicated steer UI would need a new product decision; do not revive the mode union or badge without one.

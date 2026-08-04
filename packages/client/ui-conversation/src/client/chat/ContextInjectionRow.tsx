@@ -48,16 +48,22 @@ function inlineJson(payload: unknown): string {
 export interface ContextInjectionRowProps {
   content: ContextMessageNode['content']
   source: ContextMessageNode['source']
+  /** Role and producer name projected from the durable source. */
+  provenance: ContextMessageNode['provenance']
   /** The owning view's locale seat, passed down as a plain prop. */
   t: ChatViewSlotProps['t']
 }
 
 /**
  * Render logged context with the Tool calls disclosure chrome from Figma.
- * @param props - Durable content and source provenance.
+ *
+ * The header names the role the context plays and, beside it, the producer the
+ * durable source identifies, so a reader can tell an injected skill catalog
+ * from a workspace instruction file or a recalled session without expanding.
+ * @param props - Durable content, its projected provenance, and the locale seat.
  * @returns A collapsed context row with a bounded JSON body.
  */
-export function ContextInjectionRow({ content, source, t }: ContextInjectionRowProps) {
+export function ContextInjectionRow({ content, source, provenance, t }: ContextInjectionRowProps) {
   const [open, setOpen] = useState(false)
   const body = useMemo(() => {
     if (!open) return ''
@@ -72,7 +78,11 @@ export function ContextInjectionRow({ content, source, t }: ContextInjectionRowP
       className={css.root}
       icon={<IconBrowseOutline16 size={14} />}
       chevronClassName={css.chevron}
-      title={t('message.contextInjection')}
+      title={t(provenance.role === 'recall' ? 'message.contextRecall' : 'message.contextInjection')}
+      collapsedContent={provenance.label === null ? undefined : (
+        <span className={css.source} data-context-source>{`· ${provenance.label}`}</span>
+      )}
+      keepContentWhenOpen
       open={open}
       expandable
       expandOnRowClick

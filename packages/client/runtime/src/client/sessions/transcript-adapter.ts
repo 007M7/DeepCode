@@ -22,6 +22,7 @@ import type { COMPACT_CHECKPOINT_SOURCE } from '@deepseek-ai/dsh-compact/checkpo
 import type { ToolCallView, ToolEventView, ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
 import type { CommandNode, CompactionSummaryNode, ConversationNode } from './conversation.ts'
 import { toAssistantBlocks } from './conversation.ts'
+import { contextProvenance } from './context-provenance.ts'
 
 /**
  * The compaction seam's checkpoint plugin, pinned to the seam's own declaration
@@ -60,6 +61,7 @@ function materializeNode(
         return {
           kind: 'context', seq: event.seq, time: event.time,
           content: event.data.content, source: event.data.source,
+          provenance: contextProvenance(event.data.source),
         }
       }
       return {

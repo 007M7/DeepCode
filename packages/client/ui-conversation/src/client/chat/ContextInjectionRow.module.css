@@ -12,6 +12,20 @@
   color: var(--dsw-alias-label-secondary);
 }
 
+/* Producer name beside the role title: ToolRow's summary geometry, so the two
+   disclosure rows keep one 24px rhythm; subordinate color, truncated when long. */
+.source {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  margin-left: 4px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 14px;
+  line-height: 24px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .body {
   box-sizing: border-box;
   width: calc(100% - 22px);
