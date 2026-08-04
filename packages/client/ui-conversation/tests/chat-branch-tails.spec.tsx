@@ -130,6 +130,35 @@ describe('MessageItem arms', () => {
     fireEvent.click(screen.getByRole('button', { name: '复制' }))
   })
 
+  it('copy swaps to the check success chrome, gates re-clicks, and reverts after a second', async () => {
+    vi.useFakeTimers()
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+    render(
+      <MessageItem t={t} node={{
+        kind: 'user', seq: 1, time: 1_000,
+        content: [{ type: 'text', text: 'copied body' }] as never,
+        source: null,
+      }}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '复制' }))
+    // Two microtask ticks: writeClipboard's own await, then the .then that
+    // lands the success chrome.
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    const done = screen.getByRole('button', { name: '复制成功' })
+    fireEvent.click(done)
+    expect(writeText).toHaveBeenCalledTimes(1)
+    act(() => { vi.advanceTimersByTime(1000) })
+    expect(screen.getByRole('button', { name: '复制' })).toBeTruthy()
+  })
+
   it('consumed steering renders copy and branch actions without a badge', () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', {

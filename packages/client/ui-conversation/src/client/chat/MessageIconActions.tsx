@@ -1,9 +1,9 @@
 // Shared IconActions chrome for user, steering, and assistant messages: copy
 // live, optional branch wiring, and an optional date-aware clock.
 
-import { useCallback, useId } from 'react'
+import { useCallback, useId, useState } from 'react'
 import {
-  IconBranchOutline16, IconCopyOutline16, Tooltip,
+  IconBranchOutline16, IconCheckOutline16, IconCopyOutline16, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
 import { formatMessageClock, writeClipboard } from './message-chrome.ts'
@@ -39,9 +39,16 @@ export function MessageIconActions({
 }: MessageIconActionsProps) {
   const day = useCalendarDay()
   const reasonId = useId()
+  // Same success chrome as CodeBlock: a short check swap after the write,
+  // gated so re-clicks during the window neither re-copy nor stack timers.
+  const [copied, setCopied] = useState(false)
   const onCopy = useCallback(() => {
-    void writeClipboard(text)
-  }, [text])
+    if (copied) return
+    void writeClipboard(text).then(() => {
+      setCopied(true)
+      window.setTimeout(() => { setCopied(false) }, 1000)
+    })
+  }, [copied, text])
   const clockEl = time === undefined ? null : (
     <span className={clock === 'start' ? css.timeStart : css.timeEnd}>
       {formatMessageClock(time, t, day)}
@@ -50,9 +57,9 @@ export function MessageIconActions({
   return (
     <div className={className === undefined ? css.actions : `${css.actions} ${className}`}>
       {clock === 'start' ? clockEl : null}
-      <Tooltip label={t('copy')} side="bottom">
-        <button type="button" className={css.action} aria-label={t('copy')} onClick={onCopy}>
-          <IconCopyOutline16 />
+      <Tooltip label={copied ? t('copied') : t('copy')} side="bottom">
+        <button type="button" className={css.action} aria-label={copied ? t('copied') : t('copy')} onClick={onCopy}>
+          {copied ? <IconCheckOutline16 /> : <IconCopyOutline16 />}
         </button>
       </Tooltip>
       {showBranch && onBranch !== undefined && (

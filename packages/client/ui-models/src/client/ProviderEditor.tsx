@@ -275,7 +275,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
             <div className={styles['field']}>
               <span className={styles['fieldLabel']}>{t('effort')}</span>
               <select
-                className={styles['input']}
+                className={`${styles['input']} ${styles['selectInput']}`}
                 value={stringAt(draft, effortField) ?? ''}
                 aria-label={t('effort')}
                 disabled={disabled}

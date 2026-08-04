@@ -78,14 +78,16 @@ function GroupByMenu({ groupBy, onPick, t }: {
       // be cut off at the header's bounds.
       portal
       anchor={(
-        <button
-          type="button"
-          className={clsx(css.iconButton, css.wide)}
-          aria-label={t('groupBy.label')}
-          onClick={() => { setOpen(v => !v) }}
-        >
-          <IconPersonalizationOutline16 />
-        </button>
+        <Tooltip label={t('groupBy.label')} side="bottom" delayMs={500}>
+          <button
+            type="button"
+            className={clsx(css.iconButton, css.wide)}
+            aria-label={t('groupBy.label')}
+            onClick={() => { setOpen(v => !v) }}
+          >
+            <IconPersonalizationOutline16 />
+          </button>
+        </Tooltip>
       )}
     />
   )
@@ -550,7 +552,7 @@ export function WorkspaceBrowser({
             picking affordance has nothing to offer here: the region hides the
             button rather than leaving a dead one in the header. */}
         {directoryFlowAvailable && (
-          <Tooltip label={t('workspace.add')} disabled={wide}>
+          <Tooltip label={t('workspace.add')} side="bottom" delayMs={500}>
             <button
               ref={wsPlusRef}
               type="button"
