@@ -238,7 +238,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
     }))
     // The header names the producer the durable source records, so the
     // reconciled instruction file is readable without expanding the row.
-    await page.getByRole('button', { name: 'Context injection · AGENTS.md', exact: true })
+    await page.getByRole('button', { name: 'Context injection AGENTS.md', exact: true })
       .waitFor({ timeout: 10_000 })
   }, 60_000)
 
@@ -257,7 +257,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
 
   it.skipIf(MODE === 'record')('matches the Figma context disclosure geometry', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-context-injection'))
-    const disclosure = page.getByRole('button', { name: 'Context injection · AGENTS.md', exact: true })
+    const disclosure = page.getByRole('button', { name: 'Context injection AGENTS.md', exact: true })
     expect(await disclosure.getAttribute('aria-expanded')).toBe('false')
     const collapsedIcon = disclosure.locator('svg').first()
     const collapsedIconBox = await collapsedIcon.boundingBox()
@@ -368,7 +368,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
       source: { kind: 'plugin', plugin: 'fixture' },
     }))
 
-    const disclosure = page.getByRole('button', { name: 'Context injection · fixture', exact: true })
+    const disclosure = page.getByRole('button', { name: 'Context injection fixture', exact: true })
     await disclosure.waitFor({ timeout: 10_000 })
     await disclosure.click()
     await expect.poll(() => disclosure.getAttribute('aria-expanded')).toBe('true')

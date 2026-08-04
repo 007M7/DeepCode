@@ -12,13 +12,21 @@
   color: var(--dsw-alias-label-secondary);
 }
 
-/* Producer name beside the role title: ToolRow's summary geometry, so the two
-   disclosure rows keep one 24px rhythm; subordinate color, truncated when long. */
+/* Separator and producer name beside the role title: ToolRow's summary geometry,
+   so the two disclosure rows keep one 24px rhythm and one separator shape. */
+.sep {
+  flex: none;
+  width: 2px;
+  height: 2px;
+  margin: 0 8px;
+  border-radius: 1px;
+  background: var(--dsw-alias-label-caption);
+}
+
 .source {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
-  margin-left: 4px;
   color: var(--dsw-alias-label-tertiary);
   font-size: 14px;
   line-height: 24px;

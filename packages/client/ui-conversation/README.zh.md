@@ -12,7 +12,7 @@
 
 会话页头会在标题旁声明并渲染 Session scope 的 `'conversation.session.header.actions'` 列表，使功能插件无需进入骨架即可贡献控件。编辑器链的 currency 包含当前对话 `session`；ui-subagent 会选取 one-shot 或 parent 不可用的已寻址会话，并按原因显示只读文案，而普通 InputBar 会让所有已寻址 child 仅保留 Send，因为继续执行服务不公开逐 Activation 取消操作，`session.cancel` 也会绕过其所有权。
 
-已记录的非用户消息渲染为默认折叠的展开项，标题栏先给出运行时为该消息投影出的角色——注入为 `上下文注入`，召回为 `跨会话召回`——其后是该投影从持久来源读出的生产者名称，因此读者无需展开即可区分 skill 目录、工作区指令文件与被召回的会话。来源未提供生产者名称时只显示角色。标题栏通过包内部的 `DisclosureRow` 与 `ToolRow` 共享 Tool calls 的几何与交互，同时保留上下文语义：展开内容区的高度会随内容自适应，最大为 141px，超出后滚动，并以内联 JSON 展示 `content` 和 `source`，且不会合成工具状态、摘要或键控 toolview 分发（[展开项决策](../../../.agents/notes/implemented/feature/2026-07-30-web-context-injection-disclosure.md)、[来源决策](../../../.agents/notes/implemented/feature/2026-08-04-web-context-source-and-steer-marks.md)）。持久与待处理的 steering（中途引导）气泡上方带有 `插话` 标注，这是把中途插话与共用同一气泡的开轮提示区分开的唯一标识。
+已记录的非用户消息渲染为默认折叠的展开项，标题栏先给出运行时为该消息投影出的角色——注入为 `上下文注入`，召回为 `跨会话召回`——其后是该投影从持久来源读出的生产者名称，因此读者无需展开即可区分 skill 目录、工作区指令文件与被召回的会话。来源未提供生产者名称时只显示角色。标题栏通过包内部的 `DisclosureRow` 与 `ToolRow` 共享 Tool calls 的几何与交互，同时保留上下文语义：展开内容区的高度会随内容自适应，最大为 141px，超出后滚动，并以内联 JSON 展示 `content` 和 `source`，且不会合成工具状态、摘要或键控 toolview 分发（[展开项决策](../../../.agents/notes/implemented/feature/2026-07-30-web-context-injection-disclosure.md)、[来源决策](../../../.agents/notes/implemented/feature/2026-08-04-web-context-source-and-steer-marks.md)）。持久与待处理的 steering（中途引导）气泡上方带有 `插话` / `Interjection` 标注，这是把中途插话与共用同一气泡的开轮提示区分开的唯一标识。
 
 Think 行默认保持折叠，并在不展开思维链的情况下暴露实时推理（reasoning）吞吐：当推理块是流式输出尾部时，摘要从结算后的首行切换到最新的非空行，其单行滚动区会随每个 delta 追到行内末端。展开该行会移除移动摘要，让完整推理进入普通页面流，因此页面阅读不会与内部跟随器争夺滚动；结算后恢复左对齐的稳定首行摘要（[决策](../../../.agents/notes/implemented/feature/2026-08-02-web-thinking-tail-scroll.md)）。
 

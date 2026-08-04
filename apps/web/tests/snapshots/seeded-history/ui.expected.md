@@ -37,10 +37,10 @@
 - button "Context compacted View compaction summary":
   - img
   - text: Context compacted View compaction summary
-- button "Context injection · AGENTS.md":
+- button "Context injection AGENTS.md":
   - img
   - img
-  - text: Context injection · AGENTS.md
+  - text: Context injection AGENTS.md
 - textbox "Message the agent"
 - button "Commands":
   - img

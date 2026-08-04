@@ -80,7 +80,13 @@ export function ContextInjectionRow({ content, source, provenance, t }: ContextI
       chevronClassName={css.chevron}
       title={t(provenance.role === 'recall' ? 'message.contextRecall' : 'message.contextInjection')}
       collapsedContent={provenance.label === null ? undefined : (
-        <span className={css.source} data-context-source>{`· ${provenance.label}`}</span>
+        /* ToolRow's separator shape: an aria-hidden dot, so the accessible name
+           stays the two readable parts and the two disclosure rows expose one
+           name shape. A source that names no producer drops the dot with it. */
+        <>
+          <span className={css.sep} aria-hidden />
+          <span className={css.source} data-context-source>{provenance.label}</span>
+        </>
       )}
       keepContentWhenOpen
       open={open}

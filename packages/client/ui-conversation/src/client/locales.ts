@@ -166,7 +166,7 @@ export const en = {
   'message.extraBlock': 'Extra content block',
   'message.contextInjection': 'Context injection',
   'message.contextRecall': 'Session recall',
-  'message.steering': 'Steer',
+  'message.steering': 'Interjection',
   'message.compaction': 'Context compacted',
   'message.compaction.expand': 'View compaction summary',
   'message.compaction.unavailable': 'Compaction summary unavailable',

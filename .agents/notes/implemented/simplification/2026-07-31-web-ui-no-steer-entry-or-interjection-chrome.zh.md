@@ -28,7 +28,7 @@ Status: implemented
 
 ## 后果
 
-- **部分被取代。** composer steering 在此之后落地，因此 Decision 的第一条与下面的第一条后果都已不再描述 master：`InputMachine` 重新携带 `queue`／`steer` mode 联合类型，Web 用户可以 steer。随后[上下文来源与 steer 标识决策](../feature/2026-08-04-web-context-source-and-steer-marks.md)提供了本 note 重新引入条款所要求的产品决策，并恢复了 steering 气泡上的 `插话` 标注。host 侧 steering 的归属、`ConversationService.send` 仅排队的契约，以及不在 transcript 中隐藏 `steering/message` 的取舍，仍然成立。
+- **部分被取代。** composer steering 在此之后落地，因此 Decision 的第一条与第三条、以及下面的第一条后果都已不再描述 master：`InputMachine` 重新携带 `queue`／`steer` mode 联合类型，Web 用户可以 steer，steering 气泡也早在重新带上标注之前就恢复了用户 IconActions。随后[上下文来源与 steer 标识决策](../feature/2026-08-04-web-context-source-and-steer-marks.md)提供了本 note 重新引入条款所要求的产品决策，并恢复了 steering 气泡上的 `插话` 标注。host 侧 steering 的归属、`ConversationService.send` 仅排队的契约，以及不在 transcript 中隐藏 `steering/message` 的取舍，仍然成立。
 - Web 用户无法从 composer 或 `ctx.conversation.send` steer；中途控制只剩停止／取消与 Queue。
 - Host 线缆与非 Web 客户端仍可 steer；Web 客户端展示这些消息时不再标成插话。
 - 若要重新引入专用 steer UI，需要新的产品决策；没有决策就不要复活 mode 联合类型或徽章。

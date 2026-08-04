@@ -165,7 +165,7 @@ describe('MessageItem arms', () => {
       } as never}
       />,
     )
-    const disclosure = ctxView.getByRole('button', { name: /^上下文注入\s*· fixture$/ })
+    const disclosure = ctxView.getByRole('button', { name: /^上下文注入\s*fixture$/ })
     expect(disclosure.getAttribute('aria-expanded')).toBe('false')
     expect(ctxView.container.querySelector('[data-context-injection-body]')).toBeNull()
     expect(ctxView.container.querySelector('svg')).not.toBeNull()
@@ -208,7 +208,7 @@ describe('MessageItem arms', () => {
       } as never}
       />,
     )
-    expect(view.getByRole('button', { name: /^跨会话召回\s*· 重构 loader$/ })).toBeTruthy()
+    expect(view.getByRole('button', { name: /^跨会话召回\s*重构 loader$/ })).toBeTruthy()
     expect(view.queryByText('上下文注入')).toBeNull()
   })
 
@@ -223,10 +223,10 @@ describe('MessageItem arms', () => {
       } as never}
       />,
     )
-    const disclosure = view.getByRole('button', { name: /^上下文注入\s*· AGENTS\.md$/ })
+    const disclosure = view.getByRole('button', { name: /^上下文注入\s*AGENTS\.md$/ })
     fireEvent.click(disclosure)
     expect(disclosure.getAttribute('aria-expanded')).toBe('true')
-    expect(view.container.querySelector('[data-context-source]')?.textContent).toBe('· AGENTS.md')
+    expect(view.container.querySelector('[data-context-source]')?.textContent).toBe('AGENTS.md')
   })
 
   it('a context source that names no producer shows the role alone', () => {

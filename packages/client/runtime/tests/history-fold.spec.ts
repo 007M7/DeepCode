@@ -1,4 +1,4 @@
-import { createMessage } from '@deepseek-ai/dsh-llm'
+import { createMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import { describe, expect, it } from 'vitest'
 import { projectConversationHistory } from '../src/client/session-history/history-fold.ts'
@@ -8,6 +8,26 @@ const at = (seq: number, event: Record<string, unknown>): SessionEvent =>
   ({ seq, time: 1_700_000_000_000 + seq, ...event }) as unknown as SessionEvent
 
 describe('projectConversationHistory', () => {
+  it('names an injected context node from its durable source, like the live adapter', () => {
+    // The fold declares its own node mapping (jscpd:ignore in the source), so
+    // the provenance projection is pinned on both sides independently.
+    const injected = at(0, {
+      type: 'user/message',
+      surfaceOp: 'append',
+      data: createUserMessage({
+        content: [{ type: 'text', text: '<available_skills>…</available_skills>' }],
+        // A plugin source, because the client program does not see the host
+        // packages that merge richer source kinds; those arms are pinned in
+        // context-provenance.spec.ts.
+        source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
+      }),
+    })
+    const { contexts } = projectConversationHistory([{ event: injected }])
+    expect(contexts[contexts.length - 1]?.nodes).toMatchObject([{
+      kind: 'context', seq: 0, provenance: { role: 'inject', label: 'dsh-tool-skill' },
+    }])
+  })
+
   it('projects frozen surface generations without widening the core live surface', () => {
     const events = [
       ev.user(0, 'a'),
