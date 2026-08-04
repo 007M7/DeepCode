@@ -65,7 +65,7 @@ defineAcpSnapshotSuite({
 
 无。该测试专用 harness 记录、规范化并比较 ACP transcript，不会改变 agent 组装的模型请求。
 
-#### KV 缓存影响
+#### KV Cache 影响
 
 无；该包既不组装也不发送提供方请求。
 

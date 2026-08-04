@@ -1,4 +1,4 @@
-# Agent Note：持久 Bash 与字符串替换编辑器工具
+# Agent Note: 持久 Bash 与字符串替换编辑器工具
 
 状态：已实现
 

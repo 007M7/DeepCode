@@ -6,7 +6,7 @@
 
 需要加载执行器实现（例如 `@deepseek-ai/dsh-bash-local`）；在 `ctx.bash` 可用之前，插件会保持等待状态（`inject: ['tools', 'bash', 'systemPrompt']`）。
 
-包（package）根只公开 Cordis 插件契约（`name`、`inject`、`Config`、`apply`）；结果渲染和后台进程适配仍是实现细节，由同包测试覆盖。
+包根只公开 Cordis 插件契约（`name`、`inject`、`Config`、`apply`）；结果渲染和后台进程适配仍是实现细节，由同包测试覆盖。
 
 插件还会提供 `tool:bash` 提示词段落（顺序 105）：检查每个结果中的 `[exit code: N]` 标记，发现失败时先调查原因再继续。
 
@@ -61,7 +61,7 @@ overlay 根据当前 `ToolExecution` 计算，并通过专用的 `BashExecReques
 
 ## 工具仅使用具名参数构建请求
 
-`BashExecRequest` seam 携带可选的 `stdoutMaxBytes`、`stdin`、普通 `env` 和托管 `dshEnv`，供可信进程内插件及此工具的环境注册表使用。模型侧工具不公开 `stdoutMaxBytes`、`stdin` 或 `env`：它使用具名的命令／工作目录／超时／信号／沙箱字段，加上从注册表收集的 `dshEnv` 来构建请求。额外模型键会被忽略，无法替换托管值。Shell 语法可以提供等价的命令级行为，而本地执行器会清除环境中的凭据和陈旧 `DSH_*` 值。参见 [stdin/env Agent Note（agent 决策记录）](../../../.agents/notes/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md)。
+`BashExecRequest` seam 携带可选的 `stdoutMaxBytes`、`stdin`、普通 `env` 和托管 `dshEnv`，供可信进程内插件及此工具的环境注册表使用。模型侧工具不公开 `stdoutMaxBytes`、`stdin` 或 `env`：它使用具名的命令／工作目录／超时／信号／沙箱字段，加上从注册表收集的 `dshEnv` 来构建请求。额外模型键会被忽略，无法替换托管值。Shell 语法可以提供等价的命令级行为，而本地执行器会清除环境中的凭据和陈旧 `DSH_*` 值。参见 [stdin/env Agent Note](../../../.agents/notes/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md)。
 
 ## 权限与升权
 
@@ -121,7 +121,7 @@ renderer 先输出依数据而定的 stdout 尾部，再输出可选的 `[stderr
 
 #### KV Cache 影响
 
-仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ### 后台任务上下文与结果
 
@@ -135,7 +135,7 @@ renderer 先输出依数据而定的 stdout 尾部，再输出可选的 `[stderr
 
 #### KV Cache 影响
 
-仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ### 工具错误
 
@@ -149,7 +149,7 @@ renderer 先输出依数据而定的 stdout 尾部，再输出可选的 `[stderr
 
 #### KV Cache 影响
 
-仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ## 已知限制与延期工作
 

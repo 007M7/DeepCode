@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-生成的 Typert 产物所用的运行时注册表。每个注册项包含某个包（package）在一个 face 上的业务反射信息，以及可选的运行时 Zod schema；`ctx.typert` 会以原子方式同时注册两者，并在发起调用的 Cordis fiber 释放时一并移除它们。TypeScript 分析和代码生成由 [`dsh-typert-generator`](../generator/README.md) 负责。
+生成的 Typert 产物所用的运行时注册表。每个注册项包含某个包在一个 face 上的业务反射信息，以及可选的运行时 Zod schema；`ctx.typert` 会以原子方式同时注册两者，并在发起调用的 Cordis fiber 释放时一并移除它们。TypeScript 分析和代码生成由 [`dsh-typert-generator`](../generator/README.md) 负责。
 
 包反射信息以 `<package>#<face>` 为键。schema 以 `<package>#<name>` 为键，并保留生成方的 Zod 实例。系统按需在消费方边界计算 JSON Schema。
 

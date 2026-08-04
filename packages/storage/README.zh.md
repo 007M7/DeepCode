@@ -2,9 +2,9 @@
 
 [English](README.md) | 中文
 
-存储家族持久化会话事件日志之外的一切数据：命名后端与类型化数据形式在一个中心相接。设计记录：[领域 KV 存储 Agent Note（agent 决策记录）](../../.agents/notes/proposed/architecture/2026-07-24-domain-kv-storage-and-workspace.zh.md)。
+存储家族持久化会话事件日志之外的一切数据：命名后端与类型化数据形式在一个中心相接。设计记录：[领域 KV 存储 Agent Note](../../.agents/notes/proposed/architecture/2026-07-24-domain-kv-storage-and-workspace.zh.md)。
 
-| 包（package） | 职责 | ctx key |
+| 包 | 职责 | ctx key |
 |---|---|---|
 | `storage/` | 中心：命名后端注册表 + 可通过合并扩展的数据形式挂载、后端分面词汇、共享一致性测试套件 | `ctx.storage` |
 | `storage-json/` | JSON 后端：每个单元一个人类可读文件，以原子方式重写整个文件 | 注册后端 `json` |

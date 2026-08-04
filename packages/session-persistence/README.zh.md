@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-持久会话的持久化 seam 及其存储后端。接口包（package）负责抽象 `SessionPersistence` 服务和共享写入协调器；后端是注册到 `ctx.sessionPersistence` 的具体实现。全部都是**产品**包。
+持久会话的持久化 seam 及其存储后端。接口包负责抽象 `SessionPersistence` 服务和共享写入协调器；后端是注册到 `ctx.sessionPersistence` 的具体实现。全部都是**产品**包。
 
 | 包 | 职责 | ctx 键 |
 |---|---|---|

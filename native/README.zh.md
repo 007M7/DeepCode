@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-`node-addon-landlock-run` 的权威源码位于此处：这是 harness 从 npm 引入并使用的 Landlock「先限制自身、再执行」启动器（`packages/sandbox/sandbox-local`、`packages/bash/bash-sandbox`）。启动器在此处开发，与消费方相邻；独立仓库是打包并发布 npm 包（package）系列的发布镜像。
+`node-addon-landlock-run` 的权威源码位于此处：这是 harness 从 npm 引入并使用的 Landlock「先限制自身、再执行」启动器（`packages/sandbox/sandbox-local`、`packages/bash/bash-sandbox`）。启动器在此处开发，与消费方相邻；独立仓库是打包并发布 npm 包系列的发布镜像。
 
 ## 发布镜像
 

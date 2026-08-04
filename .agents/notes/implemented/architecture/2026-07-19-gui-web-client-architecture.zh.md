@@ -1,4 +1,4 @@
-# RFC: Web 客户端架构——client cordis 插件树、slot 体系与 React-free 对象层
+# Agent Note: Web 客户端架构——client cordis 插件树、slot 体系与 React-free 对象层
 
 Status: implemented
 
@@ -36,15 +36,15 @@ Status: implemented
 
 ## slot 体系：页面怎么拼
 
-slot 体系有自己的 RFC——[slot 体系标准](2026-07-22-slot-type-chain-implementation.md)——本文整体移交给它。此处只留一段定位摘要：壳只渲染 `'root'`；插件用单独一次 `register` 调用组合 UI——占坑、声明并授权子坑（`children` spec 对象）、声明 store、注入业务面；组件 props 分四份额自动推导到达（`PropsRuntime<K>` / `PropsRenderSlots<S>` / `PropsStore<H>` / inject），各有唯一真源。`SlotMap` 声明合并仍是类型权威，entry 只携带 owner 份额（「谁注入的，类型归谁」）；每个被渲染的注册项都在 per-entry 错误边界之内。
+slot 体系有自己的 RFC——[slot 体系标准](2026-07-22-slot-type-chain-implementation.md)——本文整体移交给它。此处只留一段定位摘要：壳只渲染 `'root'`；插件用单独一次 `register` 调用组合 UI——占用 slot、声明并授权子 slot（`children` spec 对象）、声明 store、注入业务面；组件 props 分四份额自动推导到达（`PropsRuntime<K>` / `PropsRenderSlots<S>` / `PropsStore<H>` / inject），各有唯一真源。`SlotMap` 声明合并仍是类型权威，entry 只携带 owner 份额（「谁注入的，类型归谁」）；每个被渲染的注册项都在 per-entry 错误边界之内。
 
 实现的家：注册表核心与 props 份额类型在 `packages/client/ui-slots`，出口组件/渲染器/uSES 桥在 `packages/client/web-react`。
 
 ## 服务与 scope 寻址
 
-服务是插件对其他插件的唯一 API 面（UI 组件与注入面都不是 API；无人调用的插件不挂服务——ui-trajectory 即最小插件样板：无 ctx 服务，只做视图坑注册）。名册：`ctx.connection`（api client + 流句柄）、`ctx.slots`（注册表包装层，发 `slots/changed`，渲染入口，渲染器安装缝）、`ctx.sessions`（列表 store、当前会话状态、scope 树）、`ctx.loader`、`ctx.theme`、`ctx.i18n`、`ctx.layout`（跨插件视图导航）、`ctx.conversation`（send/cancel/startSession）。过去住在服务 store 里的观看态（面板宽、选中、草稿）现按 [slot 体系标准](2026-07-22-slot-type-chain-implementation.md) 住 entry 声明的 store。
+服务是插件对其他插件的唯一 API 面（UI 组件与注入面都不是 API；无人调用的插件不挂服务——ui-trajectory 即最小插件样板：无 ctx 服务，只做视图 slot 注册）。名册：`ctx.connection`（api client + 流句柄）、`ctx.slots`（注册表包装层，发 `slots/changed`，渲染入口，渲染器安装缝）、`ctx.sessions`（列表 store、当前会话状态、scope 树）、`ctx.loader`、`ctx.theme`、`ctx.i18n`、`ctx.layout`（跨插件视图导航）、`ctx.conversation`（send/cancel/startSession）。过去住在服务 store 里的观看态（面板宽、选中、草稿）现按 [slot 体系标准](2026-07-22-slot-type-chain-implementation.md) 住 entry 声明的 store。
 
-slot 之外不存在第二种注册模型——原视图环与工具环都已溶解进来。会话视图即 ui-conversation 声明的 `'conversation.view'` list 坑的 entry，tab 元数据随注册 options（`id`/`order`/`label`）走，per-view chrome 住视图组件自身。工具行是各视图自己声明的 keyed 子槽——今天是 `'conversation.chat.toolview'`（keyed/session），由 chat 条目的 `children` 表声明；key 空间运行时开放（SlotMap 声明槽、从不声明 key），这正是工具环「tool 名开放集」的原需求。渲染点逐行以 `entryKey: toolName` 分发、以 `GenericToolCard` 作调用点 `fallback`；owner 载荷是统一的 `ToolRowOwnerProps`（`callId`/`toolName`/`block`/`openDetails`），`ToolRowProps` 把它与 session 标配 kit 预组合供注册方组件取用。注册方就是普通插件、零专用设施：`ctx.slots.register({ name: 'conversation.chat.toolview', key: '<tool>', inject? }, Row)`，以 `inject: ['slots', 'conversation']` 作加载序缝（conversation 服务在场即保证槽已声明）。交互草稿等行内状态走普通 store 席位。trajectory/waterfall 得同形槽（槽名按槽名纪律 `<域>.<条目>.<孔位>` 已定死，共用一张 owner 类型），随各自的行渲染点落地——RendersCheck 拒绝无人渲染的声明，两槽无法提前声明。
+slot 之外不存在第二种注册模型——原视图环与工具环都已溶解进来。会话视图即 ui-conversation 声明的 `'conversation.view'` list slot 的 entry，tab 元数据随注册 options（`id`/`order`/`label`）走，per-view chrome 住视图组件自身。工具行是各视图自己声明的 keyed 子 slot——今天是 `'conversation.chat.toolview'`（keyed/session），由 chat 条目的 `children` 表声明；key 空间运行时开放（SlotMap 声明 slot、从不声明 key），这正是工具环「tool 名开放集」的原需求。渲染点逐行以 `entryKey: toolName` 分发、以 `GenericToolCard` 作调用点 `fallback`；owner 载荷是统一的 `ToolRowOwnerProps`（`callId`/`toolName`/`block`/`openDetails`），`ToolRowProps` 把它与 session 标配 kit 预组合供注册方组件取用。注册方就是普通插件、零专用设施：`ctx.slots.register({ name: 'conversation.chat.toolview', key: '<tool>', inject? }, Row)`，以 `inject: ['slots', 'conversation']` 作加载序缝（conversation 服务在场即保证 slot 已声明）。交互草稿等行内状态走普通 store 席位。trajectory/waterfall 得到同形 slot（slot 名按命名纪律 `<域>.<条目>.<slot>` 已定死，共用一张 owner 类型），随各自的行渲染点落地——RendersCheck 拒绝无人渲染的声明，两种 slot 无法提前声明。
 
 **scope 寻址**与 host 侧 agent scope 惯例同构：服务是 root 单例，方法不收 sessionId——它们读调用方 ctx 上的 scope 标（`scopeOf(ctx)`）。在会话 scope 内，`ctx.conversation.send('hi', 'queue')` 自动打到该会话；跨会话调用换 ctx 定向（`ctx.sessions.scope(id)!.conversation.send(...)`）；从 root ctx 直接调 scoped 方法即 throw。client 会话 scope 的铸造方式与 host agent scope 相同（no-op 插件 fiber + scope 键 extend），首次观看时惰性建，只有会话被移除且无人观看才拆——仅 host 会话死亡不拆 scope（冻结为只读视窗）。
 

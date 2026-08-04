@@ -11,7 +11,7 @@ Status: implemented
 此前的 TypeScript 构建与类型检查配置存在以下问题：
 
 - `build` 使用 `tsc` 将 `packages/<group>/<pkg>` 和 `vendor/*` 下的 `.ts` 转换为 `.d.ts` 文件，然后使用 `tsdown` 将 `.ts` 转换为打包后的 `.js` 文件。这导致两个工具各自执行 TypeScript 转换。
-- `typecheck` 倾向于通过一个根目录的类型检查配置来校验包（package）、vendor 源码、示例、测试和脚本。
+- `typecheck` 倾向于通过一个根目录的类型检查配置来校验包、vendor 源码、示例、测试和脚本。
 
 目标是让构建与类型检查使用一致的 tsconfig 边界和 TypeScript 解析/转换行为。构建应通过单一编译器和配置生成 `.js`、`.d.ts`、`.js.map` 和 `.d.ts.map`，使发布产物与类型校验保持一致。
 
@@ -21,7 +21,7 @@ Status: implemented
     - `tsdown` 输出的打包 `.d.ts` 与 Cordis 内部的相对模块增强（module augmentation）结构冲突。
     - tsc 的输出受 `allowImportingTsExtensions` 影响，因此需要确保生成的 `.js` 文件不会导入 `.ts` 文件，且生成的 `.d.ts` 文件保留 NodeNext/Node16 接受的显式相对说明符。为此，包内相对导入在 TypeScript 源码中使用显式 `.ts` 说明符，由 `rewriteRelativeImportExtensions` 在输出的 JS 中将其重写为 `.js`。
     - `tsdown` 输出的打包 `.js` 与 `tsc -b` 逐文件输出的 `.js` 行为不同，例如装饰器转换行为。
-- `vendor/*/src`、示例、测试和脚本无法全部以 plain-include 方式纳入一个根目录的严格程序。
+- `vendor/*/src`、示例、测试和脚本无法全部直接纳入一个根目录的严格程序。
     - 在根目录严格配置下直接对 `vendor/*/src` 做类型检查，会触发大量不属于本项目所有权范围的类型错误。
     - `packages/*/*` 对 `vendor` 的包依赖解析到 `vendor/*/lib`，以适应不同的 tsconfig 严格度。
 
@@ -81,7 +81,7 @@ tsx scripts/clean.ts
     - `lib/types/*.d.ts` 使用显式 `.ts` 相对说明符，TypeScript 的 NodeNext/Node16 解析器会将其映射到同级的 `.d.ts` 文件。
     - `lib/types/*.js` 仅作为打包器输入，禁止用作运行时入口或公开导入目标。
     - `lib/index.*` 是发布用的运行时输出，由打包器（当前为 `tsdown`）生成。
-- `pnpm run verify-node-next-types` 扫描构建出的声明文件，检查是否存在缺少文件扩展名的相对说明符，然后以 `moduleResolution: "NodeNext"` 对构建出的 `types`/`exports` 接口进行临时外部 ESM 消费方的类型检查，确保声明说明符的回归在发布前被捕获。
+- `pnpm run verify-node-next-types` 扫描构建出的声明文件，检查是否存在缺少文件扩展名的相对说明符，然后以 `moduleResolution: "NodeNext"` 针对构建出的 `types`/`exports` 接口，对一个临时的外部 ESM 消费方进行类型检查，确保声明说明符的回归在发布前被捕获。
 - `typecheck` 命令使用 `tsconfig.json`。示例、测试和脚本由根 no-emit 项目检查，包和 vendor 模块保持与 `build` 相同的输出行为。包和 vendor 源码始终处于 project-reference 边界之后。
 - 切换分支或更新工作副本后，如果其中删除了包，贡献者可在重新构建前运行 `pnpm run clean`，删除残留的包目录。不含 `package.json` 的包目录如果存在未知文件，必须手动判定其类别，不能直接删除。
 

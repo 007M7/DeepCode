@@ -16,11 +16,11 @@
 
 #### KV Cache 影响
 
-无；该包（package）既不组装也不发送提供方请求。
+无；该包既不组装也不发送提供方请求。
 
 ## 已知限制与暂缓事项
 
-- **卡片上可编辑的只有 API 密钥与精选折叠区字段**：手写编辑器用 schema 通用的字段覆盖面换来了设计稿上的布局（[Agent Note（agent 决策记录）](../../../.agents/notes/implemented/architecture/2026-07-30-web-config-plane.md)）；进阶字段（`models`、重试策略、超时……）在 `settings.yaml` 中编辑，折叠区会指向它。不带这些约定字段的 profile schema 只渲染该提示，两套精选布局则以 `llm-deepseek`/`llm-pi-ai` 这两个 namespace 的名字为键。
+- **卡片上可编辑的只有 API 密钥与精选折叠区字段**：手写编辑器用 schema 通用的字段覆盖面换来了设计稿上的布局（[Agent Note](../../../.agents/notes/implemented/architecture/2026-07-30-web-config-plane.md)）；进阶字段（`models`、重试策略、超时……）在 `settings.yaml` 中编辑，折叠区会指向它。不带这些约定字段的 profile schema 只渲染该提示，两套精选布局则以 `llm-deepseek`/`llm-pi-ai` 这两个 namespace 的名字为键。
 - **删除一行会把它已存储的密钥留在 `.env` 里**：删除取消设置的是 settings profile，却刻意不清除那条派生凭据；重新添加该提供方时会发现密钥已配置。显式的密钥移除控件暂缓。
 - **页面上没有逐提供方的模型列表**：模型由选择器呈现；本页只展示路由状态。逐行的模型预览暂缓，待有消费方需要时再实现。
 - **未声明的存活路由无处渲染**：未附带可配置提供方声明即注册的路由没有 settings 地址；它在各选择器中仍然可见，但不会出现在本页的行里。

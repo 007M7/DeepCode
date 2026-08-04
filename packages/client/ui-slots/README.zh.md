@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-Slot 注册表纯核心、slot 终端设计：SlotMap 声明合并、SlotCore 上唯一的 `register` 组合 API、四 share 组件 props 类型家族、store seat 类型家族，以及 renderer 安装 seam 契约。只使用 React 类型；该包（package）不依赖 React，也不依赖 Cordis。
+Slot 注册表纯核心、slot 终端设计：SlotMap 声明合并、SlotCore 上唯一的 `register` 组合 API、四 share 组件 props 类型家族、store seat 类型家族，以及 renderer 安装 seam 契约。只使用 React 类型；该包不依赖 React，也不依赖 Cordis。
 
 一次 `register({ name, children?, store?, inject?, ...kind }, Component)` 调用会向已声明 slot 贡献一个组件，同时声明子 slot（声明 = 渲染授权 = 运行时规范，三者共用一张表）、store seat 以及注册方的业务表层。组件会在调用点依据 `ComposedProps` 接受检查；该类型是四个 share 的交集，每个 share 都从各自的唯一真源派生：
 
