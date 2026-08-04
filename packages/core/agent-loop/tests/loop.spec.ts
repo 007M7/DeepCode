@@ -25,11 +25,7 @@ async function harness(adapter: MockAdapter, persona = '') {
   return ctx
 }
 
-/**
- * Wait for the agent's NEXT transition to idle. Always event-based: callers
- * invoke this right after send(), when the loop hasn't woken yet (status is
- * still 'idle' synchronously), so polling the current status would lie.
- */
+/** Wait for the agent's next transition to idle after a waking send. */
 function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
@@ -527,13 +523,15 @@ describe('agent loop', () => {
     expect(flat).toContain('change of plans')
   })
 
-  it('coalesces same-tick idle steering into one turn', async () => {
-    const adapter = new MockAdapter([textResponse('first')])
+  it('starts idle steering synchronously and enters later steering at the next step', async () => {
+    const adapter = new MockAdapter([textResponse('first'), textResponse('second')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     const idle = waitForIdle(ctx, agent)
     agent.steer(createUserMessage({ content: [{ type: 'text', text: 'first idle steer' }], source: { kind: 'user' } }))
+    expect(agent.status).toBe('running')
+    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
     agent.steer(createUserMessage({ content: [{ type: 'text', text: 'second idle steer' }], source: { kind: 'user' } }))
     await idle
 
@@ -544,9 +542,10 @@ describe('agent loop', () => {
       [{ type: 'text', text: 'first idle steer' }],
       [{ type: 'text', text: 'second idle steer' }],
     ])
-    expect(adapter.requests).toHaveLength(1)
+    expect(adapter.requests).toHaveLength(2)
     expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('first idle steer')
-    expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('second idle steer')
+    expect(JSON.stringify(adapter.requests[0]?.messages)).not.toContain('second idle steer')
+    expect(JSON.stringify(adapter.requests[1]?.messages)).toContain('second idle steer')
   })
 
   it('stops after a throwing pre-step listener and retains later steering until a wakeup', async () => {

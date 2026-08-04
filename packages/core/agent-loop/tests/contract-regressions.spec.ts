@@ -191,10 +191,11 @@ describe('abort during tool execution ends the turn', () => {
     const adapter = new MockAdapter([textResponse('must not run')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a-empty-batch'), { provider: 'mock', model: 'mock' })
+    ctx.on('agent/pre-step', (subject, _messages, _context, next) => {
+      if (subject !== agent) return next()
+      return Promise.resolve({ kind: 'enter', messages: [] })
+    })
     send(agent, 'go')
-    // The wake microtask has not run yet: remove the only pending message so
-    // the admission batch is empty.
-    agent.inbox.remove(agent.inbox.nextTurn[0]!.id)
     await waitForIdle(ctx, agent)
     expect(adapter.requests).toHaveLength(0)
     expect(agent.session.events.filter(event => event.type === 'turn/start'

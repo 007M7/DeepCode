@@ -72,8 +72,8 @@ describe('Agent.cancel()', () => {
     expect(agent.session.events.some(e => e.type === 'turn/end')).toBe(true)
   })
 
-  it('cancel({ keepInbox: true }) preserves queued work and emits no discard', async () => {
-    const adapter = new MockAdapter([textResponse('preserved reply'), textResponse('wake reply')])
+  it('cancel({ keepInbox: true }) does not restore work already claimed by a waking send', async () => {
+    const adapter = new MockAdapter([textResponse('wake reply')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
@@ -81,21 +81,23 @@ describe('Agent.cancel()', () => {
       content: [{ type: 'text', text: 'preserved' }],
       source: { kind: 'user' },
     }))
-    // Abort the collecting activity while preserving its queued item.
+    // A waking send starts and claims synchronously, so keepInbox has no
+    // pending item to preserve by the time this cancellation runs.
     agent.cancel({ kind: 'user' }, { keepInbox: true })
     expect(agent.session.events.some(event =>
       event.type === 'agent/inbox/spliced' && event.data.outcome === 'canceled')).toBe(false)
     await agent.whenIdle()
-    expect(agent.inbox.nextTurn).toHaveLength(1)
+    expect(agent.inbox.nextTurn).toHaveLength(0)
     expect(userTexts(agent)).toEqual([])
     expect(adapter.requests).toHaveLength(0)
+    expect(agent.session.events.findLast(event => event.type === 'turn/end')?.data.reason)
+      .toEqual({ kind: 'aborted', reason: { kind: 'user' } })
 
-    // The preserved item still runs once a later follow-up wakes the driver.
     const idle = waitForIdle(ctx, agent)
     send(agent, 'wake it')
     await idle
-    expect(userTexts(agent)).toEqual(['preserved', 'wake it'])
-    expect(adapter.requests).toHaveLength(2)
+    expect(userTexts(agent)).toEqual(['wake it'])
+    expect(adapter.requests).toHaveLength(1)
   })
 
   it('cancel({ keepInbox: true }) parks queued work after an active turn aborts', async () => {
@@ -124,23 +126,22 @@ describe('Agent.cancel()', () => {
     expect(adapter.requests).toHaveLength(3)
   })
 
-  it('pre-step cancel drops the about-to-start turn (no turn is opened)', async () => {
+  it('cancel after waking send closes its synchronously opened turn without a step', async () => {
     const adapter = new MockAdapter([textResponse('should not run')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    // followup() queues synchronously (status still idle, loop microtask not yet
-    // resumed). Cancel in that pre-step window: the queued turn must not run.
     send(agent, 'drop me first')
     send(agent, 'drop me second')
     agent.cancel({ kind: 'user' })
 
-    // Give the loop a chance to wake and process the cancel.
     await new Promise(r => setTimeout(r, 30))
 
-    // No turn was opened — the queued prompt was dropped, never recorded.
     expect(userTexts(agent)).toEqual([])
-    expect(agent.session.events.some(e => e.type === 'turn/start')).toBe(false)
+    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
+    expect(agent.session.events.filter(event => event.type === 'step/start')).toHaveLength(0)
+    expect(agent.session.events.findLast(event => event.type === 'turn/end')?.data.reason)
+      .toEqual({ kind: 'aborted', reason: { kind: 'user' } })
     expect(agent.status).toBe('idle')
   })
 
@@ -218,7 +219,7 @@ describe('Agent.cancel()', () => {
     await expect(Promise.race([
       replacementObservation,
       new Promise((_resolve, reject) => setTimeout(() => { reject(new Error('whenIdle hung after idle-listener cancel')) }, 1000)),
-    ])).resolves.toEqual({ status: 'idle', requests: 1, turns: 1 })
+    ])).resolves.toEqual({ status: 'idle', requests: 1, turns: 2 })
 
     const idle = waitForIdle(ctx, agent)
     send(agent, 'later')
@@ -511,10 +512,10 @@ describe('Agent.cancel()', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    send(agent, 'A')           // queues A (status still idle, loop microtask pending)
-    const idle = agent.whenIdle() // registers a waiter (idle + hasQueued → no fast path)
-    agent.cancel({ kind: 'user' })     // arms marker, clears A
-    send(agent, 'B')           // B races in before the loop resumes
+    send(agent, 'A')
+    const idle = agent.whenIdle()
+    agent.cancel({ kind: 'user' })
+    send(agent, 'B')
 
     await idle
     expect(userTexts(agent)).toEqual([])
@@ -524,7 +525,7 @@ describe('Agent.cancel()', () => {
     send(agent, 'C')
     await replacementIdle
     expect(userTexts(agent)).toEqual(['B', 'C'])
-    expect(agent.session.events.filter(event => event.type === 'turn/end')).toHaveLength(2)
+    expect(agent.session.events.filter(event => event.type === 'turn/end')).toHaveLength(3)
   })
 
   it("cancel clears the turn's steering — it is not re-enqueued as a fresh turn", async () => {

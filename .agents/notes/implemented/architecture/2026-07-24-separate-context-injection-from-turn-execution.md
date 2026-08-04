@@ -26,7 +26,7 @@ Every additional context is an independent `UserMessage` whose `source` records 
 
 ## Injection lifecycle
 
-`inject()` always inserts context into the non-waking `next-step` inbox and commits that queue mutation as `agent/inbox/spliced`. A collecting or running driver claims it at the nearest later pre-step boundary. An idle driver leaves it pending until `followup()` or `steer()` supplies waking work; cancellation or disposal may discard it first without erasing the durable queue history.
+`inject()` always inserts context into the non-waking `next-step` inbox and commits that queue mutation as `agent/inbox/spliced`. A running driver claims it at the nearest later pre-step boundary. An idle driver leaves it pending until `followup()` or `steer()` supplies waking work; cancellation or disposal may discard it first without erasing the durable queue history.
 
 The loop claims the current next-step batch before running `agent/pre-step`, so an injection that arrives after that claim may miss the request already being finalized. The next boundary claims it instead. An enter decision appends its returned messages inside the owning turn before the request consumes them. Context produced during an assistant tool-call batch therefore appears after that batch's complete ordered results.
 
@@ -62,7 +62,7 @@ This decision preserves the caller-owned framing decision from [unwrapped inject
 - `UserMessage` is the shared identified, frozen shape across prompt interception, tool execution, hook bridges, guards, and context producers.
 - Prompt-prefix placement, prompt envelopes, and `context/message` are absent from public types, durable events, projection, and UI replay.
 - Idle `inject()` immediately appends one durable inbox insertion but no model-visible `user/message`; a later waking delivery may start pre-step processing.
-- Collecting and active-turn injection is claimed at the nearest later pre-step boundary, after complete tool-result batches and before the request that consumes it.
+- Active-turn injection is claimed at the nearest later pre-step boundary, after complete tool-result batches and before the request that consumes it.
 - Rejected or failed pre-step drops its claimed batch; input inserted after the claim remains pending.
 - Unit, persistence/resume, invariant, and TUI coverage pin event order, claim ownership, and durable replay.
 

@@ -545,9 +545,9 @@ interface Agent {
 
   /**
    * Resolve after the current whole-agent activity reaches quiescence. This
-   * follows replacement work scheduled before the observed driver retires,
+   * follows replacement work started before the observed driver retires,
    * but does not identify the settlement of any particular message.
-   * @returns fulfillment after no scheduled or active driver remains.
+   * @returns fulfillment after no active driver or maintenance task remains.
    */
   whenIdle(): Promise<void>
 
@@ -579,8 +579,8 @@ interface Agent {
   followup(message: UserMessage): void
 
   /**
-   * Submit steering for the nearest step. An idle driver schedules a turn;
-   * collecting and running drivers consume it at their next step boundary.
+   * Submit steering for the nearest step. An idle driver starts a turn;
+   * a running driver consumes it at its next step boundary.
    * A rejected step leaves steering parked in the inbox until the next
    * wake; cancellation or disposal may discard pending steering.
    * @param message - identified steering content and its producer provenance.
@@ -589,8 +589,8 @@ interface Agent {
 
   /**
    * Queue model-facing context for the next pre-step without waking the
-   * driver. Collecting and running drivers claim it at the nearest later
-   * step boundary; idle drivers leave it pending until follow-up or steering
+   * driver. A running driver claims it at the nearest later step boundary;
+   * idle drivers leave it pending until follow-up or steering
    * wakes them. It may miss a request whose pre-step already claimed its
    * batch. Cancellation or disposal may discard pending context.
    * @param message - identified injected context and its producer provenance.

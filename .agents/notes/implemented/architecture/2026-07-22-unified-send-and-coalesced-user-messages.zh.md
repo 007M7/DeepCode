@@ -28,7 +28,7 @@ agent 的对外驱动接口逐渐长出三个近乎平行的动词——`send`�
 
 **一条已接受消息只保留一种表示。** 持久的用户角色输入和附加的模型可见上下文都直接使用带标识且冻结的 `UserMessage`。循环把该值与私有路由状态存放在一起，不会将其标识、内容或来源复制到另一种公开形状中。steering、注入和工具产生的上下文都会在 next-step inbox 中保留各自带标识的消息。[带标识的不可变消息值决策](2026-07-28-identified-immutable-message-values.md)取代了本记录此前的 `UserMessageData`/`AgentMessage` 层级，并将这一表示扩展到 assistant 消息和工具结果消息。
 
-**空闲唤醒在插入之后发生。** 会唤醒的发送会先保留驱动器，并在输入进入目标 inbox 后把 pre-step 处理调度到微任务。因此，同一同步调用栈中的每次发送都会在领取开始前进入 inbox，而可重入的取消或拆除在已调度的 pre-step 结算前无法完成退役。同一调用栈中多次空闲 `steer()` 会形成一个 next-step 批次。
+**空闲唤醒在插入之后发生。** 会唤醒的发送会先插入输入，再于返回前进入 running 驱动器。首次 pre-step 可能立即领取该输入；因此，后续同步发送会加入正在运行的循环，并等待更晚的边界。自唤醒开始，取消就归属于 running 轮次信号，中间不会插入独立的预运行 phase。
 
 **cancel 新增 keepInbox。** `cancel(cause, { keepInbox? })`；调用方显式选择 cause，且 `keepInbox: true` 会中止活跃轮次，同时保留排队项和 steering 项（不发出 discard 事件，尚未启动的工作也不会被丢弃）。
 

@@ -28,7 +28,7 @@ Separately, `context/message` and `user/message` had converged: the surface proj
 
 **One accepted message keeps one representation.** Durable user-role input and additional model-facing context both use the identified, frozen `UserMessage` directly. The loop stores that value beside private routing state rather than copying its identity, content, or source into another public shape. Steering, injection, and tool-produced context each keep their identified messages in the next-step inbox. The [identified immutable message decision](2026-07-28-identified-immutable-message-values.md) supersedes this note's former `UserMessageData`/`AgentMessage` hierarchy and extends the representation to assistant and tool-result messages.
 
-**Idle wakeup follows insertion.** A waking send reserves the driver and schedules pre-step processing for a microtask after the input enters its target inbox. Every send in one synchronous caller stack therefore enters before claiming starts, while reentrant cancellation or teardown cannot retire before the scheduled pre-step settles. Multiple idle `steer()` calls in that stack form one next-step batch.
+**Idle wakeup follows insertion.** A waking send inserts its input, then enters the running driver before returning. The first pre-step may claim that input immediately; later synchronous sends therefore join the running loop and wait for a later boundary. Cancellation belongs to the running turn signal from wakeup onward; no distinct pre-run phase intervenes.
 
 **cancel gains keepInbox.** `cancel(cause, { keepInbox? })`; callers choose the cause explicitly, and `keepInbox: true` aborts the active turn while preserving queued and steering items (no discard event, and un-started work is not dropped).
 

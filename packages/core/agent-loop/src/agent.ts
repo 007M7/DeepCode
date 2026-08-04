@@ -41,7 +41,6 @@ type Phase =
     lastTurn: number
     wakeRequested: boolean
   }
-  | { kind: 'collecting'; abort: AbortController; lastTurn: number }
   | { kind: 'running'; abort: AbortController; turn: number; step: number }
 
 type StepEndReason = Extract<TurnEndReason, { kind: 'completed' | 'max-tokens' }>
@@ -109,7 +108,7 @@ export class ReactLoopAgent implements Agent {
     const wakingAfterAbort = wakeup && this.phase.kind !== 'idle' && this.phase.abort.signal.aborted
     const resolvedTarget = wakingAfterAbort ? 'next-turn' : target
     this.inbox.splice(resolvedTarget, Infinity, 0, [message])
-    if (wakeup) this.scheduleKick()
+    if (wakeup) this.wakeDriver()
   }
 
   followup(input: UserMessage): void {
@@ -148,14 +147,14 @@ export class ReactLoopAgent implements Agent {
         return await task(maintenance.abort.signal)
       } finally {
         this.setPhase({ kind: 'idle', lastTurn: maintenance.lastTurn })
-        if (maintenance.wakeRequested) this.scheduleKick()
+        if (maintenance.wakeRequested) this.wakeDriver()
         done.resolve()
       }
     })()
   }
 
-  /** Schedule one driver, or remember its wake behind maintenance. */
-  private scheduleKick(): void {
+  /** Start one driver, or remember its wake behind maintenance. */
+  private wakeDriver(): void {
     if (this.phase.kind === 'maintenance') {
       if (!this.phase.abort.signal.aborted) this.phase.wakeRequested = true
       return
@@ -163,10 +162,8 @@ export class ReactLoopAgent implements Agent {
     if (this.phase.kind !== 'idle') return
     const driver = Promise.withResolvers<void>()
     this.activityDone = driver.promise
-    this.setPhase({ kind: 'collecting', abort: new AbortController(), lastTurn: this.phase.lastTurn })
-    queueMicrotask(() => {
-      this.loopCtx.agents.withInitiator(this, () => this.kick()).then(driver.resolve, driver.reject)
-    })
+    this.setPhase({ kind: 'running', abort: new AbortController(), turn: this.phase.lastTurn, step: 0 })
+    this.loopCtx.agents.withInitiator(this, () => this.kick()).then(driver.resolve, driver.reject)
   }
 
   async whenIdle(): Promise<void> {
@@ -221,14 +218,11 @@ export class ReactLoopAgent implements Agent {
 
   /** Open one turn before claiming its first proposed step. */
   private async turn(): Promise<boolean> {
-    if (this.phase.kind === 'idle' || this.phase.kind === 'maintenance') {
+    if (this.phase.kind !== 'running') {
       this.throwError(new Error(`agent "${this.id}": turn without driver reservation`))
     }
-    const abort = this.phase.kind === 'collecting' ? this.phase.abort : new AbortController()
-    const { signal } = abort
-    const lastTurn = this.phase.kind === 'collecting' ? this.phase.lastTurn : this.phase.turn
-    const phase = { kind: 'running' as const, abort, turn: lastTurn, step: 0 }
-    this.setPhase(phase)
+    const phase = this.phase
+    const { signal } = phase.abort
     signal.throwIfAborted()
     const turn = phase.turn + 1
     try {
@@ -301,7 +295,10 @@ export class ReactLoopAgent implements Agent {
         this.throwError(error)
       }
     }
-    return this.inbox.hasPending
+    if (!this.inbox.hasPending) return false
+    phase.abort = new AbortController()
+    phase.step = 0
+    return true
   }
 
   private async step(assembly: PromptAssembly): Promise<StepEndReason | null> {

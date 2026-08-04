@@ -78,7 +78,7 @@ choose declarative identity and fresh/resume path
   -> enter session + agent -> session/created -> agent/created
   -> enable driving -> agent/session-start(source) -> start driver
 forever:
-  wait for waking inbox work
+  waking inbox insertion starts the driver before send returns
   -> emit agent/status(running) if starting an interval
   -> 'turn/start'
   claim next-step input plus one next-turn message
