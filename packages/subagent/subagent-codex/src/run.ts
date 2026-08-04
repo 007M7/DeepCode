@@ -65,16 +65,6 @@ export function textTask(prompt: readonly ContentBlock[]): string[] {
   return texts
 }
 
-async function treeExitsWithin(child: SubprocessHandle, ms: number): Promise<boolean> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => { controller.abort() }, ms)
-  try {
-    return await child.waitForExit(controller.signal)
-  } finally {
-    clearTimeout(timer)
-  }
-}
-
 /**
  * Close the private wire, terminate the managed process tree, and wait for the
  * subprocess owner to prove it is gone.
@@ -98,7 +88,7 @@ export async function disposeCodexChild(
     // A concurrently closed stdin does not change tree ownership below.
   }
   child.terminate()
-  if (!(await treeExitsWithin(child, graceMs * 2))) {
+  if (!(await child.waitForExit(AbortSignal.timeout(graceMs * 2)))) {
     throw new Error('subagent-codex: app-server process tree did not exit within its dispose window')
   }
   await child.done

@@ -14,7 +14,7 @@
   config:
     env:
       OPENAI_API_KEY: !!js process.env.DSH_TEST_OPENAI_API_KEY
-      CODEX_HOME: !!js process.cwd() + '/codex-home'
+      CODEX_HOME: !!js process.env.DSH_TEST_CODEX_HOME
       HOME: !!js process.cwd()
       XDG_CONFIG_HOME: !!js process.cwd() + '/xdg'
       PATH: !!js process.env.PATH

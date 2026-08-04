@@ -5,9 +5,10 @@
  * Code scenario and reruns both from its final stacked candidate.
  */
 
+import { homedir } from 'node:os'
 import { dirname, delimiter, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
 import {
   normalizeSessionLog,
@@ -25,7 +26,7 @@ const testsDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url))
 const fixtureDir = join(testsDir, 'fixtures/subagent/subagent-codex')
 const configPath = join(fixtureDir, 'cordis.yml')
-const snapshotDir = join(testsDir, 'snapshots/subagent-codex')
+const snapshotDir = join(testsDir, 'product-provider-snapshots/codex')
 const sessionExpected = join(snapshotDir, 'session.expected.jsonl')
 const evidenceExpected = join(snapshotDir, 'evidence.expected.json')
 const cliBin = join(repoRoot, 'packages/examples/cli-demo/src/bin.ts')
@@ -75,6 +76,7 @@ function responseInputTexts(body: Record<string, unknown>): string[] {
 
 describe('real product subagent providers through the Loader', () => {
   it('pins the Codex tool, result, persisted Session, and process quiescence', async () => {
+    const codexHome = await mkdtemp(join(homedir(), '.dsh-subagent-codex-loader-'))
     const responses = await startResponsesFixture([
       { kind: 'complete', text: CODEX_SENTINEL },
     ])
@@ -96,12 +98,11 @@ describe('real product subagent providers through the Loader', () => {
         tsconfigPath: repoTsconfig,
         processTimeoutMs: 45_000,
         env: {
+          DSH_TEST_CODEX_HOME: codexHome,
           DSH_TEST_OPENAI_API_KEY: FAKE_KEY,
           PATH: `${codexBinDir}${delimiter}${process.env.PATH ?? ''}`,
         },
-        async prepare(cwd): Promise<void> {
-          const codexHome = join(cwd, 'codex-home')
-          await mkdir(codexHome)
+        async prepare(): Promise<void> {
           await writeFile(join(codexHome, 'config.toml'), [
             'model = "fixture-model"',
             'model_provider = "fixture"',
@@ -161,7 +162,10 @@ describe('real product subagent providers through the Loader', () => {
       expect(normalizedSession).toBe(await readFile(sessionExpected, 'utf8'))
       expect(evidence).toBe(await readFile(evidenceExpected, 'utf8'))
     } finally {
-      await responses.close()
+      await Promise.all([
+        responses.close(),
+        rm(codexHome, { recursive: true, force: true }),
+      ])
     }
   }, LOADER_SMOKE_TEST_TIMEOUT_MS + 30_000)
 })
