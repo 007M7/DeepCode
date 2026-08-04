@@ -378,7 +378,8 @@ const attachments = new WeakMap<Session, SessionEntry>()
 /**
  * An event-sourced session: an append-only log of {@link SessionEvent}s.
  *
- * Plain class (not a Service) — create instances via `ctx.sessions.create()`.
+ * Plain class (not a Service) — create live instances via
+ * `ctx.sessions.create()` and detached instances via {@link create}.
  * Seeding with an existing event log replays/forks a session.
  * @typert object
  */
@@ -433,7 +434,19 @@ export class Session {
    */
   readonly firstLiveSeq: number
 
-  constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader) {
+  /**
+   * Create a detached session with the same validation and snapshot semantics
+   * formerly provided by direct construction.
+   * @param id - session identity.
+   * @param seed - optional borrowed replay or fork events.
+   * @param header - optional borrowed storage metadata.
+   * @returns a detached session.
+   */
+  static create(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader): Session {
+    return new Session(id, seed, header)
+  }
+
+  private constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader) {
     if (seed !== undefined) {
       // Validate the seed to the SAME invariants `append` enforces, so a
       // replay/fork (`ctx.sessions.create(id, { seed })`) cannot construct a
@@ -843,7 +856,7 @@ export class SessionStore extends Service {
       ...meta?.origin === undefined ? {} : { origin: meta.origin },
       ...meta?.delegationDepth === undefined ? {} : { delegationDepth: meta.delegationDepth },
     }
-    return new Session(sessionId, seed, header)
+    return Session.create(sessionId, seed, header)
   }
 
   /**

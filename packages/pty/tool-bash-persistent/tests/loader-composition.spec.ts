@@ -41,7 +41,7 @@ function agent(ctx: Context, cwd: string): Agent {
   const value: Agent = {
     id,
     options: {},
-    session: new Session(id, [], { version: 0, id, createdAt: 0, cwd }),
+    session: Session.create(id, [], { version: 0, id, createdAt: 0, cwd }),
     status: 'idle',
     acceptsNextStep: false,
     ctx: scope.ctx,
