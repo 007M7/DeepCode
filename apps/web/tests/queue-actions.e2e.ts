@@ -159,6 +159,8 @@ describe('web e2e: queue row actions', () => {
 
     await page.getByRole('button', { name: 'Stop generating' }).click()
     await firstSettled
+    await expect.poll(() => page.getByRole('button', { name: 'Stop generating' }).count())
+      .toBe(0)
     await expect.poll(() => page.getByRole('button', { name: 'Remove queued message' }).count())
       .toBe(2)
 
