@@ -1519,6 +1519,25 @@ export type PermissionPolicy = 'allow' | 'reject'
 
 Source: [`packages/subagent/subagent-acp/src/index.ts:26`](../packages/subagent/subagent-acp/src/index.ts)
 
+## `@deepseek-ai/dsh-subagent-codex`
+
+Requires: `subagents` · `subprocess`
+
+```ts config-catalog
+/** Deployment-owned environment and process-release bound. */
+export interface Config {
+  /**
+   * Explicit environment entries layered over the subprocess seam's
+   * credential-scrubbed parent environment.
+   */
+  env?: Record<string, string>
+  /** Grace in milliseconds for app-server process-tree termination. */
+  disposeGraceMs?: number
+}
+```
+
+Source: [`packages/subagent/subagent-codex/src/index.ts:29`](../packages/subagent/subagent-codex/src/index.ts)
+
 ## `@deepseek-ai/dsh-subagent-dsh-sdk`
 
 Requires: `subagents`

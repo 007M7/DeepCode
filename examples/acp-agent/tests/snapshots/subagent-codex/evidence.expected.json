@@ -1,0 +1,38 @@
+{
+  "stdout": {
+    "type": "result",
+    "success": true,
+    "sessionId": "{{sessionId}}",
+    "turn": 1,
+    "result": "Codex child returned: REAL_CODEX_LOADER_SENTINEL_0_146_0",
+    "reason": {
+      "kind": "completed"
+    },
+    "usage": {
+      "inputTokens": 20,
+      "outputTokens": 61
+    }
+  },
+  "request": {
+    "method": "POST",
+    "path": "/v1/responses",
+    "authorization": "Bearer dsh-fake-openai-loader-key",
+    "taskObserved": true
+  },
+  "quiescence": {
+    "processes": [
+      {
+        "argv": [
+          "codex",
+          "app-server",
+          "--stdio"
+        ],
+        "quiescent": true,
+        "outcome": {
+          "exitCode": 0,
+          "signal": null
+        }
+      }
+    ]
+  }
+}

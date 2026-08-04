@@ -14,6 +14,7 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 | `@deepseek-ai/dsh-subagent-spawn` | 全新的进程内子 agent；支持可继续子 agent。 |
 | `@deepseek-ai/dsh-subagent-fork` | 以父 agent 已完成轮次作为初始内容的进程内子 agent；支持可继续子 agent。 |
 | `@deepseek-ai/dsh-subagent-acp` | 全新的进程外 ACP（Agent Client Protocol）子 agent（一次性）。 |
+| `@deepseek-ai/dsh-subagent-codex` | 全新的真实 Codex app-server 子 agent，包含一个临时 thread 和一个轮次（一次性）。 |
 | `@deepseek-ai/dsh-tool-subagent` | 基于一个已配置提供方、面向模型的委派工具。 |
 | `@deepseek-ai/dsh-tool-subagent-control` | 全局具名 `send_message` 后续操作工具。 |
 | `@deepseek-ai/dsh-tool-subagent-report` | 子级作用域的返回通道，指向直接父级。 |

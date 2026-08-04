@@ -1,0 +1,42 @@
+# Test-only composition: one real Codex app-server delegation through the
+# Loader, fixed provider tool, common foreground settlement, and JSONL store.
+- id: fixture
+  name: './fixture.ts'
+
+- id: subagent
+  name: '@deepseek-ai/dsh-subagent'
+
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-local'
+
+- id: subagent-codex
+  name: '@deepseek-ai/dsh-subagent-codex'
+  config:
+    env:
+      OPENAI_API_KEY: !!js process.env.DSH_TEST_OPENAI_API_KEY
+      CODEX_HOME: !!js process.cwd() + '/codex-home'
+      HOME: !!js process.cwd()
+      XDG_CONFIG_HOME: !!js process.cwd() + '/xdg'
+      PATH: !!js process.env.PATH
+      HTTP_PROXY: ''
+      HTTPS_PROXY: ''
+      ALL_PROXY: ''
+      NO_PROXY: '127.0.0.1,localhost'
+
+- id: tool-subagent-codex
+  name: '@deepseek-ai/dsh-tool-subagent'
+  config:
+    provider: codex
+    toolName: subagent_codex
+    enableRunInBackground: false
+    maxDepth: 'provider-managed'
+
+- id: cli-agent
+  name: '@deepseek-ai/dsh-cli-demo'
+  config:
+    provider: mock
+    model: mock-delegate
+    persona: 'Delegate the task through the fixed Codex tool.'
+    persistenceRoot: './.sessions'
+    persistenceCompression: 'none'
+    workspaceContext: false

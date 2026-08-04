@@ -167,7 +167,7 @@ Streaming uses raw chunks and `BlockAssembler`. Each `LlmAdapter.stream()` is on
 
 A swappable capability usually has **interface / implementation / consumer** layers: service/events, backend, and model-facing tools/prompts. Bash is the reference; the [capability graph](capability-seams.md) maps each family.
 
-Exceptions combine LLM interface/consumer, filesystem policy, web registries, and named skill/subagent providers. Subagents spawn fresh, fork a completed-turn prefix, or use ACP children ([subagent.md](core-data-structures/subagent.md)).
+Exceptions combine LLM interface/consumer, filesystem policy, web registries, and named skill/subagent providers. Subagents spawn fresh, fork a completed-turn prefix, use ACP children, or delegate one self-contained turn to a real product provider such as Codex ([subagent.md](core-data-structures/subagent.md)).
 
 `dsh-workspace-context` injects baseline at the first `agent/step` and appends `ctx.fs`-discovered changes through `tools/post-execute`; its [decision](../.agents/notes/implemented/feature/2026-06-24-workspace-context.md) records isolation. `dsh-paths` owns shared paths.
 
