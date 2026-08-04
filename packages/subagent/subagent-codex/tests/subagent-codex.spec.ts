@@ -934,8 +934,8 @@ describe('run lifecycle and quiescence', () => {
     const child = fakeChild()
     const starting = startCodexRun(request(), runSpec(child))
     const initialize = await child.peer.nextMethod('initialize')
-    child.peer.respond(initialize, { userAgent: '' })
-    await expect(starting).rejects.toThrow('initialize userAgent')
+    child.peer.respond(initialize, null)
+    await expect(starting).rejects.toThrow('invalid initialize response')
     expect(child.terminate).toHaveBeenCalledTimes(1)
   })
 
