@@ -308,7 +308,7 @@ export interface ConnectionConfig {
 }
 ```
 
-Source: [`packages/client/connection/src/index.ts:20`](../packages/client/connection/src/index.ts)
+Source: [`packages/client/connection/src/index.ts:21`](../packages/client/connection/src/index.ts)
 
 ## `@deepseek-ai/dsh-client-hmr`
 
@@ -586,7 +586,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/host/webserver/src/index.ts:39`](../packages/host/webserver/src/index.ts)
+Source: [`packages/host/webserver/src/index.ts:47`](../packages/host/webserver/src/index.ts)
 
 ## `@deepseek-ai/dsh-invariants`
 

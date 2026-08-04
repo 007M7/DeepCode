@@ -771,6 +771,14 @@ The web-shape HTTP carrier service. Activation listens immediately (route regist
 register(route: WebRoute): () => void
 
 /**
+ * Register an exact-path HTTP upgrade route. Duplicate paths throw because
+ * one socket can have only one protocol owner.
+ * @param route - pathname and handler owning negotiation plus socket use.
+ * @returns the disposer removing the route.
+ */
+registerUpgrade(route: WebUpgradeRoute): () => void
+
+/**
  * Register an index.html transform, applied to every index response in
  * registration order.
  * @param transform - pure html-to-html function.
@@ -779,7 +787,7 @@ register(route: WebRoute): () => void
 tapIndex(transform: (html: string) => string): () => void
 ```
 
-Source: [`packages/host/webserver/src/index.ts:55`](../../packages/host/webserver/src/index.ts)
+Source: [`packages/host/webserver/src/index.ts:63`](../../packages/host/webserver/src/index.ts)
 
 ## `ctx.invariants` — `InvariantService`
 
