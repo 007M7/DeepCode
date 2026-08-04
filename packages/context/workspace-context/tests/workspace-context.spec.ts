@@ -40,6 +40,7 @@ import {
   rollbackPendingInstructionChanges,
   type InstructionVersionCache,
   type PendingInstructionChange,
+  type WorkspaceInstructionSource,
 } from '../src/state.ts'
 import { candidateScopeKey, renderInstructionChanges } from '../src/render.ts'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
@@ -227,11 +228,18 @@ function workspaceContextOf(result: { additionalContexts?: UserMessage[] }): Use
     context.source.kind === 'workspace-instructions')
 }
 
-function baselineEvents(agent: Agent): SessionEvent[] {
-  return agent.session.events.filter(event =>
+type WorkspaceInstructionEvent = Extract<SessionEvent, { type: 'user/message' }> & {
+  data: { source: WorkspaceInstructionSource }
+}
+
+function workspaceInstructionEvents(agent: Agent): WorkspaceInstructionEvent[] {
+  return agent.session.events.filter((event): event is WorkspaceInstructionEvent =>
     event.type === 'user/message'
-    && event.data.source.kind === 'workspace-instructions'
-    && event.data.source.baseline === true)
+    && event.data.source.kind === 'workspace-instructions')
+}
+
+function baselineEvents(agent: Agent): WorkspaceInstructionEvent[] {
+  return workspaceInstructionEvents(agent).filter(event => event.data.source.baseline === true)
 }
 
 function workspaceChangeContext(scope: string, digest: string): UserMessage {
@@ -1110,10 +1118,9 @@ describe('workspace context request injection', () => {
       await composeBaselinePrefix(ctx, resumed)
 
       expect(baselineEvents(resumed)).toHaveLength(1)
-      const update = resumed.session.events.findLast(event => event.type === 'user/message'
-        && event.data.source.kind === 'workspace-instructions'
-        && event.data.source.baseline !== true)
-      expect(update?.type === 'user/message' && update.data.source.changes).toMatchObject([
+      const update = workspaceInstructionEvents(resumed)
+        .findLast(event => event.data.source.baseline !== true)
+      expect(update?.data.source.changes).toMatchObject([
         { action: 'remove', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md' },
         { action: 'set', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') },
       ])
@@ -1199,7 +1206,7 @@ describe('workspace context request injection', () => {
       const claudeResume = stubAgent(root, [...original.session.events])
       await composeBaselinePrefix(claudeCtx, claudeResume)
       const claudeBaseline = baselineEvents(claudeResume).at(-1)
-      expect(claudeBaseline?.type === 'user/message' && claudeBaseline.data.source.changes).toMatchObject([
+      expect(claudeBaseline?.data.source.changes).toMatchObject([
         { action: 'remove', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md' },
         { action: 'set', scope: sk('.', 'CLAUDE.md'), path: 'CLAUDE.md' },
       ])
@@ -1212,7 +1219,7 @@ describe('workspace context request injection', () => {
       const restored = stubAgent(root, [...claudeResume.session.events])
       await composeBaselinePrefix(restoredCtx, restored)
       const restoredBaseline = baselineEvents(restored).at(-1)
-      expect(restoredBaseline?.type === 'user/message' && restoredBaseline.data.source.changes).toMatchObject([
+      expect(restoredBaseline?.data.source.changes).toMatchObject([
         { action: 'remove', scope: sk('.', 'CLAUDE.md'), path: 'CLAUDE.md' },
         { action: 'set', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md' },
       ])
@@ -1248,9 +1255,9 @@ describe('workspace context request injection', () => {
       const baselines = baselineEvents(resumed)
       expect(baselines).toHaveLength(2)
       const replacement = baselines.at(-1)
-      expect(replacement?.type === 'user/message' && blocksText(replacement.data.content))
+      expect(replacement === undefined ? '' : blocksText(replacement.data.content))
         .toContain('No workspace instructions are currently active.')
-      expect(replacement?.type === 'user/message' && replacement.data.source.changes).toMatchObject([
+      expect(replacement?.data.source.changes).toMatchObject([
         { action: 'remove', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md' },
       ])
 
