@@ -16,7 +16,7 @@ The first Windows-native foundation shipped `dsh-tool-pwsh` as a deliberately mi
 - **`run_in_background` is wired through the generic task runtime** exactly like the bash tool: preflight, owner registration, `task_output`/`task_kill` control, and the same outcome mapping. `pwsh-local`'s already-mirrored `start()` handle backs it.
 - **The `DSH_*` environment is shared, not duplicated**: `BashEnvRegistry` moved out of `dsh-tool-bash` into a new tool-independent `@deepseek-ai/dsh-bash-env` package (`ctx.bashEnv` + built-ins + the session-persistence contributor), and both shell tools inject it. Contributors apply to pwsh calls exactly as they do to bash calls, resolving the bash tool's `FIXME(bash-env-ownership)`.
 - **Windows reality is pinned where bash has no analog**: every command runs under a UTF-8 output preamble so the Windows PowerShell 5.1 fallback cannot garble non-ASCII output through the UTF-8-decoding collector, and the prompts teach that Windows forced termination settles as exit 1 without a signal marker.
-- **Out of scope, unchanged**: sandbox escalation (waits for a Windows-confining executor), persistent PTY shells (backends are Linux/macOS-only; ConPTY is roadmap work), and pwsh-specific TUI/GUI presentation (generic/terminal cards stay; a PowerShell-aware terminal card with an exit pill is roadmap work).
+- **Out of scope, unchanged**: sandbox escalation (waits for a Windows-confining executor) and persistent PTY shells (backends are Linux/macOS-only; ConPTY is roadmap work). The pwsh-specific terminal card with an exit pill shipped separately in the [pwsh UI presentation matches bash](2026-08-05-pwsh-ui-bash-parity.md) decision.
 
 ## Alternatives considered
 
@@ -33,4 +33,4 @@ The first Windows-native foundation shipped `dsh-tool-pwsh` as a deliberately mi
 - `@deepseek-ai/dsh-bash-env` is a new shipped package; `dsh-tool-bash`'s `dshHome` config moved there, so compositions mounting the shell tools must also mount `bash-env` (the spine bundles do).
 - Windows-only semantics (CRLF normalization, forced-termination exit-1/signal-null, POSIX-only self-signal) remain pinned by tests as before.
 - The pwsh tool's per-file coverage gate rides on the scriptable fake-executor suite (`tests/tools.spec.ts`); the real-pwsh integration and Loader-composition suites self-skip where `pwsh` is absent, mirroring the bash suites' division of labor.
-- The roadmap proposal's parity stage is delivered; its remaining stages are the Windows default composition and pwsh TUI/GUI rendering.
+- The roadmap proposal's parity stage is delivered; the terminal-card presentation stage shipped in the [pwsh UI presentation matches bash](2026-08-05-pwsh-ui-bash-parity.md) decision (the TUI itself was removed), leaving the Windows default composition as the remaining stage.

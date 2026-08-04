@@ -61,7 +61,8 @@
     "tests/chat-scroll-contract.e2e.ts",
     "tests/chat-long-interactions.e2e.ts",
     "tests/chat-continuous-conversation.e2e.ts",
-    "tests/complex-history.perf.ts"
+    "tests/complex-history.perf.ts",
+    "tests/pwsh-terminal.e2e.ts"
   ],
   "references": [
     {
