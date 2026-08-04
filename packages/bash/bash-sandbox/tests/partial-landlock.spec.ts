@@ -9,18 +9,16 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import {
-  LAUNCHER_FAILURE_EXIT,
-  LAUNCHER_FATAL_PREFIX,
-  PARTIAL_ENFORCEMENT_NOTICE,
-} from 'node-addon-landlock-run'
+import { LAUNCHER_FAILURE_EXIT } from 'node-addon-landlock-run'
 import { SANDBOX_UNAVAILABLE } from '@deepseek-ai/dsh-sandbox'
 import { LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
 import { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import { SandboxBashExecutor } from '@deepseek-ai/dsh-bash-sandbox'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 
-const FATAL = `${LAUNCHER_FATAL_PREFIX}landlock ruleset error: Invalid argument`
+const NOTICE = 'landlock-run: partial enforcement (older Landlock ABI)'
+const FATAL_PREFIX = 'landlock-run: '
+const FATAL = `${FATAL_PREFIX}landlock ruleset error: Invalid argument`
 
 const contexts: Context[] = []
 const tempDirs: string[] = []
@@ -41,10 +39,10 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --ro|--rw) shift 2 ;;
     --) shift; break ;;
-    *) printf '%s\\n' '${LAUNCHER_FATAL_PREFIX}usage error: unexpected fake argument' >&2; exit ${LAUNCHER_FAILURE_EXIT} ;;
+    *) printf '%s\\n' '${FATAL_PREFIX}usage error: unexpected fake argument' >&2; exit ${LAUNCHER_FAILURE_EXIT} ;;
   esac
 done
-printf '%s\\n' '${PARTIAL_ENFORCEMENT_NOTICE}' >&2
+printf '%s\\n' '${NOTICE}' >&2
 ${fatalBranch}exec "$@"
 `, { mode: 0o755 })
   return launcher
@@ -113,7 +111,7 @@ describe('partial Landlock runner-failure classification', () => {
       const bash = await setup()
       const result = await bash.run(bash.resolve({ command: `exit ${exitCode}` }))
       expect(result.exitCode).toBe(exitCode)
-      expect(result.stderr.text).toBe(`${PARTIAL_ENFORCEMENT_NOTICE}\n`)
+      expect(result.stderr.text).toBe(`${NOTICE}\n`)
       expect(result.sandbox).toEqual({ mode: 'read-only', denied: false, enforcement: 'partial' })
     },
   )
@@ -122,7 +120,7 @@ describe('partial Landlock runner-failure classification', () => {
     const bash = await setup()
     const result = await bash.run(bash.resolve({ command: `exit ${exitCode}` }))
     expect(result.exitCode).toBe(exitCode)
-    expect(result.stderr.text).toBe(`${PARTIAL_ENFORCEMENT_NOTICE}\n`)
+    expect(result.stderr.text).toBe(`${NOTICE}\n`)
     expect(result.sandbox).toEqual({ mode: 'read-only', denied: false, enforcement: 'partial' })
   })
 
@@ -130,7 +128,7 @@ describe('partial Landlock runner-failure classification', () => {
     const bash = await setup(exitCode)
     const result = await bash.run(bash.resolve({ command: 'true' }))
     expect(result.exitCode).toBe(exitCode)
-    expect(result.stderr.text).toBe(`${PARTIAL_ENFORCEMENT_NOTICE}\n${FATAL}\n`)
+    expect(result.stderr.text).toBe(`${NOTICE}\n${FATAL}\n`)
     expect(result.sandbox).toEqual({ mode: 'read-only', denied: false, enforcement: 'partial' })
   })
 
@@ -140,13 +138,13 @@ describe('partial Landlock runner-failure classification', () => {
     expect(error).toMatchObject({ name: 'SandboxUnavailableError', code: SANDBOX_UNAVAILABLE })
     expect(error).toBeInstanceOf(Error)
     expect((error as Error).message).toContain(`Runner failure: ${FATAL}`)
-    expect((error as Error).message).not.toContain(PARTIAL_ENFORCEMENT_NOTICE)
+    expect((error as Error).message).not.toContain(NOTICE)
   })
 
   it('classifies a notice plus child Permission denied as a denial, not runner failure', async () => {
     const bash = await setup()
     const result = await bash.run(bash.resolve({ command: 'printf "%s\\n" "child: Permission denied" >&2; exit 1' }))
-    expect(result.stderr.text).toBe(`${PARTIAL_ENFORCEMENT_NOTICE}\nchild: Permission denied\n`)
+    expect(result.stderr.text).toBe(`${NOTICE}\nchild: Permission denied\n`)
     expect(result.sandbox).toEqual({ mode: 'read-only', denied: true, enforcement: 'partial' })
   })
 
@@ -156,7 +154,7 @@ describe('partial Landlock runner-failure classification', () => {
       const task = bash.start(bash.resolve({ command }))
       await task.done
       expect(task.sandbox).toEqual({ mode: 'read-only', denied: false, enforcement: 'partial' })
-      expect(task.readOutput().delta).toContain(PARTIAL_ENFORCEMENT_NOTICE)
+      expect(task.readOutput().delta).toContain(NOTICE)
     }
   })
 
@@ -165,7 +163,7 @@ describe('partial Landlock runner-failure classification', () => {
     const task = bash.start(bash.resolve({ command: 'printf "%s\\n" "child: Permission denied" >&2; exit 1' }))
     await task.done
     expect(task.sandbox).toEqual({ mode: 'read-only', denied: true, enforcement: 'partial' })
-    expect(task.readOutput().delta).toContain(PARTIAL_ENFORCEMENT_NOTICE)
+    expect(task.readOutput().delta).toContain(NOTICE)
   })
 
   it('makes a background fatal line outrank denial text after the notice', async () => {
@@ -179,7 +177,7 @@ describe('partial Landlock runner-failure classification', () => {
       runnerFailed: true,
     })
     const output = task.readOutput().delta
-    expect(output).toContain(PARTIAL_ENFORCEMENT_NOTICE)
+    expect(output).toContain(NOTICE)
     expect(output).toContain(FATAL)
   })
 })

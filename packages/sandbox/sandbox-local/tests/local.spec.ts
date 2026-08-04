@@ -12,11 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import {
-  LAUNCHER_FAILURE_EXIT,
-  LAUNCHER_FATAL_PREFIX,
-  PARTIAL_ENFORCEMENT_NOTICE,
-} from 'node-addon-landlock-run'
+import { LAUNCHER_FAILURE_EXIT } from 'node-addon-landlock-run'
 import { SANDBOX_UNAVAILABLE, SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
 import type { SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import {
@@ -179,8 +175,8 @@ describe('the platform chains', () => {
       denialSignatures: ['permission denied'],
       runnerFailureRules: [{
         allowedExitCodes: [LAUNCHER_FAILURE_EXIT],
-        fatalSignatures: [LAUNCHER_FATAL_PREFIX],
-        informationalLines: [PARTIAL_ENFORCEMENT_NOTICE],
+        fatalSignatures: ['landlock-run: '],
+        informationalLines: ['landlock-run: partial enforcement (older Landlock ABI)'],
       }],
     })
     expect(probeLandlock).toHaveBeenCalledWith(launcher)

@@ -1,6 +1,6 @@
 # CLI contract: landlock-run
 
-This file pins the launcher's externally observable behavior — the cross-repo compatibility surface between the binaries and every consumer. Consumers interact with it only through the entry package (`launcherPath`/`probe`/`grantArgs` and its protocol constants); changing anything below requires a version bump for the whole package family and a note in the release notes.
+This file pins the launcher's externally observable behavior — the cross-repo compatibility surface between the binaries and every consumer. Consumers interact with it through the entry package (`launcherPath`/`probe`/`grantArgs`) and the launcher protocol; changing anything below requires a version bump for the whole package family and a note in the release notes.
 
 ## Invocation grammar
 
@@ -20,14 +20,14 @@ landlock-run --probe
 ## Exit codes
 
 - `125` (`LAUNCHER_FAILURE_EXIT`): every launcher-level failure — usage error, kernel that cannot enforce Landlock, unopenable grant root, failed `exec`. The wrapped command was NOT run.
-- After a successful `exec`, every child status is passed through unchanged, including 125. Consumers therefore require both status 125 and a `LAUNCHER_FATAL_PREFIX` line to attribute launcher failure.
+- After a successful `exec`, every child status is passed through unchanged, including 125. Consumers therefore require both status 125 and a `landlock-run: ` fatal line to attribute launcher failure.
 - `--probe`: `0` when the kernel enforces (fully or partially), `125` otherwise.
 
 ## Report lines
 
 - Probe success prints exactly one stdout line: `landlock: fully enforced` or `landlock: partially enforced (older ABI)`. The entry package's `probe()` maps these to `full`/`partial`; a non-zero probe exit maps to `unusable`.
-- A confined run under a partial-ABI kernel prints one stderr line `landlock-run: partial enforcement (older Landlock ABI)` (`PARTIAL_ENFORCEMENT_NOTICE`) and proceeds — still confined for everything the kernel supports.
-- Every fatal error prints one stderr line prefixed `landlock-run: ` (`LAUNCHER_FATAL_PREFIX`) before exiting `125`.
+- A confined run under a partial-ABI kernel prints one stderr line `landlock-run: partial enforcement (older Landlock ABI)` and proceeds — still confined for everything the kernel supports.
+- Every fatal error prints one stderr line prefixed `landlock-run: ` before exiting `125`.
 
 ## Confinement semantics
 

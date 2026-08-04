@@ -8,9 +8,8 @@
 
 import { spawnSync } from 'node:child_process'
 import {
-  LAUNCHER_FATAL_PREFIX,
+  LAUNCHER_BIN,
   LAUNCHER_FAILURE_EXIT,
-  PARTIAL_ENFORCEMENT_NOTICE,
   launcherPath as landlockLauncherPath,
   probe as defaultProbeLandlock,
 } from 'node-addon-landlock-run'
@@ -157,8 +156,8 @@ const RUNNER_FAILURE_RULES = {
   bwrap: [{ fatalSignatures: ['bwrap: '] }],
   landlock: [{
     allowedExitCodes: [LAUNCHER_FAILURE_EXIT],
-    fatalSignatures: [LAUNCHER_FATAL_PREFIX],
-    informationalLines: [PARTIAL_ENFORCEMENT_NOTICE],
+    fatalSignatures: [`${LAUNCHER_BIN}: `],
+    informationalLines: [`${LAUNCHER_BIN}: partial enforcement (older Landlock ABI)`],
   }],
   seatbelt: [{ fatalSignatures: ['sandbox-exec: '] }],
 } as const satisfies Record<SelectedRunner['runner'], readonly RunnerFailureRule[]>

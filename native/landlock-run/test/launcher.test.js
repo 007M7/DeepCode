@@ -19,13 +19,13 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import {
   LAUNCHER_FAILURE_EXIT,
-  LAUNCHER_FATAL_PREFIX,
-  PARTIAL_ENFORCEMENT_NOTICE,
   grantArgs,
   launcherPath,
   probe,
 } from 'node-addon-landlock-run';
 
+const FATAL_PREFIX = 'landlock-run: ';
+const PARTIAL_NOTICE = 'landlock-run: partial enforcement (older Landlock ABI)';
 const requireLandlock = process.env.NALR_REQUIRE_LANDLOCK === '1';
 
 if (process.platform !== 'linux') {
@@ -45,7 +45,7 @@ const run = (args, options = {}) => spawnSync(launcher, args, { encoding: 'utf8'
 {
   const noCommand = run([]);
   assert.equal(noCommand.status, LAUNCHER_FAILURE_EXIT);
-  assert.ok(noCommand.stderr.startsWith(LAUNCHER_FATAL_PREFIX));
+  assert.ok(noCommand.stderr.startsWith(FATAL_PREFIX));
   assert.match(noCommand.stderr, /usage error: missing `-- <argv>\.\.\.` command/);
 
   const unknownFlag = run(['--bogus', '--', 'true']);
@@ -78,7 +78,7 @@ if (enforcement === 'unusable') {
   console.log('launcher.test: SKIP enforcement half — kernel does not enforce Landlock');
   process.exit(0);
 }
-const expectedNotice = enforcement === 'partial' ? `${PARTIAL_ENFORCEMENT_NOTICE}\n` : '';
+const expectedNotice = enforcement === 'partial' ? `${PARTIAL_NOTICE}\n` : '';
 {
   const probeRun = run(['--probe']);
   assert.equal(probeRun.status, 0);
@@ -129,7 +129,7 @@ const expectedNotice = enforcement === 'partial' ? `${PARTIAL_ENFORCEMENT_NOTICE
   const marker = path.join(os.tmpdir(), `nalr-should-not-exist-${process.pid}`);
   const badGrant = run(['--ro', '/no/such/grant/root', '--', '/bin/sh', '-c', `echo x > ${marker}`]);
   assert.equal(badGrant.status, LAUNCHER_FAILURE_EXIT);
-  assert.ok(badGrant.stderr.startsWith(LAUNCHER_FATAL_PREFIX));
+  assert.ok(badGrant.stderr.startsWith(FATAL_PREFIX));
   assert.match(badGrant.stderr, /cannot open rule path/);
   assert.ok(!fs.existsSync(marker), 'the command must never run when the launcher fails');
 }

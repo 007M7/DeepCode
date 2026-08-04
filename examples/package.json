@@ -100,7 +100,6 @@
     "@deepseek-ai/dsh-web": "workspace:*",
     "@deepseek-ai/dsh-web-fetch-local": "workspace:*",
     "@deepseek-ai/dsh-workflow-workerthread": "workspace:*",
-    "@deepseek-ai/dsh-workspace-context": "workspace:*",
-    "node-addon-landlock-run": "0.0.0-test.0"
+    "@deepseek-ai/dsh-workspace-context": "workspace:*"
   }
 }
