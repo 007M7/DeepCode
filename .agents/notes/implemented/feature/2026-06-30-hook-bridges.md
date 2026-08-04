@@ -37,7 +37,7 @@ The CC bridge's `ask` result is a real permission path, not a terminal bridge de
 
 Every bridge `inject()` and additional-context input explicitly passes `{ kind: 'plugin', plugin: 'hooks-claude' | 'hooks-codex' }`. Unit coverage pins the resulting `user/message.source` as the plugin rather than the user.
 
-`UserPromptSubmit` runs at pre-step. For an initial follow-up it executes before any turn opens and therefore writes no turn-scoped `hook/invoked` / `hook/result` pair: rejection leaves the claimed input removed with no transcript, while entered additional context is durably represented by its sourced `user/message`. The Codex payload still receives the candidate next `turn_id`; rejection does not consume that number.
+`UserPromptSubmit` runs at pre-step after `turn/start`, so every invocation writes its turn-scoped `hook/invoked` / `hook/result` pair. Rejection leaves the claimed input removed, closes the turn as blocked with no step, and retains the hook pair as its durable decision evidence. The Codex payload receives that open turn's `turn_id`.
 
 ### Adding context is not a veto — delegate, then prepend
 

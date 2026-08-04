@@ -1,7 +1,7 @@
 {"method":"session.event","params":{"sessionId":"{{sessionId}}","event":{"type":"agent/inbox/spliced","seq":0,"time":0,"data":{"target":"next-turn","start":0,"inserted":[{"content":[{"type":"text","text":"Use the subagent tool exactly once with description 'echo probe' and prompt: Reply with exactly: child answer 42. Then reply with the subagent's final answer verbatim."}],"source":{"kind":"user"},"role":"user","id":"{{sessionId}}"}]}}}}
 {"method":"session.status","params":{"sessionId":"{{sessionId}}","status":"running"}}
-{"method":"session.event","params":{"sessionId":"{{sessionId}}","event":{"type":"agent/inbox/spliced","seq":1,"time":0,"data":{"target":"next-turn","start":0,"removedCount":1,"inserted":[]}}}}
-{"method":"session.event","params":{"sessionId":"{{sessionId}}","event":{"type":"turn/start","seq":2,"time":0,"data":{"turn":1}}}}
+{"method":"session.event","params":{"sessionId":"{{sessionId}}","event":{"type":"turn/start","seq":1,"time":0,"data":{"turn":1}}}}
+{"method":"session.event","params":{"sessionId":"{{sessionId}}","event":{"type":"agent/inbox/spliced","seq":2,"time":0,"data":{"target":"next-turn","start":0,"removedCount":1,"inserted":[]}}}}
 {"method":"session.event","params":{"sessionId":"{{sessionId}}","event":{"type":"step/start","seq":3,"time":0,"data":{"turn":1,"step":1}}}}
 {"method":"session.event","params":{"sessionId":"{{sessionId}}","event":{"type":"user/message","seq":4,"time":0,"data":{"content":[{"type":"text","text":"Use the subagent tool exactly once with description 'echo probe' and prompt: Reply with exactly: child answer 42. Then reply with the subagent's final answer verbatim."}],"source":{"kind":"user"},"role":"user","id":"{{sessionId}}"},"surfaceOp":"append"}}}
 {"method":"session.event","params":{"sessionId":"{{sessionId}}","event":{"type":"session/title","seq":5,"time":0,"data":{"title":"Use the subagent tool exactly","messageSeqs":[4],"source":{"kind":"fallback"}}}}}
@@ -101,9 +101,9 @@
 {"method":"subagent.started","params":{"parentSessionId":"{{sessionId}}","childSessionId":"{{sessionId}}"}}
 {"method":"session.event","params":{"sessionId":"{{sessionId}}","event":{"type":"agent/inbox/spliced","seq":0,"time":0,"data":{"target":"next-turn","start":0,"inserted":[{"content":[{"type":"text","text":"Reply with exactly: child answer 42."}],"source":{"kind":"user"},"role":"user","id":"{{sessionId}}"}]}}}}
 {"method":"session.status","params":{"sessionId":"{{sessionId}}","status":"running"}}
-{"method":"session.event","params":{"sessionId":"{{sessionId}}","event":{"type":"agent/inbox/spliced","seq":1,"time":0,"data":{"target":"next-turn","start":0,"removedCount":1,"inserted":[]}}}}
-{"method":"session.event","params":{"sessionId":"{{sessionId}}","event":{"type":"subagent/descriptor","seq":2,"time":0,"data":{"version":2,"mode":"one-shot","provider":"spawn","label":"echo probe"}}}}
-{"method":"session.event","params":{"sessionId":"{{sessionId}}","event":{"type":"turn/start","seq":3,"time":0,"data":{"turn":1}}}}
+{"method":"session.event","params":{"sessionId":"{{sessionId}}","event":{"type":"turn/start","seq":1,"time":0,"data":{"turn":1}}}}
+{"method":"session.event","params":{"sessionId":"{{sessionId}}","event":{"type":"agent/inbox/spliced","seq":2,"time":0,"data":{"target":"next-turn","start":0,"removedCount":1,"inserted":[]}}}}
+{"method":"session.event","params":{"sessionId":"{{sessionId}}","event":{"type":"subagent/descriptor","seq":3,"time":0,"data":{"version":2,"mode":"one-shot","provider":"spawn","label":"echo probe"}}}}
 {"method":"session.event","params":{"sessionId":"{{sessionId}}","event":{"type":"step/start","seq":4,"time":0,"data":{"turn":1,"step":1}}}}
 {"method":"session.event","params":{"sessionId":"{{sessionId}}","event":{"type":"user/message","seq":5,"time":0,"data":{"content":[{"type":"text","text":"Reply with exactly: child answer 42."}],"source":{"kind":"user"},"role":"user","id":"{{sessionId}}"},"surfaceOp":"append"}}}
 {"method":"session.event","params":{"sessionId":"{{sessionId}}","event":{"type":"session/title","seq":6,"time":0,"data":{"title":"Reply with exactly: child answer","messageSeqs":[5],"source":{"kind":"fallback"}}}}}

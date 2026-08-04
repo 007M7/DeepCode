@@ -20,7 +20,7 @@ Before inserting a message, `send()` checks the agent state and accepts an alrea
 
 If messages A and B are both processed, B's turn starts only after A records `turn/end` and A's durability checkpoint settles. B's request therefore sees whatever closed result A left in the same session log. A checkpoint error is reported, but settlement only releases this ordering barrier; it does not make a failed write durable. Broad `cancel()`, disposal, or a failure before `turn/start` can instead discard an unstarted item without opening an empty turn.
 
-At a turn boundary, the loop claims one follow-up after pending next-step input. `agent/pre-step` either rejects the proposal or returns the complete entering batch. A rejected follow-up remains removed without opening a turn or writing session history. Mixed ordinary follow-up branches do not exist.
+At a turn boundary, the loop opens the turn and claims one follow-up after pending next-step input. `agent/pre-step` either rejects the proposal or returns the complete entering batch. A rejected follow-up remains removed and closes a blocked no-step turn without writing model-visible history. Mixed ordinary follow-up branches do not exist.
 
 The no-batching rule applies only to ordinary follow-up input. `steer()` puts input in the next-step inbox and wakes the driver. During a turn, the loop can claim it at a later step boundary; while idle, the waking next-step batch starts a new turn. Input arriving after a batch was claimed waits for a later boundary, while cancellation or disposal can discard it.
 
@@ -35,7 +35,7 @@ The no-batching rule applies only to ordinary follow-up input. `steer()` puts in
 - Unit and property tests submit sends from the same stack, neighboring microtasks, different producers, and reentrant callbacks; every message gets its own FIFO-ordered turn.
 - A built-stdio test submits two lines and observes two model requests and two turn boundaries.
 - Delayed and rejected first-turn checkpoints keep the next turn waiting and prove that its request sees the preceding assistant result.
-- Failure-path tests cover pre-step rejection, listener failure, broad cancellation, disposal, and failure before `turn/start`; rejection creates no turn, recorded turns stay balanced, messages do not merge, and surviving later work still drains.
+- Failure-path tests cover pre-step rejection, listener failure, broad cancellation, disposal, and failure before `turn/start`; initial pre-step exits close balanced no-step turns, messages do not merge, and surviving later work still drains.
 - Separate tests cover open-turn, failed-turn, and idle `steer()`, pending `inject()`, whole-agent status, and `whenIdle()`.
 
 ## Consequences

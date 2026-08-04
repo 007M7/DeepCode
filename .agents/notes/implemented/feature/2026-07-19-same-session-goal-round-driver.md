@@ -24,7 +24,7 @@ When an agent is idle, has no competing queued work, and its current goal is `ac
 
 The `agent/pre-step` waterfall is the entry fence. A positive goal source enters only when it exactly matches the driver's pending identity and content, the live goal still has that id and revision, activation remains armed, and the round is still the next number. The plugin checks once before delegating and again after downstream listeners return. This second check prevents an async listener from editing or pausing the goal while still entering the old prompt.
 
-Only the resulting `user/message` is an entered round and advances the goal fold. A stale reservation is rejected before a turn opens; the driver marks it stale and does not charge the round. A downstream policy rejection that is not caused by staleness blocks the goal rather than retrying around policy.
+Only the resulting `user/message` is an entered round and advances the goal fold. A stale reservation closes a blocked no-step turn; the driver marks it stale and does not charge the round. A downstream policy rejection that is not caused by staleness blocks the goal rather than retrying around policy.
 
 ### Human work and revision races
 

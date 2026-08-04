@@ -108,7 +108,7 @@ export function apply(ctx: Context, config: Config): void {
    * Run and fold one configured Codex hook point.
    *
    * A supplied turn records the hook provenance pair inside that open turn.
-   * Pre-turn `UserPromptSubmit` and detached lifecycle points omit it.
+   * Detached lifecycle points omit it.
    */
   async function runPoint(
     point: string,
@@ -203,7 +203,9 @@ export function apply(ctx: Context, config: Config): void {
       turn_id: String(turn),
       prompt: blocksToText(messages.flatMap(message => message.content)),
     }
-    const merged = await runPoint('UserPromptSubmit', '', payload, { agent, plainStdoutAsContext: true, signal })
+    const merged = await runPoint('UserPromptSubmit', '', payload, {
+      agent, turn, plainStdoutAsContext: true, signal,
+    })
     /* jscpd:ignore-start */
     if (merged.decision === 'deny') {
       return { kind: 'reject' }

@@ -607,7 +607,7 @@ Pre-step decisions use the same identified `UserMessage` shape as durable user-r
 
 Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
-`agent/pre-step` receives the exclusive claimed batch and the proposed step's coordinates and cancellation signal. The initial proposal runs before its turn opens; a tool continuation may submit an empty claimed batch between steps:
+`agent/pre-step` receives the exclusive claimed batch and the proposed step's coordinates and cancellation signal. The initial proposal runs inside an open turn before any step; a tool continuation may submit an empty claimed batch between steps:
 
 ```ts type-equiv
 /** Coordinates and cancellation for a proposed step. */

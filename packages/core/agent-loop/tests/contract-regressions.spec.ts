@@ -187,7 +187,7 @@ describe('abort during tool execution ends the turn', () => {
       .toBeUndefined()
   })
 
-  it('parks an empty admitted batch instead of opening a turn', async () => {
+  it('closes an empty admitted batch as a turn without a step', async () => {
     const adapter = new MockAdapter([textResponse('must not run')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a-empty-batch'), { provider: 'mock', model: 'mock' })
@@ -197,7 +197,11 @@ describe('abort during tool execution ends the turn', () => {
     agent.inbox.remove(agent.inbox.nextTurn[0]!.id)
     await waitForIdle(ctx, agent)
     expect(adapter.requests).toHaveLength(0)
-    expect(agent.session.events.some(event => event.type === 'turn/start')).toBe(false)
+    expect(agent.session.events.filter(event => event.type === 'turn/start'
+      || event.type === 'step/start' || event.type === 'turn/end').map(event => event.type))
+      .toEqual(['turn/start', 'turn/end'])
+    expect(agent.session.events.find(event => event.type === 'turn/end')?.data)
+      .toEqual({ turn: 1, step: 0, reason: { kind: 'completed' } })
     expect(agent.inbox.nextTurn).toHaveLength(0)
   })
 
@@ -747,6 +751,7 @@ describe('turn and step boundary recovery', () => {
 
     expect(agent.session.events.some(event => event.type === 'turn/start'
       || event.type === 'user/message')).toBe(false)
+    expect(agent.inbox.nextTurn).toHaveLength(1)
     expect(errors.map(error => error.message)).toEqual(['reject turn-start before commit'])
     expect(adapter.requests).toHaveLength(0)
   })
@@ -878,7 +883,7 @@ describe('turn and step boundary recovery', () => {
     expect(e.some(x => x.type === 'turn/end' && x.data.reason.kind === 'error')).toBe(false)
   })
 
-  it('contains a pre-step throw after disposal without opening a turn', async () => {
+  it('contains a pre-step throw after disposal inside a balanced no-step turn', async () => {
     const adapter = new MockAdapter([textResponse('never reached')])
     const ctx = await balancedHarness(adapter)
     let agent!: Agent
@@ -902,8 +907,10 @@ describe('turn and step boundary recovery', () => {
     await agent.whenIdle()
 
     const e = [...agent.session.events]
-    expect(e.some(x => x.type === 'turn/start')).toBe(false)
-    expect(e.some(x => x.type === 'turn/end')).toBe(false)
+    expect(e.filter(x => x.type === 'turn/start' || x.type === 'turn/end').map(x => x.type))
+      .toEqual(['turn/start', 'turn/end'])
+    expect(e.find(x => x.type === 'turn/end')?.data.reason)
+      .toEqual({ kind: 'aborted', reason: { kind: 'disposed' } })
     expect(e.some(x => x.type === 'step/start')).toBe(false)
     expect(errorEmits).toHaveLength(0)
   })
@@ -1090,7 +1097,7 @@ describe('tool result call identity', () => {
 })
 
 describe('disposal and cancellation during pre-step assembly', () => {
-  it('disposal during system-prompt assembly prevents the turn from opening', { timeout: 30000 }, async () => {
+  it('disposal during system-prompt assembly closes a no-step turn', { timeout: 30000 }, async () => {
     // Start disposal, then release assembly. Do not await disposal first: it
     // waits for the blocked driver to exit.
     const adapter = new MockAdapter(['hang'])
@@ -1134,14 +1141,15 @@ describe('disposal and cancellation during pre-step assembly', () => {
     unlisten()
 
     const e = [...agent.session.events]
-    expect(e.some(x => x.type === 'turn/start')).toBe(false)
-    expect(e.some(x => x.type === 'turn/end')).toBe(false)
+    expect(e.filter(x => x.type === 'turn/start' || x.type === 'turn/end').map(x => x.type))
+      .toEqual(['turn/start', 'turn/end'])
     expect(e.some(x => x.type === 'step/start')).toBe(false)
     expect(e.some(x => x.type === 'step/end')).toBe(false)
     expect(e.some(x => x.type === 'assistant/chunk')).toBe(false)
+    expect(reasons).toEqual([{ kind: 'aborted', reason: { kind: 'disposed' } }])
   })
 
-  it('cancel during system-prompt assembly prevents the turn from opening', { timeout: 30000 }, async () => {
+  it('cancel during system-prompt assembly closes a no-step turn', { timeout: 30000 }, async () => {
     const adapter = new MockAdapter([textResponse('should not appear')])
     let releaseAssemble!: () => void
     const blocker = new Promise<void>(r => void (releaseAssemble = r))
@@ -1180,17 +1188,17 @@ describe('disposal and cancellation during pre-step assembly', () => {
     unlisten()
 
     const e = [...agent.session.events]
-    expect(e.some(x => x.type === 'turn/start')).toBe(false)
-    expect(e.some(x => x.type === 'turn/end')).toBe(false)
+    expect(e.filter(x => x.type === 'turn/start' || x.type === 'turn/end').map(x => x.type))
+      .toEqual(['turn/start', 'turn/end'])
     expect(e.some(x => x.type === 'step/start')).toBe(false)
     expect(e.some(x => x.type === 'step/end')).toBe(false)
     expect(e.some(x => x.type === 'assistant/chunk')).toBe(false)
     expect(e.some(x => x.type === 'assistant/message')).toBe(false)
     expect(adapter.requests).toHaveLength(0)
-    expect(reasons).toEqual([])
+    expect(reasons).toEqual([{ kind: 'aborted', reason: { kind: 'user' } }])
   })
 
-  it('disposal during pre-step prevents the turn from opening', { timeout: 15000 }, async () => {
+  it('disposal during pre-step closes a no-step turn', { timeout: 15000 }, async () => {
     // Start disposal, then release pre-step; awaiting disposal first would deadlock on the blocked driver.
     const adapter = new MockAdapter(['hang'])
     let releasePreStep!: () => void
@@ -1227,16 +1235,16 @@ describe('disposal and cancellation during pre-step assembly', () => {
     await disposalDone
     await driverDone(agent)
 
-    // The post-listener cancellation check catches disposal before any turn or LLM call.
+    // The post-listener cancellation check catches disposal before any step or LLM call.
     const e = [...agent.session.events]
-    expect(e.some(x => x.type === 'turn/start')).toBe(false)
-    expect(e.some(x => x.type === 'turn/end')).toBe(false)
+    expect(e.filter(x => x.type === 'turn/start' || x.type === 'turn/end').map(x => x.type))
+      .toEqual(['turn/start', 'turn/end'])
     expect(e.some(x => x.type === 'step/start')).toBe(false)
     expect(e.some(x => x.type === 'assistant/chunk')).toBe(false)
-    expect(reasons).toEqual([])
+    expect(reasons).toEqual([{ kind: 'aborted', reason: { kind: 'disposed' } }])
   })
 
-  it('cancel during pre-step prevents the turn from opening', { timeout: 15000 }, async () => {
+  it('cancel during pre-step closes a no-step turn', { timeout: 15000 }, async () => {
     // Release pre-step after cancellation to exercise the post-listener check.
     const adapter = new MockAdapter(['hang'])
     let releasePreStep!: () => void
@@ -1275,11 +1283,11 @@ describe('disposal and cancellation during pre-step assembly', () => {
     await driverDone(agent)
 
     const e = [...agent.session.events]
-    expect(e.some(x => x.type === 'turn/start')).toBe(false)
-    expect(e.some(x => x.type === 'turn/end')).toBe(false)
+    expect(e.filter(x => x.type === 'turn/start' || x.type === 'turn/end').map(x => x.type))
+      .toEqual(['turn/start', 'turn/end'])
     expect(e.some(x => x.type === 'step/start')).toBe(false)
     expect(e.some(x => x.type === 'assistant/chunk')).toBe(false)
-    expect(reasons).toEqual([])
+    expect(reasons).toEqual([{ kind: 'aborted', reason: { kind: 'user' } }])
   })
 
   it('disposal during assembly does not leak an LLM call or append assistant/chunk', { timeout: 15000 }, async () => {
@@ -1319,8 +1327,10 @@ describe('disposal and cancellation during pre-step assembly', () => {
     await driverDone(agent)
 
     const e = [...agent.session.events]
-    expect(e.some(x => x.type === 'turn/start')).toBe(false)
-    expect(e.some(x => x.type === 'turn/end')).toBe(false)
+    expect(e.filter(x => x.type === 'turn/start' || x.type === 'turn/end').map(x => x.type))
+      .toEqual(['turn/start', 'turn/end'])
+    expect(e.find(x => x.type === 'turn/end')?.data.reason)
+      .toEqual({ kind: 'aborted', reason: { kind: 'disposed' } })
     expect(e.some(x => x.type === 'assistant/chunk')).toBe(false)
     expect(e.some(x => x.type === 'assistant/message')).toBe(false)
     expect(adapter.requests).toHaveLength(0)

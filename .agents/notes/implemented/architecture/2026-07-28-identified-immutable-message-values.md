@@ -38,7 +38,7 @@ Any operation that changes only the representation of an existing semantic messa
 
 Every message producer must choose creation or import explicitly, and tests construct complete values rather than partial content/source records. UUID generation moves outward to the first semantic creation point, so deterministic fixtures that provide an existing id use `freezeMessage()` instead of `createMessage()`.
 
-Live inbox events, durable events, derived history, and model requests can correlate one message without content equality or envelope-specific ids. Claim policy and UI attachment cleanup can compare `MessageId` before a turn exists. Deep freezing prevents a producer, hook, or observer from changing the value after identity is established.
+Live inbox events, durable events, derived history, and model requests can correlate one message without content equality or envelope-specific ids. Pending-input policy and UI attachment cleanup can compare `MessageId` before a turn exists, while claims retain that identity inside the open turn. Deep freezing prevents a producer, hook, or observer from changing the value after identity is established.
 
 The shared representation removes the old `UserMessageData`/`AgentMessage` split and folds provider provenance into typed message sources. Event envelopes still own facts that are not message semantics, such as turn and step position, token usage, internal tool failure identity, and presentation metadata.
 

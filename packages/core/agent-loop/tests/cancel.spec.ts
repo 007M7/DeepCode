@@ -361,33 +361,6 @@ describe('Agent.cancel()', () => {
     expect(reasons.length).toBe(2)
   })
 
-  it('cancel from a synchronous turn/start session-event listener drops the step (step-start window)', async () => {
-    const adapter = new MockAdapter([textResponse('should not stream')])
-    const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-
-    // A turn/start listener fires before a step controller exists, so the
-    // turn-scoped marker—not step abort—must drop the pending step.
-    let streamed = false
-    ctx.on('session/event', (_s, event) => { if (event.type === 'assistant/chunk') streamed = true })
-    const dispose = ctx.on('session/event', (session, event) => {
-      if (session === agent.session && event.type === 'turn/start') agent.cancel({ kind: 'user' })
-    })
-
-    const reasons: TurnEndReason[] = []
-    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
-
-    send(agent, 'go')
-    await waitForIdle(ctx, agent)
-    dispose()
-
-    // No step streamed (the model never ran), and the turn ended aborted with
-    // the caller's cause — the marker carries `cancel(cause)` through even
-    // though no AbortController observed it in this window.
-    expect(streamed).toBe(false)
-    expect(reasons).toEqual([{ kind: 'aborted', reason: { kind: 'user' } }])
-  })
-
   it('cancel from a synchronous step/start session-event listener drops the step (post-step-start window)', async () => {
     const adapter = new MockAdapter([textResponse('should not stream')])
     const ctx = await harness(adapter)
@@ -487,8 +460,8 @@ describe('Agent.cancel()', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    // `agent/status` is synchronous, so cancellation can land after the first
-    // pre-step check; the second check must drop the now-empty turn.
+    // `agent/status` is synchronous, so cancellation can land before the
+    // durable turn-start commit and must drop the reserved work.
     let streamed = false
     ctx.on('session/event', (_s, event) => { if (event.type === 'assistant/chunk') streamed = true })
     const dispose = ctx.on('agent/status', (subject, status) => {
@@ -735,11 +708,8 @@ describe('Agent.cancel()', () => {
     agent.cancel({ kind: 'user' })
     await idle
     const turnEnd = agent.session.events.findLast(event => event.type === 'turn/end')
-    if (stage === 'pre-step' || stage === 'system-prompt') {
-      expect(turnEnd).toBeUndefined()
-    } else {
-      expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted', reason: { kind: 'user' } })
-    }
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason)
+      .toEqual({ kind: 'aborted', reason: { kind: 'user' } })
     await ctx.fiber.dispose()
   })
 })

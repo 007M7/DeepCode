@@ -37,7 +37,7 @@ CC 桥接的 `ask` 结果是一条真正的权限路径，而非终态桥接决�
 
 每个桥接的 `inject()` 和 additional-context 输入都显式传入 `{ kind: 'plugin', plugin: 'hooks-claude' | 'hooks-codex' }`。单元测试覆盖率固定验证结果中的 `user/message.source` 为插件而非用户。
 
-`UserPromptSubmit` 在 pre-step 运行。对于初始 follow-up，它发生在任何轮次开启前，因此不会写入轮次范围的 `hook/invoked` / `hook/result` 对：reject 让已领取输入保持删除且不留下 transcript（文本记录），而进入步骤的额外上下文由其带来源的 `user/message` 持久呈现。Codex payload 仍会收到候选的下一个 `turn_id`；reject 不会消耗该编号。
+`UserPromptSubmit` 在 `turn/start` 之后的 pre-step 运行，因此每次调用都会写入轮次范围的 `hook/invoked` / `hook/result` 对。reject 会让已领取输入保持删除，将轮次关闭为 blocked 且不包含步骤，并保留该 hook 对作为持久决策证据。Codex payload 会收到这个已打开轮次的 `turn_id`。
 
 ### 添加上下文不是否决——先 delegate，再 prepend
 

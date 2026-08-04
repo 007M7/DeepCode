@@ -129,8 +129,7 @@ export function apply(ctx: Context, config: Config): void {
    * Run every command hook configured for `point` whose matcher selects
    * `matchQuery`, with the per-event `payload` on stdin, and fold the results.
    * Writes a `hook/invoked`/`hook/result` pair per hook when `opts.turn` names
-   * an open turn. Pre-turn `UserPromptSubmit` and detached lifecycle points
-   * omit the pair. Returns the merged outcome (a neutral,
+   * an open turn. Detached lifecycle points omit the pair. Returns the merged outcome (a neutral,
    * already-most-restrictive view) for the caller to map onto its seam
    * decision. `matchQuery` is the event's matcher subject (tool name, session
    * source, …); `''` for events that ignore matchers.
@@ -217,10 +216,10 @@ export function apply(ctx: Context, config: Config): void {
 
   // --- UserPromptSubmit → PreStepDecision. The prompt text is the payload; no
   // matcher subject (CC ignores matchers for this event). ---
-  ctx.on('agent/pre-step', async (agent, messages, { signal }, next): Promise<PreStepDecision> => {
+  ctx.on('agent/pre-step', async (agent, messages, { turn, signal }, next): Promise<PreStepDecision> => {
     if (messages.length === 0) return next()
     const content = messages.flatMap(message => message.content)
-    const merged = await runPoint('UserPromptSubmit', '', promptPayload(ctx, agent, content), { agent, signal })
+    const merged = await runPoint('UserPromptSubmit', '', promptPayload(ctx, agent, content), { agent, turn, signal })
     if (merged.decision === 'deny') {
       return { kind: 'reject' }
     }

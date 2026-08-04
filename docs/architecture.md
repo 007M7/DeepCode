@@ -79,14 +79,14 @@ choose declarative identity and fresh/resume path
   -> enable driving -> agent/session-start(source) -> start driver
 forever:
   wait for waking inbox work
+  -> emit agent/status(running) if starting an interval
+  -> 'turn/start'
   claim next-step input plus one next-turn message
   -> emit agent/inbox/claimed({ message, turn }) for each claimed message
-  -> emit agent/status(running) if starting an interval
   -> agent/pre-step(messages, { turn, step, signal })
-    reject or listener failure -> the claimed batch stays removed; stop the driver
-    enter:
-      'turn/start'
-    step loop:
+    reject, empty input, cancellation, or listener failure
+      -> the claimed batch stays removed; close the no-step turn; stop the driver
+    enter -> step loop:
       'step/start'
       append the returned batch as separate 'user/message' events
       assemble ordered prompt and tool schemas -> snapshot derived messages
@@ -122,7 +122,7 @@ Adapter selection, dispatch, and iteration failures become terminal error or abo
 
 Other failures use `agent/error`; cancellation and disposal beat recovery. Before request-header commit, the turn signal cancels capability preparation; undispatched tools get synthetic `tool/call`/`ABORTED_BEFORE_DISPATCH` pairs. Effective `cancel(cause)` reports its cause before clearing and aborting; idle calls emit nothing. Durability distinguishes `aborted` cancellation from `disposed` teardown, which awaits quiescence ([decision](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)).
 
-Turn and step events are turn-enclosed; the loop appends `user/message` events only from entered batches inside a turn. Standalone `compact/* { turn: null }` events consume no turn, and their lock-time markers may interleave with inbox splices. Reload synthesizes interrupted turn ends; `session/end-seed` distinguishes stale compaction orphans from live locks. After close, only `agent/error` reports failures. Each turn has one [TurnEndReason](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap).
+Turn and step events are turn-enclosed; the loop appends `user/message` events only from entered batches inside a turn. A turn opens before the initial claim and pre-step, so rejection, empty input, cancellation, or failure closes a durable turn with `step: 0`. Standalone `compact/* { turn: null }` events consume no turn, and their lock-time markers may interleave with inbox splices. Reload synthesizes interrupted turn ends; `session/end-seed` distinguishes stale compaction orphans from live locks. After close, only `agent/error` reports failures. Each turn has one [TurnEndReason](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap).
 
 ### Agent Handles
 

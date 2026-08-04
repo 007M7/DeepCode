@@ -60,7 +60,7 @@ fork 会话会继承持久目标前缀，因为这是自然的重放结果。for
 
 Goal Round 驱动器为每个准确实时 agent 至多拥有一个待定预留。只有 goal 处于活跃且已激活状态、agent 空闲、不存在竞争性人类工作、最新变更已经通过持久性检查点、准确 goal id／revision／Round 仍匹配，并且下游 pre-step 策略接受时，它才会接纳预留。其 `agent/pre-step` 围栏会在下游监听器前后检查这些事实，防止编辑、暂停、人类消息或卸载竞争接纳陈旧工作。
 
-只有已准入、Round 为正数且来源为 goal 的 `user/message` 会计入一个 Round。陈旧预留会在轮次打开前被拒绝，不会消耗上限。并发 goal revision 会胜过旧 Round 的结算。
+只有已准入、Round 为正数且来源为 goal 的 `user/message` 会计入一个 Round。陈旧预留会关闭一个 blocked 的无步骤轮次，不会消耗上限。并发 goal revision 会胜过旧 Round 的结算。
 
 普通 Turn 完成后，只有目标仍活跃、已激活且低于上限时才会安排另一个 Round。取消会暂停。速率限制或配额耗尽以代码 `usage-limited` 阻塞；上限耗尽使用 `round-limit`；队列失败使用 `queue-failed`；Turn 错误、max-token 停止、策略拒绝与未知终止结果使用各自对应的阻塞代码。独立组合的请求恢复插件可以在同一个 Turn 内重试暂时性 provider 失败；目标驱动器绝不会在异常终止结果后凭空发起另一个 Round。人类随后可以通过普通语言或 `/goal resume` 授权恢复。
 

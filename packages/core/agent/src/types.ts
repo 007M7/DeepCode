@@ -204,10 +204,9 @@ declare module 'cordis' {
      */
     'agent/inbox/inserted'(this: Scoped<Agent>, agent: Agent, event: { message: UserMessage }): void
     /**
-     * One message left the inbox for a turn. If the turn boundary that
-     * claimed it is rejected, the claimed message ends here: it is neither
-     * discarded nor re-emitted as a user/message, and a later batch may
-     * reuse the same turn number.
+     * One message left the inbox inside its open turn. If the proposed step
+     * is rejected, the claimed message ends here: it is neither discarded nor
+     * re-emitted as a user/message, and the turn closes without a step.
      * @param agent - the agent whose inbox changed.
      * @param event - the claimed message and owning turn.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.

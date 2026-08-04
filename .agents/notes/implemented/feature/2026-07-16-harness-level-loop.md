@@ -60,7 +60,7 @@ Forked sessions inherit the durable goal prefix because that is the natural repl
 
 The goal-round driver owns at most one pending reservation per exact live agent. It admits a reservation only when the goal is active and armed, the agent is idle, no competing human work exists, the latest mutation has passed its durability checkpoint, the exact goal id/revision/round still matches, and downstream pre-step policy accepts it. Its `agent/pre-step` fence checks those facts both before and after downstream listeners, preventing an edit, pause, human message, or unload race from admitting obsolete work.
 
-Only an admitted positive-round goal-sourced `user/message` charges a round. A stale reservation is rejected before a turn opens without consuming the cap. A concurrent goal revision wins over settlement from an older round.
+Only an admitted positive-round goal-sourced `user/message` charges a round. A stale reservation closes a blocked no-step turn without consuming the cap. A concurrent goal revision wins over settlement from an older round.
 
 Normal turn completion schedules another round only while the goal remains active, armed, and below its cap. Cancellation pauses. Rate limiting or quota exhaustion blocks with code `usage-limited`; cap exhaustion blocks with `round-limit`; queue failure uses `queue-failed`; turn errors, max-token stops, policy rejection, and unknown terminal results use their corresponding blocker codes. An independently composed request-recovery plugin may retry transient provider failures within that same turn; the goal driver never invents another round after an abnormal terminal outcome. A human can later authorize resume through ordinary language or `/goal resume`.
 

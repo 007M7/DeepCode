@@ -56,11 +56,18 @@ describe('Agent', () => {
     const inserted: unknown[] = []
     const claimed: unknown[] = []
     const discarded: unknown[] = []
+    const lifecycle: string[] = []
+    ctx.on('session/event', (session, event) => {
+      if (session === agent.session && event.type === 'turn/start') lifecycle.push('turn/start')
+    })
     ctx.on('agent/inbox/inserted', (subject, event) => {
       if (subject === agent) inserted.push(event)
     })
     ctx.on('agent/inbox/claimed', (subject, event) => {
-      if (subject === agent) claimed.push(event)
+      if (subject === agent) {
+        lifecycle.push('agent/inbox/claimed')
+        claimed.push(event)
+      }
     })
     ctx.on('agent/inbox/discarded', (subject, event) => {
       if (subject === agent) discarded.push(event)
@@ -78,6 +85,7 @@ describe('Agent', () => {
     expect(inserted).toEqual([{ message: context }, { message: prompt }])
     expect(discarded).toEqual([{ message: context }])
     expect(claimed).toEqual([{ message: prompt, turn: 1 }])
+    expect(lifecycle).toEqual(['turn/start', 'agent/inbox/claimed'])
   })
 
   it('idle inject() rejects invalid input before enqueue', async () => {

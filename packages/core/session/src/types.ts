@@ -189,9 +189,10 @@ export type RequestHeaderReason = 'initial' | 'resume' | 'change'
  */
 export interface SessionEventMap {
   /**
-   * Opens turn `turn`. Every turn begins after the loop claims queued input
-   * and accepts the pre-step result; the following identified `user/message`
-   * event or batch records the messages entering the step.
+   * Opens turn `turn` before the loop claims queued input or runs pre-step.
+   * Rejection, empty input, cancellation, or failure may close it with no
+   * step; otherwise the following identified `user/message` event or batch
+   * records the messages entering the step.
    */
   'turn/start': { turn: number }
   /**

@@ -26,9 +26,10 @@ interface UserMessage extends Message {
  */
 interface SessionEventMap {
   /**
-   * Opens turn `turn`. Every turn begins after the loop claims queued input
-   * and accepts the pre-step result; the following identified `user/message`
-   * event or batch records the messages entering the step.
+   * Opens turn `turn` before the loop claims queued input or runs pre-step.
+   * Rejection, empty input, cancellation, or failure may close it with no
+   * step; otherwise the following identified `user/message` event or batch
+   * records the messages entering the step.
    */
   'turn/start': { turn: number }
   /**
@@ -564,7 +565,7 @@ Activity ordering excludes the boundary through `lastActivityTime(events)`: pick
 
 A plugin may declaration-merge extra `SessionEventMap` types. These are **log-only**: NOT `SurfaceEventType`s (they carry no `surfaceOp` and contribute nothing to derived history). Their owner decides whether they belong to an open execution turn or may stand between turns, and enforces any relation in its own invariant companion. The full per-event enumeration — core and plugin-contributed alike, with payloads and provenance — is the generated [persistence log event catalog](../persistence-catalog.md); the compaction seam's `compact/*` semantics are discussed on [compaction.md](compaction.md).
 
-The hook bridges' `hook/invoked` / `hook/result` provenance pairs (from `@deepseek-ai/dsh-hook-protocol`) correlate by `handlerId`. The mid-turn hook points (`PreToolUse`/`PostToolUse`/`Stop`) fire inside the loop's open turn, so their `hook/*` records are turn-enclosed by construction. `SessionStart` and the pre-turn `UserPromptSubmit` pre-step seam get no `hook/*` record because neither has an open turn to enclose one; entered context is instead evidenced by its sourced `user/message` (see [the hook-bridges Agent Note](../../.agents/notes/implemented/feature/2026-06-30-hook-bridges.md)).
+The hook bridges' `hook/invoked` / `hook/result` provenance pairs (from `@deepseek-ai/dsh-hook-protocol`) correlate by `handlerId`. `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, and `Stop` fire inside the loop's open turn, so their `hook/*` records are turn-enclosed by construction. `SessionStart` gets no `hook/*` record because it runs before turn 1; its context remains pending in the inbox until a waking delivery opens a turn (see [the hook-bridges Agent Note](../../.agents/notes/implemented/feature/2026-06-30-hook-bridges.md)).
 
 ## Durability contract
 

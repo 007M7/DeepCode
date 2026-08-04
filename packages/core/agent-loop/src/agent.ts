@@ -219,7 +219,7 @@ export class ReactLoopAgent implements Agent {
     return decision.kind === 'reject' ? decision : { ...decision, assembly }
   }
 
-  /** Claimed input stays unowned until `turn/start` commits. */
+  /** Open one turn before claiming its first proposed step. */
   private async turn(): Promise<boolean> {
     if (this.phase.kind === 'idle' || this.phase.kind === 'maintenance') {
       this.throwError(new Error(`agent "${this.id}": turn without driver reservation`))
@@ -230,30 +230,32 @@ export class ReactLoopAgent implements Agent {
     const phase = { kind: 'running' as const, abort, turn: lastTurn, step: 0 }
     this.setPhase(phase)
     signal.throwIfAborted()
-    let decision: PreparedStep
-    try {
-      decision = await this.preStep('next-turn', { turn: phase.turn + 1, step: 1 })
-      if (decision.kind === 'reject') return false
-      // An empty admitted batch (claimed input removed before the wake, or no
-      // runtime-context change) parks the driver instead of opening a turn and
-      // spending a model call on nothing.
-      if (decision.messages.length === 0) return false
-      signal.throwIfAborted()
-    } catch (error: unknown) {
-      if (signal.aborted) throw error
-      this.throwError(error)
-    }
-    const turn = ++phase.turn
+    const turn = phase.turn + 1
     try {
       this.session.append('turn/start', { turn })
     } catch (error: unknown) {
       this.throwError(error)
     }
+    phase.turn = turn
     let turnEnds: TurnEndReason | null = null
+    let target: InboxTarget = 'next-turn'
     try {
       while (true) {
         signal.throwIfAborted()
         const step = phase.step + 1
+        const decision = await this.preStep(target, { turn, step })
+        if (decision.kind === 'reject') {
+          turnEnds = { kind: 'blocked' }
+          return false
+        }
+        if (turnEnds && decision.messages.length === 0) break
+        // A removed waking message or an enter decision rewritten to empty
+        // still owns the initial turn boundary, but it spends no model call.
+        if (phase.step === 0 && decision.messages.length === 0) {
+          turnEnds = { kind: 'completed' }
+          return false
+        }
+        signal.throwIfAborted()
         this.session.append('step/start', { turn, step })
         phase.step = step
         try {
@@ -275,13 +277,7 @@ export class ReactLoopAgent implements Agent {
           signal.throwIfAborted()
         }
         if (turnEnds && this.inbox.nextStep.length === 0) break
-        decision = await this.preStep('next-step', { turn, step: phase.step + 1 })
-        if (decision.kind === 'reject') {
-          turnEnds = { kind: 'blocked' }
-          return false
-        }
-        signal.throwIfAborted()
-        if (decision.messages.length === 0 && turnEnds) break
+        target = 'next-step'
       }
     } catch (error: unknown) {
       if (signal.aborted) {

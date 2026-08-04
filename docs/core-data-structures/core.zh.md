@@ -615,7 +615,7 @@ pre-step 决策使用与持久 user-role 输入相同、带标识的 `UserMessag
 
 源码：[`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
-`agent/pre-step` 接收独占的已领取批次，以及拟进入步骤的坐标与取消 signal。首次提案发生在轮次打开前；工具 continuation 可以在步骤之间提交空的已领取批次：
+`agent/pre-step` 接收独占的已领取批次，以及拟进入步骤的坐标与取消 signal。首次提案在已打开的轮次内、任何步骤开始前运行；工具 continuation 可以在步骤之间提交空的已领取批次：
 
 ```ts type-equiv
 /** Coordinates and cancellation for a proposed step. */

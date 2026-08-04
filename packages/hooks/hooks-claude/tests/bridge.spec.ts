@@ -89,7 +89,7 @@ async function waitFor(predicate: () => boolean, timeout = 5000, interval = 10):
 }
 
 describe('hooks-claude bridge — UserPromptSubmit', () => {
-  it('a UserPromptSubmit hook that exits 2 rejects step entry without a turn', async () => {
+  it('a UserPromptSubmit hook that exits 2 closes a blocked turn without a step', async () => {
     // UserPromptSubmit ignores its malformed matcher field, then exit 2 blocks
     // with the reason on stderr.
     const dir = mkdtempSync(join(tmpdir(), 'dsh-hooks-claude-'))
@@ -105,11 +105,11 @@ describe('hooks-claude bridge — UserPromptSubmit', () => {
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'do something' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
 
-    // The prompt was blocked before the model and before a turn opened.
+    // The prompt was blocked inside its turn before any model step.
     expect(adapter.requests).toHaveLength(0)
-    expect(events(agent).some(e => e.type === 'turn/start')).toBe(false)
-    // Pre-step has no open turn in which turn-scoped hook provenance could live.
-    expect(events(agent).some(e => e.type === 'hook/invoked' || e.type === 'hook/result')).toBe(false)
+    expect(events(agent).filter(e => e.type === 'turn/start' || e.type === 'hook/invoked'
+      || e.type === 'hook/result' || e.type === 'turn/end').map(e => e.type))
+      .toEqual(['turn/start', 'hook/invoked', 'hook/result', 'turn/end'])
   })
 
   it('a UserPromptSubmit hook printing additionalContext injects it for the model', async () => {
@@ -399,7 +399,9 @@ describe('hooks-claude bridge — load resilience', () => {
     await waitForIdle(ctx, agent)
 
     expect(adapter.requests).toHaveLength(0)
-    expect(events(agent).some(event => event.type === 'turn/start')).toBe(false)
+    expect(events(agent).filter(event => event.type === 'turn/start' || event.type === 'hook/invoked'
+      || event.type === 'hook/result' || event.type === 'turn/end').map(event => event.type))
+      .toEqual(['turn/start', 'hook/invoked', 'hook/result', 'turn/end'])
     expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('invalid claude regex matcher'))
   })
 

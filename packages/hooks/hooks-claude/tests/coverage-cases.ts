@@ -322,7 +322,9 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, agent)
-      expect(events(agent).some(e => e.type === 'turn/start')).toBe(false)
+      expect(events(agent).filter(e => e.type === 'turn/start' || e.type === 'hook/invoked'
+        || e.type === 'hook/result' || e.type === 'turn/end').map(e => e.type))
+        .toEqual(['turn/start', 'hook/invoked', 'hook/result', 'turn/end'])
     })
 
     it('a PreToolUse ask with NO reason omits the reason (false arm)', async () => {
@@ -505,7 +507,9 @@ export function defineCoverageCases(group: CoverageGroup): void {
       // recorded, and the (sole, fully-blocked) prompt closed the turn `rejected`
       expect(adapter.requests).toHaveLength(0)
       expect(events(agent).some(e => e.type === 'user/message' && e.data.source.kind !== 'user')).toBe(false)
-      expect(events(agent).some(e => e.type === 'turn/start')).toBe(false)
+      expect(events(agent).filter(e => e.type === 'turn/start' || e.type === 'hook/invoked'
+        || e.type === 'hook/result' || e.type === 'turn/end').map(e => e.type))
+        .toEqual(['turn/start', 'hook/invoked', 'hook/result', 'turn/end'])
     })
 
     it('preserves separate bridge and downstream prompt contexts with framing and metadata', async () => {

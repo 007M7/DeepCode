@@ -81,7 +81,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       expect((await capture()).payload.transcript_path).toBeNull()
     }, 15_000) // Two real agent/hook subprocess loops need process startup and teardown headroom.
 
-    it('UserPromptSubmit block (exit 2) rejects step entry without a turn', async () => {
+    it('UserPromptSubmit block (exit 2) closes a blocked turn without a step', async () => {
       const d = dir()
       hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: sh(d, 'b.sh', '#!/usr/bin/env bash\nexit 2\n') }] }] })
       const adapter = new MockAdapter([textResponse('no')])
@@ -89,7 +89,9 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       expect(adapter.requests).toHaveLength(0)
-      expect(events(agent).some(e => e.type === 'turn/start')).toBe(false)
+      expect(events(agent).filter(e => e.type === 'turn/start' || e.type === 'hook/invoked'
+        || e.type === 'hook/result' || e.type === 'turn/end').map(e => e.type))
+        .toEqual(['turn/start', 'hook/invoked', 'hook/result', 'turn/end'])
     })
 
     it('UserPromptSubmit additionalContext is injected; a no-op hook proceeds', async () => {
@@ -116,7 +118,9 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       expect(adapter.requests).toHaveLength(0)
       expect(events(agent).some(e => e.type === 'user/message')).toBe(false)
-      expect(events(agent).some(e => e.type === 'turn/start')).toBe(false)
+      expect(events(agent).filter(e => e.type === 'turn/start' || e.type === 'hook/invoked'
+        || e.type === 'hook/result' || e.type === 'turn/end').map(e => e.type))
+        .toEqual(['turn/start', 'hook/invoked', 'hook/result', 'turn/end'])
     })
 
     it('preserves separate bridge and downstream prompt contexts with framing and metadata', async () => {

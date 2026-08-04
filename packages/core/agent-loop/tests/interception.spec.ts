@@ -231,7 +231,7 @@ describe('agent/pre-step', () => {
     expect(events(agent).filter(event => event.type === 'step/start')).toHaveLength(1)
   })
 
-  it('reject drops the claimed prompt before any turn or model call', async () => {
+  it('reject closes the claimed prompt turn without a step or model call', async () => {
     const adapter = new MockAdapter([textResponse('should not run')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
@@ -247,11 +247,11 @@ describe('agent/pre-step', () => {
     // the model was never called
     expect(adapter.requests).toHaveLength(0)
     const log = events(agent)
-    expect(log.some(e => e.type === 'turn/start')).toBe(false)
-    expect(log.some(e => e.type === 'turn/end')).toBe(false)
+    expect(log.filter(e => e.type === 'turn/start' || e.type === 'turn/end').map(e => e.type))
+      .toEqual(['turn/start', 'turn/end'])
     expect(log.some(e => e.type === 'user/message')).toBe(false)
     expect(log.some(e => e.type === 'step/start')).toBe(false)
-    expect(reasons).toEqual([])
+    expect(reasons).toEqual([{ kind: 'blocked' }])
   })
 
   it('stages inject and steer during pre-step for the entered turn', async () => {
@@ -274,7 +274,7 @@ describe('agent/pre-step', () => {
     send(agent, 'entered prompt')
     await entered.promise
     expect(agent.status).toBe('running')
-    expect(events(agent).some(event => event.type === 'turn/start')).toBe(false)
+    expect(events(agent).some(event => event.type === 'turn/start')).toBe(true)
 
     agent.inject(createUserMessage({
       content: [{ type: 'text', text: 'attached context' }],
@@ -342,7 +342,8 @@ describe('agent/pre-step', () => {
         { type: 'text', text: 'staged context' },
         { type: 'text', text: 'staged steering' },
       ])
-    expect(events(agent).some(event => event.type === 'turn/start')).toBe(false)
+    expect(events(agent).filter(event => event.type === 'turn/start' || event.type === 'turn/end')
+      .map(event => event.type)).toEqual(['turn/start', 'turn/end'])
     expect(adapter.requests).toEqual([])
 
     disposeBlock()
@@ -398,7 +399,8 @@ describe('agent/pre-step', () => {
     send(agent, 'later prompt')
     await idle
 
-    expect(events(agent).some(event => event.type === 'turn/start')).toBe(false)
+    expect(events(agent).filter(event => event.type === 'turn/start' || event.type === 'turn/end')
+      .map(event => event.type)).toEqual(['turn/start', 'turn/end'])
     expect(agent.inbox.nextStep.map(message => message.content[0]))
       .toEqual([
         { type: 'text', text: 'earlier state change' },
@@ -498,8 +500,9 @@ describe('agent/pre-step', () => {
     const log = events(agent)
     expect(log.filter(e => e.type === 'user/message')).toHaveLength(0)
     expect(adapter.requests).toHaveLength(0)
-    expect(log.filter(e => e.type === 'turn/start')).toHaveLength(0)
-    expect(reasons).toEqual([])
+    expect(log.filter(e => e.type === 'turn/start')).toHaveLength(1)
+    expect(log.filter(e => e.type === 'turn/end')).toHaveLength(1)
+    expect(reasons).toEqual([{ kind: 'blocked' }])
     expect(agent.inbox.nextTurn.map(message => message.content[0]))
       .toEqual([{ type: 'text', text: 'safe' }])
 
@@ -537,9 +540,12 @@ describe('agent/pre-step', () => {
     await idle
     expect(errors).toEqual([expect.objectContaining({ message: 'prompt hook broke' })])
     const log = events(agent)
-    expect(log.filter(e => e.type === 'turn/start')).toHaveLength(0)
-    expect(log.filter(e => e.type === 'turn/end')).toHaveLength(0)
-    expect(reasons).toEqual([])
+    expect(log.filter(e => e.type === 'turn/start')).toHaveLength(1)
+    expect(log.filter(e => e.type === 'turn/end')).toHaveLength(1)
+    expect(reasons).toEqual([{
+      kind: 'error',
+      error: { message: 'prompt hook broke', code: 'UNKNOWN' },
+    }])
     expect(statuses).toEqual(['running', 'idle'])
     expect(adapter.requests).toHaveLength(0)
     expect(agent.inbox.nextTurn.map(message => message.content[0]))
@@ -775,7 +781,7 @@ describe('worked example: a native hook plugin is just a cordis plugin on the se
     expect(log.some(e => e.type.startsWith('hook/'))).toBe(false)
   })
 
-  it('the same plugin blocks a destructive prompt before a turn or model call', async () => {
+  it('the same plugin blocks a destructive prompt inside a no-step turn', async () => {
     const adapter = new MockAdapter([textResponse('should not run')])
     const ctx = await harness(adapter)
     await ctx.plugin(NativeGuard)
@@ -788,7 +794,7 @@ describe('worked example: a native hook plugin is just a cordis plugin on the se
     await agent.whenIdle()
 
     expect(adapter.requests).toHaveLength(0)
-    expect(reasons).toEqual([])
+    expect(reasons).toEqual([{ kind: 'blocked' }])
   })
 
   it('HMR-safety: disposing the plugin fiber removes all four listeners', async () => {

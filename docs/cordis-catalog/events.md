@@ -75,18 +75,17 @@ A step or turn errored. The machine reports a failure here even when the error h
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:303`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:302`](../../packages/core/agent/src/types.ts)
 
 ### `agent/inbox/claimed` — emit
 
-One message left the inbox for a turn. If the turn boundary that claimed it is rejected, the claimed message ends here: it is neither discarded nor re-emitted as a user/message, and a later batch may reuse the same turn number.
+One message left the inbox inside its open turn. If the proposed step is rejected, the claimed message ends here: it is neither discarded nor re-emitted as a user/message, and the turn closes without a step.
 
 ```ts cordis-catalog
 /**
- * One message left the inbox for a turn. If the turn boundary that
- * claimed it is rejected, the claimed message ends here: it is neither
- * discarded nor re-emitted as a user/message, and a later batch may
- * reuse the same turn number.
+ * One message left the inbox inside its open turn. If the proposed step
+ * is rejected, the claimed message ends here: it is neither discarded nor
+ * re-emitted as a user/message, and the turn closes without a step.
  * @param agent - the agent whose inbox changed.
  * @param event - the claimed message and owning turn.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
@@ -97,7 +96,7 @@ One message left the inbox for a turn. If the turn boundary that claimed it is r
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
 
-Source: [`packages/core/agent/src/types.ts:216`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:215`](../../packages/core/agent/src/types.ts)
 
 ### `agent/inbox/discarded` — emit
 
@@ -116,7 +115,7 @@ One message was discarded from the live inbox.
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
 
-Source: [`packages/core/agent/src/types.ts:224`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:223`](../../packages/core/agent/src/types.ts)
 
 ### `agent/inbox/inserted` — emit
 
@@ -156,7 +155,7 @@ Reject a proposed step or replace the messages that enter it. Calling `next()` p
 
 Types: [Agent](../core-data-structures/core.md) · [PreStepContext](../core-data-structures/core.md) · [PreStepDecision](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
 
-Source: [`packages/core/agent/src/types.ts:248`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:247`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request` — waterfall
 
@@ -180,7 +179,7 @@ Replace the frozen call configuration. `await next()` yields the config the mach
 
 Types: [Agent](../core-data-structures/core.md) · [LlmCallConfig](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:261`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:260`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request-error` — waterfall
 
@@ -203,7 +202,7 @@ Handle one failed model-request attempt before the loop retries or closes its st
 
 Types: [Agent](../core-data-structures/core.md) · [RequestErrorAction](../core-data-structures/core.md) · [RequestFailureContext](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:273`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:272`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-start` — emit
 
@@ -225,7 +224,7 @@ The session lifecycle began, once before the first turn. Use `agent.inject()` to
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [SessionStartSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:236`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:235`](../../packages/core/agent/src/types.ts)
 
 ### `agent/status` — emit
 
@@ -275,7 +274,7 @@ The turn is about to close: the model owes no response (no live tool calls, no f
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:291`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:290`](../../packages/core/agent/src/types.ts)
 
 ## `agent-loop/*`
 

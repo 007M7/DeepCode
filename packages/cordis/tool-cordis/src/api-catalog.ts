@@ -1244,8 +1244,8 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/inbox/claimed',
     mode: 'emit',
     signature: '\'agent/inbox/claimed\'(this: Scoped<Agent>, agent: Agent, event: { message: UserMessage; turn: number }): void',
-    jsDoc: '/**\n * One message left the inbox for a turn. If the turn boundary that\n * claimed it is rejected, the claimed message ends here: it is neither\n * discarded nor re-emitted as a user/message, and a later batch may\n * reuse the same turn number.\n * @param agent - the agent whose inbox changed.\n * @param event - the claimed message and owning turn.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
-    summary: 'One message left the inbox for a turn.',
+    jsDoc: '/**\n * One message left the inbox inside its open turn. If the proposed step\n * is rejected, the claimed message ends here: it is neither discarded nor\n * re-emitted as a user/message, and the turn closes without a step.\n * @param agent - the agent whose inbox changed.\n * @param event - the claimed message and owning turn.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    summary: 'One message left the inbox inside its open turn.',
   },
   {
     name: 'agent/inbox/discarded',

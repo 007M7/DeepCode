@@ -35,7 +35,7 @@ harness 需要一套钩子子系统：用户像 Claude Code（CC）和 Codex 那
 
 ### 三个承重的循环决策
 
-1. **在每个拟议步骤运行 pre-step 策略。** 首次决策发生在循环开启轮次之前，因此 reject 不会创建轮次，也不产生持久消息。即使工具续步没有新取得所有权的输入，也会提交空批次，使逐请求上下文生产方可以把带日志的消息加入这一次请求。enter 时，循环先开启步骤，再把返回批次作为 `user/message` 追加，然后派生请求。依照[一次 send 对应一个轮次的简化](../simplification/2026-07-17-one-send-one-turn.md)，每个已领取 follow-up 仍是其轮次中唯一的直接提示词。
+1. **在每个拟议步骤运行 pre-step 策略。** 循环会在首次领取和决策之前打开轮次，因此 reject 会关闭一个持久、blocked 且不含步骤或模型可见消息的轮次。即使工具续步没有新取得所有权的输入，也会提交空批次，使逐请求上下文生产方可以把带日志的消息加入这一次请求。enter 时，循环先开启步骤，再把返回批次作为 `user/message` 追加，然后派生请求。依照[一次 send 对应一个轮次的简化](../simplification/2026-07-17-one-send-one-turn.md)，每个已领取 follow-up 仍是其轮次中唯一的直接提示词。
 
 2. **工具执行后的 `additionalContexts` 与异步注入进入活跃批次 FIFO，并在该批次结算时追加。** `content`/`feedback` 塑造 `execute()` 返回的结果，但每项上下文都是一条独立的带来源 `user/message`，而单个步骤或组合工具可以产生许多上下文。立即追加上下文会产生 `result(c1) → context → result(c2)` 的交错，或把嵌套上下文放在外层结果之前，破坏工具调用/结果邻接性。因此 `ToolRunContext.deferContext()` 会在失败路径上也收集嵌套调度上下文，`execute()` 在 `ToolExecutionResult` 上暴露有序数组，循环再把它接纳到与执行期间 `agent.inject()` 调用相同的 FIFO 中。FIFO 在批次结算时，于每个已记录结果之后追加，其中也包括被中断轮次关闭之前。被接受的外层调用将 deferred contexts 保留在 decision contexts 之前；被外层阻止时则丢弃 deferred contexts，只暴露阻止 decision 显式提供的上下文。
 
@@ -56,4 +56,4 @@ seam 包**不**声明 `hook/*` 会话事件（持久的钩子调用日志）；�
 
 ## 后果
 
-规范拦截表面具有统一的类型化，同时不给每个扩展相同的权力：钩子返回 decision，执行包装层做包装，终结 guard 只能拒绝，最终观测者只能观测。循环负责 session-start、pre-step 领取结算、工具执行后上下文缓冲和 stopping；`dsh-tools` 负责身份封存与五阶段执行流水线。它们的契约记录在 [architecture.md](../../../../docs/architecture.md)、各包 README、[核心拦截 decision](../../../../docs/core-data-structures/core.md#interception-decisions) 与[工具结构](../../../../docs/core-data-structures/tools.md)中。ACP 桥接在 agent 空闲且不再拥有轮次后，将初始 pre-step reject 结算为 `cancelled`，而钩子驱动的快照端到端验证可观测的桥接行为。
+规范拦截表面具有统一的类型化，同时不给每个扩展相同的权力：钩子返回 decision，执行包装层做包装，终结 guard 只能拒绝，最终观测者只能观测。循环负责 session-start、pre-step 领取结算、工具执行后上下文缓冲和 stopping；`dsh-tools` 负责身份封存与五阶段执行流水线。它们的契约记录在 [architecture.md](../../../../docs/architecture.md)、各包 README、[核心拦截 decision](../../../../docs/core-data-structures/core.md#interception-decisions) 与[工具结构](../../../../docs/core-data-structures/tools.md)中。ACP 桥接会把 blocked 无步骤轮次中的首次 pre-step reject 结算为 `end_turn`，而钩子驱动的快照端到端验证可观测的桥接行为。

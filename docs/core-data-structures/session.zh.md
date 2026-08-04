@@ -26,9 +26,10 @@ interface UserMessage extends Message {
  */
 interface SessionEventMap {
   /**
-   * Opens turn `turn`. Every turn begins after the loop claims queued input
-   * and accepts the pre-step result; the following identified `user/message`
-   * event or batch records the messages entering the step.
+   * Opens turn `turn` before the loop claims queued input or runs pre-step.
+   * Rejection, empty input, cancellation, or failure may close it with no
+   * step; otherwise the following identified `user/message` event or batch
+   * records the messages entering the step.
    */
   'turn/start': { turn: number }
   /**
@@ -568,7 +569,7 @@ interface TurnEndReasonMap {
 
 插件可以通过 declaration merging 添加额外的 `SessionEventMap` 类型。这些是**仅日志**事件：不是 `SurfaceEventType`（不携带 `surfaceOp`，不参与派生历史）。事件所有方决定它们属于一个开放的执行轮次，还是可以独立位于轮次之间，并在自己的不变量配套插件中强制所需关系。完整的逐事件枚举（核心与插件贡献的，含 payload 与溯源信息）见生成的[持久化日志事件目录](../persistence-catalog.md)；压缩 seam 的 `compact/*` 语义在 [compaction.md](compaction.md) 中讨论。
 
-钩子桥接层的 `hook/invoked` / `hook/result` 溯源对（来自 `@deepseek-ai/dsh-hook-protocol`）通过 `handlerId` 关联。轮次中间的钩子点（`PreToolUse`/`PostToolUse`/`Stop`）在 loop 已打开的轮次内触发，因此其 `hook/*` 记录天然位于轮次之内。`SessionStart` 与初始 follow-up 在轮次开始前运行的 `UserPromptSubmit` pre-step 都不生成 `hook/*` 记录，因为二者都没有已打开的轮次可容纳该记录；进入步骤的上下文改由其带来源的 `user/message` 作为持久证据（见[钩子桥接 Agent Note](../../.agents/notes/implemented/feature/2026-06-30-hook-bridges.md)）。
+钩子桥接层的 `hook/invoked` / `hook/result` 溯源对（来自 `@deepseek-ai/dsh-hook-protocol`）通过 `handlerId` 关联。`UserPromptSubmit`、`PreToolUse`、`PostToolUse` 与 `Stop` 在 loop 已打开的轮次内触发，因此其 `hook/*` 记录天然位于轮次之内。`SessionStart` 不生成 `hook/*` 记录，因为它在轮次 1 之前运行；其上下文会在 inbox 中保持待处理，直到唤醒交付打开一个轮次（见[钩子桥接 Agent Note](../../.agents/notes/implemented/feature/2026-06-30-hook-bridges.md)）。
 
 ## 持久性契约
 

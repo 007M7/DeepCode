@@ -252,12 +252,12 @@ describe('ACP prompt lifecycle', () => {
     }))
     const sessionId = await newSession(harness)
     await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))
-      .resolves.toEqual({ stopReason: 'cancelled' })
-    // The rejected prompt opened no turn and streamed nothing.
+      .resolves.toEqual({ stopReason: 'end_turn' })
+    // The rejected prompt closed a blocked turn without streaming anything.
     expect(messageText(harness)).toBe('')
   })
 
-  it('settles a prompt when pre-step fails before opening a turn', async () => {
+  it('rejects a prompt when pre-step fails inside its open turn', async () => {
     harness = await makeBridgeHarness({ script: [] })
     harness.ctx.on('agent/pre-step', async () => { throw new Error('pre-step exploded') })
     const sessionId = await newSession(harness)
