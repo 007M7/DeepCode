@@ -24,6 +24,47 @@ import { CodexAppServerWire } from './wire.ts'
 /** Default POSIX grace between subprocess termination tiers. */
 export const DEFAULT_DISPOSE_GRACE_MS = 3_000
 
+/** Largest delay Node schedules without collapsing it to one millisecond. */
+const MAX_TIMER_DELAY_MS = 2_147_483_647n
+
+/**
+ * Bound final exit observation at twice a positive finite grace without
+ * narrowing the public config to Node's single-timer integer range.
+ */
+function doubledGraceWindow(graceMs: number): {
+  readonly signal: AbortSignal
+  readonly cancel: () => void
+} {
+  const whole = Math.floor(graceMs)
+  let remaining = BigInt(whole) * 2n
+    + BigInt(Math.ceil((graceMs - whole) * 2))
+  const controller = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const arm = (): void => {
+    const chunk = remaining > MAX_TIMER_DELAY_MS
+      ? MAX_TIMER_DELAY_MS
+      : remaining
+    remaining -= chunk
+    timer = setTimeout(() => {
+      timer = undefined
+      if (remaining === 0n) {
+        controller.abort()
+      } else {
+        arm()
+      }
+    }, Number(chunk))
+  }
+  arm()
+  return {
+    signal: controller.signal,
+    cancel: () => {
+      if (timer === undefined) return
+      clearTimeout(timer)
+      timer = undefined
+    },
+  }
+}
+
 /** Fully resolved inputs for one Codex app-server run. */
 export interface CodexRunSpec {
   /** Parent Session workspace, also supplied to `thread/start`. */
@@ -88,8 +129,13 @@ export async function disposeCodexChild(
     // A concurrently closed stdin does not change tree ownership below.
   }
   child.terminate()
-  if (!(await child.waitForExit(AbortSignal.timeout(graceMs * 2)))) {
-    throw new Error('subagent-codex: app-server process tree did not exit within its dispose window')
+  const exitWindow = doubledGraceWindow(graceMs)
+  try {
+    if (!(await child.waitForExit(exitWindow.signal))) {
+      throw new Error('subagent-codex: app-server process tree did not exit within its dispose window')
+    }
+  } finally {
+    exitWindow.cancel()
   }
   await child.done
 }

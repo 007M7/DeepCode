@@ -2,7 +2,13 @@ import { mkdtempSync, readFileSync, statSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { killGroup, OutputCollector, spawnSubprocess, taskkillProcessTree } from '../src/spawn.ts'
+import {
+  killGroup,
+  OutputCollector,
+  scheduleFiniteTimeout,
+  spawnSubprocess,
+  taskkillProcessTree,
+} from '../src/spawn.ts'
 import type { SubprocessHandle, SubprocessOutputReader } from '@deepseek-ai/dsh-subprocess'
 
 const { failNextClose, failNextUnlink } = vi.hoisted(() => ({
@@ -101,6 +107,30 @@ async function waitForPidFile(path: string, timeoutMs = 5_000): Promise<number> 
   throw new Error(`pid file ${path} was not written after ${timeoutMs}ms`)
 }
 
+describe('scheduleFiniteTimeout', () => {
+  it('rounds fractions up, chains Node-safe segments, and cancels idempotently', async () => {
+    vi.useFakeTimers()
+    try {
+      const fired = vi.fn()
+      const chained = scheduleFiniteTimeout(2_147_483_647.25, fired)
+      await vi.advanceTimersByTimeAsync(2_147_483_647)
+      expect(fired).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(fired).toHaveBeenCalledOnce()
+      chained.cancel()
+
+      const cancelled = vi.fn()
+      const timer = scheduleFiniteTimeout(0.25, cancelled)
+      timer.cancel()
+      timer.cancel()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(cancelled).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
 describe('spawnSubprocess', () => {
   it('captures stdout on success', async () => {
     const result = await finish(spawnSubprocess(spec('echo hello')))
@@ -162,6 +192,65 @@ describe('spawnSubprocess', () => {
     running.terminate()
     const result = await running.done
     expect(result.signal).toBe('SIGKILL')
+  })
+
+  it('cancels a larger-than-Node escalation timer once SIGTERM removes the tree', async () => {
+    const running = spawnSubprocess(spec('echo ready; sleep 60', {
+      graceMs: Number.MAX_VALUE,
+    }))
+    await waitForStdout(running, 'ready\n')
+    running.terminate()
+    const result = await running.done
+    expect(result.signal).toBe('SIGTERM')
+    await expect(running.waitForExit()).resolves.toBe(true)
+  })
+
+  it('cancels escalation when the terminated group vanishes before collected pipes drain', async () => {
+    const pidFile = join(spillDir, `escaped-pipe-holder-${Date.now()}.pid`)
+    const graceMs = 160
+    const childScript = `
+      const { spawn } = require('node:child_process')
+      const { writeFileSync } = require('node:fs')
+      const helper = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+        detached: true,
+        stdio: ['ignore', 1, 2],
+      })
+      writeFileSync(${JSON.stringify(pidFile)}, String(helper.pid))
+      helper.unref()
+      setInterval(() => {}, 1000)
+    `
+    const running = spawnSubprocess({
+      ...spec('unused', { graceMs }),
+      argv: [process.execPath, '-e', childScript],
+    })
+    const helper = await waitForPidFile(pidFile)
+    const realKill: typeof process.kill = process.kill.bind(process)
+    let termAt = 0
+    let forceSignals = 0
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation((target, signal) => {
+      if (target !== -running.pid) return realKill(target, signal)
+      if (signal === 'SIGTERM') {
+        termAt = Date.now()
+        return realKill(target, signal)
+      }
+      if (signal === 'SIGKILL') {
+        forceSignals += 1
+        return true
+      }
+      if (signal === 0 && termAt !== 0 && Date.now() - termAt < graceMs / 2) {
+        throw Object.assign(new Error('simulated vanished process group'), { code: 'ESRCH' })
+      }
+      return true // Before TERM the original group is live; later its pgid is reused.
+    })
+    try {
+      running.terminate()
+      await running.done
+      expect(forceSignals).toBe(0)
+    } finally {
+      killSpy.mockRestore()
+      process.kill(helper, 'SIGKILL')
+      await waitGone(helper)
+    }
   })
 
   it('terminates the whole process group (grandchildren die too)', async () => {
@@ -627,12 +716,26 @@ describe('coverage seams', () => {
   it('terminate() after the tree died delivers no termination signal', async () => {
     const running = spawnSubprocess(spec('true'))
     await running.done
-    await running.waitForExit()
     const spy = vi.spyOn(process, 'kill')
     try {
       running.terminate()
       const delivered = spy.mock.calls.filter(([, sig]) => sig !== 0)
       expect(delivered).toEqual([])
+    } finally {
+      spy.mockRestore()
+    }
+    await running.waitForExit()
+  })
+
+  it('repeated terminate after exit never probes or signals a reused process group', async () => {
+    const running = spawnSubprocess(spec('sleep 60'))
+    running.terminate()
+    await running.done
+    await running.waitForExit()
+    const spy = vi.spyOn(process, 'kill').mockImplementation(() => true)
+    try {
+      running.terminate()
+      expect(spy).not.toHaveBeenCalled()
     } finally {
       spy.mockRestore()
     }
