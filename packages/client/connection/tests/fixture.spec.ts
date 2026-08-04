@@ -19,6 +19,16 @@ interface TimingHooks {
   failNextHistory(): void
   appendUser(id: string, msg: string): void
   appendTitle(id: string, title: string): void
+  startReasoningChunkStorm(id: string, chunkCount: number, chunksPerInterval: number, intervalMs: number): string
+  reasoningChunkStormState(): {
+    sessionId: string
+    chunkCount: number
+    chunksPerInterval: number
+    intervalMs: number
+    emitted: number
+    marker: string
+    emitting: boolean
+  } | null
   beginModelRetry(id: string): void
   scheduleModelRetry(id: string, retry?: number, delayMs?: number): void
   cancelModelRetryDuringBackoff(id: string, delayMs?: number): void
@@ -872,6 +882,50 @@ describe('createFixtureApi', () => {
     await hostConsuming
     expect(abort.signal.aborted).toBe(false)
     expect(habort.signal.aborted).toBe(false)
+  })
+
+  it('paces the opt-in reasoning stress hook from an external interval', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const api = createFixtureApi()
+    const hooks = timing()
+    expect(hooks.reasoningChunkStormState()).toBeNull()
+    expect(() => hooks.startReasoningChunkStorm('fx-alpha', 0, 1, 16)).toThrow(/chunk count/)
+    expect(() => hooks.startReasoningChunkStorm('fx-alpha', 1, 0, 16)).toThrow(/chunks per interval/)
+    expect(() => hooks.startReasoningChunkStorm('fx-alpha', 1, 1, 0)).toThrow(/reasoning interval/)
+    const abort = new AbortController()
+    try {
+      const streamed = collect(api.events.mux(req({}), abort.signal), abort, frames => frames.some(frame => (
+        frame.type === 'session/event'
+        && frame.event.type === 'assistant/chunk'
+        && frame.event.data.chunk.type === 'reasoning-delta'
+        && frame.event.data.chunk.text.includes('REASONING_STRESS_COMPLETE')
+      )))
+      const marker = hooks.startReasoningChunkStorm('fx-alpha', 3, 2, 16)
+      expect(() => hooks.startReasoningChunkStorm('fx-alpha', 1, 1, 16)).toThrow(/already running/)
+      expect(hooks.reasoningChunkStormState()).toMatchObject({ emitted: 0, emitting: true, marker })
+
+      await vi.advanceTimersByTimeAsync(0)
+      expect(hooks.reasoningChunkStormState()).toMatchObject({ emitted: 2, emitting: true })
+      await vi.advanceTimersByTimeAsync(16)
+      expect(hooks.reasoningChunkStormState()).toEqual({
+        sessionId: 'fx-alpha', chunkCount: 3, chunksPerInterval: 2, intervalMs: 16,
+        emitted: 3, marker, emitting: false,
+      })
+
+      const frames = await streamed
+      const deltas = frames.flatMap(frame => (
+        frame.type === 'session/event'
+        && frame.event.type === 'assistant/chunk'
+        && frame.event.data.chunk.type === 'reasoning-delta'
+          ? [frame.event.data.chunk.text]
+          : []
+      ))
+      expect(deltas).toEqual(['推理', '推理', `\n${marker}`])
+    } finally {
+      abort.abort()
+      vi.useRealTimers()
+    }
   })
 })
 
