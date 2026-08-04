@@ -1,9 +1,10 @@
-/* The takeover seats where the input card sits, so the frame mirrors the
-   InputBar geometry (side pad 32, card cap 800) to keep both edges flush. */
+/* The takeover seats where the input card sits, centered on the InputBar
+   axis at the shared content width (input card - 32): sides = clearance +
+   16px so the relation also holds on narrow viewports. */
 .frame {
   display: flex;
   justify-content: center;
-  padding: 6px 32px 10px;
+  padding: 6px calc(var(--dsh-composer-side-clearance) + 16px) 10px;
 }
 
 /* Figma Input 973:36348 body over the 1019:36938 header: no banner strip —
@@ -12,7 +13,7 @@
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-width: 800px;
+  max-width: var(--dsh-chat-content-width);
   /* Composer seat sits in a fixed-height conversation column (overflow
      hidden): cap the card against the viewport and scroll the option list
      so header and footer actions stay reachable on long batches. */
@@ -366,10 +367,6 @@
 }
 
 @media (max-width: 720px) {
-  .frame {
-    padding: 6px 10px 10px;
-  }
-
   .card {
     border-radius: 16px;
   }

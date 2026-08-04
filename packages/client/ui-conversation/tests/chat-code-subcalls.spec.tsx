@@ -67,7 +67,7 @@ function snapshotWith(
   runningCalls: RunningToolCall[] = [],
 ): ConversationSnapshot {
   return {
-    sessionId: SID, nodes, turnEnds: new Map(), partial: null, runningCalls, codeDispatches,
+    sessionId: SID, nodes, turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls, codeDispatches,
     pending: [], queue: [], running: runningCalls.length > 0, composerPhase: 'active', removed: false,
     openState: 'open', openError: null,
     hasMore: false, loadingOlder: false, promptError: null, blank: false, subagent: null, lastAgentError: null,
