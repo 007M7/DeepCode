@@ -52,6 +52,7 @@ export interface RpcMethodMap {
   'command.execute': CommandsApi['execute']
   'skill.list': SkillsApi['list']
   'agentPreset.list': AgentPresetsApi['list']
+  'agentPreset.select': AgentPresetsApi['select']
   'goal.create': GoalsApi['create']
   'goal.edit': GoalsApi['edit']
   'goal.pause': GoalsApi['pause']

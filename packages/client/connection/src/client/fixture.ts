@@ -2321,6 +2321,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           { id: 'core-web', trust: 'system' as const, isDefault: false },
         ],
       }),
+      select: request => ok(request, { agentPreset: request.payload.agentPreset }),
     },
 
     skills: {
@@ -2621,6 +2622,7 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'command.execute': return this.api.commands.execute(request, signal)
       case 'skill.list': return this.api.skills.list(request)
       case 'agentPreset.list': return this.api.agentPresets.list(request)
+      case 'agentPreset.select': return this.api.agentPresets.select(request)
       case 'goal.create': return this.api.goals.create(request)
       case 'goal.edit': return this.api.goals.edit(request)
       case 'goal.pause': return this.api.goals.pause(request)

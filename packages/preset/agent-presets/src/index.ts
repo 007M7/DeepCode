@@ -11,10 +11,11 @@
  */
 
 import { Context, Service } from 'cordis'
+import { scopeOf } from '@deepseek-ai/dsh-scope'
 import z from 'schemastery'
 import { settingsNamespace, type SettingsScope } from '@deepseek-ai/dsh-settings'
 import { discoverPresets } from './discovery.ts'
-import { mountPreset, serviceForAgent } from './mount.ts'
+import { mountPreset, serviceForAgent, unmountPresetFor } from './mount.ts'
 import { UnknownPresetError, type AgentPreset, type Config } from './types.ts'
 
 /** Settings namespace carrying the user's chosen default preset. */
@@ -33,7 +34,8 @@ export const AgentPresetSettingsSchema: z<AgentPresetSettings> = z.object({
 
 export { COMPOSITION_FILE, discoverPresets, scanRoot } from './discovery.ts'
 export {
-  inactiveRows, leakedServices, livePresetMounts, mountPreset, serviceForAgent, type PresetMount,
+  inactiveRows, leakedServices, livePresetMounts, mountPreset, serviceForAgent,
+  unmountPresetFor, type PresetMount,
 } from './mount.ts'
 export { PresetMountError, UnknownPresetError } from './types.ts'
 export type { AgentPreset, Config, PresetRoot, PresetTrust } from './types.ts'
@@ -156,6 +158,47 @@ export class AgentPresets extends Service {
    */
   serviceFor<K extends string & keyof Context>(agent: { ctx: Context }, name: K): Context[K] | undefined {
     return serviceForAgent(this.ctx, agent, name)
+  }
+
+  /**
+   * Replace the composition installed for one agent.
+   *
+   * Only valid while the agent has produced nothing: swapping tools mid
+   * conversation would leave logged tool calls the new composition cannot make.
+   * The CALLER owns that check — this method does not read session history.
+   *
+   * The swap is unmount-then-mount because two compositions cannot coexist:
+   * both would register the same tool names into one layer. A failed mount
+   * therefore restores the previous composition rather than leaving the agent
+   * with nothing.
+   * @param agentCtx - the agent's scope context.
+   * @param id - the preset to compose the agent from instead.
+   * @returns the preset now installed.
+   * @throws when the preset is unknown or its composition is unusable; the
+   * previous composition is restored first.
+   */
+  async recompose(agentCtx: Context, id: string): Promise<AgentPreset> {
+    const scope = scopeOf(agentCtx)
+    if (scope === undefined) {
+      throw new Error('agent-presets: refusing to recompose an unscoped context')
+    }
+    // Resolve before tearing anything down, so an unknown id leaves the agent
+    // exactly as it was.
+    const preset = await this.resolve(id)
+    const previous = await unmountPresetFor(scope)
+    try {
+      await mountPreset(agentCtx, preset)
+    } catch (error) {
+      if (previous !== undefined && previous !== preset.id) {
+        await this.mount(agentCtx, previous).catch(() => {
+          // The agent now has no composition, but the switch failure below is
+          // the actionable diagnostic and the restore had the same inputs that
+          // worked a moment ago; reporting its failure instead would hide why.
+        })
+      }
+      throw error
+    }
+    return preset
   }
 }
 

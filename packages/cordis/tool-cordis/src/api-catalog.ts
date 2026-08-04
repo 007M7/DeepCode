@@ -100,6 +100,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         signature: 'serviceFor<K extends string & keyof Context>(agent: { ctx: Context }, name: K): Context[K] | undefined',
         jsDoc: '/**\n * One agent\'s instance of a service its preset mounted.\n *\n * A preset publishes services behind `isolate` realms, which are invisible\n * outside the group that declares them — including to the host. This is how a\n * caller holding the agent reads one anyway: a request that is ABOUT a\n * session but arrives from outside it, which is every browser RPC.\n *\n * Read addressing only. A host row that `inject`s a service cannot use this,\n * because injection resolves before any session exists and has no agent to\n * key by; such a service belongs on the host plane instead.\n * @param agent - the agent whose composition to look inside.\n * @param name - the service name as the preset\'s rows resolve it.\n * @returns the agent\'s instance, or undefined when its preset mounts none.\n */',
       },
+      {
+        signature: 'async recompose(agentCtx: Context, id: string): Promise<AgentPreset>',
+        jsDoc: '/**\n * Replace the composition installed for one agent.\n *\n * Only valid while the agent has produced nothing: swapping tools mid\n * conversation would leave logged tool calls the new composition cannot make.\n * The CALLER owns that check — this method does not read session history.\n *\n * The swap is unmount-then-mount because two compositions cannot coexist:\n * both would register the same tool names into one layer. A failed mount\n * therefore restores the previous composition rather than leaving the agent\n * with nothing.\n * @param agentCtx - the agent\'s scope context.\n * @param id - the profile to compose the agent from instead.\n * @returns the profile now installed.\n * @throws when the profile is unknown or its composition is unusable; the\n * previous composition is restored first.\n */',
+      },
     ],
   },
   {

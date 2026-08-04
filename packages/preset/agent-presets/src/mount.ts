@@ -18,7 +18,7 @@ import { pathToFileURL } from 'node:url'
 import { Context, type Fiber } from 'cordis'
 import { Include } from '@cordisjs/plugin-include'
 import type { EntryTree } from '@cordisjs/plugin-loader'
-import { scopeOf } from '@deepseek-ai/dsh-scope'
+import { scopeOf, type ScopeKey } from '@deepseek-ai/dsh-scope'
 import { PresetMountError, type AgentPreset } from './types.ts'
 
 /** What one mounted subtree publishes about itself for the audit to read. */
@@ -77,6 +77,8 @@ export interface PresetMount {
   readonly presetId: string
   /** The mounted subtree's fiber. */
   readonly fiber: Fiber
+  /** The scope the subtree was mounted for — the agent that owns it. */
+  readonly scope: ScopeKey
 }
 
 const mounts = new Set<PresetMount>()
@@ -111,6 +113,24 @@ function pruneDisposedMounts(): void {
 export function livePresetMounts(): PresetMount[] {
   pruneDisposedMounts()
   return [...mounts]
+}
+
+/**
+ * Discard the composition currently installed for one scope, if any.
+ *
+ * Only a composition that has produced nothing may be replaced: swapping a
+ * live agent's tools mid-conversation would leave logged tool calls the new
+ * composition cannot make. The caller owns that check — this function does the
+ * teardown and returns once the subtree is quiescent.
+ * @param scope - the agent whose installed composition to discard.
+ * @returns the preset id that was discarded, or `undefined` when none was.
+ */
+export async function unmountPresetFor(scope: ScopeKey): Promise<string | undefined> {
+  const installed = livePresetMounts().find(mount => mount.scope === scope)
+  if (installed === undefined) return undefined
+  mounts.delete(installed)
+  await Promise.resolve(installed.fiber.dispose())
+  return installed.presetId
 }
 
 /**
@@ -241,7 +261,8 @@ export function inactiveRows(tree: EntryTree): string[] {
  * published a service into the root realm.
  */
 export async function mountPreset(agentCtx: Context, preset: AgentPreset): Promise<void> {
-  if (scopeOf(agentCtx) === undefined) {
+  const scope = scopeOf(agentCtx)
+  if (scope === undefined) {
     throw new Error(
       `agent-presets: refusing to mount preset "${preset.id}" into an unscoped context; `
       + 'its registrations would apply to every agent in the process',
@@ -269,7 +290,7 @@ export async function mountPreset(agentCtx: Context, preset: AgentPreset): Promi
         + 'a preset service must sit behind an `isolate` realm or move to the host composition',
       )
     }
-    mounts.add({ presetId: preset.id, fiber })
+    mounts.add({ presetId: preset.id, fiber, scope })
   } catch (error) {
     try {
       await handle.dispose()

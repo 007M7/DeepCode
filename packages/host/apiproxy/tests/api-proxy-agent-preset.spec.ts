@@ -52,6 +52,10 @@ function roster(ids: readonly string[]): unknown {
       const perAgent = services.get(String(agent.id))
       return perAgent?.[name]
     },
+    recompose: (_ctx: Context, id: string) => {
+      if (!ids.includes(id)) return Promise.reject(new UnknownPresetError(id, ids))
+      return Promise.resolve({ id, trust: 'system', path: `/presets/${id}.yml` })
+    },
   }
 }
 
@@ -260,5 +264,58 @@ describe('agentPreset.list', () => {
     expect(response.result.ok).toBe(true)
     if (!response.result.ok) throw new Error('unreachable')
     expect(response.result.value.presets).toEqual([])
+  })
+})
+
+describe('agentPreset.select', () => {
+  it('recomposes a blank session', async () => {
+    const { api } = await harness(['standard', 'core-web'])
+    await api.sessions.create(request({ sessionId: SessionId('sel-1'), agentPreset: 'standard' }))
+
+    const response = await api.agentPresets.select(
+      request({ sessionId: SessionId('sel-1'), agentPreset: 'core-web' }))
+
+    expect(response.result.ok).toBe(true)
+    if (!response.result.ok) throw new Error('unreachable')
+    expect(response.result.value.agentPreset).toBe('core-web')
+  })
+
+  it('refuses once the conversation has started', async () => {
+    const { api, ctx } = await harness(['standard', 'core-web'])
+    await api.sessions.create(request({ sessionId: SessionId('sel-2'), agentPreset: 'standard' }))
+    // One turn is enough: the history from here on was produced under
+    // `standard`'s tools, and a swap would strand those tool calls.
+    ctx.sessions.get(SessionId('sel-2'))?.append('turn/start', { turn: 0 })
+
+    const response = await api.agentPresets.select(
+      request({ sessionId: SessionId('sel-2'), agentPreset: 'core-web' }))
+
+    expect(response.result.ok).toBe(false)
+    if (response.result.ok) throw new Error('unreachable')
+    expect(response.result.error.code).toBe('agent-preset-locked')
+  })
+
+  it('reports an unknown preset without disturbing the session', async () => {
+    const { api } = await harness(['standard'])
+    await api.sessions.create(request({ sessionId: SessionId('sel-3') }))
+
+    const response = await api.agentPresets.select(
+      request({ sessionId: SessionId('sel-3'), agentPreset: 'nope' }))
+
+    expect(response.result.ok).toBe(false)
+    if (response.result.ok) throw new Error('unreachable')
+    expect(response.result.error.code).toBe('agent-preset-not-found')
+  })
+
+  it('reports a deployment that composes no presets', async () => {
+    const { api } = await harness()
+    await api.sessions.create(request({ sessionId: SessionId('sel-4') }))
+
+    const response = await api.agentPresets.select(
+      request({ sessionId: SessionId('sel-4'), agentPreset: 'anything' }))
+
+    expect(response.result.ok).toBe(false)
+    if (response.result.ok) throw new Error('unreachable')
+    expect(response.result.error.code).toBe('agent-preset-not-found')
   })
 })

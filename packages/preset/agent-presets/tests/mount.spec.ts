@@ -287,3 +287,52 @@ describe('the preset file is an input, never a persistence target', () => {
     expect(await readFile(path, 'utf8')).toBe(composition)
   })
 })
+
+describe('replacing a composition', () => {
+  it('swaps the agent\'s tools without touching another session', async () => {
+    const keeper = await agentOn(ctx, 'sess-keeper', 'standard')
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('sess-swap'),
+      setup: async (agentCtx: Context) => void await ctx.agentPresets.mount(agentCtx, 'standard'),
+    })
+    expect(toolNames(ctx, handle.agent)).toEqual(['alpha'])
+
+    await ctx.agentPresets.recompose(handle.agent.ctx, 'minimal')
+
+    expect(toolNames(ctx, handle.agent)).toEqual(['beta'])
+    expect(toolNames(ctx, keeper)).toEqual(['alpha'])
+    expect(toolNames(ctx)).toEqual([])
+  })
+
+  it('leaves the agent on its previous composition when the new one is unknown', async () => {
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('sess-unknown'),
+      setup: async (agentCtx: Context) => void await ctx.agentPresets.mount(agentCtx, 'standard'),
+    })
+
+    await expect(ctx.agentPresets.recompose(handle.agent.ctx, 'nope'))
+      .rejects.toThrow(/not found/)
+
+    // Resolution happens before any teardown, so an unknown id is a no-op.
+    expect(toolNames(ctx, handle.agent)).toEqual(['alpha'])
+  })
+
+  it('restores the previous composition when the new one fails to mount', async () => {
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('sess-restore'),
+      setup: async (agentCtx: Context) => void await ctx.agentPresets.mount(agentCtx, 'standard'),
+    })
+
+    await expect(ctx.agentPresets.recompose(handle.agent.ctx, 'broken'))
+      .rejects.toThrow(/failed to mount/)
+
+    // The swap is unmount-then-mount, so a failure must put the old one back
+    // rather than leave the agent with no tools at all.
+    expect(toolNames(ctx, handle.agent)).toEqual(['alpha'])
+  })
+
+  it('refuses an unscoped context', async () => {
+    await expect(ctx.agentPresets.recompose(ctx, 'minimal'))
+      .rejects.toThrow(/unscoped context/)
+  })
+})

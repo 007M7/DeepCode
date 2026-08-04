@@ -96,9 +96,28 @@ async mount(agentCtx: Context, id?: string): Promise<AgentPreset>
  * @returns the agent's instance, or undefined when its preset mounts none.
  */
 serviceFor<K extends string & keyof Context>(agent: { ctx: Context }, name: K): Context[K] | undefined
+
+/**
+ * Replace the composition installed for one agent.
+ *
+ * Only valid while the agent has produced nothing: swapping tools mid
+ * conversation would leave logged tool calls the new composition cannot make.
+ * The CALLER owns that check — this method does not read session history.
+ *
+ * The swap is unmount-then-mount because two compositions cannot coexist:
+ * both would register the same tool names into one layer. A failed mount
+ * therefore restores the previous composition rather than leaving the agent
+ * with nothing.
+ * @param agentCtx - the agent's scope context.
+ * @param id - the profile to compose the agent from instead.
+ * @returns the profile now installed.
+ * @throws when the profile is unknown or its composition is unusable; the
+ * previous composition is restored first.
+ */
+async recompose(agentCtx: Context, id: string): Promise<AgentPreset>
 ```
 
-Source: [`packages/preset/agent-presets/src/index.ts:54`](../../packages/preset/agent-presets/src/index.ts)
+Source: [`packages/preset/agent-presets/src/index.ts:56`](../../packages/preset/agent-presets/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 

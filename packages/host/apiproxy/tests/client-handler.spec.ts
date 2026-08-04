@@ -87,7 +87,11 @@ function scriptedApi(overrides: {
       ...overrides.commands,
     },
     skills: { list: r => ok(r, { skills: [] }), ...overrides.skills },
-    agentPresets: { list: r => ok(r, { presets: [] }), ...overrides.agentPresets },
+    agentPresets: {
+      list: r => ok(r, { presets: [] }),
+      select: r => ok(r, { agentPreset: r.payload.agentPreset }),
+      ...overrides.agentPresets,
+    },
     goals: {
       create: err,
       edit: err,

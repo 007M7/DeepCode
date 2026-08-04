@@ -40,7 +40,7 @@ import {
 } from '../api/workspace.schema.ts'
 import { commandExecuteValueSchema, commandListValueSchema } from '../api/commands.schema.ts'
 import { skillListValueSchema } from '../api/skills.schema.ts'
-import { agentPresetListValueSchema } from '../api/agent-presets.schema.ts'
+import { agentPresetListValueSchema, agentPresetSelectValueSchema } from '../api/agent-presets.schema.ts'
 import {
   goalCreateValueSchema,
   goalEditValueSchema,
@@ -122,6 +122,7 @@ export interface IApiClient {
   }
   readonly agentPresets: {
     list(payload: RequestPayload<'agentPreset.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'agentPreset.list'>>>
+    select(payload: RequestPayload<'agentPreset.select'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'agentPreset.select'>>>
   }
   events: {
     mux(payload: Parameters<ApiProxy['events']['mux']>[0]['payload'], signal: AbortSignal, onOpen?: () => void): AsyncIterable<RpcRequest<MuxFrame>>
@@ -190,6 +191,7 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'command.execute': commandExecuteValueSchema,
   'skill.list': skillListValueSchema,
   'agentPreset.list': agentPresetListValueSchema,
+  'agentPreset.select': agentPresetSelectValueSchema,
   'goal.create': goalCreateValueSchema,
   'goal.edit': goalEditValueSchema,
   'goal.pause': goalPauseValueSchema,
@@ -451,6 +453,8 @@ export abstract class AbstractApiClient implements IApiClient {
   readonly agentPresets = {
     list: (payload: RequestPayload<'agentPreset.list'>, signal?: AbortSignal) =>
       this.callUnary('agentPreset.list', payload, signal),
+    select: (payload: RequestPayload<'agentPreset.select'>, signal?: AbortSignal) =>
+      this.callUnary('agentPreset.select', payload, signal),
   }
 
   readonly goals: IApiClient['goals'] = {

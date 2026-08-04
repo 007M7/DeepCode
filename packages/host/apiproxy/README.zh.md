@@ -34,7 +34,7 @@ Workspace 列表与 Session 列表是相互独立的重连基线。`workspace.cr
 
 `host.openPath` 会用操作系统的默认应用打开一个文件系统路径（macOS 为 `open`，Windows 为 `Invoke-Item`，Linux 为 `xdg-open`）。浏览器载体对其施加与 `host.pickDirectory` 相同的回环、同源限制。
 
-`agentPreset.list` 领域向浏览器暴露部署的 preset 名单，使其在开启会话时能够提供选择；每一行携带它的 `trust`（`user` preset 的权限恰好等于它所引用的插件）以及它是否为当前默认值。该领域只读——preset 是磁盘上的一份组装，创作它是文件系统行为而非 RPC。未组装任何 preset 的部署返回空名单而非错误，因为共用宿主组装本身就是一种有效部署。
+`agentPreset.list` 领域向浏览器暴露部署的 preset 名单，使其在开启会话时能够提供选择；每一行携带它的 `trust`（`user` preset 的权限恰好等于它所引用的插件）以及它是否为当前默认值。未组装任何 preset 的部署返回空名单而非错误，因为共用宿主组装本身就是一种有效部署。`agentPreset.select` 用另一个 preset 重组某个会话的 agent，且仅在会话空白时允许：一旦跑过任何轮次，那段历史就是在该 preset 的工具下产生的，替换会留下无法执行的已记录 tool call，此时返回 `agent-preset-locked`。agent 与会话都不销毁——只替换组装，且替换失败会恢复原来的组装。
 
 `command.*` 与 `skill.*` 领域向客户端暴露宿主命令注册表和技能目录。每个方法都通过 `sessionId` 寻址一个会话的 Agent（被服务的会话必有 Agent；`command.*` 经由与 `session.*` 相同的路径恢复冷会话，而 `skill.list` 从会话头解析项目根目录，不触碰 Agent 注册表）。`skill.list` 服务于浏览器中由用户选择的模型引用路径，因此仅返回模型和用户均可调用的 skill；该领域没有直接加载 skill 的 RPC。`command.execute` 在宿主侧运行一条斜杠命令行，语义为纯准入：响应报告该行是否解析到处理器，并在解析到时回带铸造的生命周期 `commandId`（将本次确认与流节点关联）；结局经由持久落账并在 mux 流广播的 `command/run`/`command/done` 生命周期事件对承载。命令处理器运行超过 30 秒的传输健康时限仍属正常，因此 `command.execute` 仅携带调用方／连接取消信号；该信号可取消正在运行的处理器。`host/commands-changed` 是目录失效帧：客户端重新拉取 `command.list` 而不是做差分。
 

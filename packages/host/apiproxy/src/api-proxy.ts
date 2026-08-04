@@ -2500,6 +2500,55 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           })),
         })
       },
+
+      // Recomposing is limited to a blank session because a started
+      // conversation's history was produced under its preset's tools; the
+      // agent and the session survive, only the composition is swapped.
+      async select(request) {
+        const { sessionId, agentPreset } = request.payload
+        const presets = ctx.get('agentPresets')
+        if (presets === undefined) {
+          return err(request, {
+            code: 'agent-preset-not-found',
+            message: 'this deployment composes no agent presets',
+            details: { agentPreset, available: [] },
+          })
+        }
+        const found = await agentFor(sessionId)
+        if ('error' in found) return err(request, found.error)
+        const { agent } = found
+        if (!sessionBlank(agent.session)) {
+          return err(request, {
+            code: 'agent-preset-locked',
+            message: `session "${sessionId}" has already started; its agent preset is fixed`,
+            details: { sessionId, agentPreset },
+          })
+        }
+        try {
+          const preset = await presets.recompose(agent.ctx, agentPreset)
+          return ok(request, { agentPreset: preset.id })
+        } catch (error: unknown) {
+          if (error instanceof UnknownPresetError) {
+            return err(request, {
+              code: 'agent-preset-not-found',
+              message: error.message,
+              details: { agentPreset: error.presetId, available: [...error.available] },
+            })
+          }
+          if (error instanceof PresetMountError) {
+            return err(request, {
+              code: 'agent-preset-invalid',
+              message: error.message,
+              details: { agentPreset: error.presetId, reason: error.reason },
+            })
+          }
+          return err(request, {
+            code: 'internal',
+            message: `failed to select agent preset "${agentPreset}": ${String(error)}`,
+            details: {},
+          })
+        }
+      },
     },
 
     skills: {

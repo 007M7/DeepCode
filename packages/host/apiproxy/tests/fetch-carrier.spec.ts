@@ -197,6 +197,10 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
       list(request: RpcRequest<{}>) {
         return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value: { presets: [] } } })
       },
+      select(request: RpcRequest<{ agentPreset: string }>) {
+        const value = { agentPreset: request.payload.agentPreset }
+        return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value } })
+      },
     },
     skills: {
       async list(request) {

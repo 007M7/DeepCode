@@ -4,6 +4,7 @@
  * a filesystem act rather than an RPC.
  */
 
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { RpcRequest, RpcResponse } from './rpc.ts'
 
 /** One preset the deployment can compose a session's agent from. */
@@ -28,4 +29,15 @@ export interface AgentPresetsApi {
    * every session shares the host composition.
    */
   list(request: RpcRequest<{}>): Promise<RpcResponse<{ presets: readonly AgentPresetEntry[] }>>
+
+  /**
+   * Recompose one session's agent from a different preset.
+   *
+   * Allowed only while the session is blank — no turn has run. Once a
+   * conversation starts, its history was produced under that preset's tools,
+   * and swapping them would leave logged tool calls the new composition cannot
+   * make; the attempt answers `agent-preset-locked`.
+   */
+  select(request: RpcRequest<{ sessionId: SessionId; agentPreset: string }>):
+  Promise<RpcResponse<{ agentPreset: string }>>
 }
