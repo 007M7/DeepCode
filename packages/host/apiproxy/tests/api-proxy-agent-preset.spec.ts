@@ -14,7 +14,9 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore, { SessionId, type Session } from '@deepseek-ai/dsh-session'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import { RpcId, type RpcRequest } from '../src/api/rpc.ts'
-import { UnknownPresetError } from '@deepseek-ai/dsh-agent-presets'
+import {
+  InvalidCompositionError, InvalidPresetIdError, UnknownPresetError,
+} from '@deepseek-ai/dsh-agent-presets'
 import { GoalId } from '@deepseek-ai/dsh-goal'
 import { createApiProxy } from '../src/api-proxy.ts'
 import { describe, expect, it } from 'vitest'
@@ -51,6 +53,19 @@ function roster(ids: readonly string[]): unknown {
     serviceFor: (agent: { id: unknown }, name: string) => {
       const perAgent = services.get(String(agent.id))
       return perAgent?.[name]
+    },
+    authorable: true,
+    read: (id: string) => Promise.resolve(`# ${id}\n- id: x\n  name: y\n`),
+    write: (id: string, content: string) => {
+      if (!ids.includes(id) && !/^[a-z0-9][a-z0-9-]*$/.test(id)) {
+        return Promise.reject(new InvalidPresetIdError(id))
+      }
+      if (!content.trimStart().startsWith('-')) return Promise.reject(new InvalidCompositionError('not a list'))
+      return Promise.resolve()
+    },
+    remove: (id: string) => {
+      if (!ids.includes(id)) return Promise.reject(new UnknownPresetError(id, ids))
+      return Promise.resolve()
     },
     recompose: (_ctx: Context, id: string) => {
       if (!ids.includes(id)) return Promise.reject(new UnknownPresetError(id, ids))
@@ -252,6 +267,7 @@ describe('agentPreset.list', () => {
       { id: 'standard', trust: 'system', isDefault: true },
       { id: 'core-web', trust: 'system', isDefault: false },
     ])
+    expect(response.result.value.authorable).toBe(true)
   })
 
   it('answers with an empty roster when the deployment composes no presets', async () => {
@@ -264,6 +280,9 @@ describe('agentPreset.list', () => {
     expect(response.result.ok).toBe(true)
     if (!response.result.ok) throw new Error('unreachable')
     expect(response.result.value.presets).toEqual([])
+    // Nothing to write to either, so a surface offering "new preset" knows to
+    // stay hidden rather than offering a button whose save always fails.
+    expect(response.result.value.authorable).toBe(false)
   })
 })
 
@@ -313,6 +332,62 @@ describe('agentPreset.select', () => {
 
     const response = await api.agentPresets.select(
       request({ sessionId: SessionId('sel-4'), agentPreset: 'anything' }))
+
+    expect(response.result.ok).toBe(false)
+    if (response.result.ok) throw new Error('unreachable')
+    expect(response.result.error.code).toBe('agent-preset-not-found')
+  })
+})
+
+describe('authoring over the wire', () => {
+  it('reads a composition and reports whether it may be edited', async () => {
+    const { api } = await harness(['standard'])
+
+    const response = await api.agentPresets.read(request({ agentPreset: 'standard' }))
+
+    expect(response.result.ok).toBe(true)
+    if (!response.result.ok) throw new Error('unreachable')
+    // The shipped set is readable but not writable: it belongs to the
+    // deployment, and it is what a broken local preset is compared against.
+    expect(response.result.value.trust).toBe('system')
+    expect(response.result.value.writable).toBe(false)
+    expect(response.result.value.content).toContain('- id: x')
+  })
+
+  it('rejects an id that could escape the preset root', async () => {
+    const { api } = await harness(['standard'])
+
+    const response = await api.agentPresets.write(request({ agentPreset: '../escape', content: '- id: x\n' }))
+
+    expect(response.result.ok).toBe(false)
+    if (response.result.ok) throw new Error('unreachable')
+    expect(response.result.error.code).toBe('agent-preset-invalid')
+  })
+
+  it('rejects content that is not an entry list', async () => {
+    const { api } = await harness(['standard'])
+
+    const response = await api.agentPresets.write(request({ agentPreset: 'mine', content: 'tools: []\n' }))
+
+    expect(response.result.ok).toBe(false)
+    if (response.result.ok) throw new Error('unreachable')
+    expect(response.result.error.code).toBe('agent-preset-invalid')
+  })
+
+  it('reports a deployment that composes no presets', async () => {
+    const { api } = await harness()
+
+    const response = await api.agentPresets.read(request({ agentPreset: 'anything' }))
+
+    expect(response.result.ok).toBe(false)
+    if (response.result.ok) throw new Error('unreachable')
+    expect(response.result.error.code).toBe('agent-preset-not-found')
+  })
+
+  it('reports an unknown id on delete rather than succeeding silently', async () => {
+    const { api } = await harness(['standard'])
+
+    const response = await api.agentPresets.remove(request({ agentPreset: 'never-existed' }))
 
     expect(response.result.ok).toBe(false)
     if (response.result.ok) throw new Error('unreachable')

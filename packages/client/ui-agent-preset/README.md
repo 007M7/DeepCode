@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The agent-preset surface: one General-settings row choosing which [preset](../../preset/agent-presets/README.md) new sessions are composed from.
+The agent-preset surfaces: a General-settings row choosing which [preset](../../preset/agent-presets/README.md) new sessions are composed from, a composer seat choosing this session's, and a settings section that authors the compositions themselves.
 
 ## Why it is a new-session preference
 
@@ -22,9 +22,21 @@ A locally authored preset is exactly as privileged as the plugins it names, so t
 
 The row re-reads on `settings/changed` for its own namespace and on `connection/reset`: the roster is a live directory and the default is a settings field, so an external edit or a reconnect can both move it.
 
-## When the row is absent
+## The management section
 
-A deployment that composes no presets answers with an empty roster, and the row renders nothing — every session then shares the host composition, and there is nothing to choose between.
+A third surface, its own settings page: the roster as rows, and one composition open in a YAML editor at a time.
+
+A shipped preset opens read-only. It is the known-good composition a local one is written against, so reading it is the point and overwriting it is not — the deployment's copy is what a broken local preset is compared against. Authoring therefore starts by duplicating: **New preset** copies the current default, and **Duplicate** copies any row, because a copy always lands in the local root regardless of where the text came from.
+
+An id becomes a directory name, so the editor mirrors the host's own containment rule (`[a-z0-9][a-z0-9-]*`) and refuses a name already in use — a create landing on an existing name would overwrite a preset the user never opened. Both checks are conveniences: the host re-applies them, along with the composition's shape, and its answer is what the editor reports on failure. A save that parses is still only a save; a composition naming a plugin that does not exist fails at the next session that selects it.
+
+Deleting removes the file. Sessions already composed from it keep running — a composition is mounted once at session creation and nothing re-reads the file.
+
+`agentPreset.read`, `write`, `remove`, and `select` are loopback-pinned ([`dsh-client-connection`](../connection/README.md)): a composition names the plugins a session runs, so reading one is reconnaissance and writing one is arbitrary capability. `agentPreset.list` is not — it carries ids and trust, and a LAN client's picker needs it.
+
+## When the surfaces are absent
+
+A deployment that composes no presets answers with an empty roster, and the row, the seat, and the section all render nothing — every session then shares the host composition, and there is nothing to choose between or manage. A deployment that configures no writable root answers `authorable: false`, and the section stays a read-only browser: the rows still open, but creating is offered nowhere rather than through a button whose save always fails.
 
 ## Model Experience
 
@@ -36,5 +48,6 @@ No direct invalidation. Changing the default never touches a running session's p
 
 ## Known Limitations and Deferred Work
 
-- **Presets are listed by id** — a preset carries no display metadata, so the menu shows directory names.
-- **No authoring** — creating, editing, or deleting a preset is a filesystem act; this surface only chooses among what the roster supplies.
+- **Presets are listed by id** — a preset carries no display metadata, so the menus and rows show directory names.
+- **The editor is a plain textarea** — no YAML syntax highlighting, folding, or schema completion; the host's shape check on save is the only validation.
+- **A saved composition is not mounted** — a preset that parses but names a missing plugin is accepted, and fails at the next session that selects it.

@@ -50,40 +50,68 @@ Source: [`packages/core/agent-loop/src/index.ts:277`](../../packages/core/agent-
 
 Registry over the deployment's agent presets.
 
-Discovery is unmemoized: `list()` and `resolve()` re-read the roots on every call so a preset authored while the process runs is visible immediately, and a preset deleted underneath a picker disappears from the next read.
+Discovery is unmemoized: `list()` and `resolve()` re-read the roots on every call so a profile authored while the process runs is visible immediately, and a profile deleted underneath a picker disappears from the next read.
 
 ```ts cordis-catalog
 /**
- * Every preset the configured roots currently supply.
- * @returns the presets, first-root-wins per id.
+ * Every profile the configured roots currently supply.
+ * @returns the profiles, first-root-wins per id.
  */
 async list(): Promise<AgentPreset[]>
 
 /**
- * Resolve one preset by id.
- * @param id - the preset id, or `undefined` for {@link defaultId}.
- * @returns the resolved preset.
+ * Resolve one profile by id.
+ * @param id - the profile id, or `undefined` for {@link defaultId}.
+ * @returns the resolved profile.
  * @throws when no configured root supplies that id.
  */
 async resolve(id?: string): Promise<AgentPreset>
 
 /**
- * Compose one agent from a preset, installing it under that agent alone.
+ * Compose one agent from a profile, installing it under that agent alone.
  *
  * Call from the agent factory's `setup(agentCtx)`; a rejection there rolls
- * the agent creation back, so a broken preset never yields a half-composed
+ * the agent creation back, so a broken profile never yields a half-composed
  * session.
  * @param agentCtx - the agent's scope context.
- * @param id - the preset id, or `undefined` for {@link defaultId}.
- * @returns the preset that was mounted, for the caller to record.
- * @throws when the preset is unknown or its composition is unusable.
+ * @param id - the profile id, or `undefined` for {@link defaultId}.
+ * @returns the profile that was mounted, for the caller to record.
+ * @throws when the profile is unknown or its composition is unusable.
  */
 async mount(agentCtx: Context, id?: string): Promise<AgentPreset>
 
 /**
- * One agent's instance of a service its preset mounted.
+ * Read one profile's composition text.
+ * @param id - the profile id.
+ * @returns the composition exactly as stored.
+ * @throws when no configured root supplies that id.
+ */
+async read(id: string): Promise<string>
+
+/**
+ * Create or replace a locally authored profile.
  *
- * A preset publishes services behind `isolate` realms, which are invisible
+ * The text is shape-checked before it lands, so a save cannot leave a file no
+ * session could load; it is NOT mounted, so a composition that parses but
+ * names a missing plugin still fails at the next session that selects it.
+ * @param id - the profile id, which becomes its directory name.
+ * @param content - the composition text.
+ * @throws when the id is unusable, the text is not an entry list, or the
+ * deployment configures no writable root.
+ */
+async write(id: string, content: string): Promise<void>
+
+/**
+ * Delete a locally authored profile.
+ * @param id - the profile id.
+ * @throws when the profile is unknown or ships with the deployment.
+ */
+async remove(id: string): Promise<void>
+
+/**
+ * One agent's instance of a service its profile mounted.
+ *
+ * A profile publishes services behind `isolate` realms, which are invisible
  * outside the group that declares them — including to the host. This is how a
  * caller holding the agent reads one anyway: a request that is ABOUT a
  * session but arrives from outside it, which is every browser RPC.
@@ -92,8 +120,8 @@ async mount(agentCtx: Context, id?: string): Promise<AgentPreset>
  * because injection resolves before any session exists and has no agent to
  * key by; such a service belongs on the host plane instead.
  * @param agent - the agent whose composition to look inside.
- * @param name - the service name as the preset's rows resolve it.
- * @returns the agent's instance, or undefined when its preset mounts none.
+ * @param name - the service name as the profile's rows resolve it.
+ * @returns the agent's instance, or undefined when its profile mounts none.
  */
 serviceFor<K extends string & keyof Context>(agent: { ctx: Context }, name: K): Context[K] | undefined
 
@@ -109,15 +137,15 @@ serviceFor<K extends string & keyof Context>(agent: { ctx: Context }, name: K): 
  * therefore restores the previous composition rather than leaving the agent
  * with nothing.
  * @param agentCtx - the agent's scope context.
- * @param id - the preset to compose the agent from instead.
- * @returns the preset now installed.
- * @throws when the preset is unknown or its composition is unusable; the
+ * @param id - the profile to compose the agent from instead.
+ * @returns the profile now installed.
+ * @throws when the profile is unknown or its composition is unusable; the
  * previous composition is restored first.
  */
 async recompose(agentCtx: Context, id: string): Promise<AgentPreset>
 ```
 
-Source: [`packages/preset/agent-presets/src/index.ts:57`](../../packages/preset/agent-presets/src/index.ts)
+Source: [`packages/preset/agent-presets/src/index.ts:63`](../../packages/preset/agent-presets/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 

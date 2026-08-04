@@ -1339,6 +1339,17 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     // DeepSeek route so unrelated GUI journeys do not enter first-run setup.
     ['DEEPSEEK_API_KEY', true],
   ])
+  /**
+   * Preset compositions the fixture serves. Held as state rather than
+   * constants so the settings editor's save and delete are exercisable: the
+   * roster a GUI journey sees after writing is the text it wrote.
+   */
+  const fixturePresets = new Map<string, { trust: 'system' | 'user'; content: string }>([
+    ['standard', { trust: 'system', content: "- id: tool-bash\n  name: '@deepseek-ai/dsh-tool-bash'\n" }],
+    ['core-web', { trust: 'system', content: "- id: tool-web-search\n  name: '@deepseek-ai/dsh-tool-web-search'\n" }],
+    ['my-agent', { trust: 'user', content: "- id: tool-read\n  name: '@deepseek-ai/dsh-tool-read'\n" }],
+  ])
+  let fixtureDefaultPreset = 'standard'
   const nextTurn = new Map<SessionId, number>([[sid('fx-alpha'), 60]])
   let nextSession = 1
   let nextRpc = 1
@@ -2313,15 +2324,63 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       },
     },
     agentPresets: {
-      // Two rows so a picker has something to choose between, and so the
-      // trust distinction a surface must present is visible in the fixture.
+      // Both trusts appear, because a surface must present a locally authored
+      // preset differently from one the deployment vetted.
       list: request => ok(request, {
-        presets: [
-          { id: 'standard', trust: 'system' as const, isDefault: true },
-          { id: 'core-web', trust: 'system' as const, isDefault: false },
-        ],
+        presets: [...fixturePresets].map(([id, preset]) => ({
+          id,
+          trust: preset.trust,
+          isDefault: id === fixtureDefaultPreset,
+        })),
+        authorable: true,
       }),
-      select: request => ok(request, { agentPreset: request.payload.agentPreset }),
+      select: (request) => {
+        fixtureDefaultPreset = request.payload.agentPreset
+        return ok(request, { agentPreset: request.payload.agentPreset })
+      },
+      read: (request) => {
+        const { agentPreset } = request.payload
+        const preset = fixturePresets.get(agentPreset)
+        if (preset === undefined) {
+          return err(request, {
+            code: 'agent-preset-not-found',
+            message: `unknown agent preset "${agentPreset}"`,
+            details: { agentPreset, available: [...fixturePresets.keys()] },
+          })
+        }
+        return ok(request, {
+          agentPreset,
+          trust: preset.trust,
+          content: preset.content,
+          writable: preset.trust === 'user',
+        })
+      },
+      write: (request) => {
+        const { agentPreset, content } = request.payload
+        const existing = fixturePresets.get(agentPreset)
+        if (existing?.trust === 'system') {
+          return err(request, {
+            code: 'agent-preset-read-only',
+            message: `agent preset "${agentPreset}" ships with the deployment`,
+            details: { agentPreset, reason: 'it ships with the deployment' },
+          })
+        }
+        fixturePresets.set(agentPreset, { trust: 'user', content })
+        return ok(request, { agentPreset })
+      },
+      remove: (request) => {
+        const { agentPreset } = request.payload
+        const existing = fixturePresets.get(agentPreset)
+        if (existing?.trust === 'system') {
+          return err(request, {
+            code: 'agent-preset-read-only',
+            message: `agent preset "${agentPreset}" ships with the deployment`,
+            details: { agentPreset, reason: 'it ships with the deployment' },
+          })
+        }
+        fixturePresets.delete(agentPreset)
+        return ok(request, {})
+      },
     },
 
     skills: {
@@ -2623,6 +2682,9 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'skill.list': return this.api.skills.list(request)
       case 'agentPreset.list': return this.api.agentPresets.list(request)
       case 'agentPreset.select': return this.api.agentPresets.select(request)
+      case 'agentPreset.read': return this.api.agentPresets.read(request)
+      case 'agentPreset.write': return this.api.agentPresets.write(request)
+      case 'agentPreset.remove': return this.api.agentPresets.remove(request)
       case 'goal.create': return this.api.goals.create(request)
       case 'goal.edit': return this.api.goals.edit(request)
       case 'goal.pause': return this.api.goals.pause(request)

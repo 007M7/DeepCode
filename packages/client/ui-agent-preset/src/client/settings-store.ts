@@ -13,6 +13,42 @@ import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client
 /** The agent-preset settings namespace on the host wire. */
 export const AGENT_PRESET_SETTINGS_NS = 'agent-presets'
 
+/**
+ * Human text for a rejected wire call. A transport failure rejects with an
+ * Error; a host or a runtime can reject with anything, and the surface still
+ * has to say something.
+ * @param error - the rejection value.
+ * @returns the message to show.
+ */
+export function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * Persist one preset as the default for sessions created later.
+ *
+ * The default is a settings field rather than a preset property, so both the
+ * General row and the management section write it here — one home for which
+ * namespace and field the host resolves at session creation.
+ * @param api - the settings wire face.
+ * @param id - the preset to make default.
+ * @returns the failure message, or undefined once the write landed.
+ */
+export async function writeDefaultPreset(
+  api: Pick<IApiClient, 'settings'>,
+  id: string,
+): Promise<string | undefined> {
+  let response
+  try {
+    response = await api.settings.update({ ns: AGENT_PRESET_SETTINGS_NS, patch: { default: id } })
+  } catch (error) {
+    // The transport rejected rather than answering; the caller must be able to
+    // say so instead of the row silently snapping back.
+    return messageOf(error)
+  }
+  return response.result.ok ? undefined : response.result.error.message
+}
+
 /** One selectable preset. */
 export interface AgentPresetOption {
   /** Preset id, written to Settings and shown as the label. */
@@ -65,7 +101,8 @@ export class AgentPresetSettingsController {
         return
       }
       const presets = response.result.value.presets
-      if (presets.length === 0) {
+      const [first] = presets
+      if (first === undefined) {
         this.set({ status: 'unavailable', options: [], currentValue: '' })
         return
       }
@@ -73,10 +110,12 @@ export class AgentPresetSettingsController {
         status: 'ready',
         error: null,
         options: presets.map(preset => ({ id: preset.id, trust: preset.trust })),
-        currentValue: presets.find(preset => preset.isDefault)?.id ?? presets[0]?.id ?? '',
+        // A roster can mark nothing default: settings can name a preset that
+        // was since deleted, and the picker still has to show something.
+        currentValue: presets.find(preset => preset.isDefault)?.id ?? first.id,
       })
     } catch (error) {
-      this.set({ status: 'error', error: error instanceof Error ? error.message : String(error) })
+      this.set({ status: 'error', error: messageOf(error) })
     }
   }
 
@@ -91,24 +130,13 @@ export class AgentPresetSettingsController {
     const before = this.store.getSnapshot()
     if (before.status === 'saving' || id === before.currentValue) return
     this.set({ status: 'saving', error: null, currentValue: id })
-    try {
-      const response = await this.api.settings.update({
-        ns: AGENT_PRESET_SETTINGS_NS,
-        patch: { default: id },
-      })
-      if (!response.result.ok) {
-        this.set({ status: 'ready', currentValue: before.currentValue, error: response.result.error.message })
-        return
-      }
-      // Re-read rather than trust the patch: the host resolves the default
-      // through the same roster the row displays.
-      await this.load()
-    } catch (error) {
-      this.set({
-        status: 'ready',
-        currentValue: before.currentValue,
-        error: error instanceof Error ? error.message : String(error),
-      })
+    const failure = await writeDefaultPreset(this.api, id)
+    if (failure !== undefined) {
+      this.set({ status: 'ready', currentValue: before.currentValue, error: failure })
+      return
     }
+    // Re-read rather than trust the patch: the host resolves the default
+    // through the same roster the row displays.
+    await this.load()
   }
 }

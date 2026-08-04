@@ -513,6 +513,9 @@ describe('agent-preset schemas', () => {
   })
 
   it('accepts an empty roster', () => {
-    expect(agentPresetListValueSchema.parse({ presets: [] })).toEqual({ presets: [] })
+    // A deployment composing no presets still reports whether one could be
+    // written, so a surface knows to offer creation rather than nothing at all.
+    expect(agentPresetListValueSchema.parse({ presets: [], authorable: false }))
+      .toEqual({ presets: [], authorable: false })
   })
 })

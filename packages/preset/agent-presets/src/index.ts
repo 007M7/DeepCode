@@ -15,7 +15,9 @@ import { scopeOf } from '@deepseek-ai/dsh-scope'
 import z from 'schemastery'
 import { settingsNamespace, type SettingsScope } from '@deepseek-ai/dsh-settings'
 import { discoverPresets } from './discovery.ts'
+import { deleteComposition, readComposition, writeComposition } from './authoring.ts'
 import { mountPreset, serviceForAgent, unmountPresetFor } from './mount.ts'
+import { PresetNotWritableError } from './authoring.ts'
 import { UnknownPresetError, type AgentPreset, type Config } from './types.ts'
 
 /** Settings namespace carrying the user's chosen default preset. */
@@ -37,6 +39,10 @@ export {
   inactiveRows, leakedServices, livePresetMounts, mountPreset, serviceForAgent,
   unmountPresetFor, type PresetMount,
 } from './mount.ts'
+export {
+  assertComposition, deleteComposition, InvalidCompositionError, InvalidPresetIdError,
+  PresetNotWritableError, readComposition, writableRoot, writeComposition,
+} from './authoring.ts'
 export { resolveSessionPreset, type PresetBearingSession } from './session.ts'
 export { PresetMountError, UnknownPresetError } from './types.ts'
 export type { AgentPreset, Config, PresetRoot, PresetTrust } from './types.ts'
@@ -140,6 +146,51 @@ export class AgentPresets extends Service {
     const preset = await this.resolve(id)
     await mountPreset(agentCtx, preset)
     return preset
+  }
+
+  /** Whether this deployment configures a root locally authored presets go to. */
+  get authorable(): boolean {
+    return this.config.roots.some(root => root.trust === 'user')
+  }
+
+  /**
+   * Read one preset's composition text.
+   * @param id - the preset id.
+   * @returns the composition exactly as stored.
+   * @throws when no configured root supplies that id.
+   */
+  async read(id: string): Promise<string> {
+    return await readComposition(await this.resolve(id))
+  }
+
+  /**
+   * Create or replace a locally authored preset.
+   *
+   * The text is shape-checked before it lands, so a save cannot leave a file no
+   * session could load; it is NOT mounted, so a composition that parses but
+   * names a missing plugin still fails at the next session that selects it.
+   * @param id - the preset id, which becomes its directory name.
+   * @param content - the composition text.
+   * @throws when the id is unusable, the text is not an entry list, or the
+   * deployment configures no writable root.
+   */
+  async write(id: string, content: string): Promise<void> {
+    // A shipped preset belongs to the deployment: overwriting it would remove
+    // the known-good composition a broken local one is compared against.
+    const existing = (await this.list()).find(preset => preset.id === id)
+    if (existing !== undefined && existing.trust !== 'user') {
+      throw new PresetNotWritableError(id, 'it ships with the deployment')
+    }
+    await writeComposition(this.config.roots, id, content)
+  }
+
+  /**
+   * Delete a locally authored preset.
+   * @param id - the preset id.
+   * @throws when the preset is unknown or ships with the deployment.
+   */
+  async remove(id: string): Promise<void> {
+    await deleteComposition(this.config.roots, await this.resolve(id))
   }
 
   /**

@@ -42,6 +42,14 @@ interface MountedTree {
 const mounted = new WeakMap<object, MountedTree>()
 
 /**
+ * The base URL bare specifiers resolve against, per pending mount, keyed by the
+ * same config object. Recorded before the subtree is plugged, because `Include`
+ * rewrites its own context's `baseUrl` to the composition's directory and the
+ * pre-mount value is the only handle on where the harness itself lives.
+ */
+const harnessBase = new WeakMap<object, string>()
+
+/**
  * Include subclass that publishes its tree and fiber for the audit, and never
  * writes to the file it read.
  */
@@ -49,6 +57,33 @@ class PresetTree extends Include {
   constructor(ctx: Context, config: Include.Config) {
     super(ctx, config)
     mounted.set(config, { tree: this, fiber: ctx.fiber })
+  }
+
+  /**
+   * Resolve a bare specifier from the harness rather than from the preset.
+   *
+   * `EntryTree.import()` resolves against the tree's own `baseUrl`, which
+   * `Include` sets to the composition's directory. That is right for a
+   * relative specifier — a preset's own files travel with it — and wrong for
+   * a package name: a locally authored preset lives under the user's home,
+   * where Node's upward `node_modules` walk never reaches the harness's own
+   * dependencies, so every `@deepseek-ai/dsh-*` row would fail to import. The
+   * mount records the host composition's base instead, which is inside the
+   * installed harness, and bare names resolve from there.
+   * @param name - the module specifier from the row.
+   * @param getOuterStack - the loader's stack composer for import diagnostics.
+   * @returns the imported module, or the `cordis:` builtin.
+   */
+  override import(name: string, getOuterStack?: () => string[]): unknown {
+    const base = harnessBase.get(this.config)
+    /* v8 ignore next -- every PresetTree is constructed by `mountPreset`, which records the base first */
+    if (base === undefined) return super.import(name, getOuterStack)
+    if (name.startsWith('.') || name.startsWith('cordis:')) return super.import(name, getOuterStack)
+    const internal = this.ctx.loader.internal
+    /* v8 ignore next -- Node always supplies the internal module loader; the branch keeps a
+       hypothetical embedder from losing the row's name in a resolution error. */
+    if (internal === undefined) return super.import(name, getOuterStack)
+    return internal.import(name, base, {})
   }
 
   /**
@@ -269,6 +304,11 @@ export async function mountPreset(agentCtx: Context, preset: AgentPreset): Promi
     )
   }
   const config: Include.Config = { path: pathToFileURL(preset.path).href }
+  // Captured before the subtree exists: the agent context still carries the
+  // host composition's base, which is inside the installed harness and is
+  // therefore where a row's package name has to resolve from.
+  /* v8 ignore next -- the Loader sets `baseUrl` on the root before any agent context derives from it */
+  if (agentCtx.baseUrl !== undefined) harnessBase.set(config, agentCtx.baseUrl)
   // Before the record this mount is about to add: every session takes this
   // path, so it is what keeps the set bounded on a host that never reads it.
   pruneDisposedMounts()

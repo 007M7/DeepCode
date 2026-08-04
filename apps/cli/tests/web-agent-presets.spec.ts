@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
@@ -21,7 +21,7 @@ const WEB_OVERLAY = join(CONFIG_DIR, 'web.cordis.yml')
  * touch the network, or write outside the test. Everything that decides an
  * agent's capabilities is the real thing, including both shipped presets.
  */
-async function bootWeb(settingsFile: string): Promise<Context> {
+async function bootWeb(settingsFile: string, extra: PatchOptions[] = []): Promise<Context> {
   const patches: PatchOptions[] = [
     ...loadOverlayPatches('dsh-test', WEB_OVERLAY),
     // The settings row defaults to `$DSH_HOME/settings.yaml`. Left alone it
@@ -51,6 +51,7 @@ async function bootWeb(settingsFile: string): Promise<Context> {
       id: 'agent-presets',
       config: { default: 'standard', roots: [{ path: join(CONFIG_DIR, 'agent-presets'), trust: 'system' }] },
     },
+    ...extra,
   ]
   return await boot('dsh-test', BASE_CONFIG, patches)
 }
@@ -286,6 +287,79 @@ describe('a forked session', () => {
       await child.dispose()
       await parent.dispose()
     }
+  })
+})
+
+describe('authoring a preset on the shipped composition', () => {
+  let authorCtx: Context
+  let userRoot: string
+
+  beforeAll(async () => {
+    userRoot = join(await mkdtemp(join(tmpdir(), 'dsh-preset-authoring-')), 'presets')
+    const settingsFile = join(await mkdtemp(join(tmpdir(), 'dsh-preset-authoring-settings-')), 'settings.yaml')
+    await writeFile(settingsFile, '{}\n')
+    authorCtx = await bootWeb(settingsFile, [{
+      id: 'agent-presets',
+      config: {
+        default: 'standard',
+        roots: [
+          { path: join(CONFIG_DIR, 'agent-presets'), trust: 'system' },
+          // The root does not exist yet: a deployment whose user has authored
+          // nothing is the normal first-run state.
+          { path: userRoot, trust: 'user' },
+        ],
+      },
+    }])
+  })
+
+  it('refuses to overwrite or delete a shipped preset', async () => {
+    await expect(authorCtx.agentPresets.write('standard', '- id: x\n')).rejects.toThrow(/ships with the deployment/)
+    await expect(authorCtx.agentPresets.remove('standard')).rejects.toThrow(/ships with the deployment/)
+  })
+
+  it.each(['../escape', 'a/b', '/abs', 'Upper'])('refuses the uncontainable id %j', async (id) => {
+    // The id becomes a directory name under the user root, so containment is
+    // checked on the id rather than on the joined path afterwards.
+    await expect(authorCtx.agentPresets.write(id, '- id: x\n')).rejects.toThrow()
+  })
+
+  it('refuses text that is not a Cordis entry list', async () => {
+    await expect(authorCtx.agentPresets.write('bad-shape', 'tools: []\n')).rejects.toThrow()
+    await expect(authorCtx.agentPresets.resolve('bad-shape')).rejects.toThrow()
+  })
+
+  it('writes a preset a session then really composes from', async () => {
+    const copied = await authorCtx.agentPresets.read('core-web')
+
+    await authorCtx.agentPresets.write('my-agent', copied)
+
+    // Round-trips through the roster as a `user` row, and the composition the
+    // editor saved is one the mount actually accepts.
+    const preset = await authorCtx.agentPresets.resolve('my-agent')
+    expect(preset.trust).toBe('user')
+    expect(await authorCtx.agentPresets.read('my-agent')).toBe(copied)
+    // Owner-only, in an owner-only directory: a composition is executable
+    // configuration on a machine that may have other users.
+    expect((await stat(preset.path)).mode & 0o777).toBe(0o600)
+    const handle = await authorCtx.agents.create({
+      sessionId: SessionId('preset-authored'),
+      setup: agentCtx => authorCtx.agentPresets.mount(agentCtx, 'my-agent').then(() => undefined),
+    })
+    try {
+      // The same tools the shipped `core-web` composes, from a file written
+      // through the service into a root outside the installed harness.
+      expect(toolNames(authorCtx, handle.agent)).toEqual(['ask_user_question', 'bash', 'str_replace_editor'])
+    } finally {
+      await handle.dispose()
+    }
+  })
+
+  it('deletes what it wrote', async () => {
+    await authorCtx.agentPresets.write('doomed', '- id: tool-web-search\n  name: \'@deepseek-ai/dsh-tool-web-search\'\n')
+
+    await authorCtx.agentPresets.remove('doomed')
+
+    expect((await authorCtx.agentPresets.list()).map(preset => preset.id)).not.toContain('doomed')
   })
 })
 

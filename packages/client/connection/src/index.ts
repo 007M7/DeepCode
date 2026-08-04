@@ -55,6 +55,17 @@ export const Config: z<ConnectionConfig> = z.object({
  * keys, or key state — and a LAN client's model picker legitimately needs it.
  */
 const PRIVILEGED_METHODS = new Set([
+  // A preset composition names the plugins a session runs, so reading one is
+  // reconnaissance and writing one is arbitrary capability — strictly more than
+  // the settings document beside it. `agentPreset.select` joins them because
+  // it can move a session from a two-tool preset onto one that edits the live
+  // runtime, which is a real escalation even though every candidate is already
+  // installed. `agentPreset.list` deliberately stays out: it carries ids and
+  // trust only, like the model catalog, and a LAN client's picker needs it.
+  'agentPreset.select',
+  'agentPreset.read',
+  'agentPreset.write',
+  'agentPreset.remove',
   'host.pickDirectory',
   'host.openPath',
   'settings.describe',

@@ -11,6 +11,7 @@ import type { IApiClient } from '@deepseek-ai/dsh-client-connection/client'
 import {
   createSnapshotStore, type SessionId, type SnapshotStore,
 } from '@deepseek-ai/dsh-client-runtime/client'
+import { messageOf } from './settings-store.ts'
 import type { AgentPresetOption } from './settings-store.ts'
 
 /** Composer-seat snapshot for one session. */
@@ -69,7 +70,7 @@ export class AgentPresetSeatController {
         error: null,
       })
     } catch (error) {
-      this.set({ error: error instanceof Error ? error.message : String(error) })
+      this.set({ error: messageOf(error) })
     }
   }
 
@@ -90,11 +91,7 @@ export class AgentPresetSeatController {
       }
       this.set({ busy: false, current: response.result.value.agentPreset })
     } catch (error) {
-      this.set({
-        busy: false,
-        current: before.current,
-        error: error instanceof Error ? error.message : String(error),
-      })
+      this.set({ busy: false, current: before.current, error: messageOf(error) })
     }
   }
 }

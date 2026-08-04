@@ -28,6 +28,9 @@
       "path": "../../settings/settings"
     },
     {
+      "path": "../../util/atomic-write"
+    },
+    {
       "path": "../../util/paths"
     },
     {

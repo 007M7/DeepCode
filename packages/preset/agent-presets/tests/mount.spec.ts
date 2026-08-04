@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -13,6 +13,7 @@ import AgentRegistry, { assembleContextFor, type Agent } from '@deepseek-ai/dsh-
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { beforeEach, describe, expect, it } from 'vitest'
 import AgentPresets, { COMPOSITION_FILE, leakedServices, livePresetMounts } from '@deepseek-ai/dsh-agent-presets'
+import type { Config } from '@deepseek-ai/dsh-agent-presets'
 
 declare module 'cordis' {
   interface Context {
@@ -27,8 +28,13 @@ const ROOTS = [
   { path: join(FIXTURES, 'user'), trust: 'user' as const },
 ]
 
-/** A composition carrying the registries a preset contributes to, plus the preset roster. */
-async function harness(): Promise<Context> {
+/**
+ * A composition carrying the registries a preset contributes to, plus the
+ * preset roster.
+ * @param roster - roster config, defaulting to the fixture roots.
+ * @returns the booted context.
+ */
+async function harness(roster: Config = { default: 'standard', roots: ROOTS }): Promise<Context> {
   const ctx = new Context()
   ctx.baseUrl = pathToFileURL(FIXTURES).href + '/'
   await ctx.plugin(Loader)
@@ -39,7 +45,7 @@ async function harness(): Promise<Context> {
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
-  await ctx.plugin(AgentPresets, { default: 'standard', roots: ROOTS })
+  await ctx.plugin(AgentPresets, roster)
   return ctx
 }
 
@@ -329,6 +335,55 @@ describe('replacing a composition', () => {
     // The swap is unmount-then-mount, so a failure must put the old one back
     // rather than leave the agent with no tools at all.
     expect(toolNames(ctx, handle.agent)).toEqual(['alpha'])
+  })
+
+  it('composes an agent that had nothing installed', async () => {
+    // An agent created without a preset has no subtree to discard, so the
+    // swap is a plain mount rather than a restore-on-failure path.
+    const handle = await ctx.agents.create({ sessionId: SessionId('sess-bare') })
+
+    await ctx.agentPresets.recompose(handle.agent.ctx, 'minimal')
+
+    expect(toolNames(ctx, handle.agent)).toEqual(['beta'])
+  })
+
+  it('refuses a bare agent\'s broken composition without restoring anything', async () => {
+    const handle = await ctx.agents.create({ sessionId: SessionId('sess-bare-broken') })
+
+    await expect(ctx.agentPresets.recompose(handle.agent.ctx, 'broken'))
+      .rejects.toThrow(/failed to mount/)
+
+    // Nothing was installed, so there is nothing to put back.
+    expect(toolNames(ctx, handle.agent)).toEqual([])
+  })
+
+  it('reports the switch failure even when the restore also fails', async () => {
+    // The previous preset's whole directory disappears between the unmount
+    // and the restore. The caller still needs to hear why the switch was
+    // refused rather than why putting the old one back did not work.
+    const root = await mkdtemp(join(tmpdir(), 'dsh-preset-vanishing-'))
+    await mkdir(join(root, 'vanishing'), { recursive: true })
+    // An absolute plugin path, because a relative one resolves from the
+    // preset's own directory and this preset does not live beside the fixtures.
+    await writeFile(join(root, 'vanishing', COMPOSITION_FILE), [
+      '- id: alpha',
+      `  name: ${join(FIXTURES, 'plugins', 'contribute.js')}`,
+      '  config:',
+      '    tool: vanishing',
+      '',
+    ].join('\n'))
+    const local = await harness({
+      default: 'vanishing',
+      roots: [{ path: root, trust: 'user' as const }, ...ROOTS],
+    })
+    const handle = await local.agents.create({
+      sessionId: SessionId('sess-vanishing'),
+      setup: async (agentCtx: Context) => void await local.agentPresets.mount(agentCtx, 'vanishing'),
+    })
+    await rm(root, { recursive: true, force: true })
+
+    await expect(local.agentPresets.recompose(handle.agent.ctx, 'broken'))
+      .rejects.toThrow(/failed to mount/)
   })
 
   it('refuses an unscoped context', async () => {

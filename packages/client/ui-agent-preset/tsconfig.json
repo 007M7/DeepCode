@@ -21,13 +21,22 @@
       "path": "../runtime"
     },
     {
+      "path": "../test-runtime"
+    },
+    {
       "path": "../ui-conversation"
     },
     {
       "path": "../ui-primitives"
     },
     {
+      "path": "../ui-settings"
+    },
+    {
       "path": "../ui-slots"
+    },
+    {
+      "path": "../web-react"
     },
     {
       "path": "../../support/invariants"

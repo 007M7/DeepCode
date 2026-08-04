@@ -25,7 +25,8 @@ import {
 } from '@deepseek-ai/dsh-workspace'
 // Type-only: brings the `ctx.tools` Context merge into this program (viewFor reads presenters).
 import {
-  PresetMountError, resolveSessionPreset, UnknownPresetError,
+  InvalidCompositionError, InvalidPresetIdError, PresetMountError,
+  PresetNotWritableError, resolveSessionPreset, UnknownPresetError,
 } from '@deepseek-ai/dsh-agent-presets'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {
@@ -658,6 +659,33 @@ class SubagentSessionOwnership extends Error {
  * replay tool calls the rebuilt agent cannot make. Naming a different preset
  * is therefore a caller error rather than a switch.
  */
+/** The roster is absent: this deployment composes no agent presets at all. */
+function noRoster(agentPreset: string): RpcError {
+  return {
+    code: 'agent-preset-not-found',
+    message: 'this deployment composes no agent presets',
+    details: { agentPreset, available: [] },
+  }
+}
+
+/** Map one authoring/roster failure onto its wire code. */
+function presetError(agentPreset: string, error: unknown): RpcError {
+  if (error instanceof UnknownPresetError) {
+    return {
+      code: 'agent-preset-not-found',
+      message: error.message,
+      details: { agentPreset: error.presetId, available: [...error.available] },
+    }
+  }
+  if (error instanceof PresetNotWritableError) {
+    return { code: 'agent-preset-read-only', message: error.message, details: { agentPreset, reason: error.message } }
+  }
+  if (error instanceof InvalidPresetIdError || error instanceof InvalidCompositionError) {
+    return { code: 'agent-preset-invalid', message: error.message, details: { agentPreset, reason: error.message } }
+  }
+  return { code: 'internal', message: `agent preset "${agentPreset}": ${String(error)}`, details: {} }
+}
+
 class AgentPresetConflict extends Error {
   constructor(
     readonly sessionId: SessionId,
@@ -2501,7 +2529,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       // simply offers no choice.
       async list(request) {
         const presets = ctx.get('agentPresets')
-        if (presets === undefined) return ok(request, { presets: [] })
+        if (presets === undefined) return ok(request, { presets: [], authorable: false })
         const defaultId = presets.defaultId
         return ok(request, {
           presets: (await presets.list()).map(preset => ({
@@ -2509,6 +2537,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             trust: preset.trust,
             isDefault: preset.id === defaultId,
           })),
+          authorable: presets.authorable,
         })
       },
 
@@ -2561,6 +2590,50 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             message: `failed to select agent preset "${agentPreset}": ${String(error)}`,
             details: {},
           })
+        }
+      },
+
+      // Authoring is privileged (see PRIVILEGED_METHODS in dsh-client-connection):
+      // a composition names the plugins a session runs, so reading one is
+      // reconnaissance and writing one is arbitrary capability.
+      async read(request) {
+        const { agentPreset } = request.payload
+        const presets = ctx.get('agentPresets')
+        if (presets === undefined) return err(request, noRoster(agentPreset))
+        try {
+          const preset = await presets.resolve(agentPreset)
+          return ok(request, {
+            agentPreset: preset.id,
+            trust: preset.trust,
+            content: await presets.read(preset.id),
+            writable: preset.trust === 'user' && presets.authorable,
+          })
+        } catch (error: unknown) {
+          return err(request, presetError(agentPreset, error))
+        }
+      },
+
+      async write(request) {
+        const { agentPreset, content } = request.payload
+        const presets = ctx.get('agentPresets')
+        if (presets === undefined) return err(request, noRoster(agentPreset))
+        try {
+          await presets.write(agentPreset, content)
+          return ok(request, { agentPreset })
+        } catch (error: unknown) {
+          return err(request, presetError(agentPreset, error))
+        }
+      },
+
+      async remove(request) {
+        const { agentPreset } = request.payload
+        const presets = ctx.get('agentPresets')
+        if (presets === undefined) return err(request, noRoster(agentPreset))
+        try {
+          await presets.remove(agentPreset)
+          return ok(request, {})
+        } catch (error: unknown) {
+          return err(request, presetError(agentPreset, error))
         }
       },
     },

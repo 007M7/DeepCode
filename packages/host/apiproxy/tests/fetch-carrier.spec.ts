@@ -195,11 +195,25 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
     },
     agentPresets: {
       list(request: RpcRequest<{}>) {
-        return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value: { presets: [] } } })
+        return Promise.resolve({
+          rpcId: request.rpcId,
+          result: { ok: true as const, value: { presets: [], authorable: false } },
+        })
       },
       select(request: RpcRequest<{ agentPreset: string }>) {
         const value = { agentPreset: request.payload.agentPreset }
         return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value } })
+      },
+      read(request: RpcRequest<{ agentPreset: string }>) {
+        const value = { agentPreset: request.payload.agentPreset, trust: 'user' as const, content: '', writable: true }
+        return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value } })
+      },
+      write(request: RpcRequest<{ agentPreset: string }>) {
+        const value = { agentPreset: request.payload.agentPreset }
+        return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value } })
+      },
+      remove(request: RpcRequest<{ agentPreset: string }>) {
+        return Promise.resolve({ rpcId: request.rpcId, result: { ok: true as const, value: {} } })
       },
     },
     skills: {

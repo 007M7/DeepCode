@@ -23,6 +23,7 @@ export const agentPresetListRequestSchema = z.object({
 /** agentPreset.list response value. */
 export const agentPresetListValueSchema = z.object({
   presets: z.array(agentPresetEntrySchema),
+  authorable: z.boolean(),
 }) satisfies z.ZodType<Wire<ResponseValue<'agentPreset.list'>>>
 
 /** agentPreset.select request payload. */
@@ -35,3 +36,36 @@ export const agentPresetSelectRequestSchema = z.object({
 export const agentPresetSelectValueSchema = z.object({
   agentPreset: z.string(),
 }) satisfies z.ZodType<Wire<ResponseValue<'agentPreset.select'>>>
+
+/** agentPreset.read request payload. */
+export const agentPresetReadRequestSchema = z.object({
+  agentPreset: z.string().min(1),
+}) satisfies z.ZodType<Wire<RequestPayload<'agentPreset.read'>>>
+
+/** agentPreset.read response value. */
+export const agentPresetReadValueSchema = z.object({
+  agentPreset: z.string(),
+  trust: z.union([z.literal('system'), z.literal('user')]),
+  content: z.string(),
+  writable: z.boolean(),
+}) satisfies z.ZodType<Wire<ResponseValue<'agentPreset.read'>>>
+
+/** agentPreset.write request payload. */
+export const agentPresetWriteRequestSchema = z.object({
+  agentPreset: z.string().min(1),
+  content: z.string(),
+}) satisfies z.ZodType<Wire<RequestPayload<'agentPreset.write'>>>
+
+/** agentPreset.write response value. */
+export const agentPresetWriteValueSchema = z.object({
+  agentPreset: z.string(),
+}) satisfies z.ZodType<Wire<ResponseValue<'agentPreset.write'>>>
+
+/** agentPreset.remove request payload. */
+export const agentPresetRemoveRequestSchema = z.object({
+  agentPreset: z.string().min(1),
+}) satisfies z.ZodType<Wire<RequestPayload<'agentPreset.remove'>>>
+
+/** agentPreset.remove response value. */
+export const agentPresetRemoveValueSchema = z.object({
+}) satisfies z.ZodType<Wire<ResponseValue<'agentPreset.remove'>>>

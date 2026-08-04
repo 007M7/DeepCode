@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest'
 import type { IApiClient } from '@deepseek-ai/dsh-client-connection/client'
 import {
-  AGENT_PRESET_SETTINGS_NS, AgentPresetSettingsController,
+  AGENT_PRESET_SETTINGS_NS, AgentPresetSettingsController, messageOf,
 } from '../src/client/settings-store.ts'
 import { AgentPresetSeatController } from '../src/client/seat-store.ts'
 
@@ -17,7 +17,7 @@ interface Recorded { ns: string; patch: unknown }
 /** A client whose roster and write outcome the test controls. */
 function fakeApi(
   presets: { id: string; trust: 'system' | 'user'; isDefault: boolean }[],
-  options: { writes?: Recorded[]; failWrite?: string; failList?: string } = {},
+  options: { writes?: Recorded[]; failWrite?: string; failList?: string; failWriteWith?: Error } = {},
 ): IApiClient {
   return {
     agentPresets: {
@@ -28,6 +28,7 @@ function fakeApi(
     settings: {
       update: (payload: { ns: string; patch: unknown }) => {
         options.writes?.push({ ns: payload.ns, patch: payload.patch })
+        if (options.failWriteWith !== undefined) return Promise.reject(options.failWriteWith)
         if (options.failWrite !== undefined) {
           return Promise.resolve({ rpcId: 'r', result: { ok: false as const, error: { code: 'internal', message: options.failWrite, details: {} } } })
         }
@@ -127,12 +128,18 @@ describe('the composer seat controller', () => {
   function seat(
     presets: { id: string; trust: 'system' | 'user'; isDefault: boolean }[],
     summary: { blank: boolean; agentPreset?: string } | undefined,
-    options: { writes?: Recorded[]; failSelect?: string } = {},
+    options: { writes?: Recorded[]; failSelect?: string; failList?: string; throwOn?: 'list' | 'select' } = {},
   ): AgentPresetSeatController {
     const api = {
       agentPresets: {
-        list: () => Promise.resolve({ rpcId: 'r', result: { ok: true as const, value: { presets } } }),
+        list: () => {
+          if (options.throwOn === 'list') return Promise.reject(new Error('socket closed'))
+          return Promise.resolve(options.failList === undefined
+            ? { rpcId: 'r', result: { ok: true as const, value: { presets } } }
+            : { rpcId: 'r', result: { ok: false as const, error: { code: 'internal', message: options.failList, details: {} } } })
+        },
         select: (payload: { agentPreset: string }) => {
+          if (options.throwOn === 'select') return Promise.reject(new Error('socket closed'))
           options.writes?.push({ ns: 'select', patch: payload.agentPreset })
           return Promise.resolve(options.failSelect === undefined
             ? { rpcId: 'r', result: { ok: true as const, value: { agentPreset: payload.agentPreset } } }
@@ -207,6 +214,89 @@ describe('the composer seat controller', () => {
     const state = controller.store.getSnapshot()
     expect(state.current).toBe('standard')
     expect(state.error).toBe('already started')
+  })
+
+  it('shows the first preset when the roster marks none default', async () => {
+    // Settings can name a preset that was since deleted; the picker still has
+    // to show something rather than an empty control.
+    const controller = new AgentPresetSettingsController(fakeApi([
+      { id: 'standard', trust: 'system', isDefault: false },
+      { id: 'mine', trust: 'user', isDefault: false },
+    ]))
+
+    await controller.load()
+
+    expect(controller.store.getSnapshot().currentValue).toBe('standard')
+  })
+
+  it('ignores a load while one is already in flight', async () => {
+    const writes: Recorded[] = []
+    const controller = new AgentPresetSettingsController(fakeApi(
+      [{ id: 'standard', trust: 'system', isDefault: true }], { writes }))
+
+    await Promise.all([controller.load(), controller.load()])
+
+    expect(controller.store.getSnapshot().status).toBe('ready')
+  })
+
+  it('reads an Error\'s message and stringifies anything else', () => {
+    // A transport rejects with an Error, but a host or a runtime can reject
+    // with anything and the surface still has to say something.
+    expect(messageOf(new Error('boom'))).toBe('boom')
+    expect(messageOf({ code: 7 })).toBe('[object Object]')
+  })
+
+  it('reports a transport that rejects rather than answering', async () => {
+    const controller = new AgentPresetSettingsController({
+      agentPresets: { list: () => Promise.reject(new Error('socket closed')) },
+    } as unknown as IApiClient)
+
+    await controller.load()
+
+    expect(controller.store.getSnapshot()).toMatchObject({ status: 'error', error: 'socket closed' })
+  })
+
+  it('reports a transport that rejects mid-write and keeps the old default showing', async () => {
+    const controller = new AgentPresetSettingsController(fakeApi([
+      { id: 'standard', trust: 'system', isDefault: true },
+      { id: 'mine', trust: 'user', isDefault: false },
+    ], { failWriteWith: new Error('socket closed') }))
+    await controller.load()
+
+    await controller.select('mine')
+
+    // The value snaps back because the host never took it; a picker still
+    // showing "mine" would be claiming a default that does not exist.
+    expect(controller.store.getSnapshot()).toMatchObject({ currentValue: 'standard', error: 'socket closed' })
+  })
+
+  it('reports a refused roster read without emptying the seat', async () => {
+    const controller = seat(ROSTER, { blank: true }, { failList: 'host down' })
+
+    await controller.load()
+
+    // The seat keeps whatever it last showed rather than claiming this session
+    // has no preset; the message says why it could not refresh.
+    expect(controller.store.getSnapshot()).toMatchObject({ error: 'host down', options: [] })
+  })
+
+  it('reports a transport that rejects the roster read', async () => {
+    const controller = seat(ROSTER, { blank: true }, { throwOn: 'list' })
+
+    await controller.load()
+
+    expect(controller.store.getSnapshot().error).toBe('socket closed')
+  })
+
+  it('restores the previous preset when the switch never reaches the host', async () => {
+    const controller = seat(ROSTER, { blank: true, agentPreset: 'standard' }, { throwOn: 'select' })
+    await controller.load()
+
+    await controller.select('core-web')
+
+    // Showing `core-web` after a failed switch would claim a composition the
+    // session never got.
+    expect(controller.store.getSnapshot()).toMatchObject({ current: 'standard', busy: false, error: 'socket closed' })
   })
 
   it('reports no options when the session is unknown to the list yet', async () => {

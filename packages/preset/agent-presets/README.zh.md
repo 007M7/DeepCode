@@ -14,6 +14,11 @@
 - `ctx.agentPresets.list(): Promise<AgentPreset[]>` 当前各根目录提供的全部 preset；id 重复时靠前的根目录胜出。
 - `ctx.agentPresets.resolve(id?): Promise<AgentPreset>` 按 id 取一个 preset，缺省取 `defaultId`。没有任何根目录提供该 id 时抛错，并列出可用 id。
 - `ctx.agentPresets.mount(agentCtx, id?): Promise<AgentPreset>` 用一个 preset 组装一个 agent，并返回所挂载的 preset 供调用方记录。
+- `ctx.agentPresets.recompose(agentCtx, id): Promise<AgentPreset>` 替换某个 agent 已装入的组装。仅在该 agent 尚未产出任何内容时有效——**该检查由调用方负责**，本方法不读取会话历史。
+- `ctx.agentPresets.authorable: boolean` 是否存在 `user` 信任级别的根目录，也即是否可能写入 preset。
+- `ctx.agentPresets.read(id): Promise<string>` 某个 preset 的组装文本，与存储内容完全一致。
+- `ctx.agentPresets.write(id, content): Promise<void>` 创建或替换一个本地创作的 preset。
+- `ctx.agentPresets.remove(id): Promise<void>` 删除一个本地创作的 preset。
 
 `AgentPreset` 携带 `id`（目录名）、`trust`（`system` 或 `user`，取自它所在的根目录）以及 `path`（组装文件的绝对路径）。
 
@@ -26,6 +31,28 @@ agent 工厂的 `setup(agentCtx)` 钩子是唯一受支持的调用点。只有�
 创建头部记录的是会话**以什么开始**，`resolveSessionPreset(session)` 给出的才是它**实际运行的**。空白会话一旦切换过，两者就不同，因此所有重建路径——选择器读取的摘要、resume、fork——都走解析，而非直接读头部。
 
 头部保持冻结，因为它是创建期事实。切换以 `agent-preset/selected` 会话事件记录，在替换提交之后追加；这正是 model-visible ⟺ logged 规则的要求：preset 决定模型看到的工具 schema 与提示词段落，因此必须能从日志重建。只读头部会让切换过的会话按创建时的组装重建，从而重放新工具集无法执行的历史——这正是「仅空白可切」那道锁要防的危险。
+
+### 切换空白 agent
+
+`recompose()` 先卸载已装入的子树、再装入新的，因为两份组装无法共存——它们会把相同的工具名注册进同一个层。挂载失败会恢复先前的组装，而不是让 agent 一无所有；未知 id 则在任何东西被拆除之前就被拒绝。
+
+"仅限尚未产出任何内容的 agent"是一条产品规则而非机制约束：在对话进行中调换工具，会留下新组装无法执行的、已被记录的工具调用。该规则由网关在传输层执行（[`dsh-apiproxy`](../../host/apiproxy/README.md) 返回 `agent-preset-locked`），因为会话历史在那里才拿得到。
+
+## 创作
+
+本地创作的 preset 是首个 `user` 根目录下的一个目录，其中放置一份 `agent.cordis.yml`。`write()` 在任何内容落盘之前拒绝三种情况：
+
+- **不符合 `[a-z0-9][a-z0-9-]*` 的 id。** id 会成为目录名，因此约束是 id 自身的性质，而非事后再做一次路径检查——`../escape`、`a/b` 与绝对路径都作为 id 被拒绝。
+- **不是 Cordis entry 列表的文本。** 内容使用 loader 自身的 schema 与方言（含 `!!js`）解析，因此保存不会留下任何会话都无法加载的文件。只校验形状：引用了不存在插件的组装在此被接受，并在下一个选择它的会话处失败。
+- **随部署提供的 preset。** 覆写它会抹掉那份用来对照有问题的本地 preset 的已知良好组装。`remove()` 同样拒绝。
+
+写入是原子的、仅属主可读写（`0o600`，位于 `0o700` 的目录内），且根目录在首次写入时创建——部署配置了尚不存在的用户根目录，正是首次运行的正常状态。
+
+### preset 的各行如何解析
+
+行的**包名**从宿主组装解析，而非从 preset 目录解析。Loader 通常按 entry 所属树的 `baseUrl` 解析，而对 preset 而言那就是组装文件所在之处；本地创作的 preset 位于用户主目录之下，Node 向上查找 `node_modules` 永远够不到 harness，因此每一个 `@deepseek-ai/dsh-*` 行都会导入失败。挂载在插入子树之前先记录宿主的基址，并把裸标识符送往那里。
+
+**相对**路径仍从 preset 自身的目录解析，因此 preset 自带的插件文件与 skill 目录会随它一同迁移。
 
 ## 配置
 
@@ -79,6 +106,7 @@ Indirectly, through the plugins a mounted composition registers, which own every
 
 ## Known Limitations and Deferred Work
 
-- **无法在存活的 agent 上更换 preset** —— 挂载只在创建时发生一次，因此切换运行中会话的组装意味着要在轮次进行途中卸载其子树，抽走模型可能已经调用的工具。更改默认值只影响此后创建的会话。
+- **会话一旦产出任何内容便无法更换 preset** —— `recompose()` 覆盖空白 agent 的情形；第一个轮次之后，卸载子树会抽走模型可能已经调用的工具，因此该选择在会话的整个生命周期内固定。更改默认值只影响此后创建的会话。
+- **写入的组装从不被实际挂载以校验** —— `write()` 校验形状而非可解析性，因此引用了缺失插件的 preset 会被存下，并在下一个选择它的会话处失败。
 - **展示名称就是目录 id** —— preset 不携带 manifest，因此选择器与设置界面在有消费方需要更丰富的元数据之前，只显示 id。
 - **根目录扫描不做监听** —— 每次读取都实际访问文件系统，这让名单保持新鲜，但每次 `list()` 会对每个根目录产生一次 `readdir`。

@@ -14,6 +14,11 @@ Discovery is unmemoized: `list()` and `resolve()` re-read the roots on every cal
 - `ctx.agentPresets.list(): Promise<AgentPreset[]>` Every preset the configured roots currently supply, earlier root winning a duplicate id.
 - `ctx.agentPresets.resolve(id?): Promise<AgentPreset>` One preset by id, defaulting to `defaultId`. Throws naming the available ids when no root supplies it.
 - `ctx.agentPresets.mount(agentCtx, id?): Promise<AgentPreset>` Compose one agent from a preset and return the preset that was mounted, for the caller to record.
+- `ctx.agentPresets.recompose(agentCtx, id): Promise<AgentPreset>` Replace the composition installed for one agent. Valid only while the agent has produced nothing — **the caller owns that check**; this method does not read session history.
+- `ctx.agentPresets.authorable: boolean` Whether any configured root has `user` trust, and therefore whether a preset can be written at all.
+- `ctx.agentPresets.read(id): Promise<string>` One preset's composition text, exactly as stored.
+- `ctx.agentPresets.write(id, content): Promise<void>` Create or replace a locally authored preset.
+- `ctx.agentPresets.remove(id): Promise<void>` Delete a locally authored preset.
 
 `AgentPreset` carries `id` (the directory name), `trust` (`system` or `user`, from the root it was found under), and `path` (the absolute composition file).
 
@@ -26,6 +31,28 @@ The agent factory's `setup(agentCtx)` hook is the one supported call site. Only 
 The creation header names the preset a session STARTED with; `resolveSessionPreset(session)` names the one it RUNS. They differ whenever a blank session switched, so every reconstruction path — the summary a picker reads, a resume, a fork — resolves rather than reading the header.
 
 The header stays frozen because it is a creation fact. A switch is an `agent-preset/selected` session event appended after the swap commits, which is what the model-visible ⟺ logged rule requires: the preset decides the tool schemas and prompt sections the model sees, so it has to be reconstructable from the log. Reading the header alone would rebuild a switched session under the composition it was created with, replaying history the new tool set cannot act on — the exact hazard the blank-only lock exists to prevent.
+
+### Switching a blank agent
+
+`recompose()` unmounts the installed subtree and mounts the new one, because two compositions cannot coexist — both would register the same tool names into one layer. A failed mount restores the previous composition rather than leaving the agent with nothing, and an unknown id is rejected before anything is torn down.
+
+The restriction to a produced-nothing agent is a product rule, not a mechanical one: swapping tools mid-conversation would leave logged tool calls the new composition cannot make. The gateway enforces it at the wire ([`dsh-apiproxy`](../../host/apiproxy/README.md) answers `agent-preset-locked`), which is where session history is in hand.
+
+## Authoring
+
+A locally authored preset is a directory under the first `user` root holding one `agent.cordis.yml`. `write()` refuses three things before anything lands:
+
+- **An id that is not `[a-z0-9][a-z0-9-]*`.** The id becomes a directory name, so containment is a property of the id itself rather than of a path check after the fact — `../escape`, `a/b`, and an absolute path are all rejected as ids.
+- **Text that is not a Cordis entry list.** The content is parsed with the loader's own schema and dialect (`!!js` included), so a save cannot leave a file no session could load. Shape only: a composition naming a plugin that does not exist is accepted here and fails at the next session that selects it.
+- **A preset that ships with the deployment.** Overwriting one would remove the known-good composition a broken local preset is compared against. `remove()` refuses the same.
+
+Writes are atomic and owner-only (`0o600`, in a `0o700` directory), and the root is created on first write — a deployment configuring a user root that does not exist yet is the normal first-run state.
+
+### How a preset's rows resolve
+
+A row's **package name** resolves from the host composition, not from the preset directory. The Loader normally resolves an entry against its own tree's `baseUrl`, which for a preset is wherever the composition file sits; a locally authored preset lives under the user's home, where Node's upward `node_modules` walk never reaches the harness, so every `@deepseek-ai/dsh-*` row would fail to import. The mount records the host base before plugging the subtree and sends bare specifiers there.
+
+A **relative** path still resolves from the preset's own directory, so a preset's own plugin files and skill directories travel with it.
 
 ## Config
 
@@ -79,6 +106,7 @@ Prefix-stable for the life of an agent: a composition is installed once, before 
 
 ## Known Limitations and Deferred Work
 
-- **A preset cannot be changed on a live agent** — the mount happens once during creation, so switching a running session's composition would mean unwinding its subtree mid-turn, dropping tools the model may already have called. Changing the default affects only sessions created afterwards.
+- **A preset cannot be changed once a session has produced anything** — `recompose()` covers the blank-agent case; past the first turn, unwinding the subtree would drop tools the model may already have called, so the choice is fixed for the session's life. Changing the default affects only sessions created afterwards.
+- **A written composition is never mounted to check it** — `write()` validates shape, not resolvability, so a preset naming a missing plugin is stored and fails at the next session that selects it.
 - **Display names are the directory id** — a preset carries no manifest, so pickers and settings surfaces show the id until a consumer needs richer metadata.
 - **Root scans are not watched** — every read hits the filesystem instead, which keeps the roster fresh but puts one `readdir` per root on each `list()`.

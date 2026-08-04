@@ -88,8 +88,11 @@ function scriptedApi(overrides: {
     },
     skills: { list: r => ok(r, { skills: [] }), ...overrides.skills },
     agentPresets: {
-      list: r => ok(r, { presets: [] }),
+      list: r => ok(r, { presets: [], authorable: false }),
       select: r => ok(r, { agentPreset: r.payload.agentPreset }),
+      read: r => ok(r, { agentPreset: r.payload.agentPreset, trust: 'user' as const, content: '', writable: true }),
+      write: r => ok(r, { agentPreset: r.payload.agentPreset }),
+      remove: r => ok(r, {}),
       ...overrides.agentPresets,
     },
     goals: {
