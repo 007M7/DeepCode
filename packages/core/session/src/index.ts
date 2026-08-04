@@ -108,10 +108,6 @@ function validateSessionHeader(id: SessionId, input: unknown): SessionHeader {
   if (input === null || typeof input !== 'object' || Array.isArray(input)) {
     throw new Error('session header is not a plain JSON record')
   }
-  const prototype = Reflect.getPrototypeOf(input)
-  if (prototype !== Object.prototype && prototype !== null) {
-    throw new Error('session header is not a plain JSON record')
-  }
   const record = input as Record<string, unknown>
   if (record.version !== SESSION_FORMAT_VERSION) {
     throw new Error(`session header version must be ${SESSION_FORMAT_VERSION}, got ${String(record.version)}`)
