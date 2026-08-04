@@ -28,6 +28,12 @@ import { buildProvider, supportedProtocols } from './provider.ts'
 /** Default maximum idle interval while an adapter stream read is outstanding. */
 export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300_000
 
+/** Context capacity assumed for a model neither configuration nor the catalog sizes. */
+export const DEFAULT_CONTEXT_WINDOW = 262_144
+
+/** Output capability assumed for a model neither configuration nor the catalog sizes. */
+export const DEFAULT_MAX_TOKENS = 32_768
+
 export type { PiAiModelProfile } from './catalog.ts'
 
 /** Configuration for one pi-ai provider route; the `providers` dict key IS the route. */
@@ -52,6 +58,18 @@ export interface PiAiProviderProfile {
    * unset fields from the installed model of the same id.
    */
   models?: PiAiModelProfile[]
+  /**
+   * Context capacity for a model this route lists that neither the entry nor
+   * the installed catalog sizes (default 262,144). A guess by construction, so
+   * a deployment whose gateway serves smaller models corrects it here.
+   */
+  defaultContextWindow?: number
+  /**
+   * Output capability for a model this route lists that neither the entry nor
+   * the installed catalog sizes (default 32,768). This sizes the model; it
+   * never becomes a per-request cap on its own.
+   */
+  defaultMaxTokens?: number
   /** Provider request headers; Harness attribution wins reserved names. */
   headers?: Record<string, string>
   /** Provider-neutral pi-ai reasoning level. */
@@ -122,7 +140,6 @@ const modelProfile: z<PiAiModelProfile> = z.object({
   name: z.string(),
   contextWindow: z.number().step(1).min(1),
   maxTokens: z.number().step(1).min(1),
-  reasoning: z.boolean(),
 })
 
 const profile = z.object({
@@ -132,6 +149,8 @@ const profile = z.object({
   api: z.union(supportedProtocols()),
   baseURL: z.string(),
   models: z.array(modelProfile),
+  defaultContextWindow: z.number().step(1).min(1).default(DEFAULT_CONTEXT_WINDOW),
+  defaultMaxTokens: z.number().step(1).min(1).default(DEFAULT_MAX_TOKENS),
   headers: z.dict(z.string()),
   reasoning: z.union(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']),
   thinkingBudgets,
@@ -147,6 +166,22 @@ const profile = z.object({
 export const Config: z<Config> = z.object({
   providers: z.dict(profile).default({}),
 })
+
+/**
+ * Reject a section this adapter could not serve. Registered as the settings
+ * namespace's validator, so an unserviceable profile is refused where it is
+ * *written* — `settings.mutate` answers `settings-rejected` with the offending
+ * route and model named — instead of being stored and then quietly disabling
+ * every route in the namespace. It stays a validator rather than a schema
+ * transform because the schema is also the shape a configuration surface
+ * renders and the value an absent section resolves to; wrapping it would break
+ * both.
+ * @param config - the resolved section to check.
+ * @throws Error naming the route and model that cannot be served.
+ */
+export function assertServiceable(config: Config): void {
+  resolveProfiles(config.providers)
+}
 
 /** Reject a pre-release profile shape, naming the replacement. */
 function rejectRemovedFields(provider: string, source: PiAiProviderProfile): void {
@@ -211,6 +246,8 @@ export function resolveProfiles(
       ...source.api === undefined ? {} : { api: source.api },
       ...source.baseURL === undefined ? {} : { baseURL: source.baseURL },
       ...source.models === undefined ? {} : { models: source.models },
+      defaultContextWindow: source.defaultContextWindow ?? DEFAULT_CONTEXT_WINDOW,
+      defaultMaxTokens: source.defaultMaxTokens ?? DEFAULT_MAX_TOKENS,
     })
     const { apiKeyEnv, retryPolicy, models: _models, displayName: _displayName, ...rest } = source
     resolved.set(provider, {

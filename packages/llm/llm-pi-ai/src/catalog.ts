@@ -81,12 +81,11 @@ export interface PiAiModelProfile {
   contextWindow?: number
   /**
    * Maximum output tokens. Configuring one also makes it this model's
-   * per-request default; the value inherited from the installed catalog is the
-   * model's capability and never becomes a request default on its own.
+   * per-request default; a value inherited from the installed catalog, or the
+   * route's fallback, is the model's capability and never becomes a request
+   * default on its own.
    */
   maxTokens?: number
-  /** Whether the model exposes reasoning; defaults to the catalog capability. */
-  reasoning?: boolean
 }
 
 /** The route-level facts model materialization reads. */
@@ -99,6 +98,10 @@ export interface RouteCatalogRequest {
   baseURL?: string
   /** Configured catalog; absent means the whole installed catalog for this route. */
   models?: readonly PiAiModelProfile[]
+  /** Context capacity for a model neither the entry nor the catalog sizes. */
+  defaultContextWindow: number
+  /** Output capability for a model neither the entry nor the catalog sizes. */
+  defaultMaxTokens: number
 }
 
 /** Report a route the deployment cannot serve, naming the settings key at fault. */
@@ -177,19 +180,15 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
     if (baseUrl === undefined) {
       invalid(provider, `model "${entry.id}" needs a baseURL; the installed catalog does not describe this route`)
     }
-    const contextWindow = entry.contextWindow ?? base?.contextWindow
-    if (contextWindow === undefined) {
-      invalid(provider, `model "${entry.id}" needs a contextWindow; without it the harness cannot detect overflow`
-        + ' or size compaction')
-    }
+    // Capacities fall back to the route's own defaults, so a model listing that
+    // discloses nothing but ids still yields a serviceable route. The fallback
+    // is a guess by construction, which is why it is a configurable route field
+    // rather than a constant buried here.
+    const contextWindow = entry.contextWindow ?? base?.contextWindow ?? request.defaultContextWindow
     if (!Number.isInteger(contextWindow) || contextWindow <= 0) {
       invalid(provider, `model "${entry.id}" contextWindow must be a positive integer`)
     }
-    const maxTokens = entry.maxTokens ?? base?.maxTokens
-    if (maxTokens === undefined) {
-      invalid(provider, `model "${entry.id}" needs a maxTokens; it is the output cap materialized into requests`
-        + ' that omit one')
-    }
+    const maxTokens = entry.maxTokens ?? base?.maxTokens ?? request.defaultMaxTokens
     if (!Number.isInteger(maxTokens) || maxTokens <= 0) {
       invalid(provider, `model "${entry.id}" maxTokens must be a positive integer`)
     }
@@ -202,7 +201,10 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
       api,
       provider,
       baseUrl,
-      reasoning: entry.reasoning ?? base?.reasoning ?? false,
+      // Reasoning rides the installed entry or is absent: a bare boolean would
+      // make pi-ai advertise effort levels with no `thinkingLevelMap` to spell
+      // them, and no listing endpoint reports a model's reasoning protocol.
+      reasoning: base?.reasoning ?? false,
       input: base?.input ?? TEXT_ONLY,
       cost: base?.cost ?? NO_COST,
       contextWindow,

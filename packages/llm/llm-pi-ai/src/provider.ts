@@ -22,11 +22,8 @@
 import { createProvider } from '@earendil-works/pi-ai'
 import type { Api, ApiKeyAuth, Model, Provider, ProviderStreams } from '@earendil-works/pi-ai'
 import { anthropicMessagesApi } from '@earendil-works/pi-ai/api/anthropic-messages.lazy'
-import { googleGenerativeAIApi } from '@earendil-works/pi-ai/api/google-generative-ai.lazy'
-import { mistralConversationsApi } from '@earendil-works/pi-ai/api/mistral-conversations.lazy'
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy'
 import { openAIResponsesApi } from '@earendil-works/pi-ai/api/openai-responses.lazy'
-import { piMessagesApi } from '@earendil-works/pi-ai/api/pi-messages.lazy'
 import { catalogProvider } from './catalog.ts'
 
 /**
@@ -35,32 +32,34 @@ import { catalogProvider } from './catalog.ts'
  * factory uses, so a hand-declared route reaches exactly the implementation a
  * catalog route would.
  *
- * The table is deliberately narrower than pi-ai's full streaming API set: it
- * holds only the protocols a profile can *completely* describe with a key, an
+ * The table is deliberately narrow: the protocols a hand-declared route
+ * actually reaches for today, each completely describable with a key, an
  * endpoint, and headers. Bedrock signs with SigV4 over AWS credentials and a
  * region, Vertex needs a project, a location, and application-default
- * credentials, Azure needs provider environment plus an api-version, and
- * Codex authenticates through OAuth — none of which this configuration shape
- * can express, so offering them would hand back a provider that cannot
- * authenticate. Catalog routes still reach those protocols through their own
- * provider; only an explicit override is refused.
+ * credentials, Azure needs provider environment plus an api-version, and Codex
+ * authenticates through OAuth — none of which this configuration shape can
+ * express, so offering them would hand back a provider that cannot
+ * authenticate. The remainder are absent for want of a consumer rather than a
+ * blocker: each is one line here once a deployment needs it. Catalog routes
+ * still reach every protocol through their own provider; only an explicit
+ * override is refused.
  */
 const PROTOCOLS: Readonly<Record<string, () => ProviderStreams>> = {
-  'anthropic-messages': anthropicMessagesApi,
-  'google-generative-ai': googleGenerativeAIApi,
-  'mistral-conversations': mistralConversationsApi,
   'openai-completions': openAICompletionsApi,
   'openai-responses': openAIResponsesApi,
-  'pi-messages': piMessagesApi,
+  'anthropic-messages': anthropicMessagesApi,
 }
 
 /**
- * Every wire protocol a configured route may name, sorted for stable
- * diagnostics and configuration surfaces.
+ * Every wire protocol a configured route may name, most-reached first. The
+ * order is the table's and therefore stable; a configuration surface offering
+ * a choice presents the first as its default, which is why the protocol a
+ * hand-declared gateway most often speaks — and the one endpoint interrogation
+ * can read — leads.
  * @returns the supported protocol identifiers.
  */
 export function supportedProtocols(): readonly string[] {
-  return Object.keys(PROTOCOLS).sort()
+  return Object.keys(PROTOCOLS)
 }
 
 /**

@@ -99,6 +99,26 @@ describe('hand-declared providers', () => {
     })
   })
 
+  it('offers no reasoning control it could not honour', async () => {
+    const server = await mockServer([])
+    const ctx = await harness(gateway(`${server.url}/v1`))
+
+    // pi-ai reports a model with no reasoning metadata as supporting the single
+    // level `off`, but `off` is translated to *omitting* the reasoning option —
+    // byte-for-byte the same request as naming no effort — so a provider whose
+    // own default is to think would keep thinking with `off` selected. The
+    // capability is reported unavailable instead of offering that control.
+    expect((await ctx.llm.resolveModelInfo('acme-gateway', 'acme-large')).reasoning).toBeUndefined()
+
+    // A catalog route is unaffected: its models carry the metadata that makes
+    // `off` actually disable thinking.
+    const withCatalog = await harness({ providers: { deepseek: { apiKey: 'k', baseURL: server.url } } })
+    const [catalogModel] = getBuiltinModels('deepseek')
+    if (catalogModel === undefined) throw new Error('the installed catalog ships no deepseek model')
+    expect((await withCatalog.llm.resolveModelInfo('deepseek', catalogModel.id)).reasoning?.efforts.map(e => e.id))
+      .toContain('off')
+  })
+
   it('joins the configurable-provider directory so a settings surface can reach it', async () => {
     const server = await mockServer([])
     const ctx = await harness(gateway(`${server.url}/v1`))
@@ -111,13 +131,44 @@ describe('hand-declared providers', () => {
     })
   })
 
-  it('rejects a model whose capacity the catalog cannot supply', () => {
+  it('sizes a model the catalog cannot describe from the route\u2019s own fallbacks', () => {
+    const resolved = resolveProfiles({
+      'acme-gateway': {
+        api: 'openai-completions',
+        baseURL: 'https://acme.test',
+        // A listing endpoint that discloses nothing but ids still yields a
+        // serviceable route.
+        models: [{ id: 'bare' }, { id: 'sized', contextWindow: 8192, maxTokens: 512 }],
+      },
+      'tuned-gateway': {
+        api: 'openai-completions',
+        baseURL: 'https://tuned.test',
+        defaultContextWindow: 4096,
+        defaultMaxTokens: 256,
+        models: [{ id: 'bare' }],
+      },
+    })
+    const modelsOf = (route: string): readonly { id: string; contextWindow: number; maxTokens: number }[] =>
+      resolved.get(route)?.piProvider.getModels() ?? []
+
+    expect(modelsOf('acme-gateway')).toMatchObject([
+      { id: 'bare', contextWindow: 262_144, maxTokens: 32_768 },
+      { id: 'sized', contextWindow: 8192, maxTokens: 512 },
+    ])
+    // The fallback is a guess, so a deployment whose gateway serves smaller
+    // models corrects it once for the whole route.
+    expect(modelsOf('tuned-gateway')).toMatchObject([{ id: 'bare', contextWindow: 4096, maxTokens: 256 }])
+    // Only an explicitly configured cap is a request default; a fallback is
+    // the model's capability and stops there.
+    expect(resolved.get('acme-gateway')?.configuredMaxTokens.get('bare')).toBeUndefined()
+    expect(resolved.get('acme-gateway')?.configuredMaxTokens.get('sized')).toBe(512)
+  })
+
+  it('rejects a model the route cannot identify', () => {
     const declare = (model: LlmPiAi.PiAiModelProfile): (() => unknown) =>
       () => resolveProfiles({ 'acme-gateway': { api: 'openai-completions', baseURL: 'https://acme.test', models: [model] } })
 
-    expect(declare({ id: 'acme-large', maxTokens: 1 })).toThrow(/needs a contextWindow/)
-    expect(declare({ id: 'acme-large', contextWindow: 1 })).toThrow(/needs a maxTokens/)
-    expect(declare({ id: '', contextWindow: 1, maxTokens: 1 })).toThrow(/empty id/)
+    expect(declare({ id: '' })).toThrow(/empty id/)
     expect(() => resolveProfiles({
       'acme-gateway': {
         api: 'openai-completions',

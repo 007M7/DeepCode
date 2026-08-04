@@ -107,6 +107,38 @@ function resolveReasoningLevel(
   )
 }
 
+/**
+ * Selectable reasoning efforts for one model, or nothing at all.
+ *
+ * A model the installed catalog does not describe carries no reasoning
+ * metadata, and pi-ai reports that as the single level `off`. Passing that
+ * through would offer a control that cannot do what it says: `off` is
+ * translated to *omitting* the reasoning option, which for such a model is
+ * byte-for-byte the same request as naming no effort — so a provider whose own
+ * default is to think would keep thinking with `off` selected. Omitting
+ * `reasoning` entirely is the seam's way of saying the capability is
+ * unavailable, which leaves the surface offering only the provider's default.
+ * @param model - the resolved model descriptor.
+ * @param defaultLevel - the profile's configured effort, already validated.
+ * @returns the `reasoning` field, or an empty object when none can be offered.
+ */
+function reasoningInfo(
+  model: Model<Api>,
+  defaultLevel: ModelThinkingLevel | undefined,
+): Pick<LlmResolvedModelInfo, 'reasoning'> | Record<string, never> {
+  if (!model.reasoning) return {}
+  const levels = getSupportedThinkingLevels(model)
+  return {
+    reasoning: {
+      efforts: levels.map(level => ({
+        id: ReasoningEffortId(level),
+        name: `${level.charAt(0).toUpperCase()}${level.slice(1)}`,
+      })),
+      ...defaultLevel === undefined ? {} : { defaultEffort: ReasoningEffortId(defaultLevel) },
+    },
+  }
+}
+
 /** Merge deployment headers while removing case-insensitive attribution collisions. */
 function requestHeaders(headers: Readonly<Record<string, string>> | undefined): Record<string, string> {
   const attribution = attributionHeaders()
@@ -188,7 +220,6 @@ export class PiAiAdapter extends LlmAdapter {
       const snapshot = this.current()
       const profile = this.profileOf(snapshot, provider)
       const resolvedModel = this.modelOf(snapshot, provider, model)
-      const levels = getSupportedThinkingLevels(resolvedModel)
       const defaultLevel = resolveReasoningLevel(resolvedModel, profile.reasoning)
       // Only a cap the deployment configured is a request default; the
       // catalog's `maxTokens` sizes the model and stops there.
@@ -199,15 +230,7 @@ export class PiAiAdapter extends LlmAdapter {
         name: resolvedModel.name,
         context: { contextWindow: resolvedModel.contextWindow },
         ...configuredMaxTokens === undefined ? {} : { defaultMaxTokens: configuredMaxTokens },
-        reasoning: {
-          efforts: levels.map(level => ({
-            id: ReasoningEffortId(level),
-            name: `${level.charAt(0).toUpperCase()}${level.slice(1)}`,
-          })),
-          ...defaultLevel === undefined
-            ? {}
-            : { defaultEffort: ReasoningEffortId(defaultLevel) },
-        },
+        ...reasoningInfo(resolvedModel, defaultLevel),
       }
     })
   }

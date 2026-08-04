@@ -1813,7 +1813,7 @@ async mutate(ns: SettingsNamespace, ops: readonly SettingsPathOp[], expectedRevi
 
 Types: [SettingsDescribeOptions](../core-data-structures/settings.md) · [SettingsDescriptor](../core-data-structures/settings.md) · [SettingsNamespace](../core-data-structures/settings.md) · [SettingsPathOp](../core-data-structures/settings.md) · [SettingsRegisterOptions](../core-data-structures/settings.md) · [SettingsScope](../core-data-structures/settings.md)
 
-Source: [`packages/settings/settings/src/index.ts:365`](../../packages/settings/settings/src/index.ts)
+Source: [`packages/settings/settings/src/index.ts:384`](../../packages/settings/settings/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 

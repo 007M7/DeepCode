@@ -176,7 +176,7 @@ describe('configurable-provider directory', () => {
     ctx.llm.registerConfigurableProviders([entry({ provider: 'owned-elsewhere' })])
 
     // A candidate another registration already declares refuses the whole swap.
-    expect(() =>{  handle.replace([entry({ provider: 'owned-elsewhere' })]); }).toThrow(/already declared/)
+    expect(() =>{  handle.replace([entry({ provider: 'owned-elsewhere' })]) }).toThrow(/already declared/)
     expect(ctx.llm.listConfigurableProviders().map(view => view.provider).sort())
       .toEqual(['owned-elsewhere', 'second', entry().provider].sort())
 
@@ -193,7 +193,7 @@ describe('configurable-provider directory', () => {
     expect(ctx.llm.listConfigurableProviders().map(view => view.provider)).toEqual(['owned-elsewhere'])
 
     handle()
-    expect(() =>{  handle.replace([entry()]); }).toThrow(/was disposed/)
+    expect(() =>{  handle.replace([entry()]) }).toThrow(/was disposed/)
   })
 
   it('rejects duplicates within one registration and across registrations', async () => {

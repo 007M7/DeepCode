@@ -718,6 +718,18 @@ export interface PiAiProviderProfile {
    * unset fields from the installed model of the same id.
    */
   models?: PiAiModelProfile[]
+  /**
+   * Context capacity for a model this route lists that neither the entry nor
+   * the installed catalog sizes (default 262,144). A guess by construction, so
+   * a deployment whose gateway serves smaller models corrects it here.
+   */
+  defaultContextWindow?: number
+  /**
+   * Output capability for a model this route lists that neither the entry nor
+   * the installed catalog sizes (default 32,768). This sizes the model; it
+   * never becomes a per-request cap on its own.
+   */
+  defaultMaxTokens?: number
   /** Provider request headers; Harness attribution wins reserved names. */
   headers?: Record<string, string>
   /** Provider-neutral pi-ai reasoning level. */
@@ -748,18 +760,17 @@ export interface PiAiModelProfile {
   contextWindow?: number
   /**
    * Maximum output tokens. Configuring one also makes it this model's
-   * per-request default; the value inherited from the installed catalog is the
-   * model's capability and never becomes a request default on its own.
+   * per-request default; a value inherited from the installed catalog, or the
+   * route's fallback, is the model's capability and never becomes a request
+   * default on its own.
    */
   maxTokens?: number
-  /** Whether the model exposes reasoning; defaults to the catalog capability. */
-  reasoning?: boolean
 }
 ```
 
 Depends on: `CacheRetention` (`@earendil-works/pi-ai`) · `ModelThinkingLevel` (`@earendil-works/pi-ai`) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · `ThinkingBudgets` (`@earendil-works/pi-ai`) · `Transport` (`@earendil-works/pi-ai`)
 
-Source: [`packages/llm/llm-pi-ai/src/config.ts:104`](../packages/llm/llm-pi-ai/src/config.ts)
+Source: [`packages/llm/llm-pi-ai/src/config.ts:122`](../packages/llm/llm-pi-ai/src/config.ts)
 
 ## `@deepseek-ai/dsh-llm-replay`
 

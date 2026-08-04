@@ -726,7 +726,7 @@ One registered namespace's RAW user section changed, whether or not the resolved
 
 Types: [SettingsNamespace](../core-data-structures/settings.md)
 
-Source: [`packages/settings/settings/src/index.ts:150`](../../packages/settings/settings/src/index.ts)
+Source: [`packages/settings/settings/src/index.ts:167`](../../packages/settings/settings/src/index.ts)
 
 ### `settings/updated` — emit
 
@@ -753,7 +753,7 @@ Committed change to one registered namespace's resolved value. Emitted after the
 
 Types: [SettingsNamespace](../core-data-structures/settings.md) · [SettingsUpdateSource](../core-data-structures/settings.md)
 
-Source: [`packages/settings/settings/src/index.ts:137`](../../packages/settings/settings/src/index.ts)
+Source: [`packages/settings/settings/src/index.ts:154`](../../packages/settings/settings/src/index.ts)
 
 ## `skills/*`
 

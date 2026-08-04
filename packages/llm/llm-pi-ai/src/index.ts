@@ -48,7 +48,7 @@ import type { AdapterRegistrationHandle, DirectoryRegistrationHandle, LlmConfigu
 import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { PiAiAdapter } from './adapter.ts'
 import { catalogProviderIds } from './catalog.ts'
-import { Config, resolveProfiles } from './config.ts'
+import { assertServiceable, Config, resolveProfiles } from './config.ts'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
 
 export { PiAiAdapter } from './adapter.ts'
@@ -98,24 +98,24 @@ export function apply(ctx: Context, config: Config): void {
   let current: () => Config = () => config
   let lastRaw: Config | undefined
   let lastGood: ReadonlyMap<string, ResolvedPiAiProviderProfile> | undefined
+  /**
+   * The resolved profiles for the current configuration, memoized by the raw
+   * snapshot's identity — which is also what makes the adapter's own snapshot
+   * stable across operations that observe no change.
+   *
+   * No fallback for an unserviceable snapshot lives here: the section schema
+   * resolves the whole profile set, so a write that could not be served is
+   * refused where it is written, and the settings seam keeps a namespace's
+   * last good value for a stored section that fails. Anything reaching this
+   * point has already resolved once.
+   */
   const profiles = (): ReadonlyMap<string, ResolvedPiAiProviderProfile> => {
     const raw = current()
     if (raw === lastRaw && lastGood !== undefined) return lastGood
-    try {
-      const next = resolveProfiles(raw.providers)
-      lastRaw = raw
-      lastGood = next
-      return next
-    } catch (error) {
-      // Static composition resolves before anything registers, so this branch
-      // only sees a live settings snapshot failing catalog or bound checks:
-      // keep serving the last good profiles and say so once per bad snapshot.
-      if (lastGood === undefined) throw error
-      lastRaw = raw
-      ctx.logger.error('llm-pi-ai: keeping the last good profiles after an invalid settings section')
-      ctx.logger.error(error)
-      return lastGood
-    }
+    const next = resolveProfiles(raw.providers)
+    lastRaw = raw
+    lastGood = next
+    return next
   }
   profiles()
 
@@ -201,6 +201,10 @@ export function apply(ctx: Context, config: Config): void {
   ensureRegistrationFacts()
 
   installSettingsSection(ctx, NS, Config, config, {
+    // Refuse an unserviceable section where it is written: without this a
+    // schema-valid profile the adapter cannot serve would be stored and then
+    // silently disable every route in this namespace.
+    validate: assertServiceable,
     setSource: (source) => {
       current = source
     },
