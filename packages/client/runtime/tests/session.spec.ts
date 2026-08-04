@@ -46,6 +46,11 @@ describe('open', () => {
     expect(snapshot.openState).toBe('open')
     expect(snapshot.hasMore).toBe(true)
     expect(snapshot.nodes.map(n => n.kind)).toEqual(['user', 'assistant'])
+    expect(snapshot.turnTimings.get(3)).toEqual({
+      startTime: 1_700_000_000_010,
+      endTime: 1_700_000_000_015,
+    })
+    expect(snapshot.turnEnds.get(3)).toBe(15)
   })
 
   it('is idempotent: concurrent opens share one history call, reopening when open is a no-op', async () => {
@@ -253,11 +258,22 @@ describe('live event path', () => {
     expect(snapshot.nodes.some(node => node.kind === 'turn-error')).toBe(false)
     expect(snapshot.nodes.at(-2)).toMatchObject({ kind: 'model-retry', retryState: 'started' })
     expect(snapshot.nodes.at(-1)).toMatchObject({ kind: 'assistant', blocks: [{ kind: 'text', text: '完整回复' }] })
+    const retryStart = retryTurn.find(event =>
+      event.type === 'turn/start' && event.data.trigger.kind === 'retry')
+    if (retryStart?.type !== 'turn/start') throw new Error('test fixture must include a retry turn/start')
+    const retryEnd = retryTurn.find(event =>
+      event.type === 'turn/end' && event.data.turn === retryStart.data.turn)
+    if (retryEnd?.type !== 'turn/end') throw new Error('test fixture must complete the retry turn')
+    expect(snapshot.turnTimings.get(retryStart.data.turn)).toEqual({
+      startTime: retryStart.time,
+      endTime: retryEnd.time,
+    })
 
     const replay = makeSession()
     replay.api.onHistory = () => histResponse([...plainTurn(0, 0, 'a', 'b'), ...retryTurn])
     await replay.session.open()
     expect(replay.session.getSnapshot().nodes).toEqual(snapshot.nodes)
+    expect(replay.session.getSnapshot().turnTimings).toEqual(snapshot.turnTimings)
     expect(replay.session.getSnapshot().partial).toBeNull()
   })
 
@@ -1254,6 +1270,7 @@ describe('reference stability (the memo contract)', () => {
     expect(after).not.toBe(before)
     expect(after.runningCalls).toBe(before.runningCalls)
     expect(after.pending).toBe(before.pending)
+    expect(after.turnTimings).toBe(before.turnTimings)
     expect(after.turnEnds).toBe(before.turnEnds)
     // And a mutation on the tracked domain swaps that array.
     feed(ev.toolResult(11, 1, 'c1', 'ECHO'))

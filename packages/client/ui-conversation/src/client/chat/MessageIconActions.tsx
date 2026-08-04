@@ -6,7 +6,7 @@ import {
   IconBranchOutline16, IconCheckOutline16, IconCopyOutline16, Tooltip, writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
-import { formatMessageClock } from './message-chrome.ts'
+import { formatMessageClock, formatRunDuration } from './message-chrome.ts'
 import { useCalendarDay } from './use-calendar-day.ts'
 import css from './MessageIconActions.module.css'
 
@@ -15,6 +15,8 @@ export interface MessageIconActionsProps {
   text: string
   /** Unix epoch ms for the clock label; omitted for transient messages. */
   time?: number | undefined
+  /** Turn wall time in ms, appended to the clock as `· Ran for 15s`; omitted when the turn's start is unknown. */
+  runMs?: number | undefined
   /** Clock before icons (user) or after (assistant). */
   clock: 'start' | 'end'
   /** Fork the session at this message; omission hides the branch action. */
@@ -35,7 +37,7 @@ export interface MessageIconActionsProps {
  * @returns The actions row element.
  */
 export function MessageIconActions({
-  text, time, clock, onBranch, branchUnavailable = false, showBranch = true, className, t,
+  text, time, runMs, clock, onBranch, branchUnavailable = false, showBranch = true, className, t,
 }: MessageIconActionsProps) {
   const day = useCalendarDay()
   const reasonId = useId()
@@ -68,6 +70,12 @@ export function MessageIconActions({
   const clockEl = time === undefined ? null : (
     <span className={clock === 'start' ? css.timeStart : css.timeEnd}>
       {formatMessageClock(time, t, day)}
+      {runMs !== undefined && (
+        <>
+          <span className={css.runTimeDot} aria-hidden>·</span>
+          {t('message.ranFor', { duration: formatRunDuration(runMs, t) })}
+        </>
+      )}
     </span>
   )
   return (
