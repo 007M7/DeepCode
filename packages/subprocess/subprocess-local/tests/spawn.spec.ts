@@ -668,12 +668,26 @@ describe('coverage seams', () => {
   it('terminate() after the tree died delivers no termination signal', async () => {
     const running = spawnSubprocess(spec('true'))
     await running.done
-    await running.waitForExit()
     const spy = vi.spyOn(process, 'kill')
     try {
       running.terminate()
       const delivered = spy.mock.calls.filter(([, sig]) => sig !== 0)
       expect(delivered).toEqual([])
+    } finally {
+      spy.mockRestore()
+    }
+    await running.waitForExit()
+  })
+
+  it('repeated terminate after exit never probes or signals a reused process group', async () => {
+    const running = spawnSubprocess(spec('sleep 60'))
+    running.terminate()
+    await running.done
+    await running.waitForExit()
+    const spy = vi.spyOn(process, 'kill').mockImplementation(() => true)
+    try {
+      running.terminate()
+      expect(spy).not.toHaveBeenCalled()
     } finally {
       spy.mockRestore()
     }

@@ -383,6 +383,7 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
   const stderrCollector = collectStream(errMode, child.stderr, 'stderr')
 
   let graceTimer: ReturnType<typeof scheduleFiniteTimeout> | undefined
+  let terminationStarted = false
   let settled = false
 
   // Failed spawns use pid -1 so signalling remains a no-op.
@@ -418,14 +419,15 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
   // child and must stay signalable, while a fully-dead tree (possible pid
   // reuse) must not be re-signalled by a later tier.
   const kill = (sig: NodeJS.Signals): void => {
-    /* v8 ignore next -- the exit monitor cancels the ordinary dead-tree timer;
+    /* v8 ignore next -- a successful consumer wait cancels the ordinary dead-tree timer;
        this remains the timer/death race guard and cannot be staged deterministically. */
     if (!treeAlive()) return
     signalTree(platform, pid, sig, child, taskkill)
   }
 
   const terminate = (): void => {
-    if (graceTimer !== undefined) return // escalation already in flight
+    if (terminationStarted) return
+    terminationStarted = true
     if (!treeAlive()) return
     kill('SIGTERM')
     // The escalation must survive direct-child settlement — the leader dying
@@ -433,15 +435,7 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
     // kill() re-probes tree liveness before force-killing. It stays ref'd:
     // the pending SIGKILL is a commitment, and a parent exiting before it
     // fires would orphan a trapped survivor. Self-bounds at graceMs.
-    const timer = scheduleFiniteTimeout(spec.graceMs, () => { kill('SIGKILL') })
-    graceTimer = timer
-    // A very large configured grace must not pin the parent after TERM already
-    // removed the whole tree. Keep the escalation armed only while its target
-    // remains alive; direct-child settlement alone is not sufficient.
-    void waitForExit().then(() => {
-      timer.cancel()
-      graceTimer = undefined
-    })
+    graceTimer = scheduleFiniteTimeout(spec.graceMs, () => { kill('SIGKILL') })
   }
 
   // The caller owns timeout classification; this layer only reacts to abort.
@@ -497,6 +491,11 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
       if (signal?.aborted) return false
       await sleepTick()
     }
+    // Successful observation is the permanent no-more-signals boundary. It
+    // also cancels an escalation whose TERM tier already removed the tree.
+    terminationStarted = true
+    graceTimer?.cancel()
+    graceTimer = undefined
     return true
   }
 

@@ -369,8 +369,9 @@ describe('CodexAppServerWire', () => {
         { type: 'text', text: 'second', text_elements: [] },
       ],
     })
+    child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
+    await nextTask()
     child.peer.send(
-      { id: turnStart.id, result: { turn: { id: 'turn-1' } } },
       {
         method: 'turn/started',
         params: { threadId: 'thread-1', turn: { id: 'turn-1' } },
@@ -516,18 +517,17 @@ describe('CodexAppServerWire', () => {
     }
   })
 
-  it('keeps an earlier fatal frame authoritative over later completion in the same chunk', async () => {
+  it('keeps an unsupported request authoritative over an early terminal in the same chunk', async () => {
     const { child, wire } = await initializeWire()
     const result = wire.runTurn(['task'], new AbortController().signal, () => false)
     const turnStart = await child.peer.nextMethod('turn/start')
-    child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
-    await nextTask()
     child.peer.send(
-      agentMessage('invalid', 'future_phase'),
-      agentMessage('late answer', 'final_answer'),
+      { id: turnStart.id, result: { turn: { id: 'turn-1' } } },
+      { id: 'future-request', method: 'future/request', params: {} },
+      agentMessage('early answer', 'final_answer'),
       turnCompleted('completed'),
     )
-    await expect(result).rejects.toThrow('unknown agent message phase')
+    await expect(result).rejects.toThrow('unsupported app-server request')
     wire.close()
   })
 

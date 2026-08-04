@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import { chmodSync, existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
@@ -188,6 +188,72 @@ describe('disposeAcpChild (the backend-owned teardown ladder over seam verbs)', 
       }),
     }
     await expect(disposeAcpChild(never, 20, 20)).rejects.toThrow(/did not exit within its dispose windows/)
+  })
+
+  it('keeps an oversized finite escalation window instead of collapsing it to one millisecond', async () => {
+    vi.useFakeTimers()
+    try {
+      let waitCount = 0
+      let reportExited!: (exited: boolean) => void
+      const terminate = vi.fn()
+      const waitForExit = vi.fn((signal?: AbortSignal) => {
+        waitCount += 1
+        return new Promise<boolean>((resolve) => {
+          signal?.addEventListener('abort', () => { resolve(false) }, { once: true })
+          if (waitCount === 2) reportExited = resolve
+        })
+      })
+      const child: Parameters<typeof disposeAcpChild>[0] = {
+        pid: 1,
+        stdin: undefined,
+        stdout: undefined,
+        stderr: undefined,
+        collected: {},
+        done: new Promise(() => {}),
+        terminate,
+        waitForExit,
+      }
+      const disposal = disposeAcpChild(child, 0.25, Number.MAX_VALUE)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(terminate).toHaveBeenCalledOnce()
+      expect(waitForExit).toHaveBeenCalledTimes(2)
+      const escalationSignal = waitForExit.mock.calls[1]?.[0]
+      await vi.advanceTimersByTimeAsync(1)
+      expect(escalationSignal?.aborted).toBe(false)
+      reportExited(true)
+      await expect(disposal).resolves.toBeUndefined()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('chains a doubled grace beyond one Node timer segment', async () => {
+    vi.useFakeTimers()
+    try {
+      const waitForExit = vi.fn((signal?: AbortSignal) => new Promise<boolean>((resolve) => {
+        signal?.addEventListener('abort', () => { resolve(false) }, { once: true })
+      }))
+      const child: Parameters<typeof disposeAcpChild>[0] = {
+        pid: 1,
+        stdin: undefined,
+        stdout: undefined,
+        stderr: undefined,
+        collected: {},
+        done: new Promise(() => {}),
+        terminate: vi.fn(),
+        waitForExit,
+      }
+      const disposal = disposeAcpChild(child, 0.25, 1_073_741_823.75)
+      const rejected = expect(disposal).rejects.toThrow(/did not exit within its dispose windows/)
+      await vi.advanceTimersByTimeAsync(1)
+      await vi.advanceTimersByTimeAsync(2_147_483_647)
+      expect(waitForExit).toHaveBeenCalledTimes(3)
+      await vi.advanceTimersByTimeAsync(1)
+      await rejected
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('observes a spawn-level rejection and returns without a process to reap', async () => {

@@ -256,7 +256,7 @@ export class CodexAppServerWire {
   }
 
   private async guarded<T>(pending: Promise<T>, signal: AbortSignal): Promise<T> {
-    const withFatal = Promise.race([pending, this.fatal.promise])
+    const withFatal = Promise.race([this.fatal.promise, pending])
     return raceAbort(withFatal, signal)
   }
 
