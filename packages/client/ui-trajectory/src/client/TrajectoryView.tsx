@@ -26,9 +26,11 @@ import {
   type TrajectoryTimelineMode,
   type TrajectoryTimeRange,
 } from './timeline.ts'
+import { trajectoryRecordId } from './trajectory-record.ts'
 import css from './views.module.css'
 
-const EMPTY_IDS: ReadonlySet<number> = new Set()
+const EMPTY_TURN_IDS: ReadonlySet<number> = new Set()
+const EMPTY_RECORD_IDS: ReadonlySet<string> = new Set()
 
 function lastCellIndex(turns: readonly TrajectoryTurnModel[]): number {
   let last = 0
@@ -172,15 +174,23 @@ function searchMatches(
   return matches
 }
 
+function mergeSearchMatches(
+  finalized: ReadonlySet<number> | null,
+  partial: ReadonlySet<number> | null,
+): ReadonlySet<number> | null {
+  if (finalized === null || partial === null) return null
+  return new Set([...finalized, ...partial])
+}
+
 export function TrajectoryView({
   useHistory, useDuration, loadHistoryTail, loadOlderHistory, setActualDuration,
   inspect, onInspectDone,
 }: ConvViewProps & InjectFace<TrajectoryViewInjected>) {
-  const [collapsedTurns, setCollapsedTurns] = useState<ReadonlySet<number>>(EMPTY_IDS)
+  const [collapsedTurns, setCollapsedTurns] = useState<ReadonlySet<number>>(EMPTY_TURN_IDS)
   const [collapsedAssistants, setCollapsedAssistants] =
-    useState<ReadonlySet<number>>(EMPTY_IDS)
+    useState<ReadonlySet<string>>(EMPTY_RECORD_IDS)
   const [timelineSelection, setTimelineSelection] = useState<{
-    branchId: number
+    branchKey: string
     range: TrajectoryTimeRange
   } | null>(null)
   const actualDuration = useDuration(value => value)
@@ -197,6 +207,7 @@ export function TrajectoryView({
   const historyLoading = useHistory(snapshot =>
     snapshot.state === 'cold' || snapshot.state === 'loading')
   const hasOlderHistory = useHistory(snapshot => snapshot.hasMore)
+  const historyBaseSeq = useHistory(snapshot => snapshot.baseSeq)
   const nodes = inspection.eventNodes
   const partial = inspection.partial
   const runningCalls = inspection.runningCalls
@@ -382,11 +393,23 @@ export function TrajectoryView({
   const timelineMode: TrajectoryTimelineMode = actualDuration
     ? actualTime ? 'actual' : 'duration'
     : actualTime ? 'time' : 'sequence'
-  const searchMatchIndexes = useMemo(
-    () => searchMatches(turns, searchQuery),
-    [searchQuery, turns],
+  const finalizedSearchMatches = useMemo(
+    () => searchMatches(finalized.turns, searchQuery),
+    [finalized, searchQuery],
   )
-  const timelineRange = timelineSelection?.branchId === currentBranch.id
+  const partialSearchTurns = useMemo(
+    () => appendTrajectoryPartialLayout([], partial, finalized.lastIndex),
+    [finalized.lastIndex, partial],
+  )
+  const partialSearchMatches = useMemo(
+    () => searchMatches(partialSearchTurns, searchQuery),
+    [partialSearchTurns, searchQuery],
+  )
+  const searchMatchIndexes = useMemo(
+    () => mergeSearchMatches(finalizedSearchMatches, partialSearchMatches),
+    [finalizedSearchMatches, partialSearchMatches],
+  )
+  const timelineRange = timelineSelection?.branchKey === currentBranch.key
     ? timelineSelection.range
     : null
   const timelineFocusIndexes = useMemo(
@@ -420,14 +443,16 @@ export function TrajectoryView({
   const allTurnsCollapsed = collapsibleTurnIds.length > 0
     && collapsibleTurnIds.every(turn => collapsedTurns.has(turn))
   const collapsibleAssistantIds = useMemo(() => {
-    const ids: number[] = []
+    const ids: string[] = []
     for (const turn of turns) {
       const cells = turn.groups.flatMap(group => group.cells)
       for (let i = 0; i < cells.length; i++) {
         const cell = cells[i]
         if (cell?.kind !== 'message') continue
         const next = cells[i + 1]
-        if (next?.kind === 'tool' || next?.kind === 'subtool') ids.push(cell.index)
+        if (next?.kind === 'tool' || next?.kind === 'subtool') {
+          ids.push(trajectoryRecordId(cell))
+        }
       }
     }
     return ids
@@ -456,11 +481,11 @@ export function TrajectoryView({
     })
   }
 
-  const toggleAssistant = (index: number) => {
+  const toggleAssistant = (id: string) => {
     setCollapsedAssistants((current) => {
       const collapsed = new Set(current)
-      if (collapsed.has(index)) collapsed.delete(index)
-      else collapsed.add(index)
+      if (collapsed.has(id)) collapsed.delete(id)
+      else collapsed.add(id)
       return collapsed
     })
   }
@@ -514,7 +539,7 @@ export function TrajectoryView({
         searchMatchIndexes={searchMatchIndexes}
         onRangeChange={(range) => {
           setTimelineSelection(range === null ? null : {
-            branchId: currentBranch.id,
+            branchKey: currentBranch.key,
             range,
           })
         }}
@@ -529,7 +554,7 @@ export function TrajectoryView({
       />
       <div className={css.ledger}>
         <TrajectoryTable
-          key={currentBranch.id}
+          key={currentBranch.key}
           requestNumbers={requestNumbers}
           turns={turns}
           timelineFocusIndexes={timelineFocusIndexes}
@@ -539,7 +564,7 @@ export function TrajectoryView({
           recordSelection={timelineRecordSelection}
           recordFocus={timelineRecordFocus}
           historyLoading={historyLoading}
-          historyStartSeq={nodes.at(0)?.seq}
+          historyStartSeq={historyBaseSeq}
           hasOlderRecords={hasOlderHistory}
           onLoadOlder={loadEarlierHistory}
           onClearSelection={() => { setTimelineSelection(null) }}

@@ -97,11 +97,6 @@ export class SessionHistorySource implements SessionHistoryFace {
     return this.baseSeq !== previousBaseSeq
   }
 
-  /** Rebuild the tail for whichever mounted consumers survive a reconnect. */
-  private async loadForConsumers(): Promise<void> {
-    await this.open()
-  }
-
   /**
    * Route a relevant mux frame without involving the Chat session.
    * @param frame - Session-addressed frame.
@@ -145,7 +140,7 @@ export class SessionHistorySource implements SessionHistoryFace {
     this.state = 'cold'
     this.error = null
     this.publishDirtyNow()
-    void this.loadForConsumers()
+    void this.open()
   }
 
   /** Stop future refresh work after the host removes the session. */
@@ -408,6 +403,7 @@ export class SessionHistorySource implements SessionHistoryFace {
       state: this.state,
       error: this.error,
       hasMore: this.hasMore,
+      baseSeq: this.baseSeq,
       inspection: this.currentInspection(),
     }
   }

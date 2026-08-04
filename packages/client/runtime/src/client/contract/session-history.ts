@@ -9,6 +9,8 @@ export interface SessionHistorySnapshot {
   state: 'cold' | 'loading' | 'ready' | 'error'
   error: RpcError | null
   hasMore: boolean
+  /** Absolute sequence of the first loaded raw event, or zero for an empty window. */
+  baseSeq: number
   inspection: SessionHistoryInspection
 }
 

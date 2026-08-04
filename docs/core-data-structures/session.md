@@ -311,6 +311,8 @@ The same provenance distinction applies here: only `assistant/message` may carry
 
 `Session.surface` returns the session's stable `SessionSurface` view. The same incremental manager validates append candidates before commit and advances this projection from committed events; callers can observe membership and replacement generation but cannot invoke validation.
 
+`SurfaceManager(log, baseSeq?)` can instead fold a contiguous loaded window whose first event has the absolute sequence `baseSeq`. Every event remains contiguous in that absolute sequence space, and a replacement that crosses the window head fails because its declared range is absent.
+
 ```ts type-equiv
 /** Readonly live projection of the message-producing session events. */
 interface SessionSurface {

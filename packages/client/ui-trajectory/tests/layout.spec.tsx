@@ -140,6 +140,34 @@ describe('deriveTrajectoryLayout', () => {
     expect(streamed[1]?.groups[0]?.cells[0]?.requestOnly).toBeUndefined()
   })
 
+  it('replaces a running-call placeholder with the matching streamed tool call', () => {
+    const partial = {
+      turn: 1,
+      step: 1,
+      blocks: [{
+        kind: 'tool-call' as const,
+        callId: 'c1',
+        name: 'bash',
+        argsRaw: '{"command":"pwd"}',
+      }],
+    }
+    const base = deriveTrajectoryLayout({
+      codeDispatches: new Map(),
+      nodes: [],
+      partial: { ...partial, blocks: [] },
+      runningCalls: [{
+        callId: 'c1', name: 'bash', argsRaw: '{"command":"pwd"}',
+        turn: 1, step: 1, time: 9_000, callView: null,
+      }],
+    })
+
+    const streamed = appendTrajectoryPartialLayout(base, partial, 1)
+    const cells = streamed[0]?.groups[0]?.cells ?? []
+
+    expect(cells.map(cell => cell.kind)).toEqual(['message', 'tool'])
+    expect(cells.filter(cell => cell.callId === 'c1')).toHaveLength(1)
+  })
+
   it('omits duration when node times are missing instead of rendering NaN', () => {
     const nodes = [
       { kind: 'user', seq: 1, content: [{ type: 'text', text: 'hi' }], source: null },

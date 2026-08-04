@@ -37,6 +37,8 @@ export interface TrajectorySourceBlock {
 export interface TrajectoryCellProps extends HTMLAttributes<HTMLDivElement> {
   /** 1-based record index shown as `#N`. */
   index: number
+  /** Projection-stable identity when no single source event owns the record lifecycle. */
+  recordId?: string
   kind: TrajectoryCellKind
   /** Single-line summary; CSS ellipsis when it overflows. */
   text: string
@@ -89,6 +91,18 @@ export interface TrajectoryCellProps extends HTMLAttributes<HTMLDivElement> {
   think?: number
   /** Whether the legacy standalone cell renders its selection treatment. */
   selected?: boolean
+}
+
+/**
+ * Resolve the identity that survives prepending older projected records.
+ * @param cell - Projected trajectory record.
+ * @returns Stable identity from the owning event or tool call, with a fixture fallback.
+ */
+export function trajectoryRecordId(cell: TrajectoryCellProps): string {
+  if (cell.recordId !== undefined) return cell.recordId
+  if (cell.callId !== undefined) return `${cell.kind}\u0000call\u0000${cell.callId}`
+  if (cell.sourceSeq !== undefined) return `${cell.kind}\u0000seq\u0000${cell.sourceSeq}`
+  return `${cell.kind}\u0000index\u0000${cell.index}`
 }
 
 /**

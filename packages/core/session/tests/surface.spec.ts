@@ -273,6 +273,20 @@ describe('SurfaceManager', () => {
     expect(new SurfaceManager(events, baseSeq).nodes).toEqual([baseSeq + 1])
   })
 
+  it('rejects a replacement that crosses a loaded window head', () => {
+    const baseSeq = 400_000
+    const events = [
+      provenanceEvent(baseSeq, undefined),
+      {
+        ...provenanceEvent(baseSeq + 1, [baseSeq - 1, baseSeq]),
+        surfaceOp: { op: 'replace', start: baseSeq - 1, end: baseSeq },
+      },
+    ] as SessionEvent[]
+
+    expect(() => new SurfaceManager(events, baseSeq).nodes)
+      .toThrow(`surface replace: start seq ${baseSeq - 1} not found in surface`)
+  })
+
   it('shares ordered entries and nested replacement ranges with foldSurface', () => {
     const s = new Session(SessionId('shared-fold'))
     s.append('user/message', createUserMessage({

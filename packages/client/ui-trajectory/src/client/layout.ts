@@ -517,10 +517,16 @@ export function appendTrajectoryPartialLayout(
     const group = groups[groupIndex]
     /* v8 ignore next -- findIndex proved the dense array position exists. */
     if (group === undefined) continue
+    const streamedCallIds = new Set(
+      streamedGroup.cells.flatMap(cell => cell.callId === undefined ? [] : [cell.callId]),
+    )
     groups[groupIndex] = {
       ...streamedGroup,
       cells: [
-        ...group.cells.filter(cell => cell.requestOnly !== true),
+        ...group.cells.filter(cell =>
+          cell.requestOnly !== true
+          && (cell.callId === undefined || !streamedCallIds.has(cell.callId)),
+        ),
         ...streamedGroup.cells,
       ],
     }
@@ -641,6 +647,7 @@ function expandAssistant(
     .join('\n\n')
   const message: TrajectoryCellProps = {
     index: ++index,
+    recordId: `assistant\u0000${node.turn}\u0000${node.step}`,
     kind: 'message',
     sourceSeq: node.seq,
     text: messageText !== ''

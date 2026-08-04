@@ -34,6 +34,7 @@ describe('SessionHistorySource', () => {
 
     expect(api.callsOf('session.history')).toHaveLength(1)
     expect(source.getSnapshot().hasMore).toBe(true)
+    expect(source.getSnapshot().baseSeq).toBe(12)
     expect(source.getSnapshot().inspection.eventNodes.map(node => node.seq))
       .toEqual([13, 15])
 
@@ -43,6 +44,7 @@ describe('SessionHistorySource', () => {
 
     expect(api.callsOf('session.history')).toHaveLength(3)
     expect(source.getSnapshot().hasMore).toBe(false)
+    expect(source.getSnapshot().baseSeq).toBe(0)
     expect(source.getSnapshot().inspection.eventNodes.map(node => node.seq))
       .toEqual([1, 3, 7, 9, 13, 15])
   })

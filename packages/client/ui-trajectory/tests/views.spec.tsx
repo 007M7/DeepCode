@@ -73,6 +73,7 @@ function historySnapshot(
     state: 'ready',
     error: null,
     hasMore: false,
+    baseSeq: nodes[0]?.seq ?? 0,
     inspection: {
       eventNodes: nodes,
       contexts: [{ id: 0, nodes }],
@@ -1151,6 +1152,74 @@ describe('TrajectoryView branches', () => {
     expect(screen.getByText('current response')).toBeTruthy()
     expect(screen.getByRole('row', { name: /Request 2, ASSISTANT/ })).toBeTruthy()
     expect(view.container.querySelectorAll('[data-request-only="true"]')).toHaveLength(0)
+  })
+
+  it('does not remount the ledger when prepending shifts a rewind generation id', () => {
+    const current = {
+      kind: 'assistant',
+      seq: 5,
+      time: 5_000,
+      turn: 2,
+      step: 1,
+      blocks: [{ kind: 'text', text: 'stable rewind response' }],
+    } as unknown as ConversationSnapshot['nodes'][number]
+    const snapshot = (id: number) => historySnapshot([current], {
+      contexts: [{
+        id,
+        origin: 'rewind' as const,
+        originSeq: 4,
+        nodes: [current],
+      }],
+    })
+    const store = createSnapshotStore(snapshot(1))
+    render(
+      <TrajectoryView
+        {...standaloneProps([])}
+        {...standaloneDuration()}
+        useHistory={bindSnapshotSelector(store)}
+        loadHistoryTail={vi.fn(() => Promise.resolve())}
+        loadOlderHistory={vi.fn(() => Promise.resolve(false))}
+      />,
+    )
+    const row = screen.getByRole('row', { name: /stable rewind response/ })
+    fireEvent.click(row)
+    expect(row.getAttribute('aria-selected')).toBe('true')
+
+    act(() => { store.set(snapshot(2)) })
+
+    expect(screen.getByRole('row', { name: /stable rewind response/ })
+      .getAttribute('aria-selected')).toBe('true')
+  })
+
+  it('keeps ledger and timeline selection on the same event after prepend', () => {
+    const older = {
+      kind: 'user', seq: 1, time: 1_000,
+      content: [{ type: 'text', text: 'older prompt' }], source: null,
+    } as unknown as ConversationSnapshot['nodes'][number]
+    const current = {
+      kind: 'assistant', seq: 100, time: 5_000, turn: 2, step: 1,
+      blocks: [{ kind: 'text', text: 'selected current response' }],
+    } as unknown as ConversationSnapshot['nodes'][number]
+    const store = createSnapshotStore(historySnapshot([current]))
+    const view = render(
+      <TrajectoryView
+        {...standaloneProps([])}
+        {...standaloneDuration()}
+        useHistory={bindSnapshotSelector(store)}
+        loadHistoryTail={vi.fn(() => Promise.resolve())}
+        loadOlderHistory={vi.fn(() => Promise.resolve(false))}
+      />,
+    )
+    fireEvent.click(screen.getByRole('row', { name: /selected current response/ }))
+
+    act(() => { store.set(historySnapshot([older, current])) })
+
+    const row = screen.getByRole('row', { name: /selected current response/ })
+    expect(row.getAttribute('aria-selected')).toBe('true')
+    const currentIndex = row.getAttribute('data-record-index')
+    expect(view.container.querySelector(
+      `[data-timeline-record-index="${currentIndex}"][data-current="true"]`,
+    )).toBeTruthy()
   })
 
   it('retains cancellation-frozen assistant and tool nodes outside raw contexts', () => {

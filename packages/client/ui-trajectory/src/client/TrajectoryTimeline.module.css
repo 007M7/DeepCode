@@ -155,7 +155,7 @@
   top: calc(var(--trajectory-span-lane) * 14px);
   left: calc(var(--trajectory-span-left) + var(--trajectory-span-gap));
   width: max(
-    0px,
+    2px,
     calc(
       var(--trajectory-span-width)
       - var(--trajectory-span-gap)
@@ -163,6 +163,7 @@
     )
   );
   height: 8px;
+  min-width: 2px;
   border-radius: 1px;
   background: var(--dsw-alias-label-secondary);
   opacity: 0.78;

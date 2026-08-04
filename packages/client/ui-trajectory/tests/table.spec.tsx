@@ -60,7 +60,7 @@ const TURNS: readonly TrajectoryTurnModel[] = [{
 const FOLD_PROPS = {
   collapsedTurns: new Set<number>(),
   onToggleTurn: () => {},
-  collapsedAssistants: new Set<number>(),
+  collapsedAssistants: new Set<string>(),
   onToggleAssistant: () => {},
 }
 
@@ -187,6 +187,93 @@ describe('TrajectoryTable', () => {
     expect(row.getAttribute('aria-selected')).toBe('false')
     expect(screen.queryByRole('complementary', { name: 'Event details' })).toBeNull()
     expect(onClearSelection).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the selected record when older rows shift projection indexes', () => {
+    const tail = (index: number): TrajectoryTurnModel => ({
+      turn: 2,
+      groups: [{
+        title: 'Step 1',
+        cells: [{
+          index,
+          kind: 'message',
+          sourceSeq: 100,
+          text: 'selected tail response',
+          outputDetail: 'selected tail response detail',
+          timeSeconds: 1,
+        }],
+      }],
+    })
+    const view = render(
+      <TrajectoryTable turns={[tail(1)]} {...FOLD_PROPS} />,
+    )
+    fireEvent.click(screen.getByRole('row', { name: /selected tail response/ }))
+
+    view.rerender(
+      <TrajectoryTable
+        turns={[{
+          turn: 1,
+          groups: [{
+            title: 'Message',
+            cells: [{
+              index: 1,
+              kind: 'user',
+              sourceSeq: 1,
+              text: 'older prompt',
+              timeSeconds: 0,
+            }],
+          }],
+        }, tail(2)]}
+        {...FOLD_PROPS}
+      />,
+    )
+
+    expect(screen.getByRole('row', { name: /selected tail response/ })
+      .getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByText('selected tail response detail')).toBeTruthy()
+  })
+
+  it('keeps a selected request when prepending changes its display number', () => {
+    const tail = (index: number): TrajectoryTurnModel => ({
+      turn: 2,
+      groups: [{
+        title: 'Step 1',
+        cells: [{
+          index,
+          kind: 'message',
+          sourceSeq: 100,
+          text: 'tail response',
+          timeSeconds: 1,
+        }],
+      }],
+    })
+    const view = render(
+      <TrajectoryTable turns={[tail(1)]} {...FOLD_PROPS} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Request #1' }))
+
+    view.rerender(
+      <TrajectoryTable
+        turns={[{
+          turn: 1,
+          groups: [{
+            title: 'Step 1',
+            cells: [{
+              index: 1,
+              kind: 'message',
+              sourceSeq: 1,
+              text: 'older response',
+              timeSeconds: 1,
+            }],
+          }],
+        }, tail(2)]}
+        {...FOLD_PROPS}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Request #2' })
+      .getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByText('Request #2')).toBeTruthy()
   })
 
   it('follows appended records only while the ledger is already at the bottom', () => {
@@ -337,6 +424,55 @@ describe('TrajectoryTable', () => {
     })
     expect(view.container.querySelector('tr[data-virtual-spacer="top"]')).toBeTruthy()
     expect(screen.queryByText('Context 1')).toBeNull()
+  })
+
+  it('keeps the virtual tail reachable with collapsed-summary row heights', async () => {
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(600)
+    Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
+      configurable: true,
+      value: vi.fn(),
+    })
+    const turns: readonly TrajectoryTurnModel[] = Array.from(
+      { length: 101 },
+      (_, index) => ({
+        turn: index + 1,
+        groups: [{
+          title: 'Step 1',
+          cells: [
+            {
+              index: index * 2 + 1,
+              kind: 'message' as const,
+              sourceSeq: index * 2 + 1,
+              text: `Message ${index + 1}`,
+              timeSeconds: 1,
+            },
+            {
+              index: index * 2 + 2,
+              kind: 'tool' as const,
+              callId: `call-${index + 1}`,
+              text: `Tool ${index + 1}`,
+              timeSeconds: 1,
+            },
+          ],
+        }],
+      }),
+    )
+    const collapsedTurns = new Set(turns.flatMap(turn =>
+      turn.turn === null ? [] : [turn.turn]))
+    const view = render(
+      <TrajectoryTable
+        turns={turns}
+        {...FOLD_PROPS}
+        collapsedTurns={collapsedTurns}
+      />,
+    )
+    const tablePane = screen.getByRole('table').parentElement as HTMLElement
+    tablePane.scrollTop = 5_000
+    fireEvent.scroll(tablePane)
+
+    await waitFor(() => {
+      expect(view.container.querySelector('tr[data-virtual-position="201"]')).toBeTruthy()
+    })
   })
 
   it('keeps running and failure semantics distinct from record roles', () => {
