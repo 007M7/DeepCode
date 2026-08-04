@@ -14,6 +14,7 @@ import type { MuxFrame } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { AppCLIEntry } from './app-cli-entry.ts'
+import { createProcessShutdown } from './process-shutdown.ts'
 
 /** Outcome of one headless turn: aggregated final text plus the turn-end reason kind. */
 interface TurnOutcome {
@@ -21,12 +22,12 @@ interface TurnOutcome {
   reason: string
 }
 
-/** Unwrap an RpcResponse or fail loud: business errors print and exit 1 (dispose first). */
-async function unwrap<T>(response: RpcResponse<T>, dispose: () => Promise<void>): Promise<T> {
+/** Unwrap an RpcResponse or fail loud: business errors print and exit 1 (shutdown first). */
+async function unwrap<T>(response: RpcResponse<T>, shutdown: () => Promise<void>): Promise<T> {
   if (response.result.ok) return response.result.value
   const { code, message } = response.result.error
   process.stderr.write(`dsh: ${code}: ${message}\n`)
-  await dispose()
+  await shutdown()
   process.exit(1)
 }
 
@@ -82,23 +83,16 @@ export async function runHeadless(task: string): Promise<void> {
     port: 0,
   })
   const { ctx, port } = await entry.run()
-  const dispose = async (): Promise<void> => { await ctx.fiber.dispose() }
-  // Signal exits must still dispose the tree: the composition mounts
-  // exit-drained plugins (telemetry's queued tail and shutdown marker would
-  // otherwise be lost), and Node's default signal exit skips disposal.
-  let signalled = false
-  const disposeAndExit = (code: number): void => {
-    if (signalled) return
-    signalled = true
-    void dispose().finally(() => { process.exit(code) })
-  }
-  process.on('SIGTERM', () => { disposeAndExit(143) })
-  process.on('SIGINT', () => { disposeAndExit(130) })
+  // Normal completion and signals share one bounded drain. A signal received
+  // during that drain escalates immediately instead of becoming a no-op.
+  const shutdown = createProcessShutdown(async () => { await ctx.fiber.dispose() })
+  process.on('SIGTERM', () => { shutdown.interrupt(143) })
+  process.on('SIGINT', () => { shutdown.interrupt(130) })
   // The headless session is web-observable while it runs (same composition).
   process.stderr.write(`dsh: observing at http://127.0.0.1:${String(port)}\n`)
   const api = new InProcessApiClient(toFetchHandler(ctx.apiProxy))
 
-  const created = await unwrap(await api.sessions.create({}), dispose)
+  const created = await unwrap(await api.sessions.create({}), () => shutdown.shutdown(1))
 
   // Open the stream before prompting so no frame is lost — kept in this order
   // even though in-process delivery has no race, so the code survives a move
@@ -111,11 +105,10 @@ export async function runHeadless(task: string): Promise<void> {
     sessionId: created.sessionId,
     mode: 'queue',
     content: [{ type: 'text', text: task }],
-  }), dispose)
+  }), () => shutdown.shutdown(1))
 
   const outcome = await done
   process.stdout.write(outcome.text + '\n')
   abort.abort()
-  await dispose()
-  process.exit(outcome.reason === 'completed' ? 0 : 1)
+  await shutdown.shutdown(outcome.reason === 'completed' ? 0 : 1)
 }

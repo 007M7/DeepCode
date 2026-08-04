@@ -6,7 +6,7 @@
  * enough.
  */
 
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
@@ -19,6 +19,10 @@ const at = (seq: number, e: Record<string, unknown>): SessionEvent =>
 
 const SID = 'fk-s1' as SessionId
 const PARENT = 'fk-parent' as SessionId
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 function makeSession(api = new FakeApiClient()): { api: FakeApiClient; session: Session } {
   return { api, session: new Session(SID, api) }
@@ -161,6 +165,40 @@ describe('live event path', () => {
     const last = snapshot.nodes.at(-1)
     expect(last).toMatchObject({ kind: 'assistant', blocks: [{ kind: 'text', text: '半截回复' }] })
     expect((last as { interrupted?: true }).interrupted).toBeUndefined()
+  })
+
+  it('publishes cumulative chunks once per frame and lets finalization supersede the pending frame', async () => {
+    const frames: FrameRequestCallback[] = []
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.push(callback)
+      return frames.length
+    })
+    const { session } = await opened()
+    const published: Array<string | null> = []
+    session.subscribe(() => {
+      const block = session.getSnapshot().partial?.blocks[0]
+      published.push(block?.kind === 'text' ? block.text : null)
+    })
+    const feed = (event: SessionEvent) => {
+      session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event })
+    }
+
+    feed(ev.chunkStart(6, 1))
+    feed(ev.chunkText(7, 1, '累'))
+    feed(ev.chunkText(8, 1, '计'))
+    expect(published).toEqual([])
+    expect(frames).toHaveLength(1)
+
+    frames.shift()!(0)
+    expect(published).toEqual(['累计'])
+
+    feed(ev.chunkText(9, 1, '完成'))
+    feed(ev.assistant(10, 1, '累计完成'))
+    await Promise.resolve()
+    expect(published).toEqual(['累计', null])
+
+    frames.shift()!(0)
+    expect(published).toEqual(['累计', null])
   })
 
   it('retracts the failed step partial on retry and keeps a replayable notice before the recovered response', async () => {

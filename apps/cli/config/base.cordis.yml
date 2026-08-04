@@ -111,17 +111,19 @@
 # process out (the launchers patch the row disabled; config cannot disable
 # a row). Exports carry the harness home's anonymous user id ($DSH_HOME/.userid,
 # random UUID; delete the file to reset the identity) as the Resource's
-# user.id. The exporter/processor values bound the shutdown drain to ~1s
-# against an unreachable collector: exporter.timeoutMillis is both the
-# per-attempt socket timeout and the retry deadline (1s effectively
-# disables the SDK's 5-try backoff), maxExportBatchSize == maxQueueSize
-# (both explicit) makes the drain a single batch, and exportTimeoutMillis
-# is the processor's own cap on that one export cycle — the second bound
-# when the exporter's clock alone does not fire. Every CLI exit path drains it
-# by disposing the root on SIGINT/SIGTERM.
+# user.id. The exporter/processor values normally bound the shutdown drain
+# to ~1s against an unreachable collector: exporter.timeoutMillis is both
+# the per-attempt socket timeout and the retry deadline (1s effectively
+# disables the SDK's 5-try backoff), while maxExportBatchSize == maxQueueSize
+# (both explicit) makes the drain a single batch. The SDK awaits
+# exporter.forceFlush() outside exportTimeoutMillis, so the backend's 3s
+# shutdownTimeoutMillis is the load-bearing outer bound when a transport
+# promise never settles. Every CLI exit path drains it by disposing the root
+# on SIGINT/SIGTERM.
 - id: telemetry-otel
   name: '@deepseek-ai/dsh-session-telemetry-otel'
   config:
+    shutdownTimeoutMillis: 3000
     exporter:
       url: !!js process.env.DSH_TELEMETRY_OTLP_URL ?? 'https://harness-telemetry.deepseeksvc.com/v1/logs'
       compression: gzip

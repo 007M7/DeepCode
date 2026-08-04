@@ -44,12 +44,67 @@ function scrollerOf(from: HTMLElement): HTMLElement {
   return (from.closest('[data-conversation-scroll]')) ?? from
 }
 
+interface PagingAnchor {
+  /** Stable node/call identity, independent of boundary-spanning group keys. */
+  key: string
+  /** Row top relative to the scrollport after the latest user scroll. */
+  top: number
+}
+
+/** Find an already-rendered settled row without interpolating a selector. */
+function anchorElement(list: HTMLElement, key: string): HTMLElement | null {
+  for (const row of list.querySelectorAll<HTMLElement>('[data-chat-anchor-key]')) {
+    if (row.dataset.chatAnchorKey === key) return row
+  }
+  return null
+}
+
+/** Row position in scrollport coordinates (viewport-independent). */
+function flowTop(row: HTMLElement, scrollport: HTMLElement): number {
+  return row.getBoundingClientRect().top - scrollport.getBoundingClientRect().top
+}
+
+/** Select a visible stable node/call identity, falling back only when layout
+ * has not exposed a visible box yet. */
+function pagingAnchor(list: HTMLElement, scrollport: HTMLElement): HTMLElement | null {
+  const viewport = scrollport.getBoundingClientRect()
+  const composer = scrollport.querySelector<HTMLElement>('[data-composer-seat]')
+  const visibleBottom = composer?.getBoundingClientRect().top ?? viewport.bottom
+  // Scroll events are hot: hit-test a few points through the stretched flow
+  // rows before considering the full mounted set. The fallback keeps jsdom
+  // and pre-layout states deterministic; a virtualizer naturally bounds it.
+  if (typeof document.elementsFromPoint === 'function' && visibleBottom > viewport.top) {
+    const content = list.getBoundingClientRect()
+    const left = Math.max(viewport.left, content.left)
+    const right = Math.min(viewport.right, content.right)
+    const x = left + Math.max(0, right - left) / 2
+    const height = visibleBottom - viewport.top
+    const points = [1, Math.min(32, height / 3), height / 2, Math.max(1, height - 1)]
+    for (const offset of points) {
+      for (const element of document.elementsFromPoint(x, viewport.top + offset)) {
+        const row = element instanceof HTMLElement
+          ? element.closest<HTMLElement>('[data-chat-anchor-key]')
+          : null
+        if (row !== null && list.contains(row)) return row
+      }
+    }
+  }
+  const rows = [...list.querySelectorAll<HTMLElement>('[data-chat-anchor-key]')]
+  const visibleRows = rows.filter((row) => {
+    const rect = row.getBoundingClientRect()
+    return rect.bottom > viewport.top && rect.top < visibleBottom
+  })
+  return visibleRows[0] ?? rows[0] ?? null
+}
+
 type OpenFile = (path: string) => void
 
 type InspectCall = (callId: string) => void
 
 /** The declared toolview hole's render share (stable framework binding, passed through memoized rows). */
 type RenderToolRow = ChatViewSlotProps['renderSlot']
+
+type ChatScrollPosition = NonNullable<ReturnType<ChatViewSlotProps['chatScroll']['read']>>
 
 /** ui-slots' UseSession is deliberately wide (dependency direction); the
  *  chat view narrows once to the runtime snapshot the binding actually feeds. */
@@ -64,6 +119,18 @@ function activeRetrySeq(nodes: readonly ConversationNode[], running: boolean): n
     if (node.kind === 'assistant' || node.kind === 'user') return null
   }
   return null
+}
+
+/** Capture a reflow-resistant reader position from the current rendered window. */
+function scrollPosition(list: HTMLElement, scrollport: HTMLElement): ChatScrollPosition | null {
+  const row = pagingAnchor(list, scrollport)
+  const anchorKey = row?.dataset.chatAnchorKey
+  if (row === null || anchorKey === undefined) return null
+  return {
+    anchorKey,
+    anchorTop: flowTop(row, scrollport),
+    scrollTop: scrollport.scrollTop,
+  }
 }
 
 /** One `run_code` sub-dispatch row: the identical keyed-slot dispatch as a
@@ -86,7 +153,12 @@ const SubCallRow = memo(function SubCallRow({ renderSlot, node, openFile, select
     inspect: () => { inspectCall(node.callId) },
   }), [node, toolName, openFile, cwd, inspectCall])
   return (
-    <div className={css.callRow} data-selected={selected || undefined}>
+    <div
+      className={css.callRow}
+      data-chat-anchor-key={`call:${node.callId}`}
+      data-chat-call-id={node.callId}
+      data-selected={selected || undefined}
+    >
       {renderSlot('conversation.chat.toolview', owner, {
         entryKey: toolName,
         fallback: <GenericToolCard {...owner} t={t} />,
@@ -124,7 +196,12 @@ const CallRow = memo(function CallRow({
     inspect: () => { inspectCall(callId) },
   }), [callId, toolName, block, openFile, cwd, inspectCall])
   return (
-    <div className={css.callRow} data-selected={selected || undefined}>
+    <div
+      className={css.callRow}
+      data-chat-anchor-key={`call:${callId}`}
+      data-chat-call-id={callId}
+      data-selected={selected || undefined}
+    >
       {renderSlot('conversation.chat.toolview', owner, {
         entryKey: toolName,
         fallback: <GenericToolCard {...owner} t={t} />,
@@ -213,17 +290,13 @@ function TurnStatus() {
   )
 }
 
-/** The streaming partial, isolated so chunk batches re-render only this tail.
- *  onGrow lets the scroll owner follow content the parent never re-renders for. */
-function StreamingTail({ useSession, onGrow, t }: {
+/** The streaming partial, isolated so chunk batches re-render only this tail;
+ *  the column ResizeObserver owns bottom-follow when its box grows. */
+function StreamingTail({ useSession, t }: {
   useSession: UseConversation
-  onGrow: () => void
   t: ChatViewSlotProps['t']
 }) {
   const partial = useSession(s => s.partial)
-  useLayoutEffect(() => {
-    onGrow()
-  })
   if (partial === null) return null
   return <AssistantMarkdown blocks={partial.blocks} streaming t={t} />
 }
@@ -261,10 +334,17 @@ export function ChatView({
   const branchSeqs = useMemo(() => messageBranchSeqs(nodes, turnEnds), [nodes, turnEnds])
 
   const listRef = useRef<HTMLDivElement | null>(null)
+  const columnRef = useRef<HTMLDivElement | null>(null)
   const atBottomRef = useRef(true)
   const [atBottom, setAtBottom] = useState(true)
-  /** Paging anchor: height/position at click, compensated after the prepend lands. */
-  const anchorRef = useRef<{ h: number; t: number } | null>(null)
+  /** Last position delivered or written on the main thread. */
+  const observedTopRef = useRef(0)
+  /** Pre-input position for the current wheel gesture. */
+  const wheelStartRef = useRef<number | null>(null)
+  const wheelEpochRef = useRef(0)
+  /** Paging anchor: semantic row/position at click, updated by reader scrolls
+   * while the request is pending and restored after the prepend lands. */
+  const anchorRef = useRef<PagingAnchor | null>(null)
   const firstSeqRef = useRef<number | null>(null)
   const openedRef = useRef(false)
   const lastKeyRef = useRef<string | null>(null)
@@ -281,9 +361,14 @@ export function ChatView({
   const followSig = `${openState}:${firstSeq}:${lastKey}:${nodes.length}:${running ? 1 : 0}:${runningCalls.length}:${lastSteeringId ?? ''}`
 
   const toBottom = (el: HTMLElement): void => {
+    wheelStartRef.current = null
+    wheelEpochRef.current += 1
+    anchorRef.current = null
     el.scrollTop = el.scrollHeight
+    observedTopRef.current = el.scrollTop
     atBottomRef.current = true
     setAtBottom(true)
+    chatScroll.save(null)
   }
 
   useLayoutEffect(() => {
@@ -300,10 +385,16 @@ export function ChatView({
       if (saved === null) {
         toBottom(el)
       } else {
-        el.scrollTop = saved
+        el.scrollTop = saved.scrollTop
+        const row = anchorElement(local, saved.anchorKey)
+        if (row !== null) el.scrollTop += flowTop(row, el) - saved.anchorTop
+        observedTopRef.current = el.scrollTop
         const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= FOLLOW_THRESHOLD + 1
         atBottomRef.current = isAtBottom
         setAtBottom(isAtBottom)
+        const normalized = isAtBottom ? null : scrollPosition(local, el)
+        if (isAtBottom) chatScroll.save(null)
+        else if (normalized !== null) chatScroll.save(normalized)
       }
       firstSeqRef.current = firstSeq
       lastKeyRef.current = lastKey
@@ -311,10 +402,15 @@ export function ChatView({
       followSigRef.current = followSig
       return
     }
-    // Prepend (head seq decreased): compensate by the height delta.
+    // Prepend (head seq decreased): preserve the same settled row at the
+    // position established by the reader's latest scroll. This excludes
+    // unrelated tail/composer growth while the request was in flight.
     if (anchorRef.current !== null && firstSeq !== null && firstSeqRef.current !== null && firstSeq < firstSeqRef.current) {
-      el.scrollTop = anchorRef.current.t + (el.scrollHeight - anchorRef.current.h)
+      const anchor = anchorRef.current
       anchorRef.current = null
+      const row = anchorElement(local, anchor.key)
+      if (row !== null) el.scrollTop += flowTop(row, el) - anchor.top
+      observedTopRef.current = el.scrollTop
       firstSeqRef.current = firstSeq
       /* v8 ignore next -- ?? arm: a prepend adds nodes, so the flow list here is never empty. */
       lastKeyRef.current = lastKey
@@ -343,26 +439,66 @@ export function ChatView({
     /* v8 ignore next -- ref-null guard: the handler only fires while mounted. */
     if (local === null) return
     const el = scrollerOf(local)
-    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= FOLLOW_THRESHOLD + 1
+    // Only wheel input may make raw scroll geometry change follow ownership.
+    // Browser clamping and delayed programmatic scroll events otherwise have
+    // the same event shape and must preserve the current ownership state.
+    const floor = Math.max(0, el.scrollHeight - el.clientHeight)
+    const wheelStart = wheelStartRef.current
+    const movedByWheel = wheelStart !== null
+      && Math.abs(el.scrollTop - Math.min(wheelStart, floor)) > 0.5
+    const isAtBottom = movedByWheel
+      ? floor - el.scrollTop <= FOLLOW_THRESHOLD + 1
+      : atBottomRef.current
+    if (!movedByWheel && isAtBottom) {
+      toBottom(el)
+      return
+    }
     atBottomRef.current = isAtBottom
     setAtBottom(isAtBottom)
+    const position = isAtBottom ? null : scrollPosition(local, el)
+    if (isAtBottom) {
+      anchorRef.current = null
+    } else if (anchorRef.current !== null && position !== null) {
+      anchorRef.current = { key: position.anchorKey, top: position.anchorTop }
+    }
     // Continuous save (unmount happens after ref detach, so saving there is
     // too late); pinned-to-bottom clears so a remount keeps following.
-    chatScroll.save(isAtBottom ? null : el.scrollTop)
+    if (isAtBottom) chatScroll.save(null)
+    else if (position !== null) chatScroll.save(position)
+    observedTopRef.current = el.scrollTop
   }
 
-  // Bind scroll to the resolved scrollport (host or local) once per mount.
+  // Bind scroll and the wheel provenance needed to distinguish reader input
+  // from layout-driven scrolls on the resolved scrollport once per mount.
   useEffect(() => {
     const local = listRef.current
     /* v8 ignore next -- ref-null guard: effect runs after the list node commits. */
     if (local === null) return
     const el = scrollerOf(local)
     const onScroll = (): void => { onScrollRef.current() }
+    const onWheel = (event: WheelEvent): void => {
+      if (event.ctrlKey || event.deltaY === 0) return
+      const startTop = observedTopRef.current
+      const floor = Math.max(0, el.scrollHeight - el.clientHeight)
+      const canMove = event.deltaY < 0 ? startTop > 1 : startTop < floor - 1
+      if (!canMove) return
+      wheelStartRef.current = startTop
+      const epoch = ++wheelEpochRef.current
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (wheelEpochRef.current === epoch) wheelStartRef.current = null
+        })
+      })
+    }
     el.addEventListener('scroll', onScroll, { passive: true })
-    return () => { el.removeEventListener('scroll', onScroll) }
+    el.addEventListener('wheel', onWheel, { capture: true, passive: true })
+    return () => {
+      wheelStartRef.current = null
+      el.removeEventListener('scroll', onScroll)
+      el.removeEventListener('wheel', onWheel, true)
+    }
   }, [])
 
-  // Follow streaming growth the parent never re-renders for (stable ref).
   // The ref starts null and is assigned every render, so the placeholder
   // initializer a function initial value would need never exists.
   const followRef = useRef<(() => void) | null>(null)
@@ -371,16 +507,43 @@ export function ChatView({
     if (local !== null && atBottomRef.current) {
       const el = scrollerOf(local)
       el.scrollTop = el.scrollHeight
+      observedTopRef.current = el.scrollTop
+      chatScroll.save(null)
     }
   }
-  const onGrow = useRef(() => followRef.current?.()).current
+  // Streaming, tool disclosures, and other flow changes resize the column;
+  // the sticky composer resizes outside it. This observer owns ChatView's
+  // dynamic-height follow decisions and writes only while the reader is pinned.
+  useEffect(() => {
+    const column = columnRef.current
+    const local = listRef.current
+    if (column === null || local === null || typeof ResizeObserver === 'undefined') return
+    const scrollport = scrollerOf(local)
+    const composer = scrollport.querySelector<HTMLElement>('[data-composer-seat]')
+    const observer = new ResizeObserver(() => { followRef.current?.() })
+    observer.observe(column)
+    if (composer !== null) observer.observe(composer)
+    return () => { observer.disconnect() }
+  }, [])
+
+  // A failed/empty page leaves the head unchanged. Once the request leaves
+  // its busy state there is no future prepend for the saved anchor to own.
+  useEffect(() => {
+    if (!loadingOlder) anchorRef.current = null
+  }, [loadingOlder])
 
   const loadOlderAnchored = (): void => {
     const local = listRef.current
     /* v8 ignore next -- ref-null guard: the paging button renders inside the list tree. */
     if (local !== null) {
       const el = scrollerOf(local)
-      anchorRef.current = { h: el.scrollHeight, t: el.scrollTop }
+      const row = pagingAnchor(local, el)
+      if (row !== null && row.dataset.chatAnchorKey !== undefined) {
+        anchorRef.current = {
+          key: row.dataset.chatAnchorKey,
+          top: flowTop(row, el),
+        }
+      }
     }
     loadOlder()
   }
@@ -392,7 +555,6 @@ export function ChatView({
           || codeDispatches.get(r.callId)?.some(sub => sub.callId === selectedCallId) === true)
       return (
         <ToolGroup
-          key={item.key}
           renderSlot={renderSlot}
           results={item.results}
           openFile={openFile}
@@ -408,7 +570,6 @@ export function ChatView({
     if (node.kind === 'assistant') {
       return (
         <AssistantMarkdown
-          key={item.key}
           blocks={node.blocks}
           streaming={false}
           interrupted={node.interrupted}
@@ -421,13 +582,12 @@ export function ChatView({
       )
     }
     if (node.kind === 'command') {
-      return <CommandRow key={item.key} renderSlot={renderSlot} node={node} t={t} />
+      return <CommandRow renderSlot={renderSlot} node={node} t={t} />
     }
     /* v8 ignore next -- tool-result never reaches here: deriveChatFlow folds them into groups. */
     if (node.kind === 'tool-result') return null
     return (
       <MessageItem
-        key={item.key}
         node={node}
         retryActive={node.kind === 'model-retry' && node.seq === activeRetry}
         onFork={forkAt}
@@ -440,7 +600,7 @@ export function ChatView({
   return (
     <div className={css.root}>
       <div ref={listRef} className={css.scroll}>
-        <div className={css.column}>
+        <div ref={columnRef} className={css.column} data-chat-flow="">
           {openState === 'loading' && <div className={css.hint}>{t('chat.loadingHistory')}</div>}
           {openState === 'error' && openError !== null && (
             <div className={css.openError}>
@@ -454,8 +614,18 @@ export function ChatView({
               </button>
             </div>
           )}
-          {items.map(renderItem)}
-          <StreamingTail useSession={useSession} onGrow={onGrow} t={t} />
+          {items.map(item => (
+            <div
+              key={item.key}
+              className={css.flowItem}
+              data-chat-anchor-key={item.kind === 'node' ? `node:${String(item.node.seq)}` : undefined}
+              data-chat-flow-key={item.key}
+              data-chat-flow-kind={item.kind === 'node' ? item.node.kind : 'tool-group'}
+            >
+              {renderItem(item)}
+            </div>
+          ))}
+          <StreamingTail useSession={useSession} t={t} />
           {runningCalls.length > 0 && (
             <div className={css.toolGroup}>
               {runningCalls.map(call => (

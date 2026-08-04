@@ -1219,10 +1219,9 @@ Requires: `sessions`
 
 ```ts config-catalog
 /**
- * Plugin configuration: two verbatim SDK option shapes plus nothing else.
- * `exporter.url` is the one field this package validates itself — required,
- * no default, must parse as an `http(s)` URL — because a missing endpoint
- * must fail at plugin load, not at first export.
+ * Plugin configuration: two verbatim SDK option shapes plus one DSH-owned
+ * shutdown bound. The package validates its endpoint and shutdown deadline
+ * because both must fail at plugin load rather than at first export or exit.
  */
 export interface Config {
   /**
@@ -1240,6 +1239,8 @@ export interface Config {
    * which this plugin fills); the SDK owns and documents these knobs.
    */
   processor?: Omit<BatchLogRecordProcessorOptions, 'exporter'>
+  /** Maximum time spent awaiting the SDK provider's complete shutdown path. */
+  shutdownTimeoutMillis?: number
 }
 ```
 

@@ -56,7 +56,12 @@
     "tests/goal-bar.e2e.ts",
     "tests/startup-auto-selection.e2e.ts",
     "tests/subagent-conversation.e2e.ts",
-    "tests/bash-abort-row.e2e.ts"
+    "tests/bash-abort-row.e2e.ts",
+    "tests/chat-scroll-fixture.ts",
+    "tests/chat-scroll-contract.e2e.ts",
+    "tests/chat-long-interactions.e2e.ts",
+    "tests/chat-continuous-conversation.e2e.ts",
+    "tests/complex-history.perf.ts"
   ],
   "references": [
     {
