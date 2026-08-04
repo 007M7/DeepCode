@@ -384,6 +384,8 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
 
   let graceTimer: ReturnType<typeof scheduleFiniteTimeout> | undefined
   let terminationStarted = false
+  let treeExitObserved = false
+  let treeExitObservation: Promise<void> | undefined
   let settled = false
 
   // Failed spawns use pid -1 so signalling remains a no-op.
@@ -391,6 +393,9 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
 
   /** Whether the detached tree's root (or POSIX group) is still alive. */
   const treeAlive = (): boolean => {
+    /* v8 ignore next -- only a timer callback already queued when the observer settles can enter here;
+       the guard is the final defense against probing an id after its tree was confirmed absent. */
+    if (treeExitObserved) return false
     if (pid <= 0) return false
     if (platform === 'win32') {
       // Windows has no group-liveness probe; the direct child's exit is the
@@ -413,13 +418,29 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
     }
   }
 
+  /**
+   * Start or reuse the handle's single whole-tree exit observer. The first
+   * confirmed absence is a permanent no-more-signals boundary: it cancels a
+   * pending escalation before this process-group id can be reused.
+   */
+  const observeTreeExit = (): Promise<void> => {
+    treeExitObservation ??= (async () => {
+      while (treeAlive()) await sleepTick()
+      treeExitObserved = true
+      terminationStarted = true
+      graceTimer?.cancel()
+      graceTimer = undefined
+    })()
+    return treeExitObservation
+  }
+
   // The escalation's tier primitive (not on the handle — terminate() is the
   // only consumer-facing termination verb). Guards on TREE liveness, not
   // outcome settlement: a TERM-trapping helper can outlive the settled direct
   // child and must stay signalable, while a fully-dead tree (possible pid
   // reuse) must not be re-signalled by a later tier.
   const kill = (sig: NodeJS.Signals): void => {
-    /* v8 ignore next -- a successful consumer wait cancels the ordinary dead-tree timer;
+    /* v8 ignore next -- the shared exit observer cancels the ordinary dead-tree timer;
        this remains the timer/death race guard and cannot be staged deterministically. */
     if (!treeAlive()) return
     signalTree(platform, pid, sig, child, taskkill)
@@ -428,7 +449,10 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
   const terminate = (): void => {
     if (terminationStarted) return
     terminationStarted = true
-    if (!treeAlive()) return
+    // Observe from the first termination tier onward, even when inherited
+    // pipes delay `done` and no consumer has begun its own teardown wait.
+    void observeTreeExit()
+    if (treeExitObserved) return
     kill('SIGTERM')
     // The escalation must survive direct-child settlement — the leader dying
     // does not mean the tree died — so settle does not clear this timer, and
@@ -487,16 +511,23 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
   })
 
   const waitForExit = async (signal?: AbortSignal): Promise<boolean> => {
-    while (treeAlive()) {
-      if (signal?.aborted) return false
-      await sleepTick()
+    const observed = observeTreeExit()
+    if (treeExitObserved) return true
+    if (signal?.aborted) return false
+    if (signal === undefined) {
+      await observed
+      return true
     }
-    // Successful observation is the permanent no-more-signals boundary. It
-    // also cancels an escalation whose TERM tier already removed the tree.
-    terminationStarted = true
-    graceTimer?.cancel()
-    graceTimer = undefined
-    return true
+    const aborted = Promise.withResolvers<boolean>()
+    const onAbort = (): void => { aborted.resolve(false) }
+    signal.addEventListener('abort', onAbort, { once: true })
+    /* v8 ignore next -- closes the event-loop race between the preceding aborted check and listener registration. */
+    if (signal.aborted) onAbort()
+    try {
+      return await Promise.race([observed.then(() => true), aborted.promise])
+    } finally {
+      signal.removeEventListener('abort', onAbort)
+    }
   }
 
   return {

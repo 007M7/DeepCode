@@ -205,6 +205,54 @@ describe('spawnSubprocess', () => {
     await expect(running.waitForExit()).resolves.toBe(true)
   })
 
+  it('cancels escalation when the terminated group vanishes before collected pipes drain', async () => {
+    const pidFile = join(spillDir, `escaped-pipe-holder-${Date.now()}.pid`)
+    const graceMs = 160
+    const childScript = `
+      const { spawn } = require('node:child_process')
+      const { writeFileSync } = require('node:fs')
+      const helper = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+        detached: true,
+        stdio: ['ignore', 1, 2],
+      })
+      writeFileSync(${JSON.stringify(pidFile)}, String(helper.pid))
+      helper.unref()
+      setInterval(() => {}, 1000)
+    `
+    const running = spawnSubprocess({
+      ...spec('unused', { graceMs }),
+      argv: [process.execPath, '-e', childScript],
+    })
+    const helper = await waitForPidFile(pidFile)
+    const realKill: typeof process.kill = process.kill.bind(process)
+    let termAt = 0
+    let forceSignals = 0
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation((target, signal) => {
+      if (target !== -running.pid) return realKill(target, signal)
+      if (signal === 'SIGTERM') {
+        termAt = Date.now()
+        return realKill(target, signal)
+      }
+      if (signal === 'SIGKILL') {
+        forceSignals += 1
+        return true
+      }
+      if (signal === 0 && termAt !== 0 && Date.now() - termAt < graceMs / 2) {
+        throw Object.assign(new Error('simulated vanished process group'), { code: 'ESRCH' })
+      }
+      return true // Before TERM the original group is live; later its pgid is reused.
+    })
+    try {
+      running.terminate()
+      await running.done
+      expect(forceSignals).toBe(0)
+    } finally {
+      killSpy.mockRestore()
+      process.kill(helper, 'SIGKILL')
+      await waitGone(helper)
+    }
+  })
+
   it('terminates the whole process group (grandchildren die too)', async () => {
     // The subshell writes the sleep's pid then waits on it; terminating the
     // group must take the sleep down with bash.
