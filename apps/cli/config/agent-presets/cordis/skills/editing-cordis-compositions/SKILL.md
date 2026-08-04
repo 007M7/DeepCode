@@ -11,9 +11,11 @@ Every capability in this harness is a plugin row in a `cordis.yml`. There is no 
 
 Two planes, and the choice is not about how "agent-related" something feels — it is about whether the thing must be shared.
 
-**Host composition.** The registries themselves (`tools`, `systemPrompt`, `agents`, `agent-loop`, `sessions`), anything crossing sessions (persistence, session query, storage, settings, credentials, telemetry), the sandbox and approval stack, and the model route. One instance for the process.
+**Host composition.** The registries themselves (`tools`, `systemPrompt`, `agents`, `agent-loop`, `sessions`), anything crossing sessions (persistence, session query, storage, settings, credentials, telemetry), the sandbox and approval stack, the model route, and the subagent registry with its spawn/fork backends. One instance for the process.
 
-**Agent preset.** What one session contributes to those registries: its tool plugins, its persona, its delegation backends, its compaction policy. One instance per session, mounted under that session's scope and unwound with it.
+**Agent preset.** What one session contributes to those registries: its tool plugins, its persona and prompt sections, its compaction policy. One instance per session, mounted under that session's scope and unwound with it.
+
+**A service with a consumer outside the agent plane cannot move into a preset.** `subagents` is the worked example: the registry answers cross-session queries for the host api-proxy, so a per-session copy both starves that host row — it waits forever for a service nothing provides — and collides on the second session, since a provider name registers once. The preset contributes the delegation *tools*; the registry and its backends stay host-side.
 
 A preset is a directory holding one `agent.cordis.yml`. The shipped ones live beside the deployment's composition; locally authored ones live under `$DSH_HOME/.agent-presets/<name>/`.
 

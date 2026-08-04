@@ -19,7 +19,7 @@ Status: implemented
 | 平面 | 实例数 | 内容 |
 |---|---|---|
 | 宿主 | 一份 | 注册表本身（`tools`、`systemPrompt`、`agents`、`agent-loop`、`sessions`）、跨会话设施（持久化、查询、投影、存储、设置、凭据、遥测），以及 web 宿主 |
-| agent | 每会话一份 | 单个 agent 对这些注册表的贡献：工具插件、人设与提示词段落、委派后端、压缩策略 |
+| agent | 每会话一份 | 单个 agent 对这些注册表的贡献：工具插件、人设与提示词段落、压缩策略 |
 
 模型路由不进 preset。`installAgentLlmTarget` 已经是 provider、model 与 reasoning effort 的按 agent 可替换点；而挂在 preset 内部的 LLM 适配器永远不会被 `agent-loop` 解析到，因为后者位于宿主平面。
 
@@ -55,6 +55,10 @@ Status: implemented
 **只有空白会话才允许切换。** 一旦跑过任何轮次，那段历史就是在该 preset 的工具下产生的，替换会留下无法执行的已记录 tool call，因此 `agentPreset.select` 返回 `agent-preset-locked`。空白期的切换保留 agent 与 session，只替换子树——因为宿主丢弃了它创建的 `AgentHandle`，也没有 delete RPC；而保留它们本身就是更好的结果，会话 id、workspace 挂接与 projections 都原地不动。该替换是"先卸后装"（两份组装会把同名工具注册进同一分层），因此它在拆除任何东西之前先解析新 preset，并在新组装装载失败时恢复原来的那一份。
 
 **创作 preset 是一次 RPC，而且是特权 RPC。** 组装是一个文件，但“去文件系统里改它”并不是浏览器能提供的操作，因此名单在 `select` 之外新增了 `read`/`write`/`remove`。这四者都被固定在环回地址：组装指明了一个会话所运行的插件，因此读取它是侦察，写入它是任意能力，而选择它可以把会话切到一个能编辑活动运行时的 preset 上。`list` 刻意保持为普通方法——只有 id 与信任级别，而局域网客户端的选择器需要它。约束是 id 自身的性质（`[a-z0-9][a-z0-9-]*`），在它成为目录名之前就检查，而不是事后再去审视拼接出的路径；文本使用 loader 自身的 schema 与方言解析，因此保存不会留下任何会话都无法加载的文件。随部署提供的 preset 拒绝写入与删除，因为部署自带的那一份正是用来对照有问题的本地 preset 的——这也让“先复制、再编辑”成为创作路径本身，而非事后补充。
+
+**在 agent 平面之外还有消费方的服务，不能搬进 preset。** 激进拆分把 `subagents` 注册表连同 spawn/fork 后端一起搬进了 delegation 组的 entry-local realm，于是 `dsh web` 直接起不来：`dsh-host-apiproxy` 是宿主行，它注入 `subagents` 来回答浏览器的跨会话查询（`listChildren`、`followup`），因而永远等待一个此刻只有会话才提供的服务。按会话各一份在两个层面上都是错的——provider 名只能注册一次，第二个会话本来也会相撞。注册表与后端属于宿主平面；preset 贡献的是委派**工具**，它们解析宿主注册表。`workflows` 保持 entry-local，因为 agent 之外没有任何东西读它。本该拦下它的是「检索注入方」这一步，而它没拦住：检索必须覆盖宿主包，而不只是 agent 平面的包。
+
+**真实组装测试若禁用了某个宿主行，就无法审计该行。** web 组装测试把 `api-gateway`——也就是 api-proxy 本身——当作「有外部副作用的行」禁用了，而它恰恰是那个会以 pending 注入点名此次断裂的行。现在它在启用 api-proxy、并替换为 browse 目录选择器的前提下引导，启动审计因此覆盖整个宿主平面的注入图；只有端口、资源目录与遥测导出器仍然关闭。
 
 **preset 的包名必须从 harness 解析，而非从 preset 解析。** `EntryTree.import()` 按行所属树的 `baseUrl` 解析，而 `Include` 把它设为组装文件所在的目录。这对相对标识符是对的，对包名却是致命的：本地创作的 preset 位于用户主目录之下，Node 向上查找 `node_modules` 永远够不到已安装的 harness，因此每一个 `@deepseek-ai/dsh-*` 行都会导入失败，整个 preset 无法挂载。随部署提供的 preset 掩盖了这一点——它们本就在安装目录之内。挂载在插入子树之前先记录宿主组装的基址，并把裸标识符送往那里，同时让相对路径继续从 preset 解析，使它自带的文件仍随它一同迁移。发现它的正是那个把 preset 写入临时根目录的真实组装测试。
 

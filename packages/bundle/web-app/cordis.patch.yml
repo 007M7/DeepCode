@@ -263,14 +263,12 @@
 - id: tool-result-prune
   disabled: true
 
-- id: subagent
-  disabled: true
-
-- id: subagent-spawn
-  disabled: true
-
-- id: subagent-fork
-  disabled: true
+# The subagent registry and its backends STAY in the host plane. `subagents` is
+# a process singleton with a cross-session query surface (`listChildren`,
+# `followup`) that the host api-proxy serves to the browser, and a provider
+# registers under a globally unique name, so a per-session copy would both
+# starve that host row and collide on the second session. What a preset
+# chooses is which delegation TOOLS its agent sees, below.
 
 - id: tool-subagent-control
   disabled: true
