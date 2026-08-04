@@ -16,13 +16,7 @@ import { resolve } from 'node:path'
 import { Context } from 'cordis'
 import type { PatchOptions } from '@cordisjs/plugin-include'
 import yaml from 'js-yaml'
-import {
-  boot,
-  installFailLoud,
-  loadOverlayPatches,
-  loadPersonalPatches,
-  watchPersonalPatches,
-} from '@deepseek-ai/dsh-app-boot'
+import { boot, installFailLoud, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 // Empty type import carries the httpServer Context merge for the port read below.
 import type {} from '@deepseek-ai/dsh-host-webserver'
 
@@ -117,16 +111,18 @@ export interface AppCLIEntryOptions {
    * fields on the same row.
    */
   overlayPath: string
-  /**
-   * Optional explicit overlay applied after {@link overlayPath} and before
-   * this entry's own flag patches. When absent, the personal
-   * `$DSH_HOME/config.yaml` overlay is applied instead.
-   */
+  /** Optional `--config` overlay applied after {@link overlayPath} and before this entry's own flag patches. */
   extraOverlayPath?: string
+  /**
+   * Optional `--config-replace` tree: booted INSTEAD of {@link configPath},
+   * {@link overlayPath}, {@link extraOverlayPath}, and every generated patch,
+   * so the caller's file is the whole composition. It must still supply the
+   * serving rows this entry needs — {@link run} rejects a settled tree with no
+   * `httpServer`.
+   */
+  configReplacePath?: string
   /** Whether to append client-bundle HMR (the Web surface's prod/dev difference). */
   dev: boolean
-  /** Whether `$DSH_HOME/config.yaml` remains live after the initial boot. */
-  watchPersonalConfig: boolean
   /** --host when explicitly passed; undefined keeps the yml engineering default. */
   host?: string
   /**
@@ -176,8 +172,15 @@ export class AppCLIEntry {
     await this.bootTree()
     this.assertBoot()
     const port = this.ctx.get('httpServer')?.port
-    /* v8 ignore next -- the sweep above guarantees an ACTIVE webserver row */
-    if (port === undefined) throw new Error('dsh: httpServer service missing after settled boot')
+    if (port === undefined) {
+      // The shipped tree always carries the webserver row, so this is only
+      // reachable through --config-replace: name the missing contract rather
+      // than report a bare missing service.
+      throw new Error(
+        `dsh: no httpServer after booting ${this.bootConfigPath()}; this surface serves over HTTP, so a`
+        + ' --config-replace tree must mount a webserver row',
+      )
+    }
     return { ctx: this.ctx, port }
   }
 
@@ -188,6 +191,16 @@ export class AppCLIEntry {
    */
   private composePatches(): void {
     const rows = this.parseYmlRows()
+    if (this.options.configReplacePath !== undefined) {
+      // A replacement tree is the caller's whole composition: the generated
+      // patches target shipped row ids this file cannot assume exist, and a
+      // patch whose id is absent is a silent no-op rather than a diagnostic.
+      // Telemetry stays, judged against the tree actually booting, because a
+      // privacy switch that silently no-ops is worse than a loud one.
+      const replaceTelemetry = resolveTelemetryPatch(process.env.DSH_TELEMETRY_DISABLED, rows.has(TELEMETRY_ROW_ID))
+      this.patches = replaceTelemetry === undefined ? [] : [replaceTelemetry]
+      return
+    }
     const overrides = new Map<string, Record<string, unknown>>()
     const put = (entryId: string, key: string, value: unknown): void => {
       const bag = overrides.get(entryId) ?? {}
@@ -230,31 +243,26 @@ export class AppCLIEntry {
     // One include of the shared base with every overlay as a sibling patch
     // list: patches never cross an include boundary, so nesting them would
     // silently stop reaching base rows. The surface overlay applies first, then
-    // this entry's CLI-flag patches, which therefore win.
-    const compose = (overlay: PatchOptions[]): PatchOptions[] => [
-      ...loadOverlayPatches('dsh', this.options.overlayPath),
-      ...overlay,
-      ...this.patches,
-    ]
-    // An explicit --config overlay REPLACES the personal overlay, so there is
-    // then no personal layer to keep live — the watcher is personal-only.
-    const watchPersonal = this.options.watchPersonalConfig && this.options.extraOverlayPath === undefined
-    const patches = compose(
-      this.options.extraOverlayPath === undefined
-        ? loadPersonalPatches('dsh') ?? []
-        : loadOverlayPatches('dsh', this.options.extraOverlayPath),
-    )
-    this.ctx = await boot('dsh', resolve(this.options.configPath), patches, async (ctx) => {
+    // any --config overlay, then this entry's CLI-flag patches, which win.
+    // --config-replace discards all three and boots the named file alone.
+    const patches = this.options.configReplacePath !== undefined
+      ? this.patches
+      : [
+        ...loadOverlayPatches('dsh', this.options.overlayPath),
+        ...this.options.extraOverlayPath === undefined
+          ? []
+          : loadOverlayPatches('dsh', this.options.extraOverlayPath),
+        ...this.patches,
+      ]
+    this.ctx = await boot('dsh', resolve(this.bootConfigPath()), patches, async (ctx) => {
       await this.options.prepare?.(ctx)
-      // Config-only HMR for the personal overlay: module reload stays off for
-      // this surface (web.cordis.yml disables the shared `hmr` row until its
-      // reload lifecycle is tested), so this row watches no module roots.
-      if (watchPersonal) await ctx.loader.create({ name: '@cordisjs/plugin-hmr', config: { root: [] } })
       if (this.options.dev) await ctx.loader.create({ name: '@deepseek-ai/dsh-client-hmr' })
     })
-    if (watchPersonal) {
-      await watchPersonalPatches(this.ctx, { binName: 'dsh', compose })
-    }
+  }
+
+  /** The file the Loader includes: the replacement tree when named, otherwise the shared base. */
+  private bootConfigPath(): string {
+    return this.options.configReplacePath ?? this.options.configPath
   }
 
   /** Install the diagnostic for plugin rejections that happen after settled boot. */
@@ -270,6 +278,17 @@ export class AppCLIEntry {
    */
   private parseYmlRows(): Map<string, { config?: unknown }> {
     const rows = new Map<string, { config?: unknown }>()
+    // A replacement tree stands alone, so only its own rows are indexed —
+    // the telemetry-row check must judge the tree that actually boots.
+    if (this.options.configReplacePath !== undefined) {
+      for (const row of this.parseRowList(this.options.configReplacePath)) {
+        if (typeof row.id === 'string') rows.set(row.id, row)
+        for (const inserted of row.insert ?? []) {
+          if (typeof inserted.id === 'string') rows.set(inserted.id, inserted)
+        }
+      }
+      return rows
+    }
     const files = [this.options.configPath, this.options.overlayPath]
     if (this.options.extraOverlayPath !== undefined) files.push(this.options.extraOverlayPath)
     for (const file of files) {

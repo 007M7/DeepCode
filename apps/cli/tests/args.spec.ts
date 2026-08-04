@@ -30,6 +30,17 @@ describe('parseDshArgs', () => {
     expect(parse(['--config-replace', 'tree.yml'])).toEqual({ mode: 'tui', configReplace: 'tree.yml' })
     expect(parse(['--resume', 'sess', '--config', 'app.yml'])).toEqual({ mode: 'tui', config: 'app.yml', resume: 'sess' })
     expect(parse(['-p', 'do the thing'])).toEqual({ mode: 'headless', prompt: 'do the thing' })
+    // Every booting surface takes the composition flags: with the personal
+    // overlay gone, naming a tree is the only way to compose one, so a
+    // surface that could not name one would have no composition path at all.
+    expect(parse(['-p', 'task', '--config', 'c.yml']))
+      .toEqual({ mode: 'headless', prompt: 'task', config: 'c.yml' })
+    expect(parse(['-p', 'task', '--config-replace', 'tree.yml']))
+      .toEqual({ mode: 'headless', prompt: 'task', configReplace: 'tree.yml' })
+    expect(parse(['meta', '--experimental', '--config', 'c.yml']))
+      .toEqual({ mode: 'meta', config: 'c.yml' })
+    expect(parse(['upgrade', '--experimental', '--config-replace', 'tree.yml']))
+      .toEqual({ mode: 'upgrade', configReplace: 'tree.yml' })
     // Experimental subcommands run under the per-invocation flag or the env opt-in.
     expect(parse(['meta', '--experimental'])).toEqual({ mode: 'meta' })
     expect(parse(['meta'], true)).toEqual({ mode: 'meta' })
@@ -77,9 +88,8 @@ describe('parseDshArgs', () => {
     // schema at boot, not here.)
     expect(exitCode(['--resume='])).toBe(1)
     expect(exitCode(['-p', ''])).toBe(1)
-    expect(exitCode(['-p', 'x', '--config', 'c.yml'])).toBe(1)
-    expect(exitCode(['-p', 'x', '--config-replace', 'tree.yml'])).toBe(1)
     expect(exitCode(['--config', 'c.yml', '--config-replace', 'tree.yml'])).toBe(1)
+    expect(exitCode(['-p', 'x', '--config', 'c.yml', '--config-replace', 'tree.yml'])).toBe(1)
     expect(exitCode(['-p', 'x', '--resume', 's'])).toBe(1)
     expect(exitCode(['--bogus'])).toBe(1)
     expect(exitCode(['bogus-positional'])).toBe(1)
@@ -91,16 +101,14 @@ describe('parseDshArgs', () => {
     expect(exitCode(['--config-replace', 'tree.yml', 'web'])).toBe(1)
     // Same rule for each subcommand that shares no option with the default
     // surface, so a leaked flag is a typo, not something to ignore.
-    // `meta` fixes its own config tree and always starts fresh,
-    // so every default-surface option is rejected.
+    // `meta` always starts fresh, so the session options are rejected; the
+    // composition flags are its own and only their combination is rejected.
     expect(exitCode(['meta', '--experimental', '--resume', 's'])).toBe(1)
-    expect(exitCode(['meta', '--experimental', '--config', 'c.yml'])).toBe(1)
-    expect(exitCode(['meta', '--experimental', '--config-replace', 'tree.yml'])).toBe(1)
     expect(exitCode(['meta', '--experimental', '-p', 'task'])).toBe(1)
-    // `upgrade` takes no options beyond the gate: any leaked default-surface
-    // flag is a mistyped invocation, not a silently-dropped input.
+    expect(exitCode(['meta', '--experimental', '--config', 'c.yml', '--config-replace', 't.yml'])).toBe(1)
+    // `upgrade` always mints a fresh session, so `--resume` and a leaked
+    // parent flag are mistyped invocations; its own composition flags are not.
     expect(exitCode(['upgrade', '--experimental', '--resume', 's'])).toBe(1)
-    expect(exitCode(['upgrade', '--experimental', '--config', 'c.yml'])).toBe(1)
     expect(exitCode(['-p', 'task', 'upgrade', '--experimental'])).toBe(1)
     // The pre-release command names have no compatibility aliases.
     expect(exitCode(['experimental-meta'])).toBe(1)

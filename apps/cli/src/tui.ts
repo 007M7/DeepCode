@@ -1,9 +1,9 @@
 /**
  * `dsh` default surface — the interactive TUI coding agent. Boots the shipped
- * shared base and TUI overlay, followed by either `--config` or the personal overlay
- * from the Harness home (`~/.dsh`): its `.env` fills environment gaps (precedence:
- * ambient environment, then the invoking directory's `.env`, then the personal one)
- * and its `config.yaml` patches the booted tree. The workspace is the invoking
+ * shared base and TUI overlay, followed by any `--config` overlay. The Harness
+ * home (`~/.dsh`) contributes the user environment layer only: its `.env` fills
+ * environment gaps (precedence: ambient environment, then the invoking
+ * directory's `.env`, then the user one). The workspace is the invoking
  * directory: the session cwd, relative paths, and workspace instructions resolve
  * from it, so `dsh` acts on whatever project it is launched in. Session storage
  * is the exception — it lives under the Harness home so `/resume` reaches every
@@ -26,9 +26,7 @@ import {
   boot,
   installFailLoud,
   loadOverlayPatches,
-  loadPersonalPatches,
   resolveConfigPath,
-  watchPersonalPatches,
 } from '@deepseek-ai/dsh-app-boot'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 import type { PatchOptions } from '@cordisjs/plugin-include'
@@ -77,13 +75,12 @@ const SESSION_QUERY_DB = `session-query-${String(process.pid)}-${randomUUID()}.d
 export const SOURCE_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 
 /* v8 ignore start -- composition over the unit-tested dsh-app-boot helpers;
-   the CLI PTY smoke drives this path end to end, personal overlay included */
+   the CLI PTY smoke drives this path end to end, --config overlay included */
 /**
  * Run the interactive TUI from the invoking directory.
  * @param config - an overlay patch list applied over the shared base and the
- * TUI overlay, REPLACING the personal `~/.dsh/config.yaml` so a named tree never
- * inherits the user's route, or `undefined` to use the personal overlay;
- * already parsed from `--config`.
+ * TUI overlay, or `undefined` for the shipped composition alone; already
+ * parsed from `--config`.
  * @param resumeSessionId - a persisted session id to resume, or `undefined` to
  * mint a fresh one; already parsed and non-empty-validated from `--resume`.
  * Either way the resulting identity reaches the booted app through
@@ -95,9 +92,9 @@ export const SOURCE_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
  * first turn, or `undefined`. Set only by `dsh upgrade` and
  * ignored on a resume, so it never re-fires; reaches the app through
  * {@link INITIAL_SKILL_KEY}.
- * @param configReplace - a config path to boot as the ENTIRE tree, bypassing the
- * shared base, the TUI overlay, and the personal overlay alike, or `undefined`
- * to compose them; already parsed from `--config-replace`.
+ * @param configReplace - a config path to boot as the ENTIRE tree, bypassing
+ * the shared base and the TUI overlay alike, or `undefined` to compose them;
+ * already parsed from `--config-replace`.
  */
 export async function runTui(
   config: string | undefined,
@@ -202,10 +199,8 @@ export async function runTui(
   // patch list: patches never cross an include boundary, so stacking these as
   // nested includes would silently stop reaching base rows. Later lists win.
   //
-  // `--config` REPLACES the personal overlay rather than layering under it: an
-  // explicitly named tree must not inherit `~/.dsh/config.yaml`'s route, or a
-  // demo or test config would silently run on the user's provider and model.
-  // `--config-replace` additionally discards the base and the surface overlay.
+  // `--config` layers over the shipped base and TUI overlay; `--config-replace`
+  // discards both and boots the named file alone.
   const replaceTree = configReplace !== undefined
   const bootConfig = resolvedConfigReplace === undefined ? BASE_CONFIG : resolveConfigPath(resolvedConfigReplace, undefined)
   // Same opt-out semantics as the web surface (resolveTelemetryPatch: any
@@ -214,16 +209,13 @@ export async function runTui(
   // presence is checked against the tree actually booting, so a
   // --config-replace tree is judged on its own rows, not the shipped base's.
   const telemetryPatch = resolveTelemetryPatch(process.env.DSH_TELEMETRY_DISABLED, configHasTelemetryRow(bootConfig))
-  const composePatches = (personalPatches: PatchOptions[]): PatchOptions[] => [
+  const patches: PatchOptions[] = [
     ...replaceTree ? [] : [
       ...loadOverlayPatches(NAME, TUI_OVERLAY),
-      ...resolvedConfig === undefined
-        ? personalPatches
-        : loadOverlayPatches(NAME, resolveConfigPath(resolvedConfig, undefined)),
+      ...resolvedConfig === undefined ? [] : loadOverlayPatches(NAME, resolveConfigPath(resolvedConfig, undefined)),
     ],
     ...telemetryPatch === undefined ? [] : [telemetryPatch],
   ]
-  const patches = composePatches(loadPersonalPatches(NAME) ?? [])
   const queryIndexPath = join(tmpdir(), SESSION_QUERY_DB)
   const ctx = await boot(
     NAME,
@@ -243,8 +235,8 @@ export async function runTui(
       // the Harness home across every cwd, so /resume sees every workspace.
       // The bundle treats the slot as opaque.
       // The agent-loop row reads this to bind `main`, and the tui row reads the
-      // same id, so a personal overlay repointing the model route cannot drop
-      // the session identity or desynchronise the two.
+      // same id, so an overlay repointing the model route cannot drop the
+      // session identity or desynchronise the two.
       hostCtx.provide(CONFIGURED_AGENT_IDENTITIES_KEY, { [MAIN_AGENT_ID]: identity })
       // The query database is a disposable derived index with single-process
       // ownership. Keep it process-local while it indexes the shared logs.
@@ -264,14 +256,6 @@ export async function runTui(
       }
     },
   )
-  // The shipped tree includes HMR and keeps personal config live. An explicit
-  // --config tree replaces the personal overlay (so there is nothing to keep
-  // live), and a --config-replace or HMR-less tree remains a valid composition
-  // that still receives the startup overlay but deliberately has no hidden
-  // watcher.
-  if (resolvedConfig === undefined && !replaceTree && ctx.get('hmr') !== undefined) {
-    await watchPersonalPatches(ctx, { binName: NAME, compose: composePatches })
-  }
   app.current = ctx
   addHarnessSourceSection(ctx, SOURCE_ROOT)
   if (showFirstRunWelcome) {

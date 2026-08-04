@@ -49,17 +49,17 @@ describe('renderConfigDump', () => {
       '      name: ./noop.mjs',
       '',
     ].join('\n'))
-    const personal = join(dir, 'personal.yml')
-    writeFileSync(personal, [
+    const user = join(dir, 'user.yml')
+    writeFileSync(user, [
       '- id: surface-extra',
       '  config:',
-      '    value: personal',
+      '    value: user',
       '',
     ].join('\n'))
 
     const dump = renderConfigDump(NAME, base, [
       { label: 'surface.yml', patches: loadOverlayPatches(NAME, surface) },
-      { label: 'personal.yml', patches: loadOverlayPatches(NAME, personal) },
+      { label: 'user.yml', patches: loadOverlayPatches(NAME, user) },
     ], () => {})
     // Comments do not break loadability: the dump parses as one document
     // equal to what boot() would mount.
@@ -74,7 +74,7 @@ describe('renderConfigDump', () => {
         config: { value: 'surface', key: { __jsExpr: 'process.env.DSH_DUMP_SPEC' } },
       },
       { id: 'untouched', name: './noop.mjs' },
-      { id: 'surface-extra', name: './noop.mjs', config: { value: 'personal' } },
+      { id: 'surface-extra', name: './noop.mjs', config: { value: 'user' } },
     ])
     // Unevaluated: the expression text round-trips as a !!js scalar.
     expect(dump).toContain('!!js process.env.DSH_DUMP_SPEC')
@@ -82,7 +82,7 @@ describe('renderConfigDump', () => {
     // row; an inserted row carries the inserting layer as its origin.
     expect(dump).toContain('# == base.yml, patched by surface.yml')
     expect(dump).toContain('# == base.yml\n- id: untouched')
-    expect(dump).toContain('# == surface.yml, patched by personal.yml\n- id: surface-extra')
+    expect(dump).toContain('# == surface.yml, patched by user.yml\n- id: surface-extra')
     expect(dump.indexOf('# == base.yml, patched by surface.yml')).toBeLessThan(dump.indexOf('# == base.yml\n- id: untouched'))
   })
 

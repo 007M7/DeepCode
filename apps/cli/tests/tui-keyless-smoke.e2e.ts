@@ -40,7 +40,7 @@ const PTY_SMOKE_TEST_TIMEOUT_MS = process.env.DSH_EXAMPLE_MODE === 'lib'
   : LOADER_SMOKE_TEST_TIMEOUT_MS
 
 /**
- * Seed the isolated process workspace: ordinary files land in `cwd`, personal
+ * Seed the isolated process workspace: ordinary files land in `cwd`, harness
  * files in the Harness home (`.dsh`), and skill bundles under the agents
  * home's `skills/` root — the same trees `$DSH_HOME` /
  * `$DSH_AGENTS_HOME` point the child at.
@@ -48,7 +48,7 @@ const PTY_SMOKE_TEST_TIMEOUT_MS = process.env.DSH_EXAMPLE_MODE === 'lib'
 function seedWorkspace(
   files: {
     workspace?: Record<string, string>
-    personal?: Record<string, string>
+    harnessHome?: Record<string, string>
     skills?: Record<string, string>
   },
 ): (cwd: string) => Promise<void> {
@@ -58,7 +58,7 @@ function seedWorkspace(
       await mkdir(dirname(file), { recursive: true })
       await writeFile(file, content)
     }
-    for (const [name, content] of Object.entries(files.personal ?? {})) {
+    for (const [name, content] of Object.entries(files.harnessHome ?? {})) {
       const file = join(cwd, '.dsh', name)
       await mkdir(dirname(file), { recursive: true })
       await writeFile(file, content)
@@ -652,7 +652,7 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
     expect(output).toContain('Preserve restored state')
   }, PTY_SMOKE_TEST_TIMEOUT_MS)
 
-  it('boots the shipped default config with no arguments and no personal overlay', async () => {
+  it('boots the shipped default config with no arguments and no overlay', async () => {
     const output = await smoke({
       label: 'dsh default boot',
       tempDirPrefix: 'dsh-default-boot-',
@@ -667,9 +667,9 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
     expect(output).toContain('\u001B[?2004l')
   }, PTY_SMOKE_TEST_TIMEOUT_MS)
 
-  it('applies the personal overlay: config.yaml patches an overlay-inserted row, and both .env layers feed its !!js with the project one winning', async () => {
-    // The whole personal-config chain in one boot, plus the environment
-    // layering underneath it. config.yaml patches the `tui` row — a row the
+  it('applies a --config overlay: it patches an overlay-inserted row, and both .env layers feed its !!js with the project one winning', async () => {
+    // The whole explicit-overlay chain in one boot, plus the environment
+    // layering underneath it. The named file patches the `tui` row — a row the
     // SURFACE OVERLAY inserted, not one the base declares — proving a later
     // patch list reaches a row an earlier one inserted. The `!!js` expression
     // renders both halves of the layering in one line: `DSH_LAYER_WELCOME` is
@@ -678,13 +678,13 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
     // arrive. Credentials are not part of this: they live in
     // `.credentials.yaml`, which is never hoisted into `process.env`.
     const output = await smoke({
-      label: 'dsh personal overlay',
-      tempDirPrefix: 'dsh-personal-overlay-',
+      label: 'dsh explicit overlay',
+      tempDirPrefix: 'dsh-explicit-overlay-',
       binScript: dshBinScript,
-      configArgs: [],
+      configArgs: ['--config', '.dsh/config.yaml'],
       prepare: seedWorkspace({
         workspace: { '.env': 'DSH_LAYER_WELCOME=PROJECT WINS.\n' },
-        personal: {
+        harnessHome: {
           '.env': 'DSH_LAYER_WELCOME=USER LAYER LOST.\nDSH_USER_ONLY=USER LAYER LOADED.\n',
           'config.yaml': [
             '- id: workspace-context',
@@ -705,7 +705,7 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
     expect(output).toContain('\u001B[?2004l')
   }, PTY_SMOKE_TEST_TIMEOUT_MS)
 
-  it('loads a cached repository Plugin from personal config alone', async () => {
+  it('loads a cached repository Plugin from a --config overlay alone', async () => {
     const source = 'github:fixture/repository#fixed-ref'
     const specifier = `${source}&path:/.dsh-plugin`
     const key = createHash('sha256').update(specifier).digest('hex')
@@ -717,12 +717,12 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
     // deliberate external pin of the durable on-disk format.
     const wrapper = await generatePreparedWrapper('config-only-fixture')
     const output = await smoke({
-      label: 'dsh personal repository Plugin',
-      tempDirPrefix: 'dsh-personal-repository-plugin-',
+      label: 'dsh overlay repository Plugin',
+      tempDirPrefix: 'dsh-overlay-repository-plugin-',
       binScript: dshBinScript,
-      configArgs: [],
+      configArgs: ['--config', '.dsh/config.yaml'],
       prepare: seedWorkspace({
-        personal: {
+        harnessHome: {
           'config.yaml': [
             '- id: repository-plugins',
             "  name: '@deepseek-ai/dsh-repository-plugin'",
@@ -753,13 +753,13 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
     expect(output).toContain('\u001B[?2004l')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
-  it('fails loud instead of booting when the personal config.yaml is invalid', async () => {
+  it('fails loud instead of booting when a named --config overlay is invalid', async () => {
     const output = await smoke({
-      label: 'dsh invalid personal config',
-      tempDirPrefix: 'dsh-invalid-personal-',
+      label: 'dsh invalid overlay',
+      tempDirPrefix: 'dsh-invalid-overlay-',
       binScript: dshBinScript,
-      configArgs: [],
-      prepare: seedWorkspace({ personal: { 'config.yaml': 'id: not-a-list\n' } }),
+      configArgs: ['--config', '.dsh/config.yaml'],
+      prepare: seedWorkspace({ harnessHome: { 'config.yaml': 'id: not-a-list\n' } }),
       expectedExitCode: 1,
     })
     expect(output).toContain('must be a top-level YAML array of loader patch entries')
@@ -793,18 +793,18 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
     expect(output).toMatch(/To resume this session: dsh --resume=main-session-[0-9a-f-]{36} --config/)
   }, PTY_SMOKE_TEST_TIMEOUT_MS)
 
-  it('keeps resume working when the personal overlay replaces the whole agent-loop config', async () => {
-    // Loader patches replace a targeted `config` key wholesale, so a personal
-    // overlay repointing the model route drops every identity key the shipped
+  it('keeps resume working when a --config overlay replaces the whole agent-loop config', async () => {
+    // Loader patches replace a targeted `config` key wholesale, so an overlay
+    // repointing the model route drops every identity key the shipped
     // row declared. Launcher-owned identity makes that unreachable: agent-loop
     // applies the launcher's id over whatever route survives.
     const output = await smoke({
       label: 'dsh overlay keeps resume',
       tempDirPrefix: 'dsh-overlay-resume-',
       binScript: dshBinScript,
-      configArgs: [],
+      configArgs: ['--config', '.dsh/config.yaml'],
       prepare: seedWorkspace({
-        personal: {
+        harnessHome: {
           'config.yaml': [
             '- id: workspace-context',
             '  disabled: true',

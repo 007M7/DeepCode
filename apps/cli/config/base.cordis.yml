@@ -1,7 +1,7 @@
 # The shared `dsh` core: every row both the TUI (`tui.cordis.yml`) and the web
 # surface (`web.cordis.yml`) mount identically. Neither surface includes the
 # other — each is a patch list applied over THIS file at one include level, so a
-# surface overlay, a `--config` overlay, and the personal `~/.dsh/config.yaml`
+# surface overlay and an explicit `--config` overlay
 # all address these rows by id. Patch lists stack in that order, last write
 # winning per row.
 #
@@ -22,7 +22,7 @@
   config:
     root: ['.']
 
-# `$DSH_HOME/config.yaml` replaces this row's config to select exact GitHub
+# A `--config` overlay replaces this row's config to select exact GitHub
 # repository Plugin generations. The app registers the DSH-owned runtime even
 # when the list is empty so a later personal-config edit can load
 # transactionally; one-shot headless runs consume the startup value only.

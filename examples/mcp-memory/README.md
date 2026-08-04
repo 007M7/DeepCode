@@ -42,7 +42,7 @@ dsh --config "${DSH_HOME:-$HOME/.dsh}/memory.cordis.yml"
 
 Replace `memorix.cordis.yml` in the URL with either of the other filenames to select it. Review a downloaded overlay before running it: Cordis configuration can contain executable `!!js` expressions.
 
-To keep the selection in personal configuration, merge the chosen file's single `insert` patch into `$DSH_HOME/config.yaml` (normally `~/.dsh/config.yaml`). Do not copy over an existing file: it may already contain unrelated personal patches.
+To keep the selection across runs, merge the chosen file's single `insert` patch into your own overlay and name it on every launch (`dsh --config ~/.dsh/mcp.yml`). Do not copy over an existing overlay: it may already contain unrelated patches.
 
 ## Provider setup
 

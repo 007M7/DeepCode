@@ -107,8 +107,9 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       expect(stdout).toContain('# == tui.cordis.yml')
     }, 30_000)
 
-    it('layers the personal overlay in --dump-config and reports an unmatched patch on stderr', async () => {
-      writeFileSync(join(home, 'config.yaml'), [
+    it('layers a --config overlay in --dump-config and reports an unmatched patch on stderr', async () => {
+      const overlay = join(home, 'overlay.yml')
+      writeFileSync(overlay, [
         '- id: agent-loop',
         '  config:',
         '    agents:',
@@ -120,16 +121,19 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
         '    value: 1',
         '',
       ].join('\n'))
-      const { stdout, code, stderr } = await runBuiltBin(['--dump-config'], { DSH_HOME: home })
+      const { stdout, code, stderr } = await runBuiltBin(['--dump-config', '--config', overlay], { DSH_HOME: home })
       expect(code).toBe(0)
       expect(stdout).toContain('provider: custom-provider')
       expect(stdout).not.toContain('model: deepseek-v4-pro')
-      // The personal layer appears in the patched row's provenance and the
+      // The named layer appears in the patched row's provenance and the
       // skipped-patch warning carries its label.
-      expect(stdout).toContain(`patched by tui.cordis.yml, ${join(home, 'config.yaml')}`)
+      expect(stdout).toContain(`patched by tui.cordis.yml, ${overlay}`)
       expect(stderr).toContain('patch: entry "only-on-web" not found')
 
-      // The shipped view ignores the personal overlay entirely.
+      // An unnamed dump composes the shipped tree only: a file sitting in the
+      // Harness home is not a layer any more.
+      const unnamed = await runBuiltBin(['--dump-config'], { DSH_HOME: home })
+      expect(unnamed.stdout).not.toContain('custom-provider')
       const shipped = await runBuiltBin(['--dump-default-config'], { DSH_HOME: home })
       expect(shipped.stdout).not.toContain('custom-provider')
       expect(shipped.stdout).toContain('model: deepseek-v4-pro')

@@ -16,8 +16,8 @@ import { Command, CommanderError } from 'commander'
 
 /**
  * Interactive TUI: the default mode. `--config` applies an overlay over the
- * shipped composition in place of the personal one, `--config-replace` boots a
- * file as the whole tree instead, and `--resume <id>` rehydrates a session.
+ * shipped composition, `--config-replace` boots a file as the whole tree
+ * instead, and `--resume <id>` rehydrates a session.
  */
 interface TuiInvocation {
   mode: 'tui'
@@ -28,40 +28,49 @@ interface TuiInvocation {
 
 /**
  * Print the composed config tree and exit, without booting: `--dump-config`
- * composes the shipped base, the surface overlay, and the `--config` or
- * personal overlay — exactly the layers that surface would boot;
- * `--dump-default-config` stops at the surface overlay (the shipped tree, no
- * user layer).
+ * composes the shipped base, the surface overlay, and any `--config` overlay —
+ * exactly the layers that surface would boot; `--dump-default-config` stops at
+ * the surface overlay (the shipped tree, no user layer).
  */
 interface DumpConfigInvocation {
   mode: 'dump-config'
   surface: 'tui' | 'web'
-  /** Omit the `--config`/personal layer and print only the shipped composition. */
+  /** Omit the `--config` layer and print only the shipped composition. */
   defaultOnly: boolean
-  /** The `--config` overlay to compose instead of the personal one. */
+  /** The `--config` overlay to compose over the shipped tree. */
   config?: string
 }
 
-/** Headless one-shot: `dsh -p "task"`. */
+/**
+ * Headless one-shot: `dsh -p "task"`. `--config` and `--config-replace` mean
+ * exactly what they mean for the TUI, so an automated run can name its
+ * composition instead of depending on whatever the machine happens to hold.
+ */
 interface HeadlessInvocation {
   mode: 'headless'
   prompt: string
+  config?: string
+  configReplace?: string
 }
 
-/** Interactive fresh TUI over this harness checkout; accepts no default-surface options, only the experimental gate. */
+/** Interactive fresh TUI over this harness checkout; takes the composition flags and the experimental gate. */
 interface MetaInvocation {
   mode: 'meta'
+  config?: string
+  configReplace?: string
 }
 
 /**
  * Guided fresh-session entry: `dsh upgrade` seeds the first turn
- * with the `dsh-upgrade` skill. It always mints a
- * fresh session in the invoking directory and takes no options beyond the
- * experimental gate — `--resume`, `--config`, and `-p` are rejected as
- * mistyped, so there is nothing to carry.
+ * with the `dsh-upgrade` skill. It always mints a fresh session in the
+ * invoking directory, so `--resume` and `-p` are rejected as mistyped; the
+ * composition flags are accepted because the update runs against whatever
+ * tree the caller names.
  */
 interface SkillSessionInvocation {
   mode: 'upgrade'
+  config?: string
+  configReplace?: string
 }
 
 /**
@@ -184,9 +193,9 @@ Examples:
     // subcommand without a positional collision.
     .option('-p, --prompt <task>', 'answer this task without the interactive UI, then exit')
     .option('--resume <id>', 'continue a past session by id')
-    .option('--config <path>', 'apply this overlay of loader patches instead of the personal one')
-    .option('--config-replace <path>', 'boot this file as the entire tree, ignoring the shipped and personal configuration')
-    .option('--dump-config', 'print the composed config tree (base + surface + --config/personal overlay) and exit')
+    .option('--config <path>', 'apply this overlay of loader patches over the shipped configuration')
+    .option('--config-replace <path>', 'boot this file as the entire tree, ignoring the shipped configuration')
+    .option('--dump-config', 'print the composed config tree (base + surface + --config overlay) and exit')
     .option('--dump-default-config', 'print the shipped config tree (base + surface overlay, no user layer) and exit')
     .action((options: {
       config?: string
@@ -208,23 +217,24 @@ Examples:
       }
       if (options.prompt !== undefined) {
         // A headless prompt owns the invocation; an empty task has nothing to
-        // run, and --config/--resume are TUI inputs that must not silently
-        // vanish from a headless run.
+        // run, and --resume is a TUI input that must not silently vanish from
+        // a one-shot run. The composition flags DO apply: naming a tree is how
+        // an automated run pins its composition.
         if (options.prompt === '') program.error('error: --prompt needs a task')
-        if (options.config !== undefined || options.configReplace !== undefined || options.resume !== undefined) {
-          program.error('error: --prompt takes no --config, --config-replace, or --resume')
+        if (options.resume !== undefined) program.error('error: --prompt takes no --resume')
+        assertOneConfigFlag(options)
+        resolved = {
+          mode: 'headless',
+          prompt: options.prompt,
+          ...options.config !== undefined && { config: options.config },
+          ...options.configReplace !== undefined && { configReplace: options.configReplace },
         }
-        resolved = { mode: 'headless', prompt: options.prompt }
         return
       }
       // An empty --resume= id would silently start a fresh session downstream
       // (agent-loop treats '' as no-resume), so a mistyped resume must fail loud.
       if (options.resume === '') program.error('error: --resume needs a session id')
-      // The two config flags are mutually exclusive: one layers over the shipped
-      // tree, the other discards it, so accepting both would silently drop one.
-      if (options.config !== undefined && options.configReplace !== undefined) {
-        program.error('error: --config and --config-replace are mutually exclusive')
-      }
+      assertOneConfigFlag(options)
       resolved = {
         mode: 'tui',
         ...options.config !== undefined && { config: options.config },
@@ -233,10 +243,27 @@ Examples:
       }
     })
 
+  /**
+   * The two config flags are mutually exclusive on every surface that takes
+   * them: one layers over the shipped tree, the other discards it, so
+   * accepting both would silently drop one.
+   * @param options - the parsed options of the surface being resolved.
+   */
+  function assertOneConfigFlag(options: { config?: string; configReplace?: string }): void {
+    if (options.config !== undefined && options.configReplace !== undefined) {
+      program.error('error: --config and --config-replace are mutually exclusive')
+    }
+  }
+
+  /** The composition flags every booting surface registers, in one place so their help text cannot drift. */
+  const withConfigFlags = (command: Command): Command => command
+    .option('--config <path>', 'apply this overlay of loader patches over the shipped configuration')
+    .option('--config-replace <path>', 'boot this file as the entire tree, ignoring the shipped configuration')
+
   // Commander parses the parent (default-surface) options on either side of a
-  // subcommand into `program.opts()`. For a subcommand that shares none of them,
-  // a leaked config/prompt/resume option is a mistyped invocation that must fail
-  // loud rather than silently run and drop the input.
+  // subcommand into `program.opts()`. A subcommand takes its own flags after
+  // its own name, so a leaked parent config/prompt/resume option is a mistyped
+  // invocation that must fail loud rather than silently run and drop the input.
   const rejectParentOptions = (command: string): void => {
     const parent = program.opts<{
       config?: string
@@ -267,14 +294,18 @@ Examples:
   // come last. `upgrade` is a guided fresh-session entry: beyond the
   // experimental gate it takes no options and always mints a fresh session,
   // so nothing is left to carry.
-  program
-    .command('upgrade')
+  withConfigFlags(program.command('upgrade'))
     .description('update this dsh installation to the latest version (experimental)')
     .option('--experimental', 'acknowledge this subcommand is experimental')
-    .action((options: { experimental?: boolean }) => {
+    .action((options: { experimental?: boolean; config?: string; configReplace?: string }) => {
       rejectParentOptions('upgrade')
       requireExperimental('upgrade', options.experimental)
-      resolved = { mode: 'upgrade' }
+      assertOneConfigFlag(options)
+      resolved = {
+        mode: 'upgrade',
+        ...options.config !== undefined && { config: options.config },
+        ...options.configReplace !== undefined && { configReplace: options.configReplace },
+      }
     })
 
   // Host and port name no default: the CLI passes neither through when the flag
@@ -288,7 +319,7 @@ Examples:
     .option('--dev', 'mount the client-plugin HMR receiver (run pnpm run dev:web separately to rebuild bundles)')
     .option('--workspace-root <path>', 'parent directory for workspaces created from the browser UI')
     .option('--trusted-host <authority...>', 'extra authority the /api browser-trust fence accepts (host or host:port; repeatable)')
-    .option('--dump-config', 'print the composed config tree (base + web + --config/personal overlay) and exit')
+    .option('--dump-config', 'print the composed config tree (base + web + --config overlay) and exit')
     .option('--dump-default-config', 'print the shipped config tree (base + web overlay, no user layer) and exit')
     .action((options: WebOptions) => {
       rejectParentOptions('web')
@@ -300,14 +331,18 @@ Examples:
       resolved = resolveWeb(options)
     })
 
-  program
-    .command('meta')
+  withConfigFlags(program.command('meta'))
     .description('work on the dsh source that runs this command, from any directory (experimental)')
     .option('--experimental', 'acknowledge this subcommand is experimental')
-    .action((options: { experimental?: boolean }) => {
+    .action((options: { experimental?: boolean; config?: string; configReplace?: string }) => {
       rejectParentOptions('meta')
       requireExperimental('meta', options.experimental)
-      resolved = { mode: 'meta' }
+      assertOneConfigFlag(options)
+      resolved = {
+        mode: 'meta',
+        ...options.config !== undefined && { config: options.config },
+        ...options.configReplace !== undefined && { configReplace: options.configReplace },
+      }
     })
 
   try {

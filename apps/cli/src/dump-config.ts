@@ -1,7 +1,7 @@
 /**
  * `dsh --dump-config` / `dsh web --dump-config` — print the composed config
  * tree without booting: the shipped base, the surface overlay, and (unless
- * `--dump-default-config`) the `--config` or personal overlay, composed
+ * `--dump-default-config`) any `--config` overlay, composed
  * through the include's own patch algorithm so the printed tree is exactly
  * what that surface would mount. `!!js` expressions print verbatim,
  * unevaluated — the dump shows composition, not one process's environment.
@@ -10,16 +10,13 @@
  * @module @deepseek-ai/dsh/dump-config
  */
 
-import { basename, join } from 'node:path'
+import { basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   loadOverlayPatches,
-  loadPersonalPatches,
-  PERSONAL_CONFIG_FILENAME,
   renderConfigDump,
   type ConfigDumpLayer,
 } from '@deepseek-ai/dsh-app-boot'
-import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 
 const NAME = 'dsh'
 
@@ -36,25 +33,17 @@ const SURFACE_OVERLAYS = {
  * separator naming the file each section of rows comes from (and the layers
  * that patched it).
  * @param surface - which surface overlay to compose over the shared base.
- * @param defaultOnly - stop at the surface overlay (no `--config`/personal layer).
- * @param config - the `--config` overlay path composed instead of the personal
- * one, or `undefined` to use `$DSH_HOME/config.yaml`.
+ * @param defaultOnly - stop at the surface overlay (no `--config` layer).
+ * @param config - the `--config` overlay path to compose over the shipped
+ * tree, or `undefined` for the shipped composition alone.
  */
 export function runDumpConfig(surface: 'tui' | 'web', defaultOnly: boolean, config?: string): void {
   const overlay = SURFACE_OVERLAYS[surface]
   const layers: ConfigDumpLayer[] = [
     { label: basename(overlay), patches: loadOverlayPatches(NAME, overlay) },
   ]
-  if (!defaultOnly) {
-    if (config === undefined) {
-      const personal = loadPersonalPatches(NAME)
-      // The personal file may be absent; the shipped layers still print.
-      if (personal !== undefined) {
-        layers.push({ label: join(resolveDshHome(), PERSONAL_CONFIG_FILENAME), patches: personal })
-      }
-    } else {
-      layers.push({ label: config, patches: loadOverlayPatches(NAME, config) })
-    }
+  if (!defaultOnly && config !== undefined) {
+    layers.push({ label: config, patches: loadOverlayPatches(NAME, config) })
   }
   process.stdout.write(renderConfigDump(NAME, BASE_CONFIG, layers))
 }

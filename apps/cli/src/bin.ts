@@ -36,7 +36,7 @@ switch (invocation.mode) {
   }
   case 'headless': {
     const { runHeadless } = await import('./headless.ts')
-    await runHeadless(invocation.prompt)
+    await runHeadless(invocation.prompt, invocation.config, invocation.configReplace)
     break
   }
   case 'tui': {
@@ -51,12 +51,12 @@ switch (invocation.mode) {
   }
   case 'meta': {
     const { runTui, SOURCE_ROOT } = await import('./tui.ts')
-    await runTui(undefined, undefined, SOURCE_ROOT)
+    await runTui(invocation.config, undefined, SOURCE_ROOT, undefined, invocation.configReplace)
     break
   }
   case 'upgrade': {
     const { runTui } = await import('./tui.ts')
-    await runTui(undefined, undefined, undefined, `dsh-${invocation.mode}`)
+    await runTui(invocation.config, undefined, undefined, `dsh-${invocation.mode}`, invocation.configReplace)
     break
   }
   default:

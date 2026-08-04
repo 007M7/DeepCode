@@ -91,7 +91,7 @@ export function prepareWebRuntimeContext(ctx: Context, sourceRoot: string, mode:
  * @param workspaceRoot - parent directory for name-created workspaces, or `undefined` for the gateway's cwd fallback.
  * @param trustedHosts - extra authorities for the /api browser-trust fence, or `undefined` for the derived LAN literals alone.
  * @param config - an overlay of loader patches applied over the shipped web
- * composition instead of `$DSH_HOME/config.yaml`, or `undefined` to use the
+ * composition, or `undefined` to boot the
  * personal overlay; already parsed from `--config`.
  */
 export async function runWeb(
@@ -109,7 +109,6 @@ export async function runWeb(
     ...config !== undefined && { extraOverlayPath: resolveConfigPath(config, undefined) },
     dev,
     prepare: (ctx) => { prepareWebRuntimeContext(ctx, SOURCE_ROOT, mode) },
-    watchPersonalConfig: true,
     ...host !== undefined && { host },
     ...port !== undefined && { port },
     ...workspaceRoot !== undefined && { workspaceRoot },

@@ -42,7 +42,7 @@ dsh --config "${DSH_HOME:-$HOME/.dsh}/memory.cordis.yml"
 
 若要选择另外任一配置，请将 URL 中的 `memorix.cordis.yml` 替换为对应文件名。运行下载的 overlay 前，请先审阅其内容：Cordis 配置可以包含可执行的 `!!js` 表达式。
 
-如果要把所选配置保存在个人配置中，请将对应文件中的单个 `insert` patch 合并到 `$DSH_HOME/config.yaml`（通常是 `~/.dsh/config.yaml`）。不要覆盖已有文件，其中可能已经包含无关的个人 patch。
+如果要跨多次运行保留所选配置，请把对应文件中的单个 `insert` patch 合并到你自己的覆盖文件里，并在每次启动时点名它（`dsh --config ~/.dsh/mcp.yml`）。不要覆盖已有的覆盖文件，其中可能已经包含无关的 patch。
 
 ## 提供方设置
 

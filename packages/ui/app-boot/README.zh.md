@@ -13,10 +13,8 @@
 | `FAIL_LOUD_RELEASE_TIMEOUT_MS` | `installFailLoud` 等待其 `release` 回调的时长；卡住的 disposer 只会延迟致命退出，而不会取消它 |
 | `assertEntriesLoaded(ctx, binName)` | 树结算后，如果其中存在已启用但没有 fiber 的条目，则抛出异常，并以 Cordis 启动故障的形式报告每个未解析插件的名称 |
 | `assertEntriesActivated(ctx, binName)` | 先执行 `assertEntriesLoaded` 检查，再在 Loader 结算后等待每个已启用配置项；抛出的错误包含每个失败插件的原始错误堆栈，或每个等待中插件尚未解析的服务 |
-| `loadPersonalPatches(binName, dir?)` | 解析 Harness home 中可选的 `config.yaml`（默认使用 [`resolveDshHome()`](../../util/paths/README.md)：先取 `$DSH_HOME`，否则取 `~/.dsh`）：其顶层是一个 YAML 数组，内容为 include 的 `PatchOptions`（按 id 定位的配置覆盖、`insert` 列表，允许 `!!js`）；文件不存在时返回 `undefined`，文件不可读、不可解析或内容不是数组时抛出异常 |
-| `loadOverlayPatches(binName, file)` | 解析一份必需的 patch 列表文件，其形状与个人配置相同；读取或解析失败时抛出带标签的错误 |
-| `mountRootInclude(ctx, absoluteConfigPath, patches?)` | 挂载静态导入的 Include builtin，并保留个人配置 HMR（热模块替换）使用的确切根配置项 |
-| `watchPersonalPatches(ctx, options)` | 向现有 Cordis HMR 服务注册 `$DSH_HOME/config.yaml`；每次新增、变更或移除都会通过调用方的 `compose` 闭包（应用自有层围绕当前个人 overlay）以事务方式重新组合完整 patch 列表，并返回异步 disposer |
+| `loadOverlayPatches(binName, file)` | 解析一份必需的 patch 列表文件（surface overlay 或 `--config` 文件）；读取或解析失败时抛出带标签的错误 |
+| `mountRootInclude(ctx, absoluteConfigPath, patches?)` | 挂载静态导入的 Include builtin，作为本次启动的根配置项 |
 | `boot(binName, absoluteConfigPath, patches?, prepare?)` | 创建根上下文，向 Loader `!!js` 配置表达式暴露 `dshHomePath(...segments)` 并安装 Loader，在配置树条目挂载前执行可选的宿主准备操作（`prepare` 可以使用 Loader，也可以提供由启动器拥有的上下文插槽，例如 [`MAIN_SESSION_ID_KEY`](../tui/README.md)），再挂载并等待 include 树结算，断言所有条目均已加载并激活，最后返回根上下文——失败时 dispose（资源释放）部分构造的上下文，并以带标签的错误 reject |
 | `renderConfigDump(binName, absoluteConfigPath, layers, warn?)` | 离线合成基础配置与带标签的覆盖层——使用 include 自己的解析器和补丁算法（`entryListSchema`/`applyEntryPatches`），因此结果与 `boot()` 挂载的内容一致——并渲染为 YAML，`!!js` 表达式原样保留；每段来源相同的连续行之前都有一条 `# ==` 注释，标明贡献该段的文件以及修补过它的层，输出仍是一份可加载的文档；未匹配到行的补丁连同其层标签交给 `warn`（默认：一行 stderr），读取／解析／形状失败则抛出 |
 | `addHarnessSourceSection(ctx, sourceRoot)` | 添加全局 `harness:source` 提示词段落（顺序紧随 harness 身份、位于 persona 之前），告知 agent（智能体）DSH 实现代码 checkout 的磁盘路径，同时提醒它不得据此推断当前工作目录，而应使用 `pwd`；如果已启动树没有此项服务，则不执行操作并返回 `undefined`。这里的服务是 `systemPrompt`；该段落注册到它的 fiber，因此开发环境 HMR（热模块替换）重新加载系统提示词后，它会消失直至下次启动 |
@@ -30,17 +28,15 @@ Loader 并发挂载各个条目，因此当其他环节失败时，某个界面�
 
 此包不包含 loader 钩子，也不提供开发模式接口。[`dsh` 应用](../../../apps/cli/README.md)持有自己的 Node 源码启动钩子，并在启动序列中使用这些 helper；构建后的消费方仍使用普通 Node 包解析。
 
-## 个人配置
+## Harness home
 
-开发者的机器本地偏好位于所有仓库之外的 Harness home 中（默认 `~/.dsh`，可由 `$DSH_HOME` 覆盖；统一由根级 [`resolveDshHome`](../../util/paths/README.md) 解析），并由 `dsh` CLI（命令行界面）的 TUI、Web 和无头界面（[`apps/cli`](../../../apps/cli/README.md)）使用；demo bin 会原样启动仓库中提交的树。这里有两个可选文件：
+开发者的机器本地状态位于所有仓库之外的 Harness home 中（默认 `~/.dsh`，可由 `$DSH_HOME` 覆盖；统一由根级 [`resolveDshHome`](../../util/paths/README.md) 解析）。本包从中读取的只有一个文件：
 
 - **`.env`**：用户的普通环境层，由 `dsh` bin 经 `loadLayeredEnv` 加载，位于调用目录的 `.env` 与继承环境之下。它是具有普通环境作用域的普通环境值，而不是密钥边界：由 Harness 拥有并隔离的东西放在 `.credentials.yaml` 里，后者不会被任何表层提升。因此放进本文件的密钥仍然可以解析——但会作为只读的 `env` 层遮蔽已存储的那一份，并阻断从 TUI 与 Web 页面轮换密钥。
-- **`config.yaml`**：在发布的默认配置上应用 Loader overlay patch，语义与交付的 surface overlay 相同：按 id 定位的 patch 会替换对应条目的整个 `config`（未改字段也要重述），`insert` 会添加条目，`!!js` 表达式则在挂载时插值。如果 patch 指定的条目 id 不在已启动树中，则静默不执行任何操作。空文件或仅含注释的文件会抛出异常（其解析结果为空，而不是列表）；如需禁用 overlay，请使用 `[]` 或删除该文件。
 
-TUI 和 Web 会持续应用 `config.yaml` 的变更，具体由 `watchPersonalPatches` 负责；一次性无头运行只读取启动时的值。即使该文件或其直接父目录不存在，watcher 仍会监视确切的个人配置路径；它会串行处理突发变更，并按调用方的层次顺序重新组合个人 patch（surface overlay 在下、应用生成的 patch 在上）。读取失败、解析失败或 Loader 候选被拒时，最后一个可用树会继续运行；HMR 服务记录错误后广播 `hmr/config-update-failed(filename, Error)`，并隔离 observer 失败。上下文 dispose 时会关闭 watcher，并等待进行中的刷新结束。
+不存在会被自动发现的组合文件。Loader overlay 只有被点名才会抵达某个界面：`dsh --config <path>` 在已交付配置树上叠加一个 patch 列表，`dsh --config-replace <path>` 则用它取代整棵树，两者在每个会启动的界面上都可用。把 overlay 放在 `~/.dsh` 里没有问题——那只是一个位置，不是一层，启动时不点名就不会加载它（[依据](../../../.agents/notes/implemented/simplification/2026-08-04-remove-personal-composition-layer.md)）。
 
-子进程测试 launcher 会把 `DSH_HOME` 指向逐测试隔离的目录，确保开发者的个人 overlay 不会泄漏到 fixture（测试前置数据）中。
-
+子进程测试启动器会把 `DSH_HOME` 指向每个测试独立的目录，因此开发者自己的文件绝不会泄漏进 fixture。
 ## 模型体验
 
 模型通过此包加载的插件树间接受到影响；该树决定最终应用中的提示词、schema、消息和模型适配器。唯一贡献模型可见文本的导出 `addHarnessSourceSection`，也只有在消费方启动后调用它时才会产生影响。
@@ -54,4 +50,4 @@ TUI 和 Web 会持续应用 `config.yaml` 的变更，具体由 `watchPersonalPa
 - **裸包 specifier 依赖 Loader 内部机制**：生产 bin 需要 Loader 的可选原生 helper；没有该 helper 的进程内调用方必须使用可解析的相对／file specifier，或提供自己的模块解析钩子。
 - **快照回放替换仅识别特定 basename**：只有以 `cordis.yml` 或 `cordis.yaml` 结尾的配置会映射到同级 `cordis.snapshot.yml`；自定义配置名称需要调用方自行选择。
 - **环境加载按目录划分且为可选操作**：每一层都是一个指定目录下的 `.env`，失败时发出警告；两个 helper 都不会搜索父目录，也不验证必需变量。`loadLayeredEnv` 的两层固定为调用目录与 Harness home，需要其他层次的调用方请自行组合 `loadEnv`。
-- **个人配置采用 patch 形式**：按 id 定位的 patch 会替换条目的整个 `config`，而不是深度合并，因此个人覆盖必须重述需要保留的基础字段。
+- **overlay 采用 patch 形式**：按 id 定位的 patch 会替换条目的整个 `config`，而不是深度合并，因此覆盖必须重述需要保留的基础字段。

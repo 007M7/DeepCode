@@ -17,7 +17,7 @@ Status: implemented
 **个人配置（`dsh-app-boot`）。** 个人 overlay 存放在 Harness home——`$DSH_HOME`，否则 `~/.dsh`——由共享的 [`resolveDshHome`](../architecture/2026-07-24-single-harness-home-resolver.md)（`@deepseek-ai/dsh-paths`）解析，与 skills、AGENTS.md 解析所依据的单一根目录相同。dsh 的 TUI、Web 和无头界面使用其中两个可选文件；各示例 bin 仍然逐字节按已提交的配置树启动：
 
 - `.env`——在调用目录的 `.env` 之后加载；`process.loadEnvFile` 从不覆盖已有值，因此优先级为环境变量 > 项目 `.env` > 个人 `.env`。
-- `config.yaml`——顶层 YAML 数组，元素为 `@cordisjs/plugin-include` 的 `PatchOptions`，用 include 自己的 `!!js` 方言解析（`loadPersonalPatches`）并传给 `boot()`，由它作为根 include 的 `patches` 转发。补丁语义与交付的 surface overlay 一致：按 id 定位的补丁替换该配置项的整个 `config`，`insert` 追加配置项，未匹配的 id 静默不执行任何操作。[仓库插件集成](2026-07-30-config-only-repository-plugins.md)通过一个已交付配置项，使精确 GitHub 源列表成为纯配置选择。
+- `config.yaml`——[已随个人 composition 层一并删除](../simplification/2026-08-04-remove-personal-composition-layer.md)；它存在期间是顶层 YAML 数组，元素为 `@cordisjs/plugin-include` 的 `PatchOptions`，用 include 自己的 `!!js` 方言解析（`loadPersonalPatches`）并传给 `boot()`，由它作为根 include 的 `patches` 转发。补丁语义与交付的 surface overlay 一致：按 id 定位的补丁替换该配置项的整个 `config`，`insert` 追加配置项，未匹配的 id 静默不执行任何操作。[仓库插件集成](2026-07-30-config-only-repository-plugins.md)通过一个已交付配置项，使精确 GitHub 源列表成为纯配置选择。
 - 文件缺失即无 overlay；文件存在但不可读、不可解析或非数组则在启动时抛出（配置错误响亮失败，绝不静默跳过）。
 
 PTY 冒烟测试的启动器把 `$DSH_HOME` 隔离到每个测试自己的目录，与它已有的 `DSH_AGENTS_HOME` 隔离方式完全一致，开发者真实的个人 overlay 不可能泄漏进 fixture；只有 dsh CLI 读取个人配置，因此其他测试启动器无需改动。
@@ -46,4 +46,4 @@ TUI 和 Web 启动后通过 Cordis HMR（热模块替换）注册确切的个人
 
 ## Testing
 
-`packages/ui/app-boot/tests/personal-config.spec.ts` 固定解析、启动时应用、确切路径的新增／失败／恢复／移除、最后可用状态回滚、失败广播以及应用自有 patch 的保留。`examples/tui-agent/tests/tui-keyless-smoke.e2e.ts` 启动真实 dsh bin，覆盖无 overlay、个人环境与 UI patch、纯配置的缓存 repository skill，以及无效个人 YAML。测试启动器会隔离 `$DSH_HOME`，因此开发者的真实 overlay 不会泄漏进 fixture。
+该 overlay 自己的 spec 曾固定解析、启动时应用、确切路径的新增／失败／恢复／移除、最后可用状态回滚、失败广播以及应用自有 patch 的保留；它已随该层一并删除。`apps/cli/tests/tui-keyless-smoke.e2e.ts` 仍然启动真实 dsh bin，覆盖无 overlay、点名 `--config` 的环境与 UI patch、纯配置的缓存 repository skill，以及无效的 overlay YAML。测试启动器会隔离 `$DSH_HOME`，因此开发者的真实 overlay 不会泄漏进 fixture。

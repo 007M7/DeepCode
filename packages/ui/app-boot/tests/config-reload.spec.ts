@@ -341,12 +341,12 @@ describe('include refresh with overlay patches', () => {
 
 describe('include patches layered over one base', () => {
   it('lets a later patch configure or disable a row an earlier patch inserted', async () => {
-    // The surface/`--config`/personal composition: `dsh` includes one shared
-    // base and applies each source as its own patch list at the SAME include
-    // level, because patches never cross an include boundary. A later layer
-    // must therefore be able to reach a row an earlier layer inserted —
-    // otherwise every surface-only row (the whole TUI front door) would be
-    // invisible to the user's `~/.dsh/config.yaml`.
+    // The surface/`--config` composition: `dsh` includes one shared base and
+    // applies each source as its own patch list at the SAME include level,
+    // because patches never cross an include boundary. A later layer must
+    // therefore be able to reach a row an earlier layer inserted — otherwise
+    // every surface-only row (the whole TUI front door) would be invisible to
+    // the user's `--config` overlay.
     const dir = mkdtempSync(join(tmpdir(), 'dsh-config-layered-'))
     writeFileSync(join(dir, 'noop.mjs'), NOOP_PLUGIN)
     writeFileSync(join(dir, 'base.yml'), '- id: shared\n  name: ./noop.mjs\n  config:\n    value: base\n')
@@ -370,7 +370,7 @@ describe('include patches layered over one base', () => {
       // Layer 2 (the user): reconfigure one inserted row and disable the other.
       '      - id: surface-kept',
       '        config:',
-      '          value: personal',
+      '          value: user',
       '      - id: surface-dropped',
       '        disabled: true',
       '',
@@ -378,7 +378,7 @@ describe('include patches layered over one base', () => {
     const ctx = await boot(NAME, join(dir, 'cordis.yml'))
     try {
       expect(entryConfig(ctx, 'shared')).toEqual({ value: 'surface' })
-      expect(entryConfig(ctx, 'surface-kept')).toEqual({ value: 'personal' })
+      expect(entryConfig(ctx, 'surface-kept')).toEqual({ value: 'user' })
       const dropped = [...ctx.loader.entries()].find(entry => entry.options.id === 'surface-dropped')
       expect(dropped?.options.disabled).toBe(true)
       expect(dropped?.fiber).toBeUndefined()

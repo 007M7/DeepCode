@@ -7,11 +7,11 @@ Argv 只会通过 [Commander](https://github.com/tj/commander.js) 适配器（[`
 
 TUI 界面：
 
-- 通过 [`dsh-app-boot`](../../packages/ui/app-boot/README.md) 启动 `base.cordis.yml` 与 `tui.cordis.yml`；`--config <path>` 应用一个补丁列表覆盖并替代个人覆盖，而 `--config-replace <path>` 将指定文件作为完整配置树启动；
+- 通过 [`dsh-app-boot`](../../packages/ui/app-boot/README.md) 启动 `base.cordis.yml` 与 `tui.cordis.yml`；`--config <path>` 在该树之上应用一个补丁列表覆盖，而 `--config-replace <path>` 将指定文件作为完整配置树启动；每个会启动的界面都接受这两个标志；
 - 使用 `dsh --resume <session-id>` 恢复已持久化会话。当 Node 宿主公开 `process.execve` 时，还会提供 TUI 的原地移交宿主：选择器预检并刷新当前会话后，宿主会释放应用，并以规范化的恢复调用替换进程；不支持进程替换的运行时会让会话继续运行并给出提示。会话身份与退出行由本 CLI 拥有，而非由配置指定：它创建或选定 `main` 会话 id，并把该 id 以及可复现本次调用的确切命令一起提供到启动上下文（[`MAIN_SESSION_ID_KEY`](../../packages/ui/tui/README.md) 与 `TUI_GOODBYE_MESSAGE_KEY`）。任何 `cordis.yml` 键都无法移除恢复能力；缺失或无法读取的 id 会明确报错，而不会创建新会话；
 - 将 **调用目录** 视为 workspace：会话、相对路径和 workspace 指令都从 cwd 解析（`dsh meta` 是唯一例外，见下文）；
 - 告知 agent 自身源码所在位置：启动后添加一个命名此 harness checkout 的提示词段。该路径从启动器的真实路径解析，因此在 PATH 符号链接和任意 cwd 下仍然有效，使自指的 `cordis` 工具集可以读取并修改它；
-- 应用 `~/.dsh` 中的个人覆盖（参见 [app-boot 的个人配置](../../packages/ui/app-boot/README.md#personal-config)）：`config.yaml` 修补已启动的树，而那里的 `.env` 是凭据 provider 自己的存储（绝不会被提升进环境，因此密钥始终可轮换）。环境优先级为环境中已有的值 > 项目 `.env`。已交付配置树中的 Cordis HMR 会持续应用 `config.yaml` 的变更；显式 `--config` 配置树会替代该个人覆盖，未包含 HMR 的配置树只在启动时读取该文件。
+- 只把 Harness home（`~/.dsh`）当作用户状态来读取（参见 [app-boot 的 Harness home](../../packages/ui/app-boot/README.md#the-harness-home)）：`.env` 是用户环境层，`.credentials.yaml` 是凭据 provider 自己的存储，绝不会被提升进环境，因此密钥始终可轮换。环境优先级为环境中已有的值 > 项目 `.env` > 用户 `.env`。那里不会发现任何 composition 文件：overlay 只能通过 `--config` 抵达一次启动。
 - 当 `DSH_HOME` 下不存在不可变确认标记时，通过已挂载的 TUI overlay 服务呈现[版本化首次运行欢迎页](../../.agents/notes/implemented/feature/2026-07-30-versioned-tui-first-run-welcome.md)；只有 Enter 会创建该版本的标记，Escape、资源释放或进程退出仍保留展示资格。官方 DeepSeek 图标、响应式终端栅格图、所有 locale 共用的中文文案和通知版本均由静态本地文件持有；overlay 不会写入会话事件或模型上下文。
 - 注册裸 `/compact`：agent 空闲时，即使未达到自动压力，也会摘要有效的较早历史；该命令拒绝参数，并只在独立替换标记对持久化后报告成功。压缩（compaction）期间提交的提示词保留其队列身份，并在该检查点之后启动；注入的上下文仍保持可见。
 
@@ -19,13 +19,13 @@ TUI 界面：
 
 `dsh upgrade` 是默认 TUI 界面之上的引导式全新会话入口：它在调用目录中创建一个全新会话，并以内置 `dsh-upgrade` skill 播种其首轮，效果等同于用户手动键入 `/skill:<name>`。启动器将 skill 名称提供到启动上下文（[`INITIAL_SKILL_KEY`](../../packages/ui/tui/README.md)），TUI 在聊天就绪后自动调用它。该命令除实验性门槛外不接受任何选项——`--config`、`-p`、`--resume` 都会明确报错——且仅在首次启动时播种，因此之后 `dsh --resume <id>` 恢复该会话时是普通 TUI 会话，不会重复注入。
 
-`dsh --dump-config` 和 `dsh web --dump-config` 把合成后的配置树——已交付的基础配置、界面覆盖层，以及 `--config` 或个人覆盖层，恰好是该界面启动时组装的那些层——以 YAML 打印到 stdout 后退出，不启动任何东西；`--dump-default-config` 止步于界面覆盖层，因此对两份输出做 diff 就能精确看出用户层改了什么。每段连续的行之前都有一条 `# ==` 注释，标明该段来自哪个文件以及被哪些层修补过（例如 `# == base.cordis.yml, patched by tui.cordis.yml`），因此输出既展示来源，又仍是一份可加载的文档。合成通过 include 自己的补丁算法和 YAML 方言（`@cordisjs/plugin-include` 的 `applyEntryPatches`/`entryListSchema`）完成，因此 dump 不可能与实际启动漂移；`!!js` 表达式原样打印、不求值，目标行不存在的补丁会连同其所在层报到 stderr，与 Loader 启动时的警告一致。由启动器持有的启动上下文值（会话身份、CLI 标志补丁）是每次调用的事实，位于配置树之外，不会出现。dump 标志会拒绝仅用于启动的标志（`-p`、`--resume`、`--config-replace`）而不是静默忽略它们，`--dump-default-config` 不接受 `--config`。
+`dsh --dump-config` 和 `dsh web --dump-config` 把合成后的配置树——已交付的基础配置、界面覆盖层，以及任何 `--config` 覆盖层，恰好是该界面启动时组装的那些层——以 YAML 打印到 stdout 后退出，不启动任何东西；`--dump-default-config` 止步于界面覆盖层，因此对两份输出做 diff 就能精确看出用户层改了什么。每段连续的行之前都有一条 `# ==` 注释，标明该段来自哪个文件以及被哪些层修补过（例如 `# == base.cordis.yml, patched by tui.cordis.yml`），因此输出既展示来源，又仍是一份可加载的文档。合成通过 include 自己的补丁算法和 YAML 方言（`@cordisjs/plugin-include` 的 `applyEntryPatches`/`entryListSchema`）完成，因此 dump 不可能与实际启动漂移；`!!js` 表达式原样打印、不求值，目标行不存在的补丁会连同其所在层报到 stderr，与 Loader 启动时的警告一致。由启动器持有的启动上下文值（会话身份、CLI 标志补丁）是每次调用的事实，位于配置树之外，不会出现。dump 标志会拒绝仅用于启动的标志（`-p`、`--resume`、`--config-replace`）而不是静默忽略它们，`--dump-default-config` 不接受 `--config`。
 
-Web 和无头界面启动 `base.cordis.yml` 与 `web.cordis.yml`，随后应用 `$DSH_HOME/config.yaml`；显式的 `--config <path>` 会替代该个人覆盖。除此之外，两者共享同一套组合：两者都会告知编码 agent 所用模型和会话工作目录，将调用目录视为默认项目和 Workspace 根目录，除非通过 `--workspace-root <path>` 覆盖，否则会在该根目录下创建具名 Workspace；它们会把适用的 `AGENTS.md`/`CLAUDE.md` 指令加载到每个 agent-loop 请求前缀中，渲染预算为 65,536 字节，选用首条消息模型标题，采用与 TUI 相同的有界暂时性模型请求重试策略，并挂载一个可丢弃的内存 SQLite 内容索引服务。Web 还会明确说明交互界面是 DeepSeek Harness Web GUI、当前 checkout 是自身源码位置，并在提示词及受管的 `$DSH_WEB_URL`/`$DSH_WEB_MODE` 中提供该进程的规范本地 URL 和模式；因此，「这个页面」等表述会指向该 GUI，但 agent 不会声称可以访问未显式提供的 DOM、路由或截图状态。在生产模式下，宿主会在下次请求时读取重新构建的前端 dist 和客户端 bundle，因此刷新现有 URL 即可更新该 GUI，无须替换其进程。`dsh web --dev` 会挂载客户端插件的 HMR（热模块替换）接收端，但要实现无刷新更新，还需在同一 checkout 中运行 `pnpm run dev:web`，以监视并重新构建插件 bundle；shell 和普通包（package）的更改仍需重新构建并刷新页面。直接使用裸 `apps/web` Vite 服务会在开始监听前失败，因为它无法注入 `window.__DSH_BOOT__`。索引服务在启动时处于 ACTIVE 状态，但其 `node:sqlite` 模块与数据库句柄分别要到首次内容搜索才会导入和打开。这样可使 Node 22 在尚未使用搜索时的启动输出不出现 SQLite 实验性警告；首次实际搜索仍可能发出运行时警告。每个服务实例独占自己的数据库，因此并行调用既不会共享不受支持的 SQLite 状态，也不会留下派生索引文件，首次搜索还会惰性对账实时日志与持久化日志。无头界面唯一的差异是监听操作系统分配的端口（并行 `dsh -p` 运行绝不冲突；stderr 打印的 URL 会在浏览器中打开实时会话）。两者都需要先构建前端 dist 和客户端 bundle（`pnpm run build && pnpm run build:web`）。
+Web 和无头界面启动 `base.cordis.yml` 与 `web.cordis.yml`，随后应用任何 `--config <path>` 覆盖。除此之外，两者共享同一套组合：两者都会告知编码 agent 所用模型和会话工作目录，将调用目录视为默认项目和 Workspace 根目录，除非通过 `--workspace-root <path>` 覆盖，否则会在该根目录下创建具名 Workspace；它们会把适用的 `AGENTS.md`/`CLAUDE.md` 指令加载到每个 agent-loop 请求前缀中，渲染预算为 65,536 字节，选用首条消息模型标题，采用与 TUI 相同的有界暂时性模型请求重试策略，并挂载一个可丢弃的内存 SQLite 内容索引服务。Web 还会明确说明交互界面是 DeepSeek Harness Web GUI、当前 checkout 是自身源码位置，并在提示词及受管的 `$DSH_WEB_URL`/`$DSH_WEB_MODE` 中提供该进程的规范本地 URL 和模式；因此，「这个页面」等表述会指向该 GUI，但 agent 不会声称可以访问未显式提供的 DOM、路由或截图状态。在生产模式下，宿主会在下次请求时读取重新构建的前端 dist 和客户端 bundle，因此刷新现有 URL 即可更新该 GUI，无须替换其进程。`dsh web --dev` 会挂载客户端插件的 HMR（热模块替换）接收端，但要实现无刷新更新，还需在同一 checkout 中运行 `pnpm run dev:web`，以监视并重新构建插件 bundle；shell 和普通包（package）的更改仍需重新构建并刷新页面。直接使用裸 `apps/web` Vite 服务会在开始监听前失败，因为它无法注入 `window.__DSH_BOOT__`。索引服务在启动时处于 ACTIVE 状态，但其 `node:sqlite` 模块与数据库句柄分别要到首次内容搜索才会导入和打开。这样可使 Node 22 在尚未使用搜索时的启动输出不出现 SQLite 实验性警告；首次实际搜索仍可能发出运行时警告。每个服务实例独占自己的数据库，因此并行调用既不会共享不受支持的 SQLite 状态，也不会留下派生索引文件，首次搜索还会惰性对账实时日志与持久化日志。无头界面唯一的差异是监听操作系统分配的端口（并行 `dsh -p` 运行绝不冲突；stderr 打印的 URL 会在浏览器中打开实时会话）。两者都需要先构建前端 dist 和客户端 bundle（`pnpm run build && pnpm run build:web`）。
 
 共享组合把新建 TUI、Web 和无头会话的权限默认设为 `workspace-write` preset（`workspace-write` 文件模式加 `ask` 审批策略）。由沙箱强制约束的 bash 与文件系统修改只能写入会话工作区和平台临时根目录；读取、网络访问和进程可见性不受该策略约束。浏览器可以应答一次性审批请求，并提供 Access 选择器；TUI 提供 `/permission`，但没有审批请求应答者，因此自动请求更宽权限的重试会以拒绝方式关闭，直到用户主动更改会话 preset。`DSH_PERMISSION_MODE` 会更改进程回退值，而「通用」设置中已存储的「权限」值只适用于之后的会话，不会更改已打开的会话。
 
-三个界面都会使用 `$DSH_HOME/config.yaml`；TUI 和 Web 实时应用有效编辑，而一次性无头运行只在启动时读取。已交付的配置树包含一个空的 `repository-plugins` 配置项，因此独立用户无需 SDK 项目或安装命令，只需配置即可添加已准备的 GitHub 插件：
+每个界面都只在启动时读取自己的 `--config` 覆盖。已交付的配置树包含一个空的 `repository-plugins` 配置项，因此独立用户无需 SDK 项目或安装命令，只要点名一个覆盖文件（例如 `dsh --config ~/.dsh/plugins.yml`）即可添加已准备的 GitHub 插件：
 
 ```yaml
 - id: repository-plugins
@@ -53,7 +53,7 @@ pnpm run dsh web --config apps/cli/config/core-web.cordis.yml
 
 每个 `dsh` 界面——TUI、Web 与无头——都默认上报会话遥测（该行位于共享的 `base.cordis.yml`）：每条会话日志事件以 OTLP/HTTP 日志记录的形式、按 10 秒批处理节奏流向 `https://harness-telemetry.deepseeksvc.com/v1/logs`。`DSH_TELEMETRY_OTLP_URL` 可将 exporter 指向其他 collector；将 `DSH_TELEMETRY_DISABLED` 设为**任意非空值**——包括 `0` 或 `false`——都会在该行加载前将其关停（隐私开关取「宁可误关、不可误开」）。该组合当前未挂载任何脱敏规则：导出记录即原始捕获副本，包含消息正文、工具参数与结果、以及会话工作目录路径。部署口径见 [web-telemetry-default-mount Agent Note](../../.agents/notes/implemented/feature/2026-07-31-web-telemetry-default-mount.md)。
 
-MCP 服务器不是交付默认值,因为默认值必须点名一台:`@deepseek-ai/dsh-mcp-client` 每一行只挂载一台服务器,并把它作为子进程 spawn,该进程不经 `ctx.bash`,因此也不受沙箱策略约束。该包是本 CLI 的运行时依赖,所以已安装的 `dsh` 无需源码检出即可从 `$DSH_HOME/config.yaml` 或 `--config` 覆盖层挂载你自己的服务器:
+MCP 服务器不是交付默认值,因为默认值必须点名一台:`@deepseek-ai/dsh-mcp-client` 每一行只挂载一台服务器,并把它作为子进程 spawn,该进程不经 `ctx.bash`,因此也不受沙箱策略约束。该包是本 CLI 的运行时依赖,所以已安装的 `dsh` 无需源码检出即可从 `--config` 覆盖层挂载你自己的服务器:
 
 ```yaml
 - insert:
