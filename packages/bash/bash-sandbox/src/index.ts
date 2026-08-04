@@ -61,7 +61,6 @@ export class SandboxBashExecutor extends LocalBashExecutor {
     denialSignatures: readonly string[]
     runnerFailureRules: readonly RunnerFailureRule[]
     runnerProgram: string | undefined
-    searchPath: string | undefined
     workdir: string
   }>()
 
@@ -100,7 +99,7 @@ export class SandboxBashExecutor extends LocalBashExecutor {
     } catch (error) {
       // An upstream abort remains cancellation even when it prevents spawn.
       if (spec.signal?.aborted === true) spec.signal.throwIfAborted()
-      if (isRunnerSpawnFailure(error, confined.argv[0], spec.workdir, spec.env?.PATH ?? process.env.PATH)) {
+      if (isRunnerSpawnFailure(error, confined.argv[0], spec.workdir)) {
         throw new SandboxUnavailableError(mode, String(error))
       }
       throw error
@@ -118,9 +117,18 @@ export class SandboxBashExecutor extends LocalBashExecutor {
     const policy = spec.sandboxPolicy as SandboxExecutionPolicy
     const { mode } = policy
     if (mode === 'danger-full-access') return super.start(spec)
-    // Install facts synchronously; promise settlement cannot run before start() returns.
+    // Once startArgv returns, install facts synchronously; promise settlement
+    // cannot run before start() returns.
     const confined = this.confine(spec.command, { ...policy, mode })
-    const proc = this.startArgv(spec, confined.argv)
+    let proc: BashProcess
+    try {
+      proc = this.startArgv(spec, confined.argv)
+    } catch (error) {
+      if (isRunnerSpawnFailure(error, confined.argv[0], spec.workdir)) {
+        throw new SandboxUnavailableError(mode, String(error))
+      }
+      throw error
+    }
     const { enforcement, denialSignatures, runnerFailureRules } = confined
     this.processFacts.set(proc, {
       mode,
@@ -128,7 +136,6 @@ export class SandboxBashExecutor extends LocalBashExecutor {
       denialSignatures,
       runnerFailureRules,
       runnerProgram: confined.argv[0],
-      searchPath: spec.env?.PATH ?? process.env.PATH,
       workdir: spec.workdir,
     })
     return proc
@@ -145,7 +152,7 @@ export class SandboxBashExecutor extends LocalBashExecutor {
       // A rejected spawn never started the confined launch. Otherwise runner
       // failure outranks denial because its diagnostics may contain denial terms.
       const runnerFailed = spawnFailed
-        ? isRunnerSpawnFailure(spawnError, facts.runnerProgram, facts.workdir, facts.searchPath)
+        ? isRunnerSpawnFailure(spawnError, facts.runnerProgram, facts.workdir)
         : classifyRunnerFailure(proc.exitCode, stderr, facts.runnerFailureRules) !== undefined
       proc.sandbox = {
         mode: facts.mode,

@@ -8,7 +8,8 @@ const MISSING_RUNNER_ENV = 'DSH_SNAPSHOT_MISSING_SANDBOX_RUNNER'
 /**
  * Snapshot-only provider for deterministic runner classification. Its default
  * launch reproduces older-ABI Landlock; an explicit scenario flag selects a
- * missing executable under the valid workspace cwd.
+ * missing executable under the valid workspace cwd. Keep the Landlock tuple
+ * aligned with `RUNNER_FAILURE_RULES` in `packages/sandbox/sandbox-local/src/index.ts`.
  */
 export default class PartialLandlockSandboxProvider extends SandboxProvider {
   confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv {

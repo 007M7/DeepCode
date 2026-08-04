@@ -79,11 +79,14 @@ async function setupConfiguredRunner(runner: string): Promise<SandboxBashExecuto
 }
 
 describe('partial Landlock runner-failure classification', () => {
-  it.each(['missing', 'unexecutable'] as const)('classifies a %s configured runner through the direct spawn error channel', async (kind) => {
+  it.each(['missing', 'unexecutable', 'missing-interpreter'] as const)('classifies a %s configured runner through the direct spawn error channel', async (kind) => {
     const dir = await mkdtemp(join(tmpdir(), 'dsh-unusable-sandbox-runner-'))
     tempDirs.push(dir)
     const runner = join(dir, `${kind}-runner`)
     if (kind === 'unexecutable') await writeFile(runner, '#!/bin/sh\nexit 0\n', { mode: 0o644 })
+    if (kind === 'missing-interpreter') {
+      await writeFile(runner, '#!/dsh-definitely-missing-sandbox-interpreter\nexit 0\n', { mode: 0o755 })
+    }
     const bash = await setupConfiguredRunner(runner)
 
     const error = await bash.run(bash.resolve({ command: 'true' })).catch((value: unknown) => value)

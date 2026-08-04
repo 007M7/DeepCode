@@ -5,17 +5,16 @@
  */
 
 import { accessSync, constants, statSync } from 'node:fs'
-import { delimiter, resolve } from 'node:path'
 import type { BashRunResult } from '@deepseek-ai/dsh-bash'
 import type { RunnerFailureRule } from '@deepseek-ai/dsh-sandbox'
 
 /** Spawn codes that can describe an unavailable executable. */
 const EXECUTABLE_SPAWN_CODES = new Set(['EACCES', 'ENOENT', 'ENOEXEC', 'ENOTDIR', 'EPERM'])
 
-/** Whether one resolved path is a regular executable file. */
-function isExecutableFile(path: string): boolean {
+/** Whether the caller-owned spawn cwd can be entered. */
+function isUsableWorkdir(path: string): boolean {
   try {
-    if (!statSync(path).isFile()) return false
+    if (!statSync(path).isDirectory()) return false
     accessSync(path, constants.X_OK)
     return true
   } catch {
@@ -24,34 +23,27 @@ function isExecutableFile(path: string): boolean {
 }
 
 /**
- * Require positive runner evidence instead of treating every spawn rejection
- * as sandbox-owned. Node uses the same ENOENT/EACCES channel for unrelated
- * launch failures, so the provider executable must also be absent or unusable.
+ * Attribute only executable-class failures with Node spawn provenance after
+ * independently ruling out the caller-owned cwd. With a usable cwd, these
+ * codes describe resolution, permissions, or loading of the provider's
+ * argv[0], including a script whose shebang interpreter is unavailable.
  * @param error - the original spawn rejection.
  * @param runnerProgram - provider argv[0], the executable that establishes confinement.
- * @param workdir - the spawn cwd, used to resolve relative executable paths.
- * @param searchPath - the spawn environment's PATH value.
+ * @param workdir - the caller-owned spawn cwd, checked independently for usability.
  * @returns whether the rejection has executable-specific runner evidence.
  */
 export function isRunnerSpawnFailure(
   error: unknown,
   runnerProgram: string | undefined,
   workdir: string,
-  searchPath: string | undefined,
 ): boolean {
+  if (runnerProgram === undefined || !isUsableWorkdir(workdir)) return false
   if (typeof error !== 'object' || error === null) return false
-  const code = (error as { code?: unknown }).code
-  if (typeof code !== 'string' || !EXECUTABLE_SPAWN_CODES.has(code) || runnerProgram === undefined) return false
-
-  const isPath = runnerProgram.includes('/') || runnerProgram.includes('\\')
-  const pathEntries = isPath ? [''] : searchPath?.split(delimiter) ?? []
-  if (pathEntries.length === 0) return false
-  return pathEntries.every((entry) => {
-    const candidate = isPath
-      ? resolve(workdir, runnerProgram)
-      : resolve(workdir, entry.length > 0 ? entry : '.', runnerProgram)
-    return !isExecutableFile(candidate)
-  })
+  const { code, path, syscall } = error as { code?: unknown; path?: unknown; syscall?: unknown }
+  if (typeof code !== 'string' || !EXECUTABLE_SPAWN_CODES.has(code)) return false
+  if (typeof syscall !== 'string' || (syscall !== 'spawn' && !syscall.startsWith('spawn '))) return false
+  if (path !== undefined && (typeof path !== 'string' || (path.length > 0 && path !== runnerProgram))) return false
+  return true
 }
 
 /** Fatal runner evidence retained for infrastructure-error detail. */
