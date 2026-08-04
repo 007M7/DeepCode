@@ -3739,6 +3739,11 @@ describe('workspace context inbox synchronization', () => {
       })
       await syncWorkspaceContext(ctx, agent)
       expect(blocksText(agent.inbox.nextStep[0]?.content)).toContain('pending version one')
+      const duplicate = createUserMessage({
+        content: agent.inbox.nextStep[0]!.content,
+        source: agent.inbox.nextStep[0]!.source,
+      })
+      agent.inbox.append('next-step', duplicate)
 
       await write(join(root, 'pkg/AGENTS.md'), 'pending version two with more detail')
       await ctx.tools.execute({
@@ -3747,6 +3752,7 @@ describe('workspace context inbox synchronization', () => {
       })
       await syncWorkspaceContext(ctx, agent)
       expect(agent.inbox.nextStep).toHaveLength(1)
+      expect(agent.inbox.nextStep[0]?.id).not.toBe(duplicate.id)
       expect(blocksText(agent.inbox.nextStep[0]?.content)).toContain('pending version two with more detail')
       expect(blocksText(agent.inbox.nextStep[0]?.content)).not.toContain('pending version one')
 

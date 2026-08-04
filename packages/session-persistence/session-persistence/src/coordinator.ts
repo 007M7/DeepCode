@@ -328,6 +328,7 @@ function migrateLegacyTurnEndEvent(event: SessionEvent, id: SessionId): SessionE
       break
     }
     default:
+      /* v8 ignore next -- turn-end reasons are merge-extensible beyond the current vocabulary. */
       return event
   }
 

@@ -57,6 +57,21 @@ describe('ACP prompt lifecycle', () => {
       .rejects.toThrow(/turn failed: plugin pre-step failed/)
   })
 
+  it('rejects a turn-start failure before the prompt is claimed', async () => {
+    harness = await makeBridgeHarness({ script: [textResponse('must not run')] })
+    const sessionId = await newSession(harness)
+    const agent = harness.ctx.agents.get(SessionId(sessionId))!
+    const append = agent.session.append.bind(agent.session)
+    vi.spyOn(agent.session, 'append').mockImplementation(((type: string, ...rest: never[]) => {
+      if (type === 'turn/start') throw new Error('turn start unavailable')
+      return (append as (...args: never[]) => unknown)(type as never, ...rest)
+    }) as never)
+
+    await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))
+      .rejects.toThrow(/turn failed: turn start unavailable/)
+    vi.restoreAllMocks()
+  })
+
   it('settles even when an earlier turn observer throws', async () => {
     harness = await makeBridgeHarness({ script: [textResponse('answer')] })
     harness.ctx.on('session/event', (_session, event) => {
@@ -255,6 +270,18 @@ describe('ACP prompt lifecycle', () => {
       .resolves.toEqual({ stopReason: 'end_turn' })
     // The rejected prompt closed a blocked turn without streaming anything.
     expect(messageText(harness)).toBe('')
+  })
+
+  it('cancels a prompt removed before its turn claims it', async () => {
+    harness = await makeBridgeHarness({ script: [] })
+    const sessionId = await newSession(harness)
+    const dispose = harness.ctx.on('agent/inbox/inserted', (agent, { message }) => {
+      if (message.source.kind === 'user') agent.inbox.remove(message.id)
+    })
+
+    await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))
+      .resolves.toEqual({ stopReason: 'cancelled' })
+    dispose()
   })
 
   it('rejects a prompt when pre-step fails inside its open turn', async () => {
