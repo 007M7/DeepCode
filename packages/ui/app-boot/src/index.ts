@@ -9,11 +9,13 @@
 import { pathToFileURL } from 'node:url'
 import { readFileSync } from 'node:fs'
 import { basename, dirname, resolve } from 'node:path'
+import { parse as parseDotenv } from 'dotenv'
 import * as yaml from 'js-yaml'
 import { Context, type FiberState } from 'cordis'
 import Loader, { type Entry, type EntryOptions } from '@cordisjs/plugin-loader'
 import Include, { applyEntryPatches, entryListSchema, type PatchOptions } from '@cordisjs/plugin-include'
 import { dshHomePath, resolveDshHome } from '@deepseek-ai/dsh-paths'
+import { createEnvironmentSnapshot, isBootstrapOnly, type EnvironmentSnapshot } from '@deepseek-ai/dsh-environment'
 import type {} from '@cordisjs/plugin-hmr'
 // Side-effect type import: resolves `ctx.get('systemPrompt')` to the service.
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -66,12 +68,57 @@ export function loadEnv(
 }
 
 /**
- * Load the dsh product CLI's user environment: the invoking directory's `.env`
+ * Parse one directory's `.env` without applying it, rejecting any bootstrap
+ * variable it declares. A discovered file must not decide how this process
+ * launches, where its code and model-visible instructions come from, or how it
+ * reaches the network, so a violation fails the launch BEFORE anything is
+ * materialized — reporting it afterwards would leave the process already
+ * running under the value it refused.
+ * @param binName - the diagnostic prefix on the thrown error.
+ * @param dir - the directory whose `.env` to read.
+ * @param warn - sink for the one-line unreadable-file diagnostic.
+ * @returns the parsed entries, or `undefined` when the file is absent or unreadable.
+ * @throws when the file declares a name {@link isBootstrapOnly} rejects.
+ */
+function readEnvLayer(
+  binName: string, dir: string, warn: (line: string) => void,
+): { path: string; values: Record<string, string> } | undefined {
+  const path = resolve(dir, '.env')
+  let content: string
+  try {
+    content = readFileSync(path, 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException | null)?.code !== 'ENOENT') {
+      warn(`${binName}: failed to load .env: ${String(error)}\n`)
+    }
+    // ENOENT (no .env) is fine — rely on the ambient environment.
+    return undefined
+  }
+  const values = parseDotenv(content)
+  for (const name of Object.keys(values)) {
+    if (!isBootstrapOnly(name)) continue
+    throw new Error(
+      `${binName}: ${path} sets "${name}", which only the launching environment may set`
+      + ' (it decides how this process starts, where its code and instructions load from, or how it'
+      + ` reaches the network); export ${name} instead of putting it in a .env file`,
+    )
+  }
+  return { path, values }
+}
+
+/**
+ * Load the dsh product CLI's user environment and return it as a snapshot that
+ * remembers which layer supplied each value: the invoking directory's `.env`
  * over the Harness home's `.env`, both under the inherited process
- * environment. `process.loadEnvFile` never replaces a name that is already
- * set, so loading the project file first and the user file second is what
- * makes the layering `user < project < inherited`; the app-boot tests pin all
- * three layers because that ordering is the whole contract.
+ * environment.
+ *
+ * Each layer is parsed and checked before anything is applied, then applied in
+ * the order that makes the layering `user < project < inherited` —
+ * `process.loadEnvFile` never replaces a name already set. Values do reach
+ * `process.env`, because a user's own `--config` tree and third-party
+ * libraries read it; the returned snapshot is the authority for everything the
+ * harness itself resolves, since `process.env` alone cannot say whether a
+ * value came from the launching shell or from a file inside the workspace.
  *
  * The Harness home is resolved from the inherited environment *before* either
  * file loads, so a project `.env` can never redirect which user document is
@@ -82,17 +129,28 @@ export function loadEnv(
  * These are ordinary environment values with ordinary environment reach. A
  * secret the Harness should own and isolate belongs in the credentials
  * document, which is never materialized here.
- * @param binName - the diagnostic prefix on the warn lines.
+ * @param binName - the diagnostic prefix on the diagnostics.
  * @param cwd - the invoking directory whose `.env` is the project layer.
  * @param warn - sink for the one-line misconfiguration diagnostics.
+ * @returns this run's frozen environment snapshot.
+ * @throws when either file declares a bootstrap-only variable.
  */
 export function loadLayeredEnv(
   binName: string, cwd: string = process.cwd(),
   warn: (line: string) => void = line => void process.stderr.write(line),
-): void {
+): EnvironmentSnapshot {
   const home = resolveDshHome()
-  loadEnv(binName, cwd, warn)
-  loadEnv(binName, home, warn)
+  const inherited = { ...process.env } as Record<string, string>
+  // Parse both layers first: a rejection must not leave one file applied.
+  const project = readEnvLayer(binName, cwd, warn)
+  const user = home === resolve(cwd) ? undefined : readEnvLayer(binName, home, warn)
+  if (project !== undefined) process.loadEnvFile(project.path)
+  if (user !== undefined) process.loadEnvFile(user.path)
+  return createEnvironmentSnapshot([
+    { source: 'process', values: inherited },
+    ...project === undefined ? [] : [{ source: 'project-env' as const, path: project.path, values: project.values }],
+    ...user === undefined ? [] : [{ source: 'user-env' as const, path: user.path, values: user.values }],
+  ])
 }
 
 /**

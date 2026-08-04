@@ -9,6 +9,7 @@ import type { Context } from 'cordis'
 import z from 'schemastery'
 import type {} from '@deepseek-ai/dsh-agent'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import { environmentOf } from '@deepseek-ai/dsh-environment'
 import type {} from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-web'
 import {
@@ -80,8 +81,10 @@ export function apply(ctx: Context, config: Config): void {
     resolveApiKey: async () => {
       const credentials = ctx.get('credentials')
       if (credentials !== undefined) return (await credentials.resolve(apiKeyEnv))?.value
-      const ambient = process.env[apiKeyEnv]
-      return ambient !== undefined && ambient.length > 0 ? ambient : undefined
+      // Without the seam the launching environment is the whole credential
+      // plane — but only that layer, never a discovered project file.
+      const inherited = environmentOf(ctx).getFrom(apiKeyEnv, ['process'])
+      return inherited !== undefined && inherited.value.length > 0 ? inherited.value : undefined
     },
     apiKeyEnv,
     baseURL: config.baseURL ?? DEEPSEEK_DEFAULT_BASE_URL,

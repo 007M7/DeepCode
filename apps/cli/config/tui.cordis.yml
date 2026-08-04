@@ -40,8 +40,6 @@
 # resolution materializes request defaults before the request header is logged.
 - id: llm-deepseek
   config:
-    apiKey: !!js process.env.DEEPSEEK_API_KEY
-    baseURL: !!js process.env.DEEPSEEK_BASE_URL
     thinking: enabled
     reasoningEffort: max
 

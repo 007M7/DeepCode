@@ -14,6 +14,7 @@ import { createRequire } from 'node:module'
 import { networkInterfaces } from 'node:os'
 import { resolve } from 'node:path'
 import { Context } from 'cordis'
+import { DSH_ENVIRONMENT_KEY, type EnvironmentSnapshot } from '@deepseek-ai/dsh-environment'
 import type { PatchOptions } from '@cordisjs/plugin-include'
 import yaml from 'js-yaml'
 import { boot, installFailLoud, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
@@ -102,6 +103,8 @@ const includeYamlSchema = yaml.JSON_SCHEMA.extend(jsExprType)
 
 /** Constructor facts for one dsh invocation over the shared composition (argv already parsed by the surface bin). */
 export interface AppCLIEntryOptions {
+  /** This run's frozen environment, provided to the tree before any config entry mounts. */
+  environment: EnvironmentSnapshot
   /** Absolute path of the shared base config the Loader includes. */
   configPath: string
   /**
@@ -255,6 +258,9 @@ export class AppCLIEntry {
         ...this.patches,
       ]
     this.ctx = await boot('dsh', resolve(this.bootConfigPath()), patches, async (ctx) => {
+      // Before any config-tree entry mounts, so a plugin that resolves a
+      // user-facing value at construction already sees this run's layers.
+      ctx.provide(DSH_ENVIRONMENT_KEY, this.options.environment)
       await this.options.prepare?.(ctx)
       if (this.options.dev) await ctx.loader.create({ name: '@deepseek-ai/dsh-client-hmr' })
     })

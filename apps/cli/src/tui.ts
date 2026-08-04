@@ -29,6 +29,7 @@ import {
   resolveConfigPath,
 } from '@deepseek-ai/dsh-app-boot'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
+import { DSH_ENVIRONMENT_KEY, type EnvironmentSnapshot } from '@deepseek-ai/dsh-environment'
 import type { PatchOptions } from '@cordisjs/plugin-include'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { configHasTelemetryRow, resolveTelemetryPatch } from './app-cli-entry.ts'
@@ -78,6 +79,8 @@ export const SOURCE_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
    the CLI PTY smoke drives this path end to end, --config overlay included */
 /**
  * Run the interactive TUI from the invoking directory.
+ * @param environment - this run's frozen environment snapshot, provided to the
+ * tree before any config entry mounts.
  * @param config - an overlay patch list applied over the shared base and the
  * TUI overlay, or `undefined` for the shipped composition alone; already
  * parsed from `--config`.
@@ -97,6 +100,7 @@ export const SOURCE_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
  * already parsed from `--config-replace`.
  */
 export async function runTui(
+  environment: EnvironmentSnapshot,
   config: string | undefined,
   resumeSessionId: string | undefined,
   workspace?: string,
@@ -225,6 +229,7 @@ export async function runTui(
       // Runs after the Loader installs and before any config-tree entry mounts,
       // so the fail-loud release hook can reach the tree for the whole window in
       // which an entry may reject.
+      hostCtx.provide(DSH_ENVIRONMENT_KEY, environment)
       app.current = hostCtx
       // The launcher owns session identity and the exit line: a config-mounted
       // app bundle reads both from these slots, so no cordis.yml key can drop

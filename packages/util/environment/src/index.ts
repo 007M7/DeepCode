@@ -1,0 +1,178 @@
+/**
+ * The launch-time environment as one immutable snapshot that remembers which
+ * layer supplied each value. The harness resolves user-facing values against
+ * this rather than against `process.env`, because the layers differ in how
+ * much they are trusted: an inherited variable is this run's explicit intent,
+ * a file discovered under the invoking directory is whatever the project
+ * happens to contain, and a consumer that cannot tell them apart cannot make
+ * that distinction.
+ *
+ * Values still reach `process.env` as well — a user's own `--config` tree and
+ * third-party libraries read it — but that flattened view is not the
+ * authority for anything the harness itself resolves.
+ * @module @deepseek-ai/dsh-environment
+ */
+
+import type { Context } from 'cordis'
+
+/**
+ * Which layer supplied a value, from most to least trusted: the environment
+ * this process inherited, the invoking directory's `.env`, the Harness home's
+ * `.env`.
+ */
+export type EnvironmentSource = 'process' | 'project-env' | 'user-env'
+
+/** Layer order, most trusted first — the default search order of {@link EnvironmentSnapshot.get}. */
+export const ENVIRONMENT_SOURCES: readonly EnvironmentSource[] = ['process', 'project-env', 'user-env']
+
+/** One resolved variable and the layer it came from. */
+export interface EnvironmentEntry {
+  /** The value as the layer supplied it; may be empty, which each owner judges for itself. */
+  value: string
+  /** The layer that supplied it. */
+  source: EnvironmentSource
+  /** Absolute path of the file that supplied it; absent for `process`. */
+  path?: string
+}
+
+/** One environment layer's identity, for diagnostics. */
+export interface EnvironmentLayer {
+  source: EnvironmentSource
+  /** Absolute path of the file behind this layer; absent for `process`. */
+  path?: string
+}
+
+/**
+ * The frozen environment of one launch. Construct through
+ * {@link createEnvironmentSnapshot}; nothing mutates it afterwards, so a
+ * later `chdir`, workspace switch, or resumed session observes the same
+ * values a consumer resolved at boot.
+ */
+export interface EnvironmentSnapshot {
+  /**
+   * Resolve one name across every layer, most trusted first.
+   * @param name - the variable name.
+   * @returns the winning entry, or `undefined` when no layer supplies it.
+   */
+  get(name: string): EnvironmentEntry | undefined
+  /**
+   * Resolve one name across only the layers the caller trusts for this
+   * decision. Omitting a layer is a refusal, not a demotion: a routing field
+   * that must never come from a project directory omits `project-env` so no
+   * ordering change can let it back in.
+   * @param name - the variable name.
+   * @param sources - the layers to search, in the caller's own priority order.
+   * @returns the first matching entry, or `undefined`.
+   */
+  getFrom(name: string, sources: readonly EnvironmentSource[]): EnvironmentEntry | undefined
+  /** The layers this snapshot was built from, most trusted first. */
+  readonly layers: readonly EnvironmentLayer[]
+}
+
+/** One layer's raw contents, as {@link createEnvironmentSnapshot} receives them. */
+export interface EnvironmentLayerInput {
+  source: EnvironmentSource
+  /** Absolute path of the file behind this layer; omit for `process`. */
+  path?: string
+  values: Readonly<Record<string, string>>
+}
+
+/**
+ * Build the snapshot from each layer's contents.
+ * @param layers - the layers in any order; the result searches them by {@link ENVIRONMENT_SOURCES}.
+ * @returns the immutable snapshot.
+ */
+export function createEnvironmentSnapshot(layers: readonly EnvironmentLayerInput[]): EnvironmentSnapshot {
+  // Copied per layer so a later mutation of `process.env` — or of a caller's
+  // own object — cannot change what this snapshot reports.
+  const bySource = new Map<EnvironmentSource, { path?: string; values: Map<string, string> }>()
+  for (const layer of layers) {
+    bySource.set(layer.source, {
+      ...layer.path === undefined ? {} : { path: layer.path },
+      values: new Map(Object.entries(layer.values)),
+    })
+  }
+  const getFrom = (name: string, sources: readonly EnvironmentSource[]): EnvironmentEntry | undefined => {
+    for (const source of sources) {
+      const layer = bySource.get(source)
+      const value = layer?.values.get(name)
+      if (value === undefined) continue
+      return { value, source, ...layer?.path === undefined ? {} : { path: layer.path } }
+    }
+    return undefined
+  }
+  return {
+    get: name => getFrom(name, ENVIRONMENT_SOURCES),
+    getFrom,
+    layers: ENVIRONMENT_SOURCES
+      .filter(source => bySource.has(source))
+      .map((source): EnvironmentLayer => {
+        const path = bySource.get(source)?.path
+        return { source, ...path === undefined ? {} : { path } }
+      }),
+  }
+}
+
+/** Context slot the launcher fills with this run's snapshot before any config entry mounts. */
+export const DSH_ENVIRONMENT_KEY = 'launcherEnvironment'
+
+/**
+ * The snapshot to resolve against, whatever booted this tree: the launcher's
+ * when the product CLI provided one, otherwise the inherited environment
+ * alone.
+ *
+ * The fallback does not weaken the layer rules — it applies the same rules to
+ * a host that has exactly one layer. An SDK embedder or a bare `cordis.yml`
+ * never discovered a project or user file, so everything it has really is the
+ * environment it was launched with, and `getFrom(..., ['process'])` is exactly
+ * right for it.
+ * @param ctx - the consuming plugin's context.
+ * @returns the snapshot to resolve user-facing values against.
+ */
+export function environmentOf(ctx: Context): EnvironmentSnapshot {
+  return ctx.get(DSH_ENVIRONMENT_KEY)
+    ?? createEnvironmentSnapshot([{ source: 'process', values: process.env as Record<string, string> }])
+}
+
+declare module 'cordis' {
+  interface Context {
+    /** Launcher-owned snapshot of this run's environment; absent in compositions the product CLI did not boot. */
+    launcherEnvironment?: EnvironmentSnapshot
+  }
+}
+
+/** Exact names no discovered file may set. */
+const BOOTSTRAP_NAMES = new Set([
+  // Process launch and module resolution.
+  'PATH', 'HOME', 'USERPROFILE', 'SHELL',
+  'NODE_OPTIONS', 'NODE_PATH', 'NODE_EXTRA_CA_CERTS',
+  'LD_PRELOAD', 'LD_LIBRARY_PATH',
+  // Network reach and trust.
+  'SSL_CERT_FILE', 'SSL_CERT_DIR',
+  'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY',
+])
+
+/** Name prefixes no discovered file may set. */
+const BOOTSTRAP_PREFIXES = ['DSH_', 'XDG_', 'DYLD_']
+
+/**
+ * Whether a variable may come only from the inherited process environment.
+ *
+ * A bootstrap variable decides how a process launches (`PATH`, `NODE_OPTIONS`,
+ * `LD_PRELOAD`), where code or model-visible instructions load from (`DSH_*`
+ * covers the Harness home, the agents home, and the bundled skill root), or
+ * how the network is reached and trusted (proxy and CA variables). A file the
+ * harness merely finds — including one a model can write inside the workspace
+ * — must never set them, so they are rejected at load rather than ranked
+ * below another layer.
+ *
+ * The whole `DSH_*` namespace is denied rather than an audited subset: the
+ * harness's own switches are exactly the ones a hostile project would want,
+ * and a new switch must not become settable by forgetting to list it.
+ * @param name - the variable name.
+ * @returns true when only the inherited environment may supply it.
+ */
+export function isBootstrapOnly(name: string): boolean {
+  const upper = name.toUpperCase()
+  return BOOTSTRAP_NAMES.has(upper) || BOOTSTRAP_PREFIXES.some(prefix => upper.startsWith(prefix))
+}

@@ -243,6 +243,9 @@ importers:
       '@deepseek-ai/dsh-credentials-local':
         specifier: workspace:^
         version: link:../../packages/credentials/credentials-local
+      '@deepseek-ai/dsh-environment':
+        specifier: workspace:^
+        version: link:../../packages/util/environment
       '@deepseek-ai/dsh-frontend':
         specifier: workspace:^
         version: link:../web
@@ -2638,6 +2641,9 @@ importers:
       '@deepseek-ai/dsh-credentials':
         specifier: workspace:^
         version: link:../credentials
+      '@deepseek-ai/dsh-environment':
+        specifier: workspace:^
+        version: link:../../util/environment
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants
@@ -3609,6 +3615,9 @@ importers:
       '@deepseek-ai/dsh-credentials':
         specifier: workspace:^
         version: link:../../credentials/credentials
+      '@deepseek-ai/dsh-environment':
+        specifier: workspace:^
+        version: link:../../util/environment
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants
@@ -3637,6 +3646,9 @@ importers:
       '@deepseek-ai/dsh-credentials':
         specifier: workspace:^
         version: link:../../credentials/credentials
+      '@deepseek-ai/dsh-environment':
+        specifier: workspace:^
+        version: link:../../util/environment
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants
@@ -5673,6 +5685,9 @@ importers:
 
   packages/ui/app-boot:
     dependencies:
+      dotenv:
+        specifier: ^17.2.0
+        version: 17.4.2
       js-yaml:
         specifier: ^4.2.0
         version: 4.2.0
@@ -5689,6 +5704,9 @@ importers:
       '@cordisjs/plugin-timer':
         specifier: workspace:^
         version: link:../../../vendor/timer
+      '@deepseek-ai/dsh-environment':
+        specifier: workspace:^
+        version: link:../../util/environment
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants
@@ -5988,6 +6006,15 @@ importers:
         specifier: ^4.0.0-rc.7
         version: link:../../../vendor/cordis
 
+  packages/util/environment:
+    devDependencies:
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../support/invariants
+      cordis:
+        specifier: ^4.0.0-rc.7
+        version: link:../../../vendor/cordis
+
   packages/util/native-command:
     devDependencies:
       '@deepseek-ai/dsh-invariants':
@@ -6129,6 +6156,9 @@ importers:
       '@deepseek-ai/dsh-credentials-local':
         specifier: workspace:^
         version: link:../../credentials/credentials-local
+      '@deepseek-ai/dsh-environment':
+        specifier: workspace:^
+        version: link:../../util/environment
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants
@@ -6148,6 +6178,9 @@ importers:
         specifier: ^3.18.0
         version: link:../../../vendor/schemastery
     devDependencies:
+      '@deepseek-ai/dsh-environment':
+        specifier: workspace:^
+        version: link:../../util/environment
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants
@@ -6164,6 +6197,9 @@ importers:
         specifier: ^3.18.0
         version: link:../../../vendor/schemastery
     devDependencies:
+      '@deepseek-ai/dsh-environment':
+        specifier: workspace:^
+        version: link:../../util/environment
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants
@@ -6420,6 +6456,9 @@ importers:
       '@deepseek-ai/dsh-credentials':
         specifier: workspace:^
         version: link:../../packages/credentials/credentials
+      '@deepseek-ai/dsh-environment':
+        specifier: workspace:^
+        version: link:../../packages/util/environment
       '@deepseek-ai/dsh-fs':
         specifier: workspace:^
         version: link:../../packages/fs/fs
@@ -9775,6 +9814,10 @@ packages:
 
   dompurify@3.4.11:
     resolution: {integrity: sha512-zhlUV12GsaRzMsf9q5M254YhA4+VuF0fG+QFqu6aYpoGlKtz+w8//jBcGVYBgQkR5GHjUomejY84AV+/uPbWdw==}
+
+  dotenv@17.4.2:
+    resolution: {integrity: sha512-nI4U3TottKAcAD9LLud4Cb7b2QztQMUEfHbvhTH09bqXTxnSie8WnjPALV/WMCrJZ6UV/qHJ6L03OqO3LcdYZw==}
+    engines: {node: '>=12'}
 
   dts-resolver@3.0.0:
     resolution: {integrity: sha512-1T1f+z+4tl9XD+m+0HBgWoL/nm0bOIffyWaUuUSBlFg/86IWvfx+wjNaO/ybU0AJzG9/Mi5hBUgGV6zCmWEN7Q==}
@@ -14827,6 +14870,8 @@ snapshots:
   dompurify@3.4.11:
     optionalDependencies:
       '@types/trusted-types': 2.0.7
+
+  dotenv@17.4.2: {}
 
   dts-resolver@3.0.0(oxc-resolver@11.20.0):
     optionalDependencies:

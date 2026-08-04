@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import { createEnvironmentSnapshot, DSH_ENVIRONMENT_KEY } from '@deepseek-ai/dsh-environment'
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
 import { CredentialsLocal, resolveSpec } from '../src/index.ts'
 
@@ -97,6 +98,74 @@ describe('layering and reads', () => {
     await mkdir(path)
     const ctx = new Context()
     await expect(ctx.plugin(CredentialsLocal, { path, watch: false })).rejects.toThrow()
+  })
+})
+
+describe('layer ladder', () => {
+  // inherited process env > .credentials.yaml > $DSH_HOME/.env, and the
+  // invoking directory's .env supplies no credential at all.
+  async function bootLayered(
+    path: string,
+    layers: Parameters<typeof createEnvironmentSnapshot>[0],
+  ): Promise<Context> {
+    const ctx = new Context()
+    ctx.provide(DSH_ENVIRONMENT_KEY, createEnvironmentSnapshot(layers))
+    const fiber = ctx.plugin(CredentialsLocal, { path, watch: false })
+    cleanups.push(async () => { await fiber.dispose() })
+    await fiber
+    return ctx
+  }
+
+  it('lets the stored value beat the user .env, so a UI write takes effect immediately', async () => {
+    const dir = await tempDir()
+    const path = join(dir, '.credentials.yaml')
+    await writeFile(path, 'DSH_CRED_TEST: stored\n')
+    const ctx = await bootLayered(path, [
+      { source: 'process', values: {} },
+      { source: 'user-env', path: '/home/.dsh/.env', values: { DSH_CRED_TEST: 'older-user-env' } },
+    ])
+    expect(await ctx.credentials.resolve(KEY)).toEqual({ value: 'stored', source: 'file' })
+    // The old dead end is gone: a key sitting in the user's .env no longer
+    // makes the stored one unwritable.
+    expect(await ctx.credentials.describe(KEY)).toEqual({ configured: true, source: 'file', writable: true })
+    await expect(ctx.credentials.set(KEY, 'rotated')).resolves.toBeUndefined()
+    expect(await ctx.credentials.resolve(KEY)).toEqual({ value: 'rotated', source: 'file' })
+  })
+
+  it('serves the user .env only when nothing is stored', async () => {
+    const dir = await tempDir()
+    const ctx = await bootLayered(join(dir, '.credentials.yaml'), [
+      { source: 'process', values: {} },
+      { source: 'user-env', path: '/home/.dsh/.env', values: { DSH_CRED_TEST: 'from-user-env' } },
+    ])
+    expect(await ctx.credentials.resolve(KEY)).toEqual({ value: 'from-user-env', source: 'user-env' })
+    // Writable: storing a key replaces it as the effective one.
+    expect(await ctx.credentials.describe(KEY)).toEqual({ configured: true, source: 'user-env', writable: true })
+  })
+
+  it('ignores the invoking directory .env entirely', async () => {
+    const dir = await tempDir()
+    const ctx = await bootLayered(join(dir, '.credentials.yaml'), [
+      { source: 'process', values: {} },
+      { source: 'project-env', path: '/work/.env', values: { DSH_CRED_TEST: 'from-project' } },
+    ])
+    // A project directory can be written by the model, and a substituted key
+    // would route every request through an account someone else reads.
+    expect(await ctx.credentials.resolve(KEY)).toBeUndefined()
+    expect(await ctx.credentials.describe(KEY)).toEqual({ configured: false, writable: true })
+  })
+
+  it('lets only the inherited environment shadow the store, read-only', async () => {
+    const dir = await tempDir()
+    const path = join(dir, '.credentials.yaml')
+    await writeFile(path, 'DSH_CRED_TEST: stored\n')
+    const ctx = await bootLayered(path, [
+      { source: 'process', values: { DSH_CRED_TEST: 'from-shell' } },
+      { source: 'user-env', path: '/home/.dsh/.env', values: { DSH_CRED_TEST: 'from-user-env' } },
+    ])
+    expect(await ctx.credentials.resolve(KEY)).toEqual({ value: 'from-shell', source: 'env' })
+    expect(await ctx.credentials.describe(KEY)).toEqual({ configured: true, source: 'env', writable: false })
+    await expect(ctx.credentials.set(KEY, 'next')).rejects.toThrow(/launching environment/)
   })
 })
 

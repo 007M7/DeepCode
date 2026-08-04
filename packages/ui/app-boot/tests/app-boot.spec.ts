@@ -87,7 +87,7 @@ describe('loadEnv', () => {
 })
 
 describe('loadLayeredEnv', () => {
-  const NAMES = ['DSH_APP_BOOT_LAYERED_SHARED', 'DSH_APP_BOOT_LAYERED_USER', 'DSH_APP_BOOT_LAYERED_PROJECT'] as const
+  const NAMES = ['APP_BOOT_LAYERED_SHARED', 'APP_BOOT_LAYERED_USER', 'APP_BOOT_LAYERED_PROJECT'] as const
 
   function clear(): void {
     for (const name of NAMES) Reflect.deleteProperty(process.env, name)
@@ -99,18 +99,18 @@ describe('loadLayeredEnv', () => {
     writeFileSync(join(home, '.env'), [
       `${NAMES[0]}=user`,
       `${NAMES[1]}=user-only`,
-      'DSH_APP_BOOT_LAYERED_INHERITED=user-loses',
+      'APP_BOOT_LAYERED_INHERITED=user-loses',
       '',
     ].join('\n'))
     writeFileSync(join(project, '.env'), [
       `${NAMES[0]}=project`,
       `${NAMES[2]}=project-only`,
-      'DSH_APP_BOOT_LAYERED_INHERITED=project-loses',
+      'APP_BOOT_LAYERED_INHERITED=project-loses',
       '',
     ].join('\n'))
     clear()
     vi.stubEnv('DSH_HOME', home)
-    vi.stubEnv('DSH_APP_BOOT_LAYERED_INHERITED', 'inherited')
+    vi.stubEnv('APP_BOOT_LAYERED_INHERITED', 'inherited')
     const warn = vi.fn()
     try {
       loadLayeredEnv(NAME, project, warn)
@@ -119,7 +119,7 @@ describe('loadLayeredEnv', () => {
       expect(process.env[NAMES[0]]).toBe('project')
       expect(process.env[NAMES[1]]).toBe('user-only')
       expect(process.env[NAMES[2]]).toBe('project-only')
-      expect(process.env['DSH_APP_BOOT_LAYERED_INHERITED']).toBe('inherited')
+      expect(process.env['APP_BOOT_LAYERED_INHERITED']).toBe('inherited')
       expect(warn).not.toHaveBeenCalled()
     } finally {
       clear()
@@ -127,18 +127,64 @@ describe('loadLayeredEnv', () => {
     }
   })
 
-  it('resolves the harness home before the project file can redirect it', () => {
+  it.each([
+    ['a harness switch', 'DSH_PERMISSION_MODE=danger-full-access\n'],
+    ['the executable search path', 'PATH=/tmp/evil\n'],
+    ['a module preload', 'NODE_OPTIONS=--require /tmp/evil.js\n'],
+    ['a skill root', 'DSH_AGENTS_HOME=/tmp/injected\n'],
+    ['a network proxy', 'HTTPS_PROXY=http://attacker.example\n'],
+    ['a lowercase network proxy', 'https_proxy=http://attacker.example\n'],
+  ])('refuses to launch when a .env sets %s, before applying anything', (_case, content) => {
     const home = tmp()
-    const decoy = tmp()
+    const project = tmp()
+    writeFileSync(join(project, '.env'), `${NAMES[1]}=applied-anyway\n${content}`)
+    clear()
+    vi.stubEnv('DSH_HOME', home)
+    try {
+      expect(() => loadLayeredEnv(NAME, project, vi.fn())).toThrow(/only the launching environment may set/)
+      // Rejected BEFORE materialization: reporting the violation after the
+      // file was applied would leave the process running under what it refused.
+      expect(process.env[NAMES[1]]).toBeUndefined()
+    } finally {
+      clear()
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('reports each layer with its absolute path', () => {
+    const home = tmp()
+    const project = tmp()
+    writeFileSync(join(home, '.env'), `${NAMES[1]}=u\n`)
+    writeFileSync(join(project, '.env'), `${NAMES[2]}=p\n`)
+    clear()
+    vi.stubEnv('DSH_HOME', home)
+    try {
+      const snapshot = loadLayeredEnv(NAME, project, vi.fn())
+      expect(snapshot.layers).toEqual([
+        { source: 'process' },
+        { source: 'project-env', path: join(project, '.env') },
+        { source: 'user-env', path: join(home, '.env') },
+      ])
+      expect(snapshot.get(NAMES[1])).toEqual({ value: 'u', source: 'user-env', path: join(home, '.env') })
+      // getFrom is a refusal, not a demotion: an omitted layer is invisible.
+      expect(snapshot.getFrom(NAMES[2], ['process', 'user-env'])).toBeUndefined()
+    } finally {
+      clear()
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('resolves the harness home from the inherited environment, never from a file', () => {
+    const home = tmp()
     const project = tmp()
     writeFileSync(join(home, '.env'), `${NAMES[1]}=real-home\n`)
-    writeFileSync(join(decoy, '.env'), `${NAMES[1]}=decoy-home\n`)
-    writeFileSync(join(project, '.env'), `DSH_HOME=${decoy}\n`)
+    writeFileSync(join(project, '.env'), `${NAMES[2]}=set-by-project\n`)
     clear()
     vi.stubEnv('DSH_HOME', home)
     try {
       loadLayeredEnv(NAME, project, vi.fn())
       expect(process.env[NAMES[1]]).toBe('real-home')
+      expect(process.env[NAMES[2]]).toBe('set-by-project')
     } finally {
       clear()
       vi.unstubAllEnvs()

@@ -24,24 +24,27 @@ function readVersion(): string {
   return typeof manifest.version === 'string' ? manifest.version : '0.0.0'
 }
 
-loadLayeredEnv('dsh')
+const environment = loadLayeredEnv('dsh')
 // The env opt-in is read at the process boundary; `1` is the documented value.
 const invocation = parseDshArgs(process.argv.slice(2), readVersion(), process.env.DSH_EXPERIMENTAL === '1')
 
 switch (invocation.mode) {
   case 'web': {
     const { runWeb } = await import('./web.ts')
-    await runWeb(invocation.host, invocation.port, invocation.dev, invocation.workspaceRoot, invocation.trustedHosts, invocation.config)
+    await runWeb(
+      environment, invocation.host, invocation.port, invocation.dev,
+      invocation.workspaceRoot, invocation.trustedHosts, invocation.config,
+    )
     break
   }
   case 'headless': {
     const { runHeadless } = await import('./headless.ts')
-    await runHeadless(invocation.prompt, invocation.config, invocation.configReplace)
+    await runHeadless(environment, invocation.prompt, invocation.config, invocation.configReplace)
     break
   }
   case 'tui': {
     const { runTui } = await import('./tui.ts')
-    await runTui(invocation.config, invocation.resume, undefined, undefined, invocation.configReplace)
+    await runTui(environment, invocation.config, invocation.resume, undefined, undefined, invocation.configReplace)
     break
   }
   case 'dump-config': {
@@ -51,12 +54,12 @@ switch (invocation.mode) {
   }
   case 'meta': {
     const { runTui, SOURCE_ROOT } = await import('./tui.ts')
-    await runTui(invocation.config, undefined, SOURCE_ROOT, undefined, invocation.configReplace)
+    await runTui(environment, invocation.config, undefined, SOURCE_ROOT, undefined, invocation.configReplace)
     break
   }
   case 'upgrade': {
     const { runTui } = await import('./tui.ts')
-    await runTui(invocation.config, undefined, undefined, `dsh-${invocation.mode}`, invocation.configReplace)
+    await runTui(environment, invocation.config, undefined, undefined, `dsh-${invocation.mode}`, invocation.configReplace)
     break
   }
   default:

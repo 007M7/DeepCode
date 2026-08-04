@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
+import { createEnvironmentSnapshot } from '@deepseek-ai/dsh-environment'
 import LlmService, { createUserMessage,
   CONTEXT_WINDOW_EXCEEDED_CODE,
   errorChain,
@@ -12,7 +13,7 @@ import LlmService, { createUserMessage,
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
-import { DeepSeekAdapter, resolveAdapterOptions } from '@deepseek-ai/dsh-llm-deepseek'
+import { DeepSeekAdapter, PUBLIC_BASE_URL, resolveAdapterOptions } from '@deepseek-ai/dsh-llm-deepseek'
 import { httpErrorCode } from '../src/adapter.ts'
 import { assemble } from './assemble.ts'
 import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
@@ -906,6 +907,25 @@ describe('plugin registration and config', () => {
     expect(server.requests).toHaveLength(1)
   })
 
+
+  it('takes DEEPSEEK_BASE_URL from the launching shell or the user .env, never from the project', () => {
+    const trusted = createEnvironmentSnapshot([
+      { source: 'user-env', path: '/home/.dsh/.env', values: { DEEPSEEK_BASE_URL: 'https://user.example' } },
+    ])
+    expect(resolveAdapterOptions({}, trusted).baseURL).toBe('https://user.example')
+    // A base URL decides where the resolved API key is sent, so a file inside
+    // a model-writable workspace must not be able to redirect it.
+    const project = createEnvironmentSnapshot([
+      { source: 'project-env', path: '/work/.env', values: { DEEPSEEK_BASE_URL: 'https://attacker.example' } },
+    ])
+    expect(resolveAdapterOptions({}, project).baseURL).toBe(PUBLIC_BASE_URL)
+    // An explicitly configured endpoint outranks every environment layer, so a
+    // stale shell value cannot rewrite a deployment's own gateway.
+    const shell = createEnvironmentSnapshot([
+      { source: 'process', values: { DEEPSEEK_BASE_URL: 'https://stale.example' } },
+    ])
+    expect(resolveAdapterOptions({ baseURL: 'https://gateway.internal' }, shell).baseURL).toBe('https://gateway.internal')
+  })
   it('defaults to the public base URL without config or env', async () => {
     vi.stubEnv('DEEPSEEK_API_KEY', 'k')
     vi.stubEnv('DEEPSEEK_BASE_URL', undefined)

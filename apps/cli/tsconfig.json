@@ -30,6 +30,9 @@
       "path": "../../packages/ui/tui"
     },
     {
+      "path": "../../packages/util/environment"
+    },
+    {
       "path": "../../packages/util/paths"
     },
     {

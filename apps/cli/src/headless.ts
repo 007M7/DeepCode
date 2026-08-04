@@ -10,6 +10,7 @@
 
 import { fileURLToPath } from 'node:url'
 import { resolveConfigPath } from '@deepseek-ai/dsh-app-boot'
+import type { EnvironmentSnapshot } from '@deepseek-ai/dsh-environment'
 import { InProcessApiClient, toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
 import type { MuxFrame } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
@@ -71,15 +72,19 @@ async function consumeUntilTurnEnd(frames: AsyncIterable<RpcRequest<MuxFrame>>, 
  * Run one headless turn for `task` and exit (completed → 0, else 1). The task
  * is the non-empty prompt the argument adapter parsed from `-p`/`--prompt`
  * (the adapter rejects an empty task, so no guard is needed here).
+ * @param environment - this run's frozen environment snapshot.
  * @param task - the prompt text for the single turn.
  * @param config - a `--config` overlay applied over the shipped composition, or `undefined`.
  * @param configReplace - a `--config-replace` tree booted instead of the
  * shipped composition, or `undefined`. It must mount a webserver row: this
  * surface reaches its own agent over the same HTTP gateway the browser uses.
  */
-export async function runHeadless(task: string, config?: string, configReplace?: string): Promise<void> {
+export async function runHeadless(
+  environment: EnvironmentSnapshot, task: string, config?: string, configReplace?: string,
+): Promise<void> {
   // A missing DEEPSEEK_API_KEY throws here (plugin load is fail-loud, uncaught by design).
   const entry = new AppCLIEntry({
+    environment,
     configPath: fileURLToPath(new URL('../config/base.cordis.yml', import.meta.url)),
     overlayPath: fileURLToPath(new URL('../config/web.cordis.yml', import.meta.url)),
     ...config !== undefined && { extraOverlayPath: resolveConfigPath(config, undefined) },

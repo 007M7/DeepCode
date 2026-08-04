@@ -29,6 +29,7 @@
  */
 
 import type { Context } from 'cordis'
+import { environmentOf } from '@deepseek-ai/dsh-environment'
 import { getBuiltinProviders } from '@earendil-works/pi-ai/providers/all'
 import { LlmError } from '@deepseek-ai/dsh-llm'
 import type { AdapterRegistrationHandle } from '@deepseek-ai/dsh-llm'
@@ -99,9 +100,9 @@ export function apply(ctx: Context, config: Config): void {
     const credentials = ctx.get('credentials')
     const hit = credentials !== undefined
       ? (await credentials.resolve(ref))?.value
-      // Without the seam, read exactly the named variable so a plain
-      // cordis.yml composition works from the environment alone.
-      : process.env[ref]
+      // Without the seam the launching environment is the whole credential
+      // plane — but only that layer, never a discovered project file.
+      : environmentOf(ctx).getFrom(ref, ['process'])?.value
     if (hit !== undefined && hit.length > 0) return hit
     throw new LlmError(
       `llm-pi-ai: no credential for provider route "${provider}"; its profile resolves ${ref}, which is not`

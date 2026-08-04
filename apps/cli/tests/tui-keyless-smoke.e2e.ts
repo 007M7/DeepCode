@@ -672,9 +672,9 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
     // layering underneath it. The named file patches the `tui` row — a row the
     // SURFACE OVERLAY inserted, not one the base declares — proving a later
     // patch list reaches a row an earlier one inserted. The `!!js` expression
-    // renders both halves of the layering in one line: `DSH_LAYER_WELCOME` is
+    // renders both halves of the layering in one line: `OVERLAY_LAYER_WELCOME` is
     // set by BOTH .env files and must render the project value, while
-    // `DSH_USER_ONLY` exists only in the harness home's .env and must still
+    // `OVERLAY_USER_ONLY` exists only in the harness home's .env and must still
     // arrive. Credentials are not part of this: they live in
     // `.credentials.yaml`, which is never hoisted into `process.env`.
     const output = await smoke({
@@ -683,17 +683,17 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
       binScript: dshBinScript,
       configArgs: ['--config', '.dsh/config.yaml'],
       prepare: seedWorkspace({
-        workspace: { '.env': 'DSH_LAYER_WELCOME=PROJECT WINS.\n' },
+        workspace: { '.env': 'OVERLAY_LAYER_WELCOME=PROJECT WINS.\n' },
         harnessHome: {
-          '.env': 'DSH_LAYER_WELCOME=USER LAYER LOST.\nDSH_USER_ONLY=USER LAYER LOADED.\n',
+          '.env': 'OVERLAY_LAYER_WELCOME=USER LAYER LOST.\nOVERLAY_USER_ONLY=USER LAYER LOADED.\n',
           'config.yaml': [
             '- id: workspace-context',
             '  disabled: true',
             '- id: tui',
             '  config:',
             "    sessionId: !!js configuredAgentIdentities?.main?.id ?? 'main'",
-            '    welcome: !!js "(process.env.DSH_LAYER_WELCOME ?? \'PROJECT LAYER MISSING.\')'
-            + ' + \' \' + (process.env.DSH_USER_ONLY ?? \'USER LAYER MISSING.\')"',
+            '    welcome: !!js "(process.env.OVERLAY_LAYER_WELCOME ?? \'PROJECT LAYER MISSING.\')'
+            + ' + \' \' + (process.env.OVERLAY_USER_ONLY ?? \'USER LAYER MISSING.\')"',
             '',
           ].join('\n'),
         },

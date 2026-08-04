@@ -1,12 +1,29 @@
 /**
- * File-backed credentials provider layering the live process environment over
- * a `$DSH_HOME/.credentials.yaml` document. The environment is authoritative
- * and read-only (a launch-time override must win, and must be visibly
- * read-only rather than silently shadow writes); the file is the
- * provider-managed writable source: every write re-reads the document under a
- * cross-process writer lock before patching only its own key — comments and
- * the formatting of every untouched entry survive — external edits
- * hot-publish through the seam, and each reload replaces the snapshot
+ * File-backed credentials provider over `$DSH_HOME/.credentials.yaml`, layered
+ * against the environment by how much each layer is trusted:
+ *
+ * ```text
+ * inherited process environment  (read-only, wins)
+ * > $DSH_HOME/.credentials.yaml  (provider-managed, writable)
+ * > $DSH_HOME/.env               (read-only fallback)
+ * ```
+ *
+ * The inherited environment wins because `DEEPSEEK_API_KEY=… dsh`, a CI
+ * secret, or a container `-e` is this run's explicit intent; it cannot be
+ * edited from inside, so it must be *visibly* read-only rather than silently
+ * shadow writes. Everything below it loses to the managed store, so a key the
+ * web page or TUI writes takes effect immediately even when an older key sits
+ * in the user's `.env`.
+ *
+ * The invoking directory's `.env` supplies no credential at all. A project
+ * directory can be written by the model, and a substituted key would send
+ * every request — prompts included — through an account someone else reads;
+ * that decision belongs to the launching shell, not to a discovered file.
+ *
+ * The file is the provider-managed writable source: every write re-reads the
+ * document under a cross-process writer lock before patching only its own key
+ * — comments and the formatting of every untouched entry survive — external
+ * edits hot-publish through the seam, and each reload replaces the snapshot
  * wholesale so a deleted entry never lingers in memory.
  *
  * The document holds nothing but credentials, which is why it is a strict
@@ -25,8 +42,10 @@ import { dirname, join, resolve } from 'node:path'
 import { Document, parseDocument } from 'yaml'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
+import { environmentOf } from '@deepseek-ai/dsh-environment'
 import { Credentials, credentialRef } from '@deepseek-ai/dsh-credentials'
 import type { CredentialInfo, CredentialRef, ResolvedCredential } from '@deepseek-ai/dsh-credentials'
+import type { EnvironmentEntry } from '@deepseek-ai/dsh-environment'
 
 /** Basename of the credentials document inside the harness home. */
 export const CREDENTIALS_FILENAME = '.credentials.yaml'
@@ -169,6 +188,18 @@ export class CredentialsLocal extends Credentials {
     this.spec = resolveSpec(config)
   }
 
+  /** The inherited-environment value for a reference, or `undefined` when empty or unset. */
+  private inherited(ref: CredentialRef): string | undefined {
+    const entry = environmentOf(this.ctx).getFrom(ref, ['process'])
+    return entry !== undefined && entry.value.length > 0 ? entry.value : undefined
+  }
+
+  /** The user `.env` fallback for a reference — below the managed store, never above it. */
+  private userEnvFallback(ref: CredentialRef): EnvironmentEntry | undefined {
+    const entry = environmentOf(this.ctx).getFrom(ref, ['user-env'])
+    return entry !== undefined && entry.value.length > 0 ? entry : undefined
+  }
+
   async* [Service.init](): AsyncGenerator<() => Promise<void> | void, void, void> {
     yield async () => {
       // Drain: refuse new operations, then settle the queued ones so disposal
@@ -214,20 +245,27 @@ export class CredentialsLocal extends Credentials {
   }
 
   override resolve(ref: CredentialRef): Promise<ResolvedCredential | undefined> {
-    const env = process.env[ref]
-    if (env !== undefined && env.length > 0) return Promise.resolve({ value: env, source: 'env' })
+    const inherited = this.inherited(ref)
+    if (inherited !== undefined) return Promise.resolve({ value: inherited, source: 'env' })
     const stored = this.values.get(ref)
     if (stored !== undefined) return Promise.resolve({ value: stored, source: 'file' })
+    const fallback = this.userEnvFallback(ref)
+    if (fallback !== undefined) return Promise.resolve({ value: fallback.value, source: 'user-env' })
     return Promise.resolve(undefined)
   }
 
   override describe(ref: CredentialRef): Promise<CredentialInfo> {
-    const env = process.env[ref]
-    if (env !== undefined && env.length > 0) {
+    // Only the inherited environment is unwritable: it is the one layer this
+    // process cannot edit. A user `.env` value is writable in the sense that
+    // matters — storing a key replaces it as the effective one.
+    if (this.inherited(ref) !== undefined) {
       return Promise.resolve({ configured: true, source: 'env', writable: false })
     }
     const stored = this.values.get(ref)
     if (stored !== undefined) return Promise.resolve({ configured: true, source: 'file', writable: true })
+    if (this.userEnvFallback(ref) !== undefined) {
+      return Promise.resolve({ configured: true, source: 'user-env', writable: true })
+    }
     return Promise.resolve({ configured: false, writable: true })
   }
 
@@ -303,13 +341,16 @@ export class CredentialsLocal extends Credentials {
     })
   }
 
-  /** Reject a write the live environment would shadow into apparent no-effect. */
+  /**
+   * Reject a write the inherited environment would shadow into apparent
+   * no-effect. Only that layer can shadow a write: everything else this
+   * provider resolves ranks below the document being written.
+   */
   private assertUnshadowed(ref: CredentialRef, verb: 'set' | 'unset'): void {
-    const env = process.env[ref]
-    if (env !== undefined && env.length > 0) {
+    if (this.inherited(ref) !== undefined) {
       throw new Error(
-        `credentials-local: "${ref}" is supplied read-only by the process environment, so ${verb} would be`
-        + ' shadowed; unset it in the launching environment (or in a loaded .env) instead',
+        `credentials-local: "${ref}" is supplied read-only by the launching environment, so ${verb} would be`
+        + ' shadowed; unset it in the shell you start dsh from instead',
       )
     }
   }

@@ -16,6 +16,7 @@ import z from 'schemastery'
 import { LlmError, resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
 import type { RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import { environmentOf, type EnvironmentSnapshot } from '@deepseek-ai/dsh-environment'
 import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import {
@@ -62,7 +63,7 @@ export interface Config {
   apiKey?: string
   /** Credential reference (environment-variable name) resolved per request; defaults to `DEEPSEEK_API_KEY`. */
   apiKeyEnv?: string
-  /** Endpoint base; falls back to $DEEPSEEK_BASE_URL, then the public API. */
+  /** Endpoint base; falls back to $DEEPSEEK_BASE_URL from a trusted environment layer, then the public API. */
   baseURL?: string
   /** Deployment thinking policy; `disabled` limits every conversation request to `off`. */
   thinking?: 'enabled' | 'disabled'
@@ -103,6 +104,9 @@ export const Config: z<Config> = z.object({
 /** Public API default; the internal endpoint comes from $DEEPSEEK_BASE_URL. */
 export const PUBLIC_BASE_URL = 'https://api.deepseek.com'
 
+/** Environment variable naming this provider's endpoint, honored only from trusted layers. */
+const BASE_URL_ENV = 'DEEPSEEK_BASE_URL'
+
 /**
  * One resolution's complete request facts. Connection and credential facts
  * are one value on purpose: a snapshot the resolver rejects keeps the whole
@@ -142,9 +146,13 @@ function resolveModels(models: readonly DeepSeekCatalogModel[] | undefined): Dee
  * every default and bound is re-judged here — for the composition entry at
  * load (fail loud) and for each settings snapshot at its first use.
  * @param config - raw plugin config or resolved settings snapshot.
+ * @param environment - this run's environment layers, or `undefined` outside
+ * the product CLI. Only the launching shell and the user's own `.env` may
+ * supply an endpoint: a base URL decides where the resolved API key is sent,
+ * so a file inside the workspace must not be able to redirect it.
  * @returns validated connection facts plus the credential reference.
  */
-export function resolveAdapterOptions(config: Config): ResolvedDeepSeekOptions {
+export function resolveAdapterOptions(config: Config, environment?: EnvironmentSnapshot): ResolvedDeepSeekOptions {
   if (config.thinking === 'disabled'
     && config.reasoningEffort !== undefined
     && config.reasoningEffort !== 'off') {
@@ -169,7 +177,9 @@ export function resolveAdapterOptions(config: Config): ResolvedDeepSeekOptions {
   return {
     ...config.apiKey !== undefined && config.apiKey.length > 0 ? { apiKey: config.apiKey } : {},
     apiKeyEnv: credentialRef(config.apiKeyEnv ?? DEFAULT_API_KEY_ENV),
-    baseURL: config.baseURL ?? process.env.DEEPSEEK_BASE_URL ?? PUBLIC_BASE_URL,
+    baseURL: config.baseURL
+      ?? environment?.getFrom(BASE_URL_ENV, ['process', 'user-env'])?.value
+      ?? PUBLIC_BASE_URL,
     defaults: {
       thinking: config.thinking,
       reasoningEffort: config.reasoningEffort,
@@ -190,7 +200,7 @@ export function apply(ctx: Context, config: Config): void {
     const raw = current()
     if (raw === lastRaw && lastGood !== undefined) return lastGood
     try {
-      const next = resolveAdapterOptions(raw)
+      const next = resolveAdapterOptions(raw, environmentOf(ctx))
       lastRaw = raw
       lastGood = next
       return next
@@ -217,10 +227,12 @@ export function apply(ctx: Context, config: Config): void {
       const hit = await credentials.resolve(ref)
       if (hit !== undefined) return hit.value
     } else {
-      // Without the seam, keep the historical ambient fallback so a plain
-      // cordis.yml composition works from the environment alone.
-      const ambient = process.env[ref]
-      if (ambient !== undefined && ambient.length > 0) return ambient
+      // Without the seam there is no managed store to rank against, so the
+      // launching environment is the whole credential plane — but only that
+      // layer: a key from a discovered project file would route this request
+      // through an account the launch never chose.
+      const inherited = environmentOf(ctx).getFrom(ref, ['process'])
+      if (inherited !== undefined && inherited.value.length > 0) return inherited.value
     }
     throw new LlmError(
       `llm-deepseek: no API key for provider route "${PROVIDER}"; store ${ref} through the credentials`

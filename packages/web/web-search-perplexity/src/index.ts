@@ -8,6 +8,7 @@
  */
 
 import type { Context } from 'cordis'
+import { environmentOf } from '@deepseek-ai/dsh-environment'
 import z from 'schemastery'
 import type {} from '@deepseek-ai/dsh-web'
 import { PerplexitySearchProvider, PERPLEXITY_DEFAULT_BASE_URL, PERPLEXITY_DEFAULT_MAX_TOKENS, PERPLEXITY_DEFAULT_MODEL } from './provider.ts'
@@ -52,7 +53,10 @@ export const Config: z<Config> = z.object({
 /** Register the Perplexity search provider with `ctx.web`. */
 export function apply(ctx: Context, config: Config): void {
   ctx.web.registerSearchProvider(new PerplexitySearchProvider({
-    apiKey: config.apiKey ?? process.env.PERPLEXITY_API_KEY ?? '',
+    // Only the launching shell and the user's own `.env` may name this key:
+    // a project directory can be written by the model, and a substituted key
+    // would route every request through an account someone else reads.
+    apiKey: config.apiKey ?? environmentOf(ctx).getFrom('PERPLEXITY_API_KEY', ['process', 'user-env'])?.value ?? '',
     baseURL: config.baseURL ?? PERPLEXITY_DEFAULT_BASE_URL,
     model: config.model ?? PERPLEXITY_DEFAULT_MODEL,
     maxTokens: config.maxTokens ?? PERPLEXITY_DEFAULT_MAX_TOKENS,

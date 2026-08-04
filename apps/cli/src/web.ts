@@ -12,6 +12,7 @@ import { addHarnessSourceSection, resolveConfigPath } from '@deepseek-ai/dsh-app
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tool-bash'
+import type { EnvironmentSnapshot } from '@deepseek-ai/dsh-environment'
 import { AppCLIEntry } from './app-cli-entry.ts'
 
 // The shared core every `dsh` surface mounts, plus this surface's overlay over it.
@@ -85,6 +86,7 @@ export function prepareWebRuntimeContext(ctx: Context, sourceRoot: string, mode:
 /**
  * Serve the browser UI from the shipped config tree. `host`/`port` are passed
  * through only when the flag was given; absent, the shipped Web overlay value stands.
+ * @param environment - this run's frozen environment snapshot.
  * @param host - the bind host, or `undefined` to keep the config default.
  * @param port - the listen port (`0` requests an OS-assigned port), or `undefined` to keep the config default.
  * @param dev - mount the client HMR receiver; `pnpm run dev:web` separately rebuilds watched plugin bundles.
@@ -95,6 +97,7 @@ export function prepareWebRuntimeContext(ctx: Context, sourceRoot: string, mode:
  * personal overlay; already parsed from `--config`.
  */
 export async function runWeb(
+  environment: EnvironmentSnapshot,
   host: string | undefined,
   port: number | undefined,
   dev: boolean,
@@ -104,6 +107,7 @@ export async function runWeb(
 ): Promise<void> {
   const mode: WebMode = dev ? 'development' : 'production'
   const entry = new AppCLIEntry({
+    environment,
     configPath: BASE_CONFIG,
     overlayPath: WEB_OVERLAY,
     ...config !== undefined && { extraOverlayPath: resolveConfigPath(config, undefined) },
