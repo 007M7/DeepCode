@@ -18,6 +18,7 @@ import {
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import {
+  doubledGraceWindow,
   settleRunResult,
   subprocessRunHandle,
   type SubagentResult,
@@ -37,47 +38,6 @@ import {
 
 /** Default POSIX grace between subprocess termination tiers. */
 export const DEFAULT_DISPOSE_GRACE_MS = 3_000
-
-/** Largest delay Node schedules without collapsing it to one millisecond. */
-const MAX_TIMER_DELAY_MS = 2_147_483_647n
-
-/**
- * Bound final exit observation at twice a positive finite grace without
- * narrowing the public config to Node's single-timer integer range.
- */
-function doubledGraceWindow(graceMs: number): {
-  readonly signal: AbortSignal
-  readonly cancel: () => void
-} {
-  const whole = Math.floor(graceMs)
-  let remaining = BigInt(whole) * 2n
-    + BigInt(Math.ceil((graceMs - whole) * 2))
-  const controller = new AbortController()
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const arm = (): void => {
-    const chunk = remaining > MAX_TIMER_DELAY_MS
-      ? MAX_TIMER_DELAY_MS
-      : remaining
-    remaining -= chunk
-    timer = setTimeout(() => {
-      timer = undefined
-      if (remaining === 0n) {
-        controller.abort()
-      } else {
-        arm()
-      }
-    }, Number(chunk))
-  }
-  arm()
-  return {
-    signal: controller.signal,
-    cancel: () => {
-      if (timer === undefined) return
-      clearTimeout(timer)
-      timer = undefined
-    },
-  }
-}
 
 type QueryFactory = (params: {
   prompt: string

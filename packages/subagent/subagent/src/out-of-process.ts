@@ -42,6 +42,49 @@ export function assertPositiveFinite(prefix: string, name: string, value: number
   }
 }
 
+/** Largest delay Node schedules without collapsing it to one millisecond. */
+const MAX_TIMER_DELAY_MS = 2_147_483_647n
+
+/**
+ * Bound final exit observation at twice a positive finite grace without
+ * narrowing public provider config to Node's single-timer integer range.
+ * @param graceMs - the already validated positive finite termination grace.
+ * @returns a cancellable abort signal for the doubled observation window.
+ */
+export function doubledGraceWindow(graceMs: number): {
+  readonly signal: AbortSignal
+  readonly cancel: () => void
+} {
+  const whole = Math.floor(graceMs)
+  let remaining = BigInt(whole) * 2n
+    + BigInt(Math.ceil((graceMs - whole) * 2))
+  const controller = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const arm = (): void => {
+    const chunk = remaining > MAX_TIMER_DELAY_MS
+      ? MAX_TIMER_DELAY_MS
+      : remaining
+    remaining -= chunk
+    timer = setTimeout(() => {
+      timer = undefined
+      if (remaining === 0n) {
+        controller.abort()
+      } else {
+        arm()
+      }
+    }, Number(chunk))
+  }
+  arm()
+  return {
+    signal: controller.signal,
+    cancel: () => {
+      if (timer === undefined) return
+      clearTimeout(timer)
+      timer = undefined
+    },
+  }
+}
+
 /**
  * Whether `path` names an existing directory the harness can ENTER. The
  * search-permission probe matters: `statSync().isDirectory()` is true for a
