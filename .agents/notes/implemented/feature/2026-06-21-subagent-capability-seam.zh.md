@@ -14,7 +14,8 @@ harness 有一个长期搁置的 seam 用于 **subagent**：一个 agent（智�
 
 - **进程内**：在同一个 `Context` 上创建一个具体的子 `Agent`（最廉价，且鉴于现有 agent 工厂几乎零成本）；
 - **ACP**：作为 ACP *客户端*驱动另一个 agent 进程（可以是自身的另一个实例）；
-- 后续：**A2A**、**Codex app-server** 与 **Claude Code Agent SDK**——每种都与 ACP 后端相同的进程外形状：「启动子 agent、发送提示词、流式接收更新、取消」。
+- **Codex app-server**：当前的一次性兄弟提供方，将同一个命名提供方 seam 应用于官方产品进程（[产品提供方 Agent Note](../../proposed/feature/2026-08-04-claude-code-and-codex-subagent-backends.md)）；
+- 后续：**A2A** 与 **Claude Code Agent SDK**——两者采用同样的进程外形态：「启动子 agent、发送提示词、结算、取消」；Claude 兄弟提供方仍在产品提供方提案中。
 
 ## 曾考虑的替代方案
 

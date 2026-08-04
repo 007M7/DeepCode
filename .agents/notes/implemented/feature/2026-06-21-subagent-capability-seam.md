@@ -14,7 +14,8 @@ The distinctive requirement — the one that shapes the whole design — is that
 
 - **in-process** — a child concrete `Agent` on the same `Context` (the cheapest, and nearly free given the existing agent factory);
 - **ACP** — act as an ACP *client* driving another agent process (which can be another instance of ourselves);
-- later: **A2A**, the **Codex app-server**, and the **Claude Code Agent SDK** — each the same out-of-process "start a child, prompt it, stream updates, cancel" shape as the ACP backend.
+- **Codex app-server** — a current one-shot sibling that applies the same named-provider seam to the official product process ([product-provider Agent Note](../../proposed/feature/2026-08-04-claude-code-and-codex-subagent-backends.md));
+- later: **A2A** and the **Claude Code Agent SDK** — the same out-of-process "start a child, prompt it, settle, cancel" shape; the Claude sibling remains in the product-provider proposal.
 
 ## Alternatives considered
 
