@@ -61,7 +61,6 @@
       "@deepseek-ai/dsh-llm/message": ["./packages/llm/llm/src/message.ts"],
       "@deepseek-ai/dsh-commands/brand": ["./packages/ui/commands/src/brand.ts"],
       "@deepseek-ai/dsh-compact/checkpoint": ["./packages/compact/compact/src/checkpoint.ts"],
-      "@deepseek-ai/dsh-tui/prompt": ["./packages/ui/tui/src/prompt.ts"],
       "@deepseek-ai/dsh-tools/presentation": ["./packages/core/tools/src/presentation.ts"],
       "@deepseek-ai/dsh-tool-subagent-control/list-agents": ["./packages/subagent/tool-subagent-control/src/list-agents.ts"],
       "@deepseek-ai/dsh-user-approval/types": ["./packages/ui/user-approval/src/types.ts"],

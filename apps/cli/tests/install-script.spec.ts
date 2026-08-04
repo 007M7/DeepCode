@@ -125,31 +125,16 @@ async function runInstaller(fixture: Fixture, actions: readonly Action[]): Promi
   return result.stdout
 }
 
-describe.runIf(process.platform !== 'win32')('one-line installer interface choice', { timeout: 25_000 }, () => {
-  it('builds and launches the Web UI when the default choice is accepted', async () => {
+describe.runIf(process.platform !== 'win32')('one-line installer launch', { timeout: 25_000 }, () => {
+  it('builds and launches the Web UI', async () => {
     const fixture = await createFixture()
 
     const output = await runInstaller(fixture, [
       { waitFor: 'Replace it?', send: '\n' },
-      { waitFor: 'Choose an interface [1/2]:', send: '\n' },
     ])
 
     expect(output).toContain('launching Web UI')
     expect(readFileSync(fixture.pnpmLog, 'utf8')).toBe('install\nrun build\n')
     expect(readFileSync(fixture.launchLog, 'utf8')).toBe('web\n')
-  })
-
-  it('rejects an unknown choice, then launches the TUI without building', async () => {
-    const fixture = await createFixture()
-
-    const output = await runInstaller(fixture, [
-      { waitFor: 'Replace it?', send: '\n' },
-      { waitFor: 'Choose an interface [1/2]:', send: 'terminal\n' },
-      { waitFor: 'choose 1 for Web UI or 2 for TUI', send: '2\n' },
-    ])
-
-    expect(output).toContain('launching TUI')
-    expect(readFileSync(fixture.pnpmLog, 'utf8')).toBe('install\n')
-    expect(readFileSync(fixture.launchLog, 'utf8')).toBe('\n')
   })
 })

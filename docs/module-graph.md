@@ -138,7 +138,6 @@ flowchart TD
     pkg_jsonrpc["jsonrpc"]
     pkg_permission["permission"]
     pkg_tool_ask_user["tool-ask-user"]
-    pkg_tui["tui"]
     pkg_user_approval["user-approval"]
     pkg_user_interaction["user-interaction"]
   end
@@ -929,27 +928,6 @@ flowchart TD
   pkg_hooks_claude --> pkg_session_persistence
   pkg_hooks_claude --> pkg_subagent
   pkg_hooks_claude --> pkg_tools
-  pkg_tui --> pkg_agent
-  pkg_tui --> pkg_agent_loop
-  pkg_tui --> pkg_commands
-  pkg_tui --> pkg_compact
-  pkg_tui --> pkg_goal
-  pkg_tui --> pkg_invariants
-  pkg_tui --> pkg_llm
-  pkg_tui --> pkg_llm_retry
-  pkg_tui --> pkg_session
-  pkg_tui --> pkg_session_persistence
-  pkg_tui --> pkg_session_projection
-  pkg_tui --> pkg_session_projection_cache
-  pkg_tui --> pkg_session_query
-  pkg_tui --> pkg_session_reference
-  pkg_tui --> pkg_session_title
-  pkg_tui --> pkg_skill
-  pkg_tui --> pkg_subprocess
-  pkg_tui --> pkg_system_prompt
-  pkg_tui --> pkg_token_meter
-  pkg_tui --> pkg_tools
-  pkg_tui --> pkg_user_interaction
   pkg_client_ui_model --> pkg_client_connection
   pkg_client_ui_model --> pkg_client_locale
   pkg_client_ui_model --> pkg_client_runtime
@@ -1239,7 +1217,6 @@ flowchart TD
 | [`tool-subagent-report`](../packages/subagent/tool-subagent-report) | `subagent` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`subagent`](../packages/subagent/subagent), [`tools`](../packages/core/tools) |
 | [`repository-plugin`](../packages/cordis/repository-plugin) | `cordis` | [`invariants`](../packages/support/invariants), [`mcp-client`](../packages/mcp/mcp-client), [`paths`](../packages/util/paths), [`skill-local`](../packages/skill/skill-local) |
 | [`hooks-claude`](../packages/hooks/hooks-claude) | `hooks` | [`agent`](../packages/core/agent), [`hook-protocol`](../packages/hooks/hook-protocol), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence), [`subagent`](../packages/subagent/subagent), [`tools`](../packages/core/tools) |
-| [`tui`](../packages/ui/tui) | `ui` | [`agent`](../packages/core/agent), [`agent-loop`](../packages/core/agent-loop), [`commands`](../packages/ui/commands), [`compact`](../packages/compact/compact), [`goal`](../packages/goal/goal), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`llm-retry`](../packages/llm/llm-retry), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence), [`session-projection`](../packages/session-projection/session-projection), [`session-projection-cache`](../packages/session-projection/session-projection-cache), [`session-query`](../packages/session-query/session-query), [`session-reference`](../packages/context/session-reference), [`session-title`](../packages/session-title/session-title), [`skill`](../packages/skill/skill), [`subprocess`](../packages/subprocess/subprocess), [`system-prompt`](../packages/core/system-prompt), [`token-meter`](../packages/llm/token-meter), [`tools`](../packages/core/tools), [`user-interaction`](../packages/ui/user-interaction) |
 | [`client-ui-model`](../packages/client/ui-model) | `client` | [`client-connection`](../packages/client/connection), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-command`](../packages/client/ui-command), [`client-ui-conversation`](../packages/client/ui-conversation), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slash`](../packages/client/ui-slash), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants) |
 | [`client-ui-permission`](../packages/client/ui-permission) | `client` | [`client-connection`](../packages/client/connection), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-schema-form`](../packages/client/schema-form), [`client-ui-command`](../packages/client/ui-command), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slash`](../packages/client/ui-slash), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants), [`permission`](../packages/ui/permission) |
 | [`client-ui-plan`](../packages/client/ui-plan) | `client` | [`client-connection`](../packages/client/connection), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-conversation`](../packages/client/ui-conversation), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants), [`plan-mode`](../packages/plan/plan-mode) |
