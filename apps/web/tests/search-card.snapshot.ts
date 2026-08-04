@@ -128,11 +128,11 @@ describe('assembled search card', () => {
     win.__DSH_BOOT__ = { rev: 'fx', entries: PLUGINS.map(({ dir: _dir, ...plugin }) => plugin) }
     act(() => {
       const entry = new AppWebEntry(root, {
-        fetchBundle: (url) => {
+        loadBundle: async (url) => {
           const code = bundles.get(url)
-          return code === undefined ? Promise.reject(new Error(`missing built bundle ${url}`)) : Promise.resolve(code)
+          if (code === undefined) throw new Error(`missing built bundle ${url}`)
+          ;(0, eval)(code)
         },
-        executeBundle: (code) => { (0, eval)(code) },
       })
       void entry.run()
       unmount = () => { entry.dispose() }
