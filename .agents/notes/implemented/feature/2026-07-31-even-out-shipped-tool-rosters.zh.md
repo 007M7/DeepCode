@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-那些并非 surface 专属的行移入 [`base.cordis.yml`](../../../../apps/cli/config/base.cordis.yml),另有三行加入:`tool-session-query`、`tool-str-replace-editor` 和 `repeat-tool-guard`。Web 搜索也一并移入；其[部署决策](2026-07-31-web-default-search.md)负责安全边界，共享 base 则负责与 surface 无关的挂载。两个 surface 组装同一份清单：每台宿主上都有二十个工具，ripgrep 可用时再加上 `glob` 和 `grep`。`tool-session-query` 加入后又退出了——[session-search-not-shipped-default 决策](2026-08-02-session-search-not-shipped-default.md)让面向模型的消费方保持需显式启用——而这份清单的其余部分保持不变。
+那些并非 surface 专属的行移入 [`base.cordis.yml`](../../../../apps/cli/config/base.cordis.yml),另有三行加入:`tool-session-query`、`tool-str-replace-editor` 和 `repeat-tool-guard`。Web 搜索也一并移入；其[部署决策](2026-07-31-web-default-search.md)负责安全边界，共享 base 则负责与 surface 无关的挂载。两个 surface 组装同一份清单：每台宿主上都有二十二个工具——二十个共享行加上 `glob` 和 `grep`，它们成为固定成员，因为 `dsh-tool-fs-search` 直接 spawn [打包的 ripgrep 二进制](../architecture/2026-08-01-packaged-ripgrep-search.md)。`tool-session-query` 加入后又退出了——[session-search-not-shipped-default 决策](2026-08-02-session-search-not-shipped-default.md)让面向模型的消费方保持需显式启用——而这份清单的其余部分保持不变。
 
 有两行仍是 surface 专属。`tmux-context` 只在 TUI,因为浏览器 surface 没有终端复用器可描述。`session-reference` 只在 TUI,因为它以 launcher 的进程本地路径驱动共享的 session-query 索引,而浏览器侧边栏会在自己的首次搜索里重建该索引。
 
@@ -46,7 +46,7 @@ Status: implemented
 
 [`apps/web/tests/shipped-composition.e2e.ts`](../../../../apps/web/tests/shipped-composition.e2e.ts) 在构建产物 lane 中覆盖 Web surface,断言它的工具目录、它的访问默认值未被触碰,以及 `workspace-write` 的可写根包含临时目录——一个会让沙箱测试说谎的陷阱,当工作区落在 `/tmp` 下时([`roots.ts`](../../../../packages/sandbox/sandbox/src/roots.ts))。
 
-`glob` 与 `grep` 被作为全有或全无的一对断言,而不是固定成员:`dsh-tool-fs-search` 在加载时探测 `command -v rg`,没有 ripgrep 就两个工具都不注册,这是宿主依赖。
+`glob` 与 `grep` 被作为固定成员断言，而不是一对宿主依赖：`dsh-tool-fs-search` spawn 打包的 ripgrep 二进制并无条件注册两个工具，因此这一对始终在场。
 
 除入库测试外,两个 surface 都以 plain Node 从构建产物 `apps/cli/lib/bin.js` 出发、用真实密钥驱动过。每一个已挂载的工具都执行成功,包括 `ralph` 与 `web_search`;模型从未触达 `cordis_*` 或 `mcp_*`,被要求做 LSP 跳转时退化到 `grep`,被要求开持久终端时用了后台 `bash` 任务。
 
@@ -62,7 +62,7 @@ Status: implemented
 
 ## 后果
 
-同一个模型在两个 surface 上拿到同样的工具,那处没有记录理由的差异消失了。测试会精确断言二十个无条件提供的名称，并要求依赖 ripgrep 的一对工具在两侧要么同时存在、要么同时缺席，因此日后只改一个 surface 都会让检查失败而不是悄悄发出去；[session-search-not-shipped-default 决策](2026-08-02-session-search-not-shipped-default.md)正是这样一次后来的改动，两个测试也随之移动。
+同一个模型在两个 surface 上拿到同样的工具,那处没有记录理由的差异消失了。测试会精确断言二十个无条件提供的名称，并把 `glob` 与 `grep` 作为固定成员钉在两侧，因此日后只改一个 surface 都会让检查失败而不是悄悄发出去；[session-search-not-shipped-default 决策](2026-08-02-session-search-not-shipped-default.md)正是这样一次后来的改动，两个测试也随之移动。
 
 `apps/cli` 增加了五个 workspace 依赖:四个是交付树当时挂载的,外加 `dsh-mcp-client`——它并不被挂载,存在的意义是让已安装的 `dsh` 能挂。四个保留了下来——[session-search-not-shipped-default 决策](2026-08-02-session-search-not-shipped-default.md)把 `@deepseek-ai/dsh-tool-session-query` 连同它的行一起移除了。
 

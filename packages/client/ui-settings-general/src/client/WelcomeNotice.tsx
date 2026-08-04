@@ -31,7 +31,7 @@ export interface WelcomeNoticeInjected {
 export type WelcomeNoticeProps =
   PropsRuntime<'settings.onboarding'> & PropsLocale<'settings'> & WelcomeNoticeInjected
 
-/** Render the mandatory notice until its current version commits durably. */
+/** Render the mandatory notice until its current version is acknowledged. */
 export function WelcomeNotice(props: WelcomeNoticeProps): ReactNode {
   const { complete, controller, useSnapshot, t } = props
   const state = useSnapshot(snapshot => snapshot)

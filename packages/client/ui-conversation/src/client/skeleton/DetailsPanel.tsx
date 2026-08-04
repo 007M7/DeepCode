@@ -180,13 +180,12 @@ function OutputBody({ material, cwd, t }: { material: CallMaterial; cwd: string 
     )
   }
   const web = webCardModel(material.block)
-  // Full source-list allowance here (the panel is the single-call reading
-  // surface); the chat rows cap it at CHAT_WEB_MAX_SOURCES. Below the card the
-  // panel also renders the flattened result content — the model-visible text
-  // the card does not carry verbatim (a web_fetch card shows only the URL and
-  // status, so its fetched body lives only here; a search card's answer and
-  // sources are structured, so the flattened form repeats them as the raw text
-  // the model saw).
+  // The card shows every source the tool returned (the same list the model saw),
+  // scrolling within its own capped height. Below the card the panel also renders
+  // the flattened result content — the model-visible text the card does not carry
+  // verbatim (a web_fetch card shows only the URL and status, so its fetched body
+  // lives only here; a search card's answer and sources are structured, so the
+  // flattened form repeats them as the raw text the model saw).
   if (web !== null) {
     const settled = 'kind' in material.block ? material.block : null
     const body = settled === null ? '' : resultText(settled)
