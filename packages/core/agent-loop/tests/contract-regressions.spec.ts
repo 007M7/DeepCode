@@ -194,7 +194,7 @@ describe('abort during tool execution ends the turn', () => {
     send(agent, 'go')
     // The wake microtask has not run yet: remove the only pending message so
     // the admission batch is empty.
-    agent.inbox.remove('next-turn', agent.inbox.nextTurn[0]!.id)
+    agent.inbox.remove(agent.inbox.nextTurn[0]!.id)
     await waitForIdle(ctx, agent)
     expect(adapter.requests).toHaveLength(0)
     expect(agent.session.events.some(event => event.type === 'turn/start')).toBe(false)

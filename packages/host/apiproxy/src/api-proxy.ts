@@ -1836,9 +1836,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           }))
         }
         if (action.kind === 'edit') {
-          agent.inbox.update(target, itemId, freezeMessage({ ...message, content: action.content }))
+          agent.inbox.replace(itemId, freezeMessage({ ...message, content: action.content }))
         } else {
-          agent.inbox.remove(target, itemId)
+          agent.inbox.remove(itemId)
           if (action.kind === 'steer') agent.steer(message)
         }
         return Promise.resolve(ok(request, { accepted: true as const }))

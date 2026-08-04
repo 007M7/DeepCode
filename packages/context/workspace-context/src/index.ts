@@ -163,20 +163,20 @@ export function apply(ctx: Context, config: Config): void {
       })
     )
     if (desired === undefined || alreadySupplied) {
-      for (const message of pending) agent.inbox.remove('next-step', message.id)
+      for (const message of pending) agent.inbox.remove(message.id)
       return
     }
     const reusable = pending.find(message => sameContextPayload(message, desired))
     if (reusable !== undefined) {
       for (const message of pending) {
-        if (message !== reusable) agent.inbox.remove('next-step', message.id)
+        if (message !== reusable) agent.inbox.remove(message.id)
       }
       return
     }
     const replaced = pending[0]
     if (replaced === undefined) agent.inbox.prepend('next-step', desired)
-    else agent.inbox.update('next-step', replaced.id, desired)
-    for (const message of pending.slice(1)) agent.inbox.remove('next-step', message.id)
+    else agent.inbox.replace(replaced.id, desired)
+    for (const message of pending.slice(1)) agent.inbox.remove(message.id)
   }
 
   const composeAndSync = async (

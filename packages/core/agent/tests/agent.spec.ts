@@ -49,25 +49,45 @@ describe('Inbox', () => {
       .toThrow('invalid persisted inbox splice at session seq 0')
   })
 
-  it('updates a pending message by identity and reports a missing identity', () => {
-    const session = new Session(SessionId('update-inbox'))
-    const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {} })
+  it('replaces a pending message by identity across both lists', () => {
+    const session = new Session(SessionId('replace-inbox'))
+    const inserted: UserMessage[] = []
+    const discarded: UserMessage[] = []
+    const inbox = new Inbox(session, {
+      inserted: message => void inserted.push(message),
+      discarded: message => void discarded.push(message),
+    })
     const original = createUserMessage({
       content: [{ type: 'text', text: 'original' }],
       source: { kind: 'user' },
     })
-    const replacement = freezeMessage({
-      ...original,
+    const nextStep = createUserMessage({
+      content: [{ type: 'text', text: 'step' }],
+      source: { kind: 'user' },
+    })
+    const replacement = createUserMessage({
       content: [{ type: 'text', text: 'replacement' }],
+      source: { kind: 'user' },
+    })
+    const editedStep = freezeMessage({
+      ...nextStep,
+      content: [{ type: 'text', text: 'edited step' }],
     })
     inbox.append('next-turn', original)
+    inbox.append('next-step', nextStep)
 
-    expect(inbox.update('next-turn', createUserMessage({
+    expect(inbox.replace(createUserMessage({
       content: [{ type: 'text', text: 'missing' }],
       source: { kind: 'user' },
     }).id, replacement)).toBe(false)
-    expect(inbox.update('next-turn', original.id, replacement)).toBe(true)
+    expect(inbox.replace(original.id, replacement)).toBe(true)
+    expect(inbox.replace(nextStep.id, editedStep)).toBe(true)
     expect(inbox.nextTurn).toEqual([replacement])
+    expect(inbox.nextStep).toEqual([editedStep])
+    expect(discarded).toEqual([original, nextStep])
+    expect(inserted).toEqual([original, nextStep, replacement, editedStep])
+    expect(() => { inbox.replace(editedStep.id, replacement) })
+      .toThrow(`message "${replacement.id}" is already pending`)
   })
 
   it('normalizes splice coordinates, rejects duplicate identities, and reports missing removals', () => {
@@ -85,7 +105,7 @@ describe('Inbox', () => {
     inbox.splice('next-turn', Number.NaN, Number.NaN, [first, second])
     expect(inbox.nextTurn).toEqual([first, second])
     expect(inbox.splice('next-turn', -1, 1, [])).toEqual([second])
-    expect(inbox.remove('next-turn', second.id)).toBe(false)
+    expect(inbox.remove(second.id)).toBe(false)
     expect(() => { inbox.append('next-step', first) }).toThrow(`message "${first.id}" is already pending`)
   })
 

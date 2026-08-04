@@ -95,30 +95,30 @@ export class Inbox {
   }
 
   /**
-   * Replace one pending message in place and durably record the mutation.
-   * @param target - pending list containing the message.
-   * @param messageId - identity of the message to replace.
+   * Replace one pending message in place, possibly changing its identity. A
+   * successful replacement publishes the old message as discarded and the new
+   * message as inserted.
+   * @param messageId - identity of the pending message to replace.
    * @param newMessage - replacement message.
    * @returns whether the message was still pending.
    * @throws if the replacement duplicates another pending message identity.
    */
-  update(target: InboxTarget, messageId: MessageId, newMessage: UserMessage): boolean {
-    const index = this.state[target].findIndex(message => message.id === messageId)
-    if (index < 0) return false
-    this.splice(target, index, 1, [newMessage])
+  replace(messageId: MessageId, newMessage: UserMessage): boolean {
+    const location = this.locate(messageId)
+    if (location === undefined) return false
+    this.splice(location.target, location.index, 1, [newMessage])
     return true
   }
 
   /**
    * Remove one pending message and durably record its cancellation.
-   * @param target - pending list containing the message.
-   * @param messageId - identity of the message to remove.
+   * @param messageId - identity of the pending message to remove.
    * @returns whether the message was still pending.
    */
-  remove(target: InboxTarget, messageId: MessageId): boolean {
-    const index = this.state[target].findIndex(message => message.id === messageId)
-    if (index < 0) return false
-    this.splice(target, index, 1, [])
+  remove(messageId: MessageId): boolean {
+    const location = this.locate(messageId)
+    if (location === undefined) return false
+    this.splice(location.target, location.index, 1, [])
     return true
   }
 
@@ -140,6 +140,15 @@ export class Inbox {
     inserted: UserMessage[],
   ): UserMessage[] {
     return this.mutate(target, start, deleteCount, inserted, true)
+  }
+
+  /** Locate one pending identity across both owned lists. */
+  private locate(messageId: MessageId): { target: InboxTarget; index: number } | undefined {
+    for (const target of ['next-turn', 'next-step'] as const) {
+      const index = this.state[target].findIndex(message => message.id === messageId)
+      if (index >= 0) return { target, index }
+    }
+    return undefined
   }
 
   /** Commit one normalized mutation and publish its live notifications. */

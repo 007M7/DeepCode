@@ -556,7 +556,7 @@ describe('goal replay validation', () => {
     })
     const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {} })
     inbox.append('next-step', message)
-    expect(inbox.remove('next-step', message.id)).toBe(true)
+    expect(inbox.remove(message.id)).toBe(true)
     expect(foldGoal(session.events)).toMatchObject({ goal: { id: change.goal.id, revision: 1 } })
   })
 

@@ -70,7 +70,7 @@ describe('Agent', () => {
       source: { kind: 'plugin', plugin: 'test' },
     })
     agent.inject(context)
-    agent.inbox.remove('next-step', context.id)
+    agent.inbox.remove(context.id)
     const prompt = createUserMessage({ content: [{ type: 'text', text: 'run' }], source: { kind: 'user' } })
     agent.followup(prompt)
     await agent.whenIdle()

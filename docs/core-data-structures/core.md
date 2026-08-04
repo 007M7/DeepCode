@@ -485,7 +485,7 @@ Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types
 type InboxTarget = 'next-turn' | 'next-step'
 ```
 
-Every pending occurrence is its `UserMessage`; `MessageId` is the sole identity. `Inbox.append`, `prepend`, `update`, `remove`, `clear`, and `splice` record normalized durable `agent/inbox/spliced` mutations and reject duplicate pending ids. Ordinary removals and `clear()` are cancellations. `claim(target)` atomically removes the proposed step batch through pure deletion splices; the loop separately emits per-message claimed notifications. Whole-queue consumers such as UI projections reconstruct `nextTurn` and `nextStep` from the durable splices, while consumers following one message use the exact `agent/inbox/inserted`, `claimed`, and `discarded` notifications.
+Every pending occurrence is its `UserMessage`; `MessageId` is the sole identity. `Inbox.append`, `prepend`, `replace`, `remove`, `clear`, and `splice` record normalized durable `agent/inbox/spliced` mutations and reject duplicate pending ids. `replace(messageId, newMessage)` and `remove(messageId)` locate the pending message across both lists; replacement may change identity and emits the old message as discarded followed by the new message as inserted. Ordinary removals and `clear()` are cancellations. `claim(target)` atomically removes the proposed step batch through pure deletion splices; the loop separately emits per-message claimed notifications. Whole-queue consumers such as UI projections reconstruct `nextTurn` and `nextStep` from the durable splices, while consumers following one message use the exact `agent/inbox/inserted`, `claimed`, and `discarded` notifications.
 
 ```ts type-equiv
 /** Options for {@link Agent.cancel}. */
