@@ -55,9 +55,12 @@ export interface SettingsRegisterOptions<T> {
    * configuration surface renders and what an absent section resolves through;
    * folding a cross-field check into it would change both.
    *
-   * A stored section that fails this keeps the namespace's last good value and
-   * warns, exactly as a schema failure does, so an externally edited document
-   * can never strand the owner.
+   * Once the owner is registered, a stored section that fails this keeps the
+   * namespace's last good value and warns, exactly as a schema failure does,
+   * so an externally edited document cannot strand a running owner. At
+   * registration there is no last good value yet, so a stored section that
+   * already fails rejects the registration itself — again exactly as a schema
+   * failure does.
    * @param value - the resolved section, schema-valid by construction.
    */
   validate?: (value: T) => void

@@ -120,6 +120,19 @@ describe('registration', () => {
     expect(scope.get()).toMatchObject({ fontSize: 18 })
   })
 
+  it('fails the registration itself when the already-stored section is unserviceable', async () => {
+    // The other direction of the same contract: `register` resolves inline, so
+    // at cold start there is no last good value to keep. A stored section the
+    // owner cannot serve therefore refuses the registration rather than
+    // mounting an owner over configuration it rejects.
+    const { ctx } = await boot({ doc: { 'ui-theme': { fontSize: 4 } } })
+    expect(() => ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema, {
+      validate: (value) => {
+        if (value.fontSize < 10) throw new Error(`font size ${String(value.fontSize)} is unreadable`)
+      },
+    })).toThrow(/unreadable/)
+  })
+
   it('rejects a duplicate namespace loud', async () => {
     const { ctx } = await boot()
     ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)

@@ -266,6 +266,7 @@ export function resolveProfiles(
         ...source.api === undefined ? {} : { api: source.api },
         ...source.baseURL === undefined ? {} : { baseURL: source.baseURL },
         models: catalog.models,
+        namesCredential: source.apiKey !== undefined || apiKeyEnv !== undefined,
       }),
     })
   }

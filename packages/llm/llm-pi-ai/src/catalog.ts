@@ -196,6 +196,14 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
     // the model's capability and stays out of request defaults.
     if (entry.maxTokens !== undefined) configuredMaxTokens.set(entry.id, entry.maxTokens)
     return {
+      // The installed entry lays the floor, and the fields below override it.
+      // Enumerating instead would silently drop every `Model` field this
+      // package does not model — reasoning-level spellings, compatibility
+      // quirks, model headers, and whatever a pi-ai upgrade adds next. That is
+      // not hypothetical: `headers` reached this file only after an nvidia
+      // route lost it, and a rebuild keeps re-earning that bug on every
+      // upgrade.
+      ...base,
       id: entry.id,
       name: entry.name ?? base?.name ?? entry.id,
       api,
@@ -209,12 +217,6 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
       cost: base?.cost ?? NO_COST,
       contextWindow,
       maxTokens,
-      // Catalog-only metadata: reasoning-level spellings and OpenAI-compatibility
-      // quirks have no configuration surface, so they ride the catalog entry or
-      // are absent for a model pi-ai has never described.
-      ...base?.thinkingLevelMap === undefined ? {} : { thinkingLevelMap: base.thinkingLevelMap },
-      ...base?.compat === undefined ? {} : { compat: base.compat },
-      ...base?.headers === undefined ? {} : { headers: base.headers },
     }
   })
   return { models, configuredMaxTokens }

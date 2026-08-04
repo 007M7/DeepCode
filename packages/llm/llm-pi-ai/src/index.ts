@@ -69,7 +69,14 @@ const NS = settingsNamespace('llm-pi-ai')
  */
 function registrationFacts(profiles: ReadonlyMap<string, ResolvedPiAiProviderProfile>): unknown {
   return [...profiles.entries()]
-    .map(([provider, profile]) => ({ provider, retryPolicy: profile.retryPolicy }))
+    // `displayName` rides along because the registry hands it to every selector
+    // through `providerInfo()`: a rename that did not re-register would leave
+    // the old label showing until some unrelated fact happened to change.
+    .map(([provider, profile]) => ({
+      provider,
+      displayName: profile.displayName,
+      retryPolicy: profile.retryPolicy,
+    }))
     .sort((left, right) => left.provider.localeCompare(right.provider))
 }
 
@@ -97,7 +104,7 @@ function directoryEntries(
 export function apply(ctx: Context, config: Config): void {
   let current: () => Config = () => config
   let lastRaw: Config | undefined
-  let lastGood: ReadonlyMap<string, ResolvedPiAiProviderProfile> | undefined
+  let memoized: ReadonlyMap<string, ResolvedPiAiProviderProfile> | undefined
   /**
    * The resolved profiles for the current configuration, memoized by the raw
    * snapshot's identity — which is also what makes the adapter's own snapshot
@@ -111,10 +118,10 @@ export function apply(ctx: Context, config: Config): void {
    */
   const profiles = (): ReadonlyMap<string, ResolvedPiAiProviderProfile> => {
     const raw = current()
-    if (raw === lastRaw && lastGood !== undefined) return lastGood
+    if (raw === lastRaw && memoized !== undefined) return memoized
     const next = resolveProfiles(raw.providers)
     lastRaw = raw
-    lastGood = next
+    memoized = next
     return next
   }
   profiles()
@@ -209,7 +216,18 @@ export function apply(ctx: Context, config: Config): void {
       current = source
     },
     onChange: () => {
-      ensureRegistrationFacts()
+      // Named here rather than left to the settings watcher: `assertServiceable`
+      // cannot see the llm registry, so a profile claiming a route another
+      // adapter family owns is stored successfully and only fails at this swap.
+      // Without its own diagnostic that refusal reaches the operator as a
+      // generic "settings: watcher failed", naming neither the route nor why it
+      // is not serving. The previous routes keep serving either way.
+      try {
+        ensureRegistrationFacts()
+      } catch (error) {
+        ctx.logger.error('llm-pi-ai: keeping the previously registered routes after a refused update')
+        ctx.logger.error(error)
+      }
       // The directory follows the profiles the registry accepted, so a route
       // that failed to register is not advertised as configurable. A refused
       // directory swap is contained here for the same reason the registry's

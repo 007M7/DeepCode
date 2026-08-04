@@ -10,6 +10,8 @@ import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
+import { createModels } from '@earendil-works/pi-ai'
+import type { Api, Model, Provider } from '@earendil-works/pi-ai'
 import { resolveProfiles } from '../src/config.ts'
 import { buildProvider, supportedProtocols } from '../src/provider.ts'
 import { assemble } from './assemble.ts'
@@ -195,13 +197,13 @@ describe('hand-declared providers', () => {
       // endpoint, and headers can carry, so a route naming one would be built
       // unable to authenticate.
       expect(supportedProtocols()).not.toContain(api)
-      expect(() => buildProvider({ provider: 'acme-gateway', displayName: 'Acme', api, models: [] }))
+      expect(() => buildProvider({ provider: 'acme-gateway', displayName: 'Acme', api, models: [], namesCredential: true }))
         .toThrow(/cannot serve; supported protocols are/)
     },
   )
 
   it('rejects a protocol this build cannot serve, and a route that names none', () => {
-    const spec = { provider: 'acme-gateway', displayName: 'Acme Gateway', models: [] }
+    const spec = { provider: 'acme-gateway', displayName: 'Acme Gateway', models: [], namesCredential: true }
     expect(() => buildProvider({ ...spec, api: 'quantum-telepathy' }))
       .toThrow(/cannot serve; supported protocols are/)
     expect(() => buildProvider(spec)).toThrow(/cannot serve; supported protocols are/)
@@ -429,6 +431,37 @@ describe('catalog routes with per-model configuration', () => {
 
     await assemble(ctx, { provider: 'openai', model: 'gpt-4.1', messages: [] })
     expect(server.paths).toEqual(['/v1/chat/completions'])
+  })
+
+  it('keeps the catalog provider’s own auth when the route repoints its protocol', () => {
+    // Which environment a provider reads is a property of the provider, not of
+    // the wire format its models speak: naming an api must not cost a profile
+    // its provider-native discovery.
+    const resolved = resolveProfiles({ openai: { api: 'openai-completions' } })
+    expect(resolved.get('openai')?.piProvider.auth.apiKey?.name).toBe('OpenAI API key')
+  })
+
+  it('lets an OAuth-only catalog route authenticate with the key its profile names', async () => {
+    // pi-ai honours a request's `apiKey` override only when the provider
+    // declares an api-key method. `openai-codex` ships OAuth alone, so without
+    // the harness method beside it the route refuses its own configured key as
+    // `Provider is not configured` before any request goes out.
+    const resolved = resolveProfiles({ 'openai-codex': { apiKey: 'codex-token' } })
+    const provider = resolved.get('openai-codex')?.piProvider
+    expect(provider?.auth.oauth).toBeDefined()
+    const models = createModels()
+    models.setProvider(provider as Provider)
+    const model = provider?.getModels()[0] as Model<Api>
+    const auth = await models.getAuth(model, { apiKey: 'codex-token' })
+    expect(auth?.auth.apiKey).toBe('codex-token')
+  })
+
+  it('leaves an OAuth-only catalog route unconfigured when its profile names no key', () => {
+    // Nothing to add: this adapter resolves credentials through its own seam
+    // and holds no OAuth store, so declaring the provider configured would
+    // trade a truthful refusal for an endpoint's 401.
+    const resolved = resolveProfiles({ 'openai-codex': {} })
+    expect(resolved.get('openai-codex')?.piProvider.auth.apiKey).toBeUndefined()
   })
 })
 

@@ -40,6 +40,7 @@ import {
 import type {
   GenerateOptions,
   LlmModelInfo,
+  LlmProviderInfo,
   LlmResolvedModelInfo,
   ReasoningEffortId as ReasoningEffortIdType,
   ResolvedRetryPolicy,
@@ -194,6 +195,13 @@ export class PiAiAdapter extends LlmAdapter {
       throw new LlmError(`pi-ai provider "${provider}" has no configured model "${model}"`, 'UNKNOWN_MODEL')
     }
     return resolved
+  }
+
+  override providerInfo(provider: string): LlmProviderInfo {
+    // The configured name, not the route key: `displayName` exists so a
+    // deployment can label a route, and a label only the configuration surface
+    // reads would leave every selector showing the raw key.
+    return { id: provider, name: this.current().profiles.get(provider)?.displayName ?? provider }
   }
 
   override providerRetryPolicy(provider: string): ResolvedRetryPolicy | undefined {
