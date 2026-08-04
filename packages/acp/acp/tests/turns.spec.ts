@@ -82,18 +82,15 @@ describe('ACP prompt lifecycle', () => {
       .resolves.toEqual({ stopReason: 'end_turn' })
   })
 
-  it('ignores an injection turn while correlating the owning message turn', async () => {
+  it('correlates the owning prompt when a synchronous injection joins its first step', async () => {
     harness = await makeBridgeHarness({ script: [textResponse('real answer')] })
     const sessionId = await newSession(harness)
     const agent = harness.ctx.agents.get(SessionId(sessionId))!
     let injected = false
-    harness.ctx.on('session/event', (session, event) => {
-      if (session === agent.session && event.type === 'agent/inbox/spliced'
-        && event.data.inserted.some(message => message.source.kind === 'user') && !injected) {
+    harness.ctx.on('agent/inbox/inserted', (subject, { message }) => {
+      if (subject === agent && message.source.kind === 'user' && !injected) {
         injected = true
-        queueMicrotask(() => {
-          agent.inject(createUserMessage({ content: [{ type: 'text', text: 'context' }], source: { kind: 'plugin', plugin: 'test' } }))
-        })
+        agent.inject(createUserMessage({ content: [{ type: 'text', text: 'context' }], source: { kind: 'plugin', plugin: 'test' } }))
       }
     })
 

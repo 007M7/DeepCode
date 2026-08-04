@@ -101,14 +101,14 @@ async function harness(script: ScriptEntry[]): Promise<Harness> {
   return { ctx, adapter, agent, driver }
 }
 
-/** Observe inserted inbox messages after the insertion call completes. */
+/** Observe inserted inbox messages after the live projection accepts them. */
 function onInboxMessage(
   ctx: Context,
   agent: Agent,
   listener: (message: UserMessage) => void,
 ): () => void {
   return ctx.on('agent/inbox/inserted', (subject, { message }) => {
-    if (subject === agent) queueMicrotask(() => { listener(message) })
+    if (subject === agent) listener(message)
   })
 }
 
