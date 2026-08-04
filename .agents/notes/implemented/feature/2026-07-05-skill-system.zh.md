@@ -52,4 +52,4 @@ agent-core 主干包含一个目录贡献者、一个本地提供方和一个面
 
 ## 延后
 
-Fork 的 skill 上下文（`context: fork`）、参数声明与提示（`arguments` 和 `argument-hint`）、以及逐 skill 的工具约束（`allowed-tools` 和 `disallowed-tools`）不在已交付的契约范围内。注册表、本地提供方和面向模型的工具不解析、不广播、也不执行这些字段。直接用户调用作为 TUI 功能交付，基于共享调用策略和受信的 `get()` 原语；见 [TUI skill 斜杠命令](2026-07-21-tui-skill-slash-command.md)。
+Fork 的 skill 上下文（`context: fork`）、参数声明与提示（`arguments` 和 `argument-hint`）、以及逐 skill 的工具约束（`allowed-tools` 和 `disallowed-tools`）不在已交付的契约范围内。注册表、本地提供方和面向模型的工具不解析、不广播、也不执行这些字段。直接用户调用曾作为 TUI 功能交付，基于共享调用策略和受信的 `get()` 原语；见[已归档的 TUI skill 斜杠命令](../../archived/feature/2026-07-21-tui-skill-slash-command.md)。

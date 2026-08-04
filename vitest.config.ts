@@ -28,7 +28,6 @@ const windowsCoverageExclusions = process.platform === 'win32'
       'packages/lsp/lsp-local/src/connection.ts',
       'packages/lsp/lsp-local/src/index.ts',
       'packages/lsp/lsp-local/src/instance.ts',
-      'packages/ui/tui/src/index.ts',
     ]
   : []
 
@@ -193,7 +192,6 @@ export default defineConfig({
         'packages/ui/commands/src/index.ts',
         'packages/ui/commands/src/invariant.ts',
         'packages/session-projection/session-projection/src/index.ts',
-        'packages/ui/tui/src/index.ts',
         ...windowsUnsupportedPackages.map(path => `${path}/src/**/*.ts`),
         ...windowsCoverageExclusions,
       ],

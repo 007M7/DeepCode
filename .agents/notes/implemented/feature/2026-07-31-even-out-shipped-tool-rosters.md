@@ -38,9 +38,9 @@ The layer that would make MCP a default is the one this repository does not have
 
 ## Testing
 
-[`apps/cli/tests/shipped-composition.e2e.ts`](../../../../apps/cli/tests/shipped-composition.e2e.ts) boots the shipped tree through the real Loader in a pseudo-terminal and reads the tool names out of the `request/header` the session log persisted, so the assertion is the catalog the model was actually sent. Its `--config` overlay, [`composition-keyless-tail.cordis.yml`](../../../../apps/cli/tests/fixtures/composition-keyless-tail.cordis.yml), is test isolation only: a network-free adapter and workspace-local session artifacts.
+`apps/cli/tests/shipped-composition.e2e.ts` booted the shipped tree through the real Loader in a pseudo-terminal and read the tool names out of the `request/header` the session log persisted, so the assertion was the catalog the model was actually sent. Its `--config` overlay, `composition-keyless-tail.cordis.yml`, provided test isolation only: a network-free adapter and workspace-local session artifacts.
 
-That tail also inserts [`composition-settled.ts`](../../../../apps/cli/tests/fixtures/composition-settled.ts), which announces settled Loader activation on the terminal stream. The TUI renders as soon as its own fiber starts, so a prompt typed at the banner can reach the loop while tool rows and persistence are still activating and assemble a partial catalog; gating the smoke's first prompt on that marker is what makes the assertion deterministic.
+That tail also inserted `composition-settled.ts`, which announced settled Loader activation on the terminal stream. The TUI rendered as soon as its own fiber started, so a prompt typed at the banner could reach the loop while tool rows and persistence were still activating and assemble a partial catalog; gating the smoke's first prompt on that marker made the assertion deterministic.
 
 The same smoke also pins the TUI execution posture from the same artifact. Those sandbox-schema and initial-permission assertions belong to the [workspace-write default decision](2026-07-31-workspace-write-surface-default.md), independently of this roster.
 

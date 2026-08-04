@@ -1,15 +1,13 @@
-# The shared `dsh` core: every row both the TUI (`tui.cordis.yml`) and the web
-# surface (`web.cordis.yml`) mount identically. Neither surface includes the
-# other — each is a patch list applied over THIS file at one include level, so a
-# surface overlay, a `--config` overlay, and the personal `~/.dsh/config.yaml`
-# all address these rows by id. Patch lists stack in that order, last write
-# winning per row.
+# The shared `dsh` core. Raw `dsh --config <path>` applies its required patch
+# list directly over this file. Web and headless apply their shipped overlay,
+# followed by an explicit or personal user layer. Every layer addresses these
+# rows by id at one include level, with the last write winning per row.
 #
 # A patch replaces the targeted row's whole `config` rather than merging into
-# it, so a row whose value differs per surface does NOT live here: it belongs to
+# it, so a row whose value differs by mode does NOT live here: it belongs to
 # each overlay, keeping any single row down to one overlay layer plus the user's.
-# Rows with surface-specific values appear below only with shared plugin identity
-# and neutral defaults; each overlay restates the complete surface configuration.
+# Mode-specific rows appear below only with shared plugin identity and neutral
+# defaults; each overlay restates its complete configuration.
 #
 # Row order carries no load semantics (activation is service-availability
 # driven); the grouping is for readers.
@@ -93,15 +91,15 @@
   config:
     root: !!js dshHomePath('sessions')
 
-# TUI consumes this shared session capability. Its launcher supplies a unique
-# process-local path; other surfaces repoint or disable the row in their
-# overlay (web patches it to an ephemeral in-memory index).
+# Raw configs can supply a process-local path or disable this shared session
+# capability. The neutral default is process-local and opens only when used.
 - id: session-query-sqlite
   name: '@deepseek-ai/dsh-session-query-sqlite'
   config:
-    path: !!js launcherSessionQueryPath ?? './.sessions/session-query.db'
+    path: ':memory:'
+    openAt: first-search
 
-# Session telemetry, on for every dsh surface: mirrors every session-log
+# Session telemetry, on for every dsh mode: mirrors every session-log
 # event (assistant/chunk projected to first-of-step) plus ops markers onto
 # OTLP/HTTP log records, streaming on the batch processor's cadence
 # (10s/batch here) — not at exit; a crash loses at most the last unexported
@@ -119,9 +117,8 @@
 # disables the SDK's 5-try backoff), maxExportBatchSize == maxQueueSize
 # (both explicit) makes the drain a single batch, and exportTimeoutMillis
 # is the processor's own cap on that one export cycle — the second bound
-# when the exporter's clock alone does not fire. Every surface's exit path
-# drains it: web/headless dispose on SIGINT/SIGTERM, and the TUI's normal
-# exit and /resume handoff both dispose the root.
+# when the exporter's clock alone does not fire. Every CLI exit path drains it
+# by disposing the root on SIGINT/SIGTERM.
 - id: telemetry-otel
   name: '@deepseek-ai/dsh-session-telemetry-otel'
   config:
@@ -138,7 +135,7 @@
 - id: subprocess
   name: '@deepseek-ai/dsh-subprocess-local'
 
-# Every shipped product surface starts with the same file-effect boundary.
+# Every shipped CLI mode starts with the same file-effect boundary.
 # The environment remains an explicit deployment override; otherwise fresh
 # sessions pin workspace-write + ask through the permission service below.
 - id: sandbox
@@ -342,7 +339,7 @@
     thresholds: [3, 5, 8]
     argumentsPreviewChars: 500
 
-# Every surface enables the stable web_search model surface. DeepSeek search
+# Every mode enables the stable web_search model surface. DeepSeek search
 # resolves the same DEEPSEEK_API_KEY credential the Models page manages for
 # chat, at each search; its Messages endpoint is separate from the
 # chat-completions endpoint, so it takes its own base-URL override. Fetch stays
@@ -367,35 +364,35 @@
     fetch: false
     searchTimeoutMs: 60000
 
-# ── rows every surface mounts, whose values each overlay states ──────────────
+# ── rows every mode mounts, whose values each overlay may state ──────────────
 
-# The tool registry. Presentation mode is a surface choice, so each overlay
-# states it; omitting it here keeps the schema default (native).
+# The tool registry. Presentation mode is a deployment choice; omitting it here
+# keeps the schema default (native).
 - id: tools
   name: '@deepseek-ai/dsh-tools'
 
-# The deployment persona is a surface choice; plan-mode and tool plugins own
+# The deployment persona is a deployment choice; plan-mode and tool plugins own
 # their own prompt sections.
 - id: system-prompt
   name: '@deepseek-ai/dsh-system-prompt'
   config:
     persona: ''
 
-# Agents created at startup. The TUI pre-creates `main`; the web surface creates
-# sessions on client request, so its overlay keeps this empty.
+# Agents created at startup. The base stays empty; raw overlays may create
+# agents, while Web creates sessions on client request.
 - id: agent-loop
   name: '@deepseek-ai/dsh-agent-loop'
   config:
     agents: []
 
-# The sandboxed filesystem provider. `cwd` defaults to `process.cwd()`; the TUI
-# states it explicitly because that value is also the session workspace.
+# The sandboxed filesystem provider. `cwd` defaults to `process.cwd()`; an
+# overlay can pin another workspace.
 - id: fs-sandbox
   name: '@deepseek-ai/dsh-fs-sandbox'
 
 # The native DeepSeek adapter. No key or endpoint is inlined: both resolve per
 # request from the `llm-deepseek:` settings section over this entry, with the
-# key coming from the credential store below. Thinking defaults are a surface
+# key coming from the credential store below. Thinking defaults are a deployment
 # choice.
 - id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek'

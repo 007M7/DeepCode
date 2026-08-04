@@ -357,21 +357,5 @@ config:
         }],
       }],
     },
-    {
-      id: 'ask-user',
-      summary: 'Ask the user from the model loop',
-      mode: 'single',
-      supportedInterfaces: ['tui'],
-      options: [{
-        id: 'default',
-        label: 'ask_user_question tool',
-        default: true,
-        resources: [{
-          kind: 'npm-cordis-config-entry',
-          id: 'tool-ask-user',
-          package: '@deepseek-ai/dsh-tool-ask-user',
-        }],
-      }],
-    },
   ]), profile)
 }
