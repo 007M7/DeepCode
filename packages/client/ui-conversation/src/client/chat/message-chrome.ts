@@ -6,6 +6,9 @@ import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 /** The date-template share of the conversation dictionary the clock consumes. */
 export type ClockTranslate = Translate<'clock.md' | 'clock.ymd'>
 
+/** The elapsed-duration share of the conversation dictionary. */
+export type RunDurationTranslate = Translate<'duration.seconds' | 'duration.minutes'>
+
 /**
  * Best-effort clipboard write; rejections stay swallowed (no success chrome).
  * @param text - Plain text to place on the clipboard.
@@ -69,6 +72,21 @@ export function msUntilNextLocalMidnight(ms: number): number {
   const next = new Date(ms)
   next.setHours(24, 0, 0, 0)
   return Math.max(next.getTime() - ms, 1)
+}
+
+/**
+ * Localized elapsed-time label shared by running and settled turn chrome.
+ * @param ms - Elapsed duration in milliseconds (negatives clamp to zero).
+ * @param t - Translate seat supplying the duration templates.
+ * @returns Display string in whole seconds.
+ */
+export function formatRunDuration(ms: number, t: RunDurationTranslate): string {
+  const total = Math.max(0, Math.floor(ms / 1000))
+  const minutes = Math.floor(total / 60)
+  const seconds = total % 60
+  return minutes > 0
+    ? t('duration.minutes', { minutes, seconds: String(seconds).padStart(2, '0') })
+    : t('duration.seconds', { seconds })
 }
 
 /**
