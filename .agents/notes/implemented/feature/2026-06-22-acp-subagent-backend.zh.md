@@ -59,4 +59,4 @@ ACP `StopReason` → harness `SubagentStopReason`：`end_turn`→`completed`、`
 
 ## 后续提供方
 
-[Codex app-server 提供方](../../proposed/feature/2026-08-04-claude-code-and-codex-subagent-backends.md)已将同样的进程外启动/提示词/结算/取消边界应用于按名称注册的兄弟提供方。A2A 与 Claude Code Agent SDK 仍是未来的兄弟传输方式；ACP 后端证明了通用 seam 能够支持该边界，而无需负责它们的私有协议。
+[Codex app-server 提供方](../../implemented/feature/2026-08-04-claude-code-and-codex-subagent-backends.md)已将同样的进程外启动/提示词/结算/取消边界应用于按名称注册的兄弟提供方。A2A 与 Claude Code Agent SDK 仍是未来的兄弟传输方式；ACP 后端证明了通用 seam 能够支持该边界，而无需负责它们的私有协议。

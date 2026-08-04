@@ -1520,6 +1520,25 @@ export type PermissionPolicy = 'allow' | 'reject'
 
 Source: [`packages/subagent/subagent-acp/src/index.ts:26`](../packages/subagent/subagent-acp/src/index.ts)
 
+## `@deepseek-ai/dsh-subagent-claude-code`
+
+Requires: `subagents` · `subprocess`
+
+```ts config-catalog
+/** Deployment-owned environment and process-release bound. */
+export interface Config {
+  /**
+   * Explicit environment entries layered over the subprocess seam's
+   * credential-scrubbed parent environment.
+   */
+  env?: Record<string, string>
+  /** Grace in milliseconds for Claude Code process-tree termination. */
+  disposeGraceMs?: number
+}
+```
+
+Source: [`packages/subagent/subagent-claude-code/src/index.ts:31`](../packages/subagent/subagent-claude-code/src/index.ts)
+
 ## `@deepseek-ai/dsh-subagent-codex`
 
 Requires: `subagents` · `subprocess`
