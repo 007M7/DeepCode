@@ -2,8 +2,8 @@
 // .agents/notes/implemented/testing/2026-07-24-web-gui-browser-e2e-lane.md).
 // Boots the REAL web composition — the shipped base plus web overlay through
 // the vendored Loader (the same include boot AppCLIEntry drives), patched the
-// snapshot way — so a real chromium exercises the real HTTP/SSE wire, the
-// api-gateway, agent loop, tools, and persistence. Modes ride $DSH_SNAPSHOT:
+// snapshot way — so a real chromium exercises the real HTTP uplink/WebSocket
+// downlink, api-gateway, agent loop, tools, and persistence. Modes ride $DSH_SNAPSHOT:
 // replay (default, keyless: normally disables the llm-deepseek row and
 // inserts dsh-llm-replay in providers mode), record (real adapter + key,
 // harvests fixtures from live session memory), refresh (keyless replay that

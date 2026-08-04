@@ -66,14 +66,32 @@ describe('workspace browser rows', () => {
       running: true,
       snippet: 'matching message excerpt',
     }
-    render(<SearchResultItem result={result} currentId={result.id} onOpen={onOpen} />)
+    render(<SearchResultItem result={result} currentId={result.id} onOpen={onOpen} t={t} />)
     const row = screen.getByRole('treeitem')
     expect(row.getAttribute('aria-selected')).toBe('true')
     expect(screen.getByText('Workspace context')).toBeTruthy()
     expect(screen.getByText('matching message excerpt')).toBeTruthy()
+    expect(row.querySelector('[data-state="ongoing"]')).toBeTruthy()
+    expect(screen.getByText('进行中')).toBeTruthy()
     expect(row.hasAttribute('draggable')).toBe(false)
     fireEvent.click(row)
     expect(onOpen).toHaveBeenCalledWith(result.id)
+  })
+
+  it.each([
+    ['approval', '等待审批'],
+    ['plan-review', '计划待审'],
+    ['question', '等待回答'],
+  ] as const)('shows %s ahead of running in search results', (pendingInteraction, label) => {
+    const result: SearchResultNode = {
+      id: sid(pendingInteraction), title: 'Needs input', workspace: 'Project',
+      pendingInteraction, running: true,
+    }
+    render(<SearchResultItem result={result} currentId={undefined} onOpen={vi.fn()} t={t} />)
+    const row = screen.getByRole('treeitem')
+    expect(row.querySelector('[data-state="warning"]')).toBeTruthy()
+    expect(row.querySelector('[data-state="ongoing"]')).toBeNull()
+    expect(screen.getByText(label)).toBeTruthy()
   })
 
   it('renders an active Workspace and keeps its create action separate from toggling', () => {
@@ -96,7 +114,7 @@ describe('workspace browser rows', () => {
 
   it('renders and opens a selected running Session row', () => {
     const node: SessionNode = {
-      id: sid('session'), title: 'Session', blank: false, waitingApproval: false, running: true, updatedAt: 0,
+      id: sid('session'), title: 'Session', blank: false, running: true, updatedAt: 0,
     }
     const onOpen = vi.fn()
     render(
@@ -180,7 +198,7 @@ describe('workspace browser rows', () => {
     vi.useFakeTimers()
     try {
       const node: SessionNode = {
-        id: sid('s-blank'), title: 'ignored', blank: true, waitingApproval: false, running: false, updatedAt: 0,
+        id: sid('s-blank'), title: 'ignored', blank: true, running: false, updatedAt: 0,
       }
       render(<SessionNodeItem node={node} currentId={node.id} now={0} onOpen={vi.fn()}
         onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
@@ -206,7 +224,7 @@ describe('workspace browser rows', () => {
     const onFork = vi.fn()
     const onArchive = vi.fn()
     const node: SessionNode = {
-      id: sid('s1'), title: 'One', blank: false, waitingApproval: false, running: false, updatedAt: 0,
+      id: sid('s1'), title: 'One', blank: false, running: false, updatedAt: 0,
     }
     render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={onOpen}
       onRename={onRename} onFork={onFork} onArchive={onArchive} t={t} />)
@@ -239,7 +257,7 @@ describe('workspace browser rows', () => {
     vi.useFakeTimers()
     try {
       const node: SessionNode = {
-        id: sid('s1'), title: 'Hovered', blank: false, waitingApproval: false, running: true, updatedAt: 0,
+        id: sid('s1'), title: 'Hovered', blank: false, running: true, updatedAt: 0,
       }
       render(<SessionNodeItem node={node} currentId={undefined} now={60_000} onOpen={vi.fn()}
         onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
@@ -261,19 +279,23 @@ describe('workspace browser rows', () => {
     }
   })
 
-  it('shows approval waiting as warning ahead of the running state', () => {
+  it.each([
+    ['approval', '等待审批'],
+    ['plan-review', '计划待审'],
+    ['question', '等待回答'],
+  ] as const)('shows %s as warning ahead of the running state', (pendingInteraction, label) => {
     vi.useFakeTimers()
     try {
       const node: SessionNode = {
-        id: sid('approval'), title: 'Needs approval', blank: false,
-        waitingApproval: true, running: true, updatedAt: 0,
+        id: sid(pendingInteraction), title: 'Needs input', blank: false,
+        pendingInteraction, running: true, updatedAt: 0,
       }
       const view = render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
         onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
       const row = screen.getByRole('treeitem')
       expect(row.querySelector('[data-state="warning"]')).toBeTruthy()
       expect(row.querySelector('[data-state="ongoing"]')).toBeNull()
-      expect(screen.getByText('等待审批')).toBeTruthy()
+      expect(screen.getByText(label)).toBeTruthy()
 
       view.rerender(<SessionNodeItem node={{ ...node, running: false }} currentId={undefined} now={0}
         onOpen={vi.fn()} onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
@@ -281,7 +303,7 @@ describe('workspace browser rows', () => {
 
       fireEvent.pointerEnter(screen.getByRole('treeitem').parentElement as HTMLElement)
       act(() => { vi.advanceTimersByTime(500) })
-      expect(screen.getAllByText('等待审批')).toHaveLength(2)
+      expect(screen.getAllByText(label)).toHaveLength(2)
       expect(document.querySelectorAll('[data-state="warning"]')).toHaveLength(2)
     } finally {
       vi.useRealTimers()
@@ -292,7 +314,7 @@ describe('workspace browser rows', () => {
     vi.useFakeTimers()
     try {
       const node: SessionNode = {
-        id: sid('s1'), title: 'Quiet', blank: false, waitingApproval: false, running: false, updatedAt: 0,
+        id: sid('s1'), title: 'Quiet', blank: false, running: false, updatedAt: 0,
       }
       render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
         onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
@@ -307,7 +329,7 @@ describe('workspace browser rows', () => {
 
   it('draggable row wires start/end and gates hover/drop on an active same-group drag', () => {
     const node: SessionNode = {
-      id: sid('s1'), title: 'Drag me', blank: false, waitingApproval: false, running: false, updatedAt: 0,
+      id: sid('s1'), title: 'Drag me', blank: false, running: false, updatedAt: 0,
     }
     const inactive = dragProps()
     const { rerender } = render(

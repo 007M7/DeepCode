@@ -62,14 +62,14 @@ Font sizes and spacing are **not tokenized** (matching the baseline repository's
 - Input card: floats centered at the same width as the conversation column (840px, reduced to 712px below 1024px) with bottom spacing; radius `--radius-xl`, border `--border-l2`, background `--bg-base`, shadow `--shadow-card`; two internal vertical sections = textarea (16px/24px, minimum 2 lines, maximum 14 lines = 336px, auto-growing through a mirror div) + action row (a 34px primary round button nested at bottom right); focus does not change the border or shadow (matching the baseline).
 - Primary input button (the three decisions made on 2026-07-20, visually based on the Codex App): a 32px solid circular icon button (inline SVG). Idle = `--accent` background with a white ↑ “Send” arrow; while running it changes in place to an accent ■ “Stop” icon on `--accent-soft` (the same color family, not a warning, and not red). **Input is locked while running** (decision 3, replacing the earlier hover-menu design): the textarea is disabled (gray, with draft content still visible), there is no queue/interjection menu, and Stop is the only action. When the turn ends, input unlocks and regains focus. Enter sends; Ctrl/Meta+Enter inserts a newline (the keyboard path is disabled with the locked input while running).
 - Scrollbars: nearly invisible, darkening on hover, with `scrollbar-gutter: stable` so they do not consume layout space (always use `.scrollable`; see § 3.9).
-- Four-quadrant RPC direction symbols (the official visual vocabulary, using the spatial metaphor that up goes to the server, down comes from the server; single line = unary, double line = SSE):
+- Four-quadrant RPC direction symbols (the official visual vocabulary, using the spatial metaphor that up goes to the server, down comes from the server; single line = client-initiated exchange, double line = server-initiated exchange):
 
 | Symbol | Quadrant | Badge colors |
 | --- | --- | --- |
 | `↑` | client-request (unary outbound) | `--accent` / `--accent-soft` |
 | `↓` | server-response (unary response) | ok `--ok`/`--ok-soft`, error `--error`/`--error-soft` |
-| `⇟` | server-request (SSE frame push) | mux `--color-frame-mux`/`--frame-mux-soft`, host `--color-frame-host`/`--frame-host-soft` |
-| `⇞` | client-response (SSE-side response) | `--accent`/`--accent-soft` at reduced opacity |
+| `⇟` | server-request (downlink stream) | mux `--color-frame-mux`/`--frame-mux-soft`, host `--color-frame-host`/`--frame-host-soft` |
+| `⇞` | client-response (reply to server request) | `--accent`/`--accent-soft` at reduced opacity |
 
 ## 3. Style implementation rules (review checklist)
 
