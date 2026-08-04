@@ -68,7 +68,7 @@ Waterfalls are around-middleware: listeners delegate with `next()`; returning wi
 
 ## Default Loop Lifecycle
 
-A **session** is append-only. An ordinary **turn** claims one queued `send()` item; injection claims none. A turn ends when the model or plugins stop it; a **step** is one model request plus its tool calls. Agent and session publication happen only after private setup and resume state are ready.
+A **session** is append-only. An ordinary **turn** claims one queued `send()` item; injection claims none. A turn ends when the model or plugins stop it; a **step** is one model request plus its tool calls. Agent and session publication happen only after private setup and resume state are ready. Quotes in the [sequence below](agent-lifecycle.md) mark durable events.
 
 ### Turn Flow
 
