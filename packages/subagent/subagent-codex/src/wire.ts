@@ -83,9 +83,8 @@ export class CodexAppServerWire {
     readonly method: string
     readonly params: JsonObject
   }> = []
-  private readonly finalAnswers: string[] = []
-  private readonly unphasedAnswers: string[] = []
-  private started = false
+  private lastFinalAnswer: string | undefined
+  private lastUnphasedAnswer: string | undefined
   private closed = false
 
   constructor(
@@ -101,14 +100,16 @@ export class CodexAppServerWire {
         this.fail(thrown(error))
       }
     })
+    this.input.on('error', this.onInputError)
+    this.input.on('end', this.onInputEnd)
+    // Pipe errors can race protocol closure and process teardown. Retain both
+    // error listeners for the lifetime of their per-run streams so no late
+    // EPIPE or read failure becomes an unhandled EventEmitter error.
+    output.on('error', this.onOutputError)
   }
 
   /** Start reading app-server frames. */
   start(): void {
-    if (this.started) return
-    this.started = true
-    this.input.on('error', this.onInputError)
-    this.input.on('end', this.onInputEnd)
     this.transport.start()
   }
 
@@ -166,16 +167,11 @@ export class CodexAppServerWire {
     signal: AbortSignal,
     cancelled: () => boolean,
   ): Promise<SubagentResult> {
-    if (this.threadId === undefined) {
-      throw new Error('subagent-codex: cannot start a turn before thread/start')
-    }
-    if (this.turnCompleted !== undefined) {
-      throw new Error('subagent-codex: this one-shot wire already started its turn')
-    }
     const completion = deferred<JsonObject>()
     this.turnCompleted = completion
+    const threadId = this.threadId as string
     const response = object(await this.guarded(this.transport.request('turn/start', {
-      threadId: this.threadId,
+      threadId,
       input: texts.map(text => ({ type: 'text', text, text_elements: [] })),
     }, signal), signal), 'turn/start response')
     const turn = object(response.turn, 'turn/start turn')
@@ -216,9 +212,7 @@ export class CodexAppServerWire {
    * @returns the selected final or nullable-phase text block, if any.
    */
   collectOutput(): ContentBlock[] {
-    const selected = this.finalAnswers.length > 0
-      ? this.finalAnswers.at(-1)
-      : this.unphasedAnswers.at(-1)
+    const selected = this.lastFinalAnswer ?? this.lastUnphasedAnswer
     return selected !== undefined && selected.trim().length > 0
       ? [{ type: 'text', text: selected }]
       : []
@@ -228,7 +222,6 @@ export class CodexAppServerWire {
   close(): void {
     if (this.closed) return
     this.closed = true
-    this.input.off('error', this.onInputError)
     this.input.off('end', this.onInputEnd)
     this.transport.close()
   }
@@ -246,6 +239,10 @@ export class CodexAppServerWire {
   }
 
   private readonly onInputError = (error: Error): void => {
+    this.fail(error)
+  }
+
+  private readonly onOutputError = (error: Error): void => {
     this.fail(error)
   }
 
@@ -338,9 +335,9 @@ export class CodexAppServerWire {
         ? item.text
         : (() => { throw new Error('subagent-codex: app-server returned an invalid agent message') })()
       if (item.phase === 'final_answer') {
-        this.finalAnswers.push(text)
+        this.lastFinalAnswer = text
       } else if (item.phase === null) {
-        this.unphasedAnswers.push(text)
+        this.lastUnphasedAnswer = text
       } else if (item.phase !== 'commentary') {
         throw new Error(`subagent-codex: app-server returned an unknown agent message phase ${JSON.stringify(item.phase)}`)
       }

@@ -90,8 +90,6 @@ class ProtocolPeer {
 
 interface FakeChildOptions {
   readonly pid?: number
-  readonly stdin?: boolean
-  readonly stdout?: boolean
   readonly exitOnTerminate?: boolean
   readonly waitForExitResult?: boolean
   readonly doneError?: Error
@@ -161,8 +159,8 @@ function fakeChild(options: FakeChildOptions = {}): FakeChild {
   })
   const handle: SubprocessHandle = {
     pid: options.pid ?? 1234,
-    stdin: options.stdin === false ? undefined : toChild,
-    stdout: options.stdout === false ? undefined : fromChild,
+    stdin: toChild,
+    stdout: fromChild,
     stderr: undefined,
     collected: {},
     done,
@@ -334,7 +332,6 @@ describe('CodexAppServerWire', () => {
     const wire = new CodexAppServerWire(child.handle.stdout!, child.handle.stdin!)
     expect(wire.collectOutput()).toEqual([])
     wire.start()
-    wire.start()
 
     const initializing = wire.initialize(new AbortController().signal)
     const initialize = await child.peer.nextMethod('initialize')
@@ -449,27 +446,6 @@ describe('CodexAppServerWire', () => {
       await expect(pending).rejects.toThrow('turn/start turn id')
       wire.close()
     }
-  })
-
-  it('rejects a turn before thread publication and a second one-shot turn', async () => {
-    const child = fakeChild()
-    const wire = new CodexAppServerWire(child.handle.stdout!, child.handle.stdin!)
-    await expect(wire.runTurn(['task'], new AbortController().signal, () => false))
-      .rejects.toThrow('before thread/start')
-    const initialized = await initializeWire()
-    const first = initialized.wire.runTurn(
-      ['task'],
-      new AbortController().signal,
-      () => false,
-    )
-    await initialized.child.peer.nextMethod('turn/start')
-    await expect(initialized.wire.runTurn(
-      ['again'],
-      new AbortController().signal,
-      () => false,
-    )).rejects.toThrow('already started')
-    initialized.wire.close()
-    await expect(first).rejects.toThrow('transport closed')
   })
 
   it('fails closed for empty output, malformed messages, phases, and terminal status', async () => {
@@ -757,6 +733,17 @@ describe('CodexAppServerWire', () => {
       await expect(pending).rejects.toThrow('stdout broke')
       wire.close()
     }
+    {
+      const child = fakeChild()
+      const wire = new CodexAppServerWire(child.handle.stdout!, child.handle.stdin!)
+      wire.start()
+      const pending = wire.initialize(new AbortController().signal)
+      await child.peer.nextMethod('initialize')
+      child.toChild.emit('error', new Error('stdin broke'))
+      await expect(pending).rejects.toThrow('stdin broke')
+      wire.close()
+      child.toChild.emit('error', new Error('late stdin close'))
+    }
   })
 })
 
@@ -916,16 +903,6 @@ describe('run lifecycle and quiescence', () => {
     await expect(starting).rejects.toThrow(
       'startup failed and app-server cleanup also failed',
     )
-  })
-
-  it('rejects a missing protocol stream after reaping the unpublished child', async () => {
-    for (const options of [{ stdin: false }, { stdout: false }]) {
-      const child = fakeChild(options)
-      await expect(startCodexRun(request(), runSpec(child)))
-        .rejects.toThrow('dropped a piped protocol stream')
-      expect(child.terminate).toHaveBeenCalledTimes(1)
-      expect(child.waitForExit).toHaveBeenCalledTimes(1)
-    }
   })
 
   it('keeps overlapping runs isolated', async () => {

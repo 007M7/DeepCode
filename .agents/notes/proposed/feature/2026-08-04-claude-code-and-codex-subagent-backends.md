@@ -14,7 +14,7 @@ The product integrations must not become second owners for task text, cwd, cance
 
 The harness provides two sibling one-shot providers behind two fixed model-facing tools. `subagent_codex` selects the `codex` provider, and `subagent_claude_code` selects the `claude-code` provider. Each tool accepts only a standalone text task and binds its provider at deployment time; product selection and background execution are not model arguments.
 
-The Codex provider is implemented against Codex 0.146.0. The Claude Code provider remains part of this proposal and will use Claude Agent SDK 0.3.220 with its bundled Claude Code 2.1.220 CLI. This Note remains proposed until both siblings and their combined evidence are present.
+The Codex provider is implemented against Codex 0.146.0. The Claude Code provider remains unimplemented. This Note remains proposed until both siblings and their combined evidence are present.
 
 Both providers report `inheritsParentContext: false`, advertise no optional start capabilities, and pass the parent Session cwd without copying the parent conversation. Every call creates a fresh product process and a non-resumable product conversation. The shared subagent service continues to own request resolution, lifecycle events, result settlement, and foreground collection; the shared subprocess service owns credential scrubbing, process-tree termination, and whole-tree exit observation.
 
@@ -47,11 +47,7 @@ An unpublished startup failure closes the wire, terminates the acquired process 
 
 ## Claude Code provider
 
-The Claude Code sibling follows the same fixed-name, standalone-task, parent-cwd, shared-result, and managed-tree boundaries. It will call the official Agent SDK's `query()` and use its `spawnClaudeCodeProcess` hook to pass the SDK-provided command, arguments, cwd, environment, and forwarded signal into `dsh-subprocess` without rewriting them.
-
-The SDK will continue to own the Claude protocol and graceful `Query.close()` intent, while `dsh-subprocess` owns the actual CLI process tree and exit proof. Publication waits until both the SDK query and real CLI handle are controllable. A strict successful `SDKResultMessage` becomes `completed` only after asynchronous iteration ends normally; local cancellation becomes `aborted`, and every other result, iterator failure, protocol failure, or process failure becomes `error`.
-
-The package will expose the same two configuration concerns, `env` and `disposeGraceMs`. It will keep native settings and login under Claude Code's authority, disable unattended `AskUserQuestion`, omit interactive callbacks, and create no plugin-owned product session or account state.
+The Claude Code sibling is not yet implemented. Its product version, official integration, terminal mapping, product-specific configuration, interaction policy, and evidence are not fixed by this intermediate proposal. Its eventual implementation must preserve the shared fixed-name, standalone-task, parent-cwd, shared-result, and managed-tree boundaries above before this Note can become implemented.
 
 ## Evidence contract
 
@@ -59,11 +55,11 @@ Each product owns branch-complete package tests, a required real-product spec, a
 
 The Codex evidence pins `@openai/codex@0.146.0` and `codex-cli 0.146.0`. Its real-product spec observes the exact Bearer key, original task, byte-exact final answer, unattended command rejection with no file side effect, local cancellation, and whole-tree exit. Its Loader snapshot fixes the no-background tool schema, exact tool call and result, complete persisted parent Session, product request, and pre-teardown quiescence. The npm package is a development dependency for reproducible evidence; production still supplies `codex` on `PATH`.
 
-The combined contract is complete only when the Claude sibling has equivalent real SDK and bundled-CLI evidence and one assembled Loader run proves both fixed tools coexist without changing the common subagent contract.
+The combined contract is complete only when the Claude sibling has equivalent real-product evidence and one assembled Loader run proves both fixed tools coexist without changing the common subagent contract.
 
 ## Alternatives considered
 
-**Direct model HTTP, `codex exec`, or a hand-written Claude CLI protocol.** These paths bypass the products' official extensible process protocols and cannot prove native configuration, tools, approvals, result semantics, or teardown. The providers use app-server and the official Agent SDK instead.
+**Direct model HTTP, `codex exec`, or a hand-written Claude CLI protocol.** These paths bypass the products' official extensible integration surfaces and cannot prove native configuration, tools, approvals, result semantics, or teardown. Each provider uses its official product integration instead.
 
 **A shared product-process helper package.** The existing subagent and subprocess seams already own every shared task, result, environment, and process-tree concern. A new helper would duplicate ownership before the two products demonstrate a missing common contract, so each private adapter calls the existing seams directly.
 

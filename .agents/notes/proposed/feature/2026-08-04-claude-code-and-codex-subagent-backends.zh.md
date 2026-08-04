@@ -14,7 +14,7 @@ Status: proposed
 
 harness 在两个固定的面向模型工具背后提供两个一次性兄弟提供方。`subagent_codex` 选择 `codex` 提供方，`subagent_claude_code` 选择 `claude-code` 提供方。每个工具只接受独立文本任务，并在部署时绑定其提供方；产品选择与后台执行都不作为模型参数。
 
-Codex 提供方基于 Codex 0.146.0 实现。Claude Code 提供方仍属于本提案的一部分，将使用 Claude Agent SDK 0.3.220 及其捆绑的 Claude Code 2.1.220 CLI（命令行界面）。在两个兄弟提供方及其组合证据全部具备之前，本 Agent Note 将保持提案状态。
+Codex 提供方基于 Codex 0.146.0 实现。Claude Code 提供方仍未实现。在两个兄弟提供方及其组合证据全部具备之前，本 Agent Note 将保持提案状态。
 
 这两个提供方都报告 `inheritsParentContext: false`，不声明任何可选的启动时功能，并传递父会话 cwd，但不会复制父级对话。每次调用都会创建一个全新的产品进程和一次不可续接的产品对话。共享 subagent 服务继续负责请求解析、生命周期事件、结果结算和前台收集；共享子进程服务负责凭证清洗、进程树终止以及整棵进程树的退出观测。
 
@@ -47,11 +47,7 @@ fixed tool → shared subagent service → product provider → official product
 
 ## Claude Code 提供方
 
-Claude Code 兄弟提供方遵循同样的固定名称、独立任务、父级 cwd、共享结果和受管进程树边界。它将调用官方 Agent SDK 的 `query()`，并使用其 `spawnClaudeCodeProcess` 钩子，将 SDK 提供的命令、参数、cwd、环境和转发的信号原样传入 `dsh-subprocess`。
-
-SDK 将继续负责 Claude 协议，并通过 `Query.close()` 表达优雅关闭意图；`dsh-subprocess` 则负责实际的 CLI 进程树与退出证明。只有在 SDK query 和真实 CLI 句柄均可控后才会发布运行。只有严格表示成功的 `SDKResultMessage` 才会在异步迭代正常结束后成为 `completed`；本地取消成为 `aborted`，其他任何结果、迭代器失败、协议失败或进程失败都成为 `error`。
-
-该包会公开相同的两个配置项：`env` 与 `disposeGraceMs`。它会继续让 Claude Code 负责原生设置与登录，禁用无人值守的 `AskUserQuestion`，不提供交互式回调，也不会创建由插件负责的产品会话或账户状态。
+Claude Code 兄弟提供方尚未实现。其中间提案不固定产品版本、官方接入方式、终态映射、产品特定配置、交互策略或证据。它的最终实现必须保留上文所述的固定名称、独立任务、父级 cwd、共享结果和受管进程树边界，本 Agent Note 才能进入 implemented 状态。
 
 ## 证据契约
 
@@ -59,11 +55,11 @@ SDK 将继续负责 Claude 协议，并通过 `Query.close()` 表达优雅关闭
 
 Codex 证据锁定 `@openai/codex@0.146.0` 与 `codex-cli 0.146.0`。其真实产品测试会观测确切的 Bearer 密钥、原始任务、逐字节完全一致的最终回答、不会产生文件副作用的无人值守命令拒绝、本地取消以及整棵进程树退出。其 Loader 快照锁定不支持后台执行的工具 schema、确切的工具调用与结果、完整的已持久化父会话、产品请求，以及清理前的完全停稳状态。该 NPM 包是用于复现证据的开发依赖；生产环境仍提供 `codex`，并通过 `PATH` 解析。
 
-只有在 Claude 兄弟提供方具备同等的真实 SDK 与捆绑 CLI 证据，并且一次组装后的 Loader 运行证明两个固定工具可以共存且无需更改通用 subagent 契约时，组合契约才算完整。
+只有在 Claude 兄弟提供方具备同等的真实产品证据，并且一次组装后的 Loader 运行证明两个固定工具可以共存且无需更改通用 subagent 契约时，组合契约才算完整。
 
 ## 曾考虑的替代方案
 
-**直接模型 HTTP、`codex exec` 或手写的 Claude CLI 协议。** 这些路径会绕过产品的官方可扩展进程协议，无法证明原生配置、工具、审批、结果语义或资源清理。提供方改为使用 app-server 与官方 Agent SDK。
+**直接模型 HTTP、`codex exec` 或手写的 Claude CLI 协议。** 这些路径会绕过产品的官方可扩展接入面，无法证明原生配置、工具、审批、结果语义或资源清理。每个提供方都使用对应产品的官方接入方式。
 
 **共享产品进程辅助包。** 现有 subagent 与子进程 seam 已负责围绕任务、结果、环境和进程树的全部共享职责。在两个产品尚未证明通用契约存在缺口时，新辅助包只会造成责任重复，因此各自的私有适配器会直接调用现有 seam。
 

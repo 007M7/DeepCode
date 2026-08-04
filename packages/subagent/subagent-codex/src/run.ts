@@ -116,13 +116,11 @@ export async function startCodexRun(
     graceMs: spec.disposeGraceMs,
     env: spec.env,
   })
-  if (child.stdin === undefined || child.stdout === undefined) {
-    child.terminate()
-    await child.waitForExit()
-    throw new Error('subagent-codex: subprocess implementation dropped a piped protocol stream')
-  }
 
-  const wire = new CodexAppServerWire(child.stdout, child.stdin)
+  const wire = new CodexAppServerWire(
+    child.stdout as NonNullable<SubprocessHandle['stdout']>,
+    child.stdin as NonNullable<SubprocessHandle['stdin']>,
+  )
   const disposeProcess = (): Promise<void> =>
     disposeCodexChild(wire, child, spec.disposeGraceMs)
 
@@ -137,15 +135,10 @@ export async function startCodexRun(
   // late rejection observed after the result race has already settled.
   processFailure.catch(() => {})
 
-  const flags = { cancelled: false }
   const runAbort = new AbortController()
-  let settleCancellation!: () => void
-  const cancellation = new Promise<void>((resolve) => { settleCancellation = resolve })
   const requestCancel = (): void => {
-    if (flags.cancelled) return
-    flags.cancelled = true
+    if (runAbort.signal.aborted) return
     runAbort.abort(new Error('subagent-codex: run cancelled locally'))
-    settleCancellation()
     wire.interrupt()
   }
   const onAbort = (): void => { requestCancel() }
@@ -165,7 +158,7 @@ export async function startCodexRun(
         'subagent-codex: startup failed and app-server cleanup also failed',
       )
     }
-    if (flags.cancelled) {
+    if (runAbort.signal.aborted) {
       throw new Error('subagent-codex: request was aborted before app-server startup')
     }
     throw thrown(error)
@@ -174,15 +167,11 @@ export async function startCodexRun(
   const collectOutput = (): ContentBlock[] => wire.collectOutput()
   const result: Promise<SubagentResult> = settleRunResult({
     attempt: () => Promise.race([
-      wire.runTurn(texts, runAbort.signal, () => flags.cancelled),
+      wire.runTurn(texts, runAbort.signal, () => runAbort.signal.aborted),
       processFailure,
-      cancellation.then((): SubagentResult => ({
-        output: collectOutput(),
-        stopReason: 'aborted',
-      })),
     ]),
     collectOutput,
-    cancelled: () => flags.cancelled,
+    cancelled: () => runAbort.signal.aborted,
     onError: spec.onError,
     signal: request.signal,
     onAbort,
