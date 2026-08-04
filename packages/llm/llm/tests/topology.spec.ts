@@ -255,5 +255,11 @@ describe('model discovery registry', () => {
       .rejects.toMatchObject({ code: 'NO_DISCOVERY' })
     await expect(ctx.llm.discoverModels('llm-example', { baseURL: '' }))
       .rejects.toMatchObject({ code: 'INVALID_DISCOVERY' })
+    await expect(ctx.llm.discoverModels('llm-example', { provider: '', baseURL: '' }))
+      .rejects.toMatchObject({ code: 'INVALID_DISCOVERY' })
+    await expect(ctx.llm.discoverModels('llm-example', {}))
+      .rejects.toMatchObject({ code: 'INVALID_DISCOVERY' })
+    // Naming a route alone is enough: the adapter may know it without an endpoint.
+    await expect(ctx.llm.discoverModels('llm-example', { provider: 'known-route' })).resolves.toEqual([])
   })
 })

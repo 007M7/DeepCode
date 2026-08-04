@@ -523,12 +523,17 @@ describe('llm domain', () => {
     ])
     ctx.llm.registerAdapter(['deepseek-official'], new CatalogAdapter('DeepSeek', ['deepseek-v4-flash']))
     ctx.llm.registerAdapter(['undeclared'], new CatalogAdapter('Undeclared', ['u-1']))
+    // Only one namespace can answer an interrogation, so the flag follows the
+    // entry's namespace rather than being assumed for every row.
+    ctx.llm.registerModelDiscovery('llm-pi-ai', () => Promise.resolve([]))
     const api = createApiProxy(ctx, DEFAULTS)
     const value = expectOk(await api.llm.providers(request({})))
     expect(value.providers).toEqual([
-      { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [], active: true },
-      { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'], active: false },
-      { provider: 'undeclared', displayName: 'Undeclared', settingsNs: '', settingsPath: [], active: true },
+      { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [], active: true, supportsDiscovery: false },
+      { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'], active: false, supportsDiscovery: true },
+      // An undeclared live route has no settings address, so nothing can be
+      // interrogated on its behalf either.
+      { provider: 'undeclared', displayName: 'Undeclared', settingsNs: '', settingsPath: [], active: true, supportsDiscovery: false },
     ])
   })
 
@@ -594,6 +599,25 @@ describe('llm.discoverModels', () => {
     // credential reference was written.
     expect(expectOk(await api.settings.describe(request({}))).namespaces.map(view => view.ns))
       .not.toContain('llm-pi-ai')
+  })
+
+  it('carries the route being edited so an adapter can answer from its own registry', async () => {
+    const ctx = await harness()
+    let probe: unknown
+    ctx.llm.registerModelDiscovery('llm-pi-ai', (request_) => {
+      probe = request_
+      return Promise.resolve([{ id: 'from-registry', contextWindow: 65_536, maxTokens: 4096 }])
+    })
+    const api = createApiProxy(ctx, DEFAULTS)
+
+    const value = expectOk(await api.llm.discoverModels(request({
+      settingsNs: 'llm-pi-ai',
+      provider: 'deepseek',
+    })))
+
+    // No endpoint at all: a route the adapter already describes needs none.
+    expect(probe).toEqual({ provider: 'deepseek' })
+    expect(value.models).toEqual([{ id: 'from-registry', contextWindow: 65_536, maxTokens: 4096 }])
   })
 
   it('omits a credential and protocol the draft does not name', async () => {

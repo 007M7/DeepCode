@@ -78,7 +78,7 @@ export interface RpcErrorDetailsMap {
    * it is what the form shows before falling back to hand-entry — and the
    * details name the endpoint asked, never the credential offered.
    */
-  'model-discovery-failed': { settingsNs: string; baseURL: string }
+  'model-discovery-failed': { settingsNs: string; baseURL?: string }
   'title-invalid': { sessionId: SessionId }
   'fork-unavailable': { sessionId: SessionId }
   'subagent-parent-unavailable': { parentSessionId: SessionId }

@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
+import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
+import { discoverModels } from '../src/discovery.ts'
 
 const servers: Server[] = []
 
@@ -25,6 +27,7 @@ async function listingServer(behavior: {
   status?: number
   body?: string
   chunks?: string[]
+  holdOpenMs?: number
 }): Promise<ListingServer> {
   const paths: string[] = []
   const headers: IncomingMessage['headers'][] = []
@@ -35,7 +38,10 @@ async function listingServer(behavior: {
       // No declared length: the ceiling has to hold on what is read.
       response.writeHead(behavior.status ?? 200, { 'content-type': 'application/json' })
       for (const chunk of behavior.chunks) response.write(chunk)
-      response.end()
+      if (behavior.holdOpenMs === undefined) { response.end(); return }
+      // Left open so a caller's cancellation lands while the body is still
+      // being read rather than after it completed.
+      setTimeout(() => { response.end() }, behavior.holdOpenMs)
       return
     }
     const body = behavior.body ?? '{}'
@@ -59,6 +65,39 @@ async function harness(): Promise<Context> {
   await ctx.plugin(LlmPiAi, {})
   return ctx
 }
+
+describe('catalog-route model discovery', () => {
+  it('answers from the installed registry, with capacities and no network call', async () => {
+    const server = await listingServer({ body: JSON.stringify({ data: [{ id: 'from-the-endpoint' }] }) })
+    const ctx = await harness()
+
+    const models = await ctx.llm.discoverModels('llm-pi-ai', { provider: 'deepseek', baseURL: server.url })
+
+    // pi-ai's own registry is the authority for its own providers, and it
+    // carries what a listing endpoint would not disclose.
+    expect(models.map(model => model.id).sort())
+      .toEqual(getBuiltinModels('deepseek').map(model => model.id).sort())
+    expect(models.every(model => (model.contextWindow ?? 0) > 0 && (model.maxTokens ?? 0) > 0)).toBe(true)
+    expect(server.paths).toEqual([])
+  })
+
+  it('needs no endpoint for a route the catalog describes', async () => {
+    const ctx = await harness()
+    await expect(ctx.llm.discoverModels('llm-pi-ai', { provider: 'deepseek' })).resolves.not.toHaveLength(0)
+  })
+
+  it('says where a route the catalog does not describe must get its models', async () => {
+    const ctx = await harness()
+    await expect(ctx.llm.discoverModels('llm-pi-ai', { provider: 'acme-gateway' }))
+      .rejects.toThrow(/ships no catalog for provider "acme-gateway".*set a baseURL/s)
+    // A form that cleared the field says the same thing as one that never had it.
+    await expect(ctx.llm.discoverModels('llm-pi-ai', { provider: 'acme-gateway', baseURL: '' }))
+      .rejects.toThrow(/set a baseURL/)
+    // The seam refuses a request naming neither, so the module's own guard for
+    // that shape is only reachable by calling it directly.
+    await expect(discoverModels({})).rejects.toThrow(/set a baseURL/)
+  })
+})
 
 describe('draft-provider model discovery', () => {
   it('reads an OpenAI-compatible listing and keeps the capacities it discloses', async () => {
@@ -171,12 +210,27 @@ describe('draft-provider model discovery', () => {
       .rejects.toMatchObject({ code: 'DISCOVERY_FAILED' })
   })
 
-  it('says which protocols it cannot interrogate rather than guessing a shape', async () => {
+  it.each(['anthropic-messages', 'azure-openai-responses', 'openai-codex-responses', 'google-generative-ai'])(
+    'says it cannot interrogate %s rather than guessing a shape',
+    async (api) => {
+      // Azure authenticates with an `api-key` header and an `api-version`
+      // query despite its OpenAI lineage, and Codex uses OAuth; guessing at
+      // either would report an auth failure as a provider with no models.
+      const ctx = await harness()
+      await expect(ctx.llm.discoverModels('llm-pi-ai', { baseURL: 'https://gateway.example/v1', api }))
+        .rejects.toMatchObject({ code: 'DISCOVERY_UNSUPPORTED' })
+    },
+  )
+
+  it('reports cancellation during the body read as an abort, not a raw reason', async () => {
     const ctx = await harness()
-    await expect(ctx.llm.discoverModels('llm-pi-ai', {
-      baseURL: 'https://gateway.example/v1',
-      api: 'anthropic-messages',
-    })).rejects.toMatchObject({ code: 'DISCOVERY_UNSUPPORTED' })
+    const controller = new AbortController()
+    // Chunked, so the headers arrive and the cancellation lands mid-body.
+    const slow = await listingServer({ chunks: ['{"data":[', '{"id":"a"}'], holdOpenMs: 400 })
+    const probe = ctx.llm.discoverModels('llm-pi-ai', { baseURL: slow.url, signal: controller.signal })
+    setTimeout(() => { controller.abort('test cancellation') }, 40)
+
+    await expect(probe).rejects.toMatchObject({ code: 'ABORTED' })
   })
 
   it('honors caller cancellation', async () => {

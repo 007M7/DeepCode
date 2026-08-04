@@ -2563,12 +2563,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const active = new Set(registered.map(provider => provider.id))
         const directory = ctx.llm.listConfigurableProviders()
         const declared = new Set(directory.map(entry => entry.provider))
+        const discoverable = new Set(ctx.llm.listModelDiscoveryNamespaces())
         const views = directory.map(entry => ({
           provider: entry.provider,
           displayName: entry.displayName,
           settingsNs: entry.settingsNs,
           settingsPath: [...entry.settingsPath],
           active: active.has(entry.provider),
+          supportsDiscovery: discoverable.has(entry.settingsNs),
         }))
         // Routes registered without a directory declaration still appear —
         // they exist and serve models — just with no settings address.
@@ -2580,6 +2582,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             settingsNs: '',
             settingsPath: [],
             active: true,
+            supportsDiscovery: false,
           })
         }
         return Promise.resolve(ok(request, { providers: views }))
@@ -2590,10 +2593,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       async discoverModels(request, signal) {
-        const { settingsNs, baseURL, api, apiKey } = request.payload
+        const { settingsNs, provider, baseURL, api, apiKey } = request.payload
         try {
           const models = await ctx.llm.discoverModels(settingsNs, {
-            baseURL,
+            ...provider === undefined ? {} : { provider },
+            ...baseURL === undefined ? {} : { baseURL },
             ...api === undefined ? {} : { api },
             ...apiKey === undefined ? {} : { apiKey },
             ...signal === undefined ? {} : { signal },
@@ -2607,7 +2611,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           return err(request, {
             code: 'model-discovery-failed',
             message: error instanceof Error ? error.message : String(error),
-            details: { settingsNs, baseURL },
+            details: { settingsNs, ...baseURL === undefined ? {} : { baseURL } },
           })
         }
       },

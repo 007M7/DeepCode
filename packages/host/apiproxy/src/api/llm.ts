@@ -22,6 +22,12 @@ export interface ConfigurableProviderView {
   settingsPath: string[]
   /** Whether the route is currently registered (its models are requestable). */
   active: boolean
+  /**
+   * Whether `llm.discoverModels` can answer for this entry's namespace. A
+   * surface offers the action only where it works instead of naming an adapter
+   * family it would have to hardcode.
+   */
+  supportsDiscovery: boolean
 }
 
 /** Llm-domain unary methods (the map keys llm.* of RpcMethodMap). */
@@ -46,17 +52,22 @@ export interface LlmApi {
    * drafting, and return the models it advertises for the user to adopt.
    *
    * The payload is the draft, not a stored route: `settingsNs` selects the
-   * adapter family that knows how to read the listing, and the endpoint,
-   * protocol, and key come from the form. Nothing is written — the reply is
-   * candidates, and only a later `settings.mutate` decides what a route
-   * serves. `apiKey` is therefore accepted here but never stored, logged, or
-   * echoed back; a provider whose key is already stored omits it and the
-   * endpoint answers unauthenticated or refuses.
+   * adapter family that answers, and the rest comes from the form. `provider`
+   * names the route being edited when there is one — an adapter that already
+   * describes that route answers from its own registry, with better metadata
+   * and no network call, and needs no endpoint. A route it does not describe is
+   * asked over the wire, which is what `baseURL`, `api`, and `apiKey` are for.
+   *
+   * Nothing is written — the reply is candidates, and only a later
+   * `settings.mutate` decides what a route serves. `apiKey` is accepted here
+   * but never stored or returned; a provider whose key is already stored omits
+   * it and the endpoint answers unauthenticated or refuses.
    */
   discoverModels(
     request: RpcRequest<{
       settingsNs: string
-      baseURL: string
+      provider?: string
+      baseURL?: string
       api?: string
       apiKey?: string
     }>,

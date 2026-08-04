@@ -146,8 +146,18 @@ export interface LlmConfigurableProvider {
  * route: a provider being added has no route to name.
  */
 export interface LlmModelDiscoveryRequest {
-  /** Endpoint to interrogate. */
-  baseURL: string
+  /**
+   * Route the draft is editing, when it edits an existing one. A route whose
+   * adapter already knows its models answers from that knowledge instead of
+   * asking the endpoint — the adapter's own registry is the better answer, and
+   * it costs no network call.
+   */
+  provider?: string
+  /**
+   * Endpoint to interrogate. Optional because a route the adapter already
+   * describes needs none; a route it does not must supply one.
+   */
+  baseURL?: string
   /** Wire protocol the endpoint speaks, when the draft names one. */
   api?: string
   /** Credential for this interrogation alone; the harness never stores it. */

@@ -1,12 +1,17 @@
 /**
- * One-shot interrogation of a provider endpoint's model listing, serving the
- * configuration surface's "fetch available models" action.
+ * Answering "which models can this provider serve?" for the configuration
+ * surface's "fetch available models" action.
  *
- * This is deliberately *not* a catalog refresh. Nothing here is stored: the
- * request carries a draft the user is still editing — an endpoint and a
- * credential neither of which may exist in `settings.yaml` yet — and the reply
- * is candidate metadata the surface offers for adoption. `settings.yaml`
- * remains the only thing that decides what a route serves.
+ * A route the installed pi-ai catalog ships is answered **from that catalog**,
+ * with no network call at all: pi-ai's registry is the authoritative list for
+ * its own providers, and it carries the capacities a listing endpoint would
+ * not disclose. Only a route the catalog does not describe — a gateway, a
+ * self-hosted server — is interrogated over the wire.
+ *
+ * Neither path is a catalog refresh. Nothing here is stored: the request
+ * carries a draft the user is still editing, and the reply is candidate
+ * metadata the surface offers for adoption. `settings.yaml` remains the only
+ * thing that decides what a route serves.
  *
  * Only OpenAI-compatible protocols are interrogated. Their listing is the one
  * shape a gateway, a self-hosted server, and the official endpoints all agree
@@ -20,16 +25,17 @@
 import { LlmError } from '@deepseek-ai/dsh-llm'
 import type { LlmDiscoveredModel, LlmModelDiscoveryRequest } from '@deepseek-ai/dsh-llm'
 import { attributionHeaders } from '@deepseek-ai/dsh-llm'
+import { catalogModels } from './catalog.ts'
 
 /**
- * Protocols whose model listing this module can read. Every entry speaks
- * OpenAI's `GET /models` shape; pi-ai's other protocols are absent because a
- * wrong guess at their response shape would be reported as an empty provider
- * rather than as the gap it is.
+ * Protocols whose model listing this module can read: the two that speak
+ * OpenAI's `GET /models` shape with bearer auth. Azure is absent despite its
+ * OpenAI lineage — it authenticates with an `api-key` header and requires an
+ * `api-version` query — and Codex authenticates through OAuth; guessing at
+ * either would report an authentication failure as a provider with no models.
+ * pi-ai's remaining protocols are absent for the same reason.
  */
 const LISTABLE_PROTOCOLS: ReadonlySet<string> = new Set([
-  'azure-openai-responses',
-  'openai-codex-responses',
   'openai-completions',
   'openai-responses',
 ])
@@ -165,6 +171,26 @@ function readListing(body: unknown): LlmDiscoveredModel[] {
 export async function discoverModels(
   request: LlmModelDiscoveryRequest,
 ): Promise<readonly LlmDiscoveredModel[]> {
+  // A catalog route already has its answer, and a better one: the installed
+  // entries carry context windows and output caps no listing endpoint reports.
+  if (request.provider !== undefined) {
+    const installed = catalogModels(request.provider)
+    if (installed.size > 0) {
+      return [...installed.values()].map(model => ({
+        id: model.id,
+        name: model.name,
+        contextWindow: model.contextWindow,
+        maxTokens: model.maxTokens,
+      }))
+    }
+  }
+  if (request.baseURL === undefined || request.baseURL.length === 0) {
+    throw new LlmError(
+      `pi-ai ships no catalog for provider "${request.provider ?? ''}", so its models can only come from its`
+      + " endpoint; set a baseURL, or enter this provider's models by hand",
+      'DISCOVERY_FAILED',
+    )
+  }
   const api = request.api ?? 'openai-completions'
   if (!LISTABLE_PROTOCOLS.has(api)) {
     throw new LlmError(
@@ -196,7 +222,18 @@ export async function discoverModels(
       'DISCOVERY_FAILED',
     )
   }
-  const text = await readBounded(response, url)
+  let text: string
+  try {
+    text = await readBounded(response, url)
+  } catch (error: unknown) {
+    // Cancellation during the body read rejects with the abort reason, which
+    // may be any value; the caller gets the same coded failure it would have
+    // for a cancellation before the request went out.
+    if (request.signal?.aborted) {
+      throw new LlmError('model discovery aborted by caller', 'ABORTED', { cause: error })
+    }
+    throw error
+  }
   let body: unknown
   try {
     body = JSON.parse(text)

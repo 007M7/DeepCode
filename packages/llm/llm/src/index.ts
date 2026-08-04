@@ -517,8 +517,10 @@ export class LlmService extends Service {
     if (discover === undefined) {
       throw new LlmError(`no model discovery is registered for "${settingsNs}"`, 'NO_DISCOVERY')
     }
-    if (request.baseURL.length === 0) {
-      throw new LlmError('model discovery needs a non-empty baseURL', 'INVALID_DISCOVERY')
+    // One of the two identifies what to describe: a route the adapter knows, or
+    // an endpoint to ask. Neither leaves nothing to answer about.
+    if ((request.provider ?? '').length === 0 && (request.baseURL ?? '').length === 0) {
+      throw new LlmError('model discovery needs a provider route or a baseURL', 'INVALID_DISCOVERY')
     }
     const discovered = await discover(request)
     const seen = new Set<string>()

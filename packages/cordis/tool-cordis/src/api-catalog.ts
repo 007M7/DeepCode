@@ -2123,7 +2123,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'LlmModelDiscoveryRequest',
-    declaration: 'export interface LlmModelDiscoveryRequest {\n    baseURL: string;\n    api?: string;\n    apiKey?: string;\n    signal?: AbortSignal;\n}',
+    declaration: 'export interface LlmModelDiscoveryRequest {\n    provider?: string;\n    baseURL?: string;\n    api?: string;\n    apiKey?: string;\n    signal?: AbortSignal;\n}',
   },
   {
     name: 'LlmModelInfo',

@@ -16,6 +16,7 @@ export const configurableProviderViewSchema = z.object({
   settingsNs: z.string(),
   settingsPath: z.array(z.string()),
   active: z.boolean(),
+  supportsDiscovery: z.boolean(),
 }) satisfies z.ZodType<Wire<ConfigurableProviderView>>
 
 /** llm.providers request payload. */
@@ -46,11 +47,14 @@ export const discoveredModelViewSchema = z.object({
 /** llm.discoverModels request payload. */
 export const llmDiscoverModelsRequestSchema = z.object({
   settingsNs: z.string().min(1),
-  baseURL: z.string().min(1),
+  provider: z.string().min(1).optional(),
+  baseURL: z.string().min(1).optional(),
   api: z.string().min(1).optional(),
-  // Write-only: the host uses it for this one interrogation and never stores,
-  // logs, or returns it. Kept out of any redacted echo for the same reason
-  // `credentials.set` never reads a value back.
+  // Write-only at the host: used for this one interrogation, never stored and
+  // never returned. It does ride the client's outgoing envelope like every
+  // other secret-bearing payload (`credentials.set`, `settings.update`), which
+  // `subscribeEnvelopes()` observers can see — redacting that tap is a
+  // configuration-plane-wide change, not this method's to make alone.
   apiKey: z.string().min(1).optional(),
 }) satisfies z.ZodType<Wire<RequestPayload<'llm.discoverModels'>>>
 

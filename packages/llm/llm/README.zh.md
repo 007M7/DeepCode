@@ -26,7 +26,7 @@
 
 `LlmService` 保留来自最终适配器选择、同步 dispatch、iterator 构造与迭代的错误，并将其溯源绑定到该次模型调用返回的精确流句柄。`isLlmAdapterFailure(stream, value)` 只报告该调用最终适配器边界的错误；`llmFailureOf(stream, value)` 返回关联的不可变 `LlmFailure`；`llmRetryPolicyOf(stream)` 返回在该边界选中的确切注册所对应的不可变策略，即使之后释放或替换路由也不变。未到达最终适配器的调用没有服务策略。嵌套模型调用、`llm/stream` middleware 和下游消费方失败对外层调用仍未分类。分类绝不替换或更改适配器原有的带代码 `Error`。
 
-询问端点属于配置期针对**草稿**的操作，因此以 settings namespace 而非提供方路由为键：界面正在新增的提供方还不存在，也就没有路由可点名。请求携带端点、协议，以及一条 harness 只用于这一次询问、绝不存储的凭据——这里既不读也不写 settings 与 credentials，回复是界面可供用户采纳的候选元数据，而不是已注册的 catalog。`LlmDiscoveredModel` 除 `id` 外每个字段都是可选的，因为大多数提供方列表只公布 id；采纳其中一条的界面仍要补上其适配器所需的容量。重复与不可用的 id 会被丢弃，无人服务的 namespace 以 `NO_DISCOVERY` 失败，空 namespace 或空端点以 `INVALID_DISCOVERY` 失败。
+询问端点属于配置期针对**草稿**的操作，因此以 settings namespace 而非提供方路由为键：界面正在新增的提供方还不存在，也就没有路由可点名。但请求仍可**点名**它正在编辑的路由，而已经描述该路由的适配器应当用自己的知识作答——元数据更好，且无需联网——这正是 `baseURL` 可选、两者必居其一的原因。除此之外，请求携带端点、协议，以及一条 harness 只用于这一次询问、绝不存储的凭据——这里既不读也不写 settings 与 credentials，回复是界面可供用户采纳的候选元数据，而不是已注册的 catalog。`LlmDiscoveredModel` 除 `id` 外每个字段都是可选的，因为大多数提供方列表只公布 id；采纳其中一条的界面仍要补上其适配器所需的容量。重复与不可用的 id 会被丢弃，无人服务的 namespace 以 `NO_DISCOVERY` 失败，既不点名路由也不给端点的请求以 `INVALID_DISCOVERY` 失败。
 
 提供方与模型元数据是发现接口，不是路由白名单。`registerAdapter()` 仍拥有提供方排他性，并为每条路由捕获适配器的重试策略；适配器则可以接受 `listModels()` 中不存在的模型 id，消费方禁止因模型未列出而拒绝请求。返回的 selector 元数据与输入脱离，无效或重复适配器配置项会以 `INVALID_ADAPTER` 或 `INVALID_CATALOG` 失败。
 
