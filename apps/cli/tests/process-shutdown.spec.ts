@@ -14,7 +14,10 @@ function deferred(): { promise: Promise<void>; resolve: () => void; reject: (err
   return { promise, resolve, reject }
 }
 
-afterEach(() => { vi.useRealTimers() })
+afterEach(() => {
+  vi.useRealTimers()
+  vi.restoreAllMocks()
+})
 
 describe('process shutdown', () => {
   it('exits once after graceful disposal resolves or rejects', async () => {
@@ -29,6 +32,16 @@ describe('process shutdown', () => {
     await rejected.shutdown(1)
     expect(rejectedExit).toHaveBeenCalledOnce()
     expect(rejectedExit).toHaveBeenCalledWith(1)
+  })
+
+  it('uses process.exit as the default process boundary', async () => {
+    const exit = vi.spyOn(process, 'exit').mockImplementation(_code => undefined as never)
+    const shutdown = createProcessShutdown(() => Promise.resolve())
+
+    await shutdown.shutdown(7)
+
+    expect(exit).toHaveBeenCalledOnce()
+    expect(exit).toHaveBeenCalledWith(7)
   })
 
   it('forces exit when graceful disposal reaches its bound', async () => {
@@ -47,6 +60,22 @@ describe('process shutdown', () => {
     disposal.resolve()
     await pending
     expect(exit).toHaveBeenCalledOnce()
+  })
+
+  it('honors a caller-supplied grace period', async () => {
+    vi.useFakeTimers()
+    const disposal = deferred()
+    const exit = vi.fn()
+    const shutdown = createProcessShutdown(() => disposal.promise, exit, 25)
+    const pending = shutdown.shutdown(0)
+
+    await vi.advanceTimersByTimeAsync(24)
+    expect(exit).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(exit).toHaveBeenCalledOnce()
+
+    disposal.resolve()
+    await pending
   })
 
   it('lets Ctrl+C force a normal shutdown already stuck in disposal', async () => {

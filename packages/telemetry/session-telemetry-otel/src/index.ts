@@ -204,6 +204,7 @@ export class TelemetryOtel extends Telemetry {
     try {
       await Promise.race([providerShutdown, deadline])
     } finally {
+      /* v8 ignore else -- the Promise executor assigns timer synchronously before this race starts. */
       if (timer !== undefined) clearTimeout(timer)
     }
   }
