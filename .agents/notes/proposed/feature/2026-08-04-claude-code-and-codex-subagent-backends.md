@@ -35,7 +35,7 @@ fixed tool → shared subagent service → product provider → official product
 
 ## Codex provider
 
-`@deepseek-ai/dsh-subagent-codex` registers the fixed `codex` provider and always starts `codex app-server --stdio` from `PATH`. Its public configuration contains only an explicit `env` overlay and a positive finite `disposeGraceMs`. Installation, login, `CODEX_HOME`, model selection, base URL, sandbox, approval policy, and product-session settings remain native Codex or deployment responsibilities.
+`@deepseek-ai/dsh-subagent-codex` registers the fixed `codex` provider and always starts `codex app-server --stdio` from `PATH`. Its public configuration contains only an explicit `env` overlay and a positive finite `disposeGraceMs` no greater than the repository's shared `MAX_TIMER_DELAY_MS`. Installation, login, `CODEX_HOME`, model selection, base URL, sandbox, approval policy, and product-session settings remain native Codex or deployment responsibilities.
 
 Before publication, the provider validates a non-empty text-only task, starts the managed app-server in the parent workspace, completes `initialize` → `initialized`, and creates an `ephemeral: true` thread. The published run owns exactly one `turn/start`; its thread and turn ids remain private and are never persisted in the parent Session.
 

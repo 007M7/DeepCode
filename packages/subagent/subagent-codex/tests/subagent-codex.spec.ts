@@ -6,6 +6,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import SubagentService from '@deepseek-ai/dsh-subagent'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type {
   SubprocessHandle,
   SubprocessOutcome,
@@ -294,6 +295,8 @@ describe('task admission and package contracts', () => {
       await expect(ctx.plugin(codex, { disposeGraceMs }))
         .rejects.toThrow('disposeGraceMs must be a positive finite number')
     }
+    await expect(ctx.plugin(codex, { disposeGraceMs: MAX_TIMER_DELAY_MS + 1 }))
+      .rejects.toThrow(`disposeGraceMs must be no greater than ${MAX_TIMER_DELAY_MS}`)
     await ctx.fiber.dispose()
   })
 
@@ -511,6 +514,16 @@ describe('CodexAppServerWire', () => {
       await expect(result).rejects.toThrow(scenario.message)
       wire.close()
     }
+  })
+
+  it('fails closed when terminal notification params are not an object', async () => {
+    const { child, wire } = await initializeWire()
+    const result = wire.runTurn(['task'], new AbortController().signal, () => false)
+    const turnStart = await child.peer.nextMethod('turn/start')
+    child.peer.respond(turnStart, { turn: { id: 'turn-1' } })
+    child.peer.send({ method: 'turn/completed', params: null })
+    await expect(result).rejects.toThrow('invalid turn/completed thread id')
+    wire.close()
   })
 
   it('keeps an unsupported request authoritative over an early terminal in the same chunk', async () => {

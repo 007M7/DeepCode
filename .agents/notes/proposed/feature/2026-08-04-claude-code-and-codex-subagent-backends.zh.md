@@ -35,7 +35,7 @@ fixed tool → shared subagent service → product provider → official product
 
 ## Codex 提供方
 
-`@deepseek-ai/dsh-subagent-codex` 注册固定的 `codex` 提供方，并始终启动 `codex app-server --stdio`，该命令从 `PATH` 解析。其公开配置仅包含显式的 `env` 覆盖项和须为正有限值的 `disposeGraceMs`。安装、登录、`CODEX_HOME`、模型选择、基础 URL、沙箱、审批策略和产品会话设置仍由 Codex 原生机制或部署环境负责。
+`@deepseek-ai/dsh-subagent-codex` 注册固定的 `codex` 提供方，并始终启动 `codex app-server --stdio`，该命令从 `PATH` 解析。其公开配置仅包含显式的 `env` 覆盖项和须为正有限值的 `disposeGraceMs`，且后者不得大于仓库共享的 `MAX_TIMER_DELAY_MS`。安装、登录、`CODEX_HOME`、模型选择、基础 URL、沙箱、审批策略和产品会话设置仍由 Codex 原生机制或部署环境负责。
 
 发布前，提供方会验证非空的纯文本任务，在父级工作区中启动受管的 app-server，完成 `initialize` → `initialized` 握手，并创建一个 `ephemeral: true` 线程。已发布的运行只拥有一次 `turn/start`；其线程 ID 与轮次 ID 保持私有，绝不会持久化到父会话。
 

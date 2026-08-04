@@ -80,10 +80,11 @@ export interface SubprocessSpawnSpec {
   /** Per-stream stdio dispositions. */
   stdio: SubprocessStdio
   /**
-   * Grace period in milliseconds for the {@link SubprocessHandle.terminate}
-   * escalation and for draining still-open collected pipes after the process
-   * exits (an inherited descriptor held by a surviving descendant cannot hold
-   * the outcome open indefinitely).
+   * Positive finite grace period in milliseconds, no greater than
+   * `MAX_TIMER_DELAY_MS`, for the {@link SubprocessHandle.terminate} escalation
+   * and for draining still-open collected pipes after the process exits (an
+   * inherited descriptor held by a surviving descendant cannot hold the
+   * outcome open indefinitely).
    */
   graceMs: number
   /**

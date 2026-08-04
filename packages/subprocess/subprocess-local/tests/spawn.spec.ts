@@ -5,11 +5,11 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   killGroup,
   OutputCollector,
-  scheduleFiniteTimeout,
   spawnSubprocess,
   taskkillProcessTree,
 } from '../src/spawn.ts'
 import type { SubprocessHandle, SubprocessOutputReader } from '@deepseek-ai/dsh-subprocess'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 
 const { failNextClose, failNextUnlink } = vi.hoisted(() => ({
   failNextClose: { value: false },
@@ -107,31 +107,15 @@ async function waitForPidFile(path: string, timeoutMs = 5_000): Promise<number> 
   throw new Error(`pid file ${path} was not written after ${timeoutMs}ms`)
 }
 
-describe('scheduleFiniteTimeout', () => {
-  it('rounds fractions up, chains Node-safe segments, and cancels idempotently', async () => {
-    vi.useFakeTimers()
-    try {
-      const fired = vi.fn()
-      const chained = scheduleFiniteTimeout(2_147_483_647.25, fired)
-      await vi.advanceTimersByTimeAsync(2_147_483_647)
-      expect(fired).not.toHaveBeenCalled()
-      await vi.advanceTimersByTimeAsync(1)
-      expect(fired).toHaveBeenCalledOnce()
-      chained.cancel()
-
-      const cancelled = vi.fn()
-      const timer = scheduleFiniteTimeout(0.25, cancelled)
-      timer.cancel()
-      timer.cancel()
-      await vi.advanceTimersByTimeAsync(1)
-      expect(cancelled).not.toHaveBeenCalled()
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-})
-
 describe('spawnSubprocess', () => {
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY, MAX_TIMER_DELAY_MS + 1])(
+    'rejects an invalid grace before spawning: %s',
+    (graceMs) => {
+      expect(() => spawnSubprocess(spec('true', { graceMs })))
+        .toThrow(`subprocess graceMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`)
+    },
+  )
+
   it('captures stdout on success', async () => {
     const result = await finish(spawnSubprocess(spec('echo hello')))
     expect(result.exitCode).toBe(0)
@@ -192,17 +176,6 @@ describe('spawnSubprocess', () => {
     running.terminate()
     const result = await running.done
     expect(result.signal).toBe('SIGKILL')
-  })
-
-  it('cancels a larger-than-Node escalation timer once SIGTERM removes the tree', async () => {
-    const running = spawnSubprocess(spec('echo ready; sleep 60', {
-      graceMs: Number.MAX_VALUE,
-    }))
-    await waitForStdout(running, 'ready\n')
-    running.terminate()
-    const result = await running.done
-    expect(result.signal).toBe('SIGTERM')
-    await expect(running.waitForExit()).resolves.toBe(true)
   })
 
   it('cancels escalation when the terminated group vanishes before collected pipes drain', async () => {

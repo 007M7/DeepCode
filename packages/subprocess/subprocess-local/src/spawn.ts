@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as sleepMs } from 'node:timers/promises'
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type {
   CollectedOutput,
   SubprocessCollect,
@@ -53,47 +54,6 @@ export interface SpawnInternals {
  */
 function sleepTick(): Promise<void> {
   return sleepMs(15)
-}
-
-/** Largest delay Node schedules without collapsing it to one millisecond. */
-const MAX_TIMER_DELAY_MS = 2_147_483_647n
-
-/**
- * Schedule a positive finite millisecond delay across as many Node-safe timer
- * segments as necessary. Fractional milliseconds round up so a grace never
- * expires earlier than configured.
- * @param delayMs - positive finite delay in milliseconds.
- * @param callback - work to run after the complete delay.
- * @returns a handle that cancels the active segment and all future segments.
- */
-export function scheduleFiniteTimeout(
-  delayMs: number,
-  callback: () => void,
-): { cancel(): void } {
-  let remaining = BigInt(Math.ceil(delayMs))
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const arm = (): void => {
-    const chunk = remaining > MAX_TIMER_DELAY_MS
-      ? MAX_TIMER_DELAY_MS
-      : remaining
-    remaining -= chunk
-    timer = setTimeout(() => {
-      timer = undefined
-      if (remaining === 0n) {
-        callback()
-      } else {
-        arm()
-      }
-    }, Number(chunk))
-  }
-  arm()
-  return {
-    cancel(): void {
-      if (timer === undefined) return
-      clearTimeout(timer)
-      timer = undefined
-    },
-  }
 }
 
 let spillCounter = 0
@@ -339,8 +299,12 @@ function signalTree(
  * @param spec - fully resolved argv, cwd, stdio, grace, cancellation, environment.
  * @param internals - test-only spill-directory, platform, and taskkill overrides.
  * @returns live subprocess handle.
+ * @throws when `graceMs` cannot be represented by one Node timer.
  */
 export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInternals = {}): SubprocessHandle {
+  if (!Number.isFinite(spec.graceMs) || spec.graceMs <= 0 || spec.graceMs > MAX_TIMER_DELAY_MS) {
+    throw new Error(`subprocess graceMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`)
+  }
   const spillDir = internals.spillDir ?? privateSpillDir()
   const platform = internals.platform ?? process.platform
   const taskkill = internals.taskkill ?? taskkillProcessTree
@@ -382,7 +346,7 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
   const stdoutCollector = collectStream(outMode, child.stdout, 'stdout')
   const stderrCollector = collectStream(errMode, child.stderr, 'stderr')
 
-  let graceTimer: ReturnType<typeof scheduleFiniteTimeout> | undefined
+  let graceTimer: ReturnType<typeof setTimeout> | undefined
   let treeExitObserved = false
   let treeExitObservation: Promise<void> | undefined
   let settled = false
@@ -426,7 +390,7 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
     treeExitObservation ??= (async () => {
       while (treeAlive()) await sleepTick()
       treeExitObserved = true
-      graceTimer?.cancel()
+      if (graceTimer !== undefined) clearTimeout(graceTimer)
       graceTimer = undefined
     })()
     return treeExitObservation
@@ -457,7 +421,7 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
     // kill() re-probes tree liveness before force-killing. It stays ref'd:
     // the pending SIGKILL is a commitment, and a parent exiting before it
     // fires would orphan a trapped survivor. Self-bounds at graceMs.
-    graceTimer = scheduleFiniteTimeout(spec.graceMs, () => { kill('SIGKILL') })
+    graceTimer = setTimeout(() => { kill('SIGKILL') }, spec.graceMs)
   }
 
   // The caller owns timeout classification; this layer only reacts to abort.
@@ -472,7 +436,7 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
   }
 
   const done = new Promise<SubprocessOutcome>((resolve, reject) => {
-    let pipeDrainTimer: ReturnType<typeof scheduleFiniteTimeout> | undefined
+    let pipeDrainTimer: ReturnType<typeof setTimeout> | undefined
     const settle = (exitCode: number | null, signal: NodeJS.Signals | null): void => {
       if (settled) return
       settled = true
@@ -495,15 +459,15 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
       // A surviving descendant that inherited a pipe must not hold the
       // outcome open indefinitely: after exit, the same bounded grace that
       // governs kills also bounds the close wait.
-      pipeDrainTimer = scheduleFiniteTimeout(spec.graceMs, () => {
+      pipeDrainTimer = setTimeout(() => {
         settle(exitCode, signal)
-      })
+      }, spec.graceMs)
     })
     child.on('close', settle)
     function cleanup(): void {
       // graceTimer deliberately NOT cleared: the SIGKILL escalation must be
       // able to reach tree survivors after the direct child settles.
-      pipeDrainTimer?.cancel()
+      if (pipeDrainTimer !== undefined) clearTimeout(pipeDrainTimer)
       spec.signal?.removeEventListener('abort', onAbort)
     }
   })
