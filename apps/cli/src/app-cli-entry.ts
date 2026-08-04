@@ -2,8 +2,8 @@
  * AppCLIEntry — the pre-cordis boot glue the config-tree dsh surfaces share
  * (`dsh web` and `dsh -p`; the TUI composes dsh-app-boot directly).
  * Everything here is what must exist before the Loader runs: the patch
- * composition over the shipped base and surface overlay (profile json + CLI
- * flags + the resolved frontend dist), and the fail-loud activation audit after the tree
+ * composition over the shipped base and surface overlay (CLI flags + the
+ * resolved frontend dist), and the fail-loud activation audit after the tree
  * settles. The environment is what the bin already loaded (ambient plus the
  * invoking directory's `.env`); `$DSH_HOME/.env` belongs to the credential
  * provider and is never hoisted here.
@@ -12,7 +12,7 @@
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { networkInterfaces } from 'node:os'
-import { join, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import { Context } from 'cordis'
 import type { PatchOptions } from '@cordisjs/plugin-include'
 import yaml from 'js-yaml'
@@ -25,10 +25,6 @@ import {
 } from '@deepseek-ai/dsh-app-boot'
 // Empty type import carries the httpServer Context merge for the port read below.
 import type {} from '@deepseek-ai/dsh-host-webserver'
-
-/** Profile file under the invoking directory (read-only this round; never created — see the design's profile ruling). */
-const PROFILE_DIR = '.dsh-tmp-profile'
-const PROFILE_FILE = 'config.json'
 
 /** The session-telemetry row id the DSH_TELEMETRY_DISABLED switch targets (mounted in web.cordis.yml). */
 const TELEMETRY_ROW_ID = 'telemetry-otel'
@@ -100,25 +96,6 @@ export function configHasTelemetryRow(file: string): boolean {
     row.id === TELEMETRY_ROW_ID || (row.insert ?? []).some(inserted => inserted.id === TELEMETRY_ROW_ID))
 }
 
-/** One profile-json key mapped onto a yml row's config field. */
-interface ProfileMapping {
-  jsonPath: string
-  entryId: string
-  configKey: string
-}
-
-/**
- * The static profile→row mapping table. json is user config and wins over the
- * yml engineering default per field; a json key absent from this table fails
- * loud (a typo silently ignored would read as "setting has no effect").
- * Developers extend deployments by adding rows here.
- */
-const PROFILE_MAPPINGS: ProfileMapping[] = [
-  { jsonPath: 'provider', entryId: 'api-gateway', configKey: 'provider' },
-  { jsonPath: 'model', entryId: 'api-gateway', configKey: 'model' },
-  { jsonPath: 'persistenceRoot', entryId: 'session-persistence-jsonl', configKey: 'root' },
-]
-
 // The include's YAML dialect: `!!js` scalars become expression nodes the
 // Loader evaluates at entry activation. The bypass parse below must accept
 // them (and passing one through a patch unchanged is legal).
@@ -135,14 +112,14 @@ export interface AppCLIEntryOptions {
   configPath: string
   /**
    * Absolute path of this surface's overlay: a patch list applied over
-   * {@link configPath} before this entry's own profile/flag patches. Its rows
+   * {@link configPath} before this entry's own flag patches. Its rows
    * are also merge inputs, so a flag override preserves the overlay's other
    * fields on the same row.
    */
   overlayPath: string
   /**
    * Optional explicit overlay applied after {@link overlayPath} and before
-   * this entry's own profile/flag patches. When absent, the personal
+   * this entry's own flag patches. When absent, the personal
    * `$DSH_HOME/config.yaml` overlay is applied instead.
    */
   extraOverlayPath?: string
@@ -205,8 +182,8 @@ export class AppCLIEntry {
   }
 
   /**
-   * Compose the patch set from profile json, CLI flags, and the resolved
-   * frontend dist. Patches replace a row's config wholesale, so each patched row's yml
+   * Compose the patch set from CLI flags and the resolved frontend dist.
+   * Patches replace a row's config wholesale, so each patched row's yml
    * static values are re-read here (bypass parse) and merged under the overrides.
    */
   private composePatches(): void {
@@ -218,28 +195,19 @@ export class AppCLIEntry {
       overrides.set(entryId, bag)
     }
 
-    // Source 1: profile json (missing file = empty; unmapped key = loud).
-    for (const [key, value] of Object.entries(this.readProfile())) {
-      const mapping = PROFILE_MAPPINGS.find(m => m.jsonPath === key)
-      if (mapping === undefined) {
-        throw new Error(`dsh: profile key "${key}" has no mapping (known: ${PROFILE_MAPPINGS.map(m => m.jsonPath).join(', ')})`)
-      }
-      put(mapping.entryId, mapping.configKey, value)
-    }
-
-    // Source 2: CLI flags (field set disjoint from the json mappings).
+    // Source 1: CLI flags.
     if (this.options.host !== undefined) put('webserver', 'host', this.options.host)
     if (this.options.port !== undefined) put('webserver', 'port', this.options.port)
     if (this.options.workspaceRoot !== undefined) put('api-gateway', 'workspaceRoot', this.options.workspaceRoot)
 
-    // Source 2b: authorities for the /api browser-trust fence (rationale on
+    // Source 1b: authorities for the /api browser-trust fence (rationale on
     // resolveLanTrust).
     const ymlHost = (rows.get('webserver')?.config as { host?: string } | undefined)?.host
     const { lanAddresses, trustedHosts } = resolveLanTrust(this.options.host ?? ymlHost, this.options.trustedHosts ?? [])
     this.lanAddresses = lanAddresses
     if (trustedHosts.length > 0) put('connection', 'trustedHosts', trustedHosts)
 
-    // Source 3: the frontend dist — an assembly fact of this app, never yml
+    // Source 2: the frontend dist — an assembly fact of this app, never yml
     // user config. Workspace knowledge stays here.
     put('webserver', 'distIndex', this.resolveDistIndex())
 
@@ -262,7 +230,7 @@ export class AppCLIEntry {
     // One include of the shared base with every overlay as a sibling patch
     // list: patches never cross an include boundary, so nesting them would
     // silently stop reaching base rows. The surface overlay applies first, then
-    // this entry's profile-json and CLI-flag patches, which therefore win.
+    // this entry's CLI-flag patches, which therefore win.
     const compose = (overlay: PatchOptions[]): PatchOptions[] => [
       ...loadOverlayPatches('dsh', this.options.overlayPath),
       ...overlay,
@@ -325,22 +293,6 @@ export class AppCLIEntry {
     const doc = yaml.load(readFileSync(file, 'utf8'), { schema: includeYamlSchema })
     if (!Array.isArray(doc)) throw new Error(`dsh: ${file} is not a top-level entry list`)
     return doc as { id?: string; config?: unknown; insert?: { id?: string; config?: unknown }[] }[]
-  }
-
-  /** Profile json under cwd; read-only — never created here, absent = no user config. */
-  private readProfile(): Record<string, unknown> {
-    let raw: string
-    try {
-      raw = readFileSync(join(process.cwd(), PROFILE_DIR, PROFILE_FILE), 'utf8')
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
-      throw error
-    }
-    const parsed: unknown = JSON.parse(raw)
-    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      throw new Error(`dsh: ${PROFILE_DIR}/${PROFILE_FILE} must hold a JSON object`)
-    }
-    return parsed as Record<string, unknown>
   }
 
   /** Dist location is workspace knowledge of this app: resolved through the frontend package exports, not configured. */

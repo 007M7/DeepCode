@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/simplification/2026-08-04-remove-profile-json-entry.md
+2026-08-04-remove-profile-json-entry.md: 8ca81e2364e095d90c87febfe705ddec14269bf4
+2026-08-04-remove-profile-json-entry.zh.md: bbc3957d11a2051e7c1f9eaaed52d8af38fa1e5b

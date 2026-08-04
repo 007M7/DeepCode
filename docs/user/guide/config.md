@@ -50,7 +50,7 @@ Plugins load in file order. Place plugins that depend on services after the appl
 
 ## CLI overlays
 
-The TUI composes `base.cordis.yml` and `tui.cordis.yml`, then applies one optional patch list. By default that final list is `~/.dsh/config.yaml`; `dsh --config <path>` replaces the personal list with the named overlay. `dsh --config-replace <path>` instead boots the named file as the complete tree, without shipped or personal layers. `dsh web --config <path>` adds its overlay after the shared base and Web surface defaults and before Web profile and CLI-flag patches.
+The TUI composes `base.cordis.yml` and `tui.cordis.yml`, then applies one optional patch list. By default that final list is `~/.dsh/config.yaml`; `dsh --config <path>` replaces the personal list with the named overlay. `dsh --config-replace <path>` instead boots the named file as the complete tree, without shipped or personal layers. `dsh web --config <path>` adds its overlay after the shared base and Web surface defaults and before the Web launcher's CLI-flag patches.
 
 A patch replaces a row's entire `config` value; it does not deep-merge keys. For example, patching `llm-deepseek` with only `config: { thinking: disabled }` also removes that row's configured `apiKey` and `baseURL`, so restate every key the row must retain.
 
