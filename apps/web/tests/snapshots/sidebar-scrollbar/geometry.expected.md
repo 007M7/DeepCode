@@ -12,6 +12,7 @@
 - --dsh-scrollbar-thumb-hover: rgb(212, 212, 212)
 - list overflows: true
 - reserved band: 8px
+- row background inset from the sidebar edge: 12px
 - relative time covered by the bar: 0px
 - relative time ends inside the content area: true
 - content area ends before the border box: true
@@ -28,6 +29,7 @@
 - --dsh-scrollbar-thumb-hover: rgb(84, 85, 87)
 - list overflows: true
 - reserved band: 8px
+- row background inset from the sidebar edge: 12px
 - relative time covered by the bar: 0px
 - relative time ends inside the content area: true
 - content area ends before the border box: true

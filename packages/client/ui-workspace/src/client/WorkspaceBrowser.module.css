@@ -4,12 +4,14 @@
    rail state renders only the two 36x36 icon controls. */
 
 .root {
+  --dsh-session-list-edge-inset: var(--dsh-sidebar-inline-padding);
+  --dsh-session-list-scrollbar-width: 8px;
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
-  padding-right: 12px;
+  padding-right: var(--dsh-session-list-edge-inset);
 }
 
 .root.rail {
@@ -173,7 +175,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  margin-right: -12px;
+  margin-right: calc(-1 * var(--dsh-session-list-edge-inset));
   overflow: hidden;
 }
 
@@ -195,7 +197,7 @@
 .fade {
   position: absolute;
   left: 0;
-  right: 0;
+  right: var(--dsh-session-list-edge-inset);
   bottom: 0;
   height: 72px;
   background: linear-gradient(to bottom, transparent, var(--dsw-specific-sidebar-fill));
@@ -211,27 +213,19 @@
   from { opacity: 0; }
 }
 
-/* List: the only scrolling region. Block, not a flex column: as flex items
-   the 54/34 rows would shrink under content overflow; block children keep
-   their design heights do not shrink under content overflow. Its right
-   padding is the sole gap between row backgrounds and the sidebar edge; the
-   outer seats move their clip boundary out so they add no hidden inset. */
+/* List: the only scrolling region. Block children keep their design heights
+   under content overflow. The stable 8px themed scrollbar and the remaining
+   padding together equal the shell's right inset, with or without overflow. */
 .list {
-  --dsh-session-list-edge-inset: 12px;
-  --dsh-session-list-scrollbar-width: 8px;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding-right: var(--dsh-session-list-edge-inset);
+  padding-right: calc(var(--dsh-session-list-edge-inset) - var(--dsh-session-list-scrollbar-width));
   padding-bottom: 12px;
   scrollbar-gutter: stable;
 }
 
-.list::-webkit-scrollbar {
-  width: var(--dsh-session-list-scrollbar-width);
-}
-
-.list > [role='treeitem'] + [role='treeitem'],
+.flatList > * + *,
 .searchTree > [role='treeitem'] + [role='treeitem'],
 .groupSection > * + * {
   margin-top: 2px;
