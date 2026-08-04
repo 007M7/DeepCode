@@ -8,8 +8,8 @@ import { accessSync, constants, statSync } from 'node:fs'
 import type { BashRunResult } from '@deepseek-ai/dsh-bash'
 import type { RunnerFailureRule } from '@deepseek-ai/dsh-sandbox'
 
-/** Spawn codes that can describe an unavailable executable. */
-const EXECUTABLE_SPAWN_CODES = new Set(['EACCES', 'ENOENT', 'ENOEXEC', 'ENOTDIR', 'EPERM'])
+/** Node-local spawn codes proven to identify executable resolution or permission failure. */
+const EXECUTABLE_SPAWN_CODES = new Set(['EACCES', 'ENOENT'])
 
 /** Whether the caller-owned spawn cwd can be entered. */
 function isUsableWorkdir(path: string): boolean {
@@ -23,11 +23,14 @@ function isUsableWorkdir(path: string): boolean {
 }
 
 /**
- * Attribute only executable-class failures with positive Node argv[0]
- * provenance after independently ruling out the caller-owned cwd. A supplied
- * error path must exactly identify the runner; without one, the syscall must.
- * With a usable cwd, these codes describe resolution, permissions, or loading
- * of that argv[0], including a script whose shebang interpreter is unavailable.
+ * Attribute only Node ENOENT/EACCES failures with positive argv[0] provenance
+ * after independently ruling out the caller-owned cwd. A supplied error path
+ * must exactly identify the runner; without one, the syscall must. With a
+ * usable cwd, these codes describe resolution or execute permission for that
+ * argv[0] or its shebang interpreter.
+ * The workdir is checked at classification time, not atomically with spawn;
+ * concurrent path replacement may change attribution but cannot permit an
+ * unconfined execution.
  * @param error - the original spawn rejection.
  * @param runnerProgram - provider argv[0], the executable that establishes confinement.
  * @param workdir - the caller-owned spawn cwd, checked independently for usability.

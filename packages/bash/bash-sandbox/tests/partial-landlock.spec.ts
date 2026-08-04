@@ -10,7 +10,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { LAUNCHER_FAILURE_EXIT } from 'node-addon-landlock-run'
-import { SANDBOX_UNAVAILABLE } from '@deepseek-ai/dsh-sandbox'
+import { SANDBOX_UNAVAILABLE, SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
 import { LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
 import { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import { SandboxBashExecutor } from '@deepseek-ai/dsh-bash-sandbox'
@@ -104,6 +104,55 @@ describe('partial Landlock runner-failure classification', () => {
       enforcement: 'full',
       runnerFailed: true,
     })
+    const accounting = (bash as unknown as { processFacts: Map<unknown, unknown> }).processFacts
+    expect(accounting.size).toBe(0)
+  })
+
+  it('classifies a bare-name runner whose shebang interpreter is missing', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-bare-sandbox-runner-'))
+    tempDirs.push(dir)
+    const runner = 'bare-missing-interpreter-runner'
+    await writeFile(join(dir, runner), '#!/dsh-definitely-missing-sandbox-interpreter\nexit 0\n', { mode: 0o755 })
+    const bash = await setupConfiguredRunner(runner)
+    const request = { command: 'true', env: { PATH: dir } }
+
+    const error = await bash.run(bash.resolve(request)).catch((value: unknown) => value)
+    expect(error).toMatchObject({ name: 'SandboxUnavailableError', code: SANDBOX_UNAVAILABLE })
+    expect(error).toBeInstanceOf(Error)
+    expect((error as Error).message).toContain(`spawn ${runner} ENOENT`)
+
+    const task = bash.start(bash.resolve(request))
+    await task.done
+    expect(task.readOutput().delta).toContain(`spawn failed: Error: spawn ${runner} ENOENT`)
+    expect(task.sandbox).toEqual({
+      mode: 'read-only',
+      denied: false,
+      enforcement: 'full',
+      runnerFailed: true,
+    })
+  })
+
+  it('keeps a real malformed executable ENOEXEC as an ordinary spawn failure', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-malformed-sandbox-runner-'))
+    tempDirs.push(dir)
+    const runner = join(dir, 'malformed-runner')
+    await writeFile(runner, 'not a native executable or shebang script\n', { mode: 0o755 })
+    const bash = await setupConfiguredRunner(runner)
+
+    const foreground = await bash.run(bash.resolve({ command: 'true' })).catch((value: unknown) => value)
+    expect(foreground).toMatchObject({ code: 'ENOEXEC', syscall: 'spawn' })
+    expect((foreground as { path?: unknown }).path).toBeUndefined()
+    expect(foreground).not.toBeInstanceOf(SandboxUnavailableError)
+
+    let background: unknown
+    try {
+      bash.start(bash.resolve({ command: 'true' }))
+    } catch (error) {
+      background = error
+    }
+    expect(background).toMatchObject({ code: 'ENOEXEC', syscall: 'spawn' })
+    expect((background as { path?: unknown }).path).toBeUndefined()
+    expect(background).not.toBeInstanceOf(SandboxUnavailableError)
     const accounting = (bash as unknown as { processFacts: Map<unknown, unknown> }).processFacts
     expect(accounting.size).toBe(0)
   })

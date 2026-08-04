@@ -214,7 +214,7 @@ describe('fail closed', () => {
     }
   })
 
-  it('classifies synchronous ENOEXEC as runner loading failure in run() and start()', async () => {
+  it('keeps Node-shaped synchronous ENOEXEC ordinary in run() and start()', async () => {
     const runner = join(spillDir, 'malformed-runner')
     const { ctx, bash } = await setup({}, argv => ({
       argv: [runner, ...argv],
@@ -223,7 +223,33 @@ describe('fail closed', () => {
       runnerFailureRules: RUNNER_FAILURE,
     }))
     vi.spyOn(ctx.subprocess, 'spawn').mockImplementation(() => {
-      throw Object.assign(new Error('spawn ENOEXEC'), { code: 'ENOEXEC', syscall: 'spawn', path: runner })
+      throw Object.assign(new Error('spawn ENOEXEC'), { code: 'ENOEXEC', syscall: 'spawn' })
+    })
+
+    const foreground = await bash.run(bash.resolve({ command: 'true' })).catch((error: unknown) => error)
+    expect(foreground).toMatchObject({ code: 'ENOEXEC', syscall: 'spawn' })
+    expect(foreground).not.toBeInstanceOf(SandboxUnavailableError)
+
+    let background: unknown
+    try {
+      bash.start(bash.resolve({ command: 'true' }))
+    } catch (error) {
+      background = error
+    }
+    expect(background).toMatchObject({ code: 'ENOEXEC', syscall: 'spawn' })
+    expect(background).not.toBeInstanceOf(SandboxUnavailableError)
+  })
+
+  it('classifies a synchronous SubprocessService EACCES with exact runner provenance', async () => {
+    const runner = join(spillDir, 'unexecutable-runner')
+    const { ctx, bash } = await setup({}, argv => ({
+      argv: [runner, ...argv],
+      enforcement: 'full',
+      denialSignatures: UNIX_SIGNATURES,
+      runnerFailureRules: RUNNER_FAILURE,
+    }))
+    vi.spyOn(ctx.subprocess, 'spawn').mockImplementation(() => {
+      throw Object.assign(new Error('spawn EACCES'), { code: 'EACCES', syscall: 'spawn', path: runner })
     })
 
     await expect(bash.run(bash.resolve({ command: 'true' })))
@@ -359,12 +385,21 @@ describe('classifyDenial', () => {
 })
 
 describe('isRunnerSpawnFailure', () => {
-  it.each(['EACCES', 'ENOENT', 'ENOEXEC', 'ENOTDIR', 'EPERM'])(
+  it.each(['EACCES', 'ENOENT'])(
     'attributes executable-class spawn code %s to argv[0] once cwd ambiguity is eliminated',
     (code) => {
       const runner = join(spillDir, 'runner')
       const error = Object.assign(new Error('spawn failed'), { code, syscall: `spawn ${runner}`, path: runner })
       expect(isRunnerSpawnFailure(error, runner, process.cwd())).toBe(true)
+    },
+  )
+
+  it.each(['ENOEXEC', 'ENOTDIR', 'EPERM'])(
+    'keeps unproven executable code %s ordinary despite synthetic argv[0] fields',
+    (code) => {
+      const runner = join(spillDir, 'runner')
+      const error = Object.assign(new Error('spawn failed'), { code, syscall: `spawn ${runner}`, path: runner })
+      expect(isRunnerSpawnFailure(error, runner, process.cwd())).toBe(false)
     },
   )
 
@@ -405,7 +440,7 @@ describe('isRunnerSpawnFailure', () => {
   it('accepts only syscall provenance compatible with the exact runner program', () => {
     const runner = join(spillDir, 'runner with spaces')
     const spawnError = (syscall: string, path?: string) =>
-      Object.assign(new Error('spawn failed'), { code: 'ENOEXEC', syscall, path })
+      Object.assign(new Error('spawn failed'), { code: 'ENOENT', syscall, path })
 
     expect(isRunnerSpawnFailure(spawnError('spawn', runner), runner, process.cwd())).toBe(true)
     expect(isRunnerSpawnFailure(spawnError(`spawn ${runner}`, runner), runner, process.cwd())).toBe(true)
