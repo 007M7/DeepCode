@@ -24,6 +24,7 @@ interface NodeZstdPrivateHandle {
 type NodeZstdPrivateWriteState = Uint32Array & { 0: number; 1: number }
 
 interface NodeZstdPrivateState {
+  [key: symbol]: unknown
   _handle: NodeZstdPrivateHandle | null
   _writeState: NodeZstdPrivateWriteState
   _defaultFlushFlag: number
@@ -32,17 +33,23 @@ interface NodeZstdPrivateState {
 type NodeZstdPrivateStream = ReturnType<typeof createZstdDecompress> & NodeZstdPrivateState
 
 /** Return the stream with its observed private Node contract, or reject that optimization. */
-function privateZstdStream(stream: ReturnType<typeof createZstdDecompress>): NodeZstdPrivateStream | undefined {
+function privateZstdStream(
+  stream: ReturnType<typeof createZstdDecompress>,
+): { stream: NodeZstdPrivateStream; errorKey: symbol } | undefined {
   const candidate = stream as unknown as Partial<NodeZstdPrivateState>
   const handle = candidate._handle
+  const errorKey = Reflect.ownKeys(stream).find((key): key is symbol => (
+    typeof key === 'symbol' && key.description === 'kError'
+  ))
   if (
     typeof handle !== 'object' || handle === null
     || typeof (handle as { writeSync?: unknown }).writeSync !== 'function'
     || !(candidate._writeState instanceof Uint32Array)
     || candidate._writeState.length < 2
     || typeof candidate._defaultFlushFlag !== 'number'
+    || errorKey === undefined
   ) return undefined
-  return stream as NodeZstdPrivateStream
+  return { stream: stream as NodeZstdPrivateStream, errorKey }
 }
 
 /**
@@ -57,7 +64,10 @@ export class NodePrivateZstdFrameDecoder implements ZstdFrameDecoder {
   private started = false
   private closed = false
 
-  private constructor(private readonly stream: NodeZstdPrivateStream) {
+  private constructor(
+    private readonly stream: NodeZstdPrivateStream,
+    private readonly errorKey: symbol,
+  ) {
     this.stream.on('error', (error: Error) => {
       this.decoderError ??= error
     })
@@ -70,8 +80,10 @@ export class NodePrivateZstdFrameDecoder implements ZstdFrameDecoder {
    */
   static create(): NodePrivateZstdFrameDecoder | undefined {
     const stream = createZstdDecompress({ chunkSize: DECODE_CHUNK_SIZE })
-    const privateStream = privateZstdStream(stream)
-    if (privateStream !== undefined) return new NodePrivateZstdFrameDecoder(privateStream)
+    const privateAccess = privateZstdStream(stream)
+    if (privateAccess !== undefined) {
+      return new NodePrivateZstdFrameDecoder(privateAccess.stream, privateAccess.errorKey)
+    }
     stream.close()
     return undefined
   }
@@ -116,6 +128,11 @@ export class NodePrivateZstdFrameDecoder implements ZstdFrameDecoder {
         DECODE_CHUNK_SIZE,
       )
       if (this.decoderError !== undefined) throw this.decoderError
+      const internalError = this.stream[this.errorKey]
+      if (internalError !== undefined && internalError !== null) {
+        if (internalError instanceof Error) throw internalError
+        throw new Error('Zstandard decoder exposed a non-Error internal failure')
+      }
 
       const outputAfter = this.stream._writeState[0]
       const inputAfter = this.stream._writeState[1]
