@@ -263,10 +263,11 @@ function childClassName(base: string, segment: string): string {
  * by a JS parser back into the same double.
  *
  * `JSON.stringify` is also what keeps this path's output parseable, and it is
- * the only thing that does. It covers both classes of hazard: the two code
- * points CPython refuses anywhere in source — NUL among the C0 controls, and
- * unpaired surrogates under ES2019 well-formed stringification, which the
- * engines range guarantees — and the ones that break this line in particular,
+ * the only thing that does. It covers both classes of hazard: the two kinds of
+ * code point CPython refuses anywhere in source — NUL among the C0 controls,
+ * and the whole D800–DFFF unpaired-surrogate block, escaped under ES2019
+ * well-formed stringification, which the engines range guarantees — and the
+ * ones that break this line in particular,
  * a bare `"` closing the literal early, a trailing odd backslash eating the
  * closing quote, and a bare LF/CR ending it before its terminator. The
  * `description` path carries {@link UNPRINTABLE} and {@link LONE_SURROGATE}

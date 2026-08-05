@@ -53,15 +53,16 @@ describe('jsonSchemaToPy', () => {
 
   it('leans on JSON.stringify to keep a Literal parseable', () => {
     // Nothing here escapes anything itself; `JSON.stringify` carries both
-    // classes of hazard. The two code points CPython refuses anywhere in
-    // source: NUL, and a lone surrogate under ES2019 well-formed
-    // stringification.
+    // classes of hazard. The two kinds of code point CPython refuses anywhere
+    // in source: NUL, and the D800–DFFF unpaired-surrogate block under ES2019
+    // well-formed stringification.
     expect(jsonSchemaToPy({ type: 'string', const: 'a\u0000b' })).toBe(String.raw`Literal["a\u0000b"]`)
     expect(jsonSchemaToPy({ type: 'string', enum: ['a\ud800b'] })).toBe(String.raw`Literal["a\ud800b"]`)
     // And the ones that break this line in particular: a bare quote closing
-    // the literal early, a trailing backslash eating the closing quote, a bare
-    // newline ending it before its terminator. Every escape it emits is also a
-    // Python escape for the same character, so the value round-trips.
+    // the literal early, a trailing ODD backslash eating the closing quote (an
+    // even run does not), a bare newline ending it before its terminator.
+    // Every escape it emits is also a Python escape for the same character, so
+    // the value round-trips.
     expect(jsonSchemaToPy({ type: 'string', const: 'say "hi"\n' })).toBe(String.raw`Literal["say \"hi\"\n"]`)
     expect(jsonSchemaToPy({ type: 'string', const: 'ends\\' })).toBe(String.raw`Literal["ends\\"]`)
   })
@@ -368,7 +369,7 @@ describe('renderToolsSdkPy', () => {
     expect(text).not.toContain('WeirdFieldsArgs')
   })
 
-  it('keeps soft-keyword field names as TypedDict fields (match/case/type are only special in statement position)', () => {
+  it('keeps soft-keyword field names as TypedDict fields (each is special in exactly one syntactic position)', () => {
     const tool: ToolSdkSchema = {
       name: 'search',
       description: 'Soft keywords as fields.',
@@ -738,6 +739,24 @@ describe('renderToolsSdkPy', () => {
     }
     // No method emitted at all, so the class body needs the explicit `pass`.
     expect(text).toContain('    pass\n')
+  })
+
+  it('quotes a tool name through the same JSON.stringify the Literal path depends on', () => {
+    // A lone surrogate is reachable in a name — `"\ud800"` survives
+    // `JSON.parse` of MCP wire JSON — and this path has no UNPRINTABLE /
+    // LONE_SURROGATE fallback behind it, only ES2019 well-formed
+    // stringification. Raw, it would make the whole SDK block uncompilable,
+    // exactly as on the `Literal[...]` path.
+    const text = renderToolsSdkPy([
+      {
+        name: 'a\ud800b',
+        description: 'Lone surrogate in the name.',
+        parameters: parameterSchemaSpecToJsonSchema({}) as unknown as Record<string, unknown>,
+        output: { type: 'string' },
+      },
+    ])
+    expect(text).toContain(String.raw`# tools["a\ud800b"](args: dict[str, Any]) -> str`)
+    expect(text).not.toContain('\ud800')
   })
 
   it('escapes quotes and backslashes in descriptions so the docstring stays valid Python', () => {
