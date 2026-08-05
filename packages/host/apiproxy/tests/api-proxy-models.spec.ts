@@ -1,7 +1,8 @@
 /**
  * Web session model-directory and selection behavior: dynamic provider grouping,
- * provider-local catalog failures, logged-target restoration, advisory unlisted
- * models, and the prompt-assembly boundary for a running selection change.
+ * provider-local catalog failures, logged-target restoration without stale
+ * catalog injection, advisory pass-through models, and the prompt-assembly
+ * boundary for a running selection change.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -118,7 +119,7 @@ function expectValue<T>(response: { result: { ok: true; value: T } | { ok: false
 }
 
 describe('Web session model selection', () => {
-  it('groups successful providers, isolates failures, and preserves an unlisted current model', async () => {
+  it('groups successful providers and leaves an unlisted current target out of the catalog', async () => {
     const { ctx, sessionId } = await harness({
       provider: 'deepseek-official',
       model: 'private-preview',
@@ -141,12 +142,6 @@ describe('Web session model selection', () => {
           id: 'deepseek-reasoner',
           name: 'DeepSeek Reasoner',
           description: 'Reasoning model',
-          reasoning: REASONING,
-        },
-        {
-          id: 'private-preview',
-          name: 'private-preview',
-          unlisted: true,
           reasoning: REASONING,
         },
       ],

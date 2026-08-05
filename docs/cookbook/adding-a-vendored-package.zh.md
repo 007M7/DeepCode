@@ -53,7 +53,7 @@ vendored TypeScript 源码中的本地相对导入/导出在复制后使用显�
 ```sh
 pnpm install        # registers the workspace
 pnpm run typecheck
-pnpm run build && pnpm run test && pnpm run constraints
+pnpm run build && pnpm run constraints
 ```
 
-源码 `paths` 映射只在 `tsconfig.base.json` 存在一份，服务所有图。重要的隔离边界是 project-reference 图：vendored 源码必须通过其自身的 `vendor/<dir>/tsconfig.json` 被引用，而非被拉入某个聚合的严格程序中（[布局](../development.md#typescript-project-layout)）。
+请运行[测试政策](../testing.md)所选择的行为检查。源码 `paths` 映射只在 `tsconfig.base.json` 存在一份，服务所有图。重要的隔离边界是 project-reference 图：vendored 源码必须通过其自身的 `vendor/<dir>/tsconfig.json` 被引用，而非被拉入某个聚合的严格程序中（[布局](../development.md#typescript-project-layout)）。

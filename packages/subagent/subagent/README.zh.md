@@ -4,21 +4,7 @@
 
 subagent seam 允许一个 agent（智能体）通过具名提供方把工作委派给子 agent。调用方使用统一的服务 API（`ctx.subagents`）；提供方决定子 agent 在当前进程、另一进程还是未来的传输之上运行。
 
-## 包角色
-
-该系列包把稳定接口与实现、面向模型的工具分开：
-
-| 包 | 角色 |
-|---|---|
-| `@deepseek-ai/dsh-subagent` | 提供方注册表、请求／结果／描述符类型、生命周期事件和可继续子 agent 编排。 |
-| `@deepseek-ai/dsh-subagent-spawn` | 全新的进程内子 agent；支持可继续子 agent。 |
-| `@deepseek-ai/dsh-subagent-fork` | 以父 agent 已完成轮次作为初始内容的进程内子 agent；支持可继续子 agent。 |
-| `@deepseek-ai/dsh-subagent-acp` | 全新的进程外 ACP（Agent Client Protocol）子 agent（一次性）。 |
-| `@deepseek-ai/dsh-tool-subagent` | 基于一个已配置提供方、面向模型的委派工具。 |
-| `@deepseek-ai/dsh-tool-subagent-control` | 全局具名 `send_message` 后续操作工具。 |
-| `@deepseek-ai/dsh-tool-subagent-report` | 子级作用域的返回通道，指向直接父级。 |
-
-多个提供方可以使用不同名称共存。因此，部署可以同时公开低成本的进程内子 agent 和隔离的 ACP 子 agent，而无需改变服务契约。
+[subagent 家族概述](../README.md)列出了实现和面向模型的消费方。本包负责提供方注册表、共享请求和结果契约、持久描述符以及可继续子级编排。多个具名提供方可以在该契约背后共存。
 
 ## 服务 API
 
@@ -62,7 +48,7 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 
 该 seam 拥有实现和消费方共享的深度词汇：`AgentOptions.subagentDepth` 声明、`assertSubagentMaxDepth` 和 `delegationDepthOf(agent)`。持久化的 `SessionHeader.delegationDepth` 具有权威性且单调：运行时选项可以加深计数，但绝不能降低它，因此恢复后的子 agent 不会被重新计为顶层。
 
-`inheritsParentContext` 只用于描述，不能强制执行。它仅说明子 agent 是否能看到父级已完成的对话历史（`fork` 可以；`spawn` 和 ACP 不可以），不表示是否继承工具、服务或权限。
+`inheritsParentContext` 只用于描述，不能强制执行。它仅说明子 agent 是否能看到父级已完成的对话历史（`fork` 可以；`spawn` 和 ACP（Agent Client Protocol）不可以），不表示是否继承工具、服务或权限。
 
 ## 一次性所有权与生命周期
 

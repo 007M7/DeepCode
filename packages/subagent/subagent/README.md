@@ -4,21 +4,7 @@ English | [中文](README.zh.md)
 
 The subagent seam lets one agent delegate work to a child through a named provider. Callers use one service API (`ctx.subagents`); providers decide whether the child runs in this process, in another process, or through a future transport.
 
-## Package roles
-
-The family separates the stable interface from implementations and model-facing tools:
-
-| Package | Role |
-|---|---|
-| `@deepseek-ai/dsh-subagent` | Provider registry, request/result/descriptor types, lifecycle events, and continuable-child orchestration. |
-| `@deepseek-ai/dsh-subagent-spawn` | Fresh in-process child; supports continuable children. |
-| `@deepseek-ai/dsh-subagent-fork` | In-process child seeded with completed parent turns; supports continuable children. |
-| `@deepseek-ai/dsh-subagent-acp` | Fresh out-of-process ACP child (one-shot). |
-| `@deepseek-ai/dsh-tool-subagent` | Model-facing delegation tool over one configured provider. |
-| `@deepseek-ai/dsh-tool-subagent-control` | The globally named `send_message` follow-up tool. |
-| `@deepseek-ai/dsh-tool-subagent-report` | Child-scoped return channel to the direct parent. |
-
-Multiple providers may coexist under different names. This lets a deployment expose, for example, a cheap in-process child and an isolated ACP child without changing the service contract.
+The [subagent family overview](../README.md) maps implementations and model-facing consumers. This package owns the provider registry, shared request and result contracts, durable descriptors, and continuable-child orchestration. Multiple named providers may coexist behind that contract.
 
 ## Service API
 
