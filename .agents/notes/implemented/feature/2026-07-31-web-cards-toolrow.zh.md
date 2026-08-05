@@ -1,4 +1,4 @@
-# Agent Note：卡片工具行通过同一个 ToolRow 折叠
+# Agent Note: 卡片工具行通过同一个 ToolRow 折叠
 
 Status: implemented
 

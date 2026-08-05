@@ -21,12 +21,11 @@
   "files": [
     "lib/index.js",
     "lib/invariant.js",
-    "lib/types/**/*.d.ts",
-    "lib/types/**/*.d.ts.map",
-    "src"
+    "scripts/ensure-spawn-helper.mjs",
+    "lib/types/**/*.d.ts"
   ],
   "scripts": {
-    "postinstall": "node src/ensure-spawn-helper.mjs"
+    "postinstall": "node scripts/ensure-spawn-helper.mjs"
   },
   "license": "BSD-3-Clause",
   "peerDependencies": {

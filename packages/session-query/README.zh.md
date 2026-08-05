@@ -4,7 +4,7 @@
 
 针对实时和持久会话日志提供可信的精确读取、关系跟踪、与提供方无关的语义过滤和 SQLite 全文搜索。
 
-| 包（package） | 职责 | ctx 键 |
+| 包 | 职责 | ctx 键 |
 |---|---|---|
 | [`session-query/`](session-query/README.md) | 组合式服务契约：提供具体的逻辑语料库读取、跟踪和语义过滤，以及抽象全文方法 | `ctx.sessionQuery` |
 | [`session-query-sqlite/`](session-query-sqlite/README.md) | 具体服务后端：使用 SQLite FTS5 持久基库和实时覆盖层 | `ctx.sessionQuery` |

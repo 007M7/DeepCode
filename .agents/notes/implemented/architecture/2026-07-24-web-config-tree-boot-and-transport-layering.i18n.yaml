@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-07-24-web-config-tree-boot-and-transport-layering.md
 2026-07-24-web-config-tree-boot-and-transport-layering.md: e4dd8b50fe565deecb6e64d307305c66af50c001
-2026-07-24-web-config-tree-boot-and-transport-layering.zh.md: 54b0a0e499954cd0e2ccd22cffdf7d09bed11a22
+2026-07-24-web-config-tree-boot-and-transport-layering.zh.md: 17d0cf6c7169fd38f9b5abd0650ec2377eaf5865

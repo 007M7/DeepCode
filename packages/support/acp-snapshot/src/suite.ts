@@ -161,25 +161,37 @@ export interface Scenario {
    * test is skipped on Windows; its fixtures stay guarded on every platform.
    */
   posixOnly?: boolean
+  /**
+   * Whether the scenario boots a composition that needs a usable `pwsh`
+   * (the pwsh-tool-turn scenario). The run test is skipped when the suite's
+   * {@link SnapshotSuiteOptions.hasPwsh} probe is false; fixtures stay guarded
+   * on every platform.
+   */
+  pwshOnly?: boolean
 }
 
 /**
  * Whether a scenario's run test is skipped for this mode and host: record mode
- * skips authored (non-`recorded`) scenarios, and {@link Scenario.posixOnly}
- * scenarios skip on Windows.
+ * skips authored (non-`recorded`) scenarios, {@link Scenario.posixOnly}
+ * scenarios skip on Windows, and {@link Scenario.pwshOnly} scenarios skip
+ * when the caller's `hasPwsh` probe is false.
  *
  * @param scenario The scenario whose run test is being registered.
  * @param recording Whether the suite runs in record mode.
  * @param platform The running Node platform, injectable for unit coverage.
+ * @param hasPwsh The caller's pwsh-availability probe; `pwshOnly` scenarios
+ *   skip unless it is true.
  * @returns True when the scenario's run test must not execute.
  */
 export function scenarioSkipped(
   scenario: Scenario,
   recording: boolean,
   platform: NodeJS.Platform = process.platform,
+  hasPwsh?: boolean,
 ): boolean {
   if (recording && !scenario.recorded) return true
-  return scenario.posixOnly === true && platform === 'win32'
+  if (scenario.posixOnly === true && platform === 'win32') return true
+  return scenario.pwshOnly === true && hasPwsh !== true
 }
 
 /** One stdout expected output selected for a platform run. */
@@ -220,6 +232,11 @@ export interface SnapshotSuiteOptions {
    * from `$DSH_SNAPSHOT` — env reading stays outside this library.
    */
   mode: 'replay' | 'record' | 'refresh'
+  /**
+   * Whether a real `pwsh` executable is available on this host (the probe the
+   * caller owns; `pwshOnly` scenarios skip when this is not true).
+   */
+  hasPwsh?: boolean
 }
 
 /** One scenario's generated claim on a shared snapshot file. */
@@ -973,8 +990,9 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
   scenarioSuite('snapshot scenarios', () => {
     for (const scenario of scenarios) {
       // In RECORD mode, only re-run the `recorded` (live-API) scenarios; the `authored` ones
-      // (sidecar-driven errors/cancel) are never re-recorded. `posixOnly` scenarios skip on Windows.
-      it.skipIf(scenarioSkipped(scenario, RECORDING))(`snapshot: ${scenario.name} matches the expected outputs`, async ({ expect }) => {
+      // (sidecar-driven errors/cancel) are never re-recorded. `posixOnly` scenarios skip on Windows;
+      // `pwshOnly` scenarios skip when the caller's `hasPwsh` probe is false.
+      it.skipIf(scenarioSkipped(scenario, RECORDING, process.platform, options.hasPwsh))(`snapshot: ${scenario.name} matches the expected outputs`, async ({ expect }) => {
         const dir = join(snapshotsDir, scenario.name)
         const input = JSON.parse(await readFile(join(dir, 'input.json'), 'utf8')) as InputScript
         const overrideFile = join(dir, 'replay.override.json')

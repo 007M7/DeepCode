@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-事件溯源的同会话目标状态。该服务在 agent（智能体）的现有会话中保留一个当前完成目标，同时将继续执行的权限作为进程本地续行启用状态。[goal 领域 Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-07-19-persisted-same-session-goal-domain.md) 负责设计理由；[goal 类型目录](../../../docs/core-data-structures/goal.md)记录具体的数据形状。
+事件溯源的同会话目标状态。该服务在 agent（智能体）的现有会话中保留一个当前完成目标，同时将继续执行的权限作为进程本地续行启用状态。[goal 领域 Agent Note](../../../.agents/notes/implemented/feature/2026-07-19-persisted-same-session-goal-domain.md) 负责设计理由；[goal 类型目录](../../../docs/core-data-structures/goal.md)记录具体的数据形状。
 
 ## 配置
 
@@ -51,7 +51,7 @@
 
 ## 已知限制与暂缓事项
 
-- **只负责状态，不负责任务调度**：此包（package）不决定已启用续行的目标何时继续，不重试异常失败，也不取消活跃轮次；这些策略属于 agent seam 消费方。
+- **只负责状态，不负责任务调度**：此包不决定已启用续行的目标何时继续，不重试异常失败，也不取消活跃轮次；这些策略属于 agent seam 消费方。
 - **只有 Round 数量预算**：`maxGoalRounds` 不计量 token、货币、挂钟时间或提供方配额。
 - **没有独立评估器**：记录完成或阻塞的调用方拥有最终决定权；由评估器支持的认证暂缓到独立策略层。
 - **只有一个当前目标**：系统有意不支持并行目标或独立目标数据库；替换或清除后，历史仍可在会话日志中读取。

@@ -1,4 +1,4 @@
-# Agent Note：请求级 LLM 配置与凭据 seam
+# Agent Note: 请求级 LLM 配置与凭据 seam
 
 Status: implemented
 

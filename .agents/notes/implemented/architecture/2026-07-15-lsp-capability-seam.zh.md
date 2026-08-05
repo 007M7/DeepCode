@@ -1,4 +1,4 @@
-# Agent Note: LSP 能力服务边界与面向模型的查询工具
+# Agent Note: LSP 能力 seam 与面向模型的查询工具
 
 Status: implemented
 
@@ -14,7 +14,7 @@ harness 已具备文本搜索与文件读取能力，但二者都无法识别程
 
 ## 决策
 
-将 LSP 建成由三个包（package）组成的能力服务边界，其中包含一个只读模型工具和一个通用本地提供方实现：
+将 LSP 建成由三个包组成的能力 seam，其中包含一个只读模型工具和一个通用本地提供方实现：
 
 1. `packages/lsp/lsp` 下的 `@deepseek-ai/dsh-lsp` 负责 `ctx.lsp`、提供方注册与选择、标准化请求与结果、执行控制，以及结构化 LSP 错误。
 2. `packages/lsp/lsp-local` 下的 `@deepseek-ai/dsh-lsp-local` 将配置的 stdio 语言服务器适配到该服务边界。一个插件实例接收具名服务器表，并为每组命令及扩展名到语言 id 的映射注册一个隔离的提供方。
@@ -98,9 +98,9 @@ interface LspToolInput {
 
 工具必须从会话 `header.cwd` 取得 `workspaceRoot`，没有后备值；缺失时在查询或启动前以 `LSP_WORKSPACE_REQUIRED` 失败。本地提供方基于根目录解析相对路径并直接接受绝对路径；两种路径都会进行规范化，如果目标位于规范工作区外，则在启动前拒绝。
 
-位置按文件稳定分组并渲染为 `path:line:character`。Node `fileURLToPath()` 可接受的 `file:` URI 在工作区内转换为相对路径，在工作区外转换为绝对路径；其他 URI 保持原样。`maxLocations` 默认值为 `100`，并报告省略的条目；`maxResultChars` 默认值为 `16_000`，并限制每个完整渲染结果，其中包括截断元数据。空位置与 `null` hover 是成功的无结果响应；服务器载荷缺失或格式错误时，以结构化 `LSP_MALFORMED_RESPONSE` 错误失败。
+位置按文件稳定分组并渲染为 `path:line:character`。Node `fileURLToPath()` 可接受的 `file:` URI 在工作区内转换为相对路径，在工作区外转换为绝对路径；其他 URI 保持原样。`maxLocations` 默认值为 `100`，并报告省略的条目；`maxResultChars` 默认值为 `16_000`，并将每个完整渲染结果（包括截断元数据）限制在该字符数内。空位置与 `null` hover 是成功的无结果响应；服务器载荷缺失或格式错误时，以结构化 `LSP_MALFORMED_RESPONSE` 错误失败。
 
-与传输方式无关的展示器使用 `{ card: 'generic', kind: 'search', title, locations: [{ path: file_path, line }] }`，`title` 由参数推导并标明操作与光标。由于 `FileLocation` 没有 character，跟随位置聚焦输入行，标题保留完整光标；展示保持纯函数。
+与传输方式无关的展示器使用 `{ card: 'generic', kind: 'search', title, locations: [{ path: file_path, line }] }`，`title` 由参数推导并标明操作与光标。由于 `FileLocation` 没有 character，跟随位置聚焦输入行，标题保留完整光标；展示器仍为纯函数。
 
 ## 超时归属
 
@@ -131,7 +131,7 @@ interface LspToolInput {
 
 `dsh-lsp-local` 按 `(provider id, canonical workspace realpath)` 懒启动一个服务器，并通过 single-flight 合并启动。插件加载时，它在清除凭据并应用环境变量覆盖后解析可执行文件；命令不可用时在注册前失败。服务器进程的启动保持懒执行（首次查询时才拉起），且不经过 shell。`maxMessageBytes` 默认值为 `16_000_000`，`maxStderrBytes` 默认值为 `1_000_000`，`maxDocumentBytes` 默认值为 `4_000_000`。崩溃使当前查询失败且不重放；后续查询可以替换进程。每次查询最多启动一个进程，因此 MVP 不设置跨请求重启计数器。
 
-初始化声明 `general.positionEncodings: ['utf-16']`、`workspace: { workspaceFolders: true, configuration: true }`、`textDocument.hover.contentFormat: ['markdown', 'plaintext']`，以及 definition 与 implementation 的 `linkSupport: true`，但不支持动态注册。服务器返回的操作与同步能力均为真源。服务器省略 `positionEncoding` 时默认为 `utf-16`；其他值均属于协议错误。配置可以提供初始化选项和 `workspace/configuration` 响应，但客户端拒绝 `workspace/applyEdit`，绝不执行命令或编辑。
+初始化声明 `general.positionEncodings: ['utf-16']`、`workspace: { workspaceFolders: true, configuration: true }`、`textDocument.hover.contentFormat: ['markdown', 'plaintext']`，以及 definition 与 implementation 的 `linkSupport: true`，但不支持动态注册。服务器返回的操作能力与同步能力均为真源。服务器省略 `positionEncoding` 时默认为 `utf-16`；其他值均属于协议错误。配置可以提供初始化选项和 `workspace/configuration` 响应，但客户端拒绝 `workspace/applyEdit`，绝不执行命令或编辑。
 
 导航结果直接映射 `Location`，并将 `LocationLink` 的 `targetUri` 与 `targetSelectionRange` 映射为统一位置。位置必须是非负整数。`hover` 归一化只接受有效的 `MarkupContent` 和 `MarkedString` 结构，保留字符串值，把带语言标签的值渲染为围栏代码块，并以一个空行连接数组。面向模型的工具在渲染后应用 `maxResultChars`。
 
@@ -143,7 +143,7 @@ interface LspToolInput {
 
 诊断需要独立的新鲜度、累积与 transcript 规则。重命名、代码操作和格式化等变更能力需要单独工具，并集成预览、权限和写入策略。
 
-本地提供方信任配置的服务器，不声称具备沙箱隔离。支持不受信任的二进制文件需要后续补充允许读取工作区并写入私有缓存与临时目录的进程/文件系统契约；受限、远程或虚拟工作区需要另一种提供方。
+本地提供方信任配置的服务器，不声称具备沙箱隔离。支持不受信任的二进制文件需要后续补充允许读取工作区，并执行私有缓存写入与临时写入的进程／文件系统契约；受限、远程或虚拟工作区需要另一种提供方。
 
 ## 备选方案
 
@@ -155,7 +155,7 @@ interface LspToolInput {
 
 **公开 `resolve(request)` / `query(spec)`。** 没有需要填充默认值的字段时，resolve 只会暴露提供方选择，而公开 spec 可能活过提供方释放或替换。单一操作让选择与调用共用注册生命周期。
 
-**将信号包装为每服务边界的执行上下文对象。** Web 传递裸 `AbortSignal`；仅包装这一个字段会造成无谓的不对称。只有另一个字段确有需要时，`query()` 才引入上下文对象。
+**将信号包装为服务边界专用的执行上下文对象。** Web 传递裸 `AbortSignal`；仅包装这一个字段会造成无谓的不对称。只有另一个字段确有需要时，`query()` 才引入上下文对象。
 
 **通过 `ctx.fs` 或 `read` 工具读取。** 这可能把文档与另一文件系统命名空间中的服务器索引混合；工具输出还带窗口、行号且已被观察。host-local 提供方在子进程旁读取未观察的完整文本。
 
@@ -187,7 +187,7 @@ interface LspToolInput {
 
 ## 影响
 
-各语言服务器对方法支持、能力解释和索引就绪时机的处理不同；LSP 没有统一的“索引完成”信号。无法声明兼容临时打开同步能力的服务器不受支持，即使它能查询已关闭文档。受支持的服务器仍可能返回空结果或不完整结果，因此工具不承诺跨服务器完整性。固定的 TypeScript e2e 只建立一条兼容性基线，不代表跨语言承诺。
+各语言服务器对方法支持、能力解释和索引就绪时机的处理不同；LSP 没有统一的「索引完成」信号。不具备兼容临时打开同步能力的服务器不受支持，即使它能查询已关闭文档。受支持的服务器仍可能返回空结果或不完整结果，因此工具不承诺跨服务器完整性。固定的 TypeScript e2e 只建立一条兼容性基线，不代表跨语言承诺。
 
 临时打开会重复解析并产生通知。实例内串行会增加并发 agent 的延迟，长期运行的工作区进程则持续占用内存直到释放。
 

@@ -41,6 +41,9 @@ const ENV_READ_ALLOWLIST: Readonly<Record<string, string>> = {
   'packages/ui/tui/src/index.ts': 'reads $COLORTERM, a terminal capability of this process',
   'packages/lsp/lsp-local/src/index.ts': 'passes the parent environment to a language server it spawns',
   'packages/cordis/repository-plugin/src/index.ts': 'resolves an MCP manifest against the spawning environment',
+  'packages/host/directory-picker-native/src/win32-dialog-host.ts': 'builds the child environment for the dialog worker it spawns',
+  'packages/host/directory-picker-native/src/win32-dialog-worker.ts': 'the spawned worker reads the title its parent passed on the env channel',
+  'packages/bash/pwsh-local/src/resolve.ts': 'locates pwsh through $ProgramFiles and $SystemRoot, Windows install layout rather than user configuration',
 
   // Bootstrap-only DSH_* switches, which no discovered file may set.
   'packages/skill/skill-local/src/index.ts': 'reads $DSH_AGENTS_HOME and $DSH_BUNDLED_SKILL_DIR, both bootstrap-only',

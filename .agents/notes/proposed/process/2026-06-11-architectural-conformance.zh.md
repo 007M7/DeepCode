@@ -6,15 +6,15 @@ Status: proposed
 
 ## 问题
 
-目前有两项架构保证仅存在于行文中：（1）没有任何组件依赖具体的 loop 包（package）（[微内核承诺](../../implemented/architecture/2026-06-11-microkernel-event-taxonomy.md)）；（2）每个 LlmAdapter 都正确遵循分片协议。二者都应由机制强制执行（[质量门禁原则](../../implemented/process/2026-06-11-quality-gates.md)）。
+目前有两项架构保证仅存在于行文中：（1）没有任何组件依赖具体的 agent loop（智能体循环）包（[微内核承诺](../../implemented/architecture/2026-06-11-microkernel-event-taxonomy.md)）；（2）每个 LlmAdapter 都正确遵循分片协议。二者都应由机制强制执行（[质量门禁原则](../../implemented/process/2026-06-11-quality-gates.md)）。
 
 ## 提案
 
 **dependency-cruiser** 配合以下规则：
 
-- `packages/*`（除 agent-loop（智能体循环）自身的 tests 和 examples/ 外）禁止导入 `@deepseek-ai/dsh-agent-loop`。
+- `packages/*`（除 agent-loop 自身的测试和 examples/ 外）禁止导入 `@deepseek-ai/dsh-agent-loop`。
 - 禁止跨包深层导入（`@deepseek-ai/dsh-*/src/...` 路径）——只允许使用公开入口点。
-- packages/ 内禁止导入循环。
+- packages/ 内禁止出现循环依赖。
 - `vendor/*` 禁止从 `packages/*` 导入。
 - 分层：dsh-llm 不导入其他 dsh 包；dsh-session 仅导入 dsh-llm；以此类推（packages/README.md 中的依赖表，强制执行）。
 
