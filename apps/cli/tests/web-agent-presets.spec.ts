@@ -88,7 +88,7 @@ describe('the shipped Web composition', () => {
   it('supplies both shipped presets, and only those, from the system root', async () => {
     const listed = await ctx.agentPresets.list()
 
-    expect(listed.map(preset => preset.id).sort()).toEqual(['cordis', 'minimal', 'standard'])
+    expect(listed.map(preset => preset.id).sort()).toEqual(['code', 'cordis', 'minimal', 'standard'])
     expect(listed.every(preset => preset.trust === 'system')).toBe(true)
     expect(ctx.agentPresets.defaultId).toBe('standard')
   })
@@ -171,6 +171,38 @@ describe('the shipped Web composition', () => {
       expect(ctx.get('skills')).toBeUndefined()
     } finally {
       await handle.dispose()
+    }
+  })
+
+  it('presents `code` as Code Mode without disturbing a native session beside it', async () => {
+    const coded = await ctx.agents.create({
+      sessionId: SessionId('preset-code'),
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'code').then(() => undefined),
+    })
+    const native = await ctx.agents.create({
+      sessionId: SessionId('preset-code-native'),
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'standard').then(() => undefined),
+    })
+    try {
+      // One tool reaches the MODEL: the transport. The registry's catalog for
+      // this agent is unchanged — a code mode collapses the presentation, not
+      // the capabilities — so the assembly is what carries the claim.
+      const assembly = await ctx.systemPrompt.assemble({ scope: coded.agent })
+      expect(assembly.tools.map(tool => tool.name)).toEqual(['run_code'])
+      expect(toolNames(ctx, coded.agent)).toContain('str_replace_editor')
+      const sdk = assembly.sections.find(section => section.name === 'tools:sdk')?.text ?? ''
+      expect(sdk).toContain('str_replace_editor')
+      expect(sdk).toContain('web_search')
+
+      // The presentation is this agent's alone: the deployment default is
+      // native, and the session composed from `standard` still sees it.
+      const nativeAssembly = await ctx.systemPrompt.assemble({ scope: native.agent })
+      expect(nativeAssembly.tools.map(tool => tool.name)).toContain('bash')
+      expect(nativeAssembly.tools.map(tool => tool.name)).not.toContain('run_code')
+      expect(nativeAssembly.sections.some(section => section.name === 'tools:sdk')).toBe(false)
+    } finally {
+      await native.dispose()
+      await coded.dispose()
     }
   })
 

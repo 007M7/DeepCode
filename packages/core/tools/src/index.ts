@@ -591,10 +591,15 @@ export type ToolPresentationMode = 'native' | 'code' | 'both'
 /** Plugin config: how the registered tools are presented to the model. */
 export interface Config {
   /**
-   * Model presentation. `native` (default) sends every visible schema; `code`
-   * sends only `run_code` plus a generated SDK prompt; `both` sends both forms.
-   * Code modes require a TypeScript runtime and fail prompt assembly when it is
-   * absent or mismatched. Under `code`, native names in `toolOrder` are invalid.
+   * Model presentation for agents that declare none of their own. `native`
+   * (default) sends every visible schema; `code` sends only `run_code` plus a
+   * generated SDK prompt; `both` sends both forms. Code modes require a
+   * TypeScript runtime and fail prompt assembly when it is absent or
+   * mismatched. Under `code`, native names in `toolOrder` are invalid.
+   *
+   * One agent overrides this for itself with {@link ToolRegistry.presentAs},
+   * which is how an agent preset composes a Code Mode agent beside native
+   * ones in the same process.
    */
   mode?: ToolPresentationMode
   /**
@@ -649,6 +654,12 @@ class ToolLayer implements ScopeLayer {
   readonly tools: NamedEntries<ToolDefinition>
   readonly restrictions = new AnonymousEntries<CompiledToolRestriction>()
   readonly guards = new AnonymousEntries<ToolGuard>()
+  /**
+   * Presentation this scope's agent declared for itself, shadowing the
+   * deployment default. One cell rather than an entry table: two answers to
+   * "which form does the model see" is a contradiction, not a merge.
+   */
+  mode: ToolPresentationMode | undefined
 
   constructor(scope: ScopeKey | undefined) {
     this.tools = new NamedEntries(name => new Error(scope === undefined
@@ -659,6 +670,7 @@ class ToolLayer implements ScopeLayer {
   /** Whether every contribution table in this aggregate layer is empty. */
   isEmpty(): boolean {
     return this.tools.isEmpty() && this.restrictions.isEmpty() && this.guards.isEmpty()
+      && this.mode === undefined
   }
 
   /** Whether every compiled restriction in this layer admits a global tool name. */
@@ -739,39 +751,115 @@ export class ToolRegistry extends Service {
     scope => new ToolLayer(scope),
     () => { this.ctx.emit('tools/change') },
   )
-  private readonly mode: ToolPresentationMode
-  /** Reserved presentation transport, kept outside the filterable registration layers. */
-  private readonly codeTransport: ToolDefinition | undefined
+  /** Presentation for agents that declare none; {@link presentAs} shadows it per agent. */
+  private readonly defaultMode: ToolPresentationMode
+  private readonly maxParallelSubCalls: number
+  /**
+   * Reserved presentation transport, kept outside the filterable registration
+   * layers. Built on first need rather than at construction: which agents run
+   * a code mode is no longer known when the service is constructed, and the
+   * transport is stateless beyond its closures over `this`.
+   */
+  private codeTransport: ToolDefinition | undefined
 
   constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'tools')
     // The schema already defaulted an omitted mode; the ?? narrows the
     // optional-input type for direct (non-Loader) construction in tests.
-    this.mode = config.mode ?? 'native'
-    // `run_code` is presentation infrastructure, not an end capability. It
-    // therefore does not enter the global layer: per-agent restrictions must
-    // not remove it, and a scoped registration must not shadow it. The
-    // visibility resolver appends this reserved definition after resolving
-    // the filterable global/scoped capability layers.
-    this.codeTransport = this.mode === 'native'
-      ? undefined
-      : createRunCodeTool(this, {
-        requireRuntime: () => this.requireCodeRuntime(),
-        maxParallel: resolveMaxParallelSubCalls(config.maxParallelSubCalls),
-        shapeDispatchLog: dispatch => this.shapeDispatchLog(dispatch),
-      })
+    this.defaultMode = config.mode ?? 'native'
+    this.maxParallelSubCalls = resolveMaxParallelSubCalls(config.maxParallelSubCalls)
     ctx.systemPrompt.tools(context => this.wireSchemas(context.scope))
-    if (this.mode !== 'native') {
-      ctx.systemPrompt.section({
-        name: 'tools:sdk',
-        order: SDK_SECTION_ORDER,
-        // Regenerate from the calling scope's visible tools in stable order.
-        text: (context) => {
-          this.requireCodeRuntime()
-          return renderToolsSdk(this.sdkSchemas(context.scope))
-        },
-      })
+    if (this.defaultMode !== 'native') {
+      ctx.systemPrompt.section(this.sdkSection())
     }
+  }
+
+  /**
+   * The generated-SDK prompt section, registered globally by a code-mode
+   * deployment and per agent by {@link presentAs}.
+   *
+   * The body regenerates from the CALLING scope, and renders empty for an
+   * agent presenting natively — an agent that opted out under a code-mode
+   * deployment still sees the global registration, and an empty section is
+   * dropped from the rendered prompt.
+   * @returns the section registration.
+   */
+  private sdkSection(): { name: string; order: number; text: (context: { scope?: ScopeKey }) => string } {
+    return {
+      name: 'tools:sdk',
+      order: SDK_SECTION_ORDER,
+      // Regenerate from the calling scope's visible tools in stable order.
+      text: (context) => {
+        const mode = this.modeFor(context.scope)
+        if (mode === 'native') return ''
+        this.requireCodeRuntime(mode)
+        return renderToolsSdk(this.sdkSchemas(context.scope))
+      },
+    }
+  }
+
+  /**
+   * The presentation one scope's agent sees: its own declaration, else the
+   * deployment default.
+   * @param scope - the calling agent, or undefined for the global view.
+   * @returns the resolved presentation mode.
+   */
+  private modeFor(scope?: ScopeKey): ToolPresentationMode {
+    return this.layers.peek(scope)?.mode ?? this.defaultMode
+  }
+
+  /**
+   * The reserved `run_code` transport, built on first need.
+   *
+   * It never enters the global layer: per-agent restrictions must not remove
+   * it, and a scoped registration must not shadow it. The visibility resolver
+   * appends it after resolving the filterable global/scoped capability layers,
+   * and only for scopes whose mode actually presents it.
+   * @returns the shared transport definition.
+   */
+  private requireCodeTransport(): ToolDefinition {
+    this.codeTransport ??= createRunCodeTool(this, {
+      requireRuntime: () => this.requireCodeRuntime(this.defaultMode),
+      maxParallel: this.maxParallelSubCalls,
+      shapeDispatchLog: dispatch => this.shapeDispatchLog(dispatch),
+    })
+    return this.codeTransport
+  }
+
+  /**
+   * Present this agent's tools in `mode` instead of the deployment default.
+   *
+   * Scoped only, and one declaration per agent: this is how an agent preset
+   * composes a Code Mode agent beside native ones in the same process, and a
+   * process-global override would be the `mode` config field instead.
+   * @param mode - the presentation this agent's model sees.
+   * @returns the exact disposer that restores the deployment default.
+   */
+  presentAs(mode: ToolPresentationMode): () => void {
+    const ctx = this.ctx
+    if (scopeOf(ctx) === undefined) {
+      throw new Error('tools.presentAs() requires a scoped context (agent.ctx): a context-global presentation is the `mode` config field on the tools row')
+    }
+    const dispose = ctx.effect(function* (this: ToolRegistry) {
+      yield this.layers.effect(
+        ctx,
+        (layer) => {
+          if (layer.mode !== undefined) {
+            throw new Error(`tools.presentAs("${mode}") conflicts with "${layer.mode}" already declared for this agent; one composition selects one presentation`)
+          }
+          layer.mode = mode
+          return () => { layer.mode = undefined }
+        },
+        { label: 'tools.presentAs()' },
+      )
+      // The SDK section is per agent for the same reason the mode is. Under a
+      // deployment that already defaults to a code mode this shadows the
+      // global registration with an identical body, which costs nothing and
+      // keeps one rule instead of a case analysis.
+      if (mode !== 'native') yield ctx.systemPrompt.section(this.sdkSection())
+    }.bind(this), 'tools.presentAs()')
+    // oxlint-disable-next-line typescript/no-misused-promises -- synchronous composite teardown; direct return preserves disposer identity
+    return dispose
   }
 
   /**
@@ -781,11 +869,12 @@ export class ToolRegistry extends Service {
   private wireSchemas(scope?: ScopeKey): ToolProviderResult {
     const view = this.view(scope)
     const schemas = [...view.visible.values()].map(definition => this.schemaOf(definition, false))
-    if (this.mode === 'native') {
+    const mode = this.modeFor(scope)
+    if (mode === 'native') {
       return { schemas, knownNames: [...view.knownNames] }
     }
-    this.requireCodeRuntime()
-    if (this.mode === 'code') {
+    this.requireCodeRuntime(mode)
+    if (mode === 'code') {
       return {
         schemas: schemas.filter(schema => schema.name === RUN_CODE_NAME),
         knownNames: [RUN_CODE_NAME],
@@ -802,13 +891,13 @@ export class ToolRegistry extends Service {
    * 'native'` (the loop's optional-backend idiom, same as
    * `sessionPersistence`).
    */
-  private requireCodeRuntime(): CodeRuntime {
+  private requireCodeRuntime(mode: ToolPresentationMode): CodeRuntime {
     const runtime = this.ctx.get('codeRuntime')
     if (!runtime) {
-      throw new Error(`dsh-tools: mode "${this.mode}" requires a code runtime — load a ctx.codeRuntime implementation (e.g. @deepseek-ai/dsh-code-runtime-worker) or set tools mode to "native"`)
+      throw new Error(`dsh-tools: mode "${mode}" requires a code runtime — load a ctx.codeRuntime implementation (e.g. @deepseek-ai/dsh-code-runtime-worker) or set tools mode to "native"`)
     }
     if (runtime.language !== 'typescript') {
-      throw new Error(`dsh-tools: mode "${this.mode}" generates a TypeScript SDK, but the loaded code runtime's language is "${runtime.language}"`)
+      throw new Error(`dsh-tools: mode "${mode}" generates a TypeScript SDK, but the loaded code runtime's language is "${runtime.language}"`)
     }
     return runtime
   }
@@ -833,7 +922,10 @@ export class ToolRegistry extends Service {
       && (!Number.isFinite(timeoutMs) || timeoutMs <= 0)) {
       throw new TypeError(`tool "${name}" timeoutMs must be a positive finite number`)
     }
-    if (this.codeTransport !== undefined && name === RUN_CODE_NAME) {
+    // Reserved unconditionally: any agent may select a code mode for itself,
+    // so a name free to take under the deployment default would become a
+    // collision the moment a preset mounted.
+    if (name === RUN_CODE_NAME) {
       throw new Error(`tool name "${RUN_CODE_NAME}" is reserved for the Code Mode presentation transport and cannot be registered or shadowed`)
     }
     return this.layers.effect(
@@ -864,8 +956,7 @@ export class ToolRegistry extends Service {
       ...allow !== undefined ? { allow: new Set(allow) } : {},
       ...deny !== undefined ? { deny: new Set(deny) } : {},
     }
-    if (this.codeTransport !== undefined
-      && [...allow ?? [], ...deny ?? []].includes(RUN_CODE_NAME)) {
+    if ([...allow ?? [], ...deny ?? []].includes(RUN_CODE_NAME)) {
       throw new Error(`tools.restrict() cannot name reserved Code Mode presentation transport "${RUN_CODE_NAME}"; restrict end-capability tools instead`)
     }
     const known = this.view(scope).restrictableNames
@@ -931,9 +1022,11 @@ export class ToolRegistry extends Service {
     }
     // Presentation infrastructure is resolved last and outside capability
     // filtering. Registration rejects this reserved name, so the insertion is
-    // an invariant assertion as well as protection against future layer changes.
-    if (this.codeTransport !== undefined) {
-      visible.set(RUN_CODE_NAME, this.codeTransport)
+    // an invariant assertion as well as protection against future layer
+    // changes. Per scope: a native agent must not find `run_code` in its
+    // dispatch table because some other agent in the process presents it.
+    if (this.modeFor(scope) !== 'native') {
+      visible.set(RUN_CODE_NAME, this.requireCodeTransport())
     }
     return { visible, knownNames, restrictableNames }
   }

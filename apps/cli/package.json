@@ -17,6 +17,7 @@
     "@cordisjs/plugin-include": "workspace:*",
     "@cordisjs/plugin-loader": "workspace:*",
     "@cordisjs/plugin-timer": "workspace:*",
+    "@deepseek-ai/dsh-agent-tool-mode": "workspace:^",
     "@deepseek-ai/dsh-app-boot": "workspace:^",
     "@deepseek-ai/dsh-base": "workspace:^",
     "@deepseek-ai/dsh-client-ui-agent-preset": "workspace:^",

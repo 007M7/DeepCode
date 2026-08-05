@@ -225,6 +225,28 @@ Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`GoalDomainConfi
 
 Source: [`packages/examples/agent-spine-demo/src/index.ts:90`](../packages/examples/agent-spine-demo/src/index.ts)
 
+## `@deepseek-ai/dsh-agent-tool-mode`
+
+Requires: `tools`
+
+```ts config-catalog
+/** Plugin config. */
+export interface Config {
+  /**
+   * The form this agent's model sees. `native` sends every visible schema,
+   * `code` sends only `run_code` plus a generated SDK, `both` sends both.
+   * Required rather than defaulted: the deployment default is what a profile
+   * without this row already gets, so an omitted value would mean the row was
+   * composed for nothing.
+   */
+  mode: ToolPresentationMode
+}
+```
+
+Depends on: [`ToolPresentationMode`](core-data-structures/tools.md)
+
+Source: [`packages/core/agent-tool-mode/src/index.ts:36`](../packages/core/agent-tool-mode/src/index.ts)
+
 ## `@deepseek-ai/dsh-bash-env`
 
 ```ts config-catalog
@@ -2206,10 +2228,15 @@ Requires: `systemPrompt`
 /** Plugin config: how the registered tools are presented to the model. */
 export interface Config {
   /**
-   * Model presentation. `native` (default) sends every visible schema; `code`
-   * sends only `run_code` plus a generated SDK prompt; `both` sends both forms.
-   * Code modes require a TypeScript runtime and fail prompt assembly when it is
-   * absent or mismatched. Under `code`, native names in `toolOrder` are invalid.
+   * Model presentation for agents that declare none of their own. `native`
+   * (default) sends every visible schema; `code` sends only `run_code` plus a
+   * generated SDK prompt; `both` sends both forms. Code modes require a
+   * TypeScript runtime and fail prompt assembly when it is absent or
+   * mismatched. Under `code`, native names in `toolOrder` are invalid.
+   *
+   * One agent overrides this for itself with {@link ToolRegistry.presentAs},
+   * which is how an agent preset composes a Code Mode agent beside native
+   * ones in the same process.
    */
   mode?: ToolPresentationMode
   /**

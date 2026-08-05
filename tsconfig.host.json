@@ -135,6 +135,7 @@
     { "path": "./packages/ui/user-approval" },
     { "path": "./packages/ui/permission" },
     { "path": "./packages/core/tools" },
+    { "path": "./packages/core/agent-tool-mode" },
     { "path": "./packages/skill/skill" },
     { "path": "./packages/skill/skill-local" },
     { "path": "./packages/skill/tool-skill" },

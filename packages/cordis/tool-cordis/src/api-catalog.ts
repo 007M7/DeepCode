@@ -1125,6 +1125,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Tool registry and execution pipeline.',
     methods: [
       {
+        signature: 'presentAs(mode: ToolPresentationMode): () => void',
+        jsDoc: '/**\n * Present this agent\'s tools in `mode` instead of the deployment default.\n *\n * Scoped only, and one declaration per agent: this is how an agent preset\n * composes a Code Mode agent beside native ones in the same process, and a\n * process-global override would be the `mode` config field instead.\n * @param mode - the presentation this agent\'s model sees.\n * @returns the exact disposer that restores the deployment default.\n */',
+      },
+      {
         signature: 'register(definition: ToolDefinition): () => void',
         jsDoc: '/**\n * Register globally or in the calling agent scope. Scoped tools shadow\n * globals; duplicates within one layer and the reserved `run_code` name fail.\n * @param definition - tool schema, execution, and optional finalization/presentation callbacks.\n * @returns the exact disposer that unregisters the tool.\n */',
       },
@@ -3042,6 +3046,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ToolOutputDefinition',
     declaration: 'export interface ToolOutputDefinition {\n    readonly schema: JsonSchemaNode;\n    render(args: unknown, value: JsonValue): ContentBlock[];\n    presentationMeta?(args: unknown, value: JsonValue): JsonValue;\n}',
+  },
+  {
+    name: 'ToolPresentationMode',
+    declaration: 'export type ToolPresentationMode = \'native\' | \'code\' | \'both\';',
   },
   {
     name: 'ToolProviderResult',

@@ -1,0 +1,3 @@
+name: 代码模式
+description: 标准模式的工具改为 Code Mode 呈现：模型写一段 TypeScript 调用 SDK，一次执行代替多轮工具调用。
+order: 2
