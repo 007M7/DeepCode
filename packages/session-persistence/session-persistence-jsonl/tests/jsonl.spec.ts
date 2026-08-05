@@ -519,14 +519,12 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     }
   })
 
-  it('load returns a meta copy: mutating it does not corrupt backend pathing', async () => {
+  it('load returns immutable meta without exposing backend pathing', async () => {
     const m = meta('meta-copy', '/proj')
     await ctx.sessionPersistence.create(m)
     await ctx.sessionPersistence.append(m.id, oneTurnLog())
     const loaded = await ctx.sessionPersistence.load(m.id)
-    // A consumer mutates the returned meta's cwd. The backend's stored pathing
-    // metadata must be unaffected, so a later append still finds the right log.
-    mutableHeader(loaded.meta).cwd = '/evil'
+    expect(() => { mutableHeader(loaded.meta).cwd = '/evil' }).toThrow()
     await ctx.sessionPersistence.append(m.id, [
       { type: 'turn/start', seq: 6, time: 9, data: { turn: 2 } },
       { type: 'turn/end', seq: 7, time: 10, data: { turn: 2, reason: { kind: 'completed' } } },

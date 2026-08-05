@@ -313,7 +313,7 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
       { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
       { type: 'user/message', seq: 1, time: 2, data: createUserMessage({
         content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },
-      }) },
+      }), surfaceOp: 'append' },
     ])
     await b1.dispose()
 
