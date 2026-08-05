@@ -71,10 +71,13 @@ interface RenderState {
 
 /**
  * The `Cc` code points that survive the whitespace collapse in {@link describe}
- * and have no printable form: the C0 controls, DEL, and NEL. U+0009 to U+000D
- * are absent because ECMAScript `\s` already collapsed them; U+0085 is `Cc` but
- * NOT in `\s` (TAB/VT/FF/SP/NBSP/ZWNBSP/Zs plus LF/CR/LS/PS), so it survives and
- * is escaped here. CPython rejects source containing a NUL outright
+ * and have no printable form: the C0 controls, DEL, and the C1 controls. Only
+ * U+0009 to U+000D are absent, because ECMAScript `\s` already collapsed them —
+ * `\s` is TAB/VT/FF/SP/NBSP/ZWNBSP/Zs plus LF/CR/LS/PS, so no C1 code point is
+ * in it and the whole U+0080 to U+009F block reaches this rule intact. Those
+ * are not hypothetical input: they are what Windows-1252 bytes 0x80 to 0x9F
+ * (smart quotes, em dash) become when decoded as Latin-1.
+ * CPython rejects source containing a NUL outright
  * (`SyntaxError: source code string cannot contain null bytes`), whether it
  * sits in a docstring or in a comment, so one such byte anywhere in a schema
  * description would make the whole generated SDK unparseable — the model's only
@@ -82,13 +85,14 @@ interface RenderState {
  * with the same rule keeps the emitted text readable and the treatment uniform.
  *
  * The set stops at `Cc` because the escape is `\xNN`, which addresses exactly
- * U+0000 to U+00FF. The invisible `Cf` formatting characters (U+00AD soft
- * hyphen, U+200B ZWSP, U+200E/U+200F bidi marks, U+2060 word joiner) pass
- * through by design: covering them would need a second `\uNNNN` escape form,
- * and they are legal in both consumers — only LF and CR terminate a Python
- * string literal or a `#` comment.
+ * U+0000 to U+00FF: the whole `Cc` block fits, and the invisible `Cf`
+ * formatting characters (U+00AD soft hyphen, U+200B ZWSP, U+200E/U+200F bidi
+ * marks, U+2060 word joiner) do not. `Cf` therefore passes through by design —
+ * covering it would need a second `\uNNNN` escape form, and it is legal in both
+ * consumers, since only LF and CR terminate a Python string literal or a `#`
+ * comment.
  */
-const UNPRINTABLE = /[\u0000-\u0008\u000e-\u001f\u007f\u0085]/g
+const UNPRINTABLE = /[\u0000-\u0008\u000e-\u001f\u007f-\u009f]/g
 
 /**
  * The collapsed one-line `description` of a schema node (byte-stable across
@@ -97,7 +101,9 @@ const UNPRINTABLE = /[\u0000-\u0008\u000e-\u001f\u007f\u0085]/g
  * so only the description field needs guarding. A description that collapses
  * to nothing (empty, or whitespace only) is `undefined` too: it documents the
  * node no better than an absent one, and emitting it would leave an empty
- * `"""` docstring or a bare `#   ` line in the SDK.
+ * `"""` docstring or a bare `#   ` line in the SDK. Only ECMAScript whitespace
+ * folds, so a description of whitespace plus one surviving control character is
+ * NOT absent: it collapses to that character's visible escape.
  *
  * Control characters left over after the whitespace collapse are rendered as
  * their `\xNN` escapes (see {@link UNPRINTABLE}); the escape's own backslash is
@@ -157,7 +163,9 @@ const MAX_CLASS_NAME_BASE = 120
  *   before the `->`, so it is NOT open here: 181.
  * - TypedDict field, `field: NotRequired[chain]` — a class-body line with no
  *   other open bracket, and its children start at `listDepth: 1` to reserve
- *   the `NotRequired[`, so 179 `list[` plus `Literal[`: 181.
+ *   the `NotRequired[`, so 179 `list[` plus `Literal[`: 181. Required fields
+ *   share that start for uniformity, spending one level of representable depth
+ *   on a bracket they never emit.
  * - Argument annotation, `async def f(self, args: chain) -> Y:` — the `(` IS
  *   still open around it: 180 `list[` plus `Literal[` plus the paren, 182, the
  *   worst case. Reachable only through a raw `register()` whose `parameters`

@@ -738,13 +738,16 @@ describe('renderToolsSdkPy', () => {
     const others = renderToolsSdkPy([make('bell\u0007esc\u001bdel\u007f')])
     expect(others).toContain(String.raw`bell\x07esc\x1bdel\x7f`)
     expect(renderToolsSdkPy([make('tab\tnewline\ncr\r')])).toContain('"""tab newline cr"""')
-    // NEL is the one `Cc` code point the collapse does NOT fold: ECMAScript
-    // whitespace is TAB/VT/FF/SP/NBSP/ZWNBSP/Zs plus LF/CR/LS/PS, and U+0085 is
-    // in none of them, so without the escape it would reach the docstring raw
-    // and be invisible there. NBSP, which IS whitespace, folds instead.
+    // No C1 control is ECMAScript whitespace (TAB/VT/FF/SP/NBSP/ZWNBSP/Zs plus
+    // LF/CR/LS/PS), so the collapse folds none of U+0080 to U+009F and the
+    // escape is what keeps them out of the docstring, where they would be
+    // invisible. NBSP, which IS whitespace, folds instead. Windows-1252 bytes
+    // 0x80 to 0x9F decoded as Latin-1 land exactly here.
     const nel = renderToolsSdkPy([make('a\u0085b')])
     expect(nel).not.toContain('\u0085')
     expect(nel).toContain(String.raw`# a\x85b`)
+    const c1 = renderToolsSdkPy([make('csi\u009bst\u009cend\u009f')])
+    expect(c1).toContain(String.raw`csi\x9bst\x9cend\x9f`)
     expect(renderToolsSdkPy([make('nb\u00a0sp')])).toContain('"""nb sp"""')
     // `Cf` formatting characters pass through by design: `\xNN` cannot address
     // them, and they terminate neither a Python string literal nor a `#`
