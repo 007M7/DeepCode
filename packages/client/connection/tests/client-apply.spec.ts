@@ -203,4 +203,41 @@ describe('connection client apply', () => {
     expect(sockets).toHaveLength(1)
     expect(sockets[0]?.readyState).toBe(FakeWebSocket.CLOSED)
   })
+
+  it('carries generic RPC calls over the isolated channel with rpcId echo validation', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '' }
+    const handle = await mount()
+    const original = globalThis.fetch
+    const seen: { url: string; body: unknown }[] = []
+    globalThis.fetch = async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      if (typeof init?.body !== 'string') throw new TypeError('expected a JSON string request body')
+      const body = JSON.parse(init.body) as { rpcId: string }
+      seen.push({ url, body })
+      return Response.json({
+        type: 'server-response',
+        rpcId: body.rpcId,
+        result: { ok: true, value: { ref: 'goal-1' } },
+      })
+    }
+    try {
+      await expect(handle.rpc.call('/api2', 'goals/create', { args: { agentId: 'agent-1' } }))
+        .resolves.toEqual({ ok: true, value: { ref: 'goal-1' } })
+    } finally {
+      globalThis.fetch = original
+    }
+    expect(seen).toHaveLength(1)
+    expect(seen[0]?.url).toBe('http://dsh.internal/api2/goals/create')
+    expect(seen[0]?.body).toMatchObject({
+      type: 'client-request',
+      method: 'goals/create',
+      payload: { args: { agentId: 'agent-1' } },
+    })
+  })
+
+  it('keeps generic Remote calls unavailable in the client-only fixture', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
+    const handle = await mount()
+    await expect(handle.rpc.call('/api2', 'goals/create', {})).rejects.toThrow(/unavailable in fixture mode/)
+  })
 })

@@ -27,6 +27,9 @@ async function mount(): Promise<Bench> {
   const handle: ConnectionHandle = {
     api,
     isLoopback: true,
+    rpc: {
+      call: () => Promise.reject(new Error('unexpected generic RPC call')),
+    },
     start: (sinks) => {
       bench.sinks = sinks
       return { stop: () => { bench.stopped += 1 } }

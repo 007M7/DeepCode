@@ -1,0 +1,223 @@
+/**
+ * Remote decorators and explicit Gateway bindings backed only by private
+ * module state. Strict reflection remains a TypeRT compiler responsibility.
+ * @module @deepseek-ai/dsh-type-meta
+ */
+
+import type { TypeRTContextMap } from './types.ts'
+
+export type {
+  InvocationDescriptor,
+  InvocationParameterDescriptor,
+  InvocationSourceLocation,
+  TypeRTClientContextBinder,
+  TypeRTCodec,
+  TypeRTContext,
+  TypeRTContextMap,
+  TypeRTContextRegistry,
+  TypeRTContextWire,
+  TypeRTDisposer,
+  TypeRTHostContextProvider,
+  TypeRTLocalRegistry,
+  TypeRTLookup,
+  TypeRTLookupHost,
+  TypeRTLookupMap,
+  TypeRTLookupProvider,
+  TypeRTLookupRegistry,
+  TypeRTLookupWire,
+  TypeRTRemoteContextApi,
+  TypeRTRemoteContextMap,
+  TypeRTRemoteContextNamespace,
+  TypeRTRemoteContribution,
+  TypeRTRemoteMap,
+  TypeRTRemoteNamespace,
+  TypeRTRemoteNamespaceMap,
+  TypeRTRemoteRegistry,
+  TypeRTRegistryChange,
+  TypeRTRegistryListener,
+  TypeRTSchema,
+  TypeRTService,
+} from './types.ts'
+
+/** Options for an explicit Service-to-Gateway binding. */
+export interface TypeRTGatewayBindingOptions {
+  /** Wire namespace; defaults to the Cordis service key. */
+  readonly namespace?: string
+}
+
+/** Visible declaration that one Service participates in TypeRT Gateway export. */
+export interface TypeRTGatewayBinding<Service extends object = object> {
+  readonly service: Service
+  readonly serviceKey: string
+  readonly namespace: string
+}
+
+/** Invocation mode recorded by a Remote method decorator. */
+export type RemoteInvocationMarker =
+  | { readonly kind: 'direct' }
+  | { readonly kind: 'context'; readonly context: string }
+
+/** One decorator marker discovered for a live Service instance. */
+export interface RemoteMethodMarker {
+  /** Public instance method carrying the implementation. */
+  readonly method: string
+  /** Endpoint method when it differs from the implementation member. */
+  readonly exportName?: string
+  readonly invocation: RemoteInvocationMarker
+}
+
+type RemoteMethodDecorator = <This extends object, Args extends unknown[], Result>(
+  method: (this: This, ...args: Args) => Result,
+  context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Result>,
+) => void
+
+interface RemoteInitializerContext<This extends object> {
+  readonly private: boolean
+  readonly static: boolean
+  readonly name: string | symbol
+  addInitializer(initializer: (this: This) => void): void
+}
+
+interface StoredRemoteMethodMarker {
+  readonly exportName?: string
+  readonly invocation: RemoteInvocationMarker
+}
+
+const markers = new WeakMap<object, Map<string, StoredRemoteMethodMarker>>()
+
+/**
+ * Bind one visible Service field to a Cordis key and Remote namespace.
+ * @param service - owning Service instance, normally `this`.
+ * @param serviceKey - exact Cordis service key.
+ * @param options - optional distinct wire namespace.
+ * @returns a frozen, inspectable binding with no compiler-injected metadata.
+ */
+export function bindTypeRTGateway<Service extends object>(
+  service: Service,
+  serviceKey: string,
+  options: TypeRTGatewayBindingOptions = {},
+): TypeRTGatewayBinding<Service> {
+  validateName('service key', serviceKey)
+  const namespace = options.namespace ?? serviceKey
+  validateName('namespace', namespace)
+  return Object.freeze({ service, serviceKey, namespace })
+}
+
+/**
+ * Mark one public instance method as a direct Remote invocation.
+ * @param _method - decorated method; retained only by the class itself.
+ * @param context - standard decorator context used to schedule private marking.
+ */
+export function Remote<This extends object, Args extends unknown[], Result>(
+  _method: (this: This, ...args: Args) => Result,
+  context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Result>,
+): void
+/**
+ * Mark one public instance method under a distinct exported method name.
+ * @param exportName - Remote endpoint method, without a namespace or slash.
+ * @returns a standard method decorator.
+ */
+export function Remote(exportName: string): RemoteMethodDecorator
+export function Remote<This extends object, Args extends unknown[], Result>(
+  methodOrExportName: string | ((this: This, ...args: Args) => Result),
+  context?: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Result>,
+): void | RemoteMethodDecorator {
+  if (typeof methodOrExportName === 'string') {
+    validateName('Remote export name', methodOrExportName)
+    return function <DecoratorThis extends object, DecoratorArgs extends unknown[], DecoratorResult>(
+      _method: (this: DecoratorThis, ...args: DecoratorArgs) => DecoratorResult,
+      decoratorContext: ClassMethodDecoratorContext<
+        DecoratorThis,
+        (this: DecoratorThis, ...args: DecoratorArgs) => DecoratorResult
+      >,
+    ): void {
+      addMarkerInitializer(decoratorContext, { kind: 'direct' }, methodOrExportName)
+    }
+  }
+  if (context === undefined) throw new TypeError('type-meta: Remote decorator context is missing')
+  addMarkerInitializer(context, { kind: 'direct' })
+}
+
+/**
+ * Create a decorator for a method resolved from one scoped Remote Context.
+ * @param key - merge-declared Context key.
+ * @param exportName - optional Remote export name; defaults to the method name.
+ * @returns a standard method decorator that records only private module state.
+ */
+export function RemoteContext(
+  key: Extract<keyof TypeRTContextMap, string>,
+  exportName?: string,
+): RemoteMethodDecorator {
+  validateName('Context key', key)
+  if (exportName !== undefined) validateName('Remote export name', exportName)
+  return function <This extends object, Args extends unknown[], Result>(
+    _method: (this: This, ...args: Args) => Result,
+    context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Result>,
+  ): void {
+    addMarkerInitializer(context, { kind: 'context', context: key }, exportName)
+  }
+}
+
+/**
+ * Read Remote markers attached to a live Service by decorator initializers.
+ * The returned snapshot cannot mutate the private marker table.
+ * @param service - live Service instance.
+ * @returns markers in class declaration order.
+ */
+export function remoteMethods(service: object): readonly RemoteMethodMarker[] {
+  const prototype = Object.getPrototypeOf(service) as object | null
+  if (prototype === null) return []
+  return [...(markers.get(prototype) ?? [])].map(([method, marker]) => ({ method, ...marker }))
+}
+
+function addMarkerInitializer<This extends object>(
+  context: RemoteInitializerContext<This>,
+  invocation: RemoteInvocationMarker,
+  exportName?: string,
+): void {
+  if (context.private || context.static || typeof context.name !== 'string') {
+    throw new TypeError('type-meta: Remote decorators require a public instance method with a string name')
+  }
+  const method = context.name
+  context.addInitializer(function (this: This) {
+    const prototype = Object.getPrototypeOf(this) as object | null
+    if (prototype === null) {
+      throw new TypeError(`type-meta: cannot mark Remote method "${method}" on an object without a prototype`)
+    }
+    mark(prototype, method, invocation, exportName)
+  })
+}
+
+function mark(
+  prototype: object,
+  method: string,
+  invocation: RemoteInvocationMarker,
+  exportName?: string,
+): void {
+  let table = markers.get(prototype)
+  if (table === undefined) {
+    table = new Map()
+    markers.set(prototype, table)
+  }
+  const marker: StoredRemoteMethodMarker = {
+    ...(exportName === undefined || exportName === method ? {} : { exportName }),
+    invocation: Object.freeze(invocation),
+  }
+  const current = table.get(method)
+  if (current !== undefined) {
+    if (current.exportName === marker.exportName && sameInvocation(current.invocation, invocation)) return
+    throw new Error(`type-meta: Remote method "${method}" has conflicting invocation markers`)
+  }
+  table.set(method, Object.freeze(marker))
+}
+
+function sameInvocation(left: RemoteInvocationMarker, right: RemoteInvocationMarker): boolean {
+  return left.kind === right.kind
+    && (left.kind === 'direct' || (right.kind === 'context' && left.context === right.context))
+}
+
+function validateName(subject: string, value: string): void {
+  if (value.length === 0 || value.includes('/')) {
+    throw new TypeError(`type-meta: ${subject} must be nonempty and must not contain "/"`)
+  }
+}

@@ -1,0 +1,36 @@
+# @deepseek-ai/dsh-host-api-gateway
+
+English | [中文](README.zh.md)
+
+Two-sided Remote control for Host and Client Cordis environments. The Host entry provides `ctx.typertGateway`, while `@deepseek-ai/dsh-host-api-gateway/client` provides `ctx.api`; both consume the same generated `InvocationDescriptor` contract and leave transport, request correlation, trust, and response envelopes to Connection.
+
+## Host service: `TypertGatewayService` (ctx key: `typertGateway`)
+
+`ctx.typertGateway.invoke()` resolves the current descriptor and Cordis Service for each call, validates exact named arguments, resolves registered object or Context identities, invokes the public business method, and validates its result. Business Services declare participation with `bindTypeRTGateway()` and `@Remote` or `@RemoteContext` from [`dsh-type-meta`](../../typert/type-meta/README.md).
+
+Strict mode reads generated invocation descriptors from `ctx.typert.local`. Lookup parameters use registered `ctx.typert.lookups` providers, while `@RemoteContext` resolves its receiver through a registered Host Context provider. SRC mode is a development fallback for endpoints that have never had a strict definition; it parses simple parameter names and accepts only JSON-safe values for non-lookup parameters. Withdrawing an observed strict definition fails instead of weakening validation.
+
+The Host entry registers the trusted-host `/api2` unary RPC channel when Connection is available. Direct `invoke()` calls preserve business errors; `TypertGatewayError` distinguishes failures owned by dispatch, binding, providers, lookup, Context, arguments, and codecs.
+
+## Client service: `ClientApi` (ctx key: `api`)
+
+`ctx.api.mount()` validates and registers a generated Host-for-Client contribution, then installs concrete direct and scoped methods for the calling Cordis fiber. Duplicate endpoints, namespace collisions, and descriptors without strict generated codecs fail before methods become callable.
+
+Each call validates positional inputs, constructs the descriptor's exact named `args`, and sends it through `ctx.connection.rpc.call('/api2', endpoint, ...)`. The returned value is validated before reaching application code. Withdrawing a contribution removes its descriptors and methods together, aborts in-flight calls, and makes retained method handles reject.
+
+Generated declaration merges provide the TypeScript API. The Client entry contains no Host Service or Host Cordis interface merge, and method lookup and invocation use ordinary objects and functions rather than a JavaScript Proxy.
+
+## Model Experience
+
+None, as the package dispatches application calls and registers no prompt, tool, or session event.
+
+#### KV Cache effect
+
+No direct effect; invoked business Services own any model-visible result.
+
+## Known Limitations and Deferred Work
+
+- The Connection adapter currently maps dispatch and business failures to the RPC `internal` code with empty details. Structured `TypertGatewayError` categories remain available only to same-process callers.
+- SRC mode supports unique identifier parameters without destructuring, defaults, or rest parameters. It validates JSON safety rather than generated business types and never infers optional fields.
+- Only strict generated contributions can mount on the Client face. SRC markers have no Client codec or type projection.
+- The package dispatches unary methods only. Incremental Session data uses a separate named-stream protocol over the same Connection.

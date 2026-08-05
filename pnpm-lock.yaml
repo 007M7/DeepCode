@@ -916,6 +916,9 @@ importers:
       '@deepseek-ai/dsh-goal-session':
         specifier: workspace:^
         version: link:../../goal/goal-session
+      '@deepseek-ai/dsh-host-api-gateway':
+        specifier: workspace:^
+        version: link:../../host/api-gateway
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
@@ -1054,6 +1057,12 @@ importers:
       '@deepseek-ai/dsh-tools':
         specifier: workspace:^
         version: link:../../core/tools
+      '@deepseek-ai/dsh-typert-loader':
+        specifier: workspace:^
+        version: link:../../typert/loader
+      '@deepseek-ai/dsh-typert-registry':
+        specifier: workspace:^
+        version: link:../../typert/registry
       '@deepseek-ai/dsh-user-approval':
         specifier: workspace:^
         version: link:../../ui/user-approval
@@ -2790,6 +2799,12 @@ importers:
       '@deepseek-ai/dsh-system-prompt':
         specifier: workspace:^
         version: link:../system-prompt
+      '@deepseek-ai/dsh-type-meta':
+        specifier: workspace:^
+        version: link:../../typert/type-meta
+      '@deepseek-ai/dsh-typert-registry':
+        specifier: workspace:^
+        version: link:../../typert/registry
       cordis:
         specifier: ^4.0.0-rc.7
         version: link:../../../vendor/cordis
@@ -2854,6 +2869,12 @@ importers:
       '@deepseek-ai/dsh-scope':
         specifier: workspace:^
         version: link:../scope
+      '@deepseek-ai/dsh-type-meta':
+        specifier: workspace:^
+        version: link:../../typert/type-meta
+      '@deepseek-ai/dsh-typert-registry':
+        specifier: workspace:^
+        version: link:../../typert/registry
       cordis:
         specifier: ^4.0.0-rc.7
         version: link:../../../vendor/cordis
@@ -3705,6 +3726,31 @@ importers:
       cordis:
         specifier: ^4.0.0-rc.7
         version: link:../../../vendor/cordis
+
+  packages/host/api-gateway:
+    dependencies:
+      '@deepseek-ai/dsh-type-meta':
+        specifier: workspace:^
+        version: link:../../typert/type-meta
+    devDependencies:
+      '@deepseek-ai/dsh-client-connection':
+        specifier: workspace:^
+        version: link:../../client/connection
+      '@deepseek-ai/dsh-host-webserver':
+        specifier: workspace:^
+        version: link:../webserver
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../support/invariants
+      '@deepseek-ai/dsh-typert-registry':
+        specifier: workspace:^
+        version: link:../../typert/registry
+      cordis:
+        specifier: ^4.0.0-rc.7
+        version: link:../../../vendor/cordis
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
 
   packages/host/apiproxy:
     dependencies:
@@ -6096,6 +6142,9 @@ importers:
 
   packages/typert/generator:
     dependencies:
+      '@jridgewell/gen-mapping':
+        specifier: ^0.3.13
+        version: 0.3.13
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -6140,9 +6189,21 @@ importers:
 
   packages/typert/registry:
     dependencies:
+      '@deepseek-ai/dsh-type-meta':
+        specifier: workspace:^
+        version: link:../type-meta
       zod:
         specifier: ^4.4.3
         version: 4.4.3
+    devDependencies:
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../support/invariants
+      cordis:
+        specifier: ^4.0.0-rc.7
+        version: link:../../../vendor/cordis
+
+  packages/typert/type-meta:
     devDependencies:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^

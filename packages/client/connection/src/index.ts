@@ -7,15 +7,25 @@ import { toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
 import { API_PATH, HOST_EVENTS_PATH, MUX_EVENTS_PATH } from './api-path.ts'
 import { bridge } from './http-bridge.ts'
 import { assertTrustedAuthority, isTrustedApiRequest } from './api-request-trust.ts'
+import { HostConnectionService } from './rpc-host.ts'
 import { rejectWebSocketUpgrade, WebSocketDownlinks } from './websocket-downlink.ts'
+
+export type {
+  ConnectionRpcAuthority,
+  ConnectionRpcHandler,
+  ConnectionRpcHandlerOptions,
+  HostConnectionHandle,
+  HostConnectionRpc,
+} from './rpc.ts'
+export { HostConnectionService } from './rpc-host.ts'
 
 export { API_PATH, HOST_EVENTS_PATH, MUX_EVENTS_PATH } from './api-path.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'client-connection'
 
-/** Services required before mounting the route. */
-export const inject = ['httpServer', 'apiProxy']
+/** Services required before providing Connection; legacy `/api` attaches when apiProxy is present. */
+export const inject = ['httpServer']
 
 /** Plugin config: the deployment's non-loopback serving authorities. */
 export interface ConnectionConfig {
@@ -83,49 +93,52 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
   // Config boundary: a malformed entry fails the load loudly here rather than
   // silently authorizing its hostname prefix at request time.
   for (const entry of trustedHosts) assertTrustedAuthority(entry)
-  const apiHandler = toFetchHandler(ctx.apiProxy)
-  const downlinks = new WebSocketDownlinks(ctx.apiProxy)
-  const route: WebRoute = {
-    kind: 'prefix',
-    path: API_PATH,
-    handler: async (req, res) => {
-      const pathname = new URL(req.url ?? '/', 'http://dsh.internal').pathname
-      const method = pathname.startsWith(`${API_PATH}/`)
-        ? pathname.slice(API_PATH.length + 1)
-        : undefined
-      const allowed = method !== undefined && PRIVILEGED_METHODS.has(method)
-        ? isTrustedApiRequest(req, [])
-        : isTrustedApiRequest(req, trustedHosts)
-      if (!allowed) {
-        res.writeHead(403)
-        res.end('forbidden')
-        return
-      }
-      if (req.method === 'GET' && (pathname === MUX_EVENTS_PATH || pathname === HOST_EVENTS_PATH)) {
-        res.writeHead(426, { connection: 'Upgrade', upgrade: 'websocket' })
-        res.end('upgrade required')
-        return
-      }
-      await bridge(req, res, apiHandler)
-    },
-  }
-  ctx.effect(() => ctx.httpServer.register(route), 'client-connection: /api route')
-  const registerDownlink = (
-    path: string,
-    handle: WebUpgradeRoute['handler'],
-  ): void => {
-    ctx.effect(() => ctx.httpServer.registerUpgrade({
-      path,
-      handler: (req, socket, head) => {
-        if (!isTrustedApiRequest(req, trustedHosts)) {
-          rejectWebSocketUpgrade(socket)
+  new HostConnectionService(ctx, trustedHosts)
+  ctx.inject(['apiProxy'], (apiCtx) => {
+    const apiHandler = toFetchHandler(apiCtx.apiProxy)
+    const downlinks = new WebSocketDownlinks(apiCtx.apiProxy)
+    const route: WebRoute = {
+      kind: 'prefix',
+      path: API_PATH,
+      handler: async (req, res) => {
+        const pathname = new URL(req.url ?? '/', 'http://dsh.internal').pathname
+        const method = pathname.startsWith(`${API_PATH}/`)
+          ? pathname.slice(API_PATH.length + 1)
+          : undefined
+        const allowed = method !== undefined && PRIVILEGED_METHODS.has(method)
+          ? isTrustedApiRequest(req, [])
+          : isTrustedApiRequest(req, trustedHosts)
+        if (!allowed) {
+          res.writeHead(403)
+          res.end('forbidden')
           return
         }
-        return handle(req, socket, head)
+        if (req.method === 'GET' && (pathname === MUX_EVENTS_PATH || pathname === HOST_EVENTS_PATH)) {
+          res.writeHead(426, { connection: 'Upgrade', upgrade: 'websocket' })
+          res.end('upgrade required')
+          return
+        }
+        await bridge(req, res, apiHandler)
       },
-    }), `client-connection: ${path} WebSocket`)
-  }
-  ctx.effect(() => () => downlinks.close(), 'client-connection: WebSocket downlinks')
-  registerDownlink(MUX_EVENTS_PATH, (req, socket, head) => { downlinks.handleMux(req, socket, head) })
-  registerDownlink(HOST_EVENTS_PATH, (req, socket, head) => { downlinks.handleHost(req, socket, head) })
+    }
+    apiCtx.effect(() => apiCtx.httpServer.register(route), 'client-connection: /api route')
+    const registerDownlink = (
+      path: string,
+      handle: WebUpgradeRoute['handler'],
+    ): void => {
+      apiCtx.effect(() => apiCtx.httpServer.registerUpgrade({
+        path,
+        handler: (req, socket, head) => {
+          if (!isTrustedApiRequest(req, trustedHosts)) {
+            rejectWebSocketUpgrade(socket)
+            return
+          }
+          return handle(req, socket, head)
+        },
+      }), `client-connection: ${path} WebSocket`)
+    }
+    apiCtx.effect(() => () => downlinks.close(), 'client-connection: WebSocket downlinks')
+    registerDownlink(MUX_EVENTS_PATH, (req, socket, head) => { downlinks.handleMux(req, socket, head) })
+    registerDownlink(HOST_EVENTS_PATH, (req, socket, head) => { downlinks.handleHost(req, socket, head) })
+  })
 }

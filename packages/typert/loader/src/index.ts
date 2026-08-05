@@ -135,6 +135,11 @@ export function validateTypertManifest(pkgName: string, exported: unknown): Type
     requireMembers(pkgName, object.members, `object "${object.name as string}"`)
     requireTypes(pkgName, object.types, `object "${object.name as string}"`)
   }
+  if (manifest.invocations !== undefined) {
+    for (const value of requireArray(pkgName, manifest.invocations, 'TYPERT.invocations')) {
+      requireInvocation(pkgName, value)
+    }
+  }
   return manifest as unknown as TypertContribution
 }
 
@@ -184,6 +189,88 @@ function requireTypes(pkgName: string, value: unknown, subject: string): void {
   }
 }
 
+function requireInvocation(pkgName: string, value: unknown): void {
+  const invocation = requireObject(pkgName, value, 'invocation')
+  for (const key of ['id', 'service', 'namespace', 'method'] as const) {
+    requireString(pkgName, invocation, key, 'invocation')
+  }
+  const id = invocation.id as string
+  const receiver = requireObject(pkgName, invocation.invocation, `invocation "${id}" receiver`)
+  if (receiver.kind === 'context') {
+    requireString(pkgName, receiver, 'context', `invocation "${id}" Context receiver`)
+    requireString(pkgName, receiver, 'wire', `invocation "${id}" Context receiver`)
+    requireStrictCodec(pkgName, receiver.codec, `invocation "${id}" Context codec`)
+  } else if (receiver.kind !== 'direct') {
+    throw new Error(`typert-loader: ${pkgName} invocation "${id}" receiver kind must be "direct" or "context"`)
+  }
+  const wires = new Set<string>()
+  const parameters = new Map<string, Record<string, unknown>>()
+  let lookupCount = 0
+  for (const valueParameter of requireArray(pkgName, invocation.parameters, `invocation "${id}" parameters`)) {
+    const parameter = requireObject(pkgName, valueParameter, `invocation "${id}" parameter`)
+    requireString(pkgName, parameter, 'name', `invocation "${id}" parameter`)
+    requireString(pkgName, parameter, 'wire', `invocation "${id}" parameter`)
+    const wire = parameter.wire as string
+    if (wires.has(wire)) {
+      throw new Error(`typert-loader: ${pkgName} invocation "${id}" repeats wire field "${wire}"`)
+    }
+    wires.add(wire)
+    if (parameter.source === 'lookup') {
+      lookupCount += 1
+      requireString(pkgName, parameter, 'lookup', `invocation "${id}" lookup parameter`)
+    } else if (parameter.source === 'json') {
+      if (parameter.lookup !== undefined) {
+        throw new Error(`typert-loader: ${pkgName} invocation "${id}" JSON parameter declares a lookup`)
+      }
+    } else {
+      throw new Error(`typert-loader: ${pkgName} invocation "${id}" parameter source must be "json" or "lookup"`)
+    }
+    parameters.set(wire, parameter)
+    requireStrictCodec(pkgName, parameter.codec, `invocation "${id}" parameter codec`)
+  }
+  if (invocation.scope !== undefined) {
+    if (receiver.kind !== 'direct') {
+      throw new Error(`typert-loader: ${pkgName} invocation "${id}" Context receiver cannot declare a direct scope projection`)
+    }
+    const scope = requireObject(pkgName, invocation.scope, `invocation "${id}" scope`)
+    requireString(pkgName, scope, 'context', `invocation "${id}" scope`)
+    requireString(pkgName, scope, 'wire', `invocation "${id}" scope`)
+    const parameter = parameters.get(scope.wire as string)
+    if (lookupCount !== 1 || parameter?.source !== 'lookup' || parameter.lookup !== scope.context) {
+      throw new Error(
+        `typert-loader: ${pkgName} invocation "${id}" scope wire "${scope.wire as string}" must select its only lookup parameter`,
+      )
+    }
+  }
+  if (receiver.kind === 'context' && wires.has(receiver.wire as string)) {
+    throw new Error(`typert-loader: ${pkgName} invocation "${id}" repeats Context wire field "${receiver.wire as string}"`)
+  }
+  requireStrictCodec(pkgName, invocation.result, `invocation "${id}" result codec`)
+  if (invocation.sourceLocation !== undefined) {
+    const location = requireObject(pkgName, invocation.sourceLocation, `invocation "${id}" sourceLocation`)
+    requireString(pkgName, location, 'file', `invocation "${id}" sourceLocation`)
+    for (const key of ['line', 'column'] as const) {
+      if (!Number.isInteger(location[key]) || (location[key] as number) < 1) {
+        throw new Error(`typert-loader: ${pkgName} invocation "${id}" sourceLocation.${key} must be a positive integer`)
+      }
+    }
+  }
+}
+
+function requireStrictCodec(pkgName: string, value: unknown, subject: string): void {
+  const codec = requireObject(pkgName, value, subject)
+  if (codec.mode !== 'strict') {
+    throw new Error(`typert-loader: ${pkgName} ${subject} must use a strict codec`)
+  }
+  requireString(pkgName, codec, 'typeSymbol', subject)
+  if (typeof codec.schema !== 'object'
+    || codec.schema === null
+    || !('_zod' in codec.schema)
+    || typeof (codec.schema as { parse?: unknown }).parse !== 'function') {
+    throw new Error(`typert-loader: ${pkgName} ${subject} is not backed by a zod v4 schema`)
+  }
+}
+
 /**
  * Scan current Loader entries during activation, then follow entry mounts and
  * unmounts for this plugin's lifetime.
@@ -202,7 +289,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const configured = new Set((config as ResolvedConfig).packages)
 
   // Registered contributions by entry name; the disposer withdraws the entry's registration.
-  const registered = new Map<string, () => void>()
+  const registered = new Map<string, () => Promise<void>>()
   // In-flight import/register tasks by entry name.
   const pending = new Map<string, Promise<void>>()
   // Artifact paths by package name. Negative verdicts (unresolvable specifier —
@@ -279,7 +366,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       const dispose = registered.get(entryName)
       if (dispose !== undefined) {
         registered.delete(entryName)
-        dispose()
+        return dispose()
       }
       return undefined
     }

@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url'
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { resolvePwshPath } from './packages/bash/pwsh-local/src/resolve.ts'
 import { defineConfig } from 'vitest/config'
+import ts from 'typescript'
 import { vitestExecArgv } from './vitest.shared.ts'
 import { COVERAGE_EXEMPT_ENV, coverageExemptHeavySuites } from './scripts/coverage-exempt.ts'
 
@@ -17,6 +18,29 @@ const uncoveredLocationsReporter = fileURLToPath(new URL('./scripts/coverage-unc
 // map applies to every test file. paths must win over package exports so built
 // lib/ never loads a second module-singleton copy.
 const pathsPlugin = (): ReturnType<typeof tsconfigPaths> => tsconfigPaths({ projects: ['./tsconfig.base.json'] })
+const decoratorSyntax = /^\s*@[A-Za-z_$][\w$]*/m
+
+const standardDecoratorPlugin = () => ({
+  name: 'dsh-standard-decorators',
+  enforce: 'pre' as const,
+  transform(code: string, id: string) {
+    const file = id.split('?', 1)[0]!
+    if (!/\.[cm]?tsx?$/.test(file) || !decoratorSyntax.test(code)) return
+    const result = ts.transpileModule(code, {
+      fileName: file,
+      compilerOptions: {
+        target: ts.ScriptTarget.ES2024,
+        module: ts.ModuleKind.ESNext,
+        jsx: file.endsWith('x') ? ts.JsxEmit.ReactJSX : undefined,
+        sourceMap: true,
+      },
+    })
+    return {
+      code: result.outputText.replace(/\n?\/\/# sourceMappingURL=.*$/u, '\n'),
+      map: result.sourceMapText,
+    }
+  },
+})
 
 const windowsUnsupportedPackages = process.platform === 'win32'
   ? [
@@ -88,7 +112,7 @@ const processBoundTests = [
 ]
 
 export default defineConfig({
-  plugins: [pathsPlugin()],
+  plugins: [pathsPlugin(), standardDecoratorPlugin()],
   test: {
     setupFiles: ['./scripts/test-invariants.ts'],
     // .tsx: client component specs (jsdom via per-file @vitest-environment pragma).
@@ -99,7 +123,7 @@ export default defineConfig({
     // always fork.
     projects: [
       {
-        plugins: [pathsPlugin()],
+        plugins: [pathsPlugin(), standardDecoratorPlugin()],
         test: {
           name: 'thread-safe',
           execArgv: vitestExecArgv,
@@ -119,7 +143,7 @@ export default defineConfig({
         },
       },
       {
-        plugins: [pathsPlugin()],
+        plugins: [pathsPlugin(), standardDecoratorPlugin()],
         test: {
           name: 'process-bound',
           execArgv: vitestExecArgv,

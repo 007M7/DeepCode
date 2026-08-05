@@ -1118,11 +1118,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'typert',
-    summary: 'Registry of generated schemas and package reflection.',
+    summary: 'Registry of generated schemas, package reflection, invocations, and Remote dependency providers.',
     methods: [
       {
-        signature: 'register(contribution: TypertContribution): () => void',
-        jsDoc: '/**\n * Register one generated contribution atomically for the calling fiber.\n * Duplicate package-face identities or schema keys reject the whole batch.\n * @param contribution - generated schemas and package metadata.\n * @returns the exact effect disposer that removes this contribution.\n */',
+        signature: 'register(contribution: TypertContribution): TypeRTDisposer',
+        jsDoc: '/**\n * Register one generated contribution atomically for the calling fiber.\n * Duplicate package-face identities, schemas, invocation ids, or endpoints\n * reject the whole batch.\n * @param contribution - generated schemas, reflection, and Host invocations.\n * @returns the exact effect disposer that removes this contribution.\n */',
       },
       {
         signature: 'get(key: string): TypertSchemaRecord | undefined',
@@ -1147,6 +1147,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'toJSONSchema(key: string, params?: z.core.ToJSONSchemaParams): z.core.JSONSchema.BaseSchema',
         jsDoc: '/**\n * Project a live Zod schema to JSON Schema without caching the result.\n * @param key - global schema key.\n * @param params - Zod projection parameters.\n * @returns a fresh JSON Schema document.\n */',
+      },
+    ],
+  },
+  {
+    key: 'typertGateway',
+    summary: 'Resolve strict generated definitions or conservative SRC markers against current Cordis Services and TypeRT providers.',
+    methods: [
+      {
+        signature: 'async invoke(request: InvokeRemoteRequest): Promise<unknown>',
+        jsDoc: '/**\n * Invoke one live Remote method through strict generated reflection or SRC markers.\n * @param request - decoded endpoint and exact named wire arguments.\n * @returns the validated business result.\n * @throws {@link TypertGatewayError} for dispatch, provider, or boundary failures; business errors retain their identity.\n */',
       },
     ],
   },
@@ -2056,6 +2066,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'InvariantInstaller',
     declaration: 'export interface InvariantInstaller {\n    (ctx: Context, fail: InvariantFailure): void | Promise<void>;\n    readonly inject?: Inject;\n}',
+  },
+  {
+    name: 'InvocationDescriptor',
+    declaration: 'export interface InvocationDescriptor {\n    readonly id: string;\n    readonly service: string;\n    readonly namespace: string;\n    readonly method: string;\n    readonly implementation?: string;\n    readonly invocation: {\n        readonly kind: \'direct\';\n    } | {\n        readonly kind: \'context\';\n        readonly context: string;\n        readonly wire: string;\n        readonly codec: TypeRTCodec;\n    };\n    readonly scope?: {\n        readonly context: string;\n        readonly wire: string;\n    };\n    readonly parameters: readonly InvocationParameterDescriptor[];\n    readonly result: TypeRTCodec;\n    readonly sourceLocation?: InvocationSourceLocation;\n}',
+  },
+  {
+    name: 'InvocationParameterDescriptor',
+    declaration: 'export interface InvocationParameterDescriptor {\n    readonly name: string;\n    readonly wire: string;\n    readonly source: \'json\' | \'lookup\';\n    readonly lookup?: string;\n    readonly codec: TypeRTCodec;\n}',
+  },
+  {
+    name: 'InvocationSourceLocation',
+    declaration: 'export interface InvocationSourceLocation {\n    readonly file: string;\n    readonly line: number;\n    readonly column: number;\n}',
+  },
+  {
+    name: 'InvokeRemoteRequest',
+    declaration: 'export interface InvokeRemoteRequest {\n    readonly namespace: string;\n    readonly method: string;\n    readonly args: Readonly<Record<string, unknown>>;\n}',
   },
   {
     name: 'JsonSchemaNode',
@@ -3038,8 +3064,16 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface TurnEndReasonMap {\n    completed: {\n        kind: \'completed\';\n    };\n    aborted: {\n        kind: \'aborted\';\n        reason: TurnEndCancelCause;\n    };\n    blocked: {\n        kind: \'blocked\';\n    };\n    error: {\n        kind: \'error\';\n        error: LlmFailure;\n    };\n    \'max-tokens\': {\n        kind: \'max-tokens\';\n    };\n    interrupted: {\n        kind: \'interrupted\';\n    };\n}',
   },
   {
+    name: 'TypeRTCodec',
+    declaration: 'export type TypeRTCodec = {\n    readonly mode: \'strict\';\n    readonly typeSymbol: string;\n    readonly schema: TypeRTSchema;\n} | {\n    readonly mode: \'src-json\';\n};',
+  },
+  {
     name: 'TypertContribution',
-    declaration: 'export interface TypertContribution {\n    readonly package: string;\n    readonly face: TypertFace;\n    readonly schemas: readonly TypertSchema[];\n    readonly model: TypertPackageModel;\n}',
+    declaration: 'export interface TypertContribution {\n    readonly package: string;\n    readonly face: TypertFace;\n    readonly schemas: readonly TypertSchema[];\n    readonly model: TypertPackageModel;\n    readonly invocations?: readonly InvocationDescriptor[];\n}',
+  },
+  {
+    name: 'TypeRTDisposer',
+    declaration: 'export type TypeRTDisposer = () => Promise<void>;',
   },
   {
     name: 'TypertDocTag',
@@ -3076,6 +3110,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TypertSchema',
     declaration: 'export interface TypertSchema {\n    readonly name: string;\n    readonly schema: z.ZodType;\n}',
+  },
+  {
+    name: 'TypeRTSchema',
+    declaration: 'export interface TypeRTSchema<Output = unknown> {\n    parse(value: unknown): Output;\n}',
   },
   {
     name: 'TypertSchemaFilter',

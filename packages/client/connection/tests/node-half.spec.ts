@@ -7,8 +7,9 @@ import { describe, expect, it } from 'vitest'
 import type { AddressInfo } from 'node:net'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { ApiProxy } from '@deepseek-ai/dsh-host-apiproxy/api'
+import { RpcId, type ClientRequest } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { HttpServerService, WebRoute, WebUpgradeRoute } from '@deepseek-ai/dsh-host-webserver'
-import { API_PATH, apply, HOST_EVENTS_PATH, inject, MUX_EVENTS_PATH } from '../src/index.ts'
+import { API_PATH, apply, HOST_EVENTS_PATH, inject, MUX_EVENTS_PATH, type HostConnectionHandle } from '../src/index.ts'
 
 /** Structural httpServer fake recording both route registries. */
 function fakeHttpServer(
@@ -17,6 +18,9 @@ function fakeHttpServer(
 ): Pick<HttpServerService, 'register' | 'registerUpgrade' | 'tapIndex' | 'port'> {
   return {
     register(route) {
+      if (routes.some(candidate => candidate.kind === route.kind && candidate.path === route.path)) {
+        throw new Error(`duplicate route ${route.path}`)
+      }
       routes.push(route)
       return () => { routes.splice(routes.indexOf(route), 1) }
     },
@@ -36,15 +40,25 @@ function fakeRequest(headers: Record<string, string>, url = `${API_PATH}/session
   return request
 }
 
+/** JSON POST carrying a complete client-request envelope. */
+function fakePost(headers: Record<string, string>, url: string, body: unknown): IncomingMessage {
+  const request = Readable.from([Buffer.from(JSON.stringify(body))]) as unknown as IncomingMessage
+  Object.assign(request, { url, method: 'POST', headers: { 'content-type': 'application/json', ...headers } })
+  return request
+}
+
 /** Response recorder compatible with both the fence's short-circuit and the bridge. */
 function fakeResponse(): { response: ServerResponse; state: { status?: number; body?: unknown } } {
   const state: { status?: number; body?: unknown } = {}
+  const chunks: Buffer[] = []
   const response = Object.assign(new EventEmitter(), {
     writableEnded: false,
     writeHead(value: number) { state.status = value; return this },
-    write() { return true },
+    write(value: string | Uint8Array) { chunks.push(Buffer.from(value)); return true },
     end(this: { writableEnded: boolean }, value?: unknown) {
-      if (value !== undefined) state.body = value
+      if (typeof value === 'string' || value instanceof Uint8Array) chunks.push(Buffer.from(value))
+      else if (value !== undefined) throw new TypeError('fake response only accepts string or Uint8Array bodies')
+      if (chunks.length > 0) state.body = Buffer.concat(chunks).toString()
       this.writableEnded = true
       return this
     },
@@ -172,6 +186,78 @@ describe('connection node half', () => {
     }), declared.response)
     expect(declared.state.status).toBe(404)
     await dispose()
+  })
+
+  it('provides a disposable generic RPC channel without requiring apiProxy', async () => {
+    const ctx = new Context()
+    const routes: WebRoute[] = []
+    ctx.provide('httpServer', fakeHttpServer(routes, []) as HttpServerService)
+    const fiber = ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+    expect(routes).toHaveLength(0)
+
+    const connection = ctx.get('connection') as HostConnectionHandle
+    const calls: unknown[] = []
+    const remove = connection.rpc.handle('/api2', async (endpoint, payload) => {
+      calls.push({ endpoint, payload })
+      return { ok: true, value: { accepted: true } }
+    }, { authority: 'trusted-host' })
+    const route = routes.find(candidate => candidate.path === '/api2')
+    expect(route).toBeDefined()
+
+    const request: ClientRequest = {
+      type: 'client-request',
+      rpcId: RpcId('rpc-api2'),
+      method: 'goals/create',
+      payload: { args: { agentId: 'agent-1' } },
+    }
+    const result = fakeResponse()
+    await route!.handler(fakePost({ host: '127.0.0.1:3080' }, '/api2/goals/create', request), result.response)
+    expect(result.state.status).toBe(200)
+    expect(JSON.parse(String(result.state.body))).toEqual({
+      type: 'server-response',
+      rpcId: 'rpc-api2',
+      result: { ok: true, value: { accepted: true } },
+    })
+    expect(calls).toEqual([{
+      endpoint: 'goals/create',
+      payload: { args: { agentId: 'agent-1' } },
+    }])
+
+    expect(() => connection.rpc.handle('/api2', async () => ({ ok: true, value: null }), {
+      authority: 'trusted-host',
+    })).toThrow(/duplicate route/)
+    await remove()
+    expect(routes).toHaveLength(0)
+    await fiber.dispose()
+  })
+
+  it('applies the configured trust fence and JSON envelope checks to generic channels', async () => {
+    const ctx = new Context()
+    const routes: WebRoute[] = []
+    ctx.provide('httpServer', fakeHttpServer(routes, []) as HttpServerService)
+    const fiber = ctx.plugin({ inject: [...inject], apply }, { trustedHosts: ['harness.example'] })
+    await fiber.await()
+    const connection = ctx.get('connection') as HostConnectionHandle
+    const remove = connection.rpc.handle('/api2', async () => ({ ok: true, value: null }), {
+      authority: 'trusted-host',
+    })
+    const route = routes[0]!
+
+    const denied = fakeResponse()
+    await route.handler(fakePost({ host: 'other.example' }, '/api2/goals/create', {}), denied.response)
+    expect(denied.state).toMatchObject({ status: 403, body: 'forbidden' })
+
+    const badEnvelope = fakeResponse()
+    await route.handler(fakePost({ host: 'harness.example' }, '/api2/goals/create', {
+      type: 'client-request', rpcId: 'rpc-bad', method: 'other', payload: {},
+    }), badEnvelope.response)
+    expect(JSON.parse(String(badEnvelope.state.body))).toMatchObject({
+      rpcId: 'rpc-bad',
+      result: { ok: false, error: { code: 'bad-request' } },
+    })
+    await remove()
+    await fiber.dispose()
   })
 })
 

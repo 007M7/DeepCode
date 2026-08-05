@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -8,6 +9,7 @@ import Loader from '@cordisjs/plugin-loader'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import * as typertLoader from '@deepseek-ai/dsh-typert-loader'
 import { validateTypertManifest } from '@deepseek-ai/dsh-typert-loader'
+import { z } from 'zod'
 
 let root: string | undefined
 let context: Context | undefined
@@ -63,12 +65,45 @@ function typertSource(pkgName: string, entryName: string): string {
   ].join('\n')
 }
 
+function invocationTypertSource(pkgName: string): string {
+  return [
+    'import { z } from \'zod\'',
+    'const Text = z.string()',
+    'export const TYPERT = {',
+    `  package: '${pkgName}',`,
+    '  face: \'host\',',
+    '  schemas: [],',
+    '  model: { services: [], events: [], objects: [] },',
+    '  invocations: [{',
+    `    id: '${pkgName}#goals/create',`,
+    '    service: \'goals\', namespace: \'goals\', method: \'create\',',
+    '    invocation: { kind: \'direct\' },',
+    '    parameters: [{',
+    '      name: \'request\', wire: \'request\', source: \'json\',',
+    `      codec: { mode: 'strict', typeSymbol: '${pkgName}/types#Request', schema: Text },`,
+    '    }],',
+    `    result: { mode: 'strict', typeSymbol: '${pkgName}/types#Result', schema: Text },`,
+    '    sourceLocation: { file: \'src/index.ts\', line: 8, column: 3 },',
+    '  }],',
+    '}',
+    '',
+  ].join('\n')
+}
+
 /** Boot a real Loader over a fixture root; plugin modules resolve from its node_modules. */
 async function boot(): Promise<Context> {
   context = new Context()
   context.baseUrl = pathToFileURL(join(root as string, 'cordis.yml')).href
   await context.plugin(TypertRegistry)
   await context.plugin(Loader)
+  const fixtureRequire = createRequire(context.baseUrl)
+  context.loader.internal = {
+    version: 'v2',
+    async import(specifier: string) {
+      const module: unknown = await import(pathToFileURL(fixtureRequire.resolve(specifier)).href)
+      return module
+    },
+  } as unknown as NonNullable<typeof context.loader.internal>
   // zod must be resolvable from the fixture packages; link the workspace copy.
   await mkdir(join(root as string, 'node_modules'), { recursive: true })
   return context
@@ -103,6 +138,33 @@ describe('typert loader', () => {
 
     await fiber.dispose()
     expect(ctx.typert.getPackage('@fixture/nested')).toBeUndefined()
+  })
+
+  it('registers a strict invocation into the local registry and withdraws it with the loader', LOADER_TEST_TIMEOUT, async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-typert-loader-'))
+    await linkZod(root)
+    await writePackage(root, '@fixture/invocation', {
+      typertSource: invocationTypertSource('@fixture/invocation'),
+    })
+    const ctx = await boot()
+
+    const fiber = mountTypertLoader(ctx, { packages: ['@fixture/invocation'] })
+    await fiber
+
+    const descriptor = ctx.typert.local.get('goals/create')
+    expect(descriptor).toMatchObject({
+      id: '@fixture/invocation#goals/create',
+      invocation: { kind: 'direct' },
+      parameters: [{ wire: 'request', source: 'json' }],
+      sourceLocation: { file: 'src/index.ts', line: 8, column: 3 },
+    })
+    expect(descriptor?.parameters[0]?.codec.mode).toBe('strict')
+    if (descriptor?.parameters[0]?.codec.mode === 'strict') {
+      expect(descriptor.parameters[0].codec.schema.parse('request')).toBe('request')
+    }
+
+    await fiber.dispose()
+    expect(ctx.typert.local.get('goals/create')).toBeUndefined()
   })
 
   it('fails loud when an explicit package is absent or has no Typert export', LOADER_TEST_TIMEOUT, async () => {
@@ -427,7 +489,155 @@ describe('validateTypertManifest', () => {
       model: { ...complete.model, objects: [{ ...complete.model.objects[0], exportName: '' }] },
     })).toThrow('object has a missing or empty exportName')
   })
+
+  it('validates strict invocation descriptors and accepts legacy manifests without them', () => {
+    const legacy = completeManifest(zodish)
+    expect(validateTypertManifest('pkg', legacy)).toBe(legacy)
+
+    const descriptor = strictInvocation()
+    const manifest = { ...legacy, invocations: [descriptor] }
+    expect(validateTypertManifest('pkg', manifest)).toBe(manifest)
+    const scoped = {
+      ...descriptor,
+      scope: { context: 'agent', wire: 'agentId' },
+      parameters: [{
+        name: 'agent',
+        wire: 'agentId',
+        source: 'lookup',
+        lookup: 'agent',
+        codec: strictCodec('pkg#AgentId'),
+      }, ...descriptor.parameters],
+    }
+    expect(validateTypertManifest('pkg', { ...legacy, invocations: [scoped] }).invocations)
+      .toEqual([scoped])
+
+    expect(() => validateTypertManifest('pkg', { ...legacy, invocations: {} }))
+      .toThrow('TYPERT.invocations must be an array')
+    expect(() => validateTypertManifest('pkg', {
+      ...legacy,
+      invocations: [{ ...descriptor, invocation: { kind: 'future' } }],
+    })).toThrow('receiver kind must be "direct" or "context"')
+    expect(() => validateTypertManifest('pkg', {
+      ...legacy,
+      invocations: [{ ...descriptor, result: { mode: 'src-json' } }],
+    })).toThrow('result codec must use a strict codec')
+    expect(() => validateTypertManifest('pkg', {
+      ...legacy,
+      invocations: [{ ...descriptor, result: { mode: 'strict', typeSymbol: 'pkg#Result', schema: zodish } }],
+    })).toThrow('result codec is not backed by a zod v4 schema')
+    expect(() => validateTypertManifest('pkg', {
+      ...legacy,
+      invocations: [{
+        ...descriptor,
+        parameters: [{ ...descriptor.parameters[0], source: 'future' }],
+      }],
+    })).toThrow('parameter source must be "json" or "lookup"')
+    expect(() => validateTypertManifest('pkg', {
+      ...legacy,
+      invocations: [{
+        ...descriptor,
+        parameters: [{ ...descriptor.parameters[0], source: 'lookup' }],
+      }],
+    })).toThrow('lookup parameter has a missing or empty lookup')
+    expect(() => validateTypertManifest('pkg', {
+      ...legacy,
+      invocations: [{
+        ...descriptor,
+        parameters: [{ ...descriptor.parameters[0], lookup: 'agent' }],
+      }],
+    })).toThrow('JSON parameter declares a lookup')
+    expect(() => validateTypertManifest('pkg', {
+      ...legacy,
+      invocations: [{
+        ...descriptor,
+        parameters: [descriptor.parameters[0], { ...descriptor.parameters[0], name: 'again' }],
+      }],
+    })).toThrow('repeats wire field "request"')
+    expect(() => validateTypertManifest('pkg', {
+      ...legacy,
+      invocations: [{
+        ...descriptor,
+        invocation: {
+          kind: 'context',
+          context: 'agent',
+          wire: 'request',
+          codec: strictCodec('pkg#AgentId'),
+        },
+      }],
+    })).toThrow('repeats Context wire field "request"')
+    expect(() => validateTypertManifest('pkg', {
+      ...legacy,
+      invocations: [{ ...scoped, scope: null }],
+    })).toThrow('scope must be an object')
+    expect(() => validateTypertManifest('pkg', {
+      ...legacy,
+      invocations: [{ ...scoped, scope: { wire: 'agentId' } }],
+    })).toThrow('scope has a missing or empty context')
+    expect(() => validateTypertManifest('pkg', {
+      ...legacy,
+      invocations: [{ ...scoped, scope: { context: 'agent' } }],
+    })).toThrow('scope has a missing or empty wire')
+    expect(() => validateTypertManifest('pkg', {
+      ...legacy,
+      invocations: [{
+        ...scoped,
+        invocation: {
+          kind: 'context',
+          context: 'agent',
+          wire: 'scopeId',
+          codec: strictCodec('pkg#AgentId'),
+        },
+      }],
+    })).toThrow('Context receiver cannot declare a direct scope projection')
+    expect(() => validateTypertManifest('pkg', {
+      ...legacy,
+      invocations: [{ ...scoped, scope: { context: 'agent', wire: 'missingId' } }],
+    })).toThrow('must select its only lookup parameter')
+    expect(() => validateTypertManifest('pkg', {
+      ...legacy,
+      invocations: [{
+        ...scoped,
+        parameters: [...scoped.parameters, {
+          name: 'other',
+          wire: 'otherId',
+          source: 'lookup',
+          lookup: 'agent',
+          codec: strictCodec('pkg#AgentId'),
+        }],
+      }],
+    })).toThrow('must select its only lookup parameter')
+    expect(() => validateTypertManifest('pkg', {
+      ...legacy,
+      invocations: [{ ...scoped, scope: { context: 'other', wire: 'agentId' } }],
+    })).toThrow('must select its only lookup parameter')
+    expect(() => validateTypertManifest('pkg', {
+      ...legacy,
+      invocations: [{ ...descriptor, sourceLocation: { file: 'src/index.ts', line: 0, column: 1 } }],
+    })).toThrow('sourceLocation.line must be a positive integer')
+  })
 })
+
+function strictCodec(typeSymbol: string) {
+  return { mode: 'strict', typeSymbol, schema: z.string() }
+}
+
+function strictInvocation() {
+  return {
+    id: 'pkg#goals/create',
+    service: 'goals',
+    namespace: 'goals',
+    method: 'create',
+    invocation: { kind: 'direct' },
+    parameters: [{
+      name: 'request',
+      wire: 'request',
+      source: 'json',
+      codec: strictCodec('pkg#Request'),
+    }],
+    result: strictCodec('pkg#Result'),
+    sourceLocation: { file: 'src/index.ts', line: 1, column: 1 },
+  }
+}
 
 function completeManifest(zodish: object) {
   const member = { name: 'member', signature: 'member(): void', kind: 'method' }

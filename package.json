@@ -15,7 +15,10 @@
   ],
   "scripts": {
     "build": "npm run build:lib && npm run build:web",
-    "build:lib": "tsc -b && tsdown",
+    "build:lib": "npm run build:lib:host && npm run build:lib:client",
+    "build:lib:host": "npm run build:lib:contracts && tsc -b tsconfig.host.json",
+    "build:lib:contracts": "tsc -b packages/typert/generator && tsdown --config tsdown.typert-host.config.ts",
+    "build:lib:client": "tsc -b tsconfig.client.json && tsdown",
     "build:web": "pnpm --filter @deepseek-ai/dsh-frontend run build",
     "clean": "tsx scripts/clean.ts",
     "change-scope": "tsx scripts/change-scope.ts",
