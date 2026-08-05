@@ -87,8 +87,8 @@ producer 提供同步的 `cancel`、在资源清理后 settle 且不 reject 的 
 - **UI 格式不进入模型结果。** 围栏 ` ```console ` 块、diff、相对化路径均不应仅为服务 UI 而进入规范值或 Native 内容。`output.render` 负责模型可见的自然语言；`presentationMeta` 和卡片展示器负责可回放的 UI 状态。`terminal` 结果视图携带原始输出，由适配器按需添加回退格式。
 - **`defineTool` 对展示路径做软校验。** 格式错误或旧版日志中的 arg 形态会使包装器返回 `undefined`（通用回退）而非抛异常——展示绝不能导致回放崩溃。
 
-中性词汇定义在 `dsh-tools` 中；工具绝不导入 UI 或传输类型。TUI 和 host/client 运行时将每个 `card` 映射到各自的视图。设计与原因见[渲染意图联合体 Agent Note](../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.md)；`dsh-tool-fs`（generic/diff）和 `dsh-tool-bash`（terminal）是参考实现。
+中性词汇定义在 `dsh-tools` 中；工具绝不导入 UI 或传输类型。host/client 运行时将每个 `card` 映射到各自的视图。设计与原因见[渲染意图联合体 Agent Note](../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.md)；`dsh-tool-fs`（generic/diff）和 `dsh-tool-bash`（terminal）是参考实现。
 
 ## 每个工具必须的测试
 
-覆盖参数拒绝、每种规范值和 Native 渲染形态、输出 schema 拒绝以及 HMR dispose。对于有副作用的工具，使用脚本化的 `MockAdapter` 驱动真实工具通过 agent loop（智能体循环），并断言其 `tool/call` 和投影后的 `tool/result` 会话事件；同时证明规范值本身未被持久化。对于 UI 卡片，断言 `presentCall` 和 `presentResult` 的精确视图，并实际运行所属 TUI 或 host/client 投影。如果工具改变了已交付的模型或 UI 行为，请添加组装应用快照。
+覆盖参数拒绝、每种规范值和 Native 渲染形态、输出 schema 拒绝以及 HMR dispose。对于有副作用的工具，使用脚本化的 `MockAdapter` 驱动真实工具通过 agent loop（智能体循环），并断言其 `tool/call` 和投影后的 `tool/result` 会话事件；同时证明规范值本身未被持久化。对于 UI 卡片，断言 `presentCall` 和 `presentResult` 的精确视图，并实际运行所属 host/client 投影。如果工具改变了已交付的模型或 UI 行为，请添加组装应用快照。

@@ -11,10 +11,11 @@ import type { Context } from 'cordis'
 import { addHarnessSourceSection, resolveConfigPath } from '@deepseek-ai/dsh-app-boot'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-system-prompt'
-import type {} from '@deepseek-ai/dsh-tool-bash'
+import type {} from '@deepseek-ai/dsh-bash-env'
 import { AppCLIEntry } from './app-cli-entry.ts'
+import { createProcessShutdown } from './process-shutdown.ts'
 
-// The shared core every `dsh` surface mounts, plus this surface's overlay over it.
+// The shipped base plus the Web application's overlay.
 const BASE_CONFIG = fileURLToPath(new URL('../config/base.cordis.yml', import.meta.url))
 const WEB_OVERLAY = fileURLToPath(new URL('../config/web.cordis.yml', import.meta.url))
 const SOURCE_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
@@ -118,17 +119,12 @@ export async function runWeb(
   const { ctx, port: boundPort } = await entry.run()
   const resolvedLocalWebUrl = localWebUrl(ctx)
 
-  let exiting = false
-  const shutdown = (code: number): void => {
-    if (exiting) return
-    exiting = true
-    void Promise.resolve(ctx.fiber.dispose()).finally(() => { process.exit(code) })
-  }
+  const shutdown = createProcessShutdown(async () => { await ctx.fiber.dispose() })
 
   // Install shutdown handling before publishing readiness: supervisors may
   // send a signal as soon as they observe the URL line.
-  process.on('SIGTERM', () => { shutdown(0) })
-  process.on('SIGINT', () => { shutdown(130) })
+  process.on('SIGTERM', () => { shutdown.interrupt(0) })
+  process.on('SIGINT', () => { shutdown.interrupt(130) })
 
   // The entry's boot-time snapshot, not a fresh sample: the printed LAN URL
   // must name an address the /api trust fence was configured with.

@@ -69,4 +69,4 @@ Web e2e 场景现在在它录制的那一轮之上播种一次真实的压缩事
 
 ## Deferred
 
-终端的[压缩进度决策](../feature/2026-07-30-compaction-progress-visibility.md)使用实时独立标记对驱动单格指示器，并不改变此浏览器投影。标记仍不携带**规模**信息：检查点的 `sourceEventSeqs` 保存被遮蔽的数量，因此可以另行论证后添加计数或区间，而无须将其与进度耦合。
+终端的[已归档压缩进度决策](../../archived/feature/2026-07-30-compaction-progress-visibility.md)使用实时独立标记对驱动单格指示器，并不改变此浏览器投影。标记仍不携带**规模**信息：检查点的 `sourceEventSeqs` 保存被遮蔽的数量，因此可以另行论证后添加计数或区间，而无须将其与进度耦合。

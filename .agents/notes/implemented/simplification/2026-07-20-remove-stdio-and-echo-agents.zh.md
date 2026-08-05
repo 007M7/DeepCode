@@ -18,7 +18,7 @@ DeepSeek Harness 在 TUI 和 Headless coding agent 之外，还提供了两个�
 
 保留的应用角色均有明确归属：
 
-- [`@deepseek-ai/dsh-tui`](../../../../packages/ui/tui/README.md) 负责终端交互式执行。它会在 Loader 启动前拒绝非 TTY 流；`apps/cli/config/base.cordis.yml` 与 `tui.cordis.yml` overlay 拥有完整 coding 组装，PTY 与终端快照覆盖则位于 `apps/cli/tests/`。
+- `@deepseek-ai/dsh-tui` 负责终端交互式执行。它会在 Loader 启动前拒绝非 TTY 流；`apps/cli/config/base.cordis.yml` 与 `tui.cordis.yml` overlay 拥有完整 coding 组装，PTY 与终端快照覆盖则位于 `apps/cli/tests/`。
 - [`@deepseek-ai/dsh-cli-demo`](../../../../packages/examples/cli-demo/README.md) 负责非交互式执行，包括管道方式。`examples/headless-agent` 拥有真实模型的单次任务组装、回放快照、通用真实 agent 测试套件，以及仅供测试使用的无密钥 Loader fixture。
 - [`@deepseek-ai/dsh-acp-demo`](../../../../packages/examples/acp-demo/README.md) 和 `@deepseek-ai/dsh-jsonrpc` 负责各自的分帧协议集成。
 
