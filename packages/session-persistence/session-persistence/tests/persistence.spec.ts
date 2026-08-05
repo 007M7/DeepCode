@@ -527,6 +527,37 @@ describe('PersistenceCoordinator session preparations', () => {
     }
   })
 
+  it('observes a restored suffix initialization failure', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    const id = SessionId('prepared-suffix-init-failure')
+    backend.store.set(id, { meta: meta(id), events: oneTurnLog() })
+    let coordinator!: PersistenceCoordinator<never>
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      coordinator = new PersistenceCoordinator(inner, backend)
+    }, { inject: ['sessions'] }))
+    const preparation = await coordinator.prepare(id)
+    const internals = coordinator as unknown as {
+      preparations: { reservationFor: (session: Session) => object | undefined }
+      attachPrepared: (session: Session, reservation: object) => { init: Promise<void> }
+    }
+    const reservation = internals.preparations.reservationFor(preparation.session)
+    if (reservation === undefined) throw new Error('test preparation must stay reserved')
+    const failure = new Error('restored suffix append failed')
+    backend.beforeAppend = () => Promise.reject(failure)
+    preparation.session.append('turn/start', { turn: 2 })
+
+    try {
+      const live = internals.attachPrepared(preparation.session, reservation)
+      await expect(live.init).rejects.toBe(failure)
+    } finally {
+      preparation[Symbol.dispose]()
+      await fiber.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('reuses the exact Session from inspect through repeated unpublished prepare calls', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
