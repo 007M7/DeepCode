@@ -284,9 +284,14 @@ function renderCatalogUpdate(entries: SkillCatalogSource['entries']): UserMessag
   })
 }
 
-/** Model-facing catalog lines, projected from the same entries the source records. */
+/**
+ * Model-facing catalog lines, projected from the same entries the source records.
+ * The pseudo-XML escaping belongs to this frame, not to the published fact, so it
+ * is applied here and never stored. Names are `isSkillName`-validated and carry
+ * no escapable character.
+ */
 function renderCatalogEntries(entries: SkillCatalogSource['entries']): string[] {
-  return entries.map(entry => `- \`${entry.name}\`: ${entry.description}`)
+  return entries.map(entry => `- \`${entry.name}\`: ${escapeText(entry.description)}`)
 }
 
 /**
@@ -295,10 +300,36 @@ function renderCatalogEntries(entries: SkillCatalogSource['entries']): string[] 
  * written for the model and must not decide whether a republish is needed.
  */
 function digestCatalogEntries(entries: SkillCatalogSource['entries']): string {
-  const canonical = entries.map(entry => `${entry.name}\u0000${entry.description}`).join('\n')
+  // JSON per entry rather than a separator character: every separator is itself
+  // a legal description character, so only quoting makes the boundary exact.
+  const canonical = entries.map(entry => JSON.stringify([entry.name, entry.description])).join('\n')
   return createHash('sha256')
     .update(canonical)
     .digest('hex')
+}
+
+/**
+ * Entries of one durable catalog message, or undefined when the record is not a
+ * usable catalog.
+ *
+ * `agent.session.events` may be a resumed, forked, or externally written seed,
+ * and seed validation only guarantees a source object with a non-empty `kind`;
+ * no per-kind field is checked there. An unreadable record is therefore treated
+ * as "not this plugin's catalog" — the posture the replaced content digest had —
+ * rather than throwing inside the step listener, which would fail every
+ * subsequent turn of that session.
+ */
+function readCatalogEntries(source: unknown): SkillCatalogSource['entries'] | undefined {
+  const entries = (source as { entries?: unknown }).entries
+  if (!Array.isArray(entries)) return undefined
+  const readable: { name: string; description: string }[] = []
+  for (const entry of entries as readonly unknown[]) {
+    if (typeof entry !== 'object' || entry === null) return undefined
+    const { name, description } = entry as { name?: unknown; description?: unknown }
+    if (typeof name !== 'string' || name === '' || typeof description !== 'string') return undefined
+    readable.push({ name, description })
+  }
+  return readable
 }
 
 function catalogHistory(agent: Agent): { visibleDigest?: string; published: boolean } {
@@ -310,19 +341,19 @@ function catalogHistory(agent: Agent): { visibleDigest?: string; published: bool
     // oxlint-disable-next-line typescript/no-non-null-assertion
     const event = events[index]!
     if (event.type !== 'user/message' || event.data.source.kind !== 'skill-catalog') continue
-    const digest = digestCatalogEntries(event.data.source.entries)
+    const entries = readCatalogEntries(event.data.source)
+    if (entries === undefined) continue
+    const digest = digestCatalogEntries(entries)
     published = true
     if (visible.has(event.seq)) return { visibleDigest: digest, published }
   }
   return { published }
 }
 
+/** Normalized, length-bounded description exactly as the catalog publishes it (unescaped). */
 function catalogDescription(value: string, maxLength: number): string {
   const normalized = value.replaceAll(/\s+/g, ' ').trim()
-  const truncated = normalized.length <= maxLength
-    ? normalized
-    : `${normalized.slice(0, maxLength - 3)}...`
-  return escapeText(truncated)
+  return normalized.length <= maxLength ? normalized : `${normalized.slice(0, maxLength - 3)}...`
 }
 
 function assertPositiveInteger(name: string, value: number, minimum = 1): void {

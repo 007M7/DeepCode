@@ -19,12 +19,15 @@ describe('projectConversationHistory', () => {
         // A plugin source, because the client program does not see the host
         // packages that merge richer source kinds; those arms are pinned in
         // context-provenance.spec.ts.
-        source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
+        source: { kind: 'plugin', plugin: 'dsh-tool-skill', form: 'catalog' },
       }),
     })
     const { contexts } = projectConversationHistory([{ event: injected }])
     expect(contexts[contexts.length - 1]?.nodes).toMatchObject([{
-      kind: 'context', seq: 0, provenance: { role: 'inject', label: 'dsh-tool-skill' },
+      kind: 'context',
+      seq: 0,
+      provenance: { role: 'inject', label: 'dsh-tool-skill' },
+      form: 'catalog',
     }])
   })
 

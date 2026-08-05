@@ -23,9 +23,15 @@ Status: implemented
 
 **`instructions`**——从工作区文件中读出的指令。`workspace-context` 在启动基线与后续增量上都声明它；其既有的 `changes[]` 已经携带了呈现所需的路径、动作与 digest，因此没有新增字段。内容区在正文之上列出对账过的文件，并原样保留 `<system-reminder>` 包装：那层包装本就是模型读到的一部分，隐藏它会歪曲这次请求。
 
-**`catalog`**——本会话可用项的目录，随变化重新发布。`dsh-tool-skill` 从共享的 `plugin` kind 迁到自有的 `skill-catalog` 来源，携带 `entries`（本次发布的 `name`／`description` 对）与替换目录上的 `update`。内容区直接列出这些条目，不再从散文里反解 `<available_skills>` 块。
+**`catalog`**——本会话可用项的目录，随变化重新发布。`dsh-tool-skill` 从共享的 `plugin` kind 迁到自有的 `skill-catalog` 来源，携带 `entries`（本次发布的 `name`／`description` 对）与替换目录上的 `update`，后者由内容区渲染成替换提示。内容区直接列出这些条目，不再从散文里反解 `<available_skills>` 块。
+
+条目记录的是**未转义**的发布事实。伪 XML 转义属于 `<available_skills>` 这层为模型而设的框架，因此只在渲染该框架时施加、从不存储；否则消费方要正确展示含 `<` 的描述就得知道框架的编码方式，本决策刚移除的框架知识会换一种形式泄漏回来。`escapeText` 确定且单射，故对未转义条目取 digest 与此前完全等价，重新发布语义不变，面向模型的文本逐字节不变。
 
 这次迁移同时挪动了目录的**身份**：重新发布用的 digest 现在覆盖持久条目而非渲染文本，于是面向模型的包装再也无法左右是否需要重新发布，那段从已记录消息里切出条目的文本切分逻辑也随之删除。若恢复的会话中最新目录早于本次改动，会重新发布一次——发布前阶段的姿态允许这样做。
+
+两个读取器都是**全有或全无**：一条不可读的条目即判定整条记录不可用，而不是把它丢掉——会替换掉面向模型文本的内容区，不得给出自信但残缺的「模型读到了什么」。行上的形态标记报告的是实际渲染出的形态，而非声明的形态。
+
+生产方一侧对同一份持久数据采取同样的姿态。`catalogHistory` 从 `agent.session.events` 读 `source.entries`，而恢复或 fork 时它来自 JSONL／SQLite 种子，种子验证只保证来源是带非空 `kind` 的对象，不校验任何 kind 特有字段。因此不可读的目录被当作「不是本插件的记录」跳过——正是被替换掉的内容 digest 原有的姿态；在那里抛错会让该会话此后每一步都在最晚、最难定位的点失败。
 
 其余一切——包括本 UI 版本不呈现的形态、来源未声明形态、以及条目不可用的 `catalog`——一律渲染 **opaque** 内容区：按真实换行展示面向模型的文本，其后把剩余来源信息列成字段。opaque 是有文档的默认，不是兜底垃圾桶。恢复的、fork 的、外部写入的日志，无论其生产方是否挂载在此处都必须渲染得出来——这同样是分类信息必须落在持久来源里、而不是落在客户端以生产方为键的表里的原因。
 
@@ -47,7 +53,7 @@ Status: implemented
 
 - `packages/client/runtime` 钉住形态投影，包括必须降级为 opaque 的未知值、空值、类型不符与缺失。
 - `packages/client/ui-conversation` 逐个钉住内容区：opaque 的换行留存与来源字段、instructions 的文件列表与原样包装、catalog 的条目列表，以及条目不可用的 catalog 回落到 opaque。
-- `packages/skill/tool-skill` 钉住首次发布与替换时的新来源，以及由持久条目驱动的重新发布行为。
+- `packages/skill/tool-skill` 钉住首次发布与替换时的新来源、由持久条目驱动的重新发布行为，以及畸形持久目录不打断步骤观察。
 - 无密钥的组装 Web seeded-history 场景在 Chromium 中展开一条真实的 `instructions` 上下文，断言其文件列表、原样包装与未改动的展开项几何。`catalog` 没有组装态覆盖：隔离脚手架不发布任何 skill，因此没有目录能进入浏览器场景。
 
 ## Consequences

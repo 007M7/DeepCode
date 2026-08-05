@@ -205,11 +205,14 @@ describe('TranscriptAdapter', () => {
       adapter.reset([
         at(0, { type: 'user/message', surfaceOp: 'append', data: createUserMessage({
           content: [{ type: 'text', text: '注入的上下文' }],
-          source: { kind: 'plugin', plugin: 'compact' },
+          source: { kind: 'plugin', plugin: 'compact', form: 'instructions' },
         }) }),
       ])
       expect(adapter.nodes()).toMatchObject([{
-        kind: 'context', seq: 0, provenance: { role: 'inject', label: 'compact' },
+        kind: 'context',
+        seq: 0,
+        provenance: { role: 'inject', label: 'compact' },
+        form: 'instructions',
       }])
     })
 

@@ -23,9 +23,15 @@ The vocabulary is semantic, never visual. A value states that the content is a f
 
 **`instructions`** — instructions read out of workspace files. `workspace-context` declares it on both the startup baseline and later deltas; its existing `changes[]` already carried the paths, actions, and digests the presentation needs, so no field was added. The body lists the reconciled files above the text, and keeps the `<system-reminder>` framing verbatim: the framing is part of what the model read, so hiding it would misreport the request.
 
-**`catalog`** — a catalog of items available this session, republished as it changes. `dsh-tool-skill` moves off the shared `plugin` kind to its own `skill-catalog` source carrying `entries` (the exact `name`/`description` pairs published) and `update` on a replacement. The body lists those entries instead of re-parsing the `<available_skills>` block out of the prose.
+**`catalog`** — a catalog of items available this session, republished as it changes. `dsh-tool-skill` moves off the shared `plugin` kind to its own `skill-catalog` source carrying `entries` (the exact `name`/`description` pairs published) and `update` on a replacement, which the body renders as a replacement notice. The body lists those entries instead of re-parsing the `<available_skills>` block out of the prose.
+
+Entries record the published fact **unescaped**. The pseudo-XML escaping belongs to the `<available_skills>` frame, which exists for the model, so it is applied when rendering that frame and never stored; otherwise a consumer would have to know the frame's encoding to display a description containing `<`, and the same frame knowledge this decision removes would leak back in another shape. `escapeText` is deterministic and injective, so digesting the unescaped entries preserves republish semantics exactly, and the model-facing text stays byte-identical.
 
 That move also relocates catalog **identity**: the republish digest now covers the durable entries rather than the rendered text, so the model-facing framing can no longer decide whether a republish is needed, and the text-slicing that recovered entries from a logged message is gone. A resumed session whose newest catalog predates this change republishes once, which the pre-release stance permits.
+
+Both readers are **all-or-nothing**: one unreadable entry disqualifies the record rather than being dropped, because a body that replaces the model-facing text must not present a confident but incomplete account of what the model read. The row's form marker reports what actually rendered, not what was declared.
+
+The producer side validates the same durable data with the same posture. `catalogHistory` reads `source.entries` out of `agent.session.events`, which on resume or fork is a JSONL/SQLite seed whose validation only guarantees a source object with a non-empty `kind` — no per-kind field is checked. An unreadable catalog is therefore skipped as "not this plugin's record", the posture the replaced content digest had; throwing there would fail every later step of that session at the latest, least diagnosable point.
 
 Everything else — including a form this UI version does not present, a form absent from the source, and a `catalog` whose entries are unusable — renders the **opaque** body: the model-facing text with its real line breaks, then the remaining provenance as fields. Opaque is the documented default, not a leftover bin. A resumed, forked, or foreign log must render whether or not its producer is mounted here, which is also why the classification lives in the durable source rather than in a client-side table keyed by producer.
 
@@ -47,7 +53,7 @@ The tool seam pairs its vocabulary with `presentCall(args)`, a host-side pure fu
 
 - `packages/client/runtime` pins the form projection, including the unknown, empty, wrongly-typed, and absent values that must degrade to opaque.
 - `packages/client/ui-conversation` pins each body: the opaque body's preserved line breaks and provenance fields, the instructions body's file list and verbatim framing, the catalog body's entry list, and a catalog with unusable entries falling back to opaque.
-- `packages/skill/tool-skill` pins the new source on first publication and replacement, and republish behavior driven by the durable entries.
+- `packages/skill/tool-skill` pins the new source on first publication and replacement, republish behavior driven by the durable entries, and a malformed durable catalog leaving step observation intact.
 - The keyless assembled-Web seeded-history scenario expands a real `instructions` context in Chromium and asserts its file list, verbatim framing, and the unchanged disclosure geometry. `catalog` has no assembled coverage: the hermetic scaffold publishes no skills, so no catalog reaches a browser scenario.
 
 ## Consequences

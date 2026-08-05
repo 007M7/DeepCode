@@ -97,6 +97,14 @@ function catalogMessages(session: Session): Extract<SessionEvent, { type: 'user/
     && event.data.source.kind === 'skill-catalog')
 }
 
+function readableCatalog(event: Extract<SessionEvent, { type: 'user/message' }>): boolean {
+  const entries = (event.data.source as { entries?: unknown }).entries
+  return Array.isArray(entries)
+    && entries.every(entry => typeof entry === 'object' && entry !== null
+      && typeof (entry as { name?: unknown }).name === 'string'
+      && typeof (entry as { description?: unknown }).description === 'string')
+}
+
 function catalogContent(entries: string[]): Message['content'] {
   return [{
     type: 'text',
@@ -218,7 +226,7 @@ describe('dsh-tool-skill', () => {
           kind: 'skill-catalog',
           form: 'catalog',
           entries: [
-            { name: 'a-skill', description: 'Use {{placeholder}} &lt;safely&gt; &amp; carefully.' },
+            { name: 'a-skill', description: 'Use {{placeholder}} <safely> & carefully.' },
             { name: 'model-only-skill', description: 'Model-only skill.' },
             { name: 'z-skill', description: 'Long description Long description Long descript...' },
           ],
@@ -409,6 +417,48 @@ describe('dsh-tool-skill', () => {
     // A second step over unchanged entries republishes nothing.
     await fireStep(ctx, agent, 1, 2)
     expect(catalogMessages(session)).toHaveLength(2)
+  })
+
+  it('treats a malformed durable catalog as unrecognizable instead of failing the step', async () => {
+    // Seeds reach `agent.session.events` from JSONL/SQLite on resume or fork,
+    // and seed validation only guarantees a source object with a non-empty
+    // `kind`. A catalog whose entries are missing or wrongly shaped must be
+    // skipped like any foreign record; throwing here would fail every later
+    // step of that session at the latest possible point.
+    const home = await tempDir('tool-catalog-malformed')
+    const ctx = await setup(home)
+    ctx.skills.register({
+      name: 'live-skill',
+      description: 'Live skill',
+      source: 'runtime',
+      content: 'Live body.',
+    })
+    const session = Session.create(SessionId('catalog-malformed'))
+    const agent = sessionAgent(session)
+    openMessageTurn(session)
+    for (const source of [
+      { kind: 'skill-catalog', form: 'catalog' },
+      { kind: 'skill-catalog', form: 'catalog', entries: null },
+      { kind: 'skill-catalog', form: 'catalog', entries: 'not-an-array' },
+      { kind: 'skill-catalog', form: 'catalog', entries: [null] },
+      { kind: 'skill-catalog', form: 'catalog', entries: [{ name: 'x' }] },
+      { kind: 'skill-catalog', form: 'catalog', entries: [{ description: 'no name' }] },
+    ]) {
+      session.append('user/message', createUserMessage({
+        content: [{ type: 'text', text: 'unreadable catalog' }],
+        source: source as never,
+      }), { surfaceOp: 'append' })
+    }
+
+    await expect(fireStep(ctx, agent, 1, 1)).resolves.toBeUndefined()
+
+    // None of the six counted as published, so the live catalog lands as a
+    // first publication rather than a replacement.
+    const published = catalogMessages(session).filter(event => readableCatalog(event))
+    expect(published).toHaveLength(1)
+    expect(published[0]?.data.source).toMatchObject({ kind: 'skill-catalog', form: 'catalog' })
+    expect(published[0]?.data.source).not.toHaveProperty('update')
+    expect(JSON.stringify(published[0]?.data.content)).toContain('live-skill')
   })
 
   it('re-establishes the current catalog after compaction hides its durable message', async () => {

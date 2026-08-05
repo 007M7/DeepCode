@@ -3,7 +3,7 @@ import type { ContextMessageNode } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
 import { IconBrowseOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DisclosureRow } from './DisclosureRow.tsx'
-import { CatalogBody, InstructionsBody, OpaqueBody } from './ContextBody.tsx'
+import { contextBody } from './ContextBody.tsx'
 import css from './ContextInjectionRow.module.css'
 
 /** Props for the logged non-user message presentation. */
@@ -31,6 +31,9 @@ export interface ContextInjectionRowProps {
  */
 export function ContextInjectionRow({ content, source, provenance, form, t }: ContextInjectionRowProps) {
   const [open, setOpen] = useState(false)
+  // Resolved rather than declared: a form whose fields are unreadable renders
+  // the opaque body, and the marker must say what the row actually shows.
+  const { rendered, body } = contextBody(form, { content, source, t })
 
   return (
     <DisclosureRow
@@ -53,12 +56,8 @@ export function ContextInjectionRow({ content, source, provenance, form, t }: Co
       expandOnRowClick
       onToggle={() => { setOpen(value => !value) }}
     >
-      <div className={css.body} data-context-injection-body data-context-form={form ?? undefined}>
-        {form === 'instructions'
-          ? <InstructionsBody content={content} source={source} t={t} />
-          : form === 'catalog'
-            ? <CatalogBody content={content} source={source} t={t} />
-            : <OpaqueBody content={content} source={source} t={t} />}
+      <div className={css.body} data-context-injection-body data-context-form={rendered ?? undefined}>
+        {body}
       </div>
     </DisclosureRow>
   )

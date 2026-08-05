@@ -271,6 +271,7 @@ describe('MessageItem arms', () => {
           changes: [
             { action: 'set', scope: '.\u0000AGENTS.md', path: 'AGENTS.md', digest: 'abc' },
             { action: 'remove', scope: 'sub\u0000AGENTS.md', path: 'sub/AGENTS.md' },
+            { action: 'replace', scope: '.\u0000AGENTS.md', path: 'AGENTS.md' },
           ],
         },
         provenance: { role: 'inject', label: 'AGENTS.md, sub/AGENTS.md' },
@@ -307,6 +308,107 @@ describe('MessageItem arms', () => {
     const entries = [...view.container.querySelectorAll('[data-context-entries] li')].map(node => node.textContent)
     expect(entries).toEqual(['a-skillDoes A', 'b-skillDoes B'])
     expect(view.container.querySelector('[data-context-text]')).toBeNull()
+    expect(view.container.querySelector('[data-context-catalog-update]')).toBeNull()
+  })
+
+  it('a replacement catalog says so above its entries', () => {
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context',
+        seq: 3,
+        content: [{ type: 'text', text: 'catalog prose' }],
+        source: {
+          kind: 'skill-catalog',
+          form: 'catalog',
+          update: true,
+          entries: [{ name: 'a-skill', description: 'Does A' }],
+        },
+        provenance: { role: 'inject', label: 'skill-catalog' },
+        form: 'catalog',
+      } as never}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*skill-catalog$/ }))
+    expect(view.container.querySelector('[data-context-catalog-update]')?.textContent).toBe('替换目录')
+  })
+
+  it('a partially unreadable catalog falls back whole rather than showing a short list', () => {
+    // All-or-nothing: a body that replaces the model-facing text must not show
+    // a confident, incomplete account of what the model read.
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context',
+        seq: 3,
+        content: [{ type: 'text', text: 'catalog prose' }],
+        source: {
+          kind: 'skill-catalog',
+          form: 'catalog',
+          entries: [{ name: 'a-skill', description: 'Does A' }, { name: 'b-skill' }],
+        },
+        provenance: { role: 'inject', label: 'skill-catalog' },
+        form: 'catalog',
+      } as never}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*skill-catalog$/ }))
+    expect(view.container.querySelector('[data-context-entries]')).toBeNull()
+    expect(view.container.querySelector('[data-context-text]')?.textContent).toBe('catalog prose')
+    // The marker reports what rendered, not what was declared.
+    expect(view.container.querySelector('[data-context-injection-body]')?.getAttribute('data-context-form'))
+      .toBeNull()
+  })
+
+  it('an unreadable instruction list falls back to the opaque body with its fields', () => {
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context',
+        seq: 3,
+        content: [{ type: 'text', text: 'instruction prose' }],
+        source: { kind: 'workspace-instructions', form: 'instructions', changes: [{ action: 'set' }] },
+        provenance: { role: 'inject', label: 'workspace-instructions' },
+        form: 'instructions',
+      } as never}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*workspace-instructions$/ }))
+    expect(view.container.querySelector('[data-context-files]')).toBeNull()
+    expect(view.container.querySelector('[data-context-text]')?.textContent).toBe('instruction prose')
+    expect(view.container.querySelector('[data-context-fields]')).not.toBeNull()
+  })
+
+  it('joins adjacent text blocks the way a provider adapter flattens them', () => {
+    // No invented separator: showing a line break the model never saw would
+    // misreport the request.
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context',
+        seq: 3,
+        content: [{ type: 'text', text: 'first' }, { type: 'text', text: 'second' }],
+        source: null,
+        provenance: { role: 'inject', label: null },
+        form: null,
+      } as never}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: '上下文注入' }))
+    expect(view.container.querySelector('[data-context-text]')?.textContent).toBe('firstsecond')
+  })
+
+  it('bounds an oversized provenance field, not only the model-facing text', () => {
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context',
+        seq: 3,
+        content: [{ type: 'text', text: 'short' }],
+        source: { kind: 'plugin', note: 'y'.repeat(21_000) },
+        provenance: { role: 'inject', label: 'plugin' },
+        form: null,
+      } as never}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*plugin$/ }))
+    expect(view.container.querySelector('[data-context-fields] dd')?.textContent)
+      .toMatch(/… 已截断，共 \d+ 字符$/)
   })
 
   it('a catalog whose source carries no entries falls back to the opaque body', () => {

@@ -65,7 +65,13 @@
   color: var(--dsw-alias-label-caption);
 }
 
-/* catalog: one row per published entry. */
+/* catalog: a replacement notice above one row per published entry. */
+.catalogNotice {
+  margin: 0 0 6px;
+  color: var(--dsw-alias-label-caption);
+}
+
+
 .entries {
   display: flex;
   flex-direction: column;
