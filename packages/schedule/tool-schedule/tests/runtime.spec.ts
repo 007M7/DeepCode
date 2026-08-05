@@ -410,6 +410,30 @@ describe('Schedule runtime failure and teardown boundaries', () => {
     await departedOwner.dispose()
   })
 
+  it('stops an idle wait during dispose even if the agent never becomes idle', async () => {
+    const test = await harness()
+    appendAfter(test, 'schedule-1', 1, Date.now() - 1_000)
+    test.controls.canReserve = false
+    const owner = ownerFor(test)
+    owner.start()
+    await settle()
+
+    expect(test.controls.whenIdleCount).toBe(1)
+    let disposed = false
+    const disposal = owner.dispose().then(() => { disposed = true })
+    await settle()
+    try {
+      expect(disposed).toBe(true)
+    } finally {
+      test.controls.idle.resolve(undefined)
+      await disposal
+    }
+    await settle()
+    expect(test.followed).toEqual([])
+    expect(test.agent.session.events.filter(event =>
+      event.type === 'schedule/change' && event.data.operation === 'dispatch')).toEqual([])
+  })
+
   it('faults on corrupt or unreadable durable state after preflight', async () => {
     const corrupt = await harness()
     Object.defineProperty(corrupt.agent.session, 'events', {

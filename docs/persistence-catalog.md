@@ -514,6 +514,20 @@ Source: [`packages/core/session/src/types.ts:276`](../packages/core/session/src/
 
 Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:33`](../packages/sandbox/sandbox-policy/src/session-mode.ts)
 
+### `schedule/*`
+
+#### `schedule/change` — log-only
+
+```ts persistence-catalog
+/**
+ * Versioned Schedule mutation. The owning package validates the complete
+ * session-local transition stream before accepting a candidate event.
+ */
+'schedule/change': ScheduleChange
+```
+
+Source: [`packages/schedule/tool-schedule/src/types.ts:156`](../packages/schedule/tool-schedule/src/types.ts)
+
 ### `session/*`
 
 #### `session/end-seed` — log-only

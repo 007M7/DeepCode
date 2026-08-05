@@ -62,6 +62,7 @@
     "tests/permission-policy-context.e2e.ts",
     "tests/access-confirmation.e2e.ts",
     "tests/shipped-composition.e2e.ts",
+    "tests/schedule-after.e2e.ts",
     "tests/startup-auto-selection.e2e.ts",
     "tests/produced-files.e2e.ts",
     "tests/produced-file-mentions.e2e.ts",

@@ -95,14 +95,30 @@ declare module 'cordis' {
      */
     'session/event'(this: Scoped<Session>, session: Session, event: SessionEvent): void
     /**
-     * Awaited parallel durability checkpoint: every listener runs and the
-     * caller awaits all of them, with no waterfall veto. Scope-filtered dispatch
-     * (`@deepseek-ai/dsh-scope`) reuses the session's owner scope.
+     * Awaited parallel checkpoint: every listener runs and the caller awaits
+     * all of them, with no waterfall veto. A listener returns literal `true`
+     * only after completing durability work; observe-only listeners return
+     * void. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) reuses the
+     * session's owner scope.
      * @param session - the session whose buffered events must reach durable storage.
      * @dshScopeScan unsupported
      * @mode parallel
      */
-    'session/flush'(this: Scoped<Session>, session: Session): Promise<void> | void
+    'session/flush'(this: Scoped<Session>, session: Session): Promise<true | void> | true | void
+    /**
+     * Observe a successful durability checkpoint. `throughSeq` is the exclusive
+     * event boundary captured when {@link SessionStore.flush} began; events
+     * appended while its listeners run require a later successful checkpoint.
+     * No notification is published when no durability listener participated or
+     * any listener failed. Observer failures are logged and contained.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) reuses the session's
+     * owner scope.
+     * @param session - the session whose prefix completed the checkpoint.
+     * @param throughSeq - exclusive event sequence boundary proven by the checkpoint.
+     * @dshScopeScan unsupported
+     * @mode emit
+     */
+    'session/flushed'(this: Scoped<Session>, session: Session, throughSeq: number): void
   }
 }
 
@@ -396,7 +412,7 @@ function collectSessionCallbacks(ctx: Context, args: unknown[]): SessionCallback
 /** Invoke one resolved observe-only listener snapshot with per-listener containment. */
 function invokeContainedSessionObservers(
   ctx: Context,
-  name: 'session/event' | 'session/disposed',
+  name: 'session/event' | 'session/disposed' | 'session/flushed',
   id: SessionId,
   args: unknown[],
   callbacks: SessionCallback[],
@@ -1029,12 +1045,13 @@ export class SessionStore extends Service {
    * rather than dispatch a raw `ctx.parallel('session/flush', …)` — one owner,
    * one spelling, and the scoped-dispatch invariant can pin it.
    * @param session - the session whose buffered events must reach durable storage.
-   * @returns whether at least one durability listener participated, after every
-   *   listener has settled successfully.
+   * @returns whether at least one listener acknowledged completed durability,
+   *   after every listener has settled successfully.
    * @throws the first registered listener failure after every listener settles.
    */
   async flush(session: Session): Promise<boolean> {
     const { carrier } = this.liveEntryFor(session)
+    const throughSeq = session.seq
     const callbackArgs: unknown[] = [session]
     const callbacks = collectSessionCallbacks(this.ctx, [carrier, 'session/flush', session])
     const results = await Promise.allSettled(callbacks.map((callback) => {
@@ -1049,7 +1066,23 @@ export class SessionStore extends Service {
     }))
     const failure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
     if (failure !== undefined) throw failure.reason
-    return callbacks.length > 0
+    const durable = results.some(result => result.status === 'fulfilled' && result.value === true)
+    if (durable) {
+      const flushedArgs: unknown[] = [session, throughSeq]
+      const observers = collectSessionCallbacks(this.ctx, [
+        carrier,
+        'session/flushed',
+        ...flushedArgs,
+      ])
+      invokeContainedSessionObservers(
+        this.ctx,
+        'session/flushed',
+        session.id,
+        flushedArgs,
+        observers,
+      )
+    }
+    return durable
   }
 
   /** Return the exact live entry; detached/prepared objects reject. */

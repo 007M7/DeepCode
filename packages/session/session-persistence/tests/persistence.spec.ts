@@ -182,6 +182,7 @@ class ControlledBackend implements PersistenceBackend<never> {
   loadAttempts = 0
   repairAttempts = 0
   beforeAppend?: (attempt: number) => Promise<void>
+  afterAppend?: (attempt: number) => Promise<void>
   beforeLoadStored?: (attempt: number, signal?: AbortSignal) => Promise<void>
   /** When set, the declared seek hook delegates here so readFrom exercises it; unset throws (tests set it first). */
   seekHook?: (id: SessionId, fromSeq: number, signal?: AbortSignal) => Promise<StoredSuffix | undefined>
@@ -218,6 +219,7 @@ class ControlledBackend implements PersistenceBackend<never> {
     } else {
       entry.events.push(...structuredClone(events) as SessionEvent[])
     }
+    await this.afterAppend?.(attempt)
   }
 
   async commitRepair(m: SessionHeader, _tornMarker: undefined, closers: readonly SessionEvent[]): Promise<void> {
@@ -367,6 +369,130 @@ describe('PersistenceCoordinator bounded writes', () => {
       expect(backend.store.get(session.id)?.events.map(event => event.seq)).toEqual([0, 1])
     } finally {
       appendGate.resolve(true)
+      await fiber.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+})
+
+describe('PersistenceCoordinator retryable live initialization', () => {
+  it('retries a rejected first storage read for a new empty session', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    const loadGate = Promise.withResolvers<undefined>()
+    const retryGate = Promise.withResolvers<undefined>()
+    backend.beforeLoadStored = async (attempt) => {
+      if (attempt === 1) {
+        await loadGate.promise
+        throw new Error('transient init read failure')
+      }
+      if (attempt === 2) await retryGate.promise
+    }
+    let coordinator!: PersistenceCoordinator<never>
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      coordinator = new PersistenceCoordinator(inner, backend)
+    }, { inject: ['sessions'] }))
+
+    try {
+      const session = ctx.sessions.create(SessionId('retry-new-empty'))
+      await vi.waitFor(() => { expect(backend.loadAttempts).toBe(1) })
+      const first = ctx.sessions.flush(session)
+      loadGate.resolve(undefined)
+      await expect(first).rejects.toThrow('transient init read failure')
+      const retries = [ctx.sessions.flush(session), ctx.sessions.flush(session)]
+      await vi.waitFor(() => { expect(backend.loadAttempts).toBe(2) })
+      retryGate.resolve(undefined)
+      await expect(Promise.all(retries)).resolves.toEqual([true, true])
+      // The one shared retry performs the normal new-session probe and
+      // createCore's collision recheck; a second initialization would add two
+      // more reads.
+      expect(backend.loadAttempts).toBe(3)
+
+      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+      session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+      await ctx.sessions.flush(session)
+      expect(backend.store.get(session.id)?.events.map(event => event.seq)).toEqual([0, 1])
+
+      const live = [...(coordinator as unknown as CoordinatorInternals).live.values()][0]
+      expect(live).toMatchObject({ seedEnd: 0, initialized: true })
+      expect(live).not.toHaveProperty('seed')
+    } finally {
+      loadGate.resolve(undefined)
+      retryGate.resolve(undefined)
+      await fiber.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('uses the backend cursor when a fork seed committed before initialization rejected', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    const appendGate = Promise.withResolvers<undefined>()
+    backend.afterAppend = async (attempt) => {
+      if (attempt === 1) {
+        await appendGate.promise
+        throw new Error('uncertain init write')
+      }
+    }
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      new PersistenceCoordinator(inner, backend)
+    }, { inject: ['sessions'] }))
+
+    try {
+      const seed = oneTurnLog()
+      const session = ctx.sessions.create(SessionId('retry-fork-seed'), {
+        seed,
+        meta: { cwd: '/w', seedLength: seed.length },
+      })
+      await vi.waitFor(() => { expect(backend.appendAttempts).toBe(1) })
+      const first = ctx.sessions.flush(session)
+      appendGate.resolve(undefined)
+      await expect(first).rejects.toThrow('uncertain init write')
+      await expect(ctx.sessions.flush(session)).resolves.toBe(true)
+
+      expect(backend.appendAttempts).toBe(1)
+      expect(backend.store.get(session.id)?.events.map(event => event.seq))
+        .toEqual([0, 1, 2, 3, 4, 5, 6])
+    } finally {
+      appendGate.resolve(undefined)
+      await fiber.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('retries only a missing suffix after stored-session adoption rejects', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    const id = SessionId('retry-resume-adoption')
+    const stored = oneTurnLog()
+    backend.store.set(id, { meta: meta(id, '/w'), events: structuredClone(stored) })
+    const appendGate = Promise.withResolvers<undefined>()
+    backend.beforeAppend = async (attempt) => {
+      if (attempt === 1) {
+        await appendGate.promise
+        throw new Error('transient adoption write failure')
+      }
+    }
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      new PersistenceCoordinator(inner, backend)
+    }, { inject: ['sessions'] }))
+
+    try {
+      const session = ctx.sessions.create(id, { seed: stored, meta: { cwd: '/w' } })
+      await vi.waitFor(() => { expect(backend.appendAttempts).toBe(1) })
+      const first = ctx.sessions.flush(session)
+      appendGate.resolve(undefined)
+      await expect(first).rejects.toThrow('transient adoption write failure')
+      await expect(ctx.sessions.flush(session)).resolves.toBe(true)
+
+      expect(backend.appendAttempts).toBe(2)
+      expect(backend.store.get(id)?.events.map(event => event.seq))
+        .toEqual([0, 1, 2, 3, 4, 5, 6])
+    } finally {
+      appendGate.resolve(undefined)
       await fiber.dispose()
       await ctx.fiber.dispose()
     }

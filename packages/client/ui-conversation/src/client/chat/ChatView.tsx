@@ -24,7 +24,7 @@ import {
   memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode,
 } from 'react'
 import type {
-  CommandNode, ConversationNode, ConversationSnapshot, RunningToolCall, ToolCallBlock, ToolResultNode,
+  CommandNode, ConversationNode, ConversationSnapshot, PresentedEventNode, RunningToolCall, ToolCallBlock, ToolResultNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -33,6 +33,7 @@ import { assistantActionsSeqs, assistantBranchSeqs, deriveChatFlow, runningTurnS
 import { AssistantMarkdown } from './AssistantMarkdown.tsx'
 import { CompactionCommandCard } from './CompactionCommandCard.tsx'
 import { GenericCommandCard } from './GenericCommandCard.tsx'
+import { GenericEventCard } from './GenericEventCard.tsx'
 import { MessageItem, PendingSteeringBubble } from './MessageItem.tsx'
 import { formatRunDuration } from './message-chrome.ts'
 import { deriveTurnMetrics } from './turn-metrics.ts'
@@ -206,6 +207,24 @@ const CommandRow = memo(function CommandRow({ renderSlot, node, compaction, t }:
       {renderSlot('conversation.chat.commandview', owner, {
         entryKey: node.name ?? '',
         fallback,
+      })}
+    </div>
+  )
+})
+
+/** One Host-presented durable event: keyed dispatch on its open presentation
+ * key, with a visible JSON disclosure when no domain renderer is loaded. */
+const EventRow = memo(function EventRow({ renderSlot, node, t }: {
+  renderSlot: RenderChatSlot
+  node: PresentedEventNode
+  t: ChatViewSlotProps['t']
+}) {
+  const owner = useMemo(() => ({ node }), [node])
+  return (
+    <div className={css.callRow}>
+      {renderSlot('conversation.chat.eventview', owner, {
+        entryKey: node.presentationKey,
+        fallback: <GenericEventCard {...owner} t={t} />,
       })}
     </div>
   )
@@ -543,6 +562,9 @@ export function ChatView({
     }
     if (node.kind === 'command') {
       return <CommandRow renderSlot={renderSlot} node={node} t={t} />
+    }
+    if (node.kind === 'presented-event') {
+      return <EventRow renderSlot={renderSlot} node={node} t={t} />
     }
     /* v8 ignore next -- tool-result never reaches here: deriveChatFlow folds them into groups. */
     if (node.kind === 'tool-result') return null

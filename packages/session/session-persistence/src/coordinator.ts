@@ -1038,8 +1038,11 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       live.writes.enqueue(event)
     })
 
-    // Callers use flush as the immediate durability barrier for buffered writes.
-    ctx.on('session/flush', session => this.flush(session))
+    // A completed bounded drain acknowledges the caller's durability barrier.
+    ctx.on('session/flush', async (session) => {
+      await this.flush(session)
+      return true as const
+    })
 
     // Session disposal is observe-only, so retirement contains its own failure.
     ctx.on('session/disposed', (session) => { this.retire(session) })
@@ -1089,8 +1092,9 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       writes: this.createWriteBehind(session, () => live.init),
     }
     this.live.set(session, live)
-    live.init = this.serialize(session.header.id, () => this.onCreated(session, seed))
-    live.init.catch(() => { /* observed by flush/dispose through the controller */ })
+    void this.ensureInitialized(session, live).catch(() => {
+      /* observed by flush/dispose through the controller or retried by a later barrier */
+    })
     return live
   }
 
@@ -1151,8 +1155,10 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     const tracked = this.states.get(id)
     if (tracked !== undefined) {
       // case 1: already tracked.
-      /* v8 ignore next -- initFor dedupes per session object; same-object re-entry can't occur */
-      if (tracked.owner === session) return
+      if (tracked.owner === session) {
+        await this.reconcileOwnedSeed(session, seed, tracked)
+        return
+      }
       if (tracked.owner === undefined) {
         // Ownerless state from the public create()/load() API. The FIRST live
         // session claims it — but ONLY if BOTH the cwd scope and the seed match.
@@ -1203,6 +1209,43 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     /* v8 ignore next -- create() always sets the state for the id */
     if (created !== undefined) created.owner = session
     if (seed.length > 0) await this.appendCore(id, seed)
+  }
+
+  /**
+   * Reconcile a retrying live owner with the backend's actual durable cursor.
+   * An initialization write may have committed before its promise rejected, so
+   * retry from storage rather than from the coordinator's last acknowledged
+   * cursor. This also completes a suffix whose first attempt never committed.
+   */
+  private async reconcileOwnedSeed(
+    session: Session,
+    seed: readonly SessionEvent[],
+    tracked: SessionState,
+  ): Promise<void> {
+    const stored = await this.backend.loadStored(session.header.id)
+    if (stored === undefined) {
+      if (tracked.materialized || tracked.cursor !== 0) {
+        throw new Error(`session "${session.header.id}" lost its persisted artifact during live initialization`)
+      }
+      if (seed.length > 0) await this.appendCore(session.header.id, seed)
+      return
+    }
+    const { meta, events, tornMarker } = stored
+    this.assertStoredId(session.header.id, meta)
+    if (meta.cwd !== session.header.cwd) {
+      throw new Error(`session "${session.header.id}" is already persisted at a different cwd (persisted: ${String(meta.cwd)}, live: ${String(session.header.cwd)}) (id collision)`)
+    }
+    this.assertVersion(meta)
+    const storedEvents = snapshotStoredEvents(events, session.header.id)
+    if (!seedCoversPrefix(seed, storedEvents)) {
+      throw new Error(`session "${session.header.id}" already has a persisted log on disk that does not match this live session (id collision)`)
+    }
+    if (tornMarker !== undefined) await this.backend.commitRepair(meta, tornMarker, [])
+    tracked.meta = { ...meta }
+    tracked.cursor = storedEvents.length
+    tracked.materialized = true
+    const suffix = seed.slice(storedEvents.length)
+    if (suffix.length > 0) await this.appendCore(session.header.id, suffix)
   }
 
   /**

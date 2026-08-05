@@ -33,6 +33,23 @@ function histResponse(events: SessionEvent[], hasMore = false) {
   return Promise.resolve(ok({ events: entries(events) as never[], hasMore }))
 }
 
+function logRange(start: number, end: number, label = 'fixture/log'): SessionEvent[] {
+  return Array.from({ length: end - start }, (_value, offset) =>
+    at(start + offset, { type: label, data: { index: start + offset } }))
+}
+
+function reminderEvent(seq: number, id: string): SessionEvent {
+  return at(seq, { type: 'schedule/change', data: { version: 1, operation: 'dispatch', id } })
+}
+
+function reminderView(id: string, prompt = '检查日志') {
+  return {
+    for: 'event' as const,
+    presentationKey: 'schedule/reminder',
+    view: { id, prompt },
+  }
+}
+
 describe('open', () => {
   it('installs the tail page: cold → loading → open with window and nodes in place', async () => {
     const { api, session } = makeSession()
@@ -82,9 +99,9 @@ describe('open', () => {
     const gate = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
     api.onHistory = () => gate.promise
     const opening = session.open()
-    // Three live frames land mid-open; seq 15 overlaps the page tail (page covers 10..15).
     const page = plainTurn(10, 0, '早', '安')
-    session.handleMuxEnvelope('r1' as never, { type: 'session/event', sessionId: SID, event: ev.turnStart(15, 1) })
+    // Three live frames land mid-open; seq 15 overlaps the page tail (page covers 10..15).
+    session.handleMuxEnvelope('r1' as never, { type: 'session/event', sessionId: SID, event: page[5]! })
     session.handleMuxEnvelope('r2' as never, { type: 'session/event', sessionId: SID, event: ev.user(16, '插进来的') })
     gate.resolve(ok({
       events: entries(page) as never[],
@@ -96,6 +113,117 @@ describe('open', () => {
     // Overlapping seq-15 frame (== page tail turn/end) was dropped; 16 appended once.
     expect(seqs).toEqual([11, 13, 16])
   })
+})
+
+describe('late event views', () => {
+  it('upgrades an already-open raw event without duplicating it or letting an absent sidecar erase it', async () => {
+    const { api, session } = makeSession()
+    const event = reminderEvent(0, 'schedule-1')
+    api.onHistory = () => histResponse([event])
+    await session.open()
+    expect(session.getSnapshot().nodes).toEqual([])
+
+    session.handleMuxEnvelope('rv1' as never, {
+      type: 'session/event', sessionId: SID, event, view: reminderView('schedule-1'),
+    })
+    expect(session.getSnapshot().nodes).toMatchObject([{
+      kind: 'presented-event', seq: 0, presentationKey: 'schedule/reminder',
+      view: { id: 'schedule-1', prompt: '检查日志' },
+    }])
+
+    session.handleMuxEnvelope('rv2' as never, {
+      type: 'session/event', sessionId: SID, event,
+    })
+    expect(session.getSnapshot().nodes).toMatchObject([{
+      kind: 'presented-event', view: { prompt: '检查日志' },
+    }])
+
+    session.handleMuxEnvelope('rv3' as never, {
+      type: 'session/event', sessionId: SID, event, view: reminderView('schedule-1', '检查发布'),
+    })
+    expect(session.getSnapshot().nodes).toMatchObject([{
+      kind: 'presented-event', view: { prompt: '检查发布' },
+    }])
+  })
+
+  it('merges a view delivered while the tail history is loading', async () => {
+    const { api, session } = makeSession()
+    const event = reminderEvent(0, 'schedule-loading')
+    const gate = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    api.onHistory = () => gate.promise
+    const opening = session.open()
+    session.handleMuxEnvelope('rv' as never, {
+      type: 'session/event', sessionId: SID, event, view: reminderView('schedule-loading'),
+    })
+    gate.resolve(ok({ events: [{ event }] as never[], hasMore: false }))
+    await opening
+    expect(session.getSnapshot().nodes).toMatchObject([{
+      kind: 'presented-event', seq: 0, view: { id: 'schedule-loading' },
+    }])
+  })
+
+  it('merges a late view buffered behind a gap repair snapshot', async () => {
+    const { api, session } = makeSession()
+    const first = logRange(0, 6)
+    api.onHistory = () => histResponse(first)
+    await session.open()
+
+    const due = reminderEvent(9, 'schedule-gap')
+    const full = [...first, ...logRange(6, 9), due]
+    const gate = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    api.onHistory = () => gate.promise
+    session.handleMuxEnvelope('raw' as never, {
+      type: 'session/event', sessionId: SID, event: due,
+    })
+    session.handleMuxEnvelope('late' as never, {
+      type: 'session/event', sessionId: SID, event: due, view: reminderView('schedule-gap'),
+    })
+    gate.resolve(ok({ events: entries(full) as never[], hasMore: false }))
+
+    await vi.waitFor(() => {
+      expect(session.getSnapshot().nodes).toMatchObject([{
+        kind: 'presented-event', seq: 9, view: { id: 'schedule-gap' },
+      }])
+    })
+  })
+
+  it.each(['success', 'rejection', 'empty', 'discontinuous'] as const)(
+    'settles a late overlap after loadOlder %s',
+    async (outcome) => {
+      const { api, session } = makeSession()
+      const newer = logRange(6, 12)
+      const target = newer[3]!
+      api.onHistory = () => histResponse(newer, true)
+      await session.open()
+
+      const gate = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+      api.onHistory = () => gate.promise
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      try {
+        const loading = session.loadOlder()
+        session.handleMuxEnvelope('late' as never, {
+          type: 'session/event', sessionId: SID, event: target,
+          view: reminderView(`schedule-${outcome}`),
+        })
+        if (outcome === 'success') {
+          gate.resolve(ok({ events: entries(logRange(0, 6)) as never[], hasMore: false }))
+        } else if (outcome === 'rejection') {
+          gate.resolve(err({ code: 'internal', message: 'page rejected', details: {} }))
+        } else if (outcome === 'empty') {
+          gate.resolve(ok({ events: [], hasMore: false }))
+        } else {
+          gate.resolve(ok({ events: entries(logRange(0, 2)) as never[], hasMore: true }))
+        }
+        await loading
+        expect(session.getSnapshot().nodes).toMatchObject([{
+          kind: 'presented-event', seq: target.seq,
+          view: { id: `schedule-${outcome}` },
+        }])
+      } finally {
+        errorSpy.mockRestore()
+      }
+    },
+  )
 })
 
 
@@ -548,11 +676,12 @@ describe('live event path', () => {
   })
 
   it('repairs a seq gap by repulling the tail page instead of appending a hole', async () => {
-    const { api, session } = await opened(plainTurn(0, 0, 'a', 'b')) // tail seq = 5
-    const repaired = [...plainTurn(0, 0, 'a', 'b'), ...plainTurn(6, 1, 'c', 'd')]
+    const first = plainTurn(0, 0, 'a', 'b')
+    const { api, session } = await opened(first) // tail seq = 5
+    const repaired = [...first, ...plainTurn(6, 1, 'c', 'd')]
     api.onHistory = () => histResponse(repaired)
     // seq 9 with tail 5 → gap; the event detours to the buffer and one history refetch fires.
-    session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event: ev.assistant(9, 1, 'd') })
+    session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event: repaired[9]! })
     await vi.waitFor(() => {
       expect(api.callsOf('session.history').length).toBe(2)
     })
@@ -883,11 +1012,12 @@ describe('remaining branches', () => {
 
   it('subscribed baseline past the window tail triggers the second stitch pull in doOpen', async () => {
     const { api, session } = makeSession()
-    const full = [...plainTurn(0, 0, 'a', 'b'), ...plainTurn(6, 1, 'c', 'd')]
+    const first = plainTurn(0, 0, 'a', 'b')
+    const full = [...first, ...plainTurn(6, 1, 'c', 'd')]
     let call = 0
     api.onHistory = () => {
       call++
-      return histResponse(call === 1 ? plainTurn(0, 0, 'a', 'b') : full)
+      return histResponse(call === 1 ? first : full)
     }
     // Baseline arrives before open: lastSeq 11 > first page tail 5 → doOpen repulls once.
     session.handleMuxEnvelope('rs' as never, { type: 'session/subscribed', sessionId: SID, lastSeq: 11 })
@@ -1173,6 +1303,107 @@ describe('resync', () => {
     const snapshot = session.getSnapshot()
     expect(snapshot.openState).toBe('open') // stale failure did not settle the fresh generation into error
     expect(snapshot.nodes.map(n => n.seq)).toEqual([7, 9])
+  })
+
+  it('a stale loadOlder success and finally cannot mutate or clear a fresh-generation page request', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(logRange(6, 12), true)
+    await session.open()
+
+    const stale = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    api.onHistory = () => stale.promise
+    const staleLoad = session.loadOlder()
+
+    api.onHistory = () => histResponse(logRange(12, 18), true)
+    await session.resync()
+    const fresh = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    api.onHistory = () => fresh.promise
+    const freshLoad = session.loadOlder()
+    expect(session.getSnapshot()).toMatchObject({ loadingOlder: true, hasMore: true })
+
+    stale.resolve(ok({ events: entries(logRange(0, 6)) as never[], hasMore: false }))
+    await staleLoad
+    expect(session.getSnapshot()).toMatchObject({ loadingOlder: true, hasMore: true })
+
+    fresh.resolve(ok({ events: entries(logRange(6, 12)) as never[], hasMore: false }))
+    await freshLoad
+    expect(session.getSnapshot()).toMatchObject({ loadingOlder: false, hasMore: false })
+  })
+
+  it('a stale rejected or never-settled loadOlder cannot freeze the new generation', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(logRange(6, 12), true)
+    await session.open()
+
+    const stale = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    api.onHistory = () => stale.promise
+    const staleLoad = session.loadOlder()
+    api.onHistory = () => histResponse(logRange(12, 18), false)
+    await session.resync()
+    expect(session.getSnapshot()).toMatchObject({ openState: 'open', loadingOlder: false })
+
+    stale.reject(new Error('old page connection closed'))
+    await staleLoad
+    expect(session.getSnapshot()).toMatchObject({ openState: 'open', loadingOlder: false })
+
+    const never = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    // Re-open a pageable generation and park a request that never settles.
+    api.onHistory = () => histResponse(logRange(18, 24), true)
+    await session.resync()
+    api.onHistory = () => never.promise
+    void session.loadOlder()
+    expect(session.getSnapshot().loadingOlder).toBe(true)
+    api.onHistory = () => histResponse(logRange(24, 30), false)
+    await session.resync()
+    expect(session.getSnapshot()).toMatchObject({ openState: 'open', loadingOlder: false })
+  })
+
+  it('stale gap success, rejection, and finally cannot clear a fresh repair owner', async () => {
+    const { api, session } = makeSession()
+    const initial = logRange(0, 6)
+    api.onHistory = () => histResponse(initial)
+    await session.open()
+
+    const staleRepair = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    api.onHistory = () => staleRepair.promise
+    session.handleMuxEnvelope('old-gap' as never, {
+      type: 'session/event', sessionId: SID, event: reminderEvent(9, 'old-gap'),
+    })
+
+    const freshBase = logRange(10, 16)
+    api.onHistory = () => histResponse(freshBase)
+    await session.resync()
+
+    const freshRepair = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    let freshRepairCalls = 0
+    api.onHistory = () => {
+      freshRepairCalls++
+      return freshRepair.promise
+    }
+    const due = reminderEvent(18, 'fresh-gap')
+    session.handleMuxEnvelope('fresh-gap' as never, {
+      type: 'session/event', sessionId: SID, event: due, view: reminderView('fresh-gap'),
+    })
+    expect(freshRepairCalls).toBe(1)
+
+    staleRepair.reject(new Error('stale gap connection closed'))
+    await Promise.resolve()
+    await Promise.resolve()
+    const trailing = at(19, { type: 'fixture/log', data: { index: 19 } })
+    session.handleMuxEnvelope('fresh-trailing' as never, {
+      type: 'session/event', sessionId: SID, event: trailing,
+    })
+    expect(freshRepairCalls).toBe(1)
+
+    freshRepair.resolve(ok({
+      events: entries([...freshBase, ...logRange(16, 18), due, trailing]) as never[],
+      hasMore: false,
+    }))
+    await vi.waitFor(() => {
+      expect(session.getSnapshot().nodes).toMatchObject([{
+        kind: 'presented-event', seq: 18, view: { id: 'fresh-gap' },
+      }])
+    })
   })
 
 })

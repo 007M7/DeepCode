@@ -1,0 +1,100 @@
+# Agent Note: Durable Session-local Web reminders
+
+Status: implemented
+
+English | [中文](2026-08-05-durable-web-schedule.zh.md)
+
+## Problem
+
+A reminder created inside a conversation needs to survive a process restart and remain attributable to that exact Session. A process-local timer or model inbox item cannot provide that durability, while a global scheduler or private database would introduce a second identity, persistence, and lifecycle system. The user also needs a visible receipt even when the best-effort model turn later fails, without seeing a reminder whose dispatch never reached storage.
+
+Busy Agents, long waits, wall-clock changes, cold Sessions, forks, persistence failures, and browser history races make a simple timeout insufficient. The design must distinguish a durable record from its disposable live wait, keep a fork from inheriting its parent's active reminders, and merge a presentation sidecar that can arrive after the underlying event.
+
+## Decision
+
+The [`examples/web-schedule`](../../../../examples/web-schedule/README.md) overlay explicitly loads `@deepseek-ai/dsh-tool-schedule` and the separate `@deepseek-ai/dsh-client-ui-schedule` renderer. The default Web tree remains unchanged. Schedule observes only root Agents published after the plugin loads and installs its three tools plus one disposable owner in that Agent scope. Cold history reads, already-published roots, child Agents, and other hosts do not activate it.
+
+The user-visible boundary is `session-local`: the original Session runs an on-time reminder only while it is live, does no external notification while cold, and processes an overdue reminder after that Session becomes live again.
+
+| Scenario | Durable fact | Live behavior | User-visible result |
+| --- | --- | --- | --- |
+| Create and manage | `schedule/change` create/delete events in the original Session | Agent-scoped tools checkpoint before reading and after mutations | Stable id, UTC target, `scheduled`/`overdue`, and `session-local` disclosure |
+| Due while busy | Active create remains in the fold | Owner waits for `whenIdle()`, reserves admission, queues one followup, then appends dispatch | One replayable reminder receipt; model failure does not retract it |
+| Process stopped or Session cold | Active create remains in persistence | No timer or background scan exists; resume rebuilds the owner | Future target waits again; overdue target is attempted once |
+| Fork | Parent events remain in the inherited prefix | Child fold starts at `seedLength` | Parent receipt may appear in history, but no parent reminder becomes active child work |
+
+### Session log authority and tools
+
+The version-1 `schedule/change` stream is the only durable Schedule authority. A create record owns a Session-local, non-reused branded id, the trimmed user prompt, the rule, and its UTC target. Delete and dispatch are terminal transitions. The strict decoder and pure fold reject unknown versions, extra fields, reused ids, and transitions against inactive records. A normal Session folds its complete stream; a fork folds only events at or after `SessionHeader.seedLength`.
+
+The current rule accepts a non-empty prompt and exactly one positive safe-integer `after_seconds`. Its record is `{ id, kind: 'after', prompt, afterSeconds, scheduledAt }`; dispatch stores only the id because the record already fixes its occurrence. `at`, `every_seconds`, `cron`, and `time_zone` are rejected rather than hidden in unused fields. Tool values derive `scheduled` or `overdue` and always include `deliveryMode: 'session-local'`.
+
+Every tool operation that reads or decides from the fold first awaits `ctx.sessions.flush(session)`. Create may reject input-shape failures before this preflight; after a successful preflight it allocates an id, appends create, and waits for a second barrier. Delete preflights before deciding whether an id is active and waits for a second barrier only when it appends. List and unknown or finished delete never answer from an unconfirmed live suffix. A failed barrier returns `persistence_uncertain` rather than guessing whether an eager write committed.
+
+Every successful management preflight also asks the live owner to recompute. This closes the recovery path where create appended successfully but its post-append barrier rejected: a later list can confirm the coordinator's retained batch, return the active record, and arm its timer without a Schedule-specific retry loop.
+
+### Persistence checkpoint and initialization recovery
+
+`SessionStore.flush()` awaits every scoped listener and treats literal `true` as an explicit durability acknowledgement. An acknowledged call publishes a contained `session/flushed(session, throughSeq)` observation whose exclusive boundary was captured at call entry; append notification itself is not durability evidence. Observe-only listeners return void, an empty or observe-only checkpoint returns `false`, and any listener rejection prevents the success observation after all listeners settle.
+
+The persistence coordinator supplies that acknowledgement only after its write path is quiescent. Its live controller retains the initial `seedEnd` scalar rather than a seed copy. If the first initialization rejects, a later flush rebuilds that immutable prefix from the append-only Session, reads the backend's actual cursor, and appends only a missing suffix. This covers failures before storage changed and failures reported after a commit, so one transient error neither permanently poisons the Session nor duplicates its prefix.
+
+### Live delivery lifecycle
+
+The Agent-scoped owner derives its earliest target from the durable fold. Long targets use bounded timer segments, and every wake reads the wall clock again, so a rollback cannot fire early and a forward jump becomes overdue. An unavailable `reserveTurnAdmission()` leaves the record active and installs one `whenIdle()` wait before retrying.
+
+The accepted path first clears pending persistence, reserves turn admission, samples the decision clock once, and constructs the complete fixed reminder frame with JSON-escaped id and prompt. It synchronously queues one `followup()`, appends the id-only dispatch, and releases the reservation in `finally`; only then does it wait for the dispatch barrier. A framing or synchronous enqueue failure appends no dispatch. An append failure faults that owner because the message may already be queued. A later prompt-admission, request-checkpoint, or model failure cannot retract a dispatch.
+
+Agent or plugin disposal cancels timers, stops new work, unwinds the three tool registrations, and waits for in-flight preflights or idle waits. It never deletes durable records during teardown. The narrow crash interval after synchronous followup admission and before durable dispatch may repeat the reminder after recovery; the design prefers a visible duplicate over silent loss and makes no model-success, user-read, external-effect, or exactly-once promise.
+
+### Commit-aware Web receipt
+
+The Schedule package owns `scheduleReminderPresentation()`, which derives `{ scheduleId, prompt, occurrenceAt, deliveryMode }` from create plus dispatch. A dispatch inside an inherited fork prefix folds that parent segment for history display; a child-owned dispatch folds only the child suffix. Presentation therefore never changes live ownership.
+
+The Host continues to send every raw event on append. It keeps one monotonic watermark per exact live `Session` in a `WeakMap`; only `session/flushed` advancement makes it redeliver newly covered dispatch events with the generic `{ for: 'event', presentationKey: 'schedule/reminder', view }` sidecar. Taking the maximum contains reversed concurrent flush completion, and exact object identity prevents a reused Session id from inheriting another lifecycle's cursor.
+
+Attached history independently inspects persistence and adds views only to a stored event prefix whose header identity and every event match the live Session. Persistence canonically writes absent top-level `delegationDepth` as zero, so those two forms are identity-equivalent; cwd, lineage, origin, timestamps, version, id, and every event still match exactly. Missing, failed, divergent, or longer inspection withholds the view while returning raw history. Detached history is already a persisted prefix. A parent dispatch copied into a fork seed therefore appears in child history only after child storage proves that prefix.
+
+The browser Session accepts a repeated seq only when the durable event is deeply identical, then upgrades the sidecar without appending another event. Its existing `liveBuffer` is the sole rendezvous for tail loading, gap repair, and older-page pagination. Every current-generation settlement merges overlapping views and a contiguous suffix, including rejected, empty, and discontinuous responses; reconnect invalidates old requests and their loading ownership. `TranscriptAdapter` creates a generic `PresentedEventNode`. `ui-conversation` dispatches it through `conversation.chat.eventview` and retains an expandable JSON fallback, while `ui-schedule` owns the bilingual reminder row.
+
+```text
+schedule_create → Session create event → persistence
+                                      ↓ live owner
+due → admission → followup → dispatch → flush(true) → session/flushed
+                                                        ↓
+                                              Host late event sidecar
+                                                        ↓
+                                  client same-seq merge → keyed UI receipt
+```
+
+## Alternatives considered
+
+**Use `ctx.tasks`.** Tasks own process-local work, terminal outcomes, collection, and notifications rather than Session-log state and replayable conversation receipts. Reusing them would make the wrong lifecycle authoritative.
+
+**Store reminders in a private SQLite table or global scheduler.** This could run cold Sessions, but requires a second Session identity map, startup scan, ownership lease, crash protocol, and notification policy. The accepted scope deliberately runs only while the original Session is live.
+
+**Claim dispatch before `followup()` or add exactly-once fencing.** A claim-first record can silently lose the user-visible reminder when enqueue fails. Cross-process exactly-once requires a lease, outbox, acknowledgement, and downstream idempotency boundary that Session-local best-effort model work does not provide.
+
+**Treat the model message as the receipt.** The queued inbox item is process-local and may fail before a durable user message exists. A dispatch-derived Web receipt remains visible and replayable independently of model success.
+
+**Attach the reminder view on append.** `session/event` precedes the durability result, so this would display a ghost receipt after a rejected flush. The success watermark makes presentation follow the commit point.
+
+**Add a Schedule-specific wire frame, client cache, or management page.** The generic event sidecar, existing Session window buffer, keyed slot, and model-facing tools already carry the required result. A parallel transport or state store would duplicate identity and replay logic.
+
+**Adopt existing roots or register global tools.** Late adoption makes plugin load order change which unseen timers begin running and exposes tools outside the supported root-Agent composition. Future-root, Agent-scoped installation gives one clear lifecycle.
+
+The design does not recognize or migrate any unmerged Schedule implementation or private storage format. No fixed Session id, claim-before-send record, startup miss, or private database is a compatibility input.
+
+## Verification
+
+Package tests pin strict decoding, transitions, fork suffixes, id reuse, time bounds, bounded waits, wall-clock movement, overdue admission, fixed framing, enqueue and append failures, barrier recovery, registration rollback, and quiescent disposal at 100% per-file coverage. Persistence tests cover new, fork, and resumed initialization failures against the actual durable cursor, and a production JSONL restart proves both pending and dispatched states. Host/client tests cover commit gating, reversed watermarks, semantic header identity, per-event prefix matching, same-seq upgrades, every window merge exit, and reconnect generations.
+
+The opt-in Loader composition boots the source and built packages. A keyless real-browser scenario executes `schedule_create` through the complete tool pipeline, waits for a one-second dispatch, observes the identity-matched persisted prefix, and renders the durable reminder card from attached history. The deliberately absent model adapter closes the turn with an error after dispatch, proving that model failure does not remove the receipt.
+
+## Consequences
+
+- Reminder state survives process restart and replays through ordinary Session persistence without a new database or public service.
+- A cold Session does no work and sends no external notification; reopening it may deliver an overdue reminder, and every tool/card says `session-local`.
+- Each live root adds only fold-derived timers, an optional idle wait, and one in-flight operation. Long waits and plugin unload do not create a second durable state machine.
+- The generic commit-aware event-view path is reusable by other durable events, but it adds identity checks and generation-aware merge behavior to the client Session window.
+- The strict after-only protocol is intentionally small; other rule families require explicit record, time, and recurrence semantics rather than dormant fields.

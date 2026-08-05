@@ -6,6 +6,7 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import type { Context } from 'cordis'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type { Agent, ModelSelection, ModelSelectionRef, AgentOptions, AgentStatus } from '@deepseek-ai/dsh-agent'
@@ -30,8 +31,9 @@ import type {} from '@deepseek-ai/dsh-tools'
 import type {
   ApiProxy, ConfigurableProviderView, CredentialView, GoalRef, HistoryEntry, HostFrame,
   ModelCatalogFailure, ModelProviderGroup,
-  ModelReasoning, MuxFrame, QuestionResponsePayload, SessionProjectionsBlock, SessionSearchItem,
-  QueuedInboxItem, SessionSummary, SettingsNamespaceView, SubagentAddress, ToolEventView,
+  ModelReasoning, MuxFrame, PresentedEventView, QuestionResponsePayload, SessionEventView,
+  QueuedInboxItem, SessionProjectionsBlock, SessionSearchItem, SessionSummary, SettingsNamespaceView,
+  SubagentAddress, ToolEventView,
   WorkspaceId, WorkspaceView,
 } from './api/index.ts'
 import {
@@ -58,6 +60,10 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials'
 // Value edge: the rename impl narrows the title service's validation failure; the import also resolves `ctx.get('sessionTitle')`.
 import { SessionTitleInvalidError } from '@deepseek-ai/dsh-session-title'
 import type { CallId } from '@deepseek-ai/dsh-llm/brand'
+import {
+  SCHEDULE_REMINDER_PRESENTATION_KEY,
+  scheduleReminderPresentation,
+} from '@deepseek-ai/dsh-tool-schedule'
 import type { ApprovalOutcome, ApprovalRequestId } from '@deepseek-ai/dsh-user-approval'
 // Side-effect type import: resolves the `approval/request` waterfall and
 // `ctx.get('approval')` without a value dependency on the seam (optional composition).
@@ -466,6 +472,28 @@ function viewFor(ctx: Context, event: SessionEvent, argsFor: (callId: string) =>
 }
 
 /**
+ * Derive one Schedule-owned event sidecar without allowing corrupt domain data
+ * to break raw event delivery. `seedLength` selects the parent-prefix or
+ * child-suffix ownership segment inside the package helper.
+ */
+function scheduleViewFor(
+  ctx: Context,
+  header: SessionHeader,
+  events: readonly SessionEvent[],
+  event: SessionEvent,
+): PresentedEventView | undefined {
+  try {
+    const view = scheduleReminderPresentation(events, event.seq, header.seedLength ?? 0)
+    return view === undefined
+      ? undefined
+      : { for: 'event', presentationKey: SCHEDULE_REMINDER_PRESENTATION_KEY, view }
+  } catch (error: unknown) {
+    ctx.logger.warn(`api-proxy: Schedule presentation failed at seq ${event.seq}; serving raw event: ${String(error)}`)
+    return undefined
+  }
+}
+
+/**
  * Resolve a tool/result's call pairing by scanning a window of events backwards
  * for the matching tool/call. Used by the history path (the page is the
  * window — a cross-page pairing soft-falls to no view) and by live-path table
@@ -493,15 +521,47 @@ function historyPage(
   events: readonly SessionEvent[],
   beforeSeq: number | undefined,
   maxMessages: number | undefined,
+  presentation?: { header: SessionHeader; throughSeq: number },
 ): { events: HistoryEntry[]; hasMore: boolean } {
   const page = paginate(events, beforeSeq, maxMessages ?? DEFAULT_MAX_MESSAGES)
   return {
     events: page.events.map((event) => {
-      const view = viewFor(ctx, event, callId => backscanArgs(page.events, callId))
+      const toolView = viewFor(ctx, event, callId => backscanArgs(page.events, callId))
+      const eventView = presentation !== undefined && event.seq < presentation.throughSeq
+        ? scheduleViewFor(ctx, presentation.header, events, event)
+        : undefined
+      const view: SessionEventView | undefined = toolView ?? eventView
       return { event, ...view === undefined ? {} : { view } }
     }),
     hasMore: page.hasMore,
   }
+}
+
+/**
+ * Prove the exclusive durable prefix of one attached Session against a
+ * detached persistence inspection. The header and every stored event must
+ * match the live identity; absent top-level `delegationDepth` is the persisted
+ * format's canonical zero. A divergent or impossible suffix proves nothing
+ * and therefore returns zero.
+ */
+function identityMatchingStoredPrefix(
+  session: Pick<Session, 'header'>,
+  liveEvents: readonly SessionEvent[],
+  stored: { meta: SessionHeader; events: readonly SessionEvent[] },
+): number {
+  const liveIdentity = {
+    ...session.header,
+    delegationDepth: session.header.delegationDepth ?? 0,
+  }
+  const storedIdentity = {
+    ...stored.meta,
+    delegationDepth: stored.meta.delegationDepth ?? 0,
+  }
+  if (!isDeepStrictEqual(storedIdentity, liveIdentity) || stored.events.length > liveEvents.length) return 0
+  for (let index = 0; index < stored.events.length; index += 1) {
+    if (!isDeepStrictEqual(stored.events[index], liveEvents[index])) return 0
+  }
+  return stored.events.length
 }
 
 /**
@@ -745,6 +805,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   const pendingQuestions = new Map<RpcId, PendingQuestion>()
   const pendingApprovals = new Map<RpcId, PendingApproval>()
   const muxQueues = new Set<FrameQueue<RpcRequest<MuxFrame>>>()
+  /** Commit-aware event presentation cursor keyed by exact live Session identity. */
+  const presentedThrough = new WeakMap<Session, number>()
 
   /**
    * Install or return the session-local model selection that prompt assembly snapshots.
@@ -809,6 +871,25 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     const envelope = frame(payload)
     for (const queue of muxQueues) queue.push(envelope)
   }
+
+  // Raw append delivery remains unchanged. A successful durability checkpoint
+  // later replays only newly covered Schedule dispatches with their sidecar;
+  // exact-Session identity and max advancement contain id reuse and reversed
+  // concurrent flush completion without creating another durable state owner.
+  ctx.on('session/flushed', (session, throughSeq) => {
+    const previous = presentedThrough.get(session) ?? 0
+    if (throughSeq <= previous) return
+    presentedThrough.set(session, throughSeq)
+    for (let seq = previous; seq < throughSeq; seq += 1) {
+      const event = session.events[seq]
+      if (event === undefined) {
+        throw new Error(`api-proxy: flushed prefix for "${session.id}" is missing event seq ${seq}`)
+      }
+      const view = scheduleViewFor(ctx, session.header, session.events, event)
+      if (view === undefined) continue
+      broadcast({ type: 'session/event', sessionId: session.id, event, view })
+    }
+  })
 
   // Projection change feed → session/projection push frames. The carrier
   // mints the wire frame (the Service Definition package holds no wire vocabulary); the
@@ -1023,17 +1104,42 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   async function historyStateFor(
     sessionId: SessionId,
     includeProjections: boolean,
-  ): Promise<{ events: SessionEvent[]; projections?: SessionProjectionsBlock }> {
+  ): Promise<{
+    header: SessionHeader
+    events: SessionEvent[]
+    presentedThroughSeq: number
+    projections?: SessionProjectionsBlock
+  }> {
     const attached = ctx.sessions.get(sessionId)
     if (attached !== undefined) {
       const events = [...attached.events]
       const projections = includeProjections ? projectionsFor(ctx, attached) : undefined
-      return { events, ...projections === undefined ? {} : { projections } }
+      let presentedThroughSeq = 0
+      const persistence = ctx.get('sessionPersistence')
+      if (persistence !== undefined) {
+        try {
+          const stored = await persistence.inspect(sessionId)
+          presentedThroughSeq = identityMatchingStoredPrefix(attached, events, stored)
+        } catch (error: unknown) {
+          // Attached history remains available from the live Session. A
+          // failed or not-yet-materialized inspection only withholds
+          // commit-gated event presentation sidecars.
+          ctx.logger.warn(`session.history: persistence inspection for attached "${sessionId}" failed; serving raw events: ${String(error)}`)
+        }
+      }
+      return {
+        header: attached.header,
+        events,
+        presentedThroughSeq,
+        ...projections === undefined ? {} : { projections },
+      }
     }
     const inspected = await inspectServable(sessionId)
     const projections = includeProjections ? detachedProjectionsFor(ctx, inspected.events) : undefined
     return {
+      header: inspected.meta,
       events: inspected.events,
+      presentedThroughSeq: inspected.events.length,
       ...projections === undefined ? {} : { projections },
     }
   }
@@ -1611,7 +1717,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       async history(request) {
         const { sessionId, beforeSeq, maxMessages } = request.payload
-        let state: { events: SessionEvent[]; projections?: SessionProjectionsBlock }
+        let state: {
+          header: SessionHeader
+          events: SessionEvent[]
+          presentedThroughSeq: number
+          projections?: SessionProjectionsBlock
+        }
         try {
           state = await historyStateFor(sessionId, beforeSeq === undefined)
         } catch (error: unknown) {
@@ -1624,7 +1735,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             details: {},
           })
         }
-        const page = historyPage(ctx, state.events, beforeSeq, maxMessages)
+        const page = historyPage(ctx, state.events, beforeSeq, maxMessages, {
+          header: state.header,
+          throughSeq: state.presentedThroughSeq,
+        })
         return ok(request, {
           events: page.events,
           hasMore: page.hasMore,

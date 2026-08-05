@@ -34,6 +34,7 @@ function renderThrown(value: unknown): string {
 
 /** One process-local, disposable projection of an exact agent's durable schedules. */
 export class ScheduleOwner {
+  private readonly stop = Promise.withResolvers<void>()
   private timer: ReturnType<typeof setTimeout> | undefined
   private idleWait: Promise<void> | undefined
   private run: Promise<void> | undefined
@@ -91,6 +92,7 @@ export class ScheduleOwner {
       this.stopping = true
       this.requested = false
       this.clearTimer()
+      this.stop.resolve()
       const pending = [this.run, this.idleWait].filter((value): value is Promise<void> => value !== undefined)
       await Promise.allSettled(pending)
     })())
@@ -138,7 +140,7 @@ export class ScheduleOwner {
   /** Await one public idle boundary without holding admission or creating a retry timer. */
   private waitForIdle(): void {
     if (this.idleWait !== undefined) return
-    const wait = this.agent.whenIdle()
+    const wait = Promise.race([this.agent.whenIdle(), this.stop.promise])
     this.idleWait = wait
     void wait.then(
       () => {

@@ -252,6 +252,23 @@ export interface CommandNode {
   } | null
 }
 
+/**
+ * Host-computed presentation for one durable non-surface event. The generic
+ * runtime carries the keyed JSON-compatible payload without importing the
+ * producing domain; a client plugin owns the keyed renderer.
+ */
+export interface PresentedEventNode {
+  kind: 'presented-event'
+  /** Seq of the durable event whose sidecar produced this node. */
+  seq: number
+  /** Unix epoch ms from the source Session event. */
+  time: number
+  /** Open runtime key selecting an optional domain renderer. */
+  presentationKey: string
+  /** Domain-owned JSON-compatible presentation payload. */
+  view: unknown
+}
+
 /** Finalized conversation node union (kind discriminates; seq is the React key). */
 export type ConversationNode =
   | UserMessageNode
@@ -262,6 +279,7 @@ export type ConversationNode =
   | TurnErrorNode
   | ToolResultNode
   | CommandNode
+  | PresentedEventNode
   | CompactionSummaryNode
   | UnknownSurfaceNode
 
