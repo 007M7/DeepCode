@@ -17,4 +17,4 @@ The SDK starts the matching bundled runtime unless the caller selects an explici
 
 ## Contributor workflows
 
-The [Python contributor reference](development.md) covers building runtime artifacts, validating the packages, source-mode development, and distribution.
+The [Python contributor workflows](development.md) cover building runtime artifacts, validating the packages, source-mode development, and distribution.

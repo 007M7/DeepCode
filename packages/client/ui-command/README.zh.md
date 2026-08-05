@@ -22,5 +22,5 @@
 
 ## 已知限制与暂缓事项
 
-- **popupSelect 壳还没有已上架的业务消费方**：模型选择（host `selectModel`）是设计的参照用例，将随其自身的功能工作落地；在此之前，壳只由包测试演练。
+- **popupSelect 壳没有产品消费方**：包测试会直接演练该壳。
 - **脱离会话后，detached result 的 notice 回退到 console**：fire-and-forget 路径经 `SessionInput.notify` 把结果送到触发会话的编辑器；会话拆除后，console 输出行是仅剩的呈现面。

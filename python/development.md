@@ -2,7 +2,7 @@
 
 English | [中文](development.zh.md)
 
-Reference for building, validating, and distributing the Python SDK and bundled runtime. Package behavior belongs in the [SDK reference](sdk/README.md) and [runtime carrier reference](sdk-runtime/README.md).
+Follow the workflow for the contributor outcome you need: build runtime artifacts, validate the SDK, run against source, or build distributions. Package behavior belongs in the [SDK reference](sdk/README.md) and [runtime carrier reference](sdk-runtime/README.md).
 
 ## Build runtime artifacts
 

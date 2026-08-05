@@ -186,4 +186,4 @@ New behavior attaches to a documented extension point; a loop change updates thi
 | Fork a live session | call `ctx.sessions.fork(source, boundary?, childSessionId?)` |
 | Scope a registration to one agent | use its `agent.ctx` (see Agent Scope) |
 
-The [extension cookbook](cookbook/extension-cookbook.md) has plugin skeletons and the feature-to-seam map; guides cover [packages](cookbook/adding-a-package.md), [tools](cookbook/adding-a-tool.md), [LLM adapters](cookbook/adding-an-llm-adapter.md), and [vendored packages](cookbook/adding-a-vendored-package.md).
+The [extension cookbook](cookbook/extension-cookbook.md) has plugin skeletons; guides cover [packages](cookbook/adding-a-package.md), [tools](cookbook/adding-a-tool.md), [LLM adapters](cookbook/adding-an-llm-adapter.md), and [vendored packages](cookbook/adding-a-vendored-package.md).

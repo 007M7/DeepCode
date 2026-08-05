@@ -38,7 +38,7 @@ await ctx.plugin(ToolFs)                                  // this package — re
 
 ## 工具就是执行器；策略是事件门禁
 
-工具**不**注入策略服务，也不检查任何缓存。每个工具通过 `ctx.fs.resolve(path, { cwd, signal })` 解析路径；它会传入调用 agent 的会话 cwd（`exec.agent.session.header.cwd`），使相对路径以会话工作区为基准解析并与 `dsh-tool-bash` 一致，同时把工具取消转发到解析过程（见[每会话 cwd Agent Note](../../../.agents/notes/implemented/architecture/2026-07-02-fs-per-session-cwd.md)）。随后执行：
+工具**不**注入策略服务，也不检查任何缓存。每个工具通过 `ctx.fs.resolve(path, { cwd, signal })` 解析路径；它会传入调用 agent（智能体）的会话 cwd（`exec.agent.session.header.cwd`），使相对路径以会话工作区为基准解析并与 `dsh-tool-bash` 一致，同时把工具取消转发到解析过程（见[每会话 cwd Agent Note](../../../.agents/notes/implemented/architecture/2026-07-02-fs-per-session-cwd.md)）。随后执行：
 
 - **read**：一次 `ctx.fs.stat`（用于类型、大小路由和版本），随后调用 `readText`/`streamText`，构建行窗口，再发出 `fs/observed`，使用普通 `ctx.emit`。（1 次 stat。）
 - **write**：调用 `ctx.waterfall('fs/write-intent', target, exec, () => undefined)` 取得可选防护，然后调用 `ctx.fs.writeText(target, content, intent)`，再发出 `fs/observed`。（0 次 stat。）

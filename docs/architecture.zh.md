@@ -186,4 +186,4 @@ idle inject:
 | fork 活跃会话 | 调用 `ctx.sessions.fork(source, boundary?, childSessionId?)` |
 | 将注册项限定到单个 agent | 使用其 `agent.ctx`（参见 Agent 作用域） |
 
-[扩展实操手册（cookbook）](cookbook/extension-cookbook.md)提供插件骨架和功能到服务边界的映射；指南涵盖[包](cookbook/adding-a-package.md)、[工具](cookbook/adding-a-tool.md)、[LLM 适配器](cookbook/adding-an-llm-adapter.md)和 [vendored 包](cookbook/adding-a-vendored-package.md)。
+[扩展实操手册（cookbook）](cookbook/extension-cookbook.md)提供插件骨架；指南涵盖[包](cookbook/adding-a-package.md)、[工具](cookbook/adding-a-tool.md)、[LLM 适配器](cookbook/adding-an-llm-adapter.md)和 [vendored 包](cookbook/adding-a-vendored-package.md)。

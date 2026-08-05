@@ -20,4 +20,4 @@ None; this package neither assembles nor sends a provider request.
 
 - **Panel geometry is transient** — reload restores the sidebar default and details closed; switching between distinct Session ids also closes details and forgets its dragged width, while unselected surfaces render details at zero width without modifying geometry.
 - **Concession-chain auto-close derives a zero width without touching the preferred width** — the panel restores itself when the window widens; consumers must not read the stored details width as the rendered truth.
-- **Scroll anchoring during squeeze reflow is not implemented** — deferred with the virtualized-list project.
+- **No scroll anchoring during squeeze reflow** — layout changes may move the reader's viewport.

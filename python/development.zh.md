@@ -2,7 +2,7 @@
 
 [English](development.md) | 中文
 
-构建、验证和分发 Python SDK 与内置运行时的参考。包行为分别见 [SDK 参考](sdk/README.md)和[运行时载体参考](sdk-runtime/README.md)。
+根据所需的贡献者成果选择工作流：构建运行时产物、验证 SDK、从源码运行或构建分发包。包行为分别见 [SDK 参考](sdk/README.md)和[运行时载体参考](sdk-runtime/README.md)。
 
 ## 构建运行时产物
 

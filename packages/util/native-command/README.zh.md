@@ -8,7 +8,7 @@
 
 它是**库，不是服务或插件**：没有 `ctx`、不注册任何东西、不持有状态、不发事件。
 
-## Surface
+## 接口面
 
 ```ts
 import { runNativeCommand, type NativeCommandRunner } from '@deepseek-ai/dsh-native-command'

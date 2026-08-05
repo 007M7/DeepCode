@@ -23,4 +23,4 @@ None; this package neither assembles nor sends a provider request.
 ## Known Limitations and Deferred Work
 
 - **One-shot rendering by design** — the UI waits for the boot settle; a single entry failure keeps the loading page with a loud per-entry report, no partial availability (progressive rendering returns with its own project).
-- **Narrow-window acceptance is deferred** — the concession chain is implemented in ui-layout but the shell-level narrow-viewport walkthrough is a P-II acceptance item.
+- **Narrow-window shell behavior lacks an assembled walkthrough** — ui-layout implements the concession chain, but this package has no shell-level narrow-viewport acceptance case.
