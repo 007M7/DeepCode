@@ -277,7 +277,9 @@ function childClassName(base: string, segment: string): string {
  * escape denoting the same character, so the emitted `Literal[...]` both
  * parses and decodes back to the value the schema declared. DEL and the C1
  * controls do reach it raw — legal but invisible, byte-for-byte as in the TS
- * flavor; escaping them is a both-flavors change.
+ * flavor; escaping them is a both-flavors change. The subscript tool-name
+ * comment quotes its name through the same call and inherits both halves,
+ * escapes and pass-throughs alike.
  */
 function pyScalar(value: JsonSchemaScalar): string {
   if (value === true) return 'True'

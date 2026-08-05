@@ -571,6 +571,32 @@ describe('renderToolsSdkPy', () => {
     expect(renderToolsSdkPy([tool])).toContain(`    rows: ${'list['.repeat(179)}str${']'.repeat(179)}`)
   })
 
+  it('caps the argument annotation, the site whose enclosing paren stays open', () => {
+    // The worst of the three emission sites: the parameter list's `(` is still
+    // open around this annotation, so 180 `list[` plus the innermost bracket
+    // plus that paren is 182 of CPython's 200. Only a raw `register()` reaches
+    // it — `defineTool` compiles an object root, whose annotation is a bare
+    // TypedDict name that opens nothing.
+    const rooted = (depth: number): ToolSdkSchema => {
+      let schema: Record<string, unknown> = { type: 'string', const: 'x' }
+      for (let i = 0; i < depth; i++) schema = { type: 'array', items: schema }
+      return { name: 'rooted', description: 'Array-rooted parameters.', parameters: schema, output: { type: 'string' } }
+    }
+    // Exactly at the cap with a scalar underneath is the worst case itself: the
+    // chain's root frame starts at `listDepth: 0` here, so all 180 `list[`
+    // still emit and the innermost `Literal[` is reached rather than degraded.
+    const worst = renderToolsSdkPy([rooted(180)])
+    expect(worst).toContain(`async def rooted(self, args: ${'list['.repeat(180)}Literal["x"]${']'.repeat(180)}) -> str:`)
+    const annotation = worst.split('async def rooted(self, args: ')[1]!.split(') -> str:')[0]!
+    // 181 brackets on the annotation plus the still-open parameter-list paren,
+    // the 182 the cap is chosen against.
+    expect(annotation.split('[').length - 1).toBe(181)
+    // One array deeper is where the degradation lands, and it lands on the item
+    // rather than on another `list[`, so the count cannot grow past that.
+    expect(renderToolsSdkPy([rooted(181)]))
+      .toContain(`async def rooted(self, args: ${'list['.repeat(180)}Any${']'.repeat(180)}) -> str:`)
+  })
+
   it('renders a deeply nested oneOf chain in linear time (no per-level re-materialization)', () => {
     // Each level is a two-branch oneOf whose first branch recurses; joining the
     // accumulated union string at every level would be Theta(depth^2). At this
