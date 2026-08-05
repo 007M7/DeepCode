@@ -135,8 +135,10 @@ const RUN_CODE_DESCRIPTION_PARAM_DESCRIPTION
  * runtime is mounted — the static schema harvest (doc catalog), which never
  * reaches a model — so that path degrades to {@link TYPESCRIPT_FLAVOR}. A
  * mounted runtime whose language has no flavor entry fails loud, exactly as
- * `requireCodeRuntime` rejects it at assembly: this keeps the table coupled to
- * `SDK_RENDERERS` and never emits a wrong-language schema for a real runtime.
+ * `requireCodeRuntime` rejects it at assembly. Keeping this table in step with
+ * `SDK_RENDERERS` is the compiler's job ({@link CodeSdkLanguage}); what this
+ * guard owns is the runtime-supplied language neither table knows, which never
+ * yields a wrong-language schema for a real runtime.
  */
 function resolveFlavor(peekRuntime: () => CodeRuntime | undefined): RunCodeFlavor {
   const runtime = peekRuntime()
