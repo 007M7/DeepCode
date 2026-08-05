@@ -225,12 +225,12 @@ describe('chat-flow derivation', () => {
     expect(flowKeys(deriveChatFlow([toolResult(3, 'a'), assistant(4, 'found'), toolResult(5, 'b')]))).toBe('g3|n4|g5')
   })
 
-  it('assistantActionsSeqs keeps only the last content assistant per turn', () => {
+  it('assistantActionsSeqs keeps only the last content assistant per completed turn', () => {
     const thinkOnly: AssistantMessageNode = {
       kind: 'assistant', seq: 3, time: 3_000, turn: 1, step: 2,
       blocks: [{ kind: 'reasoning', text: 'planning' }],
     }
-    const seqs = assistantActionsSeqs([
+    const nodes: ConversationNode[] = [
       user(1, 'hi'),
       assistant(2, 'looking', 1),
       thinkOnly,
@@ -238,8 +238,11 @@ describe('chat-flow derivation', () => {
       assistant(5, 'done', 1),
       user(6, 'again'),
       assistant(7, 'second turn', 2),
-    ])
-    expect([...seqs].sort((a, b) => a - b)).toEqual([5, 7])
+    ]
+    expect([...assistantActionsSeqs(nodes, new Map([[1, 5], [2, 7]]))].sort((a, b) => a - b)).toEqual([5, 7])
+    // Turn 2 is still producing steps: its latest narration owns nothing, and
+    // the settled turn 1 keeps its seat.
+    expect([...assistantActionsSeqs(nodes, new Map([[1, 5]]))]).toEqual([5])
   })
 
   it('runningTurnStartTime selects the latest turn/start without a turn/end', () => {
@@ -401,7 +404,9 @@ describe('ChatView', () => {
     expect(view.getAllByText('interrupt now')).toHaveLength(1)
     expect(view.container.querySelector('[data-pending-steering]')).toBeNull()
     expect(view.getAllByText('插话')).toHaveLength(1)
-    expect(view.getAllByRole('button', { name: '复制' })).toHaveLength(2)
+    // Only the durable steering bubble: the turn is still running, so its
+    // assistant narration owns no footer yet.
+    expect(view.getAllByRole('button', { name: '复制' })).toHaveLength(1)
     const durableBubble = view.getByText('interrupt now').closest('[class*="userRow"]') as HTMLElement
     const unavailable = within(durableBubble).getByRole('button', { name: '在新对话中分支' })
     expect(unavailable.getAttribute('aria-disabled')).toBe('true')
@@ -523,6 +528,28 @@ describe('ChatView', () => {
     const branchButtons = view.getAllByRole('button', { name: '在新对话中分支' })
     expect(branchButtons).toHaveLength(4)
     expect(branchButtons.map(button => button.getAttribute('aria-disabled'))).toEqual(['true', null, 'true', null])
+  })
+
+  it('withholds assistant IconActions while the turn is still running', () => {
+    const h = makeHarness({
+      running: true,
+      runningCalls: [runningCall('a')],
+      nodes: [
+        user(1, 'first'),
+        assistant(2, 'previous answer', 1),
+        user(3, 'second'),
+        assistant(4, 'mid-turn text', 2),
+      ],
+      turnEnds: new Map([[1, 2]]),
+    })
+    const view = render(<h.ChatView {...h.props} />)
+    // 2 user + the settled turn-1 tail; turn 2's narration stays chrome-free
+    // while its tool runs, so the footer never appears and then moves.
+    expect(view.getAllByRole('button', { name: '复制' })).toHaveLength(3)
+    expect(view.getByText('mid-turn text')).toBeTruthy()
+    // turn/end lands: the same node becomes the settled answer and takes the seat.
+    act(() => { h.set({ running: false, runningCalls: [], turnEnds: new Map([[1, 2], [2, 5]]) }) })
+    expect(view.getAllByRole('button', { name: '复制' })).toHaveLength(4)
   })
 
   it('the actions-owning assistant footer shows the turn run time', () => {

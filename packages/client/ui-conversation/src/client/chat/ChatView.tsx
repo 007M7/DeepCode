@@ -358,9 +358,10 @@ export function ChatView({
     [inbox],
   )
   const activeRetry = useMemo(() => activeRetrySeq(nodes, running), [nodes, running])
-  // Only the last content assistant of each turn owns IconActions; mid-turn
-  // text (before tools) omits `time` so AssistantMarkdown stays chrome-free.
-  const actionSeqs = useMemo(() => assistantActionsSeqs(nodes), [nodes])
+  // Only the last content assistant of each completed turn owns IconActions;
+  // mid-turn text and every node of a running turn omit `time`, so
+  // AssistantMarkdown stays chrome-free until the answer settles.
+  const actionSeqs = useMemo(() => assistantActionsSeqs(nodes, turnEnds), [nodes, turnEnds])
   const branchSeqs = useMemo(() => messageBranchSeqs(nodes, turnEnds), [nodes, turnEnds])
   const runningTurnStart = useMemo(() => runningTurnStartTime(turnTimings), [turnTimings])
   const turnMetrics = useMemo(() => deriveTurnMetrics(nodes), [nodes])
