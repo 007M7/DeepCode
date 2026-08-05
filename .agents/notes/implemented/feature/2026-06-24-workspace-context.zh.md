@@ -14,7 +14,7 @@ Status: implemented
 
 ## 决策
 
-该实现在 `packages/context/workspace-context` 中，包名为 `@deepseek-ai/dsh-workspace-context`。它是请求上下文扩展，不是核心服务或文件系统后端。共享 demo 主干与 Host Runtime 根据显式的 `{ maxBytes } | false` 部署选择挂载它；`dsh web` 启用 65,536 字节预算，Host Runtime 的 headless 消费方则禁用它。该插件使用 `agent/step`、`tools/post-execute` 和可选的 `ctx.fs` 功能。
+该实现在 `packages/context/workspace-context` 中，包（package）名为 `@deepseek-ai/dsh-workspace-context`。它是请求上下文扩展，不是核心服务或文件系统后端。共享 demo 主干与 Host Runtime 根据显式的 `{ maxBytes } | false` 部署选择挂载它；`dsh web` 启用 65,536 字节预算，Host Runtime 的 headless 消费方则禁用它。该插件使用 `agent/pre-step`、`tools/post-execute` 和可选的 `ctx.fs` 功能。
 
 插件不会静态注入 `fs`。因此，不带提供方的产品树仍能正常启动；在文件系统提供方出现之前，插件保持无操作。所有生产读取都通过该提供方完成。候选项探测会解析每个路径并对结果执行 stat，因此会跟随最终路径组件的符号链接至其目标：指向普通文件的链接会被加载，缺失路径或非文件目标则确认为不存在。允许仓库拥有的链接跨越信任边界，是对最初不跟随探测方式的刻意反转；[跟随指令符号链接记录](2026-07-21-follow-instruction-symlinks.md)负责说明该决策及其残余风险。步骤信号与动态工具执行信号会贯穿解析、元数据探测和流式读取，因此取消不会等待无关的文件系统扫描。解析或 stat 异常归类为不可用：它只跳过该候选项，绝不被解释为已经加载的作用域被删除。
 
@@ -28,9 +28,9 @@ Status: implemented
 
 ### 基线注入
 
-在 agent loop（智能体循环）实例的第一个 `agent/step`，插件会在派生请求前注入一条带来源的 user 角色消息。它先加载用户全局文件，再从 `agent.session.header.cwd` 向上遍历至配置的根标记（默认为 `.git`）以确定项目根目录，随后从根目录至 cwd 的每级目录各加载一个候选项。`.git` 文件与 `.git` 目录都是有效标记，因而能覆盖链接 worktree 和 submodule。找不到标记时，cwd 本身就是根目录。
+在 agent loop（智能体循环）实例的第一个 `agent/pre-step`，插件会组合一条带来源的 user 角色基线。当下游决策让非空的第一步批次进入时，插件会将基线折入最终批次、紧随已领取的直接提示词之后，使其与直接提示词一同成为持久记录并抵达第一次请求。reject 或空的第一步决策会将基线留在 next-step inbox，等待后续唤醒。插件先加载用户全局文件，再从 `agent.session.header.cwd` 向上遍历至配置的根标记（默认为 `.git`）以确定项目根目录，随后从根目录至 cwd 的每级目录加载已配置候选项。`.git` 文件与 `.git` 目录都是有效标记，因而能覆盖链接 worktree 和 submodule。找不到标记时，cwd 本身就是根目录。
 
-该注入成为一条持久 `user/message`，并携带带类型的 `workspace-instructions` 来源。其 `baseline: true` 标记将完整的启动或恢复基线与后续增量区分开来，变更列表则持久保存已纳入的作用域和内容 digest。在产品主干中，工作区指令的注册先于 skill（技能）目录，所以其 `agent/step` 监听器先注入。循环会在派生第一次请求前 drain 这两条消息。
+该基线会成为一条持久 `user/message`，并携带带类型的 `workspace-instructions` 来源。其 `baseline: true` 标记将完整的启动或恢复基线与后续增量区分开来，变更列表则持久保存已纳入的作用域和内容 digest。若先前排队的 workspace 基线仍在等待，插件会删除该确切消息并 prepend 替代值，而不会累积副本。
 
 恢复 agent 会创建新的循环实例，并在其第一次请求前注入由当前文件组合的基线。这样，恢复时可以使用当前基线内容，而无需修改先前的历史事件。恢复与插件热重挂都会面对日志中可能已存在基线的情况；二者通过 `agent/session-start` 区分：启动或恢复会在第一步前发出该事件，而热重挂附着到一个已存活的会话、永远不会看到它。只有当基线的类型化事件仍在当前可见表层中时，热重挂才保留既有基线，同时仍会根据当前文件重建 scope 与提供方版本跟踪。如果压缩（compaction）已遮蔽该事件，热重挂会注入当前基线。恢复则始终重新组合。
 
@@ -68,7 +68,7 @@ shell 命令不会触发发现。本地 bash 调用会启动全新的 shell，�
 
 **使用全局 `ctx.systemPrompt.section()`。** 不予采纳，因为同一个 Cordis 上下文可以承载 cwd 不同的多个会话，而仓库自身拥有的文本属于低权威用户上下文，不是最高权威的提供方系统内容。
 
-**在每次 `agent/step` 时注入基线。** 不予采纳，因为重复注入历史会浪费 token，并使重复状态复杂化。逐挂载会话防护会在基线事件仍留在表面期间提供一条可见基线事件；动态仅追加消息负责处理变更和压缩后的重新启用。
+**始终把准备好的 workspace 上下文留在 inbox 中。** 不予采纳，因为在 pre-step 中准备的上下文会因此在当前请求结束后继续留存，并自行启动第二个模型步骤。inbox 仍作为暂存区以及 reject 时的后备，而进入步骤的 pre-step 负责随最终批次原子投递。
 
 **在一个目录中同时加载 `AGENTS.md` 和 `CLAUDE.md`。** 不予采纳，因为正在迁移的仓库通常会在两个文件中重复指引。按顺序排列的候选项让优先级显式且可配置。
 

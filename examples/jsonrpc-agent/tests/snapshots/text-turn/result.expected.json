@@ -1,1 +1,1 @@
-{"status":"ok","reason":{"kind":"completed"},"finalResponse":"SDK snapshot OK"}
+{"sessionId":"{{sessionId}}","finalResponse":"SDK snapshot OK"}

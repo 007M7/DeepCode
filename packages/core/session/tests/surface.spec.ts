@@ -22,7 +22,7 @@ import {
 /** Build a minimal session with turn boundaries and a single user message. */
 function surfaceSession(): Session {
   const s = Session.create(SessionId('ss'))
-  s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+  s.append('turn/start', { turn: 1 })
   s.append('user/message', createUserMessage({
     content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' },
   }), { surfaceOp: 'append' })
@@ -96,7 +96,7 @@ describe('foldSurface provenance', () => {
       type: 'turn/start',
       seq: 0,
       time: 1,
-      data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+      data: { turn: 1 },
       sourceEventSeqs: [0],
     } as unknown as SessionEvent
     expect(() => foldSurface([event])).toThrow(/cannot carry sourceEventSeqs/)
@@ -428,7 +428,7 @@ describe('SurfaceManager', () => {
       type: 'turn/start',
       seq: 0,
       time: 1,
-      data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+      data: { turn: 1 },
       surfaceOp: 'append',
     } as unknown as SessionEvent
 
@@ -446,7 +446,7 @@ describe('SurfaceManager', () => {
 
   it('empty surface yields empty nodes', () => {
     const s = Session.create(SessionId('empty'))
-    s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    s.append('turn/start', { turn: 1 })
     s.append('step/start', { turn: 1, step: 1 })
     s.append('step/end', { turn: 1, step: 1 })
     s.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
@@ -715,7 +715,7 @@ describe('deriveMessages with surface', () => {
 
   it('surface path skips non-surface events (chunks, boundaries)', () => {
     const s = Session.create(SessionId('filter'))
-    s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    s.append('turn/start', { turn: 1 })
     s.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'h' } })
     s.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 1, text: 'i' } })
     s.append('user/message', createUserMessage({
@@ -759,18 +759,15 @@ describe('deriveMessages with surface', () => {
     expect(messages[0]!.content[0]).toMatchObject({ type: 'text', text: 'compacted' })
   })
 
-  it('injected-context and steering/message appear on surface', () => {
+  it('injected-context and user messages appear on surface', () => {
     const s = Session.create(SessionId('ctx'))
     s.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'file changed' }], source: { kind: 'plugin', plugin: 'watcher' },
     }), { surfaceOp: 'append' })
-    s.append('steering/message', {
-      turn: 1,
-      message: createUserMessage({
-        content: [{ type: 'text', text: 'focus' }],
-        source: { kind: 'user' },
-      }),
-    }, { surfaceOp: 'append' })
+    s.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'focus' }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
     const messages = s.deriveMessages()
     expect(messages).toHaveLength(2)
     expect(messages[0]!.content).toEqual([{ type: 'text', text: 'file changed' }])
@@ -781,7 +778,7 @@ describe('deriveMessages with surface', () => {
 describe('Session.append surface opts', () => {
   it('records sourceEventSeqs and surfaceOp on the event', () => {
     const s = Session.create(SessionId('opts'))
-    s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    s.append('turn/start', { turn: 1 })
     s.append('step/start', { turn: 1, step: 1 })
     const event = s.append('assistant/message',
       {
@@ -809,7 +806,7 @@ describe('Session.append surface opts', () => {
     // but _deriveOneMessage returns null for it, so the surface derivation path's
     // null-check is exercised — the node is on the surface yet produces no message.
     const seed: SessionEvent[] = [
-      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
       { type: 'step/start', seq: 1, time: 2, data: { turn: 1, step: 1 } },
       { type: 'assistant/message', seq: 2, time: 3, data: {
         turn: 1, step: 1,
@@ -832,7 +829,7 @@ describe('Session.append surface opts', () => {
 
   it('a non-surface event carries no surface fields', () => {
     const s = Session.create(SessionId('noopts'))
-    s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    s.append('turn/start', { turn: 1 })
     expect((s.events[0] as SessionEvent<SurfaceEventType>).sourceEventSeqs).toBeUndefined()
     expect((s.events[0] as SessionEvent<SurfaceEventType>).surfaceOp).toBeUndefined()
   })
@@ -866,7 +863,7 @@ describe('Session.append surface opts', () => {
     }
     expect(isSurfaceEvent(noMarker)).toBe(false)
     // A non-surface type is rejected too (the type gate).
-    const boundary: SessionEvent = { type: 'turn/start', seq: 1, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } }
+    const boundary: SessionEvent = { type: 'turn/start', seq: 1, time: 1, data: { turn: 1 } }
     expect(isSurfaceEvent(boundary)).toBe(false)
     // A properly-marked surface event narrows.
     const marked = { ...noMarker, surfaceOp: 'append' } as SurfaceEvent
@@ -879,7 +876,6 @@ describe('surface type guards', () => {
     expect(isSurfaceEligibleType('user/message')).toBe(true)
     expect(isSurfaceEligibleType('assistant/message')).toBe(true)
     expect(isSurfaceEligibleType('tool/result')).toBe(true)
-    expect(isSurfaceEligibleType('steering/message')).toBe(true)
     expect(isSurfaceEligibleType('turn/start')).toBe(false)
     expect(isSurfaceEligibleType('assistant/chunk')).toBe(false)
   })
@@ -950,7 +946,7 @@ describe('surface type guards', () => {
 describe('SurfaceManager.replaceGeneration', () => {
   it('folds the pending log delta on access and counts replaces', () => {
     const s = Session.create(SessionId('gen'))
-    s.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    s.append('turn/start', { turn: 1 })
     s.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'one' }], source: { kind: 'user' },
     }), { surfaceOp: 'append' })

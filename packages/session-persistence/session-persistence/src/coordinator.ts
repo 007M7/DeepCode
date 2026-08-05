@@ -69,7 +69,10 @@ export interface PersistenceBackend<TornMarker = unknown> {
    * omit it and the coordinator falls back to {@link loadStored} plus a
    * forward skip. Non-mutating (no truncation, no closers). Validation of the
    * region strictly below `fromSeq` is limited to seq contiguity — the
-   * service contract scopes this read to the suffix.
+   * service contract scopes this read to the suffix — unless that suffix
+   * contains a supported legacy shape whose normalization needs earlier
+   * message-identity facts, in which case the coordinator falls back
+   * to the complete stored prefix.
    * @param id - persisted session id to resolve.
    * @param fromSeq - first event seq to include (non-negative safe integer,
    *   validated by the coordinator before this hook runs).
@@ -180,6 +183,17 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined
 }
 
+/** Whether a record contains every required key and no key outside the optional extension set. */
+function hasOnlyKeys(
+  record: Record<string, unknown>,
+  required: readonly string[],
+  optional: readonly string[] = [],
+): boolean {
+  const allowed = [...required, ...optional]
+  return Object.keys(record).every(key => allowed.includes(key))
+    && required.every(key => Object.hasOwn(record, key))
+}
+
 type PersistedMessageId = SessionEvent<'user/message'>['data']['id']
 
 /** Mint the stable import identity for a message persisted before identities existed. */
@@ -193,6 +207,138 @@ function replacementStart(event: SessionEvent): number | undefined {
   return op?.['op'] === 'replace' && typeof op['start'] === 'number'
     ? op['start']
     : undefined
+}
+
+/** Whether one suffix event needs facts available only from the preceding stored prefix. */
+function needsLegacyPrefix(event: SessionEvent): boolean {
+  const data = asRecord(event.data)
+  const legacySteeringType: string = 'steering/message'
+  if (event.type === legacySteeringType) return true
+  if (data === undefined) return false
+  switch (event.type) {
+    case 'user/message':
+      return !Object.hasOwn(data, 'id') && Object.hasOwn(data, 'content')
+    case 'assistant/message':
+      return !Object.hasOwn(data, 'message') && Object.hasOwn(data, 'content')
+    case 'tool/result':
+      return !Object.hasOwn(data, 'message') && Object.hasOwn(data, 'callId')
+    default:
+      return false
+  }
+}
+
+/** Upgrade the removed steering surface event into its current user-message equivalent. */
+function migrateLegacySteeringEvent(event: SessionEvent, id: SessionId): SessionEvent {
+  const legacyType: string = 'steering/message'
+  if (event.type !== legacyType) return event
+  const data = asRecord(event.data)
+  if (data === undefined) {
+    throw new Error(`session "${id}" contains malformed pre-react-loop steering/message at seq ${event.seq}`)
+  }
+  const wrapped = asRecord(data['message'])
+  if (wrapped !== undefined && Number.isSafeInteger(data['turn'])
+    && hasOnlyKeys(data, ['turn', 'message'])) {
+    return { ...event, type: 'user/message', data: wrapped } as SessionEvent
+  }
+  if (!Number.isSafeInteger(data['turn']) || !hasOnlyKeys(data, ['turn', 'content', 'source'])) {
+    throw new Error(`session "${id}" contains malformed pre-react-loop steering/message at seq ${event.seq}`)
+  }
+  const { turn: _turn, ...message } = data
+  return {
+    ...event,
+    type: 'user/message',
+    data: {
+      ...message,
+      id: legacyMessageId(id, event.seq),
+      role: 'user',
+    },
+  } as SessionEvent
+}
+
+/** Remove the obsolete trigger after verifying the complete old turn-start envelope. */
+function migrateLegacyTurnStartEvent(event: SessionEvent, id: SessionId): SessionEvent {
+  if (event.type !== 'turn/start') return event
+  const data = asRecord(event.data)
+  if (data === undefined || !Object.hasOwn(data, 'trigger')) return event
+  const trigger = asRecord(data['trigger'])
+  if (!Number.isSafeInteger(data['turn']) || (data['turn'] as number) < 1
+    || !hasOnlyKeys(data, ['turn', 'trigger'])
+    || trigger === undefined || typeof trigger['kind'] !== 'string' || trigger['kind'].length === 0) {
+    throw new Error(`session "${id}" contains malformed pre-react-loop turn/start at seq ${event.seq}`)
+  }
+  return { ...event, data: { turn: data['turn'] } } as SessionEvent
+}
+
+/** Upgrade an obsolete turn ending while preserving the latest-master envelope. */
+function migrateLegacyTurnEndEvent(event: SessionEvent, id: SessionId): SessionEvent {
+  if (event.type !== 'turn/end') return event
+  const data = asRecord(event.data)
+  /* v8 ignore next -- a non-record current envelope cannot match a legacy shape. */
+  if (data === undefined) return event
+  const malformed = (): never => {
+    throw new Error(`session "${id}" contains malformed pre-react-loop turn/end at seq ${event.seq}`)
+  }
+  const reason = asRecord(data['reason'])
+  if (!Number.isSafeInteger(data['turn']) || (data['turn'] as number) < 1
+    || !hasOnlyKeys(data, ['turn', 'reason'])
+    || reason === undefined || typeof reason['kind'] !== 'string') return malformed()
+
+  let currentReason: Record<string, unknown> | undefined
+  switch (reason['kind']) {
+    case 'completed':
+    case 'blocked':
+    case 'max-tokens':
+    case 'interrupted':
+      if (!hasOnlyKeys(reason, ['kind'])) return malformed()
+      return event
+    case 'aborted':
+      if (Object.hasOwn(reason, 'reason')) return event
+      if (!hasOnlyKeys(reason, ['kind'])) return malformed()
+      currentReason = { kind: 'aborted', reason: { kind: 'legacy' } }
+      break
+    case 'disposed':
+      if (!hasOnlyKeys(reason, ['kind'])) return malformed()
+      currentReason = { kind: 'aborted', reason: { kind: 'disposed' } }
+      break
+    case 'error': {
+      if (Object.hasOwn(reason, 'error')) return event
+      if (!Number.isSafeInteger(reason['step']) || (reason['step'] as number) < 0) return malformed()
+      const failure = asRecord(reason['failure'])
+      if (failure !== undefined && hasOnlyKeys(reason, ['kind', 'step', 'failure'])
+        && hasOnlyKeys(failure, ['message', 'code'], ['status', 'providerRetryAfterMs', 'requestId'])
+        && typeof failure['message'] === 'string' && typeof failure['code'] === 'string'
+        && (failure['status'] === undefined || typeof failure['status'] === 'number')
+        && (failure['providerRetryAfterMs'] === undefined || typeof failure['providerRetryAfterMs'] === 'number')
+        && (failure['requestId'] === undefined || typeof failure['requestId'] === 'string')) {
+        currentReason = { kind: 'error', error: failure }
+        break
+      }
+      const messageKeys = reason['code'] === undefined
+        ? ['kind', 'step', 'message']
+        : ['kind', 'step', 'message', 'code']
+      if (!hasOnlyKeys(reason, messageKeys)
+        || typeof reason['message'] !== 'string'
+        || (reason['code'] !== undefined && typeof reason['code'] !== 'string')) return malformed()
+      currentReason = {
+        kind: 'error',
+        error: {
+          message: reason['message'],
+          code: typeof reason['code'] === 'string' ? reason['code'] : 'UNKNOWN',
+        },
+      }
+      break
+    }
+    default:
+      return event
+  }
+
+  return {
+    ...event,
+    data: {
+      ...data,
+      reason: currentReason,
+    },
+  } as SessionEvent
 }
 
 /**
@@ -270,23 +416,6 @@ function migrateLegacyMessageEvent(
         },
       } as SessionEvent
     }
-    case 'steering/message': {
-      if (Object.hasOwn(data, 'message')
-        || !Object.hasOwn(data, 'content') || !Object.hasOwn(data, 'source')) return event
-      const { content, source, ...eventData } = data
-      return {
-        ...event,
-        data: {
-          ...eventData,
-          message: {
-            id: legacyMessageId(id, event.seq),
-            role: 'user',
-            content,
-            source,
-          },
-        },
-      } as SessionEvent
-    }
     default:
       return event
   }
@@ -304,7 +433,10 @@ function snapshotStoredEvents(events: readonly SessionEvent[], id: SessionId): S
   assertSupportedEvents(events, id)
   const messageIds = new Map<number, PersistedMessageId>()
   return events.map((event) => {
-    const snapshot = snapshotSessionEvent(migrateLegacyMessageEvent(event, id, messageIds))
+    const migratedStart = migrateLegacyTurnStartEvent(event, id)
+    const migratedTurn = migrateLegacyTurnEndEvent(migratedStart, id)
+    const migratedSteering = migrateLegacySteeringEvent(migratedTurn, id)
+    const snapshot = snapshotSessionEvent(migrateLegacyMessageEvent(migratedSteering, id, messageIds))
     const messageId = eventMessageId(snapshot)
     if (messageId !== undefined) messageIds.set(snapshot.seq, messageId)
     return snapshot
@@ -522,8 +654,11 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       if (suffix === undefined) throw new Error(`session "${id}" not found`)
       this.assertStoredId(id, suffix.meta)
       this.assertVersion(suffix.meta)
-      assertSupportedEvents(suffix.events, id)
-      return { meta: structuredClone(suffix.meta), events: structuredClone(suffix.events) }
+      if (suffix.events.some(needsLegacyPrefix)) {
+        const whole = await this.inspectCore(id, signal)
+        return { meta: whole.meta, events: whole.events.filter(event => event.seq >= fromSeq) }
+      }
+      return { meta: structuredClone(suffix.meta), events: snapshotStoredEvents(suffix.events, id) }
     }
     const whole = await this.inspectCore(id, signal)
     // Sequential fallback: contiguous seqs from 0 make the suffix an index slice.

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { Context } from 'cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import type { DirectoryListing } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
@@ -198,10 +198,11 @@ describe('directory-picker-browse client half', () => {
       />,
     )
     // The dialog opened at home; its confirm (browser.open) adopts the listed level.
-    const openButton = await screen.findByRole('button', { name: 'browser.open' })
-    openButton.click()
+    const openButton = screen.getByRole<HTMLButtonElement>('button', { name: 'browser.open' })
+    await waitFor(() => { expect(openButton.disabled).toBe(false) })
+    fireEvent.click(openButton)
     expect(props.onPicked).toHaveBeenCalledWith(HOME)
-    screen.getByRole('button', { name: 'browser.cancel' }).click()
+    fireEvent.click(screen.getByRole('button', { name: 'browser.cancel' }))
     expect(props.onCancel).toHaveBeenCalled()
     expect(props.onError).not.toHaveBeenCalled()
   })

@@ -10,13 +10,13 @@ SDK 提供方会在全新的子进程中把每个 subagent 作为完整的 DeepS
 
 工作目录的解析与 ACP 后端完全一致，并使用 seam 共享的进程外辅助工具（[`dsh-subagent`](../subagent/README.md)）：设置了 `cwd` 覆盖值时使用该值（加载时校验一次），否则使用发起委派的父会话 cwd，绝不使用服务器进程自身的 cwd。解析出的路径同时成为子进程 cwd 和其 SDK 会话的工作区 cwd。
 
-返回的 run id 在父级命名空间中生成；子运行时的会话 id 只存在于子进程内部。发布后，提供方运行一个 SDK 轮次，并从子会话事件中读取答案：最后一条完整的 `assistant/message`，或轮次被截断时已累积的 `text-delta` 流；部分答案在取消和错误路径上都得以保留。
+返回的 run id 在父级命名空间中生成；子运行时的会话 id 只存在于子进程内部。发布后，提供方拥有一段 SDK 活动，并从子会话事件中读取答案：最后一条完整的 `assistant/message`，或该活动中断前已经累积的 `text-delta` 流；部分答案在取消和错误路径上都得以保留。
 
 `dispose()`（资源释放）是幂等的：先在本地把结果确定为 `aborted`（协议层面没有提示词取消机制），再关闭运行时，即先发出一次有界的协议 `shutdown` 请求，随后通过共享的 stdin-EOF → SIGTERM → SIGKILL 阶梯使进程实际退出。
 
 ## 停止原因映射
 
-子进程在 `session.finished` 上以结构化 `TurnEndReason` 报告轮次结果；提供方将其映射为 seam 词汇。`completed` → `completed`，`max-tokens` → `max-tokens`，`aborted` → `aborted`；其余情况，包括 `error`、`interrupted`、`disposed`、未来变体或根本未运行轮次，均映射为 `error`，因此非正常停止绝不会报告为成功。发布后的传输层失败会通过 `onError` 诊断接收器（连接到 `ctx.logger.warn`）压平为 `stopReason: 'error'`；seam 契约禁止 `result` 被拒绝。
+SDK 客户端返回自有子活动，而不是提示词结果。提供方读取该活动内最后一个持久 `turn/end`，并将其映射为 seam 词汇：`completed` → `completed`，`max-tokens` → `max-tokens`，`aborted` → `aborted`；其余情况，包括 `error`、`interrupted`、`disposed`、未来变体或不含轮次的活动，均映射为 `error`，因此非正常停止绝不会报告为成功。发布后的传输层失败会通过 `onError` 诊断接收器（连接到 `ctx.logger.warn`）压平为 `stopReason: 'error'`；seam 契约禁止 `result` 被拒绝。
 
 ## 能力与上下文
 

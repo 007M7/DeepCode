@@ -1,9 +1,10 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { Context, Service, symbols } from 'cordis'
-import type { Events } from 'cordis'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { createUserMessage, freezeMessage } from '@deepseek-ai/dsh-llm'
+import { Session, SessionId, type UserMessage } from '@deepseek-ai/dsh-session'
 import AgentRegistry, {
   agentEvents,
+  Inbox,
 } from '@deepseek-ai/dsh-agent'
 
 import type {
@@ -16,24 +17,128 @@ import type {
 
 function stubAgent(rawId: string, overrides: Partial<Agent> = {}): Agent {
   const id = SessionId(rawId)
+  const session = Session.create(id)
   const agent: Agent = {
     id,
     options: {},
-    session: Session.create(id),
+    session,
+    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
     status: 'idle',
-    acceptsNextStep: false,
     ctx: new Context(),
     send: () => {},
-    updateInbox: () => 'not-found',
     followup: () => {},
     steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
     inject: () => {},
-    reserveTurnAdmission: () => undefined,
     cancel() {},
-    whenIdle() { return Promise.resolve() },
+    runMaintenance: task => task(new AbortController().signal),
+    whenIdle: () => Promise.resolve(),
   }
   return Object.assign(agent, overrides)
 }
+
+describe('Inbox', () => {
+  it('rejects an invalid durable splice during reconstruction', () => {
+    const session = Session.create(SessionId('invalid-inbox-replay'))
+    session.append('agent/inbox/spliced', {
+      target: 'next-turn',
+      start: 1,
+      inserted: [],
+    })
+
+    expect(() => new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }))
+      .toThrow('invalid persisted inbox splice at session seq 0')
+  })
+
+  it('replaces a pending message by identity across both lists', () => {
+    const session = Session.create(SessionId('replace-inbox'))
+    const inserted: UserMessage[] = []
+    const discarded: UserMessage[] = []
+    const inbox = new Inbox(session, {
+      claimed: () => {},
+      inserted: message => void inserted.push(message),
+      discarded: message => void discarded.push(message),
+    })
+    const original = createUserMessage({
+      content: [{ type: 'text', text: 'original' }],
+      source: { kind: 'user' },
+    })
+    const nextStep = createUserMessage({
+      content: [{ type: 'text', text: 'step' }],
+      source: { kind: 'user' },
+    })
+    const replacement = createUserMessage({
+      content: [{ type: 'text', text: 'replacement' }],
+      source: { kind: 'user' },
+    })
+    const editedStep = freezeMessage({
+      ...nextStep,
+      content: [{ type: 'text', text: 'edited step' }],
+    })
+    inbox.append('next-turn', original)
+    inbox.append('next-step', nextStep)
+
+    expect(inbox.replace(createUserMessage({
+      content: [{ type: 'text', text: 'missing' }],
+      source: { kind: 'user' },
+    }).id, replacement)).toBe(false)
+    expect(inbox.replace(original.id, replacement)).toBe(true)
+    expect(inbox.replace(nextStep.id, editedStep)).toBe(true)
+    expect(inbox.nextTurn).toEqual([replacement])
+    expect(inbox.nextStep).toEqual([editedStep])
+    expect(discarded).toEqual([original, nextStep])
+    expect(inserted).toEqual([original, nextStep, replacement, editedStep])
+    expect(() => { inbox.replace(editedStep.id, replacement) })
+      .toThrow(`message "${replacement.id}" is already pending`)
+  })
+
+  it('normalizes splice coordinates, rejects duplicate identities, and reports missing removals', () => {
+    const session = Session.create(SessionId('splice-inbox'))
+    const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} })
+    const first = createUserMessage({
+      content: [{ type: 'text', text: 'first' }],
+      source: { kind: 'user' },
+    })
+    const second = createUserMessage({
+      content: [{ type: 'text', text: 'second' }],
+      source: { kind: 'user' },
+    })
+
+    inbox.splice('next-turn', Number.NaN, Number.NaN, [first, second])
+    expect(inbox.nextTurn).toEqual([first, second])
+    expect(inbox.splice('next-turn', -1, 1, [])).toEqual([second])
+    expect(inbox.remove(second.id)).toBe(false)
+    expect(() => { inbox.append('next-step', first) }).toThrow(`message "${first.id}" is already pending`)
+  })
+
+  it('clears both pending lists as durable cancellations', () => {
+    const session = Session.create(SessionId('clear-inbox'))
+    const discarded: UserMessage[] = []
+    const inbox = new Inbox(session, {
+      claimed: () => {},
+      inserted: () => {},
+      discarded: message => void discarded.push(message),
+    })
+    const nextTurn = createUserMessage({ content: [{ type: 'text', text: 'turn' }], source: { kind: 'user' } })
+    const nextStep = createUserMessage({ content: [{ type: 'text', text: 'step' }], source: { kind: 'user' } })
+    inbox.append('next-turn', nextTurn)
+    inbox.append('next-step', nextStep)
+    const beforeClear = session.events.length
+
+    inbox.clear()
+
+    expect(inbox.hasPending).toBe(false)
+    expect(discarded).toEqual([nextStep, nextTurn])
+    expect(session.events.slice(beforeClear).map(event => event.type === 'agent/inbox/spliced'
+      ? event.data
+      : event.type)).toEqual([
+      { target: 'next-step', start: 0, removedCount: 1, inserted: [], outcome: 'canceled' },
+      { target: 'next-turn', start: 0, removedCount: 1, inserted: [], outcome: 'canceled' },
+    ])
+
+    inbox.clear()
+    expect(session.events).toHaveLength(beforeClear + 2)
+  })
+})
 
 describe('AgentRegistry', () => {
   it('registers exact entries, emits lifecycle events, and unregisters on owner disposal', async () => {
@@ -185,12 +290,26 @@ describe('agentEvents()', () => {
       'agent event "agent/status" listener rejected: Error: async listener',
     ])
   })
+
+  it('dispatches serial listeners with the fused agent subject', async () => {
+    const ctx = new Context()
+    const agent = stubAgent('serial-event')
+    const signal = new AbortController().signal
+    const heard: Array<{ agent: Agent; turn: number; signal: AbortSignal }> = []
+    ctx.on('agent/turn-stopping', async (subject, turn, receivedSignal) => {
+      await Promise.resolve()
+      heard.push({ agent: subject, turn, signal: receivedSignal })
+    })
+
+    await agentEvents(ctx, agent).serial('agent/turn-stopping', 3, signal)
+
+    expect(heard).toEqual([{ agent, turn: 3, signal }])
+  })
 })
 
 describe('explicit cancellation contract', () => {
   it('exposes the closed typed cancellation cause at the Agent seam', () => {
     expectTypeOf<Parameters<Agent['cancel']>[0]>().toEqualTypeOf<AgentCancelCause>()
-    expectTypeOf<Parameters<Events['agent/cancel-requested']>[1]>().toEqualTypeOf<AgentCancelCause>()
   })
 })
 

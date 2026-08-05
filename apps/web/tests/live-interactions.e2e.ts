@@ -192,9 +192,12 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
     const { settled } = await sendPrompt()
     await settled
     await page.getByRole('tab', { name: 'Trajectory' }).click()
+    // The boundary marker row itself is a 0-height hairline except at the
+    // table tail; the marker button is absolutely positioned and stays
+    // visible, so wait on it directly.
     const tailRequest = page.locator('tr[data-request-only="true"]').last()
-    await tailRequest.waitFor({ timeout: 10_000 })
     const requestMarker = tailRequest.getByRole('button', { name: /Request #/ })
+    await requestMarker.waitFor({ timeout: 10_000 })
 
     const markerWithinTable = await requestMarker.evaluate((element) => {
       const marker = element.getBoundingClientRect()

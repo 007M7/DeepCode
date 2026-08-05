@@ -172,12 +172,6 @@ function materializeNode(
         ...(requestConfig === undefined ? {} : { requestConfig }),
         ...(assistantTiming === undefined ? {} : { timing: assistantTiming }),
       }
-    case 'steering/message':
-      return {
-        kind: 'steering', messageId: event.data.message.id,
-        seq: event.seq, time: event.time, turn: event.data.turn,
-        content: event.data.message.content, source: event.data.message.source,
-      }
     case 'tool/result': {
       const result = event.data.message.content[0]
       const callId = String(event.data.message.source.callId)

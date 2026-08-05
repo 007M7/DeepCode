@@ -36,7 +36,7 @@ Automatic compaction uses one unified measurement for each threshold-and-retenti
 
 Compact policy has service-wide defaults: threshold ratio `0.8`, retained-tail ratio `0.16`, `summarizationProvider: ''`, `summarizationModel: ''`, `maxTokens: 8192`, `compactionRetries: 1`, `maxOverflowRetries: 1`, and `auto: true`. Top-level fields apply to every routed target; exact provider/model entries in `modelPolicies` partially override them. Pressure scales ratios against capacity resolved from the owning adapter, and `retainTokens` may replace `retainRatio`; retention must remain below the resulting threshold. The summarization provider and model must both be set or both be empty; an empty pair resolves the latest logged request target, then the `AgentOptions` pair.
 
-Automatic pressure runs at `agent/post-step` and measures the canonical durable envelope produced under the provider/model actually selected by `agent/request`. A headerless session has no completed routed request to assess and produces no work; any routed target can use the singleton estimator. Canonical overflow recovery uses the same measurement for forced range selection and retries only after a proven surface replacement.
+Automatic pressure runs at `agent/pre-step` before request derivation and measures the canonical durable envelope produced under the provider/model actually selected by the preceding `agent/request`. A headerless session has no completed routed request to assess and produces no work; any routed target can use the singleton estimator. Canonical overflow recovery uses the same measurement for forced range selection and retries only after a proven surface replacement.
 
 ## Testing
 

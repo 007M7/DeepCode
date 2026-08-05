@@ -24,7 +24,7 @@ SlotsService 分别为 renderer 提供 `useSessions` 与 `useWorkspaces` 的裸 
 
 ## 待处理队列投影
 
-`ConversationSnapshot.queue` 是 Host 提供的权威瞬态 inbox 快照，携带 queued 与待处理 steering（中途引导）单次入队项及其已解析 placement。每行都携带其 `InboxItemId`、稳定的 `MessageId`、所有内容块均为文本时的完整可编辑文本，以及扁平化预览。`session/queue` 会整体替换该投影；已接纳的实时 `steering/message` 事件则只退役第一个匹配的当前 steering 单次入队项，让持久节点能在下一份 Host 快照之前接管，而历史回放绝不会消费后来复用同一 `MessageId` 的单次入队项。重连缓冲只保留最新快照，普通持久轮次事件和 running 状态变化都不会猜测某个项已被认领。`Session.updateQueue()` 发送编辑、移除和严格 steering 操作，不进行乐观更新；认领与窗口关闭竞态分别会返回 `queue-item-not-found` 和 `steer-unavailable`。
+`ConversationSnapshot.queue` 是 Host 提供的 `agent.inbox.nextTurn` 权威瞬态快照；待处理的 next-step steering（中途引导）不进入此投影。每行携带其 `MessageId`、所有内容块均为文本时的完整可编辑文本，以及扁平化预览。Host 根据持久 `agent/inbox/spliced` 变更派生完整 `session/queue` 快照，并在重连时发送基线；面向单条消息的 `agent/inbox/inserted`、`claimed` 与 `discarded` 通知不用于重建该投影。`Session.updateQueue()` 经 Host 侧 `Inbox.splice()` 发送编辑／移除操作，客户端不做乐观变更，因此下一份 Host 快照是唯一可见的提交结果，claim 竞态则会返回 `queue-item-not-found`。
 
 ## 面向人的 transcript（文本记录）
 
@@ -55,10 +55,6 @@ Session 对象会在事件 wire 边界依据生产方的完整字段契约，验
 ## 会话模型选择
 
 每个常驻 `Session` 都拥有一个 `modelSelection` 快照，其中包含当前提供方/模型目标、按提供方分组的目录、逐提供方失败记录，以及 `idle`／`loading`／`ready`／`selecting`／`error` 状态。历史记录会建立或刷新当前目标，打开选择器会刷新目录；选择失败会保留上一个目标和可用分组。目录与选择操作共用单调递增的代次，因此较旧响应无法覆盖较新的选择。重连重建会恢复 Host 报告的目标，同时不替换未变化的选择子结构。
-
-## 已寻址的 subagent 对话
-
-`SessionListState.subagentsByParent` 携带直接持久化目录，`currentAddress` 则记录所选 child 从目录得到的 `{parentSessionId, childSessionId}`。只有这份已记录地址能选择 subagent 传输；单凭谱系仍然不足，因为普通 fork 同样具有 `parentId`。已寻址的 Session 通过 `subagent.history` 加载和重连，通过 `subagent.prompt` 发送，绝不调用普通取消，并在刷新期间及通过普通选择路径重复选择同一 child 时，把地址与所选会话一同持久化。列表还会投影 header 的粗粒度 `origin: 'subagent'` 分类供导航过滤；传输的权威依据仍是已记录地址，而不是 `origin`。目录读取为 single-flight；Host 基线与 `host/session-status` 都根据 child Agent driver 状态推导活动状态，读取期间收到的状态帧会在该读取的响应之上回放。按 origin 分类的 `host/session-added` 会立即把任何已加载的直接 parent 行标记为 `hasChildren: true`，并在该 parent 被选中或其目录打开时触发一次去抖动的重拉。parent 可用性会传播到 `ConversationSnapshot.subagent`，使呈现层可以把编辑器替换为只读说明，而不激活 parent。
 
 ## 模型体验
 
