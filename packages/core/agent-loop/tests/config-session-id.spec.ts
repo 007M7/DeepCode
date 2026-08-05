@@ -146,8 +146,9 @@ describe('config-driven session id', () => {
     dirs.push(root)
     const ctx = await makeCoreContext()
     await ctx.plugin(SessionPersistenceJsonl, { root })
+    ctx.llm.registerAdapter(['mock'], new MockAdapter([textResponse('saved')]))
     const sessionId = SessionId('config-exact-overlap')
-    const config = { agents: [{ id: 'main', sessionId, model: 'mock' }] }
+    const config = { agents: [{ id: 'main', sessionId, provider: 'mock', model: 'mock' }] }
     const firstLoop = await ctx.plugin(AgentLoop, config)
     await expect.poll(() => ctx.agents.get(sessionId)).toBeDefined()
     const first = ctx.agents.get(sessionId) as Agent
@@ -158,7 +159,9 @@ describe('config-driven session id', () => {
       cleanupStarted.resolve(undefined)
       await cleanupGate.promise
     })
-    first.inject(createUserMessage({ content: [{ type: 'text', text: 'persist before replacement' }], source: { kind: 'plugin', plugin: 'test' } }))
+    const idle = waitForIdle(ctx, first)
+    first.followup(createUserMessage({ content: [{ type: 'text', text: 'persist before replacement' }], source: { kind: 'user' } }))
+    await idle
     await ctx.sessions.flush(first.session)
     expect(JSON.stringify((await ctx.sessionPersistence.inspect(sessionId)).events))
       .toContain('persist before replacement')

@@ -62,7 +62,7 @@ export function apply(ctx: Context) {
 
 ## An external protocol driver
 
-A *protocol driver* adapts a wire peer to `ctx.agents`; it may serve a UI or an automation client. A stdio driver owns stdout, creates or resumes agents through the factory, maps the protocol's requests to `followup()` or `cancel()`, and settles each request exactly once from durable `turn/end`. Tear agents down with `AgentHandle.dispose()` so disposal reaches quiescence.
+A *protocol driver* adapts a wire peer to `ctx.agents`; it may serve a UI or an automation client. A stdio driver owns stdout, creates or resumes agents through the factory, and maps protocol requests to `followup()` or `cancel()`. A low-level prompt request returns its durable enqueue receipt; it does not acquire a result by correlating `MessageId` with `turn/end`. Publish whole-agent status separately. An automation method may wait from its receipt through the next idle and summarize that explicitly owned interval, while a UI normally keeps observing the open-ended event stream. Tear agents down with `AgentHandle.dispose()` so disposal reaches quiescence.
 
 [`packages/acp/acp`](../../packages/acp/acp) is the automation-only worked example: it exposes fresh text sessions over Agent Client Protocol JSON-RPC stdio, emits committed assistant text, and registers a one-shot machine permission answerer for agents it owns. Its [README](../../packages/acp/acp/README.md) owns the exact method and lifecycle contract.
 
@@ -82,7 +82,8 @@ export function apply(ctx: Context) {
       }
     }
   })
-  // Inbound "prompt": create/resume an agent and feed it; settle on turn end.
+  // Inbound "prompt": create/resume an agent, feed it, and return its enqueue receipt.
+  // Whole-agent status is a separate notification; no turn end belongs to this prompt.
   // Teardown reaches quiescence via AgentHandle.dispose() (stop + await exit).
 }
 ```
@@ -90,3 +91,38 @@ export function apply(ctx: Context) {
 ## Runnable wirings
 
 Runnable leaves load their plugin trees from `examples/*/cordis.yml`; the root `demo:*` scripts and those leaf directories are the authoritative inventory. Non-interactive leaves use [`@deepseek-ai/dsh-cli-demo`](../../packages/examples/cli-demo), ACP leaves use [`@deepseek-ai/dsh-acp-demo`](../../packages/examples/acp-demo), JSON-RPC leaves use [`@deepseek-ai/dsh-jsonrpc-demo`](../../packages/examples/jsonrpc-demo), and the app packages share [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo).
+
+## The feature → mechanism map
+
+Every product feature maps to a listener on a documented extension seam — the microkernel claim made checkable ([microkernel Agent Note](../../.agents/notes/implemented/architecture/2026-06-11-microkernel-event-taxonomy.md)). No row modifies the loop.
+
+`system-prompt/assemble` is an expert cooperative whole-assembly transform: its returned assembly is authoritative, so listener authors own preserving active Code Mode and structured-output protocol contributions. Prefer `ctx.tools.restrict()` for tool filtering that must stay aligned across presentation, lookup, and execution.
+
+| Product feature | Plugin mechanism |
+|---|---|
+| Hook system (user + project level) | listeners on `agent/session-start`, `agent/pre-step`, `agent/request`, `tools/pre-execute`, `tools/post-execute`, and `agent/turn-stopping`; the waterfall seams return typed decisions, while `agent/turn-stopping` may steer another step; the `dsh-hooks-claude` / `dsh-hooks-codex` bridges map hook config files onto these seams |
+| `/goal` | `ctx.goals` owns durable state, `dsh-goal-session` schedules same-session rounds through the public `Agent`, and separate command/tool producers expose human/model control |
+| `/loop` | on the `turn/end` session event, `followup()` the next iteration; or force-continue |
+| Dynamic workflow | `ctx.workflows` + the worker-thread engine + the `workflow` tool; structured in-process children enforce output with scoped prompt/tool registrations, a monotonic tool guard, final `tools/result` commit (including enclosing `run_code`), and the structured-output execution's monotonic `concludeTurn()` marker |
+| Queued + steering messages | core `Agent.followup()` / `Agent.steer()` |
+| Context compaction (auto + manual) | the `ctx.compact` seam + `dsh-compact-basic`; automatic pressure runs on serial `agent/pre-step`, canonical overflow recovery runs on `agent/request-error`, and manual callers use the same compact service ([compaction Agent Note](../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md) — the model-facing `/compact` consumer tool is deferred) |
+| System prompt configurability | `ctx.systemPrompt.section()` with ordering and scope-local shadowing |
+| AGENTS.md (root) | a section provider reading the file |
+| AGENTS.md (subdir, on-touch) + file-change notices | `agent.inject()` from a watcher / tool-result listener |
+| Built-in tools | `ctx.tools.register()`; schemas flow into the assembly automatically — the `dsh-tool-*` families (bash, fs, web, subagent, todo) are the shipped examples |
+| ToolSearch / progressive disclosure | replace a scoped `ctx.tools.restrict()` registration as the visible set changes; the registry keeps presentation, lookup, and execution aligned |
+| Tool deadline / retry / metrics | wrap core dispatch with `tools/execute`; a wrapper may replace `exec.signal`, delegate, and inspect the normalized result in one lexical lifetime |
+| Final tool-result metrics / audit / capture | observe immutable authoritative outcomes with `tools/result`; use `tools/post-execute` instead only when the plugin must transform the result or attach context |
+| Monotonic terminal turn policy | call `ToolExecution.concludeTurn()` from the successful terminal tool; later tool calls in the same response remain guardable, and the loop stops after the step |
+| Subprocess sandbox (landlock / sandbox-exec) | use a `ctx.sandbox` backend through `dsh-bash-sandbox`; use `tools/pre-execute` for capability-level denial |
+| Permission system / AskUserQuestion | return `ask` from `tools/pre-execute` and answer through `ctx.approval`; register a separate model-facing ask tool for ordinary user questions |
+| Plan mode | Shipped: [`@deepseek-ai/dsh-plan-mode`](../../packages/plan/plan-mode/README.md) — logged `plan/mode` state, the `plan:policy` guidance section, `/plan [message]` entry, `/plan off` direct exit, and the user-reviewed `exit_plan_mode` exit; enforcement stays on the independent sandbox/approval axes |
+| Sub-agent delegation | the `ctx.subagents` provider registry (`dsh-subagent-spawn`/`-fork`/`-acp`) + `dsh-tool-subagent` exposing one configured provider to the model |
+| MCP | one plugin per server: discover tools → `ctx.tools.register()` |
+| Skills | section + tool registration; `inject()` skill content on invocation |
+| Memory | section provider + tool |
+| Scheduled tasks (cron) | a plugin registers model-callable scheduling tools; timer fires → `followup(…, {source: {kind: 'cron', …}})` when idle / `inject()` notification when busy |
+| UI (GUI; CLI emits JSONL) | listen `session/event` (assistant chunks, boundaries, tool activity); input → `followup()` |
+| Telemetry / replayable trace | `session/event` → JSONL; replay = `sessions.create(id, { seed })` |
+| Model adapters | `LlmAdapter` subclass via `registerAdapter` (`dsh-llm-deepseek`, `dsh-llm-pi-ai`) |
+| Plugin hot-reload | every registration is a `ctx.effect` → vendored HMR just works |

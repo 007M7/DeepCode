@@ -4,7 +4,7 @@ Status: implemented
 
 English | [中文](2026-07-25-web-client-session-scope-and-provide-channel.zh.md)
 
-> Scope: the client Agent scope (actx) and targeted events, the client/host materialization parity model, the blank-session bit and reuse (`connectWorkspace`), the per-session provisioning channel (`sessions.provide`), the read-only queue mirror (`session/queued`), and the host wire smalls that carry these capabilities (the summary `blank` column, the `host/session-added` frame field, and the `host/commands-changed` frame). The input state machine and the slash pipeline live in the [input machine note](2026-07-25-web-input-machine-and-slash-pipeline.md); the command business surfaces live in the [command surfaces note](2026-07-25-web-command-surfaces-and-assembly.md).
+> Scope: the client Agent scope (actx) and targeted events, the client/host materialization parity model, the blank-session bit and reuse (`connectWorkspace`), the per-session provisioning channel (`sessions.provide`), and the host wire smalls that carry these capabilities (the summary `blank` column, the `host/session-added` frame field, and the `host/commands-changed` frame). The input state machine and the slash pipeline live in the [input machine note](2026-07-25-web-input-machine-and-slash-pipeline.md); the command business surfaces live in the [command surfaces note](2026-07-25-web-command-surfaces-and-assembly.md).
 
 ## Problem
 
@@ -64,17 +64,17 @@ A session "materialized but with no first prompt" is governed by the summary-der
 - The host criterion: `session.events.length === 0` (zero log events = no user message yet). A live session reads `summarize()` straight from memory; a cold session is always `false` — the lazy-create contract guarantees a never-appended session never enters `persistence.list()` at all (both the JSONL and SQLite backends are verified truly lazy), so blank never touches disk.
 - The wire carries it in two places: the required `SessionSummary.blank` column, and the required `blank` field on the `host/session-added` frame (always true at creation, letting other tabs enter the same blank-session state into their mirrors).
 - The client mirror only lowers, never raises (monotonic), flipped from three sources, all reusing existing wire signals:
-  - The sender's own tab: the **successful response** to the first `prompt()` flips false (acceptance proves the user/message is already in the host log — this flip is confirmation, not optimism; `onEngaged` synchronously updates the list mirror, converting the current `New Session` row in place to an ordinary title, adding no list row). A rejected first prompt keeps the session blank: aligned with host authority, still shown as `New Session`, keeping its connectWorkspace reuse eligibility.
+  - The sender's own tab: the **successful response** to the first `prompt()` flips false (acceptance proves the user/message is already in the host log — this flip is confirmation, not optimism; `onEngaged` synchronously updates the list mirror, converting the current `New Session` row in place to an ordinary title, adding no list row). A rejected first prompt keeps the session blank: aligned with host authority, still shown as `New Session`, keeping its connectWorkspace reuse eligibility while it remains a Workspace member.
   - Other tabs: the `host/session-status (running:true)` frame flips it — a blank session never runs, so the first running necessarily means no longer blank;
   - Reconnect alignment: `session.list`'s summary.blank is authoritative, so a tab that missed frames aligns naturally on its next pull; a stale blank:true can never mark a converted session back to blank.
 - List discipline: the store retains every row; the Workspace browser's grouping, flat view, search, and counts share one visible projection — every non-blank session shows, while blank sessions show only the one with `session.id === sessions.current`, its title forced to `New Session`. After a Workspace switch, the old blank entity stays in the mirror but is hidden from the list while the target Workspace's current blank shows; the user-visible surface therefore holds at most one blank row globally.
-- The residue ledger takes zero GC: after a refresh, blank sessions come back with the bit intact and are reused on the next same-workspace connect, so the ordinary single-tab path keeps at most one per workspace; after a host restart, blanks leave no disk trace and simply evaporate; the extra empty shells from multi-tab races only become non-current hidden rows, digested by later reuse, with no coordination.
+- The residue ledger takes zero GC: after a refresh, blank sessions come back with the bit intact and are reused on the next same-workspace connect while they remain members, so the ordinary single-tab path keeps at most one per workspace; after a host restart, blanks leave no disk trace and simply evaporate; the extra empty shells from multi-tab races only become non-current hidden rows, digested by later reuse, with no coordination.
 
 ### connectWorkspace: the sole entry point of New Session
 
 `workspaces.connectWorkspace(workspaceId): Promise<SessionId>` (owned by WorkspacesService — it holds both the workspace canonical path and the sessions reference):
 
-- The reuse arm: the list mirror is searched for `blank && cwd == workspace.path` (direct equality on the host realpath canonical form); a hit returns that id directly, creating nothing.
+- The reuse arm: the list mirror is searched for `blank && cwd == workspace.path && sessionIds.includes(id)` — the host's own membership rule, never cwd alone. A cwd match without the account slot (a CLI/TUI session birthed at the host cwd, or a deleted/recreated registration) would open a session no grouping surface can show under this Workspace, so it falls through to the create arm instead (see the [membership reuse fix](../bug-fix/2026-08-05-workspace-blank-session-reuse-membership.md)); a hit returns that id directly, creating nothing.
 - The create arm: on a miss, `session.create({workspaceId})` returns the new id.
 - An unknown workspaceId fails loud (never silently creating somewhere else).
 - The resolution guarantee (one contract for both arms): when the promise resolves, the returned id is already in the list store and `sessions.binding(id)` resolves synchronously — `SessionsService.create` projects the list synchronously after RPC success before resolving, so a draft mover can write text into the new scope's machine before open, without waiting for a notifier flush.
@@ -101,7 +101,6 @@ Slot scope is the closed set `root | session-maybe | session`:
 
 ### The read-only queue mirror
 
-- The MuxFrame `session/queued`: the Session holds a read-only inbox mirror (previews truncated; steering retired by source match). The host stamps the agent-loop's acceptance-time steering classification on live and replayed frames, so a reconnect baseline does not depend on replaying an earlier `turn/start`. Queue frames never enter history — pure stream state, cleared on reconnect and refilled from the new baseline; the never-instantiated window is buffered and replayed through the manager pendingBuffers.
 - Queue semantics: running does not lock input; ordinary messages queue through `session.prompt {mode:'queue'}`, and commands never queue.
 
 ### Host wire smalls

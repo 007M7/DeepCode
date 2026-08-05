@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// Remaining chat branch tails: MessageItem context/unknown/steering arms,
+// Remaining chat branch tails: MessageItem context/unknown arms,
 // user IconActions, StatsLine no-cache join,
 // AssistantMarkdown single-line reasoning. (Tool-row dispatch tails live
 // with the keyed-slot machinery specs since the tool ring dissolved into
@@ -201,30 +201,6 @@ describe('MessageItem arms', () => {
     expect(screen.getByRole('button', { name: '复制成功' })).toBeTruthy()
     mounted.unmount()
     expect(vi.getTimerCount()).toBe(0)
-  })
-
-  it('consumed steering renders copy and branch actions without a badge', () => {
-    const writeText = vi.fn().mockResolvedValue(undefined)
-    Object.defineProperty(navigator, 'clipboard', {
-      configurable: true,
-      value: { writeText },
-    })
-    const fork = vi.fn()
-    const view = render(
-      <MessageItem t={t} node={{
-        kind: 'steering', messageId: 'steer-message', seq: 2, time: 1_000, turn: 1, source: null,
-        content: [{ type: 'text', text: 'steer!' }, { type: 'image', data: 'x' }] as never,
-      } as never}
-      onFork={fork}
-      />,
-    )
-    expect(view.queryByText('插话')).toBeNull()
-    expect(view.getByText('steer!')).toBeTruthy()
-    expect(view.getByText(/附加内容块/)).toBeTruthy()
-    fireEvent.click(view.getByRole('button', { name: '复制' }))
-    expect(writeText).toHaveBeenCalledWith('steer!')
-    fireEvent.click(view.getByRole('button', { name: '在新对话中分支' }))
-    expect(fork).toHaveBeenCalledWith(2)
   })
 
   it('context uses the Tool calls disclosure chrome and keeps its JSON collapsed by default', () => {

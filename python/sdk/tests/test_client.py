@@ -39,6 +39,9 @@ for line in sys.stdin:
         print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"serverInfo": {"name": "fake-runtime"}}}), flush=True)
     elif method == "session/prompt":
         params = msg.get("params") or {}
+        print(json.dumps({"jsonrpc": "2.0", "method": "session.event", "params": {"sessionId": params["sessionId"], "event": {"type": "agent/inbox/spliced", "data": {"target": "next-turn", "start": 0, "inserted": [{"id": "message-1"}]}}}}), flush=True)
+        print(json.dumps({"jsonrpc": "2.0", "method": "session.status", "params": {"sessionId": params["sessionId"], "status": "running"}}), flush=True)
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"messageId": "message-1"}}), flush=True)
         print(json.dumps({
             "jsonrpc": "2.0",
             "method": "session.event",
@@ -57,10 +60,9 @@ for line in sys.stdin:
         }), flush=True)
         print(json.dumps({
             "jsonrpc": "2.0",
-            "method": "session.finished",
-            "params": {"sessionId": params["sessionId"], "status": "ok"},
+            "method": "session.status",
+            "params": {"sessionId": params["sessionId"], "status": "idle"},
         }), flush=True)
-        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"accepted": True}}), flush=True)
     elif method == "shutdown":
         print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {}}), flush=True)
         break
@@ -83,9 +85,8 @@ for line in sys.stdin:
     ) as harness:
         result = harness.run("say hello", session_id="main")
 
-    assert result.status == "ok"
     assert result.final_response == "hello from runtime"
-    assert result.events[0]["type"] == "assistant/message"
+    assert result.events[-1]["type"] == "assistant/message"
     dumped_env = json.loads(env_dump.read_text())
     assert dumped_env["DEEPSEEK_API_KEY"] == "env-key"
     assert dumped_env["DEEPSEEK_BASE_URL"] == "http://127.0.0.1:4321"
@@ -113,9 +114,11 @@ for line in sys.stdin:
     if method == "initialize":
         print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"serverInfo": {"name": "fake-runtime"}}}), flush=True)
     elif method == "session/prompt":
+        print(json.dumps({"jsonrpc": "2.0", "method": "session.event", "params": {"sessionId": "main", "event": {"type": "agent/inbox/spliced", "data": {"target": "next-turn", "start": 0, "inserted": [{"id": "message-1"}]}}}}), flush=True)
+        print(json.dumps({"jsonrpc": "2.0", "method": "session.status", "params": {"sessionId": "main", "status": "running"}}), flush=True)
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"messageId": "message-1"}}), flush=True)
         print(json.dumps({"jsonrpc": "2.0", "method": "subagent.started", "params": {"parentSessionId": "main", "childSessionId": "child"}}), flush=True)
-        print(json.dumps({"jsonrpc": "2.0", "method": "session.finished", "params": {"sessionId": "main", "status": "ok"}}), flush=True)
-        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"accepted": True}}), flush=True)
+        print(json.dumps({"jsonrpc": "2.0", "method": "session.status", "params": {"sessionId": "main", "status": "idle"}}), flush=True)
     elif method == "shutdown":
         print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {}}), flush=True)
         break
@@ -133,8 +136,7 @@ for line in sys.stdin:
             on_notification=lambda notification: seen.append(notification.method),
         )
 
-    assert result.status == "ok"
-    assert seen == ["subagent.started", "session.finished"]
+    assert seen == ["session.event", "session.status", "subagent.started", "session.status"]
 
 
 def test_relative_cwd_is_absolute_in_process_environment_and_wire(
@@ -189,10 +191,12 @@ for line in sys.stdin:
     if method == "initialize":
         print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"serverInfo": {"name": "fake-runtime"}}}), flush=True)
     elif method == "session/prompt":
+        print(json.dumps({"jsonrpc": "2.0", "method": "session.event", "params": {"sessionId": "main", "event": {"type": "agent/inbox/spliced", "data": {"target": "next-turn", "start": 0, "inserted": [{"id": "message-1"}]}}}}), flush=True)
+        print(json.dumps({"jsonrpc": "2.0", "method": "session.status", "params": {"sessionId": "main", "status": "running"}}), flush=True)
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"messageId": "message-1"}}), flush=True)
         print(json.dumps({"jsonrpc": "2.0", "method": "subagent.started", "params": {"parentSessionId": "main", "childSessionId": "child"}}), flush=True)
         print(json.dumps({"jsonrpc": "2.0", "method": "subagent.finished", "params": {"parentSessionId": "main", "childSessionId": "child", "status": "ok", "stopReason": "completed"}}), flush=True)
-        print(json.dumps({"jsonrpc": "2.0", "method": "session.finished", "params": {"sessionId": "main", "status": "ok"}}), flush=True)
-        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"accepted": True}}), flush=True)
+        print(json.dumps({"jsonrpc": "2.0", "method": "session.status", "params": {"sessionId": "main", "status": "idle"}}), flush=True)
     elif method == "shutdown":
         print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {}}), flush=True)
         break
@@ -205,11 +209,12 @@ for line in sys.stdin:
     ) as harness:
         result = harness.run("spawn a helper", session_id="main")
 
-    assert result.status == "ok"
     assert [notification.method for notification in result.notifications] == [
+        "session.event",
+        "session.status",
         "subagent.started",
         "subagent.finished",
-        "session.finished",
+        "session.status",
     ]
 
 
@@ -229,6 +234,9 @@ for line in sys.stdin:
         print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"serverInfo": {"name": "fake-runtime"}}}), flush=True)
     elif method == "session/prompt":
         root = (msg.get("params") or {})["sessionId"]
+        print(json.dumps({"jsonrpc": "2.0", "method": "session.event", "params": {"sessionId": root, "event": {"type": "agent/inbox/spliced", "data": {"target": "next-turn", "start": 0, "inserted": [{"id": "message-1"}]}}}}), flush=True)
+        print(json.dumps({"jsonrpc": "2.0", "method": "session.status", "params": {"sessionId": root, "status": "running"}}), flush=True)
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"messageId": "message-1"}}), flush=True)
         print(json.dumps({"jsonrpc": "2.0", "method": "subagent.started", "params": {"parentSessionId": root, "childSessionId": "child"}}), flush=True)
         print(json.dumps({"jsonrpc": "2.0", "method": "session.event", "params": {"sessionId": "child", "event": {"type": "assistant/message", "data": {"content": [{"type": "text", "text": "child response"}]}}}}), flush=True)
         print(json.dumps({"jsonrpc": "2.0", "method": "subagent.started", "params": {"parentSessionId": "child", "childSessionId": "grandchild"}}), flush=True)
@@ -236,8 +244,7 @@ for line in sys.stdin:
         print(json.dumps({"jsonrpc": "2.0", "method": "subagent.finished", "params": {"parentSessionId": "child", "childSessionId": "grandchild", "status": "ok"}}), flush=True)
         print(json.dumps({"jsonrpc": "2.0", "method": "subagent.finished", "params": {"parentSessionId": root, "childSessionId": "child", "status": "ok"}}), flush=True)
         print(json.dumps({"jsonrpc": "2.0", "method": "session.event", "params": {"sessionId": root, "event": {"type": "assistant/message", "data": {"content": [{"type": "text", "text": "root response"}]}}}}), flush=True)
-        print(json.dumps({"jsonrpc": "2.0", "method": "session.finished", "params": {"sessionId": root, "status": "ok"}}), flush=True)
-        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"accepted": True}}), flush=True)
+        print(json.dumps({"jsonrpc": "2.0", "method": "session.status", "params": {"sessionId": root, "status": "idle"}}), flush=True)
     elif method == "shutdown":
         print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {}}), flush=True)
         break
@@ -256,10 +263,11 @@ for line in sys.stdin:
         )
         assert harness.client._notifications.qsize() == 0
 
-    assert result.status == "ok"
     assert result.final_response == "root response"
-    assert [event["data"]["content"][0]["text"] for event in result.events] == ["root response"]
+    assert [event["data"]["content"][0]["text"] for event in result.events if event["type"] == "assistant/message"] == ["root response"]
     assert [notification.method for notification in result.notifications] == [
+        "session.event",
+        "session.status",
         "subagent.started",
         "session.event",
         "subagent.started",
@@ -267,7 +275,7 @@ for line in sys.stdin:
         "subagent.finished",
         "subagent.finished",
         "session.event",
-        "session.finished",
+        "session.status",
     ]
     assert seen == [notification.method for notification in result.notifications]
 
@@ -287,10 +295,12 @@ for line in sys.stdin:
     elif method == "session/prompt":
         params = msg.get("params") or {}
         print(json.dumps({"jsonrpc": "2.0", "method": "session.event", "params": {"sessionId": "other", "event": {"type": "assistant/message", "data": {"content": [{"type": "text", "text": "wrong session"}]}}}}), flush=True)
-        print(json.dumps({"jsonrpc": "2.0", "method": "session.finished", "params": {"sessionId": "other", "status": "ok"}}), flush=True)
+        print(json.dumps({"jsonrpc": "2.0", "method": "session.status", "params": {"sessionId": "other", "status": "idle"}}), flush=True)
+        print(json.dumps({"jsonrpc": "2.0", "method": "session.event", "params": {"sessionId": params["sessionId"], "event": {"type": "agent/inbox/spliced", "data": {"target": "next-turn", "start": 0, "inserted": [{"id": "message-1"}]}}}}), flush=True)
+        print(json.dumps({"jsonrpc": "2.0", "method": "session.status", "params": {"sessionId": params["sessionId"], "status": "running"}}), flush=True)
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"messageId": "message-1"}}), flush=True)
         print(json.dumps({"jsonrpc": "2.0", "method": "session.event", "params": {"sessionId": params["sessionId"], "event": {"type": "assistant/message", "data": {"content": [{"type": "text", "text": "right session"}]}}}}), flush=True)
-        print(json.dumps({"jsonrpc": "2.0", "method": "session.finished", "params": {"sessionId": params["sessionId"], "status": "ok"}}), flush=True)
-        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"accepted": True}}), flush=True)
+        print(json.dumps({"jsonrpc": "2.0", "method": "session.status", "params": {"sessionId": params["sessionId"], "status": "idle"}}), flush=True)
     elif method == "shutdown":
         print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {}}), flush=True)
         break
@@ -303,9 +313,8 @@ for line in sys.stdin:
     ) as harness:
         result = harness.run("stay in your lane", session_id="main")
 
-    assert result.status == "ok"
     assert result.final_response == "right session"
-    assert [notification.payload.get("sessionId") for notification in result.notifications] == ["main", "main"]
+    assert [notification.payload.get("sessionId") for notification in result.notifications] == ["main"] * 4
 
 
 def test_high_level_session_run_does_not_accumulate_global_notifications(tmp_path: Path) -> None:
@@ -322,9 +331,11 @@ for line in sys.stdin:
         print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"serverInfo": {"name": "fake-runtime"}}}), flush=True)
     elif method == "session/prompt":
         params = msg.get("params") or {}
+        print(json.dumps({"jsonrpc": "2.0", "method": "session.event", "params": {"sessionId": params["sessionId"], "event": {"type": "agent/inbox/spliced", "data": {"target": "next-turn", "start": 0, "inserted": [{"id": "message-1"}]}}}}), flush=True)
+        print(json.dumps({"jsonrpc": "2.0", "method": "session.status", "params": {"sessionId": params["sessionId"], "status": "running"}}), flush=True)
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"messageId": "message-1"}}), flush=True)
         print(json.dumps({"jsonrpc": "2.0", "method": "session.event", "params": {"sessionId": params["sessionId"], "event": {"type": "assistant/message", "data": {"content": [{"type": "text", "text": "ok"}]}}}}), flush=True)
-        print(json.dumps({"jsonrpc": "2.0", "method": "session.finished", "params": {"sessionId": params["sessionId"], "status": "ok"}}), flush=True)
-        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"accepted": True}}), flush=True)
+        print(json.dumps({"jsonrpc": "2.0", "method": "session.status", "params": {"sessionId": params["sessionId"], "status": "idle"}}), flush=True)
     elif method == "shutdown":
         print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {}}), flush=True)
         break
@@ -333,11 +344,10 @@ for line in sys.stdin:
 
     with DeepSeekHarness(launch_args_override=(sys.executable, str(script)), cwd=str(tmp_path)) as harness:
         result = harness.run("one turn", session_id="main")
-        assert result.status == "ok"
         assert harness.client._notifications.qsize() == 0
 
 
-def test_session_run_waits_for_late_finished_without_replaying_stale_notifications(tmp_path: Path) -> None:
+def test_session_run_waits_for_late_idle_without_replaying_stale_notifications(tmp_path: Path) -> None:
     script = tmp_path / "fake_runtime.py"
     script.write_text(
         """
@@ -355,15 +365,17 @@ for line in sys.stdin:
         turn += 1
         params = msg.get("params") or {}
         session_id = params["sessionId"]
+        message_id = f"message-{turn}"
+        print(json.dumps({"jsonrpc": "2.0", "method": "session.event", "params": {"sessionId": session_id, "event": {"type": "agent/inbox/spliced", "data": {"target": "next-turn", "start": 0, "inserted": [{"id": message_id}]}}}}), flush=True)
+        print(json.dumps({"jsonrpc": "2.0", "method": "session.status", "params": {"sessionId": session_id, "status": "running"}}), flush=True)
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"messageId": message_id}}), flush=True)
         if turn == 1:
             print(json.dumps({"jsonrpc": "2.0", "method": "session.event", "params": {"sessionId": session_id, "event": {"type": "assistant/message", "data": {"content": [{"type": "text", "text": "first"}]}}}}), flush=True)
-            print(json.dumps({"jsonrpc": "2.0", "method": "session.finished", "params": {"sessionId": session_id, "status": "ok"}}), flush=True)
-            print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"accepted": True}}), flush=True)
+            print(json.dumps({"jsonrpc": "2.0", "method": "session.status", "params": {"sessionId": session_id, "status": "idle"}}), flush=True)
         else:
-            print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"accepted": True}}), flush=True)
             time.sleep(0.05)
             print(json.dumps({"jsonrpc": "2.0", "method": "session.event", "params": {"sessionId": session_id, "event": {"type": "assistant/message", "data": {"content": [{"type": "text", "text": "second"}]}}}}), flush=True)
-            print(json.dumps({"jsonrpc": "2.0", "method": "session.finished", "params": {"sessionId": session_id, "status": "ok"}}), flush=True)
+            print(json.dumps({"jsonrpc": "2.0", "method": "session.status", "params": {"sessionId": session_id, "status": "idle"}}), flush=True)
     elif method == "shutdown":
         print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {}}), flush=True)
         break
@@ -376,7 +388,7 @@ for line in sys.stdin:
 
     assert first.final_response == "first"
     assert second.final_response == "second"
-    assert [notification.payload.get("sessionId") for notification in second.notifications] == ["main", "main"]
+    assert [notification.payload.get("sessionId") for notification in second.notifications] == ["main"] * 4
 
 
 def test_client_starts_subprocess_sends_requests_and_routes_notifications(tmp_path: Path) -> None:
@@ -394,7 +406,7 @@ for line in sys.stdin:
     elif method == "session/prompt":
         params = msg.get("params") or {}
         print(json.dumps({"jsonrpc": "2.0", "method": "llm/request", "params": {"requestId": "req-1", "sessionId": params["sessionId"], "model": "dsagent", "messages": []}}), flush=True)
-        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"accepted": True}}), flush=True)
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"messageId": "message-1"}}), flush=True)
     elif method == "shutdown":
         print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {}}), flush=True)
         break
@@ -531,7 +543,7 @@ for line in sys.stdin:
     elif method in {"emit-first", "emit-second"}:
         print(json.dumps({"jsonrpc": "2.0", "method": "tick", "params": {"source": method}}), flush=True)
     elif method == "session/prompt":
-        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"accepted": True}}), flush=True)
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {"messageId": "message-1"}}), flush=True)
     elif method == "shutdown":
         print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": {}}), flush=True)
         break

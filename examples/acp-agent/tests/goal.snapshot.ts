@@ -152,7 +152,8 @@ describe('same-session goal snapshot through the ACP automation driver', () => {
       .filter(block => block.type === 'text' && block.text.startsWith('GOAL WRAP-UP'))
     expect(closing).toHaveLength(1)
     const roundTurnEnds = events.filter(event => event.type === 'turn/end' && event.data.turn === 2)
-    expect(roundTurnEnds).toEqual([expect.objectContaining({ data: { turn: 2, reason: { kind: 'completed' } } })])
+    expect(roundTurnEnds).toHaveLength(1)
+    expect(roundTurnEnds[0]?.data).toMatchObject({ turn: 2, reason: { kind: 'completed' } })
 
     const context: NormalizeContext = {
       sessionIds: [result.sessionId, log.id].filter((id): id is string => id !== undefined),

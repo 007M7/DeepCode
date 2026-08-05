@@ -35,7 +35,7 @@ export type GoalOperation =
   | 'block'
   | 'clear'
 
-/** Full-snapshot goal mutation retained in a model-visible context event. */
+/** Full-snapshot goal mutation committed by a durable `goal/change` event. */
 export interface GoalSnapshotChangeMeta {
   readonly kind: 'goal/change'
   readonly version: 1
@@ -55,23 +55,30 @@ export interface GoalClearChangeMeta {
   readonly clearedAt: number
 }
 
-/** Durable change union carried by a goal-owned round-zero message source. */
+/** Durable change union carried by the goal domain's own session event. */
 export type GoalChangeMeta = GoalSnapshotChangeMeta | GoalClearChangeMeta
 
-/** Message attribution for durable goal state and continuation rounds. */
+/** Message attribution for admitted continuation rounds. */
 export interface GoalMessageSource {
   readonly kind: 'goal'
   readonly goalId: GoalId
   readonly revision: number
-  /** Zero for state changes; positive for admitted continuation rounds. */
+  /** Positive admitted continuation round. */
   readonly round: number
-  /** Complete durable mutation carried only by round-zero state-change messages. */
-  readonly change?: GoalChangeMeta
 }
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
     goal: GoalMessageSource
+  }
+}
+
+declare module '@deepseek-ai/dsh-session' {
+  interface SessionEventMap {
+    /**
+     * Complete post-mutation goal state or clear tombstone.
+     */
+    'goal/change': GoalChangeMeta
   }
 }
 
@@ -101,7 +108,7 @@ export interface EditGoalRequest {
   readonly maxGoalRounds?: number
 }
 
-/** Live notification after one goal mutation has been accepted for logging. */
+/** Live notification after one durable goal mutation commits. */
 export interface GoalChanged {
   readonly operation: GoalOperation
   readonly ref: GoalRef
@@ -124,9 +131,8 @@ export type GoalErrorCode =
 declare module 'cordis' {
   interface Events {
     /**
-     * Goal mutation accepted by one live agent. The matching context event is
-     * already appended or queued in that agent's active tool-batch FIFO.
-     * Listener failures are contained.
+     * Goal mutation accepted by one live agent. The matching `goal/change`
+     * session event has already committed. Listener failures are contained.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @param agent - agent whose session owns the goal.
      * @param change - fresh current projection or clear tombstone.

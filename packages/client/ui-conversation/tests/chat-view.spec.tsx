@@ -274,11 +274,7 @@ describe('chat-flow derivation', () => {
       user(6, 'second'),
       assistant(7, 'clean tail', 2),
       user(10, 'user-only tail'),
-      {
-        kind: 'steering', messageId: 'steering-tail' as never,
-        seq: 13, time: 13_000, turn: 4,
-        content: [{ type: 'text', text: 'steering tail' }], source: null,
-      },
+      user(13, 'steering tail'),
     ]
     const seqs = messageBranchSeqs(nodes, new Map([[1, 5], [2, 8], [3, 11], [4, 14]]))
     expect([...seqs]).toEqual([7, 10, 13])
@@ -392,8 +388,7 @@ describe('ChatView', () => {
         nodes: [
           assistant(1, 'working'),
           {
-            kind: 'steering', messageId: pending.messageId,
-            seq: 2, time: 2_000, turn: 1,
+            kind: 'user', seq: 2, time: 2_000,
             content: [{ type: 'text', text: 'interrupt now' }], source: null,
           },
         ],
@@ -430,8 +425,7 @@ describe('ChatView', () => {
     const h = makeHarness({
       queue: [pending],
       nodes: [{
-        kind: 'steering', messageId: pending.messageId,
-        seq: 2, time: 2_000, turn: 1,
+        kind: 'user', seq: 2, time: 2_000,
         content: pending.content, source: null,
       }],
       running: true,
@@ -732,9 +726,13 @@ describe('ChatView', () => {
     expect(status.textContent).toMatch(/^Deep diving\.\.\.2分0\d秒$/)
     expect(status.querySelector('[aria-hidden="true"]')).not.toBeNull()
     act(() => {
-      h.set({ nodes: [trigger, {
-        kind: 'steering', messageId: 'st' as never, seq: 2, time: Date.now(), turn: 1,
-        content: [{ type: 'text', text: 'also' }], source: null,
+      h.set({ queue: [{
+        id: 'steering-occurrence' as never,
+        messageId: 'steering-message' as never,
+        placement: 'steering',
+        content: [{ type: 'text', text: 'also' }],
+        preview: 'also',
+        text: 'also',
       }] })
     })
     expect(status.textContent).toMatch(/^Deep diving\.\.\.2分0\d秒$/)

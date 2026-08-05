@@ -71,6 +71,7 @@ describe('trajectory context branches', () => {
     const branches = deriveTrajectoryContextBranches(contexts)
     const successor = branches[1]!
 
+    expect(successor.key).toBe('rewind:110')
     expect(successor.nodes.map(node => node.seq)).toEqual([110])
     expect(trajectoryBranchContainsRequest(
       successor,
@@ -84,5 +85,16 @@ describe('trajectory context branches', () => {
       successor,
       request('assistant', 111),
     )).toBe(true)
+  })
+
+  it('keeps branch identity when prepended generations shift local ids', () => {
+    const branch = (id: number) => deriveTrajectoryContextBranches([{
+      id,
+      origin: 'rewind',
+      originSeq: 110,
+      nodes: [current],
+    }])[0]
+
+    expect(branch(1)?.key).toBe(branch(9)?.key)
   })
 })

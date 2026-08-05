@@ -70,8 +70,7 @@ export function goalToolExecution(ctx: Context, exec: ToolRunContext): GoalToolE
 function hasDirectHumanInput(ctx: Context, execution: GoalToolExecution): boolean {
   if (!ctx.agents.roots().includes(execution.agent)) return false
   return execution.events.some(event =>
-    (event.type === 'user/message' && event.data.source.kind === 'user')
-    || (event.type === 'steering/message' && event.data.message.source.kind === 'user'))
+    event.type === 'user/message' && event.data.source.kind === 'user')
 }
 
 /** Whether this turn is the current goal's exact admitted round. */

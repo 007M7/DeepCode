@@ -379,26 +379,21 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     ctx,
     workspaceCwd,
     persistenceRoot,
-    // Barrier stack: the in-process turn/end identifies the session, then
-    // agent.whenIdle() covers the persistence flush (the idle flip follows
-    // the flush), and the caller's browser settled-poll comes last because
-    // host completion strictly precedes render.
+    // Barrier stack: the in-process turn/end identifies the session, its
+    // explicit flush makes the transcript durable, and the caller's browser
+    // settled-poll comes last because host completion strictly precedes render.
     whenTurnSettled(timeoutMs = mode === 'record' ? 180_000 : 30_000): Promise<SessionId> {
       return new Promise<SessionId>((resolveSettled, reject) => {
         const timer = setTimeout(() => {
           off()
           reject(new Error(`no turn/end within ${timeoutMs}ms`))
         }, timeoutMs)
-        const off = ctx.on('session/event', (session: { id: SessionId }, event: SessionEvent) => {
+        const off = ctx.on('session/event', (session: Session, event: SessionEvent) => {
           if (event.type !== 'turn/end') return
           clearTimeout(timer)
           off()
-          const agent = ctx.agents.get(session.id)
-          if (agent === undefined) {
-            reject(new Error(`turn/end for ${session.id} but no live agent`))
-            return
-          }
-          agent.whenIdle().then(() => { resolveSettled(session.id) }, reject)
+          ctx.sessions.flush(session)
+            .then(() => { resolveSettled(session.id) }, reject)
         })
       })
     },

@@ -71,7 +71,6 @@ export type {
 // ---- Errors and ids ----
 export { RpcId, transportError } from './rpc.ts'
 export type { RpcError, RpcErrorCode, RpcErrorDetailsMap, RpcResult } from './rpc.ts'
-export type { InboxItemId } from '@deepseek-ai/dsh-agent/brand'
 
 // ---- Fixed session-search product bounds ----
 export {

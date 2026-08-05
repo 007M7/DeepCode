@@ -1,7 +1,6 @@
-import { freezeMessage, MessageId } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import { InboxItemId, type Agent, type InboxItem, type InboxPlacement } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import * as AgentInvariant from '@deepseek-ai/dsh-agent/invariant'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import InvariantService from '@deepseek-ai/dsh-invariants'
@@ -42,53 +41,5 @@ describe('agent status invariants', () => {
     const b = mockAgent('b5')
     ctx.emit(scopeTarget(a, a), 'agent/status', a, 'running')
     expect(() => { ctx.emit(scopeTarget(b, b), 'agent/status', b, 'running') }).not.toThrow()
-  })
-})
-
-describe('agent inbox invariants', () => {
-  let nextItem = 0
-  const info = (placement: InboxPlacement = 'queued'): InboxItem => ({
-    id: InboxItemId(`i-${nextItem++}`),
-    message: freezeMessage({
-      id: MessageId('m'),
-      role: 'user' as const,
-      content: [],
-      source: { kind: 'user' as const },
-    }),
-    placement,
-  })
-
-  it('accepts a dequeue and a discard covered by prior enqueues', async () => {
-    const ctx = await setup()
-    const agent = mockAgent('i1')
-    const at = scopeTarget(agent, agent)
-    expect(() => {
-      ctx.emit(at, 'agent/inbox/enqueue', agent, info())
-      ctx.emit(at, 'agent/inbox/enqueue', agent, info('steering'))
-      ctx.emit(at, 'agent/inbox/dequeue', agent, info())
-      ctx.emit(at, 'agent/inbox/discard', agent, [info()])
-    }).not.toThrow()
-  })
-
-  it('rejects a dequeue with no outstanding item', async () => {
-    const ctx = await setup()
-    const agent = mockAgent('i2')
-    expect(() => { ctx.emit(scopeTarget(agent, agent), 'agent/inbox/dequeue', agent, info()) })
-      .toThrow(/without a matching prior enqueue/)
-  })
-
-  it('rejects a discard larger than the outstanding count', async () => {
-    const ctx = await setup()
-    const agent = mockAgent('i3')
-    const at = scopeTarget(agent, agent)
-    ctx.emit(at, 'agent/inbox/enqueue', agent, info())
-    expect(() => { ctx.emit(at, 'agent/inbox/discard', agent, [info(), info()]) })
-      .toThrow(/dropped 2 items but only 1 were outstanding/)
-  })
-
-  it('accepts an empty discard against a fresh agent', async () => {
-    const ctx = await setup()
-    const agent = mockAgent('i4')
-    expect(() => { ctx.emit(scopeTarget(agent, agent), 'agent/inbox/discard', agent, []) }).not.toThrow()
   })
 })
