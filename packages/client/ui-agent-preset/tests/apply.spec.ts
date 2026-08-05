@@ -131,6 +131,8 @@ describe('ui-agent-preset apply', () => {
     await section.load()
     section.setId('mine')
     section.setContent('- id: x\n')
+    section.setName('我的模式')
+    section.setDescription('只做检索。')
     section.confirmDelete('mine')
     section.close()
     await Promise.all([section.open('standard'), section.createFrom(), section.save(), section.remove()])

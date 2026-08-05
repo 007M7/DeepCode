@@ -17,8 +17,12 @@ const PRESET_ID = /^[a-z0-9][a-z0-9-]*$/
 
 /** One preset row the page renders. */
 export interface PresetRow {
-  /** Preset id, also its display name and directory name. */
+  /** Preset id and directory name; the display name falls back to it. */
   id: string
+  /** Display name the preset published, absent when it published none. */
+  name?: string
+  /** One sentence on what the preset is for. */
+  description?: string
   /** Whether the preset ships with the deployment or was authored locally. */
   trust: 'system' | 'user'
   /** Whether a session that names no preset gets this one. */
@@ -42,6 +46,10 @@ export interface PresetDraft {
   writable: boolean
   /** Whether a save is in flight. */
   saving: boolean
+  /** Display name being edited; empty means the picker falls back to the id. */
+  name: string
+  /** Description being edited. */
+  description: string
   /** The last save failure, cleared by the next edit. */
   error: string | null
 }
@@ -172,7 +180,7 @@ export class AgentPresetSectionController {
         this.set({ error: response.result.error.message })
         return
       }
-      const { content, writable } = response.result.value
+      const { content, writable, name, description } = response.result.value
       this.set({
         draft: {
           id: creating ? '' : source,
@@ -182,6 +190,10 @@ export class AgentPresetSectionController {
           // A copy is always writable: it lands in the local root regardless of
           // where the text came from.
           writable: creating || writable,
+          // A copy starts from the source's text but must be renamed, or two
+          // rows would present themselves identically.
+          name: creating ? '' : name ?? '',
+          description: description ?? '',
           saving: false,
           error: null,
         },
@@ -213,6 +225,22 @@ export class AgentPresetSectionController {
   }
 
   /**
+   * Rename the draft.
+   * @param name - the display name typed into the editor.
+   */
+  setName(name: string): void {
+    this.patchDraft({ name, error: null })
+  }
+
+  /**
+   * Replace the draft's description.
+   * @param description - the description typed into the editor.
+   */
+  setDescription(description: string): void {
+    this.patchDraft({ description, error: null })
+  }
+
+  /**
    * Save the open draft, then re-read the roster.
    *
    * The host shape-checks the text, so a composition that could never load is
@@ -225,7 +253,12 @@ export class AgentPresetSectionController {
     if (draftBlocker(draft, this.store.getSnapshot().rows) !== undefined) return
     this.patchDraft({ saving: true, error: null })
     try {
-      const response = await this.api.agentPresets.write({ agentPreset: draft.id, content: draft.content })
+      const response = await this.api.agentPresets.write({
+        agentPreset: draft.id,
+        content: draft.content,
+        name: draft.name,
+        description: draft.description,
+      })
       if (!response.result.ok) {
         this.patchDraft({ saving: false, error: response.result.error.message })
         return

@@ -22,7 +22,7 @@ const READY: AgentPresetSectionState = {
   error: null,
   authorable: true,
   rows: [
-    { id: 'standard', trust: 'system', isDefault: true },
+    { id: 'standard', trust: 'system', isDefault: true, name: '标准模式', description: '完整的编码 agent。' },
     { id: 'mine', trust: 'user', isDefault: false },
   ],
   draft: null,
@@ -44,6 +44,8 @@ function renderSection(state: Partial<AgentPresetSectionState> = {}) {
     close: vi.fn(),
     setId: vi.fn(),
     setContent: vi.fn(),
+    setName: vi.fn(),
+    setDescription: vi.fn(),
     save: vi.fn(() => Promise.resolve()),
     confirmDelete: vi.fn(),
     remove: vi.fn(() => Promise.resolve()),
@@ -58,10 +60,12 @@ function renderSection(state: Partial<AgentPresetSectionState> = {}) {
   return actions
 }
 
+/** Locate a card by the id it prints, not by its display name. */
 function rowFor(id: string): HTMLElement {
-  const row = screen.getByText(id).closest('li')
-  /* v8 ignore next -- every rendered row id resolves to its card */
-  if (row === null) throw new Error(`no row for ${id}`)
+  const key = screen.getAllByText(id).find(node => node.tagName === 'CODE')
+  const row = key?.closest('li') ?? null
+  /* v8 ignore next -- every rendered card prints its id */
+  if (row === null) throw new Error(`no card for ${id}`)
   return row
 }
 
@@ -72,12 +76,24 @@ describe('the preset list', () => {
     await waitFor(() => { expect(actions.load).toHaveBeenCalledTimes(1) })
   })
 
-  it('marks trust and the default, and offers no "set default" on the default row', () => {
+  it('shows the published name and description, falling back to the id', () => {
+    renderSection()
+
+    // The name is what a picker reads; the id stays visible as the key the
+    // composition and the session header actually carry.
+    expect(screen.getByText('标准模式')).toBeTruthy()
+    expect(screen.getByText('完整的编码 agent。')).toBeTruthy()
+    const mine = rowFor('mine')
+    expect(within(mine).getAllByText('mine').length).toBeGreaterThan(0)
+    expect(within(mine).getByText(en.noDescription)).toBeTruthy()
+  })
+
+  it('marks trust and the one in use, and offers no "set default" on it', () => {
     renderSection()
 
     const standard = rowFor('standard')
     expect(within(standard).getByText(en.builtIn)).toBeTruthy()
-    expect(within(standard).getByText(en.defaultBadge)).toBeTruthy()
+    expect(within(standard).getByText(en.inUse)).toBeTruthy()
     expect(within(standard).queryByText(en.setDefault)).toBeNull()
     expect(within(rowFor('mine')).getByText(en.userTrust)).toBeTruthy()
   })
@@ -151,13 +167,13 @@ describe('the preset list', () => {
 describe('the composition editor', () => {
   const draft = {
     id: 'mine', source: 'mine', creating: false, content: '- id: tool-read\n',
-    writable: true, saving: false, error: null,
+    writable: true, name: '我的预设', description: '', saving: false, error: null,
   }
 
   it('opens under the row it belongs to and edits through the controller', () => {
     const actions = renderSection({ draft })
 
-    const editor = within(rowFor('mine')).getByRole('textbox')
+    const editor = within(rowFor('mine')).getByLabelText(en.composition)
     expect(editor).toHaveProperty('value', '- id: tool-read\n')
     fireEvent.change(editor, { target: { value: '- id: tool-edit\n' } })
 
@@ -185,7 +201,7 @@ describe('the composition editor', () => {
   it('shows a shipped composition read-only, with no way to save it', () => {
     renderSection({ draft: { ...draft, id: 'standard', source: 'standard', writable: false } })
 
-    expect(screen.getByRole('textbox')).toHaveProperty('readOnly', true)
+    expect(screen.getByLabelText(en.composition)).toHaveProperty('readOnly', true)
     expect(screen.getByText(en.readOnlyNotice)).toBeTruthy()
     expect(screen.queryByText(en.save)).toBeNull()
     expect(screen.getByText(en.close)).toBeTruthy()
@@ -197,9 +213,26 @@ describe('the composition editor', () => {
     })
 
     expect(screen.getByText(`${en.copyOf} standard`)).toBeTruthy()
-    fireEvent.change(screen.getByPlaceholderText(en.presetNamePlaceholder), { target: { value: 'my-agent' } })
+    fireEvent.change(screen.getByPlaceholderText(en.presetIdPlaceholder), { target: { value: 'my-agent' } })
 
     expect(actions.setId).toHaveBeenCalledWith('my-agent')
+  })
+
+  it('edits the display name and description through the controller', () => {
+    const actions = renderSection({ draft })
+
+    fireEvent.change(screen.getByLabelText(en.displayName), { target: { value: '我的模式' } })
+    fireEvent.change(screen.getByLabelText(en.displayDescription), { target: { value: '只做检索。' } })
+
+    expect(actions.setName).toHaveBeenCalledWith('我的模式')
+    expect(actions.setDescription).toHaveBeenCalledWith('只做检索。')
+  })
+
+  it('offers no display fields on a read-only preset', () => {
+    renderSection({ draft: { ...draft, writable: false } })
+
+    // Nothing here can be saved, so an editable name would be a lie.
+    expect(screen.queryByLabelText(en.displayName)).toBeNull()
   })
 
   it('blocks a save the host would refuse, and says why', () => {

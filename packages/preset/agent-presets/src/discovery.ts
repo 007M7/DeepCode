@@ -1,6 +1,7 @@
 /**
  * Filesystem discovery of agent presets. A preset is a directory holding
- * {@link COMPOSITION_FILE}; the directory name is the preset id. Discovery
+ * {@link COMPOSITION_FILE}, optionally beside a {@link METADATA_FILE} carrying
+ * its display text; the directory name is the preset id. Discovery
  * re-reads the roots on every call so a preset authored while the process is
  * running is visible without a restart.
  * @module @deepseek-ai/dsh-agent-presets/discovery
@@ -9,6 +10,7 @@
 import { readdir, stat } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { expandHomePath } from '@deepseek-ai/dsh-paths'
+import { readPresetMetadata } from './metadata.ts'
 import type { AgentPreset, PresetRoot } from './types.ts'
 
 /** The composition file that makes a directory a preset. */
@@ -51,9 +53,13 @@ export async function scanRoot(root: PresetRoot): Promise<AgentPreset[]> {
   const found: AgentPreset[] = []
   for (const child of children) {
     if (!child.isDirectory()) continue
-    const path = join(dir, child.name, COMPOSITION_FILE)
+    const directory = join(dir, child.name)
+    const path = join(directory, COMPOSITION_FILE)
     if (!await isFile(path)) continue
-    found.push({ id: child.name, trust: root.trust, path })
+    // Display text only, and never fatal: a preset with unreadable metadata
+    // still mounts, it just shows its id.
+    const metadata = await readPresetMetadata(directory)
+    found.push({ id: child.name, trust: root.trust, path, ...metadata })
   }
   return found.sort((left, right) => left.id.localeCompare(right.id))
 }

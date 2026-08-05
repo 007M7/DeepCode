@@ -2544,6 +2544,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             id: preset.id,
             trust: preset.trust,
             isDefault: preset.id === defaultId,
+            ...preset.name === undefined ? {} : { name: preset.name },
+            ...preset.description === undefined ? {} : { description: preset.description },
           })),
           authorable: presets.authorable,
         })
@@ -2615,6 +2617,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             trust: preset.trust,
             content: await presets.read(preset.id),
             writable: preset.trust === 'user' && presets.authorable,
+            ...preset.name === undefined ? {} : { name: preset.name },
+            ...preset.description === undefined ? {} : { description: preset.description },
           })
         } catch (error: unknown) {
           return err(request, presetError(agentPreset, error))
@@ -2622,11 +2626,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       async write(request) {
-        const { agentPreset, content } = request.payload
+        const { agentPreset, content, name, description } = request.payload
         const presets = ctx.get('agentPresets')
         if (presets === undefined) return err(request, noRoster(agentPreset))
         try {
-          await presets.write(agentPreset, content)
+          await presets.write(agentPreset, content, {
+            ...name === undefined ? {} : { name },
+            ...description === undefined ? {} : { description },
+          })
           return ok(request, { agentPreset })
         } catch (error: unknown) {
           return err(request, presetError(agentPreset, error))

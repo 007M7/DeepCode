@@ -13,7 +13,9 @@ import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import Include from '@cordisjs/plugin-include'
 import { beforeEach, describe, expect, it } from 'vitest'
-import AgentPresets, { COMPOSITION_FILE, assertComposition } from '@deepseek-ai/dsh-agent-presets'
+import AgentPresets, {
+  COMPOSITION_FILE, METADATA_FILE, assertComposition,
+} from '@deepseek-ai/dsh-agent-presets'
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
 const VALID = '- id: tool-alpha\n  name: ../../plugins/contribute.js\n  config:\n    tool: alpha\n'
@@ -89,6 +91,38 @@ describe('authoring a preset', () => {
       .rejects.toThrow(/ships with the deployment/)
 
     expect(await ctx.agentPresets.read('standard')).not.toBe(VALID)
+  })
+})
+
+describe('display metadata beside a composition', () => {
+  it('stores the name and description the author supplied', async () => {
+    await ctx.agentPresets.write('mine', VALID, { name: '我的模式', description: '只做检索。' })
+
+    expect(await readFile(join(userRoot, 'mine', METADATA_FILE), 'utf8'))
+      .toContain('name: 我的模式')
+    const listed = (await ctx.agentPresets.list()).find(preset => preset.id === 'mine')
+    expect(listed).toMatchObject({ name: '我的模式', description: '只做检索。' })
+  })
+
+  it('removes the file when both fields are cleared', async () => {
+    await ctx.agentPresets.write('mine', VALID, { name: '我的模式' })
+
+    await ctx.agentPresets.write('mine', VALID, {})
+
+    // An empty metadata document would read as an intentional blank name;
+    // absence is what "this preset publishes no display text" looks like.
+    expect(existsSync(join(userRoot, 'mine', METADATA_FILE))).toBe(false)
+    expect((await ctx.agentPresets.list()).find(preset => preset.id === 'mine')?.name).toBeUndefined()
+  })
+
+  it('keeps a composition mountable when its metadata is unreadable', async () => {
+    await ctx.agentPresets.write('mine', VALID)
+    await writeFile(join(userRoot, 'mine', METADATA_FILE), 'name: [unclosed\n')
+
+    // Presentation is not capability: discovery still yields the preset.
+    const listed = (await ctx.agentPresets.list()).find(preset => preset.id === 'mine')
+    expect(listed?.name).toBeUndefined()
+    expect(await ctx.agentPresets.resolve('mine')).toMatchObject({ id: 'mine' })
   })
 })
 

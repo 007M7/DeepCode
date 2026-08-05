@@ -35,6 +35,10 @@ export interface AgentPresetSectionInjected {
   setId: (id: string) => void
   /** Replace the draft's composition text. */
   setContent: (content: string) => void
+  /** Rename the draft. */
+  setName: (name: string) => void
+  /** Replace the draft's description. */
+  setDescription: (description: string) => void
   /** Save the open draft. */
   save: () => Promise<void>
   /** Ask for delete confirmation, or dismiss it with null. */
@@ -56,7 +60,8 @@ interface EditorProps {
   draft: PresetDraft
   blocker: ReturnType<typeof draftBlocker>
   t: (key: AgentPresetSettingsKey) => string
-  actions: Pick<AgentPresetSectionInjected, 'close' | 'save' | 'setContent' | 'setId'>
+  actions: Pick<AgentPresetSectionInjected,
+    'close' | 'save' | 'setContent' | 'setDescription' | 'setId' | 'setName'>
 }
 
 function Editor({ draft, blocker, t, actions }: EditorProps): ReactNode {
@@ -66,17 +71,42 @@ function Editor({ draft, blocker, t, actions }: EditorProps): ReactNode {
       {draft.creating
         ? (
           <label className={css.field}>
-            <span className={css.fieldLabel}>{t('presetName')}</span>
+            <span className={css.fieldLabel}>{t('presetId')}</span>
             <input
               className={css.input}
               value={draft.id}
               autoFocus
               spellCheck={false}
-              placeholder={t('presetNamePlaceholder')}
+              placeholder={t('presetIdPlaceholder')}
               onChange={(event) => { actions.setId(event.target.value) }}
             />
             <span className={css.hint}>{`${t('copyOf')} ${draft.source}`}</span>
           </label>
+        )
+        : null}
+      {draft.writable
+        ? (
+          <>
+            <label className={css.field}>
+              <span className={css.fieldLabel}>{t('displayName')}</span>
+              <input
+                className={css.input}
+                value={draft.name}
+                spellCheck={false}
+                placeholder={draft.id === '' ? t('displayNamePlaceholder') : draft.id}
+                onChange={(event) => { actions.setName(event.target.value) }}
+              />
+            </label>
+            <label className={css.field}>
+              <span className={css.fieldLabel}>{t('displayDescription')}</span>
+              <input
+                className={css.input}
+                value={draft.description}
+                placeholder={t('displayDescriptionPlaceholder')}
+                onChange={(event) => { actions.setDescription(event.target.value) }}
+              />
+            </label>
+          </>
         )
         : null}
       {draft.writable ? null : <p className={css.notice}>{t('readOnlyNotice')}</p>}
@@ -142,20 +172,33 @@ export function AgentPresetSection(props: AgentPresetSectionProps): ReactNode {
 
   const { draft } = state
   const blocker = draft === null ? undefined : draftBlocker(draft, state.rows)
-  const editorActions = { close: props.close, save: props.save, setContent: props.setContent, setId: props.setId }
+  const editorActions = {
+    close: props.close,
+    save: props.save,
+    setContent: props.setContent,
+    setDescription: props.setDescription,
+    setId: props.setId,
+    setName: props.setName,
+  }
 
   return (
     <div className={css.section}>
       <h2 className={css.title}>{t('nav')}</h2>
       <p className={css.intro}>{t('sectionIntro')}</p>
       {state.error === null ? null : <p className={css.error} role="alert">{state.error}</p>}
-      <ul className={css.rows}>
+      <ul className={css.cards}>
         {state.rows.map(row => (
-          <li key={row.id} className={css.rowCard}>
-            <div className={css.rowHead}>
-              <span className={css.rowName}>{row.id}</span>
+          <li key={row.id} className={row.isDefault ? `${css.card} ${css.cardActive}` : css.card}>
+            <div className={css.cardHead}>
+              <span className={css.cardName}>{row.name ?? row.id}</span>
+              {row.isDefault ? <span className={css.inUse}>{t('inUse')}</span> : null}
+            </div>
+            <p className={css.cardDesc}>{row.description ?? t('noDescription')}</p>
+            <div className={css.cardMeta}>
               <span className={css.badge}>{row.trust === 'user' ? t('userTrust') : t('builtIn')}</span>
-              {row.isDefault ? <span className={css.defaultBadge}>{t('defaultBadge')}</span> : null}
+              <code className={css.cardId}>{row.id}</code>
+            </div>
+            <div className={css.cardFoot}>
               <span className={css.rowActions}>
                 {row.isDefault
                   ? null

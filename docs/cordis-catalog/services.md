@@ -96,10 +96,11 @@ async read(id: string): Promise<string>
  * names a missing plugin still fails at the next session that selects it.
  * @param id - the profile id, which becomes its directory name.
  * @param content - the composition text.
+ * @param metadata - display name and description; clearing both removes the file.
  * @throws when the id is unusable, the text is not an entry list, or the
  * deployment configures no writable root.
  */
-async write(id: string, content: string): Promise<void>
+async write(id: string, content: string, metadata: PresetMetadata = {}): Promise<void>
 
 /**
  * Delete a locally authored profile.
@@ -145,7 +146,7 @@ serviceFor<K extends string & keyof Context>(agent: { ctx: Context }, name: K): 
 async recompose(agentCtx: Context, id: string): Promise<AgentPreset>
 ```
 
-Source: [`packages/preset/agent-presets/src/index.ts:63`](../../packages/preset/agent-presets/src/index.ts)
+Source: [`packages/preset/agent-presets/src/index.ts:67`](../../packages/preset/agent-presets/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 

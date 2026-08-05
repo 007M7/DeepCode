@@ -54,6 +54,19 @@ A row's **package name** resolves from the host composition, not from the preset
 
 A **relative** path still resolves from the preset's own directory, so a preset's own plugin files and skill directories travel with it.
 
+### Display metadata
+
+A preset may publish display text in an optional `preset.yml` beside its composition:
+
+```yaml
+name: 极简模式
+description: 只向模型呈现 bash 与 str_replace_editor，适合 benchmark 与最小复现。
+```
+
+It carries display text ONLY. `id` is the directory name and `trust` comes from the root the preset was discovered under, so neither is writable here — otherwise a locally authored preset could name itself into the shipped set. It is a separate file because the composition is a top-level list of plugin rows: YAML cannot carry sibling keys beside it, and a fake metadata row would hand the Loader something to load.
+
+Every read failure degrades to no metadata — absent, malformed, wrongly typed, or blank all mean the same thing, and a picker falls back to the id. Presentation is not capability: a preset with a broken name still mounts.
+
 ## Config
 
 | Field | Default | Meaning |

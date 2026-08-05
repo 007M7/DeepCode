@@ -16,6 +16,7 @@ import z from 'schemastery'
 import { settingsNamespace, type SettingsScope } from '@deepseek-ai/dsh-settings'
 import { discoverPresets } from './discovery.ts'
 import { deleteComposition, readComposition, writeComposition } from './authoring.ts'
+import type { PresetMetadata } from './metadata.ts'
 import { mountPreset, serviceForAgent, unmountPresetFor } from './mount.ts'
 import { PresetNotWritableError } from './authoring.ts'
 import { UnknownPresetError, type AgentPreset, type Config } from './types.ts'
@@ -35,6 +36,9 @@ export const AgentPresetSettingsSchema: z<AgentPresetSettings> = z.object({
 })
 
 export { COMPOSITION_FILE, discoverPresets, scanRoot } from './discovery.ts'
+export {
+  METADATA_FILE, readPresetMetadata, renderPresetMetadata, type PresetMetadata,
+} from './metadata.ts'
 export {
   inactiveRows, leakedServices, livePresetMounts, mountPreset, serviceForAgent,
   unmountPresetFor, type PresetMount,
@@ -171,17 +175,18 @@ export class AgentPresets extends Service {
    * names a missing plugin still fails at the next session that selects it.
    * @param id - the preset id, which becomes its directory name.
    * @param content - the composition text.
+   * @param metadata - display name and description; clearing both removes the file.
    * @throws when the id is unusable, the text is not an entry list, or the
    * deployment configures no writable root.
    */
-  async write(id: string, content: string): Promise<void> {
+  async write(id: string, content: string, metadata: PresetMetadata = {}): Promise<void> {
     // A shipped preset belongs to the deployment: overwriting it would remove
     // the known-good composition a broken local one is compared against.
     const existing = (await this.list()).find(preset => preset.id === id)
     if (existing !== undefined && existing.trust !== 'user') {
       throw new PresetNotWritableError(id, 'it ships with the deployment')
     }
-    await writeComposition(this.config.roots, id, content)
+    await writeComposition(this.config.roots, id, content, metadata)
   }
 
   /**

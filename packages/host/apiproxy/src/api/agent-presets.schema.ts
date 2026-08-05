@@ -14,6 +14,8 @@ export const agentPresetEntrySchema = z.object({
   id: z.string().min(1),
   trust: z.union([z.literal('system'), z.literal('user')]),
   isDefault: z.boolean(),
+  name: z.string().optional(),
+  description: z.string().optional(),
 }) satisfies z.ZodType<Wire<AgentPresetEntry>>
 
 /** agentPreset.list request payload. */
@@ -48,12 +50,16 @@ export const agentPresetReadValueSchema = z.object({
   trust: z.union([z.literal('system'), z.literal('user')]),
   content: z.string(),
   writable: z.boolean(),
+  name: z.string().optional(),
+  description: z.string().optional(),
 }) satisfies z.ZodType<Wire<ResponseValue<'agentPreset.read'>>>
 
 /** agentPreset.write request payload. */
 export const agentPresetWriteRequestSchema = z.object({
   agentPreset: z.string().min(1),
   content: z.string(),
+  name: z.string().optional(),
+  description: z.string().optional(),
 }) satisfies z.ZodType<Wire<RequestPayload<'agentPreset.write'>>>
 
 /** agentPreset.write response value. */

@@ -29,35 +29,77 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
-.rows {
+/* Cards, not rows: a preset is a thing you pick, and the description is the
+   part that tells them apart — a row would bury it beside the actions. */
+.cards {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
+  gap: 12px;
 }
 
-.rowCard {
+.card {
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 12px;
-  padding: 12px 14px;
+  padding: 14px 16px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
   background: var(--dsw-alias-bg-layer-3);
 }
 
-.rowHead {
+/* The default preset is the one in use; it reads as selected rather than
+   merely badged. */
+.cardActive {
+  background: var(--dsw-alias-bg-layer-2);
+  border-color: var(--dsw-alias-label-tertiary);
+}
+
+.cardHead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.cardName {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.inUse {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+}
+
+.cardDesc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--dsw-alias-label-secondary);
+  flex: 1;
+}
+
+.cardMeta {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
 }
 
-.rowName {
-  font-size: 15px;
-  font-weight: 600;
+.cardId {
+  font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11px;
+  color: var(--dsw-alias-label-dimmed);
+}
+
+.cardFoot {
+  display: flex;
+  padding-top: 4px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
 }
 
 .badge,
@@ -80,28 +122,36 @@
 
 .rowActions {
   display: inline-flex;
-  gap: 8px;
-  margin-left: auto;
+  gap: 4px;
+  flex-wrap: wrap;
+  align-items: center;
 }
 
 .secondaryButton {
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 999px;
-  padding: 6px 14px;
-  background: var(--dsw-alias-bg-layer-3);
-  color: inherit;
+  border: none;
+  border-radius: 7px;
+  padding: 5px 8px;
+  background: none;
+  color: var(--dsw-alias-label-secondary);
   font: inherit;
-  font-size: 13px;
+  font-size: 12.5px;
   cursor: pointer;
 }
 
 .dangerButton {
   border: none;
+  border-radius: 7px;
+  padding: 5px 8px;
   background: none;
   color: var(--dsw-alias-state-error-primary);
   font: inherit;
-  font-size: 13px;
+  font-size: 12.5px;
   cursor: pointer;
+}
+
+.secondaryButton:hover:not(:disabled),
+.dangerButton:hover:not(:disabled) {
+  background: var(--dsw-alias-bg-layer-1);
 }
 
 .secondaryButton:disabled,

@@ -24,6 +24,15 @@ export interface AgentPresetEntry {
   readonly trust: 'system' | 'user'
   /** Whether a session that names no preset gets this one. */
   readonly isDefault: boolean
+  /**
+   * Display name the preset published, absent when it published none. A
+   * surface falls back to {@link id}; it is never a second identity, and it
+   * never decides trust — a locally authored preset cannot name itself into
+   * the shipped set.
+   */
+  readonly name?: string
+  /** One sentence on what the preset is for, when it published one. */
+  readonly description?: string
 }
 
 /** agent-preset-domain unary methods (the map key agentPreset.* of RpcMethodMap). */
@@ -56,14 +65,21 @@ export interface AgentPresetsApi {
    * is reconnaissance and writing one is arbitrary capability.
    */
   read(request: RpcRequest<{ agentPreset: string }>):
-  Promise<RpcResponse<{ agentPreset: string; trust: 'system' | 'user'; content: string; writable: boolean }>>
+  Promise<RpcResponse<{
+    agentPreset: string
+    trust: 'system' | 'user'
+    content: string
+    writable: boolean
+    name?: string
+    description?: string
+  }>>
 
   /**
    * Create or replace a locally authored preset. Shipped presets are refused;
    * the text is shape-checked before it lands, so a save cannot leave a file no
    * session could load.
    */
-  write(request: RpcRequest<{ agentPreset: string; content: string }>):
+  write(request: RpcRequest<{ agentPreset: string; content: string; name?: string; description?: string }>):
   Promise<RpcResponse<{ agentPreset: string }>>
 
   /** Delete a locally authored preset. Shipped presets are refused. */

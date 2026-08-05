@@ -15,6 +15,10 @@ export interface AgentPreset {
   readonly trust: PresetTrust
   /** Absolute path of the preset's agent composition file. */
   readonly path: string
+  /** Display name from the preset's own metadata; absent falls back to {@link id}. */
+  readonly name?: string
+  /** One sentence on what this preset is for, when it published one. */
+  readonly description?: string
 }
 
 /** One directory scanned for preset subdirectories. */

@@ -14,6 +14,7 @@ import { entryListSchema } from '@cordisjs/plugin-include'
 import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { expandHomePath } from '@deepseek-ai/dsh-paths'
 import { COMPOSITION_FILE } from './discovery.ts'
+import { METADATA_FILE, renderPresetMetadata, type PresetMetadata } from './metadata.ts'
 import type { AgentPreset, PresetRoot } from './types.ts'
 
 /**
@@ -111,6 +112,7 @@ export async function readComposition(preset: AgentPreset): Promise<string> {
  * @param roots - the configured roots; the first `user` one receives the write.
  * @param id - the preset id, which becomes its directory name.
  * @param content - the composition text.
+ * @param metadata - display name and description; clearing both removes the file.
  * @returns the absolute path written.
  * @throws when the id is unusable, the content is not an entry list, or the
  * deployment has no writable root.
@@ -119,6 +121,7 @@ export async function writeComposition(
   roots: readonly PresetRoot[],
   id: string,
   content: string,
+  metadata: PresetMetadata = {},
 ): Promise<string> {
   if (!PRESET_ID.test(id)) throw new InvalidPresetIdError(id)
   assertComposition(content)
@@ -127,6 +130,16 @@ export async function writeComposition(
   // Owner-only: a composition names the plugins a session runs, so it carries
   // the same weight as the settings document beside it.
   await writeFileAtomic(path, content, { mode: 0o600, dirMode: 0o700 })
+  // Display text lands after the composition, and only when there is any: a
+  // preset with no name should carry no metadata file rather than an empty
+  // one. Clearing both fields therefore removes the file.
+  const rendered = renderPresetMetadata(metadata)
+  const metadataPath = join(dir, METADATA_FILE)
+  if (rendered === undefined) {
+    await rm(metadataPath, { force: true })
+  } else {
+    await writeFileAtomic(metadataPath, rendered, { mode: 0o600, dirMode: 0o700 })
+  }
   return path
 }
 

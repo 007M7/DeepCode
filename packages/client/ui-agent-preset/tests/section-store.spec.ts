@@ -272,7 +272,8 @@ describe('creating a preset', () => {
 
 describe('the save blocker', () => {
   const base: PresetDraft = {
-    id: '', source: 'standard', creating: true, content: '', writable: true, saving: false, error: null,
+    id: '', source: 'standard', creating: true, content: '', writable: true,
+    name: '', description: '', saving: false, error: null,
   }
   const rows: readonly PresetRow[] = [{ id: 'mine', trust: 'user', isDefault: false }]
 
@@ -405,11 +406,37 @@ describe('saving', () => {
     expect(draftOf(controller).error).toBeNull()
   })
 
+  it('carries the display name and description through a save', async () => {
+    const { controller, calls } = harness()
+    await controller.load()
+    await controller.open('mine')
+
+    controller.setName('我的模式')
+    controller.setDescription('只做检索。')
+    await controller.save()
+
+    expect(calls.find(call => call.method === 'write')?.payload)
+      .toMatchObject({ agentPreset: 'mine', name: '我的模式', description: '只做检索。' })
+  })
+
+  it('leaves a copy unnamed so two rows cannot present themselves alike', async () => {
+    const { controller } = harness()
+    await controller.load()
+
+    await controller.createFrom('mine')
+
+    // The composition is copied verbatim; the display name is not.
+    expect(draftOf(controller)).toMatchObject({ id: '', name: '' })
+    expect(draftOf(controller).content).toBe('- id: tool-read\n')
+  })
+
   it('ignores an edit with no draft open', () => {
     const { controller } = harness()
 
     controller.setId('x')
     controller.setContent('y')
+    controller.setName('n')
+    controller.setDescription('d')
 
     expect(controller.store.getSnapshot().draft).toBeNull()
   })

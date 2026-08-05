@@ -113,6 +113,8 @@ export function apply(ctx: ClientContext): void {
     close: () => { section.close() },
     setId: (id: string) => { section.setId(id) },
     setContent: (content: string) => { section.setContent(content) },
+    setName: (name: string) => { section.setName(name) },
+    setDescription: (description: string) => { section.setDescription(description) },
     save: () => section.save(),
     confirmDelete: (id: string | null) => { section.confirmDelete(id) },
     remove: () => section.remove(),
