@@ -1,10 +1,10 @@
-# SDK 包（package）
+# SDK 包
 
 [English](README.md) | 中文
 
 用于创建、编辑、构建和运行 DeepSeek Harness 项目的开发者工具，外加从另一进程驱动 harness 运行时的客户端 SDK 栈。
 
-[功能 Agent Note（agent 决策记录）](../../.agents/notes/proposed/feature/2026-07-14-sdk-developer-projects.md)负责开发者工作流；[架构 Agent Note](../../.agents/notes/proposed/architecture/2026-07-15-sdk-project-editing-architecture.md)负责包与项目编辑边界；[TypeScript SDK Agent Note](../../.agents/notes/implemented/feature/2026-07-27-typescript-sdk-and-sdk-subagent-backend.md)负责客户端 SDK 栈。
+[功能 Agent Note](../../.agents/notes/proposed/feature/2026-07-14-sdk-developer-projects.md)负责开发者工作流；[架构 Agent Note](../../.agents/notes/proposed/architecture/2026-07-15-sdk-project-editing-architecture.md)负责包与项目编辑边界；[TypeScript SDK Agent Note](../../.agents/notes/implemented/feature/2026-07-27-typescript-sdk-and-sdk-subagent-backend.md)负责客户端 SDK 栈。
 
 | 包 | 职责 |
 |---|---|

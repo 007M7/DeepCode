@@ -2,7 +2,7 @@
 
 [English](index.md) | 中文
 
-本文带你编写一个最小的 Harness 插件并加载到 Agent 中。
+本文带你编写一个最小的 Harness 插件并加载到 agent（智能体）中。
 
 ## 插件是什么
 
@@ -18,7 +18,7 @@ export function apply(ctx: Context) {
 }
 ```
 
-就这么简单。
+这就是完整结构。
 
 ## 创建插件文件
 
@@ -48,7 +48,7 @@ export function apply(ctx: Context) {
 
 ## 自动清理
 
-通过 `ctx` 注册的任何东西——事件监听、tool、定时器——在插件卸载时都会被自动清理。你不需要手动 removeListener 或 clearInterval。
+通过 `ctx` 注册的任何东西——事件监听、工具、定时器——在插件卸载时都会被自动清理。你不需要手动 removeListener 或 clearInterval。
 
 如果你有需要手动清理的资源（比如一个网络连接），用 `ctx.effect()` 告诉框架怎么清理：
 
@@ -118,11 +118,11 @@ export default class MyService extends Service {
 }
 ```
 
-大多数情况下，函数形式足够了。类形式用于需要对外提供服务的插件（见 [服务与依赖](../framework/service.md)）。
+大多数情况下，函数形式足够了。当插件需要向其他插件提供服务时，可使用类形式（见 [服务与依赖](../framework/service.md)）。
 
 ## 完整示例
 
-最小化的工具插件会在 `ctx.tools` 上注册其定义：
+最小的工具插件会在 `ctx.tools` 上注册其定义：
 
 ```ts
 import type { Context } from 'cordis'
@@ -151,5 +151,5 @@ export function apply(ctx: Context) {
 
 ## 下一步
 
-- [开发一个 Tool](./tool.md) — 详细了解 tool 定义 DSL
+- [开发一个工具](./tool.md) — 详细了解工具定义 DSL
 - [插件配置](./config.md) — 让插件接受用户配置

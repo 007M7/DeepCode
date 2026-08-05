@@ -1,4 +1,4 @@
-# Agent Note：计划审阅是一次决定，不是一道题
+# Agent Note: 计划审阅是一次决定，不是一道题
 
 Status: implemented
 

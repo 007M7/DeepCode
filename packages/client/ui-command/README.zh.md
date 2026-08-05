@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-客户端命令业务面（`ctx.command`）：以会话为 key 的命令目录缓存、带 matchSpace／matchEnter 裁决钩子的 `/` 命令 source、三型派发（execute／popupSelect／leadingInput），以及面向业务包的 popupSelect 注册面。契约：[Web 命令业务面 Agent Note（agent 决策记录）](../../../.agents/notes/implemented/architecture/2026-07-25-web-command-surfaces-and-assembly.zh.md)。
+客户端命令业务面（`ctx.command`）：以会话为 key 的命令目录缓存、带 matchSpace／matchEnter 裁决钩子的 `/` 命令 source、三型派发（execute／popupSelect／leadingInput），以及面向业务包的 popupSelect 注册面。契约：[Web 命令业务面 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-25-web-command-surfaces-and-assembly.zh.md)。
 
 `src/client/contract.ts` 是冻结的业务表层：`CommandServiceContract.register(name, spec)` 与 `decorate(name, spec)` 是业务包消费的全部内容；`CommandUiSpec{options, onSelect}` 让 popup 数据自给自足——壳组件归本包所有，业务永远见不到它。contribution 是 client 自有命令（与 host 同名碰撞即 fail-loud）；decoration（装饰）则把裸调用 popup 挂在**已存在的** host 命令上——host 保留目录行、带参 claim（space / 带参 enter）与生命周期记账，被装饰的名字若在会话目录中无 host 行则装饰永不触发。命令三型按每次派发派生，绝不在注册时定型：带 `input` 的 host descriptor 是 leadingInput，注册了 `CommandUiSpec` 的是 popupSelect，其余全部是 execute。
 
@@ -22,5 +22,5 @@
 
 ## 已知限制与暂缓事项
 
-- **popupSelect 壳还没有已上架的业务消费者**：模型选择（host `selectModel`）是设计的参照用例，将随其自身的功能工作落地；在此之前，壳只由包测试演练。
+- **popupSelect 壳还没有已上架的业务消费方**：模型选择（host `selectModel`）是设计的参照用例，将随其自身的功能工作落地；在此之前，壳只由包测试演练。
 - **脱离会话后，detached result 的 notice 回退到 console**：fire-and-forget 路径经 `SessionInput.notify` 把结果送到触发会话的编辑器；会话拆除后，console 输出行是仅剩的呈现面。

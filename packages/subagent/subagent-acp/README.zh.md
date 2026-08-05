@@ -59,7 +59,7 @@ ACP 不声明任何启动时能力，因为当前进程无法强制执行远程�
 
 子进程经由 [`dsh-subprocess`](../../subprocess/subprocess/README.md) seam spawn：共享的凭据清除先移除疑似凭据的环境变量和环境中已有的 `DSH_*` 名称，显式 `config.env` 值在清除之后合并（有意转发的 `DEEPSEEK_API_KEY` 会保留下来，`DSH_PERMISSION_MODE` 这类 `DSH_*` 部署事实也以同样的方式到达子进程——清除只丢弃其陈旧的同名环境值），stderr 会继承到父进程自身的流，dispose 则以本插件配置的宽限期运行该 seam 的协作式 stdin EOF→SIGTERM→SIGKILL 阶梯。ACP 协议格式（wire format）是真正的序列化边界；同进程 subagent 值不会为防御目的而克隆。
 
-本包（package）没有默认导出。否则 Cordis loader 的解包会隐藏具名 `inject` 元数据；见[事故复盘（postmortem）0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md)。
+本包没有默认导出。否则 Cordis loader 的解包会隐藏具名 `inject` 元数据；见[事故复盘（postmortem）0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md)。
 
 无密钥测试通过真实 stdio 驱动脚本化 ACP 子进程，其中包括一个由 Loader 组合的 stdio 应用，用于端到端证明父会话 cwd 继承。带密钥 e2e 会驱动仓库中的真实 ACP agent；没有 `DEEPSEEK_API_KEY` 时自行跳过。
 
@@ -91,11 +91,11 @@ ACP 不声明任何启动时能力，因为当前进程无法强制执行远程�
 
 #### KV Cache 影响
 
-仅追加；新增可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新增可见内容位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ## 已知限制与暂缓事项
 
-- **每次运行使用全新进程**：持久进程池属于后续优化（见 [seam Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-06-21-subagent-capability-seam.md)）。
+- **每次运行使用全新进程**：持久进程池属于后续优化（见 [seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-21-subagent-capability-seam.md)）。
 - **仅支持本地工作区**：解析后的 cwd 是交给同一台机器上子进程的本地路径；远程 ACP agent 的工作区映射需要独立的后端能力，本包尚未设计。
 - **不支持可选启动时能力**：该提供方无法在远程进程内应用本地 harness 的 `outputSchema`、深度上限、工具过滤器或 persona，因此不会声明这些能力；服务会拒绝需要它们的请求。
 - **只收集已提交的 `agent_message_chunk` 文本**：自动化服务器把推理（reasoning）、工具活动、计划和其他 trace 数据保留在子 agent 会话日志中，不通过 ACP 发出。

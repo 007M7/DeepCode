@@ -57,7 +57,7 @@ Provider 不宣告任何启动期能力（`outputSchema`/`depthLimit`/`toolFilte
 
 子进程环境以 [`dsh-subprocess`](../../subprocess/README.md) seam 的 `scrubbedParentEnv()` 为基础，先移除疑似凭据和名称为 `DSH_*` 的环境变量，再合并显式 `config.env` 值。子进程由 SDK 客户端 spawn，而不是经由 `ctx.subprocess` spawn（这是 subprocess README 中记录的 SDK 托管传输例外），因此本后端会自行执行环境清理。JSON-RPC 协议格式才是真正的序列化边界。
 
-本包（package）没有默认导出。否则 Cordis loader 解包会隐藏具名 `inject` 元数据；见[事故复盘（postmortem）0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md)。
+本包没有默认导出。否则 Cordis loader 解包会隐藏具名 `inject` 元数据；见[事故复盘（postmortem）0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md)。
 
 免密钥测试通过真实 stdio 驱动 SDK 客户端包的脚本化伪运行时，还包括一个 Loader 组合 e2e：子进程是真实的第二个 harness 运行时，端到端证明父会话 cwd 继承（`tests/loader-composition.e2e.ts`）。
 
@@ -89,7 +89,7 @@ Provider 不宣告任何启动期能力（`outputSchema`/`depthLimit`/`toolFilte
 
 #### KV Cache 影响
 
-仅追加；新增可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新增可见内容位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ## 已知限制与暂缓事项
 

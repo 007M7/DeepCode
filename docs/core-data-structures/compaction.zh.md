@@ -2,7 +2,7 @@
 
 [English](compaction.md) | 中文
 
-压缩 seam 是一个[能力 seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)，与 bash 一样分为接口（[dsh-compact](../../packages/compact/compact)，`ctx.compact`）、实现（例如 [dsh-compact-basic](../../packages/compact/compact-basic) 后端）和面向用户的消费方（[dsh-command-compact](../../packages/compact/command-compact)）。压缩是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇定义在此而非 [core.md](core.md) 中。基于 tokenizer 或模板的后端是实现同一接口的兄弟包（package）。与 bash 不同，该接口必然依赖 `dsh-session` 和 `dsh-llm`：其动词作用于 agent 所有的 `Session`，而其持久摘要事件使用 `ContentBlock` 词汇（见[压缩能力 seam Agent Note（agent 决策记录）](../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md)）。
+压缩 seam 是一个[能力 seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)，与 bash 一样分为接口（[dsh-compact](../../packages/compact/compact)，`ctx.compact`）、实现（例如 [dsh-compact-basic](../../packages/compact/compact-basic) 后端）和面向用户的消费方（[dsh-command-compact](../../packages/compact/command-compact)）。压缩是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇定义在此而非 [core.md](core.md) 中。基于 tokenizer 或模板的后端是实现同一接口的兄弟包。与 bash 不同，该接口必然依赖 `dsh-session` 和 `dsh-llm`：其动词作用于 agent 所有的 `Session`，而其持久摘要事件使用 `ContentBlock` 词汇（见[压缩能力 seam Agent Note](../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md)）。
 
 源码：[`packages/compact/compact/src/types.ts`](../../packages/compact/compact/src/types.ts)
 

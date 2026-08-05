@@ -1,4 +1,4 @@
-# Agent Note：tmux 位置上下文
+# Agent Note: tmux 位置上下文
 
 Status: implemented
 

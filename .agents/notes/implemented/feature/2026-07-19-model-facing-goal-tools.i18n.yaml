@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-19-model-facing-goal-tools.md
 2026-07-19-model-facing-goal-tools.md: 0271194a38503711de77290c915010c26a9de74b
-2026-07-19-model-facing-goal-tools.zh.md: b9cd3eca6c057b5d477aff0792b8b6c0b9f09407
+2026-07-19-model-facing-goal-tools.zh.md: 235c3c5369871a8cdf731eee822abc4a3e6b58d1

@@ -1,4 +1,4 @@
-# experimental/：实验性与内部专用包（package）
+# experimental/：实验性与内部专用包
 
 [English](README.md) | 中文
 

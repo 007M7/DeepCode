@@ -4,7 +4,7 @@
 
 Agent 接口、注册表、进程本地发起方作用域，以及 `agent/*` 事件词汇。每个插件（UI、钩子、编排器）都面向此处定义的 `Agent` handle 编程；它不依赖循环，因此循环可以替换。
 
-可选配套包（package）`@deepseek-ai/dsh-agent/invariant` 会向 `ctx.invariants` 注册此包的 agent（智能体）状态转换检查。根 agent 服务不会隐式加载诊断。
+可选配套包`@deepseek-ai/dsh-agent/invariant`会向 `ctx.invariants` 注册此包的 agent（智能体）状态转换检查。根 agent 服务不会隐式加载诊断。
 
 ## 服务：`AgentRegistry`（ctx 键：`agents`）
 
@@ -14,7 +14,7 @@ Agent 接口、注册表、进程本地发起方作用域，以及 `agent/*` 事
 
 带作用域的注册接口：`Agent.ctx` 是 agent 的作用域上下文（`dsh-scope`，键 = 该 agent）。通过它注册工具／段／变量／监听器，只对该 agent 生效，并在 dispose（资源释放）时全部撤销。`agentEvents(ctx, agent)` 是普通 agent 主体操作的融合分发器（一次完成载体 + 注入主体）；其通知 mode 会调用每个监听器，并同时收容同步抛出和返回 Promise 的拒绝。注册表生命周期对复用一个稳定路由载体。`assembleContextFor(agent)` 构建按 agent 的组装上下文（同时包含 `agent` + `scope`）。`installAgentLlmTarget(agentCtx, target)` 在提示词组装期间快照可变的提供方／模型／推理（reasoning）强度选择，将路由应用到提示词变量，并将完整目标应用到一个步骤的请求路由；如果没有选定推理强度，则会清除继承的推理强度，使该目标使用适配器／提供方默认值。`CreateAgentOptions.setup(agentCtx)` 和 `ResumeAgentOptions.setup(agentCtx)` 在新建或恢复的 agent 尚未发布时，组合其带作用域的世界。Setup 是受信任、仅用于组合的同进程代码：只有创建完成后才能驱动 agent。
 
-`AgentOptions` 提供初始的提供方／模型路由，以及可选的正数 `maxTokens` 输出上限。实体循环会解析确切模型的适配器默认值，把生效上限记录到请求 header，并应用到每次对话模型请求；显式 Agent 选项优先，省略时由适配器或提供方路由默认值控制。
+`AgentOptions` 提供初始的提供方／模型路由，以及可选的正数 `maxTokens` 输出上限。具体循环会解析确切模型的适配器默认值，把生效上限记录到请求 header，并应用到每次对话模型请求；显式 Agent 选项优先，省略时由适配器或提供方路由默认值控制。
 
 - `ctx.agents.register(agent: Agent): () => void`：记录一个 **已经构造完成** 的 agent。随调用 fiber dispose。
 - 高级有序生命周期：`enter(agent, owner): () => void` 强制 `agent.id === agent.session.id`，执行权威 ID 冲突检查，并在不通知的情况下插入；`owner` 显式记录实时创建方 agent 关系（根 agent 为 `undefined`），与持久会话谱系无关。`announce(agent)` 恰好发出一次 `agent/created`。创建监听器同步请求的 detach 会延后到该次分发结束；每次 detach 都会检查捕获的条目对象，因此陈旧能力无法删除后续使用同一 ID 的替代项。异步工厂使用这一拆分；普通插件使用 `register()`。
@@ -36,7 +36,7 @@ Agent 接口、注册表、进程本地发起方作用域，以及 `agent/*` 事
 
 #### 工厂 seam（创建）
 
-Agent *创建* 由实现 `AgentFactory` 的插件（`dsh-agent-loop`）提供，并通过 `setFactory` 注册。这样，创建功能留在 `dsh-agent` 接口上，消费方（UI、ACP 桥接层）可以面向 `ctx.agents` 编程，而不依赖具体循环包。注册表会把已经 traced 的 Service 规范化为具体目标，并通过调用方上下文重新 trace 每次调用；这既避免嵌套 Cordis shadow，也会把显式、绑定调用方的 `ownerCtx` 传给普通工厂。
+Agent *创建* 由实现 `AgentFactory` 的插件（`dsh-agent-loop`）提供，并通过 `setFactory` 注册。这样，创建功能留在 `dsh-agent` 接口上，消费方（UI、ACP（Agent Client Protocol）桥接层）可以面向 `ctx.agents` 编程，而不依赖具体循环包。注册表会把已经 traced 的 Service 规范化为具体目标，并通过调用方上下文重新 trace 每次调用；这既避免嵌套 Cordis shadow，也会把显式、绑定调用方的 `ownerCtx` 传给普通工厂。
 
 - `ctx.agents.setFactory(factory: AgentFactory): () => void`：注册创建工厂（循环在构造时调用）。第二个工厂会导致抛出；dispose 时清空槽位。
 - `ctx.agents.create(options: CreateAgentOptions): Promise<AgentHandle>`：创建会话和 agent，在不发布的情况下等待可选 setup，然后通过最终的 `SessionStore.enter()` 与 `AgentRegistry.enter()` 检查发布。不支持并发创建同一 ID：多个操作可以进行准备，但只有一个能进入；每个失败方都会回滚其私有作用域／会话／驱动器。可选且只用于创建的 `signal` 会取消未发布的 setup，并在返回 handle 前分离；之后的取消使用 `handle.dispose()` 或 `agent.cancel()`。发布包含在回滚范围内，回滚期间每条已交付创建边都会成对处理。未注册工厂时拒绝。
@@ -76,7 +76,7 @@ inbox 的实时通知刻意采用逐消息的最小载荷：`agent/inbox/inserte
 
 - Agent 创建：`AgentLoop.create()` 是具体配置路径实现（位于 `dsh-agent-loop`），程序化消费方则通过 `ctx.agents.create()`/`ctx.agents.resume()` 创建或恢复有所有权的 agent。替换循环时，应实现 `Agent` 并通过 `ctx.agents.register()` 注册。
 - 事件监听器：全部 `agent/*` 事件都在此处声明，不需要依赖循环包。
-- Subagent 委派不是 `Agent` 方法；提供方通过工厂 seam 创建或驱动普通 handle，因此委派传输留在核心 agent 接口之外。
+- subagent 委派不是 `Agent` 方法；提供方通过工厂 seam 创建或驱动普通 handle，因此委派传输留在核心 agent 接口之外。
 
 ## 模型体验
 
@@ -114,6 +114,6 @@ inbox 的实时通知刻意采用逐消息的最小载荷：`agent/inbox/inserte
 - **环境身份可能比存活状态更久**：消费方在生命周期敏感工作前，仍要检查 `agent.status`、取消状态和所属能力契约。
 - **委派以外的 agent 间通道**：共享状态、流式子输出和后台／轮询语义仍在当前同步 `ctx.subagents` seam 之外。
 - **`agent/session-start` 不能为启动设置门禁**：它仍是同步且不可 veto 的通知；必须在发布前完成的异步组合属于工厂的 `setup(agentCtx)` 事务。
-- **`cancel()` 默认清空 inbox**：它会中止正在处理的轮次以及排队和 steering 工作；`cancel(cause, { keepInbox: true })` 只中止轮次并保留待处理项。仍不存在只中止步骤、同时让正在处理的轮次继续运行的操作（[停止表层 Agent Note](../../../.agents/notes/implemented/simplification/2026-06-20-public-agent-stop-surface.md)）。
+- **`cancel()` 默认清空 inbox**：它会中止正在处理的轮次以及排队和 steering 工作；`cancel(cause, { keepInbox: true })` 只中止轮次并保留待处理项。仍不存在只中止步骤、同时让正在处理的轮次继续运行的操作（[关于停止操作接口的 Agent Note](../../../.agents/notes/implemented/simplification/2026-06-20-public-agent-stop-surface.md)）。
 - **每条附加 `UserMessage` 恰好携带一个 `MessageSource`**：多个插件合并到一次工具调用上的贡献会归入一个来源；无法表示混合来源。
 - **`SessionStartSource` 预留 `'clear'`/`'compact'`，但还没有发出方**：在驱动子系统落地前，只会出现 `'startup'`/`'resume'`（`TODO(compaction)`）。

@@ -4,7 +4,7 @@
 
 事件溯源的会话日志和内存存储。`Session` 是 agent（智能体）全部交互历史的仅追加真源，LLM（大语言模型）消息历史由它*派生*。原始日志之上维护一个 **surface** 层（产生消息事件的有序投影），以便高效派生和压缩（compaction）。
 
-可选配套入口 `@deepseek-ai/dsh-session/invariant` 将此包（package）的关系轨迹检查注册到 `ctx.invariants`：序号单调递增、轮次／步骤闭合，以及同一步骤内的工具调用／结果配对。加载或重新加载时，它会回放现有会话；存储校验、快照、冻结、溯源信息和 surface 准入仍始终由根会话包负责。
+可选配套入口 `@deepseek-ai/dsh-session/invariant` 将此包的关系轨迹检查注册到 `ctx.invariants`：序号单调递增、轮次／步骤闭合，以及同一步骤内的工具调用／结果配对。加载或重新加载时，它会回放现有会话；存储校验、快照、冻结、溯源信息和 surface 准入仍始终由根会话包负责。
 
 ## 服务：`SessionStore`（ctx 键：`sessions`）
 
@@ -26,7 +26,7 @@
 - `enter(session)` 执行冲突检查，在不通知的情况下发布，并返回一个绑定到该条目的幂等脱离函数。允许并发准备相同 id，但只有一个条目能够成功进入；陈旧的脱离函数无法移除其替代项。
 - `announce(session)` 发出唯一一次创建边，并拒绝重复或重入通知。该次分发期间请求的脱离操作会延后，之后再发出成对的释放边；未通知的条目不会发出任何生命周期边。
 
-`dsh-agent-loop` 使用这一拆分，以保证循环的最终刷新先于会话脱离；详见[所有权 Agent Note（agent 决策记录）](../../../.agents/notes/implemented/architecture/2026-06-18-agent-lifecycle-and-ownership-seams.md)。
+`dsh-agent-loop` 使用这一拆分，以保证循环的最终刷新先于会话脱离；详见[所有权 Agent Note](../../../.agents/notes/implemented/architecture/2026-06-18-agent-lifecycle-and-ownership-seams.md)。
 
 ### 实时服务事件
 
@@ -55,11 +55,11 @@
 ### Surface 类型
 
 - `SurfaceOp`：事件进入有序 surface 的方式，即 `'append'`（正常尾部追加）或 `{ op: 'replace', start, end }`（替换从 `start` 到 `end` 的条目，含两端；二者都必须是有效的 surface 序号；`start === end` 时替换一个条目）。压缩用它遮蔽旧事件而不删除它们。
-- `SurfaceIntent`：`{ surfaceOp: SurfaceOp; sourceEventSeqs?: number[] }`，可进入 surface 的类型调用 `session.append()` 时必需的第三个参数。
-- `SessionSurface`：实时只读 `nodes` 和 `replaceGeneration` 投影，由 `session.surface` 暴露；候选校验仍由 `Session` 私有。
+- `SurfaceIntent`：`{ surfaceOp: SurfaceOp; sourceEventSeqs?: number[] }`，对于可进入 surface 的类型，这是调用 `session.append()` 时必需的第三个参数。
+- `SessionSurface`：实时只读 `nodes` 和 `replaceGeneration` 投影，由 `session.surface` 暴露；候选校验仍是 `Session` 的私有实现。
 - `foldSurface(events)`：回放规范 surface 契约，得到脱离的当前事件序列与实际替换范围。同一趟处理会拒绝不连续序号、错位或畸形元数据、空或重复溯源信息、来源并非更早事件、无效位置范围，以及没有引用所有已遮蔽 surface 条目的替换。如果一个 `tool/result` 替换修改了当前某个结果的 `content` 之外的任何内容，也会被拒绝；`SurfaceManager` 共享该原子状态转换，但只保留自己的增量序列缓存。
 - `isSurfaceEvent(event)`／`isSurfaceEligibleType(type)`：前者将 `SessionEvent` 收窄为形态完整的 surface 事件；后者在校验种子或已加载日志时，检测缺少标记的可进入 surface 事件。
-- `isAppendSurfaceEvent(event)`／`isReplacementSurfaceEvent(event)`：按标记变体拆分形态完整的 surface 事件。追加来源的事件是人类可读记录（transcript）的持久来源，而该记录并非模型可见的 surface：已落地的替换会遮蔽它所概括的范围，因此从 `session.surface` 投影记录会抹掉读者已经看到的对话。必须准确发送模型所见内容的消费方仍继续读取 `session.surface`。
+- `isAppendSurfaceEvent(event)`／`isReplacementSurfaceEvent(event)`：按标记变体拆分形态完整的 surface 事件。追加来源的事件是供人阅读的 transcript（文本记录）的持久来源，而该 transcript 并非模型可见的 surface：已落地的替换会遮蔽它所概括的范围，因此从 `session.surface` 投影 transcript 会抹掉读者已经看到的对话。必须准确发送模型所见内容的消费方仍继续读取 `session.surface`。
 
 ### 请求头重建（`request-header.ts`）
 
@@ -138,7 +138,7 @@
 
 记录日志不会导致失效，精确重建会保持请求前缀一致。后续请求头若更改前缀、提示词或 schema，可能从第一处差异开始使复用失效。
 
-## 已知限制与暂缓工作
+## 已知限制与暂缓事项
 
 - **会话分支／树**（pi 风格条目树）：除非需要超越基于边界的 `fork()` 能力，否则暂缓。
 - **`fork()` 仅在实时会话的稳定边界处切分**：所选前缀结束时不得有开放轮次，且源会话必须位于存储中；[fork API](../../../.agents/notes/implemented/feature/2026-06-30-session-store-fork-api.md) 不支持对已持久化但未加载的会话进行 fork。

@@ -28,9 +28,9 @@
 
 兑现后，调用方拥有该运行。提供方插件卸载不会撤销它。`dispose()` 会移除实时中止监听器、记录取消，并委托给返回的 `AgentHandle.dispose()`；后者通过可复用的完全停稳事务停止循环、移除 agent 和会话，并展开有作用域的注册。取消决定所有尚未完成的进行中结果，并将其报告为 `aborted`；已经完成的轮次仍保持完成状态。
 
-## Spawn 与 fork 输入
+## spawn 与 fork 输入
 
-`InProcessRunOptions` 的形态为 `{ seed?: SessionEvent[] }`。spawn 省略该值。fork 提供平衡的已完成轮次前缀，并记录其长度，确保结果读取器不会把作为初始内容的父 agent 消息误认为子 agent 输出。
+`InProcessRunOptions` 的形态为 `{ seed?: SessionEvent[] }`。spawn 省略该值。fork 提供已配平的已完成轮次前缀，并记录其长度，确保结果读取器不会把作为初始内容的父 agent 消息误认为子 agent 输出。
 
 深度强制在 `startInProcessRun` 内部完成：它通过 `delegationDepthOf` 读取父 agent 深度（持久化的 `SessionHeader.delegationDepth` 具有权威性；运行时 `AgentOptions.subagentDepth` 可以加深但绝不能降低该值，因此恢复后的子 agent 会保留预算），缺失值按顶层深度零处理，拒绝格式错误的存储值，并报告尝试的子 agent 深度超过 `maxDepth`。超过安全整数范围、无法表示的深度会触发 `RangeError`。子 agent 深度写入子 agent header，因此会在持久化和恢复后保留。
 
@@ -76,7 +76,7 @@ When you have your final answer, you MUST report it by calling the `structured_o
 
 #### Token 影响
 
-固定指令和能力 token 仅由该子 agent 支付。结果文本进入子 agent 历史，而只有捕获的值会成为父 agent 结果。
+固定指令和能力产生的 token 开销仅由该子 agent 承担。结果文本进入子 agent 历史，而只有捕获的值会成为父 agent 结果。
 
 #### KV Cache 影响
 
@@ -94,7 +94,7 @@ When you have your final answer, you MUST report it by calling the `structured_o
 
 #### KV Cache 影响
 
-仅追加；新增可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新增可见内容位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ### 父 agent 结果（间接）
 
@@ -108,9 +108,9 @@ When you have your final answer, you MUST report it by calling the `structured_o
 
 #### KV Cache 影响
 
-仅追加；新增可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新增可见内容位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
-## 已知限制与延期工作
+## 已知限制与暂缓事项
 
 - **运行不公开 `sendMessage`/`resume`**：进程内运行不具备这些可选运行时能力。
 - **结构化捕获只接受 `defineTool` schema 子集**：不支持的 JSON Schema 构造会在子 agent 创建前失败；需要更广 schema 词汇的提供方必须采用不同的运行时。

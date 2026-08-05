@@ -4,7 +4,7 @@
 
 一个 Cordis 插件，在 harness 的规范拦截 seam 上运行用户现有 **Claude Code** hook 配置（`hooks.json` 或 settings 文件的 `hooks` key）中受支持的 command hook 子集。它是 hooks 子系统的 **CC 方言**部分，负责桥接中 CC 格式的逐事件 stdin payload、CC 的 env 和 `${CLAUDE_PLUGIN_ROOT}`／`${CLAUDE_PROJECT_DIR}` 替换，以及将 hook 的中性结果映射为 harness 的类型化 Decision。方言无关原语（matcher、退出码／stdout codec、`ctx.bash` 执行、最严格合并、`hook/*` 事件）来自 [`@deepseek-ai/dsh-hook-protocol`](../hook-protocol/README.md)。
 
-原生 Cordis 插件可以完成此桥接的所有工作，功能更强，且具有类型化返回，没有序列化边界。**该桥接只是已映射 CC command hook 子集的兼容路径**；所有定制行为都应当使用相同 seam 上的原生插件（见 [拦截 seam Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-06-30-interception-seams.md)）。
+原生 Cordis 插件可以完成此桥接的所有工作，功能更强，且具有类型化返回，没有序列化边界。**该桥接只是已映射 CC command hook 子集的兼容路径**；所有定制行为都应当使用相同 seam 上的原生插件（见 [拦截 seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-30-interception-seams.md)）。
 
 ## 配置
 
@@ -68,7 +68,7 @@ hook 不返回上下文时没有成本。Hook 文本取决于数据，会被记�
 
 #### KV Cache 影响
 
-仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ### 已阻塞提示词或工具结果
 

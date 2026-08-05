@@ -2,9 +2,9 @@
 
 [English](README.md) | 中文
 
-唯一的实体 agent（智能体）插件与循环驱动器。其包（package）内部实现满足 `Agent` 接口，并驱动会话／轮次／步骤生命周期。
+唯一的具体 agent（智能体）插件与循环驱动器。其包内部实现满足 `Agent` 接口，并驱动会话／轮次／步骤生命周期。
 
-这是 harness 中唯一包含实体循环逻辑的包。其他所有内容要么是抽象服务，要么是针对扩展 seam 的插件：新行为应放入插件，而不是这里。
+这是 harness 中唯一包含具体循环逻辑的包。其他所有内容要么是抽象服务，要么是针对扩展 seam 的插件：新行为应放入插件，而不是这里。
 
 ## 服务：`AgentLoop`（ctx 键：`agentLoop`）
 
@@ -51,7 +51,7 @@ interface Config {
 
 通过配置创建的 agent 会自动启动。模型调用同时需要 `provider` 和 `model`；`agent/request` 可以在分发前补齐缺失的这一对值。可选的正数 `maxTokens` 会为每次对话请求提供初始输出上限，并记录在请求 header 中。`maxParallelToolCalls` 限制每个 agent 针对并行安全调用使用的滚动池，默认值为 `10`。`cwd` 仅应用于全新会话，而 `resumeSessionId` 保留持久化元数据。通过配置创建的 agent 使用部署 persona；编程式 setup 可以按 agent 遮蔽它。该插件为每个 agent 提供 `provider`、`model` 和 `cwd` 提示词变量；harness 身份与部署 persona 属于 `dsh-system-prompt`。
 
-### 包内部实体驱动器
+### 包内部具体驱动器
 
 实体 `ReactLoopAgent`、其 inbox 与运行控制均为包内部实现。包根只导出插件／服务／配置契约，包导出映射不提供 `./src/*` 逃逸路径；生命周期拥有方通过 `ctx.agents` 创建 agent，而不是点名、构造或启动驱动器内部组件。一个准备完成的会话只能由一个实体驱动器认领；所有可观测行为都通过会话事件和 `agent/*` 事件分类体系发生。
 
@@ -61,7 +61,7 @@ interface Config {
 
 ### 循环生命周期（`agent.ts`）
 
-驱动器在其整个生命周期内拥有一个 agent，并在 `ctx.agents.withInitiator(agent, ...)` 内运行。包私有的编排入口点会恢复确切的 Agent，一次性派生 `agent.session`，并让操作局部的辅助函数捕获它，而不是通过浅层接口继续传递实体驱动器或每次操作的 `Session`。如果显式 `Session` 正是辅助函数的实际接口，该辅助函数会保留它；创建、持久化加载、未发布 setup、服务、worker、进程、持久化和 wire 协议则继续保留各自的显式身份。[agent 服务](../agent/README.md#initiating-agent-scope)规定传播、teardown 和分离工作规则。
+驱动器在其整个生命周期内拥有一个 agent，并在 `ctx.agents.withInitiator(agent, ...)` 内运行。包私有的编排入口点会恢复确切的 Agent，一次性派生 `agent.session`，并让操作局部的辅助函数捕获它，而不是通过浅层接口继续传递具体驱动器或每次操作的 `Session`。如果显式 `Session` 正是辅助函数的实际接口，该辅助函数会保留它；创建、持久化加载、未发布 setup、服务、worker、进程、持久化和 wire 协议则继续保留各自的显式身份。[agent 服务](../agent/README.md#initiating-agent-scope)规定传播、teardown 和分离工作规则。
 
 每次提供方调用成功结束时，都会恰好追加一个 `assistant/message` 完成锚点，包括无内容调用和以 `max-tokens` 结束的调用。该锚点原样记录组装后的内容，保留确切的分片溯源（流没有分片时为 `[]`），并在用量可用时包含用量；空内容不会进入派生消息历史。
 
@@ -124,7 +124,7 @@ interface Config {
 
 #### KV Cache 影响
 
-仅追加；每个合成结果都位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；每个合成结果都位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ## 已知限制与暂缓事项
 

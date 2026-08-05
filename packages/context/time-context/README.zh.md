@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-可选的持久上下文，包含模型请求准备期间采样的带时区的当前时间与经过时长。`dsh-agent-spine-demo` 与随附示例不挂载该插件。决策记录：[持久 time-context Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-07-16-durable-per-step-time-context.md)。
+可选的持久上下文，包含模型请求准备期间采样的带时区的当前时间与经过时长。`dsh-agent-spine-demo` 与随附示例不挂载该插件。决策记录：[持久 time-context Agent Note](../../../.agents/notes/implemented/feature/2026-07-16-durable-per-step-time-context.md)。
 
 ## 配置
 
@@ -60,7 +60,7 @@ Elapsed since the preceding step context: <duration-or-unavailable>.
 
 #### KV Cache 影响
 
-仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ## 已知限制与暂缓事项
 

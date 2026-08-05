@@ -1,10 +1,10 @@
-# Agent Note: Web 输入状态机、composer 坑位与 slash 管线（ui-conversation input / ui-slash）
+# Agent Note: Web 输入状态机、composer slot 与 slash 管线（ui-conversation input / ui-slash）
 
 Status: implemented
 
 [English](2026-07-25-web-input-machine-and-slash-pipeline.md) | 中文
 
-> 范围：输入状态机（occurrence 表 + claim 看护 + 提交事务）、hub/facade 与发送编排、跨插件输入改写的三个 scoped bail 事件、`/` 与 `@` 触发检测与菜单管线（ui-slash）、composer 周边坑位体系。依赖[会话作用域 note](2026-07-25-web-client-session-scope-and-provide-channel.md)的 sctx / provide / session-maybe 与 blank 实体模型；命令知识（三型、目录、popup）零涉——那是[命令业务面 note](2026-07-25-web-command-surfaces-and-assembly.md)的领地。
+> 范围：输入状态机（occurrence 表 + claim 看护 + 提交事务）、hub/facade 与发送编排、跨插件输入改写的三个 scoped bail 事件、`/` 与 `@` 触发检测与菜单管线（ui-slash）、composer 周边 slot 体系。依赖[会话作用域 note](2026-07-25-web-client-session-scope-and-provide-channel.md)的 sctx / provide / session-maybe 与 blank 实体模型；命令知识（三型、目录、popup）零涉——那是[命令业务面 note](2026-07-25-web-command-surfaces-and-assembly.md)的领地。
 
 ## 问题
 
@@ -91,12 +91,12 @@ skill/@subagent 引用不走占位符 + occurrence 身份链——pick 直接把
 - ui-conversation（hub 兼贡献者）经 `sessions.provide` 供 `'input'` hook（机器状态 + queue overlay）+ `inputActions` prop（`setDraft`/`submit`，稳定 void 回调）。
 - 公私分界：公共 provide 只放 React 语汇成员；键盘/DOM 命令面（track/arbitrate/space/undo/redo/paste/dismissPopup/bindMirror——同步返回值、disposer 语义）是 InputBar 独占，走 InputBar entry 自己的 inject 包内私递，不出插件边界。
 
-### 坑位体系
+### slot 体系
 
-`conversation` 本身是 session-maybe；其会话内容与 composer 输入坑位严格 session，Hero Workspace picker 保持 root。子坑均由 ui-conversation 的 conversation 注册声明：
+`conversation` 本身是 session-maybe；其会话内容与 composer 输入 slot 严格限定为 session，Hero Workspace picker 保持 root。子 slot 均由 ui-conversation 的 conversation 注册声明：
 
 - `conversation.session`（single）——严格 session 的 header、view ring 与 chat store；session id 切换时重建。
-- `conversation.composer.bar`（single）——InputBar 本体的坑位：InputBar 是真 slot entry（自家坑自注册），composer chain fallback 的内容；不做 chain entry——chain 单选举会在 takeover 时卸载它，破坏 textarea DOM 存活。
+- `conversation.composer.bar`（single）——InputBar 本体的 slot：InputBar 是真 slot entry（自有 slot 自注册），composer chain fallback 的内容；不做 chain entry——chain 单选举会在 takeover 时卸载它，破坏 textarea DOM 存活。
 - `conversation.input.overlay`——输入卡内浮层锚点；注册者 inject 按 slot sessionId 解析各自 per-session controller。
 - `conversation.input.dock`——输入上方堆叠条（QueueDock 的队列只读列表落此），order 定序。
 - `conversation.composer.dock`——composer 上沿统计带。
@@ -121,7 +121,7 @@ skill/@subagent 引用不走占位符 + occurrence 身份链——pick 直接把
 | InputBar 收 16 员 wiring 回调包 | 消费矩阵实证 11 员 InputBar 独占、1 员死成员；标准件通道让组件自取，键盘面包内私递 |
 | 空格裁决也认领即执行型命令 | 误触发防线：空格后整行是普通 prompt；不可逆副作用只留显式入口 |
 | 通用 tokenPattern 装饰机制 | 结构化 occurrence 记录取代模式扫描 |
-| 占位 select 常驻工具行 | 具名坑位空到注册为止；占位件与真实现冲突时是双真相源 |
+| 占位 select 常驻工具行 | 具名 slot 在注册前保持为空；占位件与真实现冲突时是双真相源 |
 | 始终可见的 Plan 开／关切换 | 入口已归共享 Command source 所有；第二个入口会把状态 seat 变成冗余的 mode chrome |
 | 第二套加号菜单组件／controller，或在 Command 上方增加 Add/File 分组 | 这会重复异步候选、键盘高亮、焦点保留与 pick 状态；加号控件只是既有 MenuView 按 source 过滤的 launcher，且此 scope 没有文件能力 |
 | 引用一律走 U+FFFC chip（决策 21 前旧线） | 纯文本 + 派生装饰零身份状态；原文即模型投影，undo/剪贴板免特判；chip 链保留给需要不可分原子性的场景 |

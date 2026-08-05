@@ -41,7 +41,7 @@
 - 工具 schema 提供方：`ToolRegistry` 自动将自身注册为工具提供方。
 - [`system-prompt/assemble` waterfall](#live-events)：按调用方协作式修改或替换组装结果。
 
-设计原理：[提示词变量 Agent Note（agent 决策记录）](../../../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)。
+设计原理：[提示词变量 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)。
 
 ## 模型体验
 

@@ -2,7 +2,7 @@
 
 [English](goal.md) | 中文
 
-事件溯源目标领域及其策略消费方共享的类型。[目标领域 Agent Note（agent 决策记录）](../../.agents/notes/implemented/feature/2026-07-19-persisted-same-session-goal-domain.md)负责记录持久化与激活决策；本页记录 [`packages/goal/goal/src/types.ts`](../../packages/goal/goal/src/types.ts) 中的字面形态。
+事件溯源目标领域及其策略消费方共享的类型。[目标领域 Agent Note](../../.agents/notes/implemented/feature/2026-07-19-persisted-same-session-goal-domain.md)负责记录持久化与激活决策；本页记录 [`packages/goal/goal/src/types.ts`](../../packages/goal/goal/src/types.ts) 中的字面形态。
 
 ## 标识与生命周期
 
@@ -112,7 +112,7 @@ interface GoalMessageSource {
 
 ## 请求与通知
 
-创建操作会区分调用方省略的值与部署选择，`create()` 会在内部解析后者。编辑是局部替换，其运行时校验器要求至少提供一个字段。每条变更通知都会携带获准的操作和确切修订号；清除操作不带 `goal`。
+创建操作会区分调用方省略字段与采用部署配置值这两种情况，`create()` 会在内部解析后者。编辑是局部替换，其运行时校验器要求至少提供一个字段。每条变更通知都会携带获准的操作和确切修订号；清除操作不带 `goal`。
 
 ```ts type-equiv
 /** Input whose omitted round cap is resolved by the service configuration. */

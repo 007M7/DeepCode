@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/context/tmux-context/README.md
 README.md: 24cb31aa15227d77a8d8c45d719ebeab6b27e2a0
-README.zh.md: 8f4965c36c78899e36d1b1a234331c5ce52d8c5a
+README.zh.md: a3e650422f2016f7975d6418ea8a8acfcd1a210b

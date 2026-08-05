@@ -2,9 +2,9 @@
 
 [English](README.md) | 中文
 
-**基础压缩（compaction）后端**：`BasicCompactService` 实现 `@deepseek-ai/dsh-compact` seam，使用可复用的 `ctx.tokenMeter` 压力、token 预算保留与摘要。摘要是直接的一次性 `ctx.llm.stream()` 调用，它会回放会话前缀以复用提供方的 KV cache（可在 `llm/stream` 处拦截）。
+**基础压缩（compaction）后端**：`BasicCompactService` 实现 `@deepseek-ai/dsh-compact` seam，使用可复用的 `ctx.tokenMeter` 压力、token 预算保留与摘要。摘要是直接的一次性 `ctx.llm.stream()` 调用，它会回放会话前缀以复用提供方的 KV Cache（可在 `llm/stream` 处拦截）。
 
-这是压缩能力的实现层。seam 见 [接口包（package）](../compact/README.md)，设计见 [能力 seam Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md)。
+这是压缩能力的实现层。seam 见 [接口包](../compact/README.md)，设计见 [能力 seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md)。
 
 ## 拥有的职责
 

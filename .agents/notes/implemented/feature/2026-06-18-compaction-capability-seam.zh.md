@@ -16,7 +16,7 @@ Status: implemented
 
 ### 压缩是一个能力 seam，接口与实现分离
 
-遵循[能力 seam Agent Note（agent 决策记录）](../architecture/2026-06-13-capability-seams.md)，压缩以独立包（package）发布，使契约、算法和（后续的）消费方 surface 各自独立演进：
+遵循[能力 seam Agent Note](../architecture/2026-06-13-capability-seams.md)，压缩以独立包发布，使契约、算法和（后续的）消费方 surface 各自独立演进：
 
 1. **接口** — `@deepseek-ai/dsh-compact`：抽象 `CompactService`，拥有 `ctx.compact` 键、`CompactionResult` 词汇、`compact/*` 会话事件、手动失败分类体系以及规范的检查点消息来源。它将 `compactIfNeeded()`、`compactNow()` 和 `compactRegion()` 声明为**抽象方法**——契约说明压缩*做什么*，而非*怎么做*。
 2. **实现** — `@deepseek-ai/dsh-compact-basic`：具体的 `BasicCompactService`，消费 `ctx.tokenMeter`，并拥有尾→头保留遍历、通过 `ctx.llm.stream()` 生成摘要、surface 替换、锁、步骤前压力处理和规范的上下文溢出恢复。`summarize()` 是其唯一的子类钩子；计价与回放仍归 meter 所有。
