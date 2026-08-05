@@ -22,6 +22,20 @@ interface FlushControl {
   handler: () => true | Promise<true>
 }
 
+function reminderCreateData(id: string, prompt: string) {
+  return {
+    version: 1 as const,
+    operation: 'create' as const,
+    schedule: {
+      id: ScheduleId(id),
+      kind: 'after' as const,
+      prompt,
+      afterSeconds: 1,
+      scheduledAt: '2026-08-05T12:00:01.000Z',
+    },
+  }
+}
+
 async function harness(control?: FlushControl): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
@@ -39,17 +53,7 @@ function appendReminder(
   prompt: string,
 ): { create: SessionEvent; dispatch: SessionEvent } {
   const scheduleId = ScheduleId(id)
-  const create = session.append('schedule/change', {
-    version: 1,
-    operation: 'create',
-    schedule: {
-      id: scheduleId,
-      kind: 'after',
-      prompt,
-      afterSeconds: 1,
-      scheduledAt: '2026-08-05T12:00:01.000Z',
-    },
-  })
+  const create = session.append('schedule/change', reminderCreateData(id, prompt))
   const dispatch = session.append('schedule/change', {
     version: 1,
     operation: 'dispatch',
@@ -148,6 +152,45 @@ describe('commit-aware Schedule live views', () => {
 })
 
 describe('Schedule history views', () => {
+  it('presents a resumed ancestor dispatch copied into a fork seed', async () => {
+    const ctx = await harness()
+    const scheduleId = ScheduleId('resumed-reminder')
+    const resumed = ctx.sessions.create(SessionId('schedule-resumed'), {
+      seed: [{
+        type: 'schedule/change',
+        seq: 0,
+        time: 1,
+        data: reminderCreateData('resumed-reminder', 'after restart'),
+      }],
+      meta: { cwd: '/tmp' },
+    })
+    const dispatch = resumed.append('schedule/change', {
+      version: 1,
+      operation: 'dispatch',
+      id: scheduleId,
+    })
+    const child = ctx.sessions.fork(resumed, undefined, SessionId('schedule-fork'))
+    ctx.provide('sessionPersistence', {
+      inspect: () => Promise.resolve({ meta: child.header, events: [...child.events] }),
+    } as never)
+    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+
+    const response = await api.sessions.history({
+      rpcId: RpcId('schedule-resumed-fork'), payload: { sessionId: child.id },
+    })
+    if (!response.result.ok) throw new Error(response.result.error.message)
+    expect(response.result.value.events.find(entry => entry.event.seq === dispatch.seq)?.view).toEqual({
+      for: 'event',
+      view: {
+        scheduleId,
+        prompt: 'after restart',
+        occurrenceAt: '2026-08-05T12:00:01.000Z',
+        deliveryMode: 'session-local',
+      },
+    })
+    await ctx.fiber.dispose()
+  })
+
   it('uses only the attached identity-matching stored prefix and fails soft to raw history', async () => {
     const ctx = await harness()
     const parent = ctx.sessions.create(SessionId('schedule-parent'), { meta: { cwd: '/tmp' } })

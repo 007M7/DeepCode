@@ -470,8 +470,8 @@ function viewFor(ctx: Context, event: SessionEvent, argsFor: (callId: string) =>
 
 /**
  * Derive one Schedule-owned event sidecar without allowing corrupt domain data
- * to break raw event delivery. `seedLength` selects the parent-prefix or
- * child-suffix ownership segment inside the package helper.
+ * to break raw event delivery. `seedLength` keeps a child-owned dispatch inside
+ * its own suffix while the package helper pairs inherited receipts by id.
  */
 function scheduleViewFor(
   ctx: Context,

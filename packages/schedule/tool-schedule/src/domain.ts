@@ -289,10 +289,9 @@ export function scheduleView(record: AfterScheduleRecord, now: number): Schedule
 
 /**
  * Derive the Web receipt for one dispatch from its owning stream segment.
- * A dispatch inside an inherited fork prefix folds from its nearest preceding
- * `session/end-seed` boundary; a child-owned dispatch folds only the child
- * suffix. Nested forks can therefore reuse session-local ids without hiding a
- * persisted ancestor receipt in descendant history.
+ * A child-owned dispatch cannot cross the current fork's `seedLength`.
+ * An inherited dispatch pairs with its nearest preceding same-id create, so
+ * resumed ancestors remain renderable and nested forks may reuse local ids.
  * @param events - Complete contiguous Session log.
  * @param dispatchSeq - Exact event seq to present.
  * @param seedLength - Inherited fork prefix length.
@@ -317,20 +316,34 @@ export function scheduleReminderPresentation(
   const dispatch = decodeScheduleChange(event.data)
   if (dispatch.operation !== 'dispatch') return undefined
 
-  const segmentStart = dispatchSeq < seedLength
-    ? events.slice(0, dispatchSeq).findLastIndex(candidate => candidate.type === 'session/end-seed') + 1
-    : seedLength
-  const before = foldScheduleEvents(events.slice(segmentStart, dispatchSeq))
-  const record = before.active.find(candidate => candidate.id === dispatch.id)
-  if (record === undefined) {
-    throw new ScheduleLogError(`schedule dispatch targets inactive id ${JSON.stringify(dispatch.id)}`)
+  const segmentStart = dispatchSeq < seedLength ? 0 : seedLength
+  for (let index = dispatchSeq - 1; index >= segmentStart; index -= 1) {
+    const candidate = events[index]
+    if (candidate?.type !== 'schedule/change') continue
+    const change = decodeScheduleChange(candidate.data)
+    switch (change.operation) {
+      case 'create':
+        if (change.schedule.id !== dispatch.id) break
+        return Object.freeze({
+          scheduleId: change.schedule.id,
+          prompt: change.schedule.prompt,
+          occurrenceAt: change.schedule.scheduledAt,
+          deliveryMode: 'session-local',
+        })
+      case 'delete':
+      case 'dispatch':
+        if (change.id === dispatch.id) {
+          throw new ScheduleLogError(`schedule dispatch targets inactive id ${JSON.stringify(dispatch.id)}`)
+        }
+        break
+      /* v8 ignore next 3 -- decodeScheduleChange returns a closed operation union. */
+      default: {
+        const unreachable: never = change
+        throw new ScheduleLogError(`unknown decoded schedule change ${String(unreachable)}`)
+      }
+    }
   }
-  return Object.freeze({
-    scheduleId: record.id,
-    prompt: record.prompt,
-    occurrenceAt: record.scheduledAt,
-    deliveryMode: 'session-local',
-  })
+  throw new ScheduleLogError(`schedule dispatch targets inactive id ${JSON.stringify(dispatch.id)}`)
 }
 
 /**

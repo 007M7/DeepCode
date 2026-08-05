@@ -122,6 +122,33 @@ describe('version-1 Schedule decoding and folding', () => {
       occurrenceAt: '2026-08-05T12:00:00.000Z',
       deliveryMode: 'session-local',
     })
+    const resumedThenForked = [
+      scheduleEvent(createData('resumed-id', 'resumed prompt'), 0),
+      { type: 'session/end-seed', seq: 1, time: 1, data: {} } as SessionEvent,
+      scheduleEvent({ version: 1, operation: 'dispatch', id: 'resumed-id' }, 2),
+    ]
+    expect(scheduleReminderPresentation(resumedThenForked, 2, 3)).toEqual({
+      scheduleId: 'resumed-id',
+      prompt: 'resumed prompt',
+      occurrenceAt: '2026-08-05T12:00:00.000Z',
+      deliveryMode: 'session-local',
+    })
+    expect(() => scheduleReminderPresentation([
+      scheduleEvent(createData('parent-only'), 0),
+      { type: 'session/end-seed', seq: 1, time: 1, data: {} },
+      scheduleEvent({ version: 1, operation: 'dispatch', id: 'parent-only' }, 2),
+    ], 2, 2)).toThrow(/inactive id/)
+    expect(scheduleReminderPresentation([
+      scheduleEvent(createData('target'), 0),
+      scheduleEvent(createData('other'), 1),
+      scheduleEvent({ version: 1, operation: 'delete', id: 'other' }, 2),
+      scheduleEvent({ version: 1, operation: 'dispatch', id: 'target' }, 3),
+    ], 3)).toMatchObject({ scheduleId: 'target' })
+    expect(() => scheduleReminderPresentation([
+      scheduleEvent(createData('ended'), 0),
+      scheduleEvent({ version: 1, operation: 'delete', id: 'ended' }, 1),
+      scheduleEvent({ version: 1, operation: 'dispatch', id: 'ended' }, 2),
+    ], 2)).toThrow(/inactive id/)
     expect(scheduleReminderPresentation(events, 2, 2)).toBeUndefined()
     expect(scheduleReminderPresentation([
       { type: 'session/end-seed', seq: 0, time: 1, data: {} },
