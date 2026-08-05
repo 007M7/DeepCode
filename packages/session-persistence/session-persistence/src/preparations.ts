@@ -75,7 +75,7 @@ export class SessionPreparations<Source extends PreparedSource, CommitState> {
   async reserve(
     id: SessionId,
     load: () => Promise<Source>,
-    commit: (source: Source) => Promise<{ source: Source; state: CommitState }>,
+    commit: (source: Source) => Promise<{ source: Source; state: CommitState } | undefined>,
     signal?: AbortSignal,
   ): Promise<SessionPreparationReservation<Source, CommitState> | undefined> {
     const entry = this.entryFor(id, load)
@@ -93,12 +93,16 @@ export class SessionPreparations<Source extends PreparedSource, CommitState> {
     entry.phase = 'committing'
     entry.reservationSettled = reservationSettled.promise
     entry.settleReservation = reservationSettled.resolve
-    let committed: { source: Source; state: CommitState }
+    let committed: { source: Source; state: CommitState } | undefined
     try {
       committed = await commit(source)
     } catch (error: unknown) {
       this.remove(entry)
       throw error
+    }
+    if (committed === undefined) {
+      this.remove(entry)
+      return undefined
     }
     entry.source = committed.source
     try {
@@ -179,10 +183,11 @@ export class SessionPreparations<Source extends PreparedSource, CommitState> {
   /**
    * Discard a prepared view after the durable log changes.
    * @param id - changed session identity.
+   * @param expected - when supplied, invalidate only that exact source.
    */
-  invalidate(id: SessionId): void {
+  invalidate(id: SessionId, expected?: Source): void {
     const entry = this.entries.get(id)
-    if (entry !== undefined) this.remove(entry)
+    if (entry !== undefined && (expected === undefined || entry.source === expected)) this.remove(entry)
   }
 
   /**

@@ -17,6 +17,7 @@ import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import {
   PersistenceCoordinator,
+  SessionPersistenceRevision,
   type PersistenceBackend,
   type StoredPrefix,
 } from '@deepseek-ai/dsh-session-persistence'
@@ -129,10 +130,14 @@ describe('cold history recovery view', () => {
     const stored: StoredPrefix<never> = {
       meta,
       events: [{ type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } }],
+      revision: SessionPersistenceRevision('history-recovery-test:1'),
     }
     const backend: PersistenceBackend<never> = {
       name: 'history-recovery-test',
       loadStored: id => Promise.resolve(id === sessionId ? structuredClone(stored) : undefined),
+      readStoredRevision: id => Promise.resolve(
+        id === sessionId ? SessionPersistenceRevision('history-recovery-test:1') : undefined,
+      ),
       appendBatch: () => Promise.resolve(),
       commitRepair: () => Promise.resolve(),
       list: () => Promise.resolve([structuredClone(meta)]),

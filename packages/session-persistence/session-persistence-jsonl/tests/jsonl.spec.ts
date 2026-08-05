@@ -255,6 +255,17 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     await otherCtx.fiber.dispose()
   })
 
+  it('binds a full stored prefix to the same revision as a lightweight read', async () => {
+    const m = meta('stored-prefix-revision')
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const persistence = ctx.sessionPersistence as SessionPersistenceJsonl
+
+    const stored = await persistence.loadStored(m.id)
+    expect(stored?.revision).toBe(await persistence.readStoredRevision(m.id))
+    expect(await persistence.readStoredRevision(SessionId('missing-revision'))).toBeUndefined()
+  })
+
   it('omits a snapshot artifact removed after discovery', async () => {
     const m = meta('vanishing-snapshot')
     await ctx.sessionPersistence.create(m)

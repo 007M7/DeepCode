@@ -1176,8 +1176,9 @@ abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>
 
 /**
  * Prepare the exact unpublished Session used by resume. Implementations may
- * reuse object graphs retained by an earlier {@link inspect}; disposal
- * releases an unpublished reservation.
+ * reuse object graphs retained by an earlier {@link inspect} after confirming
+ * their durable revision is still current; disposal releases an unpublished
+ * reservation.
  * @param id - persisted session to prepare.
  * @param signal - optional cancellation for preparation work.
  * @returns one owned unpublished Session preparation.
@@ -1205,8 +1206,8 @@ abstract load(id: SessionId): Promise<SessionInspection>
  * Session instead yields its current immutable snapshot, which may contain an
  * open turn and its `session/end-seed` boundary. Coordinator-backed
  * implementations retain the exact cold unpublished Session for bounded
- * reuse by a later {@link prepare}; callers borrow only its immutable header
- * and log.
+ * reuse by a later {@link prepare}, reloading it when its durable revision
+ * changes; callers borrow only its immutable header and log.
  * @param id - the persisted session to inspect.
  * @param signal - optional cancellation for queued and backend read work.
  * @returns the validated header and current logical event log.

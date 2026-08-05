@@ -20,17 +20,19 @@ This refines the publication boundary from the [Agent lifecycle and ownership de
 
 ## Persisted preparation lifecycle
 
-A coordinator-backed persistence implementation loads one cold source into a prepared Session. The backend transfers fresh, mutually unaliased metadata and events; the Session restore path validates and freezes those graphs in place instead of cloning them. The coordinator computes interrupted-turn closers and constructs the exact unpublished Session once. Its immutable header and balanced logical event log form the `SessionInspection` borrowed by readers.
+A coordinator-backed persistence implementation loads one cold source into a prepared Session. The backend transfers fresh, mutually unaliased metadata and events together with the source-qualified revision that identifies those exact values; the Session restore path validates and freezes the graphs in place instead of cloning them. The coordinator computes interrupted-turn closers and constructs the exact unpublished Session once. Its immutable header and balanced logical event log form the `SessionInspection` borrowed by readers, while the revision remains internal to persistence.
 
-`inspect(id, signal?)` does not mutate storage. Synthetic closers exist only in the prepared in-memory view, and a torn physical tail remains untouched. Same-id callers share an in-flight cold read. Once ready, the preparation may remain in a per-coordinator LRU whose capacity defaults to five and is configurable by first-party backends.
+`inspect(id, signal?)` does not mutate storage. Synthetic closers exist only in the prepared in-memory view, and a torn physical tail remains untouched. Same-id callers share an in-flight cold read. Once ready, the preparation may remain in a per-coordinator LRU whose capacity defaults to five and is configurable by first-party backends. Before reusing a retained source, the coordinator reads that id's current revision; a mismatch evicts the source and repeats the cold materialization.
 
-`prepare(id, signal?)` exclusively reserves the prepared Session. It commits any torn-tail and interrupted-turn repair, establishes the durable cursor, then returns a disposable preparation. Another same-id preparation waits until the reservation is published or released. Publication accepts only the exact reserved Session and attaches the committed cursor without rebuilding its history. Failed setup or cancellation returns an unchanged unpublished Session to the LRU; mutation or attachment consumes the reservation.
+`prepare(id, signal?)` exclusively reserves the prepared Session. It confirms the retained revision before committing any torn-tail and interrupted-turn repair, establishes the durable cursor, then returns a disposable preparation. A stale source is discarded and reloaded instead of being repaired or published. Another same-id preparation waits until the reservation is published or released. Publication accepts only the exact reserved Session and attaches the committed cursor without rebuilding its history. Failed setup or cancellation returns an unchanged unpublished Session to the LRU; mutation or attachment consumes the reservation.
 
 The legacy `load(id)` API uses the same preparation and repair machinery, then discards its reservation and returns the immutable logical view. It remains a compatibility API, not the history-to-resume reuse path. This lifecycle extends the [shared persistence coordinator](2026-06-18-shared-persistence-write-coordinator.md) while preserving the storage and recovery rules owned by the [session persistence decision](2026-06-14-session-persistence.md).
 
 ## History and resume reuse
 
 History reads use `inspect()`, so repeated pages borrow the same immutable prepared state without activating an Agent. A later resume uses `prepare()` and receives the exact Session retained by inspection; it does not read, decompress, parse, clone, validate, or freeze the complete log again.
+
+If the durable log changes after inspection, its revision changes. The next history read or resume discards the retained Session and materializes the new log, so an old event graph cannot be associated with a newer snapshot revision.
 
 Cold continuable-subagent access follows the same path. Descriptor authorization first inspects the child, then `ctx.agents.resume()` reserves and publishes the retained Session. This preserves the lifecycle and authorization rules in the [continuable subagent conversation decision](../feature/2026-07-28-continuable-subagent-conversations.md) while removing its duplicate cold read.
 
@@ -41,10 +43,11 @@ Cold continuable-subagent access follows the same path. Descriptor authorization
 - The cache belongs to one persistence coordinator, not a process-global Session map. Live Sessions are owned by the existing stores and never occupy preparation capacity.
 - A fresh create never claims a cold persisted preparation with the same id. Persistence collisions continue to reject.
 - Third-party persistence implementations retain the abstract `prepare()` fallback through `load()`. They receive the same publication interface but gain exact-object reuse only when they override preparation.
+- Revision validation establishes freshness at the reuse and repair-commit points; it does not add cross-process writer exclusion to a backend.
 
 ## Verification
 
-The shared persistence contract pins non-mutating balanced cold inspection and later repair. `persistence.spec.ts` and `preparations.spec.ts` pin same-id in-flight sharing, exact Session reuse across inspect and prepare, single repair commit, exclusive reservation, release after failed setup, ready-entry LRU eviction, append rejection during reservation, and publication of only the reserved Session. Agent-loop and continuable-subagent tests pin the common publication pipeline and inspection-to-resume path across cancellation and teardown.
+The shared persistence contract pins non-mutating balanced cold inspection and later repair. `persistence.spec.ts` and `preparations.spec.ts` pin same-id in-flight sharing, exact Session reuse across inspect and prepare, revision-triggered refresh before history and resume, single repair commit, exclusive reservation, release after failed setup, ready-entry LRU eviction, append rejection during reservation, and publication of only the reserved Session. Backend tests pin that full and lightweight reads use the same revision identity. Agent-loop and continuable-subagent tests pin the common publication pipeline and inspection-to-resume path across cancellation and teardown.
 
 ## Alternatives considered
 

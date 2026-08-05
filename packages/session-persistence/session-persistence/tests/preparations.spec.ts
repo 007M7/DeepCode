@@ -34,6 +34,8 @@ describe('SessionPreparations inspection', () => {
     await expect(preparations.inspect(id, load)).resolves.toBe(source)
     expect(load).toHaveBeenCalledOnce()
 
+    preparations.invalidate(id, prepared('different-source'))
+    expect(preparations.has(id)).toBe(true)
     preparations.invalidate(id)
     preparations.invalidate(id)
     expect(preparations.has(id)).toBe(false)

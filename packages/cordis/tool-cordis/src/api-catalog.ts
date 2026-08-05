@@ -582,7 +582,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async prepare(id: SessionId, signal?: AbortSignal): Promise<SessionPreparation>',
-        jsDoc: '/**\n * Prepare the exact unpublished Session used by resume. Implementations may\n * reuse object graphs retained by an earlier {@link inspect}; disposal\n * releases an unpublished reservation.\n * @param id - persisted session to prepare.\n * @param signal - optional cancellation for preparation work.\n * @returns one owned unpublished Session preparation.\n */',
+        jsDoc: '/**\n * Prepare the exact unpublished Session used by resume. Implementations may\n * reuse object graphs retained by an earlier {@link inspect} after confirming\n * their durable revision is still current; disposal releases an unpublished\n * reservation.\n * @param id - persisted session to prepare.\n * @param signal - optional cancellation for preparation work.\n * @returns one owned unpublished Session preparation.\n */',
       },
       {
         signature: 'abstract load(id: SessionId): Promise<SessionInspection>',
@@ -590,7 +590,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'abstract inspect(id: SessionId, signal?: AbortSignal): Promise<SessionInspection>',
-        jsDoc: '/**\n * Inspect an immutable logical session without committing recovery or\n * publishing it. A cold complete interrupted turn receives synthetic closers\n * in memory and a torn physical tail remains untouched. An already-live\n * Session instead yields its current immutable snapshot, which may contain an\n * open turn and its `session/end-seed` boundary. Coordinator-backed\n * implementations retain the exact cold unpublished Session for bounded\n * reuse by a later {@link prepare}; callers borrow only its immutable header\n * and log.\n * @param id - the persisted session to inspect.\n * @param signal - optional cancellation for queued and backend read work.\n * @returns the validated header and current logical event log.\n */',
+        jsDoc: '/**\n * Inspect an immutable logical session without committing recovery or\n * publishing it. A cold complete interrupted turn receives synthetic closers\n * in memory and a torn physical tail remains untouched. An already-live\n * Session instead yields its current immutable snapshot, which may contain an\n * open turn and its `session/end-seed` boundary. Coordinator-backed\n * implementations retain the exact cold unpublished Session for bounded\n * reuse by a later {@link prepare}, reloading it when its durable revision\n * changes; callers borrow only its immutable header and log.\n * @param id - the persisted session to inspect.\n * @param signal - optional cancellation for queued and backend read work.\n * @returns the validated header and current logical event log.\n */',
       },
       {
         signature: 'abstract readFrom(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',

@@ -16,7 +16,8 @@ import { dirname, resolve } from 'node:path'
 import {
   DEFAULT_PREPARED_SESSION_CACHE_SIZE, SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator,
   type PersistenceBackend, type SessionLocation, type SessionPersistenceSnapshot,
-  type SessionInspection, type StoredPrefix, type StoredSuffix,
+  type SessionInspection, type SessionPersistenceRevision as PersistenceRevision,
+  type StoredPrefix, type StoredSuffix,
 } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionEvent, SurfaceEventType, SessionId, SessionHeader, SessionPreparation } from '@deepseek-ai/dsh-session'
 import {
@@ -36,6 +37,13 @@ function surfaceBindings(event: SessionEvent): [string | null, string | null] {
     se.sourceEventSeqs ? JSON.stringify(se.sourceEventSeqs) : null,
     se.surfaceOp !== undefined ? JSON.stringify(se.surfaceOp) : null,
   ]
+}
+
+/** Build the source-qualified revision shared by full and lightweight reads. */
+function sqliteRevision(storeIdentity: string, row: SessionRow): PersistenceRevision {
+  return SessionPersistenceRevision(
+    `${storeIdentity}:incarnation:${row.incarnation}:revision:${row.revision}`,
+  )
 }
 
 /**
@@ -187,6 +195,15 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
     return this.readPrefix(id, signal)
   }
 
+  /** Read one row's revision without loading its events. */
+  async readStoredRevision(id: SessionId, signal?: AbortSignal): Promise<PersistenceRevision | undefined> {
+    signal?.throwIfAborted()
+    await this.ready
+    signal?.throwIfAborted()
+    const row = this.rowFor(id)
+    return row === undefined ? undefined : sqliteRevision(this.storeIdentity, row)
+  }
+
   /**
    * Seek-capable suffix read: SQL selects `seq >= fromSeq` directly, so the
    * read scales with the suffix, not the log. Torn rows past the preserved
@@ -216,15 +233,33 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
     signal?.throwIfAborted()
     await this.ready
     signal?.throwIfAborted()
-    const row = this.rowFor(id)
-    if (row === undefined) return undefined
-    const meta = rowToMeta(row)
-    const eventRows = this.db
-      .prepare('SELECT seq, type, time, data, source_event_seqs, surface_op FROM events WHERE session_id = ? ORDER BY seq')
-      .all(id) as unknown as EventRow[]
+    this.db.exec('BEGIN')
+    let snapshot: { row: SessionRow; eventRows: EventRow[] } | undefined
+    try {
+      const row = this.rowFor(id)
+      if (row !== undefined) {
+        const eventRows = this.db
+          .prepare('SELECT seq, type, time, data, source_event_seqs, surface_op FROM events WHERE session_id = ? ORDER BY seq')
+          .all(id) as unknown as EventRow[]
+        snapshot = { row, eventRows }
+      }
+      this.db.exec('COMMIT')
+    } catch (error: unknown) {
+      /* v8 ignore start -- synchronous read failures only need transaction cleanup before propagation. */
+      this.db.exec('ROLLBACK')
+      throw error
+      /* v8 ignore stop */
+    }
     signal?.throwIfAborted()
+    if (snapshot === undefined) return undefined
+    const { row, eventRows } = snapshot
     const { preserved, tornFrom } = scanRows(eventRows)
-    return { meta, events: preserved, ...tornFrom !== undefined ? { tornMarker: tornFrom } : {} }
+    return {
+      meta: rowToMeta(row),
+      events: preserved,
+      revision: sqliteRevision(this.storeIdentity, row),
+      ...tornFrom !== undefined ? { tornMarker: tornFrom } : {},
+    }
   }
 
   /**

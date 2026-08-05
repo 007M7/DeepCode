@@ -16,6 +16,7 @@ import {
 } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import type { SessionInspection } from './index.ts'
+import type { SessionPersistenceRevision } from './revision.ts'
 import { observeQueuedAbort, SessionPreparations } from './preparations.ts'
 import type { SessionPreparationReservation } from './preparations.ts'
 
@@ -41,13 +42,17 @@ export interface PersistenceCoordinatorOptions {
 }
 
 /**
- * A stored session's header, valid contiguous event prefix, and optional opaque
- * torn-tail marker. The coordinator only checks marker presence and returns its
- * value to {@link PersistenceBackend.commitRepair}; each backend owns the type.
+ * A stored session's header, valid contiguous event prefix, source-qualified
+ * revision, and optional opaque torn-tail marker. The revision identifies the
+ * exact detached prefix. The coordinator only checks marker presence and
+ * returns its value to {@link PersistenceBackend.commitRepair}; each backend
+ * owns the marker type.
  */
 export interface StoredPrefix<TornMarker = unknown> {
   meta: SessionHeader
   events: SessionEvent[]
+  /** Revision observed for exactly this detached prefix. */
+  revision: SessionPersistenceRevision
   tornMarker?: TornMarker
 }
 
@@ -83,11 +88,21 @@ export interface PersistenceBackend<TornMarker = unknown> {
    * and — via `!== undefined` — the create-collision probe. The returned
    * `tornMarker` is present iff there is a torn tail to truncate. Every header
    * and event graph must be fresh, mutually unaliased, and unretained by the
-   * backend because preparation freezes and publishes them in place.
+   * backend because preparation freezes and publishes them in place. The
+   * returned revision must identify exactly those values and use the same
+   * representation as {@link readStoredRevision}.
    * @param id - persisted session id to resolve.
    * @param signal - optional cancellation for backend read work.
    */
   loadStored(id: SessionId, signal?: AbortSignal): Promise<StoredPrefix<TornMarker> | undefined>
+
+  /**
+   * Read the current source-qualified revision for one stored session without
+   * loading its event log. Returns `undefined` when the identity is absent.
+   * @param id - persisted session id to observe.
+   * @param signal - optional cancellation for backend read work.
+   */
+  readStoredRevision(id: SessionId, signal?: AbortSignal): Promise<SessionPersistenceRevision | undefined>
 
   /**
    * Optional seek-capable suffix read behind the service's `readFrom`: return
@@ -170,6 +185,7 @@ interface LiveSessionState {
 interface PreparedSessionSource<TornMarker> {
   readonly inspection: SessionInspection
   readonly session: Session
+  readonly revision: SessionPersistenceRevision
   /** Session length after constructor-owned seed markers were appended. */
   readonly sessionLength: number
   readonly tornMarker: TornMarker | undefined
@@ -689,22 +705,33 @@ export class PersistenceCoordinator<TornMarker = unknown> {
    * @returns immutable prepared metadata and events; a live view may have an open turn.
    */
   async inspect(id: SessionId, signal?: AbortSignal): Promise<SessionInspection> {
-    signal?.throwIfAborted()
-    if (this.retirements.has(id)) await this.waitForRetirement(id, signal)
-    const live = this.ctx.sessions.get(id)
-    if (live !== undefined) return this.inspectLive(live)
-    try {
-      const source = await this.preparations.inspect(
-        id,
-        () => this.serialize(id, () => this.prepareCore(id)),
-        signal,
-      )
-      const attached = this.ctx.sessions.get(id)
-      return attached === undefined ? source.inspection : this.inspectLive(attached)
-    } catch (error: unknown) {
-      const attached = this.ctx.sessions.get(id)
-      if (attached !== undefined) return this.inspectLive(attached)
-      throw error
+    for (;;) {
+      signal?.throwIfAborted()
+      if (this.retirements.has(id)) await this.waitForRetirement(id, signal)
+      const live = this.ctx.sessions.get(id)
+      if (live !== undefined) return this.inspectLive(live)
+      try {
+        const source = await this.preparations.inspect(
+          id,
+          () => this.serialize(id, () => this.prepareCore(id)),
+          signal,
+        )
+        const attached = this.ctx.sessions.get(id)
+        if (attached !== undefined) return this.inspectLive(attached)
+        const current = await this.serialize(
+          id,
+          () => this.isPreparedSourceCurrent(source, signal),
+          signal,
+        )
+        const published = this.ctx.sessions.get(id)
+        if (published !== undefined) return this.inspectLive(published)
+        if (current) return source.inspection
+        this.preparations.invalidate(id, source)
+      } catch (error: unknown) {
+        const attached = this.ctx.sessions.get(id)
+        if (attached !== undefined) return this.inspectLive(attached)
+        throw error
+      }
     }
   }
 
@@ -790,7 +817,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     signal?.throwIfAborted()
     if (stored === undefined) throw new Error(`session "${id}" not found`)
     try {
-      const { meta, events, tornMarker } = stored
+      const { meta, events, revision, tornMarker } = stored
       this.assertStoredId(id, meta)
       this.assertVersion(meta)
       const storedEvents = adoptStoredEvents(events, id)
@@ -810,6 +837,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       return {
         inspection,
         session,
+        revision,
         sessionLength: session.events.length,
         tornMarker,
         closers,
@@ -825,15 +853,22 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   /** Commit one prepared repair and establish its ownerless durable cursor. */
   private async commitPrepared(
     source: PreparedSessionSource<TornMarker>,
-  ): Promise<{ source: PreparedSessionSource<TornMarker>; state: SessionState }> {
+  ): Promise<{ source: PreparedSessionSource<TornMarker>; state: SessionState } | undefined> {
     const id = source.inspection.meta.id
     const cursor = source.inspection.events.length
     const existing = this.states.get(id)
     if (existing?.owner !== undefined) {
       throw new Error(`session "${id}" already has a live persistence owner`)
     }
+    if (!await this.isPreparedSourceCurrent(source)) return undefined
+    let committedSource = source
     if (source.tornMarker !== undefined || source.closers.length > 0) {
       await this.backend.commitRepair(source.inspection.meta, source.tornMarker, source.closers)
+      const revision = await this.backend.readStoredRevision(id)
+      if (revision === undefined) {
+        throw new Error(`session "${id}" disappeared after persistence repair`)
+      }
+      committedSource = { ...source, revision, tornMarker: undefined, closers: [] }
     }
     const state = existing ?? {
       meta: source.inspection.meta,
@@ -845,11 +880,17 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     state.materialized = true
     this.states.set(id, state)
     return {
-      source: source.tornMarker === undefined && source.closers.length === 0
-        ? source
-        : { ...source, tornMarker: undefined, closers: [] },
+      source: committedSource,
       state,
     }
+  }
+
+  /** Whether one cached source still names the current durable log revision. */
+  private async isPreparedSourceCurrent(
+    source: PreparedSessionSource<TornMarker>,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    return await this.backend.readStoredRevision(source.inspection.meta.id, signal) === source.revision
   }
 
   /** Return one durable immutable view of an already-live Session. */
@@ -918,8 +959,11 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   private async adopt(id: SessionId): Promise<SessionState> {
     // This runs inside the id's serialization chain, so it uses core helpers
     // instead of re-entering through public prepare/load methods.
-    const source = this.preparations.takeReady(id) ?? await this.prepareCore(id)
-    return (await this.commitPrepared(source)).state
+    for (;;) {
+      const source = this.preparations.takeReady(id) ?? await this.prepareCore(id)
+      const committed = await this.commitPrepared(source)
+      if (committed !== undefined) return committed.state
+    }
   }
 
   private assertVersion(meta: SessionHeader): void {

@@ -15,7 +15,7 @@ import { randomBytes } from 'node:crypto'
 import {
   DEFAULT_PREPARED_SESSION_CACHE_SIZE, SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator,
   type PersistenceBackend, type SessionLocation, type SessionPersistenceSnapshot,
-  type SessionInspection, type StoredPrefix,
+  type SessionInspection, type SessionPersistenceRevision as PersistenceRevision, type StoredPrefix,
 } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionEvent, SessionId, SessionHeader, SessionPreparation } from '@deepseek-ai/dsh-session'
 import {
@@ -64,6 +64,25 @@ export interface Config {
 interface JsonlTornMarker {
   truncateTo: number
   recoveredEvents: SessionEvent[]
+}
+
+interface FileRevisionIdentity {
+  readonly dev: bigint
+  readonly ino: bigint
+  readonly size: bigint
+  readonly mtimeNs: bigint
+  readonly ctimeNs: bigint
+}
+
+/** Build the source-qualified revision shared by full and lightweight reads. */
+function fileRevision(identity: FileRevisionIdentity): PersistenceRevision {
+  return SessionPersistenceRevision([
+    identity.dev,
+    identity.ino,
+    identity.size,
+    identity.mtimeNs,
+    identity.ctimeNs,
+  ].join(':'))
 }
 
 /** Whether a filesystem error means absence; every non-ENOENT failure must surface. */
@@ -167,6 +186,24 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     return this.readPrefix(path, id, signal)
   }
 
+  /** Read one log's stat-derived revision without loading its event bytes. */
+  async readStoredRevision(id: SessionId, signal?: AbortSignal): Promise<PersistenceRevision | undefined> {
+    signal?.throwIfAborted()
+    await this.ensureRootEncoding()
+    signal?.throwIfAborted()
+    const path = await this.findLog(id, signal)
+    if (path === undefined) return undefined
+    try {
+      const identity = await stat(path, { bigint: true })
+      signal?.throwIfAborted()
+      return fileRevision(identity)
+    } catch (error: unknown) {
+      signal?.throwIfAborted()
+      if (isENOENT(error)) return undefined
+      throw error
+    }
+  }
+
   /**
    * Read a stored prefix and convert torn-tail state to the opaque marker the
    * coordinator can round-trip without knowing the physical encoding.
@@ -176,9 +213,20 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     expectedId?: SessionId,
     signal?: AbortSignal,
   ): Promise<StoredPrefix<JsonlTornMarker>> {
-    const buffer = await readFile(path, { signal })
-    signal?.throwIfAborted()
-    let prefix: StoredPrefix<JsonlTornMarker>
+    let buffer: Buffer
+    let revision: PersistenceRevision
+    for (;;) {
+      signal?.throwIfAborted()
+      const before = fileRevision(await stat(path, { bigint: true }))
+      buffer = await readFile(path, { signal })
+      signal?.throwIfAborted()
+      const after = fileRevision(await stat(path, { bigint: true }))
+      if (before === after) {
+        revision = after
+        break
+      }
+    }
+    let prefix: Omit<StoredPrefix<JsonlTornMarker>, 'revision'>
     if (this.compression === 'zstd') {
       prefix = await this.readZstdPrefix(buffer, signal)
     } else {
@@ -196,14 +244,14 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     signal?.throwIfAborted()
     await this.assertStoredIdentity(path, prefix.meta, expectedId, signal)
     signal?.throwIfAborted()
-    return prefix
+    return { ...prefix, revision }
   }
 
   /** Decode complete frames and retain complete JSONL records from a torn final frame. */
   private async readZstdPrefix(
     buffer: Buffer,
     signal?: AbortSignal,
-  ): Promise<StoredPrefix<JsonlTornMarker>> {
+  ): Promise<Omit<StoredPrefix<JsonlTornMarker>, 'revision'>> {
     signal?.throwIfAborted()
     const { frames, tornStart } = scanZstdFrames(buffer)
     signal?.throwIfAborted()
@@ -307,13 +355,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
         signal?.throwIfAborted()
         snapshots.push({
           header: artifact.header,
-          revision: SessionPersistenceRevision([
-            identity.dev,
-            identity.ino,
-            identity.size,
-            identity.mtimeNs,
-            identity.ctimeNs,
-          ].join(':')),
+          revision: fileRevision(identity),
         })
       } catch (error: unknown) {
         signal?.throwIfAborted()

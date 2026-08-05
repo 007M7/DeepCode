@@ -576,6 +576,19 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     await b.dispose()
   })
 
+  it('binds a full stored prefix to the same revision as a lightweight read', async () => {
+    const b = await backend()
+    const m = meta('stored-prefix-revision')
+    await b.ctx.sessionPersistence.create(m)
+    await b.ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const persistence = b.ctx.sessionPersistence as SessionPersistenceSqlite
+
+    const stored = await persistence.loadStored(m.id)
+    expect(stored?.revision).toBe(await persistence.readStoredRevision(m.id))
+    expect(await persistence.readStoredRevision(SessionId('missing-revision'))).toBeUndefined()
+    await b.dispose()
+  })
+
   it('changes revisions when a deleted session id is materialized again in the same database', async () => {
     const path = await freshDbPath()
     const m = meta('recreated-revision')

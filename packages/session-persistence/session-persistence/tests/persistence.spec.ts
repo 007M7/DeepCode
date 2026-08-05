@@ -4,13 +4,18 @@ import SessionStore, { Session, SessionId, isJsonValue } from '@deepseek-ai/dsh-
 import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
   SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator,
-  type PersistenceBackend, type SessionPersistenceSnapshot, type StoredPrefix,
+  type PersistenceBackend, type SessionPersistenceSnapshot, type StoredPrefix, type StoredSuffix,
 } from '../src/index.ts'
 import { runPersistenceContract, meta, oneTurnLog } from './contract.ts'
 import { runCoordinatorContract, type CoordinatorFixture } from './coordinator-contract.ts'
 
 /** The durable store shape: materialized sessions only (no lazy entries). */
 type MemoryStore = Map<string, { meta: SessionHeader; events: SessionEvent[] }>
+
+/** Test-store revision that changes for any metadata or event mutation. */
+function memoryRevision(entry: { meta: SessionHeader; events: SessionEvent[] }): SessionPersistenceRevision {
+  return SessionPersistenceRevision(JSON.stringify(entry))
+}
 
 /** An obsolete event fixture that emulates an untyped pre-change producer. */
 function legacyHeaderDelta(seq = 0): SessionEvent {
@@ -114,7 +119,16 @@ class MemoryPersistence extends SessionPersistence implements PersistenceBackend
   async loadStored(id: SessionId): Promise<StoredPrefix<never> | undefined> {
     const entry = this.store.get(id)
     if (!entry) return undefined
-    return { meta: structuredClone(entry.meta), events: structuredClone(entry.events) }
+    return {
+      meta: structuredClone(entry.meta),
+      events: structuredClone(entry.events),
+      revision: memoryRevision(entry),
+    }
+  }
+
+  async readStoredRevision(id: SessionId): Promise<SessionPersistenceRevision | undefined> {
+    const entry = this.store.get(id)
+    return entry === undefined ? undefined : memoryRevision(entry)
   }
 
   async appendBatch(m: SessionHeader, events: readonly SessionEvent[], _isMaterialized: boolean): Promise<void> {
@@ -151,7 +165,7 @@ class MemoryPersistence extends SessionPersistence implements PersistenceBackend
     signal?.throwIfAborted()
     return [...this.store.values()].map(entry => ({
       header: structuredClone(entry.meta),
-      revision: SessionPersistenceRevision(`events:${entry.events.length}`),
+      revision: memoryRevision(entry),
     }))
   }
 }
@@ -167,9 +181,9 @@ class ControlledBackend implements PersistenceBackend<never> {
   beforeAppend?: (attempt: number) => Promise<void>
   beforeLoadStored?: (attempt: number, signal?: AbortSignal) => Promise<void>
   /** When set, the declared seek hook delegates here so readFrom exercises it; unset throws (tests set it first). */
-  seekHook?: (id: SessionId, fromSeq: number, signal?: AbortSignal) => Promise<StoredPrefix<never> | undefined>
+  seekHook?: (id: SessionId, fromSeq: number, signal?: AbortSignal) => Promise<StoredSuffix | undefined>
 
-  loadStoredFrom(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<StoredPrefix<never> | undefined> {
+  loadStoredFrom(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<StoredSuffix | undefined> {
     if (this.seekHook === undefined) throw new Error('seekHook not configured for this test')
     return this.seekHook(id, fromSeq, signal)
   }
@@ -179,7 +193,17 @@ class ControlledBackend implements PersistenceBackend<never> {
     await this.beforeLoadStored?.(attempt, signal)
     const entry = this.store.get(id)
     if (entry === undefined) return undefined
-    return { meta: structuredClone(entry.meta), events: structuredClone(entry.events) }
+    return {
+      meta: structuredClone(entry.meta),
+      events: structuredClone(entry.events),
+      revision: memoryRevision(entry),
+    }
+  }
+
+  async readStoredRevision(id: SessionId, signal?: AbortSignal): Promise<SessionPersistenceRevision | undefined> {
+    signal?.throwIfAborted()
+    const entry = this.store.get(id)
+    return entry === undefined ? undefined : memoryRevision(entry)
   }
 
   async appendBatch(m: SessionHeader, events: readonly SessionEvent[], _isMaterialized: boolean): Promise<void> {
@@ -590,6 +614,64 @@ describe('PersistenceCoordinator session preparations', () => {
     }
   })
 
+  it('reloads a cached inspection after the durable revision changes', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    const id = SessionId('inspect-revision-refresh')
+    backend.store.set(id, { meta: meta(id), events: oneTurnLog() })
+    let coordinator!: PersistenceCoordinator<never>
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      coordinator = new PersistenceCoordinator(inner, backend)
+    }, { inject: ['sessions'] }))
+
+    try {
+      const first = await coordinator.inspect(id)
+      backend.store.get(id)!.events.push(
+        { type: 'turn/start', seq: 6, time: 7, data: { turn: 2 } },
+        { type: 'turn/end', seq: 7, time: 8, data: { turn: 2, reason: { kind: 'completed' } } },
+      )
+
+      const refreshed = await coordinator.inspect(id)
+      expect(refreshed.events).toHaveLength(8)
+      expect(refreshed.events[0]).not.toBe(first.events[0])
+      expect(backend.loadAttempts).toBe(2)
+    } finally {
+      await fiber.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('does not restore from a cached inspection after the durable revision changes', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    const id = SessionId('prepare-revision-refresh')
+    backend.store.set(id, { meta: meta(id), events: oneTurnLog() })
+    let coordinator!: PersistenceCoordinator<never>
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      coordinator = new PersistenceCoordinator(inner, backend)
+    }, { inject: ['sessions'] }))
+    let preparation: Awaited<ReturnType<typeof coordinator.prepare>> | undefined
+
+    try {
+      const inspected = await coordinator.inspect(id)
+      backend.store.get(id)!.events.push(
+        { type: 'turn/start', seq: 6, time: 7, data: { turn: 2 } },
+        { type: 'turn/end', seq: 7, time: 8, data: { turn: 2, reason: { kind: 'completed' } } },
+      )
+
+      preparation = await coordinator.prepare(id)
+      expect(preparation.session.events).toHaveLength(9)
+      expect(preparation.session.events[0]).not.toBe(inspected.events[0])
+      expect(backend.loadAttempts).toBe(2)
+    } finally {
+      preparation?.[Symbol.dispose]()
+      await fiber.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('queues a same-tick cold append behind preparation readiness', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
@@ -610,9 +692,12 @@ describe('PersistenceCoordinator session preparations', () => {
         data: { turn: 2 },
       }])
 
-      await expect(inspection).resolves.toMatchObject({ meta: { id } })
+      await expect(inspection).resolves.toMatchObject({
+        meta: { id },
+        events: [...oneTurnLog(), { seq: 6 }, { seq: 7 }],
+      })
       await expect(append).resolves.toBeUndefined()
-      expect(backend.loadAttempts).toBe(1)
+      expect(backend.loadAttempts).toBe(2)
       expect(backend.store.get(id)?.events).toHaveLength(oneTurnLog().length + 1)
     } finally {
       await fiber.dispose()
