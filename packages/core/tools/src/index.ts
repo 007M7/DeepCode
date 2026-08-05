@@ -37,10 +37,11 @@ import { renderToolsSdkPy } from './py-types.ts'
  * its `run_code` schema strings — plus the renderer function this table points
  * at. The `satisfies` clause pins this table's key set to that union, which
  * the flavor table is checked against too, so any of the three left out is a
- * typecheck failure. A further edit is not checked anywhere: the seam's
- * well-known-value list — `dsh-code-runtime`'s README pair, its
+ * typecheck failure. What no check reaches is the prose that names the values
+ * instead of deriving them: the seam's `dsh-code-runtime` README pair, its
  * `CodeRuntime.language` JSDoc, and `docs/core-data-structures/code-runtime.md`
- * with its zh pair — names the languages this table presents.
+ * with its zh pair, plus this package's own README pair and the
+ * {@link Config.mode} JSDoc.
  */
 const SDK_RENDERERS: Record<string, (schemas: ToolSdkSchema[]) => string> = {
   typescript: renderToolsSdk,

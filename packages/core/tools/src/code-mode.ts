@@ -72,10 +72,10 @@ interface RunCodeFlavor {
 }
 
 /**
- * The TypeScript flavor: the historical default, and the fallback the schema
- * harvest degrades to when no runtime is mounted (the doc-catalog generator
- * reads `schemas()` without one). A real assembly always resolves a runtime
- * first, so the model never sees this fallback outside its own language.
+ * The TypeScript flavor: the historical default, and the fallback for a schema
+ * read with no runtime mounted ({@link resolveFlavor} owns which readers reach
+ * that). A real assembly always resolves a runtime first, so the model never
+ * sees this fallback outside its own language.
  */
 const TYPESCRIPT_FLAVOR: RunCodeFlavor = {
   description:
@@ -301,8 +301,9 @@ export interface RunCodeBridgeOptions {
   requireRuntime: () => CodeRuntime
   /**
    * Reads `ctx.codeRuntime` without throwing: `undefined` when none is
-   * mounted. Lets schema emission tell "no runtime" (the doc-catalog harvest,
-   * degrade to TS) apart from "unknown language" (fail loud).
+   * mounted. Lets schema emission tell "no runtime" (degrade to TS; the
+   * readers that reach it are {@link resolveFlavor}'s) apart from "unknown
+   * language" (fail loud).
    */
   peekRuntime: () => CodeRuntime | undefined
   /** The run's overlap cap for parallel-classified sub-calls (the registry passes its validated `maxParallelSubCalls`). */

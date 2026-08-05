@@ -60,7 +60,10 @@ const IDENTIFIER = /^[\p{XID_Start}_]\p{XID_Continue}*$/u
  * {@link UNPRINTABLE}, {@link LONE_SURROGATE} and {@link MAX_LIST_NESTING}
  * exist for. Both properties carry it: a character added only to `XID_Continue`
  * passes the trailing `\p{XID_Continue}*` in a tail position and fails the same
- * way. A CPython newer than the engine only routes a legal name to the
+ * way — U+200C ZWNJ and U+200D ZWJ are that case, gaining `XID_Continue` in UCD
+ * 15.1 and absent from it in 13.0.0, 14.0.0 and 15.0.0, so `a\u{200C}b` is
+ * emitted bare here while `isidentifier()` is False on 3.9.6 and on 3.12.13
+ * (15.0.0). A CPython newer than the engine only routes a legal name to the
  * subscript/`dict[str, Any]` path: less readable, still correct. The NFKC
  * condition reduces to the same skew, since normalization stability guarantees
  * an assigned character's normalization never changes afterwards.
@@ -85,8 +88,10 @@ const IDENTIFIER = /^[\p{XID_Start}_]\p{XID_Continue}*$/u
  * unpublished on this base, so the note records it as that PR's decision.
  *
  * The `ts-types` sibling keeps its own ASCII rule rather than sharing this
- * one: ECMAScript identifiers are a different set (`$`, ZWJ/ZWNJ) and are
- * never normalized, so one predicate cannot be correct for both.
+ * one: ECMAScript identifiers are a different set (`$`) and are never
+ * normalized, so one predicate cannot be correct for both. ZWJ/ZWNJ are not
+ * part of that difference — both sets carry them on the engine's tables; what
+ * separates the two there is the CPython table version above.
  * @param name - the raw schema field or tool name.
  * @returns whether the name can be emitted bare.
  */
@@ -440,10 +445,13 @@ function pyScalar(value: JsonSchemaScalar): string {
 /**
  * Render a validated scalar `const`/`enum` as `Literal[...]`, falling back to
  * the broad type. Deliberately deviates from PEP 586, which restricts `Literal`
- * parameters to int/bool/str/bytes/enum/None: a number `const`/`enum` emits a
- * float literal (`Literal[1.5]`) a strict checker would reject. Harmless here —
- * the stub is advisory prompt text, only required to parse — and keeping the
- * exact value communicates the constraint to the model.
+ * parameters to int/bool/str/bytes/enum/None: a non-integral number
+ * `const`/`enum` emits a float literal (`Literal[1.5]`) a strict checker would
+ * reject. An integral one does not deviate — {@link pyScalar} emits int digits,
+ * including for the beyond-safe-range values it widens through `BigInt`, and
+ * PEP 586 admits int parameters. Harmless either way — the stub is advisory
+ * prompt text, only required to parse — and keeping the exact value
+ * communicates the constraint to the model.
  */
 function renderConstrainedScalar(node: JsonSchemaNode, broad: string, state: RenderState): string {
   if (node.const !== undefined) {

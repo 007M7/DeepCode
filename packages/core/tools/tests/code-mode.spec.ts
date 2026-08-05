@@ -406,11 +406,13 @@ describe('mode-aware wire contribution', () => {
       .toThrow(/no run_code schema flavor registered for runtime language "ruby" \(known: "typescript", "python"\)/)
   })
 
-  it('degrades the run_code flavor to TypeScript when no runtime is mounted (doc-catalog schema harvest)', async () => {
-    // The tool-catalog generator boots the registry under `mode: code` and
-    // reads run_code's schema WITHOUT a runtime; peekRuntime returns undefined
-    // there, so the flavor getter degrades to the TS default rather than
-    // throwing (that harvest never feeds a model).
+  it('degrades the run_code flavor to TypeScript when no runtime is mounted', async () => {
+    // Any reader of the definition without a mounted runtime lands here; the
+    // shipped one is the tool-catalog generator, which boots the registry under
+    // `mode: code` and reads run_code's schema WITHOUT a runtime. peekRuntime
+    // returns undefined there, so the flavor getter degrades to the TS default
+    // rather than throwing. None of those readers feeds a model: assembly goes
+    // through wireSchemas, which requires a runtime first.
     const { ctx } = await setup({ mode: 'code', runtime: false })
     const definition = ctx.tools.get(RUN_CODE_NAME)
     expect(definition?.description).toContain('Execute a TypeScript program')
