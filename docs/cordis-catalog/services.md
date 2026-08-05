@@ -2323,7 +2323,7 @@ measure(session: Session, requestHeader?: EpochHeader): TokenMeasurement
 
 /**
  * Heuristically price one model-visible message (instance face of the pure
- * {@link estimateMessage}).
+ * `estimateMessage` export from `estimate.ts`).
  * @param message - message to price without mutation.
  * @returns content and role-framing tokens under the fixed service heuristic.
  */

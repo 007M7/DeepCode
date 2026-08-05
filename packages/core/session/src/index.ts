@@ -685,8 +685,8 @@ export class Session {
   }
 
   /**
-   * Instance face of the pure per-node projection rule
-   * {@link deriveEventMessage} (see its contract in `surface.ts`).
+   * Instance face of the pure per-node `deriveEventMessage` export from
+   * `surface.ts`.
    * @param event - the event to project.
    * @returns the derived message, or null when the event produces none.
    */

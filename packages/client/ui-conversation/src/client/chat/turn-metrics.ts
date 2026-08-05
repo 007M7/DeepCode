@@ -59,8 +59,8 @@ interface TurnFold {
 /**
  * Fold assistant nodes into per-turn footer metrics.
  *
- * TTFT is the turn's lowest-step reading — the user-perceived wait before
- * output appeared — so it is only meaningful when the turn's start is inside
+ * TTFT is the turn's lowest-step request-dispatch-to-first-token reading, so
+ * it is only meaningful when the turn's start is inside
  * the loaded window (the caller gates on `turnTimings`, which shares that
  * window). Throughput divides summed output tokens by summed decode wall time,
  * counting only steps that carry both.
