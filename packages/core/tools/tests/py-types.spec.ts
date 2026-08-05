@@ -67,7 +67,7 @@ describe('jsonSchemaToPy', () => {
     expect(jsonSchemaToPy({ type: 'string', const: 'ends\\' })).toBe(String.raw`Literal["ends\\"]`)
   })
 
-  it('passes the line and paragraph separators through raw, which CPython does not treat as line terminators', () => {
+  it('passes NEL and the line/paragraph separators through raw, which CPython does not treat as line terminators', () => {
     // `JSON.stringify` escapes LF and CR but not NEL (U+0085), LS (U+2028), or
     // PS (U+2029), which is safe here and not by accident: those three are
     // `str.splitlines()` boundaries, not tokenizer line terminators, so they
@@ -78,8 +78,9 @@ describe('jsonSchemaToPy', () => {
     // same bytes, and none of the three has a visible width.
     expect(jsonSchemaToPy({ type: 'string', const: 'a\u2028b' })).toBe('Literal["a\u2028b"]')
     expect(jsonSchemaToPy({ type: 'string', enum: ['a\u2029b'] })).toBe('Literal["a\u2029b"]')
-    // NEL is inside `UNPRINTABLE`'s class, so the description path escapes it;
-    // this is the one route that carries it raw.
+    // NEL is inside `UNPRINTABLE`'s class, so the description path escapes it.
+    // This is one of the two routes that carry it raw; the other is the
+    // subscript tool-name comment's own `JSON.stringify` call.
     expect(jsonSchemaToPy({ type: 'string', const: 'a\u0085b' })).toBe('Literal["a\u0085b"]')
   })
 

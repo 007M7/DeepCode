@@ -172,9 +172,11 @@ interface RenderState {
  * string at run time but do not end a physical line in source — measured on
  * CPython 3.9.6 and 3.12.13, each accepted in both positions with the value
  * round-tripping — so they are safe raw wherever they reach emitted text
- * unescaped, which for all three is {@link pyScalar}'s `JSON.stringify`: the
- * `description` path escapes NEL under the class above and folds LS and PS in
- * {@link describe}'s `\s+` collapse, both of them being ECMAScript `\s`.
+ * unescaped, which for all three is `JSON.stringify`, at two call sites:
+ * {@link pyScalar}'s literal path, and the subscript tool-name comment's own
+ * call, which a name carrying any of them always reaches, none being
+ * `XID_Continue`. The `description` path escapes NEL under the class above and
+ * folds LS and PS in {@link describe}'s `\s+` collapse, both being `\s`.
  */
 const UNPRINTABLE = /[\u0000-\u0008\u000e-\u001f\u007f-\u009f]/g
 
