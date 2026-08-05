@@ -30,7 +30,7 @@ Clipping does not change. `overflow-y: auto` had already made the box a scroll c
 
 [apps/web/tests/conversation-column-overflow.e2e.ts](../../../../apps/web/tests/conversation-column-overflow.e2e.ts) sweeps viewport widths bracketing the glow and, at each stop, wheels horizontally over the column and reads `scrollLeft`. The committed golden records the relation per stop; the widest stop is the control where the glow does not bleed at all.
 
-Two guards keep the scenario honest. The vacuity guard asserts the glow still reaches past the column at the narrow stops, so the claim cannot pass by the symptom having disappeared for an unrelated reason. The mutation control forces `overflow-x: auto` back on in the page and shows the same gesture, at the same timing, carrying the column to the full bleed — without it a `scrollLeft` of 0 could equally mean the wheel never arrived.
+Two guards keep the scenario honest. The vacuity guard asserts the glow still reaches past the column at the narrow stops, so the claim cannot pass by the symptom having disappeared for an unrelated reason. The mutation control forces `overflow-x: auto` back on in the page and shows the same gesture, at the same timing, carrying the column to its positive scroll boundary; the test measures that boundary directly because a stable scrollbar gutter can leave some overflow on the negative side of the scroll origin. Without the control, a `scrollLeft` of 0 could equally mean the wheel never arrived.
 
 ## Consequences
 

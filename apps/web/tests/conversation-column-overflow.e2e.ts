@@ -110,7 +110,7 @@ function measureColumn(page: Page, width: number): Promise<ColumnMetrics> {
  * programmatically scrollable and leaves `scrollWidth` untouched, so every
  * property reading agrees across the fix. Only refusing an actual input event
  * differs — measured at the 1200px stop, the shipped column stays at 0 while
- * the same page with `overflow-x: auto` forced on lands at the full 66px bleed.
+ * the same page with `overflow-x: auto` forced on lands at its scroll boundary.
  * @param page - the page under test.
  * @returns `scrollLeft` after one horizontal wheel over the column.
  */
@@ -141,6 +141,28 @@ async function wheelHorizontally(page: Page): Promise<number> {
       })
     })
   }))
+}
+
+/**
+ * Measure the positive horizontal scroll boundary without changing the
+ * shipped overflow mode. This is distinct from `scrollWidth - clientWidth`
+ * when a stable scrollbar gutter leaves part of the overflow on the negative
+ * side of the scroll origin.
+ * @param page - the page under test.
+ * @returns the greatest positive `scrollLeft` reachable by the control gesture.
+ */
+async function horizontalScrollLimit(page: Page): Promise<number> {
+  return page.evaluate((delta) => {
+    const scroller = document.querySelector<HTMLElement>('[data-conversation-scroll]')
+    if (scroller === null) throw new Error('conversation scroll container not in the DOM')
+    const previousScrollBehavior = scroller.style.scrollBehavior
+    scroller.style.scrollBehavior = 'auto'
+    scroller.scrollLeft = delta
+    const limit = scroller.scrollLeft
+    scroller.scrollLeft = 0
+    scroller.style.scrollBehavior = previousScrollBehavior
+    return limit
+  }, WHEEL_DELTA)
 }
 
 /** A stop's readings plus where a horizontal wheel over it landed. */
@@ -259,8 +281,8 @@ describe('web e2e: the conversation column scrolls on one axis', () => {
     // The mutation control, run in the page rather than against a second
     // build: it restores exactly what the fix changed — the initial `visible`
     // that a one-axis scroller computes to `auto` — and shows the same gesture,
-    // at the same timing, carrying the column to the full bleed. Without it a
-    // `scrollLeft` of 0 could equally mean the wheel never arrived.
+    // at the same timing, carrying the column to its positive scroll boundary.
+    // Without it a `scrollLeft` of 0 could equally mean the wheel never arrived.
     // Settle the resize first: this test runs at 1680 on its own and after the
     // sweep's 600 in a full run, and an unsettled column reports the previous
     // viewport's bleed.
@@ -278,15 +300,15 @@ describe('web e2e: the conversation column scrolls on one axis', () => {
       const before = await measureColumn(page, 1200)
       expect(before.overflowX).toBe('auto')
       expect(before.bleedRange).toBeGreaterThan(0)
-      // The gesture has to be able to reach the far edge, or the equality below
-      // would fail on the clamp and read as a broken fix. Stated as its own
-      // assertion so that failure names itself.
-      expect(before.bleedRange).toBeLessThan(WHEEL_DELTA)
+      const scrollLimit = await horizontalScrollLimit(page)
+      // The control has a reachable horizontal range, and the gesture exceeds
+      // it so the equality below proves that the wheel reached the far edge.
+      expect(scrollLimit).toBeGreaterThan(0)
+      expect(scrollLimit).toBeLessThan(WHEEL_DELTA)
       // Rounded: `scrollLeft` is fractional under a fractional layout while
-      // `scrollWidth - clientWidth` is integral, and the claim is that the
-      // column travelled the whole bleed — not that two engines agree on a
-      // sub-pixel.
-      expect(Math.round(await wheelHorizontally(page))).toBe(before.bleedRange)
+      // the claim is that the column reached the positive boundary, not that
+      // two engines agree on a sub-pixel.
+      expect(Math.round(await wheelHorizontally(page))).toBe(Math.round(scrollLimit))
     } finally {
       await page.evaluate((id: string) => {
         document.getElementById(id)?.remove()
