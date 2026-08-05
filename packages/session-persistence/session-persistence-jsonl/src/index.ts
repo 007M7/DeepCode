@@ -34,7 +34,8 @@ export type { JsonlCompression } from './format.ts'
 
 const DEFAULT_PACK_CHUNKS = true
 const DEFAULT_COMPRESSION: JsonlCompression = 'zstd'
-const ZSTD_DECODE_YIELD_INTERVAL_MS = 1000
+/** internal yield interval. */
+const ZSTD_DECODE_YIELD_INTERVAL_MS = 500
 
 /** Assert that the independently decodable first frame contains only the header record. */
 function assertZstdHeaderFrame(plaintext: Buffer): void {

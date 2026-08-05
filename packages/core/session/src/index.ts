@@ -203,7 +203,7 @@ export function snapshotSessionEvent<T extends SessionEvent>(event: T): T {
   return adoptSessionEvent(structuredClone(event))
 }
 
-/** Deep-freeze one acyclic object tree materialized by JSON parsing. */
+/** Deep-freeze one acyclic object tree materialized by JSON parsing. input is stackoverflow-safe */
 function freezeRestoredObject<T>(value: T): T {
   Object.freeze(value)
   for (const key in value) {
