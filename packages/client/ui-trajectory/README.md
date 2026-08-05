@@ -14,4 +14,4 @@ None; this package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 
-- **In-flight Time stays blank** — `partial` / `runningCalls` rows show their running state without a fabricated duration until a live clock policy lands, so the Overview renders a start marker rather than inventing a live span; record and timeline selection are intentionally local to Trajectory; anchor deep-linking remains deferred.
+- **In-flight Time stays blank** — `partial` and `runningCalls` rows show their running state without a fabricated duration, so the Overview renders a start marker rather than inventing a live span. Record and timeline selection are local to Trajectory, with no anchor deep links.

@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-07-30-web-config-plane.md) | 中文
 
-> 范围：[请求级 LLM 配置 note](2026-07-29-request-level-llm-config-credentials.md) 中延后的 wire 面与 web UI——带推送式失效的 `settings.*`/`credentials.*`/`llm.*` RPC 领域、分层且脱敏的 `describe()`、llm 可配置提供方目录与拓扑事件、独立的 `dsh-client-schema-form` 模型层，以及带手写提供方编辑器的 Models 设置页。`deepseek` → `deepseek-official` 提供方路由重命名作为解锁前提的破坏性变更一并搭车合入。
+> 范围：[请求级 LLM 配置 note](2026-07-29-request-level-llm-config-credentials.md) 中延后的 wire 面与 web UI——带推送式失效的 `settings.*`/`credentials.*`/`llm.*` RPC 领域、分层且脱敏的 `describe()`、本地设置文档交接、llm 可配置提供方目录与拓扑事件、独立的 `dsh-client-schema-form` 模型层，以及带手写提供方编辑器的 Models 设置页。`deepseek` → `deepseek-official` 提供方路由重命名作为解锁前提的破坏性变更一并搭车合入。
 
 ## 问题
 
@@ -12,9 +12,11 @@ PR1 让 LLM（大语言模型）适配器配置在 seam 层面免重启，但唯
 
 ## 决策
 
-**wire 领域挂上编译期 RPC 映射，拒绝落为错误码，失效落为帧。**`settings.describe/update/replace`、`credentials.describe/set/unset`、`llm.providers` 与 `llm.models`（认领预留的 `host.listModels` 面）一同加入 `RpcMethodMap`，七处由编译器锁定的接线位点因此让契约、schema、处理器与客户端保持步调一致。seam 侧的拒绝折叠为 `settings-rejected {ns}`/`credential-rejected {ref}` 业务错误（HTTP 仍只是载体），三个 `HostFrame`——`host/settings-changed {ns}`、`host/credentials-changed {ref}`、`host/models-changed`——沿用 `host/commands-changed` 的形状，因此每个客户端都无需轮询即可收敛。写入与 `pickDirectory`/`openPath` 一起进入连接守卫的特权集合：回环 + 同源，否则 403，因为暴露在局域网上的 dsh web 绝不能接受来自其他源的配置修改。
+**wire 领域挂上编译期 RPC 映射，拒绝落为错误码，失效落为帧。**`settings.describe/openDocument/update/replace/mutate`、`credentials.describe/set/unset`、`llm.providers` 与 `llm.models`（认领预留的 `host.listModels` 面）一同加入 `RpcMethodMap`，七处由编译器锁定的接线位点因此让契约、schema、处理器与客户端保持步调一致。seam 侧的拒绝折叠为 `settings-rejected {ns}`/`credential-rejected {ref}` 业务错误（HTTP 仍只是载体），三个 `HostFrame`——`host/settings-changed {ns}`、`host/credentials-changed {ref}`、`host/models-changed`——沿用 `host/commands-changed` 的形状，因此每个客户端都无需轮询即可收敛。settings 读取、原生操作与写入和 `pickDirectory`/`openPath` 一起进入连接守卫的特权集合：回环 + 同源，否则 403，因为暴露在局域网上的 dsh web 绝不能接受来自其他源的配置访问。
 
 **`describe()` 增加分层与结构化 secret 脱敏。**`SettingsDescriptor` 在生效值之外携带 `base`/`user`，表单据此按「字段是否出现在用户层」来标记「已覆盖」，而非按值是否不等（与 base *相等*的覆盖仍然是覆盖）。`describe({ redactSecrets: true })`——在每个 wire 面都强制启用——经由对 schema 的纯结构遍历（object/dict/array 容器；secret 角色子树整体是一个不透明叶节点）从全部三层剥除 `role('secret')` 子树，并把剥除的槽位枚举为 `{path, set}`，页面因此不必收到任何值就能渲染只写输入框。
+
+**Host 识别并打开本地设置文档。** settings seam 暴露可选的 `documentPath` 提供方元数据和 `prepareDocument()` 操作；`settings-local` 返回已完全解析的自定义文件名或 `$DSH_HOME/settings.yaml` 文件名，并在文档缺失时以仅属主可访问的权限独占创建空文档，非文件提供方则保留基类的 `undefined`。仅限回环访问的 `settings.describe` 响应会在脱敏 namespace 视图旁只携带布尔型 `hasDocument` 能力。`ui-settings-general` 只在回环页面注册一条 `settings.action` 条目，只有元数据确认可准备好一份由提供方持有的本地文档后才显示，并调用无路径参数的 `settings.openDocument`；Host 会在文本文档交接前再次解析提供方路径（macOS 上使用 `open -t`，使任意 YAML 文件关联无法重定向这次操作；Linux 上使用 `xdg-open`；Windows 上使用 `Invoke-Item`）。通用 Workspace 路径仍保留现有的默认应用交接。浏览器既不推导 `$DSH_HOME`，也不会收到文件系统目标；远程页面不会为这项操作发起特权 settings 读取。
 
 **llm seam 声明可配置性并公布拓扑。**`registerConfigurableProviders()` 是一个全有或全无、以 fiber 为作用域的目录，条目为 `{provider, displayName, settingsNs, settingsPath}`——这正是配置页要为一条可能尚不存在的路由打开正确设置子树时所需要的寻址；`listConfigurableProviders()` 在 wire 处理器里与存活路由合并，未声明的存活路由因此仍报告为激活。零负载的 `'llm/adapters-updated'` 事件从全部四个注册／注销提交点触发，listener 派发带异常隔离（INVARIANT 重抛），沿用 settings/commands 的先例。`llm-deepseek` 的路由重命名为 `deepseek-official`，因为 pi-ai catalog 名正言顺地拥有 `deepseek` 这个聚合器条目；依预发布立场，不设别名。
 
@@ -30,7 +32,8 @@ PR1 让 LLM（大语言模型）适配器配置在 seam 层面免重启，但唯
 - **把键入的密钥存成字面 `apiKey` 设置**——v1「单个 API 密钥输入框」的需求本可以把字面量直接写进 profile，但 UI 的每条删除路径都会从*脱敏后的*各层重建用户分节，任何重置或整行删除都会静默丢掉已存储的兄弟密钥；派生引用让输入保持单字段，同时让 `settings.yaml` 不含机密、每一次 replace 都安全。
 - **由 `models` 桥接插件持有提供方配置**——与 PR1 相同的否决理由：按插件划分的 namespace 加上四字段的目录声明已经给了 UI 需要的一切；桥接层的统一字典会把适配器映射那层间接重新引进来。
 - **页面侧轮询而非推送帧**——mux 已经承载 `host/commands-changed`；再加三个帧各自只多一个形状的成本，就让第二个标签页、外部的 `settings.yaml` 编辑和由设置催生的路由都以事件速度收敛。
+- **在浏览器中硬编码 `$DSH_HOME/settings.yaml`，或经 `host.openPath` 回传 `documentPath`**——否决，因为 `settings-local.path` 可能选择另一份 YAML/JSON 文档、非文件提供方没有 Host 路径，而且通用路径请求会让浏览器成为本地文件系统目标的权威。提供方的准备操作才是权威来源，由 Host 持有的操作会把结果交给现有打开器。
 
 ## 后果
 
-整条闭环以无密钥方式固定在浏览器测试通道（`apps/web/tests/models-settings.e2e.ts`）：「新增」卡片提供休眠的 pi-ai catalog，携键入的密钥添加 `minimax-cn` 会把只含引用的 profile 写入 `settings.yaml`、把密钥值存入 harness 家目录 `.env` 中派生的 `MINIMAX_CN_API_KEY` 之下、路由随拓扑帧注册为存活，「自定义设置」折叠区则把 `reasoning` 合并到引用旁边——全程零模型调用，「新增」卡片态、已配置态与删除确认态各有 ARIA golden，另有脚手架式的 `harnessHome`，测试绝不触碰真实的 `~/.dsh`（受测提供方是派生引用不可能与开发者已导出密钥相撞的那一个）。删除场景证明：取消后 profile 保持原样，确认后会将其删除，而刻意保留的凭据依然存在。DeepSeek 首次使用 fixture 会把默认目录编辑为用户自有列表、持久化任意模型的 ID／名称／上下文窗口、移除活动模型行，并观察模型选择器的空选择回退。这次重命名在一次提交中触及 239 个文件（fixture（测试前置数据）、golden、文档、python），未保留兼容别名。替换渲染器只花了一次提交，且没有任何 wire 变更：应用语义、脱敏与目录联接从一开始就与渲染器无关。延后事项：每行的模型预览（选择器已能列出模型）、为从未声明可配置性的存活路由提供页面地址，以及显式删除提供方所保留的凭据。
+整条闭环以无密钥方式固定在浏览器测试通道（`apps/web/tests/models-settings.e2e.ts`）：「新增」卡片提供休眠的 pi-ai catalog，携键入的密钥添加 `minimax-cn` 会把只含引用的 profile 写入 `settings.yaml`、把密钥值存入 harness 家目录 `.env` 中派生的 `MINIMAX_CN_API_KEY` 之下、路由随拓扑帧注册为存活，「自定义设置」折叠区则把 `reasoning` 合并到引用旁边——全程零模型调用，「新增」卡片态、已配置态与删除确认态各有 ARIA golden，另有脚手架式的 `harnessHome`，测试绝不触碰真实的 `~/.dsh`（受测提供方是派生引用不可能与开发者已导出密钥相撞的那一个）。设置外壳场景会截获无路径参数的原生意图；seam、提供方、wire、React 与原生打开器测试分别固定了提供方缺失、自定义路径解析、缺失文件创建、仅属主权限、远程／不可用时隐藏、重复点击合并、本地化失败、macOS 文本编辑器分发，以及 Linux/Windows 桌面分发。删除场景证明：取消后 profile 保持原样，确认后会将其删除，而刻意保留的凭据依然存在。DeepSeek 首次使用 fixture 会把默认目录编辑为用户自有列表、持久化任意模型的 ID／名称／上下文窗口、移除活动模型行，并观察模型选择器的空选择回退。这次重命名在一次提交中触及 239 个文件（fixture（测试前置数据）、golden、文档、python），未保留兼容别名。替换渲染器只花了一次提交，且没有任何 wire 变更：应用语义、脱敏与目录联接从一开始就与渲染器无关。延后事项：每行的模型预览（选择器已能列出模型）、为从未声明可配置性的存活路由提供页面地址，以及显式删除提供方所保留的凭据。

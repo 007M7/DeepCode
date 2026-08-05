@@ -32,8 +32,17 @@ export const settingsDescribeRequestSchema = z.object({}) satisfies z.ZodType<Wi
 /** settings.describe response value. */
 export const settingsDescribeValueSchema = z.object({
   writable: z.boolean(),
+  hasDocument: z.boolean(),
   namespaces: z.array(settingsNamespaceViewSchema),
 }) satisfies z.ZodType<Wire<ResponseValue<'settings.describe'>>>
+
+/** settings.openDocument request payload. */
+export const settingsOpenDocumentRequestSchema = z.object({}) satisfies z.ZodType<Wire<RequestPayload<'settings.openDocument'>>>
+
+/** settings.openDocument response value. */
+export const settingsOpenDocumentValueSchema = z.object({
+  opened: z.literal(true),
+}) satisfies z.ZodType<Wire<ResponseValue<'settings.openDocument'>>>
 
 /** settings.update request payload. */
 export const settingsUpdateRequestSchema = z.object({

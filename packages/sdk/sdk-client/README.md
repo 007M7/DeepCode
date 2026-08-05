@@ -4,7 +4,7 @@ English | [中文](README.zh.md)
 
 The TypeScript client SDK for driving a DeepSeek Harness runtime as a subprocess over stdio JSON-RPC — the design twin of the [Python SDK](../../../python/README.md) (`deepseek-harness`), sharing the same runtime peer, protocol, and layering: `DeepSeekHarness` is the high-level turns API, `HarnessClient` the lower-level protocol client. The package root enumerates the consumer interface: the two client layers, caller-facing types, and `JsonRpcResponseError`; source modules, normalization helpers, and subscription-delivery machinery are not consumer imports. A pure library: it registers nothing on a Cordis context; the runtime process it spawns is a complete harness whose composition its own `cordis.yml` decides.
 
-Unlike the Python SDK, the launch spec is fully explicit (`command`/`args`): this package is for repo-adjacent TypeScript consumers — the [`dsh-subagent-dsh-sdk`](../../subagent/subagent-dsh-sdk/README.md) backend, tests, automation — which know which runtime they are launching. Bundled-runtime resolution (finding a packaged executable) remains the Python distribution's concern.
+Unlike the Python SDK, the launch spec is fully explicit (`command`/`args`): this package is for repo-adjacent TypeScript consumers — including the [`dsh-subagent-dsh-sdk`](../../subagent/subagent-dsh-sdk/README.md) backend and automation — that know which runtime they are launching. Bundled-runtime resolution (finding a packaged executable) remains the Python distribution's concern.
 
 ## DeepSeekHarness
 
@@ -30,10 +30,6 @@ The protocol client under the turns API: explicit `start()`/`initialize()`/`prom
 `close()` requests protocol `shutdown` (bounded by `shutdownTimeoutMs`, default 1000 ms), then walks a stdin-EOF → SIGTERM → SIGKILL ladder (`disposeEofGraceMs` default 6000, `disposeGraceMs` default 3000) until the process has actually exited. The ladder is private to this client: it runs outside any harness context, so it cannot ride the [`dsh-subprocess`](../../subprocess/README.md) service — the seam's documented exception for SDK-managed transports. It is idempotent, and a closed client refuses reuse.
 
 `HarnessClientOptions.env` replaces the child environment entirely when given (`undefined` inherits the parent's); callers own credential policy — `scrubbedParentEnv` from `dsh-subprocess` is the shared scrub base for isolation-minded launches.
-
-## Testing
-
-Keyless unit tests drive a scripted fake runtime subprocess (`tests/fake-runtime.ts`, protocol-only, env-scripted) over real stdio: turn loop, session-tree scoping, timeout/death/malformed-response surfaces, and the dispose ladder. The [SDK snapshot suite](../../../examples/jsonrpc-agent/tests/sdk.snapshot.ts) drives the real `dsh-jsonrpc-agent` runtime through this client keylessly via `llm-replay`, pinning the notification stream, the turn result, and the persisted logs; `DSH_SNAPSHOT=record` re-records against the live API.
 
 ## Model Experience
 
