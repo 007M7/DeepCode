@@ -9,6 +9,7 @@ import {
   isSurfaceEligibleType,
   isSurfaceEvent,
 } from '@deepseek-ai/dsh-session'
+import { SurfaceManager } from '@deepseek-ai/dsh-session/surface'
 import {
   createMessage,
   createToolResultMessage,
@@ -239,6 +240,53 @@ describe('foldSurface tool-result rewrites', () => {
 })
 
 describe('SurfaceManager', () => {
+  it('folds a contiguous window without materializing earlier event sequences', () => {
+    const baseSeq = 400_000
+    const events = [
+      provenanceEvent(baseSeq, undefined),
+      provenanceEvent(baseSeq + 1, undefined),
+      {
+        ...provenanceEvent(baseSeq + 2, [baseSeq]),
+        surfaceOp: { op: 'replace', start: baseSeq, end: baseSeq },
+      },
+    ] as SessionEvent[]
+
+    const surface = new SurfaceManager(events, baseSeq)
+    expect(surface.nodes).toEqual([baseSeq + 2, baseSeq + 1])
+    expect(surface.replaceGeneration).toBe(1)
+  })
+
+  it('validates tool-result rewrites against a nonzero window offset', () => {
+    const baseSeq = 400_000
+    const original = toolResultEvent(baseSeq, 'call')
+    const events: SessionEvent[] = [
+      original,
+      {
+        ...original,
+        seq: baseSeq + 1,
+        time: baseSeq + 1,
+        surfaceOp: { op: 'replace' as const, start: baseSeq, end: baseSeq },
+        sourceEventSeqs: [baseSeq],
+      } as SessionEvent,
+    ]
+
+    expect(new SurfaceManager(events, baseSeq).nodes).toEqual([baseSeq + 1])
+  })
+
+  it('rejects a replacement that crosses a loaded window head', () => {
+    const baseSeq = 400_000
+    const events = [
+      provenanceEvent(baseSeq, undefined),
+      {
+        ...provenanceEvent(baseSeq + 1, [baseSeq - 1, baseSeq]),
+        surfaceOp: { op: 'replace', start: baseSeq - 1, end: baseSeq },
+      },
+    ] as SessionEvent[]
+
+    expect(() => new SurfaceManager(events, baseSeq).nodes)
+      .toThrow(`surface replace: start seq ${baseSeq - 1} not found in surface`)
+  })
+
   it('shares ordered entries and nested replacement ranges with foldSurface', () => {
     const s = Session.create(SessionId('shared-fold'))
     s.append('user/message', createUserMessage({
