@@ -300,10 +300,10 @@ export interface RunCodeBridgeOptions {
   /** Resolves `ctx.codeRuntime` or throws the loud misconfiguration error (shared with the registry's assembly-time checks). */
   requireRuntime: () => CodeRuntime
   /**
-   * Reads `ctx.codeRuntime` without throwing: `undefined` when none is
-   * mounted. Lets schema emission tell "no runtime" (degrade to TS; the
-   * readers that reach it are {@link resolveFlavor}'s) apart from "unknown
-   * language" (fail loud).
+   * Reads `ctx.codeRuntime` without throwing: `undefined` when none is mounted.
+   * Lets schema emission tell "no runtime" (degrade to TS; the readers that
+   * reach it are {@link resolveFlavor}'s) apart from "unknown language" (fail
+   * loud).
    */
   peekRuntime: () => CodeRuntime | undefined
   /** The run's overlap cap for parallel-classified sub-calls (the registry passes its validated `maxParallelSubCalls`). */

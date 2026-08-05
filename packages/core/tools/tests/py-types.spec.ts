@@ -466,6 +466,35 @@ describe('renderToolsSdkPy', () => {
     expect(text).not.toContain('field:')
   })
 
+  it('keeps U+200C in a name tail while rejecting it at a name head, per the two XID properties', () => {
+    // ZWNJ carries `XID_Continue` and not `XID_Start`, so the predicate splits
+    // on position: bare in a tail, subscripted at a head. Both verdicts are
+    // stable across the supported engines — the property arrives in Unicode
+    // 15.1 and the floor (Node 22.19.0, Unicode 16.0) is past it.
+    //
+    // The interpreter side is where this one skews, and it is the same skew the
+    // docstring's four other characters record, reached in a tail position
+    // instead of at a head: CPython reads XID_Continue out of the
+    // `DerivedCoreProperties.txt` of the UCD it was built against (13.0.0 on
+    // 3.9.6 and 15.0.0 on 3.12.13 both lack the row, and `'a‌b'.isidentifier()`
+    // is False on both, measured), so the field emitted bare here needs an
+    // interpreter with 15.1 tables or newer.
+    const of = (name: string): ToolSdkSchema => ({
+      name,
+      description: `Tool ${name}.`,
+      parameters: { type: 'object', additionalProperties: false, properties: { 'a‌b': { type: 'string' } } },
+      output: { type: 'string' },
+    })
+    const text = renderToolsSdkPy([of('ping'), of('‌b')])
+    expect(text).toContain('async def ping(self, args: PingArgs) -> str:')
+    expect(text).toContain('    a‌b: NotRequired[str]')
+    // A head that is XID_Continue but not XID_Start takes the subscript path,
+    // and `camelCase` prefixes `Tool` to make the class name start legally.
+    expect(text).toContain('# tools["‌b"](args: Tool‌bArgs) -> str')
+    expect(text).toContain('class Tool‌bArgs(TypedDict):')
+    expect(text).not.toContain('async def ‌b')
+  })
+
   it('subscripts a tool name that NFKC-normalizes to something else, while declaring a plain Unicode one', () => {
     // Same split at the tool-name site: `路径` becomes an `async def`, the
     // ligature name cannot, because `async def ﬁnd` would define `find`. The

@@ -42,10 +42,11 @@ const IDENTIFIER = /^[\p{XID_Start}_]\p{XID_Continue}*$/u
  * take the subscript path, which carries their exact bytes.
  *
  * `IDENTIFIER`'s equivalence to `str.isidentifier()` was measured across 21
- * samples with zero divergence, on Node 22.23.1 against CPython 3.9.6. The
- * predicate as a whole is deliberately stricter than `isidentifier()`, which
- * does not test NFKC stability: `'ﬁeld'.isidentifier()` is True and this
- * returns false.
+ * samples with zero divergence, on Node 22.23.1 against CPython 3.9.6 — every
+ * sample sits inside the two versions' shared tables, and the skew characters
+ * below are exactly where that pair diverges. The predicate as a whole is
+ * deliberately stricter than `isidentifier()`, which does not test NFKC
+ * stability: `'ﬁeld'.isidentifier()` is True and this returns false.
  *
  * Both conditions are evaluated against the ENGINE's Unicode tables, and the
  * two sides are versioned independently — `\p{XID_Start}`/`\p{XID_Continue}`
