@@ -494,8 +494,69 @@ describe('renderToolsSdkPy', () => {
     // whole characters; one ASCII character of padding puts the boundary inside
     // the 60th pair, and that half is dropped rather than emitted.
     expect(className('')).toBe(AHSA.repeat(60))
-    expect(className('x')).toBe(`X${AHSA.repeat(59)}`)
-    expect(className('x')).toHaveLength(119)
+    const padded = className('x')
+    expect(padded).toBe(`X${AHSA.repeat(59)}`)
+    expect(padded).toHaveLength(119)
+  })
+
+  it('normalizes the seam the Tool prefix creates, which the prefixed part alone does not cover', () => {
+    // U+0301 COMBINING ACUTE ACCENT is XID_Continue but not XID_Start, so a name
+    // headed by it takes the `Tool` prefix — and `Tool` ends in `l`, which
+    // composes with it. Normalizing only the part being prefixed would emit
+    // `Tool` + U+0301, which CPython compiles as `Too` + U+013A: the class
+    // the SDK declares would not be the class the interpreter defines. Every
+    // code point below is an escape — the two forms render identically.
+    const text = renderToolsSdkPy([
+      {
+        name: '\u0301abc',
+        description: 'Combining-mark head.',
+        parameters: { type: 'object', additionalProperties: false, properties: { q: { type: 'string' } }, required: ['q'] },
+        output: { type: 'string' },
+      },
+    ])
+    expect(text).toContain('class Too\u013AabcArgs(TypedDict):')
+    expect(text).toContain('# tools["\u0301abc"](args: Too\u013AabcArgs) -> str')
+    expect(text).not.toContain('Tool\u0301')
+  })
+
+  it('normalizes a class-name join where two separately stable segments compose', () => {
+    // Hangul jamo compose ACROSS the join `childClassName` makes: the parent
+    // base ends in U+1100 (L jamo) and the child segment starts with U+1161 (V
+    // jamo), each NFKC-stable alone, together U+AC00. Unnormalized, the declared
+    // name differs from the compiled symbol, and two byte-distinct names can
+    // fold onto one — `usedClassNames` dedupes by raw bytes, so the collision
+    // counter never sees it and the later declaration shadows the earlier one
+    // under CPython. Escapes again, for the same reason as above.
+    const text = renderToolsSdkPy([
+      {
+        name: 'x',
+        description: 'Jamo field names.',
+        parameters: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['\uAC00\u1100'],
+          properties: {
+            '\uAC00\u1100': {
+              type: 'object',
+              additionalProperties: false,
+              required: ['\u1161x'],
+              properties: {
+                '\u1161x': { type: 'object', additionalProperties: false, properties: { q: { type: 'string' } } },
+              },
+            },
+          },
+        },
+        output: { type: 'string' },
+      },
+    ])
+    // The join is `XArgs` + U+AC00 U+1100 followed by U+1161 `x`, whose
+    // trailing L+V pair composes into a second U+AC00.
+    expect(text).toContain('class XArgs\uAC00\uAC00x(TypedDict):')
+    expect(text).toContain('    \u1161x: XArgs\uAC00\uAC00x')
+    expect(text).not.toContain('\u1100\u1161')
+    // The level above it is a join that composes nothing (LV + L), so it stays
+    // byte-identical — normalizing is not silently rewriting every name.
+    expect(text).toContain('class XArgs\uAC00\u1100(TypedDict):')
   })
 
   it('declares a closed empty object with omitted properties as an empty TypedDict, not dict[str, Any]', () => {

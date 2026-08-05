@@ -17,7 +17,11 @@ import { assertSupportedJsonSchema } from './json-schema.ts'
 import type { JsonSchemaNode, JsonSchemaScalar } from './json-schema.ts'
 import type { ToolSdkSchema } from './ts-types.ts'
 
-/** The reference grammar's `xid_start xid_continue*`, the same set `str.isidentifier()` accepts. */
+/**
+ * The reference grammar's `xid_start xid_continue*` — the set
+ * `str.isidentifier()` accepts on a CPython whose Unicode tables match the
+ * engine's. See {@link isBareIdentifier} for what a version skew does.
+ */
 const IDENTIFIER = /^[\p{XID_Start}_]\p{XID_Continue}*$/u
 
 /**
@@ -35,6 +39,24 @@ const IDENTIFIER = /^[\p{XID_Start}_]\p{XID_Continue}*$/u
  * advertise a key under a spelling the harness never accepts, and two keys
  * that normalize together would collapse into one declaration. Those names
  * take the subscript path, which carries their exact bytes.
+ *
+ * Both conditions are evaluated against the ENGINE's Unicode tables, and the
+ * two sides are versioned independently — `\p{XID_Start}` follows the running
+ * engine (Node 22.23.1 reports Unicode 17.0) while CPython follows its own
+ * (3.9.6 reports 13.0.0). The skew is not symmetric. A CPython older than the
+ * engine is the dangerous direction: a character added to `XID_Start` since its
+ * tables (U+1C89, U+10570, U+1E290, U+1E4D0 are all NFKC-stable and accepted
+ * here, and all rejected by that 3.9.6) is emitted bare and its tokenizer
+ * refuses the character, taking the whole SDK block down — the same
+ * parseability invariant {@link UNPRINTABLE}, {@link LONE_SURROGATE} and
+ * {@link MAX_LIST_NESTING} exist for. A CPython newer than the engine only
+ * routes a legal name to the subscript path: less readable, still correct. The
+ * NFKC condition reduces to the same skew, since normalization stability
+ * guarantees an assigned character's normalization never changes afterwards.
+ *
+ * Closing the exposure needs the target interpreter's version, which the
+ * backend reporting `language: 'python'` owns and which is unpublished on this
+ * base; the note records it as that PR's decision.
  *
  * The `ts-types` sibling keeps its own ASCII rule rather than sharing this
  * one: ECMAScript identifiers are a different set (`$`, ZWJ/ZWNJ) and are
@@ -186,10 +208,19 @@ function docLines(description: unknown, indent: number): string[] {
  * split words, `_` splits too (it is `XID_Continue`, so the split set names it
  * explicitly), and a head that cannot start an identifier takes a `Tool`
  * prefix. Unicode survives, so a `路径` field yields `路径`-based class names
- * instead of collapsing to the bare prefix. The result is NFKC-normalized:
- * these names are generated, never matched against a JSON key, so normalizing
- * is free here and keeps what CPython compiles identical to what is emitted —
- * unlike {@link isBareIdentifier}, which must reject unstable names outright.
+ * instead of collapsing to the bare prefix. A character that is not
+ * `XID_Continue` splits even when it is a letter, so a name whose NFKC folding
+ * would leave the identifier set is not carried through — the split set is the
+ * grammar's, not an ASCII approximation of it.
+ *
+ * The result is NFKC-normalized: these names are generated, never matched
+ * against a JSON key, so normalizing is free here and keeps what CPython
+ * compiles identical to what is emitted — unlike {@link isBareIdentifier},
+ * which must reject unstable names outright. Normalizing AFTER the prefix
+ * decision is what makes that hold at the seam the prefix creates: `Tool` +
+ * a combining-mark head composes there (`U+0301` gives `Tooĺ`, U+013A), so
+ * normalizing only the un-prefixed part would emit a name CPython compiles to
+ * a different symbol. The second call is idempotent on the un-prefixed arm.
  * @param raw - the schema field or tool name to derive from.
  * @returns a class-name segment safe to emit.
  */
@@ -200,7 +231,7 @@ function camelCase(raw: string): string {
     .map(part => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
     .join('')
     .normalize('NFKC')
-  return /^\p{XID_Start}/u.test(joined) ? joined : `Tool${joined}`
+  return (/^\p{XID_Start}/u.test(joined) ? joined : `Tool${joined}`).normalize('NFKC')
 }
 
 /** Class-name base cap keeping each emitted name — and total text — linear in schema depth. */
@@ -291,9 +322,19 @@ function allocateClassName(base: string, state: RenderState): string {
  * object-chain would otherwise carry an ever-growing ConsString down the tree
  * and re-materialize it (via `.length`/`.slice`) at every level — Θ(depth²).
  * The bounded base plus the collision counter still yields unique names.
+ *
+ * The join is NFKC-normalized because both sides are separately normalized yet
+ * their concatenation need not be: a base ending in a Hangul L jamo or LV
+ * syllable composes with a following V or T jamo head (`가` + `ᆨ` gives `각`),
+ * so the emitted class name would differ from the symbol CPython compiles, and
+ * two byte-distinct names could fold onto one — `usedClassNames` dedupes by the
+ * raw bytes, so the collision counter would not see it. Normalizing costs
+ * O(cap + segment) per level, the same order as the `slice` it feeds. The other
+ * two join points need no counterpart: `Args`/`Output` start with `A`/`O` and
+ * {@link allocateClassName}'s suffix is digits, none of which compose backwards.
  */
 function childClassName(base: string, segment: string): string {
-  return capClassNameBase(`${base}${segment}`)
+  return capClassNameBase(`${base}${segment}`.normalize('NFKC'))
 }
 
 /**
