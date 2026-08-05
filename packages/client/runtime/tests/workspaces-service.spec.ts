@@ -149,26 +149,37 @@ describe('WorkspacesService', () => {
     expect(workspaces.list.getSnapshot().items.map(item => item.workspaceId)).toEqual(['stable-first', 'active'])
   })
 
-  it('connectWorkspace reuses the workspace-matched blank session and creates otherwise', async () => {
+  it('connectWorkspace reuses the workspace-member blank session and creates otherwise', async () => {
     const ctx = new Context()
     const api = new FakeApiClient()
     const sessions = new SessionsService(ctx, api)
     const workspaces = new WorkspacesService(ctx, api, sessions)
     api.onWorkspaceList = () => Promise.resolve(ok({
-      items: [workspace('alpha'), workspace('beta')] as never[],
+      items: [workspace('alpha', [sid('s-blank')]), workspace('beta'), workspace('gamma')] as never[],
     }))
     api.onList = () => Promise.resolve(ok({
       items: [
-        // Blank session already parked in alpha (cwd == workspace path canon).
+        // Stray blank at alpha's path but NOT accounted under alpha (a CLI
+        // session birthed at the host cwd), sorted before the member blank:
+        // the scan must skip it and keep looking for a member hit.
+        { sessionId: sid('s-stray-alpha'), updatedAt: 1, running: false, blank: true, cwd: '/w/alpha' },
+        // Blank session parked in alpha (cwd == workspace path canon AND
+        // accounted under alpha): the reuse hit.
         { sessionId: sid('s-blank'), updatedAt: 2, running: false, blank: true, cwd: '/w/alpha' },
         // Non-blank sibling in beta must never be reused.
         { sessionId: sid('s-active'), updatedAt: 3, running: false, blank: false, cwd: '/w/beta' },
+        // Stray blank at gamma's path but NOT accounted under gamma (a CLI
+        // session birthed at the host cwd): cwd alone must not hijack it —
+        // reuse would open a session gamma cannot show, so New Session mints
+        // a fresh accounted one instead.
+        { sessionId: sid('s-stray'), updatedAt: 4, running: false, blank: true, cwd: '/w/gamma' },
       ] as never[],
     }))
     await Promise.all([workspaces.refresh(), sessions.refresh()])
     await Promise.resolve()
 
-    // Hit: same workspace → the parked blank session comes back, no create RPC.
+    // Hit: same workspace → the parked member blank comes back (the earlier
+    // cwd-matching non-member stray is skipped), no create RPC.
     await expect(workspaces.connectWorkspace(wid('alpha'))).resolves.toBe('s-blank')
     expect(api.callsOf('session.create')).toEqual([])
     // Resolution guarantee: the id is binding-resolvable synchronously.
@@ -180,6 +191,12 @@ describe('WorkspacesService', () => {
     expect(api.callsOf('session.create')).toEqual([{ workspaceId: 'beta' }])
     // Same guarantee on the create arm (draft hand-off writes the machine pre-open).
     expect(sessions.binding(sid('s-fresh'))).toBeDefined()
+
+    // Miss: the stray blank matches gamma's path but is not a gamma member →
+    // never reused, a fresh accounted session is created instead.
+    api.onCreate = () => Promise.resolve(ok({ sessionId: sid('s-fresh-3') }))
+    await expect(workspaces.connectWorkspace(wid('gamma'))).resolves.toBe('s-fresh-3')
+    expect(api.callsOf('session.create')).toEqual([{ workspaceId: 'beta' }, { workspaceId: 'gamma' }])
 
     // Unknown workspace fails loud instead of silently creating in nowhere.
     await expect(workspaces.connectWorkspace(wid('ghost'))).rejects.toThrow(/unknown workspace ghost/)
@@ -196,7 +213,7 @@ describe('WorkspacesService', () => {
     const api = new FakeApiClient()
     const sessions = new SessionsService(ctx, api)
     const workspaces = new WorkspacesService(ctx, api, sessions)
-    api.onWorkspaceList = () => Promise.resolve(ok({ items: [workspace('alpha')] as never[] }))
+    api.onWorkspaceList = () => Promise.resolve(ok({ items: [workspace('alpha', [sid('s-blank')])] as never[] }))
     api.onList = () => Promise.resolve(ok({
       items: [{ sessionId: sid('s-blank'), updatedAt: 2, running: false, blank: true, cwd: '/w/alpha' }] as never[],
     }))
