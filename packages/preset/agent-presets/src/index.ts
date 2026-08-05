@@ -37,6 +37,7 @@ export {
   inactiveRows, leakedServices, livePresetMounts, mountPreset, serviceForAgent,
   unmountPresetFor, type PresetMount,
 } from './mount.ts'
+export { resolveSessionPreset, type PresetBearingSession } from './session.ts'
 export { PresetMountError, UnknownPresetError } from './types.ts'
 export type { AgentPreset, Config, PresetRoot, PresetTrust } from './types.ts'
 

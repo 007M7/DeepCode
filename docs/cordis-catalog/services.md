@@ -109,15 +109,15 @@ serviceFor<K extends string & keyof Context>(agent: { ctx: Context }, name: K): 
  * therefore restores the previous composition rather than leaving the agent
  * with nothing.
  * @param agentCtx - the agent's scope context.
- * @param id - the profile to compose the agent from instead.
- * @returns the profile now installed.
- * @throws when the profile is unknown or its composition is unusable; the
+ * @param id - the preset to compose the agent from instead.
+ * @returns the preset now installed.
+ * @throws when the preset is unknown or its composition is unusable; the
  * previous composition is restored first.
  */
 async recompose(agentCtx: Context, id: string): Promise<AgentPreset>
 ```
 
-Source: [`packages/preset/agent-presets/src/index.ts:56`](../../packages/preset/agent-presets/src/index.ts)
+Source: [`packages/preset/agent-presets/src/index.ts:57`](../../packages/preset/agent-presets/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 

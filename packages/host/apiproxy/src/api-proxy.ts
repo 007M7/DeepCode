@@ -24,7 +24,9 @@ import {
   WorkspaceMoveInvalidError, WorkspaceUnknownSessionError,
 } from '@deepseek-ai/dsh-workspace'
 // Type-only: brings the `ctx.tools` Context merge into this program (viewFor reads presenters).
-import { PresetMountError, UnknownPresetError } from '@deepseek-ai/dsh-agent-presets'
+import {
+  PresetMountError, resolveSessionPreset, UnknownPresetError,
+} from '@deepseek-ai/dsh-agent-presets'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {
   ApiProxy, CredentialView, GoalRef, HistoryEntry, HostFrame, ModelCatalogFailure, ModelProviderGroup,
@@ -256,17 +258,21 @@ function sessionBlank(session: Session): boolean {
 }
 
 /** Shared Session-header projection for list baselines and creation frames. */
-function sessionListFields(header: SessionHeader): {
+function sessionListFields(header: SessionHeader, events: readonly SessionEvent[] = []): {
   parentSessionId?: SessionId
   origin?: 'subagent'
   cwd?: string
   agentPreset?: string
 } {
+  // The preset comes from the log, not the header: a session that switched
+  // while blank ran its turns under the newer composition, and a picker
+  // showing the creation-time value would contradict what the model saw.
+  const agentPreset = resolveSessionPreset({ header, events })
   return {
     ...header.parentSession === undefined ? {} : { parentSessionId: header.parentSession },
     ...header.origin === undefined ? {} : { origin: header.origin },
     ...header.cwd === undefined ? {} : { cwd: header.cwd },
-    ...header.agentPreset === undefined ? {} : { agentPreset: header.agentPreset },
+    ...agentPreset === undefined ? {} : { agentPreset },
   }
 }
 
@@ -279,7 +285,7 @@ function summarize(session: Session, running: boolean): SessionSummary {
     updatedAt: lastActivityTime(session.events) ?? session.header.createdAt,
     running,
     blank: sessionBlank(session),
-    ...sessionListFields(session.header),
+    ...sessionListFields(session.header, session.events),
   }
 }
 
@@ -1232,7 +1238,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           if (inspected.meta.cwd !== cwd) {
             throw new SessionCwdConflict(sessionId, cwd, inspected.meta.cwd)
           }
-          assertPresetUnchanged(sessionId, presetId, inspected.meta.agentPreset)
+          // Resolved from the log, not the header: a session that switched
+          // while blank ran every turn under the newer composition.
+          const storedPreset = resolveSessionPreset({ header: inspected.meta, events: inspected.events })
+          assertPresetUnchanged(sessionId, presetId, storedPreset)
           // The stored preset wins over anything the request names: a resumed
           // session's history was produced under that composition, and
           // rebuilding it differently would replay tool calls the model can no
@@ -1240,7 +1249,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           return (await ctx.agents.resume({
             resumeSessionId: sessionId,
             agentOptions,
-            setup: (await composeAgent(inspected.meta.agentPreset)).setup,
+            setup: (await composeAgent(storedPreset)).setup,
           })).agent
         }
 
@@ -1936,7 +1945,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // those tools, and composing anything else would strand the tool calls
         // it already carries. Now that no model-facing row sits in the host
         // plane, composing nothing would leave the child with no tools at all.
-        const forkComposition = await composeAgent(source.header.agentPreset)
+        const forkComposition = await composeAgent(resolveSessionPreset(source))
         try {
           await ctx.agents.create({
             sessionId: childId,
@@ -2528,6 +2537,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         }
         try {
           const preset = await presets.recompose(agent.ctx, agentPreset)
+          // Recorded only after the swap committed: the log states what the
+          // agent runs, and a rejected mount leaves the previous composition.
+          agent.session.append('agent-preset/selected', { agentPreset: preset.id })
           return ok(request, { agentPreset: preset.id })
         } catch (error: unknown) {
           if (error instanceof UnknownPresetError) {
@@ -2857,7 +2869,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               // has run no turn yet, so this is constantly true in practice.
               blank: sessionBlank(session),
               // Including cwd lets the client group the new session without refreshing the list.
-              ...sessionListFields(session.header),
+              ...sessionListFields(session.header, session.events),
             }))
           }),
           ctx.on('session/disposed', (session: Session) => {

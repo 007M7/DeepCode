@@ -21,6 +21,12 @@ Discovery is unmemoized: `list()` and `resolve()` re-read the roots on every cal
 
 The agent factory's `setup(agentCtx)` hook is the one supported call site. Only there is the composition installed while the agent is still unpublished, so a rejected mount rolls the whole creation back rather than leaving a half-composed session. The subtree is owned by `agentCtx`'s fiber, so it unwinds with the agent and the caller receives no disposer.
 
+### Which preset a session runs
+
+The creation header names the preset a session STARTED with; `resolveSessionPreset(session)` names the one it RUNS. They differ whenever a blank session switched, so every reconstruction path — the summary a picker reads, a resume, a fork — resolves rather than reading the header.
+
+The header stays frozen because it is a creation fact. A switch is an `agent-preset/selected` session event appended after the swap commits, which is what the model-visible ⟺ logged rule requires: the preset decides the tool schemas and prompt sections the model sees, so it has to be reconstructable from the log. Reading the header alone would rebuild a switched session under the composition it was created with, replaying history the new tool set cannot act on — the exact hazard the blank-only lock exists to prevent.
+
 ## Config
 
 | Field | Default | Meaning |

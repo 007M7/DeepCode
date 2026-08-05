@@ -9,7 +9,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { PatchOptions } from '@cordisjs/plugin-include'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
-import { SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-presets'
+import { resolveSessionPreset, SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-presets'
 import type {} from '@deepseek-ai/dsh-tools'
 
 const CONFIG_DIR = fileURLToPath(new URL('../config/', import.meta.url))
@@ -177,6 +177,43 @@ describe('the shipped Web composition', () => {
   })
 })
 
+describe('a switch survives the session', () => {
+  it('records the choice so the log states what the agent runs', async () => {
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('preset-switch-logged'),
+      meta: { agentPreset: 'standard' },
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'standard').then(() => undefined),
+    })
+    try {
+      // The api-proxy's select does exactly this pair while the session is blank.
+      await ctx.agentPresets.recompose(handle.agent.ctx, 'core-web')
+      handle.agent.session.append('agent-preset/selected', { agentPreset: 'core-web' })
+
+      // The header keeps the creation fact; the log carries what it runs.
+      expect(handle.agent.session.header.agentPreset).toBe('standard')
+      expect(resolveSessionPreset(handle.agent.session)).toBe('core-web')
+    } finally {
+      await handle.dispose()
+    }
+  })
+
+  it('rebuilds a switched session from the log, not the creation header', () => {
+    // The exact shape a resume reads back from disk: the header says standard,
+    // the log records the switch the user made while the session was blank.
+    const rebuilt = resolveSessionPreset({
+      header: { version: 0, id: SessionId('x'), createdAt: 0, agentPreset: 'standard' },
+      events: [
+        { type: 'agent-preset/selected', seq: 1, time: 0, data: { agentPreset: 'core-web' } },
+        { type: 'turn/start', seq: 2, time: 0, data: { turn: 0, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      ] as never,
+    })
+
+    // Reading the header alone would compose the creation-time preset over a
+    // history another one produced — the replay the blank-only lock prevents.
+    expect(rebuilt).toBe('core-web')
+  })
+})
+
 describe('a forked session', () => {
   it('inherits the composition its seeded history was produced under', async () => {
     const parent = await ctx.agents.create({
@@ -184,7 +221,7 @@ describe('a forked session', () => {
       meta: { agentPreset: 'core-web' },
       setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'core-web').then(() => undefined),
     })
-    const inherited = parent.agent.session.header.agentPreset
+    const inherited = resolveSessionPreset(parent.agent.session)
     const child = await ctx.agents.create({
       sessionId: SessionId('preset-fork-child'),
       meta: {
