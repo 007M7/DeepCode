@@ -28,11 +28,11 @@ First materialization compresses the two initial frames before opening the tempo
 
 ### Read, listing, and crash recovery
 
-A frame-boundary scanner reads the standard magic, variable header fields, block headers and payload sizes, and optional checksum trailer. It does not interpret compressed blocks. Complete frames are decompressed independently and sequentially, which validates their checksums, and their plaintext is passed to the existing JSONL scanner. A checksum/decompression failure in any complete frame, a malformed complete-frame JSONL tail, or invalid frame structure is corruption and rejects.
+A frame-boundary scanner reads the standard magic, variable header fields, block headers and payload sizes, and optional checksum trailer. It does not interpret compressed blocks. Complete frames are decompressed independently and sequentially with Node's default `ZSTD_e_end`, which requires frame completion and validates their checksums, and their plaintext is passed to the existing JSONL scanner. A checksum/decompression failure in any complete frame, a malformed complete-frame JSONL tail, or invalid frame structure is corruption and rejects.
 
 Listing reads in bounded chunks only until the first complete frame is available, validates and decompresses that header frame, and never reads an event frame. The dedicated header frame therefore preserves metadata-only listing even for very large session logs.
 
-EOF inside the final frame is a recoverable torn tail. Node's decoder is given the available frame prefix; every complete newline-terminated event it emits is retained. Repair truncates from that frame's starting byte and appends one new checksummed frame containing the recovered complete events followed by the coordinator's synthetic tool, step, and turn closers. If the tear occurs before any complete event is decodable, repair drops the partial frame and retains all prior complete frames.
+EOF inside the final frame is a recoverable torn tail. After the scanner establishes that boundary, a dedicated prefix decoder uses `finishFlush: ZSTD_e_flush` so Node emits available plaintext without requiring frame or checksum completion; every complete newline-terminated event it emits is retained. Repair truncates from that frame's starting byte and appends one new checksummed frame containing the recovered complete events followed by the coordinator's synthetic tool, step, and turn closers. If the tear occurs before any complete event is decodable, repair drops the partial frame and retains all prior complete frames.
 
 ### Consumers and verification
 

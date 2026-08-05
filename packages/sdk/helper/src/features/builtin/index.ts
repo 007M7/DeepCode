@@ -34,6 +34,7 @@ export function createBuiltinRegistry(profile: ProjectProfile): FeatureRegistry 
       required: true,
       baseResources: [
         { kind: 'npm-cordis-config-entry', id: 'subprocess', package: '@deepseek-ai/dsh-subprocess-local' },
+        { kind: 'npm-cordis-config-entry', id: 'bash-env', package: '@deepseek-ai/dsh-bash-env' },
         { kind: 'npm-cordis-config-entry', id: 'tool-bash', package: '@deepseek-ai/dsh-tool-bash' },
       ],
       options: [
@@ -354,22 +355,6 @@ config:
           kind: 'npm-cordis-config-entry',
           id: 'timeout-policy',
           package: '@deepseek-ai/dsh-timeout-policy',
-        }],
-      }],
-    },
-    {
-      id: 'ask-user',
-      summary: 'Ask the user from the model loop',
-      mode: 'single',
-      supportedInterfaces: ['tui'],
-      options: [{
-        id: 'default',
-        label: 'ask_user_question tool',
-        default: true,
-        resources: [{
-          kind: 'npm-cordis-config-entry',
-          id: 'tool-ask-user',
-          package: '@deepseek-ai/dsh-tool-ask-user',
         }],
       }],
     },

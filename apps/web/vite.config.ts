@@ -20,6 +20,9 @@ function rejectStandaloneServe(): Plugin {
 
 export default defineConfig({
   plugins: [rejectStandaloneServe(), react()],
+  build: {
+    sourcemap: true,
+  },
   resolve: {
     // Workspace packages resolve to SOURCE: package.json exports point at lib
     // for Node/type consumers, but the browser bundle must compile src directly

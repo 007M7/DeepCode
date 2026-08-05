@@ -26,8 +26,10 @@ export interface MessageItemProps {
     | TurnErrorNode
     | UnknownSurfaceNode
   retryActive?: boolean
-  /** Fork the session through the turn containing this message (user-bubble branch action). */
+  /** Fork through this message's completed turn when eligible. */
   onFork?: (seq: number) => void
+  /** The message is not the transcript tail of a completed turn. */
+  forkUnavailable?: boolean
   /** The owning view's locale seat, passed down as a plain prop. */
   t: ChatViewSlotProps['t']
 }
@@ -181,7 +183,7 @@ function UserStyleBubble({
   const { text, rest } = contentText(content)
   const truncated = (total: number): string => t('json.truncated', { total })
   return (
-    <div className={css.userRow} data-pending-steering={pending || undefined}>
+    <div className={css.userRow} data-pending-steering={pending || undefined} data-time-hover-root>
       <div className={css.bubble}>
         {projectUserText(text)}
         {rest.map((block, i) => <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />)}
@@ -220,7 +222,7 @@ export function PendingSteeringBubble({ content, t }: {
 }
 
 export const MessageItem = memo(function MessageItem({
-  node, retryActive = false, onFork, t,
+  node, retryActive = false, onFork, forkUnavailable = false, t,
 }: MessageItemProps) {
   const truncated = (total: number): string => t('json.truncated', { total })
   switch (node.kind) {
@@ -236,6 +238,7 @@ export const MessageItem = memo(function MessageItem({
               time={node.time}
               clock="start"
               onBranch={onFork === undefined ? undefined : () => { onFork(node.seq) }}
+              branchUnavailable={forkUnavailable}
               className={css.actions}
               t={t}
             />

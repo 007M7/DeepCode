@@ -7,8 +7,9 @@
 - text: Reply with a one-sentence description of event sourcing, then stop. {{clock}}
 - button "Copy":
   - img
-- button "Branch into a new conversation":
+- button "Branch into a new conversation" [disabled]:
   - img
+- text: Available only on the last message of a completed turn
 - button "Context injection":
   - img
   - img
@@ -29,6 +30,7 @@
     - textbox "Edit queued message": Edited queue item
     - button "Save queued message":
       - img
+    - tooltip "Save queued message"
     - button "Cancel editing":
       - img
 - textbox "Message the agent"

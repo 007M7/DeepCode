@@ -1,8 +1,8 @@
 /**
  * AppCLIEntry — the pre-cordis boot glue the config-tree dsh surfaces share
- * (`dsh web` and `dsh -p`; the TUI composes dsh-app-boot directly).
+ * (`dsh web` and `dsh -p`).
  * Everything here is what must exist before the Loader runs: the patch
- * composition over the shipped base and surface overlay (profile json + CLI
+ * composition over the shipped base and Web overlay (profile json + CLI
  * flags + the resolved frontend dist), and the fail-loud activation audit after the tree
  * settles. The environment is what the bin already loaded (ambient plus the
  * invoking directory's `.env`); `$DSH_HOME/.env` belongs to the credential
@@ -89,7 +89,7 @@ export function resolveTelemetryPatch(disabledEnv: string | undefined, hasRow: b
 /**
  * Whether a config file carries the telemetry row, parsed under the same
  * `!!js`-tolerant dialect the boot uses — the `hasRow` input for launchers
- * that compose their patch lists outside {@link AppCLIEntry} (the TUI).
+ * that compose their patch lists outside {@link AppCLIEntry} (raw `dsh`).
  * @param file - absolute path of the config or overlay file.
  * @returns true when a top-level (or inserted) row has the telemetry id.
  */

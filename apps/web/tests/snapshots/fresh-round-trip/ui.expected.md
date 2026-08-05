@@ -7,8 +7,9 @@
 - text: "Use the bash tool to run exactly: echo WEB_E2E_OK. Then reply with the single word DONE and stop. {{clock}}"
 - button "Copy":
   - img
-- button "Branch into a new conversation":
+- button "Branch into a new conversation" [disabled]:
   - img
+- text: Available only on the last message of a completed turn
 - button "Context injection":
   - img
   - img
@@ -30,7 +31,7 @@
   - img
 - button "Branch into a new conversation":
   - img
-- text: {{clock}}
+- text: {{clock}}Ran for {{duration}}
 - textbox "Message the agent"
 - button "Commands":
   - img

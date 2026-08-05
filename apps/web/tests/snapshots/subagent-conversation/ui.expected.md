@@ -12,8 +12,9 @@
 - text: Explain event sourcing in one sentence. {{clock}}
 - button "Copy":
   - img
-- button "Branch into a new conversation":
+- button "Branch into a new conversation" [disabled]:
   - img
+- text: Available only on the last message of a completed turn
 - button "Context injection":
   - img
   - img
@@ -27,11 +28,12 @@
   - img
 - button "Branch into a new conversation":
   - img
-- text: {{clock}} Now give the same explanation to a human reader. {{clock}}
+- text: {{clock}}Ran for {{duration}} Now give the same explanation to a human reader. {{clock}}
 - button "Copy":
   - img
-- button "Branch into a new conversation":
+- button "Branch into a new conversation" [disabled]:
   - img
+- text: Available only on the last message of a completed turn
 - button "Think The user is asking for a one-sentence description of event sourcing. This is a straightforward knowledge question that doesn't require any skill loading or tool calls.":
   - img
   - img
@@ -41,7 +43,7 @@
   - img
 - button "Branch into a new conversation":
   - img
-- text: {{clock}}
+- text: {{clock}}Ran for {{duration}}
 - textbox "Message the agent"
 - button "Commands":
   - img

@@ -141,20 +141,56 @@ function workspaceMembers(rel: string): string[] {
   return declared.map(member => String(member))
 }
 
-/** Every workspace manifest, keyed by path, plus the set of workspace package names. */
+/**
+ * Every workspace manifest, keyed by repository-relative path, plus the set of
+ * workspace package names. Paths are normalized to `/` at ingestion: Node's
+ * `fs.globSync` returns OS-native separators, and the area matching in
+ * `tierExternalDeps` compares `/`-suffixed prefixes, so Windows backslashes
+ * would silently push dev-area manifests into the runtime tier.
+ */
 function loadWorkspaceManifests(): { manifests: Map<string, Manifest>; names: Set<string> } {
   const patterns = manifestPatterns(workspaceMembers('pnpm-workspace.yaml'), workspaceMembers('native/landlock-run/pnpm-workspace.yaml'))
   const manifests = new Map<string, Manifest>()
   const names = new Set<string>()
   for (const pattern of patterns) {
     for (const path of globSync(pattern, { cwd: root })) {
-      const manifest = readManifest(path)
-      manifests.set(path, manifest)
+      const normalized = path.replaceAll('\\', '/')
+      const manifest = readManifest(normalized)
+      manifests.set(normalized, manifest)
       if (manifest.name !== undefined) names.add(manifest.name)
     }
   }
   if (manifests.size < 100) throw new Error(`gen-third-party-notices: only ${manifests.size} workspace manifests found; the glob set is stale.`)
   return { manifests, names }
+}
+
+type VirtualManifest = Manifest & { license?: string; repository?: string | { url?: string }; homepage?: string }
+
+/**
+ * Resolve one package's manifest inside a pnpm virtual store. The prefix scan
+ * matches ordinary `@scope+name@version` directory names; pnpm 11 truncates
+ * long names (a peer-suffixed name past the length limit becomes
+ * `<prefix>_<hash>`), so a content scan falls back over the whole store when
+ * the prefix misses.
+ *
+ * @param virtual - the `.pnpm` virtual store directory to scan.
+ * @param name - the external package name, exactly as `node_modules` spells it.
+ * @returns the parsed manifest, or `undefined` when neither the prefix match
+ *   nor the content scan finds the package's `package.json`.
+ */
+export function virtualManifest(virtual: string, name: string): VirtualManifest | undefined {
+  const prefix = `${name.replace('/', '+')}@`
+  const entry = readdirSync(virtual).find(dir => dir.startsWith(prefix))
+  if (entry !== undefined) {
+    return JSON.parse(readFileSync(resolve(virtual, entry, 'node_modules', name, 'package.json'), 'utf8')) as VirtualManifest
+  }
+  for (const dir of readdirSync(virtual)) {
+    const candidate = resolve(virtual, dir, 'node_modules', name, 'package.json')
+    if (existsSync(candidate)) {
+      return JSON.parse(readFileSync(candidate, 'utf8')) as VirtualManifest
+    }
+  }
+  return undefined
 }
 
 /** License and repository URL for an installed external package, from the pnpm store. */
@@ -171,11 +207,8 @@ function installedMetadata(name: string): { license: string; repo: string } {
     }
     const virtual = resolve(root, store, '.pnpm')
     if (!existsSync(virtual)) continue
-    const prefix = `${name.replace('/', '+')}@`
-    const entry = readdirSync(virtual).find(dir => dir.startsWith(prefix))
-    if (entry === undefined) continue
-    manifest = JSON.parse(readFileSync(resolve(virtual, entry, 'node_modules', name, 'package.json'), 'utf8')) as typeof manifest
-    break
+    manifest = virtualManifest(virtual, name)
+    if (manifest !== undefined) break
   }
   const license = override?.license ?? manifest?.license
   const rawRepo = typeof manifest?.repository === 'string' ? manifest.repository : manifest?.repository?.url ?? manifest?.homepage

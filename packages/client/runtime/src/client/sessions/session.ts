@@ -21,7 +21,7 @@ import { PendingWait } from './pending.ts'
 import { TranscriptAdapter } from './transcript-adapter.ts'
 import { displayFailureMessage } from './failure-display.ts'
 import { Notifier } from './notifier.ts'
-import { PartialAccumulator } from './partial.ts'
+import { isVisibleAssistantChunk, PartialAccumulator } from './partial.ts'
 import { ProjectionValueStore } from './projection-store.ts'
 import type { ProjectionsBaseline } from './projection-store.ts'
 
@@ -113,6 +113,16 @@ export class Session implements SessionFace {
   private pendingCache: { rev: number; value: PendingInteraction[] } | null = null
   private derivedRev = 0
   private nodesCache: { projected: readonly ConversationNode[]; derivedRev: number; value: readonly ConversationNode[] } | null = null
+  /** Exact turn timing retained from the raw window so presentation never
+   *  infers elapsed time from transcript content. */
+  private turnTimings = new Map<number, { startTime: number; endTime?: number }>()
+  private turnTimingsRev = 0
+  private turnTimingsCache: { rev: number; value: ConversationSnapshot['turnTimings'] } | null = null
+  /** Completed turn boundaries retained from the raw window so presentation
+   *  actions never infer a safe fork point from transcript content alone. */
+  private turnEnds = new Map<number, number>()
+  private turnEndsRev = 0
+  private turnEndsCache: { rev: number; value: ReadonlyMap<number, number> } | null = null
   /** Authoritative stream-only inbox snapshot; pending work never hits history. */
   private queued: QueuedMessage[] = []
   private queueRev = 0
@@ -682,6 +692,10 @@ export class Session implements SessionFace {
       return
     }
     this.appendLive(event, view)
+    if (event.type === 'assistant/chunk') {
+      if (isVisibleAssistantChunk(event.data.chunk.type)) this.notifier.markFrameDirty()
+      return
+    }
     this.notifier.markDirty()
   }
 
@@ -790,6 +804,8 @@ export class Session implements SessionFace {
     }
     switch (event.type) {
       case 'turn/start': {
+        this.turnTimings.set(event.data.turn, { startTime: event.time })
+        this.turnTimingsRev++
         if (event.data.trigger.kind === 'retry') this.settleScheduledRetry('started')
         return
       }
@@ -821,6 +837,13 @@ export class Session implements SessionFace {
         return
       }
       case 'turn/end': {
+        const timing = this.turnTimings.get(event.data.turn)
+        if (timing !== undefined) {
+          this.turnTimings.set(event.data.turn, { ...timing, endTime: event.time })
+          this.turnTimingsRev++
+        }
+        this.turnEnds.set(event.data.turn, event.seq)
+        this.turnEndsRev++
         if (event.data.reason.kind === 'aborted' || event.data.reason.kind === 'disposed') {
           this.settleScheduledRetry('cancelled', event.data.turn)
         }
@@ -911,6 +934,10 @@ export class Session implements SessionFace {
     this.callsRev++
     this.derivedNodes = []
     this.derivedRev++
+    this.turnTimings = new Map()
+    this.turnTimingsRev++
+    this.turnEnds = new Map()
+    this.turnEndsRev++
     this.codeDispatches = new Map()
     this.dispatchesRev++
     for (let i = 0; i < this.events.length; i++) {
@@ -942,6 +969,12 @@ export class Session implements SessionFace {
     if (this.callsCache === null || this.callsCache.rev !== this.callsRev) {
       this.callsCache = { rev: this.callsRev, value: [...this.openCalls.values()] }
     }
+    if (this.turnTimingsCache === null || this.turnTimingsCache.rev !== this.turnTimingsRev) {
+      this.turnTimingsCache = { rev: this.turnTimingsRev, value: new Map(this.turnTimings) }
+    }
+    if (this.turnEndsCache === null || this.turnEndsCache.rev !== this.turnEndsRev) {
+      this.turnEndsCache = { rev: this.turnEndsRev, value: new Map(this.turnEnds) }
+    }
     if (this.pendingCache === null || this.pendingCache.rev !== this.pendingRev) {
       this.pendingCache = { rev: this.pendingRev, value: [...this.pending.values()] }
     }
@@ -955,6 +988,8 @@ export class Session implements SessionFace {
     return {
       sessionId: this.sessionId,
       nodes,
+      turnTimings: this.turnTimingsCache.value,
+      turnEnds: this.turnEndsCache.value,
       partial,
       runningCalls: this.callsCache.value,
       pending: this.pendingCache.value,

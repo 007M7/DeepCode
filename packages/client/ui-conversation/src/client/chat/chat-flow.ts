@@ -5,11 +5,11 @@
  * reuse the first notice's row while projecting the latest retry turn.
  * Item identity keys are stable across snapshots so the list parent can
  * subscribe to keys only while rows subscribe to content. IconActions ownership
- * (last content assistant per turn) is derived here too so ChatView and the
- * flow share one gate.
+ * and completed-turn branch points are derived here too so ChatView and the
+ * flow share their gates.
  */
 import type {
-  AssistantBlock, ConversationNode, ToolResultNode,
+  AssistantBlock, ConversationNode, ConversationSnapshot, ToolResultNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 
 /** One renderable flow item; key is the React key and the parent's identity unit. */
@@ -45,6 +45,54 @@ export function assistantActionsSeqs(nodes: readonly ConversationNode[]): Readon
     lastByTurn.set(node.turn, node.seq)
   }
   return new Set(lastByTurn.values())
+}
+
+/**
+ * Exact start time of the latest in-window turn without a matching end time.
+ * @param turnTimings - In-window turn timings in event order.
+ * @returns Unix epoch ms, or null when the running turn started outside the window.
+ */
+export function runningTurnStartTime(
+  turnTimings: ConversationSnapshot['turnTimings'],
+): number | null {
+  let latest: number | null = null
+  for (const timing of turnTimings.values()) {
+    if (timing.endTime === undefined) latest = timing.startTime
+  }
+  return latest
+}
+
+/**
+ * Seq set of message rows that may fork: the last transcript node of a
+ * completed turn, when that node owns message chrome. A later tool, reasoning,
+ * error, or other transcript node leaves the earlier message's branch action
+ * unavailable because the Host would include the whole turn.
+ * @param nodes - snapshot nodes in event order.
+ * @param turnEnds - completed turn boundaries retained from the event window.
+ * @returns Message seq values whose visible position matches the fork boundary.
+ */
+export function messageBranchSeqs(
+  nodes: readonly ConversationNode[],
+  turnEnds: ReadonlyMap<number, number>,
+): ReadonlySet<number> {
+  const result = new Set<number>()
+  const boundaries = [...turnEnds].sort((a, b) => a[1] - b[1])
+  let nodeIndex = 0
+  for (const [turn, endSeq] of boundaries) {
+    let tail: ConversationNode | undefined
+    while (nodeIndex < nodes.length) {
+      const candidate = nodes[nodeIndex]
+      if (candidate === undefined || candidate.seq > endSeq) break
+      tail = candidate
+      nodeIndex++
+    }
+    if (tail?.kind === 'user'
+      || (tail?.kind === 'steering' && tail.turn === turn)
+      || (tail?.kind === 'assistant' && tail.turn === turn && hasContentText(tail.blocks))) {
+      result.add(tail.seq)
+    }
+  }
+  return result
 }
 
 /**

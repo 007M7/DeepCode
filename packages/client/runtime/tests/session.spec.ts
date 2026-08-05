@@ -6,7 +6,7 @@
  * enough.
  */
 
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
@@ -19,6 +19,10 @@ const at = (seq: number, e: Record<string, unknown>): SessionEvent =>
 
 const SID = 'fk-s1' as SessionId
 const PARENT = 'fk-parent' as SessionId
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 function makeSession(api = new FakeApiClient()): { api: FakeApiClient; session: Session } {
   return { api, session: new Session(SID, api) }
@@ -42,6 +46,11 @@ describe('open', () => {
     expect(snapshot.openState).toBe('open')
     expect(snapshot.hasMore).toBe(true)
     expect(snapshot.nodes.map(n => n.kind)).toEqual(['user', 'assistant'])
+    expect(snapshot.turnTimings.get(3)).toEqual({
+      startTime: 1_700_000_000_010,
+      endTime: 1_700_000_000_015,
+    })
+    expect(snapshot.turnEnds.get(3)).toBe(15)
   })
 
   it('is idempotent: concurrent opens share one history call, reopening when open is a no-op', async () => {
@@ -163,6 +172,40 @@ describe('live event path', () => {
     expect((last as { interrupted?: true }).interrupted).toBeUndefined()
   })
 
+  it('publishes cumulative chunks once per frame and lets finalization supersede the pending frame', async () => {
+    const frames: FrameRequestCallback[] = []
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frames.push(callback)
+      return frames.length
+    })
+    const { session } = await opened()
+    const published: Array<string | null> = []
+    session.subscribe(() => {
+      const block = session.getSnapshot().partial?.blocks[0]
+      published.push(block?.kind === 'text' ? block.text : null)
+    })
+    const feed = (event: SessionEvent) => {
+      session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event })
+    }
+
+    feed(ev.chunkStart(6, 1))
+    feed(ev.chunkText(7, 1, '累'))
+    feed(ev.chunkText(8, 1, '计'))
+    expect(published).toEqual([])
+    expect(frames).toHaveLength(1)
+
+    frames.shift()!(0)
+    expect(published).toEqual(['累计'])
+
+    feed(ev.chunkText(9, 1, '完成'))
+    feed(ev.assistant(10, 1, '累计完成'))
+    await Promise.resolve()
+    expect(published).toEqual(['累计', null])
+
+    frames.shift()!(0)
+    expect(published).toEqual(['累计', null])
+  })
+
   it('retracts the failed step partial on retry and keeps a replayable notice before the recovered response', async () => {
     const { session } = await opened()
     const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
@@ -215,11 +258,22 @@ describe('live event path', () => {
     expect(snapshot.nodes.some(node => node.kind === 'turn-error')).toBe(false)
     expect(snapshot.nodes.at(-2)).toMatchObject({ kind: 'model-retry', retryState: 'started' })
     expect(snapshot.nodes.at(-1)).toMatchObject({ kind: 'assistant', blocks: [{ kind: 'text', text: '完整回复' }] })
+    const retryStart = retryTurn.find(event =>
+      event.type === 'turn/start' && event.data.trigger.kind === 'retry')
+    if (retryStart?.type !== 'turn/start') throw new Error('test fixture must include a retry turn/start')
+    const retryEnd = retryTurn.find(event =>
+      event.type === 'turn/end' && event.data.turn === retryStart.data.turn)
+    if (retryEnd?.type !== 'turn/end') throw new Error('test fixture must complete the retry turn')
+    expect(snapshot.turnTimings.get(retryStart.data.turn)).toEqual({
+      startTime: retryStart.time,
+      endTime: retryEnd.time,
+    })
 
     const replay = makeSession()
     replay.api.onHistory = () => histResponse([...plainTurn(0, 0, 'a', 'b'), ...retryTurn])
     await replay.session.open()
     expect(replay.session.getSnapshot().nodes).toEqual(snapshot.nodes)
+    expect(replay.session.getSnapshot().turnTimings).toEqual(snapshot.turnTimings)
     expect(replay.session.getSnapshot().partial).toBeNull()
   })
 
@@ -426,6 +480,7 @@ describe('live event path', () => {
     feed(ev.turnEnd(10, 1, 'aborted')) // no assistant/message ever arrives
     const snapshot = session.getSnapshot()
     expect(snapshot.partial).toBeNull()
+    expect(snapshot.turnEnds.get(1)).toBe(10)
     const frozen = snapshot.nodes.at(-1)
     expect(frozen).toMatchObject({ kind: 'assistant', interrupted: true, blocks: [{ kind: 'text', text: '说到一半' }] })
     // Ordered inside the flow: after the user message (seq 7), before any later turn.
@@ -1215,6 +1270,8 @@ describe('reference stability (the memo contract)', () => {
     expect(after).not.toBe(before)
     expect(after.runningCalls).toBe(before.runningCalls)
     expect(after.pending).toBe(before.pending)
+    expect(after.turnTimings).toBe(before.turnTimings)
+    expect(after.turnEnds).toBe(before.turnEnds)
     // And a mutation on the tracked domain swaps that array.
     feed(ev.toolResult(11, 1, 'c1', 'ECHO'))
     const resolved = session.getSnapshot()

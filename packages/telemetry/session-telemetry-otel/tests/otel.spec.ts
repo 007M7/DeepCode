@@ -180,6 +180,38 @@ describe('TelemetryOtel wire', () => {
     expect(ops[0]!.record.attributes).toContainEqual({ key: 'telemetry.op', value: { stringValue: 'shutdown' } })
   })
 
+  it('bounds the SDK forceFlush wait when an in-flight transport never settles', async () => {
+    const gate = Promise.withResolvers<boolean>()
+    const arrived = Promise.withResolvers<boolean>()
+    const { url, captures } = await mockCollector(async (index) => {
+      if (index === 0) {
+        arrived.resolve(true)
+        await gate.promise
+      }
+    })
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(TelemetryOtel, {
+      exporter: { url, timeoutMillis: 60_000 },
+      processor: { scheduledDelayMillis: 10, exportTimeoutMillis: 60_000 },
+      shutdownTimeoutMillis: 50,
+    })
+    const session = ctx.sessions.create(SessionId('bounded-shutdown'), { meta: {} })
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    await arrived.promise
+
+    const started = performance.now()
+    await fiber.dispose()
+    expect(performance.now() - started).toBeLessThan(1_000)
+    expect(captures).toHaveLength(0)
+
+    // The outer deadline cannot cancel the SDK transport. Let it finish so
+    // the real provider promise remains clean after the test has proved the
+    // Cordis disposer no longer waits for it.
+    gate.resolve(true)
+    await expect.poll(() => captures.length).toBeGreaterThanOrEqual(2)
+  })
+
   it('passes exporter options beyond url and headers through to the SDK exporter', async () => {
     const { url, captures } = await mockCollector()
     const ctx = new Context()
@@ -227,6 +259,8 @@ describe('TelemetryOtel config fails loud', () => {
     // splices empty batches forever — dispose would hang, so reject at load.
     [{ exporter: { url: 'http://c/v1/logs' }, processor: { maxExportBatchSize: 0 } }, /maxExportBatchSize/],
     [{ exporter: { url: 'http://c/v1/logs' }, processor: { maxExportBatchSize: 0.5 } }, /maxExportBatchSize/],
+    [{ exporter: { url: 'http://c/v1/logs' }, shutdownTimeoutMillis: 0 }, /shutdownTimeoutMillis/],
+    [{ exporter: { url: 'http://c/v1/logs' }, shutdownTimeoutMillis: Number.POSITIVE_INFINITY }, /shutdownTimeoutMillis/],
   ])('rejects %j at plugin load', async (config, message) => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)

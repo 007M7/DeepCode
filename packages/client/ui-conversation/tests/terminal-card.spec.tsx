@@ -342,7 +342,7 @@ describe('chat row terminal body', () => {
 describe('BashRow terminal card', () => {
   const list = () => createSnapshotStore<SessionListState>({
     ids: [SID],
-    byId: { [SID]: { id: SID, displayTitle: 'r', running: false, blank: false, waitingApproval: false, updatedAt: 0 } },
+    byId: { [SID]: { id: SID, displayTitle: 'r', running: false, blank: false, updatedAt: 0 } },
     current: undefined,
     phase: 'ready',
     subagentsByParent: {},
@@ -414,6 +414,28 @@ describe('BashRow terminal card', () => {
     }))} />)
     expect(view.getByText('List files')).toBeTruthy()
     expect(view.queryByText(/a\.ts/)).toBeNull()
+    expect(view.container.querySelector('[data-sample="bash"]')?.getAttribute('role')).toBeNull()
+  })
+
+  it('expands a generic execution error to its original args and full output', () => {
+    const view = render(<BashRow {...rowProps(settled({
+      content: [{ type: 'text', text: 'Error: command aborted' }],
+      isError: true,
+      callView: { card: 'generic', title: 'ls -la', kind: 'execute' },
+      resultView: { card: 'generic' },
+    }))} />)
+    const row = view.container.querySelector('[data-sample="bash"]')!
+    expect(row.getAttribute('role')).toBe('button')
+    expect(row.getAttribute('aria-expanded')).toBe('false')
+    expect(view.queryByText(/"command": "ls -la"/)).toBeNull()
+
+    fireEvent.click(row)
+
+    expect(row.getAttribute('aria-expanded')).toBe('true')
+    expect(view.getByText('IN')).toBeTruthy()
+    expect(view.getByText('OUT')).toBeTruthy()
+    expect(view.getByText(/"command": "ls -la"/)).toBeTruthy()
+    expect(view.container.querySelector('[data-error]')?.textContent).toBe('Error: command aborted')
   })
 })
 
@@ -426,7 +448,7 @@ describe('DetailsPanel Output section', () => {
       ? { ids: [], byId: {}, current: undefined, phase: 'ready', subagentsByParent: {}, currentAddress: undefined }
       : {
         ids: [SID],
-        byId: { [SID]: { id: SID, displayTitle: 'r', running: false, blank: false, waitingApproval: false, updatedAt: 0, cwd } },
+        byId: { [SID]: { id: SID, displayTitle: 'r', running: false, blank: false, updatedAt: 0, cwd } },
         current: SID,
         phase: 'ready',
         subagentsByParent: {},
@@ -455,7 +477,7 @@ describe('DetailsPanel Output section', () => {
 
   function snapshot(over: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
     return {
-      sessionId: SID, nodes: [], partial: null, runningCalls: [], codeDispatches: new Map(),
+      sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [], codeDispatches: new Map(),
       pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
       openState: 'open', openError: null, hasMore: false, loadingOlder: false,
       promptError: null, blank: false, subagent: null, lastAgentError: null, ...over,

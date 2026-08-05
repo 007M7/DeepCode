@@ -68,7 +68,7 @@ const workspaceState = (items: readonly WorkspaceView[]): WorkspaceListState => 
 
 function conversationSnapshot(overrides: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
   return {
-    sessionId: SID, nodes: [], partial: null, runningCalls: [], codeDispatches: new Map(),
+    sessionId: SID, nodes: [], turnTimings: new Map(), turnEnds: new Map(), partial: null, runningCalls: [], codeDispatches: new Map(),
     pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
     openState: 'open', openError: null, hasMore: false, loadingOlder: false,
     promptError: null, blank: false, subagent: null, lastAgentError: null,
@@ -92,10 +92,10 @@ function mount(
   } = {},
 ) {
   const root = sid('root')
-  const rootRow = { id: root, displayTitle: 'Root', running: false, waitingApproval: false, blank: false, updatedAt: 1 }
+  const rootRow = { id: root, displayTitle: 'Root', running: false, blank: false, updatedAt: 1 }
   const childRow = {
     id: SID, displayTitle: 'Child', parentId: root, cwd: '/projects/one',
-    running: false, waitingApproval: false, blank: options.summaryBlank ?? false, updatedAt: 2,
+    running: false, blank: options.summaryBlank ?? false, updatedAt: 2,
     ...(options.summaryOrigin === undefined ? {} : { origin: options.summaryOrigin }),
   }
   const listed = options.omitSummaryRow !== true

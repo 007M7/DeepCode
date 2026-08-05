@@ -1,8 +1,8 @@
 - tree "Subagent sessions":
-  - treeitem "event-sourcing reviewer one-shot · not running {{duration}}" [level=1]: event-sourcing reviewer one-shot · not running ~6mo 12d
-  - treeitem "event-sourcing researcher Explain event sourcing in one · continuable · not running {{duration}}" [expanded] [level=1]:
+  - treeitem "event-sourcing reviewer one-shot · not running 0 tok · {{duration}}" [level=1]: event-sourcing reviewer one-shot · not running 0 tok ~6mo 12d
+  - treeitem "event-sourcing researcher Explain event sourcing in one · continuable · not running 7.9K tok · {{duration}}" [expanded] [level=1]:
     - button "Collapse event-sourcing researcher descendants":
       - img
-    - text: event-sourcing researcher Explain event sourcing in one · continuable · not running {{duration}}
+    - text: event-sourcing researcher Explain event sourcing in one · continuable · not running 7.9K tok {{duration}}
   - group:
-    - treeitem "example editor continuable · not running {{duration}}" [level=2]
+    - treeitem "example editor continuable · not running 0 tok · {{duration}}" [level=2]: example editor continuable · not running 0 tok {{duration}}

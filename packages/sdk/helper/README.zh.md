@@ -8,9 +8,9 @@
 
 所有业务验证与文档验证都会在提交写入任何受影响文件前完成。提交会检测编辑会话打开后发生的外部修改，但在开始写入后，有意不提供跨文件回滚。
 
-内置功能包括提供方、bash、app、持久化、HMR（热模块替换）、filesystem、todo、skill（技能）、web、subagent、工作流、压缩（compaction）、钩子、repeat-tool guard、timeout policy 和 ask-user。目录负责功能选项、必需和非默认 Cordis 插件配置、功能依赖、资源贡献与往返标记；create 与 config 使用同一注册表和配置器。ACP（Agent Client Protocol）应用选项只贡献自动化桥；交互式服务属于 TUI 或 Web 组合。
+内置功能包括提供方、bash、app、持久化、HMR（热模块替换）、filesystem、todo、skill（技能）、web、subagent、工作流、压缩（compaction）、钩子、repeat-tool guard 和 timeout policy。目录负责功能选项、必需和非默认 Cordis 插件配置、功能依赖、资源贡献与往返标记；create 与 config 使用同一注册表和配置器。ACP（Agent Client Protocol）应用选项只贡献自动化桥；交互式服务属于宿主组合。
 
-`SdkProject.open()` 只要求根目录下的 `package.json` 和 `cordis.yml` 可读。Cordis 配置项用于锚定功能安装；如果某个包只存在于链接的 NPM 依赖闭包中，则该功能仍视为不存在。一旦所属的 Cordis 配置项存在，资源结构不完整就是 `inconsistent`，无法自动修改。
+`SdkProject.open()` 只要求根目录下的 `package.json` 和 `cordis.yml` 可读，但会拒绝引用已移除的 `@deepseek-ai/dsh-tui` 包根或其子路径的配置。Cordis 配置项用于锚定功能安装；如果某个包只存在于链接的 NPM 依赖闭包中，则该功能仍视为不存在。一旦所属的 Cordis 配置项存在，资源结构不完整就是 `inconsistent`，无法自动修改。
 
 `.env.example` 跟随当前所选功能。`.env` 仅追加：helper 可以补充缺失且名称不同的变量，但绝不会更新或删除现有内容。
 

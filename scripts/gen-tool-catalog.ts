@@ -18,9 +18,9 @@ import SessionQuerySqlite from '@deepseek-ai/dsh-session-query-sqlite'
 import GoalService from '@deepseek-ai/dsh-goal'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
-import { BashExecutor } from '@deepseek-ai/dsh-bash'
-import type { BashExecRequest, BashExecSpec, BashProcess, BashRunResult } from '@deepseek-ai/dsh-bash'
 import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
+import * as BashEnvPlugin from '@deepseek-ai/dsh-bash-env'
+import { PwshLocalExecutor } from '@deepseek-ai/dsh-pwsh-local'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
@@ -38,6 +38,7 @@ import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
 import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
 import * as ToolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
+import * as ToolPwsh from '@deepseek-ai/dsh-tool-pwsh'
 import * as ToolBashPersistent from '@deepseek-ai/dsh-tool-bash-persistent'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
@@ -60,44 +61,6 @@ import * as ToolWorkflow from '@deepseek-ai/dsh-tool-workflow'
 
 const root = resolve(import.meta.dirname, '..')
 const OUT = 'docs/tool-catalog.md'
-const CATALOG_RG_PROBE_COMMAND = 'command -v rg >/dev/null 2>&1'
-
-/**
- * Minimal bash service for harvesting `dsh-tool-fs-search` schemas. The search
- * plugin now probes `rg` at registration time, but the generated catalog must
- * remain independent of the host PATH and never execute a real search.
- */
-class CatalogSearchBashExecutor extends BashExecutor {
-  override resolve(request: BashExecRequest): BashExecSpec {
-    return {
-      command: request.command,
-      workdir: request.workdir ?? root,
-      timeoutMs: request.timeoutMs ?? 60_000,
-      stdoutMaxBytes: request.stdoutMaxBytes ?? 64_000,
-      signal: request.signal,
-      sandboxPolicy: request.sandboxPolicy,
-    }
-  }
-
-  override run(spec: BashExecSpec): Promise<BashRunResult> {
-    if (spec.command !== CATALOG_RG_PROBE_COMMAND) {
-      throw new Error(`gen-tool-catalog: unexpected search bash command during schema harvest: ${spec.command}`)
-    }
-    return Promise.resolve({
-      exitCode: 0,
-      signal: null,
-      timedOut: false,
-      aborted: false,
-      timeoutMs: spec.timeoutMs,
-      stdout: { text: '', truncated: false },
-      stderr: { text: '', truncated: false },
-    })
-  }
-
-  override start(): BashProcess {
-    throw new Error('gen-tool-catalog: search schema harvest must not start background processes')
-  }
-}
 
 /**
  * Register the descriptor needed to mount schema-producing consumers. Declares
@@ -230,15 +193,34 @@ const TOOL_PACKAGES: ToolPackage[] = [
     pkg: '@deepseek-ai/dsh-tool-bash',
     dir: 'tool-bash',
     source: 'packages/bash/tool-bash/src/index.ts',
-    requires: ['ctx.tools', 'ctx.bash', 'ctx.tasks at call time for run_in_background'],
+    requires: ['ctx.tools', 'ctx.bash', 'ctx.systemPrompt', 'ctx.bashEnv', 'ctx.tasks at call time for run_in_background'],
     writes: ['tool/call', 'tool/result'],
     async mount(ctx) {
       await ctx.plugin(LocalSubprocessService)
+      await ctx.plugin(BashEnvPlugin)
       await ctx.plugin(LocalBashExecutor)
       await ctx.plugin(ToolBash)
     },
     note:
       'The bash tool is the model-facing consumer of the bash executor seam. A `run_in_background` run registers with the generic `ctx.tasks` runtime and is collected/stopped through the `task_*` tools from `@deepseek-ai/dsh-tool-tasks`; the `enableRunInBackground` config (default true) removes the parameter entirely when disabled.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-pwsh',
+    dir: 'tool-pwsh',
+    source: 'packages/bash/tool-pwsh/src/index.ts',
+    requires: ['ctx.tools', 'ctx.bash', 'ctx.systemPrompt', 'ctx.bashEnv', 'ctx.tasks at call time for run_in_background'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      // The pwsh tool consumes the bash executor seam; the schema harvest
+      // mounts the pwsh-local implementation so the inject resolves without
+      // executing anything (registration never spawns a process).
+      await ctx.plugin(LocalSubprocessService)
+      await ctx.plugin(BashEnvPlugin)
+      await ctx.plugin(PwshLocalExecutor)
+      await ctx.plugin(ToolPwsh)
+    },
+    note:
+      'The pwsh tool is the PowerShell-dialect consumer of the bash executor seam for Windows compositions (a PowerShell executor such as `@deepseek-ai/dsh-pwsh-local` backs `ctx.bash`); it mirrors the bash tool call-for-call minus the sandbox surface — `run_in_background` runs register with the generic `ctx.tasks` runtime and are collected/stopped through the `task_*` tools, and the managed `DSH_*` environment comes from `@deepseek-ai/dsh-bash-env`. Each call runs in a fresh process (no persistent PTY session; ConPTY is roadmap work), with native `C:\\...` paths and `$env:NAME` variables.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-cordis',
@@ -297,19 +279,19 @@ const TOOL_PACKAGES: ToolPackage[] = [
     pkg: '@deepseek-ai/dsh-tool-fs-search',
     dir: 'tool-fs-search',
     source: 'packages/fs/tool-fs-search/src/index.ts',
-    requires: ['ctx.tools', 'ctx.bash', 'ctx.systemPrompt'],
+    requires: ['ctx.tools', 'ctx.subprocess', 'ctx.systemPrompt'],
     writes: ['tool/call', 'tool/result'],
     async mount(ctx) {
-      // The tools inject `bash` (search executes fixed `rg` commands through
-      // the executor seam, not ctx.fs). Use a catalog-only executor so the
-      // registration-time `rg` probe stays deterministic and the generator
-      // never depends on the host PATH. `ctx.spillStore` is optional (read via
-      // ctx.get) and does not affect the schemas, so no spill backend is mounted.
-      await ctx.plugin(CatalogSearchBashExecutor)
+      // The tools inject `subprocess` (search spawns the packaged ripgrep
+      // binary through the seam, not ctx.fs); registration itself never
+      // spawns, so the real local service is inert here. `ctx.spillStore` is
+      // optional (read via ctx.get) and does not affect the schemas, so no
+      // spill backend is mounted.
+      await ctx.plugin(LocalSubprocessService)
       await ctx.plugin(ToolFsSearch, { sampleOverCapGlobResults: true })
     },
     note:
-      'glob and grep are conditional bash-backed discovery tools: they register only when ctx.bash can find `rg`, then run fixed ripgrep commands through ctx.bash as ordinary foreground calls (never background tasks). The catalog uses `sampleOverCapGlobResults: true`; deployments must choose that behavior explicitly. Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments.',
+      'glob and grep are unconditional discovery tools that spawn the packaged ripgrep binary (`@vscode/ripgrep`) through ctx.subprocess as ordinary foreground calls (never background tasks) — no host `rg` install and no shell layer. The catalog uses `sampleOverCapGlobResults: true`; deployments must choose that behavior explicitly. Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-pty',

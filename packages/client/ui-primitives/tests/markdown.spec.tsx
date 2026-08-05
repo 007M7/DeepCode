@@ -99,13 +99,35 @@ describe('MarkdownText', () => {
     expect(screen.getByRole('button', { name: 'Copy code' })).toBeTruthy()
   })
 
-  it('neutralizes raw HTML, unsafe or relative links, and remote images', () => {
+  it('renders absolute HTTP(S) images with bounded presentation', () => {
+    const markdown = [
+      '![secure diagram](https://example.com/secure.png)',
+      '![plain diagram](http://example.com/plain.png)',
+    ].join('\n\n')
+    const { container } = render(<MarkdownText text={markdown} />)
+    const images = [...container.querySelectorAll('img')]
+    expect(images.map(image => image.getAttribute('src'))).toEqual([
+      'https://example.com/secure.png',
+      'http://example.com/plain.png',
+    ])
+    for (const image of images) {
+      expect(image.getAttribute('loading')).toBe('lazy')
+      expect(image.getAttribute('decoding')).toBe('async')
+      expect(image.getAttribute('referrerpolicy')).toBe('no-referrer')
+    }
+  })
+
+  it('neutralizes raw HTML, unsafe or relative links, and unsupported images', () => {
     const markdown = [
       '<script>globalThis.compromised = true</script>',
       '<img src="x" onerror="globalThis.compromised = true">',
       '[script](javascript:alert(1)) [relative](/settings)',
       '[mail](mailto:dev@example.com) [web](http://example.com) [upper](HTTPS://example.com)',
-      '![remote diagram](https://example.com/private.png)',
+      '![relative diagram](private.png)',
+      '![absolute diagram](/workspace/private.png)',
+      '![file diagram](file:///workspace/private.png)',
+      '![script diagram](javascript:alert(1))',
+      '![mail diagram](mailto:dev@example.com)',
     ].join('\n\n')
     const { container } = render(<MarkdownText text={markdown} />)
 
@@ -117,7 +139,11 @@ describe('MarkdownText', () => {
     expect(screen.getByRole('link', { name: 'mail' }).getAttribute('target')).toBeNull()
     expect(screen.getByRole('link', { name: 'web' }).getAttribute('rel')).toBe('noopener noreferrer')
     expect(screen.getByRole('link', { name: 'upper' }).getAttribute('target')).toBe('_blank')
-    expect(screen.getByText('remote diagram')).toBeTruthy()
+    expect(screen.getByText('relative diagram')).toBeTruthy()
+    expect(screen.getByText('absolute diagram')).toBeTruthy()
+    expect(screen.getByText('file diagram')).toBeTruthy()
+    expect(screen.getByText('script diagram')).toBeTruthy()
+    expect(screen.getByText('mail diagram')).toBeTruthy()
   })
 
   it('keeps incomplete streaming Markdown renderable', () => {

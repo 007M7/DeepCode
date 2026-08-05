@@ -8,7 +8,8 @@ Harness uses `cordis.yml` to describe which plugins an agent loads and the confi
 
 The repository examples are runnable configurations and the most reliable starting points for a new project:
 
-- [the shared `dsh` base](../../../apps/cli/config/base.cordis.yml) plus the [`tui.cordis.yml`](../../../apps/cli/config/tui.cordis.yml) overlay combines the DeepSeek model, Bash, filesystem, compaction, subagents, workflows, and the interactive TUI.
+- [the shared `dsh` base](../../../apps/cli/config/base.cordis.yml) provides the common model, tools, persistence, policy, and telemetry rows; raw `dsh --config <path>` requires a patch list that selects deployment-specific agents and front doors.
+- [the Web overlay](../../../apps/cli/config/web.cordis.yml) adds the browser host, Workspace management, browser interaction, and client plugins.
 - [headless-agent](../../../examples/headless-agent/cordis.yml) exposes the coding composition as a one-shot task.
 - [acp-agent](../../../examples/acp-agent/cordis.yml) exposes fresh sessions to programmatic ACP clients.
 
@@ -50,7 +51,7 @@ Plugins load in file order. Place plugins that depend on services after the appl
 
 ## CLI overlays
 
-The TUI composes `base.cordis.yml` and `tui.cordis.yml`, then applies one optional patch list. By default that final list is `~/.dsh/config.yaml`; `dsh --config <path>` replaces the personal list with the named overlay. `dsh --config-replace <path>` instead boots the named file as the complete tree, without shipped or personal layers. `dsh web --config <path>` adds its overlay after the shared base and Web surface defaults and before Web profile and CLI-flag patches.
+Raw `dsh --config <path>` requires a patch list and applies it directly over `base.cordis.yml`. It does not add a surface overlay or `~/.dsh/config.yaml`, and the named file is not a complete replacement tree. `dsh web` composes `base.cordis.yml` and `web.cordis.yml`, then applies `~/.dsh/config.yaml`; `dsh web --config <path>` replaces that personal layer with the named overlay. Web profile and CLI-flag patches follow the user layer.
 
 A patch replaces a row's entire `config` value; it does not deep-merge keys. For example, patching `llm-deepseek` with only `config: { thinking: disabled }` also removes that row's configured `apiKey` and `baseURL`, so restate every key the row must retain.
 

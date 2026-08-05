@@ -2,7 +2,7 @@
 
 [English](user-interaction.md) | 中文
 
-[dsh-user-interaction](../../packages/ui/user-interaction) 的用户交互 seam。它是工具或权限插件需要人类回答后 agent（智能体）才能继续时所使用的、提供方无关的词汇。UI surface 提供活跃的 `UserInteractionProvider`；`dsh-tui` 使用键盘驱动的 overlay，host 运行时把请求转发给它连接的客户端。
+[dsh-user-interaction](../../packages/ui/user-interaction) 的用户交互 seam。它是工具或权限插件需要人类回答后 agent（智能体）才能继续时所使用的、提供方无关的词汇。UI surface 提供活跃的 `UserInteractionProvider`；host 运行时把请求转发给它连接的客户端。
 
 源码：[`packages/ui/user-interaction/src/index.ts`](../../packages/ui/user-interaction/src/index.ts)
 
@@ -86,14 +86,14 @@ interface AskUserQuestionRequest {
 
 ## 回答
 
-提供方为每个问题 id 返回一个回答项。`selected` 包含选中的选项标签，`custom` 在用户输入自由文本时携带「其他」回答。当 `custom` 存在时，`selected` 为空；自定义文本是对选中项的覆盖，而非补充。UI 也可以使用 `selected` 为空且不含 `custom` 的回答项，在其余问题均已完成的批次中保留被跳过的问题。
+提供方为每个问题 id 返回一个回答项。`selected` 包含选中的选项标签，`custom` 在用户输入自由文本时携带「其他」回答。对于单选题，`custom` 会覆盖选中的选项，且 `selected` 为空。对于多选题，`custom` 可以补充 `selected` 中的标签。UI 也可以使用 `selected` 为空且不含 `custom` 的回答项，在其余问题均已完成的批次中保留被跳过的问题。
 
 ```ts type-equiv
 /** Answer to one question. */
 interface AskUserQuestionAnswerItem {
   /** The answered question id. */
   id: string
-  /** Selected option labels. Empty for custom or unanswered choices. */
+  /** Selected option labels. May accompany custom text for a multi-select question. */
   selected: string[]
   /** Optional free-text "Other" answer. */
   custom?: string

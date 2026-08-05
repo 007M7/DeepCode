@@ -2,8 +2,8 @@
 // .agents/notes/implemented/testing/2026-07-24-web-gui-browser-e2e-lane.md).
 // Boots the REAL web composition — the shipped base plus web overlay through
 // the vendored Loader (the same include boot AppCLIEntry drives), patched the
-// snapshot way — so a real chromium exercises the real HTTP/SSE wire, the
-// api-gateway, agent loop, tools, and persistence. Modes ride $DSH_SNAPSHOT:
+// snapshot way — so a real chromium exercises the real HTTP uplink/WebSocket
+// downlink, api-gateway, agent loop, tools, and persistence. Modes ride $DSH_SNAPSHOT:
 // replay (default, keyless: normally disables the llm-deepseek row and
 // inserts dsh-llm-replay in providers mode), record (real adapter + key,
 // harvests fixtures from live session memory), refresh (keyless replay that
@@ -85,11 +85,19 @@ const REPLAY_PROVIDERS = [{
   models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', contextWindow: 128_000 }],
 }]
 
+function replayProviders(contextWindow: number | undefined): typeof REPLAY_PROVIDERS {
+  if (contextWindow === undefined) return REPLAY_PROVIDERS
+  return REPLAY_PROVIDERS.map(provider => ({
+    ...provider,
+    models: provider.models.map(model => ({ ...model, contextWindow })),
+  }))
+}
+
 /** A booted web scaffold: real composition, mode-selected model backend, temp world. */
 export interface WebScaffold {
   /** The active snapshot mode this scaffold booted under. */
   mode: WebSnapshotMode
-  /** Browser-facing origin (http://127.0.0.1:<bound port>). */
+  /** Browser-facing origin for the bound test server. */
   baseUrl: string
   /** Settled root context (the in-process barrier seam; headless event subscription is its sanctioned use). */
   ctx: Context
@@ -134,6 +142,8 @@ export interface LaunchOptions {
   replayOverride?: string
   /** Per-chunk replay pacing (ms) so the browser observes genuinely incremental SSE; replay/refresh only. */
   paceMs?: number
+  /** Synthetic model capacity for UI scenarios whose seeded history must remain uncompacted. */
+  replayContextWindow?: number
   /**
    * Tool presentation mode patched onto the shipped `tools` row (`code`
    * collapses the wire to run_code + the SDK prompt section). Omit for the
@@ -166,6 +176,12 @@ export interface LaunchOptions {
   }
   /** Leave the current welcome notice unacknowledged; ordinary scenarios publish it as complete before browser boot. */
   welcomeNoticePending?: boolean
+  /**
+   * Browse through a trusted non-loopback hostname that the browser resolves
+   * to loopback (for example `*.localhost`). The test server stays bound to
+   * 127.0.0.1; a non-resolving authority fails before Host trust is exercised.
+   */
+  remoteAuthority?: string
 }
 
 /** Dispose the booted tree and remove both owned temp roots, reporting every independent cleanup failure. */
@@ -185,6 +201,7 @@ async function cleanupScaffoldWorld(ctx: Context, workspaceCwd: string, persiste
 export async function launchWebScaffold(options: LaunchOptions = {}): Promise<WebScaffold> {
   requireDist()
   const mode = webSnapshotMode()
+  const browserHost = options.remoteAuthority ?? '127.0.0.1'
   if (mode === 'record') {
     // Both owning vitest configs (web unconditionally, snapshot in record
     // mode) load the repo-root .env before this file runs.
@@ -261,7 +278,13 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     // to the production OTLP endpoint (or whatever DSH_TELEMETRY_OTLP_URL
     // names in the ambient environment).
     { id: 'telemetry-otel', disabled: true },
-    { id: 'webserver', config: { host: '127.0.0.1', port: 0, distIndex: DIST_INDEX } },
+    {
+      id: 'webserver',
+      config: { host: '127.0.0.1', port: 0, distIndex: DIST_INDEX },
+    },
+    ...options.remoteAuthority === undefined
+      ? []
+      : [{ id: 'connection', config: { trustedHosts: [options.remoteAuthority] } }],
     { id: 'settings', config: { dshHome: harnessHome } },
     { id: 'credentials', config: { dshHome: harnessHome } },
     // The shipped directory-picker row is the -auto chooser, which resolves
@@ -331,7 +354,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     if (mode !== 'record' && options.replayFixture !== undefined) {
       replayHandle = installLlmReplay(ctx, {
         file: options.replayFixture,
-        providers: REPLAY_PROVIDERS,
+        providers: replayProviders(options.replayContextWindow),
         ...(options.replayOverride === undefined ? {} : { overrideFile: options.replayOverride }),
         ...(options.replayChildFixtures === undefined ? {} : { childFiles: options.replayChildFixtures }),
         ...(options.paceMs === undefined ? {} : { paceMs: options.paceMs }),
@@ -352,7 +375,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   return {
     harnessHome,
     mode,
-    baseUrl: `http://127.0.0.1:${port}`,
+    baseUrl: `http://${browserHost}:${port}`,
     ctx,
     workspaceCwd,
     persistenceRoot,

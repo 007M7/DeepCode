@@ -66,14 +66,32 @@ describe('workspace browser rows', () => {
       running: true,
       snippet: 'matching message excerpt',
     }
-    render(<SearchResultItem result={result} currentId={result.id} onOpen={onOpen} />)
+    render(<SearchResultItem result={result} currentId={result.id} onOpen={onOpen} t={t} />)
     const row = screen.getByRole('treeitem')
     expect(row.getAttribute('aria-selected')).toBe('true')
     expect(screen.getByText('Workspace context')).toBeTruthy()
     expect(screen.getByText('matching message excerpt')).toBeTruthy()
+    expect(row.querySelector('[data-state="ongoing"]')).toBeTruthy()
+    expect(screen.getByText('进行中')).toBeTruthy()
     expect(row.hasAttribute('draggable')).toBe(false)
     fireEvent.click(row)
     expect(onOpen).toHaveBeenCalledWith(result.id)
+  })
+
+  it.each([
+    ['approval', '等待审批'],
+    ['plan-review', '计划待审'],
+    ['question', '等待回答'],
+  ] as const)('shows %s ahead of running in search results', (pendingInteraction, label) => {
+    const result: SearchResultNode = {
+      id: sid(pendingInteraction), title: 'Needs input', workspace: 'Project',
+      pendingInteraction, running: true,
+    }
+    render(<SearchResultItem result={result} currentId={undefined} onOpen={vi.fn()} t={t} />)
+    const row = screen.getByRole('treeitem')
+    expect(row.querySelector('[data-state="warning"]')).toBeTruthy()
+    expect(row.querySelector('[data-state="ongoing"]')).toBeNull()
+    expect(screen.getByText(label)).toBeTruthy()
   })
 
   it('renders an active Workspace and keeps its create action separate from toggling', () => {
@@ -234,6 +252,7 @@ describe('workspace browser rows', () => {
     expect(screen.queryByRole('menu')).toBeNull()
   })
 
+
   it('shows the hover card after the dwell and suppresses it while the row menu is open', () => {
     vi.useFakeTimers()
     try {
@@ -248,13 +267,44 @@ describe('workspace browser rows', () => {
       // Card body: full title + relative time + running status.
       expect(screen.getAllByText('Hovered')).toHaveLength(2)
       expect(screen.getByText('1分钟前')).toBeTruthy()
-      expect(screen.getByText('进行中')).toBeTruthy()
+      expect(screen.getAllByText('进行中')).toHaveLength(2)
       fireEvent.pointerLeave(wrapper)
       // Menu open (disabled=true) suppresses the card for the same hover.
       fireEvent.click(screen.getByRole('button', { name: '会话“Hovered”的操作' }))
       fireEvent.pointerEnter(wrapper)
       act(() => { vi.advanceTimersByTime(1000) })
       expect(screen.queryByText('1分钟前')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it.each([
+    ['approval', '等待审批'],
+    ['plan-review', '计划待审'],
+    ['question', '等待回答'],
+  ] as const)('shows %s as warning ahead of the running state', (pendingInteraction, label) => {
+    vi.useFakeTimers()
+    try {
+      const node: SessionNode = {
+        id: sid(pendingInteraction), title: 'Needs input', blank: false,
+        pendingInteraction, running: true, updatedAt: 0,
+      }
+      const view = render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
+        onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
+      const row = screen.getByRole('treeitem')
+      expect(row.querySelector('[data-state="warning"]')).toBeTruthy()
+      expect(row.querySelector('[data-state="ongoing"]')).toBeNull()
+      expect(screen.getByText(label)).toBeTruthy()
+
+      view.rerender(<SessionNodeItem node={{ ...node, running: false }} currentId={undefined} now={0}
+        onOpen={vi.fn()} onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
+      expect(screen.getByRole('treeitem').querySelector('[data-state="warning"]')).toBeTruthy()
+
+      fireEvent.pointerEnter(screen.getByRole('treeitem').parentElement as HTMLElement)
+      act(() => { vi.advanceTimersByTime(500) })
+      expect(screen.getAllByText(label)).toHaveLength(2)
+      expect(document.querySelectorAll('[data-state="warning"]')).toHaveLength(2)
     } finally {
       vi.useRealTimers()
     }

@@ -4,10 +4,19 @@
    rail state renders only the two 36x36 icon controls. */
 
 .root {
+  --dsh-session-list-edge-inset: var(--dsh-sidebar-inline-padding);
+  --dsh-session-list-scrollbar-width: 8px;
+  --dsh-session-list-scrollbar-offset: 2px;
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  box-sizing: border-box;
+  padding-right: var(--dsh-session-list-edge-inset);
+}
+
+.root.rail {
+  padding-right: 0;
 }
 
 .iconButton {
@@ -167,7 +176,12 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+  margin-right: calc(-1 * var(--dsh-session-list-edge-inset));
   overflow: hidden;
+}
+
+.rail .listArea {
+  margin-right: 0;
 }
 
 /* Relative for the bottom fade overlay. */
@@ -184,7 +198,7 @@
 .fade {
   position: absolute;
   left: 0;
-  right: 0;
+  right: var(--dsh-session-list-edge-inset);
   bottom: 0;
   height: 72px;
   background: linear-gradient(to bottom, transparent, var(--dsw-specific-sidebar-fill));
@@ -200,29 +214,30 @@
   from { opacity: 0; }
 }
 
-/* List: the only scrolling region. Block, not a flex column: as flex items
-   the 54/34 rows would shrink under content overflow; block children keep
-   their design heights and the 4px rhythm rides margins instead of gap. */
+/* List: the only scrolling region. Block children keep their design heights
+   under content overflow. The 2px edge offset, stable 8px themed scrollbar,
+   and remaining padding equal the shell's right inset, with or without
+   overflow, so moving the bar does not move the rows. */
 .list {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding-bottom: 12px;
-  /* Row trailing content (the relative time, and the hover action buttons
-     that replace it) sits flush against the row's 8px right padding, so an
-     overlaid scrollbar covers it. Reserving the gutter keeps the bar beside
-     the rows instead of on top of them; `stable` holds the reservation when
-     the list is short enough not to scroll, so expanding a group does not
-     shift every row left. */
+  margin-right: var(--dsh-session-list-scrollbar-offset);
+  padding-right: calc(
+    var(--dsh-session-list-edge-inset)
+    - var(--dsh-session-list-scrollbar-width)
+    - var(--dsh-session-list-scrollbar-offset)
+  );
+  /* Clears the 72px bottom fade overlay: at scroll end the last row sits
+     above the gradient instead of under it. */
+  padding-bottom: 48px;
   scrollbar-gutter: stable;
 }
 
-.list > [role='treeitem'] + [role='treeitem'] {
-  margin-top: 4px;
-}
-
-.searchTree > [role='treeitem'] + [role='treeitem'] {
-  margin-top: 4px;
+.flatList > * + *,
+.searchTree > [role='treeitem'] + [role='treeitem'],
+.groupSection > * + * {
+  margin-top: 2px;
 }
 
 .searchStatus,
@@ -237,20 +252,9 @@
   color: var(--dsw-alias-label-secondary);
 }
 
-/* One workspace section: header row + expanded session run. Rows inside
-   keep the former flat-list 4px gap as sibling margins; the inter-group
-   breathing room (figma 133:7661 batch separator, 20px after an expanded
-   run) rides the NEXT section's top margin so the last group adds none. */
-.groupSection > * + * {
-  margin-top: 4px;
-}
-
+/* One workspace section: header row + a compact expanded session run. */
 .groupSection + .groupSection {
   margin-top: 4px;
-}
-
-.groupSection:has([aria-expanded='true']) + .groupSection {
-  margin-top: 20px;
 }
 
 .empty {

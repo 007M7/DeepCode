@@ -844,6 +844,55 @@ describe('runScenario', () => {
     )).rejects.toThrow(/did not persist session\/title after turn\/end within 20ms/)
   })
 
+  it('waitForEventAfterTurnEnd holds the app for a typed post-boundary record and times out otherwise', { timeout: 20_000 }, async () => {
+    const late = await scenario({
+      prompt: 'hang-until-cancel',
+      persistLogsOnCancel: true,
+      logs: [{
+        file: 'project/main/session.jsonl',
+        lines: [
+          { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
+          { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'aborted' } } },
+          { type: 'user/message', seq: 2, time: 3, data: { content: [{ type: 'text', text: 'late goal state' }], source: { kind: 'user' } } },
+        ],
+      }],
+    })
+    const result = await runScenario(
+      {
+        steps: [
+          ...boot,
+          { op: 'promptAndCancel', text: 'hang' },
+          { op: 'waitForEventAfterTurnEnd', type: 'user/message' },
+        ],
+      },
+      { agent: AGENT, mode: 'replay', fixtureFile: late.fixtureFile },
+    )
+    expect(result.sessionLogs[0]?.content).toMatch(/"turn\/end"[\s\S]*"user\/message"/)
+
+    const early = await scenario({
+      prompt: 'hang-until-cancel',
+      persistLogsOnCancel: true,
+      logs: [{
+        file: 'project/main/session.jsonl',
+        lines: [
+          { type: 'session', version: 0, id: '{{SID}}', createdAt: 1, delegationDepth: 0 },
+          { type: 'user/message', seq: 1, time: 1, data: { content: [{ type: 'text', text: 'early' }], source: { kind: 'user' } } },
+          { type: 'turn/end', seq: 2, time: 2, data: { turn: 1, reason: { kind: 'aborted' } } },
+        ],
+      }],
+    })
+    await expect(runScenario(
+      {
+        steps: [
+          ...boot,
+          { op: 'promptAndCancel', text: 'hang' },
+          { op: 'waitForEventAfterTurnEnd', type: 'user/message', timeoutMs: 20 },
+        ],
+      },
+      { agent: AGENT, mode: 'replay', fixtureFile: early.fixtureFile },
+    )).rejects.toThrow(/did not persist user\/message after turn\/end within 20ms/)
+  })
+
   it('promptExpectError swallows a model-error response as the expected outcome', { timeout: 20_000 }, async () => {
     const { fixtureFile } = await scenario({ prompt: 'error' })
     const result = await runScenario(
@@ -963,6 +1012,7 @@ describe('runScenario', () => {
     [{ op: 'waitForTurnStart' }, /waitForTurnStart before newSession/],
     [{ op: 'waitForTurnEnd' }, /waitForTurnEnd before newSession/],
     [{ op: 'waitForTitleAfterTurnEnd' }, /waitForTitleAfterTurnEnd before newSession/],
+    [{ op: 'waitForEventAfterTurnEnd', type: 'user/message' }, /waitForEventAfterTurnEnd before newSession/],
     [{ op: 'cancel' }, /cancel before newSession/],
   ] as [InputStep, RegExp][])('rejects %j before newSession', { timeout: 20_000 }, async (step, message) => {
     const { fixtureFile } = await scenario({})
