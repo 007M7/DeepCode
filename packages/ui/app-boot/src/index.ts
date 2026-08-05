@@ -8,12 +8,12 @@
 
 import { pathToFileURL } from 'node:url'
 import { readFileSync } from 'node:fs'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, resolve } from 'node:path'
 import * as yaml from 'js-yaml'
 import { Context, type FiberState } from 'cordis'
 import Loader, { type Entry, type EntryOptions } from '@cordisjs/plugin-loader'
 import Include, { applyEntryPatches, entryListSchema, type PatchOptions } from '@cordisjs/plugin-include'
-import { dshHomePath, resolveDshHome } from '@deepseek-ai/dsh-paths'
+import { dshHomePath } from '@deepseek-ai/dsh-paths'
 import type {} from '@cordisjs/plugin-hmr'
 // Side-effect type import: resolves `ctx.get('systemPrompt')` to the service.
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -24,6 +24,25 @@ declare module 'cordis' {
     dshHomePath?: typeof dshHomePath
   }
 }
+
+export {
+  composeEntries,
+  DEFAULT_PROFILE_PLUGINS,
+  healProfilesModuleFallback,
+  initProfile,
+  loadProfile,
+  PROFILE_PATCH_FILENAME,
+  PROFILE_TEMPLATES,
+  PROFILES_DIR,
+  readProfileManifest,
+  resolveBundleDir,
+  resolveProfileDir,
+  writeProfileManifest,
+  type DshManifestSection,
+  type Profile,
+  type ProfileLayer,
+  type ProfileManifest,
+} from './profile.ts'
 
 /**
  * Resolve the config to boot. Replay swaps a `cordis.yml` basename for
@@ -65,9 +84,6 @@ export function loadEnv(
   }
 }
 
-/** File inside the Harness home holding the personal loader overlay patches. */
-export const PERSONAL_CONFIG_FILENAME = 'config.yaml'
-
 const bootstrapIncludes = new WeakMap<Context, Entry>()
 
 // The include's YAML dialect (`!!js` scalars become expression nodes the
@@ -77,37 +93,91 @@ const bootstrapIncludes = new WeakMap<Context, Entry>()
 // reference `process.env`.
 const personalPatchesSchema = entryListSchema
 
+/** Options for live user patch-layer reconciliation. */
+export interface PersonalPatchWatchOptions {
+  /** Diagnostic prefix used by {@link loadOptionalPatches}. */
+  binName: string
+  /** Absolute path of the watched patch file (a profile's `cordis.patch.yml`). */
+  filename: string
+  /**
+   * Compose the full patch list for a fresh user-layer generation —
+   * the same composition the app booted with, so a reload can interleave the
+   * new user patches between app-owned layers (bundle layers below,
+   * overlay/flag patches above). Identity when omitted: the user layer
+   * is the whole patch list.
+   */
+  compose?: (personalPatches: PatchOptions[]) => PatchOptions[]
+}
+
 /**
- * Load the optional personal overlay patches (`config.yaml` under the Harness
- * home). The file is a top-level YAML array of loader patch entries
- * (`@cordisjs/plugin-include`'s `PatchOptions`): id-targeted config overrides
- * and `insert` lists, with `!!js` expressions allowed. A missing file means
- * "no personal overlay"; an unreadable, unparsable, or non-array file throws —
- * a present personal config that cannot apply is a misconfiguration and must
- * fail loud at boot, never be silently skipped.
+ * Watch the user patch layer through Cordis HMR and transactionally reapply it to the boot include.
+ * @param ctx - settled app context containing the root Include and an active HMR service.
+ * @param options - diagnostic, file, and patch-composition inputs.
+ * @returns an asynchronous disposer after the exact-path watcher is ready.
+ * @throws when HMR or the root Include is absent, watcher setup fails, or initial path resolution fails.
+ */
+export async function watchPersonalPatches(
+  ctx: Context,
+  options: PersonalPatchWatchOptions,
+): Promise<() => Promise<void>> {
+  const { binName, filename, compose = (patches: PatchOptions[]) => patches } = options
+  const hmr = ctx.get('hmr')
+  if (hmr === undefined) throw new Error(`${binName}: personal config watching requires the Cordis HMR service`)
+  const entry = bootstrapIncludes.get(ctx)
+  if (entry === undefined) throw new Error(`${binName}: personal config watching requires the root Include entry`)
+  const register = hmr.registerConfig(filename, async () => {
+    // Re-read the include's non-patch options per refresh: a writer that
+    // updates the root Include's other options between refreshes (none exists
+    // today) must not have them silently reverted by a personal reload.
+    const { patches: _previousPatches, ...includeConfig } = entry.options.config as Include.Config
+    const personalPatches = loadOptionalPatches(binName, filename) ?? []
+    const patches = compose(personalPatches)
+    await entry.update({
+      config: {
+        ...includeConfig,
+        patches,
+      },
+    })
+  })
+  try {
+    return await register
+  } catch (error) {
+    // A surface can dispose the whole tree while the watcher is still opening;
+    // the HMR effect registration then fails with INACTIVE_EFFECT. That is the
+    // app exiting exactly as asked, not a watch failure, so return a no-op
+    // disposer instead of crashing.
+    if ((error as { code?: string } | null)?.code === 'INACTIVE_EFFECT') return async () => {}
+    throw error
+  }
+}
+
+/**
+ * Load an optional patch-list file: a top-level YAML array of loader patch
+ * entries (`@cordisjs/plugin-include`'s `PatchOptions`): id-targeted config
+ * overrides and `insert` lists, with `!!js` expressions allowed. A missing
+ * file means "no layer"; an unreadable, unparsable, or non-array file throws —
+ * a present patch file that cannot apply is a misconfiguration and must fail
+ * loud at boot, never be silently skipped.
  * @param binName - the diagnostic prefix on the thrown error.
- * @param dir - the Harness home; defaults to {@link resolveDshHome} (`$DSH_HOME` or `~/.dsh`).
+ * @param file - absolute path of the patch file.
  * @returns the parsed patches, or `undefined` when the file does not exist.
  */
-export function loadPersonalPatches(
-  binName: string, dir: string = resolveDshHome(),
-): PatchOptions[] | undefined {
-  const file = join(dir, PERSONAL_CONFIG_FILENAME)
+export function loadOptionalPatches(binName: string, file: string): PatchOptions[] | undefined {
   let content: string
   try {
     content = readFileSync(file, 'utf8')
   } catch (error) {
     if ((error as NodeJS.ErrnoException | null)?.code === 'ENOENT') return undefined
-    throw new Error(`${binName}: failed to read personal patches ${file}: ${String(error)}`)
+    throw new Error(`${binName}: failed to read patches ${file}: ${String(error)}`)
   }
-  return parsePatchList(binName, file, content, 'personal patches')
+  return parsePatchList(binName, file, content, 'patches')
 }
 
 /**
- * Load a required overlay patch list: a surface overlay (`tui.cordis.yml`) or a
- * `--config <path>` overlay applied over the shared base. Same file format as
- * {@link loadPersonalPatches}, but a missing file throws, because the caller
- * named this file — its absence is a misconfiguration, not "no overlay".
+ * Load a required overlay patch list: a bundle's `cordis.patch.yml` or a
+ * `--patch <path>` overlay. Same file format as {@link loadOptionalPatches},
+ * but a missing file throws, because the caller named this file — its absence
+ * is a misconfiguration, not "no overlay".
  * @param binName - the diagnostic prefix on the thrown error.
  * @param file - absolute path of the overlay file.
  * @returns the parsed patch list.
@@ -121,7 +191,6 @@ export function loadOverlayPatches(binName: string, file: string): PatchOptions[
   }
   return parsePatchList(binName, file, content, 'overlay')
 }
-
 /**
  * Parse one loader patch list: a top-level YAML array of
  * `@cordisjs/plugin-include` `PatchOptions` (id-targeted config overrides and
@@ -159,7 +228,7 @@ function parsePatchList(
 export interface ConfigDumpLayer {
   /** Source name shown in provenance comments (a file basename or path). */
   label: string
-  /** The layer's patches, from {@link loadOverlayPatches} / {@link loadPersonalPatches}. */
+  /** The layer's patches, from {@link loadOverlayPatches} / {@link loadOptionalPatches}. */
   patches: PatchOptions[]
 }
 
@@ -288,65 +357,6 @@ function groupedDump(
   }
   flush()
   return lines.join('\n') + '\n'
-}
-
-/** Options for live personal-config reconciliation. */
-export interface PersonalPatchWatchOptions {
-  /** Diagnostic prefix used by {@link loadPersonalPatches}. */
-  binName: string
-  /** Harness home containing `config.yaml`; defaults to {@link resolveDshHome}. */
-  dir?: string
-  /**
-   * Compose the full patch list for a fresh personal-overlay generation —
-   * the same composition the app booted with, so a reload can interleave the
-   * new personal patches between app-owned layers (surface overlay below,
-   * profile/flag patches above). Identity when omitted: the personal overlay
-   * is the whole patch list.
-   */
-  compose?: (personalPatches: PatchOptions[]) => PatchOptions[]
-}
-
-/**
- * Watch the personal overlay through Cordis HMR and transactionally reapply it to the boot include.
- * @param ctx - settled app context containing the root Include and an active HMR service.
- * @param options - diagnostic, Harness-home, and patch-composition inputs.
- * @returns an asynchronous disposer after the exact-path watcher is ready.
- * @throws when HMR or the root Include is absent, watcher setup fails, or initial path resolution fails.
- */
-export async function watchPersonalPatches(
-  ctx: Context,
-  options: PersonalPatchWatchOptions,
-): Promise<() => Promise<void>> {
-  const { binName, dir = resolveDshHome(), compose = (patches: PatchOptions[]) => patches } = options
-  const hmr = ctx.get('hmr')
-  if (hmr === undefined) throw new Error(`${binName}: personal config watching requires the Cordis HMR service`)
-  const entry = bootstrapIncludes.get(ctx)
-  if (entry === undefined) throw new Error(`${binName}: personal config watching requires the root Include entry`)
-  const filename = join(dir, PERSONAL_CONFIG_FILENAME)
-  const register = hmr.registerConfig(filename, async () => {
-    // Re-read the include's non-patch options per refresh: a writer that
-    // updates the root Include's other options between refreshes (none exists
-    // today) must not have them silently reverted by a personal reload.
-    const { patches: _previousPatches, ...includeConfig } = entry.options.config as Include.Config
-    const personalPatches = loadPersonalPatches(binName, dir) ?? []
-    const patches = compose(personalPatches)
-    await entry.update({
-      config: {
-        ...includeConfig,
-        patches,
-      },
-    })
-  })
-  try {
-    return await register
-  } catch (error) {
-    // A surface can dispose the whole tree while the watcher is still opening;
-    // the HMR effect registration then fails with INACTIVE_EFFECT. That is the
-    // app exiting exactly as asked, not a watch failure, so return a no-op
-    // disposer instead of crashing.
-    if ((error as { code?: string } | null)?.code === 'INACTIVE_EFFECT') return async () => {}
-    throw error
-  }
 }
 
 /**
@@ -599,7 +609,7 @@ export async function assertEntriesActivated(ctx: Context, binName: string): Pro
  * @param absoluteConfigPath - the config to include; must already be absolute
  * (see {@link resolveConfigPath}).
  * @param patches - optional overlay patches applied over the included tree
- * (see {@link loadPersonalPatches}); an empty list mounts none.
+ * (see {@link loadOptionalPatches}); an empty list mounts none.
  * @param prepare - optional host setup run after Loader installation and before any config-tree entry mounts.
  * @returns the root context once every entry has started, or as soon as a
  * surface disposed the tree while startup was still in flight.

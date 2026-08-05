@@ -1,0 +1,203 @@
+/**
+ * Profile machinery of `dsh-app-boot`: directory resolution and init,
+ * manifest round-trips, two-anchor bundle resolution, patch-layer loading,
+ * empty-root composition, and the installation module-fallback healing.
+ */
+
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { describe, expect, it } from 'vitest'
+import {
+  composeEntries,
+  healProfilesModuleFallback,
+  initProfile,
+  loadProfile,
+  PROFILE_PATCH_FILENAME,
+  PROFILE_TEMPLATES,
+  readProfileManifest,
+  resolveBundleDir,
+  resolveProfileDir,
+  writeProfileManifest,
+} from '../src/index.ts'
+
+const tmp = (): string => mkdtempSync(join(tmpdir(), 'dsh-profile-'))
+
+/** Stage a fake installed app: package.json with deps and a node_modules holding bundles. */
+function stageInstallation(bundles: Record<string, { patch?: string; deps?: Record<string, string> }>): string {
+  const root = tmp()
+  const appDir = join(root, 'app')
+  mkdirSync(join(appDir, 'node_modules'), { recursive: true })
+  const appDeps: Record<string, string> = {}
+  for (const [name, spec] of Object.entries(bundles)) {
+    appDeps[name] = '0.0.0'
+    const dir = join(appDir, 'node_modules', name)
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({
+      name,
+      version: '0.0.0',
+      dependencies: spec.deps ?? {},
+      ...spec.patch === undefined ? {} : { dsh: { patch: './cordis.patch.yml' } },
+    }))
+    if (spec.patch !== undefined) writeFileSync(join(dir, 'cordis.patch.yml'), spec.patch)
+  }
+  writeFileSync(join(appDir, 'package.json'), JSON.stringify({ name: 'dsh-app', dependencies: appDeps }))
+  return join(appDir, 'package.json')
+}
+
+describe('resolveProfileDir', () => {
+  it('joins the home and rejects traversal-shaped names', () => {
+    const home = tmp()
+    expect(resolveProfileDir('tui', home)).toBe(join(home, 'profiles', 'tui'))
+    for (const bad of ['', '.', '..', 'a/b', 'a\\b']) {
+      expect(() => resolveProfileDir(bad, home)).toThrow('invalid profile name')
+    }
+  })
+})
+
+describe('initProfile', () => {
+  it('creates manifest, user patch layer, and npmrc once, never overwriting', () => {
+    const home = tmp()
+    const dir = resolveProfileDir('tui', home)
+    initProfile(dir, ['@deepseek-ai/dsh-base'])
+    const manifest = readProfileManifest('t', dir)
+    expect(manifest.dsh?.plugins).toEqual(['@deepseek-ai/dsh-base'])
+    expect(readFileSync(join(dir, PROFILE_PATCH_FILENAME), 'utf8')).toContain('[]')
+    expect(readFileSync(join(dir, '.npmrc'), 'utf8')).toContain('node-linker=hoisted')
+    // Re-init keeps user edits.
+    writeFileSync(join(dir, PROFILE_PATCH_FILENAME), '- id: x\n  config: {}\n')
+    initProfile(dir, ['other'])
+    expect(readProfileManifest('t', dir).dsh?.plugins).toEqual(['@deepseek-ai/dsh-base'])
+    expect(readFileSync(join(dir, PROFILE_PATCH_FILENAME), 'utf8')).toContain('- id: x')
+  })
+})
+
+describe('manifest round-trip', () => {
+  it('writes and reads back, and fails loud on a broken manifest', () => {
+    const dir = tmp()
+    writeProfileManifest(dir, { name: 'p', dsh: { plugins: ['a'] } })
+    expect(readProfileManifest('t', dir).dsh?.plugins).toEqual(['a'])
+    writeFileSync(join(dir, 'package.json'), '[]')
+    expect(() => readProfileManifest('t', dir)).toThrow('must hold a JSON object')
+    expect(() => readProfileManifest('t', join(dir, 'nope'))).toThrow('failed to read profile manifest')
+  })
+})
+
+describe('resolveBundleDir', () => {
+  it('prefers the installation anchor, falls back to the profile, and fails loud', () => {
+    const anchor = stageInstallation({ 'in-box': { patch: '[]\n' } })
+    const profileDir = tmp()
+    mkdirSync(join(profileDir, 'node_modules', 'local-only'), { recursive: true })
+    writeFileSync(join(profileDir, 'package.json'), '{}')
+    writeFileSync(join(profileDir, 'node_modules', 'local-only', 'package.json'), JSON.stringify({ name: 'local-only', version: '0.0.0' }))
+    expect(resolveBundleDir('t', 'in-box', anchor, profileDir)).toContain('in-box')
+    expect(resolveBundleDir('t', 'local-only', anchor, profileDir)).toContain('local-only')
+    expect(() => resolveBundleDir('t', 'absent', anchor, profileDir)).toThrow('cannot resolve profile bundle')
+  })
+})
+
+describe('loadProfile', () => {
+  it('resolves each dsh.plugins bundle to its patch layer in order, plus the user layer', () => {
+    const anchor = stageInstallation({
+      'bundle-a': { patch: '- insert:\n    - id: a\n      name: pkg-a\n' },
+      'bundle-b': { patch: '- id: a\n  config:\n    v: 2\n' },
+    })
+    const home = tmp()
+    const dir = resolveProfileDir('demo', home)
+    initProfile(dir, ['bundle-a', 'bundle-b'])
+    writeFileSync(join(dir, PROFILE_PATCH_FILENAME), '- id: a\n  config:\n    v: 3\n')
+    const profile = loadProfile('t', 'demo', anchor, home)
+    expect(profile.layers.map(layer => layer.packageName)).toEqual(['bundle-a', 'bundle-b'])
+    expect(profile.patches).toHaveLength(1)
+    const entries = composeEntries([
+      ...profile.layers.map(layer => layer.patches),
+      profile.patches,
+    ])
+    expect(entries).toEqual([{ id: 'a', name: 'pkg-a', config: { v: 3 } }])
+    // A hand-made profile without the user layer file or dsh section: empty layers, no throw.
+    rmSync(join(dir, PROFILE_PATCH_FILENAME))
+    expect(loadProfile('t', 'demo', anchor, home).patches).toEqual([])
+    writeProfileManifest(dir, { name: 'bare' })
+    const bare = loadProfile('t', 'demo', anchor, home)
+    expect(bare.layers).toEqual([])
+  })
+
+  it('auto-initializes only shipped templates and fails loud otherwise', () => {
+    const anchor = stageInstallation({})
+    const home = tmp()
+    expect(() => loadProfile('t', 'custom', anchor, home))
+      .toThrow('profile "custom" does not exist')
+    // The web template exists but its bundles are not installed in this fake
+    // installation: init succeeds, resolution then fails loud on the bundle.
+    expect(PROFILE_TEMPLATES.web).toContain('@deepseek-ai/dsh-base')
+    expect(() => loadProfile('t', 'web', anchor, home)).toThrow('cannot resolve profile bundle')
+  })
+
+  it('fails loud when a listed bundle declares no dsh.patch', () => {
+    const anchor = stageInstallation({ 'not-a-bundle': {} })
+    const home = tmp()
+    const dir = resolveProfileDir('demo', home)
+    initProfile(dir, ['not-a-bundle'])
+    expect(() => loadProfile('t', 'demo', anchor, home)).toThrow('declares no dsh.patch')
+  })
+})
+
+describe('composeEntries', () => {
+  it('applies layers over an empty root and reports skipped patches', () => {
+    const warnings: string[] = []
+    const entries = composeEntries([
+      [{ insert: [{ id: 'x', name: 'pkg-x', config: { a: 1 } }] }],
+      [{ id: 'x', config: { a: 2 } }, { id: 'missing', config: {} }],
+    ], message => warnings.push(message))
+    expect(entries).toEqual([{ id: 'x', name: 'pkg-x', config: { a: 2 } }])
+    expect(warnings.join('\n')).toContain('"missing"')
+    // Default warn sink: skipped patches are silently dropped (boot repeats them).
+    expect(composeEntries([[{ id: 'missing', config: {} }]])).toEqual([])
+  })
+})
+
+describe('healProfilesModuleFallback', () => {
+  it('links the app and bundle dependency surface flat under profiles/node_modules', () => {
+    const anchor = stageInstallation({
+      'bundle-a': { patch: '[]\n', deps: { 'dep-of-a': '0.0.0', 'ghost-dep': '0.0.0' } },
+      'plain-lib': {},
+    })
+    // An app dependency that is declared but not installed: skipped, not fatal.
+    const appManifest = JSON.parse(readFileSync(anchor, 'utf8')) as { dependencies: Record<string, string> }
+    appManifest.dependencies['never-installed'] = '0.0.0'
+    writeFileSync(anchor, JSON.stringify(appManifest))
+    // dep-of-a lives in the installation's node_modules too.
+    const modules = join(anchor, '..', 'node_modules')
+    mkdirSync(join(modules, 'dep-of-a'), { recursive: true })
+    writeFileSync(join(modules, 'dep-of-a', 'package.json'), JSON.stringify({ name: 'dep-of-a', version: '0.0.0' }))
+    const home = tmp()
+    healProfilesModuleFallback(anchor, home)
+    const fallback = join(home, 'profiles', 'node_modules')
+    // App deps, the bundle's own deps, and the bundle itself are linked; the
+    // plain library is linked as an app dep (harmless), the app itself too.
+    for (const name of ['bundle-a', 'plain-lib', 'dep-of-a', 'dsh-app']) {
+      expect(lstatSync(join(fallback, name)).isSymbolicLink(), name).toBe(true)
+    }
+    // Idempotent, and a moved target is re-pointed.
+    healProfilesModuleFallback(anchor, home)
+    const before = readlinkSync(join(fallback, 'dep-of-a'))
+    expect(before).toContain('dep-of-a')
+  })
+
+  it('throws when a fallback entry is a real directory', () => {
+    const anchor = stageInstallation({})
+    const home = tmp()
+    mkdirSync(join(home, 'profiles', 'node_modules', 'dsh-app'), { recursive: true })
+    expect(() => { healProfilesModuleFallback(anchor, home) }).toThrow('is not a symlink')
+  })
+
+  it('replaces a wrong symlink', () => {
+    const anchor = stageInstallation({})
+    const home = tmp()
+    const fallback = join(home, 'profiles', 'node_modules')
+    mkdirSync(fallback, { recursive: true })
+    symlinkSync(tmp(), join(fallback, 'dsh-app'), 'junction')
+    healProfilesModuleFallback(anchor, home)
+    expect(readlinkSync(join(fallback, 'dsh-app'))).toContain('app')
+  })
+})
