@@ -217,7 +217,7 @@ describe('SessionStore.fork', () => {
 
   it('rejects a detached Session object that is not live in ctx.sessions', async () => {
     const { sessions } = await setup()
-    const detached = new Session(SessionId('detached'))
+    const detached = Session.create(SessionId('detached'))
 
     expect(() => sessions.fork(detached))
       .toThrow(new SessionForkError('session "detached" not found', 'SESSION_NOT_FOUND'))
@@ -226,7 +226,7 @@ describe('SessionStore.fork', () => {
   it('rejects a stale Session object whose id is live on a different instance', async () => {
     const { ctx, sessions } = await setup()
     ctx.sessions.create(SessionId('same-id'))
-    const stale = new Session(SessionId('same-id'))
+    const stale = Session.create(SessionId('same-id'))
 
     expect(() => sessions.fork(stale))
       .toThrow(new SessionForkError('session "same-id" is not the live store instance', 'SESSION_NOT_LIVE'))

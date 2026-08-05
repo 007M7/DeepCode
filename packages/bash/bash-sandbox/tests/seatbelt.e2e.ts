@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -74,6 +74,32 @@ describe.skipIf(!seatbeltUsable)('bash-sandbox: real Seatbelt confinement throug
     expect(denied.exitCode).not.toBe(0)
     expect(denied.sandbox).toEqual({ mode: 'workspace-write', denied: true, enforcement: 'full' })
     expect(existsSync(join(outside, 'denied.txt'))).toBe(false)
+  })
+
+  it('evaluates BASH_ENV only after Seatbelt confines the inner Bash', async () => {
+    const workdir = await tempDir(homedir())
+    const outside = await tempDir(homedir())
+    const hook = join(workdir, 'bash-env-hook.sh')
+    const insideProbe = join(workdir, 'hook-ran.txt')
+    const outsideProbe = join(outside, 'escaped.txt')
+    await writeFile(hook, [
+      'printf hook > "$DSH_BASH_ENV_INSIDE"',
+      'printf escaped > "$DSH_BASH_ENV_OUTSIDE"',
+      '',
+    ].join('\n'))
+    const bash = await sandboxedBash(workdir, 'workspace-write')
+
+    await bash.run(bash.resolve({
+      command: 'true',
+      env: { BASH_ENV: hook },
+      dshEnv: {
+        DSH_BASH_ENV_INSIDE: insideProbe,
+        DSH_BASH_ENV_OUTSIDE: outsideProbe,
+      },
+    }))
+
+    expect(readFileSync(insideProbe, 'utf8')).toBe('hook')
+    expect(existsSync(outsideProbe)).toBe(false)
   })
 
   it('classifies a background denial once the task settles', async () => {

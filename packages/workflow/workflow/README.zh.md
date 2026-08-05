@@ -24,7 +24,7 @@
 - `workflow/phase` 和 `workflow/log` 公开脚本叙述；
 - `workflow/agent-start` / `workflow/agent-end` 按 `seq` 为每次子 agent 调用配对；提供方的异步启动调用被拒绝时，该子 agent 不会发出其中任何一个事件。
 
-同进程事件 payload 是以不可变方式借用的值。每个监听器都独立隔离：同步抛出异常或返回的 promise 被拒绝时，只会记录日志，不会阻塞同级监听器或改变执行。
+同进程事件 payload 是借用的不可变值。每个监听器都独立隔离：同步抛出异常或返回的 promise 被拒绝时，只会记录日志，不会阻塞同级监听器或改变执行。
 
 ## 失败纪律
 
@@ -34,9 +34,9 @@
 - `INVALID_ARGUMENT` / `UNSUPPORTED_OPTION` / `UNSUPPORTED_SCHEMA`：钩子调用违反引擎契约；
 - `AGENT_CAP` / `ITEM_CAP`：超过已配置的安全上限；
 - `AGENT_START`：提供方的异步启动调用被拒绝；
-- `AGENT_RESULT`：已发布子 agent 的结果因基础设施故障而拒绝；
+- `AGENT_RESULT`：已发布子 agent 的结果因基础设施故障而被拒绝；
 - `RESULT_UNSERIALIZABLE`：脚本/worker 值不是普通 JSON 数据；
-- `CANCELLED`：取消会接管该运行，待处理和未来的钩子都会拒绝。
+- `CANCELLED`：取消会接管该运行，待处理和后续的钩子调用都会被拒绝。
 
 子 agent 若以非完成的结束原因正常兑现，并不属于基础设施异常：`agent()` 返回 `null`，使脚本可以处理普通的子 agent 失败。
 
@@ -56,4 +56,4 @@
 - **没有 token 预算词汇**：引擎会限制并发、条目和子 agent，但请求与结果都不会统计跨子 agent 的模型 token。
 - **运行由持有方负责，不由服务跟踪**：卸载引擎不会发现独立的活动句柄；每个消费方都必须 dispose 自己启动的运行。
 
-暂缓实现的工作流接口见[动态工作流 Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-07-05-dynamic-workflows.md)。
+暂缓实现的工作流接口见[动态工作流 Agent Note](../../../.agents/notes/implemented/feature/2026-07-05-dynamic-workflows.md)。

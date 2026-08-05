@@ -16,7 +16,7 @@ import type { LocalPtySession } from '@deepseek-ai/dsh-pty-local/src/session.ts'
 
 class EmptySandbox extends SandboxProvider {
   confine(_argv: readonly string[], _policy: SandboxPolicy): ConfinedArgv {
-    return { argv: [], enforcement: 'full', denialSignatures: [], runnerFailureSignatures: [] }
+    return { argv: [], enforcement: 'full', denialSignatures: [], runnerFailureRules: [] }
   }
 }
 
@@ -25,7 +25,7 @@ class RecordingSandbox extends SandboxProvider {
 
   confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv {
     this.calls.push({ argv, policy })
-    return { argv: ['/sandbox', '--', ...argv], enforcement: 'full', denialSignatures: [], runnerFailureSignatures: [] }
+    return { argv: ['/sandbox', '--', ...argv], enforcement: 'full', denialSignatures: [], runnerFailureRules: [] }
   }
 }
 
@@ -43,7 +43,7 @@ function agent(ctx: Context, cwd?: string): Agent {
   return {
     id,
     options: {},
-    session: new Session(id, undefined, { version: 0, id, createdAt: 0, ...cwd === undefined ? {} : { cwd } }),
+    session: Session.create(id, undefined, { version: 0, id, createdAt: 0, ...cwd === undefined ? {} : { cwd } }),
     status: 'idle', acceptsNextStep: false, ctx,
     followup: () => {}, steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }), inject: () => {}, send: () => {}, updateInbox: () => 'not-found', reserveTurnAdmission: () => undefined, cancel() {}, whenIdle: () => Promise.resolve(),
   }

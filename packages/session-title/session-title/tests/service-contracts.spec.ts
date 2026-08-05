@@ -82,7 +82,7 @@ describe('SessionTitleService configuration and refresh boundaries', () => {
     await expect(withProvider.sessionTitle.refresh(providerEmpty)).resolves.toBeUndefined()
     expect(generate).not.toHaveBeenCalled()
 
-    await expect(withProvider.sessionTitle.refresh(new Session(SessionId('detached'))))
+    await expect(withProvider.sessionTitle.refresh(Session.create(SessionId('detached'))))
       .rejects.toThrow(/not live in this store/)
     const controller = new AbortController()
     controller.abort(new Error('already cancelled'))
@@ -165,7 +165,7 @@ describe('SessionTitleService configuration and refresh boundaries', () => {
 
   it('shares one fallback across concurrent refreshes', async () => {
     const ctx = await setup()
-    const seed = new Session(SessionId('fallback-concurrency-seed'))
+    const seed = Session.create(SessionId('fallback-concurrency-seed'))
     seed.append('turn/start', {
       turn: 1,
       trigger: { kind: 'message', source: { kind: 'user' } },

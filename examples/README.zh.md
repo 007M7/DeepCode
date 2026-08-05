@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-展示 harness 如何接线的可运行演示（不是 workspace）。每个示例都是一个 **轻量叶节点**：要么是一份选择可替换后端、加载一个应用包（package）的 `cordis.yml` 配置树，要么是一个 **overlay**——由 `dsh --config` 叠加到交付组合（[`apps/cli/config/base.cordis.yml`](../apps/cli/config/base.cordis.yml) 加一份 surface overlay）之上的 patch 列表。成组的组合位于 [`@deepseek-ai/dsh-cli-demo`](../packages/examples/cli-demo)、[`@deepseek-ai/dsh-acp-demo`](../packages/examples/acp-demo) 及它们共享的 [`@deepseek-ai/dsh-agent-spine-demo`](../packages/examples/agent-spine-demo) 组合包中；`dsh` 的各 surface 则改用平铺 config tree。没有 `start.ts`；终端 `demo:*` 脚本通过 [`dsh`](../apps/cli/README.md) CLI（命令行界面）启动，无头／ACP（Agent Client Protocol）脚本则调用 `cli-demo`/`acp-demo` bin。
+展示 harness 如何接线的可运行演示（不是 workspace）。每个示例都是一个 **轻量叶节点**：要么是一份选择可替换后端、加载一个应用包的 `cordis.yml` 配置树，要么是一个 **overlay**——由 `dsh --config` 叠加到交付组合（[`apps/cli/config/base.cordis.yml`](../apps/cli/config/base.cordis.yml) 加一份 surface overlay）之上的 patch 列表。成组的组合位于 [`@deepseek-ai/dsh-cli-demo`](../packages/examples/cli-demo)、[`@deepseek-ai/dsh-acp-demo`](../packages/examples/acp-demo) 及它们共享的 [`@deepseek-ai/dsh-agent-spine-demo`](../packages/examples/agent-spine-demo) 组合包中；`dsh` 的各 surface 则改用平铺 config tree。没有 `start.ts`；终端 `demo:*` 脚本通过 [`dsh`](../apps/cli/README.md) CLI（命令行界面）启动，无头／ACP（Agent Client Protocol）脚本则调用 `cli-demo`/`acp-demo` bin。
 
 ## mcp-memory
 
