@@ -103,6 +103,7 @@ export async function listChildren(
   )
   const entries: SubagentListEntry[] = []
   for (const node of trace.descendants) {
+    if (node.session.header.origin !== 'subagent') continue
     const hasChildren = node.descendants.some(
       descendant => descendant.session.header.origin === 'subagent',
     )
