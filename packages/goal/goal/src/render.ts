@@ -1,5 +1,6 @@
 /** Model-visible rendering for durable goal mutations. */
 
+import { boundContextSummary } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { GoalChangeMeta } from './domain.ts'
 
@@ -9,10 +10,11 @@ import type { GoalChangeMeta } from './domain.ts'
  * @returns the operation and, for a surviving goal, its objective.
  */
 export function goalChangeSummary(change: GoalChangeMeta): string {
-  // The row header already names the producer, so the account does not repeat it.
-  return change.operation === 'clear'
+  // The row header already names the producer, so the account does not repeat
+  // it. The objective is unbounded caller text, so the account is bounded.
+  return boundContextSummary(change.operation === 'clear'
     ? change.operation
-    : `${change.operation}: ${change.goal.objective}`
+    : `${change.operation}: ${change.goal.objective}`)
 }
 
 /**

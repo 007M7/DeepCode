@@ -8,7 +8,7 @@
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import { createUserMessage, type ContentBlock } from '@deepseek-ai/dsh-llm'
+import { boundContextSummary, createUserMessage, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import { TextRetainer } from '@deepseek-ai/dsh-retention'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, ToolDefinition, ToolExecution } from '@deepseek-ai/dsh-tools'
@@ -115,23 +115,12 @@ function fitWithSuffix(
 }
 
 /**
- * Bound for the durable one-line account. A notice summary rides a collapsed
- * transcript row, and both the task label and its status detail are caller
- * text with no length of their own, so the summary caps itself rather than
- * committing unbounded prose to the log.
- */
-const SUMMARY_MAX_CHARS = 120
-
-/**
  * One-line account of a settled task for the `notice` form's collapsed row.
  * @param snapshot - the settled task.
- * @returns its kind, label, and status, bounded to {@link SUMMARY_MAX_CHARS}.
+ * @returns its kind, label, and status, bounded like every notice summary.
  */
 function completionSummary(snapshot: TaskSnapshot): string {
-  const summary = `${snapshot.kind} ${snapshot.label} ${statusLine(snapshot)}`
-  return summary.length <= SUMMARY_MAX_CHARS
-    ? summary
-    : `${summary.slice(0, SUMMARY_MAX_CHARS - 1)}…`
+  return boundContextSummary(`${snapshot.kind} ${snapshot.label} ${statusLine(snapshot)}`)
 }
 
 function fitCompletionNotice(snapshot: TaskSnapshot): string {

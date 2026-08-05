@@ -617,6 +617,45 @@ describe('MessageItem arms', () => {
     expect(view.container.querySelector('[data-context-fields]')).not.toBeNull()
   })
 
+  it('each form falls back to the opaque body when its required facts are unreadable', () => {
+    // The fallback chain is the load-bearing wall: every dedicated form must
+    // reach it, and the row marker must not claim a form that did not render.
+    const cases = [
+      { form: 'snapshot', source: { kind: 'plugin', form: 'snapshot', sections: 'not-a-list' }, label: 'plugin' },
+      { form: 'relay', source: { kind: 'subagent-report', form: 'relay' }, label: 'subagent-report' },
+      { form: 'recall', source: { kind: 'session-reference', form: 'recall', references: [{ label: 'x' }] }, label: 'session-reference' },
+    ] as const
+    for (const { form, source, label } of cases) {
+      cleanup()
+      const view = render(
+        <MessageItem t={t} node={{
+          kind: 'context', seq: 3, content: [{ type: 'text', text: `${form} prose` }],
+          source, provenance: { role: 'inject', label }, form,
+        } as never}
+        />,
+      )
+      fireEvent.click(view.getByRole('button', { name: new RegExp(`^上下文注入\\s*${label}$`) }))
+      expect(view.container.querySelector('[data-context-text]')?.textContent).toBe(`${form} prose`)
+      expect(view.container.querySelector('[data-context-injection-body]')?.getAttribute('data-context-form'))
+        .toBeNull()
+    }
+  })
+
+  it('a snapshot states the supersession its framing line carries', () => {
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context', seq: 3, content: [{ type: 'text', text: 'Current runtime context.' }],
+        source: { kind: 'plugin', form: 'snapshot', sections: [{ name: 'sandbox', text: 'w' }] },
+        provenance: { role: 'inject', label: 'plugin' },
+        form: 'snapshot',
+      } as never}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*plugin$/ }))
+    expect(view.container.querySelector('[data-context-snapshot-supersedes]')?.textContent)
+      .toBe('取代先前的快照')
+  })
+
   it('a relay names the agent that sent it above what it said', () => {
     const view = render(
       <MessageItem t={t} node={{

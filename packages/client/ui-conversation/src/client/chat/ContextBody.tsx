@@ -374,6 +374,13 @@ function snapshotSections(source: unknown): SnapshotSection[] | null {
  * The sections are the same bytes the model read, split at the boundaries the
  * producer assembled them on, so a reader sees which subsystem contributed
  * which state instead of one undifferentiated wall.
+ *
+ * One sentence of the model-facing text is NOT in any section: the producer's
+ * framing line declaring that this snapshot supersedes earlier ones. Unlike the
+ * `<system-reminder>` wrapper an instruction context carries — which wraps
+ * content and cannot be separated from it — that line states the form's own
+ * semantics, so the body states them as a caption instead of reprinting the
+ * joined prose beside the sections it was split from.
  * @param props - Durable content, its source, and the locale seat.
  * @returns The snapshot context body, or the opaque body when unreadable.
  */
@@ -383,16 +390,22 @@ export function SnapshotBody({ content, source, t }: {
   t: Translate
 }): ReactNode {
   const sections = snapshotSections(source)
+  /* v8 ignore next -- contextBody reads the sections before choosing this body. */
   if (sections === null) return <OpaqueBody content={content} source={source} t={t} />
   return (
-    <dl className={css.sections} data-context-sections>
-      {sections.map((section, index) => (
-        <div key={index} className={css.section}>
-          <dt className={css.sectionName}>{section.name}</dt>
-          <dd className={css.sectionText}>{boundedText(section.text, t)}</dd>
-        </div>
-      ))}
-    </dl>
+    <>
+      <p className={css.catalogNotice} data-context-snapshot-supersedes>
+        {t('message.context.snapshot.supersedes')}
+      </p>
+      <dl className={css.sections} data-context-sections>
+        {sections.map((section, index) => (
+          <div key={index} className={css.section}>
+            <dt className={css.sectionName}>{section.name}</dt>
+            <dd className={css.sectionText}>{boundedText(section.text, t)}</dd>
+          </div>
+        ))}
+      </dl>
+    </>
   )
 }
 
@@ -425,10 +438,9 @@ export function RelayBody({ content, source, t }: {
   source: unknown
   t: Translate
 }): ReactNode {
-  const sender = asRecord(source)?.['senderSessionId']
-  if (typeof sender !== 'string' || sender === '') {
-    return <OpaqueBody content={content} source={source} t={t} />
-  }
+  const sender = relaySender(source)
+  /* v8 ignore next -- contextBody resolves the sender before choosing this body. */
+  if (sender === null) return <OpaqueBody content={content} source={source} t={t} />
   return (
     <>
       <p className={css.relaySender} data-context-relay-sender>
@@ -439,11 +451,17 @@ export function RelayBody({ content, source, t }: {
   )
 }
 
+/** The sending agent's session id, or null when the record does not name one. */
+function relaySender(source: unknown): string | null {
+  const sender = asRecord(source)?.['senderSessionId']
+  return typeof sender === 'string' && sender !== '' ? sender : null
+}
+
 /** One recalled session, as the durable source records it. */
 interface RecalledSession {
   label: string
-  retained: number | null
-  omitted: number | null
+  retained: number
+  omitted: number
   truncated: boolean
 }
 
@@ -457,15 +475,16 @@ function recalledSessions(source: unknown): RecalledSession[] | null {
     const reference = asRecord(item)
     if (reference === null) return null
     const label = reference['label']
-    if (typeof label !== 'string' || label === '') return null
     const retained = reference['retainedMessages']
     const omitted = reference['omittedMessages']
-    sessions.push({
-      label,
-      retained: typeof retained === 'number' ? retained : null,
-      omitted: typeof omitted === 'number' ? omitted : null,
-      truncated: reference['truncated'] === true,
-    })
+    const truncated = reference['truncated']
+    // Completeness is the fact this card exists to report, so a reference that
+    // cannot state it is not a readable recall — showing the label alone would
+    // present a confident card over unknown loss.
+    if (typeof label !== 'string' || label === ''
+      || typeof retained !== 'number' || typeof omitted !== 'number'
+      || typeof truncated !== 'boolean') return null
+    sessions.push({ label, retained, omitted, truncated })
   }
   return sessions.length === 0 ? null : sessions
 }
@@ -493,14 +512,12 @@ export function RecallBody({ content, source, t }: {
         {sessions.map((session, index) => (
           <li key={index} className={css.recall}>
             <span className={css.recallLabel}>{session.label}</span>
-            {session.retained !== null && session.omitted !== null && (
-              <span className={css.recallCounts}>
-                {t('message.context.recall.counts', {
-                  retained: session.retained,
-                  omitted: session.omitted,
-                })}
-              </span>
-            )}
+            <span className={css.recallCounts}>
+              {t('message.context.recall.counts', {
+                retained: session.retained,
+                omitted: session.omitted,
+              })}
+            </span>
             {session.truncated && (
               <span className={css.recallCounts}>{t('message.context.recall.truncated')}</span>
             )}
@@ -555,7 +572,9 @@ export function contextBody(
         : { rendered: 'notice', summary, body: <NoticeBody {...props} /> }
     }
     case 'relay':
-      return { rendered: 'relay', summary: null, body: <RelayBody {...props} /> }
+      return relaySender(props.source) === null
+        ? opaque
+        : { rendered: 'relay', summary: null, body: <RelayBody {...props} /> }
     case 'recall':
       return recalledSessions(props.source) === null
         ? opaque

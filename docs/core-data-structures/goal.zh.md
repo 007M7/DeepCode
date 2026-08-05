@@ -101,22 +101,20 @@ interface GoalClearChangeMeta {
 
 ```ts type-equiv
 /** Message attribution for durable goal state and continuation rounds. */
-interface GoalMessageSource {
+type GoalMessageSource = {
   readonly kind: 'goal'
-  /**
-   * Round-zero state changes are `notice`-form contexts; a continuation round
-   * carries the objective forward as ordinary context and declares no form.
-   */
-  readonly form?: 'notice'
-  /** Present with `form`: one-line account of the mutation. */
-  readonly summary?: string
   readonly goalId: GoalId
   readonly revision: number
   /** Zero for state changes; positive for admitted continuation rounds. */
   readonly round: number
   /** Complete durable mutation carried only by round-zero state-change messages. */
   readonly change?: GoalChangeMeta
-}
+  /**
+   * Round-zero state changes are `notice`-form contexts; a continuation round
+   * carries the objective forward as ordinary context and declares no form.
+   * Discriminated so the account cannot be omitted when the form is declared.
+   */
+} & ({ readonly form: 'notice'; readonly summary: string } | { readonly form?: never; readonly summary?: never })
 ```
 
 ## 请求与通知

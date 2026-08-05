@@ -51,7 +51,7 @@ import type {
 } from '@deepseek-ai/dsh-llm'
 import { canonicalHeader, headerEquals } from '@deepseek-ai/dsh-session'
 import type { AssistantMessage, EpochHeader, RequestContext, Session, SessionId, TurnEndReason, TurnTrigger, UserMessage } from '@deepseek-ai/dsh-session'
-import { renderContextSections, renderContextSnapshot, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
+import { joinContextSections, renderContextSections, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import { executeToolCalls } from './tool-calls.ts'
 
@@ -700,7 +700,8 @@ export class ReactLoopAgent implements Agent {
     const assembly = await this.loopCtx.systemPrompt.assemble(assembleContextFor(this, signal))
     signal.throwIfAborted()
     const system = renderPrompt(assembly)
-    materializeRuntimeContext(session, renderContextSnapshot(assembly), renderContextSections(assembly))
+    const sections = renderContextSections(assembly)
+    materializeRuntimeContext(session, joinContextSections(sections), sections)
 
     // Commit the exact pending batch only after every asynchronous
     // pre-request contribution succeeded. Input accepted after this splice
