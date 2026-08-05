@@ -60,6 +60,32 @@ describe('SessionPreparations inspection', () => {
     expect(load).toHaveBeenCalledOnce()
   })
 
+  it('evicts completed loads whose observers cancelled before readiness', async () => {
+    const preparations = new SessionPreparations<PreparedSource, string>(1)
+    const firstId = SessionId('cancelled-ready-first')
+    const secondId = SessionId('cancelled-ready-second')
+    const firstGate = Promise.withResolvers<PreparedSource>()
+    const secondGate = Promise.withResolvers<PreparedSource>()
+    const firstController = new AbortController()
+    const secondController = new AbortController()
+    const first = preparations.inspect(firstId, () => firstGate.promise, firstController.signal)
+    const second = preparations.inspect(secondId, () => secondGate.promise, secondController.signal)
+
+    firstController.abort(new Error('first observer cancelled'))
+    secondController.abort(new Error('second observer cancelled'))
+    await expect(first).rejects.toThrow('first observer cancelled')
+    await expect(second).rejects.toThrow('second observer cancelled')
+
+    firstGate.resolve(prepared(firstId))
+    await firstGate.promise
+    secondGate.resolve(prepared(secondId))
+    await secondGate.promise
+    await Promise.resolve()
+
+    expect(preparations.has(firstId)).toBe(false)
+    expect(preparations.has(secondId)).toBe(true)
+  })
+
   it('removes failed and invalidated in-flight loads without changing their observers', async () => {
     const preparations = new SessionPreparations<PreparedSource, string>(1)
     const failedId = SessionId('failed-inspection')
@@ -116,6 +142,23 @@ describe('SessionPreparations inspection', () => {
 
     preparations.discard(reservedB!)
     preparations.invalidate(SessionId('reserved-a'))
+  })
+
+  it('discards only the exact ready source and retains exclusive reservations', async () => {
+    const preparations = new SessionPreparations<PreparedSource, string>(1)
+    const ready = prepared('discard-ready')
+    expect(preparations.discardReady(ready.session.id, ready)).toBe('missing')
+    await preparations.inspect(ready.session.id, () => Promise.resolve(ready))
+    expect(preparations.discardReady(ready.session.id, prepared('different'))).toBe('missing')
+    expect(preparations.discardReady(ready.session.id, ready)).toBe('discarded')
+
+    const reserved = await preparations.reserve(
+      ready.session.id,
+      () => Promise.resolve(ready),
+      committed,
+    )
+    expect(preparations.discardReady(ready.session.id, ready)).toBe('retained')
+    preparations.release(reserved!, false)
   })
 })
 
@@ -229,6 +272,26 @@ describe('SessionPreparations reservation', () => {
     expect(preparations.has(id)).toBe(false)
   })
 
+  it('does not reserve an entry invalidated while its commit succeeds', async () => {
+    const preparations = new SessionPreparations<PreparedSource, string>(1)
+    const id = SessionId('invalidated-successful-commit')
+    const source = prepared(id)
+    const commitStarted = Promise.withResolvers<undefined>()
+    const commitGate = Promise.withResolvers<undefined>()
+    const reservation = preparations.reserve(id, () => Promise.resolve(source), async (value) => {
+      commitStarted.resolve(undefined)
+      await commitGate.promise
+      return { source: value, state: value.label }
+    })
+
+    await commitStarted.promise
+    preparations.invalidate(id)
+    commitGate.resolve(undefined)
+
+    await expect(reservation).resolves.toBeUndefined()
+    expect(preparations.has(id)).toBe(false)
+  })
+
   it('returns undefined when a load is invalidated before reservation', async () => {
     const preparations = new SessionPreparations<PreparedSource, string>(1)
     const id = SessionId('invalidated-reservation')
@@ -239,12 +302,12 @@ describe('SessionPreparations reservation', () => {
     await expect(reservation).resolves.toBeUndefined()
   })
 
-  it('rejects pending adoption and accepts a ready source exactly once', async () => {
+  it('skips pending adoption and accepts a ready source exactly once', async () => {
     const preparations = new SessionPreparations<PreparedSource, string>(1)
     const id = SessionId('take-ready')
     const gate = Promise.withResolvers<PreparedSource>()
     const inspection = preparations.inspect(id, () => gate.promise)
-    expect(() => preparations.takeReady(id)).toThrow(/preparation is pending/)
+    expect(preparations.takeReady(id)).toBeUndefined()
     const source = prepared(id)
     gate.resolve(source)
     await inspection

@@ -186,7 +186,10 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     return this.readPrefix(path, id, signal)
   }
 
-  /** Read one log's stat-derived revision without loading its event bytes. */
+  /**
+   * Read one log's stat-derived revision without loading its event bytes.
+   * Resolving an id with unknown cwd still scans the project directories.
+   */
   async readStoredRevision(id: SessionId, signal?: AbortSignal): Promise<PersistenceRevision | undefined> {
     signal?.throwIfAborted()
     await this.ensureRootEncoding()

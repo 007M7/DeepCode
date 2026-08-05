@@ -111,6 +111,7 @@ export class SessionPreparations<Source extends PreparedSource, CommitState> {
       this.makeReady(entry)
       throw error
     }
+    if (this.entries.get(id) !== entry) return undefined
     const reservation: SessionPreparationReservation<Source, CommitState> = {
       entry,
       source: committed.source,
@@ -191,6 +192,20 @@ export class SessionPreparations<Source extends PreparedSource, CommitState> {
   }
 
   /**
+   * Discard an exact stale ready source without disturbing an exclusive owner.
+   * @param id - changed session identity.
+   * @param expected - exact source observed before its revision check.
+   * @returns whether the source was discarded, retained by a reservation, or is absent.
+   */
+  discardReady(id: SessionId, expected: Source): 'discarded' | 'retained' | 'missing' {
+    const entry = this.entries.get(id)
+    if (entry === undefined || entry.source !== expected) return 'missing'
+    if (entry.phase !== 'ready') return 'retained'
+    this.remove(entry)
+    return 'discarded'
+  }
+
+  /**
    * Reject writes while an unpublished Session exclusively reserves the id.
    * @param id - session identity to check.
    */
@@ -208,10 +223,7 @@ export class SessionPreparations<Source extends PreparedSource, CommitState> {
    */
   takeReady(id: SessionId): Source | undefined {
     const entry = this.entries.get(id)
-    if (entry === undefined) return undefined
-    if (entry.phase !== 'ready' || entry.source === undefined) {
-      throw new Error(`cannot adopt session "${id}" while its preparation is pending`)
-    }
+    if (entry === undefined || entry.phase !== 'ready' || entry.source === undefined) return undefined
     this.remove(entry)
     return entry.source
   }
@@ -242,7 +254,7 @@ export class SessionPreparations<Source extends PreparedSource, CommitState> {
     void loading.then((source) => {
       if (this.entries.get(id) === entry) {
         entry.source = source
-        entry.phase = 'ready'
+        this.makeReady(entry)
       }
       deferred.resolve(source)
     }, (error: unknown) => {

@@ -104,7 +104,8 @@ export abstract class SessionPersistence extends Service {
    * Prepare the exact unpublished Session used by resume. Implementations may
    * reuse object graphs retained by an earlier {@link inspect} after confirming
    * their durable revision is still current; disposal releases an unpublished
-   * reservation.
+   * reservation. Revision retries require the durable log to remain unchanged
+   * for one read/check round trip; continuous external writers may delay completion.
    * @param id - persisted session to prepare.
    * @param signal - optional cancellation for preparation work.
    * @returns one owned unpublished Session preparation.
@@ -133,6 +134,7 @@ export abstract class SessionPersistence extends Service {
    * identity still bound to a live Session: a balanced live log may return as a
    * durable snapshot, while an open live turn rejects. Returned values may be
    * shared with immutable live or prepared state and must not be mutated.
+   * Revision-based implementations may wait for one stable read/check round trip.
    * @param id - the persisted session to reload.
    * @returns the header and a log ending on a balanced `turn/end`.
    */
@@ -146,7 +148,8 @@ export abstract class SessionPersistence extends Service {
    * open turn and its `session/end-seed` boundary. Coordinator-backed
    * implementations retain the exact cold unpublished Session for bounded
    * reuse by a later {@link prepare}, reloading it when its durable revision
-   * changes; callers borrow only its immutable header and log.
+   * changes; callers borrow only its immutable header and log. Continuous
+   * external writers may delay revision convergence.
    * @param id - the persisted session to inspect.
    * @param signal - optional cancellation for queued and backend read work.
    * @returns the validated header and current logical event log.

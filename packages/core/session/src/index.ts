@@ -821,11 +821,7 @@ export class SessionStore extends Service {
    * `dsh-agent-loop`'s creation transaction).
    *
    * @param id - the session id; omitted, the store mints `session-<n>`.
-   * @param options - seed events and/or creation metadata for the header. With
-   *   `seedSource: 'persistence'`, metadata and events must be fresh detached
-   *   graphs whose ownership transfers to this call: they are validated and
-   *   frozen in place through {@link Session.fromRestore}, so the caller must
-   *   retain no mutable aliases.
+   * @param options - seed events and/or creation metadata for the header.
    * @returns the live session, already entered and announced.
    * @throws if a session with `id` already exists, metadata is not a plain
    *   lossless-JSON record with valid scalar fields, or `meta.cwd` is a
@@ -854,7 +850,11 @@ export class SessionStore extends Service {
    * before the driver's closing events commit, dropping them.
    *
    * @param id - the session id; omitted, the store mints `session-<n>`.
-   * @param options - seed events and/or creation metadata for the header.
+   * @param options - seed events and/or creation metadata for the header. With
+   *   `seedSource: 'persistence'`, metadata and events must be fresh detached
+   *   graphs whose ownership transfers to this call: they are validated and
+   *   frozen in place through {@link Session.fromRestore}, so the caller must
+   *   retain no mutable aliases.
    * @returns the constructed session, NOT yet in the store.
    * @throws if a session with `id` already exists, metadata is not a plain
    *   lossless-JSON record with valid scalar fields, or `meta.cwd` is a

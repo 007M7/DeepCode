@@ -705,6 +705,7 @@ export class SubagentContinuationManager {
     try {
       loaded = await persistence.inspect(childId, options.signal)
     } catch (error: unknown) {
+      options.signal.throwIfAborted()
       throw new SubagentError(`subagent "${childId}" is unavailable`, 'NOT_RESUMABLE', { cause: error })
     }
     options.signal.throwIfAborted()

@@ -682,6 +682,44 @@ describe('PersistenceCoordinator session preparations', () => {
     }
   })
 
+  it('retains a reserved preparation when inspection observes a newer external revision', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    const id = SessionId('reserved-inspect-revision-race')
+    backend.store.set(id, { meta: meta(id), events: oneTurnLog() })
+    let coordinator!: PersistenceCoordinator<never>
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      coordinator = new PersistenceCoordinator(inner, backend)
+    }, { inject: ['sessions'] }))
+    let preparation: Awaited<ReturnType<typeof coordinator.prepare>> | undefined
+    let detach: (() => void) | undefined
+
+    try {
+      const cached = await coordinator.inspect(id)
+      preparation = await coordinator.prepare(id)
+      backend.store.get(id)!.events.push(
+        { type: 'turn/start', seq: 6, time: 7, data: { turn: 2 } },
+        { type: 'turn/end', seq: 7, time: 8, data: { turn: 2, reason: { kind: 'completed' } } },
+      )
+
+      await expect(coordinator.inspect(id)).resolves.toBe(cached)
+      const preparations = (coordinator as unknown as {
+        preparations: { reservationFor: (session: Session) => object | undefined }
+      }).preparations
+      expect(preparations.reservationFor(preparation.session)).toBeDefined()
+
+      detach = ctx.sessions.enter(preparation.session)
+      expect(() => { ctx.sessions.announce(preparation!.session) }).not.toThrow()
+      expect(preparations.reservationFor(preparation.session)).toBeUndefined()
+    } finally {
+      detach?.()
+      preparation?.[Symbol.dispose]()
+      await fiber.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('queues a same-tick cold append behind preparation readiness', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
@@ -707,6 +745,39 @@ describe('PersistenceCoordinator session preparations', () => {
         events: [...oneTurnLog(), { seq: 6 }, { seq: 7 }],
       })
       await expect(append).resolves.toBeUndefined()
+      expect(backend.loadAttempts).toBe(2)
+      expect(backend.store.get(id)?.events).toHaveLength(oneTurnLog().length + 1)
+    } finally {
+      await fiber.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('allows a same-tick cold append to start before inspection', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    const id = SessionId('cold-append-inspect-race')
+    backend.store.set(id, { meta: meta(id), events: oneTurnLog() })
+    let coordinator!: PersistenceCoordinator<never>
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      coordinator = new PersistenceCoordinator(inner, backend)
+    }, { inject: ['sessions'] }))
+
+    try {
+      const append = coordinator.append(id, [{
+        type: 'turn/start',
+        seq: oneTurnLog().length,
+        time: 7,
+        data: { turn: 2 },
+      }])
+      const inspection = coordinator.inspect(id)
+
+      await expect(append).resolves.toBeUndefined()
+      await expect(inspection).resolves.toMatchObject({
+        meta: { id },
+        events: [...oneTurnLog(), { seq: 6 }, { seq: 7 }],
+      })
       expect(backend.loadAttempts).toBe(2)
       expect(backend.store.get(id)?.events).toHaveLength(oneTurnLog().length + 1)
     } finally {

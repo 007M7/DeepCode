@@ -43,7 +43,7 @@ Cold continuable-subagent access follows the same path. Descriptor authorization
 - The cache belongs to one persistence coordinator, not a process-global Session map. Live Sessions are owned by the existing stores and never occupy preparation capacity.
 - A fresh create never claims a cold persisted preparation with the same id. Persistence collisions continue to reject.
 - Third-party persistence implementations retain the abstract `prepare()` fallback through `load()`. They receive the same publication interface but gain exact-object reuse only when they override preparation.
-- Revision validation establishes freshness at the reuse and repair-commit points; it does not add cross-process writer exclusion to a backend.
+- Revision validation establishes freshness at the reuse and repair-commit points; it does not add cross-process writer exclusion to a backend. Retries converge after the durable log remains unchanged for one read/check round trip, so continuous external writers can delay preparation.
 
 ## Verification
 

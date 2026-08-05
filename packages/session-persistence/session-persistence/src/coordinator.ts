@@ -639,6 +639,8 @@ export class PersistenceCoordinator<TornMarker = unknown> {
 
   /**
    * Prepare and reserve the exact unpublished Session used by resume.
+   * Revision retries converge once the durable log remains unchanged for one
+   * read/check round trip; continuous external writers may delay completion.
    * @param id - persisted session to prepare.
    * @param signal - optional cancellation for reading and repair.
    * @returns an owned preparation released after publication or rollback.
@@ -674,6 +676,8 @@ export class PersistenceCoordinator<TornMarker = unknown> {
 
   /**
    * Commit recovery and return its immutable logical view without publication.
+   * Revision retries converge once the durable log remains unchanged for one
+   * read/check round trip; continuous external writers may delay completion.
    * @param id - persisted session to load.
    * @returns prepared header and balanced events.
    */
@@ -700,6 +704,9 @@ export class PersistenceCoordinator<TornMarker = unknown> {
 
   /**
    * Inspect a logical session without publishing it or committing recovery.
+   * Retained cold state is reloaded after its durable revision changes. Revision
+   * retries converge once the log is stable for one read/check round trip;
+   * continuous external writers may delay completion.
    * @param id - persisted session to inspect.
    * @param signal - optional cancellation for preparation work.
    * @returns immutable prepared metadata and events; a live view may have an open turn.
@@ -726,7 +733,9 @@ export class PersistenceCoordinator<TornMarker = unknown> {
         const published = this.ctx.sessions.get(id)
         if (published !== undefined) return this.inspectLive(published)
         if (current) return source.inspection
-        this.preparations.invalidate(id, source)
+        if (this.preparations.discardReady(id, source) === 'retained') {
+          return source.inspection
+        }
       } catch (error: unknown) {
         const attached = this.ctx.sessions.get(id)
         if (attached !== undefined) return this.inspectLive(attached)
