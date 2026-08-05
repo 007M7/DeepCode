@@ -227,14 +227,15 @@ describe('MessageItem arms', () => {
     expect(fork).toHaveBeenCalledWith(2)
   })
 
-  it('context uses the Tool calls disclosure chrome and keeps its JSON collapsed by default', () => {
+  it('context uses the Tool calls disclosure chrome and keeps its body collapsed by default', () => {
     const ctxView = render(
       <MessageItem t={t} node={{
         kind: 'context',
         seq: 3,
-        content: [{ type: 'text', text: 'x\n"y":,[{}]' }],
+        content: [{ type: 'text', text: 'line one\n\nline two' }],
         source: { kind: 'plugin', plugin: 'fixture', empty: {}, list: [] },
         provenance: { role: 'inject', label: 'fixture' },
+        form: null,
       } as never}
       />,
     )
@@ -245,29 +246,84 @@ describe('MessageItem arms', () => {
 
     fireEvent.click(disclosure)
     expect(disclosure.getAttribute('aria-expanded')).toBe('true')
-    expect(ctxView.container.querySelector('[data-context-injection-body]')?.textContent).toBe(
-      '{ "content": [ { "type": "text", "text": "x\\n\\"y\\":,[{}]" } ], '
-      + '"source": { "kind": "plugin", "plugin": "fixture", "empty": {}, "list": [] } }',
-    )
+    // An unknown form renders the opaque body: the model-facing text keeps its
+    // real line breaks instead of being escaped into one JSON line, and the
+    // remaining provenance follows it as fields.
+    expect(ctxView.container.querySelector('[data-context-text]')?.textContent)
+      .toBe('line one\n\nline two')
+    const fields = [...ctxView.container.querySelectorAll('[data-context-fields] dt')].map(node => node.textContent)
+    expect(fields).toEqual(['plugin', 'empty', 'list'])
 
     fireEvent.keyDown(disclosure, { key: ' ' })
     expect(disclosure.getAttribute('aria-expanded')).toBe('false')
   })
 
-  it('context preserves the bounded JSON truncation contract', () => {
+  it('the instructions form names the files it reconciled above their text', () => {
     const view = render(
       <MessageItem t={t} node={{
         kind: 'context',
         seq: 3,
-        content: [{ type: 'text', text: 'x'.repeat(21_000) }],
-        source: null,
-        provenance: { role: 'inject', label: null },
+        content: [{ type: 'text', text: '<system-reminder>\nInstructions from: AGENTS.md\n</system-reminder>' }],
+        source: {
+          kind: 'workspace-instructions',
+          form: 'instructions',
+          baseline: true,
+          changes: [
+            { action: 'set', scope: '.\u0000AGENTS.md', path: 'AGENTS.md', digest: 'abc' },
+            { action: 'remove', scope: 'sub\u0000AGENTS.md', path: 'sub/AGENTS.md' },
+          ],
+        },
+        provenance: { role: 'inject', label: 'AGENTS.md, sub/AGENTS.md' },
+        form: 'instructions',
       } as never}
       />,
     )
-    fireEvent.click(view.getByRole('button', { name: '上下文注入' }))
-    expect(view.container.querySelector('[data-context-injection-body]')?.textContent)
-      .toMatch(/… 已截断，共 \d+ 字符$/)
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*AGENTS\.md, sub\/AGENTS\.md$/ }))
+    const files = [...view.container.querySelectorAll('[data-context-files] li')].map(node => node.textContent)
+    expect(files).toEqual(['AGENTS.md已载入', 'sub/AGENTS.md已移除'])
+    // The `<system-reminder>` framing is part of what the model read, so the
+    // body keeps it verbatim rather than presenting a cleaned-up excerpt.
+    expect(view.container.querySelector('[data-context-text]')?.textContent)
+      .toContain('<system-reminder>')
+  })
+
+  it('the catalog form lists its durable entries instead of the model-facing prose', () => {
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context',
+        seq: 3,
+        content: [{ type: 'text', text: '<system-reminder>\n<available_skills>\n- `a`: A\n</available_skills>' }],
+        source: {
+          kind: 'skill-catalog',
+          form: 'catalog',
+          entries: [{ name: 'a-skill', description: 'Does A' }, { name: 'b-skill', description: 'Does B' }],
+        },
+        provenance: { role: 'inject', label: 'skill-catalog' },
+        form: 'catalog',
+      } as never}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*skill-catalog$/ }))
+    const entries = [...view.container.querySelectorAll('[data-context-entries] li')].map(node => node.textContent)
+    expect(entries).toEqual(['a-skillDoes A', 'b-skillDoes B'])
+    expect(view.container.querySelector('[data-context-text]')).toBeNull()
+  })
+
+  it('a catalog whose source carries no entries falls back to the opaque body', () => {
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context',
+        seq: 3,
+        content: [{ type: 'text', text: 'catalog prose' }],
+        source: { kind: 'skill-catalog', form: 'catalog', entries: [] },
+        provenance: { role: 'inject', label: 'skill-catalog' },
+        form: 'catalog',
+      } as never}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*skill-catalog$/ }))
+    expect(view.container.querySelector('[data-context-entries]')).toBeNull()
+    expect(view.container.querySelector('[data-context-text]')?.textContent).toBe('catalog prose')
   })
 
   it('a recalled session titles its row by role and names the sessions it read', () => {
@@ -278,6 +334,7 @@ describe('MessageItem arms', () => {
         content: [{ type: 'text', text: 'snapshot' }],
         source: { kind: 'session-reference', version: 1, references: [{ label: '重构 loader' }] },
         provenance: { role: 'recall', label: '重构 loader' },
+        form: null,
       } as never}
       />,
     )
@@ -293,6 +350,7 @@ describe('MessageItem arms', () => {
         content: [{ type: 'text', text: 'instructions' }],
         source: { kind: 'workspace-instructions', changes: [{ path: 'AGENTS.md' }] },
         provenance: { role: 'inject', label: 'AGENTS.md' },
+        form: null,
       } as never}
       />,
     )
@@ -307,6 +365,7 @@ describe('MessageItem arms', () => {
       <MessageItem t={t} node={{
         kind: 'context', seq: 3, content: [{ type: 'text', text: 'x' }], source: null,
         provenance: { role: 'inject', label: null },
+        form: null,
       } as never}
       />,
     )

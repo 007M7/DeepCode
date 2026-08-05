@@ -219,6 +219,7 @@ function workspaceChangeContext(scope: string, digest: string): UserMessage {
     content: [{ type: 'text', text: `instructions for ${scope}` }],
     source: {
       kind: 'workspace-instructions',
+      form: 'instructions',
       changes: [{ action: 'set', scope, path: `${scope}/AGENTS.md`, digest }],
     },
   })
@@ -974,6 +975,7 @@ describe('workspace context request injection', () => {
           role: 'user',
           source: {
             kind: 'workspace-instructions',
+            form: 'instructions',
             baseline: true,
             changes: [{ action: 'set', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md' }],
           },
@@ -1951,6 +1953,7 @@ describe('dynamic nested workspace context injection', () => {
       expect(workspaceContextOf(result)?.source).toMatchObject({ kind: 'workspace-instructions' })
       expect(workspaceContextOf(result)?.source).toMatchObject({
         kind: 'workspace-instructions',
+        form: 'instructions',
         changes: [{
           action: 'set',
           scope: sk('pkg', 'AGENTS.md'),
@@ -2262,6 +2265,7 @@ describe('dynamic nested workspace context injection', () => {
 
       expect(workspaceContextOf(changed)?.source).toMatchObject({
         kind: 'workspace-instructions',
+        form: 'instructions',
         changes: [{ action: 'replace', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
       })
       expect(blocksText(workspaceContextOf(changed)?.content)).toBe([
@@ -2487,6 +2491,7 @@ describe('dynamic nested workspace context injection', () => {
 
       expect(workspaceContextOf(removed)?.source).toEqual({
         kind: 'workspace-instructions',
+        form: 'instructions',
         changes: [{ action: 'remove', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
       })
       expect(blocksText(workspaceContextOf(removed)?.content)).toBe([
@@ -2887,6 +2892,7 @@ describe('dynamic nested workspace context injection', () => {
         ],
         source: {
           kind: 'workspace-instructions',
+          form: 'instructions',
           changes: [
             null,
             { action: 'unknown', scope: 'pkg', path: join('pkg', 'AGENTS.md') },
@@ -3073,6 +3079,7 @@ describe('dynamic nested workspace context injection', () => {
       expect(workspaceContextOf(result)?.source).toMatchObject({ kind: 'workspace-instructions' })
       expect(workspaceContextOf(result)?.source).toMatchObject({
         kind: 'workspace-instructions',
+        form: 'instructions',
         changes: [{ action: 'set', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
       })
       expect(blocksText(workspaceContextOf(result)?.content)).toContain('nested package rule')
@@ -3505,7 +3512,7 @@ describe('workspace context pending state', () => {
     // must not mint per-session pending state.
     expect(commitPendingInstructionContexts(agent, [createUserMessage({
       content: [],
-      source: { kind: 'workspace-instructions', changes: [] },
+      source: { kind: 'workspace-instructions', form: 'instructions', changes: [] },
     })], pending)).toEqual([])
     expect(pending.has(agent.session)).toBe(false)
 

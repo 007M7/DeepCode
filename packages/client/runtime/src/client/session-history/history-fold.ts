@@ -11,7 +11,7 @@ import type {
   PartialAssistant, RunningToolCall,
 } from '../sessions/conversation.ts'
 import { toAssistantBlocks } from '../sessions/conversation.ts'
-import { contextProvenance } from '../sessions/context-provenance.ts'
+import { contextForm, contextProvenance } from '../sessions/context-provenance.ts'
 import type {
   ConversationContext, ConversationContextOriginKind,
 } from '../sessions/conversation-context.ts'
@@ -128,6 +128,7 @@ function materializeNode(
           kind: 'context', seq: event.seq, time: event.time,
           content: event.data.content, source: event.data.source,
           provenance: contextProvenance(event.data.source),
+          form: contextForm(event.data.source),
         }
       }
       return {

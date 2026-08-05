@@ -30,12 +30,39 @@ export interface ToolMessageSource {
 }
 
 /**
+ * What SHAPE of information a producer-supplied context carries, declared by
+ * the producer beside its provenance.
+ *
+ * `MessageSource.kind` answers *who produced this*; `form` answers *what kind
+ * of thing it is*, and the two axes are deliberately independent — several
+ * producers share one form (three snapshot producers today), and one producer
+ * may emit more than one form over a session.
+ *
+ * The vocabulary is SEMANTIC, never visual: a value states that the content is
+ * a file's instructions or a catalog of available items, and a consumer decides
+ * what that looks like. Colors, icons, ordering, and collapse defaults are the
+ * consumer's business and must not enter this union. It grows one value at a
+ * time as producers gain the structured fields their form needs; an absent or
+ * unknown value is the documented default, presented as opaque content.
+ */
+export type ContextForm =
+  /** Instructions read out of workspace files the model is expected to follow. */
+  | 'instructions'
+  /** A catalog of items available in this session, republished as it changes. */
+  | 'catalog'
+
+/** Optional producer-declared {@link ContextForm}, mixed into the source shapes that carry one. */
+export interface ContextFormed {
+  readonly form?: ContextForm
+}
+
+/**
  * Where a message (or injected content) came from.
  * Merge-extensible sum type — plugins add their own `kind`s.
  */
 export interface MessageSourceMap {
   user: { kind: 'user' }
-  plugin: { kind: 'plugin'; plugin: string }
+  plugin: { kind: 'plugin'; plugin: string } & ContextFormed
   model: ModelMessageSource
   tool: ToolMessageSource
 }

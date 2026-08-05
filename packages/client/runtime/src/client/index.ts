@@ -53,7 +53,9 @@ export type {
 export type {
   ConversationContext, ConversationContextOriginKind,
 } from './sessions/conversation-context.ts'
-export type { ContextProvenanceView, ContextRole } from './sessions/context-provenance.ts'
+export type {
+  ContextProvenanceView, ContextRole, KnownContextForm,
+} from './sessions/context-provenance.ts'
 export type {
   ConversationPromptSnapshot, RequestInspectionSnapshot, RequestPromptChange, RequestView,
 } from './sessions/request-inspection.ts'

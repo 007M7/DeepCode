@@ -94,8 +94,7 @@ async function fireStep(ctx: Context, agent: Agent, turn: number, step: number):
 
 function catalogMessages(session: Session): Extract<SessionEvent, { type: 'user/message' }>[] {
   return session.events.filter((event): event is Extract<SessionEvent, { type: 'user/message' }> => event.type === 'user/message'
-    && event.data.source.kind === 'plugin'
-    && event.data.source.plugin === 'dsh-tool-skill')
+    && event.data.source.kind === 'skill-catalog')
 }
 
 function catalogContent(entries: string[]): Message['content'] {
@@ -215,7 +214,15 @@ describe('dsh-tool-skill', () => {
       {
         id: expect.any(String) as unknown,
         role: 'user',
-        source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
+        source: {
+          kind: 'skill-catalog',
+          form: 'catalog',
+          entries: [
+            { name: 'a-skill', description: 'Use {{placeholder}} &lt;safely&gt; &amp; carefully.' },
+            { name: 'model-only-skill', description: 'Model-only skill.' },
+            { name: 'z-skill', description: 'Long description Long description Long descript...' },
+          ],
+        },
         content: [{
           type: 'text',
           text: [
@@ -354,7 +361,12 @@ describe('dsh-tool-skill', () => {
     expect(catalogMessages(session)).toHaveLength(3)
   })
 
-  it('resumes from the latest valid visible catalog content', async () => {
+  it('resumes from the durable entries of the latest visible catalog', async () => {
+    // Catalog identity moved onto `source.entries` when the catalog became a
+    // `catalog`-form context: the model-facing prose no longer decides whether
+    // a republish is needed, so a seeded message is recognized by its source
+    // alone and malformed prose can no longer hide (or fake) a published
+    // catalog. A foreign-sourced message is not this plugin's catalog at all.
     const home = await tempDir('tool-catalog-resume')
     const ctx = await setup(home)
     ctx.skills.register({
@@ -367,30 +379,36 @@ describe('dsh-tool-skill', () => {
     const agent = sessionAgent(session)
     openMessageTurn(session)
     session.append('user/message', createUserMessage({
-      content: catalogContent(['- `old-skill`: Old skill']),
-      source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
+      content: [{ type: 'text', text: 'prose a reader cannot rely on' }],
+      source: {
+        kind: 'skill-catalog',
+        form: 'catalog',
+        entries: [{ name: 'old-skill', description: 'Old skill' }],
+      },
     }), { surfaceOp: 'append' })
     session.append('user/message', createUserMessage({
-      content: [{ type: 'text', text: 'missing catalog markers' }],
-      source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
-    }), { surfaceOp: 'append' })
-    session.append('user/message', createUserMessage({
-      content: [{ type: 'text', text: '<available_skills>\nmissing closing marker' }],
-      source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
-    }), { surfaceOp: 'append' })
-    session.append('user/message', createUserMessage({
-      content: [{ type: 'text', text: 'first block' }, { type: 'text', text: 'second block' }],
-      source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
-    }), { surfaceOp: 'append' })
-    session.append('user/message', createUserMessage({
-      content: [{ type: 'reasoning', text: 'not a user-role catalog block' }],
+      content: catalogContent(['- `resumed-skill`: Resumed skill']),
       source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
     }), { surfaceOp: 'append' })
 
     await fireStep(ctx, agent, 1, 1)
 
-    expect(catalogMessages(session)).toHaveLength(6)
-    expect(JSON.stringify(catalogMessages(session).at(-1)?.data.content)).toContain('resumed-skill')
+    // The seeded entries differ from the live snapshot, so one replacement
+    // lands; the foreign-sourced lookalike neither counts as published nor
+    // suppresses it.
+    expect(catalogMessages(session)).toHaveLength(2)
+    const latest = catalogMessages(session).at(-1)
+    expect(latest?.data.source).toMatchObject({
+      kind: 'skill-catalog',
+      form: 'catalog',
+      update: true,
+      entries: [{ name: 'resumed-skill', description: 'Resumed skill' }],
+    })
+    expect(JSON.stringify(latest?.data.content)).toContain('resumed-skill')
+
+    // A second step over unchanged entries republishes nothing.
+    await fireStep(ctx, agent, 1, 2)
+    expect(catalogMessages(session)).toHaveLength(2)
   })
 
   it('re-establishes the current catalog after compaction hides its durable message', async () => {

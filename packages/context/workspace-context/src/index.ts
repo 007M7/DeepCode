@@ -126,6 +126,7 @@ export function apply(ctx: Context, config: Config): void {
         content: baselineMessage.content,
         source: {
           kind: 'workspace-instructions',
+          form: 'instructions',
           baseline: true,
           changes: [...baseline.changes.values()],
         },

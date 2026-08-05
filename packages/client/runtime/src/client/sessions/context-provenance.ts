@@ -89,3 +89,28 @@ export function contextProvenance(source: unknown): ContextProvenanceView {
       return { role: 'inject', label: kind }
   }
 }
+
+/**
+ * Context forms this UI version renders with a dedicated presentation. The
+ * durable vocabulary (`ContextForm` in `dsh-llm`) may already be wider — an
+ * unrecognized or absent value degrades to the opaque presentation rather than
+ * dropping the row, so a log written by a newer or foreign producer still
+ * renders.
+ */
+const KNOWN_FORMS = ['instructions', 'catalog'] as const
+
+/** One durable context form this UI version knows how to present. */
+export type KnownContextForm = typeof KNOWN_FORMS[number]
+
+/**
+ * Read the producer-declared form off one durable message source.
+ * @param source - the logged `user/message` source, exactly as recorded.
+ * @returns the form when this UI version presents it, otherwise null (opaque).
+ */
+export function contextForm(source: unknown): KnownContextForm | null {
+  const record = asRecord(source)
+  const form = record === null ? null : readString(record, 'form')
+  return form !== null && (KNOWN_FORMS as readonly string[]).includes(form)
+    ? form as KnownContextForm
+    : null
+}

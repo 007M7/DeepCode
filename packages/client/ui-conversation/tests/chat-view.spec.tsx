@@ -452,6 +452,7 @@ describe('ChatView', () => {
     const context = {
       kind: 'context', seq: 4, time: 4_000, content: [], source: null,
       provenance: { role: 'inject', label: null },
+      form: null,
     } as const satisfies ConversationNode
     const h = makeHarness({ nodes: [user(1, 'try'), retryNode], running: true })
     const view = render(<h.ChatView {...h.props} />)

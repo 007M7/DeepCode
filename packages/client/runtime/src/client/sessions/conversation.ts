@@ -12,7 +12,7 @@ import type {
   InboxItemId, RpcError, SessionId, SubagentAddress, ToolCallView, ToolResultView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type { PendingInteraction } from './pending.ts'
-import type { ContextProvenanceView } from './context-provenance.ts'
+import type { ContextProvenanceView, KnownContextForm } from './context-provenance.ts'
 export type { TodoItem }
 
 /** Request configuration recorded for one provider call. */
@@ -126,6 +126,8 @@ export interface ContextMessageNode {
   source: unknown
   /** Role and producer name projected from `source` ({@link contextProvenance}). */
   provenance: ContextProvenanceView
+  /** Producer-declared information form ({@link contextForm}); null presents as opaque. */
+  form: KnownContextForm | null
 }
 
 /** Durable notice that a closed failed step is waiting for a model-request retry. */

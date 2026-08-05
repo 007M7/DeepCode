@@ -14,6 +14,7 @@ const checkpoint = {
   content: [],
   source: { kind: 'plugin', plugin: 'compact' },
   provenance: { role: 'inject', label: 'compact' },
+  form: null,
 } as ConversationNode
 
 const abandoned = {

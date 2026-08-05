@@ -257,6 +257,7 @@ export const MessageItem = memo(function MessageItem({
           content={node.content}
           source={node.source}
           provenance={node.provenance}
+          form={node.form}
           t={t}
         />
       )

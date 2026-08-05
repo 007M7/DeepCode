@@ -227,6 +227,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
       }],
       source: {
         kind: 'workspace-instructions',
+        form: 'instructions',
         baseline: true,
         changes: [{
           action: 'set',
@@ -268,6 +269,10 @@ describe('web e2e: seeded history renders through cold resume', () => {
     await expect.poll(() => disclosure.getAttribute('aria-expanded')).toBe('true')
     const body = page.locator('[data-context-injection-body]')
     await body.waitFor({ timeout: 5_000 })
+    // The instructions form names the file it reconciled above the text, and
+    // the text keeps the framing the model read rather than a cleaned excerpt.
+    expect(await body.locator('[data-context-files] li').allInnerTexts()).toEqual(['AGENTS.md\nloaded'])
+    expect(await body.locator('[data-context-text]').innerText()).toContain('<system-reminder>')
     const headerBox = await disclosure.boundingBox()
     const bodyBox = await body.boundingBox()
     if (headerBox === null || bodyBox === null) throw new Error('context disclosure geometry is not measurable')
@@ -373,7 +378,9 @@ describe('web e2e: seeded history renders through cold resume', () => {
     await disclosure.click()
     await expect.poll(() => disclosure.getAttribute('aria-expanded')).toBe('true')
 
-    const body = page.locator('[data-context-injection-body]')
+    // The instructions row above stays expanded from the geometry case; the
+    // opaque body is the one without a declared form.
+    const body = page.locator('[data-context-injection-body]:not([data-context-form])')
     const bodyBox = await body.boundingBox()
     if (bodyBox === null) throw new Error('short context disclosure geometry is not measurable')
     expect(bodyBox.height).toBeLessThan(141)
