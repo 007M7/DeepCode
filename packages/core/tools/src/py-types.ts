@@ -74,9 +74,9 @@ const IDENTIFIER = /^[\p{XID_Start}_]\p{XID_Continue}*$/u
  * predicate rejected. A tool named `zz-\u{1E4D0}x` with such parameters never
  * reaches the skew here (the `-` rejects it outright) yet emits
  * `class Zz\u{1E4D0}xArgs`, which that same 3.9.6 refuses — Nag Mundari
- * arrived two releases after its tables. The case mapping is
- * a separate table rather than an XID membership test, and it fails on names
- * both conditions above accept: `\u{019B}` is XID_Start and NFKC-stable, so
+ * arrived two releases after its tables. The case mapping is a separate table
+ * rather than an XID membership test, and it fails on names both conditions
+ * above accept: `\u{019B}` is XID_Start and NFKC-stable, so
  * this predicate accepts it and `async def \u{019B}` compiles on 3.9.6, but
  * Node uppercases it to `\u{A7DC}` — unassigned in that CPython, whose own
  * `.upper()` is the identity here — and the declared `class \u{A7DC}Args`
