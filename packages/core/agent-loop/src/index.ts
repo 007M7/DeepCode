@@ -14,6 +14,7 @@ import type {
   AgentFactory,
   AgentHandle,
   AgentOptions,
+  AgentSetup,
   CreateAgentOptions,
   ResumeAgentOptions,
   SessionStartSource,
@@ -555,21 +556,38 @@ export class AgentLoop extends Service implements AgentFactory {
       ...options.seed === undefined ? {} : { seed: options.seed },
       ...options.meta === undefined ? {} : { meta: options.meta },
     })
-    const prepared = this.prepare(ownerCtx, options.sessionId, options.agentOptions ?? {}, session, options.signal)
-    const published = (async () => {
-      try {
-        const setupCommit = await raceAbort(
-          options.setup?.(prepared.agent.ctx), prepared.signal, options.sessionId,
-        )
-        setupCommit?.commit()
-        return prepared.publish('startup')
-      } catch (error: unknown) {
-        await prepared.dispose()
-        throw error
-      }
-    })()
+    const published = this.setupAndPublish(
+      ownerCtx,
+      options.sessionId,
+      session,
+      options.agentOptions ?? {},
+      options.setup,
+      options.signal,
+      'startup',
+    )
     this.ownership.trackWrapper(published)
     return published
+  }
+
+  /** Prepare one Agent around an acquired Session, run setup, and publish it. */
+  private async setupAndPublish(
+    ownerCtx: Context,
+    id: SessionId,
+    session: Session,
+    agentOptions: AgentOptions,
+    setup: AgentSetup | undefined,
+    signal: AbortSignal | undefined,
+    source: SessionStartSource,
+  ): Promise<AgentHandle> {
+    const prepared = this.prepare(ownerCtx, id, agentOptions, session, signal)
+    try {
+      const setupCommit = await raceAbort(setup?.(prepared.agent.ctx), prepared.signal, id)
+      setupCommit?.commit()
+      return prepared.publish(source)
+    } catch (error: unknown) {
+      await prepared.dispose()
+      throw error
+    }
   }
 
   /**
