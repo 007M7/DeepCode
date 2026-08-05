@@ -87,7 +87,27 @@ interface SandboxPolicy extends SandboxExecutionPolicy {
 
 ## Wrapped argv and classification dialects
 
-`ConfinedArgv` is what the consumer spawns. Besides the replacement argv, it carries the backend's enforcement fact and two orthogonal stderr dialects. `denialSignatures` identify the confined command being blocked while the sandbox works correctly. `runnerFailureSignatures` identify the sandbox runner refusing or failing before it executes the command; consumers check these first and surface a sandbox infrastructure failure, never an ordinary task failure.
+`RunnerFailureRule` combines evidence that a runner failed before executing the command. A consumer requires a nonzero exit, the optional allowed-exit-code gate, and a case-insensitive fatal signature within one remaining stderr line. Case-insensitive exact full-line informational exclusions are removed first, so a benign runner notice cannot prove failure by itself. The matched line remains available as error detail; classification does not rewrite stderr.
+
+```ts type-equiv
+/**
+ * Evidence that identifies a sandbox runner failing before it executes the
+ * wrapped command. A consumer first applies {@link allowedExitCodes} when
+ * present, removes {@link informationalLines} by case-insensitive exact line
+ * equality, then matches {@link fatalSignatures} case-insensitively within
+ * each remaining stderr line. Exit status alone never proves runner failure.
+ */
+interface RunnerFailureRule {
+  /** Nonzero process exit codes on which this rule may match; omitted permits any nonzero exit. */
+  allowedExitCodes?: readonly number[]
+  /** Non-empty substrings identifying a fatal runner diagnostic on one stderr line. */
+  fatalSignatures: readonly string[]
+  /** Benign stderr lines excluded by exact full-line equality before fatal matching. */
+  informationalLines?: readonly string[]
+}
+```
+
+`ConfinedArgv` is what the consumer spawns. Besides the replacement argv, it carries the backend's enforcement fact and two orthogonal stderr classifiers. `denialSignatures` identify the confined command being blocked while the sandbox works correctly. `runnerFailureRules` identify the sandbox runner refusing or failing before it executes the command; consumers check these first and surface a sandbox infrastructure failure, never an ordinary task failure.
 
 ```ts type-equiv
 /**
@@ -110,18 +130,19 @@ interface ConfinedArgv {
    */
   denialSignatures: readonly string[]
   /**
-   * Case-insensitive signatures for runner failure before command execution.
-   * Consumers check these before denial signatures: runner failure means the
+   * Structured runner-failure evidence rules. Consumers require a matching
+   * fatal stderr line (after informational exclusions) and any rule-specific
+   * exit-code gate before checking denial signatures: runner failure means the
    * command never ran, while denial means confinement worked and blocked it.
    */
-  runnerFailureSignatures: readonly string[]
+  runnerFailureRules: readonly RunnerFailureRule[]
 }
 ```
 
-An operator-configured local runner must supply at least one `runnerFailureSignatures` entry for its own pre-exec refusal dialect; the provider adds outer-shell missing and unexecutable forms automatically. This makes an executable custom runner rejecting its profile distinguishable from the wrapped command exiting with the same status.
+The operator-facing local-provider key remains `runnerFailureSignatures`: an operator-configured runner must supply at least one non-empty, single-line, case-insensitive substring for its own pre-exec refusal dialect. The provider maps those entries into one rule. Consumers directly spawn `ConfinedArgv.argv`, so a missing runner, a non-executable runner, or an executable script whose shebang interpreter is unavailable rejects through the spawn channel rather than a stderr rule when Node supplies attributable `ENOENT`/`EACCES` evidence; after a process starts, child exits such as 126 or 127 remain ordinary unless the selected runner's documented fatal signature matches.
 
 ## Provider and fail-closed errors
 
-`ctx.sandbox.confine(argv, policy)` returns a `ConfinedArgv` or throws `SandboxUnavailableError` with code `SANDBOX_UNAVAILABLE` when no usable backend exists. A selected runner can also fail closed at execution time, in which case its failure signature carries the same infrastructure meaning. Silent unconfined passthrough is never legal for a confined policy.
+`ctx.sandbox.confine(argv, policy)` returns a `ConfinedArgv` or throws `SandboxUnavailableError` with code `SANDBOX_UNAVAILABLE` when no usable backend exists. Any direct spawn rejection of the returned argv proves the confined launch never started, but only `ENOENT` or `EACCES` with positive Node provenance for provider argv[0] after the caller-owned workdir is independently verified usable carries infrastructure meaning and the original error as detail. A bare `syscall: 'spawn'` without an exact error path, any other code, an invalid or unusable workdir, a resource failure, an unrelated syscall, or an unstructured rejection retains the consumer's ordinary command-start semantics. After a process starts, a matching structured rule identifies a runner refusal. Silent unconfined passthrough is never legal for a confined policy.
 
 Provider probing arbitrates between multiple candidates and is cached for the provider lifetime. A platform with one candidate may select it directly; execution-time refusal retains the safety property. The local provider reports bwrap and Seatbelt as full and preserves the Landlock launcher's full/partial kernel verdict.
