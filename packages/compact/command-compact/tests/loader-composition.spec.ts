@@ -92,7 +92,7 @@ describe('command-compact real Loader composition', () => {
     })
     await context.loader.await()
 
-    const session = new Session(SessionId('loader-command-compact'))
+    const session = Session.create(SessionId('loader-command-compact'))
     const agent = {
       session,
       status: 'idle',

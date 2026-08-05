@@ -61,7 +61,7 @@ describe('SessionTitleService.rename', () => {
     const session = ctx.sessions.create(SessionId('rename-reject'))
     expect(() => ctx.sessionTitle.rename(session, '  [31m  ')).toThrow(/visible characters/)
 
-    expect(() => ctx.sessionTitle.rename(new Session(SessionId('detached')), 'name'))
+    expect(() => ctx.sessionTitle.rename(Session.create(SessionId('detached')), 'name'))
       .toThrow(/not live in this store/)
   })
 

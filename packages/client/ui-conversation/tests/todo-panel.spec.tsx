@@ -38,13 +38,22 @@ describe('TodoPanel', () => {
     expect(container.innerHTML).toBe('')
   })
 
-  it('starts collapsed with the progress summary visible', () => {
+  it('starts collapsed with the per-status count summary visible', () => {
     render(<TodoPanel todos={LIST} t={t} />)
     expect(screen.getByTestId('todo-panel')).toBeTruthy()
-    expect(screen.getByText('任务清单')).toBeTruthy()
-    expect(screen.getByText('1/3 项任务 · 1 项进行中')).toBeTruthy()
+    expect(screen.getByText('任务')).toBeTruthy()
+    expect(screen.getByText('1 已完成 · 1 进行中 · 1 待处理')).toBeTruthy()
     expect(screen.getByRole('button', { expanded: false })).toBeTruthy()
     expect(screen.queryByRole('list')).toBeNull()
+  })
+
+  it('omits the completed segment while nothing is done yet', () => {
+    render(<TodoPanel todos={[
+      { content: '写组件', status: 'in_progress' },
+      { content: '补测试', status: 'pending' },
+    ]} t={t} />)
+    expect(screen.getByText('1 进行中 · 1 待处理')).toBeTruthy()
+    expect(screen.queryByText(/已完成/)).toBeNull()
   })
 
   it('expands to show one row per item with its status glyph', () => {
@@ -65,17 +74,18 @@ describe('TodoPanel', () => {
     fireEvent.click(header)
     expect(screen.queryByRole('list')).toBeNull()
     // Collapsed header is title + progress only (no in-progress content hint).
-    expect(screen.getByText('1/3 项任务 · 1 项进行中')).toBeTruthy()
+    expect(screen.getByText('1 已完成 · 1 进行中 · 1 待处理')).toBeTruthy()
     expect(screen.queryByText('写组件')).toBeNull()
     fireEvent.click(screen.getByRole('button', { expanded: false }))
     expect(screen.getAllByRole('listitem')).toHaveLength(3)
   })
 
-  it('collapsed header still shows zero in-progress when nothing is active', () => {
+  it('an all-completed list collapses the summary to the done count alone', () => {
     render(<TodoPanel todos={[{ content: '都完了', status: 'completed' }]} t={t} />)
     expect(screen.getByRole('button', { expanded: false })).toBeTruthy()
     expect(screen.queryByText('都完了')).toBeNull()
-    expect(screen.getByText('1/1 项任务 · 0 项进行中')).toBeTruthy()
+    expect(screen.getByText('1 已完成')).toBeTruthy()
+    expect(screen.queryByText(/进行中|待处理/)).toBeNull()
   })
 })
 
@@ -93,7 +103,7 @@ describe('TodoDock', () => {
     // Capability absent (no baseline/frame yet) renders nothing.
     expect(screen.queryByTestId('todo-panel')).toBeNull()
     act(() => { store.set({ value: LIST }) })
-    expect(screen.getByText('1/3 项任务 · 1 项进行中')).toBeTruthy()
+    expect(screen.getByText('1 已完成 · 1 进行中 · 1 待处理')).toBeTruthy()
     // The pre-first-write whole value (null) retires the strip (the panel owns no data).
     act(() => { store.set({ value: null }) })
     expect(screen.queryByTestId('todo-panel')).toBeNull()

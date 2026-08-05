@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-这组行为 guard 插件会监视 agent loop（智能体循环）中的低效模式，并提醒模型调整方向。这里只有一个**产品**包（package），不设接口／实现 seam：guard 是现有核心 seam（`tools/post-execute`、`agent/prompt-submit`、`agent/status`）的自包含消费方，并非可替换能力。
+这组行为 guard 插件会监视 agent loop（智能体循环）中的低效模式，并提醒模型调整方向。这里只有一个**产品**包，不设接口／实现 seam：guard 是现有核心 seam（`tools/post-execute`、`agent/prompt-submit`、`agent/status`）的自包含消费方，并非可替换能力。
 
 | 包 | 职责 | ctx 键 |
 |---|---|---|

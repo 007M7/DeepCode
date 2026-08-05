@@ -1,5 +1,6 @@
 /* GoalBar: the second standalone card in the composer context stack (Figma
-   1236:32276). Its 752px column matches Todo and the Queue panel. */
+   1236:32276). Its dock column (card cap minus four insets) matches Todo and
+   the Queue panel. */
 
 .dock {
   box-sizing: border-box;
@@ -21,27 +22,29 @@
   align-items: center;
   gap: 10px;
   width: 100%;
-  max-width: 752px;
+  max-width: calc(var(--dsh-composer-card-max-width) - 4 * var(--dsh-composer-dock-inset));
   height: 36px;
   margin: 0 auto;
   padding: 4px 5px 4px 12px;
   border: 1px solid var(--dsw-alias-border-l1);
-  border-radius: 14px;
+  border-radius: 12px;
   background: var(--dsw-specific-tip);
 }
 
-.sparkle {
+.goalGlyph {
   display: inline-flex;
   flex: none;
   color: var(--dsw-alias-label-tertiary);
 }
 
+/* Matches the Todo/Queue panel titles (13/24 medium, primary) so the three
+   composer-stack cards read as one family. */
 .label {
   flex: none;
   font-size: 13px;
-  line-height: 20px;
+  line-height: 24px;
   font-weight: 500;
-  color: var(--dsw-alias-label-primary-dimmed);
+  color: var(--dsw-alias-label-primary);
 }
 
 .objective {

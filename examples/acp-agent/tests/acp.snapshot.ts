@@ -1,10 +1,12 @@
 import { fileURLToPath } from 'node:url'
 import { readFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { mkdir, utimes, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { homedir } from 'node:os'
 import { expect, it } from 'vitest'
 import { defineAcpSnapshotSuite, type Scenario, type SnapshotSuiteOptions } from '@deepseek-ai/dsh-acp-snapshot'
+import { resolvePwshPath } from '@deepseek-ai/dsh-pwsh-local'
 import { decodeStorageRecord } from '@deepseek-ai/dsh-session'
 
 /**
@@ -47,6 +49,7 @@ const SUBAGENT_DURABILITY_FAILURE_CONFIG = fileURLToPath(
 const LSP_CONFIG = fileURLToPath(new URL('./lsp.cordis.yml', import.meta.url))
 const WEB_CONFIG = fileURLToPath(new URL('../web.cordis.yml', import.meta.url))
 const FS_SEARCH_CONFIG = fileURLToPath(new URL('./fs-search.cordis.yml', import.meta.url))
+const PWSH_CONFIG = fileURLToPath(new URL('./pwsh.cordis.yml', import.meta.url))
 const SNAPSHOTS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
 const PACKED_CHUNKS_SOURCE = 'hook-cc-pretool-deny'
 
@@ -157,6 +160,22 @@ const SCENARIOS: Scenario[] = [
     configPath: PTY_CONFIG,
   },
   { name: 'bash-tool-turn', hasModelTurn: true, recorded: true },
+  // The pwsh overlay (pwsh.cordis.yml / pwsh.cordis.snapshot.yml) swaps the
+  // bundle's bash tool for the PowerShell twin, so its header class pins its
+  // own prompt/tool sidecars and a recorded transcript.
+  {
+    name: 'pwsh-tool-turn',
+    hasModelTurn: true,
+    recorded: true,
+    pinsHeader: true,
+    headerClass: 'pwsh',
+    configPath: PWSH_CONFIG,
+    // The composition boots the real pwsh executor; hosts without a `pwsh`
+    // binary skip the run (fixtures stay guarded). The recorded turn writes
+    // PWSH_OK via [Console]::Out.Write so the fixture carries no platform
+    // newline and one recording replays on every host.
+    pwshOnly: true,
+  },
   { name: 'todo-write', hasModelTurn: true, recorded: true },
   {
     name: 'skill-load',
@@ -419,11 +438,17 @@ const SCENARIOS: Scenario[] = [
   },
 ]
 
+// Hosts without a usable PowerShell skip the pwsh-tool-turn run (its fixtures
+// stay guarded); the probe follows the executor's own resolution so a Windows
+// host with only an install-location pwsh still runs the scenario.
+const hasPwsh = spawnSync(resolvePwshPath(), ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '$true'], { encoding: 'utf8' }).status === 0
+
 defineAcpSnapshotSuite({
   agent: AGENT,
   snapshotsDir: SNAPSHOTS_DIR,
   scenarios: SCENARIOS,
   mode: snapshotModeFromEnv(process.env.DSH_SNAPSHOT),
+  hasPwsh,
 })
 
 it('packed ACP fixture retains every chunk row kind without changing the logical session', () => {

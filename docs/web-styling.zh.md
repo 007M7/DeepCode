@@ -62,14 +62,14 @@
 - 输入卡片：与会话列同宽（840px，<1024px 降 712px)居中悬浮（距底留白带）；圆角 `--radius-xl`、边框 `--border-l2`、底 `--bg-base`、阴影 `--shadow-card`；内部上下两段=textarea（16px/24px，min 2 行 max 14 行=336px，镜像 div 自增高）+ 操作行（右下嵌 34px 主圆钮）；focus 无边框/阴影变化（基线同款）。
 - 输入主按钮（拍板 2026-07-20 三连，视觉参照 Codex App）：32px 实心正圆图标钮（内联 SVG）——空闲=`--accent` 底白↑箭头「发送」，运行中原地变 `--accent-soft` 底 accent ■「停止」（同色系不告警、不用红）。**运行中锁输入**（拍板 3，取代早先 hover 菜单方案）：textarea disabled（灰、草稿内容保留可见）、无任何排队/插话菜单，停止是唯一动作；turn 结束解禁并 refocus。键盘 Enter=发送、Ctrl/Meta+Enter=换行（运行中键盘路径随锁失效）。
 - 滚动条：近隐形、hover 加深、`scrollbar-gutter: stable` 不占布局（统一走 `.scrollable`，见 §3-9）。
-- RPC 四象限方向符（官方视觉词汇，空间隐喻：上=去 server、下=来自 server；单线=unary、双线=SSE）：
+- RPC 四象限方向符（官方视觉词汇，空间隐喻：上=去 server、下=来自 server；单线=客户端发起的交互、双线=服务端发起的交互）：
 
 | 符号 | 象限 | 徽章配色 |
 | --- | --- | --- |
 | `↑` | client-request（unary 出站） | `--accent` / `--accent-soft` |
 | `↓` | server-response（unary 回包） | ok `--ok`/`--ok-soft`，error `--error`/`--error-soft` |
-| `⇟` | server-request（SSE 帧推送） | mux `--color-frame-mux`/`--frame-mux-soft`，host `--color-frame-host`/`--frame-host-soft` |
-| `⇞` | client-response（SSE 侧回应） | `--accent`/`--accent-soft` 降透明度 |
+| `⇟` | server-request（下行流） | mux `--color-frame-mux`/`--frame-mux-soft`，host `--color-frame-host`/`--frame-host-soft` |
+| `⇞` | client-response（对 server request 的回应） | `--accent`/`--accent-soft` 降透明度 |
 
 ## 3. 样式编码规范（review 对照打勾）
 

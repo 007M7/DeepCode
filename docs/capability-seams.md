@@ -105,6 +105,9 @@ flowchart LR
   pkg_subagent_acp["subagent-acp"]
   pkg_bash["bash"]
   svc_bash["ctx.bash<br/>Bash executor seam"]
+  pkg_pwsh_local["pwsh-local"]
+  pkg_tool_pwsh["tool-pwsh"]
+  pkg_bash_env["bash-env"]
   svc_bashEnv["ctx.bashEnv<br/>Managed bash environment registry"]
   pkg_pty["pty"]
   svc_pty["ctx.pty<br/>Persistent PTY session registry"]
@@ -167,6 +170,7 @@ flowchart LR
   pkg_agent_loop --> svc_agentLoop
   pkg_approval --> svc_approval
   pkg_bash --> svc_bash
+  pkg_bash_env --> svc_bashEnv
   pkg_bash_local --> svc_bash
   pkg_bash_sandbox --> svc_bash
   pkg_code_runtime --> svc_codeRuntime
@@ -194,6 +198,7 @@ flowchart LR
   pkg_plan_mode --> svc_planMode
   pkg_pty --> svc_pty
   pkg_pty_local --> svc_pty
+  pkg_pwsh_local --> svc_bash
   pkg_sandbox --> svc_sandbox
   pkg_sandbox_local --> svc_sandbox
   pkg_sandbox_policy --> svc_sandboxPolicy
@@ -231,7 +236,6 @@ flowchart LR
   pkg_tasks --> svc_tasks
   pkg_tasks_local --> svc_tasks
   pkg_token_meter --> svc_tokenMeter
-  pkg_tool_bash --> svc_bashEnv
   pkg_tools --> svc_tools
   pkg_typert_registry --> svc_typert
   pkg_user_interaction --> svc_userInteraction
@@ -254,6 +258,9 @@ flowchart LR
   svc_bash --> pkg_hooks_claude
   svc_bash --> pkg_hooks_codex
   svc_bash --> pkg_tool_bash
+  svc_bash --> pkg_tool_pwsh
+  svc_bashEnv --> pkg_tool_bash
+  svc_bashEnv --> pkg_tool_pwsh
   svc_clientModuleHost --> pkg_hmr
   svc_codeRuntime --> pkg_tools
   svc_compact --> pkg_compact_basic
@@ -371,8 +378,8 @@ flowchart LR
 | `ctx.agentLoop` | `bundle` | [`agent-loop`](../packages/core/agent-loop) | - | [`agent-spine-demo`](../packages/examples/agent-spine-demo) | - | The one concrete loop plugin; extension packages depend on dsh-agent events and services, not on this package. |
 | `ctx.goals` | `core` | [`goal`](../packages/goal/goal) | - | - | - | Folds revisioned objective state from the session log and keeps live continuation activation process-local. |
 | `ctx.subprocess` | `seam` | [`subprocess`](../packages/subprocess/subprocess) | [`subprocess-local`](../packages/subprocess/subprocess-local) | [`bash-local`](../packages/bash/bash-local), [`bash-sandbox`](../packages/bash/bash-sandbox), [`lsp-local`](../packages/lsp/lsp-local), [`subagent-acp`](../packages/subagent/subagent-acp) | - | The bash executors, the LSP host, and the ACP subagent backend spawn their children through ctx.subprocess; the service owns tree lifetime, stdio dispositions (pipes, inherit, bounded spill-backed collection), and kill escalation. |
-| `ctx.bash` | `seam` | [`bash`](../packages/bash/bash) | [`bash-local`](../packages/bash/bash-local), [`bash-sandbox`](../packages/bash/bash-sandbox) | [`tool-bash`](../packages/bash/tool-bash), [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) | - | The model-facing bash tools and hook bridges consume this seam; sandboxed or remote executors replace bash-local without touching them. |
-| `ctx.bashEnv` | `core` | [`tool-bash`](../packages/bash/tool-bash) | - | - | - | Plugins declare effect-scoped DSH_* facts; tool-bash collects one trusted snapshot per execution and the executor rebuilds the namespace. |
+| `ctx.bash` | `seam` | [`bash`](../packages/bash/bash) | [`bash-local`](../packages/bash/bash-local), [`bash-sandbox`](../packages/bash/bash-sandbox), [`pwsh-local`](../packages/bash/pwsh-local) | [`tool-bash`](../packages/bash/tool-bash), [`tool-pwsh`](../packages/bash/tool-pwsh), [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) | - | The model-facing shell tools and hook bridges consume this seam; sandboxed, remote, or PowerShell executors replace bash-local without touching them. |
+| `ctx.bashEnv` | `core` | [`bash-env`](../packages/bash/bash-env) | - | [`tool-bash`](../packages/bash/tool-bash), [`tool-pwsh`](../packages/bash/tool-pwsh) | - | Plugins declare effect-scoped DSH_* facts; each shell tool collects one trusted snapshot per execution and its executor rebuilds the namespace. |
 | `ctx.pty` | `seam` | [`pty`](../packages/pty/pty) | [`pty-local`](../packages/pty/pty-local) | [`tool-pty`](../packages/pty/tool-pty) | - | The registry owns exact-Agent session identity and cleanup; backends own terminal mechanics, while tool-pty exposes the owner-scoped model surface. |
 | `ctx.sandbox` | `seam` | [`sandbox`](../packages/sandbox/sandbox) | [`sandbox-local`](../packages/sandbox/sandbox-local) | [`bash-sandbox`](../packages/bash/bash-sandbox), [`pty-local`](../packages/pty/pty-local) | - | Consumers hand over the exact argv they are about to spawn; same-world backends wrap it under a per-call policy and report enforcement. |
 | `ctx.sandboxPolicy` | `core` | [`sandbox-policy`](../packages/sandbox/sandbox-policy) | - | [`bash-sandbox`](../packages/bash/bash-sandbox), [`fs-sandbox`](../packages/fs/fs-sandbox), [`pty-local`](../packages/pty/pty-local) | - | The one home for the deployment default mode + workspace root; only the sandboxed executor and provider read the service (the tool layers use the pure `sandbox/mode` fold it also exports). Both enforcing families read it so bash and fs cannot confine to different roots. |

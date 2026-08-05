@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-本包（package）为 `WorkflowService` 提供实现，每次运行使用一个 Node worker thread。worker 执行编排脚本；子 agent（智能体）留在宿主上，脚本通过带类型的宿主／worker 协议经由 `ctx.subagents` 访问它们。
+本包为 `WorkflowService` 提供实现，每次运行使用一个 Node worker thread。worker 执行编排脚本；子 agent（智能体）留在宿主上，脚本通过带类型的宿主／worker 协议经由 `ctx.subagents` 访问它们。
 
 包根目录默认导出引擎插件及其 `Config`；worker 协议、运行时和会话模块均为实现私有。操作入口 `./worker` 仍是引擎的 spawn 目标。
 
@@ -113,7 +113,7 @@ worker 错误、消息失败或提前退出会在清理前关闭消息接纳，�
 
 #### KV Cache 影响
 
-仅追加；新增可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新增可见内容位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ## 已知限制与暂缓事项
 

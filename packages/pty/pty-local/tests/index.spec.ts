@@ -43,7 +43,7 @@ function agent(ctx: Context, cwd?: string): Agent {
   return {
     id,
     options: {},
-    session: new Session(id, undefined, { version: 0, id, createdAt: 0, ...cwd === undefined ? {} : { cwd } }),
+    session: Session.create(id, undefined, { version: 0, id, createdAt: 0, ...cwd === undefined ? {} : { cwd } }),
     status: 'idle', acceptsNextStep: false, ctx,
     followup: () => {}, steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }), inject: () => {}, send: () => {}, updateInbox: () => 'not-found', reserveTurnAdmission: () => undefined, cancel() {}, whenIdle: () => Promise.resolve(),
   }
