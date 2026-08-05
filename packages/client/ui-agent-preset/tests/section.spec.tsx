@@ -98,35 +98,65 @@ describe('the preset list', () => {
     expect(within(rowFor('mine')).getByText(en.userTrust)).toBeTruthy()
   })
 
+  it('separates built-in presets from custom ones', () => {
+    renderSection()
+
+    // Two different things: one set ships with the deployment and is
+    // read-only, the other is the user's own.
+    expect(screen.getByRole('heading', { name: en.builtInGroup })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: en.customGroup })).toBeTruthy()
+    expect(within(rowFor('standard')).getByText(en.builtIn)).toBeTruthy()
+    expect(within(rowFor('mine')).getByText(en.userTrust)).toBeTruthy()
+  })
+
+  it('shows no group heading for a set nobody has', () => {
+    renderSection({ rows: [{ id: 'standard', trust: 'system', isDefault: true }] })
+
+    expect(screen.queryByRole('heading', { name: en.customGroup })).toBeNull()
+  })
+
+  it('picks a preset by clicking its card, and the one in use is inert', () => {
+    const actions = renderSection()
+
+    const inUse = within(rowFor('standard')).getByRole('button', { name: `${en.inUse}: 标准模式` })
+    expect(inUse).toHaveProperty('disabled', true)
+    fireEvent.click(inUse)
+
+    // Clicking the card IS the choice; the preset already in use cannot be
+    // re-picked, so the click reaches nothing.
+    expect(actions.makeDefault).not.toHaveBeenCalled()
+  })
+
   it('offers Edit for a local preset and View for a shipped one', () => {
     renderSection()
 
-    expect(within(rowFor('mine')).getByText(en.edit)).toBeTruthy()
+    expect(within(rowFor('mine')).getByRole('button', { name: en.edit })).toBeTruthy()
     // A shipped composition is readable but not editable, and the label is
     // what says so before the editor opens.
-    expect(within(rowFor('standard')).getByText(en.view)).toBeTruthy()
+    expect(within(rowFor('standard')).getByRole('button', { name: en.view })).toBeTruthy()
   })
 
   it('offers Delete only for a locally authored preset', () => {
     renderSection()
 
-    expect(within(rowFor('mine')).getByText(en.delete)).toBeTruthy()
-    expect(within(rowFor('standard')).queryByText(en.delete)).toBeNull()
+    expect(within(rowFor('mine')).getByRole('button', { name: en.delete })).toBeTruthy()
+    expect(within(rowFor('standard')).queryByRole('button', { name: en.delete })).toBeNull()
   })
 
   it('hides duplication and disables creation when nothing is writable', () => {
     renderSection({ authorable: false })
 
-    expect(screen.queryByText(en.duplicate)).toBeNull()
+    expect(screen.queryByRole('button', { name: en.duplicate })).toBeNull()
     expect(screen.getByText(`+ ${en.newPreset}`)).toHaveProperty('disabled', true)
   })
 
   it('routes the row actions to the controller', () => {
     const actions = renderSection()
 
-    fireEvent.click(within(rowFor('mine')).getByText(en.setDefault))
-    fireEvent.click(within(rowFor('mine')).getByText(en.edit))
-    fireEvent.click(within(rowFor('mine')).getByText(en.duplicate))
+    // The card body is the control that picks a preset.
+    fireEvent.click(within(rowFor('mine')).getByRole('button', { name: `${en.setDefault}: mine` }))
+    fireEvent.click(within(rowFor('mine')).getByRole('button', { name: en.edit }))
+    fireEvent.click(within(rowFor('mine')).getByRole('button', { name: en.duplicate }))
     fireEvent.click(screen.getByText(`+ ${en.newPreset}`))
 
     expect(actions.makeDefault).toHaveBeenCalledWith('mine')
@@ -259,7 +289,7 @@ describe('deleting a preset', () => {
   it('asks before deleting', () => {
     const actions = renderSection()
 
-    fireEvent.click(within(rowFor('mine')).getByText(en.delete))
+    fireEvent.click(within(rowFor('mine')).getByRole('button', { name: en.delete }))
 
     expect(actions.confirmDelete).toHaveBeenCalledWith('mine')
   })

@@ -31,35 +31,77 @@
 
 /* Cards, not rows: a preset is a thing you pick, and the description is the
    part that tells them apart — a row would bury it beside the actions. */
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.groupHead {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--dsw-alias-label-tertiary);
+}
+
 .cards {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
   gap: 12px;
 }
 
 .card {
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 12px;
-  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  background: var(--dsw-alias-bg-layer-3);
+  transition: border-color .16s, background .16s;
+}
+
+.card:hover:not(.cardActive) {
+  border-color: var(--dsw-alias-label-dimmed);
+}
+
+/* The default preset reads as selected, not merely badged. */
+.cardActive {
+  background: var(--dsw-alias-bg-layer-2);
+  border-color: var(--dsw-alias-label-primary);
+}
+
+/* The card body is the control that picks the preset. */
+.cardMain {
+  appearance: none;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  background: var(--dsw-alias-bg-layer-3);
+  padding: 14px 16px 12px;
+  border-radius: 12px 12px 0 0;
 }
 
-/* The default preset is the one in use; it reads as selected rather than
-   merely badged. */
-.cardActive {
-  background: var(--dsw-alias-bg-layer-2);
-  border-color: var(--dsw-alias-label-tertiary);
+.cardMain:disabled {
+  cursor: default;
+}
+
+.cardMain:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: -2px;
 }
 
 .cardHead {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
 }
 
@@ -77,17 +119,10 @@
 }
 
 .cardDesc {
-  margin: 0;
   font-size: 13px;
   line-height: 1.55;
   color: var(--dsw-alias-label-secondary);
   flex: 1;
-}
-
-.cardMeta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .cardId {
@@ -98,34 +133,40 @@
 
 .cardFoot {
   display: flex;
-  padding-top: 4px;
+  gap: 2px;
+  padding: 6px 10px;
   border-top: 1px solid var(--dsw-alias-border-l2);
 }
 
-.badge,
-.defaultBadge {
-  border-radius: 999px;
-  padding: 2px 8px;
-  font-size: 11px;
-  line-height: 16px;
-}
-
-.badge {
-  border: 1px solid var(--dsw-alias-border-l2);
+/* Icon-only actions: the label rides `title` so the row stays quiet until
+   someone reaches for it. */
+.iconButton {
+  appearance: none;
+  border: 0;
+  border-radius: 7px;
+  padding: 6px;
+  background: none;
   color: var(--dsw-alias-label-tertiary);
-}
-
-.defaultBadge {
-  background: var(--dsw-alias-brand-primary);
-  color: var(--dsw-alias-label-primary-foreground);
-}
-
-.rowActions {
+  cursor: pointer;
   display: inline-flex;
-  gap: 4px;
-  flex-wrap: wrap;
   align-items: center;
 }
+
+.iconButton:hover:not(:disabled) {
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+}
+
+.iconButton:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: -1px;
+}
+
+.iconDanger:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+  color: var(--dsw-alias-state-error-primary);
+}
+
 
 .secondaryButton {
   border: none;
@@ -138,24 +179,12 @@
   cursor: pointer;
 }
 
-.dangerButton {
-  border: none;
-  border-radius: 7px;
-  padding: 5px 8px;
-  background: none;
-  color: var(--dsw-alias-state-error-primary);
-  font: inherit;
-  font-size: 12.5px;
-  cursor: pointer;
-}
 
-.secondaryButton:hover:not(:disabled),
-.dangerButton:hover:not(:disabled) {
+.secondaryButton:hover:not(:disabled) {
   background: var(--dsw-alias-bg-layer-1);
 }
 
 .secondaryButton:disabled,
-.dangerButton:disabled,
 .addButton:disabled {
   opacity: 0.5;
   cursor: default;

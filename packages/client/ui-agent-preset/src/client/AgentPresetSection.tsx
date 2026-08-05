@@ -10,7 +10,9 @@
 
 import { useEffect } from 'react'
 import type { ReactNode } from 'react'
-import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  Button, IconBrowseOutline16, IconCopyOutline16, IconEditOutline16, IconTrashOutline16, Modal,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { draftBlocker, type AgentPresetSectionState, type PresetDraft } from './section-store.ts'
@@ -186,68 +188,86 @@ export function AgentPresetSection(props: AgentPresetSectionProps): ReactNode {
       <h2 className={css.title}>{t('nav')}</h2>
       <p className={css.intro}>{t('sectionIntro')}</p>
       {state.error === null ? null : <p className={css.error} role="alert">{state.error}</p>}
-      <ul className={css.cards}>
-        {state.rows.map(row => (
-          <li key={row.id} className={row.isDefault ? `${css.card} ${css.cardActive}` : css.card}>
-            <div className={css.cardHead}>
-              <span className={css.cardName}>{row.name ?? row.id}</span>
-              {row.isDefault ? <span className={css.inUse}>{t('inUse')}</span> : null}
-            </div>
-            <p className={css.cardDesc}>{row.description ?? t('noDescription')}</p>
-            <div className={css.cardMeta}>
-              <span className={css.badge}>{row.trust === 'user' ? t('userTrust') : t('builtIn')}</span>
-              <code className={css.cardId}>{row.id}</code>
-            </div>
-            <div className={css.cardFoot}>
-              <span className={css.rowActions}>
-                {row.isDefault
-                  ? null
-                  : (
+      {([['system', t('builtInGroup')], ['user', t('customGroup')]] as const).map(([trust, heading]) => {
+        const group = state.rows.filter(row => row.trust === trust)
+        if (group.length === 0) return null
+        return (
+          <section key={trust} className={css.group}>
+            <h3 className={css.groupHead}>{heading}</h3>
+            <ul className={css.cards}>
+              {group.map(row => (
+                <li key={row.id} className={row.isDefault ? `${css.card} ${css.cardActive}` : css.card}>
+                  {/* The card body IS the control: picking a preset is the
+                      common act, so it should not hide behind a small button.
+                      The action row sits outside it — nesting buttons is
+                      invalid, and these act on the card rather than select it. */}
+                  <button
+                    type="button"
+                    className={css.cardMain}
+                    aria-pressed={row.isDefault}
+                    disabled={row.isDefault}
+                    // Without this the name is the whole card read aloud —
+                    // title, badge, description, id.
+                    aria-label={`${row.isDefault ? t('inUse') : t('setDefault')}: ${row.name ?? row.id}`}
+                    title={row.isDefault ? t('inUse') : t('setDefault')}
+                    onClick={() => { void props.makeDefault(row.id) }}
+                  >
+                    <span className={css.cardHead}>
+                      <span className={css.cardName}>{row.name ?? row.id}</span>
+                      <span className={css.badge}>
+                        {row.trust === 'user' ? t('userTrust') : t('builtIn')}
+                      </span>
+                      {row.isDefault ? <span className={css.inUse}>{t('inUse')}</span> : null}
+                    </span>
+                    <span className={css.cardDesc}>{row.description ?? t('noDescription')}</span>
+                    <code className={css.cardId}>{row.id}</code>
+                  </button>
+                  <div className={css.cardFoot}>
                     <button
                       type="button"
-                      className={css.secondaryButton}
-                      onClick={() => { void props.makeDefault(row.id) }}
+                      className={css.iconButton}
+                      title={row.trust === 'user' ? t('edit') : t('view')}
+                      aria-label={row.trust === 'user' ? t('edit') : t('view')}
+                      onClick={() => { void props.open(row.id) }}
                     >
-                      {t('setDefault')}
+                      {row.trust === 'user' ? <IconEditOutline16 /> : <IconBrowseOutline16 />}
                     </button>
-                  )}
-                <button
-                  type="button"
-                  className={css.secondaryButton}
-                  onClick={() => { void props.open(row.id) }}
-                >
-                  {row.trust === 'user' ? t('edit') : t('view')}
-                </button>
-                {state.authorable
-                  ? (
-                    <button
-                      type="button"
-                      className={css.secondaryButton}
-                      onClick={() => { void props.createFrom(row.id) }}
-                    >
-                      {t('duplicate')}
-                    </button>
-                  )
-                  : null}
-                {row.trust === 'user'
-                  ? (
-                    <button
-                      type="button"
-                      className={css.dangerButton}
-                      onClick={() => { props.confirmDelete(row.id) }}
-                    >
-                      {t('delete')}
-                    </button>
-                  )
-                  : null}
-              </span>
-            </div>
-            {draft !== null && !draft.creating && draft.source === row.id
-              ? <Editor draft={draft} blocker={blocker} t={t} actions={editorActions} />
-              : null}
-          </li>
-        ))}
-      </ul>
+                    {state.authorable
+                      ? (
+                        <button
+                          type="button"
+                          className={css.iconButton}
+                          title={t('duplicate')}
+                          aria-label={t('duplicate')}
+                          onClick={() => { void props.createFrom(row.id) }}
+                        >
+                          <IconCopyOutline16 />
+                        </button>
+                      )
+                      : null}
+                    {row.trust === 'user'
+                      ? (
+                        <button
+                          type="button"
+                          className={`${css.iconButton} ${css.iconDanger}`}
+                          title={t('delete')}
+                          aria-label={t('delete')}
+                          onClick={() => { props.confirmDelete(row.id) }}
+                        >
+                          <IconTrashOutline16 />
+                        </button>
+                      )
+                      : null}
+                  </div>
+                  {draft !== null && !draft.creating && draft.source === row.id
+                    ? <Editor draft={draft} blocker={blocker} t={t} actions={editorActions} />
+                    : null}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )
+      })}
       {draft !== null && draft.creating
         ? (
           <div className={css.addCard}>

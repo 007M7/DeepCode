@@ -6,7 +6,7 @@ export type AgentPresetSettingsKey =
   | 'nav' | 'sectionIntro' | 'builtIn' | 'defaultBadge' | 'setDefault' | 'edit' | 'view'
   | 'duplicate' | 'delete' | 'newPreset' | 'presetId' | 'presetIdPlaceholder' | 'copyOf'
   | 'displayName' | 'displayNamePlaceholder' | 'displayDescription' | 'displayDescriptionPlaceholder'
-  | 'inUse' | 'noDescription'
+  | 'inUse' | 'noDescription' | 'builtInGroup' | 'customGroup'
   | 'composition' | 'readOnlyNotice' | 'save' | 'saving' | 'cancel' | 'close' | 'retry'
   | 'idRequired' | 'idInvalid' | 'idTaken'
   | 'deleteTitle' | 'deleteDescription' | 'deleteConfirm' | 'deleting'
@@ -17,7 +17,7 @@ export const en: Record<AgentPresetSettingsKey, string> = {
   description: 'Applies to sessions you start from now on. Running sessions keep the preset they began with.',
   loading: 'Loading presets…',
   error: 'Could not load agent presets.',
-  userTrust: 'Local',
+  userTrust: 'Custom',
   seatHint: 'Agent preset for this session — switchable until you send the first message',
   lockedHint: 'This session\'s agent preset is fixed once the conversation starts',
   nav: 'Agent presets',
@@ -39,6 +39,8 @@ export const en: Record<AgentPresetSettingsKey, string> = {
   displayDescription: 'Description',
   displayDescriptionPlaceholder: 'One sentence on what this preset is for',
   inUse: 'In use',
+  builtInGroup: 'Built-in',
+  customGroup: 'Custom',
   noDescription: 'No description.',
   copyOf: 'Copied from',
   composition: 'Composition (cordis.yml)',
@@ -64,7 +66,7 @@ export const zh: Record<AgentPresetSettingsKey, string> = {
   description: '对此后新建的会话生效。运行中的会话保持它开始时的 preset。',
   loading: '正在加载预设…',
   error: '无法加载 Agent 预设。',
-  userTrust: '本地',
+  userTrust: '自定义',
   seatHint: '本会话的 Agent 预设 —— 发送第一条消息前可切换',
   lockedHint: '会话开始后，其 Agent 预设即固定',
   nav: 'Agent 预设',
@@ -84,6 +86,8 @@ export const zh: Record<AgentPresetSettingsKey, string> = {
   displayDescription: '描述',
   displayDescriptionPlaceholder: '一句话说明这个预设做什么',
   inUse: '当前使用',
+  builtInGroup: '内置',
+  customGroup: '自定义',
   noDescription: '暂无描述。',
   copyOf: '复制自',
   composition: '组装（cordis.yml）',
