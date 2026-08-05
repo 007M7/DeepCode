@@ -304,16 +304,20 @@ function childClassName(base: string, segment: string): string {
  *
  * A beyond-safe-range integral number takes `BigInt` digits rather than
  * `String`: Python integers are arbitrary-precision, so the emitted digits ARE
- * the value the model programs against, and `String` gives a different integer
- * than the double holds (`2 ** 60` prints the rounded `...847000`, not the
- * exact `...846976`) or no integer literal at all (`1e21` prints `1e+21`).
- * `String`'s rounding is not a bug in it: `Number::toString` is shortest
- * round-trip, so it emits the 16 digits that re-read to the same double and
- * pads with zeros, and those padded digits name an integer no double holds.
- * Passing one back would have to cross the argument boundary as a JSON number
- * — a double again — so the SDK would document a value no program can pass.
- * The TS flavor needs no counterpart: its literal is re-read by a JS parser
- * back into the same double.
+ * the value the model programs against, and `String` can give a different
+ * integer than the double holds (`2 ** 60` prints the rounded `...847000`, not
+ * the exact `...846976`) or no integer literal at all (`1e21` prints `1e+21`).
+ * `String`'s rounding is not a bug in it: `Number::toString` emits the shortest
+ * decimal string that re-reads to the same double, then pads to the exponent
+ * with zeros (1 significant digit for `1e20`, 16 for `2 ** 60`) — and when the
+ * shortest string is shorter than the double's exact value, those padded digits
+ * name an integer no double holds. Passing one back would have to cross the
+ * argument boundary as a JSON number — a double again — so the SDK would
+ * document a value no program can pass. `BigInt` needs no case split: where
+ * `String` is already exact (`2 ** 53`, `1e20`) the two agree byte for byte,
+ * and where it is not, `BigInt` is the exact one. The TS flavor needs no
+ * counterpart at all: its literal is re-read by a JS parser back into the same
+ * double.
  *
  * `JSON.stringify` is also what keeps this path's output parseable, and it is
  * the only thing that does. It covers both classes of hazard: the two kinds of
