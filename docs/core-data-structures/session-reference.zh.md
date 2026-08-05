@@ -2,7 +2,7 @@
 
 [English](session-reference.md) | 中文
 
-结构化的跨会话引用请求与预备消息上下文。[包（package）契约](../../packages/context/session-reference) 负责规范 URI、当前表层投影、标签安全的 JSON 与字节保留、稳定错误和不可信的模型提示词。宿主适配器使用这些类型，而不会把各自 UI 的提及语法传入 agent（智能体）核心。
+结构化的跨会话引用请求与准备后的消息上下文。[包契约](../../packages/context/session-reference) 负责规范 URI、当前表层投影、标签安全的 JSON 与字节保留、稳定错误和不可信的模型提示词。宿主适配器使用这些类型，而不会把各自 UI 的提及语法传入 agent（智能体）核心。
 
 来源：[`packages/context/session-reference/src/types.ts`](../../packages/context/session-reference/src/types.ts)
 
@@ -36,9 +36,9 @@ interface SessionReferenceCandidate {
 }
 ```
 
-## 预备消息
+## 准备后的消息
 
-预备过程保留可读的当前消息内容，并最多返回一个聚合上下文。
+准备过程保留可读的当前消息内容，并最多返回一个聚合上下文。
 
 ```ts type-equiv
 /** Direct message content and optional referenced-session context. */
@@ -52,7 +52,7 @@ interface PreparedReferencedMessage {
 
 ## 错误
 
-`SessionReferenceError.code` 区分无效配置或输入、自引用、数量限制、源读取失败、预算失败和取消。宿主协议会把这些 code 映射到各自的错误信封，无需检查提示词字节。
+`SessionReferenceError.code` 区分无效配置或输入、自引用、数量限制、源读取失败、预算失败和取消。宿主协议会把这些 code 映射到各自的错误封装，无需检查提示词字节。
 
 ```ts type-equiv
 /** Stable failure codes exposed to host adapters. */

@@ -74,7 +74,7 @@ function stubAgentForSession(session: Session): StubAgent {
 
 /** Build a registry-compatible agent with controllable context deferral. */
 function stubAgent(rawId: string, seed?: readonly import('@deepseek-ai/dsh-session').SessionEvent[]): StubAgent {
-  return stubAgentForSession(new Session(SessionId(rawId), seed))
+  return stubAgentForSession(Session.create(SessionId(rawId), seed))
 }
 
 async function harness(config: { defaultMaxGoalRounds?: number } = {}) {
@@ -256,7 +256,7 @@ describe('GoalService creation and replay', () => {
     const { ctx, agent } = await harness()
     // A same-id agent backed by a different session object — the live-instance
     // check must reject it even though the ids match.
-    const impostor = stubAgentForSession(new Session(agent.id)).agent
+    const impostor = stubAgentForSession(Session.create(agent.id)).agent
     expect(() => ctx.goals.get(impostor)).toThrow(expect.objectContaining({ code: 'GOAL_AGENT_NOT_LIVE' }))
     expect(() => ctx.goals.create(impostor, { objective: 'no' })).toThrow(expect.objectContaining({
       code: 'GOAL_AGENT_NOT_LIVE',
@@ -614,7 +614,7 @@ describe('goal replay validation', () => {
   }
 
   function oneChange(change: GoalChangeMeta, overrides: { content?: ContentBlock[]; source?: MessageSource } = {}) {
-    const session = new Session(SessionId(`validation-${Math.random()}`))
+    const session = Session.create(SessionId(`validation-${Math.random()}`))
     appendChange(session, change, overrides)
     return session.events
   }
@@ -644,7 +644,7 @@ describe('goal replay validation', () => {
   }
 
   function foldPair(first: GoalSnapshotChangeMeta, second: GoalChangeMeta): ReturnType<typeof foldGoal> {
-    const session = new Session(SessionId(`validation-pair-${Math.random()}`))
+    const session = Session.create(SessionId(`validation-pair-${Math.random()}`))
     appendChange(session, first)
     appendChange(session, second)
     return foldGoal(session.events)
@@ -653,7 +653,7 @@ describe('goal replay validation', () => {
   it('ignores unrelated metadata and non-goal round sources', () => {
     expect(decodeGoalChange(undefined)).toBeUndefined()
     expect(decodeGoalChange({ kind: 'other' })).toBeUndefined()
-    const session = new Session(SessionId('unrelated'))
+    const session = Session.create(SessionId('unrelated'))
     appendInjection(session, createUserMessage({
       content: [{ type: 'text', text: 'other' }],
       source: { kind: 'plugin', plugin: 'test' },
@@ -671,7 +671,7 @@ describe('goal replay validation', () => {
 
   it('rejects rounds attributed to another goal', () => {
     const change = snapshotChange()
-    const session = new Session(SessionId('other-goal-round'), oneChange(change))
+    const session = Session.create(SessionId('other-goal-round'), oneChange(change))
     appendRound(session, { id: GoalId('goal-other'), revision: 1 }, 1)
     expect(() => foldGoal(session.events)).toThrow('not the next admitted round')
   })
@@ -743,7 +743,7 @@ describe('goal replay validation', () => {
       roundsStarted: 2,
       goal: { ...paused.goal, revision: 3, phase: 'active', maxGoalRounds: 2 },
     })
-    const session = new Session(SessionId('exhausted-resume'))
+    const session = Session.create(SessionId('exhausted-resume'))
     appendChange(session, base)
     appendRound(session, base.goal, 1)
     appendRound(session, base.goal, 2)
@@ -769,7 +769,7 @@ describe('goal replay validation', () => {
       createdAt: 20,
       updatedAt: 20,
     })
-    const completedSession = new Session(SessionId('reuse-complete'))
+    const completedSession = Session.create(SessionId('reuse-complete'))
     appendChange(completedSession, base)
     appendChange(completedSession, complete)
     appendChange(completedSession, sameCurrentId)
@@ -781,7 +781,7 @@ describe('goal replay validation', () => {
       updatedAt: 20,
     })
     const secondComplete = mutation(second, 'complete', 'complete')
-    const nonAdjacentReuse = new Session(SessionId('reuse-non-adjacent'))
+    const nonAdjacentReuse = Session.create(SessionId('reuse-non-adjacent'))
     appendChange(nonAdjacentReuse, base)
     appendChange(nonAdjacentReuse, complete)
     appendChange(nonAdjacentReuse, second)
@@ -792,7 +792,7 @@ describe('goal replay validation', () => {
     const clear: GoalChangeMeta = {
       kind: 'goal/change', version: 1, operation: 'clear', cleared: { id: base.goal.id, revision: 2 }, clearedAt: 11,
     }
-    const clearedSession = new Session(SessionId('reuse-clear'))
+    const clearedSession = Session.create(SessionId('reuse-clear'))
     appendChange(clearedSession, base)
     appendChange(clearedSession, clear)
     appendChange(clearedSession, sameCurrentId)
@@ -800,7 +800,7 @@ describe('goal replay validation', () => {
   })
 
   it('rejects goal-source context without matching durable metadata', () => {
-    const session = new Session(SessionId('goal-source-without-meta'))
+    const session = Session.create(SessionId('goal-source-without-meta'))
     const source = { kind: 'goal', goalId: GoalId('goal-missing-meta'), revision: 1, round: 0 } as const
     const turn = nextTurn(session)
     session.append('turn/start', { turn, trigger: { kind: 'injection', source } })
@@ -861,7 +861,7 @@ describe('goal replay validation', () => {
 
   it('folds a clear tombstone after a snapshot', () => {
     const change = snapshotChange()
-    const session = new Session(SessionId('fold-clear'), oneChange(change))
+    const session = Session.create(SessionId('fold-clear'), oneChange(change))
     const clear: GoalChangeMeta = {
       kind: 'goal/change',
       version: 1,

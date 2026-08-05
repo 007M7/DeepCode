@@ -11,4 +11,4 @@
 | `tool-pty`（`@deepseek-ai/dsh-tool-pty`） | 6 个面向模型的工具，以及用于后台发送的通用任务集成 | 注册到 `ctx.tools` |
 | `tool-bash-persistent`（`@deepseek-ai/dsh-tool-bash-persistent`） | 一个由所有者隔离可复用 PTY shell 支撑的模型可见 `bash` | 消费 `ctx.pty`，注册到 `ctx.tools` |
 
-设计与暂缓边界记录在[持久 PTY Agent Note（agent 决策记录）](../../.agents/notes/implemented/feature/2026-07-16-persistent-pty-sessions.md) 中。
+设计与暂缓边界记录在[持久 PTY Agent Note](../../.agents/notes/implemented/feature/2026-07-16-persistent-pty-sessions.md) 中。

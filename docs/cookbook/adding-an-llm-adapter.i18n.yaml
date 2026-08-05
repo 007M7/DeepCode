@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/cookbook/adding-an-llm-adapter.md
 adding-an-llm-adapter.md: a7f9dced70041653a0cb815147a07b6386d79e3e
-adding-an-llm-adapter.zh.md: 3515927585201326b713bb03cd863886ce7846bd
+adding-an-llm-adapter.zh.md: 494115bdd5cc2365feb0964f2bef4d6dc070d3f6

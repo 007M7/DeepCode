@@ -625,7 +625,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     expect(a2.session.events.length).toBe(events1.length + 1)
     expect(a2.session.firstLiveSeq).toBe(events1.length)
     expect(a2.session.events.at(-1)?.type).toBe('session/end-seed')
-    const replay = new Session(SessionId('replay'), events1)
+    const replay = Session.create(SessionId('replay'), events1)
     expect(a2.session.deriveMessages()).toEqual(replay.deriveMessages())
 
     // …and a new turn continues numbering (turn 2) with contiguous seqs.

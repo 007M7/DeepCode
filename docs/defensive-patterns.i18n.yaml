@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/defensive-patterns.md
 defensive-patterns.md: cc34877fb0d6a2e1740d8fa138f879363c8e69a3
-defensive-patterns.zh.md: 21b0977d8167ffecc21cdfab3c778efceefd8f03
+defensive-patterns.zh.md: 277e4904d033e26d379e0495cb2b22370ac159d0

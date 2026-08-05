@@ -19,7 +19,7 @@ function stubAgent(rawId: string, overrides: Partial<Agent> = {}): Agent {
   const agent: Agent = {
     id,
     options: {},
-    session: new Session(id),
+    session: Session.create(id),
     status: 'idle',
     acceptsNextStep: false,
     ctx: new Context(),
@@ -58,7 +58,7 @@ describe('AgentRegistry', () => {
   it('rejects an agent whose registry and session identities differ', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
-    const agent = stubAgent('agent-id', { session: new Session(SessionId('session-id')) })
+    const agent = stubAgent('agent-id', { session: Session.create(SessionId('session-id')) })
 
     expect(() => ctx.agents.enter(agent, undefined))
       .toThrow('agent id "agent-id" does not match session id "session-id"')

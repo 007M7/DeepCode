@@ -1,4 +1,4 @@
-# Agent Note: 进程管理器是 bash 执行器之下的独立 seam（`dsh-subprocess` / `dsh-subprocess-local`）
+# Agent Note: 子进程服务是 bash 执行器之下的独立 seam（`dsh-subprocess` / `dsh-subprocess-local`）
 
 Status: implemented
 
@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-`dsh-bash-local` 原先把两项因不同原因而变化的能力捆绑在一起：*运行一条 bash 命令*（命令默认值补全、超时分类、对模型友好的终端环境、bash 工具所渲染的 stdout/stderr 合并）与*运行并管理一个子进程*（detached 进程组、附带 spill 文件的有界尾部保留输出、凭据清除与 `DSH_*` 合并次序、SIGTERM→宽限期→SIGKILL 升级、先终止再等待退出的 dispose（资源释放））。进程这一半（`run.ts`）约占整个包（package）的一半，却没有属于自己的 seam：未来的非 shell 运行器（直接执行 argv 的执行器、worker supervisor）将不得不重新实现这套机制，或者探入 bash 内部；而共享的 `DSH_*`/`CollectedOutput` 词汇则存放在一个名字承诺 shell 语义的包里。这种捆绑还把后台进程的存续期系在执行器的 fiber 上：重载 bash 执行器会杀死每一个存活的后台进程。这一点不同于兄弟的[任务注册表](2026-07-26-task-registry-seam.md)：后者的注册存续期刻意长于生产方 fiber。
+`dsh-bash-local` 原先把两项因不同原因而变化的能力捆绑在一起：*运行一条 bash 命令*（命令默认值补全、超时分类、对模型友好的终端环境、bash 工具所渲染的 stdout/stderr 合并）与*运行并管理一个子进程*（detached 进程组、附带 spill 文件的有界尾部保留输出、凭据清除与 `DSH_*` 合并次序、SIGTERM→宽限期→SIGKILL 升级、先终止再等待退出的 dispose（资源释放））。进程这一半（`run.ts`）约占整个包的一半，却没有属于自己的 seam：未来的非 shell 运行器（直接执行 argv 的执行器、worker supervisor）将不得不重新实现这套机制，或者探入 bash 内部；而共享的 `DSH_*`/`CollectedOutput` 词汇则存放在一个名字承诺 shell 语义的包里。这种捆绑还把后台进程的存续期系在执行器的 fiber 上：重载 bash 执行器会杀死每一个存活的后台进程。这一点不同于同级的[任务注册表](2026-07-26-task-registry-seam.md)：后者的注册存续期刻意长于生产方 fiber。
 
 ## 决策
 
@@ -19,7 +19,7 @@ Status: implemented
 
 如今，每个加载 bash 执行器的组合都同时加载 `@deepseek-ai/dsh-subprocess-local`：CLI（命令行界面）、各示例、Python 捆绑运行时、create-sdk 的 bash 功能资源，以及各内联测试配置。
 
-后台进程的存续期从执行器移到了管理器：执行器不再保有存活进程集合，于是重载执行器后，后台工作会继续运行且仍可读取，而组合拆除（管理器的 dispose）仍是先终止再等待退出的边界。一条行为 seam 随之挪动：后台 spawn 失败不再能在管道内部被缓冲成伪造的 stderr（对一个从未真正运行的进程，管理器会 reject `done`，且不缓冲任何内容），因此执行器把 `spawn failed: …` 提示注入恰好一个 `readOutput()` 增量。
+后台进程的存续期从执行器移到了子进程服务：执行器不再保有存活进程集合，于是重载执行器后，后台工作会继续运行且仍可读取，而组合拆除（服务的 dispose）仍是先终止再等待退出的边界。一条行为 seam 随之挪动：后台 spawn 失败不再能在管道内部被缓冲成伪造的 stderr（对一个从未真正运行的进程，服务会 reject `done`，且不缓冲任何内容），因此执行器把 `spawn failed: …` 提示注入恰好一个 `readOutput()` 增量。
 
 ## 曾考虑的替代方案
 
@@ -29,10 +29,10 @@ Status: implemented
 
 **改把 `run_in_background`/任务语义放进进程 seam。**否决：那条边界已经存在。`ctx.tasks` 拥有 id、所有权与通知，bash 工具则把 `BashProcess` 适配成任务钩子。进程 seam 位于 bash 执行器*之下*，而不是与任务注册表并列。
 
-**把 `ENV_OVERRIDES`（TERM=dumb、PAGER=cat 等）移入管理器。**否决：通用进程管理器不得把终端呈现策略强加给非终端消费方；对环境中凭据形态名称与 `DSH_*` 名称的清除是安全与身份不变式，予以保留，但终端友好性是 bash 工具自己的选择，经 spec 的显式 env 表达，而调用方自己的条目依旧优先。
+**把 `ENV_OVERRIDES`（TERM=dumb、PAGER=cat 等）移入子进程服务。**否决：通用子进程服务不得把终端呈现策略强加给非终端消费方；对环境中凭据形态名称与 `DSH_*` 名称的清除是安全与身份不变式，予以保留，但终端友好性是 bash 工具自己的选择，经 spec 的显式 env 表达，而调用方自己的条目依旧优先。
 
 ## 后果
 
-换来的是：「运行并管理一个进程」成为一项具备标准三包形态的可替换能力（消费方起步就有两个：`bash-local`、`bash-sandbox`）；容器化或远程进程后端可以直接接入，而不触碰 bash 语义；共享的 `DSH_*`/输出词汇有了一个不带 shell 含义的归属；后台进程也能在执行器重载后存活，与任务注册表的存续期模型一致。spawn 管道测试套件整体迁至 `dsh-subprocess-local`（现以 argv 为基础，外加 argv 校验与管理器生命周期/dispose 套件）；执行器测试套件如今对着真实管理器固定 bash 所有的各层（分类、合并、spawn 失败提示、归管理器所有的存续期）。
+换来的是：「运行并管理一个进程」成为一项具备标准三包形态的可替换能力（消费方起步就有两个：`bash-local`、`bash-sandbox`）；容器化或远程进程后端可以直接接入，而不触碰 bash 语义；共享的 `DSH_*`/输出词汇有了一个不带 shell 含义的归属；后台进程也能在执行器重载后存活，与任务注册表的存续期模型一致。spawn 管道测试套件整体迁至 `dsh-subprocess-local`（现以 argv 为基础，外加 argv 校验与服务生命周期/dispose 套件）；执行器测试套件如今以真实服务为基准，固定 bash 自有的各层行为（分类、合并、spawn 失败提示、归服务所有的存续期）。
 
-代价是：多出一对包，而且凡加载 bash 执行器之处都多一行组合配置。若某次启动加载了执行器却没有加载管理器，`ctx.bash` 会因等待 `ctx.subprocess` 而保持挂起（标准的服务缺失行为）。迁移词汇的重导出让 `dsh-bash` 的导入继续可用，但也意味着两个包如今命名同一批类型；进程 seam 是所有者，bash seam 则记录这层重导出。spawn 失败提示经由读取路径变为单次交付，而旧管道曾把它保留在 stderr 缓冲区里，供重复的 `readFrom(0)` 读取；这一点可以接受，因为 bash 的后台读取路径本就是消费游标，该提示能到达唯一存在的那个读取方。
+代价是：多出一对包，而且凡加载 bash 执行器之处都多一行组合配置。若某次启动加载了执行器却没有加载子进程服务，`ctx.bash` 会因等待 `ctx.subprocess` 而保持挂起（标准的服务缺失行为）。迁移词汇的重导出让 `dsh-bash` 的导入继续可用，但也意味着两个包如今命名同一批类型；进程 seam 是所有者，bash seam 则记录这层重导出。spawn 失败提示经由读取路径变为单次交付，而旧管道曾把它保留在 stderr 缓冲区里，供重复的 `readFrom(0)` 读取；这一点可以接受，因为 bash 的后台读取路径本就是消费游标，该提示能到达唯一存在的那个读取方。
