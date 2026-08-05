@@ -95,7 +95,7 @@ Namespace 插件：具名导出 `name`／`inject`／`apply`、准备阶段常量
 
 稳定的已连接工具列表保持前缀稳定。插件生命周期或 MCP 工具列表变化可能从首个受影响定义开始改变后续工具 schema 前缀。
 
-## 已知限制与延后工作
+## 已知限制与暂缓事项
 
 - **仅支持 skill 与 MCP**：commands、钩子、agent（智能体）、apps、任意 Cordis 代码、marketplace 和兼容 shim 均有意排除在该格式之外。
 - **没有 MCP 认证协议**：静态 header 可以使用环境变量展开，但带 OAuth 的定义会被拒绝，私有 server 登录流程不在此实现。

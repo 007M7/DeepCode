@@ -2,7 +2,7 @@
 
 [English](0001-acp-default-export-drops-inject.md) | 中文
 
-状态：已解决（修复见 PR（Pull Request） #41 `feat/acp-2-bridge`）
+Status: resolved (fix in PR（Pull Request） #41 `feat/acp-2-bridge`)
 
 ## 摘要
 

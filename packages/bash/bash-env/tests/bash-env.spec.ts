@@ -1,3 +1,9 @@
+/**
+ * Registry tests for `@deepseek-ai/dsh-bash-env`: built-in facts, contributor
+ * ownership and validation, collection ordering, effect-scoped disposal, and
+ * the explicit disposer contract.
+ */
+
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -5,7 +11,8 @@ import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
-import { BashEnvRegistry } from '@deepseek-ai/dsh-tool-bash'
+import { BashEnvRegistry } from '@deepseek-ai/dsh-bash-env'
+import * as BashEnvPlugin from '@deepseek-ai/dsh-bash-env'
 
 const testToolSignal = new AbortController().signal
 
@@ -189,5 +196,42 @@ describe('BashEnvRegistry', () => {
     expect(registry.collect(execution()).DSH_EXPLICIT_DISPOSAL).toBe('present')
     dispose()
     expect(registry.collect(execution())).not.toHaveProperty('DSH_EXPLICIT_DISPOSAL')
+  })
+
+  it('the plugin registers the service and the persistence contributor on load', async () => {
+    const ctx = new Context()
+    await ctx.plugin(BashEnvPlugin)
+    expect(ctx.bashEnv).toBeInstanceOf(BashEnvRegistry)
+    expect(ctx.bashEnv.list()).toEqual([
+      {
+        contributor: 'session-persistence',
+        description: 'Absolute target path of the current session JSONL when the active persistence backend provides one.',
+        key: 'DSH_SESSION_JSONL',
+      },
+    ])
+  })
+
+  it('the persistence contributor resolves DSH_SESSION_JSONL only for a jsonl backend', async () => {
+    const ctx = new Context()
+    await ctx.plugin(BashEnvPlugin)
+    ctx.provide('sessionPersistence', {
+      locate: () => ({ kind: 'jsonl' as const, path: 'C:\\sessions\\s.jsonl' }),
+    })
+    expect(ctx.bashEnv.collect(execution('sess-p')).DSH_SESSION_JSONL).toBe('C:\\sessions\\s.jsonl')
+  })
+
+  it('the persistence contributor omits the variable for a non-jsonl backend', async () => {
+    const ctx = new Context()
+    await ctx.plugin(BashEnvPlugin)
+    ctx.provide('sessionPersistence', {
+      locate: () => ({ kind: 'sqlite' as const, path: 'C:\\sessions\\s.db' }),
+    })
+    expect(ctx.bashEnv.collect(execution('sess-p'))).not.toHaveProperty('DSH_SESSION_JSONL')
+  })
+
+  it('the persistence contributor omits the variable without a persistence backend', async () => {
+    const ctx = new Context()
+    await ctx.plugin(BashEnvPlugin)
+    expect(ctx.bashEnv.collect(execution('sess-p'))).not.toHaveProperty('DSH_SESSION_JSONL')
   })
 })

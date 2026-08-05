@@ -1,4 +1,4 @@
-# Agent Note: 用 eventsource-parser 替换 llm-deepseek 中手写的 SSE（Server-Sent Events）解析器
+# Agent Note: 用 eventsource-parser 替换 llm-deepseek 中手写的 SSE 解析器
 
 Status: implemented
 
@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-`packages/llm/llm-deepseek/src/sse.ts` 曾手写实现 SSE 解析：一个流式 `TextDecoder`、按 `\r?\n\r?\n` 切分事件块、提取并拼接 `data:` 载荷、跳过注释与其他字段、`[DONE]` 哨兵、在未见哨兵即 EOF 时抛出 `STREAM_CLOSED` 错误，以及对最后一个未终结事件块的 flush。该文件约 67 行，另有约 108 行专属测试（`tests/sse.spec.ts`）重复验证 SSE 规范行为——UTF-8 字符被切分到多个分片、CRLF 处理、多条 `data:` 拼接、冒号后无空格——而这些行为，持续维护的解析器早已有保证。它唯一的消费方是 `adapter.ts`（`yield* translate(parseSse(response.body))`）。
+`packages/llm/llm-deepseek/src/sse.ts` 曾手写实现 SSE（Server-Sent Events）解析：一个流式 `TextDecoder`、按 `\r?\n\r?\n` 切分事件块、提取并拼接 `data:` 载荷、跳过注释与其他字段、`[DONE]` 哨兵、在未见哨兵即 EOF 时抛出 `STREAM_CLOSED` 错误，以及对最后一个未终结事件块的 flush。该文件约 67 行，另有约 108 行专属测试（`tests/sse.spec.ts`）重复验证 SSE 规范行为——UTF-8 字符被切分到多个分片、CRLF 处理、多条 `data:` 拼接、冒号后无空格——而这些行为，持续维护的解析器早已有保证。它唯一的消费方是 `adapter.ts`（`yield* translate(parseSse(response.body))`）。
 
 这恰好是 `eventsource-parser` 负责的接口面：事实标准的 SSE 解析器（Vercel AI SDK 和 MCP SDK 都构建在它之上），零依赖，持续维护，并且已通过 `@modelcontextprotocol/sdk` 作为传递依赖出现在本仓库的 lockfile 中——因此直接采用它实际上不增加新的供应链接触面。
 

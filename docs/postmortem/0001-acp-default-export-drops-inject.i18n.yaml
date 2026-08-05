@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/postmortem/0001-acp-default-export-drops-inject.md
 0001-acp-default-export-drops-inject.md: 2d36f24fa54814e39345d7fe68792023c2cf0194
-0001-acp-default-export-drops-inject.zh.md: 3a855cb6467b561e9380241a8966317b9508ad37
+0001-acp-default-export-drops-inject.zh.md: 6ae7d45f58e09f205a5653f7c6d306014d4d393e

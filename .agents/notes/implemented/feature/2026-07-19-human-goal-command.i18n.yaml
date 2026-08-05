@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-19-human-goal-command.md
 2026-07-19-human-goal-command.md: ce5c37fd28f9432d8c9a8797cac32c632617e317
-2026-07-19-human-goal-command.zh.md: fb7b5f2e5b49eb3ac713dca43a1dab72c08e10dc
+2026-07-19-human-goal-command.zh.md: 85b47f610d12d5a70a4978e2041c8b38cd2895b0

@@ -1,4 +1,4 @@
-# Agent Note: 可脚本控制的 LLM（大语言模型）协议层故障服务器
+# Agent Note: 可脚本控制的 LLM 协议层故障服务器
 
 Status: implemented
 

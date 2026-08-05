@@ -2,7 +2,7 @@
 
 [English](0002-js-expression-disabled-filesystem-tools.md) | 中文
 
-状态：已解决
+Status: resolved
 
 ## 摘要
 

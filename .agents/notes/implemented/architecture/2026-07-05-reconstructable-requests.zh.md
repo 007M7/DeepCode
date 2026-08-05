@@ -1,4 +1,4 @@
-# Agent Note: 每个 LLM（大语言模型）请求都可从会话日志重建
+# Agent Note: 每个 LLM 请求都可从会话日志重建
 
 Status: implemented
 
