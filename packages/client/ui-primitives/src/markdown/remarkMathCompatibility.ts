@@ -1,3 +1,5 @@
+/** Extend upstream dollar-only math syntax with TeX delimiters while reusing its token vocabulary. */
+
 import { factorySpace } from 'micromark-factory-space'
 import type {} from 'micromark-extension-math'
 import { markdownLineEnding } from 'micromark-util-character'
@@ -11,8 +13,11 @@ interface RemarkProcessor {
 }
 
 const previousBackslash: Previous = function (code) {
-  /* v8 ignore next -- micromark calls previous after an event has been emitted. */
-  return code !== codes.backslash || this.events.at(-1)?.[1].type === types.characterEscape
+  if (code !== codes.backslash) return true
+  const tail = this.events.at(-1)
+  /* v8 ignore next -- a previous code necessarily has a preceding event. */
+  if (tail === undefined) return false
+  return tail[1].type === types.characterEscape
 }
 
 const tokenizeBackslashMathText: Tokenizer = function (effects, ok, nok) {

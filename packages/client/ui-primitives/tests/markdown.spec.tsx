@@ -204,6 +204,12 @@ describe('MarkdownText', () => {
         display: 0,
       },
       {
+        source: String.raw`\\\(x\)`,
+        math: 1,
+        display: 0,
+        value: 'x',
+      },
+      {
         source: '\\(\\frac{1}{5}\n+\\frac{1}{7}\\)',
         math: 1,
         display: 0,
@@ -238,29 +244,49 @@ describe('MarkdownText', () => {
       rendered.unmount()
     }
 
-    const literal = render(<MarkdownText text={'\\\\(x\\)\n\n\\[x\n\n$$x$$ trailing'} />)
-    expect(literal.container.querySelectorAll('.katex')).toHaveLength(1)
+    const literal = render(<MarkdownText text={'\\\\(x\\)\n\n\\[x'} />)
+    expect(literal.container.querySelectorAll('.katex')).toHaveLength(0)
     expect(literal.container.querySelector('.katex-display')).toBeNull()
     expect(literal.container.textContent).toContain('[x')
-    expect(literal.container.textContent).toContain('xxx trailing')
   })
 
   it('keeps ordinary dollar blocks and incomplete delimiter candidates parseable', () => {
-    const sources = [
-      '$$\n\\theta\n$$',
-      '$$$\\theta$$$',
-      '$$a$b\nc',
-      '  \\[\n  \\theta\n  \\]',
-      '\\(\\theta',
-      '\\[\n\\[',
-      '> \\[\nnot a quoted continuation\n\\]',
+    const cases = [
+      { source: '$$\n\\theta\n$$', math: 1, display: 1 },
+      { source: '$$$\\theta$$$', math: 1, display: 0 },
+      { source: '$$a$b\nc', math: 0, display: 0 },
+      { source: '  \\[\n  \\theta\n  \\]', math: 1, display: 1 },
+      { source: '\\(\\theta', math: 0, display: 0 },
+      { source: String.raw`\(a\\)`, math: 0, display: 0 },
+      { source: '\\[\n\\[', math: 0, display: 0 },
+      { source: '> \\[\nnot a quoted continuation\n\\]', math: 0, display: 0 },
     ]
 
-    for (const source of sources) {
-      const rendered = render(<MarkdownText text={source} />)
+    for (const item of cases) {
+      const rendered = render(<MarkdownText text={item.source} />)
+      expect(rendered.container.querySelectorAll('.katex')).toHaveLength(item.math)
+      expect(rendered.container.querySelectorAll('.katex-display')).toHaveLength(item.display)
       expect(rendered.container.querySelector('.katex-error')).toBeNull()
       rendered.unmount()
     }
+  })
+
+  it('lets display math interrupt an open paragraph', () => {
+    for (const source of ['Prose line\n\\[x\\]', 'Prose line\n$$x$$']) {
+      const rendered = render(<MarkdownText text={source} />)
+      expect(rendered.container.querySelectorAll('p')).toHaveLength(1)
+      expect(rendered.container.querySelectorAll('.katex-display')).toHaveLength(1)
+      rendered.unmount()
+    }
+  })
+
+  it('leaves a dollar block with trailing text to upstream inline math', () => {
+    const { container } = render(<MarkdownText text="$$x$$ trailing" />)
+
+    expect(container.querySelectorAll('.katex')).toHaveLength(1)
+    expect(container.querySelector('.katex-display')).toBeNull()
+    expect(container.querySelector('annotation')?.textContent).toBe('x')
+    expect(container.textContent).toContain('trailing')
   })
 
   it('renders escaped dollars and even backslash pairs before closing fences', () => {
