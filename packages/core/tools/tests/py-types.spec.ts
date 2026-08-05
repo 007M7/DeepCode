@@ -662,11 +662,13 @@ describe('renderToolsSdkPy', () => {
   })
 
   it('routes every underscore-leading tool name to subscript access', () => {
-    // `_foo` is a legal Python attribute, unlike an exotic name or a hard
-    // keyword, but the whole underscore family goes to `tools[name]` under one
-    // rule: `__meta__` resolves on `object` before the proxy's __getattr__ ever
-    // runs, and `__token` name-mangles at the CALL SITE inside the model's own
-    // class. `_foo` follows them so the rule needs no per-form exception.
+    // `_foo` and `__meta__` are both legal Python attributes, unlike an exotic
+    // name or a hard keyword, yet the whole underscore family goes to
+    // `tools[name]` under one rule. Only some forms actually break — `__token`
+    // name-mangles at the CALL SITE inside the model's own class, and a dunder
+    // that exists on `object` (`__class__`) resolves before the proxy's
+    // __getattr__ runs — so the family rule is what routes `_foo` and
+    // `__meta__`, not a defect in those two names.
     const make = (name: string): ToolSdkSchema => ({
       name,
       description: 'Leading underscore.',

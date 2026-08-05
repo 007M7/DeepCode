@@ -31,8 +31,10 @@ const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/
  * ABSENT: they are only special in statement position, so ``match: str`` as a
  * field and ``async def match(...)`` as a method are both legal, and including
  * them would needlessly degrade common search/regex tool fields to
- * ``dict[str, Any]``. Underscore-leading names are handled separately (dunders
- * name-mangle or resolve on ``object`` before the proxy hook), not here.
+ * ``dict[str, Any]``. Underscore-leading names are handled separately, not
+ * here: a non-dunder ``__token`` name-mangles, a dunder present on
+ * ``object``/``type`` resolves before the proxy hook, and implicit
+ * special-method lookup bypasses the hook.
  */
 const RESERVED = new Set([
   'False', 'None', 'True', 'and', 'as', 'assert', 'async', 'await', 'break', 'class',
@@ -137,12 +139,20 @@ const MAX_CLASS_NAME_BASE = 120
  * block that is not valid Python at all — the same failure the docstring
  * escaping in {@link docLines} exists to prevent. 180 leaves headroom for the
  * few brackets an annotation can add around the chain, all of which count
- * toward the same limit: a `Literal[…]` item, plus exactly one of `NotRequired[…]`
- * (a chain in a TypedDict field, whose class-body line has no other open
- * bracket) or the `def` parameter list still open around a chain in a method's
- * RETURN annotation — the two are mutually exclusive, so the worst case is 182.
- * An argument annotation is always a bare TypedDict class name and opens
- * nothing.
+ * toward the same limit. Per emission site, counting brackets open at the
+ * chain's innermost point:
+ *
+ * - Return annotation, `async def f(self, args: X) -> chain:` — 180 `list[`
+ *   plus an innermost `Literal[`. The parameter list's `(` closed at the `)`
+ *   before the `->`, so it is NOT open here: 181.
+ * - TypedDict field, `field: NotRequired[chain]` — a class-body line with no
+ *   other open bracket, and its children start at `listDepth: 1` to reserve
+ *   the `NotRequired[`, so 179 `list[` plus `Literal[`: 181.
+ * - Argument annotation, `async def f(self, args: chain) -> Y:` — the `(` IS
+ *   still open around it: 180 `list[` plus `Literal[` plus the paren, 182, the
+ *   worst case. Reachable only through a raw `register()` whose `parameters`
+ *   is array-rooted; `defineTool` compiles an object root, so the annotation
+ *   is a bare TypedDict class name that opens nothing.
  *
  * A CPython grammar limit, not a deployment choice, so it is fixed rather than
  * configurable. The sibling `ts-types` renderer needs no counterpart: nothing
@@ -564,10 +574,13 @@ export function renderToolsSdkPy(schemas: ToolSdkSchema[]): string {
       // Not reachable as ``tools.name`` — the model reaches it via
       // ``tools[name]``. Exotic names and hard keywords are not legal
       // attributes at all; an underscore-leading name (``_foo``) IS a legal
-      // attribute and is routed here anyway, so one rule covers every
-      // underscore form rather than singling out the dunders that would
-      // name-mangle or resolve on ``object`` ahead of the proxy hook (see
-      // {@link RESERVED}). The stub lists it as a subscript comment
+      // attribute and is routed here anyway, because the forms that break
+      // split three ways — a non-dunder ``__token`` name-mangles at the CALL
+      // site, a dunder that exists on ``object``/``type`` (``__class__``,
+      // ``__doc__``) resolves before ``__getattr__`` ever runs, and implicit
+      // special-method lookup skips the hook entirely — and one rule over the
+      // whole family costs nothing while a per-form rule would have to
+      // enumerate them (see {@link RESERVED}). The stub lists it as a subscript comment
       // (referencing the named TypedDicts too) so a reader sees what is
       // accessible; runtime resolution goes through the proxy's __getitem__.
       members.push(`${pad(1)}# tools[${JSON.stringify(schema.name)}](args: ${argType}) -> ${outputType}`)
