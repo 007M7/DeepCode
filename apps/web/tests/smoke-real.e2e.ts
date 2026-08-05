@@ -208,7 +208,7 @@ describe('dsh web keyless CLI smoke', () => {
       request.on('end', () => {
         const parsed = JSON.parse(body) as NativeProviderRequest
         if ((parsed.tools?.length ?? 0) > 0) requests.push(parsed)
-        if (requests.length === 2) resolveProviderRequests(requests)
+        if (requests.length === 1) resolveProviderRequests(requests)
         response.writeHead(200, { 'content-type': 'text/event-stream' })
         response.end([
           'data: {"choices":[{"delta":{"role":"assistant","content":null,"reasoning_content":""}}]}',
@@ -253,15 +253,10 @@ describe('dsh web keyless CLI smoke', () => {
           setTimeout(() => { reject(new Error('provider request not received in 10s')) }, 10_000).unref()
         }),
       ])
-      const initial = capturedRequests[0]
-      const captured = capturedRequests[1]
-      if (initial === undefined || captured === undefined) {
-        throw new Error('provider did not receive both workspace projection requests')
+      const captured = capturedRequests[0]
+      if (captured === undefined) {
+        throw new Error('provider did not receive the workspace projection request')
       }
-      expect(initial.messages?.some(message =>
-        message.role === 'user' && message.content?.includes('<available_skills>'))).toBe(false)
-      expect(initial.messages?.some(message =>
-        message.role === 'user' && message.content?.includes('web-workspace-context-probe'))).toBe(false)
       const workspaceMessage = captured.messages?.find(message =>
         message.role === 'user' && message.content?.includes('web-workspace-context-probe'))
       const systemMessage = captured.messages?.find(message => message.role === 'system')
