@@ -465,7 +465,8 @@ describe('renderToolsSdkPy', () => {
       output: { type: 'string' },
     }
     const text = renderToolsSdkPy([undescribedIdentifier, undescribedExotic])
-    // Identifier method appears without a docstring line above it.
+    // Identifier method appears without a docstring in its body — hence the
+    // `: ...` stub, which a documented method replaces with the docstring.
     expect(text).toContain('async def plain(self, args: dict[str, Any]) -> str: ...')
     expect(text).not.toContain('"""')
     // Subscript entry appears without the "#   ..." description follow-up.
@@ -658,6 +659,27 @@ describe('renderToolsSdkPy', () => {
     const text = renderToolsSdkPy([t])
     expect(text).toContain('async def debugger(self, args: dict[str, Any]) -> str: ...')
     expect(text).not.toContain('__debug__')
+  })
+
+  it('routes every underscore-leading tool name to subscript access', () => {
+    // `_foo` is a legal Python attribute, unlike an exotic name or a hard
+    // keyword, but the whole underscore family goes to `tools[name]` under one
+    // rule: `__meta__` resolves on `object` before the proxy's __getattr__ ever
+    // runs, and `__token` name-mangles at the CALL SITE inside the model's own
+    // class. `_foo` follows them so the rule needs no per-form exception.
+    const make = (name: string): ToolSdkSchema => ({
+      name,
+      description: 'Leading underscore.',
+      parameters: parameterSchemaSpecToJsonSchema({}) as unknown as Record<string, unknown>,
+      output: { type: 'string' },
+    })
+    const text = renderToolsSdkPy([make('_foo'), make('__meta__'), make('__token')])
+    for (const name of ['_foo', '__meta__', '__token']) {
+      expect(text).toContain(`# tools[${JSON.stringify(name)}](args: dict[str, Any]) -> str`)
+      expect(text).not.toContain(`async def ${name}(`)
+    }
+    // No method emitted at all, so the class body needs the explicit `pass`.
+    expect(text).toContain('    pass\n')
   })
 
   it('escapes quotes and backslashes in descriptions so the docstring stays valid Python', () => {

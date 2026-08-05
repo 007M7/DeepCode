@@ -136,9 +136,13 @@ const MAX_CLASS_NAME_BASE = 120
  * nested parentheses`), so an array chain deeper than that would render an SDK
  * block that is not valid Python at all — the same failure the docstring
  * escaping in {@link docLines} exists to prevent. 180 leaves headroom for the
- * few brackets an annotation can add around the chain: `NotRequired[…]`, a
- * `Literal[…]` item, and the `def` parameter list an argument annotation sits
- * inside, for a worst case of 182.
+ * few brackets an annotation can add around the chain, all of which count
+ * toward the same limit: a `Literal[…]` item, plus exactly one of `NotRequired[…]`
+ * (a chain in a TypedDict field, whose class-body line has no other open
+ * bracket) or the `def` parameter list still open around a chain in a method's
+ * RETURN annotation — the two are mutually exclusive, so the worst case is 182.
+ * An argument annotation is always a bare TypedDict class name and opens
+ * nothing.
  *
  * A CPython grammar limit, not a deployment choice, so it is fixed rather than
  * configurable. The sibling `ts-types` renderer needs no counterpart: nothing
@@ -557,10 +561,15 @@ export function renderToolsSdkPy(schemas: ToolSdkSchema[]): string {
       members.push(...doc)
       statements += 1
     } else {
-      // Not a legal attribute name — the model reaches it via ``tools[name]``.
-      // The stub lists it as a subscript comment (referencing the named
-      // TypedDicts too) so a reader sees what is accessible; runtime resolution
-      // goes through the proxy's __getitem__.
+      // Not reachable as ``tools.name`` — the model reaches it via
+      // ``tools[name]``. Exotic names and hard keywords are not legal
+      // attributes at all; an underscore-leading name (``_foo``) IS a legal
+      // attribute and is routed here anyway, so one rule covers every
+      // underscore form rather than singling out the dunders that would
+      // name-mangle or resolve on ``object`` ahead of the proxy hook (see
+      // {@link RESERVED}). The stub lists it as a subscript comment
+      // (referencing the named TypedDicts too) so a reader sees what is
+      // accessible; runtime resolution goes through the proxy's __getitem__.
       members.push(`${pad(1)}# tools[${JSON.stringify(schema.name)}](args: ${argType}) -> ${outputType}`)
       const description = describe(schema)
       if (description !== undefined) members.push(`${pad(1)}#   ${description}`)
