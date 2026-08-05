@@ -186,43 +186,94 @@ describe('late event views', () => {
     })
   })
 
-  it.each(['success', 'rejection', 'empty', 'discontinuous'] as const)(
-    'settles a late overlap after loadOlder %s',
-    async (outcome) => {
-      const { api, session } = makeSession()
-      const newer = logRange(6, 12)
-      const target = newer[3]!
-      api.onHistory = () => histResponse(newer, true)
-      await session.open()
+  it('upgrades a retained view during loadOlder and preserves it across prepend', async () => {
+    const { api, session } = makeSession()
+    const target = reminderEvent(9, 'schedule-loading-older')
+    const newer = [...logRange(6, 9), target, ...logRange(10, 12)]
+    api.onHistory = () => histResponse(newer, true)
+    await session.open()
 
-      const gate = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
-      api.onHistory = () => gate.promise
-      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-      try {
-        const loading = session.loadOlder()
-        session.handleMuxEnvelope('late' as never, {
-          type: 'session/event', sessionId: SID, event: target,
-          view: reminderView(`schedule-${outcome}`),
-        })
-        if (outcome === 'success') {
-          gate.resolve(ok({ events: entries(logRange(0, 6)) as never[], hasMore: false }))
-        } else if (outcome === 'rejection') {
-          gate.resolve(err({ code: 'internal', message: 'page rejected', details: {} }))
-        } else if (outcome === 'empty') {
-          gate.resolve(ok({ events: [], hasMore: false }))
-        } else {
-          gate.resolve(ok({ events: entries(logRange(0, 2)) as never[], hasMore: true }))
-        }
-        await loading
-        expect(session.getSnapshot().nodes).toMatchObject([{
-          kind: 'presented-event', seq: target.seq,
-          view: { id: `schedule-${outcome}` },
-        }])
-      } finally {
-        errorSpy.mockRestore()
-      }
-    },
-  )
+    const gate = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    api.onHistory = () => gate.promise
+    const loading = session.loadOlder()
+    session.handleMuxEnvelope('late' as never, {
+      type: 'session/event', sessionId: SID, event: target,
+      view: reminderView('schedule-loading-older'),
+    })
+    expect(session.getSnapshot().nodes).toMatchObject([{
+      kind: 'presented-event', seq: target.seq,
+      view: { id: 'schedule-loading-older' },
+    }])
+
+    gate.resolve(ok({ events: entries(logRange(0, 6)) as never[], hasMore: false }))
+    await loading
+    expect(session.getSnapshot().nodes).toMatchObject([{
+      kind: 'presented-event', seq: target.seq,
+      view: { id: 'schedule-loading-older' },
+    }])
+  })
+
+  it('keeps a late view for the raw event returned by an in-flight older page', async () => {
+    const { api, session } = makeSession()
+    const target = reminderEvent(3, 'schedule-older-page')
+    const older = [...logRange(0, 3), target, ...logRange(4, 6)]
+    api.onHistory = () => histResponse(logRange(6, 12), true)
+    await session.open()
+
+    const gate = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    api.onHistory = () => gate.promise
+    const loading = session.loadOlder()
+    session.handleMuxEnvelope('late' as never, {
+      type: 'session/event', sessionId: SID, event: target,
+      view: reminderView('schedule-older-page'),
+    })
+    session.handleMuxEnvelope('later' as never, {
+      type: 'session/event', sessionId: SID, event: target,
+      view: reminderView('schedule-older-page', '检查更新'),
+    })
+    expect(session.getSnapshot().nodes).toEqual([])
+
+    gate.resolve(ok({ events: entries(older) as never[], hasMore: false }))
+    await loading
+    expect(session.getSnapshot().nodes).toMatchObject([{
+      kind: 'presented-event', seq: target.seq,
+      view: { id: 'schedule-older-page', prompt: '检查更新' },
+    }])
+  })
+
+  it('resyncs when an older page disagrees with its buffered late event identity', async () => {
+    const { api, session } = makeSession()
+    const newer = logRange(6, 12)
+    const pageEvent = reminderEvent(3, 'schedule-page')
+    const delivered = reminderEvent(3, 'schedule-delivered')
+    const older = [...logRange(0, 3), pageEvent, ...logRange(4, 6)]
+    api.onHistory = () => histResponse(newer, true)
+    await session.open()
+
+    const gate = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    api.onHistory = () => gate.promise
+    const loading = session.loadOlder()
+    session.handleMuxEnvelope('late' as never, {
+      type: 'session/event', sessionId: SID, event: delivered,
+      view: reminderView('schedule-delivered'),
+    })
+    api.onHistory = () => histResponse(newer)
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      gate.resolve(ok({ events: entries(older) as never[], hasMore: false }))
+      await loading
+      await vi.waitFor(() => {
+        expect(api.callsOf('session.history')).toHaveLength(3)
+        expect(session.getSnapshot().openState).toBe('open')
+      })
+      expect(errorSpy).toHaveBeenCalledWith(
+        '[web-runtime] older-page session event failed identity validation:',
+        expect.objectContaining({ message: 'session event identity mismatch at seq 3' }),
+      )
+    } finally {
+      errorSpy.mockRestore()
+    }
+  })
 })
 
 

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-用于渲染持久 Schedule 提醒回执的纯浏览器插件。插件在会话拥有的 `conversation.chat.eventview` slot 中注册持久事件类型 `schedule/change`。通用 runtime 继续携带持久事件身份与 Host 计算的 JSON sidecar；本包只拥有 Schedule 卡片。
+用于渲染持久 Schedule 提醒回执的纯浏览器插件。插件在会话拥有的 `conversation.chat.eventview` slot 中注册持久事件类型 `schedule/change`。通用运行时继续携带持久事件身份与 Host 计算的 JSON sidecar；本包只拥有 Schedule 卡片。
 
 卡片显示提醒原文、Session 内的 Schedule ID、精确 UTC 发生时刻，以及 `session-local` 交付边界。若 sidecar 损坏或版本不兼容，组件会显示受控的不可用回执，而不会让会话崩溃。卸载插件只会移除该键控 renderer；`ui-conversation` 随后仍会为同一个持久事件显示通用且可见的 JSON fallback。
 

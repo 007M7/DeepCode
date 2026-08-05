@@ -98,6 +98,12 @@ function assertSameEvent(left: SessionEvent, right: SessionEvent): void {
   }
 }
 
+/** One in-flight older-page request and the late sidecars that may belong to its result. */
+interface OlderPageLoad {
+  readonly beforeSeq: number
+  readonly views: Map<number, { event: SessionEvent; view: SessionEventView }>
+}
+
 /**
  * Owns a session's event window, derived conversation state, and observable
  * snapshot. React bindings remain outside this data layer. Features see only
@@ -119,7 +125,7 @@ export class Session implements SessionFace {
    *  a pre-disconnect open whose history request is already doomed (audit S4). Stale doOpen
    *  passes drop all writes once the generation moves on. */
   private openGeneration = 0
-  private loadingOlder = false
+  private loadingOlder: OlderPageLoad | null = null
   private readonly transcript = new TranscriptAdapter()
   private partial: PartialAccumulator | null = null
   private openCalls = new Map<string, RunningToolCall>()
@@ -390,14 +396,13 @@ export class Session implements SessionFace {
 
   /** Page up: pull one earlier page with the window's first seq as beforeSeq and prepend (§D.2). */
   async loadOlder(): Promise<void> {
-    if (this.openState !== 'open' || !this.hasMore || this.loadingOlder) return
-    const generation = this.openGeneration
-    const requestedBaseSeq = this.baseSeq
-    this.loadingOlder = true
+    if (this.openState !== 'open' || !this.hasMore || this.loadingOlder !== null) return
+    const loading: OlderPageLoad = { beforeSeq: this.baseSeq, views: new Map() }
+    this.loadingOlder = loading
     this.notifier.markDirty()
     try {
-      const { result } = await this.history({ beforeSeq: this.baseSeq, maxMessages: PAGE_MESSAGES })
-      if (generation !== this.openGeneration) return
+      const { result } = await this.history({ beforeSeq: loading.beforeSeq, maxMessages: PAGE_MESSAGES })
+      if (this.loadingOlder !== loading) return
       if (!result.ok) return // keep the window as-is; do not overwrite openError (open already succeeded)
       const older = result.value.events
       if (older.length === 0) {
@@ -405,26 +410,39 @@ export class Session implements SessionFace {
         return
       }
       const tail = older[older.length - 1]
-      if (tail === undefined || tail.event.seq + 1 !== requestedBaseSeq) {
+      if (tail === undefined || tail.event.seq + 1 !== loading.beforeSeq) {
         // §D.2 continuity assertion: on violation drop the page fail-soft rather than render an out-of-order stream.
-        console.error(`[web-runtime] history page discontinuous: tail seq ${tail?.event.seq} vs baseSeq ${requestedBaseSeq}`)
+        console.error(`[web-runtime] history page discontinuous: tail seq ${tail?.event.seq} vs baseSeq ${loading.beforeSeq}`)
         this.hasMore = false
         return
       }
-      this.events = [...older.map(entry => entry.event), ...this.events]
-      this.views = [...older.map(entry => entry.view), ...this.views]
+      let settled: HistoryEntry[]
+      try {
+        settled = older.map((entry): HistoryEntry => {
+          const late = loading.views.get(entry.event.seq)
+          if (late === undefined) return entry
+          assertSameEvent(entry.event, late.event)
+          return { ...entry, view: late.view }
+        })
+      } catch (error) {
+        console.error('[web-runtime] older-page session event failed identity validation:', error)
+        void this.resync()
+        return
+      }
+      this.events = [...settled.map(entry => entry.event), ...this.events]
+      this.views = [...settled.map(entry => entry.view), ...this.views]
       /* v8 ignore next -- the empty-page branch returned above. */
       this.baseSeq = older[0]?.event.seq ?? this.baseSeq
       this.hasMore = result.value.hasMore
       this.transcript.reset(this.events, this.views)
       this.rebuildDerivedFromWindow()
     } catch (error) {
-      if (generation === this.openGeneration) {
+      if (this.loadingOlder === loading) {
         console.error('[web-runtime] loadOlder failed:', error)
       }
     } finally {
-      if (generation === this.openGeneration) {
-        this.loadingOlder = false
+      if (this.loadingOlder === loading) {
+        this.loadingOlder = null
         if (this.liveBuffer.length > 0) void this.repairGap()
         this.notifier.markDirty()
       }
@@ -455,7 +473,7 @@ export class Session implements SessionFace {
     this.pendingRev++
     this.subscribedLastSeq = null
     this.liveBuffer = []
-    this.loadingOlder = false
+    this.loadingOlder = null
     this.stitching = false
     this.notifier.markDirty()
     await this.open()
@@ -836,11 +854,12 @@ export class Session implements SessionFace {
     this.queueRev++
   }
 
-  /** Land a live session/event (open/repair in flight -> buffer; overlapping seq -> drop;
-   *  a seq gap -> buffer + tail-page repull instead of appending a hole (audit S3: a gap is an
-   *  expected reconnect-window artifact, repaired by refetch). The window stays one contiguous
-   *  raw range, which is what lets the transcript render every event between its ends and lets a
-   *  compaction checkpoint find its cited summary event. */
+  /** Land a live session/event (open/repair in flight -> buffer; retained overlap -> validate
+   *  and upgrade; an overlap below the window waits only for its in-flight older page). A seq gap
+   *  buffers and repulls the tail instead of appending a hole (audit S3: a gap is an expected
+   *  reconnect-window artifact, repaired by refetch). The window stays one contiguous raw range,
+   *  which lets the transcript render every event between its ends and a compaction checkpoint
+   *  find its cited summary event. */
   private acceptLiveEvent(event: SessionEvent, view?: SessionEventView): void {
     if (this.openState === 'loading' || this.stitching) {
       this.liveBuffer.push({ event, view })
@@ -850,6 +869,15 @@ export class Session implements SessionFace {
     const tailSeq = this.windowTailSeq()
     if (tailSeq !== null && event.seq <= tailSeq) {
       try {
+        if (event.seq < this.baseSeq) {
+          const loading = this.loadingOlder
+          if (loading !== null && view !== undefined && event.seq < loading.beforeSeq) {
+            const retained = loading.views.get(event.seq)
+            if (retained !== undefined) assertSameEvent(retained.event, event)
+            loading.views.set(event.seq, { event, view })
+          }
+          return
+        }
         const changed = this.upgradeLiveView(event, view)
         if (changed) this.notifier.markDirty()
       } catch (error) {
@@ -860,12 +888,12 @@ export class Session implements SessionFace {
     }
     if (tailSeq !== null && event.seq > tailSeq + 1) {
       this.liveBuffer.push({ event, view })
-      if (!this.loadingOlder) void this.repairGap()
+      if (this.loadingOlder === null) void this.repairGap()
       return
     }
     if (tailSeq === null && event.seq !== 0) {
       this.liveBuffer.push({ event, view })
-      if (!this.loadingOlder) void this.repairGap()
+      if (this.loadingOlder === null) void this.repairGap()
       return
     }
     this.appendLive(event, view)
@@ -1148,7 +1176,7 @@ export class Session implements SessionFace {
       openState: this.openState,
       openError: this.openError,
       hasMore: this.hasMore,
-      loadingOlder: this.loadingOlder,
+      loadingOlder: this.loadingOlder !== null,
       promptError: this.promptError,
       blank: this.blankBit,
       lastAgentError: this.lastAgentError,

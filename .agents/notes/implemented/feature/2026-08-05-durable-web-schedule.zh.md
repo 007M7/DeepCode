@@ -55,7 +55,7 @@ Host 在 append 时继续发送所有 raw event。它在 `WeakMap` 中按 exact 
 
 已附加 history 会独立 inspect persistence，只有 stored event prefix 的 header identity 与每个 event 都和 live Session 匹配时才添加 view。persistence 会把顶层缺失的 `delegationDepth` 规范写成零，因此两种形式在身份上等价；cwd、lineage、origin、时间戳、版本、id 与每个 event 仍必须精确匹配。inspect 缺失、失败、分歧或比 live 更长时，只会省略 view，raw history 仍然返回。已分离 history 本身就是持久前缀。因此复制进 fork seed 的 parent dispatch 只有在 child storage 证明该前缀后才会显示。
 
-浏览器 Session 只有在 durable event 深度一致时才接受重复 seq，随后立即升级 sidecar，不再追加 event。只有尾部加载与真正的 gap repair 才会将尚未覆盖的事件保留在既有 `liveBuffer` 中；普通旧页分页会让当前数组继续接收 live tail 事件，并在 await 后再前插该页。重连 generation 会阻止陈旧的 page 或 repair 结果以及 `finally` 块触碰重建后的 window。`TranscriptAdapter` 创建按持久事件类型键控的通用 `PresentedEventNode`。`ui-conversation` 通过 `conversation.chat.eventview` 分发，并保留可展开 JSON fallback；`ui-schedule` 则拥有双语 `schedule/change` 提醒行。
+浏览器 Session 只有在 durable event 深度一致时才接受重复 seq，随后立即升级 sidecar，不再追加 event。只有尾部加载与真正的 gap repair 才会将尚未覆盖的事件保留在既有 `liveBuffer` 中；普通旧页分页会让当前数组继续接收 live tail 事件，当前 window 以下的 sidecar 则由 in-flight page 自身暂存，只有该页返回身份完全相同的事件时才附着。重连 generation 会阻止陈旧的 page 或 repair 结果以及 `finally` 块触碰重建后的 window。`TranscriptAdapter` 创建按持久事件类型键控的通用 `PresentedEventNode`。`ui-conversation` 通过 `conversation.chat.eventview` 分发，并保留可展开 JSON fallback；`ui-schedule` 则拥有双语 `schedule/change` 提醒行。
 
 ```text
 schedule_create → Session create event → persistence
