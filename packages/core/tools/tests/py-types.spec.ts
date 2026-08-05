@@ -67,17 +67,20 @@ describe('jsonSchemaToPy', () => {
     expect(jsonSchemaToPy({ type: 'string', const: 'ends\\' })).toBe(String.raw`Literal["ends\\"]`)
   })
 
-  it('passes the paragraph separators through raw, which CPython does not treat as line terminators', () => {
-    // `JSON.stringify` escapes LF and CR but not LS/PS (U+2028/U+2029), which
-    // is safe here and not by accident: they are `str.splitlines()` boundaries,
-    // not tokenizer line terminators, so they end neither a string literal nor
-    // a `#` comment — measured on CPython 3.9.6 and 3.12.13. Pinning the raw
-    // form keeps a later "escape them for symmetry with LF" change from
-    // landing as a silent both-flavors divergence from `ts-types`.
-    // Escapes below — the two forms denote the same bytes, and neither
-    // character has a visible width.
+  it('passes the line and paragraph separators through raw, which CPython does not treat as line terminators', () => {
+    // `JSON.stringify` escapes LF and CR but not NEL (U+0085), LS (U+2028), or
+    // PS (U+2029), which is safe here and not by accident: those three are
+    // `str.splitlines()` boundaries, not tokenizer line terminators, so they
+    // end neither a string literal nor a `#` comment — measured on CPython
+    // 3.9.6 and 3.12.13. Pinning the raw form keeps a later "escape them for
+    // symmetry with LF" change from landing as a silent both-flavors
+    // divergence from `ts-types`. Escapes below — the two forms denote the
+    // same bytes, and none of the three has a visible width.
     expect(jsonSchemaToPy({ type: 'string', const: 'a\u2028b' })).toBe('Literal["a\u2028b"]')
     expect(jsonSchemaToPy({ type: 'string', enum: ['a\u2029b'] })).toBe('Literal["a\u2029b"]')
+    // NEL is inside `UNPRINTABLE`'s class, so the description path escapes it;
+    // this is the one route that carries it raw.
+    expect(jsonSchemaToPy({ type: 'string', const: 'a\u0085b' })).toBe('Literal["a\u0085b"]')
   })
 
   it('emits exact digits for a beyond-safe-range integer literal', () => {

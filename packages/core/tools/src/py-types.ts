@@ -172,7 +172,9 @@ interface RenderState {
  * string at run time but do not end a physical line in source — measured on
  * CPython 3.9.6 and 3.12.13, each accepted in both positions with the value
  * round-tripping — so they are safe raw wherever they reach emitted text
- * unescaped, which for LS and PS is {@link pyScalar}'s `JSON.stringify`.
+ * unescaped, which for all three is {@link pyScalar}'s `JSON.stringify`: the
+ * `description` path escapes NEL under the class above and folds LS and PS in
+ * {@link describe}'s `\s+` collapse, both of them being ECMAScript `\s`.
  */
 const UNPRINTABLE = /[\u0000-\u0008\u000e-\u001f\u007f-\u009f]/g
 
@@ -404,24 +406,23 @@ function childClassName(base: string, segment: string): string {
  * code point CPython refuses anywhere in source — NUL among the C0 controls,
  * and the whole D800–DFFF unpaired-surrogate block, escaped under ES2019
  * well-formed stringification, which the engines range guarantees — and the
- * ones that break this line in particular,
- * a bare `"` closing the literal early, a trailing odd backslash eating the
- * closing quote, and a bare LF/CR ending it before its terminator. The
- * `description` path carries {@link UNPRINTABLE} and {@link LONE_SURROGATE}
- * because nothing quotes it, and folds newlines in {@link describe}.
+ * ones that break this line in particular, a bare `"` closing the literal
+ * early, a trailing odd backslash eating the closing quote, and a bare LF/CR
+ * ending it before its terminator. The `description` path carries
+ * {@link UNPRINTABLE} and {@link LONE_SURROGATE} because nothing quotes it,
+ * and folds newlines in {@link describe}.
  *
  * That leans on a coincidence worth naming: every escape `JSON.stringify` can
  * emit (`\"`, `\\`, `\b`, `\f`, `\n`, `\r`, `\t`, `\uXXXX`) is also a Python
  * escape denoting the same character, so the emitted `Literal[...]` both
  * parses and decodes back to the value the schema declared. DEL, the C1
- * controls, and LS/PS (U+2028/U+2029) do reach it raw — legal but invisible,
- * byte-for-byte as in the TS flavor; escaping them is a both-flavors change.
- * LS and PS are legal here for the reason {@link UNPRINTABLE} records: they
- * are `str.splitlines()` boundaries, not tokenizer line terminators. The
- * subscript tool-name
- * comment quotes its name through its own call to the same `JSON.stringify`,
- * never through this function, and inherits both halves — escapes and
- * pass-throughs alike.
+ * controls (NEL among them), and LS/PS (U+2028/U+2029) do reach it raw —
+ * legal but invisible, byte-for-byte as in the TS flavor; escaping them is a
+ * both-flavors change. Those last three are legal here for the reason
+ * {@link UNPRINTABLE} records: they are `str.splitlines()` boundaries, not
+ * tokenizer line terminators. The subscript tool-name comment quotes its name
+ * through its own call to the same `JSON.stringify`, never through this
+ * function, and inherits both halves — escapes and pass-throughs alike.
  */
 function pyScalar(value: JsonSchemaScalar): string {
   if (value === true) return 'True'
