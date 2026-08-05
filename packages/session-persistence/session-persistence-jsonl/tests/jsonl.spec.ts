@@ -694,6 +694,46 @@ describe('SessionPersistenceJsonl: write path (session/event → flush)', () => 
 
 
 describe('SessionPersistenceJsonl: scanLog unit', () => {
+  it('requires exactly one newline-terminated header record', () => {
+    const header = JSON.stringify(toHeaderLine(meta('scanner-header')))
+    expect(() => new SessionLogScanner(Buffer.alloc(0))).toThrow(/header-less/)
+    expect(() => new SessionLogScanner(Buffer.from(header))).toThrow(/header-less/)
+    expect(() => new SessionLogScanner(Buffer.from(`${header}\n${header}\n`))).toThrow(/header-less/)
+  })
+
+  it('handles empty writes, boundary newlines, torn fragments, and scanner completion', () => {
+    const header = Buffer.from(`${JSON.stringify(toHeaderLine(meta('scanner-lifecycle')))}\n`)
+    const event = Buffer.from(JSON.stringify(oneTurnLog()[0]))
+    const scanner = new SessionLogScanner(header)
+
+    scanner.write(Buffer.alloc(0))
+    scanner.write(event)
+    scanner.write(Buffer.from('\nignored torn tail'))
+    const result = scanner.finish()
+
+    expect(result.events).toEqual([oneTurnLog()[0]])
+    expect(result.committedBytes).toBe(header.length + event.length + 1)
+    expect(() =>{  scanner.write(Buffer.from('\n')) }).toThrow(/finished/)
+  })
+
+  it('keeps scanning after a tolerable corrupt suffix until a committed turn end appears', () => {
+    const header = Buffer.from(`${JSON.stringify(toHeaderLine(meta('scanner-corrupt-suffix')))}\n`)
+    const scanner = new SessionLogScanner(header)
+    scanner.write(Buffer.from([
+      JSON.stringify(oneTurnLog()[0]),
+      '{not json',
+      JSON.stringify({ type: 'step/start', seq: 1, time: 2, data: { turn: 1, step: 1 } }),
+      '',
+    ].join('\n')))
+    expect(scanner.finish().events).toEqual([oneTurnLog()[0]])
+
+    const committed = new SessionLogScanner(header)
+    expect(() =>{  committed.write(Buffer.from([
+      JSON.stringify({ type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'completed' } } }),
+      '',
+    ].join('\n'))) }).toThrow(/seq gap in committed region/)
+  })
+
   it('incrementally scans records split across reusable decoder chunks', () => {
     const header = Buffer.from(`${JSON.stringify(toHeaderLine(meta('incremental')))}\n`)
     const body = Buffer.from(`${oneTurnLog().map(event => JSON.stringify(event)).join('\n').replace('"hi"', '"你好"')}\n`)

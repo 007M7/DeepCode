@@ -6,7 +6,7 @@
  */
 
 import {
-  constants, zstdCompress, zstdDecompress, zstdDecompressSync, type ZstdOptions,
+  constants, zstdCompress, zstdDecompress, type ZstdOptions,
 } from 'node:zlib'
 import { promisify } from 'node:util'
 import { NodePrivateZstdFrameDecoder } from './zstd-private-decoder.ts'
@@ -119,17 +119,6 @@ export async function compressZstdFrame(input: Buffer | string): Promise<Buffer>
  */
 export async function decompressZstdFrame(input: Buffer): Promise<Buffer> {
   return zstdDecompressAsync(input)
-}
-
-/**
- * Synchronously decompress one complete frame and validate its checksum.
- * Complete-log readers time-slice repeated calls so the event loop regains
- * control without paying one asynchronous native dispatch per frame.
- * @param input - one structurally complete Zstandard frame.
- * @returns the frame plaintext.
- */
-export function decompressZstdFrameSync(input: Buffer): Buffer {
-  return zstdDecompressSync(input)
 }
 
 /** Common lifecycle for interchangeable synchronous multi-frame decoders. */

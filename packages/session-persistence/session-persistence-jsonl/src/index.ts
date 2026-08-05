@@ -280,6 +280,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
       signal?.throwIfAborted()
       const headerFrame = decodedFrames.next()
       signal?.throwIfAborted()
+      /* v8 ignore next -- a non-empty structural frame list makes the decoder yield its first frame or throw. */
       if (headerFrame.done) throw new Error('empty or header-less Zstandard session log')
       assertZstdHeaderFrame(headerFrame.value)
       const scanner = new SessionLogScanner(headerFrame.value)

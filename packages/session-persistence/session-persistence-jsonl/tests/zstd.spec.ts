@@ -10,8 +10,8 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { logPath, scanLog, sessionDir, toHeaderLine, type JsonlCompression } from '../src/format.ts'
 import {
-  compressZstdFrame, createZstdFrameDecoder, decompressZstdFrame, decompressZstdFrameSync, decompressZstdPrefix,
-  scanZstdFrames,
+  compressZstdFrame, createZstdFrameDecoder, decompressZstdFrame, decompressZstdPrefix, scanZstdFrames,
+  type ZstdFrameDecoder,
 } from '../src/zstd.ts'
 import { NodePrivateZstdFrameDecoder } from '../src/zstd-private-decoder.ts'
 import { PublicZstdFrameDecoder } from '../src/zstd-public-decoder.ts'
@@ -157,7 +157,6 @@ describe('Zstandard frame structure', () => {
     expect(first[4]! & 0x04).toBe(0x04)
     expect(second[4]! & 0x04).toBe(0x04)
     expect((await decompressZstdFrame(first)).toString()).toBe('header\n')
-    expect(decompressZstdFrameSync(second).toString()).toBe('event\n')
     const decoder = createZstdFrameDecoder()
     try {
       const plaintext = Array.from(decoder.decode(stream, scanZstdFrames(stream).frames), chunk => Buffer.from(chunk))
@@ -181,6 +180,96 @@ describe('Zstandard frame structure', () => {
         expect(Buffer.concat(plaintext).toString()).toBe('first\nsecond\n')
       } finally {
         decoder.close()
+      }
+    }
+  })
+
+  it('falls back to the public decoder when the private Node contract is unavailable', () => {
+    vi.spyOn(NodePrivateZstdFrameDecoder, 'create').mockReturnValue(undefined)
+    const decoder = createZstdFrameDecoder()
+    expect(decoder).toBeInstanceOf(PublicZstdFrameDecoder)
+    decoder.close()
+  })
+
+  it('enforces decoder lifecycle and checksum errors through both implementations', async () => {
+    const frame = await compressZstdFrame('frame\n')
+    const range = [{ start: 0, end: frame.length }]
+    const corrupt = Buffer.from(frame)
+    corrupt[corrupt.length - 1] = corrupt[corrupt.length - 1]! ^ 0xFF
+    const factories: Array<() => ZstdFrameDecoder> = [
+      () => new PublicZstdFrameDecoder(),
+      () => NodePrivateZstdFrameDecoder.create()!,
+    ]
+
+    for (const create of factories) {
+      const interrupted = create()
+      const iterator = interrupted.decode(frame, range)
+      expect(iterator.next().value?.toString()).toBe('frame\n')
+      iterator.return()
+      expect(() => Array.from(interrupted.decode(frame, range))).toThrow(/already started/)
+      interrupted.close()
+
+      const closed = create()
+      closed.close()
+      closed.close()
+      expect(() => Array.from(closed.decode(frame, range))).toThrow(/closed/)
+
+      const invalid = create()
+      expect(() => Array.from(invalid.decode(corrupt, range))).toThrow(/frame at byte 0 failed validation/)
+    }
+  })
+
+  it('assembles private-decoder output at and beyond its reusable chunk boundary', async () => {
+    for (const length of [8, 9]) {
+      const plaintext = Buffer.alloc(length, 0x61)
+      const frame = await compressZstdFrame(plaintext)
+      const decoder = NodePrivateZstdFrameDecoder.create()!
+      ;(decoder as unknown as { output: Buffer }).output = Buffer.allocUnsafe(8)
+      const [decoded] = Array.from(
+        decoder.decode(frame, [{ start: 0, end: frame.length }]),
+        chunk => Buffer.from(chunk),
+      )
+      expect(decoded).toEqual(plaintext)
+    }
+  })
+
+  it('normalizes private decoder stream failures', async () => {
+    interface PrivateDecoderInternals {
+      stream: {
+        [key: symbol]: unknown
+        emit(event: string, error: Error): boolean
+      }
+      errorKey: symbol
+    }
+    const frame = await compressZstdFrame('frame\n')
+    const range = [{ start: 0, end: frame.length }]
+
+    const emitted = NodePrivateZstdFrameDecoder.create()!
+    const emittedInternals = emitted as unknown as PrivateDecoderInternals
+    const first = new Error('first emitted decoder failure')
+    emittedInternals.stream.emit('error', first)
+    emittedInternals.stream.emit('error', new Error('later emitted decoder failure'))
+    try {
+      Array.from(emitted.decode(frame, range))
+      throw new Error('expected emitted decoder failure')
+    } catch (error) {
+      expect((error as Error).cause).toBe(first)
+    }
+
+    for (const internalFailure of [new Error('internal decoder failure'), 'not an Error']) {
+      const decoder = NodePrivateZstdFrameDecoder.create()!
+      const internals = decoder as unknown as PrivateDecoderInternals
+      internals.stream[internals.errorKey] = internalFailure
+      try {
+        Array.from(decoder.decode(frame, range))
+        throw new Error('expected internal decoder failure')
+      } catch (error) {
+        const cause = (error as Error).cause
+        if (internalFailure instanceof Error) {
+          expect(cause).toBe(internalFailure)
+        } else {
+          expect(cause).toMatchObject({ message: 'Zstandard decoder exposed a non-Error internal failure' })
+        }
       }
     }
   })
