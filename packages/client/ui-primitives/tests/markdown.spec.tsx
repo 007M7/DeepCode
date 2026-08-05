@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
+import type { Extension } from 'micromark-util-types'
 import { JsonBlock, MarkdownText, MessageText } from '@deepseek-ai/dsh-client-ui-primitives'
+import { remarkMathCompatibility } from '../src/markdown/remarkMathCompatibility.ts'
 
 afterEach(cleanup)
 
@@ -169,6 +171,91 @@ describe('MarkdownText', () => {
     expect(container.querySelectorAll('.katex-display')).toHaveLength(1)
     expect(container.querySelector('.katex-display annotation')?.textContent).toContain('\\frac{\\partial \\mathbf{u}}')
     expect(container.querySelector('a')).toBeNull()
+  })
+
+  it('renders common TeX delimiters and same-line tagged display blocks after the reply settles', () => {
+    const source = [
+      'Inline dollar $\\theta$ and backslash \\(\\frac{1}{5}\\).',
+      '',
+      '\\[\\frac{\\pi}{4} < \\theta < \\frac{\\pi}{2}\\]',
+      '',
+      '$$\\theta \\in \\left(\\frac{\\pi}{4}, \\frac{\\pi}{2}\\right). \\tag{1}$$',
+      '',
+      '| Symbol | Value |',
+      '| --- | --- |',
+      '| $\\theta$ | \\(\\frac{1}{5}\\) |',
+    ].join('\n')
+    const { container } = render(<MarkdownText text={source} />)
+
+    expect(container.querySelectorAll('.katex')).toHaveLength(6)
+    expect(container.querySelectorAll('.katex-display')).toHaveLength(2)
+    expect(container.querySelector('.katex-display annotation')?.textContent).toContain('\\frac{\\pi}{4}')
+    expect([...container.querySelectorAll('.katex-display')].at(-1)?.querySelector('annotation')?.textContent)
+      .toContain('\\tag{1}')
+    expect(container.querySelector('.katex-error')).toBeNull()
+    expect(container.querySelector('table .katex')).not.toBeNull()
+  })
+
+  it('keeps backslash delimiters correct across Markdown boundaries and malformed candidates', () => {
+    const cases = [
+      {
+        source: '\\(\\alpha \\, \\beta\\)',
+        math: 1,
+        display: 0,
+      },
+      {
+        source: '\\(\\frac{1}{5}\n+\\frac{1}{7}\\)',
+        math: 1,
+        display: 0,
+      },
+      {
+        source: '> \\[\n> \\frac{1}{5}\n> \\]',
+        math: 1,
+        display: 1,
+      },
+      {
+        source: '- \\[\n  \\frac{1}{5}\n  \\]',
+        math: 1,
+        display: 1,
+      },
+    ]
+
+    for (const item of cases) {
+      const rendered = render(<MarkdownText text={item.source} />)
+      expect(rendered.container.querySelectorAll('.katex')).toHaveLength(item.math)
+      expect(rendered.container.querySelectorAll('.katex-display')).toHaveLength(item.display)
+      expect(rendered.container.querySelector('.katex-error')).toBeNull()
+      rendered.unmount()
+    }
+
+    const literal = render(<MarkdownText text={'\\\\(x\\)\n\n\\[x\n\n$$x$$ trailing'} />)
+    expect(literal.container.querySelectorAll('.katex')).toHaveLength(1)
+    expect(literal.container.querySelector('.katex-display')).toBeNull()
+    expect(literal.container.textContent).toContain('[x')
+    expect(literal.container.textContent).toContain('xxx trailing')
+  })
+
+  it('keeps ordinary dollar blocks and incomplete delimiter candidates parseable', () => {
+    const sources = [
+      '$$\n\\theta\n$$',
+      '$$$\\theta$$$',
+      '  \\[\n  \\theta\n  \\]',
+      '\\(\\theta',
+      '> \\[\nnot a quoted continuation\n\\]',
+    ]
+
+    for (const source of sources) {
+      const rendered = render(<MarkdownText text={source} />)
+      expect(rendered.container.querySelector('.katex-error')).toBeNull()
+      rendered.unmount()
+    }
+  })
+
+  it('registers the compatibility extension on a bare remark processor', () => {
+    const data: { micromarkExtensions?: Extension[] } = {}
+    remarkMathCompatibility.call({ data: () => data })
+
+    expect(data.micromarkExtensions).toHaveLength(1)
   })
 
   it('defers TeX rendering while streaming so incomplete formulas never flash KaTeX errors', () => {

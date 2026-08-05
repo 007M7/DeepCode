@@ -11,6 +11,7 @@ interface RemarkProcessor {
 }
 
 const previousBackslash: Previous = function (code) {
+  /* v8 ignore next -- micromark calls previous after an event has been emitted. */
   return code !== codes.backslash || this.events.at(-1)?.[1].type === types.characterEscape
 }
 
@@ -20,6 +21,7 @@ const tokenizeBackslashMathText: Tokenizer = function (effects, ok, nok) {
   return start
 
   function start(code: number | null): State | undefined {
+    /* v8 ignore next -- the text construct is dispatched only for a backslash. */
     if (code !== codes.backslash) return nok(code)
     effects.enter('mathText')
     effects.enter('mathTextSequence')
@@ -72,6 +74,7 @@ const tokenizeBackslashMathText: Tokenizer = function (effects, ok, nok) {
     return slash
 
     function slash(code: number | null): State | undefined {
+      /* v8 ignore next -- this partial construct is attempted only at a backslash. */
       if (code !== codes.backslash) return closeNok(code)
       closeEffects.enter('mathTextSequence')
       closeEffects.consume(code)
@@ -98,6 +101,7 @@ function createMathFlow(marker: number, openMarker: number, closeMarker: number,
     return start
 
     function start(code: number | null): State | undefined {
+      /* v8 ignore next -- the flow construct is dispatched only for its marker. */
       if (code !== marker) return nok(code)
       effects.enter('mathFlow')
       effects.enter('mathFlowFence')
@@ -124,6 +128,7 @@ function createMathFlow(marker: number, openMarker: number, closeMarker: number,
         return effects.attempt({ partial: true, tokenize: tokenizeClosingFence }, closed, markerValueStart)(code)
       }
       if (markdownLineEnding(code)) {
+        /* v8 ignore next -- micromark gives same-line dollar flow to remark-math before this continuation branch. */
         return multiline
           ? effects.attempt(nonLazyContinuation, afterContinuation, nok)(code)
           : nok(code)
@@ -218,7 +223,9 @@ const tokenizeNonLazyContinuation: Tokenizer = function (effects, ok, nok) {
   return start
 
   function start(code: number | null): State | undefined {
+    /* v8 ignore next -- continuation constructs are attempted only after a line ending. */
     if (code === codes.eof) return ok(code)
+    /* v8 ignore next -- continuation constructs are attempted only after a line ending. */
     if (!markdownLineEnding(code)) return nok(code)
     effects.enter(types.lineEnding)
     effects.consume(code)
