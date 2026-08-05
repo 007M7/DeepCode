@@ -6,7 +6,7 @@ The model-facing `bash` tool registered over the `ctx.bash` executor seam. Foreg
 
 Requires a loaded executor implementation (e.g. `@deepseek-ai/dsh-bash-local`) and the [`@deepseek-ai/dsh-bash-env`](../bash-env/README.md) registry; the plugin stays pending until every injected service exists (`inject: ['tools', 'bash', 'systemPrompt', 'bashEnv']`). The tool contract is bash-dialect — mount a bash-parsing executor.
 
-The package root exposes only the Cordis plugin contract (`name`, `inject`, `Config`, `apply`); result rendering and background-process adaptation remain implementation details covered by same-package tests.
+The package root exposes only the Cordis plugin contract (`name`, `inject`, `Config`, `apply`); result rendering and background-process adaptation remain package-internal.
 
 The plugin also contributes the `tool:bash` prompt section (order 105): check the `[exit code: N]` marker on every result and investigate failures before moving on.
 

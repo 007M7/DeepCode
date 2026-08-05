@@ -60,16 +60,16 @@ One UI feature = one plugin package (`src/client/` browser half). A multi-domain
 
 ## Styling
 
-[docs/web-styling.md](../../docs/web-styling.md) is authoritative. In short: design tokens live in `web-ui/src/style/global.css` (`:root` light values, `[data-theme='dark']` overrides); component CSS references tokens only — no literal color values. CSS Modules + `clsx`; no component library, no tailwind ([framework ruling](../../.agents/notes/implemented/process/2026-07-19-web-styling-system.md)). Product copy is Chinese; code comments are English.
+[docs/web-styling.md](../../docs/web-styling.md) is authoritative. Shared `--dsw-*` tokens and global sheets live in `ui-theme/src/styles/`; feature components consume semantic aliases through CSS Modules and `clsx`, with no literal colors, component library, or Tailwind. Product copy is Chinese; code comments are English.
 
 ## Testing and coverage
 
 The GUI test structure (three tiers, lane map) is settled in the [GUI testing system note](../../.agents/notes/implemented/process/2026-07-20-gui-testing-system.md); repo-wide policy in [docs/testing.md](../../docs/testing.md).
 
-- **Both client packages are inside the per-file 100% coverage gate** (`pnpm run test:coverage`). `web-runtime` is covered by node-env object/protocol suites; `web-ui` rides the jsdom lane. Genuinely unreachable defensive arms take a `/* v8 ignore -- <reason> */` comment with a real reason, never a bare ignore.
-- **web-ui specs are end-to-end behavior checks, not unit tests.** A jsdom spec renders the component with realistic props (or a driven fixture runtime) and asserts what the user would see — never class names, hook internals, or render counts. Components are consumables: behavior-shaped specs survive a rewrite, implementation-shaped specs don't.
-- The jsdom environment comes from a per-file `// @vitest-environment jsdom` pragma on the spec's first line — the shared config stays node-env. Start a new spec from an existing one (`web-ui/tests/tool-card.spec.tsx` is a good template).
-- **Each tier asserts its own layer.** Data-layer semantics (state machines, wire shapes, reference stability) belong to the `web-runtime` and `apiproxy` suites — don't re-assert them from component specs.
+- Client source packages are inside the per-file 100% coverage gate (`pnpm run test:coverage`). Genuinely unreachable defensive arms take a `/* v8 ignore -- <reason> */` comment with a real reason, never a bare ignore.
+- Component specs render with realistic props or a driven fixture runtime and assert user-visible behavior, not class names, hook internals, or render counts.
+- The jsdom environment comes from a per-file `// @vitest-environment jsdom` pragma on the spec's first line; the shared config stays node-env.
+- Each tier asserts its own layer. Data-layer semantics belong to the runtime and host suites; component specs cover presentation behavior.
 
 ## Before you push: the local check ladder
 

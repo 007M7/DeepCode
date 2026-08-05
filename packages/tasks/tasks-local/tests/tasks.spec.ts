@@ -21,7 +21,7 @@ function stubAgent(ctx: Context, rawId: string): Agent {
   const agent = {
     id,
     options: {},
-    session: new Session(id),
+    session: Session.create(id),
     status: 'idle' as const,
     acceptsNextStep: false,
     ctx: scopeFiber.ctx,

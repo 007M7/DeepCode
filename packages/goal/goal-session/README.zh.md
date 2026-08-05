@@ -21,7 +21,7 @@
 
 ## Round 契约
 
-当对应的活跃 agent 实例处于 idle 状态，且目标 phase 为 active、已启用续行并有剩余容量时，驱动器先为待处理 goal 变更创建检查点，再预留 `roundsStarted + 1`，对应当前 `{ goalId, revision }`。它会排入一条 `<goal_round>` 提示词，并携带 `GoalMessageSource`。通过 `agent/prompt-submit` 准入时，会在下游提示词钩子前后验证完整的排队记录与当前 goal；只有被接受的 `user/message` 才会增加 `roundsStarted`。因陈旧而被拒绝的预留不会消耗 Round 编号。
+当对应的活跃 agent（智能体）实例处于 idle 状态，且目标 phase 为 active、已启用续行并有剩余容量时，驱动器先为待处理 goal 变更创建检查点，再预留 `roundsStarted + 1`，对应当前 `{ goalId, revision }`。它会排入一条 `<goal_round>` 提示词，并携带 `GoalMessageSource`。通过 `agent/prompt-submit` 准入时，会在下游提示词钩子前后验证完整的排队记录与当前 goal；只有被接受的 `user/message` 才会增加 `roundsStarted`。因陈旧而被拒绝的预留不会消耗 Round 编号。
 
 一个 Goal Round 对应一个普通会话轮次，该轮次可以包含多个模型／工具步骤。驱动器只会把预留与 `message` 轮次配对，且该轮次必须携带完全相同的 `GoalMessageSource`；可通过声明合并扩展的插件轮次触发器不会准入或替换该预留。用户消息仍是普通轮次，不消耗 goal 上限。如果用户工作在预留前进入 inbox，或加入预留的待处理批次，自动工作会让行，直到用户工作结算；混合批次中的待处理自动提示词会被拒绝，只有 agent 再次 idle 后才重新预留。
 

@@ -103,7 +103,7 @@ function promptInput(text: string): SummarizationInput {
 
 /** Closed two-message turns followed by one open turn for durable compaction events. */
 function conversation(turns = 4, text = 'fixture '.repeat(40).trim()): Session {
-  const session = new Session(SessionId(`conversation-${turns}`))
+  const session = Session.create(SessionId(`conversation-${turns}`))
   for (let turn = 1; turn <= turns; turn += 1) {
     session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('user/message', createUserMessage({
@@ -140,7 +140,7 @@ function conversation(turns = 4, text = 'fixture '.repeat(40).trim()): Session {
 }
 
 function toolConversation(): Session {
-  const session = new Session(SessionId('tools'))
+  const session = Session.create(SessionId('tools'))
   for (let turn = 1; turn <= 3; turn += 1) {
     const callId = CallId(`call-${turn}`)
     session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -189,7 +189,7 @@ function toolConversation(): Session {
 
 /** One closed routed tool step followed by an open turn for rewrite events. */
 function oversizedToolResult(chars = 3_000, withCompactablePrompt = false): Session {
-  const session = new Session(SessionId(`oversized-tool-${chars}`))
+  const session = Session.create(SessionId(`oversized-tool-${chars}`))
   const callId = CallId('oversized')
   session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
   if (withCompactablePrompt) {
@@ -485,7 +485,7 @@ describe('pressure measurement and retention', () => {
 
   it('skips when no durable routed model exists instead of using AgentOptions fallback', async () => {
     const compact = service(compactConfig)
-    const session = new Session(SessionId('headerless'))
+    const session = Session.create(SessionId('headerless'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     await expect(compact.compactIfNeeded(agent(session, MODEL), 'pressure', SIGNAL))
       .resolves.toBeNull()
@@ -567,7 +567,7 @@ describe('pressure measurement and retention', () => {
 
   it('declines forced overflow when the whole surface is one indivisible tool pair', async () => {
     const compact = service(compactConfig)
-    const session = new Session(SessionId('single-tool-pair'))
+    const session = Session.create(SessionId('single-tool-pair'))
     const callId = CallId('single-call')
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('step/start', { turn: 1, step: 1 })
@@ -658,7 +658,7 @@ describe('pressure measurement and retention', () => {
 
   it('declines when envelope pressure is high but the surface has no compactable range', async () => {
     const compact = service(compactConfig)
-    const empty = new Session(SessionId('empty'))
+    const empty = Session.create(SessionId('empty'))
     empty.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     empty.append('request/header', {
       header: { config: { provider: MODEL, model: MODEL }, system: 'x'.repeat(100_000) },
@@ -733,7 +733,7 @@ describe('pressure measurement and retention', () => {
 
   it('declines when rounding a cut would consume the only tool pair', () => {
     const ctx = createContext()
-    const session = new Session(SessionId('one-tool-pair'))
+    const session = Session.create(SessionId('one-tool-pair'))
     const callId = CallId('only')
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('step/start', { turn: 1, step: 1 })
@@ -874,7 +874,7 @@ describe('compaction region transaction', () => {
     expect(head.content[0]?.type === 'text' ? head.content[0].text : '').toContain('<compacted-summary>')
     expect(head.content.at(-1)).toEqual({ type: 'text', text: '</compacted-summary>' })
 
-    const replay = new Session(SessionId('replay'), [...session.events])
+    const replay = Session.create(SessionId('replay'), [...session.events])
     expect(replay.deriveMessages()).toEqual(session.deriveMessages())
   })
 
@@ -956,7 +956,7 @@ describe('compaction region transaction', () => {
 
   it('rejects a session with no turn boundary at all', async () => {
     const compact = service()
-    const session = new Session(SessionId('turnless'))
+    const session = Session.create(SessionId('turnless'))
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'orphan' }],
       source: { kind: 'user' },
@@ -1076,7 +1076,7 @@ describe('compaction region transaction', () => {
 
   it('lets a model-independent custom summarizer compact without a conversation model', async () => {
     const compact = service()
-    const session = new Session(SessionId('model-less-region'))
+    const session = Session.create(SessionId('model-less-region'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'history '.repeat(100) }],
@@ -1313,13 +1313,13 @@ describe('default one-shot summarizer', () => {
     await ctx.plugin(LlmService)
     void new TokenMeterService(ctx)
     const compact = new ExposedCompactService(ctx, { auto: false })
-    await expect(compact.runSummarize(promptInput('history'), agent(new Session(SessionId('model-less')))))
+    await expect(compact.runSummarize(promptInput('history'), agent(Session.create(SessionId('model-less')))))
       .rejects.toThrow(/no provider\/model available for summarization/)
   })
 
   it('uses a complete AgentOptions target when no durable route exists', async () => {
     const { adapter, compact } = await summarizerHarness([{ type: 'text', text: 'summary' }])
-    const session = new Session(SessionId('headerless-summary'))
+    const session = Session.create(SessionId('headerless-summary'))
 
     await expect(compact.runSummarize(promptInput('history'), agent(session, MODEL))).resolves.toMatchObject({
       provider: MODEL,
@@ -1335,7 +1335,7 @@ describe('default one-shot summarizer', () => {
   ])('rejects incomplete AgentOptions target %#', async (options) => {
     const { compact } = await summarizerHarness([{ type: 'text', text: 'unused' }])
     const owner = {
-      session: new Session(SessionId(`incomplete-${String(options.model)}`)),
+      session: Session.create(SessionId(`incomplete-${String(options.model)}`)),
       options,
     } as Agent
     await expect(compact.runSummarize(promptInput('history'), owner))
@@ -1698,7 +1698,7 @@ describe('automatic listener and loader composition', () => {
   it('delegates canonical overflow when no durable routed target exists', async () => {
     const ctx = createContext()
     void new TestCompactService(ctx)
-    const session = new Session(SessionId('headerless-overflow'))
+    const session = Session.create(SessionId('headerless-overflow'))
     session.append('turn/start', {
       turn: 1,
       trigger: { kind: 'message', source: { kind: 'user' } },

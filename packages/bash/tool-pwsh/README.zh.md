@@ -19,8 +19,8 @@
 | `command` | string (required) | 通过 `pwsh -Command` 运行。调用之间不保留状态——用 `workdir`，不要用 `cd`。 |
 | `description` | string (required) | 命令的一行主动语态摘要（5-10 词），仅用于 UI/日志展示——不影响执行。 |
 | `timeoutMs` | number | 超时覆盖值（毫秒）。执行器应用其配置的默认值与上限。 |
-| `workdir` | string | 本次调用的工作目录。默认取调用 agent 的会话 cwd（`session.header.cwd`），使每个会话在自己的工作区运行；相对 `workdir` 基于同一身份解析。 |
-| `run_in_background` | boolean | 立即返回任务 id；不适用超时。 |
+| `workdir` | string | 本次调用的工作目录。默认取调用 agent（智能体）的会话 cwd（`session.header.cwd`），使每个会话在自己的工作区运行；相对 `workdir` 基于同一身份解析。 |
+| `run_in_background` | boolean | 立即返回 task id；不适用超时。 |
 
 `command`、`workdir` 与 `timeoutMs` 在执行前经 `ctx.bash.resolve()` 按执行器配置默认值解析。workdir 默认值在工具层于 `resolve()` 之前从调用 agent 的 `session.header.cwd` 取得——每次会话的 cwd 必须来自 `exec.agent`，因为 N 个会话共享一个执行器；仅当没有会话 cwd 时执行器才回退到自己的配置 / `process.cwd()`。
 

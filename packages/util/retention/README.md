@@ -47,7 +47,7 @@ Text caps and `omittedBytes` count **bytes**, for process/body safety (a child's
 
 ## Tool mappings
 
-Every current retention consumer maps to the library below. A broad migration is out of scope for the library's first landing — these are the intended shapes.
+Current retention consumers use these mappings:
 
 | Tool | Retainer & strategy | Notes |
 |---|---|---|
@@ -57,7 +57,7 @@ Every current retention consumer maps to the library below. A broad migration is
 | `web_fetch` | `TextRetainer`, `head` or `headTail` | Provider/resource caps stay provider facts; the retainer supplies only retained text and omission metadata. |
 | `web_search` | `ItemRetainer<WebSearchSource>`, `head` | Standardizes the "sources capped" notice when providers return more sources than the model-facing result should include. |
 
-`read` is **intentionally out of scope for v1.** Its `read-render` helper owns a file-specific pagination contract — `offset`/`limit`, line numbers, `totalLines`, offset-out-of-range errors, per-line preview truncation, a byte cap over the selected window — which is a line-window renderer, not generic retention. A single `Omitted` count cannot represent both sides of a line window.
+`read` remains outside this generic library. Its `read-render` helper owns a file-specific pagination contract — `offset`/`limit`, line numbers, `totalLines`, offset-out-of-range errors, per-line preview truncation, and a byte cap over the selected window — which is a line-window renderer. A single `Omitted` count cannot represent both sides of that window.
 
 ## Usage shape
 

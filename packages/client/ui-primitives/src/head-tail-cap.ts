@@ -1,6 +1,5 @@
 // Head/tail height-cap arithmetic shared by the block primitives (TerminalBlock,
-// SearchBlock) and matching the TUI transcript's collapsed tool card, so a long
-// result's head and tail slices agree across every surface. The split is
+// SearchBlock), so long results use consistent head and tail slices. The split is
 // `ceil(maxLines / 2)` head rows and the remainder as tail rows; a result within
 // the cap shows every row and hides none.
 

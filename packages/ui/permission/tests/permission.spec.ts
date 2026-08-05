@@ -44,7 +44,7 @@ async function mounted(options: {
 }
 
 function freshSession(id: string): Session {
-  return new Session(SessionId(id))
+  return Session.create(SessionId(id))
 }
 
 async function mountedStore(options: { approvalDefault?: ApprovalPolicy | undefined } = {}): Promise<Context> {
