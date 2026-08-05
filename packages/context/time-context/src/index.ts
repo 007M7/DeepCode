@@ -174,6 +174,10 @@ export function apply(ctx: Context, config: Config): void {
     const previous = step === 1
       ? precedingMessageTime(agent)
       : precedingStepContextTime(agent, turn)
-    agent.inject(createUserMessage({ content: [{ type: 'text', text: renderText(now, turn, step, previous, formatter, resolvedTimeZone) }], source: { kind: 'plugin', plugin: name } }))
+    const text = renderText(now, turn, step, previous, formatter, resolvedTimeZone)
+    agent.inject(createUserMessage({
+      content: [{ type: 'text', text }],
+      source: { kind: 'plugin', plugin: name, form: 'snapshot', sections: [{ name, text }] },
+    }))
   }, { prepend: true })
 }

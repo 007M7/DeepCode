@@ -191,6 +191,14 @@ type ContextForm =
   | 'instructions'
   /** A catalog of items available in this session, republished as it changes. */
   | 'catalog'
+  /** Current state, where a later snapshot from the same producer supersedes an earlier one. */
+  | 'snapshot'
+  /** A one-off account of something that just happened; it supersedes nothing. */
+  | 'notice'
+  /** A message another agent addressed to this one. */
+  | 'relay'
+  /** Material lifted out of another session's log, possibly reduced on the way in. */
+  | 'recall'
 ```
 
 ```ts type-equiv

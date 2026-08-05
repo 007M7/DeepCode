@@ -102,6 +102,7 @@ describe('dsh-tool-subagent-control', () => {
     // Durable provenance records the calling agent without granting authority.
     expect(followUp?.type === 'user/message' && followUp.data.source).toEqual({
       kind: 'coordinator',
+      form: 'relay',
       senderSessionId: parent.id,
     })
   })

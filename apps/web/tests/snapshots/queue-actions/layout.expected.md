@@ -8,10 +8,10 @@
   - img
   - img
   - text: "goal Goal created Status: active Objective: Keep the composer context panels aligned Rounds: 0/256 Activation: armed Commands: /goal edit <objective>, /goal pause, /goal clear"
-- button "Context injection goal":
+- 'button "Context injection goal create: Keep the composer context panels aligned"':
   - img
   - img
-  - text: Context injection goal
+  - text: "Context injection goal create: Keep the composer context panels aligned"
 - button "Context injection goal":
   - img
   - img

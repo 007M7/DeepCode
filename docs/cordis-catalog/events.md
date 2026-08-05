@@ -567,7 +567,7 @@ Goal mutation accepted by one live agent. The matching context event is already 
 
 Types: [Agent](../core-data-structures/core.md) · [GoalChanged](../core-data-structures/goal.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/goal/goal/src/domain.ts:135`](../../packages/goal/goal/src/domain.ts)
+Source: [`packages/goal/goal/src/domain.ts:142`](../../packages/goal/goal/src/domain.ts)
 
 ## `llm/*`
 

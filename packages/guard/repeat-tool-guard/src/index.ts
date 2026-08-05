@@ -200,7 +200,10 @@ export function apply(ctx: Context, config: Config): void {
     const text = count === thresholds[0]
       ? GENTLE_REMINDER
       : detailedReminder(exec.name, count, previewArguments(canonical, argumentsPreviewChars))
-    return createUserMessage({ content: [{ type: 'text', text }], source: PLUGIN_SOURCE })
+    return createUserMessage({
+      content: [{ type: 'text', text }],
+      source: { ...PLUGIN_SOURCE, form: 'notice', summary: `${exec.name} × ${count}` },
+    })
   }
 
   // Observe-and-enrich, never veto: count first (state advances regardless of

@@ -203,7 +203,12 @@ describe('bash tool through the agent loop', () => {
     expect(notice.data.content.some(
       block => block.type === 'text' && block.text.includes('background task bash-1 (bash: echo bg-ok) finished'),
     )).toBe(true)
-    expect(notice.data.source).toEqual({ kind: 'plugin', plugin: 'tool-tasks' })
+    expect(notice.data.source).toEqual({
+      kind: 'plugin',
+      plugin: 'tool-tasks',
+      form: 'notice',
+      summary: 'bash echo bg-ok [status: completed, exit code: 0]',
+    })
 
     // The next turn collects the output through the generic task tool.
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'collect it' }], source: { kind: 'user' } }))

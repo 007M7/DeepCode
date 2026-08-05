@@ -46,10 +46,12 @@ import {
   llmRetryPolicyOf,
   markAgentLoopRequest,
 } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions, LlmCallConfig, LlmFailure, Message, PreparedLlmCall, ResolvedRetryPolicy } from '@deepseek-ai/dsh-llm'
+import type {
+  ContextSnapshotSection, GenerateOptions, LlmCallConfig, LlmFailure, Message, PreparedLlmCall, ResolvedRetryPolicy,
+} from '@deepseek-ai/dsh-llm'
 import { canonicalHeader, headerEquals } from '@deepseek-ai/dsh-session'
 import type { AssistantMessage, EpochHeader, RequestContext, Session, SessionId, TurnEndReason, TurnTrigger, UserMessage } from '@deepseek-ai/dsh-session'
-import { renderContextSnapshot, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
+import { renderContextSections, renderContextSnapshot, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import { executeToolCalls } from './tool-calls.ts'
 
@@ -105,7 +107,11 @@ function retainedRuntimeContext(session: Session): { found: boolean; text: strin
 }
 
 /** Append a full current snapshot only when it changed or compaction removed it. */
-function materializeRuntimeContext(session: Session, current: string): void {
+function materializeRuntimeContext(
+  session: Session,
+  current: string,
+  sections: readonly ContextSnapshotSection[],
+): void {
   const previous = retainedRuntimeContext(session)
   if (!previous.found && current.length === 0) {
     const compactedPriorSnapshot = session.surface.replaceGeneration > 0
@@ -116,7 +122,10 @@ function materializeRuntimeContext(session: Session, current: string): void {
   if (previous.text === snapshot) return
   session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: snapshot }],
-    source: { kind: 'plugin', plugin: RUNTIME_CONTEXT_SOURCE },
+    // The cleared marker has no contributions left to attribute.
+    source: sections.length === 0
+      ? { kind: 'plugin', plugin: RUNTIME_CONTEXT_SOURCE }
+      : { kind: 'plugin', plugin: RUNTIME_CONTEXT_SOURCE, form: 'snapshot', sections },
   }), { surfaceOp: 'append' })
 }
 
@@ -691,7 +700,7 @@ export class ReactLoopAgent implements Agent {
     const assembly = await this.loopCtx.systemPrompt.assemble(assembleContextFor(this, signal))
     signal.throwIfAborted()
     const system = renderPrompt(assembly)
-    materializeRuntimeContext(session, renderContextSnapshot(assembly))
+    materializeRuntimeContext(session, renderContextSnapshot(assembly), renderContextSections(assembly))
 
     // Commit the exact pending batch only after every asynchronous
     // pre-request contribution succeeded. Input accepted after this splice

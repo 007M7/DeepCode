@@ -97,7 +97,7 @@ export function contextProvenance(source: unknown): ContextProvenanceView {
  * dropping the row, so a log written by a newer or foreign producer still
  * renders.
  */
-const KNOWN_FORMS = ['instructions', 'catalog'] as const
+const KNOWN_FORMS = ['instructions', 'catalog', 'snapshot', 'notice', 'relay', 'recall'] as const
 
 /** One durable context form this UI version knows how to present. */
 export type KnownContextForm = typeof KNOWN_FORMS[number]

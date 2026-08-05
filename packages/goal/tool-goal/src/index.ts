@@ -315,7 +315,12 @@ export function apply(ctx: Context, config: Config): void {
           content: args.action === 'complete'
             ? renderWrapupContext(goal.objective)
             : renderWrapupContext(goal.objective, args.blocked_reason as string),
-          source: { kind: 'plugin', plugin: 'tool-goal' },
+          source: {
+            kind: 'plugin',
+            plugin: 'tool-goal',
+            form: 'notice',
+            summary: `${args.action as string}: ${goal.objective}`,
+          },
         }))
       }
       return Promise.resolve(goalValue(goal))

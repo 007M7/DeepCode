@@ -23,7 +23,7 @@ import {
   goalChangeRef,
 } from './fold.ts'
 import type { GoalFoldState } from './fold.ts'
-import { renderGoalChange } from './render.ts'
+import { goalChangeSummary, renderGoalChange } from './render.ts'
 import {
   GOAL_CHANGE_VERSION,
   GoalError,
@@ -568,7 +568,15 @@ export class GoalService extends Service {
     try {
       agent.inject(createUserMessage({
         content: renderGoalChange(change),
-        source: { kind: 'goal', goalId: ref.id, revision: ref.revision, round: 0, change },
+        source: {
+          kind: 'goal',
+          goalId: ref.id,
+          revision: ref.revision,
+          round: 0,
+          change,
+          form: 'notice',
+          summary: goalChangeSummary(change),
+        },
       }))
     } catch (error: unknown) {
       const index = cache.pending.indexOf(pending)

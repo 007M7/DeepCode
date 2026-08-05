@@ -4,6 +4,18 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { GoalChangeMeta } from './domain.ts'
 
 /**
+ * One-line account of a goal mutation for the `notice` form's collapsed row.
+ * @param change - durable goal change carried by the message source.
+ * @returns the operation and, for a surviving goal, its objective.
+ */
+export function goalChangeSummary(change: GoalChangeMeta): string {
+  // The row header already names the producer, so the account does not repeat it.
+  return change.operation === 'clear'
+    ? change.operation
+    : `${change.operation}: ${change.goal.objective}`
+}
+
+/**
  * Render a complete goal snapshot or clear tombstone without hidden prose.
  * @param change - durable goal change carried by the message source.
  * @returns the single context block logged and projected verbatim for model reconstruction.
