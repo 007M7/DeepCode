@@ -19,6 +19,8 @@ export interface InboxNotifications {
   inserted(message: UserMessage): void
   /** Publish one discarded message. */
   discarded(message: UserMessage): void
+  /** Publish one claimed message inside its owning turn. */
+  claimed(message: UserMessage, turn: number): void
 }
 
 /** A replay-once projection that incrementally consumes later inbox splices. */
@@ -61,17 +63,19 @@ export class Inbox {
   }
 
   /**
-   * Remove and return the complete batch proposed for one step. The durable
-   * splices are pure deletions; the caller publishes claimed notifications.
+   * Remove and return the complete batch proposed for one step, publishing
+   * each claimed message. The durable splices are pure deletions.
    * @param target - whether this boundary also consumes one queued turn.
+   * @param turn - turn that will own the claimed batch.
    * @returns next-step input followed by the queued turn, when requested.
    * @internal - the agent loop's step-boundary operation, not a plugin seam.
    */
-  claim(target: InboxTarget): UserMessage[] {
+  claim(target: InboxTarget, turn: number): UserMessage[] {
     const claimed = this.mutate('next-step', 0, this.nextStep.length, [], false)
     if (target === 'next-turn') {
       claimed.push(...this.mutate('next-turn', 0, 1, [], false))
     }
+    for (const message of claimed) this.notifications.claimed(message, turn)
     return claimed
   }
 

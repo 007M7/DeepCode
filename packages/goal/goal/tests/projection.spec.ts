@@ -31,7 +31,7 @@ interface Bench {
 /** Register a minimal registry-compatible live agent over a store session. */
 function liveAgent(ctx: Context, session: Session): Agent {
   const status: AgentStatus = 'idle'
-  const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {} })
+  const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} })
   const agent: Agent = {
     id: session.id,
     options: {},

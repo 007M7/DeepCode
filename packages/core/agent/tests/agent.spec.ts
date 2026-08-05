@@ -22,7 +22,7 @@ function stubAgent(rawId: string, overrides: Partial<Agent> = {}): Agent {
     id,
     options: {},
     session,
-    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
+    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
     status: 'idle',
     ctx: new Context(),
     send: () => {},
@@ -45,7 +45,7 @@ describe('Inbox', () => {
       inserted: [],
     })
 
-    expect(() => new Inbox(session, { inserted: () => {}, discarded: () => {} }))
+    expect(() => new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }))
       .toThrow('invalid persisted inbox splice at session seq 0')
   })
 
@@ -54,6 +54,7 @@ describe('Inbox', () => {
     const inserted: UserMessage[] = []
     const discarded: UserMessage[] = []
     const inbox = new Inbox(session, {
+      claimed: () => {},
       inserted: message => void inserted.push(message),
       discarded: message => void discarded.push(message),
     })
@@ -92,7 +93,7 @@ describe('Inbox', () => {
 
   it('normalizes splice coordinates, rejects duplicate identities, and reports missing removals', () => {
     const session = Session.create(SessionId('splice-inbox'))
-    const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {} })
+    const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} })
     const first = createUserMessage({
       content: [{ type: 'text', text: 'first' }],
       source: { kind: 'user' },
@@ -113,6 +114,7 @@ describe('Inbox', () => {
     const session = Session.create(SessionId('clear-inbox'))
     const discarded: UserMessage[] = []
     const inbox = new Inbox(session, {
+      claimed: () => {},
       inserted: () => {},
       discarded: message => void discarded.push(message),
     })

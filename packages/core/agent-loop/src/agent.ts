@@ -81,6 +81,7 @@ export class ReactLoopAgent implements Agent {
     this.inbox = new Inbox(session, {
       inserted: (message) => { emitAgentEvent(loopCtx, this, 'agent/inbox/inserted', { message }) },
       discarded: (message) => { emitAgentEvent(loopCtx, this, 'agent/inbox/discarded', { message }) },
+      claimed: (message, turn) => { emitAgentEvent(loopCtx, this, 'agent/inbox/claimed', { message, turn }) },
     })
     const lastTurn = session.events.findLast(event => event.type === 'turn/start')?.data.turn ?? 0
     this.phase = { kind: 'idle', lastTurn }
@@ -198,10 +199,7 @@ export class ReactLoopAgent implements Agent {
     /* v8 ignore next -- private callers establish the running phase before proposing a step */
     if (this.phase.kind !== 'running') throw new Error(`agent "${this.id}": pre-step outside running phase`)
     const signal = this.phase.abort.signal
-    const claimed = this.inbox.claim(target)
-    for (const message of claimed) {
-      emitAgentEvent(this.loopCtx, this, 'agent/inbox/claimed', { message, turn: position.turn })
-    }
+    const claimed = this.inbox.claim(target, position.turn)
     const assembly = await this.loopCtx.systemPrompt.assemble(assembleContextFor(this, signal))
     signal.throwIfAborted()
     const context = this.runtimeContext.project(renderContextSnapshot(assembly))

@@ -24,13 +24,13 @@ function nextTurn(session: Session): number {
 
 /** Mirror the public Agent.inject contract for domain tests. */
 function appendInjection(session: Session, input: UserMessage): void {
-  new Inbox(session, { inserted: () => {}, discarded: () => {} }).append('next-step', input)
+  new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }).append('next-step', input)
 }
 
 /** Build a registry-compatible agent around one concrete session. */
 function stubAgentForSession(session: Session): StubAgent {
   const id = session.id
-  const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {} })
+  const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} })
   const agent: Agent = {
     id,
     options: {},
@@ -554,7 +554,7 @@ describe('goal replay validation', () => {
       content: [{ type: 'text', text: 'unrelated pending context' }],
       source: { kind: 'plugin', plugin: 'test' },
     })
-    const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {} })
+    const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} })
     inbox.append('next-step', message)
     expect(inbox.remove(message.id)).toBe(true)
     expect(foldGoal(session.events)).toMatchObject({ goal: { id: change.goal.id, revision: 1 } })
