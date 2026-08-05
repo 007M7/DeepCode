@@ -44,7 +44,7 @@ async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandl
 
 Types: [Agent](../core-data-structures/core.md) · [AgentOptions](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:252`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:253`](../../packages/core/agent-loop/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 
@@ -297,7 +297,7 @@ Source: [`packages/bash/bash/src/index.ts:51`](../../packages/bash/bash/src/inde
 
 ## `ctx.bashEnv` — `BashEnvRegistry`
 
-Registry (`ctx.bashEnv`) for trusted, per-execution `DSH_*` variables. The namespace is rebuilt for every model bash call: ambient `DSH_*` values are discarded by the executor, then the registry's current snapshot is injected. Built-in shell facts remain owned by the registry itself while plugins can register additional, enumerable facts with effect-scoped disposal.
+Registry (`ctx.bashEnv`) for trusted, per-execution `DSH_*` variables. The namespace is rebuilt for every model shell call: ambient `DSH_*` values are discarded by the executor, then the registry's current snapshot is injected. Built-in shell facts remain owned by the registry itself while plugins can register additional, enumerable facts with effect-scoped disposal.
 
 ```ts cordis-catalog
 /**
@@ -309,7 +309,7 @@ Registry (`ctx.bashEnv`) for trusted, per-execution `DSH_*` variables. The names
 register(contributor: BashEnvContributor): () => void
 
 /**
- * Build the trusted `DSH_*` snapshot for one bash tool execution.
+ * Build the trusted `DSH_*` snapshot for one shell tool execution.
  * @param execution - the current tool execution.
  * @returns an immutable environment overlay containing built-ins and current contributions.
  */
@@ -324,7 +324,7 @@ list(): BashEnvVariableInfo[]
 
 Types: [DshEnvironment](../core-data-structures/subprocess.md) · [ToolExecution](../core-data-structures/tools.md)
 
-Source: [`packages/bash/tool-bash/src/index.ts:104`](../../packages/bash/tool-bash/src/index.ts)
+Source: [`packages/bash/bash-env/src/index.ts:89`](../../packages/bash/bash-env/src/index.ts)
 
 ## `ctx.clientModuleHost` — `ClientModuleHostService`
 
@@ -1103,7 +1103,7 @@ abstract confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv
 
 Types: [ConfinedArgv](../core-data-structures/sandbox.md) · [SandboxPolicy](../core-data-structures/sandbox.md)
 
-Source: [`packages/sandbox/sandbox/src/index.ts:131`](../../packages/sandbox/sandbox/src/index.ts)
+Source: [`packages/sandbox/sandbox/src/index.ts:148`](../../packages/sandbox/sandbox/src/index.ts)
 
 ## `ctx.sandboxPolicy` — `SandboxPolicyService`
 
@@ -1681,7 +1681,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:726`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:755`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 
@@ -2105,7 +2105,7 @@ abstract spawn(spec: SubprocessSpawnSpec): SubprocessHandle
 
 Types: [SubprocessHandle](../core-data-structures/subprocess.md) · [SubprocessSpawnSpec](../core-data-structures/subprocess.md)
 
-Source: [`packages/subprocess/subprocess/src/index.ts:88`](../../packages/subprocess/subprocess/src/index.ts)
+Source: [`packages/subprocess/subprocess/src/index.ts:91`](../../packages/subprocess/subprocess/src/index.ts)
 
 ## `ctx.systemPrompt` — `SystemPrompt`
 

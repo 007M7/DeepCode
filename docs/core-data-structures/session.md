@@ -351,13 +351,14 @@ interface SurfaceFoldResult {
 
 ## `Session` public API
 
-The body-stripped declaration keeps the plain class's public constructor, state accessors, append boundary, and history projections synchronized with source. Store operations remain in the generated [`ctx.sessions` service catalog](../cordis-catalog/services.md#ctxsessions--sessionstore).
+The body-stripped declaration keeps the plain class's detached factory, state accessors, append boundary, and history projections synchronized with source. Store operations remain in the generated [`ctx.sessions` service catalog](../cordis-catalog/services.md#ctxsessions--sessionstore).
 
 ```ts public-api
 /**
  * An event-sourced session: an append-only log of {@link SessionEvent}s.
  *
- * Plain class (not a Service) — create instances via `ctx.sessions.create()`.
+ * Plain class (not a Service) — create live instances via
+ * `ctx.sessions.create()` and detached instances via {@link create}.
  * Seeding with an existing event log replays/forks a session.
  * @typert object
  */
@@ -400,7 +401,15 @@ declare class Session {
    * holds an ordinary published write.
    */
   readonly firstLiveSeq: number;
-  constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader);
+  /**
+   * Create a detached session by validating and snapshotting borrowed seed
+   * events and storage metadata.
+   * @param id - session identity.
+   * @param seed - optional borrowed replay or fork events.
+   * @param header - optional borrowed storage metadata.
+   * @returns a detached session.
+   */
+  static create(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader): Session;
   /**
    * An immutable snapshot of the append-only event log. The snapshot is reused
    * until the next append; a previously returned array does not grow later.

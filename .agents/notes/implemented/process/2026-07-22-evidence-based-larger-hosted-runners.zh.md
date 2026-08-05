@@ -22,7 +22,7 @@ Linux 主流程使用 3 个相互独立的 32 核作业。覆盖率单独运行�
 
 门禁依赖关系保持显式。覆盖率消费源码，不等待构建。文档类型检查以消费方通道的完整 project-reference 输出为输入。快照回放和发布消费方等待生成的输出，而 Node 版本兼容性作业会验证对运行时敏感的源码加载，且不重复主源码项目图的类型检查。PTY 和子进程套件继续使用自身有界的内部并发，不继承运行器的核心数。
 
-产物边界保持显式。`scripts/publint-all.ts` 对内存中的发布视图调用 publint 支持的 API；该视图由每个 manifest（元数据清单）声明的文件和 npm 强制要求的元数据组成，从而避免为每个包（package）启动一次包管理器 pack 进程。`scripts/verify-built-package-invariants.mjs` 将已声明的 `lib/` 文件暂存到真实包下，并通过普通 Node 和 Cordis Loader 规范化导入其已编译的自身引用；发布契约只要遗漏一个运行时分片，检查仍会失败。
+产物边界保持显式。`scripts/publint-all.ts` 对内存中的发布视图调用 publint 支持的 API；该视图由每个 manifest（元数据清单）声明的文件和 npm 强制要求的元数据组成，从而避免为每个包启动一次包管理器 pack 进程。`scripts/verify-built-package-invariants.mjs` 将已声明的 `lib/` 文件暂存到真实包下，并通过普通 Node 和 Cordis Loader 规范化导入其已编译的自身引用；发布契约只要遗漏一个运行时分片，检查仍会失败。
 
 Windows 以一次 32 核环境设置同时承载阻塞性构建、生产网站和观测性的构建产物契约。重复的 lint、覆盖率和快照清单由 Linux 承担，因为在 Windows 上运行这些观测性副本会延长付费关键路径，却不会新增任何阻塞性平台契约。
 
@@ -44,7 +44,7 @@ Windows 仓库工作在超过 16 核后收益很小，但 32 核池可以让完�
 
 客户端包依赖图增大后，缓存机制和调度器压力也成为实测工作负载的一部分。在[一次分支头精确的候选运行](https://github.com/deepseek-harness/deepseek-harness/actions/runs/29912577681)中，Linux 的仓库门禁耗时 39 秒，完整作业耗时 69 秒；Windows 的仓库门禁耗时 117 秒，完整作业耗时 228 秒。Windows pnpm 缓存的 154 MB 归档下载耗时约 2 秒，但解压耗时 27 秒，随后安装耗时 23 秒，作业结束后的保存又耗时 14 秒。一次[无缓存的全规格运行轨迹](https://github.com/deepseek-harness/deepseek-harness/actions/runs/29913033155)在 27 秒内完成了同一台 32 核 Windows 运行器上的安装。因此，未来若要启用大型运行器，需要测量完整作业，而不能只测门禁耗时。
 
-任何比较都必须计入主机设置。一个标准 Node 26 作业曾在总共 67 秒的耗时中，把 36 秒用在 `Set up job` 上；`actions/setup-node` 从托管 toolcache 找到 Node 后，仍花费 46.56 秒输出缓存的 Windows 环境详情。一个 Linux 候选作业还在注册 50 KB 的 Bubblewrap 包时耗时 18 秒，因为托管映像扫描了 202,507 个包数据库文件。[`scripts/prepare-ci-bubblewrap.sh`](../../../../scripts/prepare-ci-bubblewrap.sh) 改为验证固定包内容并将其解压到临时运行器目录，执行功能性隔离探针，并让这项准备工作与依赖安装重叠执行。
+任何比较都必须计入主机设置。一个标准 Node 26 作业曾在总共 67 秒的耗时中，把 36 秒用在 `Set up job` 上；`actions/setup-node` 从托管 toolcache 找到 Node 后，仍花费 46.56 秒输出缓存的 Windows 环境详情。一个 Linux 候选作业还在注册 50 KB 的 Bubblewrap 包时耗时 18 秒，因为托管映像扫描了 202,507 个包数据库文件。[`scripts/prepare-ci-bubblewrap.sh`](../../../../scripts/prepare-ci-bubblewrap.sh) 改为验证固定版本的 payload 并将其解压到临时运行器目录，执行功能性隔离探针，并让这项准备工作与依赖安装重叠执行。
 
 内层与外层工作线程上限是相互独立的控制机制。一次[分支头精确、使用 32 个工作线程的 ESLint 实验](https://github.com/deepseek-harness/deepseek-harness/actions/runs/29918329463)使 lint 耗时增至 52.28 秒、覆盖率耗时增至 42.71 秒；同一次运行中，一项适配器空闲超时测试失败。后来一次同时运行 8 项门禁的运行轨迹将覆盖率耗时降至 35.17 秒，但生产网站构建被延后，直到聚合流程耗时达到 41.06 秒时才完成。因此，不能仅凭核心数照搬同等规模的工作线程上限。
 
@@ -52,7 +52,7 @@ Windows 仓库工作在超过 16 核后收益很小，但 32 核池可以让完�
 
 只有在 `master` 移动时，才运行完整的 Linux、macOS 和 Windows 串行参考。拉取请求使用企业级运行器必需路径和标准托管兼容性作业，其他大型运行器规格仅通过手动触发运行。
 
-另有一条串行 Linux 参考在每次 `master` 推送时运行于公司自有的自托管池（`vm-backup` 标签：一台 64 核虚拟机，运行 6 个常驻的 systemd 管理运行器实例）。它是热备演练而非必需检查：每次运行都重新证明这台持久化虚拟机能够执行完整的未分片聚合流程。实际切换机制已预先布线：三个必需 Linux 作业通过写者可管理的仓库变量 `DSH_CI_FAILOVER` 解析运行器池，因此故障响应就是设置一个变量并重跑——无需合并（合并本身会被正在失败的检查死锁）（[切换手册](2026-07-26-ci-failover-runbook.md)）。该热备通道由 push 触发，执行的始终是基线分支自身的工作流定义。但需要注意：故障切换期间，`pull_request` 作业确实会带着 PR merge 引用自带的工作流定义到达这些运行器——信任边界是仓库成员资格（仓库为私有且禁用 fork，选择器排除 Dependabot），详见[故障切换手册](2026-07-26-ci-failover-runbook.md)的记录。
+另有一条串行 Linux 参考在每次 `master` 推送时运行于公司自有的自托管池（`vm-backup` 标签：一台 64 核虚拟机，运行 6 个常驻的 systemd 管理运行器实例）。它是热备演练而非必需检查：每次运行都重新证明这台持久化虚拟机能够执行完整的未分片聚合流程。实际切换机制已预先布线：三个必需 Linux 作业通过写入权限持有者可管理的仓库变量 `DSH_CI_FAILOVER` 解析运行器池，因此故障响应就是设置一个变量并重跑——无需合并（合并本身会被正在失败的检查阻塞，形成死锁）（[切换手册](2026-07-26-ci-failover-runbook.md)）。该热备通道由 push 触发，执行的始终是基础分支自身的工作流定义。但需要注意：故障切换期间，`pull_request` 作业确实会带着 PR merge 引用自带的工作流定义到达这些运行器——信任边界是仓库成员资格（仓库为私有且禁用 fork，选择器排除 Dependabot），详见[故障切换手册](2026-07-26-ci-failover-runbook.md)的记录。
 
 ## 曾考虑的替代方案
 

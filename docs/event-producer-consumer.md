@@ -7,7 +7,7 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 
 | Event | Mode | Declared in | Dispatchers | Listeners |
 | --- | --- | --- | --- | --- |
-| `agent-loop/config-start-failed` | `emit` | [`packages/core/agent-loop/src/index.ts:157`](../packages/core/agent-loop/src/index.ts) | [`agent-loop`](../packages/core/agent-loop) (`events.dispatch`) | - |
+| `agent-loop/config-start-failed` | `emit` | [`packages/core/agent-loop/src/index.ts:158`](../packages/core/agent-loop/src/index.ts) | [`agent-loop`](../packages/core/agent-loop) (`events.dispatch`) | - |
 | `agent/cancel-requested` | `emit` | [`packages/core/agent/src/types.ts:353`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emitAgentEvent`) | [`goal-session`](../packages/goal/goal-session) |
 | `agent/created` | `emit` | [`packages/core/agent/src/types.ts:284`](../packages/core/agent/src/types.ts) | [`agent`](../packages/core/agent) (`events.dispatch`) | [`goal-session`](../packages/goal/goal-session) |
 | `agent/disposed` | `emit` | [`packages/core/agent/src/types.ts:293`](../packages/core/agent/src/types.ts) | [`agent`](../packages/core/agent) (`events.dispatch`) | [`agent-loop`](../packages/core/agent-loop), [`goal-session`](../packages/goal/goal-session), [`subagent`](../packages/subagent/subagent) |

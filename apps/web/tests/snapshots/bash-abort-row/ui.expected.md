@@ -14,10 +14,10 @@
   - img
   - img
   - text: Context injection
-- 'button "Failed Bash Error: command aborted" [expanded]':
+- 'button "Failed Bash Error: tool call aborted" [expanded]':
   - img
-  - text: "Failed Bash Error: command aborted"
-- text: "IN { \"command\": \"node -e \\\"require('node:fs').writeFileSync('started.txt', 'started'); setInterval(() => {}, 1000)\\\"\", \"description\": \"Wait until cancellation\" } OUT Error: command aborted"
+  - text: "Failed Bash Error: tool call aborted"
+- text: "IN { \"command\": \"node -e \\\"require('node:fs').writeFileSync('started.txt', 'started'); setInterval(() => {}, 1000)\\\"\", \"description\": \"Wait until cancellation\" } OUT Error: tool call aborted"
 - button "Inspect"
 - 'button "Failed Bash Error: tool call aborted before dispatch"':
   - img
@@ -26,8 +26,8 @@
 - button "Commands":
   - img
 - 'button "Access mode, current: Workspace Write"': Workspace Write
-- button "Select model, current deepseek-v4-flash":
-  - text: deepseek-v4-flash
+- button "Select model":
+  - text: Select model
   - img
 - button "Send message" [disabled]
 - text: 1 turns · 1 steps Tool call {{duration}} Cache hit 0% Input 10 tok · Output 10 tok

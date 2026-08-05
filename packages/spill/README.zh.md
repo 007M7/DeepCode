@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-工具输出 spill 的能力 seam：一个抽象存储接口、一个本地文件系统实现，以及一个使用该实现的工具结果策略。全部均为**产品**包（package）。
+工具输出 spill 的能力 seam：一个抽象存储接口、一个本地文件系统实现，以及一个使用该实现的工具结果策略。全部均为**产品**包。
 
 | 包 | 职责 | ctx 键 |
 |---|---|---|
@@ -12,4 +12,4 @@
 
 接口位于 `spill/spill/`。这种拆分方式与 bash/fs 相同：seam 只负责存储，`spill-local` 负责文件系统机制，`spill-policy` 负责决定何时 spill 以及面向模型的通知。预览机制位于 [`util/retention`](../util/README.md)；策略只组合两者，不会让任何一方承担对方的职责。
 
-设计原理见[工具输出 spill Agent Note（agent 决策记录）](../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md)，其中说明了为什么最终结果 spill 要与工具自行提前 spill（bash 流、subagent rollout）分离，以及为什么创建操作应由运行时 spill seam 而非面向模型的 `write` 工具承担。
+设计原理见[工具输出 spill Agent Note](../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md)，其中说明了为什么最终结果 spill 要与工具自行提前 spill（bash 流、subagent rollout）分离，以及为什么创建操作应由运行时 spill seam 而非面向模型的 `write` 工具承担。

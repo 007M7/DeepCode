@@ -173,6 +173,9 @@
         sandbox: danger-full-access
         approval: never
 
+- id: bash-env
+  name: '@deepseek-ai/dsh-bash-env'
+
 - id: tool-bash
   name: '@deepseek-ai/dsh-tool-bash'
 

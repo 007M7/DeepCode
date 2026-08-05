@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-遥测（telemetry）seam：会话事件上报的捕获侧，隔在一个后端契约之后，任何上报 SDK 都无需变形即可满足该契约。塑造本包（package）一切设计的边界公理：**本包的职责止于 `emit()`**。批处理、重试、排队与丢失策略都属于后端自身的 SDK，本包既不为其立规，也不做包装。设计依据与被否决的替代方案见[复活 Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md)。
+遥测（telemetry）seam：会话事件上报的捕获侧，隔在一个后端契约之后，任何上报 SDK 都无需变形即可满足该契约。塑造本包一切设计的边界公理：**本包的职责止于 `emit()`**。批处理、重试、排队与丢失策略都属于后端自身的 SDK，本包既不为其立规，也不做包装。设计依据与被否决的替代方案见[复活 Agent Note](../../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md)。
 
 ## 后端契约
 

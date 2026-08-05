@@ -25,6 +25,7 @@ const FIXTURE = join(SNAPSHOT_DIR, 'session.jsonl')
 // The waiting golden owns the decision card; the approved golden owns the
 // transcript the approval leaves behind — the state the card cannot see.
 const REVIEW_EXPECTED = join(SNAPSHOT_DIR, 'review.expected.md')
+const SIDEBAR_EXPECTED = join(SNAPSHOT_DIR, 'sidebar.expected.md')
 const APPROVED_EXPECTED = join(SNAPSHOT_DIR, 'approved.expected.md')
 const MODE = webSnapshotMode()
 
@@ -82,9 +83,15 @@ describe('web e2e: plan review takeover round trip', () => {
     expect(await page.locator('[data-question-key]').count()).toBe(0)
     await expect.poll(() => card.getByText('Plan review').count(), { timeout: 10_000 }).toBeGreaterThan(0)
 
+    const selectedRow = page.locator('[role="treeitem"][aria-selected="true"]')
+    await expect.poll(() => selectedRow.locator('[data-state="warning"]').count(), { timeout: 10_000 }).toBe(1)
+    await expect.poll(() => selectedRow.getByText('Plan awaiting review', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
+
     if (MODE !== 'record') {
       const snapshot = await captureStableAria(page, '[data-plan-review-key]', scaffold.workspaceCwd)
       await compareOrRefreshGolden(REVIEW_EXPECTED, snapshot, MODE)
+      const sidebar = await captureStableAria(page, '[role="treeitem"][aria-selected="true"]', scaffold.workspaceCwd)
+      await compareOrRefreshGolden(SIDEBAR_EXPECTED, sidebar, MODE)
     }
 
     await card.getByRole('button', { name: 'Approve' }).click()
@@ -100,6 +107,7 @@ describe('web e2e: plan review takeover round trip', () => {
     await expect.poll(() => page.getByText('DONE', { exact: true }).count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(1)
     // Card gone; regular input restored.
     expect(await page.locator('[data-plan-review-key]').count()).toBe(0)
+    expect(await selectedRow.locator('[data-state="warning"]').count()).toBe(0)
     await expect.poll(() => page.locator('textarea').first().isEnabled(), { timeout: 10_000 }).toBe(true)
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(APPROVED_EXPECTED, snapshot, MODE)
@@ -108,6 +116,8 @@ describe('web e2e: plan review takeover round trip', () => {
   }, 200_000)
 
   it.skipIf(MODE === 'record')('keeps the fixture inventory closed', async () => {
-    await assertFixtureInventory(SNAPSHOT_DIR, ['session.jsonl', 'review.expected.md', 'approved.expected.md'])
+    await assertFixtureInventory(SNAPSHOT_DIR, [
+      'session.jsonl', 'review.expected.md', 'sidebar.expected.md', 'approved.expected.md',
+    ])
   })
 })

@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/lsp/tool-lsp/README.md
 README.md: 9b4130015ddf7e1cad6fa9a0e131be86f3bd4bcc
-README.zh.md: 570fd353a3db4265eae9447448a7716cde2efe9a
+README.zh.md: a3f59fb6e39bb6c19cc2ef06d0bc256633e75386
