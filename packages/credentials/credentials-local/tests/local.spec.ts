@@ -179,6 +179,29 @@ describe('layer ladder', () => {
       .rejects.toThrow(/readable beyond its owner \(mode 644\)/)
   })
 
+  it('propagates a permission check that fails for a reason other than absence', async () => {
+    const dir = await tempDir()
+    const notADirectory = join(dir, 'occupied')
+    await writeFile(notADirectory, 'a regular file\n')
+    // An absent document is an empty store, but a path that cannot be
+    // reached at all is a misconfiguration: the parent is a file, so the
+    // check fails with ENOTDIR rather than concluding "no credentials yet".
+    const ctx = new Context()
+    await expect(ctx.plugin(CredentialsLocal, { path: join(notADirectory, '.credentials.yaml'), watch: false }))
+      .rejects.toThrow(/ENOTDIR/)
+  })
+
+  it('propagates a read that fails for a reason other than absence', async () => {
+    const dir = await tempDir()
+    const path = join(dir, '.credentials.yaml')
+    // Owner-only, so the permission check passes, and unreadable as a file:
+    // the store is present but cannot be parsed, which must fail the launch
+    // rather than silently serve nothing.
+    await mkdir(path, { mode: 0o700 })
+    const ctx = new Context()
+    await expect(ctx.plugin(CredentialsLocal, { path, watch: false })).rejects.toThrow(/EISDIR/)
+  })
+
   it('lets only the inherited environment shadow the store, read-only', async () => {
     const dir = await tempDir()
     const path = join(dir, '.credentials.yaml')

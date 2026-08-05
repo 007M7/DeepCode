@@ -190,6 +190,113 @@ describe('loadLayeredEnv', () => {
       vi.unstubAllEnvs()
     }
   })
+
+  it('warns and continues when a layer exists but cannot be read', () => {
+    const home = tmp()
+    const project = tmp()
+    // A directory named `.env` is present-but-unreadable (EISDIR): unlike an
+    // absent file, it is a real misconfiguration, so it is reported rather
+    // than passed over in silence — and the other layers still load.
+    mkdirSync(join(home, '.env'))
+    writeFileSync(join(project, '.env'), `${NAMES[2]}=project-only\n`)
+    clear()
+    vi.stubEnv('DSH_HOME', home)
+    const warn = vi.fn()
+    try {
+      const snapshot = loadLayeredEnv(NAME, project, warn)
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining(`${NAME}: failed to load .env`))
+      expect(snapshot.layers).toEqual([
+        { source: 'process' },
+        { source: 'project-env', path: join(project, '.env') },
+      ])
+      expect(process.env[NAMES[2]]).toBe('project-only')
+    } finally {
+      clear()
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('reports to stderr when the caller supplies no reporter', () => {
+    const home = tmp()
+    const project = tmp()
+    mkdirSync(join(home, '.env'))
+    writeFileSync(join(project, '.env'), `${NAMES[2]}=project-only\n`)
+    clear()
+    vi.stubEnv('DSH_HOME', home)
+    const write = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
+    try {
+      const snapshot = loadLayeredEnv(NAME, project)
+      expect(write).toHaveBeenCalledWith(expect.stringContaining(`${NAME}: failed to load .env`))
+      expect(snapshot.layers).toEqual([
+        { source: 'process' },
+        { source: 'project-env', path: join(project, '.env') },
+      ])
+      expect(process.env[NAMES[2]]).toBe('project-only')
+    } finally {
+      write.mockRestore()
+      clear()
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('passes over an absent layer without reporting it', () => {
+    const home = tmp()
+    const project = tmp()
+    writeFileSync(join(project, '.env'), `${NAMES[2]}=project-only\n`)
+    clear()
+    vi.stubEnv('DSH_HOME', home)
+    const warn = vi.fn()
+    try {
+      // No user `.env` exists, which is ordinary rather than a fault: the
+      // layer is simply absent, and nothing is reported.
+      const snapshot = loadLayeredEnv(NAME, project, warn)
+      expect(warn).not.toHaveBeenCalled()
+      expect(snapshot.layers).toEqual([
+        { source: 'process' },
+        { source: 'project-env', path: join(project, '.env') },
+      ])
+    } finally {
+      clear()
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('carries only the inherited environment when neither file exists', () => {
+    const home = tmp()
+    const project = tmp()
+    clear()
+    vi.stubEnv('DSH_HOME', home)
+    vi.stubEnv('APP_BOOT_LAYERED_INHERITED', 'inherited')
+    try {
+      const snapshot = loadLayeredEnv(NAME, project, vi.fn())
+      expect(snapshot.layers).toEqual([{ source: 'process' }])
+      expect(snapshot.get('APP_BOOT_LAYERED_INHERITED')).toEqual({ value: 'inherited', source: 'process' })
+    } finally {
+      clear()
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('reads a harness home that is also the invocation directory exactly once', () => {
+    const both = tmp()
+    writeFileSync(join(both, '.env'), `${NAMES[2]}=one-file\n`)
+    clear()
+    vi.stubEnv('DSH_HOME', both)
+    try {
+      // One file cannot be two layers. It is the project layer, because that
+      // is the more trusted of the two — reading it twice would otherwise
+      // put the same path at two different ranks.
+      const snapshot = loadLayeredEnv(NAME, both, vi.fn())
+      expect(snapshot.layers).toEqual([
+        { source: 'process' },
+        { source: 'project-env', path: join(both, '.env') },
+      ])
+      expect(snapshot.get(NAMES[2])).toEqual({ value: 'one-file', source: 'project-env', path: join(both, '.env') })
+    } finally {
+      clear()
+      vi.unstubAllEnvs()
+    }
+  })
 })
 
 describe('installFailLoud', () => {

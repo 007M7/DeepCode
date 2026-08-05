@@ -250,6 +250,7 @@ export class SettingsLocal extends Settings {
         throw new Error(`settings-local: invalid document at ${this.spec.filename}: ${
           document.errors.map((error) => {
             const at = error.linePos?.[0]
+            /* v8 ignore next -- `prettyErrors` populates linePos on every error; the guard answers its optional type */
             return `${error.code}${at === undefined ? '' : ` at line ${String(at.line)}, column ${String(at.col)}`}`
           }).join('; ')}`)
       }

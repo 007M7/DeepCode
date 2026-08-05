@@ -101,6 +101,7 @@ const GROUP_OTHER_BITS = 0o077
  * @throws when the file exists with group or other permission bits set.
  */
 async function assertOwnerOnly(filename: string): Promise<void> {
+  /* v8 ignore next -- native Windows coverage exercises the skip; POSIX covers the check */
   if (process.platform === 'win32') return
   let mode: number
   try {
@@ -130,6 +131,7 @@ function isENOENT(error: unknown): boolean {
  */
 function describeYamlError(error: YAMLError): string {
   const at = error.linePos?.[0]
+  /* v8 ignore next -- `prettyErrors` populates linePos on every error; the guard answers its optional type */
   const where = at === undefined ? '' : ` at line ${String(at.line)}, column ${String(at.col)}`
   return `${error.code}${where}`
 }
