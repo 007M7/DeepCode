@@ -34,10 +34,6 @@ The chain key is `(tool name, canonical arguments)` — canonicalization is a de
 
 Reminders ride the post-execute decision's `additionalContexts` (source `{kind: 'plugin', plugin: 'repeat-tool-guard'}`), never a `content` replacement: the `tool/result` event stays the tool's own output for audit. The loop buffers the context and appends it as an injected `user/message` after the step's tool results, which the session renders as a plain synthetic user message — so the reminder is model-visible, source-attributed, and reconstructable from the session log with no new session event. The guard always delegates via `next()` and prepends its reminder to the downstream decision's context array (both variants — a blocked call still gets the nudge); every entry retains its own source and metadata.
 
-## Testing
-
-Unit suites drive a real agent loop against a mock adapter (no network) and cover the chain semantics above to per-file 100%. The snapshot tier owns the transcript surface: a scripted-replay scenario repeats a call five times and pins both reminder tiers (gentle at 3, detailed at 5) as injected `user/message`s in the ACP transcript.
-
 ## Model Experience
 
 ### First-threshold context message

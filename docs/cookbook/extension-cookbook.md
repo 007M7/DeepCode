@@ -2,9 +2,7 @@
 
 English | [中文](extension-cookbook.zh.md)
 
-> FIXME: This important guide has not received sufficient human design review; complete that review before the first release.
-
-The three plugin shapes you write against the harness extension surface, as illustrative snippets (elided imports and helper stubs — not copy-paste-complete). For the full step-by-step guides see [adding a package](adding-a-package.md), [adding a tool](adding-a-tool.md), and [adding an LLM adapter](adding-an-llm-adapter.md); for the seams these hook into see [docs/architecture.md](../architecture.md).
+Reference shapes for the harness extension surface. The snippets omit imports and helper implementations and are not copy-paste-complete. For concrete authoring paths, see the [package checklist](adding-a-package.md), [first-tool tutorial](../user/develop/basic/tool.md), [tool reference](adding-a-tool.md), and [LLM adapter guide](adding-an-llm-adapter.md); the [architecture](../architecture.md) owns the system and extension-seam map.
 
 ## A tool plugin
 

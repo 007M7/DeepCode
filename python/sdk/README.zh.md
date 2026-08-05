@@ -29,7 +29,7 @@ with DeepSeekHarness(
     result = harness.run("Make the requested code change.")
 ```
 
-`provider` 用于选择当前 Cordis 组合已注册的提供方路由；`model` 是该适配器解析的模型 ID。`max_tokens` 是可选的正整数，用于限制根 agent 及其进程内后代每次请求的输出 token；省略时由提供方默认值控制。压缩摘要继续使用压缩插件单独配置的上限。内置默认组合注册 `deepseek-official`。自定义组合可以挂载 `llm-pi-ai`，在其中配置各提供方的凭据与端点，再选择 pi-ai 已安装目录中的任意提供方/模型组合。
+`provider` 用于选择当前 Cordis 组合已注册的提供方路由；`model` 是该适配器解析的模型 ID。`max_tokens` 是可选的正整数，用于限制根 agent（智能体）及其进程内后代每次请求的输出 token；省略时由提供方默认值控制。压缩摘要继续使用压缩插件单独配置的上限。内置默认组合注册 `deepseek-official`。自定义组合可以挂载 `llm-pi-ai`，在其中配置各提供方的凭据与端点，再选择 pi-ai 已安装目录中的任意提供方/模型组合。
 
 `Session.run()` 拥有一个从提示词的持久 inbox 回执开始、到整个 agent 下一次进入 idle 为止的活动区间，并返回 `RunResult(session_id, final_response, events, notifications, session_root)`。结果不携带提示词级状态或轮次原因：`final_response` 是该区间内根会话最后提交的助手文本，并非因果上归属于该提示词的输出。steering（中途引导）、注入的上下文和其他排队工作都可能在 idle 前参与其中。
 

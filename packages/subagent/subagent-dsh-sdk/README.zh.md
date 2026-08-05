@@ -59,8 +59,6 @@ Provider 不宣告任何启动期能力（`outputSchema`/`depthLimit`/`toolFilte
 
 本包没有默认导出。否则 Cordis loader 解包会隐藏具名 `inject` 元数据；见[事故复盘（postmortem）0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md)。
 
-免密钥测试通过真实 stdio 驱动 SDK 客户端包的脚本化伪运行时，还包括一个 Loader 组合 e2e：子进程是真实的第二个 harness 运行时，端到端证明父会话 cwd 继承（`tests/loader-composition.e2e.ts`）。
-
 ## 模型体验
 
 ### 子 agent 请求

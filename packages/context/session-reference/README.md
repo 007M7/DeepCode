@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-`ctx.sessionReferences` prepares bounded, read-only snapshots of other sessions as sourced model-facing context. It consumes `ctx.sessionQuery` and the backend-independent compact checkpoint marker; SQLite FTS is not required. The standard TUI bundle mounts it, while other hosts may call the service directly.
+`ctx.sessionReferences` prepares bounded, read-only snapshots of other sessions as sourced model-facing context. It consumes `ctx.sessionQuery` and the backend-independent compact checkpoint marker; SQLite FTS is not required. Hosts that support cross-session mentions may opt into the service.
 
 ## Public API
 

@@ -54,12 +54,6 @@ The `PersistenceBackend<TornMarker>` hooks (the only seam between the coordinato
 
 The coordinator asserts the stored id and compares stored/live cwd before repair or live adoption. Its `inspect()` path validates and clones the prefix without calling `commitRepair` or publishing write state. The `tornMarker` is fully OPAQUE: the coordinator only tests `!== undefined` and round-trips it to `commitRepair`, never inspecting its value (the JSONL backend uses the byte offset to truncate to, the SQLite backend the seq to delete from). A third-party backend MAY implement the abstract service directly without the coordinator, but it must provide the same non-mutating inspection and trustworthy lightweight snapshot revisions. See [the write-coordinator Agent Note](../../../.agents/notes/implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md).
 
-## Testing backends
-
-Import `runPersistenceContract` from `tests/contract.ts` (the public API, including stable/change-sensitive lightweight revisions) and `runCoordinatorContract` from `tests/coordinator-contract.ts` (the shared write-path orchestration: adoption, HMR, collision, dispose-drain, crash-tail repair) and call each with a fixture for your backend. Every backend is held to the same append-only / contiguous-seq / lazy-materialization / serializability semantics AND the same orchestration, so a backend's own spec is left with only storage-mechanics tests (path sanitization, fsync rollback; schema version, transaction rollback) on top.
-
-Three backends run these suites: an in-memory reference (in `tests/`), `dsh-session-persistence-jsonl` (append-only file log) and `dsh-session-persistence-sqlite` (`node:sqlite`, each `SessionEvent` one row `(session_id, seq, type, time, data, source_event_seqs, surface_op)`). All passing the same contract + coordinator suite is the proof that the seam is genuinely backend-agnostic — lazy materialization, crash-tail-on-load, and contiguous-seq hold identically over file bytes and over a transactional store.
-
 ## Metadata and location types
 
 Re-exported from `dsh-session`: `SessionHeader` (immutable session metadata: `version`, `id`, `createdAt`, `cwd?`, `parentSession?`, `seedLength?`, `origin?`, `delegationDepth?`). `SessionLocation` is `{ readonly kind: string; readonly path: string }`; its path is an absolute backend target, not proof that the artifact exists or contains an unflushed turn.

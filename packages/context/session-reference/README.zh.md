@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-`ctx.sessionReferences` 会把其他会话准备为有界、只读快照，作为带来源信息、面向模型的上下文。它消费 `ctx.sessionQuery` 与后端无关的 compact 检查点标记；不需要 SQLite FTS。标准 TUI bundle 会装载它，其他宿主也可直接调用该服务。
+`ctx.sessionReferences` 会把其他会话准备为有界、只读快照，作为带来源信息、面向模型的上下文。它消费 `ctx.sessionQuery` 与后端无关的 compact 检查点标记；不需要 SQLite FTS。支持跨会话 mention 的宿主可以主动启用该服务。
 
 ## 公开 API
 

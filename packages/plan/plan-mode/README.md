@@ -18,7 +18,7 @@ The review question declares the `plan-review` presentation intent, naming `Appr
 
 When `ctx.commands` is composed, the package registers `/plan [message]` and reserves the exact argument `off` for direct exit. Bare `/plan` selects plan mode; any other non-empty argument selects it first and is then submitted through `agent.steer()`, so it becomes the next step's ordinary logged user message under plan guidance. `/plan off` selects inactive without sending model input; it also cancels a pending entry before plan mode reaches a request.
 
-The TUI consumes the plugin-owned `/plan` command; other front doors may drive the same service directly without defining a second mode vocabulary.
+The Web client consumes the plugin-owned `/plan` command; other front doors may drive the same service directly without defining a second mode vocabulary.
 
 ## Session projection
 
@@ -94,5 +94,4 @@ Mode transitions do not change the tool catalog; plan arguments and review resul
 - Plan mode guides rather than enforces; deployments needing a hard boundary must combine independent sandbox and approval controls.
 - A pending selection made while idle is lost if the process exits before the next boundary, so the UI must reapply it.
 - Forked agents inherit logged plan state, while newly spawned agents begin inactive; there is no creation-time plan option.
-- The `exit_plan_mode` review arc has one assembled-application snapshot, the Web `plan-review` e2e lane (submit → decision card → approved flip). The rejected-feedback and dismissed branches are covered by package tests only, and the TUI keyless scenarios exercise only `/plan` entry and `/plan off` exit.
-- Only the Web UI renders the `plan-review` intent; the TUI presents the review through its generic question flow, which is answerable but does not read as a plan gate.
+- Only the Web UI has a specialized `plan-review` renderer; another interaction provider may present the same request through its generic option flow.

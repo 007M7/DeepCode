@@ -33,8 +33,4 @@
 - agent 独占、状态持久的 `bash`
 - 提供 `view`、`create`、`str_replace` 与 `insert` 的 `str_replace_editor`
 
-它组合真实本地 PTY、文件系统 intent 策略与 session 沙箱策略。无密钥 SDK 快照会通过正式 JSON-RPC runtime 驱动这两个工具，验证 shell 的 cwd 与环境变量能跨调用保留，并锁定通知流、轮次结果与已持久化的 JSONL：
-
-```bash
-pnpm exec vitest run --config vitest.snapshot.config.ts -t persistent-tools
-```
+它组合本地 PTY、文件系统 intent 策略与会话沙箱策略。

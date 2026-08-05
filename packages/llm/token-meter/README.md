@@ -29,13 +29,13 @@ When the composition provides `ctx.sessionProjections`, token-meter registers tw
 
 `contextPressure` carries optional `pressureTokens` — the newest provider-reported prompt size, summing uncached input plus cache reads and writes — and optional `contextWindow` from the newest `request/context` record. Pressure stays absent until a provider reports usage; capacity stays absent for a route whose adapter advertises none. Output is excluded, so the numerator holds still while a turn streams and steps forward when the next request reports its usage.
 
-Both units use the standard projection baseline, live frame, higher-seq-wins store, and JSON checkpoint paths. Unloading token-meter removes both keys. A headless or TUI composition without the projection seam keeps the measurement service's existing behavior.
+Both units use the standard projection baseline, live frame, higher-seq-wins store, and JSON checkpoint paths. Unloading token-meter removes both keys. A composition without the projection seam keeps the measurement service's existing behavior.
 
 ### Context occupancy is an approximation, by design
 
 `pressureTokens` and `contextWindow` are independent last-wins fields and are **not** one atomic observation of a single request. Switching models pairs the fresh capacity with the previous route's pressure until the next request reports usage, and `pressureTokens` describes the last request rather than the surface as it stands right now.
 
-This is deliberate. An occupancy percentage is a user-facing reference figure, not a billing record or a gating input — nothing in the harness makes decisions from it, and compaction reads `measure()` instead. The TUI status line has always computed occupancy the same way, dividing a `measure()` total by a separately-resolved capacity for the selected model.
+This is deliberate. An occupancy percentage is a user-facing reference figure, not a billing record or a gating input — nothing in the harness makes decisions from it, and compaction reads `measure()` instead. A UI computes occupancy by dividing measured pressure by the separately resolved capacity for the selected model.
 
 Making the pair atomic was tried and rejected: it required a transient non-replayable wire frame, which needed lifecycle fencing against cross-stream reordering and left occupancy blank after every reconnect. The [Agent Note](../../../.agents/notes/implemented/architecture/2026-07-29-projected-token-usage-and-request-context.md) records that comparison. Consumers that need an exact same-boundary figure should call `measure()` at their own request boundary rather than read this projection.
 
@@ -62,4 +62,3 @@ No direct invalidation; the named consumer owns any request-prefix changes.
 - **Every measurement clones the current surface** — coherent immutable snapshots make reads O(surface), including below-threshold pressure checks.
 - **Provider usage is only reusable for an identical canonical envelope** — prompt, prefix, tools, provider, model, or call-config changes deliberately fall back to full heuristic estimation.
 - **Legacy provenance is conservative** — assistant messages without `sourceEventSeqs` cannot distinguish provider output from listener rewrites, so the fold avoids claiming a known empty or exact chunk stream.
-- **The TUI and browser fixture retain parallel folds** — `tokenUsage` owns durable session-projection semantics; the TUI keeps its live per-step map because its composition does not mount the generic projection seam, while the browser fixture mirrors the unit for standalone demo data.

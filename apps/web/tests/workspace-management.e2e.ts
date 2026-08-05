@@ -90,9 +90,9 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
       { timeout: 10_000 },
     ).not.toBeUndefined()
     // First adoption births a blank Session+Agent whose workspace attach must
-    // settle before a test may delete the registration; the reuse path (same
-    // canonical cwd already has a blank session) creates no agent, so callers
-    // opt in only where a fresh attach is possible.
+    // settle before a test may delete the registration; re-registration after
+    // a delete mints a fresh blank Session+Agent too (the old cwd-only reuse
+    // path is gone), so callers opt in only where a fresh attach is possible.
     if (options.waitForAgent === true) {
       await expect.poll(() => scaffold.ctx.agents.list().length, { timeout: 10_000 })
         .toBeGreaterThan(agentsBefore)
@@ -251,8 +251,10 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
     expect((await scaffold.ctx.sessionPersistence.inspect(SessionId(SEED_ID))).events.length).toBeGreaterThan(0)
 
     // Re-registering the exact deleted path immediately, without a reload, is
-    // a supported reversible flow. It creates a fresh Workspace id without
-    // re-adopting the retained Session.
+    // a supported reversible flow. It creates a fresh Workspace id and does
+    // NOT re-adopt the retained (non-blank) Session; the New Session flow
+    // mints a fresh blank session and attaches it to the new registration
+    // (the old cwd-only blank reuse is gone, so the account is never empty).
     await adoptDirectory(scaffold.workspaceCwd)
     await expect.poll(
       () => scaffold.ctx.workspace.resolveByPath(scaffold.workspaceCwd),
@@ -261,7 +263,11 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
     const reregistered = await scaffold.ctx.workspace.resolveByPath(scaffold.workspaceCwd)
     expect(reregistered?.id).toBeDefined()
     expect(reregistered?.id).not.toBe(workspace.id)
-    expect(reregistered?.sessionIds).toEqual([])
+    await expect.poll(
+      () => reregistered?.sessionIds ?? [],
+      { timeout: 10_000 },
+    ).not.toEqual([])
+    expect(reregistered?.sessionIds).not.toContain(SEED_ID)
     await expect.poll(() => page.getByText('Ungrouped', { exact: true }).count(), { timeout: 10_000 })
       .toBeGreaterThanOrEqual(1)
     expect(await readFile(join(scaffold.workspaceCwd, 'workspace', 'a.txt'), 'utf8')).toBe('alpha\n')

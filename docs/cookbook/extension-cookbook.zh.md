@@ -2,9 +2,7 @@
 
 [English](extension-cookbook.md) | 中文
 
-> FIXME：这篇重要指南尚未经过充分的人工设计审查；请在首次发布前完成审查。
-
-针对 harness 扩展表面编写的三种插件形态，以示意性代码片段呈现（省略了 import 和辅助桩——不可直接复制运行）。完整的分步指南见[添加包（package）](adding-a-package.md)、[添加工具](adding-a-tool.md)和[添加 LLM（大语言模型）适配器](adding-an-llm-adapter.md)；这些插件所挂接的 seam 见 [docs/architecture.md](../architecture.md)。
+harness 扩展表面的参考形态。代码片段省略了 import 和辅助实现，无法直接复制运行。具体编写路径见[包检查清单](adding-a-package.md)、[第一个工具教程](../user/develop/basic/tool.md)、[工具参考](adding-a-tool.md)和 [LLM（大语言模型）适配器指南](adding-an-llm-adapter.md)；系统与扩展 seam 映射由[架构文档](../architecture.md)负责。
 
 ## 工具插件
 

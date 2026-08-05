@@ -64,17 +64,17 @@ Session 实例与 scope 同生命周期，存活资格 = host listed（一个判
 - host 判据：`session.events.length === 0`（零日志事件 = 尚无用户消息）。live 会话 `summarize()` 内存直读；cold 会话恒 `false`——lazy-create 契约保证 never-appended 会话根本不进 `persistence.list()`（JSONL/SQLite 两后端均已实证真 lazy），blank 从不落盘。
 - wire 承载两处：`SessionSummary.blank` 必填列；`host/session-added` 帧必填 `blank` 字段（创建时恒 true，供别的 tab 按同一空会话状态入镜像）。
 - client 镜像只降不升（单调），三来源翻转，全部复用既有 wire 信号：
-  - 发送方本地：首次 `prompt()` 的**成功响应**翻 false（受理即证明 user/message 已入 host 日志——此点翻转是确证而非乐观；`onEngaged` 同步更新列表镜像，当前 `New Session` 行原地转为普通标题，不新增列表行）。首讯被拒则会话保持 blank：与 host 权威对齐、继续显示为 `New Session`、保持 connectWorkspace 复用资格。
+  - 发送方本地：首次 `prompt()` 的**成功响应**翻 false（受理即证明 user/message 已入 host 日志——此点翻转是确证而非乐观；`onEngaged` 同步更新列表镜像，当前 `New Session` 行原地转为普通标题，不新增列表行）。首讯被拒则会话保持 blank：与 host 权威对齐、继续显示为 `New Session`、在仍为该工作区成员时保持 connectWorkspace 复用资格。
   - 其他端：`host/session-status (running:true)` 帧翻转——blank 会话从不 running，首次 running 必然已非 blank；
   - 重连对齐：`session.list` 的 summary.blank 是权威，错过帧的端下次拉取自然对齐；陈旧的 blank:true 不能把已转正的会话重新标回 blank。
 - 列表纪律：store 保留全部行；Workspace browser 的分组、平铺、搜索和计数共用同一可见投影——所有非 blank 会话都显示，blank 会话只显示 `session.id === sessions.current` 的一条，并强制标题为 `New Session`。切换 Workspace 后，旧 blank 实体仍在镜像中但从列表隐藏，目标 Workspace 的 current blank 显示；因此用户可见面全局至多一条 blank 行。
-- 残留账零 GC：刷新后 blank 会话带位回来，下次同 workspace 复用，普通单端路径使每个 workspace 至多保留一个；host 重启后 blank 无盘痕自然蒸发；多 tab 竞态多出的空壳只会成为非 current 隐藏行，后续复用消化，不做协调。
+- 残留账零 GC：刷新后 blank 会话带位回来，下次同 workspace 且仍为成员时复用，普通单端路径使每个 workspace 至多保留一个；host 重启后 blank 无盘痕自然蒸发；多 tab 竞态多出的空壳只会成为非 current 隐藏行，后续复用消化，不做协调。
 
 ### connectWorkspace：New Session 的唯一入口
 
 `workspaces.connectWorkspace(workspaceId): Promise<SessionId>`（归属 WorkspacesService——它同时持有 workspace 规范 path 与 sessions 引用）：
 
-- 复用臂：list mirror 中找 `blank && cwd == workspace.path`（host realpath 规范 canon 直等比较），命中直接返回该 id，不新建。
+- 复用臂：list mirror 中找 `blank && cwd == workspace.path && sessionIds.includes(id)`——host 自己的成员规则，绝不只按 cwd。没有账户槽位的 cwd 匹配（CLI/TUI 在 host cwd 创建的会话，或已删除/重建的注册）会打开一个任何分组表面都无法显示在该工作区下的会话，因此落到新建臂（见[成员复用修复](../bug-fix/2026-08-05-workspace-blank-session-reuse-membership.md)）；命中直接返回该 id，不新建。
 - 新建臂：未命中则 `session.create({workspaceId})`，返回新 id。
 - 未知 workspaceId fail loud（不静默创建到别处）。
 - 解析保证（两臂同契约）：promise resolve 时返回的 id 已在 list store 且 `sessions.binding(id)` 同步可解析——`SessionsService.create` 在 RPC 成功后同步投影列表再 resolve，使 draft 搬运方可以在 open 之前往新 scope 的 machine 写文本，不等 notifier flush。

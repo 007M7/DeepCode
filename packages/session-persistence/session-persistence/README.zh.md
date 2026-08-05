@@ -54,12 +54,6 @@
 
 协调器断言已存储 id，并在修复或实时接管前比较已存储/实时 cwd。其 `inspect()` 路径验证并克隆前缀，不调用 `commitRepair` 或发布写入状态。`tornMarker` 完全不透明：协调器只测试 `!== undefined`，并将其原样往返给 `commitRepair`，绝不检查值（JSONL 后端使用待截断字节偏移，SQLite 后端使用待删除 seq）。第三方后端可以不用协调器直接实现抽象服务，但必须提供相同非变更检查和可信轻量快照修订。详见[写入协调器 Agent Note](../../../.agents/notes/implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md)。
 
-## 测试后端
-
-导入 `runPersistenceContract`（公开 API，包括稳定/变更敏感的轻量修订），其来源为 `tests/contract.ts`；再导入 `runCoordinatorContract`（共享写入路径编排：接管、HMR、冲突、dispose drain、崩溃尾部修复），其来源为 `tests/coordinator-contract.ts`，并使用后端 fixture（测试前置数据）调用两者。每个后端都遵守相同仅追加/连续 seq/延迟实体化/可序列化语义和相同编排，因此后端自身 spec 只需在其上测试存储机制（路径净化、fsync 回滚；schema 版本、事务回滚）。
-
-三个后端运行这些套件：内存参考（位于 `tests/`）、`dsh-session-persistence-jsonl`（仅追加文件日志）和 `dsh-session-persistence-sqlite`（`node:sqlite`，每个 `SessionEvent` 是一行 `(session_id, seq, type, time, data, source_event_seqs, surface_op)`）。它们全部通过同一契约 + 协调器套件，证明 seam 真正与后端无关：延迟实体化、load 时崩溃尾部和连续 seq 在文件字节与事务存储上表现相同。
-
 ## 元数据与位置类型
 
 从 `dsh-session` 重新导出：`SessionHeader`（不可变会话元数据：`version`、`id`、`createdAt`、`cwd?`、`parentSession?`、`seedLength?`、`origin?`、`delegationDepth?`）。`SessionLocation` 是 `{ readonly kind: string; readonly path: string }`；其 path 是绝对后端目标，不证明产物已存在或包含未 flush 轮次。

@@ -25,8 +25,7 @@ export interface TokenUsageProjection {
  * `contextWindow` the newest recorded route capacity. Switching models can
  * therefore pair a fresh capacity with the previous route's pressure until the
  * next request reports usage. This is an intentional trade — the value is a
- * user-facing reference, not a billing or gating input — and it matches how
- * the TUI status line has always computed occupancy. See the token-meter
+ * user-facing reference, not a billing or gating input. See the token-meter
  * README for the full rationale.
  */
 export interface ContextPressureProjection {
