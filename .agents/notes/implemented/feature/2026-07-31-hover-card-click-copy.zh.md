@@ -1,4 +1,4 @@
-# Agent Note（agent 决策记录）：悬浮卡片激活时复制主要值
+# Agent Note: 悬浮卡片激活时复制主要值
 
 Status: implemented
 

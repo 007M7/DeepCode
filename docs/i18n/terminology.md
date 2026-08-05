@@ -33,7 +33,7 @@
 | English | 中文 | 首次出现 | 不要译作 | 备注 |
 |---|---|---|---|---|
 | agent | agent | agent（智能体） | | |
-| Agent Note | Agent Note | Agent Note（agent 决策记录） | 智能体注记、智能体笔记 | 本仓库中由 agent 撰写的提案与决策记录 |
+| Agent Note | Agent Note | | 智能体注记、智能体笔记 | 仓库定义的文档类型，涵盖提案、已实现决策和被否决提案；中文对侧 H1 保持固定前缀 `# Agent Note: `，标题中不加术语括注 |
 | agent harness | agent harness | agent harness（智能体框架） | | agent 组合词（agent harness/workflow/loop/skill 等）整体保留英文；未括注过 agent 时首现按对应组合词或 agent 行处理 |
 | agent loop | agent loop | agent loop（智能体循环） | | |
 | blob hash | blob hash | | | `git hash-object` 的结果 |
@@ -46,6 +46,7 @@
 | Function Calling | Function Calling | Function Calling（函数调用） | | |
 | harness | harness | | | |
 | harness engineering | harness engineering | | | |
+| KV Cache | KV Cache | | | 专有技术名称，保持大小写与空格 |
 | lint | lint | | | |
 | mock | mock | | | 保留英文；指测试替身 |
 | loader | loader | | | |
@@ -54,13 +55,14 @@
 | Round | Round | | 回合、目标回合、Ralph 回合 | 外层策略使用 Round 时，领域层级为 Session > Round > Turn（轮次） > Step（步骤）；Round 是可选的外层策略迭代，并非每个会话轮次都具有的通用层级。Goal Round 与 Ralph Round 均保留英文。一个 Round 承载一个轮次，步骤隶属于该轮次；明确的零步骤轮次仍保持原义。 |
 | schema | schema | | | |
 | schema DSL | schema DSL | | | |
-| seam | seam | | 接缝 | 与 `extension point` 是不同概念；根据具体语境，可译为`服务边界`或`可替换点` |
+| seam | seam | | 接缝 | 本仓库的命名架构概念，正文保留英文；与 `extension point` 是不同概念 |
 | skill | skill | skill（技能） | | |
+| slot | slot | | 坑位、孔位 | 客户端架构中的具名可注册位置，保留英文 |
+| spill | spill | | | 工具输出超限落盘机制；组合词写 `spill 文件`、`spill 路径` |
 | spawn | spawn | | | |
 | steering | steering | steering（中途引导） | | |
 | task id | task id | | 任务 id | 保留英文 |
 | subagent | subagent | | | |
-| thinking | thinking | | | API 字段保留英文；描述模型模式时译为`思考` |
 | transcript | transcript | transcript（文本记录） | | 指会话渲染给用户或编辑器的完整文本，区别于事件日志 |
 | waterfall | waterfall | waterfall（瀑布式事件） | | |
 | wheel | wheel 包 | | | Python 打包格式 |
@@ -81,6 +83,7 @@
 | build target | 构建目标 | | | |
 | cancel | 取消 | | | |
 | canary test | canary 测试 | | 金丝雀测试 | 本仓库保留 `canary` |
+| capability | 能力 | | | 必须与 `feature` → `功能` 区分 |
 | capability seam | 能力 seam | | 功能 seam、能力接缝 | 本仓库接口、实现与消费方分离的命名架构概念；普通 `seam` 仍按其词条处理 |
 | feature | 功能 | | 能力 | SDK 产品与工程模型中的可管理产品单元 |
 | feature option | 功能选项 | | variant | 一项 SDK 功能内有限、可选择的实现或配置 |
@@ -101,13 +104,11 @@
 | contract | 契约 | | | 如：`pairing contract` →`配对契约` |
 | Cordis config entry | Cordis 配置项 | | | 指 `cordis.yml` 插件列表中的一项；插件实现本身写`Cordis 插件` |
 | Cordis plugin | Cordis 插件 | | | Cordis 加载的插件实现，不指 `cordis.yml` 中的一项配置 |
-| coverage | 覆盖率 | | | |
 | crash recovery | 崩溃恢复 | | | |
 | deploy root | 部署根目录 | | | |
 | dormant | 休眠 | | 睡眠、蛰伏 | 指已声明可配置但当前未注册路由的提供方 |
 | durability | 持久性 | | | |
 | feature requirement | 功能依赖 | | | 功能或功能选项通过 `requires` 声明的关系 |
-| ergonomics | 易用性 / 开发体验 | | 人体工学 | API 或面向模型的接口用「易用性」；工具链或开发者工作流用「开发体验」 |
 | event | 事件 | | | |
 | event log | 事件日志 | | | |
 | event stream | 事件流 | | | |
@@ -132,7 +133,6 @@
 | integration | 集成 | | | |
 | interface | 接口 | | | |
 | language switcher | 语言切换行 | | | i18n 配对机制用语：双语配对文件顶部的互链行 |
-| memory | 记忆 / 内存 | | | 与 `agent` 搭配时译为`记忆`（如 `agent memory` →`智能体记忆`）；指系统资源时译为`内存` |
 | merge | 合并 | | | |
 | message | 消息 | | | |
 | mod | 模组 | | | |
@@ -143,7 +143,7 @@
 | opt-out ratio | opt-out 比例 | | 退出检查比例 | |
 | orphan | 遗留 | | 孤儿、孤立 | 指英文源已不存在的 `.zh.md`（如「遗留译文」）；进程语境按 OS 惯用语译「孤儿进程」 |
 | orphan branch | 孤立分支 | | 孤儿分支 | 沿用 git 官方中文翻译 |
-| package | 包 | 包（package） | | 指 npm 包（`@deepseek-ai/dsh-*`）；`package.json` 等代码标识保持原样 |
+| package | 包 | | | 指 npm 包（`@deepseek-ai/dsh-*`）；`package.json` 等代码标识保持原样 |
 | pairing | 配对 | | | |
 | parent-subset grants | 父级子集授权 | | 父集合授权 | 指授权范围仅限于父级所持授权的子集 |
 | peer dependency | 对等依赖 | 对等依赖（peer dependency） | | |
@@ -170,16 +170,15 @@
 | session | 会话 | | | |
 | session event | 会话事件 | | | |
 | setup card | 设置卡片 | | | 首次运行时代替行卡直接展开的配置卡 |
+| sidecar file | 伴随文件 | | | 指与文档同目录的普通伴随文件 |
 | sidecar record | 伴随记录 | | 旁挂记录 | 指与文档同目录的伴随记录文件 |
 | smoke test | 冒烟测试 | | | |
 | snapshot | 快照 | | | |
 | source of truth | 真源 | | 事实来源、唯一来源 | |
 | spine | 主干 | | | |
-| staged | 暂存 | | | 沿用 git 官方中文翻译 |
 | stale | 陈旧 | | 过期 | 与 `fresh`（`新鲜`）成对；门禁输出中保留英文 `stale` 不翻译；`expired` 才译为`过期` |
 | step | 步骤 | | | |
 | stream | 流 | | | |
-| streaming | 流式输出 | | | |
 | structural signature | 结构签名 | | | i18n 配对机制用语：门禁比对两侧文件时提取的有序结构序列（标题层级、代码块、列表等） |
 | Summary | 概述 | | | 事故复盘标题用语 |
 | system prompt | 系统提示词 | | | |
