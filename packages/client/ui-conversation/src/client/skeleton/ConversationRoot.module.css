@@ -9,6 +9,20 @@
   height: 100%;
   min-width: 0;
   background: var(--dsw-alias-bg-base);
+
+  /* Shared width axis for the whole column: one content width W
+     (--dsh-chat-content-width) for the transcript, the dock cards
+     (todo/goal/queue: card minus four insets, 4 x 8 = 32), and the takeover
+     cards (question/approval/plan review); the input card alone is W + 32px.
+     The relation also holds when a narrow viewport shrinks everything: the
+     chat scroller and the takeover frames pad clearance + 16px per side while
+     the input card clears the bare clearance, so the input card stays exactly
+     content + 32px at every width. Declared on the root because the
+     transcript and the composer seat are sibling subtrees. */
+  --dsh-chat-content-width: 748px;
+  --dsh-composer-card-max-width: calc(var(--dsh-chat-content-width) + 32px);
+  --dsh-composer-side-clearance: 16px;
+  --dsh-composer-dock-inset: 8px;
 }
 
 .header {
@@ -134,16 +148,11 @@
 }
 
 /* Composer context stack (Figma 9:937): standalone dock cards share one
-   rhythm; the terminal queue strip additionally tucks under the input card. */
+   rhythm above the input card. */
 .composerStack {
+  /* Horizontal geometry (card width, clearance, dock inset) rides the shared
+     .root variables above so takeover siblings match the stack. */
   --dsh-composer-stack-gap: 6px;
-  --dsh-queue-composer-overlap: 5px;
-
-  /* InputBar and dock registrants derive their horizontal geometry from the
-     same card width, outer clearance, and dock inset. */
-  --dsh-composer-card-max-width: 800px;
-  --dsh-composer-side-clearance: 32px;
-  --dsh-composer-dock-inset: 12px;
 
   display: flex;
   flex-direction: column;
@@ -239,7 +248,9 @@
   gap: 12px;
   /* Foot inside the centered box floats the stack a bit above true center. */
   padding-bottom: 32px;
-  width: min(776px, calc(100% - 48px));
+  /* Card cap + both clearances: the hero input card lands at exactly the same
+     width as the docked composer at every viewport. */
+  width: min(calc(var(--dsh-composer-card-max-width) + 2 * var(--dsh-composer-side-clearance)), 100%);
   z-index: 1;
 }
 
@@ -263,7 +274,9 @@
   display: flex;
   align-items: center;
   min-width: 0;
-  padding-left: 8px;
+  /* figma drew px 8; nudged +12 so the chip's folder glyph lines up closer to
+     the card's inner controls below. */
+  padding-left: 20px;
 }
 
 /* Hero: the composer sits inside the session scroll body; center there so

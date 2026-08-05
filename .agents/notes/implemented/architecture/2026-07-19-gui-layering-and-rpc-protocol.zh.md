@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-07-19-gui-layering-and-rpc-protocol.md) | 中文
 
-> 分工线：本篇 = 分层模型 + 通道无关的 RPC 协议；协议的 Web 实现（HTTP+SSE）见 [Web 客户端架构 RFC](2026-07-19-gui-web-client-architecture.md)。
+> 分工线：本篇 = 分层模型 + 通道无关的 RPC 协议；协议的 Web 实现由 HTTP 上行加 [WebSocket 下行载体](2026-08-04-websocket-downlink-carrier.md)组成，浏览器对象层见 [Web 客户端架构 RFC](2026-07-19-gui-web-client-architecture.md)。
 
 ## Problem
 
@@ -14,7 +14,7 @@ Status: implemented
 
 那么当前的工程代码需要稳定的分层职责模型，便于以后接入各类 client 形态。
 
-同时各消费端的物理通道不同（HTTP/SSE、进程内直调、将来 IPC），还需要一个通道无关的消息模型和单一契约事实源，让「加一个方法」「换一种载体」互不牵连，且 wire 上的每条消息可类型校验、可观测、可对账。
+同时各消费端的物理通道不同（浏览器 HTTP／WebSocket、进程内 fetch/SSE、将来 IPC），还需要一个通道无关的消息模型和单一契约事实源，让「加一个方法」「换一种载体」互不牵连，且 wire 上的每条消息可类型校验、可观测、可对账。
 
 ## Decision
 
@@ -62,7 +62,7 @@ TypeScript 以 solution 根引用的**两个聚合 program** 检查（`tsconfig.
 |---|---|---|---|
 | 前置层 | `dsh-host-apiproxy` | TS/zod 定义 (api/)+ fetch 抽象 (fetch/：handler + 客户端基类) | 做简单、所有接入方都要；Node/浏览器皆可 import；协议内容见下文「消息协议」起各节；client 不得经 ctx 绕开 api |
 | 装配层 | `dsh-host-runtime` | 插件组合 + ApiProxy 集成 + web UI 插件挂载（覆盖八个 dshClient 包的内存 Loader 树）；host 级配置归属地（defaults/persistenceRoot，将来用户 profile） | 装什么插件、给什么默认值只在这里定；壳不得改装配 |
-| 承载层 | `dsh-host-webserver` | Web 形态 HTTP：静态服务 + `/api/*`→handler 转发 + SSE 写出 + close 语义；插件 bundle 端点 + `__DSH_BOOT__` manifest（元数据清单）注入（由 web 插件注册表供给） | Web（浏览器访问）专用；零 workspace 依赖（注册表经结构注入到达）；Electron 不复用它 |
+| 承载层 | `dsh-host-webserver` | Web 形态 HTTP 与 upgrade：静态服务 + `/api/*`→handler 转发 + WebSocket upgrade route + close 语义；插件 bundle 端点 + `__DSH_BOOT__` manifest（元数据清单）注入（由 web 插件注册表供给） | Web（浏览器访问）专用；零 workspace 依赖（注册表经结构注入到达）；Electron 不复用它 |
 | client 库 | `dsh-client-ui-slots` / `dsh-client-web-react` / `dsh-client-ui-primitives` | slot 注册表核心 / ctx↔React 胶合 / 纯 React 原子组件 | 组件零 cordis 运行时依赖；由壳播种进 loader 模块表 |
 | client 插件 | `dsh-client-connection` / `dsh-client-runtime` / `dsh-client-ui-theme` / `dsh-client-i18n` / `dsh-client-ui-layout` / `dsh-client-ui-sidebar` / `dsh-client-ui-conversation` / `dsh-client-ui-trajectory` | 浏览器侧 cordis 插件树（wire 消费者、核心服务、主题、i18n、布局、侧栏、对话、轨迹）——见 Web 客户端架构 RFC | 双入口（node 半边=空 apply；实现在 `src/client/`）；消费面唯一经 ApiProxy |
 | 应用态 | `@deepseek-ai/dsh`（apps/cli）+ `dsh-frontend`（apps/web，vite 应用） | bin 粗分发 + 每形态一个拼装模块（web.ts / headless.ts）；vite 应用是 `dsh-client-web` 壳表面之上的薄 main | 形态间动态 import 互不加载；dist 定位等 workspace 知识留在 app |
@@ -86,7 +86,7 @@ TypeScript 以 solution 根引用的**两个聚合 program** 检查（`tsconfig.
 ```
                  client 发起                      server 发起
   request   ① ClientRequest                 ③ ServerRequest
-            （POST /api/<method> body）      （SSE 帧：session 事件、审批/问答 requested）
+            （POST /api/<method> body）      （WebSocket message：session 事件、审批/问答 requested）
   response  ② ServerResponse                ④ ClientResponse
             （该 POST 的 HTTP 应答体）        （POST /api/respond body，回填 ③ 的 rpcId）
 ```
@@ -97,7 +97,7 @@ TypeScript 以 solution 根引用的**两个聚合 program** 检查（`tsconfig.
 |---|---|---|---|---|
 | `ClientRequest` | `'client-request'` | `rpcId` `method` `payload` | client mint | `POST /api/<method>` body |
 | `ServerResponse` | `'server-response'` | `rpcId` `result` | 回填 ① | 该 POST 的应答体（恒 HTTP 200） |
-| `ServerRequest` | `'server-request'` | `rpcId` `method` `payload` | server mint | SSE `data:` 行 |
+| `ServerRequest` | `'server-request'` | `rpcId` `method` `payload` | server mint | WebSocket text message |
 | `ClientResponse` | `'client-response'` | `rpcId` `result` | 回填 ③ | `POST /api/respond` body |
 
 `RpcMessage = ClientRequest | ServerResponse | ServerRequest | ClientResponse`，`switch (message.type)` 窄化。
@@ -167,7 +167,7 @@ export type ResponseValue<K> =
 
 ### 帧（server→client，具名 union）
 
-两条 SSE 流：mux 流（`GET /api/events.mux`，全 session 聚合）与 host 流（`GET /api/events.host`，host 级事件）。帧示例一行：
+两条逻辑流：mux 流（`/api/events.mux`，全 session 聚合）与 host 流（`/api/events.host`，host 级事件）。浏览器通过每流一条下行 WebSocket 消费，进程内 fetch 载体以 SSE 保持同构；物理边界见 [WebSocket 下行载体](2026-08-04-websocket-downlink-carrier.md)。帧示例一行：
 
 | 帧 type | 载荷 | 何时发 |
 |---|---|---|
@@ -214,7 +214,7 @@ export type ResponseValue<K> =
 | 子类 | 所在包 | doFetch | 用途 |
 |---|---|---|---|
 | `InProcessApiClient` | apiproxy 本包 | 注入的 `{ fetch }` handler | **同构点**：`new InProcessApiClient(toFetchHandler(api))` 全程不过网络但真跑 wire 序列化/zod/SSE 帧——`dsh -p` headless 即协议第二真实消费者 |
-| `WebApiClient` | dsh-client-connection | `globalThis.fetch`（同源 `/api/*`） | 浏览器形态；HTTP+SSE 承载落地见 Web 客户端架构 RFC |
+| `WebApiClient` | dsh-client-connection | `globalThis.fetch` 上行 + 每逻辑流一条同源 WebSocket 下行 | 浏览器形态；物理边界见 [WebSocket 下行载体](2026-08-04-websocket-downlink-carrier.md) |
 | `FixtureApiClient` | dsh-client-connection | 不用（协议层覆写） | 无 server 的 UI 开发（`?fixture`）：覆写 `callUnary`/`openMux`/`openHost`/`respond` 虚方法，自己就是假 server（帧 rpcId 由它 mint，语义自洽） |
 | （将来）IPC 桥子类 | apps/electron | IPC 序列化往返 | 仅换 doFetch，契约/基类零改 |
 

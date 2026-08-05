@@ -184,7 +184,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'collect(execution: ToolExecution): DshEnvironment',
-        jsDoc: '/**\n * Build the trusted `DSH_*` snapshot for one bash tool execution.\n * @param execution - the current tool execution.\n * @returns an immutable environment overlay containing built-ins and current contributions.\n */',
+        jsDoc: '/**\n * Build the trusted `DSH_*` snapshot for one shell tool execution.\n * @param execution - the current tool execution.\n * @returns an immutable environment overlay containing built-ins and current contributions.\n */',
       },
       {
         signature: 'list(): BashEnvVariableInfo[]',
@@ -387,6 +387,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'register(route: WebRoute): () => void',
         jsDoc: '/**\n * Register a named route. Duplicate (kind, path) throws — route patterns are\n * a composition-level contract, so a collision is a misconfiguration.\n * @param route - kind, path, and the owning handler.\n * @returns the disposer removing the route.\n */',
+      },
+      {
+        signature: 'registerUpgrade(route: WebUpgradeRoute): () => void',
+        jsDoc: '/**\n * Register an exact-path HTTP upgrade route. Duplicate paths throw because\n * one socket can have only one protocol owner.\n * @param route - pathname and handler owning negotiation plus socket use.\n * @returns the disposer removing the route.\n */',
       },
       {
         signature: 'tapIndex(transform: (html: string) => string): () => void',
@@ -3132,6 +3136,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WebSource',
     declaration: 'export interface WebSource {\n    url: string;\n    title?: string;\n    snippet?: string;\n    publishedAt?: string;\n}',
+  },
+  {
+    name: 'WebUpgradeRoute',
+    declaration: 'export interface WebUpgradeRoute {\n    path: string;\n    handler: (req: IncomingMessage, socket: Duplex, head: Buffer) => void | Promise<void>;\n}',
   },
   {
     name: 'WorkflowMeta',

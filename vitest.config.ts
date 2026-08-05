@@ -1,4 +1,6 @@
+import { spawnSync } from 'node:child_process'
 import tsconfigPaths from 'vite-tsconfig-paths'
+import { resolvePwshPath } from './packages/bash/pwsh-local/src/resolve.ts'
 import { defineConfig } from 'vitest/config'
 import { vitestExecArgv } from './vitest.shared.ts'
 import { COVERAGE_EXEMPT_ENV, coverageExemptHeavySuites } from './scripts/coverage-exempt.ts'
@@ -11,7 +13,14 @@ const pathsPlugin = (): ReturnType<typeof tsconfigPaths> => tsconfigPaths({ proj
 
 const windowsUnsupportedPackages = process.platform === 'win32'
   ? [
-      'packages/bash/*',
+      // Bash-requiring suites (a real POSIX shell is unavailable on Windows).
+      // The pwsh-requiring suites (pwsh-local, tool-pwsh) deliberately stay
+      // INCLUDED: PowerShell ships with Windows, so they run natively here.
+      // Replacing the old 'packages/bash/*' glob with this explicit list also
+      // newly INCLUDES packages/bash/bash (the pure seam package) on Windows.
+      'packages/bash/bash-local',
+      'packages/bash/bash-sandbox',
+      'packages/bash/tool-bash',
       'packages/hooks/*',
       'packages/subprocess/*',
       'packages/pty/pty-local',
@@ -30,6 +39,17 @@ const windowsCoverageExclusions = process.platform === 'win32'
       'packages/lsp/lsp-local/src/instance.ts',
     ]
   : []
+
+// Mirrors windowsCoverageExclusions: pwsh-local's run/start/lifecycle suites
+// self-skip without a real pwsh (executor.spec.ts hasPwsh), leaving this file
+// far below per-file 100% on pwsh-less hosts; the exemption keeps those hosts
+// green while CI runners ship pwsh and still enforce the full bar. The probe
+// runs the suites' own resolution (the dependency-free resolve.ts module),
+// so the exemption is active exactly when the suites skip — a mismatched
+// narrower probe could exempt the file on hosts whose suites actually run.
+const pwshCoverageExclusions = spawnSync(resolvePwshPath(), ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '$true'], { encoding: 'utf8' }).status === 0
+  ? []
+  : ['packages/bash/pwsh-local/src/index.ts']
 
 const testIncludes = [
   'packages/*/*/tests/**/*.spec.{ts,tsx}',
@@ -194,6 +214,7 @@ export default defineConfig({
         'packages/session-projection/session-projection/src/index.ts',
         ...windowsUnsupportedPackages.map(path => `${path}/src/**/*.ts`),
         ...windowsCoverageExclusions,
+        ...pwshCoverageExclusions,
       ],
       // 100% or it doesn't merge (docs/testing.md: excessive tests are welcome).
       // Per-file so a well-covered big file can't subsidize a bare one.
