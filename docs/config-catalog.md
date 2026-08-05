@@ -1866,7 +1866,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/bash/tool-pwsh/src/index.ts:41`](../packages/bash/tool-pwsh/src/index.ts)
+Source: [`packages/bash/tool-pwsh/src/index.ts:43`](../packages/bash/tool-pwsh/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-ralph`
 
