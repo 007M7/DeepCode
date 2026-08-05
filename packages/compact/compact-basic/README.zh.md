@@ -162,4 +162,3 @@ Rules:
 - **部分不可分单元与仅 envelope 溢出仍不在表层压缩范围内**：恢复无法缩减系统／工具／前缀、拆分不可分的非工具节点，或修复不可剪枝剩余部分仍超出窗口的工具单元。可选 pruner 可以缩减原本不可分工具对内的文本型工具结果主体。
 - **`compactRegion` 要求存在未结束的轮次**：在完全关闭的会话上手动调用会抛出异常（「no open turn」），而不是执行压缩。
 - **摘要失败会保留最新持久表层**：任何替换前，自动路径会记录警告，并携带完整超预算历史继续。如果剪枝已落地，后续摘要失败会从该持久剪枝表层继续。因达到 `maxTokens` 而发生的摘要截断（隐藏推理 token 可能会耗尽该额度）遵循同一规则。
-- **摘要调用没有 transcript 快照覆盖**：`dsh-llm-replay` 从 `assistant/chunk` 事件派生调用，因此这次不含分片的直接 `ctx.llm.stream()` 调用无法回放（[seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md) 中明确的暂缓回放基础设施）。

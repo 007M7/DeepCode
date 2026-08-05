@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-`ctx.sessionReferences` 会把其他会话准备为有界、只读快照，作为带来源信息、面向模型的上下文。它消费 `ctx.sessionQuery` 与后端无关的 compact 检查点标记；不需要 SQLite FTS。标准 TUI bundle 会装载它，其他宿主也可直接调用该服务。
+`ctx.sessionReferences` 会把其他会话准备为有界、只读快照，作为带来源信息、面向模型的上下文。它消费 `ctx.sessionQuery` 与后端无关的 compact 检查点标记；不需要 SQLite FTS。支持跨会话 mention 的宿主可以主动启用该服务。
 
 ## 公开 API
 
@@ -14,7 +14,7 @@
 
 准备阶段会对每个不同源调用一次 `ctx.sessionQuery.readSurface()`，入队后绝不重读。它仅投影折叠后当前表层中的用户直接发出的 `user/message`、用户直接发出的 `steering/message`、assistant 文本，以及 `user/message` 检查点；这类检查点携带规范 `dsh-compact` 源标记。对于已经包含固化前缀上下文的源提示词，投影只读取其对模型隐藏的显示内容，以防止快照递归传播。已遮蔽的压缩（compaction）前事件、工具、推理（reasoning）、上下文、除已标记 compact 检查点外的插件生成 user 消息，以及未完成的 assistant 分片均会被排除。因此，已压缩源只会提供最新检查点及其后保留的会话内容，不会还原已遮蔽的文本。
 
-上下文源为 `{ kind: 'session-reference', version: 1, references }`；每条引用会记录其源 id 与 label、捕获 seq、是否存在 compact、已保留／已省略消息数、已省略 UTF-8 字节数与截断状态。标准 TUI 在不把上下文附加到通用 inbox 记录的情况下保留接纳归属：next-step 接收窗口之外，一次性 `agent/prompt-submit` 包装层只为获准决策添加快照；提示词接纳期间或轮次打开时，`inject()` 与 `steer()` 会并排暂存到同一安全边界。目标日志因此会先记录一条带来源信息的上下文 `user/message`，再记录可读的直接 `user/message` 或 `steering/message`。后续源变更、压缩或删除都无法改变目标回放。
+上下文源为 `{ kind: 'session-reference', version: 1, references }`；每条引用会记录其源 id 与 label、捕获 seq、是否存在 compact、已保留／已省略消息数、已省略 UTF-8 字节数与截断状态。宿主会在提交关联提示词之前捕获快照，并在同一安全接纳边界把它追加为带来源信息的上下文。因此，目标日志会把快照与可读的直接消息分开记录。后续源变更、压缩或删除都无法改变目标回放。
 
 ## 配置
 

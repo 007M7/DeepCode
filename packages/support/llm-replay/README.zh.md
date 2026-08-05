@@ -4,7 +4,7 @@
 
 用于无密钥快照测试的 LLM（大语言模型）回放插件。它根据已记录的**会话 JSONL** fixture（测试前置数据）重建模型流，使测试无需 API 密钥即可针对固定的模型 transcript（文本记录）启动真实 agent（智能体）。配置 `providers` 后，它会注册仅用于回放的适配器，其模型目录可供测试模型发现功能的场景使用；未配置 `providers` 时，它会安装无需模型发现功能的测试所用 catch-all `llm/stream` waterfall（瀑布式事件）。
 
-其消费方包括 ACP（Agent Client Protocol）、headless `stream-json` 和 TUI 快照套件，以及 Web 浏览器 e2e 流水线。Loader 驱动的套件使用此插件替代真实 LLM 适配器；Web 流水线直接安装它，以保留清理阶段的消费检查句柄。将派生和回放逻辑放在此处，可使其受 `packages/*/src` 的逐文件 100% 覆盖率门禁约束。
+其消费方包括 ACP（Agent Client Protocol）与 headless `stream-json` 快照套件，以及 Web 浏览器 e2e 流水线。Loader 驱动的套件使用此插件替代真实 LLM 适配器；Web 流水线直接安装它，以保留清理阶段的消费检查句柄。
 
 ## fixture 的工作方式
 

@@ -33,13 +33,13 @@ When the composition provides `ctx.sessionProjections`, token-meter registers th
 
 `contextBreakdown` carries heuristic `systemTokens`, `toolsTokens`, and `messageTokens` — the context's composition rather than its provider-billed size. The envelope figures reprice last-wins on every `request/header`; the message figure replays `surface-fold.ts` — the same positional fold `measure()` runs — so it equals `measure().surfaceTokens` at every event boundary and compaction shrinks it the way it shrinks the next request. All three figures use the measurement service's fixed heuristic and are estimates: they will not sum to `projectedTokens`, whose provider anchor carries exactly the error — CJK text and JSON schemas underprice badly at four characters per token — that the composition rows still contain. Present them as an approximate composition, never as a total.
 
-All three units use the standard projection baseline, live frame, higher-seq-wins store, and JSON checkpoint paths. Unloading token-meter removes all three keys. A headless or TUI composition without the projection seam keeps the measurement service's existing behavior.
+All three units use the standard projection baseline, live frame, higher-seq-wins store, and JSON checkpoint paths. Unloading token-meter removes all three keys. A composition without the projection seam keeps the measurement service's existing behavior.
 
 ### Context occupancy is an approximation, by design
 
 The occupancy fields are independent last-wins records and are **not** one atomic observation of a single request. Switching models pairs the fresh capacity with the previous route's sample until the next request reports usage, and `pressureTokens` describes the last request rather than the surface as it stands right now — `projectedTokens` carries that sample forward over the surface's movement, but its anchor is still the older request.
 
-This is deliberate. An occupancy percentage is a user-facing reference figure, not a billing record or a gating input — nothing in the harness makes decisions from it, and compaction reads `measure()` instead. The TUI status line has always computed occupancy the same way, dividing a `measure()` total by a separately-resolved capacity for the selected model.
+This is deliberate. An occupancy percentage is a user-facing reference figure, not a billing record or a gating input — nothing in the harness makes decisions from it, and compaction reads `measure()` instead. A UI computes occupancy by dividing measured pressure by the separately resolved capacity for the selected model.
 
 Making the pair atomic was tried and rejected: it required a transient non-replayable wire frame, which needed lifecycle fencing against cross-stream reordering and left occupancy blank after every reconnect. The [Agent Note](../../../.agents/notes/implemented/architecture/2026-07-29-projected-token-usage-and-request-context.md) records that comparison. Consumers that need an exact same-boundary figure should call `measure()` at their own request boundary rather than read this projection.
 
@@ -66,4 +66,3 @@ No direct invalidation; the named consumer owns any request-prefix changes.
 - **Every measurement clones the current surface** — coherent immutable snapshots make reads O(surface), including below-threshold pressure checks.
 - **Provider usage is only reusable for an identical canonical envelope** — prompt, prefix, tools, provider, model, or call-config changes deliberately fall back to full heuristic estimation.
 - **Legacy provenance is conservative** — assistant messages without `sourceEventSeqs` cannot distinguish provider output from listener rewrites, so the fold avoids claiming a known empty or exact chunk stream.
-- **The TUI and browser fixture retain parallel folds** — `tokenUsage` owns durable session-projection semantics; the TUI keeps its live per-step map because its composition does not mount the generic projection seam, while the browser fixture mirrors the unit for standalone demo data.

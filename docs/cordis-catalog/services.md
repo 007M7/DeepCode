@@ -1736,6 +1736,14 @@ Abstract settings service. Providers implement raw-document storage (`load`/`per
 
 ```ts cordis-catalog
 /**
+ * Prepare the provider's user-editable document for a native editor. File
+ * providers may materialize an absent document before returning its path;
+ * non-file providers return undefined.
+ * @returns the absolute local document path, or undefined for non-file storage.
+ */
+prepareDocument(): Promise<string | undefined>
+
+/**
  * Register a namespace schema and receive its owner scope. The registration
  * is an effect on the calling plugin's fiber: disposing that fiber removes
  * the namespace and its observers. An invalid stored section fails the

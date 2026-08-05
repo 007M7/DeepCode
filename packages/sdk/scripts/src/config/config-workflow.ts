@@ -135,7 +135,7 @@ export class ConfigWorkflow {
       runInterface: targetRunInterface(project.profile.runInterface, desiredByTarget),
     }
     for (const feature of features) {
-      /* v8 ignore next -- no current builtin is interface-specific after TUI removal */
+      /* v8 ignore next -- no current built-in feature is interface-specific */
       if (!feature.isApplicable(targetProfile)) desiredByTarget.delete(featureTarget(feature))
     }
 

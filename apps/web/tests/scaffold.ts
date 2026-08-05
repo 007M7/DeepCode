@@ -56,7 +56,7 @@ import type {} from '@deepseek-ai/dsh-agent'
 import { prepareWebRuntimeContext } from '../../cli/src/web.ts'
 import { DIST_INDEX, REPO_ROOT, requireDist } from './support.ts'
 
-/** Snapshot mode for the lane, from $DSH_SNAPSHOT (same vocabulary as the ACP/TUI suites). */
+/** Snapshot mode for the lane, from $DSH_SNAPSHOT (same vocabulary as the other snapshot suites). */
 export type WebSnapshotMode = 'replay' | 'record' | 'refresh'
 
 /**
@@ -592,9 +592,9 @@ export async function compareOrRefreshGolden(goldenPath: string, actual: string,
 }
 
 /**
- * Fixture-inventory guard (the TUI afterAll shape): the scenario directory
- * holds exactly the expected files and every committed JSONL is a scrub
- * fixed-point without a run-local browser RPC id.
+ * Fixture-inventory guard: the scenario directory holds exactly the expected
+ * files and every committed JSONL is a scrub fixed-point without a run-local
+ * browser RPC id.
  * @param dir - the scenario snapshot directory.
  * @param expected - the exact expected file inventory.
  */

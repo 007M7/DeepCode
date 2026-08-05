@@ -370,7 +370,7 @@ declare class Session {
   /**
    * Detached, deep-frozen creation metadata (format version, cwd, lineage,
    * seed boundary). Supplied by the store via `ctx.sessions.create()`. When a
-   * `Session` is constructed bare (tests, ad-hoc replay), a minimal header is
+   * `Session` is created without a store-owned header, a minimal header is
    * synthesized (stamped with the current {@link SESSION_FORMAT_VERSION}) so
    * `session.header` is always present. Kept out of the event log — it is a
    * storage concern, not replayable conversation state.
