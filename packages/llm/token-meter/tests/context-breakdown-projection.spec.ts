@@ -115,6 +115,47 @@ describe('contextBreakdown session projection', () => {
     expect(projected(ctx, session).messageTokens).toBe(estimateMessage(summary))
   })
 
+  it('keeps the message figure equal to the service surface across appends and a compaction', async () => {
+    const { ctx, session } = await harness()
+    // The panel's composition rows and `measure()` answer the same question in
+    // the same vocabulary; one shared fold is what makes that true.
+    const agree = (): number => {
+      const messageTokens = projected(ctx, session).messageTokens
+      expect(messageTokens).toBe(ctx.tokenMeter.measure(session).surfaceTokens)
+      return messageTokens
+    }
+    session.append('request/header', {
+      header: { config: CONFIG, system: 'You are terse.', tools: TOOLS },
+      reason: 'initial',
+    })
+    expect(agree()).toBe(0)
+
+    const question = appendUser(session, 'a first question, long enough to price above zero')
+    session.append('step/start', { turn: 1, step: 1 })
+    const answer = session.append('assistant/message', {
+      turn: 1,
+      step: 1,
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'a considered answer' }],
+        source: { kind: 'model', provider: 'mock', model: 'mock' },
+      }),
+      usage: { inputTokens: 40, outputTokens: 7 },
+    }, { surfaceOp: 'append', sourceEventSeqs: [] }).seq
+    session.append('step/end', { turn: 1, step: 1 })
+    const grown = agree()
+    expect(grown).toBeGreaterThan(0)
+
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'summary' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    }), {
+      surfaceOp: { op: 'replace', start: question, end: answer },
+      sourceEventSeqs: [question, answer],
+    })
+    expect(agree()).toBeLessThan(grown)
+  })
+
   it('fails loud on a replace range absent from the folded surface', () => {
     const definition = contextBreakdownProjectionDefinition
     const replace = (start: number, end: number): SessionEvent => ({

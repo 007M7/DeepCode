@@ -6,23 +6,20 @@
  */
 
 import { z } from 'zod'
-import { canonicalHeader, deriveEventMessage, isSurfaceEvent } from '@deepseek-ai/dsh-session'
+import { canonicalHeader, isSurfaceEvent } from '@deepseek-ai/dsh-session'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
-import { estimateMessage, estimateSystemTokens, estimateToolsTokens } from './estimate.ts'
+import type { TokenSurfaceNode } from './types.ts'
+import { estimateSystemTokens, estimateToolsTokens } from './estimate.ts'
+import { foldSurfaceTokens } from './surface-fold.ts'
 // Import for the `contextBreakdown` SessionProjectionMap key merge.
 import type {} from './projection.ts'
-
-/** One priced surface node (plain JSON for the persisted projection cache). */
-interface BreakdownSurfaceNode {
-  seq: number
-  tokens: number
-}
 
 interface ContextBreakdownState {
   systemTokens: number
   toolsTokens: number
   messageTokens: number
-  surface: BreakdownSurfaceNode[]
+  /** Priced surface nodes (plain JSON for the persisted projection cache). */
+  surface: TokenSurfaceNode[]
 }
 
 const breakdownSchema = z.object({
@@ -35,10 +32,9 @@ const breakdownSchema = z.object({
  * Token-meter's context-composition projection unit.
  *
  * Envelope figures are last-wins per `request/header`; the message figure
- * folds surface appends and positional replacements, so compaction shrinks it
- * the same way it shrinks the next request. Committed logs are
- * surface-validated at append time, so an unresolvable replace range here is
- * log corruption and fails loud rather than skipping the event.
+ * rides {@link foldSurfaceTokens} — the same fold the measurement service
+ * replays — so it equals `measure().surfaceTokens` at every event boundary and
+ * compaction shrinks it the way it shrinks the next request.
  */
 export const contextBreakdownProjectionDefinition:
 ProjectionDefinition<'contextBreakdown', ContextBreakdownState> = {
@@ -54,32 +50,11 @@ ProjectionDefinition<'contextBreakdown', ContextBreakdownState> = {
       return { ...state, systemTokens, toolsTokens }
     }
     if (!isSurfaceEvent(event)) return state
-    const message = deriveEventMessage(event)
-    const tokens = message === null ? 0 : estimateMessage(message)
-    const op = event.surfaceOp
-    if (op === 'append') {
-      return {
-        ...state,
-        messageTokens: state.messageTokens + tokens,
-        surface: [...state.surface, { seq: event.seq, tokens }],
-      }
-    }
-    const startIdx = state.surface.findIndex(node => node.seq === op.start)
-    const endIdx = state.surface.findIndex(node => node.seq === op.end)
-    if (startIdx === -1 || endIdx === -1 || startIdx > endIdx) {
-      throw new Error(
-        `context breakdown: replace at seq ${event.seq} has invalid current range ${op.start}-${op.end}`,
-      )
-    }
-    const removed = state.surface
-      .slice(startIdx, endIdx + 1)
-      .reduce((total, node) => total + node.tokens, 0)
-    const surface = [...state.surface]
-    surface.splice(startIdx, endIdx - startIdx + 1, { seq: event.seq, tokens })
+    const fold = foldSurfaceTokens(state.surface, event)
     return {
       ...state,
-      messageTokens: state.messageTokens + tokens - removed,
-      surface,
+      messageTokens: state.messageTokens + fold.deltaTokens,
+      surface: fold.nodes,
     }
   },
   view: ({ systemTokens, toolsTokens, messageTokens }) => ({ systemTokens, toolsTokens, messageTokens }),

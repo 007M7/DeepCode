@@ -17,9 +17,12 @@ export const inject = ['invariants']
 /**
  * No runtime invariant: token estimates are per-call outputs and the private
  * session cache is invalidated at its event mutation boundary. The package's
- * projection does expose an observation stream, but its schema fixes the JSON
- * payload and its pure fold replaces same-step samples; totals need not be
- * monotone when a final usage sample corrects an earlier chunk.
+ * three projections do expose observation streams, but their schemas fix the
+ * JSON payloads; the usage folds replace same-step samples, so totals need not
+ * be monotone when a final sample corrects an earlier chunk, and the
+ * composition fold shares `surface-fold.ts` with the measurement service,
+ * which makes its message figure equal `measure().surfaceTokens` by
+ * construction rather than by a relation worth observing at runtime.
  */
 const install: InvariantInstaller = () => {}
 
