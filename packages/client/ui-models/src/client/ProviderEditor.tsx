@@ -202,7 +202,12 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
       ? setPath(draft, ['apiKeyEnv'], keyRef)
       : draft
     {
+      // The same checker gates the submit button, so a card cannot reach this
+      // with a bad row; it stays because the schema check below would refuse
+      // the write with a message naming a path instead of the row, and because
+      // nothing but this function decides what is written.
       const failure = validateDeepSeekModels(getPath(next, ['models']))
+      /* v8 ignore next 3 -- unreachable from the card: the same failure disables submit */
       if (failure !== undefined) {
         return `${t('model')} ${String(failure.index + 1)}: ${t(failure.key)}`
       }

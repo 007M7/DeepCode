@@ -177,8 +177,8 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
   }
 
   /** What a capacity field shows: the buffer while typing, else the stored count. */
-  const capacityText = (index: number, field: CapacityField): string =>
-    editing.get(bufferKey(index, field)) ?? capacitySpelling(numberOf(models[index] ?? {}, field))
+  const capacityText = (model: ModelDraft, index: number, field: CapacityField): string =>
+    editing.get(bufferKey(index, field)) ?? capacitySpelling(numberOf(model, field))
 
   /** Drop one row's entries and shift the rows after it down, in one pass. */
   const reindexOnRemove = (
@@ -388,7 +388,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
                     className={styles['input']}
                     type="text"
                     inputMode="numeric"
-                    value={capacityText(index, 'contextWindow')}
+                    value={capacityText(model, index, 'contextWindow')}
                     placeholder={CAPACITY_HINT.contextWindow}
                     aria-label={`${t('modelContextWindow')} ${index + 1}`}
                     disabled={disabled}
@@ -401,7 +401,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
                     className={styles['input']}
                     type="text"
                     inputMode="numeric"
-                    value={capacityText(index, 'maxTokens')}
+                    value={capacityText(model, index, 'maxTokens')}
                     placeholder={CAPACITY_HINT.maxTokens}
                     aria-label={`${t('modelMaxTokens')} ${index + 1}`}
                     disabled={disabled}

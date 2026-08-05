@@ -263,6 +263,25 @@ describe('model list editing', () => {
     expect(mutate).not.toHaveBeenCalled()
   })
 
+  it('spells a stored capacity back the way it is typed', async () => {
+    await mountSection({
+      providers: {
+        openai: {
+          baseURL: 'https://proxy.example/v1',
+          models: [{ id: 'kept', contextWindow: 1_000_000, maxTokens: 256_000 }],
+        },
+      },
+    })
+    openEditor('openai')
+    expandModel(1)
+
+    // Opening a row reads the stored counts, which are plain integers; showing
+    // them as such would make an already-configured route look unlike one the
+    // user just typed, and re-applying would rewrite the field it read.
+    expect(screen.getByLabelText<HTMLInputElement>(`${en.modelContextWindow} 1`).value).toBe('1M')
+    expect(screen.getByLabelText<HTMLInputElement>(`${en.modelMaxTokens} 1`).value).toBe('256K')
+  })
+
   it('edits one row of several and lets a cleared capacity leave the profile', async () => {
     const { mutate } = await mountSection({
       providers: { openai: { baseURL: 'https://proxy.example/v1', models: [{ id: 'first' }, { id: 'second' }] } },
