@@ -2390,6 +2390,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       // editor; real schema-driven forms ride the HTTP transport.
       describe: request => ok(request, {
         writable: true,
+        hasDocument: true,
         namespaces: [{
           ns: 'llm-deepseek',
           schema: {},
@@ -2399,6 +2400,8 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           revision: 0,
         }],
       }),
+      // Native opens are deterministic no-op successes in this fixture, as is host.openPath.
+      openDocument: request => ok(request, { opened: true as const }),
       update: request => err(request, {
         code: 'settings-rejected',
         message: 'fixture: the minimal readiness settings descriptor is read-only',
@@ -2549,6 +2552,7 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'goal.complete': return this.api.goals.complete(request)
       case 'goal.clear': return this.api.goals.clear(request)
       case 'settings.describe': return this.api.settings.describe(request)
+      case 'settings.openDocument': return this.api.settings.openDocument(request, signal)
       case 'settings.update': return this.api.settings.update(request)
       case 'settings.replace': return this.api.settings.replace(request)
       case 'settings.mutate': return this.api.settings.mutate(request)

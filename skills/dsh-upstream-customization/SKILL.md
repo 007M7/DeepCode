@@ -23,5 +23,5 @@ Classification and a recommendation are not publishing approval. Obtain explicit
 3. Review the outgoing commits and diff against upstream. Confirm they contain only the approved feature, no credentials or personal data, and a clean worktree.
 4. Reconfirm the approved feature name and publishing target before the first push. Do not infer authorization from earlier local work.
 5. Push only that branch and open only a draft PR. Keep its description synchronized with later changes.
-6. For a TUI feature, preferably attach a screenshot from the assembled application after removing credentials and personal data.
+6. For a Web UI feature, attach a screenshot or GIF from the assembled application after removing credentials and personal data.
 7. Report the upstream base and branch commits, commands and checks run, pushed branch, and draft PR URL.

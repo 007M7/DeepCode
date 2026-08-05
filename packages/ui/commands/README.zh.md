@@ -16,7 +16,7 @@
 
 ## 组合
 
-终端应用组合包会将此服务与 `dsh-tui` 一起挂载；无 UI 的 agent 主干和 ACP（Agent Client Protocol）自动化应用不会挂载它。自定义交互式组合与命令生产方会显式挂载 `@deepseek-ai/dsh-commands`。
+随产品交付的 `dsh` 基础组合会挂载此服务，Web 客户端通过它分派命令。无 UI 的演示主干和 ACP（Agent Client Protocol）自动化不提供命令适配器。自定义交互式组合与命令生产方会显式挂载 `@deepseek-ai/dsh-commands`。
 
 ## 模型体验
 

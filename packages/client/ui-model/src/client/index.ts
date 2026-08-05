@@ -51,9 +51,7 @@ function optionsOf(directory: SessionModels, t: TranslateNS<'model'>): SelectOpt
       rows.push({
         id: rowId(group.id, model.id),
         label: model.name,
-        detail: model.unlisted === true
-          ? t('option.unlisted', { group: group.name })
-          : model.description !== undefined ? `${group.name} · ${model.description}` : group.name,
+        detail: model.description !== undefined ? `${group.name} · ${model.description}` : group.name,
         ...(directory.current.provider === group.id && directory.current.model === model.id
           ? { active: true } : {}),
       })

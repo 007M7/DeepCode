@@ -43,7 +43,7 @@ describe('approval invariants', () => {
 
   it('adopts a bare session first observed through publication', async () => {
     const ctx = await setup()
-    const session = new Session(SessionId('bare-approval-session'))
+    const session = Session.create(SessionId('bare-approval-session'))
     const id = ApprovalRequestId('bare-ask')
     const asked = {
       type: 'approval/asked', seq: 0, time: 0, data: { id, toolName: 'bash' },
