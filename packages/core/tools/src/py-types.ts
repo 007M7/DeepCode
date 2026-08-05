@@ -433,11 +433,11 @@ function renderType(schema: unknown, className: string, state: RenderState): str
           frame.allocated = allocateClassName(frame.className, state)
           state.typing.add('TypedDict')
           frame.entries = entries
-          // frame.allocated was assigned two statements up; the ?? arm is for the type system only.
-          /* v8 ignore next -- allocated is always set before children are built. */
           // A field annotation is its own logical line, so nesting restarts —
           // at 1, reserving the bracket an optional field's `NotRequired[…]`
-          // wraps around it.
+          // wraps around it. frame.allocated was assigned three statements up;
+          // the ?? arm is for the type system only.
+          /* v8 ignore next -- allocated is always set before children are built. */
           frame.children = entries.map(([field, child]) => ({ schema: child, className: childClassName(frame.allocated ?? '', camelCase(field)), listDepth: 1 }))
           break
         }
