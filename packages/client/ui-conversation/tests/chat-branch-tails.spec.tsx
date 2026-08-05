@@ -554,12 +554,13 @@ describe('small branch tails', () => {
     const source = { getSnapshot: () => snap, subscribe: () => () => {} }
     const view = render(
       <StatsLine
+        t={t}
         useSession={bindSnapshotSelector(source) as unknown as StatsLineProps['useSession']}
         useProjection={(key: string) => key === 'tokenUsage'
           ? { uncachedInputTokens: 0, outputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0 }
           : undefined}
       />,
     )
-    expect(view.container.textContent).toBe('1 turns · 1 steps| Input 0 tok · Output 10 tok')
+    expect(view.container.textContent).toBe('1 轮 · 1 步| 输入 0 tok · 输出 10 tok')
   })
 })

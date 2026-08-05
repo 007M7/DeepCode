@@ -42,10 +42,18 @@ export function ContextMeter({ useProjection, t }: ContextMeterProps) {
   const breakdown = useProjection('contextBreakdown')
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLSpanElement | null>(null)
+  const context = contextOccupancy(pressure)
+  const available = context !== null
+
+  // A model switch can temporarily remove capacity while this component stays
+  // mounted. Close the now-unavailable panel instead of preserving stale UI.
+  useEffect(() => {
+    if (!available && open) setOpen(false)
+  }, [available, open])
 
   // Outside click / Escape close, one document listener while open (Menu's pattern).
   useEffect(() => {
-    if (!open) return
+    if (!open || !available) return
     const onPointerDown = (e: PointerEvent): void => {
       if (e.target instanceof Node && rootRef.current?.contains(e.target) === true) return
       setOpen(false)
@@ -59,9 +67,8 @@ export function ContextMeter({ useProjection, t }: ContextMeterProps) {
       document.removeEventListener('pointerdown', onPointerDown)
       document.removeEventListener('keydown', onKeyDown)
     }
-  }, [open])
+  }, [available, open])
 
-  const context = contextOccupancy(pressure)
   if (context === null) return null
   const percent = context.percent
   const reading = `${percent}%`

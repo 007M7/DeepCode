@@ -11,15 +11,17 @@ import type {
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { StatsLine, contextOccupancy, deriveStats, formatDuration, formatTokens, type StatsLineProps } from '../src/client/chat/StatsLine.tsx'
 import { BashRow } from '../src/client/toolviews/bash-sample.tsx'
-import { zh } from '../src/client/locales.ts'
+import { en, zh } from '../src/client/locales.ts'
 
 type BashRowProps = Parameters<typeof BashRow>[0]
 
 // Mirrors the real lookup chain (conversation namespace, then common).
 const t: BashRowProps['t'] = makeTranslate(zh, commonZh)
+const tEn: StatsLineProps['t'] = makeTranslate(en, commonEn)
 
 /** jsdom has no ResizeObserver; StatsLine watches its row for ellipsis truncation through one. */
 class ResizeObserverStub {
@@ -158,7 +160,7 @@ describe('StatsLine', () => {
     source: { getSnapshot(): ConversationSnapshot; subscribe(fn: () => void): () => void },
     values: Record<string, unknown> = { tokenUsage: USAGE },
   ): StatsLineProps {
-    return { useSession: bindSnapshotSelector(source), useProjection: projections(values) }
+    return { useSession: bindSnapshotSelector(source), useProjection: projections(values), t: tEn }
   }
 
   it('renders the grouped stats row and hides a brand-new empty session', () => {
@@ -207,6 +209,23 @@ describe('StatsLine', () => {
     const { source } = makeSource({ nodes: [timed] })
     const view = render(<StatsLine {...props(source)} />)
     expect(view.container.textContent).toContain('LLM 3.8s| TTFT avg 0.8s · 20 tok/s')
+  })
+
+  it('takes every stats label from the active locale', () => {
+    const timed: AssistantMessageNode = {
+      ...assistant(1, 1, { outputTokens: 60 }),
+      timing: { stepStartTime: 1_000, firstTokenTime: 1_800, completedTime: 4_800 },
+    }
+    const { source } = makeSource({ nodes: [timed] })
+    const view = render(<StatsLine {...props(source)} t={t} />)
+    expect(view.container.textContent)
+      .toBe('1 轮 · 1 步| LLM 3.8s| 首 token 平均 0.8s · 20 tok/s| 缓存命中 90%| 输入 100 tok · 输出 5 tok')
+  })
+
+  it('renders without ResizeObserver support', () => {
+    vi.unstubAllGlobals()
+    const { source } = makeSource({ nodes: [assistant(1, 1)] })
+    expect(() => render(<StatsLine {...props(source)} />)).not.toThrow()
   })
 
   it('keeps durable token groups after the visible step window is empty', () => {

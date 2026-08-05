@@ -7,6 +7,7 @@ import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ConversationSnapshot, UseProjection } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ContextPressureProjection, TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
+import type { ComposerBarProps } from '../contract/slots.ts'
 import { formatTokensPerSecond } from './message-chrome.ts'
 import { assistantStepReading } from './turn-metrics.ts'
 import css from './StatsLine.module.css'
@@ -151,24 +152,32 @@ export function contextOccupancy(
 export interface StatsLineProps {
   useSession: SnapshotSelectorHook<ConversationSnapshot>
   useProjection: UseProjection
+  /** The owning dock's locale seat. */
+  t: ComposerBarProps['t']
 }
 
-export const StatsLine = memo(function StatsLine({ useSession, useProjection }: StatsLineProps) {
+export const StatsLine = memo(function StatsLine({ useSession, useProjection, t }: StatsLineProps) {
   const nodes = useSession(s => s.nodes)
   const usage = useProjection('tokenUsage')
   const stats = useMemo(() => deriveStats(nodes), [nodes])
   // Pipe-separated groups (figma stats strip); a group with no data drops out whole.
   const groups: string[] = []
   if (stats.steps > 0) {
-    groups.push(`${stats.turns} turns · ${stats.steps} steps`)
+    groups.push(t('stats.counts', { turns: stats.turns, steps: stats.steps }))
     const durations: string[] = []
-    if (stats.llmMs > 0) durations.push(`LLM ${formatDuration(stats.llmMs)}`)
-    if (stats.toolMs > 0) durations.push(`Tool call ${formatDuration(stats.toolMs)}`)
+    if (stats.llmMs > 0) durations.push(t('stats.llm', { duration: formatDuration(stats.llmMs) }))
+    if (stats.toolMs > 0) durations.push(t('stats.toolCall', { duration: formatDuration(stats.toolMs) }))
     if (durations.length > 0) groups.push(durations.join(' · '))
     // Window-scoped like the wall times above: averages describe loaded steps.
     const speeds: string[] = []
-    if (stats.ttftSteps > 0) speeds.push(`TTFT avg ${formatDuration(stats.ttftMs / stats.ttftSteps)}`)
-    if (stats.decodeMs > 0) speeds.push(`${formatTokensPerSecond(stats.decodeTokens / (stats.decodeMs / 1_000))} tok/s`)
+    if (stats.ttftSteps > 0) {
+      speeds.push(t('stats.ttftAverage', { duration: formatDuration(stats.ttftMs / stats.ttftSteps) }))
+    }
+    if (stats.decodeMs > 0) {
+      speeds.push(t('stats.tokensPerSecond', {
+        throughput: formatTokensPerSecond(stats.decodeTokens / (stats.decodeMs / 1_000)),
+      }))
+    }
     if (speeds.length > 0) groups.push(speeds.join(' · '))
   }
   // Context occupancy deliberately lives on the composer's ContextMeter ring,
@@ -178,11 +187,11 @@ export const StatsLine = memo(function StatsLine({ useSession, useProjection }: 
   if (usage !== undefined
     && (stats.steps > 0 || billedInputTokens(usage) > 0 || usage.outputTokens > 0)) {
     const cacheHit = cacheHitPercent(usage)
-    if (cacheHit !== null) groups.push(`Cache hit ${cacheHit}%`)
-    groups.push(
-      `Input ${formatTokens(billedInputTokens(usage))} tok`
-      + ` · Output ${formatTokens(usage.outputTokens)} tok`,
-    )
+    if (cacheHit !== null) groups.push(t('stats.cacheHit', { percent: cacheHit }))
+    groups.push(t('stats.tokens', {
+      input: formatTokens(billedInputTokens(usage)),
+      output: formatTokens(usage.outputTokens),
+    }))
   }
   const line = groups.join(' | ')
   // The row elides with ellipsis when overlong; a delayed hover tooltip carries
@@ -194,6 +203,7 @@ export const StatsLine = memo(function StatsLine({ useSession, useProjection }: 
     if (el === null) return
     const measure = () => { setTruncated(el.scrollWidth > el.clientWidth) }
     measure()
+    if (typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(measure)
     observer.observe(el)
     return () => { observer.disconnect() }

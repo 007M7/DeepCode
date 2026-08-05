@@ -112,6 +112,28 @@ describe('ContextMeter', () => {
     expect(panel.getElementsByClassName(segmentClass)).toHaveLength(1)
   })
 
+  it('closes when capacity disappears and stays closed when it returns', () => {
+    let values: Record<string, unknown> = {
+      contextPressure: { pressureTokens: 32_000, contextWindow: 128_000 },
+      contextBreakdown: BREAKDOWN,
+    }
+    const view = render(<ContextMeter useProjection={(key: string) => values[key]} t={t} />)
+    fireEvent.click(view.getByRole('button', { name: '上下文已用 25%' }))
+    expect(view.container.querySelector('[role="dialog"]')).not.toBeNull()
+
+    values = { contextPressure: { pressureTokens: 32_000 }, contextBreakdown: BREAKDOWN }
+    view.rerender(<ContextMeter useProjection={(key: string) => values[key]} t={t} />)
+    expect(view.container.textContent).toBe('')
+
+    values = {
+      contextPressure: { pressureTokens: 32_000, contextWindow: 128_000 },
+      contextBreakdown: BREAKDOWN,
+    }
+    view.rerender(<ContextMeter useProjection={(key: string) => values[key]} t={t} />)
+    expect(view.getByRole('button', { name: '上下文已用 25%' }).getAttribute('aria-expanded')).toBe('false')
+    expect(view.container.querySelector('[role="dialog"]')).toBeNull()
+  })
+
   it('closes on outside pointerdown and Escape — but not inside clicks', () => {
     const view = meter({
       contextPressure: { pressureTokens: 32_000, contextWindow: 128_000 },

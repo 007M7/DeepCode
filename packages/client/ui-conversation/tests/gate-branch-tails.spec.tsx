@@ -67,11 +67,12 @@ describe('render branch tails', () => {
     const source = { getSnapshot: () => snap, subscribe: () => () => {} }
     const view = render(
       <StatsLine
+        t={t}
         useSession={bindSnapshotSelector(source) as unknown as UseSession<ConversationSnapshot>}
         useProjection={() => undefined}
       />,
     )
-    expect(view.container.textContent).toBe('2 turns · 3 steps')
+    expect(view.container.textContent).toBe('2 轮 · 3 步')
   })
 
   it('AssistantMarkdown reasoning as the streaming tail renders the running ring', () => {
