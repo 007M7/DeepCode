@@ -846,10 +846,9 @@ function estimateFixtureContent(blocks: readonly ContentBlock[]): number {
     if (block.type === 'tool-call') {
       return tokens + densityPrice(block.name) + densityPrice(block.arguments) + BLOCK_OVERHEAD
     }
-    if (block.type === 'tool-result') {
-      return tokens + estimateFixtureContent(block.content) + BLOCK_OVERHEAD
-    }
-    return tokens + densityPrice(JSON.stringify(block)) + BLOCK_OVERHEAD
+    // Fixture-authored content is the closed base vocabulary, so tool-result
+    // is the only remaining shape — no merge-extension fallback can occur.
+    return tokens + estimateFixtureContent(block.content) + BLOCK_OVERHEAD
   }, 0)
 }
 
