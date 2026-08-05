@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-所有客户端形态共用的 API 网关：TS 契约（`src/api/`，不依赖 Node，可从浏览器导入）、fetch 载体对（`src/fetch/`：宿主侧的 `toFetchHandler`，以及客户端侧的 `AbstractApiClient` 与平台子类）和宿主侧实现（`src/api-proxy.ts`：`createApiProxy` 加上默认导出的 `ApiProxyService` 网关插件，其配置为 `{provider, model, workspaceRoot?}`，提供 `ctx.apiProxy`）。该包在设计上与传输方式无关，不注册任何路由；HTTP 等载体自行包装 `ctx.apiProxy`。已发布的核心组合位于 [`apps/cli/config/base.cordis.yml`](../../../apps/cli/config/base.cordis.yml)。
+所有客户端形态共用的 API 网关：TS 契约（`src/api/`，不依赖 Node，可从浏览器导入）、fetch 载体对（`src/fetch/`：宿主侧的 `toFetchHandler`，以及客户端侧的 `AbstractApiClient` 与平台子类）和宿主侧实现（`src/api-proxy.ts`：`createApiProxy` 加上默认导出的 `ApiProxyService` 网关插件，其配置为 `{provider, model, workspaceRoot?}`，提供 `ctx.apiProxy`）。该包在设计上与传输方式无关，不注册任何路由；HTTP 等载体自行包装 `ctx.apiProxy`。已发布的核心组合位于 [`packages/bundle/base/cordis.patch.yml`](../../bundle/base/cordis.patch.yml)。
 
 ## 契约层（`/api`）
 
