@@ -6,17 +6,20 @@
  * still renders and only the dark theme looks wrong. Checking the names against
  * the sheet that declares them is what turns that into a test failure.
  */
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 const css = readFileSync(fileURLToPath(new URL('../src/client/ModelsSection.module.css', import.meta.url)), 'utf8')
 // The theme package maps `./styles/*` to `./src/styles/*`, so the declarations
 // stay on the source plane rather than needing a build.
-const tokens = readFileSync(
-  fileURLToPath(new URL('../../ui-theme/src/styles/design-platform.css', import.meta.url)),
-  'utf8',
-)
+// Every theme sheet, not just the platform tokens: font and scrollbar
+// variables are declared in siblings, and a gate reading one file would call
+// their names undeclared.
+const tokens = readdirSync(fileURLToPath(new URL('../../ui-theme/src/styles/', import.meta.url)))
+  .filter(name => name.endsWith('.css'))
+  .map(name => readFileSync(fileURLToPath(new URL(`../../ui-theme/src/styles/${name}`, import.meta.url)), 'utf8'))
+  .join('\n')
 
 /** The declarations of one top-level rule, by selector. */
 function block(selector: string): string {
@@ -31,10 +34,22 @@ describe('ModelsSection theme styles', () => {
     // resolves to whatever literal sits in its fallback slot, which is how this
     // section stayed light under the dark theme before. Undeclared names have
     // no fallback at all and inherit, so both spellings must fail here.
-    const named = [...css.matchAll(/var\((--dsw-[a-z0-9-]+)/g)].map(match => match[1])
+    // Every theme-variable prefix the sheets actually use, not just `--dsw-`:
+    // a `--dsh-` name reads as a plausible sibling and would otherwise slip
+    // past this gate into a fallback literal.
+    const named = [...css.matchAll(/var\((--(?:dsw|dsh|ds)-[a-z0-9-]+)/g)].map(match => match[1])
     const undeclared = [...new Set(named)].filter(name => !tokens.includes(`  ${String(name)}:`))
     expect(undeclared).toEqual([])
     expect(css).not.toMatch(/var\(--(?:surface|text-|border|accent-strong)/)
+  })
+
+  it('closes every block, so no rule is swallowed by the one above it', () => {
+    // A missing `}` on an `@media` block is not a parse error: every rule after
+    // it silently becomes conditional, and the whole fetch dialog once painted
+    // unstyled for anyone whose system does not ask for reduced motion. Nothing
+    // downstream reports this — the sheet loads and the classes still attach.
+    const bare = css.replace(/\/\*[\s\S]*?\*\//g, '')
+    expect((bare.match(/\}/g) ?? []).length).toBe((bare.match(/\{/g) ?? []).length)
   })
 
   it('separates the row card from the editor it expands into', () => {

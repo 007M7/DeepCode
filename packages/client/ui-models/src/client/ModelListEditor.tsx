@@ -427,10 +427,10 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
                   checked={picked.has(candidate.id)}
                   onChange={() => { toggle(candidate.id) }}
                 />
+                {/* The id alone: it is the string adoption writes, and the
+                    capacities the endpoint reported are adopted with it and
+                    editable in the row that appears. */}
                 <span className={styles['candidateId']}>{candidate.id}</span>
-                {candidate.contextWindow === undefined
-                  ? null
-                  : <span className={styles['candidateMeta']}>{candidate.contextWindow}</span>}
               </label>
             </li>
           ))}

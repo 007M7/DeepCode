@@ -583,6 +583,7 @@ select.input {
   .customizedSummary::before {
     transition: none;
   }
+}
 
 .fetchDialog {
   max-width: 520px;
@@ -620,13 +621,7 @@ select.input {
 
 .candidateId {
   flex: 1 1 auto;
-  font-family: var(--dsh-font-mono, monospace);
+  font-family: var(--ds-font-family-code);
   font-size: 13px;
   overflow-wrap: anywhere;
-}
-
-.candidateMeta {
-  color: var(--dsh-text-tertiary, #888);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
 }
