@@ -835,7 +835,11 @@ function lastRequestContext(
 /**
  * Fixture parallel of token-meter's request-pressure projection: the last
  * provider-reported prompt size paired with the last recorded capacity. The
- * two need not come from one request — see the token-meter README.
+ * two need not come from one request — see the token-meter README. The host's
+ * `projectedTokens` is deliberately absent: reproducing it would mean
+ * reimplementing the estimator client-side, and every consumer falls back to
+ * the bare sample, so a fixture-driven view simply lags a compaction the way
+ * the projection did before that field existed.
  */
 function contextPressureOf(
   log: readonly SessionEvent[],

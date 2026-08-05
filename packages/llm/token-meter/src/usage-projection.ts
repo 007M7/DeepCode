@@ -4,8 +4,12 @@
 
 import { z } from 'zod'
 import type { TokenUsage } from '@deepseek-ai/dsh-llm'
+import { isSurfaceEvent } from '@deepseek-ai/dsh-session'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import type { ContextPressureProjection, TokenUsageProjection } from './projection.ts'
+import type { TokenSurfaceNode } from './types.ts'
+import { foldSurfaceTokens } from './surface-fold.ts'
 
 interface UsageSample {
   turn: number
@@ -60,12 +64,36 @@ const projectionSchema = z.object({
 // `number | undefined` where the interface declares absent-or-number fields.
 const pressureSchema = z.object({
   pressureTokens: z.number().int().nonnegative().optional(),
+  projectedTokens: z.number().int().nonnegative().optional(),
   contextWindow: z.number().int().positive().optional(),
 }).strict() as unknown as z.ZodType<ContextPressureProjection>
 
 /** Prompt-side pressure of one request: input plus cache traffic, no output. */
 const pressureFrom = (usage: TokenUsage): number =>
   usage.inputTokens + (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0)
+
+/** The usage a chunk or finalized message reports for its step, if any. */
+const usageOf = (event: SessionEvent): TokenUsage | undefined =>
+  event.type === 'assistant/chunk' && event.data.chunk.type === 'usage'
+    ? event.data.chunk.usage
+    : event.type === 'assistant/message'
+      ? event.data.usage
+      : undefined
+
+/**
+ * Context-occupancy state: the two independent last-wins records plus the
+ * priced surface needed to carry the newest sample forward.
+ */
+interface ContextPressureState {
+  contextWindow?: number
+  pressureTokens?: number
+  /** Priced surface, folded identically to the measurement service's. */
+  surface: TokenSurfaceNode[]
+  /** Summed heuristic tokens over {@link surface}. */
+  surfaceTokens: number
+  /** {@link surfaceTokens} at the newest usage sample; absent until one lands. */
+  sampledSurfaceTokens?: number
+}
 
 /**
  * Token-meter's session projection unit.
@@ -115,20 +143,26 @@ ProjectionDefinition<'tokenUsage', TokenUsageState> = {
 /**
  * Token-meter's context-occupancy projection unit.
  *
- * Two independent last-wins slots: the newest usage sample supplies the
+ * Independent last-wins slots: the newest usage sample supplies the provider
  * numerator, the newest `request/context` record the denominator. Both are
  * whole values, so replay order alone decides the result and no cross-field
  * consistency is claimed — the pair is explicitly not one atomic request
  * observation (see {@link ContextPressureProjection}).
  *
- * The numerator is prompt-side only, so it holds still while a turn streams
- * and steps forward once the next request reports its usage.
+ * `pressureTokens` is prompt-side only, so it holds still while a turn streams
+ * and steps forward once the next request reports its usage. Because nothing
+ * but a request reports usage, it also cannot see a compaction: the fold
+ * therefore carries the priced surface alongside it and publishes
+ * `projectedTokens` — the sample plus the surface's signed movement since it
+ * was taken — so occupancy answers for the next request rather than the last
+ * one. A usage sample is stamped BEFORE the same event joins the surface, so
+ * an `assistant/message` anchors against the surface its own request saw.
  */
 export const contextPressureProjectionDefinition:
-ProjectionDefinition<'contextPressure', ContextPressureProjection> = {
+ProjectionDefinition<'contextPressure', ContextPressureState> = {
   key: 'contextPressure',
   schema: pressureSchema,
-  init: () => ({}),
+  init: () => ({ surface: [], surfaceTokens: 0 }),
   apply: (state, event) => {
     if (event.type === 'request/context') {
       const contextWindow = event.data.contextWindow
@@ -137,17 +171,24 @@ ProjectionDefinition<'contextPressure', ContextPressureProjection> = {
       const { contextWindow: _removed, ...withoutContextWindow } = state
       return withoutContextWindow
     }
-    const usage = event.type === 'assistant/chunk' && event.data.chunk.type === 'usage'
-      ? event.data.chunk.usage
-      : event.type === 'assistant/message'
-        ? event.data.usage
-        : undefined
-    if (usage === undefined) return state
-    const pressureTokens = pressureFrom(usage)
-    return pressureTokens === state.pressureTokens
-      ? state
-      : { ...state, pressureTokens }
+    let next = state
+    const usage = usageOf(event)
+    if (usage !== undefined) {
+      const pressureTokens = pressureFrom(usage)
+      if (pressureTokens !== next.pressureTokens || next.sampledSurfaceTokens !== next.surfaceTokens) {
+        next = { ...next, pressureTokens, sampledSurfaceTokens: next.surfaceTokens }
+      }
+    }
+    if (!isSurfaceEvent(event)) return next
+    const fold = foldSurfaceTokens(next.surface, event)
+    return { ...next, surface: fold.nodes, surfaceTokens: next.surfaceTokens + fold.deltaTokens }
   },
-  view: state => state,
-  stateVersion: 2,
+  view: ({ contextWindow, pressureTokens, surfaceTokens, sampledSurfaceTokens }) => ({
+    ...contextWindow === undefined ? {} : { contextWindow },
+    ...pressureTokens === undefined ? {} : { pressureTokens },
+    ...pressureTokens === undefined || sampledSurfaceTokens === undefined
+      ? {}
+      : { projectedTokens: Math.max(0, pressureTokens + surfaceTokens - sampledSurfaceTokens) },
+  }),
+  stateVersion: 3,
 }

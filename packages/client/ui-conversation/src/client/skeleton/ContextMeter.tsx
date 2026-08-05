@@ -114,7 +114,7 @@ export function ContextMeter({ useProjection, t }: ContextMeterProps) {
             <span className={css.percent}>{reading}</span>
             <span className={css.headline}>{headAfter}</span>
             <span className={css.figures}>
-              {`~${formatTokens(context.pressureTokens)} / ${formatTokens(context.contextWindow)}`}
+              {`~${formatTokens(context.usedTokens)} / ${formatTokens(context.contextWindow)}`}
             </span>
           </div>
           <div className={css.bar}>

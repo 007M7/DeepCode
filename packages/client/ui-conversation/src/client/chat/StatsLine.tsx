@@ -119,25 +119,30 @@ export function billedInputTokens(usage: TokenUsageProjection): number {
 
 interface ContextOccupancy {
   percent: number
-  pressureTokens: number
+  usedTokens: number
   contextWindow: number
 }
 
 /**
  * Approximate context occupancy, using the TUI's integer rounding and upper
- * clamp. The numerator and capacity are independent last-wins projection
- * fields, so this is a reference figure rather than an exact measurement of one
- * request (see the token-meter README).
+ * clamp. The numerator is `projectedTokens` — the provider sample carried
+ * forward over the surface's movement since — so compaction shows immediately
+ * instead of waiting for the next request to report usage; it falls back to the
+ * bare sample only for a log whose projection predates that field. Numerator
+ * and capacity remain independent last-wins projection fields, so this is a
+ * reference figure rather than an exact measurement of one request (see the
+ * token-meter README).
  * @param pressure - the session's context-pressure projection value.
  * @returns occupancy with its numerator and denominator, or null until both values are known.
  */
 export function contextOccupancy(
   pressure: ContextPressureProjection | undefined,
 ): ContextOccupancy | null {
-  if (pressure?.pressureTokens === undefined || pressure.contextWindow === undefined) return null
+  const usedTokens = pressure?.projectedTokens ?? pressure?.pressureTokens
+  if (usedTokens === undefined || pressure?.contextWindow === undefined) return null
   return {
-    percent: Math.min(100, Math.round(pressure.pressureTokens / pressure.contextWindow * 100)),
-    pressureTokens: pressure.pressureTokens,
+    percent: Math.min(100, Math.round(usedTokens / pressure.contextWindow * 100)),
+    usedTokens,
     contextWindow: pressure.contextWindow,
   }
 }

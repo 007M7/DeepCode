@@ -20,14 +20,13 @@ export interface TokenUsageProjection {
 /**
  * Approximate context occupancy for a status display.
  *
- * The two fields, when present, are deliberately NOT one atomic request
- * observation: `pressureTokens` is the newest provider-reported prompt size,
- * `contextWindow` the newest recorded route capacity. Switching models can
- * therefore pair a fresh capacity with the previous route's pressure until the
- * next request reports usage. This is an intentional trade — the value is a
- * user-facing reference, not a billing or gating input — and it matches how
- * the TUI status line has always computed occupancy. See the token-meter
- * README for the full rationale.
+ * The fields, when present, are deliberately NOT one atomic request
+ * observation: each is a last-wins record of a different moment. Switching
+ * models can therefore pair a fresh capacity with the previous route's
+ * pressure until the next request reports usage. This is an intentional trade
+ * — the value is a user-facing reference, not a billing or gating input — and
+ * it matches how the TUI status line has always computed occupancy. See the
+ * token-meter README for the full rationale.
  */
 export interface ContextPressureProjection {
   /**
@@ -36,6 +35,15 @@ export interface ContextPressureProjection {
    * grow as the current turn streams. Absent until a provider reports usage.
    */
   pressureTokens?: number
+  /**
+   * What the NEXT request's prompt would cost: {@link pressureTokens} plus the
+   * heuristic repricing of everything the surface gained or lost since that
+   * sample. Only the delta is estimated, so the figure stays anchored to the
+   * provider while still reacting the moment a compaction shadows a span —
+   * which `pressureTokens` alone cannot do, since compaction reports no usage
+   * of its own. Absent until a provider reports usage.
+   */
+  projectedTokens?: number
   /** Newest recorded route capacity; absent when no adapter advertised one. */
   contextWindow?: number
 }
@@ -43,10 +51,11 @@ export interface ContextPressureProjection {
 /**
  * Heuristic composition of the next request's context: what the prompt is
  * made of, not what it costs. All three figures use the meter's fixed
- * density estimate (they will not sum exactly to the provider-reported
- * `pressureTokens`, which is billing-grade and one request behind), and the
- * message figure tracks the live surface, so it moves as content is appended
- * or compacted while the provider number holds still.
+ * density estimate, so they will not sum to the provider-anchored
+ * `projectedTokens`: the estimator systematically underprices CJK text and
+ * JSON schemas, which is exactly the error the anchoring in
+ * {@link ContextPressureProjection.projectedTokens} keeps out of the occupancy
+ * figure. Present these as approximations of composition, never as a total.
  */
 export interface ContextBreakdownProjection {
   /** Heuristic tokens of the newest request envelope's system prompt; 0 before any request. */

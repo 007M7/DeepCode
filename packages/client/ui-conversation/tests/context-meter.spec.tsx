@@ -89,6 +89,18 @@ describe('ContextMeter', () => {
     expect(panel.textContent).toContain('~0 / 128K')
   })
 
+  it('reads the ring from the projected figure so a compaction shows at once', () => {
+    // Same provider sample, a surface a compaction just shrank: the ring must
+    // follow the projection rather than the sample it is anchored to.
+    const view = meter({
+      contextPressure: { pressureTokens: 32_000, projectedTokens: 3_000, contextWindow: 128_000 },
+      contextBreakdown: BREAKDOWN,
+    })
+    const trigger = view.getByRole('button', { name: '上下文已用 2%' })
+    fireEvent.click(trigger)
+    expect(view.container.querySelector('[role="dialog"]')!.textContent).toContain('~3K / 128K')
+  })
+
   it('omits the composition rows while the contextBreakdown projection is absent', () => {
     const view = meter({ contextPressure: { pressureTokens: 32_000, contextWindow: 128_000 } })
     fireEvent.click(view.getByRole('button', { name: '上下文已用 25%' }))
