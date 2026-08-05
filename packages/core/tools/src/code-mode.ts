@@ -132,8 +132,10 @@ const RUN_CODE_DESCRIPTION_PARAM_DESCRIPTION
  * Resolve the {@link RunCodeFlavor} for the loaded runtime's language, read at
  * schema-emission time so the model-visible `run_code` schema always matches
  * the SDK section's language. `peekRuntime` returns `undefined` only when no
- * runtime is mounted — the static schema harvest (doc catalog), which never
- * reaches a model — so that path degrades to {@link TYPESCRIPT_FLAVOR}. A
+ * runtime is mounted, which reaches this function through definition readers
+ * and `schemas()` — the doc-catalog harvest is the only shipped one, and none
+ * of them feeds a model, because `wireSchemas` calls `requireCodeRuntime`
+ * before projecting — so that path degrades to {@link TYPESCRIPT_FLAVOR}. A
  * mounted runtime whose language has no flavor entry fails loud, exactly as
  * `requireCodeRuntime` rejects it at assembly. Keeping this table in step with
  * `SDK_RENDERERS` is the compiler's job ({@link CodeSdkLanguage}); what this
@@ -143,8 +145,10 @@ const RUN_CODE_DESCRIPTION_PARAM_DESCRIPTION
 function resolveFlavor(peekRuntime: () => CodeRuntime | undefined): RunCodeFlavor {
   const runtime = peekRuntime()
   if (runtime === undefined) {
-    // No runtime mounted: reached only by the doc-catalog schema harvest,
-    // which never feeds a model. Degrade to the TS default.
+    // No runtime mounted: reached by definition readers and `schemas()`, of
+    // which the doc-catalog harvest is the only shipped one. None feeds a
+    // model — `wireSchemas` calls `requireCodeRuntime` before projecting, so
+    // the assembly path never arrives here. Degrade to the TS default.
     return TYPESCRIPT_FLAVOR
   }
   // Own-property read: a language like `toString`/`constructor` would otherwise
