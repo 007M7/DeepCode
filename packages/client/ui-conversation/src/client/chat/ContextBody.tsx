@@ -83,15 +83,14 @@ function SourceFields({ source, t }: { source: unknown; t: Translate }): ReactNo
 }
 
 /**
- * Default presentation: the model-facing text as text, with its real line
- * breaks, and the remaining provenance beneath it. This is what every form
- * this UI version does not recognize renders as.
- * @param props - Durable content, its source, and the locale seat.
- * @returns The opaque context body.
+ * The model-facing content of one context, shared by every form that shows it:
+ * the text with its real line breaks, then any block this UI version does not
+ * know, which keeps its own fallback rather than vanishing.
+ * @param props - Durable content and the locale seat.
+ * @returns The content blocks as the model received them.
  */
-export function OpaqueBody({ content, source, t }: {
+function ModelFacingContent({ content, t }: {
   content: ContextMessageNode['content']
-  source: unknown
   t: Translate
 }): ReactNode {
   const { text, rest } = partitionContent(content)
@@ -106,6 +105,25 @@ export function OpaqueBody({ content, source, t }: {
           truncatedLabel={total => t('json.truncated', { total })}
         />
       ))}
+    </>
+  )
+}
+
+/**
+ * Default presentation: the model-facing text as text, with its real line
+ * breaks, and the remaining provenance beneath it. This is what every form
+ * this UI version does not recognize renders as.
+ * @param props - Durable content, its source, and the locale seat.
+ * @returns The opaque context body.
+ */
+export function OpaqueBody({ content, source, t }: {
+  content: ContextMessageNode['content']
+  source: unknown
+  t: Translate
+}): ReactNode {
+  return (
+    <>
+      <ModelFacingContent content={content} t={t} />
       <SourceFields source={source} t={t} />
     </>
   )
@@ -168,7 +186,6 @@ export function InstructionsBody({ content, source, t }: {
   const changes = instructionChanges(source)
   if (changes === null) return <OpaqueBody content={content} source={source} t={t} />
   const baseline = asRecord(source)?.['baseline'] === true
-  const { text, rest } = partitionContent(content)
   return (
     <>
       <ul className={css.files} data-context-files>
@@ -181,15 +198,7 @@ export function InstructionsBody({ content, source, t }: {
           </li>
         ))}
       </ul>
-      {text !== '' && <pre className={css.text} data-context-text>{boundedText(text, t)}</pre>}
-      {rest.map((block, index) => (
-        <JsonBlock
-          key={index}
-          label={t('message.unknownBlock')}
-          payload={block}
-          truncatedLabel={total => t('json.truncated', { total })}
-        />
-      ))}
+      <ModelFacingContent content={content} t={t} />
     </>
   )
 }
