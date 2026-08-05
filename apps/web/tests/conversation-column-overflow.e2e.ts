@@ -40,13 +40,13 @@ const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/conversation-column-over
  */
 const GEOMETRY_EXPECTED = join(SNAPSHOT_DIR, 'geometry.expected.md')
 const MODE = webSnapshotMode()
+/** Narrow sweep stop where the mutation control retains overflow across scrollbar implementations. */
+const CONTROL_VIEWPORT = 600
 /**
- * Viewport widths bracketing the glow. The hero box is `min(776, column - 48)`
- * and the glow is 1051/776 of it, so every stop under a ~1051px column bleeds
- * and the widest one does not — the sweep therefore covers both sides of the
- * relation rather than sampling one comfortable width.
+ * Viewport widths bracketing the glow: the narrow stops retain the reported
+ * bleed while the widest stop proves the relation can also be false.
  */
-const WIDTHS = [1680, 1200, 1000, 800, 600]
+const WIDTHS = [1680, 1200, 1000, 800, CONTROL_VIEWPORT]
 /** Element id of the mutation control's injected sheet, so the test can take it back out. */
 const CONTROL_STYLE_ID = 'dsh-column-overflow-control'
 /** Horizontal wheel delta per gesture; must exceed the widest bleed the sweep can produce. */
@@ -261,7 +261,9 @@ describe('web e2e: the conversation column scrolls on one axis', () => {
     // The vacuity guard, in two halves: the glow has to reach past the column
     // at the narrow stops, and that reach has to still register as scrollable
     // overflow. Without both, the claim below holds for free.
-    expect(stops.filter(stop => stop.glowBleeds).map(stop => stop.width)).toEqual([1200, 1000, 800, 600])
+    expect(stops.filter(stop => stop.glowBleeds).map(stop => stop.width)).toEqual([
+      1200, 1000, 800, CONTROL_VIEWPORT,
+    ])
     for (const stop of stops.filter(stop => stop.glowBleeds)) {
       expect(stop.bleedRange, `viewport ${String(stop.width)}`).toBeGreaterThan(0)
     }
@@ -283,10 +285,6 @@ describe('web e2e: the conversation column scrolls on one axis', () => {
     // that a one-axis scroller computes to `auto` — and shows the same gesture,
     // at the same timing, carrying the column to its positive scroll boundary.
     // Without it a `scrollLeft` of 0 could equally mean the wheel never arrived.
-    // Settle the resize first: this test runs at 1680 on its own and after the
-    // sweep's 600 in a full run, and an unsettled column reports the previous
-    // viewport's bleed.
-    await settleAt(1200)
     // Injected with an id rather than through `addStyleTag`, so the teardown
     // below can take the sheet out again by selector: it must not outlive this
     // test, or the golden ends up reading the control.
@@ -297,7 +295,10 @@ describe('web e2e: the conversation column scrolls on one axis', () => {
       document.head.append(sheet)
     }, CONTROL_STYLE_ID)
     try {
-      const before = await measureColumn(page, 1200)
+      // Resolve the mutated layout at the narrowest sweep stop. At wider stops,
+      // a classic scrollbar can change the available box enough to remove the
+      // overflow that the control is meant to expose.
+      const before = await settleAt(CONTROL_VIEWPORT)
       expect(before.overflowX).toBe('auto')
       expect(before.bleedRange).toBeGreaterThan(0)
       const scrollLimit = await horizontalScrollLimit(page)
@@ -316,7 +317,7 @@ describe('web e2e: the conversation column scrolls on one axis', () => {
     }
     // The override is gone and the shipped state is back: the later goldens
     // read the product, not the control.
-    expect((await measureColumn(page, 1200)).overflowX).toBe('hidden')
+    expect((await settleAt(CONTROL_VIEWPORT)).overflowX).toBe('hidden')
     expect(tripwire.pageErrors).toEqual([])
   }, 120_000)
 
