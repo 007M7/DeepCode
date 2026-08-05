@@ -1,4 +1,4 @@
-# Agent Note：配置面暴露什么，以及谁有权覆盖什么
+# Agent Note: 配置面暴露什么，以及谁有权覆盖什么
 
 Status: implemented
 

@@ -31,7 +31,7 @@ async function settle(): Promise<void> {
 
 describe('all-messages LLM title provider', () => {
   it('includes seeded history and the latest prompt while inheriting the logged request route', async () => {
-    const seeded = new Session(SessionId('seed-source'))
+    const seeded = Session.create(SessionId('seed-source'))
     seeded.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     const inherited = seeded.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'inherited prompt' }], source: { kind: 'user' },

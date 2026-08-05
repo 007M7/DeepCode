@@ -31,7 +31,7 @@ fork 声明 `{ outputSchema: true, depthLimit: true, toolFilter: true, persona: 
 
 #### 模型看到的内容
 
-子 agent 先接收父 agent 已配平的完整轮次表层前缀，再逐字接收新的任务内容。配置的 persona 会在子 agent 的全新作用域中遮蔽提示词文本；工具限制会过滤其全局协议 schema、可执行工具查找和 Code Mode SDK 绑定，但不影响独立的指导内容。父 agent 的工具视图与权限不会被继承。可选的结构化输出请求会添加仅属于子 agent 的契约。父 agent 当前进行中的轮次会被排除。
+子 agent 先接收由父 agent 已配平的已完成轮次构成的表层前缀，再逐字接收新的任务内容。配置的 persona 会在子 agent 的全新作用域中遮蔽提示词文本；工具限制会过滤其全局协议 schema、可执行工具查找和 Code Mode SDK 绑定，但不影响独立的指导内容。父 agent 的工具视图与权限不会被继承。可选的结构化输出请求会添加仅属于子 agent 的契约。父 agent 当前进行中的轮次会被排除。
 
 #### Token 影响
 
@@ -53,7 +53,7 @@ fork 会把保留的已完成历史复制到独立的子 agent 请求中；随�
 
 #### KV Cache 影响
 
-仅追加；新增可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新增可见内容位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ## 已知限制与暂缓事项
 

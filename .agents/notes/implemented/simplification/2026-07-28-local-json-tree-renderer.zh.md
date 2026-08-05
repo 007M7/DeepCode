@@ -1,4 +1,4 @@
-# Agent Note：本地 JSON 树渲染器
+# Agent Note: 本地 JSON 树渲染器
 
 Status: implemented
 

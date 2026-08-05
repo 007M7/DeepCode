@@ -55,11 +55,11 @@ JSONL 持久会话存储后端：`SessionPersistence` 的一个具体实现（`d
 
 #### 模型看到的内容
 
-JSONL 存储不影响当前提示词或 schema。加载会恢复已存储的呈现历史，并保留之前的请求 header 用于重建；新 loop 组合当前 envelope。恢复会用 `TOOL_NOT_STARTED` 平衡没有已持久化调用的 assistant 请求；已有已持久化调用但无结果时则变为 `TOOL_OUTCOME_UNKNOWN`，它要求模型只重试只读或幂等工作，并验证可能的副作用或询问用户。原始 `assistant/chunk` 记录不会重复生成消息。
+JSONL 存储不影响当前提示词或 schema。加载会恢复已存储的表层历史，并保留之前的请求 header 用于重建；新 loop 组合当前 envelope。恢复会用 `TOOL_NOT_STARTED` 平衡没有已持久化调用的 assistant 请求；已有已持久化调用但无结果时则变为 `TOOL_OUTCOME_UNKNOWN`，它要求模型只重试只读或幂等工作，并验证可能的副作用或询问用户。原始 `assistant/chunk` 记录不会重复生成消息。
 
 #### Token 影响
 
-当前请求不会新增 token。恢复后的 agent（智能体）会因保留的历史、当前 envelope，以及每个中断调用的前述修复结果文本而消耗 token。
+当前请求不会新增 token。恢复后的 agent（智能体）会因保留的历史、当前 envelope，以及每个中断调用中以引用形式加入的修复结果文本而消耗 token。
 
 #### KV Cache 影响
 
@@ -71,5 +71,5 @@ JSONL 存储不修改实时请求前缀。只有重建历史、当前 envelope �
 - **平铺文件存储布局不加载**：加载前使用独立根，或将预发布产物移入项目/会话目录布局。
 - **压缩文件不能直接按行读取**：使用后端加载；或在写入新根前选择 `compression: 'none'`，以便文本 fixture（测试前置数据）或外部行 reader 使用。
 - **不删除会话文件**：日志在 `root` 下累积，直到外部移除（seam 无删除接口）。
-- **每会话一个实时 writer**：append 和修复只在所属后端实例内协调。在 owner 完全停稳 dispose 前，其他后端实例或进程不得写入同一会话；初始同 id 发布仍通过 POSIX 无覆盖硬链接或 Windows 无替换 write-through rename 保持冲突安全。
+- **每会话一个实时 writer**：append 和修复只在所属后端实例内协调。在所有者完成完全停稳的 dispose 前，其他后端实例或进程不得写入同一会话；初始同 id 发布仍通过 POSIX 无覆盖硬链接或 Windows 无替换 write-through rename 保持冲突安全。
 - **POSIX 实体化需要硬链接支持**：第一次 append 使用 `link()`，使同 id 竞态失败，而不覆盖已提交日志；Windows 使用无替换 write-through rename。

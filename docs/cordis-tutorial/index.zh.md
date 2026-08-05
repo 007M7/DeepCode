@@ -6,7 +6,7 @@ Cordis 是 DeepSeek Harness SDK 底层的插件框架：它是一个小型运行
 
 本教程面向 agent 开发者。你不需要深入掌握 TypeScript；下文的 [TypeScript 说明](#typescript-notes)会解释可能陌生的语法，并且每一章都会给出确切命令和预期输出。
 
-如果你想阅读精简的概念参考，而不是逐步实践，请参阅 [Cordis 入门](../cordis-primer.md)。详尽的 API 参考见生成的[事件](../cordis-catalog/events.md)与[服务](../cordis-catalog/services.md)目录，以及 [Cordis 核心 API](../cordis-catalog/core/context.md)页面。
+如果你想阅读精简的概念参考，而不是逐步实践，请参阅 [Cordis 入门](../cordis-primer.md)。详尽的 API 参考见生成的[事件](../cordis-catalog/events.md)与[服务](../cordis-catalog/services.md)目录，以及 [Cordis 核心 API](../cordis-catalog/core/context.md) 页面。
 
 ## 准备工作
 
@@ -39,7 +39,7 @@ node --import tsx ../../vendor/cordis/bin.js
 2. [生命周期与 effect](02-lifecycle-and-effects.md)：由 Cordis 管理的注册会在所属插件卸载时撤销。
 3. [服务](03-services.md)：在 `ctx` 上公开一项能力，并通过 `inject` 依赖它。
 4. [事件](04-events.md)：类型化事件、广播分发和 waterfall（瀑布式事件）的短路行为。
-5. [配置](05-config.md)：读取 `cordis.yml` 中经过校验的配置，并在输入错误时快速失败。
+5. [配置](05-config.md)：读取 `cordis.yml` 中经过校验的配置，并在输入错误时明确报错。
 6. [组合与 HMR（热模块替换）](06-composition-and-hmr.md)：把配置文件作为插件树，使用热重载，并诊断始终无法加载的插件。
 7. [进入 harness](07-into-the-harness.md)：基于真实的 harness 服务注册一个可由模型调用的工具。
 

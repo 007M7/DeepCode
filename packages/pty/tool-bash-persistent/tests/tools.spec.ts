@@ -32,7 +32,7 @@ function agent(ctx: Context, cwd: string | undefined): Agent {
   const value: Agent = {
     id,
     options: {},
-    session: new Session(id, [], {
+    session: Session.create(id, [], {
       version: 0,
       id,
       createdAt: 0,

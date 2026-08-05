@@ -26,7 +26,7 @@ function emitTurnStart(ctx: Context, session: Session): void {
 describe('plan-mode stream invariants', () => {
   it('accepts either boolean state', async () => {
     const ctx = await setup()
-    const session = new Session(SessionId('plan-state'))
+    const session = Session.create(SessionId('plan-state'))
     emitTurnStart(ctx, session)
     expect(() => { ctx.emit('session/event', session, event(true)) }).not.toThrow()
     expect(() => { ctx.emit('session/event', session, event(false)) }).not.toThrow()
@@ -38,7 +38,7 @@ describe('plan-mode stream invariants', () => {
 
   it.each([42, 'plan', undefined])('rejects invalid durable plan state %j', async (active) => {
     const ctx = await setup()
-    const session = new Session(SessionId(`invalid-${String(active)}`))
+    const session = Session.create(SessionId(`invalid-${String(active)}`))
     emitTurnStart(ctx, session)
     expect(() => { ctx.emit('session/event', session, event(active)) })
       .toThrow(/expected a boolean/)
@@ -52,7 +52,7 @@ describe('plan-mode stream invariants', () => {
 
   it('ignores unrelated dispatches and session events', async () => {
     const ctx = await setup()
-    const session = new Session(SessionId('unrelated'))
+    const session = Session.create(SessionId('unrelated'))
     expect(() => {
       ctx.emit('tools/change')
       ctx.emit('session/event', session, {

@@ -1,8 +1,8 @@
-# 开发一个 Tool
+# 开发一个工具
 
 [English](tool.md) | 中文
 
-Tool 是模型可以调用的能力。本文介绍如何用 `defineTool` 编写一个 tool。
+工具是模型可以调用的能力。本文介绍如何用 `defineTool` 编写一个工具。
 
 ## 最小示例
 
@@ -156,9 +156,9 @@ async execute(args) {
 
 你不需要在 `execute` 里手动校验参数类型。
 
-## 展示层 (Presentation)
+## 展示层（Presentation）
 
-Tool 可以定义与传输方式无关的展示方法，供终端和 Web 客户端使用：
+工具可以定义与传输方式无关的展示方法，供终端和 Web 客户端使用：
 
 ```ts ignore-check
 defineTool({
@@ -187,7 +187,7 @@ defineTool({
 
 ## 注册与卸载
 
-`ctx.tools.register()` 返回值就是 disposer。但由于你在 `ctx` 上调用，框架已经自动追踪了这个注册——插件卸载时会自动移除 tool。你不需要手动调用 disposer。
+`ctx.tools.register()` 返回值就是 disposer。但由于你在 `ctx` 上调用，框架已经自动追踪了这个注册——插件卸载时会自动移除工具。你不需要手动调用 disposer。
 
 ```ts ignore-check
 // This is sufficient:
@@ -196,9 +196,9 @@ ctx.tools.register(defineTool({ /* ... */ }))
 // No saved disposer or extra cleanup registration is needed.
 ```
 
-## 完整实战示例
+## 完整示例
 
-一个文件计数 tool：
+一个文件计数工具：
 
 ```ts
 import type { Context } from 'cordis'
@@ -241,5 +241,5 @@ export function apply(ctx: Context) {
 
 ## 下一步
 
-- [插件配置](./config.md) — 让你的 tool 可配置
-- [能力三件套](../practice/) — 了解 seam/impl/consumer 模式
+- [插件配置](./config.md) — 让你的工具可配置
+- [能力分层](../practice/) — 了解接口/实现/消费方模式

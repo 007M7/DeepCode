@@ -1,4 +1,4 @@
-# Agent Note: 实验性与内部专用包（package）分组
+# Agent Note: 实验性与内部专用包分组
 
 Status: implemented
 

@@ -75,7 +75,7 @@ describe('foldRequestHeader', () => {
   })
 
   it('takes the latest full snapshot and skips unrelated events', () => {
-    const session = new Session(SessionId('fold'))
+    const session = Session.create(SessionId('fold'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('request/header', { header: { config: CONFIG, system: 'first' }, reason: 'initial' })
     session.append('user/message', createUserMessage({
@@ -91,9 +91,9 @@ describe('legacy request-header format', () => {
     const legacy = [{
       type: 'request/header-delta', seq: 0, time: 1, data: { config: CONFIG },
     }] as unknown as SessionEvent[]
-    expect(() => new Session(SessionId('legacy'), legacy)).toThrow(/unsupported legacy request\/header-delta/)
+    expect(() => Session.create(SessionId('legacy'), legacy)).toThrow(/unsupported legacy request\/header-delta/)
 
-    const session = new Session(SessionId('legacy-append-delta'))
+    const session = Session.create(SessionId('legacy-append-delta'))
     const appendLegacy = session.append.bind(session) as (type: string, data: unknown) => SessionEvent
     expect(() => appendLegacy('request/header-delta', { config: CONFIG }))
       .toThrow(/unsupported legacy request\/header-delta/)
@@ -104,10 +104,10 @@ describe('legacy request-header format', () => {
     const legacy = [{
       type: 'request/header', seq: 0, time: 1, data: { header: { config: CONFIG }, reason: 'fallback' },
     }] as unknown as SessionEvent[]
-    expect(() => new Session(SessionId('legacy-seed-reason'), legacy))
+    expect(() => Session.create(SessionId('legacy-seed-reason'), legacy))
       .toThrow('unsupported legacy request/header reason "fallback"')
 
-    const session = new Session(SessionId('legacy-append-reason'))
+    const session = Session.create(SessionId('legacy-append-reason'))
     const appendLegacy = session.append.bind(session) as (type: string, data: unknown) => SessionEvent
     expect(() => appendLegacy('request/header', { header: { config: CONFIG }, reason: 'fallback' }))
       .toThrow('unsupported legacy request/header reason "fallback"')
@@ -130,13 +130,13 @@ describe('Session.requestContext', () => {
   }
 
   it('reads undefined before any record exists', () => {
-    expect(new Session(SessionId('no-capacity')).requestContext()).toBeUndefined()
+    expect(Session.create(SessionId('no-capacity')).requestContext()).toBeUndefined()
   })
 
   it('folds a seeded log on first read, taking the last record', () => {
     // The fold watermark starts at 0 with the seed already in the log, so the
     // first read must consume the whole seed rather than skip it.
-    const session = new Session(SessionId('seeded-capacity'), seedWith(
+    const session = Session.create(SessionId('seeded-capacity'), seedWith(
       CAPACITY,
       { ...CAPACITY, model: 'later', contextWindow: 256_000 },
     ))
@@ -144,7 +144,7 @@ describe('Session.requestContext', () => {
   })
 
   it('advances incrementally across appends and skips unrelated events', () => {
-    const session = new Session(SessionId('incremental-capacity'), seedWith(CAPACITY))
+    const session = Session.create(SessionId('incremental-capacity'), seedWith(CAPACITY))
     expect(session.requestContext()).toEqual(CAPACITY)
     session.append('todo/write', { todos: [] })
     expect(session.requestContext()).toEqual(CAPACITY)
@@ -155,7 +155,7 @@ describe('Session.requestContext', () => {
   })
 
   it('folds a batch appended between two reads', () => {
-    const session = new Session(SessionId('batched-capacity'), seedWith(CAPACITY))
+    const session = Session.create(SessionId('batched-capacity'), seedWith(CAPACITY))
     expect(session.requestContext()).toEqual(CAPACITY)
     session.append('request/context', { ...CAPACITY, contextWindow: 200_000 })
     session.append('todo/write', { todos: [] })
@@ -164,7 +164,7 @@ describe('Session.requestContext', () => {
   })
 
   it('exposes a frozen record so a reader cannot desync later comparisons', () => {
-    const session = new Session(SessionId('frozen-capacity'), seedWith(CAPACITY))
+    const session = Session.create(SessionId('frozen-capacity'), seedWith(CAPACITY))
     const held = session.requestContext()
     if (held === undefined) throw new Error('expected a folded capacity record')
     expect(Object.isFrozen(held)).toBe(true)
