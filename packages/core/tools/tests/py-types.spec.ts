@@ -398,6 +398,106 @@ describe('renderToolsSdkPy', () => {
     expect(text).not.toContain('dict[str, Any]')
   })
 
+  it('keeps a non-ASCII field name as a TypedDict field and derives its class name from it', () => {
+    // `路径` satisfies `xid_start xid_continue*`, so CPython accepts it as an
+    // attribute and as the `TypedDict` key. Rejecting it would degrade the
+    // whole object, dropping every SIBLING field's name, requiredness and type
+    // too — and Code Mode omits the native schemas, so nothing else carries
+    // them. The nested class name is derived from the field, so `camelCase`
+    // has to pass the same characters through instead of splitting on them.
+    const tool: ToolSdkSchema = {
+      name: '搜索',
+      description: 'Unicode identifiers.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          路径: { type: 'string' },
+          opts: { type: 'object', additionalProperties: false, properties: { 深度: { type: 'number' } } },
+        },
+        required: ['路径'],
+      },
+      output: { type: 'string' },
+    }
+    const text = renderToolsSdkPy([tool])
+    expect(text).toContain('async def 搜索(self, args: 搜索Args) -> str:')
+    expect(text).toContain('class 搜索Args(TypedDict):')
+    expect(text).toContain('    路径: str')
+    expect(text).toContain('class 搜索ArgsOpts(TypedDict):')
+    expect(text).toContain('    深度: NotRequired[float]')
+    expect(text).not.toContain('dict[str, Any]')
+  })
+
+  it('degrades a field name that NFKC-normalizes to something else, which would be declared under another spelling', () => {
+    // U+FB01 LATIN SMALL LIGATURE FI passes the identifier grammar, but CPython
+    // normalizes identifiers at compile time while the harness compares the
+    // JSON key as written: `ﬁeld: str` would declare and be reachable as
+    // `field`, a key the tool never accepts. Two keys that normalize together
+    // would additionally collapse into one declaration. The subscript path
+    // carries the exact bytes instead.
+    const text = renderToolsSdkPy([
+      {
+        name: 'ligature',
+        description: 'Normalizing field name.',
+        parameters: { type: 'object', additionalProperties: false, properties: { ﬁeld: { type: 'string' } } },
+        output: { type: 'string' },
+      },
+    ])
+    expect(text).toContain('async def ligature(self, args: dict[str, Any]) -> str:')
+    expect(text).not.toContain('ﬁeld:')
+    expect(text).not.toContain('field:')
+  })
+
+  it('subscripts a tool name that NFKC-normalizes to something else, while declaring a plain Unicode one', () => {
+    // Same split at the tool-name site: `路径` becomes an `async def`, the
+    // ligature name cannot, because `async def ﬁnd` would define `find`. The
+    // subscript comment quotes the name, so its exact bytes survive, and its
+    // TypedDict is still named and referenced — the name is only unusable as a
+    // method, not as a class-name source (`camelCase` normalizes what it
+    // derives, since a generated name is never matched against a JSON key).
+    const of = (name: string): ToolSdkSchema => ({
+      name,
+      description: `Tool ${name}.`,
+      parameters: { type: 'object', additionalProperties: false, properties: { q: { type: 'string' } }, required: ['q'] },
+      output: { type: 'string' },
+    })
+    const text = renderToolsSdkPy([of('路径'), of('ﬁnd')])
+    expect(text).toContain('async def 路径(self, args: 路径Args) -> str:')
+    expect(text).toContain('# tools["ﬁnd"](args: FIndArgs) -> str')
+    expect(text).toContain('class FIndArgs(TypedDict):')
+    expect(text).not.toContain('async def ﬁnd')
+    expect(text).not.toContain('async def find')
+  })
+
+  it('drops a surrogate half rather than cutting a pair when capping an astral class-name base', () => {
+    // Class-name bases are capped by `slice`, which counts UTF-16 code units,
+    // so a boundary landing inside an astral pair would leave a lone high
+    // surrogate — not an identifier character, and not encodable text. Padding
+    // with one ASCII character shifts the boundary onto the pair.
+    // U+10330 GOTHIC LETTER AHSA: XID_Start and NFKC-stable, unlike `𝕏`, which
+    // NFKC-folds to ASCII `X` and so never reaches the boundary at all.
+    const AHSA = String.fromCodePoint(0x10330)
+    const className = (pad: string): string => {
+      const text = renderToolsSdkPy([
+        {
+          name: `${pad}${AHSA.repeat(200)}`,
+          description: 'Astral name.',
+          parameters: { type: 'object', additionalProperties: false, properties: { a: { type: 'string' } } },
+          output: { type: 'string' },
+        },
+      ])
+      // The base is `${camelCase(name)}Args` capped to 120 code units, so the
+      // `Args` suffix itself is cut off here; match the declaration instead.
+      return /^class (.+)\(TypedDict\):$/mu.exec(text)![1]!
+    }
+    // Each character is 2 code units, so an unpadded name fills the cap with 60
+    // whole characters; one ASCII character of padding puts the boundary inside
+    // the 60th pair, and that half is dropped rather than emitted.
+    expect(className('')).toBe(AHSA.repeat(60))
+    expect(className('x')).toBe(`X${AHSA.repeat(59)}`)
+    expect(className('x')).toHaveLength(119)
+  })
+
   it('declares a closed empty object with omitted properties as an empty TypedDict, not dict[str, Any]', () => {
     // `{ type: 'object', additionalProperties: false }` with no `properties`
     // is a closed empty object — no key accepted — exactly as the validator
@@ -580,8 +680,10 @@ describe('renderToolsSdkPy', () => {
     // The worst of the three emission sites: the parameter list's `(` is still
     // open around this annotation, so 180 `list[` plus the innermost bracket
     // plus that paren is 182 of CPython's 200. Only a raw `register()` whose
-    // `parameters` root opens an array chain reaches it — rooted at the array,
-    // or at an array branch of a root `oneOf`, since a union adds no brackets.
+    // `parameters` is an array reached from the root through `oneOf` arms
+    // alone gets there — the root array itself, or one under any depth of
+    // unions, since an arm inherits the enclosing depth unchanged. An object
+    // ancestor takes it out of this case: its fields restart at the 181 site.
     // `defineTool` compiles an object root, whose annotation is a bare
     // TypedDict name or a one-bracket `dict[str, Any]`, never a chain.
     const rooted = (depth: number): ToolSdkSchema => {
@@ -602,13 +704,25 @@ describe('renderToolsSdkPy', () => {
     // rather than on another `list[`, so the count cannot grow past that.
     expect(renderToolsSdkPy([rooted(181)]))
       .toContain(`async def rooted(self, args: ${'list['.repeat(180)}Any${']'.repeat(180)}) -> str:`)
-    // A root union reaches the same 182: its branches inherit the enclosing
-    // depth because `A | B` opens nothing, so the chain under one of them
-    // starts at 0 exactly as the array-rooted case does.
-    const union = { ...rooted(180), parameters: { oneOf: [rooted(180).parameters, { type: 'string' }] } }
-    const text = renderToolsSdkPy([union])
-    expect(text).toContain(`args: ${'list['.repeat(180)}Literal["x"]${']'.repeat(180)} | str) -> str:`)
+    // A union spine reaches the same 182, at any number of arms deep: each arm
+    // inherits the enclosing depth because `A | B` opens nothing, so the chain
+    // under the innermost one still starts at 0. Three unions here, to pin that
+    // it is the whole `oneOf`-only path and not just a single root union.
+    let spine: Record<string, unknown> = rooted(180).parameters
+    for (let i = 0; i < 3; i++) spine = { oneOf: [spine, { type: 'string' }] }
+    const text = renderToolsSdkPy([{ ...rooted(180), parameters: spine }])
+    const chain = `${'list['.repeat(180)}Literal["x"]${']'.repeat(180)}`
+    expect(text).toContain(`args: ${chain} | str | str | str) -> str:`)
     expect(text.split('async def rooted(self, args: ')[1]!.split(') -> str:')[0]!.split('[').length - 1).toBe(181)
+    // An object ancestor is the boundary of that path: the field it declares is
+    // a class-body line, so the same chain lands on the 181 site instead.
+    const boxed = renderToolsSdkPy([
+      {
+        ...rooted(180),
+        parameters: { type: 'object', properties: { rows: rooted(180).parameters }, required: ['rows'] },
+      },
+    ])
+    expect(boxed).toContain(`    rows: ${'list['.repeat(179)}Any${']'.repeat(179)}`)
   })
 
   it('renders a deeply nested oneOf chain in linear time (no per-level re-materialization)', () => {

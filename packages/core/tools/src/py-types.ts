@@ -17,8 +17,34 @@ import { assertSupportedJsonSchema } from './json-schema.ts'
 import type { JsonSchemaNode, JsonSchemaScalar } from './json-schema.ts'
 import type { ToolSdkSchema } from './ts-types.ts'
 
-/** Property names that are valid bare Python identifiers; anything else is subscripted. */
-const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/
+/** The reference grammar's `xid_start xid_continue*`, the same set `str.isidentifier()` accepts. */
+const IDENTIFIER = /^[\p{XID_Start}_]\p{XID_Continue}*$/u
+
+/**
+ * Whether a name can be emitted as a bare Python identifier rather than
+ * routed to the subscript/`dict[str, Any]` path.
+ *
+ * Python identifiers are not ASCII: `路径` is as legal a field name as `path`,
+ * and rejecting it would degrade the whole enclosing object, dropping every
+ * field's name, requiredness, and type — and in Code Mode the native schemas
+ * are omitted, so this text is the model's only source for them.
+ *
+ * NFKC stability is a second and separate condition, because CPython
+ * normalizes identifiers at compile time while JSON keys are compared as
+ * written: `ﬁeld` would be declared and reachable as `field`, so the SDK would
+ * advertise a key under a spelling the harness never accepts, and two keys
+ * that normalize together would collapse into one declaration. Those names
+ * take the subscript path, which carries their exact bytes.
+ *
+ * The `ts-types` sibling keeps its own ASCII rule rather than sharing this
+ * one: ECMAScript identifiers are a different set (`$`, ZWJ/ZWNJ) and are
+ * never normalized, so one predicate cannot be correct for both.
+ * @param name - the raw schema field or tool name.
+ * @returns whether the name can be emitted bare.
+ */
+function isBareIdentifier(name: string): boolean {
+  return IDENTIFIER.test(name) && name.normalize('NFKC') === name
+}
 
 /**
  * Python hard keywords: reserved everywhere, so a tool or field named
@@ -32,8 +58,7 @@ const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/
  * one syntactic position — a statement head (``match``, ``type``), a ``match``
  * statement's clause head (``case``), or a pattern (``_``) — so ``match: str``
  * as a field and ``async def match(...)`` as a method are both legal, and
- * including
- * them would needlessly degrade common search/regex tool fields to
+ * including them would needlessly degrade common search/regex tool fields to
  * ``dict[str, Any]``. Underscore-leading names are handled separately, not
  * here: a non-dunder ``__token`` name-mangles, a dunder present on
  * ``object``/``type`` resolves before the proxy hook, and implicit
@@ -156,14 +181,26 @@ function docLines(description: unknown, indent: number): string[] {
   return [`${pad(indent)}"""${escaped}"""`]
 }
 
-/** CamelCase a name into a Python type identifier (non-identifier chars split words; a non-letter head is prefixed). */
+/**
+ * CamelCase a name into a Python type identifier: non-identifier characters
+ * split words, `_` splits too (it is `XID_Continue`, so the split set names it
+ * explicitly), and a head that cannot start an identifier takes a `Tool`
+ * prefix. Unicode survives, so a `路径` field yields `路径`-based class names
+ * instead of collapsing to the bare prefix. The result is NFKC-normalized:
+ * these names are generated, never matched against a JSON key, so normalizing
+ * is free here and keeps what CPython compiles identical to what is emitted —
+ * unlike {@link isBareIdentifier}, which must reject unstable names outright.
+ * @param raw - the schema field or tool name to derive from.
+ * @returns a class-name segment safe to emit.
+ */
 function camelCase(raw: string): string {
   const joined = raw
-    .split(/[^A-Za-z0-9]+/)
+    .split(/[^\p{XID_Continue}]+|_+/u)
     .filter(part => part.length > 0)
     .map(part => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
     .join('')
-  return /^[A-Za-z]/.test(joined) ? joined : `Tool${joined}`
+    .normalize('NFKC')
+  return /^\p{XID_Start}/u.test(joined) ? joined : `Tool${joined}`
 }
 
 /** Class-name base cap keeping each emitted name — and total text — linear in schema depth. */
@@ -191,9 +228,11 @@ const MAX_CLASS_NAME_BASE = 120
  * - Argument annotation, `async def f(self, args: chain) -> Y:` — the `(` IS
  *   still open around it: 180 `list[` plus `Literal[` plus the paren, 182, the
  *   worst case. Reachable only through a raw `register()` whose `parameters`
- *   root opens an array chain — rooted at the array, or at an array branch of
- *   a root `oneOf`, which inherits the enclosing depth because a union adds no
- *   brackets. `defineTool` compiles an object root, so the annotation is a
+ *   is an array reached from the root through `oneOf` arms alone — the root
+ *   array itself, or one nested under any depth of unions, since an arm
+ *   inherits the enclosing depth unchanged (`A | B` opens no bracket). An
+ *   object ancestor takes it out of this case: its fields restart the chain at
+ *   the 181 site. `defineTool` compiles an object root, so the annotation is a
  *   bare TypedDict class name or a one-bracket `dict[str, Any]` when that
  *   object degrades — never a chain.
  *
@@ -208,9 +247,17 @@ const MAX_CLASS_NAME_BASE = 120
  */
 const MAX_LIST_NESTING = 180
 
-/** Cap a class-name base at {@link MAX_CLASS_NAME_BASE} (see the callers for why capping keeps the render linear). */
+/**
+ * Cap a class-name base at {@link MAX_CLASS_NAME_BASE} (see the callers for
+ * why capping keeps the render linear). `slice` counts UTF-16 code units, so
+ * an astral character straddling the boundary would be cut in half and leave a
+ * lone surrogate — not an identifier character, and not even well-formed text;
+ * drop it rather than emit it.
+ */
 function capClassNameBase(base: string): string {
-  return base.length > MAX_CLASS_NAME_BASE ? base.slice(0, MAX_CLASS_NAME_BASE) : base
+  if (base.length <= MAX_CLASS_NAME_BASE) return base
+  const capped = base.slice(0, MAX_CLASS_NAME_BASE)
+  return /[\uD800-\uDBFF]$/.test(capped) ? capped.slice(0, -1) : capped
 }
 
 /**
@@ -520,7 +567,7 @@ function renderType(schema: unknown, className: string, state: RenderState): str
           // NAME-MANGLED inside class syntax (`_ClassName__token`), describing a
           // different JSON key than the registered schema — degrade like any
           // other inexpressible field name.
-          if (className === '' || !entries.every(([name]) => IDENTIFIER.test(name) && !RESERVED.has(name) && !(name.startsWith('__') && !name.endsWith('__')))) {
+          if (className === '' || !entries.every(([name]) => isBareIdentifier(name) && !RESERVED.has(name) && !(name.startsWith('__') && !name.endsWith('__')))) {
             state.typing.add('Any')
             finish('dict[str, Any]')
             break
@@ -623,7 +670,7 @@ export function renderToolsSdkPy(schemas: ToolSdkSchema[]): string {
   for (const schema of sorted) {
     const argType = renderType(schema.parameters, `${camelCase(schema.name)}Args`, state)
     const outputType = renderType(schema.output, `${camelCase(schema.name)}Output`, state)
-    if (IDENTIFIER.test(schema.name) && !RESERVED.has(schema.name) && !schema.name.startsWith('_')) {
+    if (isBareIdentifier(schema.name) && !RESERVED.has(schema.name) && !schema.name.startsWith('_')) {
       // A docstring only documents its method when it is the FIRST statement
       // of that method's body. Emitted before the `async def` it would instead
       // become the `Tools` class docstring (for the first tool) or a dead
