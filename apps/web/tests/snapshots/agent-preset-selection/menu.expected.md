@@ -1,0 +1,6 @@
+- menu:
+  - menuitem "标准模式 完整的编码 agent：文件读写、shell、检索、计划、委派与工作流。":
+    - text: 标准模式 完整的编码 agent：文件读写、shell、检索、计划、委派与工作流。
+    - img
+  - menuitem "极简模式 只向模型呈现 bash 与 str_replace_editor，适合 benchmark 与最小复现。"
+  - menuitem "创造模式 标准模式加上自指工具集，可以读改自己运行的这套组装，并据此创作新的预设。"

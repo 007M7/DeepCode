@@ -328,12 +328,10 @@ async function summarizeCold(
     // a cold log to check for turns would defeat the index read, so a listed
     // cold session is served as not-blank (its log holds its conversation).
     blank: false,
-    ...meta.parentSession === undefined ? {} : { parentSessionId: meta.parentSession },
-    ...meta.origin === undefined ? {} : { origin: meta.origin },
-    /* v8 ignore next -- the empty arm needs a cwd-less meta, but list()
-    filters those out (legacy logs are not served); the conditional mirrors
-    summarize() shape. */
-    ...meta.cwd === undefined ? {} : { cwd: meta.cwd },
+    // Header-only: reading the log for a blank-window preset switch would
+    // defeat the same index read, and attaching the session replaces this row
+    // with `summarize()`, which resolves the switch from the events.
+    ...sessionListFields(meta),
   }
 }
 

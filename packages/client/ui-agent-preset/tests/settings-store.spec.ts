@@ -11,6 +11,7 @@ import {
   AGENT_PRESET_SETTINGS_NS, AgentPresetSettingsController, messageOf,
 } from '../src/client/settings-store.ts'
 import { AgentPresetSeatController } from '../src/client/seat-store.ts'
+import type { SeatSessionSummary } from '../src/client/seat-store.ts'
 
 interface Recorded { ns: string; patch: unknown }
 
@@ -57,6 +58,20 @@ describe('the agent-preset settings controller', () => {
     expect(state.options).toEqual([
       { id: 'standard', trust: 'system' },
       { id: 'mine', trust: 'user' },
+    ])
+  })
+
+  it('carries the display metadata a preset published', async () => {
+    const controller = new AgentPresetSettingsController(fakeApi([
+      { id: 'standard', trust: 'system', isDefault: true, name: '标准模式', description: '完整的编码 agent。' },
+    ] as never))
+
+    await controller.load()
+
+    // Surfaces beyond this row read the same options; the id alone never said
+    // what a preset does.
+    expect(controller.store.getSnapshot().options).toEqual([
+      { id: 'standard', trust: 'system', name: '标准模式', description: '完整的编码 agent。' },
     ])
   })
 
@@ -121,100 +136,6 @@ describe('the agent-preset settings controller', () => {
     expect(state.status).toBe('error')
     expect(state.error).toBe('host down')
   })
-})
-
-describe('the composer seat controller', () => {
-  /** A seat over a fixed session summary. */
-  function seat(
-    presets: { id: string; trust: 'system' | 'user'; isDefault: boolean }[],
-    summary: { blank: boolean; agentPreset?: string } | undefined,
-    options: { writes?: Recorded[]; failSelect?: string; failList?: string; throwOn?: 'list' | 'select' } = {},
-  ): AgentPresetSeatController {
-    const api = {
-      agentPresets: {
-        list: () => {
-          if (options.throwOn === 'list') return Promise.reject(new Error('socket closed'))
-          return Promise.resolve(options.failList === undefined
-            ? { rpcId: 'r', result: { ok: true as const, value: { presets } } }
-            : { rpcId: 'r', result: { ok: false as const, error: { code: 'internal', message: options.failList, details: {} } } })
-        },
-        select: (payload: { agentPreset: string }) => {
-          if (options.throwOn === 'select') return Promise.reject(new Error('socket closed'))
-          options.writes?.push({ ns: 'select', patch: payload.agentPreset })
-          return Promise.resolve(options.failSelect === undefined
-            ? { rpcId: 'r', result: { ok: true as const, value: { agentPreset: payload.agentPreset } } }
-            : { rpcId: 'r', result: { ok: false as const, error: { code: 'agent-preset-locked', message: options.failSelect, details: {} } } })
-        },
-      },
-    } as unknown as IApiClient
-    return new AgentPresetSeatController(api, 's1' as never, () => summary)
-  }
-
-  const ROSTER: { id: string; trust: 'system' | 'user'; isDefault: boolean }[] = [
-    { id: 'standard', trust: 'system', isDefault: true },
-    { id: 'minimal', trust: 'system', isDefault: false },
-  ]
-
-  it('shows what the session runs, not the deployment default', async () => {
-    const controller = seat(ROSTER, { blank: true, agentPreset: 'minimal' })
-
-    await controller.load()
-
-    // A resumed session runs what it was created with; showing `standard`
-    // because it is the current default would be a lie about this session.
-    expect(controller.store.getSnapshot().current).toBe('minimal')
-    expect(controller.store.getSnapshot().switchable).toBe(true)
-  })
-
-  it('falls back to the roster default when the session records none', async () => {
-    const controller = seat(ROSTER, { blank: true })
-
-    await controller.load()
-
-    expect(controller.store.getSnapshot().current).toBe('standard')
-  })
-
-  it('is not switchable once the conversation has started', async () => {
-    const controller = seat(ROSTER, { blank: false, agentPreset: 'standard' })
-
-    await controller.load()
-
-    expect(controller.store.getSnapshot().switchable).toBe(false)
-  })
-
-  it('refuses to switch a session that already started', async () => {
-    const writes: Recorded[] = []
-    const controller = seat(ROSTER, { blank: false, agentPreset: 'standard' }, { writes })
-    await controller.load()
-
-    await controller.select('minimal')
-
-    // The host enforces the same rule; the seat simply never asks.
-    expect(writes).toEqual([])
-    expect(controller.store.getSnapshot().current).toBe('standard')
-  })
-
-  it('switches a blank session and keeps the host\'s answer', async () => {
-    const writes: Recorded[] = []
-    const controller = seat(ROSTER, { blank: true, agentPreset: 'standard' }, { writes })
-    await controller.load()
-
-    await controller.select('minimal')
-
-    expect(writes).toEqual([{ ns: 'select', patch: 'minimal' }])
-    expect(controller.store.getSnapshot().current).toBe('minimal')
-  })
-
-  it('restores the previous value when the host rejects the switch', async () => {
-    const controller = seat(ROSTER, { blank: true, agentPreset: 'standard' }, { failSelect: 'already started' })
-    await controller.load()
-
-    await controller.select('minimal')
-
-    const state = controller.store.getSnapshot()
-    expect(state.current).toBe('standard')
-    expect(state.error).toBe('already started')
-  })
 
   it('shows the first preset when the roster marks none default', async () => {
     // Settings can name a preset that was since deleted; the picker still has
@@ -269,42 +190,204 @@ describe('the composer seat controller', () => {
     // showing "mine" would be claiming a default that does not exist.
     expect(controller.store.getSnapshot()).toMatchObject({ currentValue: 'standard', error: 'socket closed' })
   })
+})
 
-  it('reports a refused roster read without emptying the seat', async () => {
-    const controller = seat(ROSTER, { blank: true }, { failList: 'host down' })
+describe('the new-session chip controller', () => {
+  /** A chip over a current session the test can move. */
+  function chip(
+    presets: { id: string; trust: 'system' | 'user'; isDefault: boolean }[],
+    current: { id: string; blank: boolean; agentPreset?: string } | undefined,
+    options: { writes?: Recorded[]; failSelect?: string; failList?: string; throwOn?: 'list' | 'select' } = {},
+  ): AgentPresetSeatController {
+    const api = {
+      agentPresets: {
+        list: () => {
+          if (options.throwOn === 'list') return Promise.reject(new Error('socket closed'))
+          return Promise.resolve(options.failList === undefined
+            ? { rpcId: 'r', result: { ok: true as const, value: { presets } } }
+            : { rpcId: 'r', result: { ok: false as const, error: { code: 'internal', message: options.failList, details: {} } } })
+        },
+        select: (payload: { agentPreset: string }) => {
+          if (options.throwOn === 'select') return Promise.reject(new Error('socket closed'))
+          options.writes?.push({ ns: 'select', patch: payload.agentPreset })
+          return Promise.resolve(options.failSelect === undefined
+            ? { rpcId: 'r', result: { ok: true as const, value: { agentPreset: payload.agentPreset } } }
+            : { rpcId: 'r', result: { ok: false as const, error: { code: 'agent-preset-locked', message: options.failSelect, details: {} } } })
+        },
+      },
+    } as unknown as IApiClient
+    return new AgentPresetSeatController(api, () => current as SeatSessionSummary | undefined)
+  }
+
+  const ROSTER: { id: string; trust: 'system' | 'user'; isDefault: boolean }[] = [
+    { id: 'standard', trust: 'system', isDefault: true },
+    { id: 'minimal', trust: 'system', isDefault: false },
+  ]
+
+  it('opens on the deployment default', async () => {
+    const controller = chip(ROSTER, undefined)
 
     await controller.load()
 
-    // The seat keeps whatever it last showed rather than claiming this session
-    // has no preset; the message says why it could not refresh.
-    expect(controller.store.getSnapshot()).toMatchObject({ error: 'host down', options: [] })
+    // The chip names the session about to start, and nothing about it is
+    // decided yet — the default is the honest opening value.
+    expect(controller.store.getSnapshot().current).toBe('standard')
+    expect(controller.store.getSnapshot().options).toEqual([
+      { id: 'standard', trust: 'system' },
+      { id: 'minimal', trust: 'system' },
+    ])
   })
 
-  it('reports a transport that rejects the roster read', async () => {
-    const controller = seat(ROSTER, { blank: true }, { throwOn: 'list' })
+  it('shows the first preset when the roster marks none default', async () => {
+    const controller = chip([{ id: 'minimal', trust: 'system', isDefault: false }], undefined)
 
     await controller.load()
 
-    expect(controller.store.getSnapshot().error).toBe('socket closed')
+    // Settings can name a preset that was since deleted; the chip still has
+    // to open on something rather than render nothing.
+    expect(controller.store.getSnapshot().current).toBe('minimal')
   })
 
-  it('restores the previous preset when the switch never reaches the host', async () => {
-    const controller = seat(ROSTER, { blank: true, agentPreset: 'standard' }, { throwOn: 'select' })
+  it('carries the display metadata into the menu rows', async () => {
+    const controller = chip([
+      { id: 'standard', trust: 'system', isDefault: true, name: '标准模式', description: '完整的编码 agent。' },
+    ] as never, undefined)
+
+    await controller.load()
+
+    expect(controller.store.getSnapshot().options).toEqual([
+      { id: 'standard', trust: 'system', name: '标准模式', description: '完整的编码 agent。' },
+    ])
+  })
+
+  it('opens on nothing when the deployment composes no presets', async () => {
+    const controller = chip([], undefined)
+
+    await controller.load()
+
+    // An empty roster is a valid deployment: every session shares the host
+    // composition, and the chip renders nothing rather than an empty control.
+    expect(controller.store.getSnapshot().current).toBe('')
+  })
+
+  it('stages a pick made before any session exists', async () => {
+    const writes: Recorded[] = []
+    const controller = chip(ROSTER, undefined, { writes })
     await controller.load()
 
     await controller.select('minimal')
 
-    // Showing `minimal` after a failed switch would claim a composition the
-    // session never got.
-    expect(controller.store.getSnapshot()).toMatchObject({ current: 'standard', busy: false, error: 'socket closed' })
+    // Nothing to switch yet: the new-session screen precedes the session.
+    expect(writes).toEqual([])
+    expect(controller.store.getSnapshot().current).toBe('minimal')
   })
 
-  it('reports no options when the session is unknown to the list yet', async () => {
-    const controller = seat([], undefined)
+  it('applies the stage to the blank session the flow lands on', async () => {
+    const writes: Recorded[] = []
+    const current = { id: 's1', blank: true, agentPreset: 'standard' }
+    const controller = chip(ROSTER, current, { writes })
+    await controller.load()
+    await controller.select('minimal')
+
+    expect(writes).toEqual([{ ns: 'select', patch: 'minimal' }])
+    expect(controller.store.getSnapshot().current).toBe('minimal')
+  })
+
+  it('spends the stage exactly once', async () => {
+    const writes: Recorded[] = []
+    const controller = chip(ROSTER, { id: 's1', blank: true, agentPreset: 'standard' }, { writes })
+    await controller.load()
+    await controller.select('minimal')
+
+    await controller.apply()
+    await controller.apply()
+
+    // Every later list movement calls apply(); an unspent stage would keep
+    // switching sessions the user never picked for.
+    expect(writes).toEqual([{ ns: 'select', patch: 'minimal' }])
+  })
+
+  it('drops the stage against a session that already started', async () => {
+    const writes: Recorded[] = []
+    const controller = chip(ROSTER, { id: 's1', blank: false, agentPreset: 'standard' }, { writes })
+    await controller.load()
+
+    await controller.select('minimal')
+
+    // The host enforces the same rule; the chip simply never asks.
+    expect(writes).toEqual([])
+  })
+
+  it('drops the stage when the session already runs it', async () => {
+    const writes: Recorded[] = []
+    const controller = chip(ROSTER, { id: 's1', blank: true, agentPreset: 'minimal' }, { writes })
+    await controller.load()
+
+    await controller.select('minimal')
+
+    expect(writes).toEqual([])
+  })
+
+  it('falls back to the default when the host refuses the switch', async () => {
+    const controller = chip(
+      ROSTER, { id: 's1', blank: true, agentPreset: 'standard' }, { failSelect: 'already started' })
+    await controller.load()
+
+    await controller.select('minimal')
+
+    // Showing `minimal` after a refusal would claim a composition the session
+    // never got.
+    expect(controller.store.getSnapshot()).toMatchObject({ current: 'standard', error: 'already started' })
+  })
+
+  it('falls back to the default when the switch never reaches the host', async () => {
+    const controller = chip(
+      ROSTER, { id: 's1', blank: true, agentPreset: 'standard' }, { throwOn: 'select' })
+    await controller.load()
+
+    await controller.select('minimal')
+
+    expect(controller.store.getSnapshot())
+      .toMatchObject({ current: 'standard', busy: false, error: 'socket closed' })
+  })
+
+  it('ignores a pick while a switch is in flight', async () => {
+    const writes: Recorded[] = []
+    const controller = chip(ROSTER, { id: 's1', blank: true, agentPreset: 'standard' }, { writes })
+    await controller.load()
+
+    const first = controller.select('minimal')
+    await controller.select('standard')
+    await first
+
+    expect(writes).toEqual([{ ns: 'select', patch: 'minimal' }])
+  })
+
+  it('keeps a staged pick across a roster refresh', async () => {
+    const controller = chip(ROSTER, undefined)
+    await controller.load()
+    await controller.select('minimal')
 
     await controller.load()
 
-    expect(controller.store.getSnapshot().options).toEqual([])
-    expect(controller.store.getSnapshot().switchable).toBe(false)
+    // A settings push re-reads the roster; it must not silently discard what
+    // the user picked for the session they are about to start.
+    expect(controller.store.getSnapshot().current).toBe('minimal')
+  })
+
+  it('reports a refused roster read without emptying the chip', async () => {
+    const controller = chip(ROSTER, undefined, { failList: 'host down' })
+
+    await controller.load()
+
+    expect(controller.store.getSnapshot()).toMatchObject({ error: 'host down', options: [] })
+  })
+
+  it('reports a transport that rejects the roster read', async () => {
+    const controller = chip(ROSTER, undefined, { throwOn: 'list' })
+
+    await controller.load()
+
+    expect(controller.store.getSnapshot().error).toBe('socket closed')
   })
 })

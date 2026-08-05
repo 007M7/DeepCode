@@ -63,6 +63,10 @@ Which preset an unnamed session gets is a user setting (`agent-presets.default`)
 
 **The preset id is model-visible and must be logged.** It determines the tool set and prompt, so a resumed session has to restore the same composition; recording it is a session fact, not runtime state. It rides the session header beside `cwd`, and the summary carries it so a picker shows what a session actually runs rather than the deployment's current default.
 
+**A durable header field is not durable until every backend writes it.** `agentPreset` landed on `SessionHeader` with the right rationale and neither persistence backend carried it: the JSONL header line, the SQLite `sessions` row, and the derived query index each map the header column by column, so a resumed session came back with no preset and the surfaces that name it fell silent. `summarizeCold` had the same shape — it hand-built the cold list row instead of reusing the shared projection. A field declared durable needs a test that crosses a real store, not only the type that declares it.
+
+**The choice belongs to the screen where it still works.** The composer seat spent almost its whole life disabled, since the preset is fixed once a turn has run. It moved to the new-session screen beside the workspace picker, where the pick is *staged*: that screen precedes the session it applies to, and the stage lands when a session becomes current and is still blank — covering both the session a workspace connect creates and the blank one it reuses, which riding `sessions.create` would miss. It is spent on first use, matching the workspace picker beside it. What a running session runs is then a read-only label in its header: a control there would promise a switch the host refuses outright.
+
 ## Alternatives considered
 
 **Add a preset tier to the scoped registries.** `ScopedLayers.merge()` combines the global layer with exactly one exact-scope layer. A middle tier would let many sessions share one mounted composition, but it changes `dsh-scope` and every scope-aware registry to save a cost measured in milliseconds, and it gives a preset's registrations a lifetime no agent owns.

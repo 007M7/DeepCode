@@ -1,8 +1,8 @@
-/** Locale bundles for the agent-preset settings row, composer seat, and management section. */
+/** Locale bundles for the agent-preset settings row, hero chip, header label, and management section. */
 
 /** Locale keys these surfaces render. */
 export type AgentPresetSettingsKey =
-  | 'title' | 'description' | 'loading' | 'error' | 'userTrust' | 'seatHint' | 'lockedHint'
+  | 'title' | 'description' | 'loading' | 'error' | 'userTrust' | 'seatHint' | 'headerHint'
   | 'nav' | 'sectionIntro' | 'builtIn' | 'defaultBadge' | 'setDefault' | 'edit' | 'view'
   | 'duplicate' | 'delete' | 'newPreset' | 'presetId' | 'presetIdPlaceholder' | 'copyOf'
   | 'displayName' | 'displayNamePlaceholder' | 'displayDescription' | 'displayDescriptionPlaceholder'
@@ -18,8 +18,8 @@ export const en: Record<AgentPresetSettingsKey, string> = {
   loading: 'Loading presets…',
   error: 'Could not load agent presets.',
   userTrust: 'Custom',
-  seatHint: 'Agent preset for this session — switchable until you send the first message',
-  lockedHint: 'This session\'s agent preset is fixed once the conversation starts',
+  seatHint: 'Agent preset for the session you are about to start',
+  headerHint: 'The agent preset this session runs, fixed when it started',
   nav: 'Agent presets',
   sectionIntro:
     'A preset is the plugin composition one session\'s agent runs — its tools, prompt, and capabilities. '
@@ -68,8 +68,8 @@ export const zh: Record<AgentPresetSettingsKey, string> = {
   loading: '正在加载预设…',
   error: '无法加载 Agent 预设。',
   userTrust: '自定义',
-  seatHint: '本会话的 Agent 预设 —— 发送第一条消息前可切换',
-  lockedHint: '会话开始后，其 Agent 预设即固定',
+  seatHint: '即将开始的这个会话所用的 Agent 预设',
+  headerHint: '本会话运行的 Agent 预设，开始时即固定',
   nav: 'Agent 预设',
   sectionIntro: '预设即一个会话的 Agent 所运行的插件组装 —— 它的工具、提示词与能力。内置预设只读；复制一份即可改成自己的。',
   builtIn: '内置',

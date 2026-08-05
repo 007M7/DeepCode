@@ -1,22 +1,29 @@
-/* Agent-preset seat: a compact selector pill in the composer tool row. */
+/* Agent-preset chip on the new-session screen, beside the workspace picker.
+   Geometry mirrors HeroShell's .workspace so the two read as one row. */
 
 .seat {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  height: 28px;
-  padding: 0 6px 0 8px;
+  gap: 4px;
+  max-width: min(100%, 240px);
+  min-height: 28px;
+  padding: 0 8px;
   border: none;
-  border-radius: 8px;
+  border-radius: 12px;
   background: transparent;
+  color: var(--dsw-alias-label-primary);
   font-size: 13px;
   line-height: 20px;
-  color: var(--dsw-alias-label-secondary);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: pointer;
 }
 
-.seat:hover:not(:disabled) {
-  background: var(--dsw-alias-fill-tsp-secondary);
+.seat:not(:disabled):hover,
+.seat[aria-expanded='true'] {
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .seat:disabled {
@@ -24,11 +31,34 @@
   color: var(--dsw-alias-label-quaternary);
 }
 
-.chevron {
+.seatIcon {
   flex: none;
-  opacity: 0.6;
+  color: var(--dsw-alias-label-primary);
 }
 
-.locked {
-  cursor: default;
+.chevron {
+  flex: none;
+  color: var(--dsw-alias-label-caption);
+}
+
+/* Menu rows carry the name over its description: the id alone never said what
+   a preset does, which is why the metadata exists. */
+.item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 280px;
+}
+
+.itemName {
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.itemDesc {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-caption);
+  white-space: normal;
 }

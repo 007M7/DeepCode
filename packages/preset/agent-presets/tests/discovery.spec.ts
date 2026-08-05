@@ -28,6 +28,21 @@ describe('display order', () => {
     // alphabetical behind them rather than interleaving unpredictably.
     expect(found.map(preset => preset.id)).toEqual(['zulu', 'alpha', 'bravo', 'yankee'])
   })
+
+  it('breaks a tie between equal declared orders by id', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-order-tie-'))
+    for (const id of ['yankee', 'alpha']) {
+      await mkdir(join(root, id), { recursive: true })
+      await writeFile(join(root, id, COMPOSITION_FILE), '[]\n')
+      await writeFile(join(root, id, 'preset.yml'), 'order: 1\n')
+    }
+
+    const found = await scanRoot({ path: root, trust: 'system' })
+
+    // Two presets claiming the same slot must still list in a stable order:
+    // a directory-scan order would reshuffle the picker between reads.
+    expect(found.map(preset => preset.id)).toEqual(['alpha', 'yankee'])
+  })
 })
 
 describe('preset discovery', () => {

@@ -47,8 +47,8 @@ export interface SessionSummary {
   cwd?: string
   /**
    * Agent preset this session's agent was composed from; absent when the
-   * deployment composes no presets. A composer seat shows what the session
-   * actually runs rather than the deployment's current default.
+   * deployment composes no presets. The session header labels what the
+   * session actually runs rather than the deployment's current default.
    */
   agentPreset?: string
   parentId?: SessionId

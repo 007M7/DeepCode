@@ -180,6 +180,20 @@ export interface LaunchOptions {
     /** Credential reference resolved by the shipped search provider. */
     apiKeyEnv: string
   }
+  /**
+   * Replace the roster the scaffold mounts by default (the shipped directory
+   * at `system` trust, default `standard`). Supply this only to change WHICH
+   * presets a scenario sees — a writable user root, a different default —
+   * never to turn the roster on: without one every session composes an agent
+   * with no tools, no persona, and no token meter, which is not a shape the
+   * product ever boots in. The patch lands after the default, so it wins.
+   */
+  agentPresets?: {
+    /** Roots to discover, in precedence order; the shipped directory is `system`. */
+    roots: { path: string; trust: 'system' | 'user' }[]
+    /** The preset a session that names none is composed from. */
+    default: string
+  }
   /** Leave the current welcome notice unacknowledged; ordinary scenarios publish it as complete before browser boot. */
   welcomeNoticePending?: boolean
   /**
@@ -319,6 +333,9 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     // disable+insert pair.
     { id: 'directory-picker', disabled: true },
     { insert: [{ id: 'directory-picker-browse', name: '@deepseek-ai/dsh-host-directory-picker-browse' }] },
+    ...options.agentPresets === undefined
+      ? []
+      : [{ id: 'agent-presets', config: options.agentPresets }],
     ...options.toolsMode === undefined ? [] : [{ id: 'tools', config: { mode: options.toolsMode } }],
     ...options.cordisTools === true
       ? [{ insert: [{ id: 'tool-cordis', name: 'cordis:tool-cordis' }] }]
@@ -511,6 +528,8 @@ export function fixtureUserPrompts(fixtureText: string): string[] {
  * @param scaffold - the target scaffold.
  * @param fixtureText - raw recorded session.jsonl contents.
  * @param id - the seeded session id (stable for deterministic goldens).
+ * @param agentPreset - the preset the recorded session was composed from,
+ *   for scenarios asserting what a resumed session reports running.
  * @returns the seeded id.
  */
 /**
@@ -534,7 +553,12 @@ export function realizeSeedFixture(scaffold: WebScaffold, fixtureText: string, i
     : realized.split(fixtureCwd).join(scaffold.workspaceCwd)
 }
 
-export async function seedSession(scaffold: WebScaffold, fixtureText: string, id: string): Promise<SessionId> {
+export async function seedSession(
+  scaffold: WebScaffold,
+  fixtureText: string,
+  id: string,
+  agentPreset?: string,
+): Promise<SessionId> {
   const events = parseSessionLog(realizeSeedFixture(scaffold, fixtureText, id))
   if (events.length === 0) throw new Error('seed fixture has no events')
   const last = events[events.length - 1]!
@@ -547,6 +571,7 @@ export async function seedSession(scaffold: WebScaffold, fixtureText: string, id
     createdAt: Date.now() - 60_000,
     cwd: scaffold.workspaceCwd,
     delegationDepth: 0,
+    ...agentPreset === undefined ? {} : { agentPreset },
   }
   const seeder = new Context()
   try {

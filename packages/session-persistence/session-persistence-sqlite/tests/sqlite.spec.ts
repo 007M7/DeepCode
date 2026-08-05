@@ -172,6 +172,7 @@ describe('rowToMeta', () => {
       incarnation: 'with-origin',
       revision: 1,
       delegation_depth: null,
+      agent_preset: null,
     })).toMatchObject({ id: 'with-origin', origin: 'subagent' })
   })
 
@@ -187,7 +188,26 @@ describe('rowToMeta', () => {
       incarnation: 'fractional',
       revision: 1,
       delegation_depth: null,
+      agent_preset: null,
     })).toThrow('stored session createdAt must be a non-negative safe integer')
+  })
+
+  it('restores the agent preset a session was composed from', () => {
+    // The preset decides the resumed session's tools and prompt; a row that
+    // dropped it would rebuild a composition the stored history contradicts.
+    expect(rowToMeta({
+      id: 'composed',
+      version: 0,
+      created_at: 1,
+      cwd: null,
+      parent_session: null,
+      seed_length: null,
+      origin: null,
+      incarnation: 'composed',
+      revision: 1,
+      delegation_depth: null,
+      agent_preset: 'minimal',
+    })).toMatchObject({ agentPreset: 'minimal' })
   })
 })
 
@@ -638,7 +658,7 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
   })
 
   it('exposes the schema version constant', () => {
-    expect(SCHEMA_VERSION).toBe(13)
+    expect(SCHEMA_VERSION).toBe(14)
   })
 
   it('keeps the revision stable for an empty repair hook', async () => {

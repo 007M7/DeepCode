@@ -1,0 +1,8 @@
+- button "Choose workspace":
+  - img
+  - text: workspace
+  - img
+- button "标准模式":
+  - img
+  - text: 标准模式
+  - img

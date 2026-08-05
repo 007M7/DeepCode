@@ -51,10 +51,14 @@ export async function writeDefaultPreset(
 
 /** One selectable preset. */
 export interface AgentPresetOption {
-  /** Preset id, written to Settings and shown as the label. */
+  /** Preset id, written to Settings and the label's fallback. */
   id: string
   /** Whether the preset ships with the deployment or was authored locally. */
   trust: 'system' | 'user'
+  /** Display name the preset published, absent when it published none. */
+  name?: string
+  /** One sentence on what the preset is for. */
+  description?: string
 }
 
 /** Agent-preset settings-row snapshot. */
@@ -109,7 +113,12 @@ export class AgentPresetSettingsController {
       this.set({
         status: 'ready',
         error: null,
-        options: presets.map(preset => ({ id: preset.id, trust: preset.trust })),
+        options: presets.map(preset => ({
+          id: preset.id,
+          trust: preset.trust,
+          ...preset.name === undefined ? {} : { name: preset.name },
+          ...preset.description === undefined ? {} : { description: preset.description },
+        })),
         // A roster can mark nothing default: settings can name a preset that
         // was since deleted, and the picker still has to show something.
         currentValue: presets.find(preset => preset.isDefault)?.id ?? first.id,

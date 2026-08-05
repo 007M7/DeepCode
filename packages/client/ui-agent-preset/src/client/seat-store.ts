@@ -1,10 +1,13 @@
 /**
- * Composer-seat controller: what one session may switch to, and whether it
- * still may.
+ * Hero-chip controller: which preset the NEXT session gets.
  *
- * A session's composition is fixed once its conversation starts, so the seat
- * reads the session's own `blank` bit rather than a local guess — the host
- * enforces the same rule and answers `agent-preset-locked` to a late attempt.
+ * The new-session screen has no session, so a pick is staged rather than
+ * applied. It reaches a session when one becomes current and is still blank —
+ * whether the workspace connect created it or reused an existing blank one,
+ * which is why staging cannot simply ride along on `sessions.create`.
+ *
+ * The stage is forgotten once applied: the next new session starts from the
+ * deployment default again, matching the workspace picker beside it.
  */
 
 import type { IApiClient } from '@deepseek-ai/dsh-client-connection/client'
@@ -14,33 +17,49 @@ import {
 import { messageOf } from './settings-store.ts'
 import type { AgentPresetOption } from './settings-store.ts'
 
-/** Composer-seat snapshot for one session. */
+/** Hero-chip snapshot. */
 export interface AgentPresetSeatState {
-  /** Presets the deployment supplies; empty means the seat renders nothing. */
+  /** Presets the deployment supplies; empty means the chip renders nothing. */
   options: readonly AgentPresetOption[]
-  /** The preset this session runs, empty until the roster and summary load. */
+  /** The staged choice, empty until the roster loads. */
   current: string
-  /** False once the conversation has started — the switch is gone for good. */
-  switchable: boolean
-  /** A rejected switch's message, cleared by the next attempt. */
+  /** A rejected apply's message, cleared by the next attempt. */
   error: string | null
   busy: boolean
 }
 
 const INITIAL: AgentPresetSeatState = {
-  options: [], current: '', switchable: false, error: null, busy: false,
+  options: [], current: '', error: null, busy: false,
 }
 
-/** Reads what one session may switch to and performs the switch. */
+/** One session's identity and whether it has started. */
+export interface SeatSessionSummary {
+  /** The session the chip would apply its staged choice to. */
+  id: SessionId
+  /** False once a turn has run — applying is refused from then on. */
+  blank: boolean
+  /** The preset the session already runs, when the summary reports one. */
+  agentPreset?: string
+}
+
+/** Stages the next session's preset and applies it when one appears. */
 export class AgentPresetSeatController {
-  /** Seat snapshot the renderer subscribes to. */
+  /** Chip snapshot the renderer subscribes to. */
   readonly store: SnapshotStore<AgentPresetSeatState> = createSnapshotStore(INITIAL)
 
+  /**
+   * The deployment default, so a consumed stage can fall back to it without
+   * re-reading the roster.
+   */
+  private fallback = ''
+
+  /** Set while a pick is waiting for a session; cleared once applied. */
+  private staged: string | undefined
+
   constructor(
-    private readonly api: IApiClient,
-    private readonly sessionId: SessionId,
-    /** Reads this session's blank bit and recorded preset from the session list. */
-    private readonly summary: () => { blank: boolean; agentPreset?: string } | undefined,
+    private readonly api: Pick<IApiClient, 'agentPresets'>,
+    /** The session the hero is about to hand over to, when there is one. */
+    private readonly currentSession: () => SeatSessionSummary | undefined,
   ) {}
 
   private set(patch: Partial<AgentPresetSeatState>): void {
@@ -48,25 +67,26 @@ export class AgentPresetSeatController {
   }
 
   /**
-   * Load the roster and reconcile with this session's own state.
+   * Read the roster and open the chip on the deployment default.
    * @returns once the snapshot reflects the host.
    */
   async load(): Promise<void> {
-    const summary = this.summary()
     try {
       const response = await this.api.agentPresets.list({})
       if (!response.result.ok) {
         this.set({ error: response.result.error.message })
         return
       }
-      const presets = response.result.value.presets
+      const { presets } = response.result.value
+      this.fallback = presets.find(preset => preset.isDefault)?.id ?? presets[0]?.id ?? ''
       this.set({
-        options: presets.map(preset => ({ id: preset.id, trust: preset.trust })),
-        // The session's recorded preset wins over the roster default: a
-        // resumed session runs what it was created with, not what the
-        // deployment now prefers.
-        current: summary?.agentPreset ?? presets.find(preset => preset.isDefault)?.id ?? '',
-        switchable: summary?.blank ?? false,
+        options: presets.map(preset => ({
+          id: preset.id,
+          trust: preset.trust,
+          ...preset.name === undefined ? {} : { name: preset.name },
+          ...preset.description === undefined ? {} : { description: preset.description },
+        })),
+        current: this.staged ?? this.fallback,
         error: null,
       })
     } catch (error) {
@@ -75,23 +95,48 @@ export class AgentPresetSeatController {
   }
 
   /**
-   * Switch this session to another preset.
-   * @param id - the preset to compose the session's agent from.
-   * @returns once the switch settled; a rejection leaves the previous value.
+   * Stage one preset for the next session, applying it immediately when a
+   * blank session is already current.
+   * @param id - the preset to stage.
+   * @returns once the stage settled, and the apply too when one happened.
    */
   async select(id: string): Promise<void> {
-    const before = this.store.getSnapshot()
-    if (before.busy || id === before.current || !before.switchable) return
-    this.set({ busy: true, error: null, current: id })
+    if (this.store.getSnapshot().busy) return
+    this.staged = id
+    this.set({ current: id, error: null })
+    await this.apply()
+  }
+
+  /**
+   * Hand the staged choice to the current session, if there is one to take it.
+   *
+   * Called both by `select()` and by whoever observes the current session
+   * changing, because the session may appear either before or after the pick.
+   * @returns once the switch settled, or immediately when there is nothing to do.
+   */
+  async apply(): Promise<void> {
+    const staged = this.staged
+    const session = this.currentSession()
+    if (staged === undefined || session === undefined) return
+    // A started session's history was produced under its own composition; the
+    // host refuses the swap, so the stage is no longer meaningful.
+    if (!session.blank || session.agentPreset === staged) {
+      this.staged = undefined
+      return
+    }
+    this.set({ busy: true, error: null })
     try {
-      const response = await this.api.agentPresets.select({ sessionId: this.sessionId, agentPreset: id })
+      const response = await this.api.agentPresets.select({ sessionId: session.id, agentPreset: staged })
+      this.staged = undefined
       if (!response.result.ok) {
-        this.set({ busy: false, current: before.current, error: response.result.error.message })
+        this.set({ busy: false, error: response.result.error.message, current: this.fallback })
         return
       }
+      // Consumed: the next new session opens on the deployment default again.
       this.set({ busy: false, current: response.result.value.agentPreset })
     } catch (error) {
-      this.set({ busy: false, current: before.current, error: messageOf(error) })
+      this.staged = undefined
+      this.set({ busy: false, error: messageOf(error), current: this.fallback })
     }
   }
 }

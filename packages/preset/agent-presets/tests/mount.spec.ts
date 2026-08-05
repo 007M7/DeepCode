@@ -146,6 +146,14 @@ describe('rejecting a composition that cannot be used', () => {
     expect(toolNames(ctx)).toEqual([])
   })
 
+  it('names every failed row, not just the count', async () => {
+    // The Loader folds several failed rows into one AggregateError whose own
+    // message names none of them; unflattened, the operator is told only that
+    // "loader entries failed to apply" and has nothing to act on.
+    await expect(agentOn(ctx, 'sess-two-broken', 'two-broken'))
+      .rejects.toThrow(/first-missing[\s\S]*second-missing/)
+  })
+
   it('names the unresolved service when a row never activates', async () => {
     await expect(agentOn(ctx, 'sess-pending', 'pending'))
       .rejects.toThrow(/waiting for serviceThatDoesNotExist/)
@@ -204,7 +212,7 @@ describe('the preset roster', () => {
     const listed = await ctx.agentPresets.list()
 
     expect(listed.map(preset => preset.id).sort())
-      .toEqual(['broken', 'isolated', 'late', 'leaky', 'minimal', 'pending', 'standard'])
+      .toEqual(['broken', 'isolated', 'late', 'leaky', 'minimal', 'pending', 'standard', 'two-broken'])
     expect(listed.find(preset => preset.id === 'standard')?.trust).toBe('system')
   })
 

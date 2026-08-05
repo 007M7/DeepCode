@@ -95,6 +95,10 @@ describe('rendering display metadata', () => {
     expect(await readPresetMetadata(dir)).toEqual({ name: '创造模式', description: '可以改自己的组装。' })
   })
 
+  it('stores a declared order', () => {
+    expect(renderPresetMetadata({ name: '标准模式', order: 1 })).toBe('name: 标准模式\norder: 1\n')
+  })
+
   it('omits an absent field rather than writing it blank', () => {
     expect(renderPresetMetadata({ name: '极简模式' })).toBe('name: 极简模式\n')
     // Description without a name is legal too: the picker falls back to the id.

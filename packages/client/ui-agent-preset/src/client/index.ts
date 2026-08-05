@@ -1,13 +1,13 @@
 /**
- * Agent-preset surface plugin, browser half — three surfaces over one roster:
- * a General-settings row for the default preset, a composer seat for the
- * session about to start, and a settings section that authors the compositions
- * themselves.
+ * Agent-preset surface plugin, browser half — four surfaces over one roster:
+ * a General-settings row for the default preset, a chip on the new-session
+ * screen for the session about to start, a read-only label in the session
+ * header, and a settings section that authors the compositions themselves.
  *
  * A running session keeps the composition it began with (the host refuses to
- * adopt an existing session under a different preset), so the General row is
- * a new-session preference rather than a live switch, and the seat stops
- * offering a choice once the conversation starts.
+ * adopt an existing session under a different preset). That is what splits
+ * the choice from the display: the General row and the hero chip are both
+ * before-the-fact, while the header only reports what a session already runs.
  */
 
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
@@ -15,7 +15,9 @@ import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: pulls the settings shell's SlotMap merge (the 'settings.section' entry).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
-import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import { AgentPresetLabel } from './AgentPresetLabel.tsx'
+import type { AgentPresetLabelInjected } from './AgentPresetLabel.tsx'
 import { AgentPresetRow } from './AgentPresetRow.tsx'
 import type { AgentPresetRowInjected } from './AgentPresetRow.tsx'
 import { AgentPresetSeat } from './AgentPresetSeat.tsx'
@@ -23,14 +25,16 @@ import type { AgentPresetSeatInjected } from './AgentPresetSeat.tsx'
 import { AgentPresetSection } from './AgentPresetSection.tsx'
 import type { AgentPresetSectionInjected } from './AgentPresetSection.tsx'
 import { AgentPresetSeatController } from './seat-store.ts'
+import type { SeatSessionSummary } from './seat-store.ts'
 import { AgentPresetSectionController } from './section-store.ts'
 import { en, zh } from './locales.ts'
 import { AGENT_PRESET_SETTINGS_NS, AgentPresetSettingsController } from './settings-store.ts'
 
+export type { AgentPresetLabelInjected, AgentPresetLabelProps } from './AgentPresetLabel.tsx'
 export type { AgentPresetRowInjected, AgentPresetRowProps } from './AgentPresetRow.tsx'
 export type { AgentPresetSeatInjected, AgentPresetSeatProps } from './AgentPresetSeat.tsx'
 export type { AgentPresetSectionInjected, AgentPresetSectionProps } from './AgentPresetSection.tsx'
-export type { AgentPresetSeatState } from './seat-store.ts'
+export type { AgentPresetSeatState, SeatSessionSummary } from './seat-store.ts'
 export {
   draftBlocker, type AgentPresetSectionState, type PresetDraft, type PresetRow,
 } from './section-store.ts'
@@ -74,35 +78,56 @@ export function apply(ctx: ClientContext): void {
     return () => { for (const dispose of disposers) dispose() }
   }, 'ui-agent-preset: settings refresh')
 
-  // The composer seat: one controller per session, because the switch and the
-  // "may it still switch" bit are both per-session facts.
+  // The new-session chip and the header label: one controller, because the
+  // staged choice belongs to the flow rather than to any one session.
   ctx.inject(['slots', 'conversation', 'sessions'], (scope: ClientContext) => {
     const api = (scope.get('connection') as ConnectionHandle).api
-    const seats = new Map<SessionId, AgentPresetSeatController>()
-    const seatFor = (sessionId: SessionId): AgentPresetSeatController => {
-      const existing = seats.get(sessionId)
-      if (existing !== undefined) return existing
-      const created = new AgentPresetSeatController(api, sessionId, () => {
-        const summary = scope.sessions.list.getSnapshot().byId[sessionId]
-        return summary === undefined
-          ? undefined
-          : { blank: summary.blank, ...summary.agentPreset === undefined ? {} : { agentPreset: summary.agentPreset } }
-      })
-      seats.set(sessionId, created)
-      return created
-    }
-    scope.effect(() => scope.slots.register({
-      name: 'conversation.input.agentPreset',
-      locale: 'settings.agentPreset',
-      inject: (sessionId: SessionId): AgentPresetSeatInjected => {
-        const seat = seatFor(sessionId)
-        return {
-          hooks: { agentPresetSeat: seat.store },
-          load: () => seat.load(),
-          select: (id: string) => seat.select(id),
+    const seat = new AgentPresetSeatController(api, (): SeatSessionSummary | undefined => {
+      const state = scope.sessions.list.getSnapshot()
+      const summary = state.current === undefined ? undefined : state.byId[state.current]
+      return summary === undefined
+        ? undefined
+        : {
+          id: summary.id,
+          blank: summary.blank,
+          ...summary.agentPreset === undefined ? {} : { agentPreset: summary.agentPreset },
         }
-      },
-    }, AgentPresetSeat), 'ui-agent-preset: composer seat registration')
+    })
+
+    const seatInjected = (): AgentPresetSeatInjected => ({
+      hooks: { agentPresetSeat: seat.store },
+      load: () => seat.load(),
+      select: (id: string) => seat.select(id),
+    })
+
+    const labelInjected = (): AgentPresetLabelInjected => ({
+      hooks: { agentPresets: controller.store },
+      load: () => controller.load(),
+    })
+
+    scope.effect(() => {
+      // Connecting a workspace either creates a blank session or reuses one,
+      // and either way the chip's pick predates it — so the stage is applied
+      // when the session arrives, not when it was made.
+      const stop = scope.sessions.list.subscribe(() => { void seat.apply() })
+      const chip = scope.slots.register({
+        name: 'conversation.hero.agentPreset',
+        locale: 'settings.agentPreset',
+        inject: seatInjected,
+      }, AgentPresetSeat)
+      const label = scope.slots.register({
+        name: 'conversation.session.header.actions',
+        id: 'agent-preset',
+        order: 20,
+        locale: 'settings.agentPreset',
+        inject: labelInjected,
+      }, AgentPresetLabel)
+      return () => {
+        stop()
+        chip()
+        label()
+      }
+    }, 'ui-agent-preset: new-session chip and header label')
   })
 
   const sectionInjected = (): AgentPresetSectionInjected => ({
