@@ -22,6 +22,7 @@ import type { ToolCallView, ToolResultView } from './presentation.ts'
 import { assertSupportedJsonSchema, validateJsonSchemaValue } from './json-schema.ts'
 import type { JsonSchemaNode } from './json-schema.ts'
 import { createRunCodeTool, RUN_CODE_NAME, SDK_SECTION_ORDER } from './code-mode.ts'
+import type { CodeSdkLanguage } from './code-mode.ts'
 import { renderToolsSdk } from './ts-types.ts'
 import type { ToolSdkSchema } from './ts-types.ts'
 import { renderToolsSdkPy } from './py-types.ts'
@@ -33,12 +34,15 @@ import { renderToolsSdkPy } from './py-types.ts'
  * fails the assembly loudly (same idiom as `toolOrder` violations). Adding a
  * new backend language is two table entries — an entry here and a
  * `RUN_CODE_FLAVORS` entry in `code-mode.ts` for its `run_code` schema strings
- * — plus the renderer function this table points at.
+ * — plus the renderer function this table points at. The `satisfies` clause
+ * pins this table's key set to {@link CodeSdkLanguage}, the same union the
+ * flavor table is checked against, so adding one entry without the other is a
+ * typecheck failure.
  */
 const SDK_RENDERERS: Record<string, (schemas: ToolSdkSchema[]) => string> = {
   typescript: renderToolsSdk,
   python: renderToolsSdkPy,
-}
+} satisfies Record<CodeSdkLanguage, (schemas: ToolSdkSchema[]) => string>
 
 export {
   defineTool,

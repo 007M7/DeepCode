@@ -100,11 +100,22 @@ const PYTHON_FLAVOR: RunCodeFlavor = {
   codeDescription: 'The program: the body of an async Python function.',
 }
 
-/** Per-language `run_code` schema flavors (see {@link RunCodeFlavor}); one entry per `SDK_RENDERERS` language. */
+/**
+ * The languages Code Mode ships a presentation for. Both per-language tables —
+ * {@link RUN_CODE_FLAVORS} here and `SDK_RENDERERS` in {@link ./index.ts} — are
+ * checked against this union with `satisfies`, so a language added to one and
+ * not the other fails `typecheck` instead of waiting for a runtime that reports
+ * it. The tables stay declared `Record<string, …>` because `CodeRuntime.language`
+ * is an unconstrained `string`: this union pins what the harness ships, while the
+ * `Object.hasOwn` guards reject what a mounted runtime may report.
+ */
+export type CodeSdkLanguage = 'typescript' | 'python'
+
+/** Per-language `run_code` schema flavors (see {@link RunCodeFlavor}); one entry per {@link CodeSdkLanguage}. */
 const RUN_CODE_FLAVORS: Record<string, RunCodeFlavor> = {
   typescript: TYPESCRIPT_FLAVOR,
   python: PYTHON_FLAVOR,
-}
+} satisfies Record<CodeSdkLanguage, RunCodeFlavor>
 
 /**
  * The `description` parameter's model-facing description: language-independent
