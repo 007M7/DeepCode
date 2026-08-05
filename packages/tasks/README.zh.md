@@ -2,9 +2,9 @@
 
 [English](README.md) | 中文
 
-这是后台任务 id、所有者隔离、读取、取消、等待和完成通知的共用归属位置。Bash、subagent（子 agent）及未来的长时间运行工具共用一套面向模型的协议。参见[后台任务运行时 Agent Note（agent 决策记录）](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md)和[任务注册表 seam Agent Note（agent 决策记录）](../../.agents/notes/implemented/architecture/2026-07-26-task-registry-seam.md)。
+这是后台任务 id、所有者隔离、读取、取消、等待和完成通知的共用归属位置。Bash、subagent（子 agent）及未来的长时间运行工具共用一套面向模型的协议。参见[后台任务运行时 Agent Note](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md)和[任务注册表 seam Agent Note](../../.agents/notes/implemented/architecture/2026-07-26-task-registry-seam.md)。
 
-| 包（package） | ctx 键 | 角色 |
+| 包 | ctx 键 | 角色 |
 |---|---|---|
 | [`tasks`](tasks/README.md)（`@deepseek-ai/dsh-tasks`） | `ctx.tasks` | 注册表 seam：带品牌类型的 `<kind>-N` id、按所有者隔离的读取／终止／等待／列出契约、快照词汇、`attachSurface` 配置错误防线，以及快照不变式配套项 |
 | [`tasks-local`](tasks-local/README.md)（`@deepseek-ai/dsh-tasks-local`） | 无 | 进程内注册表实现：内存记录、以首次结算为准的簿记，以及会等待执行完毕的所有者清理路径和销毁路径 |
