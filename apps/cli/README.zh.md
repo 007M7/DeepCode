@@ -49,6 +49,8 @@ dsh web --dump-config
 
 `dsh -p "task"` 使用相同的 base 与 Web 组合及启动时个人配置，在由操作系统分配的端口上启动 Web 宿主，运行一个全新的持久会话，打印最终答案后退出。它不接受 `--config` 或原始配置输出标志。
 
+Web 与 headless 的进程关闭流程最多给插件树 5 秒执行 dispose。第一次 `SIGINT`/`SIGTERM` 会启动这次优雅排空；第二次信号会立即强制退出。如果 headless 的正常完成流程已经卡在 dispose 中，第一次 `Ctrl+C` 就会触发强制退出：进程立即结束，该信号不再被吞掉。
+
 两种模式都以调用目录作为默认 workspace 根目录，加载适用的 `AGENTS.md` 或 `CLAUDE.md` 指令，渲染预算为 65,536 字节，并使用内存 SQLite 会话内容索引。Web 会持续应用有效的个人配置编辑；headless 只在启动时读取该文件一次。层次优先级、凭据存储、实时更新失败行为与 `$DSH_HOME` 解析均由 [app-boot 个人配置契约](../../packages/ui/app-boot/README.md#personal-config) 统一定义。
 
 新会话默认使用 `workspace-write` 权限 preset。Bash 和文件系统写操作受限于会话 workspace 与平台临时根目录；读取、网络访问与进程可见性不受限制。`DSH_PERMISSION_MODE` 会改变进程回退值。已存储的常规设置权限会影响之后的 Web 会话，不会更改已打开的会话。

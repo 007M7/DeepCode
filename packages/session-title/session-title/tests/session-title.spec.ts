@@ -134,7 +134,7 @@ describe('SessionTitleService', () => {
   })
 
   it('folds the latest title event during replay', () => {
-    const seed = new Session(SessionId('source'))
+    const seed = Session.create(SessionId('source'))
     seed.append('session/title', {
       title: 'Earlier',
       messageSeqs: [1],

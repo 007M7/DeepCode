@@ -331,6 +331,8 @@ export interface ConversationSnapshot {
   sessionId: SessionId
   /** Human transcript plus retry notices and interrupted-turn terminal nodes in event order. */
   nodes: readonly ConversationNode[]
+  /** Exact in-window `turn/start` time and optional matching `turn/end` time. */
+  turnTimings: ReadonlyMap<number, { readonly startTime: number; readonly endTime?: number }>
   /** In-window completed turn number -> its `turn/end` event seq. */
   turnEnds: ReadonlyMap<number, number>
   partial: PartialAssistant | null

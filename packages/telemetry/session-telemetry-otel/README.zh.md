@@ -10,6 +10,7 @@
 - id: telemetry-otel
   name: '@deepseek-ai/dsh-session-telemetry-otel'
   config:
+    shutdownTimeoutMillis: 3000 # optional; defaults to 3000
     exporter:                # passed verbatim to the SDK's OTLP/HTTP log exporter
       url: https://collector.example.com/v1/logs
       headers:
@@ -17,7 +18,7 @@
     processor: {}            # optional; passed verbatim to BatchLogRecordProcessor
 ```
 
-`exporter.url` 是本包（package）唯一自行校验的字段：必填、无默认值、必须能解析为 `http(s)`，因此缺失端点会在插件加载时失败（`processor.maxExportBatchSize` 不是正整数时同样如此：SDK 会接受该值，随后却在关闭时因它挂起）。其余全部是 SDK 自己的选项形态，由 SDK 拥有并在 SDK 文档中说明，两个配置块都整体透传（passthrough）：`OTLPExporterNodeConfigBase` 的每个字段（`headers`、`timeoutMillis`、`compression`、`keepAlive` 等）都会到达导出器；批处理、导出节奏（`scheduledDelayMillis`）、重试、队列上限，以及持续失败下的丢失策略，都是 SDK 的文档化行为，经 `processor` 透传调优。该后端刻意不实现 `flush()`：批处理器是进程内唯一执行 flush 的组件，`shutdown()` 的排空正因如此才是完整的。从 `cordis.yml` 中删除该配置块即为退出方式：无残留状态，也没有 `enabled` 开关。
+`exporter.url` 是必填项、没有默认值，并且必须能解析为 `http(s)`；`shutdownTimeoutMillis` 是由 DSH 管理的有限正数外层截止时间，默认值为 3000 ms；`processor.maxExportBatchSize` 不是正整数时也会在插件加载时失败，因为 SDK 会接受该值，随后却在关闭时挂起。两个 SDK 配置块都整体透传（passthrough）：`OTLPExporterNodeConfigBase` 的每个字段（`headers`、`timeoutMillis`、`compression`、`keepAlive` 等）都会到达导出器；批处理、导出节奏（`scheduledDelayMillis`）、重试、队列上限，以及持续失败下的丢失策略，都是通过 `processor` 调节的 SDK 行为。该后端不实现 `flush()`：常规 flush 由批处理器负责。但在关闭期间，OTel 会先等待 `exporter.forceFlush()`，再进入受 `exportTimeoutMillis` 限制的处理器完成 promise；如果该传输 promise 始终不结算，本包（package）会在 `shutdownTimeoutMillis` 到期时放弃等待，沿协调器现有的失败隔离路径记录关闭失败，并让应用继续拆卸。该截止时间无法取消 SDK 传输，因此届时仍待处理的记录可能在进程退出时丢失。从 `cordis.yml` 中删除该配置块即为退出方式：无残留状态，也没有 `enabled` 开关。
 
 ## 哪些数据会离开本机
 

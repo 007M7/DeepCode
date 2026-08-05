@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-非会话数据的存储中心（`ctx.storage`）：命名后端注册表加已挂载的数据形式设施。中心自身不执行 IO：后端拥有介质，数据形式拥有语义。设计与取舍见[领域 KV 存储 Agent Note（agent 决策记录）](../../../.agents/notes/proposed/architecture/2026-07-24-domain-kv-storage-and-workspace.zh.md)。
+非会话数据的存储中心（`ctx.storage`）：命名后端注册表加已挂载的数据形式设施。中心自身不执行 IO：后端拥有介质，数据形式拥有语义。设计与取舍见[领域 KV 存储 Agent Note](../../../.agents/notes/proposed/architecture/2026-07-24-domain-kv-storage-and-workspace.zh.md)。
 
 ## 结构
 
@@ -12,7 +12,7 @@
 
 ## 该分组中的包
 
-| 包（package） | 职责 |
+| 包 | 职责 |
 | --- | --- |
 | `dsh-storage` | 中心服务 + 后端词汇 + 共享一致性测试套件 |
 | `dsh-storage-json` | JSON 后端：每个单元一个人类可读文件，以原子方式重写整个文件 |

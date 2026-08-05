@@ -1,6 +1,6 @@
-# Agent Note：目录选择交互的自适应默认值
+# Agent Note: 目录选择交互的自适应默认值
 
-状态：已实现
+Status: implemented
 
 [English](2026-07-29-directory-picker-adaptive-default.md) | 中文
 

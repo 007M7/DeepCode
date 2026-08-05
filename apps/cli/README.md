@@ -49,6 +49,8 @@ The production Web runner needs built package and frontend artifacts (`pnpm run 
 
 `dsh -p "task"` uses the same base and Web composition with the startup personal config, starts its Web host on an OS-assigned port, runs one fresh persisted session, prints the final answer, and exits. It accepts neither `--config` nor raw config-dump flags.
 
+Web and headless process shutdown gives the plugin tree up to five seconds to dispose. The first `SIGINT`/`SIGTERM` starts that graceful drain; a second signal forces immediate exit. If headless normal completion is already stuck in disposal, the first `Ctrl+C` is the escalation and exits immediately instead of being swallowed.
+
 Both modes treat the invoking directory as the default workspace root, load applicable `AGENTS.md` or `CLAUDE.md` instructions with a 65,536-byte render budget, and use an in-memory SQLite session content index. Web watches valid personal config edits; headless reads the file once at startup. The [app-boot personal-config contract](../../packages/ui/app-boot/README.md#personal-config) owns layer precedence, credential storage, live-update failure behavior, and `$DSH_HOME` resolution.
 
 New sessions default to the `workspace-write` permission preset. Bash and filesystem mutations are restricted to the session workspace and platform temporary roots; reads, network access, and process visibility are not confined. `DSH_PERMISSION_MODE` changes the process fallback. Stored General-settings permissions affect later Web sessions, not an already-open one.

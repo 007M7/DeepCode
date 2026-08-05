@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-提供方无关的 LLM（大语言模型）词汇与抽象服务。本包（package）定义 agent loop（智能体循环）、会话日志和每个插件使用的规范语言。
+提供方无关的 LLM（大语言模型）词汇与抽象服务。本包定义 agent loop（智能体循环）、会话日志和每个插件使用的规范语言。
 
 ## 服务：`LlmService`（ctx key：`llm`）
 
@@ -56,7 +56,7 @@
 
 ### 应用归因（`attribution.ts`）
 
-每个产品适配器都会在提供方 HTTP 请求上发送应用身份。`attributionHeaders(identity?)` 构建标准 `User-Agent`，默认为公开 `APP_IDENTITY`；白标部署可以替换它，但不能抑制它。适配器会直接验证 wire 标头，或通过自身库 hook 验证。详见 [归因 Agent Note（agent 决策记录）](../../../.agents/notes/implemented/architecture/2026-06-21-mandatory-app-attribution-headers.md)。
+每个产品适配器都会在提供方 HTTP 请求上发送应用身份。`attributionHeaders(identity?)` 构建标准 `User-Agent`，默认为公开 `APP_IDENTITY`；白标部署可以替换它，但不能抑制它。适配器会直接验证 wire 标头，或通过自身库 hook 验证。详见 [归因 Agent Note](../../../.agents/notes/implemented/architecture/2026-06-21-mandatory-app-attribution-headers.md)。
 
 ### 类
 

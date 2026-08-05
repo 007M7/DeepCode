@@ -3,15 +3,55 @@
  * selection off the page URL, and the single-consumer stream-loop ownership.
  */
 import { Context } from 'cordis'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apply, type ConnectionHandle } from '../src/client/index.ts'
+import type { RpcMessage } from '../src/client/api.ts'
+import { RpcId } from '../src/client/api.ts'
 import { FixtureApiClient } from '../src/client/fixture.ts'
 import { WebApiClient } from '../src/client/web-api-client.ts'
 
-type Win = { location?: { hostname: string; search: string } }
+type Win = { location?: { hostname: string; search: string; origin?: string } }
+type WebSocketGlobal = { WebSocket?: typeof WebSocket }
+
+const originalWebSocket = globalThis.WebSocket
+const sockets: FakeWebSocket[] = []
+
+class FakeWebSocket extends EventTarget {
+  static readonly CONNECTING = 0
+  static readonly OPEN = 1
+  static readonly CLOSING = 2
+  static readonly CLOSED = 3
+
+  readonly url: string
+  readyState = FakeWebSocket.CONNECTING
+
+  constructor(url: string | URL) {
+    super()
+    this.url = String(url)
+    sockets.push(this)
+    queueMicrotask(() => {
+      if (this.readyState !== FakeWebSocket.CONNECTING) return
+      this.readyState = FakeWebSocket.OPEN
+      this.dispatchEvent(new Event('open'))
+    })
+  }
+
+  close(): void {
+    if (this.readyState === FakeWebSocket.CLOSED) return
+    this.readyState = FakeWebSocket.CLOSED
+    this.dispatchEvent(new Event('close'))
+  }
+
+  receive(data: unknown): void {
+    this.dispatchEvent(new MessageEvent('message', { data }))
+  }
+}
 
 afterEach(() => {
   delete (globalThis as Win).location
+  sockets.length = 0
+  if (originalWebSocket === undefined) delete (globalThis as WebSocketGlobal).WebSocket
+  else globalThis.WebSocket = originalWebSocket
 })
 
 async function mount(): Promise<ConnectionHandle> {
@@ -53,7 +93,7 @@ describe('connection client apply', () => {
     loop.stop() // teardown must not throw; the fixture streams abort quietly
   })
 
-  it('WebApiClient carries requests over globalThis.fetch', async () => {
+  it('WebApiClient keeps unary calls and respond on globalThis.fetch', async () => {
     ;(globalThis as Win).location = { hostname: 'localhost', search: '' }
     const handle = await mount()
     const original = globalThis.fetch
@@ -65,9 +105,102 @@ describe('connection client apply', () => {
     try {
       // Schema rejection is fine — the transport hop is the assertion.
       await (handle.api as WebApiClient).host.describe({}).catch(() => undefined)
+      await handle.api.respond({
+        type: 'client-response',
+        rpcId: RpcId('response-over-http'),
+        result: { ok: true, value: {} },
+      }).catch(() => undefined)
     } finally {
       globalThis.fetch = original
     }
-    expect(seen.some(u => u.includes('/api/'))).toBe(true)
+    expect(seen.some(u => u.includes('/api/host.describe'))).toBe(true)
+    expect(seen.some(u => u.includes('/api/respond'))).toBe(true)
+  })
+
+  it('opens one WebSocket per downlink, parses frames, and aborts both without using fetch', async () => {
+    ;(globalThis as Win).location = {
+      hostname: 'localhost', search: '', origin: 'http://localhost:3080',
+    }
+    ;(globalThis as WebSocketGlobal).WebSocket = FakeWebSocket as unknown as typeof WebSocket
+    const fetch = vi.spyOn(globalThis, 'fetch')
+    const client = (await mount()).api as WebApiClient
+    const envelopes: RpcMessage[][] = []
+    client.subscribeEnvelopes((batch) => { envelopes.push([...batch]) })
+    const opened: string[] = []
+    const muxAbort = new AbortController()
+    const hostAbort = new AbortController()
+    const mux = client.events.mux({}, muxAbort.signal, () => { opened.push('mux') })[Symbol.asyncIterator]()
+    const host = client.events.host({}, hostAbort.signal, () => { opened.push('host') })[Symbol.asyncIterator]()
+    const muxFrame = mux.next()
+    const hostFrame = host.next()
+    await vi.waitFor(() => { expect(sockets).toHaveLength(2) })
+    expect(sockets.map(socket => socket.url)).toEqual([
+      'ws://localhost:3080/api/events.mux',
+      'ws://localhost:3080/api/events.host',
+    ])
+    await vi.waitFor(() => { expect(opened).toEqual(['mux', 'host']) })
+
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    sockets[0]!.receive(new Uint8Array([1, 2, 3]))
+    sockets[1]!.receive(JSON.stringify({ type: 'server-request', rpcId: 'bad', method: 'host/session-status', payload: {} }))
+    sockets[0]!.receive(JSON.stringify({
+      type: 'server-request',
+      rpcId: 'mux-browser',
+      method: 'session/subscribed',
+      payload: { type: 'session/subscribed', sessionId: 'session-browser', lastSeq: 8 },
+    }))
+    sockets[1]!.receive(JSON.stringify({
+      type: 'server-request',
+      rpcId: 'host-browser',
+      method: 'host/commands-changed',
+      payload: { type: 'host/commands-changed' },
+    }))
+    expect(await muxFrame).toMatchObject({
+      value: { rpcId: 'mux-browser', payload: { type: 'session/subscribed', lastSeq: 8 } },
+    })
+    expect(await hostFrame).toMatchObject({
+      value: { rpcId: 'host-browser', payload: { type: 'host/commands-changed' } },
+    })
+    expect(errors).toHaveBeenCalledTimes(2)
+    await vi.waitFor(() => { expect(envelopes.flat()).toHaveLength(2) })
+    expect(fetch).not.toHaveBeenCalled()
+
+    const muxEnd = mux.next()
+    const hostEnd = host.next()
+    muxAbort.abort()
+    hostAbort.abort()
+    await expect(muxEnd).resolves.toMatchObject({ done: true })
+    await expect(hostEnd).resolves.toMatchObject({ done: true })
+    expect(sockets.every(socket => socket.readyState === FakeWebSocket.CLOSED)).toBe(true)
+    errors.mockRestore()
+    fetch.mockRestore()
+  })
+
+  it('maps an HTTPS page origin to a secure WebSocket URL', async () => {
+    ;(globalThis as Win).location = {
+      hostname: 'harness.example', search: '', origin: 'https://harness.example',
+    }
+    ;(globalThis as WebSocketGlobal).WebSocket = FakeWebSocket as unknown as typeof WebSocket
+    const client = (await mount()).api
+    const abort = new AbortController()
+    const iterator = client.events.mux({}, abort.signal)[Symbol.asyncIterator]()
+    const pending = iterator.next()
+    await vi.waitFor(() => { expect(sockets[0]?.url).toBe('wss://harness.example/api/events.mux') })
+    abort.abort()
+    await expect(pending).resolves.toMatchObject({ done: true })
+  })
+
+  it('closes a WebSocket immediately when its signal was already aborted', async () => {
+    ;(globalThis as Win).location = {
+      hostname: 'localhost', search: '', origin: 'http://localhost:3080',
+    }
+    ;(globalThis as WebSocketGlobal).WebSocket = FakeWebSocket as unknown as typeof WebSocket
+    const client = (await mount()).api
+    const abort = new AbortController()
+    abort.abort()
+    const iterator = client.events.mux({}, abort.signal)[Symbol.asyncIterator]()
+    await expect(iterator.next()).resolves.toMatchObject({ done: true })
+    expect(sockets).toHaveLength(1)
+    expect(sockets[0]?.readyState).toBe(FakeWebSocket.CLOSED)
   })
 })
