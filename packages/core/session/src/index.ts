@@ -215,7 +215,7 @@ function assertSessionEventEnvelope(value: Record<string, unknown>, index: numbe
     || !Object.hasOwn(event, 'seq') || typeof event['seq'] !== 'number'
     || !Number.isSafeInteger(event['seq']) || event['seq'] < 0
     || !Object.hasOwn(event, 'time') || typeof event['time'] !== 'number'
-    || !Number.isSafeInteger(event['time']) || event['time'] < 0
+    || !Number.isSafeInteger(event['time'])
     || !Object.hasOwn(event, 'data')) {
     throw new Error(`seed event at index ${index} has an invalid event envelope`)
   }
@@ -821,7 +821,11 @@ export class SessionStore extends Service {
    * `dsh-agent-loop`'s creation transaction).
    *
    * @param id - the session id; omitted, the store mints `session-<n>`.
-   * @param options - seed events and/or creation metadata for the header.
+   * @param options - seed events and/or creation metadata for the header. With
+   *   `seedSource: 'persistence'`, metadata and events must be fresh detached
+   *   graphs whose ownership transfers to this call: they are validated and
+   *   frozen in place through {@link Session.fromRestore}, so the caller must
+   *   retain no mutable aliases.
    * @returns the live session, already entered and announced.
    * @throws if a session with `id` already exists, metadata is not a plain
    *   lossless-JSON record with valid scalar fields, or `meta.cwd` is a

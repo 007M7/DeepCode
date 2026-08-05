@@ -353,7 +353,7 @@ describe('PersistenceCoordinator stored identity', () => {
 
       await expect(ctx.plugin(Object.assign((inner: Context) => {
         inner.sessions.create(id, { seed: [start], meta: header })
-      }, { inject: ['sessions'] }))).rejects.toThrow(/persisted preparation exists/)
+      }, { inject: ['sessions'] }))).rejects.toThrow(/persisted state already owns this identity/)
       expect(ctx.sessions.get(id)).toBeUndefined()
 
       loadGate.resolve(true)
@@ -590,6 +590,59 @@ describe('PersistenceCoordinator session preparations', () => {
     }
   })
 
+  it('queues a same-tick cold append behind preparation readiness', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    const id = SessionId('inspect-cold-append-race')
+    backend.store.set(id, { meta: meta(id), events: oneTurnLog() })
+    let coordinator!: PersistenceCoordinator<never>
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      coordinator = new PersistenceCoordinator(inner, backend)
+    }, { inject: ['sessions'] }))
+
+    try {
+      const inspection = coordinator.inspect(id)
+      const append = coordinator.append(id, [{
+        type: 'turn/start',
+        seq: oneTurnLog().length,
+        time: 7,
+        data: { turn: 2 },
+      }])
+
+      await expect(inspection).resolves.toMatchObject({ meta: { id } })
+      await expect(append).resolves.toBeUndefined()
+      expect(backend.loadAttempts).toBe(1)
+      expect(backend.store.get(id)?.events).toHaveLength(oneTurnLog().length + 1)
+    } finally {
+      await fiber.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('inspects an open live turn without balancing it', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    let coordinator!: PersistenceCoordinator<never>
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      coordinator = new PersistenceCoordinator(inner, backend)
+    }, { inject: ['sessions'] }))
+
+    try {
+      const session = ctx.sessions.create(SessionId('inspect-live-open-turn'))
+      session.append('turn/start', { turn: 1 })
+
+      const inspected = await coordinator.inspect(session.id)
+      expect(inspected.events).toBe(session.events)
+      expect(inspected.events.map(event => event.type)).toEqual(['turn/start'])
+      await expect(coordinator.load(session.id)).rejects.toThrow(/live turn is open/)
+    } finally {
+      await fiber.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('keeps synthetic recovery in memory during inspect and commits it only once on prepare', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
@@ -770,54 +823,36 @@ describe('PersistenceCoordinator observation cancellation', () => {
     }
   })
 
-  it('waits for active cooperative inspection cleanup before rejecting cancellation', async () => {
+  it('keeps a shared cold read alive when its creating inspect is cancelled', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const backend = new ControlledBackend()
-    const id = SessionId('active-inspect-cancellation')
+    const id = SessionId('creating-inspect-cancellation')
     backend.store.set(id, { meta: meta(id), events: oneTurnLog() })
-    const cleanupGate = Promise.withResolvers<boolean>()
-    let cleanupComplete = false
-    backend.beforeLoadStored = async (_attempt, signal) => {
-      await new Promise<void>((resolve) => {
-        signal?.addEventListener('abort', () => {
-          void cleanupGate.promise.then(() => {
-            cleanupComplete = true
-            resolve()
-          })
-        }, { once: true })
-      })
-      throw new Error('backend cancellation after cleanup')
-    }
+    const loadGate = Promise.withResolvers<boolean>()
+    backend.beforeLoadStored = () => loadGate.promise.then(() => undefined)
     let coordinator!: PersistenceCoordinator<never>
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
       coordinator = new PersistenceCoordinator(inner, backend)
     }, { inject: ['sessions'] }))
+    let prepared: Awaited<ReturnType<typeof coordinator.prepare>> | undefined
 
     try {
       const controller = new AbortController()
-      const reason = new Error('active inspect cancelled')
-      const pending = coordinator.inspect(id, controller.signal)
-      let observedReason: unknown
-      const observed = pending.catch((error: unknown) => {
-        observedReason = error
-      })
+      const reason = new Error('creating inspect cancelled')
+      const inspection = coordinator.inspect(id, controller.signal)
       await vi.waitFor(() => { expect(backend.loadAttempts).toBe(1) })
+      const reservation = coordinator.prepare(id)
 
       controller.abort(reason)
-      await Promise.resolve()
-
-      expect(observedReason).toBeUndefined()
-      expect(cleanupComplete).toBe(false)
-      cleanupGate.resolve(true)
-      await observed
-      expect(cleanupComplete).toBe(true)
-      expect(observedReason).toBe(reason)
-      const backendFailure = new Error('later inspection failure')
-      backend.beforeLoadStored = () => Promise.reject(backendFailure)
-      await expect(coordinator.inspect(id)).rejects.toBe(backendFailure)
+      await expect(inspection).rejects.toBe(reason)
+      loadGate.resolve(true)
+      prepared = await reservation
+      expect(prepared.session.id).toBe(id)
+      expect(backend.loadAttempts).toBe(1)
     } finally {
-      cleanupGate.resolve(true)
+      loadGate.resolve(true)
+      prepared?.[Symbol.dispose]()
       await fiber.dispose()
       await ctx.fiber.dispose()
     }
@@ -1092,7 +1127,7 @@ describe('PersistenceCoordinator retirement', () => {
 
       await expect(ctx.plugin(Object.assign((inner: Context) => {
         inner.sessions.create(id)
-      }, { inject: ['sessions'] }))).rejects.toThrow(/persisted preparation exists/)
+      }, { inject: ['sessions'] }))).rejects.toThrow(/persisted state already owns this identity/)
 
       loadGate.resolve(true)
       await expect(coldLoad).resolves.toMatchObject({

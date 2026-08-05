@@ -35,7 +35,7 @@ Status: implemented
 
 ## 测试
 
-共享的 `runPersistenceContract`（公开 API 契约）为每个后端运行，并证明 `inspect` 会配平被中断的逻辑视图但不改变存储或修订版本，随后由 `prepare` 或 `load` 提交恢复。`runCoordinatorContract`（`tests/coordinator-contract.ts`）通过内存参考实现、JSONL 与 SQLite 覆盖准备复用与预留，以及接管、HMR、碰撞、会话与后端 dispose 排空和崩溃尾部修复。协调器专属测试覆盖有界准备状态淘汰、立即执行的后续批次、存活控制器清理、同 id 链尾竞态、排空失败重试与关闭顺序。各后端自身的测试规格只保留存储机制。每个真实后端都有一个经由协调器的崩溃尾部修复测试，以覆盖不透明 marker 分支，因为契约中的崩溃用例会产生合成 closers，却不会产生 torn marker。
+共享的 `runPersistenceContract`（公开 API 契约）为每个后端运行，并证明 `inspect` 会配平被中断的逻辑视图但不改变存储或修订版本，随后由 `prepare` 或 `load` 提交恢复。`runCoordinatorContract`（`tests/coordinator-contract.ts`）通过内存参考实现、JSONL 与 SQLite 覆盖接管、HMR、碰撞、会话与后端 dispose 排空和崩溃尾部修复。`persistence.spec.ts` 与 `preparations.spec.ts` 覆盖准备复用与预留、有界准备状态淘汰、立即执行的后续批次、存活控制器清理、同 id 链尾竞态、排空失败重试与关闭顺序。各后端自身的测试规格只保留存储机制。每个真实后端都有一个经由协调器的崩溃尾部修复测试，以覆盖不透明 marker 分支，因为契约中的崩溃用例会产生合成 closers，却不会产生 torn marker。
 
 ## 曾考虑的替代方案
 

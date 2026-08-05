@@ -1199,14 +1199,17 @@ async prepare(id: SessionId, signal?: AbortSignal): Promise<SessionPreparation>
 abstract load(id: SessionId): Promise<SessionInspection>
 
 /**
- * Inspect an immutable balanced logical session without committing recovery
- * or publishing it. A complete interrupted turn receives synthetic closers
- * in memory and a torn physical tail remains untouched. Coordinator-backed
- * implementations retain the exact unpublished Session for bounded reuse by
- * a later {@link prepare}; callers borrow only its immutable header and log.
+ * Inspect an immutable logical session without committing recovery or
+ * publishing it. A cold complete interrupted turn receives synthetic closers
+ * in memory and a torn physical tail remains untouched. An already-live
+ * Session instead yields its current immutable snapshot, which may contain an
+ * open turn and its `session/end-seed` boundary. Coordinator-backed
+ * implementations retain the exact cold unpublished Session for bounded
+ * reuse by a later {@link prepare}; callers borrow only its immutable header
+ * and log.
  * @param id - the persisted session to inspect.
  * @param signal - optional cancellation for queued and backend read work.
- * @returns the validated header and balanced logical event log.
+ * @returns the validated header and current logical event log.
  */
 abstract inspect(id: SessionId, signal?: AbortSignal): Promise<SessionInspection>
 
@@ -1252,7 +1255,7 @@ abstract listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot
 
 Types: [SessionEvent](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md) · [SessionInspection](../core-data-structures/persistence.md) · [SessionLocation](../core-data-structures/persistence.md) · [SessionPersistenceSnapshot](../core-data-structures/persistence.md) · [SessionPreparation](../core-data-structures/persistence.md)
 
-Source: [`packages/session-persistence/session-persistence/src/index.ts:66`](../../packages/session-persistence/session-persistence/src/index.ts)
+Source: [`packages/session-persistence/session-persistence/src/index.ts:70`](../../packages/session-persistence/session-persistence/src/index.ts)
 
 ## `ctx.sessionProjectionCache` — `SessionProjectionCache`
 
@@ -1589,7 +1592,11 @@ Persistence is intentionally not implemented here — persistence plugins subscr
  * `dsh-agent-loop`'s creation transaction).
  *
  * @param id - the session id; omitted, the store mints `session-<n>`.
- * @param options - seed events and/or creation metadata for the header.
+ * @param options - seed events and/or creation metadata for the header. With
+ *   `seedSource: 'persistence'`, metadata and events must be fresh detached
+ *   graphs whose ownership transfers to this call: they are validated and
+ *   frozen in place through {@link Session.fromRestore}, so the caller must
+ *   retain no mutable aliases.
  * @returns the live session, already entered and announced.
  * @throws if a session with `id` already exists, metadata is not a plain
  *   lossless-JSON record with valid scalar fields, or `meta.cwd` is a

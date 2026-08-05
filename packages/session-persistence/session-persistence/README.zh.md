@@ -15,7 +15,7 @@
 | `append(id, events): Promise<void>` | 持久保存一个批次。仅追加；任何修复后，第一个事件 `seq` == 已存储 next-seq；非 JSON 可序列化数据会被拒绝，并命名违规类型。 |
 | `prepare(id, signal?): Promise<SessionPreparation>` | 预留恢复使用的精确未发布 Session。协调器会尽可能复用之前的检查结果、提交待处理恢复，并在 dispose 时将未发布 reservation 释放回有界缓存。 |
 | `load(id): Promise<{ meta; events }>` | 在升级受支持的同版本形状后返回不可变、平衡的逻辑日志，并提交冷恢复。实时 load 先 flush 其快照，并在轮次开放时拒绝；冷 load 保留中断的最终轮次，并用合成 `tool/result`/`step/end?`/`turn/end {interrupted}` 事件持久关闭它。只丢弃撕裂尾部碎片；已提交损坏、格式错误的形状和未知 `version` 会被拒绝。 |
-| `inspect(id, signal?): Promise<{ meta; events }>` | 返回同一份已经升级、验证和深度冻结的逻辑视图，但不提交恢复或发布 Session。合成恢复 closer 只存在于内存，物理撕裂尾部保持不变，基于协调器的实现会在有界 LRU 中保留精确的未发布 Session，供后续 `prepare` 使用。同 id 检查共享进行中的读取。 |
+| `inspect(id, signal?): Promise<{ meta; events }>` | 返回已经升级、验证和深度冻结的逻辑视图，但不提交恢复或发布 Session。冷视图会获得仅存在于内存的合成恢复 closer，物理撕裂尾部保持不变；已经实时存在的视图则是当前不可变快照，可能包含打开的 turn。基于协调器的实现会在有界 LRU 中保留精确的冷未发布 Session，供后续 `prepare` 使用。同 id 检查共享进行中的读取。 |
 | `readFrom(id, fromSeq, signal?): Promise<{ meta; events }>` | 脱离的物理后缀原语：返回 `seq >= fromSeq` 的有效已存储事件，不进入 preparation 缓存、不截断、不合成 closer，也不发布协调器状态。`fromSeq` 达到或超过已存储末尾时返回空事件列表；负数或非安全整数 `fromSeq` 会被拒绝。可寻址后端（SQLite）只读后缀，除非受支持的旧形状需要前缀上下文才能完成规范化；顺序后端（JSONL）解析整个产物并向前跳过。用于只续折水位之后尾部的 checkpoint 消费方。 |
 | `list(signal?): Promise<SessionHeader[]>` | 从元数据轻量列出，不解析完整日志。可选信号取消后端列表工作。零事件延迟实体化会话不在 `list` 中。 |
 | `listSnapshots(signal?): Promise<SessionPersistenceSnapshot[]>` | 返回轻量元数据和每份日志一个不透明、带品牌类型的修订值，不加载事件日志。日志及其后端存储不变时，修订保持相等；append 或变更性 load 修复后会改变；不会仅因两个存储使用相同本地计数器而冲突。可选信号请求取消后端发现工作；第一方后端会先等待所有已启动的列出工作结束，再予以拒绝，因此调用返回拒绝时，相关工作已完全停稳。 |

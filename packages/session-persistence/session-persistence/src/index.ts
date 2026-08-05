@@ -31,7 +31,11 @@ export interface SessionInspection {
 }
 
 // The backend-agnostic write-path orchestration first-party backends compose.
-export { DEFAULT_PREPARED_SESSION_CACHE_SIZE, PersistenceCoordinator } from './coordinator.ts'
+export {
+  DEFAULT_PREPARED_SESSION_CACHE_SIZE,
+  PersistenceCoordinator,
+  SessionPersistenceCorruptionError,
+} from './coordinator.ts'
 export type {
   PersistenceBackend,
   PersistenceCoordinatorOptions,
@@ -134,14 +138,17 @@ export abstract class SessionPersistence extends Service {
   abstract load(id: SessionId): Promise<SessionInspection>
 
   /**
-   * Inspect an immutable balanced logical session without committing recovery
-   * or publishing it. A complete interrupted turn receives synthetic closers
-   * in memory and a torn physical tail remains untouched. Coordinator-backed
-   * implementations retain the exact unpublished Session for bounded reuse by
-   * a later {@link prepare}; callers borrow only its immutable header and log.
+   * Inspect an immutable logical session without committing recovery or
+   * publishing it. A cold complete interrupted turn receives synthetic closers
+   * in memory and a torn physical tail remains untouched. An already-live
+   * Session instead yields its current immutable snapshot, which may contain an
+   * open turn and its `session/end-seed` boundary. Coordinator-backed
+   * implementations retain the exact cold unpublished Session for bounded
+   * reuse by a later {@link prepare}; callers borrow only its immutable header
+   * and log.
    * @param id - the persisted session to inspect.
    * @param signal - optional cancellation for queued and backend read work.
-   * @returns the validated header and balanced logical event log.
+   * @returns the validated header and current logical event log.
    */
   abstract inspect(id: SessionId, signal?: AbortSignal): Promise<SessionInspection>
 

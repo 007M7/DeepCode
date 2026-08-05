@@ -22,6 +22,18 @@ import type { SessionPreparationReservation } from './preparations.ts'
 /** Default number of detached session preparations retained by a coordinator. */
 export const DEFAULT_PREPARED_SESSION_CACHE_SIZE = 5
 
+/** Durable session contents failed validation after a successful backend read. */
+export class SessionPersistenceCorruptionError extends Error {
+  /**
+   * @param message - stable corruption context.
+   * @param options - original validation failure.
+   */
+  constructor(message: string, options: ErrorOptions) {
+    super(message, options)
+    this.name = 'SessionPersistenceCorruptionError'
+  }
+}
+
 /** Coordinator policy supplied by a concrete persistence backend. */
 export interface PersistenceCoordinatorOptions {
   /** Maximum completed unpublished preparations retained for reuse. */
@@ -623,7 +635,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       }
       const reservation = await this.preparations.reserve(
         id,
-        () => this.serialize(id, () => this.prepareCore(id, signal), signal),
+        () => this.serialize(id, () => this.prepareCore(id)),
         source => this.serialize(id, () => this.commitPrepared(source), signal),
         signal,
       )
@@ -674,16 +686,17 @@ export class PersistenceCoordinator<TornMarker = unknown> {
    * Inspect a logical session without publishing it or committing recovery.
    * @param id - persisted session to inspect.
    * @param signal - optional cancellation for preparation work.
-   * @returns immutable prepared metadata and balanced events.
+   * @returns immutable prepared metadata and events; a live view may have an open turn.
    */
   async inspect(id: SessionId, signal?: AbortSignal): Promise<SessionInspection> {
-    await this.waitForRetirement(id, signal)
+    signal?.throwIfAborted()
+    if (this.retirements.has(id)) await this.waitForRetirement(id, signal)
     const live = this.ctx.sessions.get(id)
     if (live !== undefined) return this.inspectLive(live)
     try {
       const source = await this.preparations.inspect(
         id,
-        () => this.serialize(id, () => this.prepareCore(id, signal), signal),
+        () => this.serialize(id, () => this.prepareCore(id)),
         signal,
       )
       const attached = this.ctx.sessions.get(id)
@@ -776,29 +789,36 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     }
     signal?.throwIfAborted()
     if (stored === undefined) throw new Error(`session "${id}" not found`)
-    const { meta, events, tornMarker } = stored
-    this.assertStoredId(id, meta)
-    this.assertVersion(meta)
-    const storedEvents = adoptStoredEvents(events, id)
+    try {
+      const { meta, events, tornMarker } = stored
+      this.assertStoredId(id, meta)
+      this.assertVersion(meta)
+      const storedEvents = adoptStoredEvents(events, id)
 
-    // Preserve complete interrupted events and synthesize only missing closers.
-    const closers = interruptedTurnClosers(storedEvents).map(adoptSessionEvent)
-    const balanced = [...storedEvents, ...closers]
-    const session = this.ctx.sessions.prepare(id, {
-      seed: balanced,
-      meta,
-      seedSource: 'persistence',
-    })
-    const inspection: SessionInspection = Object.freeze({
-      meta: session.header,
-      events: Object.freeze(balanced),
-    })
-    return {
-      inspection,
-      session,
-      sessionLength: session.events.length,
-      tornMarker,
-      closers,
+      // Preserve complete interrupted events and synthesize only missing closers.
+      const closers = interruptedTurnClosers(storedEvents).map(adoptSessionEvent)
+      const balanced = [...storedEvents, ...closers]
+      const session = this.ctx.sessions.prepare(id, {
+        seed: balanced,
+        meta,
+        seedSource: 'persistence',
+      })
+      const inspection: SessionInspection = Object.freeze({
+        meta: session.header,
+        events: Object.freeze(balanced),
+      })
+      return {
+        inspection,
+        session,
+        sessionLength: session.events.length,
+        tornMarker,
+        closers,
+      }
+    } catch (error: unknown) {
+      throw new SessionPersistenceCorruptionError(
+        `stored session "${id}" failed validation: ${String(error)}`,
+        { cause: error },
+      )
     }
   }
 

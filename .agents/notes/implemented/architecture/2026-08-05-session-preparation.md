@@ -44,7 +44,7 @@ Cold continuable-subagent access follows the same path. Descriptor authorization
 
 ## Verification
 
-The shared persistence contract and coordinator tests pin same-id in-flight sharing, exact Session reuse across inspect and prepare, single repair commit, exclusive reservation, release after failed setup, ready-entry LRU eviction, append rejection during reservation, and publication of only the reserved Session. Agent-loop and continuable-subagent tests pin the common publication pipeline and inspection-to-resume path across cancellation and teardown.
+The shared persistence contract pins non-mutating balanced cold inspection and later repair. `persistence.spec.ts` and `preparations.spec.ts` pin same-id in-flight sharing, exact Session reuse across inspect and prepare, single repair commit, exclusive reservation, release after failed setup, ready-entry LRU eviction, append rejection during reservation, and publication of only the reserved Session. Agent-loop and continuable-subagent tests pin the common publication pipeline and inspection-to-resume path across cancellation and teardown.
 
 ## Alternatives considered
 

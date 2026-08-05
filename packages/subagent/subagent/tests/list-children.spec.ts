@@ -268,7 +268,7 @@ describe('SubagentService.listChildren', () => {
     })
   })
 
-  it('maps a child rejected by persisted Session preparation to unavailable', async () => {
+  it('diagnoses a child rejected by persisted Session preparation as corrupt', async () => {
     const { ctx, parent } = await setup([])
     // The surface-eligible user/message lacks its required surfaceOp. The
     // first-party persistence inspection rejects before session-query can fold it.
@@ -285,7 +285,7 @@ describe('SubagentService.listChildren', () => {
       { type: 'subagent/descriptor', seq: 2, time: 3, data: descriptorPayload('broken surface') },
     ] as SessionEvent[])
     const entries = await ctx.subagents.listChildren(parent.id)
-    expect(entries).toEqual([{ kind: 'diagnostic', id: invalid, reason: 'unavailable' }])
+    expect(entries).toEqual([{ kind: 'diagnostic', id: invalid, reason: 'corrupt' }])
   })
 
   it('diagnoses a malformed descriptor payload as corrupt', async () => {

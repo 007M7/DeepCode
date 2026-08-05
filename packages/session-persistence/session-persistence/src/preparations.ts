@@ -55,8 +55,8 @@ export class SessionPreparations<Source extends PreparedSource, CommitState> {
     load: () => Promise<Source>,
     signal?: AbortSignal,
   ): Promise<Source> {
-    const { entry, created } = this.entryFor(id, load)
-    const loaded = signal === undefined || created
+    const entry = this.entryFor(id, load)
+    const loaded = signal === undefined
       ? await entry.result
       : await observeQueuedAbort(entry.result, signal)
     const source = entry.source ?? loaded
@@ -78,10 +78,8 @@ export class SessionPreparations<Source extends PreparedSource, CommitState> {
     commit: (source: Source) => Promise<{ source: Source; state: CommitState }>,
     signal?: AbortSignal,
   ): Promise<SessionPreparationReservation<Source, CommitState> | undefined> {
-    const { entry, created } = this.entryFor(id, load)
-    await (signal === undefined || created
-      ? entry.result
-      : observeQueuedAbort(entry.result, signal))
+    const entry = this.entryFor(id, load)
+    await (signal === undefined ? entry.result : observeQueuedAbort(entry.result, signal))
     while (this.entries.get(id) === entry && entry.phase !== 'ready') {
       const settled = entry.reservationSettled
       /* v8 ignore next -- committing/reserved transitions install this waiter synchronously. */
@@ -132,7 +130,7 @@ export class SessionPreparations<Source extends PreparedSource, CommitState> {
       && entry.reservation !== undefined) {
       return entry.reservation
     }
-    throw new Error(`cannot publish session "${session.id}" while a persisted preparation exists`)
+    throw new Error(`cannot publish session "${session.id}": persisted state already owns this identity`)
   }
 
   /**
@@ -216,20 +214,37 @@ export class SessionPreparations<Source extends PreparedSource, CommitState> {
   private entryFor(
     id: SessionId,
     load: () => Promise<Source>,
-  ): { entry: PreparationEntry<Source, CommitState>; created: boolean } {
+  ): PreparationEntry<Source, CommitState> {
     const existing = this.entries.get(id)
-    if (existing !== undefined) return { entry: existing, created: false }
-    const result = Promise.resolve().then(load)
-    const entry: PreparationEntry<Source, CommitState> = { id, result, phase: 'loading' }
+    if (existing !== undefined) return existing
+    const deferred = Promise.withResolvers<Source>()
+    const entry: PreparationEntry<Source, CommitState> = {
+      id,
+      result: deferred.promise,
+      phase: 'loading',
+    }
     this.entries.set(id, entry)
-    void result.then((source) => {
-      if (this.entries.get(id) !== entry) return
-      entry.source = source
-      entry.phase = 'ready'
-    }, () => {
+    let loading: Promise<Source>
+    try {
+      // Start immediately so a same-tick serialized append queues behind this
+      // read. The deferred result settles only after the entry becomes ready.
+      loading = load()
+    } catch (error: unknown) {
       this.remove(entry)
+      deferred.reject(error)
+      return entry
+    }
+    void loading.then((source) => {
+      if (this.entries.get(id) === entry) {
+        entry.source = source
+        entry.phase = 'ready'
+      }
+      deferred.resolve(source)
+    }, (error: unknown) => {
+      this.remove(entry)
+      deferred.reject(error)
     })
-    return { entry, created: true }
+    return entry
   }
 
   private makeReady(entry: PreparationEntry<Source, CommitState>): void {

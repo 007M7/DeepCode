@@ -141,6 +141,26 @@ describe('tool-session-query with the real SQLite provider', () => {
         }),
         surfaceOp: 'append',
       },
+      {
+        type: 'user/message',
+        seq: 2,
+        time: -124,
+        data: createUserMessage({
+          content: [{ type: 'text', text: 'pre-epoch fractional needle' }],
+          source: { kind: 'user' },
+        }),
+        surfaceOp: 'append',
+      },
+      {
+        type: 'user/message',
+        seq: 3,
+        time: -123,
+        data: createUserMessage({
+          content: [{ type: 'text', text: 'pre-epoch fractional needle' }],
+          source: { kind: 'user' },
+        }),
+        surfaceOp: 'append',
+      },
     ])
 
     const caller = ctx.sessions.create(SessionId('fractional-caller'), {
@@ -184,5 +204,27 @@ describe('tool-session-query with the real SQLite provider', () => {
     expect(emptySameMillisecond.isError).toBe(false)
     expect(emptySameMillisecond.content.map(block => block.type === 'text' ? block.text : '').join('\n'))
       .toContain('No prior event matches found.')
+
+    const preEpochLower = await execute({
+      session_id: persisted,
+      query: 'pre-epoch fractional needle',
+      time_from: '1969-12-31T23:59:59.87600001Z',
+    })
+    expect(preEpochLower.isError).toBe(false)
+    const preEpochLowerText = preEpochLower.content
+      .map(block => block.type === 'text' ? block.text : '').join('\n')
+    expect(preEpochLowerText).toContain('seq 3')
+    expect(preEpochLowerText).not.toContain('seq 2')
+
+    const preEpochUpper = await execute({
+      session_id: persisted,
+      query: 'pre-epoch fractional needle',
+      time_to: '1969-12-31T19:59:59.8769999-04:00',
+    })
+    expect(preEpochUpper.isError).toBe(false)
+    const preEpochUpperText = preEpochUpper.content
+      .map(block => block.type === 'text' ? block.text : '').join('\n')
+    expect(preEpochUpperText).toContain('seq 2')
+    expect(preEpochUpperText).not.toContain('seq 3')
   })
 })

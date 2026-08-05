@@ -105,11 +105,14 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
 
   constructor(ctx: Context, public config: Config) {
     super(ctx)
+    // Programmatic wrappers may construct the backend without Schemastery normalization.
+    const preparedSessionCacheSize = config.preparedSessionCacheSize
+      ?? DEFAULT_PREPARED_SESSION_CACHE_SIZE
     // Open asynchronously so directory creation does not block plugin apply;
     // every storage hook awaits the same readiness promise.
     this.ready = this.openDb(config.path, (config as Required<Config>).journalMode)
     this.coordinator = new PersistenceCoordinator<number>(this.ctx, this, {
-      preparedSessionCacheSize: (config as Required<Config>).preparedSessionCacheSize,
+      preparedSessionCacheSize,
     })
   }
 

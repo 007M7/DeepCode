@@ -39,6 +39,25 @@ describe('SessionPreparations inspection', () => {
     expect(preparations.has(id)).toBe(false)
   })
 
+  it('keeps a shared load alive when its first observer cancels', async () => {
+    const preparations = new SessionPreparations<PreparedSource, string>(1)
+    const id = SessionId('cancelled-first-observer')
+    const gate = Promise.withResolvers<PreparedSource>()
+    const load = vi.fn(() => gate.promise)
+    const controller = new AbortController()
+    const reason = new Error('first observer cancelled')
+    const first = preparations.inspect(id, load, controller.signal)
+    const joined = preparations.inspect(id, load)
+
+    controller.abort(reason)
+    await expect(first).rejects.toBe(reason)
+    const source = prepared(id)
+    gate.resolve(source)
+    await expect(joined).resolves.toBe(source)
+    await expect(preparations.inspect(id, load)).resolves.toBe(source)
+    expect(load).toHaveBeenCalledOnce()
+  })
+
   it('removes failed and invalidated in-flight loads without changing their observers', async () => {
     const preparations = new SessionPreparations<PreparedSource, string>(1)
     const failedId = SessionId('failed-inspection')
@@ -61,6 +80,15 @@ describe('SessionPreparations inspection', () => {
     preparations.invalidate(rejectedId)
     rejectedGate.reject(failure)
     await expect(rejected).rejects.toBe(failure)
+  })
+
+  it('removes a load that throws before returning its promise', async () => {
+    const preparations = new SessionPreparations<PreparedSource, string>(1)
+    const id = SessionId('synchronous-load-failure')
+    const failure = new Error('synchronous load failure')
+
+    await expect(preparations.inspect(id, () => { throw failure })).rejects.toBe(failure)
+    expect(preparations.has(id)).toBe(false)
   })
 
   it('evicts ready entries while leaving reserved entries alone', async () => {

@@ -105,11 +105,13 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     // Resolve once so later process.cwd() changes cannot split one backend across roots.
     this.root = resolve(config.root)
     // Programmatic wrappers may construct the backend without Schemastery normalization.
+    const preparedSessionCacheSize = config.preparedSessionCacheSize
+      ?? DEFAULT_PREPARED_SESSION_CACHE_SIZE
     this.packChunks = config.packChunks ?? DEFAULT_PACK_CHUNKS
     this.compression = config.compression ?? DEFAULT_COMPRESSION
     this.assertUsableRoot()
     this.coordinator = new PersistenceCoordinator<JsonlTornMarker>(this.ctx, this, {
-      preparedSessionCacheSize: config.preparedSessionCacheSize ?? DEFAULT_PREPARED_SESSION_CACHE_SIZE,
+      preparedSessionCacheSize,
     })
   }
 

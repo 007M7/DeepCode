@@ -218,6 +218,8 @@ function perChildDiagnosticReason(
 ): 'corrupt' | 'unavailable' | undefined {
   if (!(error instanceof SessionQueryError)) return undefined
   switch (error.code) {
+    case 'SESSION_QUERY_CORRUPT_SESSION':
+      return 'corrupt'
     case 'SESSION_QUERY_SESSION_NOT_FOUND':
     case 'SESSION_QUERY_EVENT_NOT_FOUND':
     case 'SESSION_QUERY_PERSISTENCE_FAILED':
