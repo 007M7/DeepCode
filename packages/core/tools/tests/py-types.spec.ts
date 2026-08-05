@@ -1115,10 +1115,10 @@ describe('renderToolsSdkPy', () => {
   it('escapes unpaired surrogates, which make the source impossible to encode', () => {
     // This is the NUL case, not the invisible-character case: Python source
     // must be UTF-8-encodable, and `compile()` raises `UnicodeEncodeError:
-    // surrogates not allowed` for a lone surrogate in a string literal and in
-    // a `#` comment alike, so one would stop this block — Code Mode's only SDK
-    // — from parsing. A wire description reaches it: `JSON.parse` on a
-    // `"\ud800"` escape yields exactly this code point.
+    // surrogates not allowed` for a lone surrogate in a string literal and in a
+    // `#` comment alike, so one would stop this block — Code Mode's only SDK —
+    // from parsing. A wire description reaches it: `JSON.parse` on a `"\ud800"`
+    // escape yields exactly this code point.
     const high = renderToolsSdkPy([described('a\ud800b')])
     expect(high).not.toContain('\ud800')
     expect(high).toContain(String.raw`# a\ud800b`)

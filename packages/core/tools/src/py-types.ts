@@ -76,13 +76,13 @@ const IDENTIFIER = /^[\p{XID_Start}_]\p{XID_Continue}*$/u
  * releases after its tables. The case mapping is a separate table rather than
  * an XID membership test, and it fails on names both conditions above accept:
  * `\u{019B}` is XID_Start and NFKC-stable, so this predicate accepts it and
- * `async def \u{019B}` compiles on 3.9.6, but Node uppercases it to `\u{A7DC}`
- * — unassigned in that CPython, whose own `.upper()` is the identity here — and
- * the declared `class \u{A7DC}Args` fails with `invalid non-printable character
- * U+A7DC`. Closing the exposure therefore covers all four read points, not this
- * predicate alone; it needs the target interpreter's version, which the backend
- * reporting `language: 'python'` owns and which is unpublished on this base, so
- * the note records it as that PR's decision.
+ * `async def \u{019B}` compiles on 3.9.6, but Node uppercases it to
+ * `\u{A7DC}` — unassigned in that CPython, whose own `.upper()` is the identity
+ * here — and the declared `class \u{A7DC}Args` fails with `invalid
+ * non-printable character U+A7DC`. Closing the exposure therefore covers all
+ * four read points, not this predicate alone; it needs the target interpreter's
+ * version, which the backend reporting `language: 'python'` owns and which is
+ * unpublished on this base, so the note records it as that PR's decision.
  *
  * The `ts-types` sibling keeps its own ASCII rule rather than sharing this
  * one: ECMAScript identifiers are a different set (`$`, ZWJ/ZWNJ) and are
@@ -743,7 +743,10 @@ The available tools:`
  * Deterministic — tools are emitted in lexicographic name order, and class
  * declarations precede the protocol in that same order (nested classes before
  * the parent that references them), so an unchanged tool set produces
- * byte-identical text across assemblies.
+ * byte-identical text across assemblies. The sort is not a total order on
+ * byte-equal names, so two schemas sharing a name would render in argument
+ * order; the caller's visible-capability map is keyed by name, so the input
+ * never carries a duplicate.
  * @param schemas - the tool schemas plus canonical output schemas to declare
  *   (the caller excludes `run_code` itself).
  * @returns the complete section text.
