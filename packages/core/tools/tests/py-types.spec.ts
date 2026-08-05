@@ -477,10 +477,10 @@ describe('renderToolsSdkPy', () => {
     // instead of at a head: CPython reads XID_Continue out of the
     // `DerivedCoreProperties.txt` of the UCD it was built against (13.0.0 on
     // 3.9.6 and 15.0.0 on 3.12.13 both lack the row, and
-    // `'a\u200Cb'.isidentifier()` is False on both, measured). Two emitted
-    // positions then need 15.1 tables or newer: the bare field, once in each
-    // class, and the `Tool\u200CbArgs` class name. The subscript comment
-    // quoting the tool name is not one: it is not parsed as an identifier.
+    // `'a\u200Cb'.isidentifier()` is False on both, measured). What then needs
+    // 15.1 tables or newer is the bare field, once in each class, and the
+    // `Tool\u200CbArgs` class name. The subscript comment quoting the tool name
+    // is not one of them: it is not parsed as an identifier.
     const of = (name: string): ToolSdkSchema => ({
       name,
       description: `Tool ${name}.`,
