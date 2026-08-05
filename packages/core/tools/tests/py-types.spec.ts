@@ -464,6 +464,13 @@ describe('renderToolsSdkPy', () => {
     // Subscript entry appears without the "#   ..." description follow-up.
     expect(text).toContain('# tools["weird-name"]')
     expect(text.split('\n').every(line => !line.startsWith('    #   '))).toBe(true)
+    // A whitespace-only description collapses to nothing and is treated as
+    // absent: no empty `""""""` docstring, no bare `#   ` line.
+    const blank = renderToolsSdkPy([
+      { ...undescribedIdentifier, description: ' \t\n ' },
+      { ...undescribedExotic, description: '   ' },
+    ])
+    expect(blank).toBe(text)
   })
 
   it('marks an open object TypedDict and declares a closed empty object', () => {

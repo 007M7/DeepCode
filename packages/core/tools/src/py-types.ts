@@ -82,7 +82,10 @@ const UNPRINTABLE = /[\u0000-\u0008\u000e-\u001f\u007f]/g
  * The collapsed one-line `description` of a schema node (byte-stable across
  * formatting churn), or `undefined` when the node carries none. Every caller
  * passes an object (validated property nodes, or the ToolSdkSchema itself),
- * so only the description field needs guarding.
+ * so only the description field needs guarding. A description that collapses
+ * to nothing (empty, or whitespace only) is `undefined` too: it documents the
+ * node no better than an absent one, and emitting it would leave an empty
+ * `"""` docstring or a bare `#   ` line in the SDK.
  *
  * Control characters left over after the whitespace collapse are rendered as
  * their `\xNN` escapes (see {@link UNPRINTABLE}); the escape's own backslash is
@@ -91,11 +94,12 @@ const UNPRINTABLE = /[\u0000-\u0008\u000e-\u001f\u007f]/g
  */
 function describe(schema: object): string | undefined {
   const description = (schema as Record<string, unknown>).description
-  if (typeof description !== 'string' || description.length === 0) return undefined
-  return description
+  if (typeof description !== 'string') return undefined
+  const collapsed = description
     .replace(/\s+/g, ' ')
     .replace(UNPRINTABLE, char => `\\x${char.charCodeAt(0).toString(16).padStart(2, '0')}`)
     .trim()
+  return collapsed.length === 0 ? undefined : collapsed
 }
 
 /**
