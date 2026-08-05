@@ -192,7 +192,8 @@ const MAX_CLASS_NAME_BASE = 120
  *   still open around it: 180 `list[` plus `Literal[` plus the paren, 182, the
  *   worst case. Reachable only through a raw `register()` whose `parameters`
  *   is array-rooted; `defineTool` compiles an object root, so the annotation
- *   is a bare TypedDict class name that opens nothing.
+ *   is a bare TypedDict class name or `dict[str, Any]` — neither carries a
+ *   chain.
  *
  * A CPython grammar limit, not a deployment choice, so it is fixed rather than
  * configurable. The sibling `ts-types` renderer needs no counterpart: nothing
@@ -279,8 +280,9 @@ function childClassName(base: string, segment: string): string {
  * parses and decodes back to the value the schema declared. DEL and the C1
  * controls do reach it raw — legal but invisible, byte-for-byte as in the TS
  * flavor; escaping them is a both-flavors change. The subscript tool-name
- * comment quotes its name through the same call and inherits both halves,
- * escapes and pass-throughs alike.
+ * comment quotes its name through its own call to the same `JSON.stringify`,
+ * never through this function, and inherits both halves — escapes and
+ * pass-throughs alike.
  */
 function pyScalar(value: JsonSchemaScalar): string {
   if (value === true) return 'True'

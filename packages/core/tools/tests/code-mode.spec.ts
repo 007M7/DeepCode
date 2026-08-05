@@ -353,8 +353,9 @@ describe('mode-aware wire contribution', () => {
   it("assembles under a python runtime in mode 'both' as well, SDK and schema together", async () => {
     // `both` reaches the same wireSchemas/requireCodeRuntime/SDK-section code
     // as `code`, so this pins the mode-by-language matrix rather than a
-    // separate path — including that `schemas()` under `both` projects the
-    // Python flavor instead of hitting the flavor-table guard.
+    // separate path — including that the `wireSchemas` projection behind
+    // `assembly.tools` picks the Python flavor under `both` instead of hitting
+    // the flavor-table guard.
     const { ctx, systemPrompt } = await setup({ mode: 'both', runtime: { language: 'python' } })
     registerEcho(ctx)
     const assembly = await systemPrompt.assemble()

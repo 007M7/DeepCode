@@ -577,7 +577,7 @@ describe('renderToolsSdkPy', () => {
     // open around this annotation, so 180 `list[` plus the innermost bracket
     // plus that paren is 182 of CPython's 200. Only a raw `register()` reaches
     // it — `defineTool` compiles an object root, whose annotation is a bare
-    // TypedDict name that opens nothing.
+    // TypedDict name or `dict[str, Any]`, neither of which carries a chain.
     const rooted = (depth: number): ToolSdkSchema => {
       let schema: Record<string, unknown> = { type: 'string', const: 'x' }
       for (let i = 0; i < depth; i++) schema = { type: 'array', items: schema }
