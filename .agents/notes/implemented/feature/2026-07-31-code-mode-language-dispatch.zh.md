@@ -35,4 +35,6 @@ Code Mode 只生成一种 SDK 形态：TypeScript。`ToolRegistry` 为 `tools:sd
 
 ## Consequences
 
-新增一门后端语言就是两条表项——一个 `SDK_RENDERERS` 表项加一个 `RUN_CODE_FLAVORS` 表项——再加前者所指向的渲染器函数，不动 `agent-loop`，也不动注册表结构。两张表（`SDK_RENDERERS`、`RUN_CODE_FLAVORS`）必须同步：某语言只在其一而不在另一是潜在的不一致，`Object.hasOwn` 守卫会把它变成一次 loud failure，而不是错误语言的 prompt。工具层不依赖任何具体后端，因此它能先于 Python 协议和后端在 master 上落地并可测；代价是在该后端发布前无法真正端到端跑一个 `python` 运行时，故本 PR 的覆盖是 unit 级（渲染器输出与分发/拒绝路径），而非真实的 Python 运行。
+新增一门后端语言就是两条表项——一个 `SDK_RENDERERS` 表项加一个 `RUN_CODE_FLAVORS` 表项——再加前者所指向的渲染器函数，不动 `agent-loop`，也不动注册表结构。两张表（`SDK_RENDERERS`、`RUN_CODE_FLAVORS`）必须同步：某语言只在其一而不在另一是潜在的不一致，`Object.hasOwn` 守卫会把它变成一次 loud failure，而不是错误语言的 prompt。工具层不依赖任何具体后端，因此它能先于 Python 协议和后端在 master 上落地并可测。
+
+代价是两张表的 Python 分支在当前 base 上不可达：`CodeRuntime.language` 由所加载的后端设定，已发布的后端只有 `dsh-code-runtime-worker`（`'typescript'`），而注册表读取的是所加载的运行时而非某个配置字段，因此没有任何一份组装好的应用能选中 `renderToolsSdkPy` 或 `PYTHON_FLAVOR`。也就是说，在报告 `'python'` 的后端发布之前，本 note 的工作不改变模型可见表面，本 PR 的覆盖因此是 unit 级——渲染器输出加分发与拒绝路径。Python 模型界面的 keyless snapshot 归属于发布该后端的那个 PR，因为只有在那里，一份基于已发布插件的真实 `cordis.yml` 才会产出 Python 组装；在此处挂载 fixture 运行时的快照示例断言的是测试替身，而 [docs/testing.md](../../../../docs/testing.md) 明确拒绝以此替代组装好的应用 transcript。
