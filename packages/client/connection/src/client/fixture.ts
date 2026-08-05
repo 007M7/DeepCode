@@ -838,26 +838,19 @@ const ROLE_OVERHEAD = 4
 
 /** Price fixture content with token-meter's fixed-density heuristic. */
 function estimateFixtureContent(blocks: readonly ContentBlock[]): number {
-  let tokens = 0
-  for (const block of blocks) {
-    switch (block.type) {
-      case 'text':
-      case 'reasoning':
-        tokens += Math.ceil(block.text.length / CHARS_PER_TOKEN) + BLOCK_OVERHEAD
-        break
-      case 'tool-call':
-        tokens += Math.ceil(block.name.length / CHARS_PER_TOKEN)
-          + Math.ceil(block.arguments.length / CHARS_PER_TOKEN)
-          + BLOCK_OVERHEAD
-        break
-      case 'tool-result':
-        tokens += estimateFixtureContent(block.content) + BLOCK_OVERHEAD
-        break
-      default:
-        tokens += BLOCK_OVERHEAD + Math.ceil(JSON.stringify(block).length / CHARS_PER_TOKEN)
+  const densityPrice = (value: string): number => Math.ceil(value.length / CHARS_PER_TOKEN)
+  return blocks.reduce((tokens, block) => {
+    if (block.type === 'text' || block.type === 'reasoning') {
+      return tokens + densityPrice(block.text) + BLOCK_OVERHEAD
     }
-  }
-  return tokens
+    if (block.type === 'tool-call') {
+      return tokens + densityPrice(block.name) + densityPrice(block.arguments) + BLOCK_OVERHEAD
+    }
+    if (block.type === 'tool-result') {
+      return tokens + estimateFixtureContent(block.content) + BLOCK_OVERHEAD
+    }
+    return tokens + densityPrice(JSON.stringify(block)) + BLOCK_OVERHEAD
+  }, 0)
 }
 
 /** Fixture parallel of token-meter's heuristic context-composition projection. */
