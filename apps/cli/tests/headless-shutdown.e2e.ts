@@ -66,7 +66,10 @@ async function runHeadlessPtySmoke(): Promise<string> {
   try {
     const home = join(cwd, '.dsh')
     await mkdir(home, { recursive: true })
-    await writeFile(join(home, 'config.yaml'), [
+    // The overlay is named, not discovered: nothing is auto-loaded from the
+    // Harness home, and `-p` takes `--config` for exactly this reason.
+    const overlay = join(cwd, 'never-dispose.cordis.yml')
+    await writeFile(overlay, [
       '- insert:',
       '    - id: never-dispose',
       `      name: '${neverDisposePlugin}'`,
@@ -74,7 +77,7 @@ async function runHeadlessPtySmoke(): Promise<string> {
     ].join('\n'))
     const launch = resolveExampleLaunch({
       srcBin: dshBinScript,
-      configArgs: ['-p', 'never complete'],
+      configArgs: ['-p', 'never complete', '--config', overlay],
       tsconfigPath,
       env: {
         DSH_HOME: home,
