@@ -12,7 +12,7 @@ A representative profile contained 61.8 MiB of Zstandard data, 97.1 MiB of plain
 
 ## Decision
 
-Restoration is one ownership-transfer pipeline from the persistence artifact into `Session.fromRestore`. Each stage consumes the previous stage's output incrementally and retains only the authoritative event array plus incomplete-record state.
+Restoration is one ownership-transfer pipeline from the persistence artifact into `Session.fromRestore`. The compressed artifact remains the source buffer, while each decoding and scanning stage consumes the previous stage's output incrementally without retaining a whole-log plaintext or parsed copy; the resulting event array is the only complete decoded representation.
 
 ### Frame decoding
 
@@ -26,7 +26,7 @@ After approximately one second of accumulated frame work, the asynchronous reade
 
 `SessionLogScanner` searches raw buffers with `Buffer.indexOf(0x0A)` and converts only complete records to UTF-8 for `JSON.parse`. It carries an incomplete record across decoder writes and copies only that fragment because the private decoder may reuse its output buffer. It does not build a whole plaintext buffer or string, a line array, or a second parsed-record array.
 
-The scanner stops retaining events at the first unparsable row or sequence gap but continues inspecting later complete records. A later `turn/end` proves that the issue lies in the committed region and rejects the log; otherwise the issue is a recoverable final suffix. A partial JSONL record in a complete frame remains corruption, while complete records emitted from a torn final frame pass through the same scanner and retain the existing repair offset and recovered-event semantics.
+The scanner stops retaining events at the first unparsable row or sequence gap but continues inspecting later complete records. A later `turn/end` proves that the issue lies in the committed region and rejects the log. The Zstandard reader also rejects any unresolved parse, sequence, or partial-record issue after all complete frames; only a structurally torn final frame may contribute a recoverable suffix. Complete records emitted from that torn frame pass through the same scanner and retain the existing repair offset and recovered-event semantics.
 
 ### Restore admission
 
