@@ -7,12 +7,26 @@
 
 import { Context } from 'cordis'
 import {
+  adoptSessionEvent,
   interruptedTurnClosers,
   SESSION_FORMAT_VERSION,
+  SessionPreparation,
   snapshotJsonValue,
   snapshotSessionEvent,
 } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
+import type { SessionInspection } from './index.ts'
+import { SessionPreparations } from './preparations.ts'
+import type { SessionPreparationReservation } from './preparations.ts'
+
+/** Default number of detached session preparations retained by a coordinator. */
+export const DEFAULT_PREPARED_SESSION_CACHE_SIZE = 5
+
+/** Coordinator policy supplied by a concrete persistence backend. */
+export interface PersistenceCoordinatorOptions {
+  /** Maximum completed unpublished preparations retained for reuse. */
+  readonly preparedSessionCacheSize: number
+}
 
 /**
  * A stored session's header, valid contiguous event prefix, and optional opaque
@@ -55,7 +69,9 @@ export interface PersistenceBackend<TornMarker = unknown> {
    * `undefined` if no stored artifact exists. Returned metadata must identify
    * `id` before repair or state publication. Used by resume/load, live adoption,
    * and — via `!== undefined` — the create-collision probe. The returned
-   * `tornMarker` is present iff there is a torn tail to truncate.
+   * `tornMarker` is present iff there is a torn tail to truncate. Every header
+   * and event graph must be fresh, mutually unaliased, and unretained by the
+   * backend because preparation freezes and publishes them in place.
    * @param id - persisted session id to resolve.
    * @param signal - optional cancellation for backend read work.
    */
@@ -136,6 +152,16 @@ interface LiveSessionState {
   pending: SessionEvent[]
   init: Promise<void>
   flush: Promise<void> | undefined
+}
+
+/** One validated cold source and the exact unpublished Session built from it. */
+interface PreparedSessionSource<TornMarker> {
+  readonly inspection: SessionInspection
+  readonly session: Session
+  /** Session length after constructor-owned seed markers were appended. */
+  readonly sessionLength: number
+  readonly tornMarker: TornMarker | undefined
+  readonly closers: readonly SessionEvent[]
 }
 
 /** Collect the rejection reasons from a set of promises (none-throwing). */
@@ -443,6 +469,19 @@ function snapshotStoredEvents(events: readonly SessionEvent[], id: SessionId): S
   })
 }
 
+/** Upgrade and validate an exclusively owned backend result without copying it. */
+function adoptStoredEvents(events: SessionEvent[], id: SessionId): SessionEvent[] {
+  assertSupportedEvents(events, id)
+  const messageIds = new Map<number, PersistedMessageId>()
+  for (const [index, event] of events.entries()) {
+    const adopted = adoptSessionEvent(migrateLegacyMessageEvent(event, id, messageIds))
+    events[index] = adopted
+    const messageId = eventMessageId(adopted)
+    if (messageId !== undefined) messageIds.set(adopted.seq, messageId)
+  }
+  return events
+}
+
 /**
  * Owns the backend-agnostic session write-path orchestration. A backend
  * constructs one (`new PersistenceCoordinator(ctx, this)`), implements
@@ -463,15 +502,26 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   private live = new Map<Session, LiveSessionState>()
   /** Exact disposed lifecycles whose eager tail is still draining. */
   private retirements = new Map<SessionId, Promise<void>>()
-  /** Cold loads currently reserving an id across backend reads and repair writes. */
-  private coldLoads = new Set<SessionId>()
+  /** Shared cold reads, unpublished reservations, and completed LRU entries. */
+  private readonly preparations: SessionPreparations<PreparedSessionSource<TornMarker>, SessionState>
   /**
    * Per-session serialization: every operation chains onto the prior one for the
    * same id, so writes for one session never interleave. Keyed by session id.
    */
   private chains = new Map<SessionId, Promise<unknown>>()
 
-  constructor(private ctx: Context, private backend: PersistenceBackend<TornMarker>) {
+  constructor(
+    private ctx: Context,
+    private backend: PersistenceBackend<TornMarker>,
+    options: PersistenceCoordinatorOptions = {
+      preparedSessionCacheSize: DEFAULT_PREPARED_SESSION_CACHE_SIZE,
+    },
+  ) {
+    if (!Number.isSafeInteger(options.preparedSessionCacheSize)
+      || options.preparedSessionCacheSize < 1) {
+      throw new TypeError('preparedSessionCacheSize must be a positive safe integer')
+    }
+    this.preparations = new SessionPreparations(options.preparedSessionCacheSize)
     this.installWritePath()
   }
 
@@ -495,7 +545,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
 
   private async createCore(meta: SessionHeader): Promise<void> {
     // Do NOT clobber an existing session: the SessionId IS the identity.
-    if (this.states.has(meta.id)) {
+    if (this.states.has(meta.id) || this.preparations.has(meta.id)) {
       throw new Error(`session "${meta.id}" already exists in this backend`)
     }
     // A persisted artifact under this id (in ANY scope) blocks creation: load/
@@ -537,8 +587,9 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     // this same backend will refuse to load.
     assertSupportedEvents(events, id)
     if (events.length === 0) return
+    this.preparations.assertWritable(id)
     let state = this.states.get(id)
-    if (state === undefined) state = await this.adopt(id) // calls loadCore, not load
+    if (state === undefined) state = await this.adopt(id)
 
     // Contiguity contract: each event's seq must continue the stored log.
     for (const [i, event] of events.entries()) {
@@ -552,67 +603,92 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     // cursor as soon as it commits (uniform across backends).
     state.materialized = true
     state.cursor += events.length
+    this.preparations.invalidate(id)
   }
 
   /**
-   * Reload a session: its {@link SessionHeader} plus the event log up to the last
-   * durable checkpoint, with any interrupted final turn durably closed (synthetic
-   * boundary events) during load.
-   * @param id - the persisted session to reload.
-   * @returns the header plus the event log, ending on a balanced `turn/end`.
+   * Prepare and reserve the exact unpublished Session used by resume.
+   * @param id - persisted session to prepare.
+   * @param signal - optional cancellation for reading and repair.
+   * @returns an owned preparation released after publication or rollback.
    */
-  async load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
-    await this.retirements.get(id)
-    const selected = await this.serialize(id, async () => {
-      const live = this.ctx.sessions.get(id)
-      if (live !== undefined) return { live }
-      this.coldLoads.add(id)
-      try {
-        return { loaded: await this.loadCore(id) }
-      } finally {
-        this.coldLoads.delete(id)
+  async prepare(id: SessionId, signal?: AbortSignal): Promise<SessionPreparation> {
+    for (;;) {
+      await this.waitForRetirement(id, signal)
+      if (this.ctx.sessions.get(id) !== undefined) {
+        throw new Error(`cannot prepare session "${id}" while it is live`)
       }
-    })
-    return 'loaded' in selected ? selected.loaded : this.loadLiveSnapshot(selected.live)
+      const reservation = await this.preparations.reserve(
+        id,
+        () => this.serialize(id, () => this.prepareCore(id, signal), signal),
+        source => this.serialize(id, () => this.commitPrepared(source), signal),
+        signal,
+      )
+      if (reservation === undefined) continue
+      if (this.ctx.sessions.get(id) !== undefined) {
+        this.preparations.release(reservation, false)
+        throw new Error(`cannot prepare session "${id}" while it is live`)
+      }
+      return SessionPreparation.create(reservation.source.session, {
+        release: () => {
+          this.preparations.release(
+            reservation,
+            reservation.state.owner === undefined
+              && reservation.source.session.events.length === reservation.source.sessionLength,
+          )
+        },
+      })
+    }
   }
 
   /**
-   * Read a detached valid stored prefix without recovery mutations or
-   * coordinator-state publication.
-   * @param id - persisted session to inspect.
-   * @param signal - optional cancellation for queued and backend read work.
-   * @returns stored header and events before any synthetic recovery closers.
+   * Commit recovery and return its immutable logical view without publication.
+   * @param id - persisted session to load.
+   * @returns prepared header and balanced events.
    */
-  inspect(id: SessionId, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
-    // Waiting for an in-flight retirement drain must honor cancellation too: a
-    // slow drain would otherwise pin a cancelled inspect until it finishes,
-    // past the documented boundary. serialize() already races the signal for
-    // the queued read; do the same for the retirement wait.
-    const retired = Promise.resolve(this.retirements.get(id))
-    const waited = signal === undefined ? retired : observeQueuedAbort(retired, signal, () => false)
-    return waited.then(() => this.serialize(id, () => this.inspectCore(id, signal), signal))
+  async load(id: SessionId): Promise<SessionInspection> {
+    for (;;) {
+      await this.waitForRetirement(id)
+      const live = this.ctx.sessions.get(id)
+      if (live !== undefined) return this.loadLiveSnapshot(live)
+      const reservation = await this.preparations.reserve(
+        id,
+        () => this.serialize(id, () => this.prepareCore(id)),
+        source => this.serialize(id, () => this.commitPrepared(source)),
+      )
+      if (reservation === undefined) continue
+      const attached = this.ctx.sessions.get(id)
+      if (attached !== undefined) {
+        this.preparations.discard(reservation)
+        return this.loadLiveSnapshot(attached)
+      }
+      this.preparations.discard(reservation)
+      return reservation.source.inspection
+    }
   }
 
-  private async inspectCore(
-    id: SessionId,
-    signal?: AbortSignal,
-  ): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
-    signal?.throwIfAborted()
-    let stored: StoredPrefix<TornMarker> | undefined
+  /**
+   * Inspect a logical session without publishing it or committing recovery.
+   * @param id - persisted session to inspect.
+   * @param signal - optional cancellation for preparation work.
+   * @returns immutable prepared metadata and balanced events.
+   */
+  async inspect(id: SessionId, signal?: AbortSignal): Promise<SessionInspection> {
+    await this.waitForRetirement(id, signal)
+    const live = this.ctx.sessions.get(id)
+    if (live !== undefined) return this.inspectLive(live)
     try {
-      stored = await this.backend.loadStored(id, signal)
+      const source = await this.preparations.inspect(
+        id,
+        () => this.serialize(id, () => this.prepareCore(id, signal), signal),
+        signal,
+      )
+      const attached = this.ctx.sessions.get(id)
+      return attached === undefined ? source.inspection : this.inspectLive(attached)
     } catch (error: unknown) {
-      if (signal?.aborted) signal.throwIfAborted()
+      const attached = this.ctx.sessions.get(id)
+      if (attached !== undefined) return this.inspectLive(attached)
       throw error
-    }
-    signal?.throwIfAborted()
-    if (stored === undefined) throw new Error(`session "${id}" not found`)
-    this.assertStoredId(id, stored.meta)
-    this.assertVersion(stored.meta)
-    const events = snapshotStoredEvents(stored.events, id)
-    return {
-      meta: structuredClone(stored.meta),
-      events,
     }
   }
 
@@ -660,45 +736,124 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       }
       return { meta: structuredClone(suffix.meta), events: snapshotStoredEvents(suffix.events, id) }
     }
-    const whole = await this.inspectCore(id, signal)
+    const whole = await this.readStoredPrefix(id, signal)
     // Sequential fallback: contiguous seqs from 0 make the suffix an index slice.
     return { meta: whole.meta, events: whole.events.slice(fromSeq) }
   }
 
-  private async loadCore(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
-    const stored = await this.backend.loadStored(id)
+  /** Read one detached physical prefix without logical recovery or caching. */
+  private async readStoredPrefix(
+    id: SessionId,
+    signal?: AbortSignal,
+  ): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    signal?.throwIfAborted()
+    const stored = await this.backend.loadStored(id, signal)
+    signal?.throwIfAborted()
+    if (stored === undefined) throw new Error(`session "${id}" not found`)
+    this.assertStoredId(id, stored.meta)
+    this.assertVersion(stored.meta)
+    return {
+      meta: structuredClone(stored.meta),
+      events: snapshotStoredEvents(stored.events, id),
+    }
+  }
+
+  /** Read, repair in memory, validate, and freeze one cold source once. */
+  private async prepareCore(
+    id: SessionId,
+    signal?: AbortSignal,
+  ): Promise<PreparedSessionSource<TornMarker>> {
+    signal?.throwIfAborted()
+    let stored: StoredPrefix<TornMarker> | undefined
+    try {
+      stored = await this.backend.loadStored(id, signal)
+    } catch (error: unknown) {
+      if (signal?.aborted) signal.throwIfAborted()
+      throw error
+    }
+    signal?.throwIfAborted()
     if (stored === undefined) throw new Error(`session "${id}" not found`)
     const { meta, events, tornMarker } = stored
     this.assertStoredId(id, meta)
     this.assertVersion(meta)
-    const storedEvents = snapshotStoredEvents(events, id)
+    const storedEvents = adoptStoredEvents(events, id)
 
     // Preserve complete interrupted events and synthesize only missing closers.
-    const closers = interruptedTurnClosers(storedEvents).map(snapshotSessionEvent)
+    const closers = interruptedTurnClosers(storedEvents).map(adoptSessionEvent)
     const balanced = [...storedEvents, ...closers]
-
-    // Repair storage before publishing coordinator state.
-    if (tornMarker !== undefined || closers.length > 0) {
-      await this.backend.commitRepair(meta, tornMarker, closers)
+    const session = this.ctx.sessions.prepare(id, {
+      seed: balanced,
+      meta,
+      seedSource: 'persistence',
+    })
+    const inspection: SessionInspection = Object.freeze({
+      meta: session.header,
+      events: Object.freeze(balanced),
+    })
+    return {
+      inspection,
+      session,
+      sessionLength: session.events.length,
+      tornMarker,
+      closers,
     }
-    // Keep coordinator metadata detached from the returned record.
-    this.states.set(id, { meta: { ...meta }, cursor: balanced.length, materialized: true })
-    return { meta: structuredClone(meta), events: balanced }
   }
 
-  /** Return a durable balanced live snapshot without applying cold crash repair. */
-  private async loadLiveSnapshot(session: Session): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
-    const events = session.events.map(snapshotSessionEvent)
+  /** Commit one prepared repair and establish its ownerless durable cursor. */
+  private async commitPrepared(
+    source: PreparedSessionSource<TornMarker>,
+  ): Promise<{ source: PreparedSessionSource<TornMarker>; state: SessionState }> {
+    const id = source.inspection.meta.id
+    const cursor = source.inspection.events.length
+    const existing = this.states.get(id)
+    if (existing?.owner !== undefined) {
+      throw new Error(`session "${id}" already has a live persistence owner`)
+    }
+    if (source.tornMarker !== undefined || source.closers.length > 0) {
+      await this.backend.commitRepair(source.inspection.meta, source.tornMarker, source.closers)
+    }
+    const state = existing ?? {
+      meta: source.inspection.meta,
+      cursor,
+      materialized: true,
+    }
+    state.meta = source.inspection.meta
+    state.cursor = cursor
+    state.materialized = true
+    this.states.set(id, state)
+    return {
+      source: source.tornMarker === undefined && source.closers.length === 0
+        ? source
+        : { ...source, tornMarker: undefined, closers: [] },
+      state,
+    }
+  }
+
+  /** Return one durable immutable view of an already-live Session. */
+  private async loadLiveSnapshot(session: Session): Promise<SessionInspection> {
+    const events = session.events
     await this.flush(session)
     const state = this.states.get(session.id)
     /* v8 ignore next -- successful flush always publishes this live session's durable state */
     if (state === undefined) throw new Error(`session "${session.id}" lost persistence state during load`)
-    const meta = structuredClone(state.meta)
     if (events.length === 0) throw new Error(`session "${session.id}" not found`)
     if (interruptedTurnClosers(events).length > 0) {
       throw new Error(`cannot load session "${session.id}" while its live turn is open; use the live Session or wait for the turn to close`)
     }
-    return { meta, events }
+    return Object.freeze({ meta: state.meta, events })
+  }
+
+  /** Borrow one immutable view from an already-live Session. */
+  private inspectLive(session: Session): SessionInspection {
+    return Object.freeze({ meta: session.header, events: session.events })
+  }
+
+  /** Await one retiring lifecycle with caller cancellation. */
+  private waitForRetirement(id: SessionId, signal?: AbortSignal): Promise<void> {
+    const retired = Promise.resolve(this.retirements.get(id))
+    return signal === undefined
+      ? retired
+      : observeQueuedAbort(retired, signal, () => false)
   }
 
   // Listing is a direct backend read and needs no coordinator state.
@@ -738,13 +893,10 @@ export class PersistenceCoordinator<TornMarker = unknown> {
 
   /** Build a state for a session discovered in storage but not yet in memory. */
   private async adopt(id: SessionId): Promise<SessionState> {
-    // loadCore (NOT load) — adopt runs inside an already-serialized op, so
-    // re-entering the chain via the public load() would deadlock.
-    await this.loadCore(id)
-    const state = this.states.get(id)
-    /* v8 ignore next -- loadCore always sets the state for the id */
-    if (!state) throw new Error(`failed to adopt session "${id}"`)
-    return state
+    // This runs inside the id's serialization chain, so it uses core helpers
+    // instead of re-entering through public prepare/load methods.
+    const source = this.preparations.takeReady(id) ?? await this.prepareCore(id)
+    return (await this.commitPrepared(source)).state
   }
 
   private assertVersion(meta: SessionHeader): void {
@@ -795,9 +947,6 @@ export class PersistenceCoordinator<TornMarker = unknown> {
 
     // Capture the header on creation and persist a fork's seed once.
     ctx.on('session/created', (session) => {
-      if (this.coldLoads.has(session.id)) {
-        throw new Error(`cannot publish session "${session.id}" while its persisted history is loading`)
-      }
       void this.initFor(session)
     })
 
@@ -847,11 +996,39 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   private initFor(session: Session): LiveSessionState {
     const existing = this.live.get(session)
     if (existing) return existing
+    const reservation = this.preparations.reservationFor(session)
+    if (reservation !== undefined) {
+      const restored = this.attachPrepared(session, reservation)
+      this.live.set(session, restored)
+      return restored
+    }
     const seed = session.events.map(e => structuredClone(e))
     const live: LiveSessionState = { pending: [], init: Promise.resolve(), flush: undefined }
     this.live.set(session, live)
     live.init = this.serialize(session.header.id, () => this.onCreated(session, seed))
     live.init.catch(() => { /* observed by flush/dispose through the controller */ })
+    return live
+  }
+
+  /** Bind one exact prepared Session and persist only its unpublished suffix. */
+  private attachPrepared(
+    session: Session,
+    reservation: SessionPreparationReservation<PreparedSessionSource<TornMarker>, SessionState>,
+  ): LiveSessionState {
+    const { source, state } = reservation
+    if (source.session !== session || state.owner !== undefined
+      || state.cursor !== source.inspection.events.length
+      || session.firstLiveSeq !== state.cursor) {
+      throw new Error(`session "${session.id}" preparation no longer matches its persistence state`)
+    }
+    const suffix = session.events.slice(state.cursor).map(event => structuredClone(event))
+    this.preparations.attach(reservation)
+    state.owner = session
+    const live: LiveSessionState = { pending: [], init: Promise.resolve(), flush: undefined }
+    if (suffix.length > 0) {
+      live.init = this.serialize(session.id, () => this.appendCore(session.id, suffix))
+      live.init.catch(() => { /* observed by flush/dispose through the controller */ })
+    }
     return live
   }
 
@@ -922,7 +1099,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     // cwd mismatch before repair or state publication.
     const live = await this.backend.loadStored(id)
     if (live !== undefined) {
-      // Do NOT route through loadCore(): that crash-repairs open turns as
+      // Do NOT route through cold preparation: that crash-repairs open turns as
       // interrupted, which is wrong for HMR while the live Session is still the
       // authority and may append the real step/turn end later.
       await this.adoptLivePrefix(session, seed, live)

@@ -13,13 +13,15 @@ import { scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { Message } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
-import type { CreateSessionOptions, EpochHeader, RequestContext, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
+import type { CreateSessionOptions, EpochHeader, PrepareSessionOptions, RequestContext, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
 import { snapshotJsonValue } from './json.ts'
 import { SurfaceManager } from './surface.ts'
 import type { SessionSurface } from './surface.ts'
 import { foldRequestHeader } from './request-header.ts'
 
 export * from './types.ts'
+export { SessionPreparation } from './preparation.ts'
+export type { SessionPreparationOptions } from './preparation.ts'
 export type { AssistantMessage, ToolResultMessage, UserMessage } from '@deepseek-ai/dsh-llm'
 export { isJsonValue, snapshotJsonValue } from './json.ts'
 export type { JsonValue } from './json.ts'
@@ -141,6 +143,17 @@ function validateSessionHeader(id: SessionId, input: unknown): SessionHeader {
     throw new Error('session header delegationDepth must be a non-negative safe integer')
   }
   return deepFreeze(record as unknown as SessionHeader)
+}
+
+/** Validate and freeze one exclusively owned persistence header in place. */
+function validateRestoredSessionHeader(id: SessionId, input: unknown): SessionHeader {
+  if (input !== null && typeof input === 'object' && !Array.isArray(input)) {
+    const prototype = Reflect.getPrototypeOf(input)
+    if (prototype !== Object.prototype && prototype !== null) {
+      throw new Error('session header is not a plain JSON record')
+    }
+  }
+  return validateSessionHeader(id, input)
 }
 
 /** Detach, validate, and freeze the creation metadata published by a session. */
@@ -442,7 +455,28 @@ export class Session {
     return new Session(id, seed, header)
   }
 
-  private constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader) {
+  /**
+   * Restore a detached session by taking ownership of fresh persistence values.
+   * Storage shape, event envelopes, sequence continuity, surface transitions,
+   * and header fields are validated before the graphs are frozen in place.
+   * @param id - restored session identity.
+   * @param seed - fresh detached events whose ownership is transferred.
+   * @param header - fresh detached metadata whose ownership is transferred.
+   * @returns a restored detached session.
+   */
+  static fromRestore(id: SessionId, seed: readonly SessionEvent[], header: SessionHeader): Session {
+    return new Session(id, seed, header, 'restore')
+  }
+
+  private constructor(
+    id: SessionId,
+    seed?: readonly SessionEvent[],
+    header?: SessionHeader,
+    mode: 'snapshot' | 'restore' = 'snapshot',
+  ) {
+    const restoredHeader = mode === 'restore'
+      ? validateRestoredSessionHeader(id, header)
+      : undefined
     if (seed !== undefined) {
       // Validate the seed to the SAME invariants `append` enforces, so a
       // replay/fork (`ctx.sessions.create(id, { seed })`) cannot construct a
@@ -454,7 +488,7 @@ export class Session {
       for (const [index, source] of seed.entries()) {
         // The seed is a persistence/replay boundary: validate and detach the
         // complete event in one lossless-JSON pass.
-        const snapshot = snapshotJsonValue(source)
+        const snapshot = mode === 'restore' ? source : snapshotJsonValue(source)
         if (snapshot === undefined) {
           throw new Error(`seed event at index ${index} is not losslessly JSON-serializable`)
         }
@@ -475,7 +509,7 @@ export class Session {
       }
     }
     this.firstLiveSeq = this.log.length
-    this.header = snapshotSessionHeader(id, header)
+    this.header = restoredHeader ?? snapshotSessionHeader(id, header)
     // Appended here so the marker is already in `events` when a backend
     // captures the creation seed: no load-time write. Re-marking is skipped
     // because a cold session is resumed on first touch, so repeatedly opening
@@ -822,7 +856,7 @@ export class SessionStore extends Service {
    *   lossless-JSON record with valid scalar fields, or `meta.cwd` is a
    *   non-absolute path.
    */
-  prepare(id?: SessionId, options?: CreateSessionOptions): Session {
+  prepare(id?: SessionId, options?: PrepareSessionOptions): Session {
     let sessionId: SessionId
     if (id === undefined) {
       do sessionId = SessionId(`session-${++this.counter}`)
@@ -831,6 +865,9 @@ export class SessionStore extends Service {
       sessionId = SessionId(id)
     }
     if (this.store.has(sessionId)) throw new Error(`session "${sessionId}" already exists`)
+    if (options?.seedSource === 'persistence') {
+      return Session.fromRestore(sessionId, options.seed, options.meta)
+    }
     const seed = options?.seed
     const meta = options?.meta
     const header: SessionHeader = {

@@ -14,11 +14,11 @@ import { DatabaseSync } from 'node:sqlite'
 import { mkdir, open } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import {
-  SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator,
+  DEFAULT_PREPARED_SESSION_CACHE_SIZE, SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator,
   type PersistenceBackend, type SessionLocation, type SessionPersistenceSnapshot,
-  type StoredPrefix, type StoredSuffix,
+  type SessionInspection, type StoredPrefix, type StoredSuffix,
 } from '@deepseek-ai/dsh-session-persistence'
-import type { SessionEvent, SurfaceEventType, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SurfaceEventType, SessionId, SessionHeader, SessionPreparation } from '@deepseek-ai/dsh-session'
 import {
   type JournalMode, openDatabase, rowToMeta, scanRows, type EventRow, type SessionRow,
 } from './schema.ts'
@@ -73,6 +73,8 @@ export interface Config {
    * (network mounts). See {@link JournalMode}.
    */
   journalMode?: JournalMode
+  /** Maximum cold Session preparations retained for history-to-resume reuse. */
+  preparedSessionCacheSize?: number
 }
 
 /**
@@ -86,6 +88,7 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
   static Config: z<Config> = z.object({
     path: z.string().required(),
     journalMode: z.union(['wal', 'delete', 'truncate', 'persist'] as const).default('wal'),
+    preparedSessionCacheSize: z.number().step(1).min(1).default(DEFAULT_PREPARED_SESSION_CACHE_SIZE),
   })
 
   /**
@@ -105,7 +108,9 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
     // Open asynchronously so directory creation does not block plugin apply;
     // every storage hook awaits the same readiness promise.
     this.ready = this.openDb(config.path, (config as Required<Config>).journalMode)
-    this.coordinator = new PersistenceCoordinator<number>(this.ctx, this)
+    this.coordinator = new PersistenceCoordinator<number>(this.ctx, this, {
+      preparedSessionCacheSize: config.preparedSessionCacheSize ?? DEFAULT_PREPARED_SESSION_CACHE_SIZE,
+    })
   }
 
   private async openDb(path: string, journalMode: JournalMode): Promise<void> {
@@ -153,11 +158,15 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
     return this.coordinator.append(id, events)
   }
 
-  load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+  override prepare(id: SessionId, signal?: AbortSignal): Promise<SessionPreparation> {
+    return this.coordinator.prepare(id, signal)
+  }
+
+  load(id: SessionId): Promise<SessionInspection> {
     return this.coordinator.load(id)
   }
 
-  inspect(id: SessionId, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+  inspect(id: SessionId, signal?: AbortSignal): Promise<SessionInspection> {
     return this.coordinator.inspect(id, signal)
   }
 

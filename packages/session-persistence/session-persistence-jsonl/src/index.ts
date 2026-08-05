@@ -13,11 +13,11 @@ import { open, mkdir, readFile, readdir, realpath, link, rm, stat, truncate } fr
 import { dirname, join, resolve } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import {
-  SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator,
+  DEFAULT_PREPARED_SESSION_CACHE_SIZE, SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator,
   type PersistenceBackend, type SessionLocation, type SessionPersistenceSnapshot,
-  type StoredPrefix,
+  type SessionInspection, type StoredPrefix,
 } from '@deepseek-ai/dsh-session-persistence'
-import type { SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionId, SessionHeader, SessionPreparation } from '@deepseek-ai/dsh-session'
 import {
   encodeSegment, eventLines, logPath, logSuffix, parseHeaderMeta, projectDir, scanLog, sessionDir, toHeaderLine,
   type JsonlCompression,
@@ -56,6 +56,8 @@ export interface Config {
   packChunks?: boolean
   /** Physical encoding; defaults to checksummed Zstandard frames. */
   compression?: JsonlCompression
+  /** Maximum cold Session preparations retained for history-to-resume reuse. */
+  preparedSessionCacheSize?: number
 }
 
 /** Opaque coordinator token for replacing bytes recovered from a torn frame. */
@@ -82,6 +84,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     root: z.string().required(),
     packChunks: z.boolean().default(DEFAULT_PACK_CHUNKS),
     compression: JsonlCompressionSchema,
+    preparedSessionCacheSize: z.number().step(1).min(1).default(DEFAULT_PREPARED_SESSION_CACHE_SIZE),
   })
 
   /**
@@ -105,7 +108,9 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     this.packChunks = config.packChunks ?? DEFAULT_PACK_CHUNKS
     this.compression = config.compression ?? DEFAULT_COMPRESSION
     this.assertUsableRoot()
-    this.coordinator = new PersistenceCoordinator<JsonlTornMarker>(this.ctx, this)
+    this.coordinator = new PersistenceCoordinator<JsonlTornMarker>(this.ctx, this, {
+      preparedSessionCacheSize: config.preparedSessionCacheSize ?? DEFAULT_PREPARED_SESSION_CACHE_SIZE,
+    })
   }
 
   // Each backend keeps the typed service surface beside its storage hooks;
@@ -126,11 +131,15 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     return this.coordinator.append(id, events)
   }
 
-  load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+  override prepare(id: SessionId, signal?: AbortSignal): Promise<SessionPreparation> {
+    return this.coordinator.prepare(id, signal)
+  }
+
+  load(id: SessionId): Promise<SessionInspection> {
     return this.coordinator.load(id)
   }
 
-  inspect(id: SessionId, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+  inspect(id: SessionId, signal?: AbortSignal): Promise<SessionInspection> {
     return this.coordinator.inspect(id, signal)
   }
 
