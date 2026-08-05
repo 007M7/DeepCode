@@ -4,7 +4,7 @@
 
 纯 agent skill（智能体技能）提供方注册表。
 
-该包（package）负责 `ctx.skills` 接口。它不知道 skill 来自本地文件、嵌入式插件数据、HTTP 还是其他后端；提供方通过 `ctx.skills.registerProvider(...)` 注册这些来源。已发布的本地实现是 [`@deepseek-ai/dsh-skill-local`](../skill-local)。
+该包负责 `ctx.skills` 接口。它不知道 skill 来自本地文件、嵌入式插件数据、HTTP 还是其他后端；提供方通过 `ctx.skills.registerProvider(...)` 注册这些来源。已发布的本地实现是 [`@deepseek-ai/dsh-skill-local`](../skill-local)。
 
 ## 服务：`SkillService`（ctx 键：`skills`）
 

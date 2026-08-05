@@ -10,7 +10,7 @@ locale 插件：LocaleService——浏览器 locale 偏好（`zh`／`en`，以 `
 
 #### KV Cache 影响
 
-无；该包（package）既不组装也不发送提供方请求。
+无；该包既不组装也不发送提供方请求。
 
 ## 已知限制与暂缓事项
 

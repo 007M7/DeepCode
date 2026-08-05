@@ -4,7 +4,7 @@
 
 无头单次应用及 bin，用于在没有交互式 UI 或编辑器客户端的情况下运行一项 agent（智能体）任务。它组合 [`@deepseek-ai/dsh-agent-spine-demo`](../agent-spine-demo/README.md)、JSONL 持久化，以及恰好一个新建顶层 agent。bin 提交任务，等待其已持久化的轮次结束状态，渲染所选输出，执行 dispose（资源释放）直至完全停稳，然后退出。
 
-该包（package）不挂载 console logger、交互式 UI、用户交互服务或 `ask_user_question` 工具。Stdout 专用于所选输出格式；诊断使用 stderr。
+该包不挂载 console logger、交互式 UI、用户交互服务或 `ask_user_question` 工具。Stdout 专用于所选输出格式；诊断使用 stderr。
 
 ## 配置
 
