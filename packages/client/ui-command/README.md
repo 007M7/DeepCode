@@ -22,5 +22,4 @@ None directly; this package neither assembles nor sends a provider request. Comm
 
 ## Known Limitations and Deferred Work
 
-- **The popupSelect shell has no shipped business consumer** — model selection (host `selectModel`) is the design's reference case and lands with its own feature work; until then the shell is exercised by package tests only.
 - **Detached-result notices fall back to the console off-session** — the fire-and-forget paths route results to the triggering session's composer via `SessionInput.notify`; after session teardown the console line is the only remaining surface.

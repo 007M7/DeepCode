@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Bin-only app that boots an external `cordis.yml`; its [`jsonrpc`](../../ui/jsonrpc/README.md) entry serves SDK clients over newline-delimited stdio. The config composes the spine, backends, and serving plugin. `lib/bin.js` is also the [single-executable runtime](../../../.agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md) entry.
+Bin-only app that boots an external `cordis.yml`; its [`jsonrpc`](../../ui/jsonrpc/README.md) entry serves SDK clients over newline-delimited stdio. The config composes the spine, backends, and serving plugin. The published bin is `dsh-jsonrpc-agent`, and `lib/bin.js` also ships as the `dsh-jsonrpc-agent-pkg` [single-executable runtime](../../../.agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md) used by the Python SDK.
 
 ## Config discovery
 

@@ -241,12 +241,11 @@ describe('web e2e: seeded history renders through cold resume', () => {
 
   it.skipIf(MODE === 'record')('matches the historical conversation aria golden', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-seeded-aria'))
-    await page.getByRole('button', {
-      // This scenario deliberately leaves the LLM seam open to prove zero
-      // model calls. History still restores the selected id, but no catalog
-      // adapter exists to provide its presentation name.
-      name: 'Select model, current deepseek-v4-flash',
-    }).waitFor({ timeout: 10_000 })
+    // This scenario deliberately leaves the LLM seam open to prove zero
+    // model calls. History still restores the routed id, but without an
+    // advertised catalog row the selector prompts for a listed replacement.
+    await page.getByRole('button', { name: 'Select model', exact: true })
+      .waitFor({ timeout: 10_000 })
     const snapshot = (await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd))
       .split(SEED_ID).join('{{seededId}}')
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)

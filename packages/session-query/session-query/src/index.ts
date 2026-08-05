@@ -143,7 +143,7 @@ export abstract class SessionQueryService extends Service {
    */
   async readSession(sessionId: SessionId): Promise<SessionLogSnapshot> {
     const loaded = await this._corpus.load(sessionId)
-    new Session(sessionId, loaded.events, loaded.header)
+    Session.create(sessionId, loaded.events, loaded.header)
     return {
       session: structuredClone(loaded.header),
       events: loaded.events.map(snapshotSessionEvent),

@@ -673,6 +673,9 @@ importers:
       '@deepseek-ai/dsh-repository-plugin':
         specifier: workspace:*
         version: link:../packages/cordis/repository-plugin
+      '@deepseek-ai/dsh-sandbox':
+        specifier: workspace:*
+        version: link:../packages/sandbox/sandbox
       '@deepseek-ai/dsh-sandbox-local':
         specifier: workspace:*
         version: link:../packages/sandbox/sandbox-local
