@@ -795,7 +795,7 @@ export class ToolRegistry extends Service {
           const render = SDK_RENDERERS[runtime.language]
           /* v8 ignore next 3 -- requireCodeRuntime rejects an unknown language before this ever runs. */
           if (!Object.hasOwn(SDK_RENDERERS, runtime.language) || render === undefined) {
-            throw new Error(`dsh-tools: no SDK renderer registered for runtime language "${runtime.language}"`)
+            throw new Error(`dsh-tools: no SDK renderer registered for runtime language ${JSON.stringify(runtime.language)} (known: ${Object.keys(SDK_RENDERERS).map(name => JSON.stringify(name)).join(', ')})`)
           }
           return render(this.sdkSchemas(context.scope))
         },

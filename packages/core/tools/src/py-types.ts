@@ -129,6 +129,24 @@ function camelCase(raw: string): string {
 /** Class-name base cap keeping each emitted name — and total text — linear in schema depth. */
 const MAX_CLASS_NAME_BASE = 120
 
+/**
+ * Deepest `list[…]` nesting emitted into one annotation before the item type
+ * degrades to `Any`. CPython's tokenizer rejects a logical line holding more
+ * than 200 simultaneously-open brackets (`MAXLEVEL`, `SyntaxError: too many
+ * nested parentheses`), so an array chain deeper than that would render an SDK
+ * block that is not valid Python at all — the same failure the docstring
+ * escaping in {@link docLines} exists to prevent. 180 leaves headroom for the
+ * one bracket an annotation can add around the chain (`NotRequired[…]`).
+ *
+ * A CPython grammar limit, not a deployment choice, so it is fixed rather than
+ * configurable. The sibling `ts-types` renderer needs no counterpart: nothing
+ * in the TypeScript grammar bounds nesting, and its SDK block is never type-
+ * checked. Only bracket nesting counts — a `oneOf` renders as a flat `A | B`
+ * chain and nested objects render as separate `class` statements, so neither
+ * accumulates open brackets at any depth.
+ */
+const MAX_LIST_NESTING = 180
+
 /** Cap a class-name base at {@link MAX_CLASS_NAME_BASE} (see the callers for why capping keeps the render linear). */
 function capClassNameBase(base: string): string {
   return base.length > MAX_CLASS_NAME_BASE ? base.slice(0, MAX_CLASS_NAME_BASE) : base
@@ -238,14 +256,16 @@ function renderType(schema: unknown, className: string, state: RenderState): str
     phase: 'start' | 'children'
     kind?: 'oneOf' | 'array' | 'typeddict'
     node?: JsonSchemaNode
-    children: { schema: JsonSchemaNode; className: string }[]
+    /** Open `list[` brackets enclosing this node in the annotation being built ({@link MAX_LIST_NESTING}). */
+    listDepth: number
+    children: { schema: JsonSchemaNode; className: string; listDepth: number }[]
     childIndex: number
     childTypes: string[]
     entries: [string, JsonSchemaNode][]
     allocated?: string
   }
-  const newFrame = (schema: JsonSchemaNode, className: string): Frame =>
-    ({ schema, className, phase: 'start', children: [], childIndex: 0, childTypes: [], entries: [] })
+  const newFrame = (schema: JsonSchemaNode, className: string, listDepth: number): Frame =>
+    ({ schema, className, phase: 'start', listDepth, children: [], childIndex: 0, childTypes: [], entries: [] })
   try {
     // Validate the WHOLE tree once, then trust it — the same contract the
     // sibling ts-types renderer follows at a typed same-process seam. Every
@@ -254,7 +274,7 @@ function renderType(schema: unknown, className: string, state: RenderState): str
     // here (before anything is emitted) and degrades to `Any`, the Python
     // counterpart of the TS flavor's `unknown`.
     assertSupportedJsonSchema(schema)
-    const frames: Frame[] = [newFrame(schema, className)]
+    const frames: Frame[] = [newFrame(schema, className, 0)]
     let result: string | undefined
     /* jscpd:ignore-start -- the explicit-stack walk skeleton deliberately parallels
        ts-types.ts's renderSupportedSchema; the two sibling renderers keep symmetric shapes. */
@@ -276,7 +296,7 @@ function renderType(schema: unknown, className: string, state: RenderState): str
           /* v8 ignore next -- childIndex is bounded by children.length. */
           if (child === undefined) throw new Error('missing python render child')
           frame.childIndex++
-          frames.push(newFrame(child.schema, child.className))
+          frames.push(newFrame(child.schema, child.className, child.listDepth))
           continue
         }
         if (frame.kind === 'oneOf') {
@@ -345,7 +365,9 @@ function renderType(schema: unknown, className: string, state: RenderState): str
       const node = frame.schema
       if (node.oneOf !== undefined) {
         frame.kind = 'oneOf'
-        frame.children = node.oneOf.map((branch, index) => ({ schema: branch, className: childClassName(frame.className, `${index + 1}`) }))
+        // A union renders as `A | B` — no brackets of its own, so the branches
+        // inherit the enclosing depth unchanged.
+        frame.children = node.oneOf.map((branch, index) => ({ schema: branch, className: childClassName(frame.className, `${index + 1}`), listDepth: frame.listDepth }))
         continue
       }
       if (node.type === undefined) {
@@ -365,9 +387,18 @@ function renderType(schema: unknown, className: string, state: RenderState): str
             finish('list[Any]')
             break
           }
+          // Past MAX_LIST_NESTING another `list[` would push the annotation
+          // beyond CPython's open-bracket limit and make the whole SDK block
+          // unparseable, so the chain degrades here instead — an unusable
+          // annotation either way, and this one is valid Python.
+          if (frame.listDepth >= MAX_LIST_NESTING) {
+            state.typing.add('Any')
+            finish('Any')
+            break
+          }
           // An array of objects names its item type after the array field.
           frame.kind = 'array'
-          frame.children = [{ schema: node.items, className: frame.className }]
+          frame.children = [{ schema: node.items, className: frame.className, listDepth: frame.listDepth + 1 }]
           break
         }
         case 'object': {
@@ -404,7 +435,10 @@ function renderType(schema: unknown, className: string, state: RenderState): str
           frame.entries = entries
           // frame.allocated was assigned two statements up; the ?? arm is for the type system only.
           /* v8 ignore next -- allocated is always set before children are built. */
-          frame.children = entries.map(([field, child]) => ({ schema: child, className: childClassName(frame.allocated ?? '', camelCase(field)) }))
+          // A field annotation is its own logical line, so nesting restarts —
+          // at 1, reserving the bracket an optional field's `NotRequired[…]`
+          // wraps around it.
+          frame.children = entries.map(([field, child]) => ({ schema: child, className: childClassName(frame.allocated ?? '', camelCase(field)), listDepth: 1 }))
           break
         }
         /* v8 ignore next 4 -- assertSupportedJsonSchema narrowed this closed type union. */

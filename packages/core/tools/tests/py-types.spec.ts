@@ -500,16 +500,37 @@ describe('renderToolsSdkPy', () => {
     expect(text).toContain('closedEmpty: OpennessArgsClosedEmpty')
   })
 
-  it('renders a deeply nested array schema without exhausting the call stack', () => {
+  it('renders a deeply nested array schema without exhausting the call stack, capped at CPython\'s bracket limit', () => {
     // The registry supports depth-unbounded schemas; the renderer must not
-    // reintroduce a recursion limit during prompt assembly.
+    // reintroduce a recursion limit during prompt assembly. It must also not
+    // emit more open brackets than CPython's tokenizer accepts (200), so the
+    // chain degrades to `Any` at MAX_LIST_NESTING instead of rendering an SDK
+    // block that is not valid Python.
     let deep: Record<string, unknown> = { type: 'string' }
     for (let i = 0; i < 20000; i++) deep = { type: 'array', items: deep }
     const type = jsonSchemaToPy(deep)
     expect(type.startsWith('list[list[')).toBe(true)
     expect(type.endsWith(']]')).toBe(true)
-    expect(type).toContain('str')
-    expect(type.length).toBe('list['.length * 20000 + 'str'.length + ']'.repeat(20000).length)
+    // 180 `list[` levels around `Any`, not 20000 around `str`.
+    expect(type).toBe(`${'list['.repeat(180)}Any${']'.repeat(180)}`)
+    expect(type.split('[').length - 1).toBeLessThan(200)
+  })
+
+  it('keeps a chain just under the nesting cap exact, and restarts nesting per TypedDict field', () => {
+    // 179 levels still render the real item type: the cap degrades only what
+    // would not parse.
+    let under: Record<string, unknown> = { type: 'string' }
+    for (let i = 0; i < 179; i++) under = { type: 'array', items: under }
+    expect(jsonSchemaToPy(under)).toBe(`${'list['.repeat(179)}str${']'.repeat(179)}`)
+    // A field annotation is a fresh logical line, so a 179-deep chain reached
+    // THROUGH an object field is unaffected by the depth spent on the object.
+    const tool: ToolSdkSchema = {
+      name: 'deep_field',
+      description: 'Deep array under a field.',
+      parameters: { type: 'object', additionalProperties: false, properties: { rows: under }, required: ['rows'] },
+      output: { type: 'string' },
+    }
+    expect(renderToolsSdkPy([tool])).toContain(`    rows: ${'list['.repeat(179)}str${']'.repeat(179)}`)
   })
 
   it('renders a deeply nested oneOf chain in linear time (no per-level re-materialization)', () => {
@@ -664,7 +685,7 @@ describe('renderToolsSdkPy', () => {
       output: { type: 'string' },
     })
     const nul = renderToolsSdkPy([make('before\u0000after')])
-    // Both emission sites: the class docstring and the `#` field comment. The
+    // Both emission sites: the method docstring and the `#` field comment. The
     // docstring's backslash is doubled by the same escaping that keeps a literal
     // backslash from escaping the closing triple quote, so Python parses it back
     // to the visible `\x00` the comment shows directly. Neither carries the byte.
