@@ -250,8 +250,9 @@ describe('renderToolsSdkPy', () => {
     })
     expect(type).toBe('dict[str, Any] | str')
     // Both branches objects, and the same shape reached through an array: the
-    // marker is the CALL's className, so a propagated frame name (`Tool1`) does
-    // not revive class declaration on a walk that has nowhere to declare into.
+    // marker is the CALL's className, so a propagated frame name (`1`, the
+    // index-derived branch name) does not revive class declaration on a walk
+    // that has nowhere to declare into.
     const object = { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean' } }, required: ['ok'] }
     expect(jsonSchemaToPy({ oneOf: [object, object] })).toBe('dict[str, Any] | dict[str, Any]')
     expect(jsonSchemaToPy({ type: 'array', items: { oneOf: [object, { type: 'string' }] } })).toBe('list[dict[str, Any] | str]')

@@ -428,8 +428,11 @@ function renderType(schema: unknown, className: string, state: RenderState): str
           // there is no naming context to declare into, so degrade. This reads
           // the CALL's className, not `frame.className`: the marker belongs to
           // the whole walk, and frames propagate a derived name (a `oneOf`
-          // branch of the context-free root gets `Tool1`), so a per-frame read
-          // would declare classes the caller has no way to receive. A field
+          // branch of the context-free root gets the index-derived name `1` —
+          // `childClassName` concatenates and caps, it does not go through
+          // `camelCase`), so a per-frame read would declare classes the caller
+          // has no way to receive, under a name that is not even a legal
+          // identifier: `class 1(TypedDict):`. A field
           // name that is not a legal Python attribute is inexpressible as a
           // class-syntax `TypedDict` field, so such an object degrades whole.
           // A leading-double-underscore non-dunder field (`__token`) would be
