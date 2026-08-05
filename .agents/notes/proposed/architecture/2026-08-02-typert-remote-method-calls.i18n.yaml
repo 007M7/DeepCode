@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/proposed/architecture/2026-08-02-typert-remote-method-calls.md
+2026-08-02-typert-remote-method-calls.md: c3a7a77c583720c3f967de185a089d374f017d81
+2026-08-02-typert-remote-method-calls.zh.md: 9b2fbbd69f1c054cbf6c86f177b743c583be3e8a

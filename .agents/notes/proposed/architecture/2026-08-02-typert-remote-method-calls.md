@@ -1,0 +1,489 @@
+# Agent Note: TypeRT Gateway Targeted Method Calls
+
+Status: proposed
+
+English | [中文](2026-08-02-typert-remote-method-calls.zh.md)
+
+## Problem
+
+The Host API Proxy handles direct method calls, stateful interactions, and Session event streams. These concerns have different lifecycles, routing semantics, and client programming interfaces. Continuing to export all business operations through one package would couple business Services, transport protocols, state machines, and client types.
+
+This proposal addresses only targeted method calls in which one request produces one result. Stateful interactions such as Permission and Approval, as well as Session event streams, do not use this design and will be designed separately.
+
+The contract for a direct method call belongs to the business Service that implements it. Business developers should declare only which methods are remotely callable, without also maintaining a central API interface, routing table, parameter conversion table, client stub, and Zod schema.
+
+The Host and Browser Client use separate TypeScript Programs because each side augments the Cordis `Context` type differently. A Remote projection must not import the complete Host declarations into a consumer or depend on Browser-specific types. If the TUI later reuses this programming interface, it must likewise see only methods marked Remote. TUI integration is outside the current scope, but the implementation boundary must preserve this isomorphic reuse.
+
+## Proposal
+
+A business Service declares callable methods with `@Remote` or `@RemoteContext()` and explicitly joins the Gateway through `bindTypeRTGateway()`. TypeRT generates the Host-local reflection artifact and a platform-independent Remote consumer projection from the Host Program. The Client Program continues to generate its own local reflection artifact independently.
+
+The Remote consumer projection contains `.d.ts`, `.d.ts.map`, and `.js` files. The `.d.ts` exposes only methods marked with a Remote decorator and refers to the business package's single public type symbols. The `.d.ts.map` navigates consumer API methods back to their Host business method implementations. The `.js` carries endpoint, parameter, Context, and Zod information for the same contract. At the assembly layer, the Browser Client mounts the required Remote JS contributions onto the Client API Service. The projection and API abstraction remain platform-independent so that a future TUI can reuse them.
+
+`@deepseek-ai/dsh-host-api-gateway`, located at `packages/host/api-gateway`, provides two symmetric faces: its default entry provides Host `ctx.typertGateway`, while its `/client` entry provides consumer-side `ctx.api`. Each side consumes a locally generated `InvocationDescriptor` from the same model; descriptors are not sent over the wire. The Remote data protocol runs over the single Connection/RPC mechanism through an isolated `/api2` channel. The business calling interface does not change when Connection migrates from HTTP to WebSocket.
+
+## Components and Cordis services
+
+| Component | Cordis service | Responsibility in this proposal |
+|---|---|---|
+| `@deepseek-ai/dsh-type-meta` | Declares only the minimal `ctx.typert` protocol | Decorators, bindings, descriptors, lookup/Context, and the Remote map; no dependency on the compiler, Zod, Connection, or Browser |
+| TypeRT registry | `ctx.typert` | Separately stores reflection for the current environment, imported Remote contributions, lookup providers, and Context providers |
+| TypeRT generator/loader | No new business service | Generates three kinds of `lib` artifacts from the Host/Client Programs and registers the current environment's artifacts with `ctx.typert` |
+| Host API Gateway's Host face | `ctx.typertGateway` | Associates Host definitions with live Services, decodes parameters, resolves receivers, invokes methods, and encodes results |
+| Connection | `ctx.connection` | Exclusively owns the HTTP Server/future WebSocket, RPC envelope, rpcId, serialization, trust, and error transport, while carrying the isolated `/api` and `/api2` channels |
+| Host API Gateway's Client face | `ctx.api` | Mounts Remote contributions, materializes root and scoped APIs, and delegates canonical calls to `ctx.connection.rpc` |
+| Client Remotes | No new service | Serves as the only Remote facade for Client business code, selecting and mounting `/remote` contributions while exposing the Gateway Client face and the selected API declarations |
+| Agent/Session owning packages | Existing domain services | Provide both static interface merges and runtime lookup/Context providers |
+| Business packages such as Goal | Existing business Services | Declare only bindings, Remote methods, and canonical DTOs, and export the generated `/remote` subpath |
+
+The Host Gateway does not depend on concrete implementations of `ctx.agents`, `ctx.sessions`, `ctx.goals`, or `ctx.httpServer`. The Client API does not understand the physical carrier, and Connection does not understand Goal, Agent, lookup, `InvocationDescriptor`, or Client API namespaces.
+
+## Business declarations
+
+Ordinary direct calls use `@Remote`. When migrating to an existing Service or Registry, do not rename or alter existing methods. Add `remoteExport*` entry points at the end of the class and use decorator arguments to declare their short API names. A method explicitly declares every required business object in a top-level parameter position:
+
+```text
+export class GoalService extends Service {
+  readonly typertGateway = bindTypeRTGateway(this, 'goals')
+
+  create(agent: Agent, request: CreateGoalRequest): CreateGoalResult {
+    // Existing business method remains unchanged.
+  }
+
+  @Remote('create')
+  remoteExportCreate(agent: Agent, request: CreateGoalRequest): CreateGoalResult {
+    return this.create(agent, request)
+  }
+}
+```
+
+`goals` is an explicit Cordis service key and is the default wire namespace. Override it through an option to `bindTypeRTGateway()` only when the protocol namespace genuinely needs to differ from the service key.
+
+Use `@RemoteContext()` when the Service receiver must be resolved within an isolated kind of Context. Context identity does not enter the business method's parameters:
+
+```text
+export class ScopedGoalService extends Service {
+  readonly typertGateway = bindTypeRTGateway(this, 'goals')
+
+  @RemoteContext('agent', 'create')
+  remoteExportCreate(request: CreateGoalRequest): Promise<CreateGoalResult> {
+    // Runs against the goals service resolved from the Agent Context.
+  }
+}
+```
+
+An endpoint selects exactly one invocation mode. A flow that needs an explicit `Agent` parameter uses `@Remote`. A flow that first switches to an Agent Context and then resolves a scoped receiver uses `@RemoteContext('agent')`. TypeRT does not infer either mode from the method body or from a missing parameter.
+
+Business packages depend only on the lightweight `@deepseek-ai/dsh-type-meta`. It provides declaration protocols for decorators, `bindTypeRTGateway()`, lookup, Remote Context, and descriptors, without depending on the TypeScript compiler, Zod, HTTP, or the Client runtime.
+
+## Decorators and the explicit Gateway facet
+
+A decorator only states that a method participates in the Remote contract. It performs no runtime type reflection and injects no hidden symbol into a Service constructor. The arguments to `@Remote('create')` and `@RemoteContext('agent', 'create')` are external method names, while the actual member remains named `remoteExportCreate`. The member name becomes the external method name only when no alias is provided. `typertGateway` is the sole explicit marker that a Service has joined the Gateway, making this capability visible on both the business class and its runtime instance.
+
+In SRC mode, the decorator may record the prototype, method name, and invocation mode in a `WeakMap` internal to `dsh-type-meta`. It writes no custom properties to a Service instance, prototype, constructor, or method function.
+
+In LIB mode, the TypeRT compiler performs strict method discovery, type resolution, and descriptor generation. Generation neither rewrites business source nor secretly supplies generated arguments to `bindTypeRTGateway()`.
+
+## Lookup and Remote Context registration
+
+The Gateway has no built-in branches for Agent, Session, or other business objects. Each object-owning package provides both a static declaration and a runtime provider:
+
+```text
+declare module '@deepseek-ai/dsh-type-meta' {
+  interface TypeRTLookupMap {
+    agent: TypeRTLookup<Agent, SessionId>
+  }
+}
+
+ctx.typert.lookups.register('agent', {
+  parameter: 'agent',
+  wire: 'agentId',
+  resolve: sessionId => resolveAgent(sessionId),
+})
+```
+
+The static declaration tells TypeRT that `Agent` corresponds to `SessionId` on the wire. The runtime provider resolves an `agentId` in a request to the currently live `Agent` object. If either side is missing, the LIB build or the earliest resolvable runtime registration fails immediately.
+
+Lookup objects such as Agent and Session may each occupy only one top-level parameter position. An ordinary JSON request may be passed as another complete parameter, but this proposal does not support `request.agent`, object destructuring, arrays of objects, nested lookups, or searching arbitrary complex structures for IDs.
+
+Remote Context uses a separate merge-extensible map and provider. The Agent package registers an `agent` Context provider that locates the Agent Context from its wire identity and resolves the Service key named by the descriptor from that Context. The Gateway does not know the internal structure of an Agent Context.
+
+The Client also registers an `agent` Context binder. The binder only retrieves a `SessionId` from the Context in which a call occurs; it neither enumerates Scopes nor copies methods into each one. A Cordis Service tracker automatically rebinds a scoped namespace to the current Agent Context.
+
+## InvocationDescriptor
+
+TypeRT, the permissive SRC parser, Host Gateway, and Client API exchange one canonical description:
+
+```text
+InvocationDescriptor {
+  id: '@deepseek-ai/dsh-goal#goals/create'
+  service: 'goals'
+  namespace: 'goals'
+  method: 'create'
+  implementation: 'remoteExportCreate'
+  invocation: direct | { context: 'agent', wire: 'agentId' }
+  scope?: { context: 'agent', wire: 'agentId' }
+  parameters: [
+    { name, wire, source: json | lookup, lookup?, codec }
+  ]
+  result: codec
+  sourceLocation
+}
+```
+
+`method` is the external short name used by the endpoint and Client API; `implementation` is the actual member name on the Host receiver. `implementation` may be omitted when the two names match. A `direct` descriptor retains the original Service instance as the receiver. A Context descriptor first uses the corresponding Context provider to find the scoped Context, then resolves the receiver by the descriptor's service key.
+
+The strict generator writes `scope` only when a direct method has exactly one lookup parameter, a `TypeRTContextMap` declaration with the same name exists, and both use the same wire type symbol. `scope.wire` must identify that lookup parameter. It declares that a consumer may fill this parameter from the Context in which the call occurs, without changing the Host receiver or endpoint. No scoped projection is generated when there are multiple lookups, no Context declaration, or mismatched wire types; a type mismatch is a build error.
+
+Parameter order comes from the method signature. HTTP fields come from parameter names or lookup declarations. The Gateway does not infer optional fields, Context types, lookup types, or missing arguments from request contents, and it does not synthesize business defaults.
+
+A LIB codec contains a Zod schema and a canonical `typeSymbol` consisting of "package + public subpath + export name." An SRC codec is marked only as `src-json`. When the Host and consumer run in different JavaScript realms, each holds its own Zod instances, but both sets are generated from the same TypeRT model and symbol keys.
+
+Descriptors exist only in the local registry on each side. The wire carries only the `/api2` channel, endpoint, and `{ args }` payload. The Host uses its descriptor to decode and invoke the method, while the Client uses its corresponding descriptor to encode arguments and validate the result.
+
+## TypeRT runtime registry
+
+```text
+ctx.typert.local     当前进程自己的 Host 或 Client reflection
+ctx.typert.remotes   消费端显式 mount 的对端 Remote contribution
+ctx.typert.lookups   wire ID 到 Host 活对象的 provider
+ctx.typert.contexts  Host Context resolver 与 Client Context binder
+```
+
+Every registration returns a disposer owned by the caller's Cordis fiber. The Gateway and API Service read the current snapshot before subscribing to changes, so business Services, generated contributions, providers, and consumers can load in any order. When any dependency is disposed, its related endpoints or methods become unavailable immediately.
+
+The registry's Host root entry has the complete `TypeRTService` interface merge. The registry implementation shared by Host and Client lives in a separate module without environment declarations. The registry's `/client` entry imports only that shared implementation and does not pass through the Host root entry, so it cannot bring Host Cordis declarations into the Client Program.
+
+## Canonical types, symbols, and Zod
+
+Remote Client DTS does not copy business DTOs or redeclare structurally identical shadow types. It imports original symbols only from public, type-only subpaths that do not carry Host Cordis merges:
+
+```text
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { CreateGoalRequest, CreateGoalResult } from '@deepseek-ai/dsh-goal/types'
+```
+
+Consequently, `SessionId`, the Agent wire ID, the request, and the result all refer to the same TypeScript declaration in the Host and Browser Client. A future TUI can reuse them without a second set of types. Go to Definition, renames, and Find References for a DTO return to the one source location for the business type instead of stopping at a copy in a generated file.
+
+Remote API methods themselves use declaration-map navigation. TypeRT anchors `InvocationModel.location` to the method-name token of the Host `remoteExport*` method and emits a source-map segment on the corresponding property of the namespace interface. After the TypeScript editor resolves `ctx.api.models.list` to its generated declaration, `typert.remote-client.d.ts.map` takes it to the Host Service's `remoteExportList` entry point. That entry point explicitly calls the existing, unrenamed `list()` method; the map does not misidentify the decorator, class, or full signature as the method definition.
+
+TypeRT generates a wire Zod codec for the same symbol key. The Host Gateway uses it to validate input and encode results, while the Client API may use it to encode arguments and validate responses. If a complex type cannot produce a strict codec, the LIB build fails instead of degrading to `unknown` or unchecked JSON.
+
+Named business types referenced by Remote methods must be exported from public, type-only subpaths. If the only reachable entry also imports Host Services, Cordis `Context` merges, or Host-only implementations, the build fails and requires the business package to provide a safe type entry. Primitives, literals, and simple compositions explicitly supported by TypeRT need no additional names.
+
+A lookup parameter does not expose the `Agent` class to consumers. The Remote projection refers to the canonical ID type in the lookup declaration, such as `SessionId`, while the Host continues to resolve objects through the canonical `Agent` class symbol.
+
+## Three artifact kinds and two TypeScript Programs
+
+The Host and Client still use only two independent TypeScript Programs, but TypeRT generates three semantically distinct kinds of artifacts:
+
+```text
+Host Program
+├─ typert.host.js / typert.host.d.ts
+│  Host 自身的 Service、Event、Object、schema 和 inbound Gateway 信息
+└─ typert.remote-client.js / typert.remote-client.d.ts / typert.remote-client.d.ts.map
+   Host Remote 对任意消费环境的 wire 投影
+
+Client Program
+└─ typert.client.js / typert.client.d.ts
+   Client 自身的 Service、Event、Object 和 schema 信息
+```
+
+`remote-client` is the Host Program's second emitter, not a third Program or the Client's local face. It contains no Host Cordis merge, Service class, Context class, or implementation code, and it does not enter the Host-local reflection registry.
+
+The Host lib build performs strict Host analysis and emits both the Host-local and Remote consumer artifacts. The Client lib then consumes the Remote DTS. The complete order is:
+
+```text
+Host lib build
+→ 生成 typert.host.{js,d.ts}
+→ 生成各业务包 lib/typert.remote-client.{js,d.ts,d.ts.map}
+→ 完成 Client lib 和 typert.client 产物
+→ Vite 构建 Web
+```
+
+The existing top-level `build` still runs `build:lib` before `build:web`, but `build:lib` must complete the Host and Remote artifacts before starting Client TypeScript compilation. A clean build must not depend on stale `.d.ts` files from an earlier build.
+
+## The `/remote` package entry
+
+Every business package that provides Remote methods exports a generated `/remote` subpath:
+
+```text
+"./remote": {
+  "types": "./lib/typert.remote-client.d.ts",
+  "default": "./lib/typert.remote-client.js"
+}
+```
+
+Consumer code selects a capability through the business package itself:
+
+```text
+import goalsRemote from '@deepseek-ai/dsh-goal/remote'
+```
+
+This import brings the `.d.ts` map augmentation into the current TypeScript project while supplying the JS descriptor for the same contract as a value to the runtime. A business package that is not imported does not extend the current project's Remote API types.
+
+The business package's published files must include both `lib/typert.remote-client.d.ts.map` and the `src` file referenced by that map. The generated DTS refers to its adjacent map with `//# sourceMappingURL=typert.remote-client.d.ts.map`; the map source points from `lib` to the business source by a relative path such as `../src/index.ts`. The `/remote` export does not list the map separately; the package `files` field publishes it together with the source.
+
+Code that needs only static types may use `import type {} from '@deepseek-ai/dsh-goal/remote'`. This import is erased at runtime, loads no JS, and cannot trigger runtime registration. An environment that makes real calls must pass the contribution from a normal value import to the API Service.
+
+Workspace resolution for `/remote` must explicitly target generated `lib` artifacts and must not let a general package-to-`src` paths rule redirect it to Host source. Ordinary business imports may continue resolving to SRC or LIB according to each environment's existing rules.
+
+## Strict consumer API types
+
+Remote DTS extends the flat endpoint map, direct namespace interface, namespace map, and scoped map without augmenting the global Cordis `Context`:
+
+```text
+interface TypeRTRemoteNamespace$676f616c73 {
+  create: (
+    agentId: SessionId,
+    request: CreateGoalRequest,
+  ) => Promise<CreateGoalResult>
+}
+
+interface TypeRTRemoteMap {
+  'goals/create': (
+    agentId: SessionId,
+    request: CreateGoalRequest,
+  ) => Promise<CreateGoalResult>
+}
+
+interface TypeRTRemoteNamespaceMap {
+  goals: TypeRTRemoteNamespace$676f616c73
+}
+
+interface TypeRTRemoteContextMap {
+  'agent:goals/create': (
+    request: CreateGoalRequest,
+  ) => Promise<CreateGoalResult>
+}
+```
+
+`TypeRTRemoteMap` preserves canonical endpoint signatures for protocol typing and reflection. The root API type reads `TypeRTRemoteNamespaceMap` directly instead of deriving methods indirectly through a key-remapped mapped type; the TypeScript Language Service cannot reliably navigate such indirect properties through a declaration map. A namespace interface name encodes the namespace's UTF-8 bytes as hexadecimal, so `goals` deterministically becomes `TypeRTRemoteNamespace$676f616c73`. Different packages generate the same interface name for the same namespace and use module augmentation to merge their methods, while `TypeRTRemoteNamespaceMap.goals` always refers to that one type.
+
+TypeRT projects `TypeRTRemoteContextMap` onto a dedicated Scope type according to its Context key. The final programming interface remains:
+
+```text
+api.goals.create(agentId, request)
+agent.goals.create(request)
+```
+
+The Agent Scope supplies its own `SessionId` automatically. A `@Remote` method with an `agent` lookup can therefore generate both root and scoped consumer signatures. A `@RemoteContext('agent')` method also omits a separate Context identity, but generates only the scoped signature. In this phase, only the Client Agent Context gains `goals`; the Root Context does not. A future TUI must preserve the same Scope restriction.
+
+`RemoteApi` remains platform-independent, and the Browser Client uses it as its `ClientApi`. If a future TUI reuses this type, it must likewise access it through a dedicated API object and Agent Scope rather than treating the Host `Context` as a broader Service collection. Public Service methods without Remote markers do not enter the Remote maps.
+
+## Client TypeRT and the API Gateway Client face
+
+TypeRT in a consumer environment maintains both local information and Remote information imported from other environments, but stores them in separate registries:
+
+```text
+TypeRT.local    当前环境自己的反射模型
+TypeRT.remotes  已导入的 Remote contribution
+```
+
+`@deepseek-ai/dsh-client-remotes/client` centrally loads the required Remote contributions:
+
+```text
+import goalsRemote from '@deepseek-ai/dsh-goal/remote'
+import sessionsRemote from '@deepseek-ai/dsh-session/remote'
+
+ctx.api.mount(goalsRemote)
+ctx.api.mount(sessionsRemote)
+```
+
+Client business packages depend only on `@deepseek-ai/dsh-client-remotes/client`, not directly on the Host API Gateway or the runtime entry of each business `/remote`. Client Remotes itself depends on the Gateway Client face and re-exports declarations so the selected Remote map reaches business compilation. Adding or removing a complete Client capability changes only this assembly point.
+
+`ctx.api.mount()` registers a contribution with `TypeRT.remotes`, and its disposer is owned by the Cordis fiber that called the method. Duplicate endpoints, conflicting invocation modes for the same namespace and method, or conflicts between a descriptor and an existing type identity fail immediately.
+
+The API Service materializes each `@Remote` descriptor as a real function on the root `api`. The function constructs named `args` in descriptor parameter order, applies the Client's strict codec, and then calls `ctx.connection.rpc.call('/api2', endpoint, { args })`.
+
+Neither a direct descriptor with `scope` nor a `@RemoteContext` descriptor copies functions into every Agent Scope. The API Service creates one root singleton Cordis Service for each scoped namespace and materializes methods on that Service. When `agent.goals.create()` is called, the Cordis tracker rebinds the Service's `this.ctx` to the current Agent Context. The method then asks the corresponding Context binder for identity from `this.ctx`. A direct scoped projection substitutes this identity at the lookup position named by `scope.wire`; a Context descriptor writes the identity into the receiver's separate wire field. Both issue the same kind of `/api2` call.
+
+```text
+root ctx.api.goals.create(agentId, request)
+  → direct descriptor
+  → ctx.connection.rpc.call('/api2', 'goals/create', { args })
+
+agent.goals.create(request)
+  → tracker 将 namespace Service rebind 到 agent Context
+  → agent binder 从 caller Context 取得 agentId
+  → 用 agentId 补入同一 direct descriptor 的 lookup 参数
+  → ctx.connection.rpc.call('/api2', 'goals/create', { args })
+```
+
+The Root `Context` does not merge the scoped `goals` type; only `AgentContext` gains that property through `RemoteContextApi<'agent'>`. If a caller bypasses the type system and dynamically calls a scoped method from Root, the binder reports an explicit error. If the Client already has a Cordis service with the same name, or two contributions claim the same namespace and method incompatibly, mounting fails instead of overwriting the existing service.
+
+Generated Remote JS contains only descriptors, symbol keys, and codecs; it does not bundle Host Service implementations. The API Service can create real functions from that data, so this proposal does not depend on a JavaScript Proxy. A Proxy remains an implementation option but is not a source of types or reflection.
+
+## Cross-environment isomorphism constraints
+
+Remote API is a consumer capability, not a synonym for Browser API. This phase implements only Browser Client contribution mounting, Connection RPC calls, and Agent Scope association.
+
+Remote DTS, Remote JS, `RemoteApi`, `InvocationDescriptor`, the Remote RPC data protocol, and Context binders must not depend on the DOM, Browser module loaders, or HTTP. Through Connection, the Browser Client encodes descriptor-materialized methods as `/api2` RPC calls.
+
+A future TUI can join the same call abstraction without changing business decorators, Remote maps, or the shape of API calls. The TUI-visible API must still be generated exclusively from `@Remote` and `@RemoteContext`; sharing a process with the Host must not allow it to bypass Remote restrictions and expose Service methods directly.
+
+TUI runtime mounting, carriers, Agent Scope association, and SRC startup wiring are outside this phase.
+
+The Web already depends on build artifacts such as `lib/client.js`, so it requires a complete `build:lib` before startup. After the Host Remote contract changes, developers must rebuild the lib and then start or restart the Web. The first phase does not implement incremental watching of the Remote contract.
+
+## SRC and LIB operating modes
+
+SRC supports local source startup. The `WeakMap` records created by `@Remote` and `@RemoteContext()` provide method names and invocation modes. At runtime, the system reads ordered parameter names from the JavaScript function signature and combines them with registered lookup/Context providers to produce a permissive descriptor.
+
+For example, `@Remote('create') remoteExportCreate(agent, request)` resolves to the external method `create`, implementation member `remoteExportCreate`, and two top-level parameters. Lookup registration rewrites `agent` to the wire field `agentId`, while `request` is passed as a same-named JSON parameter. SRC does not start a `ts.Program`, use a preload or loader hook, generate or rewrite source, or inspect the internal structure of an ordinary JSON object.
+
+A signature that SRC cannot resolve unambiguously fails when the Service mounts. It does not guess at object destructuring, ambiguity caused by default parameters, rest parameters, nested lookups, or complex types.
+
+LIB supports CI, releases, and the prerequisite Web build. TypeRT scans the complete Host project and checks Remote decorators, explicit bindings, service keys, endpoint conflicts, lookup/Context declarations, public-symbol reachability, JSON codecs, and result codecs, then generates strict descriptors.
+
+At runtime, LIB only loads definitions from `lib`; it does not start the TypeScript compiler. The subsequent association of Services, lookup, Context resolution, invocation, and response encoding in the Host Gateway does not depend on whether a descriptor came from permissive SRC parsing or strict LIB generation.
+
+CI and releases use LIB. Moving all repository coverage to LIB is separate follow-up work and does not block this direct-method-call implementation.
+
+## Host Gateway registration
+
+The Host Gateway observes both TypeRT Remote definitions and the Cordis Service lifecycle. When a Service carrying the `typertGateway` facet and a definition with the same service key are both available, the Gateway registers the definition's endpoints. Their arrival order does not matter.
+
+At startup, the Gateway reads the current snapshots of TypeRT definitions and the Cordis reflection store before subscribing to registry changes and `internal/service`. It reconciles definitions, live Services, and bindings by service key, and unregisters endpoints when a Service is replaced or disposed. If a definition, lookup provider, or Context provider is removed, dependent endpoints immediately become unavailable; the Gateway neither retains invalid objects nor degrades to invoking methods with raw IDs.
+
+An ordinary `@Remote` call retains the original Service instance as receiver. After lookups succeed, the Gateway calls the member identified by `implementation ?? method` with parameters in descriptor order.
+
+A `@RemoteContext('agent')` call first asks the Agent Context provider to resolve the wire identity, then reads the descriptor's service key from that Context and invokes the scoped receiver. The business method receives neither a hidden Context parameter nor an Agent ID.
+
+```text
+ctx.typertGateway.invoke({ namespace, method, args })
+→ 查找本地 InvocationDescriptor 与 live receiver
+→ 按参数 descriptor 读取具名 wire 字段
+→ codec 解码普通值或 lookup ID
+→ lookup provider 把 ID 解析为活对象
+→ direct 使用原 Service；context 先解析 scoped Context 和 Service
+→ Reflect.apply(receiver[implementation ?? method], receiver, orderedArgs)
+→ result codec 编码业务结果
+```
+
+`ctx.typertGateway.invoke()` is the carrier-independent Host entry point. It neither creates an rpcId, RPC envelope, nor HTTP response. It returns only the encoded result or raises a Gateway error that the Connection RPC adapter maps for transport.
+
+## The `/api2` call chain
+
+`/api2` is an isolated protocol channel on the single Connection/RPC mechanism, not a transport created by the Gateway. The Gateway registers one local handler with Connection. This phase adds the following general channel capability to the existing HTTP Connection:
+
+```text
+ctx.connection.rpc.handle('/api2', (endpoint, payload) => {
+  const { namespace, method } = parseEndpoint(endpoint)
+  const { args } = parsePayload(payload)
+  return ctx.typertGateway.invoke({ namespace, method, args })
+})
+```
+
+The Connection Host half obtains a handle from the single HTTP Server and reuses the same RPC bridge, request/response envelope, rpcId, serialization, trust, transport errors, and `RpcError`. Its current physical mapping is:
+
+```text
+POST /api2/<namespace>/<method>
+```
+
+The Remote payload is a named JSON object, not a positional array, and does not carry an `InvocationDescriptor`. A normal Goal call has this payload slot:
+
+```json
+{
+  "args": {
+    "agentId": "session-1",
+    "request": {
+      "objective": "finish the migration"
+    }
+  }
+}
+```
+
+The complete path is:
+
+```text
+ctx.api.goals.create(sessionId, request)
+→ Client InvocationDescriptor 编码 { args: { agentId, request } }
+→ ctx.connection.rpc.call('/api2', 'goals/create', { args })
+→ Connection 创建 rpcId 和既有 client-request envelope
+→ 当前 carrier 发送 POST /api2/goals/create
+→ Connection Host half 执行 trust、反序列化和 RPC 分发
+→ /api2 handler 调用 ctx.typertGateway.invoke(...)
+→ Host InvocationDescriptor 解码、lookup、receiver 解析和 Reflect.apply
+→ result codec 编码
+→ Connection 写入既有 RPC result 并回送相同 rpcId
+→ Client result codec 验证并返回 CreateGoalResult
+```
+
+Remote does not define a second-layer `{ ok, value/error }` response. Successful values and Gateway errors use the existing RPC response's `result` directly. The Gateway adapter maps endpoint, schema, lookup, Context, Service, and business-invocation failures to `RpcError`; Connection transports that error.
+
+The Gateway does not handle per-method permissions, caller identity, cancellation, idempotency, or long-lived connection state. This work only extends Connection with general channel registration and invocation capabilities. It does not change existing `/api`, trusted connection, trusted-host, or privileged-method semantics. Connection's WebSocket migration remains separate follow-up work.
+
+## Connection and protocol boundaries
+
+The API Service owns Remote contributions, method materialization, Scope binding, and the correspondence between positional parameters and descriptors. The Gateway owns Host descriptors, lookup, Context, and business invocation. Connection only sends `/api2`, the endpoint, and `{ args }` as one RPC call to the target and returns the existing RPC result; it does not understand Goal, Agent, lookup, descriptors, or Client API types.
+
+`/api` and `/api2` share one Connection, Server, RPC envelope, and connection lifecycle while remaining separate protocols. When Connection migrates from HTTP to WebSocket, `/api2` naturally changes from a physical path to a logical channel. The Remote payload, business decorators, generated DTS, Remote API types, and Agent Scope programming interface remain unchanged.
+
+## Package boundaries
+
+- `@deepseek-ai/dsh-type-meta`: lightweight protocols for decorators, bindings, lookup, Remote Context, and descriptors.
+- TypeRT generator: analyzes Host/Client Programs, generates local faces and Remote consumer projections, and emits canonical symbol/Zod information.
+- TypeRT runtime: separately stores the current environment's local reflection and imported Remote contributions.
+- `@deepseek-ai/dsh-host-api-gateway`: its default entry associates Host definitions with Services, performs lookup, resolves Context receivers, invokes methods, encodes results, and registers an `/api2` handler with Connection; its `/client` entry mounts Remote contributions, creates strict API methods, and delegates calls to `ctx.connection.rpc`. The entries share the Remote protocol but do not import each other's Cordis interface merges.
+- `@deepseek-ai/dsh-client-remotes`: the only Remote facade depended on by Client business code; directly depends on the Gateway Client face, selects `/remote` contributions, and exposes the merged API types to business packages.
+- Connection: owns the single HTTP Server/future WebSocket carrier, RPC envelope, rpcId, serialization, trust, and error transport while carrying the isolated `/api` and `/api2` channels.
+- Business-object packages such as Agent/Session: own lookup, Context providers, canonical ID types, and public type-only entries.
+- Business Service packages: declare bindings, Remote methods, and their request/result types, and export the generated `/remote` subpath.
+
+## Initial implementation scope
+
+The first vertical path implements `@deepseek-ai/dsh-goal/remote → Browser Client API → Connection RPC /api2 → Host Gateway → GoalService.remoteExportCreate()` and proves that the same direct descriptor with an Agent lookup supports both `ctx.api.goals.create(agentId, request)` and `agentCtx.goals.create(request)`. The scoped-receiver semantics of `@RemoteContext('agent')` remain a separate mode.
+
+This phase implements Connection's general second-channel API and its current HTTP carrier mapping, but not WebSocket migration, the TUI runtime, a TUI carrier, or TUI Agent Scope wiring. This RFC also does not design Permission/Approval state machines, Session event streams, call authorization, cancellation, retries, idempotency, or cross-version protocol compatibility.
+
+## Alternatives considered
+
+**Continue using the central API Proxy package.** This would require business methods, Host routes, and Client interfaces to be declared repeatedly in several locations. It would also keep direct calls, stateful interactions, and event streams tied to the same lifecycle, so this alternative is rejected.
+
+**Perform strict reflection through decorators at runtime.** JavaScript decorators cannot recover erased TypeScript types, public symbol identity, or complete Zod codecs. Injecting a compiler-private symbol into a constructor would also hide the business class's real dependencies, so TypeRT generates strict information at compile time.
+
+**Use a preload, loader hook, or complete `ts.Program` during SRC startup.** This could reuse LIB analysis but would add requirements to every source startup entry. SRC needs only a usable permissive descriptor, so it uses decorator markers, function parameter names, and explicit providers; strict checks remain in the LIB contract pass.
+
+**Hand-write the Client interface.** A hand-written interface cannot guarantee that it contains only Remote-marked methods and can drift from Host signatures, lookup IDs, and Zod schemas. Client types are therefore projected automatically from the Host Program.
+
+**Use a TypeScript language-service/compiler plugin to make the Client understand decorators directly.** This would require editors, Vite, tsc, tsx, and published consumers to install an additional plugin, making integration too invasive. The design instead generates ordinary `.d.ts` files and standard declaration maps.
+
+**Import complete Host DTS into the Client or TUI.** This would pull in Host Services and Cordis interface merges while exposing unmarked methods to consumers. Remote DTS refers only to public, type-only symbols and augments dedicated Remote maps.
+
+**Generate only Remote DTS, without JS.** Types would work, but the runtime could not enumerate endpoints, codecs, and Context modes without a Proxy or another hand-written registry. The same Host projection therefore emits a Remote JS contribution as well.
+
+**Let a top-level `/remote` import register global state implicitly.** The target Cordis Context may not exist when ESM evaluation occurs, and ownership becomes ambiguous across multiple Contexts, HMR, and disposal. A normal value import therefore returns only a contribution, which the environment assembly explicitly mounts through the API Service.
+
+**Create a separate transport, HTTP route, and response envelope for Remote.** This would duplicate the existing Connection's Server ownership, rpcId, serialization, trust, errors, and future WebSocket lifecycle, requiring two RPC stacks to migrate separately. `/api2` instead reuses the single Connection/RPC mechanism as an isolated protocol channel.
+
+## Acceptance criteria
+
+- Goal Service retains its existing business method and adds a remote entry point at the end of the class through an explicit `typertGateway` and `@Remote('create') remoteExportCreate(...)`, without maintaining a second route, codec, or Client method list.
+- One clean `build:lib` generates the Host Remote contract before compiling Host and Client consumers and produces JS, DTS, and a DTS map under the business package's `lib`, importable through `/remote`.
+- After importing `@deepseek-ai/dsh-goal/remote`, a consumer project gets a strict `api.goals.create(...)` type; without the import, that namespace does not enter its types. Go to Definition on `create` follows the declaration map to the Host Service's `remoteExportCreate` implementation.
+- After the Client assembly mounts the JS contribution obtained from the same import, TypeRT can reflect endpoint, parameter, result, lookup, Context, and Zod information, and the API Service creates the calling method without a hand-written stub.
+- Remote DTS, Remote JS, `RemoteApi`, and the descriptor protocol do not depend on Browser-specific capabilities, and the type model cannot expose unmarked Goal Service methods, preserving the boundary required for future isomorphic TUI integration.
+- `agent.goals.*` obtains its call Scope through the Cordis tracker and Context binder. The Root Context has no Agent-only type, and functions are not copied into each Scope.
+- `/api2/goals/create` resolves `agentId` to the canonical Agent object, invokes the original Goal Service receiver, and returns the result through the existing RPC result/error mechanism.
+- `/api2` and `/api` share the single Connection/RPC carrier while remaining protocol-isolated. Remote neither registers an HTTP Server handle directly nor defines a second response envelope.
+- Connection provides general channel registration and invocation capabilities and maps `/api2` to the current HTTP carrier. Existing `/api` behavior and trust semantics remain unchanged.
+- This implementation does not change existing `/api`, Connection/trusted connection, Permission/Approval, or Session event stream behavior.
+
+## Risks
+
+Remote API types depend on generated `lib` declarations. Build orchestration must finish the Host contract pass before compiling Host and Client consumers; an incorrect order makes a clean build depend on stale artifacts.
+
+Source navigation requires a Remote package to publish both its declaration map and the `src` file referenced by the map. If package `files` omits either side, types still compile but consumer navigation stops at the generated DTS. The workspace manifest check must therefore treat both as one publication contract.
+
+The permissive SRC descriptor does not validate the internal structure of ordinary JSON. After a Host Remote signature changes, the Web and strict type consumers must rebuild the lib; the first phase has no incremental contract watcher.
+
+Canonical public types require business DTOs to have type-only entries, which may expose packages whose Host types and implementation entries are currently mixed. The build rejects those boundaries instead of copying types to conceal them.
+
+Type imports and runtime contributions have different effects. `import type {}` extends only the static API. If a real calling environment omits the value contribution, the API Service must fail with an explicit "Remote not mounted" error.
+
+Browser and Host each hold their own Zod instances and cannot compare object identities across realms. Consistency is guaranteed only by canonical symbol keys, the same generated model, and wire behavior.
+
+A consumer may import a Remote contract that is not currently mounted on the Host. The types mean "this protocol capability was selected by the consumer," not that a corresponding Service currently exists in the target process; an unavailable endpoint must fail explicitly at runtime.
+
+Connection's general channel API must suit both the current HTTP carrier and a future WebSocket carrier. If the API exposes `fetch`, an HTTP request, or a route handle to the Gateway/API Service, WebSocket migration will pierce the Remote layer again. Those physical objects must therefore remain internal to Connection.
