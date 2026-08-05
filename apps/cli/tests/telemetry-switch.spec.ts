@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveTelemetryPatch } from '../src/app-cli-entry.ts'
+import { resolveTelemetryPatch } from '../src/profile-boot.ts'
 
 describe('resolveTelemetryPatch', () => {
   it('keeps telemetry enabled when the switch is unset or empty', () => {

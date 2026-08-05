@@ -15,7 +15,6 @@ import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import Include from '@cordisjs/plugin-include'
 import HttpServer from '@deepseek-ai/dsh-host-webserver'
-import InvariantService, { type InvariantError } from '@deepseek-ai/dsh-invariants'
 import * as FrontendStatic from '../src/index.ts'
 
 let root: string | undefined
@@ -124,48 +123,5 @@ describe('real Loader composition', () => {
     await frontendEntry!.fiber?.dispose()
     expect((await request(port, '/no/such/route')).status).toBe(404)
     expect(() => server.registerFallback(() => {})).not.toThrow()
-  })
-})
-
-describe('invariant companion', () => {
-  const OWN_FIBER = { entry: { options: { name: '@deepseek-ai/dsh-frontend-static' } } }
-
-  // The vitest-wide invariant host (scripts/test-invariants.ts) mounts this
-  // package's companion automatically when the service is plugged.
-  async function setup(): Promise<Context> {
-    const ctx = new Context()
-    await ctx.plugin(InvariantService)
-    return ctx
-  }
-
-  it('passes on a clean seat release, skips foreign rows, and reports a leaked seat', async () => {
-    const ctx = await setup()
-    let fallback: unknown
-    ctx.provide('httpServer', {
-      registerFallback: (handler: unknown) => {
-        if (fallback !== undefined) throw new Error('webserver: fallback already registered')
-        fallback = handler
-        return () => { fallback = undefined }
-      },
-    } as never)
-
-    // A teardown of this package's own row with the seat released: no violation.
-    expect(() => { ctx.emit('internal/plugin', OWN_FIBER as never) }).not.toThrow()
-    // Foreign-row teardowns are not audited (a live legitimate owner would false-positive).
-    fallback = () => {}
-    expect(() => { ctx.emit('internal/plugin', { entry: { options: { name: 'other-package' } } } as never) }).not.toThrow()
-    // A leaked seat on our own teardown (disposer never ran): the probe cannot claim twice → violation.
-    expect(() => { ctx.emit('internal/plugin', OWN_FIBER as never) })
-      .toThrow(expect.objectContaining<Partial<InvariantError>>({
-        code: 'INVARIANT',
-        packageName: '@deepseek-ai/dsh-frontend-static',
-      }))
-    await ctx.fiber.dispose()
-  })
-
-  it('skips the audit when the webserver went down with the row', async () => {
-    const ctx = await setup()
-    expect(() => { ctx.emit('internal/plugin', OWN_FIBER as never) }).not.toThrow()
-    await ctx.fiber.dispose()
   })
 })

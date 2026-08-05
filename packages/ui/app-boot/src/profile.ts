@@ -159,7 +159,19 @@ function ensureSymlink(link: string, target: string): void {
     if (readlinkSync(link) === target) return
     rmSync(link)
   }
-  symlinkSync(target, link, 'junction')
+  try {
+    symlinkSync(target, link, 'junction')
+  } catch (error) {
+    // Concurrent launches heal the same fallback; losing the race to a
+    // process writing the identical link is success, anything else is not.
+    // The window between the lstat miss above and this write cannot be
+    // staged deterministically from the public surface.
+    /* v8 ignore next 4 */
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST'
+      || !lstatSync(link).isSymbolicLink() || readlinkSync(link) !== target) {
+      throw error
+    }
+  }
 }
 
 /**
@@ -185,32 +197,24 @@ export function healProfilesModuleFallback(installAnchor: string, home: string =
   // The app manifest plus every resolvable direct dependency's manifest that
   // itself declares a dsh patch (a bundle): their dependency names form the
   // fallback surface.
-  const appRequire = createRequire(installAnchor)
   const appManifest = JSON.parse(readFileSync(installAnchor, 'utf8')) as ProfileManifest
   const anchors: { anchor: string; manifest: ProfileManifest }[] = [{ anchor: installAnchor, manifest: appManifest }]
   /* v8 ignore next -- a real app manifest always declares dependencies */
   for (const dep of Object.keys(appManifest.dependencies ?? {})) {
-    let manifestPath: string
-    try {
-      manifestPath = appRequire.resolve(`${dep}/package.json`)
-    } catch {
-      continue // not resolvable (a bin-less oddity) — nothing to mirror
-    }
-    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as ProfileManifest
-    if (manifest.dsh?.patch !== undefined) anchors.push({ anchor: manifestPath, manifest })
+    const dir = packageDirFromAnchor(installAnchor, dep)
+    if (dir === undefined) continue // declared but not installed — nothing to mirror
+    const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as ProfileManifest
+    if (manifest.dsh?.patch !== undefined) anchors.push({ anchor: join(dir, 'package.json'), manifest })
   }
   const links = new Map<string, string>()
   for (const { anchor, manifest } of anchors) {
-    const requireFrom = createRequire(anchor)
     /* v8 ignore next -- bundle anchors reach here only with a dependencies map */
     for (const dep of Object.keys(manifest.dependencies ?? {})) {
       if (links.has(dep)) continue
-      try {
-        links.set(dep, dirname(requireFrom.resolve(`${dep}/package.json`)))
-      } catch {
-        // A dependency without a resolvable package.json export cannot be a
-        // loader-visible plugin; skip it rather than fail the whole boot.
-      }
+      const dir = packageDirFromAnchor(anchor, dep)
+      // A declared-but-uninstalled dependency cannot be a loader-visible
+      // plugin; skip it rather than fail the whole boot.
+      if (dir !== undefined) links.set(dep, dir)
     }
     // The anchor package itself is part of the surface (a profile may list it
     // in dsh.plugins or a row may name it).
@@ -257,10 +261,34 @@ export function writeProfileManifest(dir: string, manifest: ProfileManifest): vo
 }
 
 /**
+ * Resolve a package's root directory from one anchor without depending on the
+ * package exporting `./package.json`: probe the require resolution paths for
+ * a directory holding the named manifest. This is Node's own lookup order, so
+ * the result matches what the Loader would import from the same anchor.
+ */
+function packageDirFromAnchor(anchor: string, packageName: string): string | undefined {
+  const require = createRequire(anchor)
+  // Fast path: the package exports its manifest (every in-box package does).
+  try {
+    return dirname(require.resolve(`${packageName}/package.json`))
+  } catch {
+    // Exports-encapsulated package — fall through to the paths probe.
+  }
+  // resolve.paths returns null only for builtins, which no bundle name is.
+  /* v8 ignore next */
+  for (const searchPath of require.resolve.paths(packageName) ?? []) {
+    const candidate = join(searchPath, packageName)
+    if (existsSync(join(candidate, 'package.json'))) return candidate
+  }
+  return undefined
+}
+
+/**
  * Resolve one bundle package's directory: installation anchor first, then the
  * profile directory. The installation-first order is the contract that
  * `@deepseek-ai/dsh-base` (and every other in-box bundle) always comes from
  * the same installation as the running dsh, never from a profile-local copy.
+ * Resolution does not require the package to export `./package.json`.
  * @param binName - the diagnostic prefix on the thrown error.
  * @param packageName - the bundle's package name from `dsh.plugins`.
  * @param installAnchor - absolute path of a file inside the dsh app package (its package.json).
@@ -271,11 +299,8 @@ export function resolveBundleDir(
   binName: string, packageName: string, installAnchor: string, profileDir: string,
 ): string {
   for (const anchor of [installAnchor, join(profileDir, 'package.json')]) {
-    try {
-      return dirname(createRequire(anchor).resolve(`${packageName}/package.json`))
-    } catch {
-      // Not resolvable from this anchor — try the next; exhaustion throws below.
-    }
+    const dir = packageDirFromAnchor(anchor, packageName)
+    if (dir !== undefined) return dir
   }
   // profileDir always carries at least one segment; String() only satisfies the type.
   const profileName = String(join(profileDir).split(/[/\\]/).at(-1))

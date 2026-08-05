@@ -135,6 +135,13 @@ export function apply(ctx: Context, config: Config): void {
     }
     const loader = ctx.get('loader')
     if (loader === undefined) printUrl()
-    else void loader.await().then(printUrl)
+    else {
+      void loader.await().then(() => {
+        // The tree can be disposed while settlement was in flight (early
+        // SIGTERM); a URL line for a dead server would only mislead, and
+        // reading the torn-down port would turn a clean shutdown into a crash.
+        if (ctx.get('httpServer') !== undefined) printUrl()
+      })
+    }
   }
 }

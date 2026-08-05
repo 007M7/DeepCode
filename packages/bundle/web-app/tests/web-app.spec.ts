@@ -111,6 +111,43 @@ describe('web-app runtime glue', () => {
     await ctx.fiber.dispose()
   })
 
+  it('defers the URL line until Loader settlement and drops it when the server is gone', async () => {
+    stageDist()
+    // Settlement path: the line waits for loader.await() so supervisors can
+    // RPC immediately after observing it.
+    const settled = new Context()
+    settled.provide('httpServer', fakeHttpServer().server)
+    let release: () => void
+    const settlement = new Promise<void>((resolve) => { release = resolve })
+    settled.provide('loader', { await: () => settlement } as never)
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    apply(settled, new Config({ mode: 'production', printUrl: true, lanAddresses: [] }))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(log).not.toHaveBeenCalled()
+    release!()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(log).toHaveBeenCalledWith('dsh web: http://127.0.0.1:4567')
+    await settled.fiber.dispose()
+
+    // Torn-down path: settlement resolves after the webserver is gone — no
+    // line, no crash.
+    log.mockClear()
+    const torn = new Context()
+    const child = torn.plugin((childCtx: Context) => {
+      childCtx.provide('httpServer', fakeHttpServer().server)
+    })
+    await child
+    let releaseTorn: () => void
+    const tornSettlement = new Promise<void>((resolve) => { releaseTorn = resolve })
+    torn.provide('loader', { await: () => tornSettlement } as never)
+    apply(torn, new Config({ mode: 'production', printUrl: true, lanAddresses: [] }))
+    await child.dispose() // the httpServer service goes away
+    releaseTorn!()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(log).not.toHaveBeenCalled()
+    await torn.fiber.dispose()
+  })
+
   it('fails loud when the prompt section resolves against a portless webserver', async () => {
     stageDist()
     const ctx = new Context()

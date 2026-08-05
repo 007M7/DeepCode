@@ -4,8 +4,6 @@
  */
 
 import type { Context } from 'cordis'
-// Empty type import carries the Loader's Fiber#entry merge read below.
-import type {} from '@cordisjs/plugin-loader'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-frontend-static'
@@ -16,33 +14,16 @@ export const name = 'frontend-static-invariant'
 export const inject = ['invariants']
 
 /**
- * Owned relation: the fallback seat and the owning fiber must stay symmetric —
- * after the fiber holding the seat unloads, the seat must be claimable again
- * (a stale fallback would keep serving a disposed plugin's dist). Checked on
- * every fiber teardown by probing the registerFallback single-owner contract:
- * when this package's plugin is not mounted, a claim+release cycle must
- * succeed twice; residue from a leaked disposer makes the second claim throw.
+ * No runtime invariant: the only owned relation is the single fallback seat,
+ * which cannot be probed from the teardown stream — `internal/plugin` fires
+ * before the disposing fiber's effects run, so the legitimate owner still
+ * holds the seat at notification time and any claim probe would
+ * false-positive on every correct disposal (unlike the webserver companion,
+ * whose reserved-path probes never collide with a live registration). The
+ * seat's register/release symmetry is covered by the package's
+ * real-composition HMR-safety test instead.
  */
-const install: InvariantInstaller = (ctx, fail) => {
-  ctx.on('internal/plugin', (fiber) => {
-    // Only audit teardowns of this package's own rows: while a live
-    // frontend-static row legitimately holds the seat, the probe would
-    // false-positive on the legitimate owner.
-    if (fiber.entry?.options.name !== PACKAGE_NAME) return
-    const server = ctx.get('httpServer') as
-      | { registerFallback(handler: () => void): () => void }
-      | undefined
-    if (server === undefined) return // torn down with the webserver itself
-    // The probe handlers are registered and immediately released, never invoked.
-    /* v8 ignore next 4 -- the arrow bodies are dead by design */
-    try {
-      server.registerFallback(() => {})()
-      server.registerFallback(() => {})()
-    } catch {
-      fail('frontend-static fallback disposer left the seat claimed — seat ownership and fiber lifecycle diverged')
-    }
-  }, { global: true })
-}
+const install: InvariantInstaller = () => {}
 
 /**
  * Register this package's invariant companion.

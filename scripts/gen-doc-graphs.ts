@@ -598,7 +598,8 @@ function parseExampleCordis(rel: string): ExamplePlugin[] {
     if (current?.name) plugins.push({ id: current.id, name: current.name })
   }
   for (const line of text.split('\n')) {
-    const id = /^-\s+id:\s+(.+?)\s*$/.exec(line)
+    // Top-level rows (`- id:`) and bundle-patch insert rows (`    - id:`).
+    const id = /^\s*-\s+id:\s+(.+?)\s*$/.exec(line)
     if (id?.[1] !== undefined) {
       flush()
       current = { id: stripYamlScalar(id[1]) }
@@ -620,9 +621,9 @@ const APP_EXAMPLES = [
     id: 'dsh_base',
     rel: 'apps/cli/composition.md',
     title: 'DSH Base Composition',
-    label: 'apps/cli/config/base.cordis.yml',
-    config: 'apps/cli/config/base.cordis.yml',
-    summary: 'The raw CLI applies one required caller-selected patch list over this shared base; Web and headless apply their own shipped overlays.',
+    label: 'packages/bundle/base/cordis.patch.yml',
+    config: 'packages/bundle/base/cordis.patch.yml',
+    summary: 'The dsh-base bundle patch every profile applies first; mode bundles (dsh-web-app, dsh-headless) and the user\'s profile layer patch over it.',
   },
   {
     id: 'headless',
