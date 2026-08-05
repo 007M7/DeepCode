@@ -846,9 +846,14 @@ function estimateFixtureContent(blocks: readonly ContentBlock[]): number {
     if (block.type === 'tool-call') {
       return tokens + densityPrice(block.name) + densityPrice(block.arguments) + BLOCK_OVERHEAD
     }
-    // Fixture-authored content is the closed base vocabulary, so tool-result
-    // is the only remaining shape — no merge-extension fallback can occur.
-    return tokens + estimateFixtureContent(block.content) + BLOCK_OVERHEAD
+    // ContentBlockMap is merge-extensible: this client graph sees only the
+    // base four members, but fixture turns do carry extended blocks at
+    // runtime, so the structural JSON fallback below is live code.
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- the type collapses without the out-of-graph merges (see above).
+    if (block.type === 'tool-result') {
+      return tokens + estimateFixtureContent(block.content) + BLOCK_OVERHEAD
+    }
+    return tokens + densityPrice(JSON.stringify(block)) + BLOCK_OVERHEAD
   }, 0)
 }
 
