@@ -100,7 +100,7 @@ describe('renderToolsSdkPy', () => {
     expect(text).toContain('class Tools(Protocol):')
     // The argument object is a named TypedDict, not an opaque dict.
     expect(text).toContain('class BashArgs(TypedDict):')
-    expect(text).toContain('async def bash(self, args: BashArgs) -> str: ...')
+    expect(text).toContain('async def bash(self, args: BashArgs) -> str:')
     // Empty-property tools keep the opaque dict (nothing to name).
     expect(text).toContain('# tools["my-mcp.tool"](args: dict[str, Any]) -> str')
     expect(text).toContain('# tools["class"](args: dict[str, Any]) -> str')
@@ -130,7 +130,7 @@ describe('renderToolsSdkPy', () => {
     expect(text).toContain('    query: str')
     expect(text).toContain('    # Max results.')
     expect(text).toContain('    limit: NotRequired[float]')
-    expect(text).toContain('async def search(self, args: SearchArgs) -> str: ...')
+    expect(text).toContain('async def search(self, args: SearchArgs) -> str:')
     // NotRequired is imported because an optional field used it; Any is NOT,
     // since every type here is concrete — the import line lists only what ran.
     expect(text).toContain('from typing import NotRequired, Protocol, TypedDict')
@@ -327,7 +327,7 @@ describe('renderToolsSdkPy', () => {
       output: { type: 'string' },
     }
     const text = renderToolsSdkPy([tool])
-    expect(text).toContain('async def weird_fields(self, args: dict[str, Any]) -> str: ...')
+    expect(text).toContain('async def weird_fields(self, args: dict[str, Any]) -> str:')
     expect(text).not.toContain('WeirdFieldsArgs')
   })
 
@@ -392,6 +392,29 @@ describe('renderToolsSdkPy', () => {
     expect(text).toContain('#   Exotic name.')
     // Lexicographic: `bash` before `my-mcp.tool`.
     expect(text.indexOf('async def bash')).toBeLessThan(text.indexOf('# tools["my-mcp.tool"]'))
+  })
+
+  it('places a docstring as the first statement of its own method body', () => {
+    // Python attaches a docstring to a function only when it is that
+    // function's first statement. Above the `async def` the first one would
+    // document the `Tools` class and every later one would be a dead
+    // expression, so each method must open its body with its own docstring.
+    const second: ToolSdkSchema = {
+      name: 'zzz',
+      description: 'Second by name.',
+      parameters: parameterSchemaSpecToJsonSchema({}) as unknown as Record<string, unknown>,
+      output: { type: 'string' },
+    }
+    const lines = renderToolsSdkPy([bash, second]).split('\n')
+    for (const [name, doc] of [['bash', 'Run a shell command.'], ['zzz', 'Second by name.']]) {
+      const signature = lines.findIndex(line => line.startsWith(`${' '.repeat(4)}async def ${name}(`))
+      expect(signature).toBeGreaterThan(-1)
+      // Ends in `:`, not the `: ...` stub — a docstring IS the whole body.
+      expect(lines[signature].endsWith(':')).toBe(true)
+      expect(lines[signature + 1]).toBe(`${' '.repeat(8)}"""${doc}"""`)
+    }
+    // No docstring is left floating at class-body indentation.
+    expect(lines.filter(line => line.startsWith(`${' '.repeat(4)}"""`))).toEqual([])
   })
 
   it('orders subscript entries against methods by name, not by member kind', () => {

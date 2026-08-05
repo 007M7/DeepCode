@@ -381,7 +381,10 @@ describe('mode-aware wire contribution', () => {
     // rejects such a language earlier; this reaches the guard on its own.
     const { ctx } = await setup({ mode: 'code', runtime: { language: 'ruby' } })
     const definition = ctx.tools.get(RUN_CODE_NAME)
-    expect(() => definition?.description).toThrow(/no run_code schema flavor registered for runtime language "ruby"/)
+    // Names the known languages, symmetric with the SDK_RENDERERS guard: this
+    // is the reachable rejection, so it must be at least as diagnosable.
+    expect(() => definition?.description)
+      .toThrow(/no run_code schema flavor registered for runtime language "ruby" \(known: "typescript", "python"\)/)
   })
 
   it('degrades the run_code flavor to TypeScript when no runtime is mounted (doc-catalog schema harvest)', async () => {

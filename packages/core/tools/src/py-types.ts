@@ -482,8 +482,18 @@ export function renderToolsSdkPy(schemas: ToolSdkSchema[]): string {
     const argType = renderType(schema.parameters, `${camelCase(schema.name)}Args`, state)
     const outputType = renderType(schema.output, `${camelCase(schema.name)}Output`, state)
     if (IDENTIFIER.test(schema.name) && !RESERVED.has(schema.name) && !schema.name.startsWith('_')) {
-      members.push(...docLines(schema.description, 1))
-      members.push(`${pad(1)}async def ${schema.name}(self, args: ${argType}) -> ${outputType}: ...`)
+      // A docstring only documents its method when it is the FIRST statement
+      // of that method's body. Emitted before the `async def` it would instead
+      // become the `Tools` class docstring (for the first tool) or a dead
+      // expression (for every later one), leaving every method undocumented —
+      // and this SDK is the model's only description of what a tool does. A
+      // docstring is a complete body, so the `...` stub is only for the
+      // description-less case.
+      const doc = docLines(schema.description, 2)
+      members.push(doc.length > 0
+        ? `${pad(1)}async def ${schema.name}(self, args: ${argType}) -> ${outputType}:`
+        : `${pad(1)}async def ${schema.name}(self, args: ${argType}) -> ${outputType}: ...`)
+      members.push(...doc)
       statements += 1
     } else {
       // Not a legal attribute name — the model reaches it via ``tools[name]``.
