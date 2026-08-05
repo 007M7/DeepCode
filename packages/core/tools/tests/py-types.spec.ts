@@ -453,8 +453,11 @@ describe('renderToolsSdkPy', () => {
     // ligature name cannot, because `async def ﬁnd` would define `find`. The
     // subscript comment quotes the name, so its exact bytes survive, and its
     // TypedDict is still named and referenced — the name is only unusable as a
-    // method, not as a class-name source (`camelCase` normalizes what it
-    // derives, since a generated name is never matched against a JSON key).
+    // method, not as a class-name source. The `FInd` spelling comes from `ﬁ`'s
+    // multi-character full case mapping (`'ﬁ'.toUpperCase()` is `'FI'`), not
+    // from `camelCase`'s NFKC step, which is the identity on `FInd`: the
+    // ligature is XID_Start, so the split set keeps it and only the
+    // capitalization of the head transforms it.
     const of = (name: string): ToolSdkSchema => ({
       name,
       description: `Tool ${name}.`,
@@ -557,6 +560,64 @@ describe('renderToolsSdkPy', () => {
     // The level above it is a join that composes nothing (LV + L), so it stays
     // byte-identical — normalizing is not silently rewriting every name.
     expect(text).toContain('class XArgs\uAC00\u1100(TypedDict):')
+  })
+
+  it('routes a fold collision through the counter that raw-byte dedup would miss', () => {
+    // The other half of the `childClassName` normalization: two joins that are
+    // byte-distinct before NFKC and identical after. Field `\uAC00` allocates
+    // `XArgs\uAC00`; the sibling `\u1100` allocates `XArgs\u1100`, and ITS child
+    // `\u1161` joins to `XArgs\u1100\u1161` — the same `XArgs\uAC00` once composed.
+    // Normalizing at the join is what lets `usedClassNames`, which dedupes by raw
+    // bytes, see the collision at all; unnormalized, both would be declared and
+    // CPython would compile the second as a shadow of the first.
+    const text = renderToolsSdkPy([
+      {
+        name: 'x',
+        description: 'Colliding jamo joins.',
+        parameters: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['\uAC00', '\u1100'],
+          properties: {
+            '\uAC00': { type: 'object', additionalProperties: false, required: ['q'], properties: { q: { type: 'string' } } },
+            '\u1100': {
+              type: 'object',
+              additionalProperties: false,
+              required: ['\u1161'],
+              properties: {
+                '\u1161': { type: 'object', additionalProperties: false, required: ['q'], properties: { q: { type: 'string' } } },
+              },
+            },
+          },
+        },
+        output: { type: 'string' },
+      },
+    ])
+    expect(text).toContain('class XArgs\uAC00(TypedDict):')
+    expect(text).toContain('class XArgs\uAC002(TypedDict):')
+    expect(text).toContain('    \u1161: XArgs\uAC002')
+  })
+
+  it('names both branches of a oneOf of objects on the argument side', () => {
+    // The output side is pinned elsewhere; arguments reach the same
+    // `childClassName(frame.className, index + 1)` path, and the annotation is
+    // the union of the two derived names rather than a degraded dict.
+    const text = renderToolsSdkPy([
+      {
+        name: 'x',
+        description: 'Union arguments.',
+        parameters: {
+          oneOf: [
+            { type: 'object', additionalProperties: false, required: ['a'], properties: { a: { type: 'string' } } },
+            { type: 'object', additionalProperties: false, required: ['b'], properties: { b: { type: 'number' } } },
+          ],
+        },
+        output: { type: 'string' },
+      },
+    ])
+    expect(text).toContain('class XArgs1(TypedDict):')
+    expect(text).toContain('class XArgs2(TypedDict):')
+    expect(text).toContain('async def x(self, args: XArgs1 | XArgs2) -> str:')
   })
 
   it('declares a closed empty object with omitted properties as an empty TypedDict, not dict[str, Any]', () => {

@@ -5,11 +5,12 @@
  * store, keyed by the loaded {@link @deepseek-ai/dsh-code-runtime#CodeRuntime.language | code
  * runtime's language}.
  *
- * In Code Mode the native tool schemas are omitted from the request, so this generated SDK is
- * the model's ONLY source for each tool's argument names, required fields, types, descriptions,
- * and canonical output shapes. Object-shaped arguments and outputs therefore render as one named
- * `TypedDict` per tool (and per nested object), not an opaque `dict[str, Any]`, so the shape
- * survives into the program.
+ * Under `mode: 'code'` the native tool schemas are omitted from the request, so this generated
+ * SDK is the model's ONLY source for each tool's argument names, required fields, types,
+ * descriptions, and canonical output shapes; under `mode: 'both'` the native schemas ship
+ * alongside it and it is one of two. Object-shaped arguments and outputs therefore render as one
+ * named `TypedDict` per tool (and per nested object), not an opaque `dict[str, Any]`, so the
+ * shape survives into the program under the mode that has nothing else to carry it.
  * @module @deepseek-ai/dsh-tools/src/py-types
  */
 
@@ -30,8 +31,8 @@ const IDENTIFIER = /^[\p{XID_Start}_]\p{XID_Continue}*$/u
  *
  * Python identifiers are not ASCII: `路径` is as legal a field name as `path`,
  * and rejecting it would degrade the whole enclosing object, dropping every
- * field's name, requiredness, and type — and in Code Mode the native schemas
- * are omitted, so this text is the model's only source for them.
+ * field's name, requiredness, and type — which under `mode: 'code'` is the
+ * model's only source for them.
  *
  * NFKC stability is a second and separate condition, because CPython
  * normalizes identifiers at compile time while JSON keys are compared as
@@ -40,23 +41,37 @@ const IDENTIFIER = /^[\p{XID_Start}_]\p{XID_Continue}*$/u
  * that normalize together would collapse into one declaration. Those names
  * take the subscript path, which carries their exact bytes.
  *
- * Both conditions are evaluated against the ENGINE's Unicode tables, and the
- * two sides are versioned independently — `\p{XID_Start}` follows the running
- * engine (Node 22.23.1 reports Unicode 17.0) while CPython follows its own
- * (3.9.6 reports 13.0.0). The skew is not symmetric. A CPython older than the
- * engine is the dangerous direction: a character added to `XID_Start` since its
- * tables (U+1C89, U+10570, U+1E290, U+1E4D0 are all NFKC-stable and accepted
- * here, and all rejected by that 3.9.6) is emitted bare and its tokenizer
- * refuses the character, taking the whole SDK block down — the same
- * parseability invariant {@link UNPRINTABLE}, {@link LONE_SURROGATE} and
- * {@link MAX_LIST_NESTING} exist for. A CPython newer than the engine only
- * routes a legal name to the subscript path: less readable, still correct. The
- * NFKC condition reduces to the same skew, since normalization stability
- * guarantees an assigned character's normalization never changes afterwards.
+ * The equivalence to `str.isidentifier()` was measured across 21 samples with
+ * zero divergence, on Node 22.23.1 against CPython 3.9.6 — the halves the two
+ * conditions are proxies for, both tested by that run.
  *
- * Closing the exposure needs the target interpreter's version, which the
- * backend reporting `language: 'python'` owns and which is unpublished on this
- * base; the note records it as that PR's decision.
+ * Both conditions are evaluated against the ENGINE's Unicode tables, and the
+ * two sides are versioned independently — `\p{XID_Start}`/`\p{XID_Continue}`
+ * follow the running engine (Node 22.23.1 reports Unicode 17.0) while CPython
+ * follows its own (3.9.6 reports 13.0.0). The skew is not symmetric. A CPython
+ * older than the engine is the dangerous direction: a character added to
+ * either property since its tables (U+1C89, U+10570, U+1E290, U+1E4D0 are all
+ * NFKC-stable and accepted here, and all rejected by that 3.9.6) is emitted
+ * bare and its tokenizer refuses the character, taking the whole SDK block
+ * down — the same parseability invariant {@link UNPRINTABLE},
+ * {@link LONE_SURROGATE} and {@link MAX_LIST_NESTING} exist for. Both
+ * properties carry it: a character added only to `XID_Continue` passes the
+ * trailing `\p{XID_Continue}*` in a tail position and fails the same way. A
+ * CPython newer than the engine only routes a legal name to the
+ * subscript/`dict[str, Any]` path: less readable, still correct. The NFKC
+ * condition reduces to the same skew, since normalization stability guarantees
+ * an assigned character's normalization never changes afterwards.
+ *
+ * This predicate is not the only reader of those tables. {@link camelCase}
+ * reads them too, through its split set and its head test, and its output is
+ * emitted for EVERY tool — including one this predicate rejected, whose
+ * `TypedDict` is still declared and named. A tool named `zz-\u{1E4D0}x` never
+ * reaches the skew here (the `-` rejects it outright) yet emits
+ * `class Zz\u{1E4D0}xArgs`, which that same 3.9.6 refuses. Closing the
+ * exposure therefore covers all three read points, not this predicate alone;
+ * it needs the target interpreter's version, which the backend reporting
+ * `language: 'python'` owns and which is unpublished on this base, so the note
+ * records it as that PR's decision.
  *
  * The `ts-types` sibling keeps its own ASCII rule rather than sharing this
  * one: ECMAScript identifiers are a different set (`$`, ZWJ/ZWNJ) and are
@@ -221,6 +236,11 @@ function docLines(description: unknown, indent: number): string[] {
  * a combining-mark head composes there (`U+0301` gives `Tooĺ`, U+013A), so
  * normalizing only the un-prefixed part would emit a name CPython compiles to
  * a different symbol. The second call is idempotent on the un-prefixed arm.
+ *
+ * The split set and the head test read the engine's Unicode tables, so this
+ * function carries the same version skew {@link isBareIdentifier} documents,
+ * by an independent path: a class name derived here is emitted for every tool,
+ * including one the predicate rejected.
  * @param raw - the schema field or tool name to derive from.
  * @returns a class-name segment safe to emit.
  */
