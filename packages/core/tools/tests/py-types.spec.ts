@@ -476,23 +476,25 @@ describe('renderToolsSdkPy', () => {
     // docstring's four other characters record, reached in a tail position
     // instead of at a head: CPython reads XID_Continue out of the
     // `DerivedCoreProperties.txt` of the UCD it was built against (13.0.0 on
-    // 3.9.6 and 15.0.0 on 3.12.13 both lack the row, and `'a‌b'.isidentifier()`
-    // is False on both, measured), so the field emitted bare here needs an
-    // interpreter with 15.1 tables or newer.
+    // 3.9.6 and 15.0.0 on 3.12.13 both lack the row, and
+    // `'a\u200Cb'.isidentifier()` is False on both, measured). Two emitted
+    // positions then need 15.1 tables or newer: the bare field, once in each
+    // class, and the `Tool\u200CbArgs` class name. The subscript comment
+    // quoting the tool name is not one: it is not parsed as an identifier.
     const of = (name: string): ToolSdkSchema => ({
       name,
       description: `Tool ${name}.`,
-      parameters: { type: 'object', additionalProperties: false, properties: { 'a‌b': { type: 'string' } } },
+      parameters: { type: 'object', additionalProperties: false, properties: { 'a\u200Cb': { type: 'string' } } },
       output: { type: 'string' },
     })
-    const text = renderToolsSdkPy([of('ping'), of('‌b')])
+    const text = renderToolsSdkPy([of('ping'), of('\u200Cb')])
     expect(text).toContain('async def ping(self, args: PingArgs) -> str:')
-    expect(text).toContain('    a‌b: NotRequired[str]')
+    expect(text).toContain('    a\u200Cb: NotRequired[str]')
     // A head that is XID_Continue but not XID_Start takes the subscript path,
     // and `camelCase` prefixes `Tool` to make the class name start legally.
-    expect(text).toContain('# tools["‌b"](args: Tool‌bArgs) -> str')
-    expect(text).toContain('class Tool‌bArgs(TypedDict):')
-    expect(text).not.toContain('async def ‌b')
+    expect(text).toContain('# tools["\u200Cb"](args: Tool\u200CbArgs) -> str')
+    expect(text).toContain('class Tool\u200CbArgs(TypedDict):')
+    expect(text).not.toContain('async def \u200Cb')
   })
 
   it('subscripts a tool name that NFKC-normalizes to something else, while declaring a plain Unicode one', () => {
