@@ -9,6 +9,66 @@ import { zh } from '../src/client/locales.ts'
 
 const t: ReminderRowProps['t'] = makeTranslate(zh)
 
+const invalidSidecars: ReadonlyArray<{ name: string; view: unknown }> = [
+  { name: 'non-object', view: undefined },
+  { name: 'null', view: null },
+  { name: 'array', view: [] },
+  {
+    name: 'missing schedule id',
+    view: {
+      scheduleId: null,
+      prompt: 'not trusted',
+      occurrenceAt: '2026-08-05T08:00:00.000Z',
+      deliveryMode: 'session-local',
+    },
+  },
+  {
+    name: 'empty schedule id',
+    view: {
+      scheduleId: '',
+      prompt: 'not trusted',
+      occurrenceAt: '2026-08-05T08:00:00.000Z',
+      deliveryMode: 'session-local',
+    },
+  },
+  {
+    name: 'non-string prompt',
+    view: {
+      scheduleId: 'schedule-7',
+      prompt: 7,
+      occurrenceAt: '2026-08-05T08:00:00.000Z',
+      deliveryMode: 'session-local',
+    },
+  },
+  {
+    name: 'non-string occurrence',
+    view: {
+      scheduleId: 'schedule-7',
+      prompt: 'not trusted',
+      occurrenceAt: 7,
+      deliveryMode: 'session-local',
+    },
+  },
+  {
+    name: 'empty occurrence',
+    view: {
+      scheduleId: 'schedule-7',
+      prompt: 'not trusted',
+      occurrenceAt: '',
+      deliveryMode: 'session-local',
+    },
+  },
+  {
+    name: 'unsupported delivery mode',
+    view: {
+      scheduleId: 'schedule-7',
+      prompt: 'not trusted',
+      occurrenceAt: '2026-08-05T08:00:00.000Z',
+      deliveryMode: 'external',
+    },
+  },
+]
+
 afterEach(cleanup)
 
 function props(view: unknown): ReminderRowProps {
@@ -40,13 +100,8 @@ describe('ReminderRow', () => {
     expect(time.getAttribute('datetime')).toBe('2026-08-05T08:00:00.000Z')
   })
 
-  it('contains an incompatible sidecar as a visible unavailable receipt', () => {
-    render(<ReminderRow {...props({
-      scheduleId: '',
-      prompt: 'not trusted',
-      occurrenceAt: 123,
-      deliveryMode: 'external',
-    })} />)
+  it.each(invalidSidecars)('contains an incompatible $name sidecar as an unavailable receipt', ({ view }) => {
+    render(<ReminderRow {...props(view)} />)
 
     expect(screen.getByText('提醒回执不可用 · schedule/change')).toBeTruthy()
     expect(screen.queryByText('not trusted')).toBeNull()

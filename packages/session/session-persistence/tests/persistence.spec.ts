@@ -467,6 +467,87 @@ describe('PersistenceCoordinator retryable live initialization', () => {
     }
   })
 
+  it('retries a fork seed when initialization rejects before materialization', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    const appendGate = Promise.withResolvers<undefined>()
+    backend.beforeAppend = async (attempt) => {
+      if (attempt === 1) {
+        await appendGate.promise
+        throw new Error('pre-commit init write failure')
+      }
+    }
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      new PersistenceCoordinator(inner, backend)
+    }, { inject: ['sessions'] }))
+
+    try {
+      const seed = oneTurnLog()
+      const session = ctx.sessions.create(SessionId('retry-unmaterialized-fork-seed'), {
+        seed,
+        meta: { cwd: '/w', seedLength: seed.length },
+      })
+      await vi.waitFor(() => { expect(backend.appendAttempts).toBe(1) })
+      const first = ctx.sessions.flush(session)
+      appendGate.resolve(undefined)
+      await expect(first).rejects.toThrow('pre-commit init write failure')
+      await expect(ctx.sessions.flush(session)).resolves.toBe(true)
+
+      expect(backend.appendAttempts).toBe(2)
+      expect(backend.store.get(session.id)?.events.map(event => event.seq))
+        .toEqual([0, 1, 2, 3, 4, 5, 6])
+    } finally {
+      appendGate.resolve(undefined)
+      await fiber.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('rejects a retry when its adopted durable prefix disappears', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    const id = SessionId('retry-missing-adopted-prefix')
+    const seed = oneTurnLog()
+    const stored = seed.slice(0, 1)
+    const storedMeta = meta(id, '/w')
+    backend.store.set(id, { meta: storedMeta, events: structuredClone(stored) })
+    const appendGate = Promise.withResolvers<undefined>()
+    backend.beforeAppend = async (attempt) => {
+      if (attempt === 1) {
+        await appendGate.promise
+        throw new Error('pre-commit adoption write failure')
+      }
+    }
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      new PersistenceCoordinator(inner, backend)
+    }, { inject: ['sessions'] }))
+
+    try {
+      const session = ctx.sessions.create(id, {
+        seed,
+        meta: { cwd: '/w', seedLength: seed.length },
+      })
+      await vi.waitFor(() => { expect(backend.appendAttempts).toBe(1) })
+      const first = ctx.sessions.flush(session)
+      appendGate.resolve(undefined)
+      await expect(first).rejects.toThrow('pre-commit adoption write failure')
+
+      backend.store.delete(id)
+      await expect(ctx.sessions.flush(session))
+        .rejects.toThrow('lost its persisted artifact during live initialization')
+      expect(backend.appendAttempts).toBe(1)
+    } finally {
+      appendGate.resolve(undefined)
+      if (!backend.store.has(id)) {
+        backend.store.set(id, { meta: storedMeta, events: structuredClone(stored) })
+      }
+      await fiber.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('retries only a missing suffix after stored-session adoption rejects', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)

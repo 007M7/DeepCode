@@ -1143,7 +1143,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       const seed = session.events.slice(0, live.seedEnd)
       await this.onCreated(session, seed)
     }).catch((error: unknown) => {
-      if (live.init === init) live.init = undefined
+      live.init = undefined
       throw error
     })
     live.init = init
@@ -1254,7 +1254,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       if (tracked.materialized || tracked.cursor !== 0) {
         throw new Error(`session "${session.header.id}" lost its persisted artifact during live initialization`)
       }
-      if (seed.length > 0) await this.appendCore(session.header.id, seed)
+      await this.appendCore(session.header.id, seed)
       return
     }
     await this.adoptLivePrefix(session, seed, stored, tracked)
