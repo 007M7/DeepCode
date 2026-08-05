@@ -13,6 +13,25 @@ import {
 import { runPersistenceContract, meta, oneTurnLog, appendLog } from '../../session-persistence/tests/contract.ts'
 import { runCoordinatorContract, type CoordinatorFixture } from '../../session-persistence/tests/coordinator-contract.ts'
 
+const statRace = vi.hoisted(() => ({
+  path: undefined as string | undefined,
+  reads: 0,
+}))
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    stat: (async (...args: Parameters<typeof actual.stat>) => {
+      const identity = await actual.stat(...args)
+      if (String(args[0]) !== statRace.path || !('mtimeNs' in identity)) return identity
+      statRace.reads += 1
+      if (statRace.reads !== 2) return identity
+      return { ...identity, mtimeNs: identity.mtimeNs + 1n }
+    }) as typeof actual.stat,
+  }
+})
+
 let root: string
 const dirs: string[] = []
 
@@ -54,6 +73,8 @@ function rawLogPath(root: string, cwd: string | undefined, id: SessionId): strin
 }
 
 afterEach(async () => {
+  statRace.path = undefined
+  statRace.reads = 0
   vi.restoreAllMocks()
   for (const d of dirs.splice(0)) await rm(d, { recursive: true, force: true })
 })
@@ -264,6 +285,17 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     const stored = await persistence.loadStored(m.id)
     expect(stored?.revision).toBe(await persistence.readStoredRevision(m.id))
     expect(await persistence.readStoredRevision(SessionId('missing-revision'))).toBeUndefined()
+  })
+
+  it('retries a full-prefix read when the file revision changes during the read', async () => {
+    const m = meta('stored-prefix-revision-race')
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const persistence = ctx.sessionPersistence as SessionPersistenceJsonl
+    statRace.path = rawLogPath(root, m.cwd, m.id)
+
+    await expect(persistence.loadStored(m.id)).resolves.toMatchObject({ events: oneTurnLog() })
+    expect(statRace.reads).toBe(4)
   })
 
   it('handles revision-stat races and errors after log discovery', async () => {

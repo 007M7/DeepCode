@@ -802,19 +802,8 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   }
 
   /** Read, repair in memory, validate, and freeze one cold source once. */
-  private async prepareCore(
-    id: SessionId,
-    signal?: AbortSignal,
-  ): Promise<PreparedSessionSource<TornMarker>> {
-    signal?.throwIfAborted()
-    let stored: StoredPrefix<TornMarker> | undefined
-    try {
-      stored = await this.backend.loadStored(id, signal)
-    } catch (error: unknown) {
-      if (signal?.aborted) signal.throwIfAborted()
-      throw error
-    }
-    signal?.throwIfAborted()
+  private async prepareCore(id: SessionId): Promise<PreparedSessionSource<TornMarker>> {
+    const stored = await this.backend.loadStored(id)
     if (stored === undefined) throw new Error(`session "${id}" not found`)
     try {
       const { meta, events, revision, tornMarker } = stored

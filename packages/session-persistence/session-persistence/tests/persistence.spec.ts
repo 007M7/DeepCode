@@ -441,8 +441,9 @@ describe('PersistenceCoordinator session preparations', () => {
     const prepareId = SessionId('prepare-became-live')
     const loadId = SessionId('load-became-live')
     const inspectId = SessionId('inspect-became-live')
+    const validatedInspectId = SessionId('validated-inspect-became-live')
     const failedInspectId = SessionId('failed-inspect-became-live')
-    for (const id of [prepareId, loadId, inspectId]) {
+    for (const id of [prepareId, loadId, inspectId, validatedInspectId]) {
       backend.store.set(id, { meta: meta(id), events: oneTurnLog() })
     }
     let coordinator!: PersistenceCoordinator<never>
@@ -471,6 +472,15 @@ describe('PersistenceCoordinator session preparations', () => {
         .mockReturnValueOnce(inspectLive)
       await expect(coordinator.inspect(inspectId)).resolves.toMatchObject({ meta: { id: inspectId } })
       inspectGet.mockRestore()
+
+      const validatedInspectLive = Session.create(validatedInspectId, oneTurnLog(), meta(validatedInspectId))
+      const validatedInspectGet = vi.spyOn(ctx.sessions, 'get')
+        .mockReturnValueOnce(undefined)
+        .mockReturnValueOnce(undefined)
+        .mockReturnValueOnce(validatedInspectLive)
+      await expect(coordinator.inspect(validatedInspectId))
+        .resolves.toMatchObject({ meta: { id: validatedInspectId } })
+      validatedInspectGet.mockRestore()
 
       const failedInspectLive = Session.create(failedInspectId, oneTurnLog(), meta(failedInspectId))
       backend.beforeLoadStored = () => Promise.reject(new Error('load failed'))
@@ -698,6 +708,38 @@ describe('PersistenceCoordinator session preparations', () => {
       })
       await expect(append).resolves.toBeUndefined()
       expect(backend.loadAttempts).toBe(2)
+      expect(backend.store.get(id)?.events).toHaveLength(oneTurnLog().length + 1)
+    } finally {
+      await fiber.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('retries cold append adoption when the prepared revision becomes stale', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    const id = SessionId('append-adoption-revision-refresh')
+    backend.store.set(id, { meta: meta(id), events: oneTurnLog() })
+    const readStoredRevision = backend.readStoredRevision.bind(backend)
+    vi.spyOn(backend, 'readStoredRevision')
+      .mockResolvedValueOnce(SessionPersistenceRevision('stale-revision'))
+      .mockImplementation(readStoredRevision)
+    let coordinator!: PersistenceCoordinator<never>
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      coordinator = new PersistenceCoordinator(inner, backend)
+    }, { inject: ['sessions'] }))
+
+    try {
+      await coordinator.append(id, [{
+        type: 'turn/start',
+        seq: oneTurnLog().length,
+        time: 7,
+        data: { turn: 2 },
+      }])
+
+      expect(backend.loadAttempts).toBe(2)
+      expect(backend.appendAttempts).toBe(1)
       expect(backend.store.get(id)?.events).toHaveLength(oneTurnLog().length + 1)
     } finally {
       await fiber.dispose()
