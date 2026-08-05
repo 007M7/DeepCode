@@ -167,7 +167,12 @@ interface RenderState {
  * U+200B ZWSP, U+200E/U+200F bidi marks, and U+2060 word joiner passed through
  * would leave a rule that is neither category- nor addressability-shaped. The
  * whole family is legal in both consumers, since only LF and CR terminate a
- * Python string literal or a `#` comment.
+ * Python string literal or a `#` comment. That set is the tokenizer's, not
+ * `str.splitlines()`': NEL (U+0085), LS (U+2028), and PS (U+2029) split a
+ * string at run time but do not end a physical line in source — measured on
+ * CPython 3.9.6 and 3.12.13, each accepted in both positions with the value
+ * round-tripping — so they are safe raw wherever they reach emitted text
+ * unescaped, which for LS and PS is {@link pyScalar}'s `JSON.stringify`.
  */
 const UNPRINTABLE = /[\u0000-\u0008\u000e-\u001f\u007f-\u009f]/g
 
@@ -408,9 +413,12 @@ function childClassName(base: string, segment: string): string {
  * That leans on a coincidence worth naming: every escape `JSON.stringify` can
  * emit (`\"`, `\\`, `\b`, `\f`, `\n`, `\r`, `\t`, `\uXXXX`) is also a Python
  * escape denoting the same character, so the emitted `Literal[...]` both
- * parses and decodes back to the value the schema declared. DEL and the C1
- * controls do reach it raw — legal but invisible, byte-for-byte as in the TS
- * flavor; escaping them is a both-flavors change. The subscript tool-name
+ * parses and decodes back to the value the schema declared. DEL, the C1
+ * controls, and LS/PS (U+2028/U+2029) do reach it raw — legal but invisible,
+ * byte-for-byte as in the TS flavor; escaping them is a both-flavors change.
+ * LS and PS are legal here for the reason {@link UNPRINTABLE} records: they
+ * are `str.splitlines()` boundaries, not tokenizer line terminators. The
+ * subscript tool-name
  * comment quotes its name through its own call to the same `JSON.stringify`,
  * never through this function, and inherits both halves — escapes and
  * pass-throughs alike.
