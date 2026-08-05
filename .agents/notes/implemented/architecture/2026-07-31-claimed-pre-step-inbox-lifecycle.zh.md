@@ -20,7 +20,7 @@ Status: implemented
 
 两类事件表面服务不同消费方。跟踪单条消息的观察方使用 `agent/inbox/inserted`、`claimed` 与 `discarded`。包括 Web 队列投影和重连基线在内的整体队列消费方使用持久 `agent/inbox/spliced` 流；UI 编辑与移除经 `Inbox.splice()` 或其他 Inbox 变更方法进入，从而让同一投影记录所有变化。
 
-必须对当前步骤进行原子改写的插件从 `agent/pre-step` 返回消息。只需要稍后上下文的插件可以直接修改 `agent.inbox`。Workspace context 刻意采用较弱的时序：它把当前带来源上下文 prepend 到 `next-step`，替换仍在等待的确切前序消息，并且不修改当前 pre-step 决策。
+必须对当前步骤进行原子改写的插件从 `agent/pre-step` 返回消息。只需要稍后上下文的插件可以直接修改 `agent.inbox`。Workspace context 同时使用两条路径：异步文件系统投影会暂存一条可替换的 `next-step` 消息，而下一次进入步骤的 pre-step 会把该消息或新组合的基线折入最终批次，并移除仍待处理的副本。reject 会让该条目继续排队。
 
 已归档的[可寻址队列项决策](../../archived/feature/2026-07-29-addressable-queue-operations.md)描述了已被取代的单次出现 wrapper 设计。现在由 `MessageId` 负责寻址，而保留的 Host 队列镜像根据持久 splice 投影派生快照。
 
@@ -34,7 +34,7 @@ Status: implemented
 
 ## 验证
 
-Agent-loop 覆盖固定先 `turn/start`、再领取、后 pre-step 的顺序、实时事件的确切载荷、边界平衡的无步骤 reject、最终批次改写、领取后插入的输入、监听器失败与取消。Inbox 和消费方测试固定纯领取删除、普通删除的 canceled 结果、workspace-context 的延后插入与替换、plan/goal/hook 行为、UI 清理、压缩、检查点以及恢复后的持久投影。生成的事件与类型目录只公开新的 seam 与载荷。
+Agent-loop 覆盖固定先 `turn/start`、再领取、后 pre-step 的顺序、实时事件的确切载荷、边界平衡的无步骤 reject、最终批次改写、领取后插入的输入、监听器失败与取消。Inbox 和消费方测试固定纯领取删除、普通删除的 canceled 结果、workspace-context 的暂存、替换与同一步骤进入、plan/goal/hook 行为、UI 清理、压缩、检查点以及恢复后的持久投影。生成的事件与类型目录只公开新的 seam 与载荷。
 
 ## 后果
 

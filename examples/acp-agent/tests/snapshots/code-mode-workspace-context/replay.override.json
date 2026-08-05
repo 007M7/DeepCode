@@ -12,13 +12,6 @@
   {
     "kind": "chunks",
     "chunks": [
-      { "type": "usage", "usage": { "inputTokens": 10, "outputTokens": 1 } },
-      { "type": "finish", "reason": { "kind": "stop" } }
-    ]
-  },
-  {
-    "kind": "chunks",
-    "chunks": [
       { "type": "block-start", "index": 0, "blockType": "text" },
       { "type": "text-delta", "index": 0, "text": "**Code Mode workspace handshake:** `CODE_MODE_CONTEXT_OK`" },
       { "type": "block-end", "index": 0, "block": { "type": "text", "text": "**Code Mode workspace handshake:** `CODE_MODE_CONTEXT_OK`" } },

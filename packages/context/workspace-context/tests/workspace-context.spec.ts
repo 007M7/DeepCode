@@ -40,7 +40,7 @@ import {
   type InstructionVersionCache,
 } from '../src/state.ts'
 import { resolveConfig } from '../src/config.ts'
-import { candidateScopeKey, renderInstructionChanges } from '../src/render.ts'
+import { candidateScopeKey, renderInstructionChanges, USER_GLOBAL_DIRECTORY, USER_GLOBAL_FILE } from '../src/render.ts'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
 /** Per-candidate reconciliation scope key: directory paired with the file name. */
@@ -1035,26 +1035,20 @@ describe('workspace context request injection', () => {
         () => Promise.resolve({ kind: 'enter' as const, messages: staleClaim }),
       )
 
-      expect(staleDecision).toEqual({ kind: 'enter', messages: staleClaim })
-      expect(resumed.inbox.nextStep).toHaveLength(1)
-      const replacement = resumed.inbox.nextStep[0]
+      if (staleDecision.kind !== 'enter') throw new Error('recovered baseline was rejected')
+      expect(staleDecision.messages).toHaveLength(2)
+      expect(staleDecision.messages[0]).toBe(staleClaim[0])
+      const replacement = staleDecision.messages[1]
       expect(replacement?.id).not.toBe(stale?.id)
       expect(blocksText(replacement?.content)).toContain('new repo rule')
       expect(blocksText(replacement?.content)).not.toContain('old repo rule')
+      expect(resumed.inbox.nextStep).toHaveLength(0)
 
-      const replacementClaim = resumed.inbox.claim('next-step')
-      const replacementDecision = await agentEvents(ctx, resumed).waterfall(
-        'agent/pre-step',
-        replacementClaim,
-        { turn: 1, step: 2, signal: AbortSignal.timeout(1000) },
-        () => Promise.resolve({ kind: 'enter' as const, messages: replacementClaim }),
-      )
-      if (replacementDecision.kind !== 'enter') throw new Error('replacement baseline was rejected')
-      for (const message of replacementDecision.messages) {
+      for (const message of staleDecision.messages) {
         const event = resumed.session.append('user/message', message, { surfaceOp: 'append' })
         ctx.emit('session/event', resumed.session, event)
       }
-      expect(baselineEvents(resumed)).toHaveLength(0)
+      expect(baselineEvents(resumed)).toHaveLength(1)
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -1177,7 +1171,7 @@ describe('workspace context request injection', () => {
     }
   })
 
-  it('leaves the current pre-step batch unchanged while queuing the baseline', async () => {
+  it('enters the baseline right after the claimed prompt in the first pre-step without queuing another step', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {
@@ -1199,9 +1193,40 @@ describe('workspace context request injection', () => {
         () => Promise.resolve(downstream),
       )
 
-      expect(decision).toBe(downstream)
-      expect(agent.inbox.nextStep).toHaveLength(1)
-      expect(blocksText(agent.inbox.nextStep[0]?.content)).toContain('Instructions from: AGENTS.md')
+      expect(decision).toMatchObject({ kind: 'enter' })
+      if (decision.kind !== 'enter') throw new Error('workspace baseline was rejected')
+      expect(decision.messages).toHaveLength(2)
+      expect(decision.messages[0]).toBe(prompt)
+      expect(decision.messages[1]?.source).toMatchObject({ kind: 'workspace-instructions', baseline: true })
+      expect(blocksText(decision.messages[1]?.content)).toContain('Instructions from: AGENTS.md')
+      expect(agent.inbox.nextStep).toHaveLength(0)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('reports a changed user-global instruction through the visible-scope reconcile path', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'repo rule')
+      await write(join(home, 'AGENTS.md'), 'global rule')
+      const ctx = new Context()
+      await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
+      const agent = stubAgent(root)
+      await composeBaselinePrefix(ctx, agent)
+
+      await write(join(home, 'AGENTS.md'), 'updated global rule')
+      await syncWorkspaceContext(ctx, agent)
+
+      const pending = await workspaceContextOf(agent)
+      expect(pending?.source).toMatchObject({
+        kind: 'workspace-instructions',
+        changes: [{ action: 'replace', scope: sk(USER_GLOBAL_DIRECTORY, USER_GLOBAL_FILE) }],
+      })
+      expect(blocksText(pending?.content)).toContain('updated global rule')
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -2693,6 +2718,51 @@ describe('dynamic nested workspace context injection', () => {
     },
   )
 
+  it('skips visible baseline scopes when baseline scopes are excluded from reconciliation', async () => {
+    const root = join(await tempRepo(), 'virtual-repo')
+    const home = join(await tempRepo(), 'virtual-home')
+    const ctx = new Context()
+    try {
+      await ctx.plugin(RecordingFileSystem)
+      const fs = ctx.fs as RecordingFileSystem
+      fs.entries.set(join(root, '.git'), { type: 'directory' })
+      fs.entries.set(join(root, 'AGENTS.md'), { type: 'file', content: 'repo rule' })
+      const agent = stubAgent(root)
+      const rootScope = sk('.', 'AGENTS.md')
+      const loaded = baselineInstructionState([{
+        absolutePath: join(root, 'AGENTS.md'),
+        displayPath: 'AGENTS.md',
+        content: 'repo rule',
+        version: FsVersion('loaded-agents'),
+      }])
+      const previous = loaded.changes.get(rootScope)
+      if (previous === undefined) throw new Error('missing AGENTS.md baseline state')
+      const authoritative = createUserMessage({
+        content: [{ type: 'text', text: 'repo rule' }],
+        source: { kind: 'workspace-instructions', changes: [previous] },
+      })
+      agent.session.append('user/message', authoritative, { surfaceOp: 'append' })
+      const resolved = resolveConfig({ dshHome: home, maxBytes: 65536, localInstructionFileCandidates: [] })
+      const cache: InstructionVersionCache = new WeakMap()
+      cache.set(agent.session, new Map(loaded.versions))
+      const options = {
+        authorityMessages: [],
+        scopeMessages: [],
+        touchedPaths: [],
+        includeBaselineScopes: false,
+        signal: testToolSignal,
+      }
+
+      const result = await reconcileInstructionContext(agent, resolved, cache, fs, options)
+
+      expect(result).toBeUndefined()
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(dirname(root), { recursive: true, force: true })
+      await rm(dirname(home), { recursive: true, force: true })
+    }
+  })
+
   it('removes a previously rendered sibling once its content becomes a duplicate of an earlier candidate', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
@@ -3885,7 +3955,7 @@ describe('workspace context inbox synchronization', () => {
     }
   })
 
-  it('keeps a claimed batch unchanged and queues an offline correction', async () => {
+  it('enters an offline correction immediately after its claimed stale context', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {
@@ -3906,10 +3976,12 @@ describe('workspace context inbox synchronization', () => {
         async () => downstream,
       )
 
-      expect(decision).toBe(downstream)
-      expect(blocksText(decision.kind === 'enter' ? decision.messages[0]?.content : [])).toContain('old claimed rule')
-      expect(agent.inbox.nextStep).toHaveLength(1)
-      expect(blocksText(agent.inbox.nextStep[0]?.content)).toContain('new claimed rule with more detail')
+      if (decision.kind !== 'enter') throw new Error('offline correction was rejected')
+      expect(decision.messages).toHaveLength(2)
+      expect(decision.messages[0]).toBe(claimed[0])
+      expect(blocksText(decision.messages[0]?.content)).toContain('old claimed rule')
+      expect(blocksText(decision.messages[1]?.content)).toContain('new claimed rule with more detail')
+      expect(agent.inbox.nextStep).toHaveLength(0)
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })

@@ -214,13 +214,31 @@ export function apply(ctx: Context, config: Config): void {
   ctx.on('agent/pre-step', async (
     agent: Agent,
     messages,
-    { signal },
+    { step, signal },
     next,
   ): Promise<PreStepDecision> => {
     const decision = await next()
     await waitForProjections(agent)
-    await composeAndSync(agent, signal, messages)
-    return decision
+    const pending = agent.inbox.nextStep.filter(isWorkspaceContext)
+    const desired = await compose(agent, signal, messages, pending)
+    signal.throwIfAborted()
+    // An empty first entry owns a no-step turn; keep context pending instead
+    // of turning it into a standalone request. Later entries may be tool continuations.
+    if (decision.kind === 'reject' || (step === 1 && decision.messages.length === 0)) {
+      syncInbox(agent, messages, desired)
+      return decision
+    }
+    // A proceeding step settles the pending context: it either enters below as
+    // `desired`, or its payload is already covered by the batch, so nothing stays pending.
+    for (const message of pending) agent.inbox.remove(message.id)
+    if (desired === undefined || decision.messages.some(message => sameContextPayload(message, desired))) {
+      return decision
+    }
+    // Fold the context right after the claimed batch, so the direct prompt
+    // precedes it and the driver-appended runtime context follows it.
+    const lastClaimedIndex = decision.messages.findLastIndex(message => messages.includes(message))
+    const entered = decision.messages.toSpliced(lastClaimedIndex + 1, 0, desired)
+    return { kind: 'enter', messages: entered }
   })
 
   ctx.on('tools/result', (exec: ToolExecution, result: ToolExecutionResult) => {

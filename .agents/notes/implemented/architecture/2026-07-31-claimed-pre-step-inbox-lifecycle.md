@@ -20,7 +20,7 @@ The durable inbox remains two `UserMessage[]` lists addressed by `MessageId`. `a
 
 The two event surfaces have separate consumers. Observers following one message use `agent/inbox/inserted`, `claimed`, and `discarded`. Whole-queue consumers, including the Web queue projection and reconnect baseline, use the durable `agent/inbox/spliced` stream; UI edits and removals route through `Inbox.splice()` or another Inbox mutation method so the same projection records every change.
 
-Plugins that need current-step atomic rewriting return messages from `agent/pre-step`. Plugins that only need later context may mutate `agent.inbox` directly. Workspace context uses that weaker timing deliberately: it prepends its current sourced context to `next-step`, replaces an exact still-pending predecessor, and does not alter the current pre-step decision.
+Plugins that need current-step atomic rewriting return messages from `agent/pre-step`. Plugins that only need later context may mutate `agent.inbox` directly. Workspace context uses both paths: asynchronous filesystem projections stage one replaceable `next-step` item, while the next entering pre-step folds that item or a newly composed baseline into its final batch and removes the pending copy. Rejection keeps the item queued.
 
 The archived [addressable queue occurrence decision](../../archived/feature/2026-07-29-addressable-queue-operations.md) describes the superseded occurrence-wrapper design. `MessageId` now owns addressability, while the retained Host queue mirror derives its snapshots from the durable splice projection.
 
@@ -34,7 +34,7 @@ The archived [addressable queue occurrence decision](../../archived/feature/2026
 
 ## Verification
 
-Agent-loop coverage pins turn-start-before-claim-before-pre-step ordering, exact live event payloads, balanced no-step rejection, final-batch rewriting, input inserted after a claim, listener failure, and cancellation. Inbox and consumer tests pin pure claim deletions, canceled ordinary removals, workspace-context delayed insertion and replacement, plan/goal/hook behavior, UI cleanup, compaction, checkpointing, and resumed durable projection. Generated event and type catalogs expose only the new seam and payloads.
+Agent-loop coverage pins turn-start-before-claim-before-pre-step ordering, exact live event payloads, balanced no-step rejection, final-batch rewriting, input inserted after a claim, listener failure, and cancellation. Inbox and consumer tests pin pure claim deletions, canceled ordinary removals, workspace-context staging, replacement, and same-step entry, plan/goal/hook behavior, UI cleanup, compaction, checkpointing, and resumed durable projection. Generated event and type catalogs expose only the new seam and payloads.
 
 ## Consequences
 
