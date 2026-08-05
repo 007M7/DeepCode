@@ -60,10 +60,7 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials'
 // Value edge: the rename impl narrows the title service's validation failure; the import also resolves `ctx.get('sessionTitle')`.
 import { SessionTitleInvalidError } from '@deepseek-ai/dsh-session-title'
 import type { CallId } from '@deepseek-ai/dsh-llm/brand'
-import {
-  SCHEDULE_REMINDER_PRESENTATION_KEY,
-  scheduleReminderPresentation,
-} from '@deepseek-ai/dsh-tool-schedule'
+import { scheduleReminderPresentation } from '@deepseek-ai/dsh-tool-schedule'
 import type { ApprovalOutcome, ApprovalRequestId } from '@deepseek-ai/dsh-user-approval'
 // Side-effect type import: resolves the `approval/request` waterfall and
 // `ctx.get('approval')` without a value dependency on the seam (optional composition).
@@ -486,7 +483,7 @@ function scheduleViewFor(
     const view = scheduleReminderPresentation(events, event.seq, header.seedLength ?? 0)
     return view === undefined
       ? undefined
-      : { for: 'event', presentationKey: SCHEDULE_REMINDER_PRESENTATION_KEY, view }
+      : { for: 'event', view }
   } catch (error: unknown) {
     ctx.logger.warn(`api-proxy: Schedule presentation failed at seq ${event.seq}; serving raw event: ${String(error)}`)
     return undefined

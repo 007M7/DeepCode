@@ -12,7 +12,6 @@ import { registerScheduleTools } from './tools.ts'
 export type * from './types.ts'
 export {
   SCHEDULE_CHANGE_VERSION,
-  SCHEDULE_REMINDER_PRESENTATION_KEY,
   ScheduleId,
   ScheduleInputError,
   ScheduleLogError,

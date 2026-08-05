@@ -51,11 +51,11 @@ Agent or plugin disposal cancels timers, stops new work, unwinds the three tool 
 
 The Schedule package owns `scheduleReminderPresentation()`, which derives `{ scheduleId, prompt, occurrenceAt, deliveryMode }` from create plus dispatch. A dispatch inside an inherited fork prefix folds that parent segment for history display; a child-owned dispatch folds only the child suffix. Presentation therefore never changes live ownership.
 
-The Host continues to send every raw event on append. It keeps one monotonic watermark per exact live `Session` in a `WeakMap`; only `session/flushed` advancement makes it redeliver newly covered dispatch events with the generic `{ for: 'event', presentationKey: 'schedule/reminder', view }` sidecar. Taking the maximum contains reversed concurrent flush completion, and exact object identity prevents a reused Session id from inheriting another lifecycle's cursor.
+The Host continues to send every raw event on append. It keeps one monotonic watermark per exact live `Session` in a `WeakMap`; only `session/flushed` advancement makes it redeliver newly covered dispatch events with the generic `{ for: 'event', view }` sidecar. The durable `schedule/change` type selects the client renderer. Taking the maximum contains reversed concurrent flush completion, and exact object identity prevents a reused Session id from inheriting another lifecycle's cursor.
 
 Attached history independently inspects persistence and adds views only to a stored event prefix whose header identity and every event match the live Session. Persistence canonically writes absent top-level `delegationDepth` as zero, so those two forms are identity-equivalent; cwd, lineage, origin, timestamps, version, id, and every event still match exactly. Missing, failed, divergent, or longer inspection withholds the view while returning raw history. Detached history is already a persisted prefix. A parent dispatch copied into a fork seed therefore appears in child history only after child storage proves that prefix.
 
-The browser Session accepts a repeated seq only when the durable event is deeply identical, then upgrades the sidecar without appending another event. Its existing `liveBuffer` is the sole rendezvous for tail loading, gap repair, and older-page pagination. Every current-generation settlement merges overlapping views and a contiguous suffix, including rejected, empty, and discontinuous responses; reconnect invalidates old requests and their loading ownership. `TranscriptAdapter` creates a generic `PresentedEventNode`. `ui-conversation` dispatches it through `conversation.chat.eventview` and retains an expandable JSON fallback, while `ui-schedule` owns the bilingual reminder row.
+The browser Session accepts a repeated seq only when the durable event is deeply identical, then upgrades the sidecar immediately without appending another event. Tail loading and true gap repair retain uncovered events in the existing `liveBuffer`; ordinary older-page pagination keeps receiving live tail events in the current arrays and prepends its page after the await. Reconnect generations prevent stale page or repair results and `finally` blocks from touching the rebuilt window. `TranscriptAdapter` creates a generic `PresentedEventNode` keyed by the durable event type. `ui-conversation` dispatches it through `conversation.chat.eventview` and retains an expandable JSON fallback, while `ui-schedule` owns the bilingual `schedule/change` reminder row.
 
 ```text
 schedule_create → Session create event → persistence
@@ -64,7 +64,7 @@ due → admission → followup → dispatch → flush(true) → session/flushed
                                                         ↓
                                               Host late event sidecar
                                                         ↓
-                                  client same-seq merge → keyed UI receipt
+                                client same-seq upgrade → event-keyed UI receipt
 ```
 
 ## Alternatives considered
@@ -87,7 +87,7 @@ The design does not recognize or migrate any unmerged Schedule implementation or
 
 ## Verification
 
-Package tests pin strict decoding, transitions, fork suffixes, id reuse, time bounds, bounded waits, wall-clock movement, overdue admission, fixed framing, enqueue and append failures, barrier recovery, registration rollback, and quiescent disposal at 100% per-file coverage. Persistence tests cover new, fork, and resumed initialization failures against the actual durable cursor, and a production JSONL restart proves both pending and dispatched states. Host/client tests cover commit gating, reversed watermarks, semantic header identity, per-event prefix matching, same-seq upgrades, every window merge exit, and reconnect generations.
+Package tests pin strict decoding, transitions, fork suffixes, id reuse, time bounds, bounded waits, wall-clock movement, overdue admission, fixed framing, enqueue and append failures, barrier recovery, registration rollback, and quiescent disposal at 100% per-file coverage. Persistence tests cover new, fork, and resumed initialization failures against the actual durable cursor. The assembled Loader/Web restart lane proves pending recovery, fork isolation, one durable dispatch, cold-history rendering without Agent activation, and no redelivery after another restart. Host/client tests cover commit gating, reversed watermarks, semantic header identity, per-event prefix matching, immediate same-seq upgrades, concurrent live-tail pagination, true gaps, and reconnect generations.
 
 The opt-in Loader composition boots the source and built packages. A keyless real-browser scenario executes `schedule_create` through the complete tool pipeline, waits for a one-second dispatch, observes the identity-matched persisted prefix, and renders the durable reminder card from attached history. The deliberately absent model adapter closes the turn with an error after dispatch, proving that model failure does not remove the receipt.
 
@@ -96,5 +96,5 @@ The opt-in Loader composition boots the source and built packages. A keyless rea
 - Reminder state survives process restart and replays through ordinary Session persistence without a new database or public service.
 - A cold Session does no work and sends no external notification; reopening it may deliver an overdue reminder, and every tool/card says `session-local`.
 - Each live root adds only fold-derived timers, an optional idle wait, and one in-flight operation. Long waits and plugin unload do not create a second durable state machine.
-- The generic commit-aware event-view path is reusable by other durable events, but it adds identity checks and generation-aware merge behavior to the client Session window.
+- The generic commit-aware event-view path is reusable by other durable events, but it adds event-identity checks and request-generation fencing to the client Session window.
 - The strict after-only protocol is intentionally small; other rule families require explicit record, time, and recurrence semantics rather than dormant fields.

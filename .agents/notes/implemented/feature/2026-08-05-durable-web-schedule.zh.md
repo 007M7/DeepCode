@@ -51,11 +51,11 @@ Agent 或插件 dispose 会取消 timer、停止新工作、撤销三个工具�
 
 Schedule package 拥有 `scheduleReminderPresentation()`，从 create 加 dispatch 派生 `{ scheduleId, prompt, occurrenceAt, deliveryMode }`。位于继承 fork 前缀中的 dispatch 会折叠该 parent segment 用于 history 显示；child 自有 dispatch 只折叠 child 后缀。因此 presentation 永远不会改变 live ownership。
 
-Host 在 append 时继续发送所有 raw event。它在 `WeakMap` 中按 exact live `Session` 保存一个单调 watermark；只有 `session/flushed` 前进时，才会用通用 `{ for: 'event', presentationKey: 'schedule/reminder', view }` sidecar 重投新覆盖的 dispatch event。取最大值可以收容反序完成的并发 flush，按对象身份键控则阻止复用的 Session id 继承另一个生命周期的 cursor。
+Host 在 append 时继续发送所有 raw event。它在 `WeakMap` 中按 exact live `Session` 保存一个单调 watermark；只有 `session/flushed` 前进时，才会用通用 `{ for: 'event', view }` sidecar 重投新覆盖的 dispatch event。持久 `schedule/change` 类型用于选择 client renderer。取最大值可以收容反序完成的并发 flush，按对象身份键控则阻止复用的 Session id 继承另一个生命周期的 cursor。
 
 已附加 history 会独立 inspect persistence，只有 stored event prefix 的 header identity 与每个 event 都和 live Session 匹配时才添加 view。persistence 会把顶层缺失的 `delegationDepth` 规范写成零，因此两种形式在身份上等价；cwd、lineage、origin、时间戳、版本、id 与每个 event 仍必须精确匹配。inspect 缺失、失败、分歧或比 live 更长时，只会省略 view，raw history 仍然返回。已分离 history 本身就是持久前缀。因此复制进 fork seed 的 parent dispatch 只有在 child storage 证明该前缀后才会显示。
 
-浏览器 Session 只有在 durable event 深度一致时才接受重复 seq，随后只升级 sidecar，不再追加 event。既有 `liveBuffer` 是尾部加载、gap repair 与旧页分页期间唯一的汇合点。每个当前 generation 的结算出口都会合并重叠 view 与连续 suffix，包括拒绝、空页和不连续响应；重连会使旧请求及其 loading ownership 失效。`TranscriptAdapter` 创建通用 `PresentedEventNode`。`ui-conversation` 通过 `conversation.chat.eventview` 分发，并保留可展开 JSON fallback；`ui-schedule` 则拥有双语提醒行。
+浏览器 Session 只有在 durable event 深度一致时才接受重复 seq，随后立即升级 sidecar，不再追加 event。只有尾部加载与真正的 gap repair 才会将尚未覆盖的事件保留在既有 `liveBuffer` 中；普通旧页分页会让当前数组继续接收 live tail 事件，并在 await 后再前插该页。重连 generation 会阻止陈旧的 page 或 repair 结果以及 `finally` 块触碰重建后的 window。`TranscriptAdapter` 创建按持久事件类型键控的通用 `PresentedEventNode`。`ui-conversation` 通过 `conversation.chat.eventview` 分发，并保留可展开 JSON fallback；`ui-schedule` 则拥有双语 `schedule/change` 提醒行。
 
 ```text
 schedule_create → Session create event → persistence
@@ -64,7 +64,7 @@ due → admission → followup → dispatch → flush(true) → session/flushed
                                                         ↓
                                               Host late event sidecar
                                                         ↓
-                                  client same-seq merge → keyed UI receipt
+                                client same-seq upgrade → event-keyed UI receipt
 ```
 
 ## 已考虑的替代方案
@@ -87,7 +87,7 @@ due → admission → followup → dispatch → flush(true) → session/flushed
 
 ## 验证
 
-package 测试以逐文件 100% coverage 固定严格 decoding、transition、fork suffix、id 不复用、时间边界、有界等待、墙钟变化、overdue 准入、固定 framing、入队与 append 失败、barrier 恢复、注册 rollback 和完全停稳 dispose。persistence 测试依据实际 durable cursor 覆盖 new、fork 与 resumed 初始化失败；production JSONL restart 同时证明 pending 与 dispatched 状态。Host/client 测试覆盖 commit gating、反序 watermark、语义 header identity、逐 event 前缀匹配、same-seq 升级、每个 window merge 出口和 reconnect generation。
+package 测试以逐文件 100% coverage 固定严格 decoding、transition、fork suffix、id 不复用、时间边界、有界等待、墙钟变化、overdue 准入、固定 framing、入队与 append 失败、barrier 恢复、注册 rollback 和完全停稳 dispose。persistence 测试依据实际 durable cursor 覆盖 new、fork 与 resumed 初始化失败。组装后的 Loader/Web restart lane 证明 pending 恢复、fork 隔离、单次 durable dispatch、无需激活 agent 的 cold-history rendering，以及再次 restart 后不重投。Host/client 测试覆盖 commit gating、反序 watermark、语义 header identity、逐 event 前缀匹配、same-seq 立即升级、并发 live-tail 分页、真正的 gap 和 reconnect generation。
 
 显式 Loader 组合可以启动 source 与 built package。无密钥真实浏览器场景会通过完整工具 pipeline 执行 `schedule_create`、等待一秒 dispatch、观察 identity-matched 持久前缀，并从已附加 history 渲染 durable reminder card。刻意缺少的模型 adapter 会在 dispatch 后以错误关闭 turn，从而证明模型失败不会移除回执。
 
@@ -96,5 +96,5 @@ package 测试以逐文件 100% coverage 固定严格 decoding、transition、fo
 - 提醒状态通过普通 Session persistence 跨进程重启并回放，无需新数据库或公开 service。
 - cold Session 不工作、不发送外部通知；重新打开后可能交付 overdue 提醒，且每个工具／卡片都会显示 `session-local`。
 - 每个 live 根只增加从 fold 派生的 timer、可选 idle wait 与一个 in-flight operation。长等待和插件卸载不会创建第二套持久状态机。
-- 通用 commit-aware event-view 路径可供其他持久 event 复用，但为 client Session window 增加了身份检查与 generation-aware merge 行为。
+- 通用 commit-aware event-view 路径可供其他持久 event 复用，但为 client Session window 增加了事件身份检查与请求 generation 栅栏。
 - 严格的 after-only 协议有意保持小型；其他规则系列需要显式 record、时间与 recurrence 语义，而不是 dormant 字段。

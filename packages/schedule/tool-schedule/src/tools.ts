@@ -310,6 +310,9 @@ export function registerScheduleTools(
       },
       output: { schema: DELETE_OUTPUT_SCHEMA, render: renderValue },
       async execute(args, exec): Promise<ScheduleDeleteValue> {
+        if (args.id.length === 0 || args.id.trim() !== args.id) {
+          return { code: 'invalid_rule', message: 'schedule_delete id must be non-empty without surrounding whitespace.' }
+        }
         const id = ScheduleId(args.id)
         if (exec.agent !== agent) return internalError()
         const uncertain = await preflight(rootCtx, agent, 'delete', id)

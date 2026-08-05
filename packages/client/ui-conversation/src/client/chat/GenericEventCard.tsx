@@ -1,6 +1,6 @@
 // GenericEventCard: the visible fallback for a Host-presented durable event.
 // A domain plugin may replace it through the keyed eventview slot; without
-// one, the presentation key and JSON sidecar remain inspectable in the flow.
+// one, the durable event type and JSON sidecar remain inspectable in the flow.
 
 import { useMemo, useState } from 'react'
 import { IconSparkle16 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -22,7 +22,7 @@ export function GenericEventCard({ node, t }: GenericEventCardProps) {
       className={css.root}
       icon={<IconSparkle16 size={14} />}
       chevronClassName={css.chevron}
-      title={t('message.presentedEvent', { key: node.presentationKey })}
+      title={t('message.presentedEvent', { key: node.eventType })}
       open={open}
       expandable
       expandOnRowClick

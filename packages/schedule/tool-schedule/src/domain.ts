@@ -15,9 +15,6 @@ import type {
 /** Durable Schedule protocol version implemented by this package. */
 export const SCHEDULE_CHANGE_VERSION = 1 as const
 
-/** Key used by the generic Host/client event-presentation slot. */
-export const SCHEDULE_REMINDER_PRESENTATION_KEY = 'schedule/reminder'
-
 const MAX_FOUR_DIGIT_YEAR_MS = Date.parse('9999-12-31T23:59:59.999Z')
 const UTC_INSTANT = /^(?!0000)\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d\.\d{3}Z$/
 

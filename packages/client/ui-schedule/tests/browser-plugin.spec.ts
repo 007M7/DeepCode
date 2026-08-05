@@ -38,7 +38,7 @@ describe('ui-schedule browser plugin', () => {
     await b.fiber.await()
     expect(b.entry()).toEqual({
       name: 'conversation.chat.eventview',
-      key: 'schedule/reminder',
+      key: 'schedule/change',
       locale: 'schedule',
       component: ReminderRow,
     })

@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Browser-only renderer for durable Schedule reminder receipts. The plugin registers the `schedule/reminder` key in the conversation-owned `conversation.chat.eventview` slot. The generic runtime continues to carry the durable event identity and its Host-computed JSON sidecar; this package owns only the Schedule card.
+Browser-only renderer for durable Schedule reminder receipts. The plugin registers the durable `schedule/change` event type in the conversation-owned `conversation.chat.eventview` slot. The generic runtime continues to carry the durable event identity and its Host-computed JSON sidecar; this package owns only the Schedule card.
 
 The card displays the reminder prompt, Session-local Schedule ID, exact UTC occurrence, and the `session-local` delivery boundary. A malformed or incompatible sidecar remains visible as a contained unavailable receipt instead of crashing the conversation. Unloading the plugin removes only the keyed renderer; `ui-conversation` then shows its generic visible JSON fallback for the same durable event.
 

@@ -55,6 +55,8 @@ interface MemoryConfig { store?: MemoryStore }
 interface CoordinatorInternals {
   states: Map<unknown, unknown>
   live: Map<unknown, {
+    seedEnd: number
+    init: Promise<void> | undefined
     writes: { pending: unknown[]; active: Promise<void> | undefined; hasWork: boolean }
   }>
   chains: Map<unknown, unknown>
@@ -415,7 +417,10 @@ describe('PersistenceCoordinator retryable live initialization', () => {
       expect(backend.store.get(session.id)?.events.map(event => event.seq)).toEqual([0, 1])
 
       const live = [...(coordinator as unknown as CoordinatorInternals).live.values()][0]
-      expect(live).toMatchObject({ seedEnd: 0, initialized: true })
+      if (live === undefined) throw new Error('live controller was not retained')
+      expect(live.seedEnd).toBe(0)
+      expect(live.init).toBeInstanceOf(Promise)
+      expect(live).not.toHaveProperty('initialized')
       expect(live).not.toHaveProperty('seed')
     } finally {
       loadGate.resolve(undefined)

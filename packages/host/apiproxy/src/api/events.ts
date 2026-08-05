@@ -33,14 +33,12 @@ export type ToolEventView =
   | { for: 'result'; view: ToolResultView }
 
 /**
- * Host-computed presentation for one non-surface Session event. The domain
- * owns the presentation key and JSON-compatible view shape; the carrier keeps
- * both generic so an opt-in client plugin can render the event without adding
- * domain vocabulary to the connection package.
+ * Host-computed presentation for one non-surface Session event. The durable
+ * event type selects an optional client renderer; the sidecar carries only the
+ * JSON-compatible view so the connection package adds no domain vocabulary.
  */
 export interface PresentedEventView {
   for: 'event'
-  presentationKey: string
   view: unknown
 }
 

@@ -254,8 +254,8 @@ export interface CommandNode {
 
 /**
  * Host-computed presentation for one durable non-surface event. The generic
- * runtime carries the keyed JSON-compatible payload without importing the
- * producing domain; a client plugin owns the keyed renderer.
+ * runtime carries the durable event type and JSON-compatible payload without
+ * importing the producing domain; a client plugin owns the keyed renderer.
  */
 export interface PresentedEventNode {
   kind: 'presented-event'
@@ -263,8 +263,8 @@ export interface PresentedEventNode {
   seq: number
   /** Unix epoch ms from the source Session event. */
   time: number
-  /** Open runtime key selecting an optional domain renderer. */
-  presentationKey: string
+  /** Durable event type selecting an optional domain renderer. */
+  eventType: string
   /** Domain-owned JSON-compatible presentation payload. */
   view: unknown
 }

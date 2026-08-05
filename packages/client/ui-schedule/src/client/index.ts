@@ -30,7 +30,7 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(
     () => ctx.slots.register({
       name: 'conversation.chat.eventview',
-      key: 'schedule/reminder',
+      key: 'schedule/change',
       locale: NS,
     }, ReminderRow),
     'ui-schedule: reminder row registration',

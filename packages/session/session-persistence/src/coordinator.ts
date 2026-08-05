@@ -186,7 +186,10 @@ interface SessionState {
 
 /** One live session's initialization and bounded write-behind controller. */
 interface LiveSessionState {
-  init: Promise<void>
+  /** Exclusive end of the immutable Session prefix present when this lifecycle was first seen. */
+  seedEnd: number
+  /** Initialization settlement; retained after success and cleared only after rejection. */
+  init: Promise<void> | undefined
   writes: SessionWriteBehind
 }
 
@@ -1086,11 +1089,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       this.live.set(session, restored)
       return restored
     }
-    const seed = session.events.map(e => structuredClone(e))
-    const live: LiveSessionState = {
-      init: Promise.resolve(),
-      writes: this.createWriteBehind(session, () => live.init),
-    }
+    const live = this.createLiveState(session)
     this.live.set(session, live)
     void this.ensureInitialized(session, live).catch(() => {
       /* observed by flush/dispose through the controller or retried by a later barrier */
@@ -1112,15 +1111,43 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     const suffix = session.events.slice(state.cursor).map(event => structuredClone(event))
     this.preparations.attach(reservation)
     state.owner = session
-    const live: LiveSessionState = {
-      init: Promise.resolve(),
-      writes: this.createWriteBehind(session, () => live.init),
-    }
+    const live = this.createLiveState(session)
     if (suffix.length > 0) {
-      live.init = this.serialize(session.id, () => this.appendCore(session.id, suffix))
-      live.init.catch(() => { /* observed by flush/dispose through the controller */ })
+      const init = this.serialize(session.id, () => this.appendCore(session.id, suffix)).catch((error: unknown) => {
+        if (live.init === init) live.init = undefined
+        throw error
+      })
+      live.init = init
+      init.catch(() => { /* observed by flush/dispose through the controller */ })
+    } else {
+      live.init = Promise.resolve()
     }
     return live
+  }
+
+  /** Build one live controller whose write readiness retries the immutable initial prefix. */
+  private createLiveState(session: Session): LiveSessionState {
+    let live: LiveSessionState
+    live = {
+      seedEnd: session.events.length,
+      init: undefined,
+      writes: this.createWriteBehind(session, () => this.ensureInitialized(session, live)),
+    }
+    return live
+  }
+
+  /** Start or join one initialization attempt, rebuilding the immutable seed prefix on retry. */
+  private ensureInitialized(session: Session, live: LiveSessionState): Promise<void> {
+    if (live.init !== undefined) return live.init
+    const init = this.serialize(session.header.id, async () => {
+      const seed = session.events.slice(0, live.seedEnd)
+      await this.onCreated(session, seed)
+    }).catch((error: unknown) => {
+      if (live.init === init) live.init = undefined
+      throw error
+    })
+    live.init = init
+    return init
   }
 
   /**
@@ -1230,22 +1257,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       if (seed.length > 0) await this.appendCore(session.header.id, seed)
       return
     }
-    const { meta, events, tornMarker } = stored
-    this.assertStoredId(session.header.id, meta)
-    if (meta.cwd !== session.header.cwd) {
-      throw new Error(`session "${session.header.id}" is already persisted at a different cwd (persisted: ${String(meta.cwd)}, live: ${String(session.header.cwd)}) (id collision)`)
-    }
-    this.assertVersion(meta)
-    const storedEvents = snapshotStoredEvents(events, session.header.id)
-    if (!seedCoversPrefix(seed, storedEvents)) {
-      throw new Error(`session "${session.header.id}" already has a persisted log on disk that does not match this live session (id collision)`)
-    }
-    if (tornMarker !== undefined) await this.backend.commitRepair(meta, tornMarker, [])
-    tracked.meta = { ...meta }
-    tracked.cursor = storedEvents.length
-    tracked.materialized = true
-    const suffix = seed.slice(storedEvents.length)
-    if (suffix.length > 0) await this.appendCore(session.header.id, suffix)
+    await this.adoptLivePrefix(session, seed, stored, tracked)
   }
 
   /**
@@ -1254,7 +1266,12 @@ export class PersistenceCoordinator<TornMarker = unknown> {
    * the live Session is still the authority), bind ownership, and persist the
    * live suffix that was ahead of the stored prefix.
    */
-  private async adoptLivePrefix(session: Session, seed: readonly SessionEvent[], stored: StoredPrefix<TornMarker>): Promise<void> {
+  private async adoptLivePrefix(
+    session: Session,
+    seed: readonly SessionEvent[],
+    stored: StoredPrefix<TornMarker>,
+    tracked?: SessionState,
+  ): Promise<void> {
     const { meta, events, tornMarker } = stored
     this.assertStoredId(session.header.id, meta)
     if (meta.cwd !== session.header.cwd) {
@@ -1267,12 +1284,17 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     }
     // Truncate-only repair (no closers): the open turn is NOT closed here.
     if (tornMarker !== undefined) await this.backend.commitRepair(meta, tornMarker, [])
-    this.states.set(session.header.id, {
+    const state = tracked ?? {
       meta: { ...meta },
       cursor: storedEvents.length,
       materialized: true,
       owner: session,
-    })
+    }
+    state.meta = { ...meta }
+    state.cursor = storedEvents.length
+    state.materialized = true
+    state.owner = session
+    if (tracked === undefined) this.states.set(session.header.id, state)
     const suffix = seed.slice(storedEvents.length)
     if (suffix.length > 0) await this.appendCore(session.header.id, suffix)
   }
@@ -1281,7 +1303,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     const live = this.initFor(session)
     live.writes.cancelAutomaticWait()
     try {
-      await live.init
+      await this.ensureInitialized(session, live)
     } catch (error: unknown) {
       // Admission is closed during retirement/teardown, but an ordinary flush
       // may have raced one last enqueue while initialization was pending.

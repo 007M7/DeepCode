@@ -125,7 +125,7 @@ function materializePresented(event: SessionEvent, sidecar: PresentedEventView):
     kind: 'presented-event',
     seq: event.seq,
     time: event.time,
-    presentationKey: sidecar.presentationKey,
+    eventType: event.type,
     view: sidecar.view,
   }
 }

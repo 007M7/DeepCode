@@ -392,6 +392,7 @@ export class Session implements SessionFace {
   async loadOlder(): Promise<void> {
     if (this.openState !== 'open' || !this.hasMore || this.loadingOlder) return
     const generation = this.openGeneration
+    const requestedBaseSeq = this.baseSeq
     this.loadingOlder = true
     this.notifier.markDirty()
     try {
@@ -404,34 +405,27 @@ export class Session implements SessionFace {
         return
       }
       const tail = older[older.length - 1]
-      if (tail === undefined || tail.event.seq + 1 !== this.baseSeq) {
+      if (tail === undefined || tail.event.seq + 1 !== requestedBaseSeq) {
         // §D.2 continuity assertion: on violation drop the page fail-soft rather than render an out-of-order stream.
-        console.error(`[web-runtime] history page discontinuous: tail seq ${tail?.event.seq} vs baseSeq ${this.baseSeq}`)
+        console.error(`[web-runtime] history page discontinuous: tail seq ${tail?.event.seq} vs baseSeq ${requestedBaseSeq}`)
         this.hasMore = false
         return
       }
-      this.installWindow([
-        ...older,
-        ...this.events.map((event, index): HistoryEntry => {
-          const view = this.views[index]
-          return view === undefined ? { event } : { event, view }
-        }),
-      ], result.value.hasMore)
+      this.events = [...older.map(entry => entry.event), ...this.events]
+      this.views = [...older.map(entry => entry.view), ...this.views]
+      /* v8 ignore next -- the empty-page branch returned above. */
+      this.baseSeq = older[0]?.event.seq ?? this.baseSeq
+      this.hasMore = result.value.hasMore
+      this.transcript.reset(this.events, this.views)
+      this.rebuildDerivedFromWindow()
     } catch (error) {
       if (generation === this.openGeneration) {
         console.error('[web-runtime] loadOlder failed:', error)
       }
     } finally {
       if (generation === this.openGeneration) {
-        try {
-          const { hasGap } = this.mergeWindow()
-          // oxlint-disable-next-line typescript/no-unnecessary-condition -- resync can close the window while the page request is awaited.
-          if (hasGap && this.openState === 'open') void this.repairGap()
-        } catch (error) {
-          console.error('[web-runtime] loadOlder buffer merge failed:', error)
-          void this.resync()
-        }
         this.loadingOlder = false
+        if (this.liveBuffer.length > 0) void this.repairGap()
         this.notifier.markDirty()
       }
     }
@@ -816,6 +810,21 @@ export class Session implements SessionFace {
     this.applyEventSideEffects(event, view)
   }
 
+  /** Verify one retained event and apply a defined late sidecar immediately. */
+  private upgradeLiveView(event: SessionEvent, view?: SessionEventView): boolean {
+    const index = this.events.findIndex(candidate => candidate.seq === event.seq)
+    if (index === -1) return false
+    const retained = this.events[index]
+    /* v8 ignore next -- findIndex returned a dense-array position. */
+    if (retained === undefined) return false
+    assertSameEvent(retained, event)
+    if (view === undefined || sameWireValue(this.views[index], view)) return false
+    this.views[index] = view
+    this.transcript.reset(this.events, this.views)
+    this.rebuildDerivedFromWindow()
+    return true
+  }
+
   /** Retire the first matching live steering occurrence when its durable message takes over. */
   private handoffPendingSteering(event: SessionEvent): void {
     if (event.type !== 'user/message') return
@@ -840,9 +849,8 @@ export class Session implements SessionFace {
     if (this.openState !== 'open') return // cold/error: no window upkeep (history fully backfills on open)
     const tailSeq = this.windowTailSeq()
     if (tailSeq !== null && event.seq <= tailSeq) {
-      this.liveBuffer.push({ event, view })
       try {
-        const { changed } = this.mergeWindow()
+        const changed = this.upgradeLiveView(event, view)
         if (changed) this.notifier.markDirty()
       } catch (error) {
         console.error('[web-runtime] duplicate session event failed identity validation:', error)
@@ -852,12 +860,12 @@ export class Session implements SessionFace {
     }
     if (tailSeq !== null && event.seq > tailSeq + 1) {
       this.liveBuffer.push({ event, view })
-      void this.repairGap()
+      if (!this.loadingOlder) void this.repairGap()
       return
     }
     if (tailSeq === null && event.seq !== 0) {
       this.liveBuffer.push({ event, view })
-      void this.repairGap()
+      if (!this.loadingOlder) void this.repairGap()
       return
     }
     this.appendLive(event, view)

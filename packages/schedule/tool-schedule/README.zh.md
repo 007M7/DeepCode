@@ -22,7 +22,7 @@
 
 生成的[工具目录](../../../docs/tool-catalog.md)负责 `schedule_create`、`schedule_list` 和 `schedule_delete` 的参数与输出 schema。虽然模型输入使用 `after_seconds`，但其规范值中的记录字段使用 camelCase。
 
-`schedule_create` 会在持久化前验证只依赖输入形状的失败，随后执行检查点、分配永不复用的 id、追加 create，再次执行检查点。`schedule_list` 按创建顺序返回所有活动记录，其中包含 `state: "scheduled" | "overdue"` 与 `deliveryMode: "session-local"`。`schedule_delete` 只为活动 id 追加事件；未知或已终结的 id 会在 preflight（预检）后返回 `{ id, deleted: false, code: "schedule_not_found" }`。
+`schedule_create` 会在持久化前验证只依赖输入形状的失败，随后执行检查点、分配永不复用的 id、追加 create，再次执行检查点。`schedule_list` 按创建顺序返回所有活动记录，其中包含 `state: "scheduled" | "overdue"` 与 `deliveryMode: "session-local"`。`schedule_delete` 会在持久化前拒绝空 id 或前后带空白的 id，并只为活动 id 追加事件；未知或已终结的 id 会在 preflight（预检）后返回 `{ id, deleted: false, code: "schedule_not_found" }`。
 
 每次成功的管理 preflight 还会要求 live owner 重新计算。这对 create 或 delete barrier 返回 `persistence_uncertain` 的情况很重要：后续 list 或 mutation 可以确认保留的 batch，并立即 arm 或退役此时已持久化的 record，而无需私有 persistence retry timer。
 

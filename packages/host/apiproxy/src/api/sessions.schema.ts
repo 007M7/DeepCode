@@ -193,10 +193,9 @@ export const toolEventViewSchema = z.discriminatedUnion('for', [
   z.object({ for: z.literal('result'), view: z.looseObject({ card: z.string() }) }),
 ]) as unknown as z.ZodType<ToolEventView>
 
-/** Domain-owned presented-event sidecar with a carrier-validated key and present payload. */
+/** Domain-owned presented-event sidecar whose durable event supplies the renderer key. */
 const presentedEventViewSchema = z.object({
   for: z.literal('event'),
-  presentationKey: z.string().min(1),
   view: z.unknown(),
 }).refine(value => Object.hasOwn(value, 'view'), {
   message: 'presented event view payload is required',

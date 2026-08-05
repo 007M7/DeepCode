@@ -104,7 +104,6 @@ describe('commit-aware Schedule live views', () => {
     expect(presented.map(frame => frame.view)).toEqual([
       {
         for: 'event',
-        presentationKey: 'schedule/reminder',
         view: {
           scheduleId: 'schedule-1', prompt: 'first',
           occurrenceAt: '2026-08-05T12:00:01.000Z', deliveryMode: 'session-local',
@@ -112,7 +111,6 @@ describe('commit-aware Schedule live views', () => {
       },
       {
         for: 'event',
-        presentationKey: 'schedule/reminder',
         view: {
           scheduleId: 'schedule-2', prompt: 'second',
           occurrenceAt: '2026-08-05T12:00:01.000Z', deliveryMode: 'session-local',
@@ -143,7 +141,7 @@ describe('commit-aware Schedule live views', () => {
     const frames = await collected
     expect(frames.filter(frame => frame.view?.for === 'event')).toHaveLength(1)
     expect(frames.at(-1)?.view).toMatchObject({
-      for: 'event', presentationKey: 'schedule/reminder',
+      for: 'event',
     })
     await ctx.fiber.dispose()
   })
@@ -180,7 +178,7 @@ describe('Schedule history views', () => {
       events: [...session.events.slice(0, 2)],
     })
     expect((await history()).find(entry => entry.event.seq === 1)?.view).toMatchObject({
-      for: 'event', presentationKey: 'schedule/reminder',
+      for: 'event',
     })
     inspect = () => Promise.resolve({
       meta: { ...session.header, cwd: '/different', delegationDepth: 0 },
@@ -213,7 +211,7 @@ describe('Schedule history views', () => {
     })
     if (!response.result.ok) throw new Error(response.result.error.message)
     expect(response.result.value.events.find(entry => entry.event.seq === 1)?.view).toMatchObject({
-      for: 'event', presentationKey: 'schedule/reminder',
+      for: 'event',
     })
     await ctx.fiber.dispose()
   })

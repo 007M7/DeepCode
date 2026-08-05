@@ -4,7 +4,6 @@ import {
   ScheduleId,
   ScheduleInputError,
   ScheduleLogError,
-  SCHEDULE_REMINDER_PRESENTATION_KEY,
   allocateScheduleId,
   createAfterScheduleRecord,
   decodeScheduleChange,
@@ -98,7 +97,6 @@ describe('version-1 Schedule decoding and folding', () => {
       scheduleEvent(createData('same-id', 'child prompt'), 2),
       scheduleEvent({ version: 1, operation: 'dispatch', id: 'same-id' }, 3),
     ]
-    expect(SCHEDULE_REMINDER_PRESENTATION_KEY).toBe('schedule/reminder')
     expect(scheduleReminderPresentation(events, 1, 2)).toEqual({
       scheduleId: 'same-id',
       prompt: 'parent prompt',

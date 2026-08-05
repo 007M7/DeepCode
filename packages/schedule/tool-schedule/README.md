@@ -22,7 +22,7 @@ Replay rejects unknown versions, extra fields, reused ids, and delete or dispatc
 
 The generated [tool catalog](../../../docs/tool-catalog.md) owns the argument and output schemas for `schedule_create`, `schedule_list`, and `schedule_delete`. Their canonical values use camelCase record fields even though model input uses `after_seconds`.
 
-`schedule_create` validates shape-only failures before persistence, then checkpoints, allocates a never-reused id, appends the create, and checkpoints again. `schedule_list` returns every active record in create order with `state: "scheduled" | "overdue"` and `deliveryMode: "session-local"`. `schedule_delete` appends only for an active id; an unknown or terminal id returns `{ id, deleted: false, code: "schedule_not_found" }` after its preflight.
+`schedule_create` validates shape-only failures before persistence, then checkpoints, allocates a never-reused id, appends the create, and checkpoints again. `schedule_list` returns every active record in create order with `state: "scheduled" | "overdue"` and `deliveryMode: "session-local"`. `schedule_delete` rejects an empty or whitespace-padded id before persistence and appends only for an active id; an unknown or terminal id returns `{ id, deleted: false, code: "schedule_not_found" }` after its preflight.
 
 Every successful management preflight also asks the live owner to recompute. This matters after a create or delete barrier returned `persistence_uncertain`: a later list or mutation can confirm the retained batch and immediately arm or retire the now-durable record without a private persistence-retry timer.
 

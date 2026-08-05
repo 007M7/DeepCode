@@ -40,7 +40,7 @@ SlotsService 分别为 renderer 提供 `useSessions` 与 `useWorkspaces` 的裸 
 
 由于投影按日志顺序，节点数组天然按 seq 单调：仅日志的 `command/run` / `command/done` 节点按 seq 插入，`Session` 按分数 seq 归并被打断的冻结节点，而检查点所引范围落在窗口之外的窗口会渲染出标记且不打印任何日志。标记的摘要文本、被替换条目数量和估算的被遮蔽 token 数量都来自检查点引用的 `compact/summary` 事件；窗口切分把该事件留在窗口外时这些字段不可用，后续包含该事件的分页会解析出它们。`CommandNode.outcome.sourceEventSeq` 保留成功命令对该摘要事件的显式引用，使呈现层能够配对 `/compact` 与其检查点，而无须解析结算文案或假定两行相邻。性能约定：一次追加最多物化一个节点，并且仅在加入该节点时复制投影；不改变任何节点的事件保持上一次的数组引用（分片风暴零成本），未变化的节点保持其对象标识。
 
-一个 Session event 到达其 presentation 提交点后，Host 可以用同一 seq 重新投递完全相同的事件，并携带新增或变化的非持久 view。`Session` 会先要求事件深度一致，再只升级 sidecar；通用 event view 会按 `presentationKey` 形成一个 `PresentedEventNode`。既有 `liveBuffer` 是尾部加载、gap stitching 与 `loadOlder` 期间唯一的汇合点。每个当前 generation 的结算出口都使用同一条 merge 路径升级窗口重叠项、消费已覆盖项，并只接入连续后缀；RPC 拒绝、空页和不连续页同样如此。重连会推进 generation 并清除其 loading 所有权，因此旧请求的结果或 `finally` 既不能改写，也不能阻塞重建后的窗口。
+一个 Session event 到达其 presentation 提交点后，Host 可以用同一 seq 重新投递完全相同的事件，并携带新增或变化的非持久 view。`Session` 会先要求事件深度一致，再只升级 sidecar；通用 event view 会按持久事件类型形成一个 `PresentedEventNode`。`liveBuffer` 仍只用于尾部加载与真正的 gap repair。普通 `loadOlder` 会将 live-tail 追加项留在当前窗口中，并在 await 后前插所取页面；重叠的迟到 sidecar 则会立即升级。重连会推进 generation 并清除 page／repair 的所有权，因此旧请求的结果或 `finally` 既不能改写，也不能阻塞重建后的窗口。
 
 ## 请求检查
 

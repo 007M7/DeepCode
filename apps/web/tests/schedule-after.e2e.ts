@@ -3,19 +3,28 @@
 // one-second owner path queues its best-effort followup, commits dispatch, and
 // the browser renders the Host's durability-gated reminder sidecar. No model
 // fixture is installed: the later prompt failure cannot retract the receipt.
+import { mkdtemp, realpath, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import type { AgentHandle } from '@deepseek-ai/dsh-agent'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { CallId, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import type { Session } from '@deepseek-ai/dsh-session'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden,
   launchWebScaffold, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import { newEnglishPage, saveFailureShot } from './support.ts'
+import {
+  ScheduleId,
+  createAfterScheduleRecord,
+  foldScheduleEvents,
+} from '@deepseek-ai/dsh-tool-schedule'
 
 const MODE = webSnapshotMode()
 const OVERLAY = fileURLToPath(new URL('../../../examples/web-schedule/cordis.yml', import.meta.url))
@@ -35,6 +44,16 @@ async function waitForFact(read: () => boolean, timeoutMs: number): Promise<void
     if (Date.now() >= deadline) throw new Error(`Schedule lifecycle fact did not arrive within ${timeoutMs}ms`)
     await new Promise(resolve => setTimeout(resolve, 20))
   }
+}
+
+/** Give a seeded Session one completed turn so the real Host fork path can cut it. */
+function appendCompletedTurn(session: Session, prompt: string): void {
+  session.append('turn/start', { turn: 1 })
+  session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: prompt }],
+    source: { kind: 'user' },
+  }), { surfaceOp: 'append' })
+  session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
 }
 
 describe.skipIf(MODE === 'record')('web e2e: durable after reminder receipt', () => {
@@ -87,7 +106,7 @@ describe.skipIf(MODE === 'record')('web e2e: durable after reminder receipt', ()
     expect(history.result.value.events?.find(entry =>
       entry.event.type === 'schedule/change'
       && (entry.event.data as { operation?: unknown }).operation === 'dispatch')?.view).toMatchObject({
-      for: 'event', presentationKey: 'schedule/reminder',
+      for: 'event',
     })
     await waitForFact(
       () => agentHandle.agent.session.events.some(event => event.type === 'turn/start'),
@@ -120,7 +139,7 @@ describe.skipIf(MODE === 'record')('web e2e: durable after reminder receipt', ()
     const group = page.locator('[role="treeitem"]').first()
     await group.waitFor({ timeout: 15_000 })
     if (await group.getAttribute('aria-expanded') !== 'true') {
-      await group.evaluate((element) => { (element as HTMLElement).click() })
+      await group.click()
     }
     await expect.poll(() => group.getAttribute('aria-expanded'), { timeout: 5_000 }).toBe('true')
     const session = page.locator('[role="treeitem"][aria-selected]').nth(1)
@@ -142,4 +161,125 @@ describe.skipIf(MODE === 'record')('web e2e: durable after reminder receipt', ()
   it('keeps the fixture inventory closed', async () => {
     await assertFixtureInventory(SNAPSHOT_DIR, ['receipt.expected.md'])
   })
+})
+
+describe.skipIf(MODE === 'record')('web e2e: Schedule restart, fork, and cold history', () => {
+  it('preserves pending work, commits one overdue receipt, and replays it cold without activation', async () => {
+    const workspaceCwd = await realpath(await mkdtemp(join(tmpdir(), 'dsh-schedule-restart-ws-')))
+    const persistenceRoot = await mkdtemp(join(tmpdir(), 'dsh-schedule-restart-sessions-'))
+    const world = { workspaceCwd, persistenceRoot }
+    const pendingId = SessionId('schedule-restart-pending')
+    const deliveredId = SessionId('schedule-restart-delivered')
+    let scaffold: WebScaffold | undefined
+    try {
+      scaffold = await launchWebScaffold({ extraOverlayPath: OVERLAY, world })
+      const workspace = await scaffold.ctx.workspace.create(workspaceCwd, 'Schedule restart')
+
+      const pending = scaffold.ctx.sessions.create(pendingId, { meta: { cwd: workspaceCwd } })
+      appendCompletedTurn(pending, 'pending parent turn')
+      pending.append('session/title', {
+        title: 'Pending restart session', messageSeqs: [], source: { kind: 'user' },
+      })
+      const pendingRecord = createAfterScheduleRecord(
+        ScheduleId('schedule-pending'), 'Pending across restart', 3_600, Date.now(),
+      )
+      pending.append('schedule/change', { version: 1, operation: 'create', schedule: pendingRecord })
+      await expect(scaffold.ctx.sessions.flush(pending)).resolves.toBe(true)
+      await workspace.attachSession(pendingId)
+
+      const delivered = scaffold.ctx.sessions.create(deliveredId, { meta: { cwd: workspaceCwd } })
+      appendCompletedTurn(delivered, 'delivered parent turn')
+      delivered.append('session/title', {
+        title: 'Delivered restart session', messageSeqs: [], source: { kind: 'user' },
+      })
+      const overdueRecord = createAfterScheduleRecord(
+        ScheduleId('schedule-delivered'), 'Delivered after restart', 1, Date.now() - 60_000,
+      )
+      delivered.append('schedule/change', { version: 1, operation: 'create', schedule: overdueRecord })
+      await expect(scaffold.ctx.sessions.flush(delivered)).resolves.toBe(true)
+      await workspace.attachSession(deliveredId)
+
+      await scaffold.close()
+      scaffold = undefined
+
+      scaffold = await launchWebScaffold({ extraOverlayPath: OVERLAY, world })
+      const pendingResume = await scaffold.ctx.apiProxy.sessions.create({
+        rpcId: RpcId('schedule-pending-resume'),
+        payload: { sessionId: pendingId, cwd: workspaceCwd },
+      })
+      if (!pendingResume.result.ok) throw new Error(pendingResume.result.error.message)
+      const pendingAgent = scaffold.ctx.agents.get(pendingId)
+      if (pendingAgent === undefined) throw new Error('pending Session did not resume')
+      expect(foldScheduleEvents(
+        pendingAgent.session.events,
+        pendingAgent.session.header.seedLength ?? 0,
+      ).active).toEqual([expect.objectContaining({ id: 'schedule-pending' })])
+
+      const forked = await scaffold.ctx.apiProxy.sessions.fork({
+        rpcId: RpcId('schedule-pending-fork'),
+        payload: { sessionId: pendingId },
+      })
+      if (!forked.result.ok) throw new Error(forked.result.error.message)
+      const child = scaffold.ctx.agents.get(forked.result.value.sessionId)
+      if (child === undefined) throw new Error('fork child was not published')
+      expect(foldScheduleEvents(
+        child.session.events,
+        child.session.header.seedLength ?? 0,
+      ).active).toEqual([])
+
+      const deliveredResume = await scaffold.ctx.apiProxy.sessions.create({
+        rpcId: RpcId('schedule-delivered-resume'),
+        payload: { sessionId: deliveredId, cwd: workspaceCwd },
+      })
+      if (!deliveredResume.result.ok) throw new Error(deliveredResume.result.error.message)
+      const deliveredAgent = scaffold.ctx.agents.get(deliveredId)
+      if (deliveredAgent === undefined) throw new Error('overdue Session did not resume')
+      await waitForFact(() => deliveredAgent.session.events.some(event =>
+        event.type === 'schedule/change' && event.data.operation === 'dispatch'), 15_000)
+      await deliveredAgent.whenIdle()
+      await expect(scaffold.ctx.sessions.flush(deliveredAgent.session)).resolves.toBe(true)
+      expect(deliveredAgent.session.events.filter(event =>
+        event.type === 'schedule/change' && event.data.operation === 'dispatch')).toHaveLength(1)
+
+      await scaffold.close()
+      scaffold = undefined
+
+      scaffold = await launchWebScaffold({ extraOverlayPath: OVERLAY, world })
+      expect(scaffold.ctx.agents.get(deliveredId)).toBeUndefined()
+      const coldHistory = await scaffold.ctx.apiProxy.sessions.history({
+        rpcId: RpcId('schedule-cold-history'),
+        payload: { sessionId: deliveredId },
+      })
+      if (!coldHistory.result.ok) throw new Error(coldHistory.result.error.message)
+      const dispatchEntries = coldHistory.result.value.events.filter(entry =>
+        entry.event.type === 'schedule/change'
+        && entry.event.data.operation === 'dispatch')
+      expect(dispatchEntries).toHaveLength(1)
+      expect(dispatchEntries[0]?.view?.for).toBe('event')
+      expect(scaffold.ctx.agents.get(deliveredId)).toBeUndefined()
+
+      await scaffold.close()
+      scaffold = undefined
+
+      scaffold = await launchWebScaffold({ extraOverlayPath: OVERLAY, world })
+      const replayed = await scaffold.ctx.apiProxy.sessions.create({
+        rpcId: RpcId('schedule-delivered-replay'),
+        payload: { sessionId: deliveredId, cwd: workspaceCwd },
+      })
+      if (!replayed.result.ok) throw new Error(replayed.result.error.message)
+      const replayedAgent = scaffold.ctx.agents.get(deliveredId)
+      if (replayedAgent === undefined) throw new Error('delivered Session did not resume again')
+      await replayedAgent.whenIdle()
+      await expect(scaffold.ctx.sessions.flush(replayedAgent.session)).resolves.toBe(true)
+      expect(replayedAgent.session.events.filter(event =>
+        event.type === 'schedule/change' && event.data.operation === 'dispatch')).toHaveLength(1)
+    } finally {
+      const failures: unknown[] = []
+      await scaffold?.close().catch((error: unknown) => failures.push(error))
+      await rm(workspaceCwd, { recursive: true, force: true }).catch((error: unknown) => failures.push(error))
+      await rm(persistenceRoot, { recursive: true, force: true }).catch((error: unknown) => failures.push(error))
+      if (failures.length === 1) throw failures[0]
+      if (failures.length > 1) throw new AggregateError(failures, 'Schedule restart evidence teardown failed')
+    }
+  }, 180_000)
 })

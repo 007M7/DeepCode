@@ -16,7 +16,7 @@ function props(view: unknown): ReminderRowProps {
     kind: 'presented-event',
     seq: 4,
     time: Date.parse('2026-08-05T08:00:00.000Z'),
-    presentationKey: 'schedule/reminder',
+    eventType: 'schedule/change',
     view,
   }
   return { node, t } as ReminderRowProps
@@ -48,7 +48,7 @@ describe('ReminderRow', () => {
       deliveryMode: 'external',
     })} />)
 
-    expect(screen.getByText('提醒回执不可用 · schedule/reminder')).toBeTruthy()
+    expect(screen.getByText('提醒回执不可用 · schedule/change')).toBeTruthy()
     expect(screen.queryByText('not trusted')).toBeNull()
     expect(screen.queryByText('仅在当前会话中交付')).toBeNull()
   })

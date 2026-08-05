@@ -198,16 +198,12 @@ describe('sessions domain schemas', () => {
       event: { type: 'schedule/change', seq: 2, time: 3, data: { operation: 'dispatch' } },
       view: {
         for: 'event',
-        presentationKey: 'schedule/reminder',
         view: { scheduleId: 'schedule-1' },
       },
     }
     const parsedHistory = sessionHistoryValueSchema.parse({ events: [presented], hasMore: false })
     expect(parsedHistory.events?.at(0)?.view).toEqual(presented.view)
-    for (const view of [
-      { for: 'event', presentationKey: '', view: {} },
-      { for: 'event', presentationKey: 'schedule/reminder' },
-    ]) {
+    for (const view of [{ for: 'event' }]) {
       expect(() => sessionHistoryValueSchema.parse({
         events: [{ event: presented.event, view }],
         hasMore: false,
@@ -442,7 +438,7 @@ describe('events frame schemas', () => {
       {
         type: 'session/event', sessionId: 's',
         event: { type: 'schedule/change', seq: 1, time: 2, data: { operation: 'dispatch' } },
-        view: { for: 'event', presentationKey: 'schedule/reminder', view: null },
+        view: { for: 'event', view: null },
       },
       { type: 'session/subscribed', sessionId: 's', lastSeq: -1 },
       { type: 'approval/requested', sessionId: 's', approvalId: 'a', toolName: 'bash', callId: 'c', reason: 'r' },

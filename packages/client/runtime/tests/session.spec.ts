@@ -45,7 +45,6 @@ function reminderEvent(seq: number, id: string): SessionEvent {
 function reminderView(id: string, prompt = '检查日志') {
   return {
     for: 'event' as const,
-    presentationKey: 'schedule/reminder',
     view: { id, prompt },
   }
 }
@@ -127,7 +126,7 @@ describe('late event views', () => {
       type: 'session/event', sessionId: SID, event, view: reminderView('schedule-1'),
     })
     expect(session.getSnapshot().nodes).toMatchObject([{
-      kind: 'presented-event', seq: 0, presentationKey: 'schedule/reminder',
+      kind: 'presented-event', seq: 0, eventType: 'schedule/change',
       view: { id: 'schedule-1', prompt: '检查日志' },
     }])
 
@@ -705,6 +704,27 @@ describe('paging', () => {
     expect(api.callsOf('session.history')).toMatchObject([{}, { beforeSeq: 6 }].map(p => ({ sessionId: SID, ...p })))
     expect(snapshot.hasMore).toBe(false)
     expect(snapshot.nodes.map(n => n.seq)).toEqual([1, 3, 7, 9])
+  })
+
+  it('keeps a concurrent live tail in the current window before prepending the older page', async () => {
+    const older = plainTurn(0, 0, '旧问', '旧答')
+    const newer = plainTurn(6, 1, '新问', '新答')
+    const page = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    const { api, session } = makeSession()
+    api.onHistory = payload => payload.beforeSeq === undefined
+      ? histResponse(newer, true)
+      : page.promise
+    await session.open()
+
+    const loading = session.loadOlder()
+    session.handleMuxEnvelope('live-tail' as never, {
+      type: 'session/event', sessionId: SID, event: ev.user(12, '并发尾部'),
+    })
+    expect(session.getSnapshot().nodes.map(node => node.seq)).toEqual([7, 9, 12])
+    page.resolve(await histResponse(older, false))
+    await loading
+
+    expect(session.getSnapshot().nodes.map(node => node.seq)).toEqual([1, 3, 7, 9, 12])
   })
 
   it('renders a page whose checkpoint shadows seqs below the window head, logging nothing', async () => {

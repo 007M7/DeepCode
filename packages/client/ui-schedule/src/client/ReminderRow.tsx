@@ -44,7 +44,7 @@ export function ReminderRow({ node, t }: ReminderRowProps) {
         {reminder !== null && <span className={css.delivery}>{t('reminder.delivery')}</span>}
       </header>
       {reminder === null
-        ? <p className={css.invalid}>{t('reminder.invalid')} · {node.presentationKey}</p>
+        ? <p className={css.invalid}>{t('reminder.invalid')} · {node.eventType}</p>
         : (
           <>
             <p className={css.prompt}>{reminder.prompt}</p>

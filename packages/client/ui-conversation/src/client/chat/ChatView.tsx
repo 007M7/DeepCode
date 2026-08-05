@@ -212,8 +212,8 @@ const CommandRow = memo(function CommandRow({ renderSlot, node, compaction, t }:
   )
 })
 
-/** One Host-presented durable event: keyed dispatch on its open presentation
- * key, with a visible JSON disclosure when no domain renderer is loaded. */
+/** One Host-presented durable event: dispatch by durable event type, with a
+ * visible JSON disclosure when no domain renderer is loaded. */
 const EventRow = memo(function EventRow({ renderSlot, node, t }: {
   renderSlot: RenderChatSlot
   node: PresentedEventNode
@@ -223,7 +223,7 @@ const EventRow = memo(function EventRow({ renderSlot, node, t }: {
   return (
     <div className={css.callRow}>
       {renderSlot('conversation.chat.eventview', owner, {
-        entryKey: node.presentationKey,
+        entryKey: node.eventType,
         fallback: <GenericEventCard {...owner} t={t} />,
       })}
     </div>

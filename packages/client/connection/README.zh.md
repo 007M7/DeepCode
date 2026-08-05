@@ -12,7 +12,7 @@ node 半侧在桥接或 upgrade 前守卫 `/api` 下的每个入口（`src/api-r
 
 `/api/events.mux` 与 `/api/events.host` 各接受一条 WebSocket upgrade，并只向浏览器发送对应的 `ServerRequest` text message；客户端不会在这些 socket 上发送业务数据。任一 socket 结束都会使当前 connection generation 失败并重建两条流，连接就绪仍要求两条 socket open 且 `host.describe` HTTP 调用成功。Host teardown 会终止两条 socket、中止各自的 source，并等待 source 清理完成后再返回。普通网络 GET 这些路径会返回 426，不保留 SSE 回退；`toFetchHandler` 的 SSE 编解码只服务进程内同构载体。
 
-`SessionEventView` 是 `session.history` 条目与实时 `session/event` 帧上的可选、非持久 sidecar。工具 view 保持封闭的 call／result 形状；由 Host presentation 的持久事件则携带 `{ for: 'event', presentationKey, view }`，把 key 空间与兼容 JSON 的 payload 开放给领域插件。同一个 Session event 可以再次投递并带有新增或变化的 sidecar，因此消费方会按完全一致的事件身份与 seq 合并，而不会把第二个帧当作另一次日志 append。
+`SessionEventView` 是 `session.history` 条目与实时 `session/event` 帧上的可选、非持久 sidecar。工具 view 保持封闭的 call／result 形状；由 Host presentation 的持久事件则携带 `{ for: 'event', view }`，把兼容 JSON 的 payload 开放给领域插件，并由持久事件类型选择 renderer。同一个 Session event 可以再次投递并带有新增或变化的 sidecar，因此消费方会按完全一致的事件身份与 seq 合并，而不会把第二个帧当作另一次日志 append。
 
 ## 无密钥 fixture
 

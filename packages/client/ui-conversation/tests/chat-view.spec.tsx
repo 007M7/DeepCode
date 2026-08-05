@@ -110,7 +110,7 @@ const presentedEvent = (seq: number): PresentedEventNode => ({
   kind: 'presented-event',
   seq,
   time: seq * 1_000,
-  presentationKey: 'schedule/reminder',
+  eventType: 'schedule/change',
   view: { prompt: 'check logs', scheduleId: 'schedule-1' },
 })
 
@@ -969,8 +969,8 @@ describe('ChatView', () => {
       return opts?.fallback ?? null
     })
     const view = render(<h.ChatView {...h.props} />)
-    expect(calls).toEqual([{ key: 'conversation.chat.eventview', entryKey: 'schedule/reminder' }])
-    fireEvent.click(view.getByText('事件：schedule/reminder'))
+    expect(calls).toEqual([{ key: 'conversation.chat.eventview', entryKey: 'schedule/change' }])
+    fireEvent.click(view.getByText('事件：schedule/change'))
     expect(view.getByText(/"prompt": "check logs"/)).toBeTruthy()
     expect(view.getByText(/"scheduleId": "schedule-1"/)).toBeTruthy()
   })

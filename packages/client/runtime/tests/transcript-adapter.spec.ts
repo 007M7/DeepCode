@@ -440,23 +440,21 @@ describe('TranscriptAdapter', () => {
     const adapter = new TranscriptAdapter()
     adapter.reset([replayed], [{
       for: 'event',
-      presentationKey: 'schedule/reminder',
       view: { id: 'schedule-1', prompt: '检查日志' },
     }])
     adapter.append(live, {
       for: 'event',
-      presentationKey: 'schedule/reminder',
       view: { id: 'schedule-2', prompt: '检查发布' },
     })
     expect(adapter.nodes()).toEqual([
       {
         kind: 'presented-event', seq: 0, time: 1_700_000_000_000,
-        presentationKey: 'schedule/reminder',
+        eventType: 'schedule/change',
         view: { id: 'schedule-1', prompt: '检查日志' },
       },
       {
         kind: 'presented-event', seq: 1, time: 1_700_000_000_001,
-        presentationKey: 'schedule/reminder',
+        eventType: 'schedule/change',
         view: { id: 'schedule-2', prompt: '检查发布' },
       },
     ])
