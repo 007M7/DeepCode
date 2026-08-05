@@ -3,10 +3,11 @@
  * firehose plus the one live-bus relay (`agent/error`), applies the fixed
  * chunk projection, builds logical records, runs each through the
  * `telemetry/record` waterfall (deployment-mounted redaction rules;
- * pass-through when none), and hands the result to the backend — synchronously, with every
- * handler self-contained so a failing backend can never starve other
- * subscribers (cordis `emit` is stop-on-throw) or touch the agent loop.
- * Composed by a backend in its constructor.
+ * pass-through when none), then hands the result to the backend immediately
+ * or holds it for explicit release. Every synchronous handler is
+ * self-contained so a failing backend can never starve other subscribers
+ * (cordis `emit` is stop-on-throw) or touch the agent loop. Composed by a
+ * backend in its constructor.
  *
  * @module @deepseek-ai/dsh-session-telemetry/coordinator
  */
@@ -15,6 +16,16 @@ import type { Context } from 'cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { TelemetryBackend, TelemetryRecord, TelemetrySeverity } from './index.ts'
+
+/** Whether capture hands records over immediately or holds them for an explicit release. */
+export type TelemetryDelivery = 'immediate' | 'held'
+
+/** One redacted record waiting at the capture boundary. */
+interface PendingRecord {
+  readonly record: TelemetryRecord
+  /** Ledger cursor advanced only after the backend accepts this record. */
+  readonly seq?: number
+}
 
 /**
  * The handoff cursor: per session, the highest `seq` handed to a backend.
@@ -35,14 +46,13 @@ const handoffCursor = new WeakMap<Session, number>()
  * Registers the persistence-coordinator listener set plus the `agent/error`
  * relay, all through `ctx.effect()`/`ctx.on()` on the composing fiber, and
  * sweeps already-live sessions (a hot reload does not replay
- * `session/created`). A `session/disposed` emits the session's `shutdown`
- * operational record — the marker rides the session's own termination edge,
- * where receivers key crash detection — and retires it from the adopted set,
- * so a long-lived backend neither retains closed sessions (and their frozen
- * event logs) nor re-marks them at unload. Disposal marks the sessions still
- * alive at teardown (their own edge would fire unobserved) and then awaits
- * the backend's `shutdown()`; a failure there warns instead of throwing —
- * best-effort reporting must not fail application teardown.
+ * `session/created`). A `session/disposed` captures the session's `shutdown`
+ * operational record at its own termination edge and retires it from the
+ * adopted set. Immediate delivery hands that marker over; held delivery keeps
+ * it local without another explicit release. Disposal captures the same
+ * marker for sessions still alive, then awaits the backend's `shutdown()`; a
+ * failure there warns instead of throwing — best-effort reporting must not
+ * fail application teardown.
  */
 export class TelemetryCoordinator {
   /**
@@ -53,28 +63,30 @@ export class TelemetryCoordinator {
   private readonly adopted = new Set<Session>()
   /** Per session, the `turn:step` keys whose first chunk already shipped; rebuilt from the log on re-adoption. */
   private readonly chunkSeen = new WeakMap<Session, Set<string>>()
+  /** Redacted records retained until {@link release}; weak keys do not extend session lifetime. */
+  private readonly held = new WeakMap<Session, PendingRecord[]>()
 
   /**
    * @param ctx - the composing backend's context; listeners bind to its fiber.
    * @param backend - the backend receiving records; owned elsewhere, never disposed here beyond `shutdown()` forwarding.
+   * @param delivery - immediate handoff, or held delivery released explicitly per session.
    */
   constructor(
     private readonly ctx: Context,
     private readonly backend: TelemetryBackend,
+    private readonly delivery: TelemetryDelivery = 'immediate',
   ) {
     ctx.on('session/created', (session) => {
       this.adopt(session)
     })
-    // The session's own termination edge: emit the shutdown marker HERE —
-    // receivers classify a session with activity and no marker as crashed,
-    // so a normally closed session in a long-running host must get its
-    // marker at disposal, not never. Then retire: the projection/cursor
-    // WeakMaps die with the Session object; only the strong adopted set
-    // needs the explicit release.
+    // Capture the shutdown marker at the session's own termination edge.
+    // Immediate delivery preserves crash classification; held delivery does
+    // not let a later lifecycle edge extend a user-released prefix. Then
+    // retire the only strong reference owned by this coordinator.
     ctx.on('session/disposed', (session) => {
       this.contain(() => {
         if (!this.adopted.delete(session)) return
-        this.handOff(shutdownRecord(session))
+        this.submit(session, { record: this.redact(shutdownRecord(session)) })
       })
     })
     ctx.on('session/event', (session, event) => {
@@ -95,13 +107,12 @@ export class TelemetryCoordinator {
       })
     })
     ctx.effect(() => async () => {
-      // Sessions still adopted here are alive through a whole-application
-      // teardown (their own disposal edge will fire after telemetry is gone,
-      // unobserved) — mark them now so the receiver sees a clean stop of
-      // observation rather than a crash-shaped silence.
+      // Sessions still adopted here are alive through whole-application
+      // teardown, so capture the marker before the backend quiesces. Held
+      // delivery intentionally leaves it local without another release.
       for (const session of this.adopted) {
         this.contain(() => {
-          this.handOff(shutdownRecord(session))
+          this.submit(session, { record: this.redact(shutdownRecord(session)) })
         })
       }
       try {
@@ -112,6 +123,23 @@ export class TelemetryCoordinator {
     }, 'telemetry capture')
     for (const session of ctx.sessions.list()) {
       this.adopt(session)
+    }
+  }
+
+  /**
+   * Hand the records currently held for one session to the backend in capture order.
+   * Records captured after this call form a new held prefix. Backend failures remain
+   * contained per record and do not starve later records in the same release.
+   * @param session - session whose pending capture prefix may leave the process.
+   */
+  release(session: Session): void {
+    const pending = this.held.get(session)
+    if (pending === undefined) return
+    this.held.delete(session)
+    for (const record of pending) {
+      this.contain(() => {
+        this.deliver(session, record)
+      })
     }
   }
 
@@ -153,7 +181,7 @@ export class TelemetryCoordinator {
     }
   }
 
-  /** Project one event and hand it to the backend, advancing the cursor on handoff. */
+  /** Project and redact one event, then submit it under the delivery policy. */
   private capture(session: Session, event: SessionEvent): void {
     if (event.type === 'assistant/chunk') {
       const key = `${event.data.turn}:${event.data.step}`
@@ -165,27 +193,47 @@ export class TelemetryCoordinator {
       if (seen.has(key)) return
       seen.add(key)
     }
-    this.handOff({
-      channel: 'ledger',
-      time: event.time,
-      severity: severityOf(event),
-      attributes: identityOf(session, event),
-      // The live event object is mutable and the backend serializes later;
-      // append-time validation guarantees this clone cannot throw.
-      body: structuredClone(event.data),
+    this.submit(session, {
+      record: this.redact({
+        channel: 'ledger',
+        time: event.time,
+        severity: severityOf(event),
+        attributes: identityOf(session, event),
+        // The live event object is mutable and the backend serializes later;
+        // append-time validation guarantees this clone cannot throw.
+        body: structuredClone(event.data),
+      }),
+      seq: event.seq,
     })
-    handoffCursor.set(session, event.seq)
   }
 
   /**
-   * Run the `telemetry/record` waterfall over one record and hand the result
-   * to the backend. The innermost `next` passes the record through unchanged
-   * — the seam ships no rules; exported data is as clean as the listeners a
-   * deployment mounts. Callers run inside {@link contain}, so a throwing
-   * rule withholds the record instead of reaching the loop (fail-closed).
+   * Run the `telemetry/record` waterfall at capture time. The innermost `next`
+   * passes the record through unchanged — the seam ships no rules; exported
+   * data is as clean as the listeners a deployment mounts. Callers run inside
+   * {@link contain}, so a throwing rule withholds the record instead of
+   * reaching the loop (fail-closed). Held delivery stores only this result, so
+   * a later policy reload cannot expose the pre-redaction capture.
    */
-  private handOff(record: TelemetryRecord): void {
-    this.backend.emit(this.ctx.waterfall('telemetry/record', record, () => record))
+  private redact(record: TelemetryRecord): TelemetryRecord {
+    return this.ctx.waterfall('telemetry/record', record, () => record)
+  }
+
+  /** Hold one redacted record or deliver it immediately under the configured policy. */
+  private submit(session: Session, pending: PendingRecord): void {
+    if (this.delivery === 'held') {
+      let records = this.held.get(session)
+      if (records === undefined) this.held.set(session, records = [])
+      records.push(pending)
+      return
+    }
+    this.deliver(session, pending)
+  }
+
+  /** Hand one redacted record to the backend, then advance its ledger cursor. */
+  private deliver(session: Session, pending: PendingRecord): void {
+    this.backend.emit(pending.record)
+    if (pending.seq !== undefined) handoffCursor.set(session, pending.seq)
   }
 
   /** Forward the turn-end boundary to the backend's optional flush hint. */
@@ -196,19 +244,21 @@ export class TelemetryCoordinator {
   /** Relay one `agent/error` bus emission as an `agent-error` operational record. */
   private relayAgentError(agent: Agent, turn: number, step: number, error: unknown): void {
     const detail = errorDetail(error)
-    this.handOff({
-      channel: 'ops',
-      time: Date.now(),
-      severity: 'error',
-      attributes: {
-        'telemetry.op': 'agent-error',
-        'session.id': String(agent.session.id),
-        'agent.id': agent.id,
-        'error.name': detail.name,
-        turn,
-        step,
-      },
-      body: detail,
+    this.submit(agent.session, {
+      record: this.redact({
+        channel: 'ops',
+        time: Date.now(),
+        severity: 'error',
+        attributes: {
+          'telemetry.op': 'agent-error',
+          'session.id': String(agent.session.id),
+          'agent.id': agent.id,
+          'error.name': detail.name,
+          turn,
+          step,
+        },
+        body: detail,
+      }),
     })
   }
 

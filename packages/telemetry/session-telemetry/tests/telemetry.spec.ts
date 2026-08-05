@@ -10,7 +10,12 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import SessionStore, { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { TelemetryCoordinator, type TelemetryBackend, type TelemetryRecord } from '../src/index.ts'
+import {
+  TelemetryCoordinator,
+  type TelemetryBackend,
+  type TelemetryDelivery,
+  type TelemetryRecord,
+} from '../src/index.ts'
 
 declare module '@deepseek-ai/dsh-session' {
   interface SessionEventMap {
@@ -54,15 +59,21 @@ class FakeBackend implements TelemetryBackend {
   }
 }
 
-async function setup(backend: FakeBackend = new FakeBackend()) {
+async function setup(
+  backend: FakeBackend = new FakeBackend(),
+  delivery: TelemetryDelivery = 'immediate',
+) {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
+  let coordinator!: TelemetryCoordinator
   const fiber = await ctx.plugin({
     name: 'fake-telemetry',
     inject: ['sessions'],
-    apply: (inner: Context) => void new TelemetryCoordinator(inner, backend),
+    apply: (inner: Context) => {
+      coordinator = new TelemetryCoordinator(inner, backend, delivery)
+    },
   })
-  return { ctx, backend, fiber }
+  return { ctx, backend, coordinator, fiber }
 }
 
 function liveSession(ctx: Context, id = `s-${Math.random().toString(36).slice(2)}`): Session {
@@ -164,6 +175,80 @@ describe('TelemetryCoordinator capture', () => {
       ['a', 'a12-first'],
       ['b', 'b11-first'],
     ])
+  })
+})
+
+describe('TelemetryCoordinator held delivery', () => {
+  it('releases one pending prefix at a time without handing later records over early', async () => {
+    const { ctx, backend, coordinator } = await setup(new FakeBackend(), 'held')
+    const session = liveSession(ctx, 'held-prefix')
+    appendTurn(session)
+    expect(backend.records).toEqual([])
+
+    coordinator.release(session)
+    expect(backend.ledger().map(record => record.attributes['event.type'])).toEqual([
+      'turn/start',
+      'user/message',
+    ])
+
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    expect(backend.ledger()).toHaveLength(2)
+    coordinator.release(session)
+    coordinator.release(session)
+    expect(backend.ledger().map(record => record.attributes['event.type'])).toEqual([
+      'turn/start',
+      'user/message',
+      'turn/end',
+    ])
+  })
+
+  it('stores the capture-time redacted copy rather than re-running policy at release', async () => {
+    const { ctx, backend, coordinator } = await setup(new FakeBackend(), 'held')
+    const disposeRule = ctx.on('telemetry/record', (_record, next) => ({
+      ...next(),
+      body: { scrubbed: true },
+    }))
+    const session = liveSession(ctx, 'held-redacted')
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    disposeRule()
+
+    coordinator.release(session)
+    expect(backend.ledger()[0]!.body).toEqual({ scrubbed: true })
+  })
+
+  it('contains each backend failure independently while releasing a batch', async () => {
+    const backend = new FakeBackend()
+    backend.rejectSeq = 1
+    const { ctx, coordinator } = await setup(backend, 'held')
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    const session = liveSession(ctx, 'held-failure')
+    appendTurn(session)
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+
+    coordinator.release(session)
+    expect(backend.ledger().map(record => record.attributes['event.seq'])).toEqual([0, 2])
+    expect(warn).toHaveBeenCalled()
+  })
+
+  it('rebuilds an unreleased prefix after coordinator reload', async () => {
+    const first = new FakeBackend()
+    const { ctx, fiber } = await setup(first, 'held')
+    const session = liveSession(ctx, 'held-reload')
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    await fiber.dispose()
+    expect(first.records).toEqual([])
+
+    const second = new FakeBackend()
+    let coordinator!: TelemetryCoordinator
+    await ctx.plugin({
+      name: 'fake-telemetry-after-held-reload',
+      inject: ['sessions'],
+      apply: (inner: Context) => {
+        coordinator = new TelemetryCoordinator(inner, second, 'held')
+      },
+    })
+    coordinator.release(session)
+    expect(second.ledger().map(record => record.attributes['event.seq'])).toEqual([0])
   })
 })
 

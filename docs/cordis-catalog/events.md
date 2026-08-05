@@ -853,7 +853,7 @@ Transform one outbound record before it reaches the backend. This waterfall is t
 'telemetry/record'(record: TelemetryRecord, next: () => TelemetryRecord): TelemetryRecord
 ```
 
-Source: [`packages/telemetry/session-telemetry/src/index.ts:41`](../../packages/telemetry/session-telemetry/src/index.ts)
+Source: [`packages/telemetry/session-telemetry/src/index.ts:42`](../../packages/telemetry/session-telemetry/src/index.ts)
 
 ## `tools/*`
 

@@ -14,7 +14,7 @@ Status: implemented
 
 - **`@deepseek-ai/dsh-session-telemetry`** —— seam 本体。`TelemetryBackend`（`emit`/`flush?`/`shutdown`）、服务注册形态的 `Telemetry`、以及拥有捕获侧的 `TelemetryCoordinator`：带游标回读的收养、逐 append 的 firehose（投影 → `structuredClone` → 脱敏 → `emit`，零 I/O）、固定的每 (turn, step) 首 chunk 投影、`agent/error` 转发、以及 dispose 时的 `shutdown` 记录。
 - **`telemetry/record` waterfall** —— 相对分支版本的增量，也是该 seam 的脱敏扩展点。每条记录抵达任何 backend 前必经此处；seam 自身不带任何规则——最内层 `next()` 原样透传，部署方以监听器挂载自己的规则（通过变换 `next()` 的返回值堆叠），抛异常的规则将该记录 fail-closed 扣下。脱敏只作用于导出副本；canonical log 永不改写。
-- **`@deepseek-ai/dsh-session-telemetry-otel`** —— 参考 backend：OTel JS SDK 日志管线（`LoggerProvider` → `BatchLogRecordProcessor` → OTLP/HTTP exporter），经 `exporter`/`processor` passthrough 原样配置。`exporter.url` 必填且加载时校验；未挂载或未配置时，任何数据都不会离开进程。
+- **`@deepseek-ai/dsh-session-telemetry-otel`** —— 参考 backend：OTel JS SDK 日志管线（`LoggerProvider` → `BatchLogRecordProcessor` → OTLP/HTTP exporter），经 `exporter`/`processor` passthrough 原样配置。其默认 `FULL` 模式要求 `exporter.url`；后续的[反馈门控遥测决策](2026-08-05-feedback-gated-session-telemetry.md)增加了 `FEEDBACK_ONLY` 与 `DISABLED` 投递模式，但未移动脱敏或后端边界。
 
 边界公理保持不变：harness 的职责止于 `emit()`。批处理、重试、排队与丢失策略属于 reporting SDK，经 passthrough 配置——投递是尽力而为（崩溃时至多一次），README 对此如实陈述。
 
@@ -34,4 +34,4 @@ Status: implemented
 
 ## Consequences
 
-部署方在 `cordis.yml` 加一个带 OTLP endpoint 的条目即可把会话流接入任何 OTel 兼容体系；删除条目即退出，无残留状态。未挂载规则的部署导出的记录与捕获时完全一致——包括文件内容与命令输出中内嵌的任何凭据——因此跨信任边界的部署必须挂载 `telemetry/record` 监听器，两个 README 对此如实陈述。挂载规则后，导出的 body 可能与 canonical log 字节不同，接收端不得把遥测当作字节精确副本；日志仍是唯一事实源。崩溃持久性在上述 outbox 决定重启前明确不在范围内。
+部署方在 `cordis.yml` 加一个带 OTLP endpoint 的条目即可把会话流接入任何 OTel 兼容体系。`FULL` 默认保留该行为，`FEEDBACK_ONLY` 在反馈释放前暂存记录前缀，`DISABLED` 则不构造上报流水线；删除条目仍是静默退出方式，而禁用模式会保留本地反馈警告。未挂载规则的部署导出的记录与捕获时完全一致，包括文件内容与命令输出中内嵌的任何凭据。因此，跨信任边界的部署必须挂载 `telemetry/record` 监听器，两个 README 对此如实陈述。挂载规则后，导出的 body 可能与 canonical log 字节不同，接收端不得把遥测当作字节精确副本；日志仍是真源。崩溃持久性在上述 outbox 决定重启前明确不在范围内。

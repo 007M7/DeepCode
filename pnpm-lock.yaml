@@ -445,6 +445,9 @@ importers:
       '@cordisjs/plugin-include':
         specifier: workspace:*
         version: link:../vendor/include
+      '@cordisjs/plugin-logger-console':
+        specifier: workspace:*
+        version: link:../vendor/logger-console
       '@deepseek-ai/dsh-acp-demo':
         specifier: workspace:*
         version: link:../packages/examples/acp-demo
@@ -466,6 +469,9 @@ importers:
       '@deepseek-ai/dsh-code-runtime-worker':
         specifier: workspace:*
         version: link:../packages/code-runtime/code-runtime-worker
+      '@deepseek-ai/dsh-command-feedback':
+        specifier: workspace:*
+        version: link:../packages/feedback/command-feedback
       '@deepseek-ai/dsh-compact-basic':
         specifier: workspace:*
         version: link:../packages/compact/compact-basic
@@ -4810,6 +4816,9 @@ importers:
       '@cordisjs/plugin-loader':
         specifier: workspace:^
         version: link:../../../vendor/loader
+      '@deepseek-ai/dsh-command-feedback':
+        specifier: workspace:^
+        version: link:../../feedback/command-feedback
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants

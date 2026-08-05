@@ -1159,12 +1159,13 @@ Requires: `sessions`
 
 ```ts config-catalog
 /**
- * Plugin configuration: two verbatim SDK option shapes plus nothing else.
- * `exporter.url` is the one field this package validates itself — required,
- * no default, must parse as an `http(s)` URL — because a missing endpoint
- * must fail at plugin load, not at first export.
+ * Plugin configuration: one sharing policy plus two verbatim SDK option
+ * shapes. `exporter.url` is required for modes that upload and unused for
+ * `DISABLED`.
  */
 export interface Config {
+  /** Sharing policy; defaults to immediate `FULL` delivery. */
+  mode?: TelemetryMode
   /**
    * Passed verbatim to the SDK's OTLP/HTTP log exporter — the complete
    * `OTLPExporterNodeConfigBase` shape (`headers`, `timeoutMillis`,
@@ -1172,7 +1173,7 @@ export interface Config {
    * is the one field this package requires and validates itself.
    */
   exporter?: OTLPExporterNodeConfigBase & {
-    /** Full logs endpoint (e.g. `https://collector.example.com/v1/logs`). Required; validated at plugin load. */
+    /** Full logs endpoint (e.g. `https://collector.example.com/v1/logs`). Required outside `DISABLED`; validated at load. */
     url?: string
   }
   /**
@@ -1181,11 +1182,14 @@ export interface Config {
    */
   processor?: Omit<BatchLogRecordProcessorOptions, 'exporter'>
 }
+
+/** Session-sharing policy selected by {@link Config.mode}. */
+export type TelemetryMode = typeof TELEMETRY_MODES[number]
 ```
 
 Depends on: `BatchLogRecordProcessorOptions` (`@opentelemetry/sdk-logs`) · `OTLPExporterNodeConfigBase` (`@opentelemetry/otlp-exporter-base`)
 
-Source: [`packages/telemetry/session-telemetry-otel/src/index.ts:40`](../packages/telemetry/session-telemetry-otel/src/index.ts)
+Source: [`packages/telemetry/session-telemetry-otel/src/index.ts:54`](../packages/telemetry/session-telemetry-otel/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-title`
 

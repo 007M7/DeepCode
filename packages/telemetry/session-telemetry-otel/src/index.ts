@@ -6,8 +6,8 @@
  * record handed over by the seam onto `logger.emit()`. Per the seam's
  * boundary axiom, everything downstream of that call (batching, retry,
  * queueing, loss policy) is the SDK's documented behavior, configured
- * verbatim through the `exporter`/`processor` passthroughs; this package
- * adds no knobs of its own on top of them.
+ * verbatim through the `exporter`/`processor` passthroughs. This package owns
+ * only whether capture is immediate, feedback-released, or disabled.
  *
  * @module @deepseek-ai/dsh-session-telemetry-otel
  */
@@ -15,7 +15,14 @@
 import { createRequire } from 'node:module'
 import z from 'schemastery'
 import type { Context } from 'cordis'
-import { Telemetry, TelemetryCoordinator, type TelemetryRecord, type TelemetrySeverity } from '@deepseek-ai/dsh-session-telemetry'
+import type {} from '@deepseek-ai/dsh-command-feedback'
+import {
+  Telemetry,
+  TelemetryCoordinator,
+  type TelemetryDelivery,
+  type TelemetryRecord,
+  type TelemetrySeverity,
+} from '@deepseek-ai/dsh-session-telemetry'
 import { APP_IDENTITY } from '@deepseek-ai/dsh-llm'
 import {
   BatchLogRecordProcessor,
@@ -31,13 +38,22 @@ import { resourceFromAttributes } from '@opentelemetry/resources'
 // version (same pattern as dsh-llm's attribution identity).
 const { version } = createRequire(import.meta.url)('../package.json') as { version: string }
 
+/** Supported session-sharing policies for the OTel backend. */
+export const TELEMETRY_MODES = ['FULL', 'FEEDBACK_ONLY', 'DISABLED'] as const
+
+/** Session-sharing policy selected by {@link Config.mode}. */
+export type TelemetryMode = typeof TELEMETRY_MODES[number]
+
+const DISABLED_FEEDBACK_WARNING = 'session telemetry is DISABLED; nothing will be shared and this feedback remains local'
+
 /**
- * Plugin configuration: two verbatim SDK option shapes plus nothing else.
- * `exporter.url` is the one field this package validates itself — required,
- * no default, must parse as an `http(s)` URL — because a missing endpoint
- * must fail at plugin load, not at first export.
+ * Plugin configuration: one sharing policy plus two verbatim SDK option
+ * shapes. `exporter.url` is required for modes that upload and unused for
+ * `DISABLED`.
  */
 export interface Config {
+  /** Sharing policy; defaults to immediate `FULL` delivery. */
+  mode?: TelemetryMode
   /**
    * Passed verbatim to the SDK's OTLP/HTTP log exporter — the complete
    * `OTLPExporterNodeConfigBase` shape (`headers`, `timeoutMillis`,
@@ -45,7 +61,7 @@ export interface Config {
    * is the one field this package requires and validates itself.
    */
   exporter?: OTLPExporterNodeConfigBase & {
-    /** Full logs endpoint (e.g. `https://collector.example.com/v1/logs`). Required; validated at plugin load. */
+    /** Full logs endpoint (e.g. `https://collector.example.com/v1/logs`). Required outside `DISABLED`; validated at load. */
     url?: string
   }
   /**
@@ -57,13 +73,14 @@ export interface Config {
 
 /**
  * Schemastery validator for {@link Config}; cordis runs it before the plugin
- * starts. Shape-level only — the load-bearing `exporter.url` check lives in
- * the constructor so its error message names the field. Both slots are opaque
- * passthroughs: the SDK owns their shapes and validates its own options;
- * re-declaring them field-by-field here would violate the boundary axiom
- * (and silently drop every field not re-declared).
+ * starts. Shape-level only — the mode-dependent `exporter.url` check lives in
+ * the constructor so its error message names the field. Both SDK slots are
+ * opaque passthroughs: the SDK owns their shapes and validates its own
+ * options; re-declaring them field-by-field here would violate the boundary
+ * axiom (and silently drop every field not re-declared).
  */
 export const Config: z<Config> = z.object({
+  mode: z.union(TELEMETRY_MODES).default('FULL'),
   exporter: z.any(),
   processor: z.any(),
 })
@@ -76,22 +93,32 @@ const SEVERITY: Record<TelemetrySeverity, { severityNumber: SeverityNumber; seve
 }
 
 /**
- * The backend plugin — the only entry a deployment loads. Constructing it
- * wires the SDK pipeline, registers the `telemetry` service (duplicate load
- * throws, cordis' standard duplicate-service behavior), and composes the
- * seam's {@link TelemetryCoordinator}, which installs the capture side onto
- * this fiber.
+ * The backend plugin — the only entry a deployment loads. It always registers
+ * the `telemetry` service (duplicate load throws). Uploading modes wire the SDK
+ * pipeline and compose {@link TelemetryCoordinator}; `DISABLED` constructs no
+ * SDK state and listens only to warn when recorded feedback stays local.
  */
 export class TelemetryOtel extends Telemetry {
   static inject = ['sessions']
   static Config = Config
 
-  private readonly provider: LoggerProvider
-  private readonly ledger: Logger
-  private readonly ops: Logger
+  private readonly provider: LoggerProvider | undefined
+  private readonly ledger: Logger | undefined
+  private readonly ops: Logger | undefined
 
   constructor(ctx: Context, config: Config) {
     super(ctx)
+    const mode = config.mode ?? 'FULL'
+    if (mode === 'DISABLED') {
+      this.provider = undefined
+      this.ledger = undefined
+      this.ops = undefined
+      ctx.on('session/event', (_session, event) => {
+        if (event.type === 'feedback/record') ctx.logger.warn(DISABLED_FEEDBACK_WARNING)
+      })
+      return
+    }
+
     const url = config.exporter?.url
     if (url === undefined || url.length === 0) {
       throw new Error('session-telemetry-otel: exporter.url is required (the full OTLP logs endpoint)')
@@ -134,16 +161,26 @@ export class TelemetryOtel extends Telemetry {
     })
     this.ledger = this.provider.getLogger('@deepseek-ai/dsh-session-telemetry-otel', version)
     this.ops = this.provider.getLogger('@deepseek-ai/dsh-session-telemetry-otel/ops', version)
-    new TelemetryCoordinator(ctx, this)
+    const delivery: TelemetryDelivery = mode === 'FULL' ? 'immediate' : 'held'
+    const coordinator = new TelemetryCoordinator(ctx, this, delivery)
+    if (mode === 'FEEDBACK_ONLY') {
+      // The coordinator listener is registered first, so a feedback event
+      // enters the held prefix before this listener releases that exact prefix.
+      ctx.on('session/event', (session, event) => {
+        if (event.type === 'feedback/record') coordinator.release(session)
+      })
+    }
   }
 
   /**
    * Map one seam record onto the SDK logger for its channel — a synchronous
-   * enqueue into the batch processor's queue.
+   * enqueue into the batch processor's queue. Direct calls are no-ops in
+   * `DISABLED`, where no coordinator or SDK pipeline exists.
    * @param record - the logical record handed over by the coordinator.
    */
   emit(record: TelemetryRecord): void {
     const logger = record.channel === 'ops' ? this.ops : this.ledger
+    if (logger === undefined) return
     logger.emit({
       timestamp: record.time,
       observedTimestamp: record.time,
@@ -167,14 +204,15 @@ export class TelemetryOtel extends Telemetry {
   /**
    * Delegate disposal to the SDK's shutdown contract: drain the queue and
    * quiesce. With no concurrent `forceFlush()` in the process (see above),
-   * shutdown's internal drain is complete — everything emitted before this
-   * call, including the coordinator's dispose-time `shutdown` markers, is
-   * exported before the exporter closes. Awaited (and error-contained) by
-   * the coordinator's disposer.
+   * shutdown's internal drain is complete — everything handed to the SDK
+   * before this call is exported before the exporter closes. In `FULL`, that
+   * includes dispose-time `shutdown` markers; held suffixes never reach the
+   * SDK. Awaited (and error-contained) by the coordinator's disposer. A
+   * disabled backend resolves immediately.
    * @returns resolves when the SDK pipeline has quiesced.
    */
   shutdown(): Promise<void> {
-    return this.provider.shutdown()
+    return this.provider === undefined ? Promise.resolve() : this.provider.shutdown()
   }
 }
 

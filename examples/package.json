@@ -7,6 +7,7 @@
   "dependencies": {
     "@cordisjs/plugin-hmr": "workspace:*",
     "@cordisjs/plugin-include": "workspace:*",
+    "@cordisjs/plugin-logger-console": "workspace:*",
     "@deepseek-ai/dsh-acp-demo": "workspace:*",
     "@deepseek-ai/dsh-agent-spine-demo": "workspace:*",
     "@deepseek-ai/dsh-app-boot": "workspace:*",
@@ -14,6 +15,7 @@
     "@deepseek-ai/dsh-bash-sandbox": "workspace:*",
     "@deepseek-ai/dsh-cli-demo": "workspace:*",
     "@deepseek-ai/dsh-code-runtime-worker": "workspace:*",
+    "@deepseek-ai/dsh-command-feedback": "workspace:*",
     "@deepseek-ai/dsh-compact-basic": "workspace:*",
     "@deepseek-ai/dsh-compact-tool-result-prune": "workspace:*",
     "@deepseek-ai/dsh-fs-local": "workspace:*",

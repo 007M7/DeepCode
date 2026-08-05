@@ -3,8 +3,9 @@
  *
  * The seam owns the CAPTURE side of session-event reporting — which records
  * exist (the chunk projection), what they carry (the logical record), when
- * they are handed over (adoption, the per-append firehose, lifecycle
- * forwarding), and the HMR handoff cursor. Everything downstream of
+ * they are captured (adoption, the per-append firehose, lifecycle
+ * forwarding), immediate versus explicitly released handoff, and the HMR
+ * cursor. Everything downstream of
  * {@link Telemetry.emit} — batching, retry, queueing, loss policy — is the
  * reporting SDK's territory and is deliberately not modelled here. The
  * design and its trade-offs are pinned in
@@ -94,9 +95,10 @@ export interface TelemetryBackend {
   /**
    * Hand one record to the backend's pipeline. MUST be a non-blocking
    * enqueue — the coordinator calls this synchronously from the
-   * `session/event` hot path, so anything slower than a queue push would tax
-   * the agent loop. Errors thrown here are contained by the coordinator and
-   * logged; they never reach the loop.
+   * `session/event` hot path, either at capture or while releasing a held
+   * prefix, so anything slower than a queue push would tax the agent loop.
+   * Errors thrown here are contained by the coordinator and logged; they
+   * never reach the loop.
    * @param record - the logical record to report; owned by the backend after the call.
    */
   emit(record: TelemetryRecord): void
@@ -121,6 +123,9 @@ export interface TelemetryBackend {
    * coordinator emits its dispose-time `shutdown` markers immediately before
    * calling this). Awaited by the coordinator's dispose; a rejection is
    * logged as a warning and never fails application teardown.
+   * The coordinator captures dispose-time shutdown markers immediately
+   * before this call; immediate delivery enqueues them, while held delivery
+   * leaves an unreleased suffix local.
    * @returns resolves when the backend's pipeline has quiesced.
    */
   shutdown(): Promise<void>
@@ -153,4 +158,4 @@ export abstract class Telemetry extends Service implements TelemetryBackend {
   abstract shutdown(): Promise<void>
 }
 
-export { TelemetryCoordinator } from './coordinator.ts'
+export { TelemetryCoordinator, type TelemetryDelivery } from './coordinator.ts'

@@ -2,9 +2,9 @@
 
 [English](README.md) | 中文
 
-面向外部的会话上报：遥测（telemetry）seam 及其 OpenTelemetry 后端。整套设计固定在[复活 Agent Note（agent 决策记录）](../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md)中：边界公理（harness 的职责止于 `emit()`，投递由上报 SDK 负责）、`telemetry/record` waterfall（瀑布式事件；脱敏规则由部署方挂载，seam 自身不带任何规则）、固定分片投影、handoff 游标，以及运维记录通道。
+面向外部的会话上报：遥测（telemetry）seam 及其 OpenTelemetry 后端。边界公理、脱敏 waterfall（瀑布式事件）、固定分片投影、handoff 游标及运维记录通道的决定见[复活 Agent Note（agent 决策记录）](../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md)；即时、反馈门控及禁用投递由[模式决策](../../.agents/notes/implemented/feature/2026-08-05-feedback-gated-session-telemetry.md)统一规定。
 
 | 包（package） | 职责 |
 |---|---|
-| [`@deepseek-ai/dsh-session-telemetry`](session-telemetry/) | seam 本体：捕获点、投影、脱敏、handoff 游标、运维信号，以及最小后端契约（`emit`/`flush?`/`shutdown`）。 |
-| [`@deepseek-ai/dsh-session-telemetry-otel`](session-telemetry-otel/) | 部署方要加载的后端：OTel JS SDK 的日志流水线（`LoggerProvider` + `BatchLogRecordProcessor` + OTLP/HTTP 导出器），经透传（passthrough）原样配置。 |
+| [`@deepseek-ai/dsh-session-telemetry`](session-telemetry/) | seam 本体：捕获点、投影、脱敏、即时或暂存交接、游标、运维信号，以及最小后端契约（`emit`/`flush?`/`shutdown`）。 |
+| [`@deepseek-ai/dsh-session-telemetry-otel`](session-telemetry-otel/) | 部署方要加载的后端：围绕 OTel JS SDK 日志流水线实施 `FULL`、`FEEDBACK_ONLY` 或 `DISABLED` 策略。 |
