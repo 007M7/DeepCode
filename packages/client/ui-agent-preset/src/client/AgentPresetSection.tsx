@@ -112,7 +112,7 @@ function Editor({ draft, blocker, t, actions }: EditorProps): ReactNode {
         )
         : null}
       {draft.writable ? null : <p className={css.notice}>{t('readOnlyNotice')}</p>}
-      <label className={css.field}>
+      <label className={`${css.field} ${css.codeField}`}>
         <span className={css.fieldLabel}>{t('composition')}</span>
         <textarea
           className={css.code}
@@ -188,7 +188,7 @@ export function AgentPresetSection(props: AgentPresetSectionProps): ReactNode {
       setName: props.setName,
     }
     return (
-      <div className={css.section}>
+      <div className={`${css.section} ${css.sectionFill}`}>
         <div className={css.editorBar}>
           <button type="button" className={css.backButton} onClick={() => { props.close() }}>
             {`← ${t('backToList')}`}
