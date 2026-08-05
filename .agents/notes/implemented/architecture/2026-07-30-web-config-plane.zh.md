@@ -1,4 +1,4 @@
-# Agent Note：web 配置平面
+# Agent Note: web 配置平面
 
 Status: implemented
 

@@ -14,7 +14,7 @@
 
 如果最初没有模型可调用 skill，则省略目录；如果该 agent（智能体）的工具视图排除了随附的 `skill` 工具，或解析出同名的作用域内遮蔽项，也会省略目录。可见性变更参与 digest 计算，使提示词指引、模型可见 schema 和可执行分派保持对齐。
 
-`catalogDescriptionMaxLength` 控制规范化且经 XML 转义的目录描述。其默认值是 `500`，且必须是不小于 `3` 的整数，以便为截断省略号保留空间。[skill 目录热刷新 Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-07-27-skill-catalog-hot-refresh.md) 负责定义持久初始目录和替换目录的生命周期。
+`catalogDescriptionMaxLength` 控制规范化且经 XML 转义的目录描述。其默认值是 `500`，且必须是不小于 `3` 的整数，以便为截断省略号保留空间。[skill 目录热刷新 Agent Note](../../../.agents/notes/implemented/feature/2026-07-27-skill-catalog-hot-refresh.md) 负责定义持久初始目录和替换目录的生命周期。
 
 ## 工具：`skill`
 
@@ -128,7 +128,7 @@ Load referenced resources only as needed.
 
 #### KV Cache 影响
 
-仅追加；新可见内容位于可重用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新可见内容位于可重用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ### 工具错误
 
@@ -142,7 +142,7 @@ Load referenced resources only as needed.
 
 #### KV Cache 影响
 
-仅追加；新可见内容位于可重用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新可见内容位于可重用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ## 已知限制与暂缓事项
 

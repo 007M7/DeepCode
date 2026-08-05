@@ -1,4 +1,4 @@
-# Agent Note: 进程 seam 转向 Node 形状，所有具备条件的 spawn 调用点一并迁入
+# Agent Note: 子进程 seam 转向 Node 形状，所有具备条件的 spawn 调用点一并迁入
 
 Status: implemented
 
@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-[进程 seam](2026-07-26-subprocess-seam.md) 交付时恰好只为一个消费方家族塑形：批量收集的 stdout/stderr、批量 stdin、单一的升级式 `kill()`。那是有意的范围控制，其自身的 Agent Note 也把「迁移其余 spawn 调用点」记为暂缓否决项。引入该 seam 的 PR（Pull Request）上的评审推翻了这一暂缓决定：堆叠其上的后续变更应当把接口向 Node 的 API 方向重塑，并把其余运行进程之处迁到该服务上。其余各 spawn 调用点此前各自持有同一套机制中某个切片的私有副本——lsp-local 自带 detached 进程树信号发送（POSIX 进程组 + Windows taskkill + 存活轮询），subagent-subprocess 自带 dispose（资源释放）阶梯和自己的凭据清除，mcp-client、pty-local、SDK helper 与 TUI Git 探测则各自持有另一份凭据清除——而这一切既不可替换，也无法集中测试。
+[子进程 seam](2026-07-26-subprocess-seam.md) 交付时恰好只为一个消费方家族塑形：批量收集的 stdout/stderr、批量 stdin、单一的升级式 `kill()`。那是有意的范围控制，其自身的 Agent Note 也把「迁移其余 spawn 调用点」记为暂缓否决项。引入该 seam 的 PR（Pull Request）上的评审推翻了这一暂缓决定：堆叠其上的后续变更应当把接口向 Node 的 API 方向重塑，并把其余运行进程之处迁到该服务上。其余各 spawn 调用点此前各自持有同一套机制中某个切片的私有副本——lsp-local 自带 detached 进程树信号发送（POSIX 进程组 + Windows taskkill + 存活轮询），subagent-subprocess 自带 dispose（资源释放）阶梯和自己的凭据清除，mcp-client、pty-local、SDK helper 与 TUI Git 探测则各自持有另一份凭据清除——而这一切既不可替换，也无法集中测试。
 
 ## 决策
 
@@ -29,10 +29,10 @@ Status: implemented
 
 **把 pty-local 与 mcp-client 的 spawn 也一并迁移。**基于所有权而非范围否决：node-pty 的 `fork()` 自行分配终端，MCP SDK 的 `StdioClientTransport` 在内部完成 spawn——这两处调用点都不归我们路由。它们采纳共享的凭据清除（那正是属于策略的部分），并在各自的 README 中说明 spawn 为何留在原地。
 
-**迁移 test-support 启动器（acp-snapshot、loader-smoke）、SDK package-manager 运行器与 TUI Git 探测。**否决：support 各包（package）是刻意保持轻依赖的测试基础设施，不得依赖产品 seam；SDK 向导那套附带重定向的 `stdio: 'inherit'` 语义，加上其完全脱离组合的生命周期（根本没有 cordis 上下文），使该服务并不合用；TUI 探测则是同步调用。这些生产调用点改为共享凭据清除。
+**迁移 test-support 启动器（acp-snapshot、loader-smoke）、SDK package-manager 运行器与 TUI Git 探测。**否决：support 各包是刻意保持轻依赖的测试基础设施，不得依赖产品 seam；SDK 向导那套附带重定向的 `stdio: 'inherit'` 语义，加上其完全脱离组合的生命周期（根本没有 cordis 上下文），使该服务并不合用；TUI 探测则是同步调用。这些生产调用点改为共享凭据清除。
 
 ## 后果
 
 换来的是：进程树信号发送、升级、有界收集与凭据清除各自只剩一份实现，且只在 `dsh-subprocess-local` 的测试套件中测试一次（其中包括 lsp-local 的私有副本从未有过的、以注入平台方式实现的 Windows 覆盖）；lsp-local 与 subagent-acp 卸下了自己的进程管道，其子进程如今像 bash 的一样，在插件重载后存活、随组合拆除而终止；一个完整的包（`dsh-subagent-subprocess`）就此消失。seam README 中「只有一个消费方家族」的限制说明也随之退役。
 
-代价是：这道 seam 变宽了（stdio 模式从一种变为三种、终止动词换成 terminate/waitForExit/dispose 这组生命周期表面），未来的后端因此要实现更宽的表面；lsp-local/subagent-acp 的各组合如今都多出 subprocess 这一行组合配置；`SubprocessOutcome` 也不再承载输出，这是仍未发布的堆叠变更内部的一次破坏性形状变更（依照预发布立场，PR2 那一层被就地更新，而非加 shim）。pty-local/mcp-client/SDK/TUI/test-support 的 spawn 因所有权归属或执行形状留在该服务之外，以凭据清除作为共底线，且为显式环境的生产消费方有意保持该正则导出。
+代价是：这道 seam 变宽了（stdio 模式从一种变为三种、生命周期接口面从一个动词扩展为 terminate/waitForExit/dispose 这一组），未来的后端因此要实现更宽的接口面；lsp-local/subagent-acp 的各组合如今都多出 subprocess 这一行组合配置；`SubprocessOutcome` 也不再承载输出，这是仍未发布的堆叠变更内部的一次破坏性形状变更（依照预发布立场，PR2 那一层被就地更新，而非加 shim）。pty-local/mcp-client/SDK/TUI/test-support 的 spawn 因所有权归属或执行形状留在该服务之外，以凭据清除作为共底线，且为显式环境的生产消费方有意保持该正则导出。

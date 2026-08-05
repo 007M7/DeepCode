@@ -30,7 +30,7 @@ Stdout 只承载 JSON-RPC 帧。部署不得组合 stdout logger；诊断应写�
 
 #### 模型看到的内容
 
-对于每个已接受的 `session/prompt`，对话模型会将调用方提供的 `contentBlocks` 原样接收为该 SDK 会话中的一条用户消息。此包（package）不会添加系统提示词文本或工具 schema；这些内容来自外围 `cordis.yml` 中的插件。
+对于每个已接受的 `session/prompt`，对话模型会将调用方提供的 `contentBlocks` 原样接收为该 SDK 会话中的一条用户消息。此包不会添加系统提示词文本或工具 schema；这些内容来自外围 `cordis.yml` 中的插件。
 
 #### Token 影响
 
@@ -38,7 +38,7 @@ Stdout 只承载 JSON-RPC 帧。部署不得组合 stdout logger；诊断应写�
 
 #### KV Cache 影响
 
-仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ## 已知限制与暂缓事项
 

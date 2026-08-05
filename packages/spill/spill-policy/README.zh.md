@@ -34,7 +34,7 @@
 
 ## 范围
 
-该策略只能看到最终格式化的呈现结果，看不到工具的内部资源或规范值。如果提供方已经截断内容（例如 `web-fetch-local.maxBodyChars`），spill 产物保存的是工具返回的完整格式化结果，而非完整原始源。提供方／资源上限仍然是必需的，并且与该策略相互独立。`glob`/`grep` 负责对项级呈现结果执行 spill，因为渲染前仍然存在完整的已获取值；bash 流负责在获取时 spill。通用策略预先注册自己的 waterfall（瀑布式事件）监听器，然后再委托，因此无论插件加载顺序如何，普通工具自身的异步投影都会在通用字节限制之前完成。详见[工具输出 spill Agent Note（agent 决策记录）](../../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md)。
+该策略只能看到最终格式化的呈现结果，看不到工具的内部资源或规范值。如果提供方已经截断内容（例如 `web-fetch-local.maxBodyChars`），spill 产物保存的是工具返回的完整格式化结果，而非完整原始源。提供方／资源上限仍然是必需的，并且与该策略相互独立。`glob`/`grep` 负责对项级呈现结果执行 spill，因为渲染前仍然存在完整的已获取值；bash 流负责在获取时 spill。通用策略预先注册自己的 waterfall（瀑布式事件）监听器，然后再委托，因此无论插件加载顺序如何，普通工具自身的异步投影都会在通用字节限制之前完成。详见[工具输出 spill Agent Note](../../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md)。
 
 ## 模型体验
 
@@ -50,7 +50,7 @@
 
 #### KV Cache 影响
 
-仅追加；新可见内容位于可重用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；新可见内容位于可重用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ## 已知限制与暂缓事项
 

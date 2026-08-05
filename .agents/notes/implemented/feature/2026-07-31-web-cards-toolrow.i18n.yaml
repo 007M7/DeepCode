@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-31-web-cards-toolrow.md
 2026-07-31-web-cards-toolrow.md: caa18563a9e66f882873e8d7e84cc3ac20702033
-2026-07-31-web-cards-toolrow.zh.md: 4e9c429497e1265b4b39ed2479f382a2f36e7741
+2026-07-31-web-cards-toolrow.zh.md: 7eb53a163f1fd22e09fcf498cb3e6b138834a2f3
