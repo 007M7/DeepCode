@@ -71,24 +71,33 @@ export function MessageIconActions({
       }, 1000)
     })
   }, [copied, text])
+  // The dot is decorative and stays hidden, but its margins separate the
+  // readings only on screen: without the flanking spaces a reader hears one
+  // run-on string ("Ran for 13sTTFT 0.2s12 tok/s") instead of three facts.
   const clockEl = time === undefined ? null : (
     <span className={clock === 'start' ? css.timeStart : css.timeEnd}>
       {formatMessageClock(time, t, day)}
       {runMs !== undefined && (
         <>
+          {' '}
           <span className={css.runTimeDot} aria-hidden>·</span>
+          {' '}
           {t('message.ranFor', { duration: formatRunDuration(runMs, t) })}
         </>
       )}
       {ttftMs !== undefined && (
         <>
+          {' '}
           <span className={css.runTimeDot} aria-hidden>·</span>
+          {' '}
           {t('message.ttft', { seconds: formatLatencySeconds(ttftMs) })}
         </>
       )}
       {tokensPerSecond !== undefined && (
         <>
+          {' '}
           <span className={css.runTimeDot} aria-hidden>·</span>
+          {' '}
           {t('message.tokensPerSecond', { tps: formatTokensPerSecond(tokensPerSecond) })}
         </>
       )}

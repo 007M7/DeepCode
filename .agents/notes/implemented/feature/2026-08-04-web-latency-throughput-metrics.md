@@ -27,3 +27,5 @@ The stats line reuses the same step reading in its window fold: `deriveStats` ac
 ## Consequences
 
 A settled in-window turn's footer reveals `TTFT`/`tok/s` on hover after the wall time, and the stats line shows window-average latency and throughput beside its wall times, all without new session events or host changes. Metrics degrade by omission: providers or steps without timing or usage samples drop individual figures rather than rendering zeros. Older history outside the loaded window stays uncounted, recorded in the package README's stats-line limitation.
+
+Both readings divide by measured wall time, so neither is reproducible: the same replayed scenario yielded 69 and 70 tok/s on consecutive local runs, and a 3 ms replayed stream reads 26333 tok/s. The Web aria goldens therefore normalize throughput to `{{throughput}}` beside the existing `{{duration}}`, and the footer's decorative separators gained flanking spaces — without them the readings concatenate into one accessible string (`Ran for 13sTTFT 0.2s12 tok/s`), which both loses the reading boundaries a screen reader needs and denies `{{duration}}` the word boundary it matches on.
