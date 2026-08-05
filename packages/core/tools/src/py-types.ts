@@ -84,15 +84,31 @@ interface RenderState {
  * declaration of the tools. The rest are legal but invisible; escaping them
  * with the same rule keeps the emitted text readable and the treatment uniform.
  *
- * The set stops at `Cc` because the escape is `\xNN`, which addresses exactly
- * U+0000 to U+00FF: the whole `Cc` block fits, and the invisible `Cf`
- * formatting characters (U+00AD soft hyphen, U+200B ZWSP, U+200E/U+200F bidi
- * marks, U+2060 word joiner) do not. `Cf` therefore passes through by design —
- * covering it would need a second `\uNNNN` escape form, and it is legal in both
- * consumers, since only LF and CR terminate a Python string literal or a `#`
- * comment.
+ * The boundary is the category, not per-code-point addressability: `\xNN`
+ * addresses U+0000 to U+00FF, so one escape form covers `Cc` exactly. The
+ * invisible `Cf` formatting characters pass through by design — of them only
+ * U+00AD soft hyphen would fit `\xNN` at all, and escaping that one while
+ * U+200B ZWSP, U+200E/U+200F bidi marks, and U+2060 word joiner passed through
+ * would leave a rule that is neither category- nor addressability-shaped. The
+ * whole family is legal in both consumers, since only LF and CR terminate a
+ * Python string literal or a `#` comment.
  */
 const UNPRINTABLE = /[\u0000-\u0008\u000e-\u001f\u007f-\u009f]/g
+
+/**
+ * Unpaired surrogate code points, escaped by {@link describe} as `\uNNNN` —
+ * its own form, since `\xNN` stops at U+00FF. The `u` flag is what makes this
+ * the LONE ones: in Unicode mode a well-formed pair is a single astral code
+ * point outside D800 to DFFF, so an emoji in a description survives untouched.
+ *
+ * This is the NUL case from {@link UNPRINTABLE}, not the invisible-character
+ * case. Python source must be UTF-8-encodable and a lone surrogate is not, so
+ * `compile()` raises `UnicodeEncodeError: surrogates not allowed` for one
+ * anywhere in the text — measured on 3.9 for a string literal and for a `#`
+ * comment alike. A raw or MCP tool description reaches this: `JSON.parse` on a
+ * wire `"\ud800"` escape yields exactly such a code point.
+ */
+const LONE_SURROGATE = /[\ud800-\udfff]/gu
 
 /**
  * The collapsed one-line `description` of a schema node (byte-stable across
@@ -106,7 +122,8 @@ const UNPRINTABLE = /[\u0000-\u0008\u000e-\u001f\u007f-\u009f]/g
  * NOT absent: it collapses to that character's visible escape.
  *
  * Control characters left over after the whitespace collapse are rendered as
- * their `\xNN` escapes (see {@link UNPRINTABLE}); the escape's own backslash is
+ * their `\xNN` escapes (see {@link UNPRINTABLE}) and unpaired surrogates as
+ * their `\uNNNN` escapes (see {@link LONE_SURROGATE}); the escape's own backslash is
  * emitted literally by both consumers, since {@link docLines} doubles it into a
  * Python source escape and a `#` comment carries it verbatim.
  */
@@ -116,6 +133,7 @@ function describe(schema: object): string | undefined {
   const collapsed = description
     .replace(/\s+/g, ' ')
     .replace(UNPRINTABLE, char => `\\x${char.charCodeAt(0).toString(16).padStart(2, '0')}`)
+    .replace(LONE_SURROGATE, char => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`)
     .trim()
   return collapsed.length === 0 ? undefined : collapsed
 }

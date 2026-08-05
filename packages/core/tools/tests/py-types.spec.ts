@@ -94,6 +94,15 @@ describe('renderToolsSdkPy', () => {
     parameters: parameterSchemaSpecToJsonSchema({}) as unknown as Record<string, unknown>,
     output: { type: 'string' },
   }
+  /** One tool carrying `description` at both emission sites: the method docstring and the field comment. */
+  const described = (description: string): ToolSdkSchema => ({
+    name: 'weird',
+    description,
+    parameters: parameterSchemaSpecToJsonSchema({
+      field: { type: 'string', required: true, description },
+    }) as unknown as Record<string, unknown>,
+    output: { type: 'string' },
+  })
 
   it('declares identifier tools as async methods and lists exotic/reserved names as subscript comments', () => {
     const text = renderToolsSdkPy([exotic, bash, reserved])
@@ -694,17 +703,11 @@ describe('renderToolsSdkPy', () => {
     // A description ending in `"` or an odd backslash would otherwise merge
     // with (or escape) the closing triple quote — and this block is Code
     // Mode's only SDK, so it must always parse.
-    const make = (description: string): ToolSdkSchema => ({
-      name: 'weird',
-      description,
-      parameters: parameterSchemaSpecToJsonSchema({}) as unknown as Record<string, unknown>,
-      output: { type: 'string' },
-    })
-    const trailingQuote = renderToolsSdkPy([make('ends in a quote"')])
+    const trailingQuote = renderToolsSdkPy([described('ends in a quote"')])
     expect(trailingQuote).toContain(String.raw`"""ends in a quote\""""`)
-    const trailingBackslash = renderToolsSdkPy([make('ends in a backslash\\')])
+    const trailingBackslash = renderToolsSdkPy([described('ends in a backslash\\')])
     expect(trailingBackslash).toContain(String.raw`"""ends in a backslash\\"""`)
-    const tripleQuote = renderToolsSdkPy([make('contains """ triple quote')])
+    const tripleQuote = renderToolsSdkPy([described('contains """ triple quote')])
     expect(tripleQuote).toContain(String.raw`"""contains \"\"\" triple quote"""`)
   })
 
@@ -716,15 +719,7 @@ describe('renderToolsSdkPy', () => {
     // from parsing at all. The whitespace collapse does not remove it (a NUL is
     // not whitespace). Rendering it as a visible escape keeps the source
     // parseable and still shows the model what the schema said.
-    const make = (description: string): ToolSdkSchema => ({
-      name: 'weird',
-      description,
-      parameters: parameterSchemaSpecToJsonSchema({
-        field: { type: 'string', required: true, description },
-      }) as unknown as Record<string, unknown>,
-      output: { type: 'string' },
-    })
-    const nul = renderToolsSdkPy([make('before\u0000after')])
+    const nul = renderToolsSdkPy([described('before\u0000after')])
     // Both emission sites: the method docstring and the `#` field comment. The
     // docstring's backslash is doubled by the same escaping that keeps a literal
     // backslash from escaping the closing triple quote, so Python parses it back
@@ -735,23 +730,44 @@ describe('renderToolsSdkPy', () => {
     // The other C0 controls and DEL escape on the same path. Tab, newline and
     // carriage return never reach it: the whitespace collapse folds them to a
     // space first.
-    const others = renderToolsSdkPy([make('bell\u0007esc\u001bdel\u007f')])
+    const others = renderToolsSdkPy([described('bell\u0007esc\u001bdel\u007f')])
     expect(others).toContain(String.raw`bell\x07esc\x1bdel\x7f`)
-    expect(renderToolsSdkPy([make('tab\tnewline\ncr\r')])).toContain('"""tab newline cr"""')
+    expect(renderToolsSdkPy([described('tab\tnewline\ncr\r')])).toContain('"""tab newline cr"""')
     // No C1 control is ECMAScript whitespace (TAB/VT/FF/SP/NBSP/ZWNBSP/Zs plus
     // LF/CR/LS/PS), so the collapse folds none of U+0080 to U+009F and the
     // escape is what keeps them out of the docstring, where they would be
     // invisible. NBSP, which IS whitespace, folds instead. Windows-1252 bytes
     // 0x80 to 0x9F decoded as Latin-1 land exactly here.
-    const nel = renderToolsSdkPy([make('a\u0085b')])
+    const nel = renderToolsSdkPy([described('a\u0085b')])
     expect(nel).not.toContain('\u0085')
     expect(nel).toContain(String.raw`# a\x85b`)
-    const c1 = renderToolsSdkPy([make('csi\u009bst\u009cend\u009f')])
+    const c1 = renderToolsSdkPy([described('csi\u009bst\u009cend\u009f')])
     expect(c1).toContain(String.raw`csi\x9bst\x9cend\x9f`)
-    expect(renderToolsSdkPy([make('nb\u00a0sp')])).toContain('"""nb sp"""')
-    // `Cf` formatting characters pass through by design: `\xNN` cannot address
-    // them, and they terminate neither a Python string literal nor a `#`
-    // comment, so the block stays parseable with the code point intact.
-    expect(renderToolsSdkPy([make('zero\u200bwidth')])).toContain('"""zero\u200bwidth"""')
+    expect(renderToolsSdkPy([described('nb\u00a0sp')])).toContain('"""nb sp"""')
+    // `Cf` formatting characters pass through by category, not by
+    // addressability — U+00AD would fit `\xNN`, the rest would need a second
+    // form. They terminate neither a Python string literal nor a `#` comment,
+    // so the block stays parseable with the code point intact.
+    expect(renderToolsSdkPy([described('zero\u200bwidth')])).toContain('"""zero\u200bwidth"""')
+    // Whitespace around a surviving control character is not an absent
+    // description: the escape runs before the trim, so what is left is visible.
+    expect(renderToolsSdkPy([described(' \u0085 ')])).toContain(String.raw`# \x85`)
+  })
+
+  it('escapes unpaired surrogates, which make the source impossible to encode', () => {
+    // This is the NUL case, not the invisible-character case: Python source
+    // must be UTF-8-encodable, and `compile()` raises `UnicodeEncodeError:
+    // surrogates not allowed` for a lone surrogate in a string literal and in
+    // a `#` comment alike, so one would stop this block — Code Mode's only SDK
+    // — from parsing. A wire description reaches it: `JSON.parse` on a
+    // `"\ud800"` escape yields exactly this code point.
+    const high = renderToolsSdkPy([described('a\ud800b')])
+    expect(high).not.toContain('\ud800')
+    expect(high).toContain(String.raw`# a\ud800b`)
+    // A lone LOW surrogate is just as unencodable, and `\xNN` reaches neither.
+    expect(renderToolsSdkPy([described('a\udfffb')])).toContain(String.raw`# a\udfffb`)
+    // A well-formed pair is ONE astral code point, not two surrogates — the
+    // regex's `u` flag is what draws that line, so an emoji survives intact.
+    expect(renderToolsSdkPy([described('emoji \u{1f600} ok')])).toContain('"""emoji \u{1f600} ok"""')
   })
 })
