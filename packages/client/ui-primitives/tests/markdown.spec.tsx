@@ -251,6 +251,15 @@ describe('MarkdownText', () => {
     }
   })
 
+  it('leaves TeX-looking fenced code literal', () => {
+    const source = '```tex\n\\[\\frac{1}{5}\\]\n$$x \\tag{1}$$\n```'
+    const { container } = render(<MarkdownText text={source} />)
+
+    expect(container.querySelector('.katex')).toBeNull()
+    expect(container.querySelector('pre code')?.textContent).toContain('\\[\\frac{1}{5}\\]')
+    expect(container.querySelector('pre code')?.textContent).toContain('$$x \\tag{1}$$')
+  })
+
   it('registers the compatibility extension on a bare remark processor', () => {
     const data: { micromarkExtensions?: Extension[] } = {}
     remarkMathCompatibility.call({ data: () => data })
