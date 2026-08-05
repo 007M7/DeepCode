@@ -2,15 +2,15 @@
 
 [English](index.md) | 中文
 
-当一个能力（插件）足够通用（比如"执行 bash 命令"），Harness 会把它拆成三个包：**接口**、**实现**、**消费者**。这样可以独立替换其中任何一层。
+当一项能力足够通用，需要支持可替换的实现时（例如 Bash 执行），Harness 会将其拆成三个包：**接口**、**实现**和**消费方**。这样便可独立替换其中任何一层。
 
 ## 以 Bash 为例
 
-考虑 "Bash 执行" 这个能力：
+以 Bash 执行能力为例：
 
-- **接口** (`dsh-bash`) — 定义"bash 执行"长什么样：输入是什么、输出是什么
-- **实现** (`dsh-bash-local`) — 真正在本地跑命令的代码
-- **消费者** (`dsh-tool-bash`) — 把这个能力包装成模型能调用的 tool
+- **接口** (`dsh-bash`)：定义 Bash 请求和结果的结构
+- **实现** (`dsh-bash-local`)：在本地计算机上执行命令
+- **消费方** (`dsh-tool-bash`)：将该能力公开为模型可调用的工具
 
 ```
 ┌─────────────┐     ┌──────────────────┐     ┌──────────────┐
@@ -38,23 +38,23 @@
 #     endpoint: 'https://sandbox.example.com'
 ```
 
-接口不变、tool 不变，只换实现。
+更换实现时，接口和工具均保持不变。
 
 ### 独立演进
 
 - 接口定义稳定后很少改动
 - 实现可以独立优化（性能、安全）
-- 消费者（tool）可以调整对模型的呈现方式
+- 消费方可以调整能力向模型呈现的方式。
 
 ### 依赖解耦
 
-- 实现 depend on 接口
-- 消费者 depend on 接口
-- 实现和消费者**互不依赖**
+- 实现依赖接口。
+- 消费方依赖接口。
+- 实现和消费方**互不依赖**。
 
 ## Harness 中内置的三件套
 
-| 能力 | 接口 (seam) | 实现 | 消费者 (tool) |
+| 能力 | 接口（seam） | 实现 | 消费方（工具） |
 |------|-------------|------|---------------|
 | Bash | `dsh-bash` | `dsh-bash-local` | `dsh-tool-bash` |
 | 文件系统 | `dsh-fs` | `dsh-fs-local` + `dsh-fs-policy` | `dsh-tool-fs` |
@@ -115,7 +115,7 @@ export function apply(ctx: Context) {
 }
 ```
 
-### 第三步：编写消费者 (tool)
+### 第三步：编写消费方
 
 ```ts ignore-check
 // packages/my-cap/tool-my-cap/src/index.ts
@@ -153,10 +153,10 @@ export function apply(ctx: Context) {
 
 ## 设计要点
 
-- **不要预防性拆分** — 只有当你确实需要可替换实现时才拆三件套。一个简单的 tool 插件不需要拆分。
-- **接口定义 Request/Result 类型** — 实现和消费者只依赖接口包。
-- **Explicit > Implicit** — 实现中的默认值处理应该是显式的 `resolve(request): Spec` 步骤，不是隐藏在 `run()` 中的 `?? default`。
+- **不要预防性拆分**：只有确实需要可替换实现时，才拆分为三个包。简单的工具插件无需拆分。
+- **接口拥有 Request/Result 类型**：实现和消费方只依赖接口包。
+- **显式优于隐式**：实现应通过显式的 `resolve(request): Spec` 步骤处理默认值，而不是在 `run()` 中隐藏 `?? default`。
 
 ## 下一步
 
-- [LLM 适配器](./llm-adapter.md) — 实现一个 LLM 后端（最常见的 seam 扩展）
+- [LLM 适配器](./llm-adapter.md)：实现一个 LLM 后端，这是一种常见的能力 seam 扩展

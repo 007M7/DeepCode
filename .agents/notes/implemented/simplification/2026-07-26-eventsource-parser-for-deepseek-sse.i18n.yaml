@@ -1,6 +1,6 @@
 # Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/simplification/2026-07-26-eventsource-parser-for-deepseek-sse.md
 2026-07-26-eventsource-parser-for-deepseek-sse.md: e7835bc738b3dec5aefd6011848525f6604e852e
-2026-07-26-eventsource-parser-for-deepseek-sse.zh.md: 933b993d479026d8f2bd2dc3173abd9e60823806
+2026-07-26-eventsource-parser-for-deepseek-sse.zh.md: 7c746079aa7012115bea05ec0191d665c8f860d2

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-Typert 将源代码分析、运行时存储和 Loader 发现机制拆分为彼此独立的包（package）。
+Typert 将源代码分析、运行时存储和 Loader 发现机制拆分为彼此独立的包。
 
 | 包 | 职责 | Cordis 键 |
 |---|---|---|

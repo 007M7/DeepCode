@@ -4,7 +4,7 @@
 
 通过 JSON-RPC stdio 提供的仅面向自动化的 [ACP（Agent Client Protocol）](https://agentclientprotocol.com) 服务器。程序化客户端可以创建新 harness agent（智能体）、发送文本提示词、收集已提交的 assistant 文本、按策略响应一次性权限请求并取消工作。仓库中的主要客户端是 [`dsh-subagent-acp`](../../subagent/subagent-acp/README.md)。
 
-此包（package）是传输适配器，而非 UI 集成或能力 seam。它不公开编辑器导航、transcript（文本记录）回放、命令、模式、配置选择器、信息征集、推理、计划、标题或工具展示。交互式渲染与向用户提问属于 Web 和 TUI 模块。
+此包是传输适配器，而非 UI 集成或能力 seam。它不公开编辑器导航、transcript（文本记录）回放、命令、模式、配置选择器、信息征集、推理（reasoning）、计划、标题或工具展示。交互式渲染与向用户提问属于 Web 和 TUI 模块。
 
 ## 插件
 
@@ -47,7 +47,7 @@
 
 #### 模型看到的内容
 
-`session/prompt` 文本块会原样拼接为一条用户消息；基线资源链接会在该消息中表示为带方括号的 `[resource_link name=… uri=…]` 引用，模型可以使用自身工具打开它。协议元数据、客户端能力、权限选择和 session id 绝不进入模型请求。
+`session/prompt` 文本块会原样拼接为一条用户消息；基线资源链接会在该消息中表示为带方括号的 `[resource_link name=… uri=…]` 引用，模型可以使用自身工具打开它。协议元数据、客户端能力、权限选择和会话 id 绝不进入模型请求。
 
 #### Token 影响
 
@@ -65,11 +65,11 @@
 
 #### Token 影响
 
-只有该工具的结果会贡献 token。
+只有所属工具的结果会贡献 token。
 
 #### KV Cache 影响
 
-随该工具的结果仅追加。
+仅通过所属工具的结果追加。
 
 ## 已知限制与暂缓事项
 

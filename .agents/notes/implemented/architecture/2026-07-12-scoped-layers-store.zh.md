@@ -20,7 +20,7 @@ agent（智能体）作用域机制（[决策](2026-07-08-agent-scope-contexts.m
 
 ## 决策
 
-`@deepseek-ai/dsh-scope` 提供与键类型无关的 `store.ts` 实现模块。该包（package）继续将 Cordis 和 `@deepseek-ai/dsh-invariants` 列为对等依赖（peer dependency），其不变量配套模块保持不变。包根导出四个存储符号：`ScopeLayer`、`ScopedLayers`、`NamedEntries` 和 `AnonymousEntries`。`EntryValues` 仍是内部接口，`store.ts` 不是包子路径。
+`@deepseek-ai/dsh-scope` 提供与键类型无关的 `store.ts` 实现模块。该包继续将 Cordis 和 `@deepseek-ai/dsh-invariants` 列为对等依赖（peer dependency），其不变量配套模块保持不变。包根导出四个存储符号：`ScopeLayer`、`ScopedLayers`、`NamedEntries` 和 `AnonymousEntries`。`EntryValues` 仍是内部接口，`store.ts` 不是包子路径。
 
 `ScopeLayer` 保留显式的聚合概念，同时只要求判断整个层是否为空。服务定义一个具体层，使其表结构与领域 helper 适合该服务；`ScopedLayers` 负责构造、选择、生命周期挂接、通知和聚合回收。
 
@@ -77,7 +77,7 @@ export class AnonymousEntries<V> {
 - `NamedEntries.insert()` 以原子方式检查并插入，返回幂等且只撤销该精确条目的 undo，并通过调用方提供的工厂取得所属注册表的精确重名诊断。查询与迭代器保留 `Map` 的原生顺序，并在同一个非空表 generation 内保持活遍历；清空表会开启新的 generation，因此尚未结束的迭代器无法观察到自我替换。
 - `AnonymousEntries.append()` 为每次登记分配唯一内部键，因此值相等的回调或其他值仍彼此独立。其迭代器保留插入顺序，并采用同样的 generation 活遍历边界。
 - `effect()` 通过 `scopeOf(ctx)` 导出键，并把 action 挂到同一个 `ctx.effect()` 上。它只接受一个同步 action，且该 action 只返回一个同步 undo；action 要么返回其 undo，要么必须在保留任何贡献之前抛错。helper 不会规范化更宽泛的 Cordis `Effect` union。
-- `effect()` 在调用 `onChange` 前收集 action 的 undo，并原样返回 `ctx.effect()` 的 disposer。销毁时先运行 action undo 再通知；Cordis 保证其幂等性；只有整个层的 `ScopeLayer.isEmpty()` 变为 true 后，helper 才删除专属层。
+- `effect()` 在调用 `onChange` 前收集 action 的 undo，并原样返回 `ctx.effect()` 的 disposer。销毁时先运行 action undo 再通知；Cordis 保证其幂等性；只有在整个层的 `ScopeLayer.isEmpty()` 返回 true 后，helper 才会删除专属层。
 - `options.notify` 默认为 `true`。回调自身的策略仍具最终效力：工具与提示词的 change 回调可以抛错并触发登记回滚；`CommandService.notifyChange()` 会隔离观察者失败；工具 guard 传入 `notify: false`。
 
 ## 注册表迁移
@@ -100,7 +100,7 @@ export class AnonymousEntries<V> {
 
 **注册方法上的显式 scope 参数。** 分开的可见性与属主输入让不匹配的生命周期成为可表达状态，而遗漏 scope 则会静默变成全局登记。
 
-**接受完整的 Cordis `Effect` union。** 七个登记口都没有异步 setup、多份 undo 或独立 settlement 边界。通用规范化会在没有现有消费者需要它时重复 Cordis 的生命周期 machinery。
+**接受完整的 Cordis `Effect` union。** 七个登记口都不涉及异步 setup、多份 undo 或独立结算边界。若没有现有消费方需要，通用规范化只会重复实现 Cordis 的生命周期机制。
 
 **暴露 `ScopedLayers.values()`、`ScopedLayers.keys()` 或全局放行谓词。** 这些操作会编码消费方特有的活遍历或物化策略，以及过滤策略。直接遍历条目表可保留显式的活语义，`merge()` 覆盖共享的命名遮蔽操作，而 `ToolRegistry` 继续保有功能更丰富的私有解析器。
 
@@ -121,6 +121,6 @@ export class AnonymousEntries<V> {
 ## 验证
 
 - `dsh-scope` 单元测试覆盖全局构造、专属层延迟构造、非创建式读取、命名合并顺序与遮蔽、聚合回收、工厂与 action 失败清理、通知顺序与回滚、`notify: false`、effect 标签、原始 disposer 身份、幂等拆除、调用方提供的重名错误、相同匿名值的独立登记、活迭代器，以及表清空后的 generation 脱离。
-- 工具、系统提示词和命令专项测试套件覆盖 restriction、保留传输处理、已知名称与可限制名称的一致性、guard 重入与自我替换、校验顺序、精确诊断、section 先遮蔽再求值、提供方快照成员关系、variable 重入与自我替换、隔离失败的命令观察者、冻结且有序的视图、直接执行和生命周期销毁。
+- 工具、系统提示词和命令专项测试套件覆盖 restriction、保留传输处理、已知名称与可限制名称的一致性、guard 重入与自我替换、校验顺序、精确诊断、section 先遮蔽再求值、提供方快照成员关系、variable 重入与自我替换、隔离失败的命令观察者、冻结且经过排序的视图、直接执行和生命周期销毁。
 - 作用域核心数据的类型等价性检查将 `ScopeLayer` 文档与其源声明绑定。仓库级的文档、模块图、构建、hygiene、覆盖率与构建产物门禁会覆盖包根导出与包边界。
 - 现有 ACP（Agent Client Protocol）、headless 和 TUI 无密钥快照继续作为工具 schema 与提示词组装的回归边界；人类命令由 TUI 覆盖。实现不会更新任何预期 transcript（文本记录）。

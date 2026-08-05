@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-LLM seam 及其提供方适配器。接口包（`llm`）拥有抽象服务、内容块词汇和流分片组装器；适配器是在 `ctx.llm` 上注册的具体实现。这些全是**产品**包（package）。
+LLM seam 及其提供方适配器。接口包（`llm`）拥有抽象服务、内容块词汇和流分片组装器；适配器是在 `ctx.llm` 上注册的具体实现。这些全是**产品**包。
 
 | 包 | 职责 | ctx key |
 |---|---|---|
@@ -12,4 +12,4 @@ LLM seam 及其提供方适配器。接口包（`llm`）拥有抽象服务、内
 | `llm-deepseek/` | DeepSeek API 适配器，直接使用 fetch + eventsource-parser 和 SSE（Server-Sent Events） | （注册到 `ctx.llm`） |
 | `llm-pi-ai/` | 通过 `@earendil-works/pi-ai` 实现的多提供方适配器 | （注册到 `ctx.llm`） |
 
-接口位于 `llm/llm/`；适配器、重试策略和可复用的 token 计量器以扁平结构并列在该分组下。请求按 `provider` 路由，而 `model` 会原样传给选中的适配器。负责该路由的适配器提供重试策略，并解析可用的确切模型身份、上下文容量和推理元数据；重试执行器与 token 计量器仍与提供方无关。新的提供方适配器只需在 `ctx.llm` 上注册一个或多个提供方路由，无需改动消费方。两个已交付实现见[双生 LLM 适配器](../../.agents/notes/implemented/architecture/2026-06-13-twin-llm-adapters.md)，测量归属见[回放 token 计量器 Agent Note（agent 决策记录）](../../.agents/notes/implemented/architecture/2026-07-15-replay-token-meter-service.md)，容量与压缩（compaction）策略归属见[路由模型上下文 Agent Note](../../.agents/notes/implemented/architecture/2026-07-20-routed-model-context-and-compaction-policy.md)。
+接口位于 `llm/llm/`；适配器、重试策略和可复用的 token 计量器以扁平结构并列在该分组下。请求按 `provider` 路由，而 `model` 会原样传给选中的适配器。负责该路由的适配器提供重试策略，并解析可用的确切模型身份、上下文容量和推理元数据；重试执行器与 token 计量器仍与提供方无关。新的提供方适配器只需在 `ctx.llm` 上注册一个或多个提供方路由，无需改动消费方。两个已交付实现见[双生 LLM 适配器](../../.agents/notes/implemented/architecture/2026-06-13-twin-llm-adapters.md)，测量归属见[回放 token 计量器 Agent Note](../../.agents/notes/implemented/architecture/2026-07-15-replay-token-meter-service.md)，容量与压缩（compaction）策略归属见[路由模型上下文 Agent Note](../../.agents/notes/implemented/architecture/2026-07-20-routed-model-context-and-compaction-policy.md)。

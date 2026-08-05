@@ -23,4 +23,4 @@ pnpm run demo:headless --output-format stream-json -- "run the focused tests"
 
 [`advanced.cordis.yml`](advanced.cordis.yml) 在已交付叶节点上添加 Code Mode 和 Cordis 工具。[`advanced.cordis.snapshot.yml`](advanced.cordis.snapshot.yml) 只将实时 LLM（大语言模型）替换为回放。[`tests/`](tests/) 下涵盖无密钥真实 Loader 冒烟测试、密钥门控的外部状态验证冒烟测试，以及带父子会话 fixture（测试前置数据）的 `stream-json` 回放快照。
 
-这份包（package）级 [CLI（命令行界面）契约](../../packages/examples/cli-demo/README.md) 说明输出记录、退出状态、取消、持久化以及模型／token 影响。
+这份包级 [CLI（命令行界面）契约](../../packages/examples/cli-demo/README.md) 说明输出记录、退出状态、取消、持久化以及模型／token 影响。

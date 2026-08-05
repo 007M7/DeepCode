@@ -4,9 +4,9 @@
 
 [`dsh-sandbox`](../sandbox/) seam 的本地实现。它选择并缓存一个平台 runner：Linux 优先选择可工作的 `bwrap`，否则选择 Landlock；macOS 使用 Seatbelt。多个候选项会按顺序探测，只有一个候选项时则直接选择。
 
-包（package）根目录导出默认及命名的 `LocalSandboxProvider` 插件、`Config` 和公共测试注入 seam；平台 profile builder 仍为内部实现。
+包根目录导出默认及命名的 `LocalSandboxProvider` 插件、`Config` 和公共测试注入 seam；平台 profile builder 仍为内部实现。
 
-不受支持的平台和不可用 runner 会以 `SANDBOX_UNAVAILABLE` 拒绝执行；执行绝不会静默回退为不受限制。每次包装都携带 runner 失败签名，使消费方能够区分损坏的沙箱与命令失败。[沙箱 Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md)负责说明选择依据与 profile 差异。
+不受支持的平台和不可用 runner 会以 `SANDBOX_UNAVAILABLE` 拒绝执行；执行绝不会静默回退为不受限制。每次包装都携带 runner 失败签名，使消费方能够区分损坏的沙箱与命令失败。[沙箱 Agent Note](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md)负责说明选择依据与 profile 差异。
 
 策略逐调用传入；提供方只存储机制与缓存的 runner 结论。每次包装都会报告强制执行完整度，以及后端专用的拒绝和 runner 失败签名。`runnerCommand` 是操作方对 bwrap 形式 runner 的断言，会跳过探测；但命令缺失或不可执行时，执行仍会被拒绝。由于其机制未知，它会同时携带两种 Linux 拒绝方言。`probeTimeoutMs` 限制功能探测。[沙箱 Agent Note](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md)负责说明选择与失败语义。
 
