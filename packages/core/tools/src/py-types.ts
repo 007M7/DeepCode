@@ -31,8 +31,8 @@ const IDENTIFIER = /^[\p{XID_Start}_]\p{XID_Continue}*$/u
  *
  * Python identifiers are not ASCII: `路径` is as legal a field name as `path`,
  * and rejecting it would degrade the whole enclosing object, dropping every
- * field's name, requiredness, and type — which under `mode: 'code'` is the
- * model's only source for them.
+ * field's name, requiredness, and type — information whose only source under
+ * `mode: 'code'` is this generated text.
  *
  * NFKC stability is a second and separate condition, because CPython
  * normalizes identifiers at compile time while JSON keys are compared as
@@ -41,9 +41,11 @@ const IDENTIFIER = /^[\p{XID_Start}_]\p{XID_Continue}*$/u
  * that normalize together would collapse into one declaration. Those names
  * take the subscript path, which carries their exact bytes.
  *
- * The equivalence to `str.isidentifier()` was measured across 21 samples with
- * zero divergence, on Node 22.23.1 against CPython 3.9.6 — the halves the two
- * conditions are proxies for, both tested by that run.
+ * `IDENTIFIER`'s equivalence to `str.isidentifier()` was measured across 21
+ * samples with zero divergence, on Node 22.23.1 against CPython 3.9.6. The
+ * predicate as a whole is deliberately stricter than `isidentifier()`, which
+ * does not test NFKC stability: `'ﬁeld'.isidentifier()` is True and this
+ * returns false.
  *
  * Both conditions are evaluated against the ENGINE's Unicode tables, and the
  * two sides are versioned independently — `\p{XID_Start}`/`\p{XID_Continue}`
@@ -62,14 +64,22 @@ const IDENTIFIER = /^[\p{XID_Start}_]\p{XID_Continue}*$/u
  * condition reduces to the same skew, since normalization stability guarantees
  * an assigned character's normalization never changes afterwards.
  *
- * This predicate is not the only reader of those tables. {@link camelCase}
- * reads them too, through its split set and its head test, and its output is
- * emitted for EVERY tool — including one this predicate rejected, whose
- * `TypedDict` is still declared and named. A tool named `zz-\u{1E4D0}x` never
+ * This predicate is not the only reader of engine tables. {@link camelCase}
+ * reads them at three further points — its split set, its head test, and its
+ * `toUpperCase()` case mapping — and this predicate's verdict gates none of
+ * them: a class name derived there reaches emitted text whenever any object
+ * shape in the tool's schema declares a `TypedDict`, including for a tool this
+ * predicate rejected. A tool named `zz-\u{1E4D0}x` with such parameters never
  * reaches the skew here (the `-` rejects it outright) yet emits
- * `class Zz\u{1E4D0}xArgs`, which that same 3.9.6 refuses. Closing the
- * exposure therefore covers all three read points, not this predicate alone;
- * it needs the target interpreter's version, which the backend reporting
+ * `class Zz\u{1E4D0}xArgs`, which that same 3.9.6 refuses. The case mapping is
+ * a separate table rather than an XID membership test, and it fails on names
+ * both conditions above accept: `\u{019B}` is XID_Start and NFKC-stable, so
+ * this predicate accepts it and `async def \u{019B}` compiles on 3.9.6, but
+ * Node uppercases it to `\u{A7DC}` — unassigned in that CPython, whose own
+ * `.upper()` is the identity here — and the declared `class \u{A7DC}Args`
+ * fails with `invalid non-printable character U+A7DC`. Closing the exposure
+ * therefore covers all four read points, not this predicate alone; it needs
+ * the target interpreter's version, which the backend reporting
  * `language: 'python'` owns and which is unpublished on this base, so the note
  * records it as that PR's decision.
  *
@@ -237,10 +247,13 @@ function docLines(description: unknown, indent: number): string[] {
  * normalizing only the un-prefixed part would emit a name CPython compiles to
  * a different symbol. The second call is idempotent on the un-prefixed arm.
  *
- * The split set and the head test read the engine's Unicode tables, so this
- * function carries the same version skew {@link isBareIdentifier} documents,
- * by an independent path: a class name derived here is emitted for every tool,
- * including one the predicate rejected.
+ * The split set, the head test, and `toUpperCase()` all read the engine's
+ * Unicode tables, so this function carries the same version skew
+ * {@link isBareIdentifier} documents, by paths independent of it: a class name
+ * derived here reaches emitted text whenever any object shape in the tool's
+ * schema declares a `TypedDict`, and the predicate's verdict on the tool name
+ * does not gate that. The case mapping is the one that can fail on a name the
+ * predicate accepted; the worked example is there.
  * @param raw - the schema field or tool name to derive from.
  * @returns a class-name segment safe to emit.
  */

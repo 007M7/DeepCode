@@ -472,6 +472,27 @@ describe('renderToolsSdkPy', () => {
     expect(text).not.toContain('async def find')
   })
 
+  it('derives a class name through the case-mapping table, independently of the bare-name predicate', () => {
+    // The head capitalization reads a table `isBareIdentifier` never consults,
+    // so the class-name path can carry a character the predicate cleared. ƛ
+    // (U+019B) is XID_Start and NFKC-stable, so the method is emitted bare;
+    // the head maps to Ƛ (U+A7DC), a code point the engine's tables assign and
+    // an older interpreter's do not. This pins which table produced the name,
+    // so a change to the mapping step shows up here rather than only in a
+    // downstream Python parse.
+    const text = renderToolsSdkPy([
+      {
+        name: 'ƛ',
+        description: 'Lambda with stroke.',
+        parameters: { type: 'object', additionalProperties: false, properties: { q: { type: 'string' } }, required: ['q'] },
+        output: { type: 'string' },
+      },
+    ])
+    expect(text).toContain('async def ƛ(self, args: ꟜArgs) -> str:')
+    expect(text).toContain('class ꟜArgs(TypedDict):')
+    expect(text).not.toContain('class ƛArgs')
+  })
+
   it('drops a surrogate half rather than cutting a pair when capping an astral class-name base', () => {
     // Class-name bases are capped by `slice`, which counts UTF-16 code units,
     // so a boundary landing inside an astral pair would leave a lone high
