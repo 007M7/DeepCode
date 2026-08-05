@@ -136,14 +136,18 @@ const MAX_CLASS_NAME_BASE = 120
  * nested parentheses`), so an array chain deeper than that would render an SDK
  * block that is not valid Python at all — the same failure the docstring
  * escaping in {@link docLines} exists to prevent. 180 leaves headroom for the
- * one bracket an annotation can add around the chain (`NotRequired[…]`).
+ * few brackets an annotation can add around the chain: `NotRequired[…]`, a
+ * `Literal[…]` item, and the `def` parameter list an argument annotation sits
+ * inside, for a worst case of 182.
  *
  * A CPython grammar limit, not a deployment choice, so it is fixed rather than
  * configurable. The sibling `ts-types` renderer needs no counterpart: nothing
  * in the TypeScript grammar bounds nesting, and its SDK block is never type-
  * checked. Only bracket nesting counts — a `oneOf` renders as a flat `A | B`
  * chain and nested objects render as separate `class` statements, so neither
- * accumulates open brackets at any depth.
+ * accumulates open brackets at any depth. The invariant this cap serves is
+ * grammatical validity; see the `oneOf` arm in {@link renderType} for the one
+ * interpreter limit deliberately left uncapped.
  */
 const MAX_LIST_NESTING = 180
 
@@ -367,6 +371,18 @@ function renderType(schema: unknown, className: string, state: RenderState): str
         frame.kind = 'oneOf'
         // A union renders as `A | B` — no brackets of its own, so the branches
         // inherit the enclosing depth unchanged.
+        //
+        // Union LENGTH is deliberately uncapped, unlike list nesting. The two
+        // limits are different in kind: >200 open brackets is a SyntaxError
+        // from the tokenizer, so the text is not Python; a long `A | B | …`
+        // chain is grammatically valid at any length and only defeats CPython's
+        // C-recursion when `compile()` walks the left-nested BinOp spine
+        // (measured: 1,000 branches compile, 5,000 raise RecursionError). This
+        // block is prompt text — nothing compiles it — so that limit costs
+        // nothing here, while capping would retire the deep-chain tests that
+        // pin the walk's linear time and the class-name propagation cap. The
+        // standard this renderer holds is grammatical validity, not
+        // compilability under one interpreter's stack.
         frame.children = node.oneOf.map((branch, index) => ({ schema: branch, className: childClassName(frame.className, `${index + 1}`), listDepth: frame.listDepth }))
         continue
       }
@@ -409,7 +425,11 @@ function renderType(schema: unknown, className: string, state: RenderState): str
           // than a permissive `dict[str, Any]`.
           const entries = Object.entries(node.properties ?? {})
           // An empty `className` marks the context-free `jsonSchemaToPy` entry:
-          // there is no naming context to declare into, so degrade. A field
+          // there is no naming context to declare into, so degrade. This reads
+          // the CALL's className, not `frame.className`: the marker belongs to
+          // the whole walk, and frames propagate a derived name (a `oneOf`
+          // branch of the context-free root gets `Tool1`), so a per-frame read
+          // would declare classes the caller has no way to receive. A field
           // name that is not a legal Python attribute is inexpressible as a
           // class-syntax `TypedDict` field, so such an object degrades whole.
           // A leading-double-underscore non-dunder field (`__token`) would be

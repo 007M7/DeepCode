@@ -249,6 +249,12 @@ describe('renderToolsSdkPy', () => {
       ],
     })
     expect(type).toBe('dict[str, Any] | str')
+    // Both branches objects, and the same shape reached through an array: the
+    // marker is the CALL's className, so a propagated frame name (`Tool1`) does
+    // not revive class declaration on a walk that has nowhere to declare into.
+    const object = { type: 'object', additionalProperties: false, properties: { ok: { type: 'boolean' } }, required: ['ok'] }
+    expect(jsonSchemaToPy({ oneOf: [object, object] })).toBe('dict[str, Any] | dict[str, Any]')
+    expect(jsonSchemaToPy({ type: 'array', items: { oneOf: [object, { type: 'string' }] } })).toBe('list[dict[str, Any] | str]')
   })
 
   it('suffixes a counter when two tools CamelCase to the same class base', () => {
@@ -539,6 +545,9 @@ describe('renderToolsSdkPy', () => {
     // depth the quadratic path (~100,000^2 char copies) blows past vitest's 5s
     // default, so this fails loud on a regression; the `+`/ConsString path is
     // milliseconds. (Guard the depth explicitly so the assertions stay exact.)
+    // The resulting chain is intentionally uncapped, unlike list nesting: it is
+    // grammatically valid Python at any length, and only CPython's `compile()`
+    // recursion would reject it — see the `oneOf` arm in py-types.ts.
     const depth = 100000
     let deep: Record<string, unknown> = { type: 'string' }
     for (let i = 0; i < depth; i++) deep = { oneOf: [deep, { type: 'null' }] }
