@@ -61,6 +61,30 @@ describe('web e2e: settings modal and General preferences', () => {
     await dialog.getByRole('button', { name: 'Workspace Write' }).waitFor({ timeout: 10_000 })
     await expect.poll(() => dialog.getByText('语言', { exact: true }).count(), { timeout: 5_000 }).toBe(1)
     await expect.poll(() => dialog.getByText('外观', { exact: true }).count(), { timeout: 5_000 }).toBe(1)
+    const openDocument = dialog.getByRole('button', { name: '打开配置文件' })
+    await openDocument.waitFor({ timeout: 10_000 })
+    let openRequests = 0
+    await page.route('**/api/settings.openDocument', async (route) => {
+      const envelope = route.request().postDataJSON() as {
+        rpcId: string
+        payload: Record<string, never>
+      }
+      expect(envelope.payload).toEqual({})
+      openRequests += 1
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          type: 'server-response',
+          rpcId: envelope.rpcId,
+          result: { ok: true, value: { opened: true } },
+        }),
+      })
+    })
+    await openDocument.click()
+    await expect.poll(() => openRequests, { timeout: 5_000 }).toBe(1)
+    await expect.poll(() => openDocument.isEnabled(), { timeout: 5_000 }).toBe(true)
+    await page.unroute('**/api/settings.openDocument')
     // Golden of the freshly opened dialog (default zh, General active).
     const snapshot = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(DIALOG_EXPECTED, snapshot, MODE)

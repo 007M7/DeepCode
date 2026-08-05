@@ -5,7 +5,7 @@
  * invalidation frames (settings/credentials/models changed).
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import z from 'schemastery'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
@@ -47,16 +47,33 @@ function expectErr<T>(response: RpcResponse<T>): { code: string; message: string
 class MemorySettings extends Settings {
   doc: Record<string, unknown>
 
-  constructor(ctx: ConstructorParameters<typeof Settings>[0], options?: { doc?: Record<string, unknown>; readOnly?: boolean }) {
+  constructor(ctx: ConstructorParameters<typeof Settings>[0], options?: {
+    doc?: Record<string, unknown>
+    readOnly?: boolean
+    documentPath?: string
+    preparedPath?: string
+  }) {
     super(ctx)
     this.doc = structuredClone(options?.doc ?? {})
     this.readOnly = options?.readOnly ?? false
+    this.path = options?.documentPath
+    this.preparedPath = options?.preparedPath
   }
 
   private readonly readOnly: boolean
+  private readonly path: string | undefined
+  private readonly preparedPath: string | undefined
 
   get writable(): boolean {
     return !this.readOnly
+  }
+
+  override get documentPath(): string | undefined {
+    return this.path
+  }
+
+  override prepareDocument(): Promise<string | undefined> {
+    return Promise.resolve(this.preparedPath ?? this.documentPath)
   }
 
   protected load(): Promise<Record<string, unknown>> {
@@ -146,7 +163,12 @@ const AdapterConfig = z.object({
 })
 
 async function harness(options?: {
-  settings?: false | { doc?: Record<string, unknown>; readOnly?: boolean }
+  settings?: false | {
+    doc?: Record<string, unknown>
+    readOnly?: boolean
+    documentPath?: string
+    preparedPath?: string
+  }
   credentials?: false | { shadowed?: string[] }
   /** Skip the directory registration to exercise a namespace the proxy does not expose. */
   configurableProviders?: false
@@ -205,11 +227,15 @@ describe('settings domain', () => {
   })
 
   it('describes layered redacted namespaces with their secret slots', async () => {
-    const ctx = await harness({ settings: { doc: { 'llm-deepseek': { apiKey: 'user-secret', baseURL: 'https://user' } } } })
+    const ctx = await harness({ settings: {
+      doc: { 'llm-deepseek': { apiKey: 'user-secret', baseURL: 'https://user' } },
+      documentPath: '/tmp/custom-settings.yaml',
+    } })
     ctx.settings.register(NS, AdapterConfig, { base: { baseURL: 'https://base' } })
     const api = createApiProxy(ctx, DEFAULTS)
     const value = expectOk(await api.settings.describe(request({})))
     expect(value.writable).toBe(true)
+    expect(value.hasDocument).toBe(true)
     expect(value.namespaces).toHaveLength(1)
     const view = value.namespaces[0]!
     expect(view.ns).toBe('llm-deepseek')
@@ -220,6 +246,62 @@ describe('settings domain', () => {
     expect(view.user).toEqual({ baseURL: 'https://user' })
     expect(view.secrets).toEqual([{ path: ['apiKey'], set: true }])
     expect(JSON.stringify(value)).not.toContain('user-secret')
+  })
+
+  it('opens the provider-resolved document without accepting a browser path', async () => {
+    const ctx = await harness({ settings: {
+      documentPath: '/tmp/described-settings.yaml',
+      preparedPath: '/tmp/custom-settings.yaml',
+    } })
+    const opened: string[] = []
+    const api = createApiProxy(ctx, {
+      ...DEFAULTS,
+      openTextFile: (path) => {
+        opened.push(path)
+        return Promise.resolve()
+      },
+    })
+
+    expect(expectOk(await api.settings.openDocument(request({}), new AbortController().signal)))
+      .toEqual({ opened: true })
+    expect(opened).toEqual(['/tmp/custom-settings.yaml'])
+  })
+
+  it('refuses to open settings when the provider has no local document', async () => {
+    const ctx = await harness()
+    const api = createApiProxy(ctx, DEFAULTS)
+    expect(expectOk(await api.settings.describe(request({}))).hasDocument).toBe(false)
+    const error = expectErr(await api.settings.openDocument(request({}), new AbortController().signal))
+    expect(error.code).toBe('internal')
+    expect(error.message).toContain('no local document')
+  })
+
+  it('does not prepare or open a settings document after cancellation', async () => {
+    const ctx = await harness({ settings: { documentPath: '/tmp/settings.yaml' } })
+    const opened: string[] = []
+    const api = createApiProxy(ctx, {
+      ...DEFAULTS,
+      openTextFile: (path) => {
+        opened.push(path)
+        return Promise.resolve()
+      },
+    })
+    const prepare = vi.spyOn(ctx.settings, 'prepareDocument')
+    const cancelled = new AbortController()
+    cancelled.abort()
+    expect(expectErr(await api.settings.openDocument(request({}), cancelled.signal)).code)
+      .toBe('cancelled')
+    expect(prepare).not.toHaveBeenCalled()
+
+    const pending = Promise.withResolvers<string | undefined>()
+    prepare.mockReturnValueOnce(pending.promise)
+    const duringPrepare = new AbortController()
+    const opening = api.settings.openDocument(request({}), duringPrepare.signal)
+    await vi.waitFor(() => { expect(prepare).toHaveBeenCalledOnce() })
+    duringPrepare.abort()
+    pending.resolve('/tmp/settings.yaml')
+    expect(expectErr(await opening).code).toBe('cancelled')
+    expect(opened).toEqual([])
   })
 
   it('serves model-provider and explicitly allowlisted Web namespaces only', async () => {

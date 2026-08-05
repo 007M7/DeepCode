@@ -6,6 +6,8 @@
 
 ## 服务 API
 
+- `documentPath` — 提供方拥有用户可编辑文件时，该字段是文件的绝对路径；非文件提供方保留 `undefined`。Host 配置适配器据此派生可用性，而浏览器协议只暴露一个布尔能力，绝不暴露文件系统目标。
+- `prepareDocument()` — 让文档做好供原生编辑器打开的准备后返回该路径。基类实现返回 `documentPath`；文件提供方可先创建缺失的文档。
 - `register(ns, schema, { base?, applies? })` — 返回 owner 的 `SettingsScope`（`get`/`watch`/`update`）。注册是调用方插件 fiber 上的 effect：dispose 该 fiber 即移除 namespace 及其观察者。schema 拒绝的存量分节会使注册本身失败；重复 namespace 立即报错。
 - `describe(options?)` — 每个 namespace 一条描述（`schema.toJSON()` 信封、解析值、分离出的 `base`/`user` 层、`applies`），供配置界面使用；字段出现在 `user` 中即标记其被用户覆盖。`describe({ redactSecrets: true })` 从每一层剥离 `role('secret')` 字段，并附加 `secrets` 槽位列表（`{ path, set }`）；每个 wire 面都必须传入它，纯遍历器 `redactSecrets(schema, value)` 已导出，供其他 wire 使用。
 - `get(ns)` — 解析值；未注册时为 `undefined`。
@@ -18,7 +20,7 @@
 
 ## Provider 契约
 
-子类实现 `writable`、`load()`、`persist(ns, section)`，并通过受保护的 `publish(doc)` 推入外部观察到的文档。基类 service init 在服务可注入前加载并发布一次文档；自有 init（watcher、连接）的 provider 先经 `yield* super[Service.init]()` 委托。publish 时每个已注册 namespace 独立重解析：非法分节保留该 namespace 的最后可用值并告警——热重载绝不拖垮进程；启动期与注册期校验则立即报错。
+子类实现 `writable`、`load()`、`persist(ns, section)`，可选择为一个本地用户可编辑文件重写 `documentPath` 与 `prepareDocument()`，并通过受保护的 `publish(doc)` 推入外部观察到的文档。基类 service init 在服务可注入前加载并发布一次文档；自有 init（watcher、连接）的 provider 先经 `yield* super[Service.init]()` 委托。publish 时每个已注册 namespace 独立重解析：非法分节保留该 namespace 的最后可用值并告警——热重载绝不拖垮进程；启动期与注册期校验则立即报错。
 
 ## 事件
 

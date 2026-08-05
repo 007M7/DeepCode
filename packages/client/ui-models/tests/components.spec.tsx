@@ -156,7 +156,7 @@ function scriptedFace(overrides: {
       models: vi.fn(() => Promise.resolve(ok({ groups: [], failures: [] }))),
     },
     settings: {
-      describe: vi.fn(() => Promise.resolve(ok({ writable: true, namespaces: wireNamespaces() }))),
+      describe: vi.fn(() => Promise.resolve(ok({ writable: true, hasDocument: false, namespaces: wireNamespaces() }))),
       update,
       replace,
       mutate,
@@ -975,6 +975,7 @@ describe('ModelsSection', () => {
     const { face } = await mountSection()
     face.settings.describe.mockImplementation(() => Promise.resolve(ok({
       writable: false,
+      hasDocument: false,
       namespaces: wireNamespaces(),
     })))
     const controller = new ModelsSettingsStore(face as unknown as WireFace)
