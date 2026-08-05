@@ -27,22 +27,23 @@ import {
   GoalId,
 } from './runtime.ts'
 import type {
+  CreateGoalRequest,
+  CreateGoalResult,
+  EditGoalRequest,
+  GoalActivation,
   GoalBlockReason,
   GoalPhase,
   GoalProjection,
   GoalRef,
   GoalSnapshot,
+  GoalView,
 } from './types.ts'
 import type {
-  CreateGoalRequest,
-  EditGoalRequest,
-  GoalActivation,
   GoalChangeMeta,
   GoalChanged,
   GoalClearChangeMeta,
   GoalOperation,
   GoalSnapshotChangeMeta,
-  GoalView,
 } from './domain.ts'
 
 // The pure payload outlet (./types.ts, ONE home of the `goal` projection-key
@@ -567,6 +568,68 @@ export class GoalService extends Service {
       updatedAt,
       activation: cache.activation,
     }
+  }
+
+  /**
+   * Create one Goal through the remote boundary.
+   * @param agent - exact live Agent resolved from the wire identity.
+   * @param request - objective and optional round cap.
+   * @returns the created Goal identity.
+   */
+  remoteExportCreate(agent: Agent, request: CreateGoalRequest): CreateGoalResult {
+    const view = this.create(agent, request)
+    return { ref: { id: view.id, revision: view.revision } }
+  }
+
+  /**
+   * Edit one Goal through the remote boundary.
+   * @param agent - exact live Agent resolved from the wire identity.
+   * @param ref - expected current revision.
+   * @param request - replacement fields.
+   * @returns the edited Goal view.
+   */
+  remoteExportEdit(agent: Agent, ref: GoalRef, request: EditGoalRequest): GoalView {
+    return this.edit(agent, ref, request)
+  }
+
+  /**
+   * Pause one Goal through the remote boundary.
+   * @param agent - exact live Agent resolved from the wire identity.
+   * @param ref - expected current revision.
+   * @returns the paused Goal view.
+   */
+  remoteExportPause(agent: Agent, ref: GoalRef): GoalView {
+    return this.pause(agent, ref)
+  }
+
+  /**
+   * Resume one Goal through the remote boundary.
+   * @param agent - exact live Agent resolved from the wire identity.
+   * @param ref - expected current revision.
+   * @returns the resumed Goal view.
+   */
+  remoteExportResume(agent: Agent, ref: GoalRef): GoalView {
+    return this.resume(agent, ref)
+  }
+
+  /**
+   * Complete one Goal through the remote boundary.
+   * @param agent - exact live Agent resolved from the wire identity.
+   * @param ref - expected current revision.
+   * @returns the completed Goal view.
+   */
+  remoteExportComplete(agent: Agent, ref: GoalRef): GoalView {
+    return this.complete(agent, ref)
+  }
+
+  /**
+   * Clear one terminal Goal through the remote boundary.
+   * @param agent - exact live Agent resolved from the wire identity.
+   * @param ref - expected current revision.
+   * @returns the committed clear revision.
+   */
+  remoteExportClear(agent: Agent, ref: GoalRef): GoalRef {
+    return this.clear(agent, ref)
   }
 }
 
