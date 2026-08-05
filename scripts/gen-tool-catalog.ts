@@ -19,6 +19,8 @@ import GoalService from '@deepseek-ai/dsh-goal'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
 import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
+import * as BashEnvPlugin from '@deepseek-ai/dsh-bash-env'
+import { PwshLocalExecutor } from '@deepseek-ai/dsh-pwsh-local'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
@@ -36,6 +38,7 @@ import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
 import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
 import * as ToolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
+import * as ToolPwsh from '@deepseek-ai/dsh-tool-pwsh'
 import * as ToolBashPersistent from '@deepseek-ai/dsh-tool-bash-persistent'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
@@ -190,15 +193,34 @@ const TOOL_PACKAGES: ToolPackage[] = [
     pkg: '@deepseek-ai/dsh-tool-bash',
     dir: 'tool-bash',
     source: 'packages/bash/tool-bash/src/index.ts',
-    requires: ['ctx.tools', 'ctx.bash', 'ctx.tasks at call time for run_in_background'],
+    requires: ['ctx.tools', 'ctx.bash', 'ctx.systemPrompt', 'ctx.bashEnv', 'ctx.tasks at call time for run_in_background'],
     writes: ['tool/call', 'tool/result'],
     async mount(ctx) {
       await ctx.plugin(LocalSubprocessService)
+      await ctx.plugin(BashEnvPlugin)
       await ctx.plugin(LocalBashExecutor)
       await ctx.plugin(ToolBash)
     },
     note:
       'The bash tool is the model-facing consumer of the bash executor seam. A `run_in_background` run registers with the generic `ctx.tasks` runtime and is collected/stopped through the `task_*` tools from `@deepseek-ai/dsh-tool-tasks`; the `enableRunInBackground` config (default true) removes the parameter entirely when disabled.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-pwsh',
+    dir: 'tool-pwsh',
+    source: 'packages/bash/tool-pwsh/src/index.ts',
+    requires: ['ctx.tools', 'ctx.bash', 'ctx.systemPrompt', 'ctx.bashEnv', 'ctx.tasks at call time for run_in_background'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      // The pwsh tool consumes the bash executor seam; the schema harvest
+      // mounts the pwsh-local implementation so the inject resolves without
+      // executing anything (registration never spawns a process).
+      await ctx.plugin(LocalSubprocessService)
+      await ctx.plugin(BashEnvPlugin)
+      await ctx.plugin(PwshLocalExecutor)
+      await ctx.plugin(ToolPwsh)
+    },
+    note:
+      'The pwsh tool is the PowerShell-dialect consumer of the bash executor seam for Windows compositions (a PowerShell executor such as `@deepseek-ai/dsh-pwsh-local` backs `ctx.bash`); it mirrors the bash tool call-for-call minus the sandbox surface — `run_in_background` runs register with the generic `ctx.tasks` runtime and are collected/stopped through the `task_*` tools, and the managed `DSH_*` environment comes from `@deepseek-ai/dsh-bash-env`. Each call runs in a fresh process (no persistent PTY session; ConPTY is roadmap work), with native `C:\\...` paths and `$env:NAME` variables.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-cordis',
