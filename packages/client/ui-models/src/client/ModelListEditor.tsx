@@ -110,6 +110,22 @@ function IconTrash(): ReactNode {
 type CapacityField = 'contextWindow' | 'maxTokens'
 
 /**
+ * What an empty capacity field is worth, shown as its placeholder so a row left
+ * blank does not read as a model with no capacity at all.
+ *
+ * The magnitudes are the adapter's own route-level fallbacks (`llm-pi-ai`'s
+ * `defaultContextWindow` and `defaultMaxTokens`), spelled the way a person
+ * would say them. They are a hint, not a mirror: this page counts `K` as 1000,
+ * so typing `256K` stores 256000 while leaving the field blank keeps the
+ * adapter's 262144. A deployment that overrides those defaults is not
+ * reflected here — nothing on this page can read them.
+ */
+const CAPACITY_HINT: Readonly<Record<CapacityField, string>> = {
+  contextWindow: '256K',
+  maxTokens: '32K',
+}
+
+/**
  * Spell a stored count for a field that may be unset. The spelling itself is
  * {@link formatCapacity}, shared with the DeepSeek catalog editor so both
  * surfaces read and write one K/M vocabulary.
@@ -373,6 +389,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
                     type="text"
                     inputMode="numeric"
                     value={capacityText(index, 'contextWindow')}
+                    placeholder={CAPACITY_HINT.contextWindow}
                     aria-label={`${t('modelContextWindow')} ${index + 1}`}
                     disabled={disabled}
                     onChange={(event) => { editCapacity(index, 'contextWindow', event.target.value) }}
@@ -385,6 +402,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
                     type="text"
                     inputMode="numeric"
                     value={capacityText(index, 'maxTokens')}
+                    placeholder={CAPACITY_HINT.maxTokens}
                     aria-label={`${t('modelMaxTokens')} ${index + 1}`}
                     disabled={disabled}
                     onChange={(event) => { editCapacity(index, 'maxTokens', event.target.value) }}

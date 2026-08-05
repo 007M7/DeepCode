@@ -273,14 +273,17 @@
 }
 
 .addButton {
-  /* Master's pill shape and glyph gap, sized to share the row equally so the
-     two ways to gain a provider read as siblings and line up with the rows
-     above rather than as two pills of different lengths. */
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  /* Overrides the shared button base above: these two are not pills sitting in
+     a footer but the last slot of the provider list, so they split the row
+     evenly and repeat the row cards' corner. Dashed, like every other "nothing
+     here yet" affordance on this page, to read as a place rather than a
+     command. */
+  flex: 1 1 0;
+  min-width: 180px;
   gap: 6px;
-  align-self: flex-start;
+  height: 44px;
+  border: 1px dashed var(--dsw-alias-border-l3);
+  border-radius: 12px;
 }
 
 .addCard,
