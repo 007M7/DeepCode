@@ -29,7 +29,7 @@ afterEach(async () => {
 function agent(ctx: Context, cwd: string | undefined): Agent {
   const id = SessionId(`persistent-bash-owner-${callNumber}`)
   const scope = ctx.plugin(() => {})
-  const session = new Session(id, [], {
+  const session = Session.create(id, [], {
     version: 0,
     id,
     createdAt: 0,

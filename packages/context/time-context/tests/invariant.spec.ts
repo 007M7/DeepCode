@@ -44,7 +44,7 @@ function reading(
 }
 
 function preparing(turn: number, step: number): Session {
-  const session = new Session(SessionId(`time-invariant-${turn}-${step}`))
+  const session = Session.create(SessionId(`time-invariant-${turn}-${step}`))
   for (let priorTurn = 1; priorTurn < turn; priorTurn += 1) {
     session.append('turn/start', { turn: priorTurn })
     session.append('turn/end', { turn: priorTurn, reason: { kind: 'completed' } })
@@ -137,11 +137,11 @@ describe('time-context invariants', () => {
     const ended = preparing(1, 1)
     ended.append('step/end', { turn: 1, step: 1 })
     expect(() => { ctx.emit('session/event', ended, event(reading())) }).toThrow(/at a prompt boundary/)
-    const notEntered = new Session(SessionId('time-invariant-turn-only'))
+    const notEntered = Session.create(SessionId('time-invariant-turn-only'))
     notEntered.append('turn/start', { turn: 1 })
     expect(() => { ctx.emit('session/event', notEntered, event(reading())) }).toThrow(/at a prompt boundary/)
     expect(() => {
-      ctx.emit('session/event', new Session(SessionId('time-invariant-empty')), event(reading()))
+      ctx.emit('session/event', Session.create(SessionId('time-invariant-empty')), event(reading()))
     }).toThrow(/at a prompt boundary/)
   })
 

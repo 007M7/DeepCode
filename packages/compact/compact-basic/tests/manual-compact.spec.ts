@@ -169,7 +169,7 @@ function deferred(): { promise: Promise<undefined>; resolve: () => void } {
 
 /** A closed-tail session with compactable exchanges and no live agent. */
 function closedConversation(turns = 2, lastTurnNumber = turns): Session {
-  const session = new Session(SessionId(`closed-${turns}-${lastTurnNumber}`))
+  const session = Session.create(SessionId(`closed-${turns}-${lastTurnNumber}`))
   for (let index = 1; index <= turns; index += 1) {
     const turn = index === turns ? lastTurnNumber : index
     session.append('turn/start', { turn })
@@ -380,7 +380,7 @@ describe('compactNow through the real loop', () => {
 describe('compactNow transaction and failure classification', () => {
   it('returns null without writing a bracket for history that cannot be compacted', async () => {
     const { compact } = detachedService()
-    const session = new Session(SessionId('empty'))
+    const session = Session.create(SessionId('empty'))
     let released = 0
     const agent = fakeAgent(session, () => () => { released += 1 })
 
@@ -422,7 +422,7 @@ describe('compactNow transaction and failure classification', () => {
     const { compact } = detachedService()
     const original = closedConversation(2)
     original.append('compact/start', { turn: null })
-    const reloaded = new Session(SessionId('stale-orphan'), [...original.events])
+    const reloaded = Session.create(SessionId('stale-orphan'), [...original.events])
     const boundary = reloaded.events.findLast(event => event.type === 'session/end-seed')
     const orphan = reloaded.events.find(event => event.type === 'compact/start')
     const agent = fakeAgent(reloaded, () => () => undefined)
@@ -438,7 +438,7 @@ describe('compactNow transaction and failure classification', () => {
     original.append('compact/start', { turn: null })
     original.append('turn/start', { turn: 3 })
     original.append('turn/end', { turn: 3, reason: { kind: 'interrupted' } })
-    const reloaded = new Session(SessionId('reloaded-orphan'), [...original.events])
+    const reloaded = Session.create(SessionId('reloaded-orphan'), [...original.events])
     const agent = fakeAgent(reloaded, () => () => undefined)
 
     await expect(compact.compactNow(agent, SIGNAL)).resolves.not.toBeNull()
@@ -650,7 +650,7 @@ describe('compactNow transaction and failure classification', () => {
 
   it('compacts a session with no durable turn boundary without creating one', async () => {
     const { compact } = detachedService()
-    const session = new Session(SessionId('turnless'))
+    const session = Session.create(SessionId('turnless'))
     for (const text of [PROMPT, 'recent tail']) {
       session.append('user/message', createUserMessage({
         content: [{ type: 'text', text }],
@@ -683,7 +683,7 @@ describe('compactNow transaction and failure classification', () => {
   it('lets a pre-aborted signal win before reservation, measurement, or summarization', async () => {
     const cases = [
       { name: 'busy', session: closedConversation(2), release: undefined },
-      { name: 'empty', session: new Session(SessionId('pre-aborted-empty')), release: () => undefined },
+      { name: 'empty', session: Session.create(SessionId('pre-aborted-empty')), release: () => undefined },
       { name: 'compactable', session: closedConversation(2, 9), release: () => undefined },
     ] as const
 

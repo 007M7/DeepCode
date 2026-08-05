@@ -16,7 +16,7 @@ import * as ToolPty from '@deepseek-ai/dsh-tool-pty'
 function fakeAgent(ctx: Context, rawId: string): Agent {
   const scope = ctx.plugin(() => {})
   const id = SessionId(rawId)
-  const session = new Session(id)
+  const session = Session.create(id)
   const agent: Agent = {
     id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
     status: 'idle', ctx: scope.ctx,

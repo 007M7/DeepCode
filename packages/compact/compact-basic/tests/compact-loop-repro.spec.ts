@@ -185,7 +185,7 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 }
 
 function overflowHistorySeed(): SessionEvent[] {
-  const session = new Session(SessionId('overflow-history-seed'))
+  const session = Session.create(SessionId('overflow-history-seed'))
   for (let turn = 1; turn <= 2; turn += 1) {
     const sentinel = turn === 1 ? 'OLD HISTORY SENTINEL' : 'RECENT HISTORY'
     session.append('turn/start', {

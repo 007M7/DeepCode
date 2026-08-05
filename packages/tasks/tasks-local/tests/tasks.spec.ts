@@ -18,7 +18,7 @@ const agentScopeDisposers = new WeakMap<Agent, () => Promise<void>>()
 function stubAgent(ctx: Context, rawId: string): Agent {
   const id = SessionId(rawId)
   const scopeFiber = ctx.plugin(() => {})
-  const session = new Session(id)
+  const session = Session.create(id)
   const agent = {
     id,
     options: {},

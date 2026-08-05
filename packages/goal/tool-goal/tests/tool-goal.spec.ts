@@ -23,7 +23,7 @@ interface StubAgent {
 
 /** Build one registry-compatible live agent whose injections enter the durable inbox. */
 function stubAgent(rawId: string, supplied?: Session): StubAgent {
-  const session = supplied ?? new Session(SessionId(rawId))
+  const session = supplied ?? Session.create(SessionId(rawId))
   let status: AgentStatus = 'running'
   const agent: Agent = {
     id: session.id,
@@ -258,7 +258,7 @@ describe('goal tool execution authority', () => {
     const created = ctx.goals.create(root.agent, { objective: 'resume the fork' })
     closeTurn(root, originalTurn)
     const forkId = SessionId('goal-tool-resumed-fork')
-    const forkSession = new Session(forkId, root.session.events, {
+    const forkSession = Session.create(forkId, root.session.events, {
       version: SESSION_FORMAT_VERSION,
       id: forkId,
       createdAt: Date.now(),

@@ -33,7 +33,7 @@ class PassthroughSandbox extends SandboxProvider {
 function stubAgent(ctx: Context, rawId: string): Agent {
   const id = SessionId(rawId)
   const scope = ctx.plugin(() => {})
-  const session = new Session(id)
+  const session = Session.create(id)
   return {
     id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
     status: 'idle', ctx: scope.ctx,

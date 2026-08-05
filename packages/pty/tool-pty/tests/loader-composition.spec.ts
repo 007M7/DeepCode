@@ -38,7 +38,7 @@ class PassthroughSandbox extends SandboxProvider {
 function agent(ctx: Context): Agent {
   const scope = ctx.plugin(() => {})
   const id = SessionId('pty-loader-agent')
-  const session = new Session(id)
+  const session = Session.create(id)
   const value: Agent = {
     id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
     status: 'idle', ctx: scope.ctx,

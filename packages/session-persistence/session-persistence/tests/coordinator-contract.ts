@@ -450,7 +450,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
           ])
           expect(messages.every(message => Object.isFrozen(message))).toBe(true)
 
-          const resumed = new Session(id, snapshot.events, snapshot.meta)
+          const resumed = Session.create(id, snapshot.events, snapshot.meta)
           expect(resumed.deriveMessages().map(message => message.id)).toEqual([
             `legacy-message:${id}:1`,
             `legacy-message:${id}:3`,
@@ -522,7 +522,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
             },
           ])
 
-          const resumed = new Session(id, snapshot.events, snapshot.meta)
+          const resumed = Session.create(id, snapshot.events, snapshot.meta)
           expect(resumed.deriveMessages().map(message => message.content)).toEqual([
             [{ type: 'text', text: 'old prompt' }],
             [{ type: 'text', text: 'old steering' }],

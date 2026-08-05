@@ -148,7 +148,7 @@ function requestText(request: GenerateOptions): string {
 describe('durable step context', () => {
   it('records turn, step, zoned time, and the preceding model-visible message baseline', async () => {
     const { ctx } = await mount({ timeZone: 'Asia/Shanghai' })
-    const session = new Session(SessionId('first'))
+    const session = Session.create(SessionId('first'))
     openMessageTurn(session, 1)
     vi.setSystemTime(BASE + 90_061_000)
 
@@ -167,7 +167,7 @@ describe('durable step context', () => {
 
   it('reports an unavailable first-step baseline when no model-visible message precedes it', async () => {
     const { ctx } = await mount()
-    const session = new Session(SessionId('unavailable'))
+    const session = Session.create(SessionId('unavailable'))
     session.append('turn/start', { turn: 1 })
 
     await fire(ctx, sessionAgent(session), 1, 1)
@@ -182,7 +182,7 @@ describe('durable step context', () => {
     ['zero interval', { refreshIntervalMs: 0 }],
   ] as const)('uses the preceding durable step-context timestamp after step one with %s', async (_label, config) => {
     const { ctx } = await mount(config)
-    const session = new Session(SessionId('later-step'))
+    const session = Session.create(SessionId('later-step'))
     const agent = sessionAgent(session)
     openMessageTurn(session, 3)
     await fire(ctx, agent, 3, 1)
@@ -198,7 +198,7 @@ describe('durable step context', () => {
 
   it('reports an unavailable later-step baseline at the matching turn boundary', async () => {
     const { ctx } = await mount()
-    const session = new Session(SessionId('later-step-boundary'))
+    const session = Session.create(SessionId('later-step-boundary'))
     openMessageTurn(session, 4)
 
     await fire(ctx, sessionAgent(session), 4, 2)
@@ -210,7 +210,7 @@ describe('durable step context', () => {
 
   it('reports an unavailable later-step baseline when event lookup is exhausted', async () => {
     const { ctx } = await mount()
-    const session = new Session(SessionId('later-step-exhausted'))
+    const session = Session.create(SessionId('later-step-exhausted'))
 
     await fire(ctx, sessionAgent(session), 1, 2)
 
@@ -221,7 +221,7 @@ describe('durable step context', () => {
 
   it('injects after backward wall-clock movement and clamps elapsed time to zero', async () => {
     const { ctx } = await mount({ refreshIntervalMs: 60_000 })
-    const session = new Session(SessionId('backward'))
+    const session = Session.create(SessionId('backward'))
     const agent = sessionAgent(session)
     openMessageTurn(session, 1)
     await fire(ctx, agent, 1, 1)
@@ -235,7 +235,7 @@ describe('durable step context', () => {
 
   it('uses a shadowed durable injection after resume and injects at the exact threshold', async () => {
     const { ctx } = await mount({ refreshIntervalMs: 1_000 })
-    const original = new Session(SessionId('seed-source'))
+    const original = Session.create(SessionId('seed-source'))
     openMessageTurn(original, 1)
     await fire(ctx, sessionAgent(original), 1, 1)
     const user = original.events.find(event => event.type === 'user/message' && event.data.source.kind === 'user')
@@ -251,7 +251,7 @@ describe('durable step context', () => {
     original.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     expect(JSON.stringify(original.deriveMessages())).not.toContain('Time sampled while preparing')
 
-    const resumed = new Session(SessionId('resumed'), [...original.events])
+    const resumed = Session.create(SessionId('resumed'), [...original.events])
     const resumedAgent = sessionAgent(resumed)
     vi.setSystemTime(BASE + 999)
     openMessageTurn(resumed, 2)
@@ -273,7 +273,7 @@ describe('durable step context', () => {
 
   it('applies a positive interval across turns without sharing state between sessions', async () => {
     const { ctx } = await mount({ refreshIntervalMs: 1_000 })
-    const first = new Session(SessionId('interval-first'))
+    const first = Session.create(SessionId('interval-first'))
     const firstAgent = sessionAgent(first, 'first-agent')
     openMessageTurn(first, 1)
     await fire(ctx, firstAgent, 1, 1)
@@ -284,7 +284,7 @@ describe('durable step context', () => {
     const beforeSkip = first.events.length
     await fire(ctx, firstAgent, 2, 1)
 
-    const independent = new Session(SessionId('interval-independent'))
+    const independent = Session.create(SessionId('interval-independent'))
     openMessageTurn(independent, 1)
     await fire(ctx, sessionAgent(independent, 'independent-agent'), 1, 1)
 
@@ -295,7 +295,7 @@ describe('durable step context', () => {
 
   it('skips an already-aborted prompt submission', async () => {
     const { ctx } = await mount()
-    const session = new Session(SessionId('ordering'))
+    const session = Session.create(SessionId('ordering'))
     const agent = sessionAgent(session)
     openMessageTurn(session, 1)
 
@@ -313,7 +313,7 @@ describe('configuration and lifecycle', () => {
     process.env['TZ'] = 'Asia/Shanghai'
     const { ctx } = await mount()
     process.env['TZ'] = 'America/New_York'
-    const session = new Session(SessionId('system-zone'))
+    const session = Session.create(SessionId('system-zone'))
     openMessageTurn(session, 1)
 
     await fire(ctx, sessionAgent(session), 1, 1)
@@ -347,7 +347,7 @@ describe('configuration and lifecycle', () => {
 
   it('removes its listener when the plugin fiber disposes', async () => {
     const { ctx, fiber } = await mount()
-    const session = new Session(SessionId('dispose'))
+    const session = Session.create(SessionId('dispose'))
     const agent = sessionAgent(session)
     openMessageTurn(session, 1)
     await fire(ctx, agent, 1, 1)
@@ -443,7 +443,7 @@ describe('real Loader export path', () => {
     await ctx.plugin(AgentRegistry)
     const plugin = loader.unwrapExports(timeContext) as Parameters<Context['plugin']>[0]
     await ctx.plugin(plugin)
-    const session = new Session(SessionId('loader'))
+    const session = Session.create(SessionId('loader'))
     openMessageTurn(session, 1)
     await fire(ctx, sessionAgent(session), 1, 1)
     expect(contextTexts(session)[0]).toContain('Time sampled while preparing turn 1, step 1:')

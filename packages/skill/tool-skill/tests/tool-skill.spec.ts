@@ -38,7 +38,7 @@ async function setup(home: string, config: toolSkill.Config = {}): Promise<Conte
 
 function agentForCwd(cwd: string): Agent {
   const id = SessionId(`tool-skill-${cwd}`)
-  const session = new Session(id, [], { version: 0, id, createdAt: 0, cwd })
+  const session = Session.create(id, [], { version: 0, id, createdAt: 0, cwd })
   return {
     ctx: new Context(),
     id,
@@ -324,7 +324,7 @@ describe('dsh-tool-skill', () => {
       invalidate = control.invalidate
       return provider
     })
-    const session = new Session(SessionId('incomplete-prefix'))
+    const session = Session.create(SessionId('incomplete-prefix'))
     const agent = sessionAgent(session)
     openMessageTurn(session)
 
@@ -340,7 +340,7 @@ describe('dsh-tool-skill', () => {
   it('records an empty baseline across repeated step observations', async () => {
     const home = await tempDir('tool-empty-step')
     const ctx = await setup(home)
-    const session = new Session(SessionId('empty-step'))
+    const session = Session.create(SessionId('empty-step'))
     const agent = sessionAgent(session)
     openMessageTurn(session)
 
@@ -359,7 +359,7 @@ describe('dsh-tool-skill', () => {
       source: 'runtime',
       content: 'First body.',
     })
-    const session = new Session(SessionId('proposed-catalog'))
+    const session = Session.create(SessionId('proposed-catalog'))
     const agent = sessionAgent(session)
     openMessageTurn(session)
     await fireStep(ctx, agent, 1, 1)
@@ -393,7 +393,7 @@ describe('dsh-tool-skill', () => {
   it('removes a stale proposed catalog before the first empty baseline', async () => {
     const home = await tempDir('tool-proposed-empty-catalog')
     const ctx = await setup(home)
-    const session = new Session(SessionId('proposed-empty-catalog'))
+    const session = Session.create(SessionId('proposed-empty-catalog'))
     const stale = createUserMessage({
       content: catalogContent(['- `stale-skill`: Stale skill']),
       source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
@@ -413,7 +413,7 @@ describe('dsh-tool-skill', () => {
       source: 'runtime',
       content: 'First body.',
     })
-    const session = new Session(SessionId('matching-proposal'))
+    const session = Session.create(SessionId('matching-proposal'))
     const proposed = createUserMessage({
       content: catalogContent(['- `first-skill`: First skill']),
       source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
@@ -433,7 +433,7 @@ describe('dsh-tool-skill', () => {
       source: 'runtime',
       content: 'First body.',
     })
-    const session = new Session(SessionId('dynamic-catalog'))
+    const session = Session.create(SessionId('dynamic-catalog'))
     const agent = sessionAgent(session)
     openMessageTurn(session)
 
@@ -477,7 +477,7 @@ describe('dsh-tool-skill', () => {
       source: 'runtime',
       content: 'Resumed body.',
     })
-    const session = new Session(SessionId('catalog-resume'))
+    const session = Session.create(SessionId('catalog-resume'))
     const agent = sessionAgent(session)
     openMessageTurn(session)
     session.append('user/message', createUserMessage({
@@ -516,7 +516,7 @@ describe('dsh-tool-skill', () => {
       source: 'runtime',
       content: 'First body.',
     })
-    const session = new Session(SessionId('catalog-compaction'))
+    const session = Session.create(SessionId('catalog-compaction'))
     const agent = sessionAgent(session)
     openMessageTurn(session)
     expect(JSON.stringify(await composePrefixForAgent(ctx, agent))).toContain('first-skill')
@@ -541,7 +541,7 @@ describe('dsh-tool-skill', () => {
     const root = join(home, '.dsh/skills')
     await writeSkill(root, 'body-skill', 'Stable description', 'First body.')
     const ctx = await setup(home)
-    const session = new Session(SessionId('body-refresh'))
+    const session = Session.create(SessionId('body-refresh'))
     const agent = sessionAgent(session)
     openMessageTurn(session)
 
@@ -571,7 +571,7 @@ describe('dsh-tool-skill', () => {
       source: 'runtime',
       content: 'Stable body.',
     })
-    const session = new Session(SessionId('incomplete-catalog'))
+    const session = Session.create(SessionId('incomplete-catalog'))
     const agent = sessionAgent(session)
     openMessageTurn(session)
     expect(JSON.stringify(await composePrefixForAgent(ctx, agent))).toContain('stable-skill')
@@ -595,7 +595,7 @@ describe('dsh-tool-skill', () => {
     const home = await tempDir('tool-restricted-catalog')
     const ctx = await setup(home)
     ctx.skills.register({ name: 'listed-skill', description: 'Listed', source: 'runtime', content: 'body' })
-    const session = new Session(SessionId('restricted-catalog'))
+    const session = Session.create(SessionId('restricted-catalog'))
     const agent = sessionAgent(session)
     openMessageTurn(session)
     const { scope } = await mintAgentScope(ctx, agent)

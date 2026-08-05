@@ -596,7 +596,7 @@ describe('request stability across the loop', () => {
       )!
       // Messages: the entered batch is logged after step/start, so rebuild the
       // complete dispatch prefix through a completely fresh Session.
-      const rebuilt = new Session(SessionId(`rebuild-${index}`), structuredClone(events.slice(0, firstChunk.seq)))
+      const rebuilt = Session.create(SessionId(`rebuild-${index}`), structuredClone(events.slice(0, firstChunk.seq)))
       expect(structuredClone(request.messages)).toEqual(rebuilt.deriveMessages())
 
       // Header: the latest request/header snapshot up to this step's dispatch

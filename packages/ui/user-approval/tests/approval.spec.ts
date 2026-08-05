@@ -358,7 +358,7 @@ describe('approval policy (the approval/policy fold)', () => {
    * the opened turn satisfies request()'s enclosure precondition.
    */
   function sessionAgent(id: string): { agent: Agent; session: Session } {
-    const session = new Session(SessionId(id))
+    const session = Session.create(SessionId(id))
     session.append('turn/start', { turn: 1 })
     const agent = { id, session } as unknown as Agent
     return { agent, session }

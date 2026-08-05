@@ -551,7 +551,7 @@ describe('turn numbering continues across seeded sessions', () => {
 
 describe('discriminated SessionEvent narrows without casts', () => {
   it('narrows event.data from event.type', () => {
-    const session = new Session(SessionId('s'))
+    const session = Session.create(SessionId('s'))
     const appended: SessionEvent = session.append('tool/call', {
       turn: 1, step: 1, callId: CallId('c1'), name: 'echo', arguments: '{}',
     })

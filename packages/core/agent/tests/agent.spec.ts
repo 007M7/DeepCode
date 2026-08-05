@@ -17,7 +17,7 @@ import type {
 
 function stubAgent(rawId: string, overrides: Partial<Agent> = {}): Agent {
   const id = SessionId(rawId)
-  const session = new Session(id)
+  const session = Session.create(id)
   const agent: Agent = {
     id,
     options: {},
@@ -38,7 +38,7 @@ function stubAgent(rawId: string, overrides: Partial<Agent> = {}): Agent {
 
 describe('Inbox', () => {
   it('rejects an invalid durable splice during reconstruction', () => {
-    const session = new Session(SessionId('invalid-inbox-replay'))
+    const session = Session.create(SessionId('invalid-inbox-replay'))
     session.append('agent/inbox/spliced', {
       target: 'next-turn',
       start: 1,
@@ -50,7 +50,7 @@ describe('Inbox', () => {
   })
 
   it('replaces a pending message by identity across both lists', () => {
-    const session = new Session(SessionId('replace-inbox'))
+    const session = Session.create(SessionId('replace-inbox'))
     const inserted: UserMessage[] = []
     const discarded: UserMessage[] = []
     const inbox = new Inbox(session, {
@@ -91,7 +91,7 @@ describe('Inbox', () => {
   })
 
   it('normalizes splice coordinates, rejects duplicate identities, and reports missing removals', () => {
-    const session = new Session(SessionId('splice-inbox'))
+    const session = Session.create(SessionId('splice-inbox'))
     const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {} })
     const first = createUserMessage({
       content: [{ type: 'text', text: 'first' }],
@@ -110,7 +110,7 @@ describe('Inbox', () => {
   })
 
   it('clears both pending lists as durable cancellations', () => {
-    const session = new Session(SessionId('clear-inbox'))
+    const session = Session.create(SessionId('clear-inbox'))
     const discarded: UserMessage[] = []
     const inbox = new Inbox(session, {
       inserted: () => {},
@@ -161,7 +161,7 @@ describe('AgentRegistry', () => {
   it('rejects an agent whose registry and session identities differ', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
-    const agent = stubAgent('agent-id', { session: new Session(SessionId('session-id')) })
+    const agent = stubAgent('agent-id', { session: Session.create(SessionId('session-id')) })
 
     expect(() => ctx.agents.enter(agent, undefined))
       .toThrow('agent id "agent-id" does not match session id "session-id"')
