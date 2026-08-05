@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
+import { resolvePwshPath } from '@deepseek-ai/dsh-pwsh-local'
 import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden,
   fixtureUserPrompts, launchWebScaffold, seedSession, webSnapshotMode,
@@ -33,10 +34,13 @@ const MODE = webSnapshotMode()
 
 // The overlay swaps the shipped bash executor for @deepseek-ai/dsh-pwsh-local;
 // a host without a usable `pwsh` cannot boot it, so the lane self-skips,
-// mirroring the pwshOnly ACP scenarios.
-const HAS_PWSH = spawnSync(
-  'pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', 'exit 0'],
-  { stdio: 'ignore' },
+// mirroring the pwshOnly ACP scenarios. The probe follows the executor's own
+// resolution (Program Files installs on Windows are found even when bare
+// `pwsh` is not on PATH), the same judgment the tool-pwsh tests reuse; record
+// mode skips the lane anyway, so the probe stays inert there.
+const HAS_PWSH = MODE === 'record' ? false : spawnSync(
+  resolvePwshPath(), ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '$true'],
+  { encoding: 'utf8' },
 ).status === 0
 
 describe.skipIf(MODE === 'record' || !HAS_PWSH)('web e2e: pwsh calls render as bash-shaped terminal cards', () => {

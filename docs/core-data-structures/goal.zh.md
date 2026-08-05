@@ -2,7 +2,7 @@
 
 [English](goal.md) | 中文
 
-事件溯源目标领域及其策略消费方共享的类型。[目标领域 Agent Note（agent 决策记录）](../../.agents/notes/implemented/feature/2026-07-19-persisted-same-session-goal-domain.md)负责记录持久化与激活决策；本页记录 [`packages/goal/goal/src/types.ts`](../../packages/goal/goal/src/types.ts) 中的字面形态。
+事件溯源目标领域及其策略消费方共享的类型。[目标领域 Agent Note](../../.agents/notes/implemented/feature/2026-07-19-persisted-same-session-goal-domain.md)负责记录持久化与激活决策；本页记录 [`packages/goal/goal/src/types.ts`](../../packages/goal/goal/src/types.ts) 中的字面形态。
 
 ## 标识与生命周期
 
@@ -71,7 +71,7 @@ interface GoalView extends GoalSnapshot {
 
 ## 持久变更
 
-每次变更都是 Round 编号为 0、来源为目标的 `user/message`，其元数据要么是完整快照，要么是清除墓碑。版本、元数据、目标来源和逐字渲染内容共同构成一项回放不变量。
+每次变更都是 Round 编号为 0、来源为目标的 `user/message`，其元数据要么是完整快照，要么是清除墓碑。版本、元数据、目标来源和原样渲染的内容共同构成一项回放不变量。
 
 ```ts type-equiv
 /** Full-snapshot goal mutation retained in a model-visible context event. */
@@ -114,7 +114,7 @@ interface GoalMessageSource {
 
 ## 请求与通知
 
-创建操作会区分调用方省略的值与部署选择，`create()` 会在内部解析后者。编辑是局部替换，其运行时校验器要求至少提供一个字段。每条变更通知都会携带获准的操作和确切修订号；清除操作不带 `goal`。
+创建操作会区分调用方省略字段与采用部署配置值这两种情况，`create()` 会在内部解析后者。编辑是局部替换，其运行时校验器要求至少提供一个字段。每条变更通知都会携带获准的操作和确切修订号；清除操作不带 `goal`。
 
 ```ts type-equiv
 /** Input whose omitted round cap is resolved by the service configuration. */
@@ -144,4 +144,4 @@ interface GoalChanged {
 
 ## 服务行为
 
-[`GoalService`](../../packages/goal/goal/src/index.ts) 解析创建默认值、执行严格回放折叠、校验确切的活跃 agent 身份、以比较并设置方式执行变更、叠加延迟注入，并发出 `goal/changed` 通知；监听器故障会被隔离。包 [README](../../packages/goal/goal/README.md) 负责记录可调用契约和面向模型的契约。
+[`GoalService`](../../packages/goal/goal/src/index.ts) 解析创建默认值、执行严格回放折叠、校验确切的活跃 agent 身份、以比较并设置方式执行变更、叠加待处理的注入变更，并发出 `goal/changed` 通知；监听器故障会被隔离。包 [README](../../packages/goal/goal/README.md) 负责记录可调用契约和面向模型的契约。

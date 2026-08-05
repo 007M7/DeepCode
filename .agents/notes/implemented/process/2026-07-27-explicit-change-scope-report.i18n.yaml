@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-07-27-explicit-change-scope-report.md
 2026-07-27-explicit-change-scope-report.md: ed09ffc44252e1e571d50537b3471cad8d68d8f9
-2026-07-27-explicit-change-scope-report.zh.md: e13092395d6708b1ec030d13365853a5eaecba55
+2026-07-27-explicit-change-scope-report.zh.md: 783f89b9b42f1706da218997a06bfe7c28a0936b

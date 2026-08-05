@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-可选启用的持久上下文，记录本 agent 进程所在的 tmux session、window、pane，以及该 window 的 pane 树布局。在准备模型请求时每轮采样一次。已交付的 TUI 会挂载它；`dsh-agent-spine-demo` 与 Web／无头界面均不挂载。决策记录见：[tmux-context Agent Note](../../../.agents/notes/implemented/feature/2026-07-27-tmux-location-context.md)。
+可选启用的持久上下文，记录本 agent（智能体）进程所在的 tmux session、window、pane，以及该 window 的 pane 树布局。在准备模型请求时每轮采样一次；随附 Web／无头组合不包含它。决策记录见：[tmux-context Agent Note](../../../.agents/notes/implemented/feature/2026-07-27-tmux-location-context.md)。
 
 ## 配置
 
@@ -55,9 +55,9 @@ window active=<0|1>, pane active=<0|1>, layout <window-layout>
 
 每条两行读数会累积，直到压缩将其遮蔽。位置未变化以及间隔抑制不会新增内容。
 
-#### KV 缓存影响
+#### KV Cache 影响
 
-只追加；新增可见内容位于可复用的请求前缀之后，不会使已有 KV 缓存条目失效。
+只追加；新增可见内容位于可复用的请求前缀之后，不会使已有 KV Cache 条目失效。
 
 ## 已知限制与后续工作
 

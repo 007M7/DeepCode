@@ -67,7 +67,7 @@ async function harness(): Promise<Harness> {
   await ctx.plugin(CommandService)
   const compact = new StubCompactService(ctx)
   const plugin = await ctx.plugin(commandCompact)
-  const session = new Session(SessionId('command-compact'))
+  const session = Session.create(SessionId('command-compact'))
   const agent = {
     session,
     status: 'idle',

@@ -16,4 +16,4 @@ None beyond the goal mutation's own context event, which appends to the log tail
 
 ## Known Limitations and Deferred Work
 
-- **Durable phase only** — the projection value deliberately omits process-local activation (armed/disarmed), so the strip cannot distinguish an active-but-disarmed goal from an armed one; resume re-arms through the RPC side. A host-live-value channel is deferred until a real consumer needs it.
+- **Durable phase only** — the projection omits process-local activation, so the strip cannot distinguish an active-but-disarmed goal from an armed one; resume re-arms through the RPC side. There is no host-live activation channel.

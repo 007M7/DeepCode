@@ -2,13 +2,13 @@
 
 English | [中文](README.zh.md)
 
-The durable session-persistence seam and its storage backends. The interface package owns the abstract `SessionPersistence` service and the shared write coordinator; the backends are concrete implementations that register on `ctx.sessionPersistence`. All **product** packages.
+This family defines durable session persistence, semantic checkpoint policy, and the shipped storage backends.
 
 | Package | Role | ctx key |
 |---|---|---|
-| `session-persistence/` | Persistence seam + shared write coordinator | `ctx.sessionPersistence` |
-| `session-checkpoint-policy/` | Semantic durability barriers for agent requests and tool execution | (wraps `ctx.llm` / `ctx.tools`, listens on agent events) |
-| `session-persistence-jsonl/` | JSONL-sidecar persistence backend | (registers `ctx.sessionPersistence`) |
-| `session-persistence-sqlite/` | SQLite persistence backend | (registers `ctx.sessionPersistence`) |
+| [`session-persistence/`](session-persistence/README.md) | Defines the persistence service and shared write coordination | `ctx.sessionPersistence` |
+| [`session-checkpoint-policy/`](session-checkpoint-policy/README.md) | Applies semantic durability checkpoints | wraps `ctx.llm` and `ctx.tools` |
+| [`session-persistence-jsonl/`](session-persistence-jsonl/README.md) | Persists sessions in JSONL files | registers on `ctx.sessionPersistence` |
+| [`session-persistence-sqlite/`](session-persistence-sqlite/README.md) | Persists sessions in SQLite | registers on `ctx.sessionPersistence` |
 
-The interface lives at `session-persistence/session-persistence/`; backends are flat siblings. A new storage backend joins here and registers on `ctx.sessionPersistence`. See [session persistence](../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md).
+The [session-persistence decision](../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md) records the family design.

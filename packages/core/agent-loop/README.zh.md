@@ -2,15 +2,15 @@
 
 [English](README.md) | 中文
 
-唯一的实体 agent（智能体）插件与循环驱动器。其包（package）内部实现满足 `Agent` 接口，并驱动会话／轮次／步骤生命周期。
+唯一的具体 agent（智能体）插件与循环驱动器。其包内部实现满足 `Agent` 接口，并驱动会话／轮次／步骤生命周期。
 
-这是 harness 中唯一包含实体循环逻辑的包。其他所有内容要么是抽象服务，要么是针对扩展 seam 的插件：新行为应放入插件，而不是这里。
+这是 harness 中唯一包含具体循环逻辑的包。其他所有内容要么是抽象服务，要么是针对扩展 seam 的插件：新行为应放入插件，而不是这里。
 
 ## 服务：`AgentLoop`（ctx 键：`agentLoop`）
 
 ### 公开 API
 
-创建与恢复属于同一个受回滚保护的事务：构造私有会话、实体 agent 和带作用域的上下文；等待可选 setup；同步调用其可选的发布提交；进入两个注册表；依次宣告 `session/created` 和 `agent/created`；发出 `agent/session-start`；此后才启动驱动器。Setup 接收完整的带作用域 `Context`，作为受信任的同进程组合代码，并且不得驱动尚未发布的 agent。其可选提交会在所有 setup 的 await 均结算后、进入注册表之前立即重新校验可变的配置状态；若其抛出异常，则回滚私有事务且不发布任何一个 id。普通的类型化身份与选项输入遵循只读契约以借用方式传入；seed 事件与会话元数据会跨越持久会话边界，因此系统会验证并快照它们。可选的 `AbortSignal` 只取消加载／setup／发布，并在返回的 handle 可见前分离。
+创建与恢复属于同一个受回滚保护的事务：构造私有会话、具体 agent 和带作用域的上下文；等待可选 setup；同步调用其可选的发布提交；进入两个注册表；依次宣告 `session/created` 和 `agent/created`；发出 `agent/session-start`；此后才启动驱动器。Setup 接收完整的带作用域 `Context`，作为受信任的同进程组合代码，并且不得驱动尚未发布的 agent。其可选提交会在所有 setup 的 await 均结算后、进入注册表之前立即重新校验可变的配置状态；若其抛出异常，则回滚私有事务且不发布任何一个 id。普通的类型化身份与选项输入遵循只读契约以借用方式传入；seed 事件与会话元数据会跨越持久会话边界，因此系统会验证并快照它们。可选的 `AbortSignal` 只取消加载／setup／发布，并在返回的 handle 可见前分离。
 
 调用方 fiber 与 AgentLoop 提供方共同拥有 agent。`AgentFactory.createAgent(ownerCtx, options)` 与 `resume(ownerCtx, options)` 显式接收调用方所有权，而工厂为 `sessions`/`llm`/`tools`/`systemPrompt` 保留自身的依赖上下文；这样，调用方可以只注入 `agents`，而不会缩减新 agent 的服务接口。调用方卸载、handle dispose（资源释放）或提供方卸载都会汇合到同一个记忆化的完全停稳边界。提供方关闭会同时等待资源 teardown，以及已经观测到停用的公开 create/resume 包装层，因此依赖消失后，任何 continuation 都无法继续发布。
 
@@ -51,25 +51,25 @@ interface Config {
 
 通过配置创建的 agent 会自动启动。模型调用同时需要 `provider` 和 `model`；`agent/request` 可以在分发前补齐缺失的这一对值。可选的正数 `maxTokens` 会为每次对话请求提供初始输出上限，并记录在请求 header 中。`maxParallelToolCalls` 限制每个 agent 针对并行安全调用使用的滚动池，默认值为 `10`。`cwd` 仅应用于全新会话，而 `resumeSessionId` 保留持久化元数据。通过配置创建的 agent 使用部署 persona；编程式 setup 可以按 agent 遮蔽它。该插件为每个 agent 提供 `provider`、`model` 和 `cwd` 提示词变量；harness 身份与部署 persona 属于 `dsh-system-prompt`。
 
-### 包内部实体驱动器
+### 包内部具体驱动器
 
-实体 `ReactLoopAgent`、其排队输入、outbox 与运行控制均为包内部实现。包根只导出插件／服务／配置契约，包导出映射不提供 `./src/*` 逃逸路径；生命周期拥有方通过 `ctx.agents` 创建 agent，而不是点名、构造或启动驱动器内部组件。一个准备完成的会话只能由一个实体驱动器认领；所有可观测行为都通过会话事件和 `agent/*` 事件分类体系发生。
+具体 `ReactLoopAgent`、其排队输入、outbox 与运行控制均为包内部实现。包根只导出插件／服务／配置契约，包导出映射不提供 `./src/*` 逃逸路径；生命周期拥有方通过 `ctx.agents` 创建 agent，而不是点名、构造或启动驱动器内部组件。一个准备完成的会话只能由一个具体驱动器认领；所有可观测行为都通过会话事件和 `agent/*` 事件分类体系发生。
 
 统一的 `send()` 原语按（`target` × `wakeup`）路由内容与来源；`followup`/`steer`/`inject` 是它的固定预设别名。`next-turn` 项加入排队 FIFO，除非 `wakeup: false`，否则会唤醒驱动器；接纳发生在任何轮次开启之前。`reserveTurnAdmission()` 可以为独立持久操作同步保留该空闲边界：已获接纳的唤醒工作拥有优先权，之后发送的项保留普通队列身份与 FIFO 位置，释放会重新启用同一驱动器路径，`whenIdle()` 会等待预留结束，但 teardown 不会等待它。循环在 `agent/prompt-submit` 之前打开一个私有的 next-step 接收窗口，并在 `turn/end` 之前关闭它。在该窗口内，`steer()` 与 `inject()` 会暂存到同一个 outbox；接纳获准后会开启轮次，记录提示词及其返回的 `additionalContexts`，再于首次请求前排空暂存输入。接纳被阻止或失败时，不会写入提示词或钩子生成的上下文。之后，仅含调用方暂存上下文的批次会采用空闲注入的立即追加行为，而 steering（中途引导）及与其一同暂存的上下文则继续待处理，以供重试或之后获准的提示词使用。窗口之外，steering 会成为唤醒驱动器的排队提示词，而注入会立即追加 `user/message`，不开启轮次也不运行模型。
 
-`steer()` 会把一次性准入回执附着到其准确的已接收消息。`agent/step` 和异步提示词组装成功后，循环把稳定的待处理批次提交为 `steering/message`、捕获派生历史并开启 `step/start`；只有此时，每个回执才会解析为 `admitted`，并附带轮次与步骤。之后到达的消息继续待处理。空闲 steering 会进入普通 FIFO，并以其最终轮次的首次请求作为相同准入边界。结束轮次的工具结果、广义取消、dispose（资源释放），或已领取 idle-steering 消息却从未到达请求的轮次，会把受影响回执解析为 `rejected`；`cancel(..., { keepInbox: true })` 和非终止型路由会保留待处理投递。活跃轮次内的 `inject()` 仍会在所有工具结果后提交，包括被中断批次中已最终确认的上下文；steering 则保持待准入，直到请求接纳它。
+`steer()` 会把一次性准入回执附着到其准确的已接收消息。`agent/step` 和异步提示词组装成功后，循环把稳定的待处理批次提交为 `steering/message`、为派生历史创建快照并开启 `step/start`；只有此时，每个回执才会解析为 `admitted`，并附带轮次与步骤。之后到达的消息继续待处理。空闲 steering 会进入普通 FIFO，并以其最终轮次的首次请求作为相同准入边界。结束轮次的工具结果、广义取消、dispose，或已领取 idle-steering 消息却从未到达请求的轮次，会把受影响回执解析为 `rejected`；`cancel(..., { keepInbox: true })` 和非终止型路由会保留待处理投递。活跃轮次内的 `inject()` 仍会在所有工具结果后提交，包括被中断批次中已最终确认的上下文；steering 则保持待准入，直到请求接纳它。
 
 每次 FIFO 接受项时都会铸造一个 `InboxItemId`，并通过 `agent/inbox/enqueue` 发布完整的单次入队项。`updateInbox()` 持有同步 queued 项边界：编辑会冻结替换内容，但不改变消息标识或位置；移除会发布 discard；严格 steering 会把不可变消息作为新的 steering 单次入队项转移到开放的 next-step 窗口。窗口关闭时返回 `steer-unavailable`，且不做任何变更；待处理 steering 和已被认领的项会返回 `not-found`。认领操作会发布 `agent/inbox/dequeue`，并在提示词接纳前不可逆地移除实时寻址标识，因此竞态中的更新无法改写持久历史；`cancel()` 在不带 `keepInbox` 时会发布 `agent/inbox/discard`。
 
 ### 循环生命周期（`agent.ts`）
 
-驱动器在其整个生命周期内拥有一个 agent，并在 `ctx.agents.withInitiator(agent, ...)` 内运行。包私有的编排入口点会恢复确切的 Agent，一次性派生 `agent.session`，并让操作局部的辅助函数捕获它，而不是通过浅层接口继续传递实体驱动器或每次操作的 `Session`。如果显式 `Session` 正是辅助函数的实际接口，该辅助函数会保留它；创建、持久化加载、未发布 setup、服务、worker、进程、持久化和 wire 协议则继续保留各自的显式身份。[agent 服务](../agent/README.md#initiating-agent-scope)规定传播、teardown 和分离工作规则。
+驱动器在其整个生命周期内拥有一个 agent，并在 `ctx.agents.withInitiator(agent, ...)` 内运行。包私有的编排入口点会恢复确切的 Agent，一次性派生 `agent.session`，并让操作局部的辅助函数捕获它，而不是通过浅层接口继续传递具体驱动器或每次操作的 `Session`。如果显式 `Session` 正是辅助函数的实际接口，该辅助函数会保留它；创建、持久化加载、未发布 setup、服务、worker、进程、持久化和 wire 协议则继续保留各自的显式身份。[agent 服务](../agent/README.md#initiating-agent-scope)规定传播、teardown 和分离工作规则。
 
 每次提供方调用成功结束时，都会恰好追加一个 `assistant/message` 完成锚点，包括无内容调用和以 `max-tokens` 结束的调用。该锚点原样记录组装后的内容，保留确切的分片溯源（流没有分片时为 `[]`），并在用量可用时包含用量；空内容不会进入派生消息历史。
 
 在 `agent/request` 返回提供方／模型调用配置后，循环会调用 `ctx.llm.prepareCall()`，在活跃轮次信号的控制下校验由适配器持有的字段，并填入配置的推理（reasoning）强度和输出 token 默认值。准备完成的调用会在这次异步解析、`request/header` 日志记录和最终分派期间保留同一项确切的适配器注册，因此 HMR（热模块替换）不会把某个适配器的能力解析结果与另一适配器的请求混用。请求 header 会记录生效配置以及哪些字段来自适配器。下一次 waterfall（瀑布式事件）前，循环会从提议中移除这些带标记字段，使当前精确路由重新填入自身默认值；未带标记的显式设置会跨步骤和路由变化保留。没有已注册适配器的路由会保留原定配置，使 `llm/stream` 监听器可以接管并短路该请求；最终分派仍会以 `NO_ADAPTER` 拒绝未得到处理的路由。新循环实例在恢复时会应用同一来源规则。
 
-插件失败会结束当前轮次，而不是结束循环。只有最终适配器分发／迭代失败以及带内的终止错误或中止结束才进入 `agent/request-error`；中间件、结果处理、工具及其他扩展失败会直接关闭轮次。失败步骤关闭后，恢复逻辑会接收确切的实时错误、不可变的提供方事实、不可变的先前失败、为请求提供服务的适配器注册所对应的不可变重试策略，以及轮次信号；如果没有最终适配器为其提供服务，则该策略缺失。处理失败的监听器返回 `{ kind: 'retry' }`；循环用其错误关闭失败轮次，并在不插入空闲通知的情况下开启一个编号重试轮次。成功会清除连续失败历史；未被处理的失败是终态。AgentLoop 为当前接纳或轮次拥有一个取消信号。有效的 `cancel(cause)` 在未设置 `keepInbox` 时清除待处理工作，并以协作方式中止该信号；空闲取消是空操作。持久 `turn/end` 为 `user` 和 `parent` 记录 `aborted`，dispose（资源释放）则记录 `disposed`；未分发的模型工具调用会收到合成的 `tool/call` 与 `ABORTED_BEFORE_DISPATCH` 结果对。取消原因只改变报告方式，不改变对取消后已定案结果上下文的处理。dispose 会等待忽略信号的工作完成，然后才从注册表移除。[显式取消决策](../../../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)规定生命周期与竞态契约。
+插件失败会结束当前轮次，而不是结束循环。只有最终适配器分发／迭代失败以及带内的终止错误或中止结束才进入 `agent/request-error`；中间件、结果处理、工具及其他扩展失败会直接关闭轮次。失败步骤关闭后，恢复逻辑会接收确切的实时错误、不可变的提供方事实、不可变的先前失败、为请求提供服务的适配器注册所对应的不可变重试策略，以及轮次信号；如果没有最终适配器为其提供服务，则该策略缺失。处理失败的监听器返回 `{ kind: 'retry' }`；循环用其错误关闭失败轮次，并在不插入空闲通知的情况下开启一个编号重试轮次。成功会清除连续失败历史；未被处理的失败是终态。AgentLoop 为当前接纳或轮次拥有一个取消信号。有效的 `cancel(cause)` 在未设置 `keepInbox` 时清除待处理工作，并以协作方式中止该信号；空闲取消是空操作。持久 `turn/end` 为 `user` 和 `parent` 记录 `aborted`，dispose 则记录 `disposed`；未分发的模型工具调用会收到合成的 `tool/call` 与 `ABORTED_BEFORE_DISPATCH` 结果对。取消原因只改变报告方式，不改变对取消后已定案结果上下文的处理。dispose 会等待忽略信号的工作完成，然后才从注册表移除。[显式取消决策](../../../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)规定生命周期与竞态契约。
 
 在步骤内，独占调用形成屏障；并行安全调用使用有界滚动池，并在启动前重新分类。只有分发／主体会重叠。策略、持久结果和结果上下文仍保持模型顺序。中止会停止新调用，drain 已启动的结果，并保留其已定案的结果上下文，不区分取消原因。内部调度器故障会停止新的分发，等待已启动的分发，然后在不虚构工具结果的情况下到达轮次错误边界。
 
@@ -126,7 +126,7 @@ interface Config {
 
 #### KV Cache 影响
 
-仅追加；每个合成结果都位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
+仅追加；每个合成结果都位于可复用请求前缀之后，不会使现有 KV Cache 条目失效。
 
 ## 已知限制与暂缓事项
 

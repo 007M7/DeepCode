@@ -4,7 +4,7 @@
 
 事件溯源的会话日志和内存存储。`Session` 是 agent（智能体）全部交互历史的仅追加真源，LLM（大语言模型）消息历史由它*派生*。原始日志之上维护一个 **surface** 层（产生消息事件的有序投影），以便高效派生和压缩（compaction）。
 
-可选配套入口 `@deepseek-ai/dsh-session/invariant` 将此包（package）的关系轨迹检查注册到 `ctx.invariants`：序号单调递增、轮次／步骤闭合，以及同一步骤内的工具调用／结果配对。加载或重新加载时，它会回放现有会话；存储校验、快照、冻结、溯源信息和 surface 准入仍始终由根会话包负责。
+可选配套入口 `@deepseek-ai/dsh-session/invariant` 将此包的关系轨迹检查注册到 `ctx.invariants`：序号单调递增、轮次／步骤闭合，以及同一步骤内的工具调用／结果配对。加载或重新加载时，它会回放现有会话；存储校验、快照、冻结、溯源信息和 surface 准入仍始终由根会话包负责。
 
 ## 服务：`SessionStore`（ctx 键：`sessions`）
 
@@ -27,7 +27,7 @@
 - `enter(session)` 执行冲突检查，在不通知的情况下发布，并返回一个绑定到该条目的幂等脱离函数。允许并发准备相同 id，但只有一个条目能够成功进入；陈旧的脱离函数无法移除其替代项。
 - `announce(session)` 发出唯一一次创建边，并拒绝重复或重入通知。该次分发期间请求的脱离操作会延后，之后再发出成对的释放边；未通知的条目不会发出任何生命周期边。
 
-`dsh-agent-loop` 使用这一拆分，以保证循环的最终刷新先于会话脱离；详见[所有权 Agent Note（agent 决策记录）](../../../.agents/notes/implemented/architecture/2026-06-18-agent-lifecycle-and-ownership-seams.md)。
+`dsh-agent-loop` 使用这一拆分，以保证循环的最终刷新先于会话脱离；详见[所有权 Agent Note](../../../.agents/notes/implemented/architecture/2026-06-18-agent-lifecycle-and-ownership-seams.md)。
 
 ### 实时服务事件
 
@@ -35,7 +35,7 @@
 
 ### 类：`Session`
 
-普通类（不是 Cordis 服务）。通过 `ctx.sessions.create()` 创建。
+普通类（不是 Cordis 服务）。活跃会话通过 `ctx.sessions.create()` 创建，脱离态的回放或检查会话通过 `Session.create()` 创建；脱离态工厂不会发布生命周期事件，也不会将会话绑定到 fiber。
 
 - `session.append(type, data, opts?)` 会为持久数据和 surface 元数据制作快照并冻结它们，校验标记形态、溯源信息、替换覆盖完整性，以及仅修改内容的单个 `tool/result` 重写，随后同步提交，再在彼此独立的失败收容下通知观察者。对已附加会话的重入追加会被拒绝，运行时检查也覆盖扩宽后的联合类型和已加载日志。
 - `session.deriveMessages()` 对每个新的 surface 条目只做一次增量投影，并返回一个新数组，其中包含这些条目存储的完整、带标识且冻结的消息。assistant 消息会在其模型来源中保留提供方／模型溯源信息及适配器私有回放状态。surface 重写会重建投影；不存在原始日志回退。
@@ -49,24 +49,21 @@
 
 持久值需要一种已接受的表示，不能先检查再二次读取。`isJsonValue(value)` 是布尔判断函数；`snapshotJsonValue(value)` 在一趟迭代中校验并复制普通值，无效输入返回 `undefined`，getter 抛出的异常则向外传播。快照辅助函数接受除 `-0` 外的有限 JSON 数值（JSON 会将其改写为 `0`）、稠密普通数组、普通对象或 null 原型对象；它会在规范化前拒绝循环引用、不支持的标量和特殊原型，同时不施加调用栈深度限制。
 
+会话事件导入将所有权与消息校验分开处理。`snapshotSessionEvent(event)` 会先克隆借用的事件，再校验并冻结其中带标识的消息。`adoptSessionEvent(event)` 原地执行相同的消息处理并返回原事件；调用方只有在移交独占的对象图，且该对象图没有与其他事件共享可变子对象时，才可以使用此函数。
+
 ### 分片行存储编解码器（`chunk-rows.ts`）
 
-提供方以 token 大小的增量流式输出，因此原始日志会存储数百行 `assistant/chunk`，其 JSON 封装远大于载荷。`packChunkRuns(events)` 将每段至少 3 个连续、同块的增量分片打包为一个存储行：`text-chunks`、`reasoning-chunks` 或 `tool-call-chunks`（不含斜杠的裸标签，属于存储词汇而不是 `SessionEventMap` 成员）。`decodeStorageRecord(value)` 则将已解析行展开回完全一致的事件（`seq0`／`time0` 加上每个成员的 `dt` 间隔，可重建每个 `seq`／`time`）。编码器只允许精确形态，并逐字存储任何无法识别的内容；解码器校验带行标签的值，形态错误时抛出异常。编解码器由此包所有，使 JSONL 后端和 fixture（测试前置数据）读取器（`dsh-llm-replay`、`dsh-acp-snapshot`）共享同一编解码器；后端默认启用的 `packChunks` 配置只控制写入。
+共享的[存储编解码器](src/chunk-rows.ts)在事件序列与紧凑行之间无损转换。它会逐字保留无法识别的事件，并拒绝形态错误的编码行；是否启用打包写入由持久化后端决定。
 
 ### Surface 类型
 
-- `SurfaceOp`：事件进入有序 surface 的方式，即 `'append'`（正常尾部追加）或 `{ op: 'replace', start, end }`（替换从 `start` 到 `end` 的条目，含两端；二者都必须是有效的 surface 序号；`start === end` 时替换一个条目）。压缩用它遮蔽旧事件而不删除它们。
-- `SurfaceIntent`：`{ surfaceOp: SurfaceOp; sourceEventSeqs?: number[] }`，可进入 surface 的类型调用 `session.append()` 时必需的第三个参数。
-- `SessionSurface`：实时只读 `nodes` 和 `replaceGeneration` 投影，由 `session.surface` 暴露；候选校验仍由 `Session` 私有。
-- `foldSurface(events)`：回放规范 surface 契约，得到脱离的当前事件序列与实际替换范围。同一趟处理会拒绝不连续序号、错位或畸形元数据、空或重复溯源信息、来源并非更早事件、无效位置范围，以及没有引用所有已遮蔽 surface 条目的替换。如果一个 `tool/result` 替换修改了当前某个结果的 `content` 之外的任何内容，也会被拒绝；`SurfaceManager` 共享该原子状态转换，但只保留自己的增量序列缓存。
-- `isSurfaceEvent(event)`／`isSurfaceEligibleType(type)`：前者将 `SessionEvent` 收窄为形态完整的 surface 事件；后者在校验种子或已加载日志时，检测缺少标记的可进入 surface 事件。
-- `isAppendSurfaceEvent(event)`／`isReplacementSurfaceEvent(event)`：按标记变体拆分形态完整的 surface 事件。追加来源的事件是人类可读记录（transcript）的持久来源，而该记录并非模型可见的 surface：已落地的替换会遮蔽它所概括的范围，因此从 `session.surface` 投影记录会抹掉读者已经看到的对话。必须准确发送模型所见内容的消费方仍继续读取 `session.surface`。
+此包拥有有序 surface 投影、替换校验、回放，以及区分追加来源事件与替换事件的类型守卫。[surface 类型目录](../../../docs/core-data-structures/session.md#surface-types)拥有精确形状与字段语义。面向人的 transcript（文本记录）必须投影追加来源事件，而不是 `session.surface`，因为已落地的替换会遮蔽读者已经看到的历史；面向模型的消费方继续读取 `session.surface`。
 
 ### 请求头重建（`request-header.ts`）
 
 `request/header` 记录非历史请求封装的完整规范快照，其原因为 `initial`、`resume` 或 `change`。其可选 `adapterDefaults` 映射会标记由精确模型解析填入的生效 `reasoningEffort` 或 `maxTokens` 值，使下一次请求提议能够将它们与显式对话设置区分开。`foldRequestHeader()` 选择最新快照；旧版增量事件和已移除的 `fallback` 原因会被拒绝。详见[可重建请求 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)。
 
-`request/context` 记录请求所解析到的路由的、绑定注册项的元数据，在其所属步骤内紧随 `request/header` 追加，且仅在提供方、模型或容量与上一条记录不同时追加。`session.requestContext()` 以增量方式归并最新一条，与 `requestHeader()` 保持一致。容量刻意不进入 `EpochHeader`：它是描述路由的适配器元数据，不是构建该请求所依据的输入，因此绝不可进入请求重建或请求头相等性判断：容量变化不构成请求头 `change`。适配器不公布容量的路由仍会被记录，但 `contextWindow` 字段缺失，从而清除较早的已知容量。
+`request/context` 记录请求所解析到的路由的、绑定注册项的元数据，在其所属步骤内与 `request/header` 一同追加，且仅在提供方、模型或容量与上一条记录不同时追加。`session.requestContext()` 以增量方式归并最新一条，与 `requestHeader()` 保持一致。容量刻意不进入 `EpochHeader`：它是描述路由的适配器元数据，不是构建该请求所依据的输入，因此绝不可进入请求重建或请求头相等性判断：容量变化不构成请求头 `change`。适配器不公布容量的路由仍会被记录，但 `contextWindow` 字段缺失，从而清除较早的已知容量。
 
 `user/message` 会直接存储完整的 `UserMessage`，其中包括路由或提示词准入前创建的标识。无论它是直接人类提示词、合成注入，还是已准入的 Goal Round，都会原样呈现其 `content`；带类型的 `source` 是区分三者的唯一通道，并携带各领域专有的持久事实。`assistant/message`、`tool/result` 和 steering（中途引导）对应的 `steering/message` 也会存储完整的消息值。轮次执行仍由 `turn/start` 与 `turn/end` 包围，而空闲注入可以在轮次之间追加并刷新一条 `user/message`，无需运行模型。
 
@@ -80,7 +77,7 @@
 
 此包还定义 `TurnTriggerMap` 和 `TurnEndReasonMap`（用于类型化轮次边界、可合并扩展的和类型；以 `kind` 为标签而不是字符串）。最终模型请求错误保留一个结构化 `LlmFailure`；其他轮次错误保留消息／代码，两者均标识失败步骤。
 
-被中断的实时轮次以粗粒度的 `{ kind: 'aborted' }` 结果结束。调用方身份属于 Agent 的运行时取消信号，不属于持久 transcript（文本记录）；资源释放仍是独立的 `{ kind: 'disposed' }` 终态。
+被中断的实时轮次以粗粒度的 `{ kind: 'aborted' }` 结果结束。调用方身份属于 Agent 的运行时取消信号，不属于持久 transcript；资源释放仍是独立的 `{ kind: 'disposed' }` 终态。
 
 每个 `SessionEvent` 都有两个可选顶层字段（结构元数据）：
 
@@ -94,7 +91,7 @@
 ### 扩展点
 
 - 持久化插件：订阅 `session/event`（延后写入），并在 `session/flush`（受等待）及 fiber dispose（资源释放）时排空。持久后端读取日志并重新加载到实时会话；这类后端会把元数据 seam（`SessionHeader`、`session.header`）与日志一同存储。
-- 回放／fork：`create(id, { seed })` 校验并冻结连续的当前格式日志，再重建 surface；请求头必须包含提供方／模型，assistant 消息必须包含提供方／模型溯源信息，而粗粒度中止结果必须只含 `{ kind: 'aborted' }`（带旧版原因的记录会被拒绝）。`fork(source, boundary?, childSessionId?)` 选择已完成轮次前缀并记录谱系。
+- 回放／fork：`Session.create(id, seed?, header?)` 校验并冻结连续的当前格式日志，再重建 surface；请求头必须包含提供方／模型，assistant 消息必须包含提供方／模型溯源信息，而粗粒度中止结果必须只含 `{ kind: 'aborted' }`（带旧版原因的记录会被拒绝）。`fork(source, boundary?, childSessionId?)` 选择已完成轮次前缀并记录谱系。
 - 压缩：`dsh-compact-basic` 为摘要检查点追加一个替换用 `user/message`，而 `dsh-compact-tool-result-prune` 追加仅修改内容的 `tool/result` 替换。工具配对边界策略及其缓存归 [`dsh-compact` seam](../../compact/compact/README.md) 所有；此包拥有有序 surface 成员关系、替换校验与 `replaceGeneration`。
 
 ## 模型体验
@@ -141,7 +138,7 @@
 
 记录日志不会导致失效，精确重建会保持请求前缀一致。后续请求头若更改前缀、提示词或 schema，可能从第一处差异开始使复用失效。
 
-## 已知限制与暂缓工作
+## 已知限制与暂缓事项
 
 - **会话分支／树**（pi 风格条目树）：除非需要超越基于边界的 `fork()` 能力，否则暂缓。
 - **`fork()` 仅在实时会话的稳定边界处切分**：所选前缀结束时不得有开放轮次，且源会话必须位于存储中；[fork API](../../../.agents/notes/implemented/feature/2026-06-30-session-store-fork-api.md) 不支持对已持久化但未加载的会话进行 fork。

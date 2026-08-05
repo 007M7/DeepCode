@@ -8,13 +8,13 @@ Status: implemented
 
 agent 的对外驱动接口逐渐长出三个近乎平行的动词——`send`、`steer`、`inject`——各自带有独立的选项类型、独立的实时事件叙事，以及独立的持久事件。`send` 和 `steer` 都会把一条冻结的 inbox 记录入队并发出 `agent/queued`；`inject` 则绕过 inbox，写入一条独立的 `context/message` 持久事件。这三个动词实际上只沿两条独立的轴变化：一个队列项加入哪个队列（一个全新的轮次，还是当前活跃的轮次），以及这个队列项是否让模型运行。把这个 2×2 编码成三个手写方法，掩盖了其中的对称性，让“排入一个轮次但不唤醒驱动器”无法表达，也让 `cancel()` 无从在保留排队工作的前提下中止一个轮次。
 
-另外，`context/message` 与 `user/message` 已经趋同：对外接口把二者都投影为逐字的 user 角色内容，唯一真正的区别是注入的上下文携带非 user `source` 且“不是提示词”。一个投影对应两种事件类型，意味着每个消费方都要根据事件类型分支来回答“这是不是一条人类提示词？”，而 goal 系统把这种类型区分当作侧信道使用（第 0 轮的状态变更是 `context/message`，已准入的轮次是 `user/message`）。
+另外，`context/message` 与 `user/message` 已经趋同：对外接口把二者都原样投影为 user 角色内容，唯一真正的区别是注入的上下文携带非 user `source` 且“不是提示词”。一个投影对应两种事件类型，意味着每个消费方都要根据事件类型分支来回答“这是不是一条人类提示词？”，而 goal 系统把这种类型区分当作侧信道使用（第 0 轮的状态变更是 `context/message`，已准入的轮次是 `user/message`）。
 
 ## 决策
 
 **一个原语，三个预设别名。** `Agent` 接口的 `send(message, { target, wakeup })` 覆盖 (`target` × `wakeup`) 矩阵。完整的 `UserMessage` 持有标识、角色、模型可见 `content` 与生产方 `source`；完整的 `SendOptions` 只持有路由策略。`followup`（`next-turn`/wakeup）、`steer`（`next-step`/wakeup）和 `inject`（`next-step`/no-wakeup）都接收这一条消息并固定策略。`wakeup` 意为“让模型运行”：为一个 `next-turn` 队列项唤醒处于停泊状态的驱动器，或为一个运行中的 `next-step` 队列项强制继续执行。`next-turn`/no-wakeup（入队但不唤醒）可以表达，只是没有别名，也没有当前调用方。
 
-**inject 保留其机制。** `next-step`/no-wakeup 路径正是旧的 `inject`：持久的面向模型上下文会追加到当前日志位置；提示词准入或一个轮次占有下一个安全边界时，它会延迟处理，而在该窗口之外则直接追加。它完全绕过 FIFO 队列，而必填的 `UserMessage.source` 会保留调用方显式提供的来源信息。
+**inject 保留其机制。** `next-step`/no-wakeup 路径正是旧的 `inject`：持久的面向模型上下文会追加到当前日志位置；当提示词准入流程或某个轮次占用下一个安全边界时，它会延迟处理，而在该窗口之外则直接追加。它完全绕过 FIFO 队列，而必填的 `UserMessage.source` 会保留调用方显式提供的来源信息。
 
 **context/message 已移除。** 注入的上下文现在是一条 `user/message`；上下文生产方显式提供合适的非 `user` 类别 `source`，类型化 source 变体携带所有特定于领域的持久来源信息。对外接口、派生逻辑和 `SurfaceEventType` 都不再包含 `context/message`；需要判断“这是不是一条人类提示词？”的消费方改为读取 `source.kind === 'user'`，而不是事件类型。
 
@@ -24,7 +24,7 @@ agent 的对外驱动接口逐渐长出三个近乎平行的动词——`send`�
 
 **Inbox 生命周期事件携带单次入队标识。** `agent/inbox/enqueue`（一个队列项进入某个 FIFO）、`agent/inbox/update`（待处理的 queued 项被编辑）、`agent/inbox/dequeue`（驱动器认领一个项）和 `agent/inbox/discard`（待处理项被丢弃）都会携带一个 `InboxItem`：仅属于本次入队的 `InboxItemId`、已接受的 `UserMessage`，以及生产方在接受消息时捕获的已解析 `queued | steering` 放置方式。单次入队标识让观察方和重连镜像能够区分同一 `MessageId` 的多次发送，无需根据后续状态或会话历史重建路由。注入从不触及 FIFO，也不发出这些事件中的任何一个。每次 FIFO 入队都会发布一个 enqueue，并且恰好发布一个终态 dequeue 或 discard；update 不是终态。`dsh-agent` 的不变量配套断言这种 FIFO 守恒。
 
-**准入接受 next-step 输入，但不会因此成为一个轮次。** 循环会在 `agent/prompt-submit` 前打开一个私有的 next-step 接受窗口，使其贯穿整个轮次，并在 `turn/end` 前关闭。因此，在准入期间收到的 steering 和注入会一起留在 outbox 中并加入获准轮次。如果准入被阻止或失败，仅含调用方上下文的批次会采用空闲注入的立即追加行为，而 steering 及与其一同暂存的上下文仍可重试；两种路径都不会写入被拒绝的提示词。后续提示词获准时，保留在 outbox 中的输入会先于该提示词进入其轮次，而当前准入期间接受的输入则留在提示词之后。在 `turn/end` 前关闭窗口，可以保留这样的规则：可重入的晚到 steering 会成为一个独立的排队轮次。`Agent.acceptsNextStep` 会公开一次 `next-step` 发送当前是否会加入该窗口；`status` 仍是更宽泛的活动信号，而非路由判据。
+**准入接受 next-step 输入，但不会因此成为一个轮次。** 循环会在 `agent/prompt-submit` 前打开一个私有的 next-step 接受窗口，使其贯穿整个轮次，并在 `turn/end` 前关闭。因此，在准入期间收到的 steering 和注入会一起留在 outbox 中并加入已准入的轮次。如果准入被阻止或失败，仅含调用方上下文的批次会采用空闲注入的立即追加行为，而 steering 及与其一同暂存的上下文仍可重试；两种路径都不会写入被拒绝的提示词。后续提示词获准时，保留在 outbox 中的输入会先于该提示词进入其轮次，而当前准入期间接受的输入则留在提示词之后。在 `turn/end` 前关闭窗口，可以保留这样的规则：可重入的晚到 steering 会成为一个独立的排队轮次。`Agent.acceptsNextStep` 会公开一次 `next-step` 发送当前是否会加入该窗口；`status` 仍是更宽泛的活动信号，而非路由判据。
 
 **一条已接受消息只保留一种表示。** 持久的用户角色输入和附加的模型可见上下文都直接使用带标识且冻结的 `UserMessage`。循环把该值与私有路由状态存放在一起，不会将其标识、内容或来源复制到另一种公开形状中。一条成为 steering 的排队消息会在 outbox 中保留同一个消息值，而注入和工具产生的上下文则各自携带带标识的消息。[带标识的不可变消息值决策](2026-07-28-identified-immutable-message-values.md)取代了本记录此前的 `UserMessageData`/`AgentMessage` 层级，并将这一表示扩展到 assistant 消息和工具结果消息。
 
@@ -43,7 +43,7 @@ agent 的对外驱动接口逐渐长出三个近乎平行的动词——`send`�
 
 投递接口现在是一个原语加三个自解释的预设，(`target` × `wakeup`) 矩阵把此前无法表达的组合显式化。一种持久消息类型同时服务提示词、注入的上下文和 goal 轮次，因此对外接口的投影和每一处“是否人类提示词？”检查都简化为一次 `source` 判断。`Agent` 契约仍是接口，因此其他实现和对象字面量形式的测试替身只需实现同一个最小结构接口。goal 折叠的通道区分从事件类型改到了 `source.round`；此前过滤 `context/message` 的每个消费方现在改为按来源过滤 `user/message`。空闲状态下的注入会在两个轮次之间追加 `user/message`，既不打开轮次，也不运行模型。
 
-`wakeup` 是“模型是否应当运行”的信号，因此 inbox 会区分能唤醒的排队工作与任何可 dequeue 的项：一个孤立的 `next-turn`/no-wakeup 队列项会停泊在空闲状态，并随下一次唤醒 send 一同带出，而 `whenIdle`/`cancel` 依据唤醒信号来结算完全停稳。每一次 FIFO 退出都恰好发布一个生命周期事件，特定于领域的持久事实则通过类型化消息 source 传递，而非通过平行的元数据通道。直接使用待处理项的表示方式，使公开生命周期事件保持可关联，既无需维护第二个 steering 包装层，也避免其持久数据发生分歧。后续的[可寻址队列操作](../feature/2026-07-29-addressable-queue-operations.md)决策在该单次入队标识上增加了实时变更，但不改变单消息单轮次或持久消息契约。
+`wakeup` 是“模型是否应当运行”的信号，因此 inbox 会区分能唤醒的排队工作与任何可 dequeue 的项：一个孤立的 `next-turn`/no-wakeup 队列项会在空闲状态保持停泊，并随下一次会唤醒驱动器的 send 一同出队；`whenIdle`/`cancel` 则依据唤醒信号判断何时达到完全停稳。每一次 FIFO 退出都恰好发布一个生命周期事件，特定于领域的持久事实则通过类型化消息 source 传递，而非通过平行的元数据通道。直接使用待处理项的表示方式，使公开生命周期事件保持可关联，既无需维护第二个 steering 包装层，也避免其持久数据发生分歧。后续的[可寻址队列操作](../feature/2026-07-29-addressable-queue-operations.md)决策在该单次入队标识上增加了实时变更，但不改变单消息单轮次或持久消息契约。
 
 ## 相关
 

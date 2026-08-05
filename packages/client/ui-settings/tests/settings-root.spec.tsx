@@ -14,6 +14,7 @@ type Step = { id: string; order: number }
 const SEAT_CONTENT: Record<string, string> = {
   'settings.trigger': 'Settings',
   'settings.header': 'Settings Title',
+  'settings.action': 'Open configuration file',
   'settings.close': 'Close',
 }
 
@@ -113,6 +114,13 @@ describe('SettingsPanel chrome seats', () => {
     const close = screen.getByRole('button', { name: 'Close' })
     expect(close.hasAttribute('aria-label')).toBe(false)
     expect(close.textContent).toContain('Close')
+  })
+
+  it('renders header actions before the shell-owned close control', () => {
+    const { renderSlot } = mount()
+    openPanel()
+    expect(screen.getByText('Open configuration file')).toBeTruthy()
+    expect(renderSlot).toHaveBeenCalledWith('settings.action', {})
   })
 })
 

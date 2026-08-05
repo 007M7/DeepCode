@@ -59,8 +59,6 @@ The child environment is the [`dsh-subprocess`](../../subprocess/README.md) seam
 
 The package has no default export. Cordis loader unwrapping would otherwise hide the named `inject` metadata; see [postmortem 0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md).
 
-Keyless tests drive the SDK client package's scripted fake runtime over real stdio, including a Loader-composed e2e where the child is a real second harness runtime proving parent-session cwd inheritance end to end (`tests/loader-composition.e2e.ts`).
-
 ## Model Experience
 
 ### Child-agent request
