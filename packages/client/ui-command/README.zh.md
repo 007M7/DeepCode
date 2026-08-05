@@ -22,5 +22,4 @@
 
 ## 已知限制与暂缓事项
 
-- **popupSelect 壳没有产品消费方**：包测试会直接演练该壳。
 - **脱离会话后，detached result 的 notice 回退到 console**：fire-and-forget 路径经 `SessionInput.notify` 把结果送到触发会话的编辑器；会话拆除后，console 输出行是仅剩的呈现面。

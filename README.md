@@ -82,11 +82,6 @@ Follow <a href="https://x.com/Deepseekharness">DeepSeek Harness on Twitter</a> f
 
 ## Development
 
-```sh
-pnpm install
-pnpm run test:coverage
-```
-
 Start with the [development guide](docs/development.md) and read the [architecture](docs/architecture.md) before changing packages.
 
 For agents, follow [AGENTS.md](AGENTS.md).

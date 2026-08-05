@@ -86,11 +86,6 @@ pnpm run demo:acp
 
 ## 开发
 
-```sh
-pnpm install
-pnpm run test:coverage
-```
-
 请先阅读[开发指南](docs/development.md)；修改包之前，请阅读[架构文档](docs/architecture.md)。
 
 面向 agent：遵循 [AGENTS.md](AGENTS.md)。

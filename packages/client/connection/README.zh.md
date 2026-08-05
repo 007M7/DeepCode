@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-协议消费层：客户端插件的 apply 会挂载 `ctx.connection`（共享 API 客户端 + 当前页面的 loopback 状态 + 单消费方流循环启动器）；导出表层携带协议契约类型、`AbstractApiClient` seam，以及循环的 sink／配置类型。真实浏览器载体以 HTTP POST 发送 unary／respond，并为 `events.mux` 与 `events.host` 各开一条只下行的 WebSocket；fixture 与进程内载体继续满足同一双流抽象。Loopback hostname 判定逻辑留在包内部：`/api` Host fence 与 WebSocket upgrade 会直接使用它，其他客户端插件则消费派生的 `ctx.connection.isLoopback` 状态。node 半侧的 `/api` 路由让特权方法集（`host.pickDirectory`、`host.openPath`，以及整个配置面——`settings.describe`、`settings.openDocument`、`settings.update`、`settings.replace`、`settings.mutate`、`credentials.describe`、`credentials.set` 和 `credentials.unset`；读取与原生操作也在内，因为 describe 会返回已暴露的配置、打开操作会作用于 Host 桌面，而探测任意引用会报出某条凭据来自何处）以空信任表过信任 fence，从而钉在回环——已声明的 `trustedHosts` 授权可达其余全部方法，而这些方法在真正的认证层出现之前仍只限回环本机。平台子类（WebApiClient/FixtureApiClient）、ConnectionController 循环和 fixture 数据源都属于包内部：apply 负责选择并驱动它们，测试则通过 src 访问。下行边界见 [WebSocket 下行载体 Agent Note](../../../.agents/notes/implemented/architecture/2026-08-04-websocket-downlink-carrier.md)；协议契约见 api-contracts v3 §3。
+协议消费层：客户端插件的 apply 会挂载 `ctx.connection`（共享 API 客户端 + 当前页面的 loopback 状态 + 单消费方流循环启动器）；导出表层携带协议契约类型、`AbstractApiClient` seam，以及循环的 sink／配置类型。浏览器载体以 HTTP POST 发送 unary／respond，并为 `events.mux` 与 `events.host` 各开一条只下行的 WebSocket；进程内载体满足同一双流抽象。Loopback hostname 判定逻辑留在包内部：`/api` Host fence 与 WebSocket upgrade 会直接使用它，其他客户端插件则消费派生的 `ctx.connection.isLoopback` 状态。node 半侧的 `/api` 路由让特权方法集（`host.pickDirectory`、`host.openPath`，以及整个配置面——`settings.describe`/`openDocument`/`update`/`replace`/`mutate` 与 `credentials.describe`/`set`/`unset`；读取与原生操作也在内，因为 describe 会返回已暴露的配置、打开操作会作用于 Host 桌面，而探测任意引用会报出某条凭据来自何处）以空信任表过信任 fence，从而钉在回环——已声明的 `trustedHosts` 授权可达其余全部方法，而这些方法在真正的认证层出现之前仍只限回环本机。平台载体与 ConnectionController 循环属于包内部；apply 负责选择并驱动它们。下行边界见 [WebSocket 下行载体 Agent Note](../../../.agents/notes/implemented/architecture/2026-08-04-websocket-downlink-carrier.md)；协议契约见 api-contracts v3 §3。
 
 ## /api 浏览器信任栅栏
 
@@ -11,10 +11,6 @@ node 半侧在桥接或 upgrade 前守卫 `/api` 下的每个入口（`src/api-r
 ## `/api` WebSocket 下行
 
 `/api/events.mux` 与 `/api/events.host` 各接受一条 WebSocket upgrade，并只向浏览器发送对应的 `ServerRequest` text message；客户端不会在这些 socket 上发送业务数据。任一 socket 结束都会使当前 connection generation 失败并重建两条流，连接就绪仍要求两条 socket open 且 `host.describe` HTTP 调用成功。Host teardown 会终止两条 socket、中止各自的 source，并等待 source 清理完成后再返回。普通网络 GET 这些路径会返回 426，不保留 SSE 回退；`toFetchHandler` 的 SSE 编解码只服务进程内同构载体。
-
-## 无密钥 fixture
-
-任何 `fixture` 查询参数都会选择内存载体。`fixture=empty` 启动时不含 Workspace 或 Session；`fixturePrompt=reject` 在接受前拒绝提示词；`fixtureAttach=fail` 发布 Session 但拒绝将其附加到 Workspace；`fixtureSessionCreate=drop-response` 在丢弃创建响应前发布 Session 并为其发出帧；`fixtureFrames=workspace-first` 则反转默认的 Session 优先创建帧顺序。按名称／路径创建 Workspace 以及由调用方预先分配 SessionId，均具有足够的确定性，组装后的 Web 测试可以据此协调列表与帧的到达。fixture 内容搜索会保留面向生产环境的 `unicode61` 式大小写、变音符号和 token／短语行为，并返回以匹配位置为中心、最多包含 120 个 Unicode 码点的 snippet。
 
 ## 模型体验
 

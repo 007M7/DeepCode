@@ -4,7 +4,7 @@ English | [中文](README.zh.md)
 
 Local implementation of the [`dsh-sandbox`](../sandbox/) seam. It selects and caches one platform runner: Linux prefers a working `bwrap` then Landlock; macOS uses Seatbelt. Multiple candidates are probed in order, while a sole candidate is selected directly.
 
-The package root exports the default and named `LocalSandboxProvider` plugin, `Config`, and its public test-injection seam; platform profile builders stay internal.
+The package root exports the default and named `LocalSandboxProvider` plugin and `Config`; platform profile builders stay internal.
 
 Unsupported platforms and unusable runners fail closed with `SANDBOX_UNAVAILABLE`; execution never silently falls through unconfined. Each wrap carries structured runner-failure rules so consumers can distinguish a broken sandbox from a command failure. The [sandbox Agent Note](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md) owns selection rationale and profile differences.
 
