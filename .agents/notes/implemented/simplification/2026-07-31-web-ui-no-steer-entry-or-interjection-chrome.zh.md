@@ -28,12 +28,12 @@ Status: implemented
 
 ## 后果
 
-- **部分被取代。** 下文中所有关于 steer **入口**、`queue`／`steer` mode 联合类型、插话标注、其 locale 字符串、以及钉住这些「不存在」的黄金基线的子句，均已不再描述 master——在 Decision 中是第 1 条与第 3 至 5 条，在后果中是第 1 条与第 3 条。composer steering 在此之后落地，随后[上下文来源与 steer 标识决策](../feature/2026-08-04-web-context-source-and-steer-marks.md)提供了本 note 重新引入条款所要求的产品决策。仍然成立的是：host 侧 steering 的归属、`ConversationService.send` 仅排队的契约，以及不在 transcript 中隐藏 `steering/message` 的取舍。
-- Web 用户无法从 composer 或 `ctx.conversation.send` steer；中途控制只剩停止／取消与 Queue。
-- Host 线缆与非 Web 客户端仍可 steer；Web 客户端展示这些消息时不再标成插话。
-- 若要重新引入专用 steer UI，需要新的产品决策；没有决策就不要复活 mode 联合类型或徽章。
+- **部分被取代。** Decision 中所有关于 steer **入口**、`queue`／`steer` mode 联合类型、插话标注、其 locale 字符串、以及钉住这些「不存在」的黄金基线的子句，均已不再描述 master——即第 1 条与第 3 至 5 条。composer steering 在此之后落地，随后[上下文来源与 steer 标识决策](../feature/2026-08-04-web-context-source-and-steer-marks.md)提供了本 note 重新引入条款所要求的产品决策，并成为该标注的归属者。下面的后果与测试陈述的是当前事实。
+- host 侧 steering 的归属未变：agent-loop 排空、session 事件与线缆 mode 对 ACP、自动化以及任何非 Web 客户端仍是承重能力。
+- `ConversationService.send(text)` 仍然不接 mode、始终排队；composer 的 Steer 手势改走 `session.prompt(mode: 'steer')`。
+- `steering/message` 仍然折叠进持久 transcript，因此从外部提交的 steer 在回放时依旧如实；只是它现在带上了插话标注，而不再是一个无标识的气泡。
 
 ## 测试
 
-- `packages/client/ui-conversation` unit／jsdom 覆盖：input machine enter／sink、ConversationService 路由、MessageItem steering 分支（无「插话」）、InputBar submit。
-- `apps/web/tests/steering.e2e.ts` 无密钥回放，以及更新后的 `settled.expected.md`（有 steer 正文、无徽章）。
+- `packages/client/ui-conversation` unit／jsdom 覆盖：input machine enter／sink、ConversationService 路由、MessageItem 的 steering 分支、InputBar submit。
+- `apps/web/tests/steering.e2e.ts` 无密钥回放及其黄金基线，后者现在钉住该标注。

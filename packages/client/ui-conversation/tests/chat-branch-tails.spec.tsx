@@ -288,6 +288,52 @@ describe('MessageItem arms', () => {
       .toContain('<system-reminder>')
   })
 
+  it('a delta distinguishes a newly reconciled file from a rewritten one', () => {
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context',
+        seq: 3,
+        content: [{ type: 'text', text: 'delta' }],
+        source: {
+          kind: 'workspace-instructions',
+          form: 'instructions',
+          changes: [
+            { action: 'set', scope: 'a', path: 'new/AGENTS.md' },
+            { action: 'replace', scope: 'b', path: 'old/AGENTS.md' },
+          ],
+        },
+        provenance: { role: 'inject', label: 'new/AGENTS.md, old/AGENTS.md' },
+        form: 'instructions',
+      } as never}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*new\/AGENTS\.md, old\/AGENTS\.md$/ }))
+    const files = [...view.container.querySelectorAll('[data-context-files] li')].map(node => node.textContent)
+    expect(files).toEqual(['new/AGENTS.md已新增', 'old/AGENTS.md已更新'])
+  })
+
+  it('keeps an interleaved unknown block in the order the model received it', () => {
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context',
+        seq: 3,
+        content: [
+          { type: 'text', text: 'before' },
+          { type: 'future-block', payload: 1 },
+          { type: 'text', text: 'after' },
+        ],
+        source: null,
+        provenance: { role: 'inject', label: null },
+        form: null,
+      } as never}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: '上下文注入' }))
+    const texts = [...view.container.querySelectorAll('[data-context-text]')].map(node => node.textContent)
+    expect(texts).toEqual(['before', 'after'])
+    expect(view.getByText(/未知内容块/)).toBeTruthy()
+  })
+
   it('the catalog form lists its durable entries instead of the model-facing prose', () => {
     const view = render(
       <MessageItem t={t} node={{

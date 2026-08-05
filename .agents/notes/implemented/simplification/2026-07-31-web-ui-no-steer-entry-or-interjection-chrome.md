@@ -28,12 +28,12 @@ Keep host and runtime steering intact. Remove only the Web UI entry and chrome:
 
 ## Consequences
 
-- **Superseded in part.** Every clause below about the steer ENTRY, the `queue`/`steer` mode union, the interjection caption, its locale strings, and the goldens that pinned their absence no longer describes master — in the Decision that is bullets 1 and 3 through 5, and in the consequences bullets 1 and 3. Composer steering shipped afterwards, and the [context-source and steer marks decision](../feature/2026-08-04-web-context-source-and-steer-marks.md) then supplied the product decision this note's reintroduction clause required. What still holds: host steering ownership, `ConversationService.send`'s queue-only contract, and the rejection of hiding `steering/message` from the transcript.
-- Web users cannot steer from the composer or `ctx.conversation.send`; stop/cancel and Queue remain the only mid-turn controls.
-- Host-wire and non-Web clients can still steer; the Web client shows those messages without labeling them as interjections.
-- Reintroducing a dedicated steer UI would need a new product decision; do not revive the mode union or badge without one.
+- **Superseded in part.** Every clause in the Decision about the steer ENTRY, the `queue`/`steer` mode union, the interjection caption, its locale strings, and the goldens that pinned their absence no longer describes master — that is bullets 1 and 3 through 5. Composer steering shipped afterwards, and the [context-source and steer marks decision](../feature/2026-08-04-web-context-source-and-steer-marks.md) then supplied the product decision this note's reintroduction clause required and owns the caption. The consequences and testing below state current fact.
+- Host steering ownership is unchanged: agent-loop drain, session events, and the wire mode remain load-bearing for ACP, automation, and any non-Web client.
+- `ConversationService.send(text)` still takes no mode and always queues; the composer's Steer gesture goes through `session.prompt(mode: 'steer')` instead.
+- `steering/message` still folds into the durable transcript, so an externally submitted steer stays truthful on replay. It now carries the interjection caption rather than rendering as a bare bubble.
 
 ## Testing
 
-- `packages/client/ui-conversation` unit/jsdom coverage: input machine enter/sink, ConversationService routing, MessageItem steering arm (no 「插话」), InputBar submit.
-- `apps/web/tests/steering.e2e.ts` keyless replay plus updated `settled.expected.md` (steer text without badge).
+- `packages/client/ui-conversation` unit/jsdom coverage: input machine enter/sink, ConversationService routing, the MessageItem steering arm, InputBar submit.
+- `apps/web/tests/steering.e2e.ts` keyless replay plus its goldens, which now pin the caption.

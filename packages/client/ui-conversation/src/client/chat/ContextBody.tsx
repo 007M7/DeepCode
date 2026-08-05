@@ -25,23 +25,36 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null
 }
 
+/** One run of the model-facing content: adjacent text, or one unknown block. */
+type ContentRun = { text: string } | { block: unknown }
+
 /**
- * Concatenated text of the content blocks, with the non-text blocks kept aside.
- * Context is text in practice (every producer injects one text block), but the
- * block union is merge-extensible, so an unknown block keeps its own fallback
- * rather than vanishing.
+ * The content blocks as runs, IN THE ORDER the model received them.
  *
- * Blocks join with no separator, matching how provider adapters flatten them:
- * inserting a line break here would show the reader a line the model never saw.
+ * Adjacent text blocks join with no separator, matching how provider adapters
+ * flatten them — inserting a line break would show the reader a line the model
+ * never saw. An unknown block breaks the run and keeps its own fallback rather
+ * than being hoisted past the text around it or vanishing; the block union is
+ * merge-extensible, so a foreign log may interleave shapes this build does not
+ * know.
  */
-function partitionContent(content: ContextMessageNode['content']): { text: string; rest: unknown[] } {
-  const texts: string[] = []
-  const rest: unknown[] = []
+function contentRuns(content: ContextMessageNode['content']): ContentRun[] {
+  const runs: ContentRun[] = []
   for (const block of content) {
-    if (block.type === 'text') texts.push(block.text)
-    else rest.push(block)
+    if (block.type !== 'text') {
+      runs.push({ block })
+      continue
+    }
+    const last = runs[runs.length - 1]
+    if (last !== undefined && 'text' in last) last.text += block.text
+    else runs.push({ text: block.text })
   }
-  return { text: texts.join(''), rest }
+  return runs
+}
+
+/** Only the blocks this UI version does not know, for bodies that replace the text. */
+function unknownBlocks(content: ContextMessageNode['content']): unknown[] {
+  return contentRuns(content).flatMap(run => 'block' in run ? [run.block] : [])
 }
 
 /** The model-facing text, truncated to the display bound. */
@@ -126,11 +139,20 @@ function ModelFacingContent({ content, t }: {
   content: ContextMessageNode['content']
   t: Translate
 }): ReactNode {
-  const { text, rest } = partitionContent(content)
   return (
     <>
-      {text !== '' && <pre className={css.text} data-context-text>{boundedText(text, t)}</pre>}
-      <UnknownBlocks blocks={rest} t={t} />
+      {contentRuns(content).map((run, index) => ('text' in run
+        ? run.text !== '' && (
+          <pre key={index} className={css.text} data-context-text>{boundedText(run.text, t)}</pre>
+        )
+        : (
+          <JsonBlock
+            key={index}
+            label={t('message.unknownBlock')}
+            payload={run.block}
+            truncatedLabel={total => t('json.truncated', { total })}
+          />
+        )))}
     </>
   )
 }
@@ -195,6 +217,24 @@ function instructionChanges(source: unknown): InstructionChange[] | null {
 }
 
 /**
+ * Locale key for one reconciled file. The baseline loads a file; a later delta
+ * distinguishes a newly reconciled path from a rewritten one, which `set` and
+ * `replace` already separate at the producer.
+ * @param action - the durable change action.
+ * @param baseline - whether this context is the startup/resume baseline.
+ * @returns the key naming what happened to that file.
+ */
+function instructionAction(
+  action: InstructionChange['action'],
+  baseline: boolean,
+): 'message.context.instructions.removed' | 'message.context.instructions.loaded'
+  | 'message.context.instructions.added' | 'message.context.instructions.updated' {
+  if (action === 'remove') return 'message.context.instructions.removed'
+  if (baseline) return 'message.context.instructions.loaded'
+  return action === 'set' ? 'message.context.instructions.added' : 'message.context.instructions.updated'
+}
+
+/**
  * `instructions` form: the files this context reconciled, then their text.
  *
  * The text keeps its `<system-reminder>` framing verbatim — the framing is part
@@ -218,7 +258,7 @@ export function InstructionsBody({ content, source, t }: {
           <li key={change.path} className={css.file} title={change.digest}>
             <span className={css.filePath}>{change.path}</span>
             <span className={css.fileAction}>
-              {t(`message.context.instructions.${change.action === 'remove' ? 'removed' : baseline ? 'loaded' : 'updated'}`)}
+              {t(instructionAction(change.action, baseline))}
             </span>
           </li>
         ))}
@@ -279,7 +319,7 @@ export function CatalogBody({ content, source, t }: {
   // Entry count is unbounded (a provider may publish any number of skills), and
   // the scrollport bounds height, not node count — so the list bounds itself.
   const shown = entries.slice(0, MAX_ENTRIES)
-  const { rest } = partitionContent(content)
+  const rest = unknownBlocks(content)
   return (
     <>
       {update && <p className={css.catalogNotice} data-context-catalog-update>{t('message.context.catalog.replaced')}</p>}
