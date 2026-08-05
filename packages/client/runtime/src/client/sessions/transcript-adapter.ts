@@ -30,7 +30,6 @@ import { contextForm, contextProvenance } from './context-provenance.ts'
  * import stays type-only because a value import would fail the client purity
  * gate (`packages/client/tsdown.client.ts`) — cross-plugin value imports are
  * forbidden in a browser bundle — while an erased type never reaches it.
- * `tests/compact-checkpoint-pin.spec.ts` covers the same drift behaviorally.
  */
 const COMPACT_PLUGIN: typeof COMPACT_CHECKPOINT_SOURCE.plugin = 'compact'
 

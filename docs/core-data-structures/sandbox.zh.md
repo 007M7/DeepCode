@@ -139,10 +139,10 @@ interface ConfinedArgv {
 }
 ```
 
-面向运维人员的本地提供方配置键仍为 `runnerFailureSignatures`：运维人员配置的 runner 必须为自身的 pre-exec 拒绝方言提供至少一个非空、单行、不区分大小写的子串。提供方会将这些条目映射到一条规则。消费方直接 spawn `ConfinedArgv.argv`，因此当 Node 提供可归因的 `ENOENT`／`EACCES` 证据时，缺失的 runner、不可执行的 runner，或 shebang 解释器不可用的可执行脚本会在 spawn 通道遭拒，而不是由 stderr 规则判定；进程启动后，126 或 127 等子进程退出码仍按普通结果处理，除非匹配所选 runner 文档所定义的致命签名。
+[本地提供方](../../packages/sandbox/sandbox-local/README.md)拥有运维配置，并将其 runner 方言映射到这些规则。[沙箱化 bash 消费方](../../packages/bash/bash-sandbox/README.md)拥有 spawn 与结果归因。
 
 ## 提供方与 fail-closed 错误
 
-`ctx.sandbox.confine(argv, policy)` 返回一个 `ConfinedArgv`，或在没有可用后端时抛出 `SandboxUnavailableError`（错误码 `SANDBOX_UNAVAILABLE`）。直接 spawn 所返回的 argv 时，任何拒绝都能证明受限启动从未开始；但只有在调用方拥有的 workdir 经独立验证可用，且 `ENOENT` 或 `EACCES` 带有明确指向提供方 argv[0] 的 Node 来源信息时，该拒绝才具有基础设施含义，并以原始错误作为详细信息。没有精确错误路径的裸 `syscall: 'spawn'`、任何其他错误码、无效或不可用的 workdir、资源失败、无关 syscall 或无结构拒绝仍保留消费方的普通命令启动语义。进程启动后，匹配到的结构化规则标识 runner 拒绝。对于受限策略，静默的无隔离透传永远不合法。
+`ctx.sandbox.confine(argv, policy)` 返回一个 `ConfinedArgv`，或在没有可用后端时抛出 `SandboxUnavailableError`（错误码 `SANDBOX_UNAVAILABLE`）。消费方也可以在 spawn 或观察所返回的 argv 时对失败进行分类；该归因属于消费方契约。对于受限策略，静默的无隔离透传永远不合法。
 
-提供方探测在多个候选后端之间仲裁，结果在提供方生命周期内缓存。只有一个候选后端的平台可以直接选定它；执行时拒绝仍保留安全属性。本地提供方将 bwrap 和 Seatbelt 报告为 full，并保留 Landlock 启动器的 full/partial 内核裁定。
+提供方选择、探测、缓存和后端专有的强制执行报告归[本地提供方](../../packages/sandbox/sandbox-local/README.md)所有。

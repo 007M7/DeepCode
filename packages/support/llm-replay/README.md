@@ -4,7 +4,7 @@ English | [中文](README.zh.md)
 
 A replay LLM plugin for keyless snapshot tests. It yields model streams reconstructed from a recorded **session JSONL** fixture, so a test can boot the real agent against a fixed model transcript with no API key. With `providers` configured it registers a replay-only adapter whose catalog is available to scenarios that exercise model discovery; without `providers` it installs the catch-all `llm/stream` waterfall used by tests that do not need discovery.
 
-Its consumers are the ACP, headless `stream-json`, and TUI snapshot suites plus the web browser e2e lane. Loader-driven suites mount this plugin in place of a real LLM adapter; the web lane installs it directly to retain the teardown consumption handle. Keeping derivation and replay here places that logic under the per-file 100% coverage gate on `packages/*/src`.
+Its consumers are the ACP and headless `stream-json` snapshot suites plus the Web browser e2e lane. Loader-driven suites mount this plugin in place of a real LLM adapter; the Web lane installs it directly to retain the teardown consumption handle.
 
 ## How the fixture works
 

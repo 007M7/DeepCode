@@ -46,7 +46,7 @@ export async function runWithDeadline(upstream: AbortSignal | undefined, timeout
 
 该信号只会*通知*；调用方必须接入自己的终止机制（`d.signal.addEventListener('abort', kill)`，或将 `d.signal` 传给 `fetch`）。让 promise 与 timer 竞速，会在子进程或套接字仍在泄漏时就让工具调用完成；发出信号则会强制要求存在真正的终止路径。
 
-将你自己的 `code` 传给 `timeoutOf`，以便分类可在嵌套中组合：当你收到的 `upstream` *本身*就是 deadline 信号时（未来启动每次调用 deadline 的 `tools/execute` 中间件），如果外层 timer 首先触发，`AbortSignal.any` 会保留外层 `TimeoutReason`。将范围限定为你的 `code`，可将外部超时视为普通 upstream 取消，这才是你所属功能视角下的正确分类，而不会在本地 timer 尚未到期时就声称自己超时。
+将你自己的 `code` 传给 `timeoutOf`，使分类可在嵌套场景中正确组合。当 `upstream` 本身是 deadline 信号时，如果该 timer 先触发，`AbortSignal.any` 会保留它的 `TimeoutReason`。将匹配范围限定为你的 code，会把外部超时视为普通的 upstream 取消，而不会声称本地 timer 已到期。
 
 对于流式传输，创建一个 `idleWatchdog`，将其稳定的 `signal` 传给传输层，并为提供方的每次读取调用 `watchdog.next(iterator)`。间隔必须为正有限数，且不得超过 `MAX_TIMER_DELAY_MS`；否则 Node 会将其限制为 1 毫秒。它只对尚未完成的读取请求计时，因此当下游代码进行渲染或在请求下一个分片前以其他方式等待时，timer 不会运行。该原语仍然只会通知，因此传输层必须观察稳定信号；DeepSeek 和 pi-ai 适配器证明，超时会关闭它们的真实响应正文或 SDK 请求。
 

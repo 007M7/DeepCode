@@ -93,8 +93,8 @@ export class TokenMeterService extends Service {
     super(ctx, 'tokenMeter')
     validateConfigKeys(config)
 
-    // Projection registration is an optional child: headless and TUI
-    // compositions without the generic registry keep the meter's old shape.
+    // Projection registration is an optional child: compositions without the
+    // generic registry keep the meter's standalone read shape.
     ctx.inject(['sessionProjections'], (projectionCtx) => {
       projectionCtx.sessionProjections.register(tokenUsageProjectionDefinition)
       projectionCtx.sessionProjections.register(contextPressureProjectionDefinition)

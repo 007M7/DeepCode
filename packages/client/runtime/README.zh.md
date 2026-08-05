@@ -20,7 +20,7 @@ SlotsService 分别为 renderer 提供 `useSessions` 与 `useWorkspaces` 的裸 
 
 ## New Session 与 blank 镜像
 
-`WorkspacesService.connectWorkspace(workspaceId)` 解析 New Session 流程最终落入的会话：先在列表镜像中复用该 workspace 的既有空会话（`blank && cwd == workspace.path`），未命中则调用 `session.create({workspaceId})`，返回会话 id 由调用方 open。`SessionSummary.blank` 镜像主机派生的空日志位，在客户端只降不升：由 `session.list`／`host/session-added` 帧播种，本地首次获 Host 接受的 `prompt()`（RPC 成功响应时——受理即证明用户消息已入主机日志；首讯被拒则会话保持 blank、保持可复用）与任何 `running: true` 状态帧翻为 false，每次列表重拉重新对齐。列表界面隐藏 blank 行；store 保留全部行。`SessionsService.create` 接受可选的、由调用方预先分配的 SessionId，失败时抛出 `SessionCreateError`（携带 `requestedSessionId`）。
+`WorkspacesService.connectWorkspace(workspaceId)` 解析 New Session 流程最终落入的会话：先在列表镜像中复用该 workspace 的既有空会话（`blank && cwd == workspace.path && sessionIds.includes(id)`——host 自己的成员规则，绝不只按 cwd，避免劫持 cwd 匹配但未入账的空白会话），未命中则调用 `session.create({workspaceId})`，返回会话 id 由调用方 open。`SessionSummary.blank` 镜像主机派生的空日志位，在客户端只降不升：由 `session.list`／`host/session-added` 帧播种，本地首次获 Host 接受的 `prompt()`（RPC 成功响应时——受理即证明用户消息已入主机日志；首讯被拒则会话保持 blank、保持可复用）与任何 `running: true` 状态帧翻为 false，每次列表重拉重新对齐。列表界面隐藏 blank 行；store 保留全部行。`SessionsService.create` 接受可选的、由调用方预先分配的 SessionId，失败时抛出 `SessionCreateError`（携带 `requestedSessionId`）。
 
 ## 待处理队列投影
 
@@ -28,7 +28,7 @@ SlotsService 分别为 renderer 提供 `useSessions` 与 `useWorkspaces` 的裸 
 
 ## 面向人的 transcript（文本记录）
 
-`ConversationSnapshot.nodes` 是面向人的 transcript，不是模型 surface。`TranscriptAdapter` 按日志顺序投影原始窗口——每个 append 来源的 surface 事件（`isAppendSurfaceEvent`）落在它自己的日志位置上，外加每次落地的压缩（compaction）检查点贡献一个 `CompactionSummaryNode` 标记——且从不查询 surface 顺序。`ConversationSnapshot.turnEnds` 把该窗口中的每个已完成轮次映射到其 `turn/end` seq；它独立于 transcript 保留轮次完成状态，使呈现层能够在启用操作前要求存在真实边界。于是一次落地的压缩会保留它在模型侧遮蔽掉的对话：标记报告模型从哪里开始看不见那段历史，而不是把它抹掉。仅模型可见的 replacement 副本不进入记录：被裁剪的 `tool/result` 和重新生成的 `assistant/message` 只为模型重写一个节点，不标记任何边界。检查点是携带压缩 seam 插件来源、且**替换**了一段 surface 范围的 `user/message`；一条 append 的插件来源 `user/message` 是注入上下文，不是压缩。每个上下文节点还携带一份 `provenance` 视图：`contextProvenance()` 只读取持久来源，据此判定该行是 `inject`（注入）还是跨会话的 `recall`（召回），并用该来源已经记录的指令文件路径、被引用会话标题或插件 id 命名其生产者。客户端不保存任何插件 id 表，因此重命名或新挂载的生产者无需客户端发版即可保持可辨识，恢复的会话日志与外部日志的投影结果和实时会话完全一致；没有可读 kind 的来源则降级为无名注入。与之并列的 `contextForm()` 读取生产方声明的 `ContextForm`，这是相互独立的第二根轴：`kind` 说明上下文由谁产生，`form` 说明它是何种形态的信息，因此多个生产方可以共用一种形态。本 UI 版本不呈现的形态投影为 null，按 opaque 渲染。适配器的插件字面量通过对无 cordis 的 [`dsh-compact/checkpoint`](../../compact/compact/README.md) 叶子做仅类型导入，钉在压缩 seam 自己的声明上：在那里改名会让此处 `tsc` 失败；而对该包（package）做**值**导入会被客户端纯度门禁拒绝，包的**根**即便作为类型也无法到达（它会到达 `dsh-session` 的根，其 `Context` 合并会让 host 的 `sessions` 与本程序的冲突）。`tests/compact-checkpoint-pin.spec.ts` 从行为侧覆盖同一漂移。
+`ConversationSnapshot.nodes` 是面向人的 transcript，不是模型 surface。`TranscriptAdapter` 按日志顺序投影原始窗口——每个 append 来源的 surface 事件（`isAppendSurfaceEvent`）落在它自己的日志位置上，外加每次落地的压缩（compaction）检查点贡献一个 `CompactionSummaryNode` 标记——且从不查询 surface 顺序。`ConversationSnapshot.turnEnds` 把该窗口中的每个已完成轮次映射到其 `turn/end` seq；它独立于 transcript 保留轮次完成状态，使呈现层能够在启用操作前要求存在真实边界。于是一次落地的压缩会保留它在模型侧遮蔽掉的对话：标记报告模型从哪里开始看不见那段历史，而不是把它抹掉。仅模型可见的 replacement 副本不进入记录：被裁剪的 `tool/result` 和重新生成的 `assistant/message` 只为模型重写一个节点，不标记任何边界。检查点是携带压缩 seam 插件来源、且**替换**了一段 surface 范围的 `user/message`；一条 append 的插件来源 `user/message` 是注入上下文，不是压缩。每个上下文节点还携带一份 `provenance` 视图：`contextProvenance()` 只读取持久来源，据此判定该行是 `inject`（注入）还是跨会话的 `recall`（召回），并用该来源已经记录的指令文件路径、被引用会话标题或插件 id 命名其生产者。客户端不保存任何插件 id 表，因此重命名或新挂载的生产者无需客户端发版即可保持可辨识，恢复的会话日志与外部日志的投影结果和实时会话完全一致；没有可读 kind 的来源则降级为无名注入。与之并列的 `contextForm()` 读取生产方声明的 `ContextForm`，这是相互独立的第二根轴：`kind` 说明上下文由谁产生，`form` 说明它是何种形态的信息，因此多个生产方可以共用一种形态。本 UI 版本不呈现的形态投影为 null，按 opaque 渲染。适配器的插件字面量通过对无 cordis 的 [`dsh-compact/checkpoint`](../../compact/compact/README.md) 叶子做仅类型导入，钉在压缩 seam 自己的声明上：在那里改名会让此处 `tsc` 失败；而对该包（package）做**值**导入会被客户端纯度门禁拒绝，包的**根**即便作为类型也无法到达（它会到达 `dsh-session` 的根，其 `Context` 合并会让 host 的 `sessions` 与本程序的冲突）。
 
 由于投影按日志顺序，节点数组天然按 seq 单调：仅日志的 `command/run` / `command/done` 节点按 seq 插入，`Session` 按分数 seq 归并被打断的冻结节点，而检查点所引范围落在窗口之外的窗口会渲染出标记且不打印任何日志。标记的摘要文本来自检查点的 `compact/summary` 溯源；窗口切分把溯源留在窗口外时该行不可展开而非空白，后续补上溯源的分页会解析出文本。性能契约：一次追加最多物化一个节点，并且仅在加入该节点时复制投影；不改变任何节点的事件保持上一次的数组引用（分片风暴零成本），未变化的节点保持其对象标识。
 
@@ -70,6 +70,6 @@ Session 对象会在事件 wire 边界依据生产方的完整字段契约，验
 
 ## 已知限制与暂缓事项
 
-- **`loader.unload` 是 stub（抛出 not-implemented）**：完整链路（fiber dispose → 注册级联 → 样式移除）随 HMR（热模块替换）项目落地。
+- **`loader.unload` 是 stub**：它会抛出 not-implemented；客户端没有从 fiber dispose 到注册与样式移除的卸载链。
 - **scope 拆卸由阶段驱动，目前只能有一个占用者**：已 staged 的会话精确跟随 `list.current`（staging 就是打开信号：事件窗口打开 ⟺ 会话位于 stage）；在 staged 状态下被移除的会话，其 scope 会冻结保留，直到 stage 转向其他会话，而非直到真实观察者数量降为零。解析（`binding()`／`scope()`）只是纯寻址，可安全用于渲染；渲染层经 `currentProvideInfo` observable 读取当前 bundle。并发 pane 落地时，staged 状态可以扩展为多 pane 列表。
 - **插件组合包从该包导入值时必须使用 `/client` 子路径**：裸包名不在 loader externals 表中，会内联第二个模块实例；其私有 scope-tag Symbol 永远无法匹配。这是空状态 P0 的事故复盘（postmortem）所记录的问题。

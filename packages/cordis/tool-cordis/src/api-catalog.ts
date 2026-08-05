@@ -791,6 +791,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Abstract settings service.',
     methods: [
       {
+        signature: 'prepareDocument(): Promise<string | undefined>',
+        jsDoc: '/**\n * Prepare the provider\'s user-editable document for a native editor. File\n * providers may materialize an absent document before returning its path;\n * non-file providers return undefined.\n * @returns the absolute local document path, or undefined for non-file storage.\n */',
+      },
+      {
         signature: 'register<T>(ns: SettingsNamespace, schema: z<T>, options?: SettingsRegisterOptions<T>): SettingsScope<T>',
         jsDoc: '/**\n * Register a namespace schema and receive its owner scope. The registration\n * is an effect on the calling plugin\'s fiber: disposing that fiber removes\n * the namespace and its observers. An invalid stored section fails the\n * registration itself — the earliest point where the schema can judge it.\n * @param ns - unique namespace; duplicate registration fails loud.\n * @param schema - schemastery schema resolving this namespace\'s value.\n * @param options - composition `base` layer and effect timing.\n * @returns the owner scope for reads, observation, and updates.\n */',
       },
