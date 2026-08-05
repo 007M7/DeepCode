@@ -391,10 +391,13 @@ describe('mode-aware wire contribution', () => {
 
   it('resolves the run_code schema flavor lazily and fails loud on a language absent from the flavor table', async () => {
     // The flavor getter reads the runtime directly (peekRuntime), so it — not
-    // requireCodeRuntime — owns the flavor-table guard. A language with no
-    // flavor entry throws when the schema is projected, keeping
-    // RUN_CODE_FLAVORS coupled to SDK_RENDERERS. Assembly's requireCodeRuntime
-    // rejects such a language earlier; this reaches the guard on its own.
+    // requireCodeRuntime — owns the flavor-table guard. Keeping
+    // RUN_CODE_FLAVORS in step with SDK_RENDERERS is the compiler's job (both
+    // are `satisfies`-checked against CodeSdkLanguage), so what the guard
+    // covers is a mounted runtime naming a language absent from both tables,
+    // which throws when the schema is projected. Assembly's
+    // requireCodeRuntime rejects such a language earlier; this reaches the
+    // guard on its own.
     const { ctx } = await setup({ mode: 'code', runtime: { language: 'ruby' } })
     const definition = ctx.tools.get(RUN_CODE_NAME)
     // Names the known languages, symmetric with the SDK_RENDERERS guard: this

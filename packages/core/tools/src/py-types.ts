@@ -52,9 +52,11 @@ const IDENTIFIER = /^[\p{XID_Start}_]\p{XID_Continue}*$/u
  * follow the running engine (Node 22.23.1 reports Unicode 17.0) while CPython
  * follows its own (3.9.6 reports 13.0.0). The skew is not symmetric. A CPython
  * older than the engine is the dangerous direction: a character added to
- * either property since its tables (U+1C89, U+10570, U+1E290, U+1E4D0 are all
- * NFKC-stable and accepted here, and all rejected by that 3.9.6) is emitted
- * bare and its tokenizer refuses the character, taking the whole SDK block
+ * either property since its tables (U+10570 Vithkuqi and U+1E290 Toto, 14.0;
+ * U+1E4D0 Nag Mundari, 15.0; U+1C89 Cyrillic TJE, 16.0 — ages per
+ * `DerivedAge.txt`; all four are NFKC-stable and accepted here, and all four
+ * are `Cn` on that 3.9.6, which rejects them) is emitted bare and its
+ * tokenizer refuses the character, taking the whole SDK block
  * down — the same parseability invariant {@link UNPRINTABLE},
  * {@link LONE_SURROGATE} and {@link MAX_LIST_NESTING} exist for. Both
  * properties carry it: a character added only to `XID_Continue` passes the
@@ -71,7 +73,8 @@ const IDENTIFIER = /^[\p{XID_Start}_]\p{XID_Continue}*$/u
  * shape in the tool's schema declares a `TypedDict`, including for a tool this
  * predicate rejected. A tool named `zz-\u{1E4D0}x` with such parameters never
  * reaches the skew here (the `-` rejects it outright) yet emits
- * `class Zz\u{1E4D0}xArgs`, which that same 3.9.6 refuses. The case mapping is
+ * `class Zz\u{1E4D0}xArgs`, which that same 3.9.6 refuses — Nag Mundari
+ * arrived two releases after its tables. The case mapping is
  * a separate table rather than an XID membership test, and it fails on names
  * both conditions above accept: `\u{019B}` is XID_Start and NFKC-stable, so
  * this predicate accepts it and `async def \u{019B}` compiles on 3.9.6, but
