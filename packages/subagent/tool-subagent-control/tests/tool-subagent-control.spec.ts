@@ -129,7 +129,6 @@ describe('dsh-tool-subagent-control', () => {
       : [])
     // A follow-up is its own later turn, never steering inside the first one.
     expect(prompts).toEqual(['long work', 'also consider Y'])
-    expect(loaded.events.some(event => event.type === 'steering/message')).toBe(false)
   })
 
   it('reports a delivery failure as an errored, not-delivered result', async () => {

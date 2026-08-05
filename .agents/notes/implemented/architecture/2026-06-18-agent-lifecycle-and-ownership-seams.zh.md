@@ -47,4 +47,4 @@ bash 所有者 token 比较依赖共享的 `Agent.id`/`SessionId` 在存活 agen
 
 ## 后果
 
-本变更有意触及公开接口（`Agent`、`AgentFactory`、bash seam），而非作为 ACP 的局部补丁。同步 `Agent.send()` 的简洁易用性得以保留；异步生命周期路径是增量添加的，供需要它的所有者使用。
+本变更有意触及公开接口（`Agent`、`AgentFactory`、bash seam），而非作为 ACP 的局部补丁。同步 agent 交付仍然简单；异步生命周期路径是增量添加的，供需要它的所有者使用。

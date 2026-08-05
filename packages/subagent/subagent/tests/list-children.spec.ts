@@ -116,7 +116,6 @@ describe('SubagentService.listChildren', () => {
     const child = ctx.sessions.create(childId, { meta: { parentSession: parentId } })
     child.append('turn/start', {
       turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
     child.append('subagent/descriptor', descriptorPayload('query-only child'))
 
@@ -234,7 +233,7 @@ describe('SubagentService.listChildren', () => {
     // descriptor and the parent lineage, without starting an Activation.
     const liveId = SessionId('live-child')
     const live = ctx.sessions.create(liveId, { meta: { parentSession: parent.id } })
-    live.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    live.append('turn/start', { turn: 1 })
     live.append('subagent/descriptor', descriptorPayload('live child'))
     const entries = await ctx.subagents.listChildren(parent.id)
     expect(entries).toContainEqual({

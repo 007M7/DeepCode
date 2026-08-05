@@ -88,21 +88,14 @@ describe('TranscriptAdapter', () => {
     adapter.reset([
       ev.user(0, '用户'),
       ev.assistant(1, 0, '助手'),
-      at(2, { type: 'steering/message', surfaceOp: 'append', data: {
-        turn: 0,
-        message: createUserMessage({
-          content: [{ type: 'text', text: '插话' }],
-          source: { kind: 'user' },
-        }),
-      } }),
-      at(3, { type: 'user/message', surfaceOp: 'append', data: createUserMessage({
+      at(2, { type: 'user/message', surfaceOp: 'append', data: createUserMessage({
         content: [{ type: 'text', text: '上下文' }], source: { kind: 'plugin', plugin: 'p' },
       }) }),
-      ev.toolCall(4, 0, 'c1', 'echo', '{"x":1}'),
-      ev.toolResult(5, 0, 'c1', '结果'),
+      ev.toolCall(3, 0, 'c1', 'echo', '{"x":1}'),
+      ev.toolResult(4, 0, 'c1', '结果'),
     ])
     const nodes = adapter.nodes()
-    expect(nodes.map(n => n.kind)).toEqual(['user', 'assistant', 'steering', 'context', 'tool-result'])
+    expect(nodes.map(n => n.kind)).toEqual(['user', 'assistant', 'context', 'tool-result'])
     expect(nodes.find(n => n.kind === 'tool-result')).toMatchObject({
       callId: 'c1', call: { name: 'echo', argsRaw: '{"x":1}' }, isError: false,
     })

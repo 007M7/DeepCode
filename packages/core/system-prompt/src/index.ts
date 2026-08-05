@@ -1,5 +1,5 @@
 /**
- * Registry for ordered system sections, cache-safe context, tool schemas, and prompt variables.
+ * Registry for ordered system sections, dynamic context, tool schemas, and prompt variables.
  *
  * @module @deepseek-ai/dsh-system-prompt
  */
@@ -65,15 +65,11 @@ export interface PromptSection {
   readonly text: string | ((context: AssembleContext) => string)
 }
 
-/**
- * One dynamic model-context contribution. Unlike a {@link PromptSection}, its
- * rendered text is materialized as a durable user-role snapshot at the request
- * tail, so changing runtime state preserves the stable system/history prefix.
- */
+/** Dynamic model context materialized as a durable user-role snapshot. */
 export interface PromptContext {
   /** Unique name — a duplicate registration throws (see {@link SystemPrompt.context}). */
   readonly name: string
-  /** Contexts are joined in ascending order, independently of system-section order. */
+  /** Contexts are joined in ascending order. */
   readonly order: number
   /** Static text or a provider evaluated for each assembly. Empty text contributes nothing. */
   readonly text: string | ((context: AssembleContext) => string)
@@ -87,11 +83,11 @@ export interface AssembledSection {
   text: string
 }
 
-/** One dynamic context contribution with its text resolved. */
+/** One resolved dynamic context contribution. */
 export interface AssembledContext {
   /** The contributing context's unique name. */
   name: string
-  /** The resolved (but not yet interpolated) context text. */
+  /** The resolved text before variable interpolation. */
   text: string
 }
 
@@ -105,8 +101,7 @@ export interface ToolProviderResult {
 
 /**
  * Merge-extensible assembled model input. Sections and contexts remain
- * uninterpolated until their renderers; tools are already in canonical
- * model-facing order.
+ * uninterpolated until rendered; tools are already in canonical order.
  */
 export interface PromptAssembly {
   sections: AssembledSection[]
@@ -200,10 +195,7 @@ export function renderPrompt(assembly: PromptAssembly): string {
 }
 
 /**
- * Render the complete current dynamic context snapshot. The agent loop appends
- * a new durable snapshot only when this text changes or is no longer retained
- * after compaction; the explicit supersession clause makes older snapshots in
- * history harmless.
+ * Render the complete dynamic context snapshot.
  * @param assembly - the assembly whose contexts and variables to render.
  * @returns the current full snapshot, or `''` when no context is active.
  */
@@ -216,7 +208,7 @@ export function renderContextSnapshot(assembly: PromptAssembly): string {
   return `Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\n\n${body}`
 }
 
-/** Interpolate one section or context and attribute diagnostics to its owning input. */
+/** Interpolate one section or context and attribute diagnostics to its owner. */
 function interpolate(
   input: AssembledSection | AssembledContext,
   variables: Record<string, string | undefined>,
@@ -348,10 +340,8 @@ export class SystemPrompt extends Service {
   }
 
   /**
-   * Register ordered cache-safe dynamic context in the calling context's scope.
-   * A scoped context shadows a global context with the same name; duplicates
-   * within one layer and non-finite orders throw. Registration and disposal
-   * emit `system-prompt/change`.
+   * Register ordered dynamic context in the calling context's scope. Scoped
+   * entries shadow global entries with the same name.
    * @param context - the context contribution to register.
    * @returns the exact Cordis effect disposer.
    */

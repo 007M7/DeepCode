@@ -59,6 +59,7 @@ const result = (over?: Partial<ToolResultNode>): ToolResultNode => ({
 describe('tool-call-model', () => {
   it('classifies known tools and falls back to others', () => {
     expect(classifyTool('bash')).toBe('bash')
+    expect(classifyTool('pwsh')).toBe('bash')
     expect(classifyTool('read')).toBe('read')
     expect(classifyTool('web_fetch')).toBe('read')
     expect(classifyTool('web_search')).toBe('search')
@@ -69,6 +70,12 @@ describe('tool-call-model', () => {
     expect(classifyTool('cordis_mount')).toBe('code')
     expect(classifyTool('cordis_unmount')).toBe('others')
     expect(classifyTool('todo_write')).toBe('others')
+  })
+
+  it('gives the pwsh shell row the bash family treatment with its own title', () => {
+    const m = toolRowModel('pwsh', running())
+    expect(m.variant).toBe('bash')
+    expect(m.title).toBe('Pwsh')
   })
 
   it('derives state across running/ok/error/interrupted', () => {
