@@ -46,6 +46,7 @@ export function conversationSnapshot(sessionId: SessionId): ConversationSnapshot
   return {
     sessionId,
     nodes: [],
+    turnTimings: new Map(),
     turnEnds: new Map(),
     partial: null,
     runningCalls: [],

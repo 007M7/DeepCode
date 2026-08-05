@@ -152,7 +152,7 @@ export const StatsLine = memo(function StatsLine({ useSession, useProjection }: 
     <div className={css.root}>
       {groups.map((group, i) => (
         <Fragment key={group}>
-          {i > 0 && <span className={css.sep} aria-hidden>|</span>}
+          {i > 0 && <><span className={css.sep} aria-hidden>|</span>{' '}</>}
           <span>{group}</span>
         </Fragment>
       ))}

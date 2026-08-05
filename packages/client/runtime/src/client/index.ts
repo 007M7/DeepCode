@@ -59,7 +59,9 @@ export type {
 export type { ConversationHistoryProjection } from './session-history/history-fold.ts'
 export type { SessionHistoryInspection } from './sessions/history.ts'
 export { PendingWait } from './sessions/pending.ts'
-export type { PendingInteraction, PendingKind, PendingPayloads } from './sessions/pending.ts'
+export type {
+  PendingInteraction, PendingInteractionStatus, PendingKind, PendingPayloads,
+} from './sessions/pending.ts'
 // Projection value store (session-projection RFC, push model): host-computed
 // whole values per key; domains ship projection support with zero client code.
 export type {

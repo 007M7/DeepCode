@@ -31,6 +31,13 @@ const DARK_ATTRIBUTE = '[data-ds-dark-theme]'
 const TOKEN_PREFIX = '--dsw-alias-scrollbar-'
 /** Prefix of the rebindable indirection scrollbar.css owns. */
 const INDIRECTION_PREFIX = '--dsh-scrollbar-'
+/** The one non-token rebind value: a surface that draws no thumb at all. */
+const HIDDEN_THUMB = 'transparent'
+/** The elevation rebind, spelled per property: value-wholeness, not token shape. */
+const ELEVATED_REBIND = new Map([
+  ['--dsh-scrollbar-thumb', '--dsw-alias-scrollbar-bg-l2'],
+  ['--dsh-scrollbar-thumb-hover', '--dsw-alias-scrollbar-hover-l2'],
+].map(([property, token]) => [property!, `var(${token!})`]))
 
 /**
  * Flatten a stylesheet into rules. Whitespace, declaration order, and trailing
@@ -179,8 +186,13 @@ interface SheetSurfaces {
   elevated: Set<string>
   /** True when some rule declares `overflow*: auto|scroll`. */
   scrolls: boolean
-  /** True when some rule rebinds the indirection. */
-  rebinds: boolean
+  /**
+   * True when some rule rebinds the indirection to an ELEVATION. A rule that
+   * only hides the bar (`transparent`) does not count: it states no elevation,
+   * so a sheet that hides its bars and also scrolls on an elevated surface
+   * still owes the l2 pair for whatever draws a thumb there.
+   */
+  rebindsElevation: boolean
 }
 const sheetSurfaces = new Map<string, SheetSurfaces>()
 
@@ -238,12 +250,16 @@ const elevatedSurfaces = elevatedRungs()
 
 for (const file of packageStylesheets()) {
   const rules = parseRules(readFileSync(file, 'utf8'))
-  const surfaces: SheetSurfaces = { elevated: new Set(), scrolls: false, rebinds: false }
+  const surfaces: SheetSurfaces = { elevated: new Set(), scrolls: false, rebindsElevation: false }
   for (const rule of rules) {
     let rebinds = false
+    let rebindsElevation = false
     const ruleSurfaces: string[] = []
     for (const [property, value] of rule.declarations) {
-      if (property.startsWith(INDIRECTION_PREFIX) && file !== fileURLToPath(new URL('scrollbar.css', STYLES))) rebinds = true
+      if (property.startsWith(INDIRECTION_PREFIX) && file !== fileURLToPath(new URL('scrollbar.css', STYLES))) {
+        rebinds = true
+        if (value !== HIDDEN_THUMB) rebindsElevation = true
+      }
       if (OVERFLOW_PROPERTIES.includes(property) && /\b(?:auto|scroll)\b/.test(value)) surfaces.scrolls = true
       if (SURFACE_PROPERTIES.includes(property)) ruleSurfaces.push(...varReferences(value))
       for (const token of varReferences(value)) {
@@ -254,10 +270,8 @@ for (const file of packageStylesheets()) {
     for (const token of ruleSurfaces) {
       if (elevatedSurfaces.has(token)) surfaces.elevated.add(token)
     }
-    if (rebinds) {
-      rebindRules.push({ file, rule })
-      surfaces.rebinds = true
-    }
+    if (rebinds) rebindRules.push({ file, rule })
+    if (rebindsElevation) surfaces.rebindsElevation = true
   }
   sheetSurfaces.set(file, surfaces)
 }
@@ -452,13 +466,25 @@ describe('elevated surface rebinds', () => {
     }
   })
 
-  it('every rebind targets the l2 elevation pair', () => {
+  it('rebinds the pair to one target: the l2 elevation pair, or transparent', () => {
+    // The rule as a whole, not each declaration on its own. Per-declaration
+    // checking accepts a MIXED rule — `thumb: transparent` beside
+    // `thumb-hover: var(--dsw-alias-scrollbar-hover-l2)` — which repaints the
+    // bar the moment the pointer reaches it while passing a gate that claims
+    // the two targets are exclusive.
+    //
+    // The elevation half compares the whole value against the pair's canonical
+    // spelling rather than checking that every token it mentions ends in `-l2`.
+    // A shape check admits `color-mix(…, var(--dsw-alias-scrollbar-bg-l2) 85%,
+    // white)` and a crossed pair (the hover token bound to the resting
+    // property); neither is what the contract says.
     for (const { file, rule } of rebindRules) {
-      for (const [property, value] of rule.declarations) {
-        if (!property.startsWith(INDIRECTION_PREFIX)) continue
-        for (const token of varReferences(value)) {
-          expect(token, `${file}: ${property}`).toMatch(/-l2$/)
-        }
+      const rebinds = rule.declarations.filter(([property]) => property.startsWith(INDIRECTION_PREFIX))
+      const where = `${file} ${rule.selectors.join(', ')}`
+      if (rebinds.every(([, value]) => value === HIDDEN_THUMB)) continue
+      expect(rebinds.some(([, value]) => value === HIDDEN_THUMB), `${where}: mixes ${HIDDEN_THUMB} with an elevation`).toBe(false)
+      for (const [property, value] of rebinds) {
+        expect(value, `${where}: ${property}`).toBe(ELEVATED_REBIND.get(property))
       }
     }
   })
@@ -499,7 +525,7 @@ describe('elevated surface rebinds', () => {
     // (ChatView's `.toBottom`, CodeBlock's banner). Geometry cannot make that
     // call — a floating button carries a radius, a shadow, and a fixed size.
     for (const [file, surfaces] of sheetSurfaces) {
-      if (!surfaces.scrolls || surfaces.rebinds) continue
+      if (!surfaces.scrolls || surfaces.rebindsElevation) continue
       expect([...surfaces.elevated], `${file} scrolls on an elevated surface without rebinding`).toEqual([])
     }
   })

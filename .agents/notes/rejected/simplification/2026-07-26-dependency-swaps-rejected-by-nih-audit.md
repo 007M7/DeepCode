@@ -48,7 +48,7 @@ Adopt the following dependency swaps. Rejected — per-item evidence below; a fu
 - **`pidtree`/`ps-tree` for the pty process inspector**: bare PID trees; the code needs start-time identity against PID reuse plus `/proc` stdin-wait detection no package does.
 - **`execa` for the subagent-subprocess dispose ladder**: `forceKillAfterDelay` covers SIGTERM→SIGKILL but not the stdin-EOF-first cooperative tier or the reject-if-no-exit-edge contract; adopting it here rewrites spawn sites while keeping the ladder. (Test-infrastructure spawn plumbing is different — see the [execa Agent Note](../../implemented/testing/2026-07-26-execa-for-test-subprocess-plumbing.md).)
 - **`tree-kill` for acp-snapshot teardown and lsp process kill**: the lines are drain-ordering/error-propagation, not tree traversal; lsp/bash already use detached process groups + taskkill.
-- **node-pty everywhere for the TUI test driver**: [Windows-TUI note](../../implemented/feature/2026-07-20-windows-tui-support.md) explicitly rejected node-pty-on-every-host; it is already the Windows leg.
+- **node-pty everywhere for the TUI test driver**: the archived [Windows-TUI note](../../archived/feature/2026-07-20-windows-tui-support.md) explicitly rejected node-pty-on-every-host; it was already the Windows leg.
 
 **Servers and HTTP:**
 

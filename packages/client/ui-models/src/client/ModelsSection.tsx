@@ -245,7 +245,7 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
               <div className={styles['field']}>
                 <span className={styles['fieldLabel']}>{t('provider')}</span>
                 <select
-                  className={styles['input']}
+                  className={`${styles['input']} ${styles['selectInput']}`}
                   value={addTarget.provider}
                   aria-label={t('provider')}
                   onChange={(event) => {
@@ -287,6 +287,7 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
                 setEditing(targetOf(first))
               }}
             >
+              {/* Same glyph as the composer's attach button. */}
               <IconPlusOutline16 size={14} />
               {t('add')}
             </button>

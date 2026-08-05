@@ -11,7 +11,7 @@ The browser side of the dsh web GUI: shell kernel, module system, wire consumer,
 | `web-react/` | Shell-side React glue: `createSlotRenderer` + `SessionProvider` render seats | (renderer install) |
 | `connection/` | Wire consumer both ends: browser `ctx.connection` (shared api client + stream loop) and the node half mounting the `/api` route with its browser-trust fence | `ctx.connection` |
 | `runtime/` | Client cordis boot and React-free object services: slots, Sessions, Workspaces, per-session bindings | `ctx.slots` `ctx.sessions` `ctx.workspaces` |
-| `hmr/` | Dev-only hot reload for fetch-arrival client plugins (`--dev` graphs) | (dev entry) |
+| `hmr/` | Dev-only hot reload for script-loaded client plugins (`--dev` graphs) | (dev entry) |
 | `locale/` | Browser locale preference (`zh`/`en`) plus the ns×locale dictionary registry | `ctx.locale` |
 | `ui-slots/` | Slot registry pure core: SlotMap merging, single `register` API, the four-share props family | (types + core) |
 | `ui-theme/` | Theme preference over the `--dsw-*` token stylesheets (`light`/`dark`/`system`) | `ctx.theme` |

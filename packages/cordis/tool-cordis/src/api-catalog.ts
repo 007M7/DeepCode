@@ -184,7 +184,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'collect(execution: ToolExecution): DshEnvironment',
-        jsDoc: '/**\n * Build the trusted `DSH_*` snapshot for one bash tool execution.\n * @param execution - the current tool execution.\n * @returns an immutable environment overlay containing built-ins and current contributions.\n */',
+        jsDoc: '/**\n * Build the trusted `DSH_*` snapshot for one shell tool execution.\n * @param execution - the current tool execution.\n * @returns an immutable environment overlay containing built-ins and current contributions.\n */',
       },
       {
         signature: 'list(): BashEnvVariableInfo[]',
@@ -387,6 +387,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'register(route: WebRoute): () => void',
         jsDoc: '/**\n * Register a named route. Duplicate (kind, path) throws — route patterns are\n * a composition-level contract, so a collision is a misconfiguration.\n * @param route - kind, path, and the owning handler.\n * @returns the disposer removing the route.\n */',
+      },
+      {
+        signature: 'registerUpgrade(route: WebUpgradeRoute): () => void',
+        jsDoc: '/**\n * Register an exact-path HTTP upgrade route. Duplicate paths throw because\n * one socket can have only one protocol owner.\n * @param route - pathname and handler owning negotiation plus socket use.\n * @returns the disposer removing the route.\n */',
       },
       {
         signature: 'tapIndex(transform: (html: string) => string): () => void',
@@ -1081,16 +1085,6 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>',
         jsDoc: '/**\n * Execute through pre-policy, guards, around-dispatch, post-policy,\n * definition-owned content finalization, and final notification. Tool and\n * listener failures resolve as materialized error results; an invisible tool\n * reports `UNKNOWN_TOOL`. The returned outcome is the same lossless, frozen\n * snapshot final observers receive. Cancellation\n * arriving after entry and before final result materialization skips a\n * not-yet-started body with `ABORTED_BEFORE_DISPATCH` or replaces a\n * successful started outcome with `ABORTED`; already-started work is still\n * drained and may retain a tool-owned structured error.\n * @param exec - the typed same-process call input. The registry assigns its\n *   correlation token before policy begins.\n * @returns the materialized final result.\n */',
-      },
-    ],
-  },
-  {
-    key: 'tui',
-    summary: 'Optional terminal-local interaction service provided by one mounted TUI.',
-    methods: [
-      {
-        signature: 'abstract openOverlay(request: TuiOverlayRequest): TuiOverlaySession',
-        jsDoc: '/**\n * Queue an interactive overlay owned by the calling plugin fiber.\n *\n * The TUI displays one overlay at a time in FIFO order. Disposing the caller\n * removes a queued overlay or closes an active one before plugin teardown\n * settles. This live presentation is neither logged nor replayed.\n *\n * @param request - component factory, layout constraints, and cancellation.\n * @returns the effect-owned overlay session.\n * @throws when the TUI has begun shutting down.\n */',
       },
     ],
   },
@@ -3138,6 +3132,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WebSource',
     declaration: 'export interface WebSource {\n    url: string;\n    title?: string;\n    snippet?: string;\n    publishedAt?: string;\n}',
+  },
+  {
+    name: 'WebUpgradeRoute',
+    declaration: 'export interface WebUpgradeRoute {\n    path: string;\n    handler: (req: IncomingMessage, socket: Duplex, head: Buffer) => void | Promise<void>;\n}',
   },
   {
     name: 'WorkflowMeta',

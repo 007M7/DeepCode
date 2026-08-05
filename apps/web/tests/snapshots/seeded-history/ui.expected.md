@@ -33,7 +33,7 @@
   - img
 - button "Branch into a new conversation":
   - img
-- text: 7/25 {{clock}}
+- text: 7/25 {{clock}}Ran for {{duration}}
 - button "Context compacted View compaction summary":
   - img
   - text: Context compacted View compaction summary

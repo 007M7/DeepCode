@@ -20,7 +20,7 @@
   - img
 - button "Branch into a new conversation":
   - img
-- text: {{clock}} Edited queue item {{clock}}
+- text: {{clock}}Ran for {{duration}} Edited queue item {{clock}}
 - button "Copy":
   - img
 - button "Branch into a new conversation" [disabled]:

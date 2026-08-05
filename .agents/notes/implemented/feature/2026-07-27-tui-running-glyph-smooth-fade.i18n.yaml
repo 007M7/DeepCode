@@ -1,6 +1,0 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-27-tui-running-glyph-smooth-fade.md
-2026-07-27-tui-running-glyph-smooth-fade.md: e4c8fee399c2269bfe53976d3358bc643b2daf6a
-2026-07-27-tui-running-glyph-smooth-fade.zh.md: 25bda3d549b1a7548e997f8801858d1efa32e3eb

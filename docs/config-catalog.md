@@ -192,7 +192,19 @@ export interface GoalConfig {
 
 Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`GoalDomainConfig`](#deepseek-aidsh-goal) · [`InvariantConfig`](#deepseek-aidsh-invariants) · [`SessionTitleConfig`](#deepseek-aidsh-session-title) · [`SkillLocal`](../packages/skill/skill-local/src/index.ts) · [`SkillRegistryConfig`](#deepseek-aidsh-skill) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt) · [`toolBash`](../packages/bash/tool-bash/src/index.ts) · [`toolGoal`](../packages/goal/tool-goal/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`toolSkill`](../packages/skill/tool-skill/src/index.ts) · [`toolTasks`](../packages/tasks/tool-tasks/src/index.ts) · [`workspaceContext`](../packages/context/workspace-context/src/index.ts)
 
-Source: [`packages/examples/agent-spine-demo/src/index.ts:89`](../packages/examples/agent-spine-demo/src/index.ts)
+Source: [`packages/examples/agent-spine-demo/src/index.ts:90`](../packages/examples/agent-spine-demo/src/index.ts)
+
+## `@deepseek-ai/dsh-bash-env`
+
+```ts config-catalog
+/** Plugin config (all optional — the built-in facts resolve without defaults). */
+export interface Config {
+  /** DeepSeek Harness home directory exposed as `DSH_HOME`; defaults to `$DSH_HOME` or `~/.dsh`. */
+  dshHome?: string
+}
+```
+
+Source: [`packages/bash/bash-env/src/index.ts:29`](../packages/bash/bash-env/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-local`
 
@@ -296,7 +308,7 @@ export interface ConnectionConfig {
 }
 ```
 
-Source: [`packages/client/connection/src/index.ts:20`](../packages/client/connection/src/index.ts)
+Source: [`packages/client/connection/src/index.ts:21`](../packages/client/connection/src/index.ts)
 
 ## `@deepseek-ai/dsh-client-hmr`
 
@@ -574,7 +586,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/host/webserver/src/index.ts:39`](../packages/host/webserver/src/index.ts)
+Source: [`packages/host/webserver/src/index.ts:47`](../packages/host/webserver/src/index.ts)
 
 ## `@deepseek-ai/dsh-invariants`
 
@@ -965,6 +977,37 @@ export interface Config {
 
 Source: [`packages/pty/pty-local/src/config.ts:6`](../packages/pty/pty-local/src/config.ts)
 
+## `@deepseek-ai/dsh-pwsh-local`
+
+Requires: `subprocess`
+
+```ts config-catalog
+/** Plugin config (all optional — `static Config` supplies the defaults). */
+export interface Config {
+  /** Default working directory for commands (default: process.cwd()). */
+  cwd?: string
+  /** Default foreground timeout in milliseconds. */
+  timeoutMs?: number
+  /** Upper bound for per-call timeout overrides. */
+  maxTimeoutMs?: number
+  /** Per-stream in-memory output cap; overflow spills to a temp file. */
+  maxOutputBytes?: number
+  /** Per-stream spill-file cap; larger streams retain only their in-memory tail. */
+  maxSpillBytes?: number
+  /** Grace period for kill escalation and for inherited pipes after shell exit. */
+  graceMs?: number
+  /**
+   * Explicit pwsh executable. When omitted, well-known Windows install
+   * locations and PATH entries are probed in order (PowerShell 7 install,
+   * PATH entries such as the Microsoft Store install, then Windows
+   * PowerShell 5.1), falling back to a bare `pwsh` resolved through PATH.
+   */
+  pwshPath?: string
+}
+```
+
+Source: [`packages/bash/pwsh-local/src/index.ts:54`](../packages/bash/pwsh-local/src/index.ts)
+
 ## `@deepseek-ai/dsh-repeat-tool-guard`
 
 ```ts config-catalog
@@ -1221,10 +1264,9 @@ Requires: `sessions`
 
 ```ts config-catalog
 /**
- * Plugin configuration: two verbatim SDK option shapes plus nothing else.
- * `exporter.url` is the one field this package validates itself — required,
- * no default, must parse as an `http(s)` URL — because a missing endpoint
- * must fail at plugin load, not at first export.
+ * Plugin configuration: two verbatim SDK option shapes plus one DSH-owned
+ * shutdown bound. The package validates its endpoint and shutdown deadline
+ * because both must fail at plugin load rather than at first export or exit.
  */
 export interface Config {
   /**
@@ -1242,6 +1284,8 @@ export interface Config {
    * which this plugin fills); the SDK owns and documents these knobs.
    */
   processor?: Omit<BatchLogRecordProcessorOptions, 'exporter'>
+  /** Maximum time spent awaiting the SDK provider's complete shutdown path. */
+  shutdownTimeoutMillis?: number
 }
 ```
 
@@ -1664,19 +1708,17 @@ Source: [`packages/llm/token-meter/src/types.ts:12`](../packages/llm/token-meter
 
 ## `@deepseek-ai/dsh-tool-bash`
 
-Requires: `tools` · `bash` · `systemPrompt`
+Requires: `tools` · `bash` · `systemPrompt` · `bashEnv`
 
 ```ts config-catalog
-/** Configuration for the bash tool and its managed child environment. */
+/** Configuration for the bash tool. */
 export interface Config {
   /** Expose `run_in_background` (default true); disabled calls are also rejected. */
   enableRunInBackground?: boolean
-  /** DeepSeek Harness home directory exposed as `DSH_HOME`; defaults to `$DSH_HOME` or `~/.dsh`. */
-  dshHome?: string
 }
 ```
 
-Source: [`packages/bash/tool-bash/src/index.ts:41`](../packages/bash/tool-bash/src/index.ts)
+Source: [`packages/bash/tool-bash/src/index.ts:34`](../packages/bash/tool-bash/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-bash-persistent`
 
@@ -1813,6 +1855,20 @@ export interface Config {
 ```
 
 Source: [`packages/pty/tool-pty/src/index.ts:35`](../packages/pty/tool-pty/src/index.ts)
+
+## `@deepseek-ai/dsh-tool-pwsh`
+
+Requires: `tools` · `bash` · `systemPrompt` · `bashEnv`
+
+```ts config-catalog
+/** Configuration for the pwsh tool. */
+export interface Config {
+  /** Expose `run_in_background` (default true); disabled calls are also rejected. */
+  enableRunInBackground?: boolean
+}
+```
+
+Source: [`packages/bash/tool-pwsh/src/index.ts:41`](../packages/bash/tool-pwsh/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-ralph`
 
@@ -2046,85 +2102,6 @@ export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
 Source: [`packages/core/tools/src/index.ts:592`](../packages/core/tools/src/index.ts)
-
-## `@deepseek-ai/dsh-tui`
-
-Requires: `agents` · `sessions` · `commands` · `userInteraction` · `tools` · `llm` · `systemPrompt` · `tokenMeter` · `tuiPrompt`
-
-```ts config-catalog
-/** Serializable plugin configuration. */
-export interface Config extends TuiConfig {
-  /** Banner subtitle line. When absent, the banner has no subtitle and sweeps in on start. */
-  welcome?: string
-  /** Exact shared agent/session identity driven by this terminal. Defaults to `main`. */
-  sessionId?: string
-  /**
-   * Skill name auto-invoked as this session's first user turn, exactly as if
-   * the user typed `/skill:<name>`. Set only by a launcher for a fresh
-   * skill-guided session (`dsh migrate`/`dsh upgrade`); absent
-   * leaves the first turn to the user.
-   */
-  initialSkill?: string
-}
-
-/** Interaction and presentation settings for the pi-tui terminal mode. */
-export interface TuiConfig {
-  /** Render model reasoning blocks. */
-  showReasoning?: boolean
-  /** Maximum tool-card body lines retained in its collapsed head/tail preview. */
-  maxToolOutputLines?: number
-  /** Maximum added and removed lines explored while deriving an exact line diff. */
-  maxDiffEditLength?: number
-  /** Maximum options visible at once in a user-question panel. */
-  maxQuestionOptions?: number
-  /** Maximum models visible at once in the model selector. */
-  maxModelOptions?: number
-  /** Maximum sessions visible at once in the resume selector. */
-  maxResumeOptions?: number
-  /** Maximum concurrent cold projection reads in one resume scan. */
-  resumeScanConcurrency?: number
-  /** User-question panel width in terminal columns, clamped to the terminal. */
-  questionDialogWidth?: number
-  /** User-question panel maximum height in terminal rows. */
-  questionDialogMaxHeight?: number
-  /** Model-selector width in terminal columns. */
-  modelDialogWidth?: number
-  /** Model-selector maximum height in terminal rows. */
-  modelDialogMaxHeight?: number
-  /** Transcript-details selector width in terminal columns. */
-  detailsDialogWidth?: number
-  /** Maximum fuzzy file candidates displayed for one `@` query. */
-  fileSearchMaxResults?: number
-  /** Maximum paths retained in one `@` workspace index. */
-  fileSearchMaxEntries?: number
-  /** Directory basenames excluded from `@` traversal and completion. */
-  fileSearchExcludedDirectories?: string[]
-  /** Show the terminal's hardware cursor at the pi editor's IME marker. */
-  showHardwareCursor?: boolean
-  /** Color and prompt-template settings. */
-  theme?: TuiThemeConfig
-  /** Terminal window title while the UI is mounted; a logged session title prefixes it. */
-  title?: string
-}
-
-/** Theme and prompt-template settings for the pi-tui terminal mode. */
-export interface TuiThemeConfig {
-  /** Apply the built-in ANSI color palette. */
-  color?: boolean
-  /** Paint the startup banner with the 24-bit DeepSeek brand gradient. */
-  truecolor?: boolean
-  /** Left-aligned template on the row above the editor. */
-  leftPrompt?: string
-  /** Right-aligned template on the row above the editor. */
-  rightPrompt?: string
-  /** Template used as the editor's first-line prefix. */
-  inputPrompt?: string
-  /** Static placeholder shown in an empty editor while the agent is running. */
-  inputPlaceholder?: string
-}
-```
-
-Source: [`packages/ui/tui/src/config.ts:129`](../packages/ui/tui/src/config.ts)
 
 ## `@deepseek-ai/dsh-typert-loader`
 
