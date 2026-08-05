@@ -4,7 +4,7 @@
 
 以子进程方式驱动 DeepSeek Harness 运行时、走 stdio JSON-RPC 的 TypeScript 客户端 SDK——[Python SDK](../../../python/README.md)（`deepseek-harness`）的设计孪生，共享同一个运行时对端、协议与分层：`DeepSeekHarness` 是高层轮次 API，`HarnessClient` 是低层协议客户端。包根枚举消费方接口：两层客户端、面向调用方的类型和 `JsonRpcResponseError`；源模块、规范化辅助函数与订阅投递机制不供消费方导入。纯库：不在任何 Cordis 上下文注册；它所 spawn 的运行时进程是一个完整 harness，其组成由自己的 `cordis.yml` 决定。
 
-与 Python SDK 不同，启动规格完全显式（`command`/`args`）：本包面向仓库近旁的 TypeScript 消费方——[`dsh-subagent-dsh-sdk`](../../subagent/subagent-dsh-sdk/README.md) 后端、测试、自动化——它们知道自己要启动哪个运行时。捆绑运行时解析（寻找打包可执行文件）仍归 Python 发行版负责。
+与 Python SDK 不同，启动规格完全显式（`command`/`args`）：本包面向仓库近旁的 TypeScript 消费方，包括 [`dsh-subagent-dsh-sdk`](../../subagent/subagent-dsh-sdk/README.md) 后端和自动化；它们知道自己要启动哪个运行时。捆绑运行时解析（寻找打包可执行文件）仍归 Python 发行版负责。
 
 ## DeepSeekHarness
 
@@ -30,10 +30,6 @@ console.log(result.status, result.finalResponse)
 `close()` 先请求协议 `shutdown`（受 `shutdownTimeoutMs` 约束，默认 1000 毫秒），然后走 stdin-EOF → SIGTERM → SIGKILL 阶梯（`disposeEofGraceMs` 默认 6000，`disposeGraceMs` 默认 3000）直到进程真正退出。该阶梯为本客户端私有：它运行在任何 harness 上下文之外，无法搭乘 [`dsh-subprocess`](../../subprocess/README.md) 服务——即该 seam 所记录的 SDK 托管传输例外。幂等，已关闭的客户端拒绝复用。
 
 `HarnessClientOptions.env` 给定时整体替换子进程环境（`undefined` 原样继承父进程环境）；凭据策略归调用方——`dsh-subprocess` 的 `scrubbedParentEnv` 是面向隔离启动的共享擦除基底。
-
-## 测试
-
-免密钥单元测试通过真实 stdio 驱动一个脚本化伪运行时子进程（`tests/fake-runtime.ts`，纯协议、环境变量脚本化）：轮次循环、会话树范围限定、超时、进程死亡和响应畸形场景，以及 dispose（资源释放）阶梯。[SDK 快照套件](../../../examples/jsonrpc-agent/tests/sdk.snapshot.ts) 经由 `llm-replay` 免密钥地通过本客户端驱动真实 `dsh-jsonrpc-agent` 运行时，固定通知流、轮次结果与持久化日志；`DSH_SNAPSHOT=record` 对真实 API 重录。
 
 ## 模型体验
 

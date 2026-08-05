@@ -141,7 +141,7 @@ export function SidebarRoot({
         )}
         {/* Rail resting state is the whale mark; hovering swaps in the panel
             icon (the expand affordance, figma sidebar-hover flow). */}
-        <Tooltip label={t('toggle.open')} disabled={wide}>
+        <Tooltip label={collapsed ? t('toggle.open') : t('toggle.collapse')} delayMs={500}>
           <button
             type="button"
             className={clsx(css.iconButton, css.toggle)}
@@ -155,7 +155,8 @@ export function SidebarRoot({
         </Tooltip>
       </div>
 
-      <Tooltip label={t('session.new.label')} disabled={wide}>
+      {/* Expanded, the button carries its own label — tooltip only on the rail. */}
+      <Tooltip label={t('session.new.label')} delayMs={500} disabled={wide}>
         <button
           type="button"
           className={css.newSession}

@@ -631,11 +631,10 @@ export async function boot(
     stage = 'plugin tree failed to load'
     await mountRootInclude(ctx, absoluteConfigPath, patches)
     // A surface can finish and dispose the whole tree while startup is still
-    // in flight: the TUI renders as soon as its own fiber starts, so an `/exit`
-    // typed before the last entry settles tears the context down under us. The
-    // Loader service goes with it, and the activation audit describes a live
-    // tree — reading `ctx.loader` past this point would throw a TypeError over
-    // an app that exited exactly as asked. Transactional group updates settle
+    // in flight, before the last entry settles. The Loader service goes with
+    // it, and the activation audit describes a live tree — reading `ctx.loader`
+    // past this point would throw a TypeError over an app that exited exactly
+    // as asked. Transactional group updates settle
     // lifecycle inside the mount, so the teardown can land before it returns;
     // re-check after every await.
     await ctx.get('loader')?.await()

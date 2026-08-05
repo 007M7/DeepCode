@@ -18,7 +18,7 @@ When an interface documents two valid ways to signal something — an adapter ma
 
 ## Dispose must reach quiescence, not just request it
 
-A teardown that issues kills/aborts but returns before the work stops leaves orphans. Make cleanup async and await the children's exit (kill → await `done`), and close listener/notification registries BEFORE killing so late completions stay silent. Tests prove disposal waited (pid gone right after `await fiber.dispose()`), not merely that the process eventually dies.
+A teardown that issues kills/aborts but returns before the work stops leaves orphans. Make cleanup async and await the children's exit (kill → await `done`), and close listener/notification registries BEFORE killing so late completions stay silent.
 
 ## Contain callback exceptions at the boundary
 

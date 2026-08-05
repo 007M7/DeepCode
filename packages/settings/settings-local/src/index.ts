@@ -10,7 +10,7 @@
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import { watch as chokidarWatch } from 'chokidar'
-import { mkdir, readFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, extname, join, resolve } from 'node:path'
 import { Document, parseDocument } from 'yaml'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
@@ -96,6 +96,11 @@ function isENOENT(error: unknown): boolean {
   return (error as NodeJS.ErrnoException | null)?.code === 'ENOENT'
 }
 
+/** Whether an exclusive file create found an existing document. */
+function isEEXIST(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException | null)?.code === 'EEXIST'
+}
+
 /** File-backed settings provider (`settings.yaml`/`.json`). */
 export class SettingsLocal extends Settings {
   static Config: z<Config> = z.object({
@@ -137,6 +142,29 @@ export class SettingsLocal extends Settings {
   /** The local document is always writable through {@link Settings.update}. */
   get writable(): boolean {
     return true
+  }
+
+  /** The resolved YAML/JSON document path exposed to local configuration surfaces. */
+  override get documentPath(): string {
+    return this.spec.filename
+  }
+
+  /** Materialize an absent owner-only document, then return its resolved path. */
+  override prepareDocument(): Promise<string> {
+    return this.enqueue(async () => {
+      await mkdir(dirname(this.spec.filename), { recursive: true, mode: 0o700 })
+      await withFileLock(this.spec.filename, async () => {
+        try {
+          await writeFile(this.spec.filename, '', { flag: 'wx', mode: 0o600 })
+        } catch (error) {
+          if (isEEXIST(error)) return
+          throw error
+        }
+        this.text = ''
+        if (!this.isClosed()) this.publish({})
+      })
+      return this.spec.filename
+    })
   }
 
   protected async load(): Promise<Record<string, unknown>> {
@@ -206,34 +234,36 @@ export class SettingsLocal extends Settings {
     // failure: an existing-but-invalid document must fail loud, never be
     // silently ignored or overwritten.
     yield* super[Service.init]()
-    if (!this.spec.watch) return
-    const watcher = chokidarWatch(this.spec.filename, {
-      ignoreInitial: true,
-      awaitWriteFinish: {
-        stabilityThreshold: this.spec.debounceMs,
-        pollInterval: Math.max(1, Math.min(this.spec.debounceMs, 10)),
-      },
-    })
-    watcher.on('all', () => {
-      if (this.closed) return
-      this.queueRefresh()
-    })
-    watcher.on('ready', () => {
-      // The base init's load raced the watcher's own setup: a change written
-      // between that read and the watcher becoming active never fires an
-      // event. One reconcile at ready closes the gap.
-      if (this.closed) return
-      this.queueRefresh()
-    })
-    watcher.on('error', (error) => {
-      this.ctx.logger.warn('settings-local: watcher error on %s', this.spec.filename)
-      this.ctx.logger.warn(error)
-    })
+    const watcher = this.spec.watch
+      ? chokidarWatch(this.spec.filename, {
+        ignoreInitial: true,
+        awaitWriteFinish: {
+          stabilityThreshold: this.spec.debounceMs,
+          pollInterval: Math.max(1, Math.min(this.spec.debounceMs, 10)),
+        },
+      })
+      : undefined
+    if (watcher !== undefined) {
+      watcher.on('all', () => {
+        if (this.closed) return
+        this.queueRefresh()
+      })
+      watcher.on('ready', () => {
+        // The base init's load raced the watcher's own setup: a change written
+        // between that read and the watcher becoming active never fires an
+        // event. One reconcile at ready closes the gap.
+        if (this.closed) return
+        this.queueRefresh()
+      })
+      watcher.on('error', (error) => {
+        this.ctx.logger.warn('settings-local: watcher error on %s', this.spec.filename)
+        this.ctx.logger.warn(error)
+      })
+    }
     yield async () => {
-      // Quiesce: stop accepting events, close the watcher, then wait out any
-      // queued or in-flight operation so nothing publishes after disposal.
+      // Quiesce every operation chain, even when no watcher is configured.
       this.closed = true
-      await watcher.close()
+      await watcher?.close()
       await this.operations
     }
   }

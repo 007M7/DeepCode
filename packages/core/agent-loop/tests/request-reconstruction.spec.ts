@@ -597,7 +597,7 @@ describe('request stability across the loop', () => {
       const stepStart = stepStarts[index]!
       // Messages: the derivation over the log prefix strictly before this
       // step's step/start — rebuilt here through a completely fresh Session.
-      const rebuilt = new Session(SessionId(`rebuild-${index}`), structuredClone(events.slice(0, stepStart.seq)))
+      const rebuilt = Session.create(SessionId(`rebuild-${index}`), structuredClone(events.slice(0, stepStart.seq)))
       expect(structuredClone(request.messages)).toEqual(rebuilt.deriveMessages())
 
       // Header: the latest request/header snapshot up to this step's dispatch

@@ -12,7 +12,7 @@ import {
   acknowledgeReloadConnectionLoss, assertFixtureInventory, captureStableAria, compareOrRefreshGolden,
   launchWebScaffold, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
-import { ZH_BROWSER_LOCALE, saveFailureShot } from './support.ts'
+import { ZH_BROWSER_LOCALE, connectFreshWorkspaceZh, saveFailureShot } from './support.ts'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import {
   WELCOME_NOTICE_ACK_FIELD, WELCOME_NOTICE_COPY, WELCOME_NOTICE_SETTINGS_NAMESPACE,
@@ -22,6 +22,7 @@ import {
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/onboarding-deepseek-config', import.meta.url))
 const WELCOME_EXPECTED = join(SNAPSHOT_DIR, 'welcome.expected.md')
 const MISSING_EXPECTED = join(SNAPSHOT_DIR, 'missing.expected.md')
+const MODELS_EXPECTED = join(SNAPSHOT_DIR, 'models.expected.md')
 const MODE = webSnapshotMode()
 
 describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup', () => {
@@ -160,7 +161,60 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 
+  it('configures arbitrary DeepSeek models and prompts after the selected model is removed', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-onboarding-deepseek-models'))
+    // Opened here rather than inherited: the credential test reloads the page
+    // to exercise the welcome step, so nothing carries an open dialog across.
+    await page.getByRole('button', { name: '设置', exact: true }).click()
+    const settings = page.getByRole('dialog', { name: '设置' })
+    await settings.waitFor({ timeout: 10_000 })
+    await settings.getByRole('button', { name: '模型' }).click()
+    const deepSeek = settings.getByText('DeepSeek', { exact: true }).first()
+    await deepSeek.waitFor({ timeout: 10_000 })
+    await deepSeek.locator('xpath=ancestor::li').getByRole('button', { name: '编辑' }).click()
+    await settings.getByText('自定义设置').click()
+    await settings.getByRole('button', { name: /删除模型/ }).first().click()
+    await settings.getByRole('button', { name: '添加模型' }).click()
+    const customModelId = settings.getByLabel('模型 ID 2')
+    await customModelId.fill('private-preview')
+    await settings.getByLabel('显示名称 2').fill('Private Preview')
+    // Capacities live behind the row's own disclosure, as in the pi-ai form.
+    await settings.getByRole('button', { name: '容量 2' }).click()
+    await settings.getByLabel('上下文窗口 2').fill('131072')
+    await settings.getByLabel('最大输出 token 数 2').fill('64K')
+
+    const modelEditor = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
+    await compareOrRefreshGolden(MODELS_EXPECTED, modelEditor, MODE)
+    await settings.getByRole('button', { name: '保存', exact: true }).click()
+    await customModelId.waitFor({ state: 'detached', timeout: 15_000 })
+
+    const document = await readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8')
+    expect(document).toContain('id: deepseek-v4-pro')
+    expect(document).toContain('id: private-preview')
+    expect(document).toContain('name: Private Preview')
+    expect(document).toContain('contextWindow: 131072')
+    expect(document).toContain('maxTokens: 64000')
+    expect(document).not.toContain('id: deepseek-v4-flash')
+
+    await page.keyboard.press('Escape')
+    // A connected Workspace is what puts a live composer — and its model
+    // trigger — on the page; the scaffold boots without one.
+    await connectFreshWorkspaceZh(page, scaffold.workspaceCwd, 'model-fallback-e2e')
+
+    const modelTrigger = page.getByRole('button', { name: '选择模型', exact: true })
+    await modelTrigger.waitFor({ timeout: 10_000 })
+    await modelTrigger.click()
+    await page.getByRole('menuitem', { name: /模型/ }).click()
+    expect(await page.getByText('deepseek-v4-flash', { exact: true }).count()).toBe(0)
+    await page.getByRole('menuitemradio', { name: 'Private Preview' }).waitFor({ timeout: 10_000 })
+    expect(tripwire.warnings).toEqual([])
+    expect(tripwire.pageErrors).toEqual([])
+  }, 60_000)
+
   it('keeps the fixture inventory closed', async () => {
-    await assertFixtureInventory(SNAPSHOT_DIR, ['missing.expected.md', 'welcome.expected.md'])
+    await assertFixtureInventory(
+      SNAPSHOT_DIR,
+      ['missing.expected.md', 'models.expected.md', 'welcome.expected.md'],
+    )
   })
 })

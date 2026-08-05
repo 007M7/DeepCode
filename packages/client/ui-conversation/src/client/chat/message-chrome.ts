@@ -1,5 +1,4 @@
-// Shared chrome helpers for user/assistant IconActions rows: clipboard write
-// and the compact date+clock label from a session-event epoch.
+// Shared time-label helpers for user/assistant IconActions rows.
 
 import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 
@@ -8,46 +7,6 @@ export type ClockTranslate = Translate<'clock.md' | 'clock.ymd'>
 
 /** The elapsed-duration share of the conversation dictionary. */
 export type RunDurationTranslate = Translate<'duration.seconds' | 'duration.minutes'>
-
-/**
- * Best-effort clipboard write; rejections stay swallowed (no success chrome).
- * @param text - Plain text to place on the clipboard.
- */
-export async function writeClipboard(text: string): Promise<void> {
-  // lib.dom types clipboard non-optional, but insecure contexts omit it —
-  // that runtime gap is exactly what this guard detects.
-  /* oxlint-disable-next-line typescript/no-unnecessary-condition */
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text)
-    } catch {
-      // Denied permissions / iframe policy.
-    }
-    return
-  }
-  // execCommand('copy') is the only clipboard fallback where the async API
-  // is missing (insecure contexts); deprecated but deliberately retained.
-  /* oxlint-disable typescript/no-deprecated */
-  const exec = typeof document.execCommand === 'function'
-    ? document.execCommand.bind(document)
-    : undefined
-  if (exec === undefined) return
-  const el = document.createElement('textarea')
-  el.value = text
-  el.setAttribute('readonly', '')
-  el.style.position = 'fixed'
-  el.style.left = '-9999px'
-  document.body.appendChild(el)
-  el.select()
-  try {
-    exec('copy')
-  } catch {
-    // Clipboard unavailable; the button stays idle.
-  }
-  /* oxlint-enable typescript/no-deprecated */
-  el.remove()
-}
-
 function pad2(n: number): string {
   return String(n).padStart(2, '0')
 }

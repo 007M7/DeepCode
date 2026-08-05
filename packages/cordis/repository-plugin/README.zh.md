@@ -30,7 +30,7 @@
 
 ## 独立应用配置
 
-已交付的 `dsh` TUI、Web 和无头配置树包含一个空的 `repository-plugins` 配置项。独立用户只需在一个 `--config` 覆盖文件中替换该配置项的配置（`dsh --config ~/.dsh/plugins.yml`），即可启用精确指定的 GitHub generation：
+随附 `dsh` 中供原始配置、Web 与无头模式使用的基础配置包含一个空 `repository-plugins` 配置项。用户只需在一个 `--config` overlay 中替换该配置项的配置（`dsh --config ~/.dsh/plugins.yml`），即可启用精确指定的 GitHub generation：
 
 ```yaml
 - id: repository-plugins
@@ -43,7 +43,7 @@
 
 每个源都必须采用 `github:owner/repository#<ref>`。省略 `&path:` 时选择 `/.dsh-plugin`；显式路径是仓库内的绝对路径，并且必须以 `.dsh-plugin` 结尾。commit ref 提供最清晰的不可变身份；tag 和 branch 仍可作为精确配置值使用。`cacheDir` 可覆盖默认缓存根 `$DSH_HOME/cache/repository-plugins`。
 
-每个界面都只在启动时读取该覆盖文件。相同的源字符串会永久复用其已准备缓存条目，因此必须改变 ref、路径或其他源配置，才能选择发生变化的代码。应用集成依据见[仅凭配置接入仓库插件的 Agent Note](../../../.agents/notes/implemented/feature/2026-07-30-config-only-repository-plugins.md)。
+每个界面都只在启动时读取该 overlay 一次。相同的源字符串会永久复用其已准备缓存条目，因此必须改变 ref、路径或其他源配置，才能选择发生变化的代码。应用集成依据见[仅凭配置接入 repository Plugin 的 Agent Note](../../../.agents/notes/implemented/feature/2026-07-30-config-only-repository-plugins.md)。
 
 ## 准备阶段
 

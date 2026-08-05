@@ -30,7 +30,7 @@ Place an ordinary package in the repository's `.dsh-plugin` directory:
 
 ## Standalone app configuration
 
-The shipped `dsh` TUI, Web, and headless trees contain an empty `repository-plugins` row. A standalone user enables exact GitHub generations by replacing that row's config in a `--config` overlay (`dsh --config ~/.dsh/plugins.yml`):
+The shipped `dsh` base used by raw-config, Web, and headless modes contains an empty `repository-plugins` row. A user enables exact GitHub generations by replacing that row's config in a `--config` overlay (`dsh --config ~/.dsh/plugins.yml`):
 
 ```yaml
 - id: repository-plugins

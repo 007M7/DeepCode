@@ -58,6 +58,14 @@ async function boot(options?: ConstructorParameters<typeof MemorySettings>[1]) {
   return { ctx, provider, fiber }
 }
 
+describe('provider metadata', () => {
+  it('does not advertise a local document unless the provider overrides it', async () => {
+    const { ctx } = await boot()
+    expect(ctx.settings.documentPath).toBeUndefined()
+    await expect(ctx.settings.prepareDocument()).resolves.toBeUndefined()
+  })
+})
+
 /** Record every settings/updated emission. */
 function recordUpdates(ctx: Context) {
   const events: Array<{ ns: string; next: unknown; prev: unknown; source: SettingsUpdateSource }> = []

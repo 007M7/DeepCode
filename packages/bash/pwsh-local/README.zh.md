@@ -46,7 +46,7 @@
 ## 已知局限与延期工作
 
 - **自身不设沙箱**——本执行器始终以 harness 进程的权限运行命令；需要约束的部署应组合沙箱化 bash 执行器或策略。
-- **无持久 shell 或 PTY**——每次调用都是全新的 `pwsh -Command`；交互式终端会话在路线图的 pwsh TUI/GUI 渲染工作落地之前保持延期。
+- **无持久 shell 或 PTY**——每次调用都是全新的 `pwsh -Command`。
 - **命令字符串是 PowerShell 文本**——`-Command` 域没有 shell 引号层，但面向模型的命令由 PowerShell 自己解析，因此 PowerShell 语法错误是命令失败，而非启动失败。
 - **后台 spawn 失败提示只投递一次**——subprocess 服务不会为从未运行的进程缓冲输出，因此执行器只把 `spawn failed: …` 注入一次 `readOutput()` 增量；丢弃该增量的读取方无法恢复它。
 - **Windows 终止不报告信号**——被强制终止的进程以退出码 1、`signal: null` 结束，因此基于信号的状态分类（POSIX `killed`）在 Windows 上不适用；`kill()` 发起的停止仍会直接盖上 `killed`。
