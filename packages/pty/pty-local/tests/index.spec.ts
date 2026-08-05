@@ -16,7 +16,7 @@ import type { LocalPtySession } from '@deepseek-ai/dsh-pty-local/src/session.ts'
 
 class EmptySandbox extends SandboxProvider {
   confine(_argv: readonly string[], _policy: SandboxPolicy): ConfinedArgv {
-    return { argv: [], enforcement: 'full', denialSignatures: [], runnerFailureSignatures: [] }
+    return { argv: [], enforcement: 'full', denialSignatures: [], runnerFailureRules: [] }
   }
 }
 
@@ -25,7 +25,7 @@ class RecordingSandbox extends SandboxProvider {
 
   confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv {
     this.calls.push({ argv, policy })
-    return { argv: ['/sandbox', '--', ...argv], enforcement: 'full', denialSignatures: [], runnerFailureSignatures: [] }
+    return { argv: ['/sandbox', '--', ...argv], enforcement: 'full', denialSignatures: [], runnerFailureRules: [] }
   }
 }
 
