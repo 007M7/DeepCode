@@ -16,7 +16,7 @@ Status: implemented
 
 `PreStepDecision` 为 `{ kind: 'reject' } | { kind: 'enter'; messages: UserMessage[] }`。reject 不会打开步骤，会让已领取批次保持已删除，并将轮次关闭为 blocked，且不产生任何步骤事件。空的 enter、取消以及 `step/start` 前的失败同样会关闭一个边界平衡的无步骤轮次。enter 提供在 `step/start` 后以 `user/message` 追加的完整批次。包装 `next()` 的监听器会保留下游变更，除非有意替换，因此全部消息改写只在最终返回值中一次性结算。系统不再存在 `agent/prompt-prepare`、`agent/prompt-submit` 或 `agent/step` seam。
 
-持久 inbox 仍是两份通过 `MessageId` 寻址的 `UserMessage[]` 列表。`append`、`prepend` 与 `splice` 接受 target；`replace(messageId, newMessage)` 与 `remove(messageId)` 则在提交规范化 splice 前，通过 `MessageId` 跨两份列表定位待处理消息。替换可以改变标识，并先将旧消息作为 discarded 发布，再将新消息作为 inserted 发布。每次插入发出 `agent/inbox/inserted { message }`；普通删除记录 `outcome: 'canceled'` 并发出 `agent/inbox/discarded { message }`。这些实时事件不增加 placement、outcome 或批次字段。
+持久 inbox 仍是两份通过 `MessageId` 寻址的 `UserMessage[]` 列表。`append`、`prepend` 与 `splice` 接受 target；`replace(messageId, newMessage)` 与 `remove(messageId)` 则在提交规范化 splice 前，通过 `MessageId` 跨两份列表定位待处理消息。替换可以改变标识，并先将旧消息作为 discarded 发布，再将新消息作为 inserted 发布。每次插入发出 `agent/inbox/inserted { message }`；普通删除记录 `outcome: 'canceled'` 并发出 `agent/inbox/discarded { message }`。领取是循环在 inbox 上的内部步骤边界操作，记录不带通知或 outcome 的纯删除，因此循环可以自行发布 claimed 事件。这些实时事件不增加 placement、outcome 或批次字段。
 
 两类事件表面服务不同消费方。跟踪单条消息的观察方使用 `agent/inbox/inserted`、`claimed` 与 `discarded`。包括 Web 队列投影和重连基线在内的整体队列消费方使用持久 `agent/inbox/spliced` 流；UI 编辑与移除经 `Inbox.splice()` 或其他 Inbox 变更方法进入，从而让同一投影记录所有变化。
 

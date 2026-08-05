@@ -65,6 +65,7 @@ export class Inbox {
    * splices are pure deletions; the caller publishes claimed notifications.
    * @param target - whether this boundary also consumes one queued turn.
    * @returns next-step input followed by the queued turn, when requested.
+   * @internal - the agent loop's step-boundary operation, not a plugin seam.
    */
   claim(target: InboxTarget): UserMessage[] {
     const claimed = this.mutate('next-step', 0, this.nextStep.length, [], false)
