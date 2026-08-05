@@ -299,26 +299,6 @@ function StartedAtValue({ timestamp }: { timestamp: number | null }) {
   )
 }
 
-function DurationValue({ seconds }: { seconds: number | null }) {
-  const [showMillis, setShowMillis] = useState(false)
-  if (seconds === null || !Number.isFinite(seconds)) return <dd>—</dd>
-  return (
-    <dd>
-      <button
-        type="button"
-        className={css.timestampToggle}
-        title={showMillis ? 'Show readable duration' : 'Show exact milliseconds'}
-        onClick={(event) => {
-          if (clickSelectsText(event.currentTarget)) return
-          setShowMillis(current => !current)
-        }}
-      >
-        {showMillis ? `${Math.round(seconds * 1000)} ms` : formatElapsedSeconds(seconds)}
-      </button>
-    </dd>
-  )
-}
-
 function totalTime(metrics: AssistantMetricDetail): string {
   if (!metrics.timingRecorded) return 'Not recorded'
   if (metrics.stepStartTime === null) return 'Step start unavailable'
@@ -1376,7 +1356,7 @@ function RecordTiming({ record }: { record: TableRecord }) {
     : (
       <dl className={css.overview}>
         <div><dt>Started</dt><StartedAtValue timestamp={record.cell.startedAt ?? null} /></div>
-        <div><dt>Duration</dt><DurationValue seconds={record.cell.timeSeconds} /></div>
+        <div><dt>Duration</dt><dd>{formatElapsedSeconds(record.cell.timeSeconds)}</dd></div>
         <div><dt>Timing source</dt><dd>{record.cell.timeSeconds === null ? 'Not available' : 'Session timestamps'}</dd></div>
       </dl>
     )
@@ -1399,7 +1379,7 @@ function RequestTiming({
     return (
       <dl className={css.overview}>
         <div><dt>Started</dt><StartedAtValue timestamp={request.startedAt} /></div>
-        <div><dt>Duration</dt><DurationValue seconds={duration} /></div>
+        <div><dt>Duration</dt><dd>{formatElapsedSeconds(duration)}</dd></div>
         <div>
           <dt>Timing source</dt>
           <dd>{duration === null ? 'Session timestamps (running)' : 'Session timestamps'}</dd>
@@ -1413,7 +1393,7 @@ function RequestTiming({
         <dt>Started</dt>
         <StartedAtValue timestamp={anchor?.cell.startedAt ?? null} />
       </div>
-      <div><dt>Duration</dt><DurationValue seconds={null} /></div>
+      <div><dt>Duration</dt><dd>{formatElapsedSeconds(null)}</dd></div>
     </dl>
   )
 }
@@ -2757,7 +2737,7 @@ export function TrajectoryTable({
                   </div>
                   <div>
                     <dt>Duration</dt>
-                    <DurationValue seconds={selected.cell.timeSeconds} />
+                    <dd>{formatElapsedSeconds(selected.cell.timeSeconds)}</dd>
                   </div>
                   <div>
                     <dt>Tokens</dt>
@@ -2872,7 +2852,7 @@ export function TrajectoryTable({
                   {(selected.cell.kind === 'user' || selected.cell.kind === 'context') && (
                     <div>
                       <dt>Duration</dt>
-                      <DurationValue seconds={selected.cell.timeSeconds} />
+                      <dd>{formatElapsedSeconds(selected.cell.timeSeconds)}</dd>
                     </div>
                   )}
                 </dl>

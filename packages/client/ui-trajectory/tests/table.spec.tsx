@@ -97,7 +97,7 @@ describe('TrajectoryTable', () => {
     expect(screen.getByText('20.0 tok/s')).toBeTruthy()
   })
 
-  it('toggles a tool record Duration between readable and exact milliseconds', () => {
+  it('shows a tool record Duration as exact milliseconds', () => {
     const turns: readonly TrajectoryTurnModel[] = [{
       turn: 1,
       groups: [{
@@ -115,11 +115,7 @@ describe('TrajectoryTable', () => {
     render(<TrajectoryTable turns={turns} {...FOLD_PROPS} />)
     fireEvent.click(screen.getByRole('row', { name: /TOOL/ }))
 
-    const readable = screen.getByRole('button', { name: '1.5 s' })
-    fireEvent.click(readable)
-    expect(screen.getByRole('button', { name: '1500 ms' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '1500 ms' }))
-    expect(screen.getByRole('button', { name: '1.5 s' })).toBeTruthy()
+    expect(screen.getByText('1,500 ms', { selector: 'dd' })).toBeTruthy()
   })
 
   it('breaks output tokens into labeled reasoning and content rows', () => {
