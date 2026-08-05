@@ -159,8 +159,12 @@ describe('WorkspacesService', () => {
     }))
     api.onList = () => Promise.resolve(ok({
       items: [
-        // Blank session already parked in alpha (cwd == workspace path canon
-        // AND accounted under alpha): the reuse hit.
+        // Stray blank at alpha's path but NOT accounted under alpha (a CLI
+        // session birthed at the host cwd), sorted before the member blank:
+        // the scan must skip it and keep looking for a member hit.
+        { sessionId: sid('s-stray-alpha'), updatedAt: 1, running: false, blank: true, cwd: '/w/alpha' },
+        // Blank session parked in alpha (cwd == workspace path canon AND
+        // accounted under alpha): the reuse hit.
         { sessionId: sid('s-blank'), updatedAt: 2, running: false, blank: true, cwd: '/w/alpha' },
         // Non-blank sibling in beta must never be reused.
         { sessionId: sid('s-active'), updatedAt: 3, running: false, blank: false, cwd: '/w/beta' },
@@ -174,7 +178,8 @@ describe('WorkspacesService', () => {
     await Promise.all([workspaces.refresh(), sessions.refresh()])
     await Promise.resolve()
 
-    // Hit: same workspace → the parked blank session comes back, no create RPC.
+    // Hit: same workspace → the parked member blank comes back (the earlier
+    // cwd-matching non-member stray is skipped), no create RPC.
     await expect(workspaces.connectWorkspace(wid('alpha'))).resolves.toBe('s-blank')
     expect(api.callsOf('session.create')).toEqual([])
     // Resolution guarantee: the id is binding-resolvable synchronously.
