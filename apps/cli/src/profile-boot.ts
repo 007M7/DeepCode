@@ -49,18 +49,16 @@ const PROFILE_ROOT_FILENAME = 'cordis.yml'
 /**
  * Resolve the telemetry opt-out switch into its boot patch. ANY non-empty
  * value (including `'0'`/`'false'`) disables: a privacy switch prefers
- * off-by-mistake over on-by-mistake. Throws when the switch is set but the
- * row is absent — a silently no-op "disabled" privacy switch would keep
- * exporting while the user believes it is off.
+ * off-by-mistake over on-by-mistake. A composition without the telemetry row
+ * exports nothing, so the switch is then trivially satisfied and no patch is
+ * generated — custom profiles need not mount telemetry to run with the
+ * switch set.
  * @param disabledEnv - the raw `DSH_TELEMETRY_DISABLED` value (`undefined` when unset).
  * @param hasRow - whether the composition carries the telemetry row.
- * @returns the disable patch, or `undefined` when telemetry stays enabled.
+ * @returns the disable patch, or `undefined` when telemetry stays enabled or is not mounted.
  */
 export function resolveTelemetryPatch(disabledEnv: string | undefined, hasRow: boolean): PatchOptions | undefined {
-  if ((disabledEnv ?? '') === '') return undefined
-  if (!hasRow) {
-    throw new Error(`dsh: DSH_TELEMETRY_DISABLED is set but row "${TELEMETRY_ROW_ID}" is not in this composition`)
-  }
+  if ((disabledEnv ?? '') === '' || !hasRow) return undefined
   return { id: TELEMETRY_ROW_ID, disabled: true }
 }
 

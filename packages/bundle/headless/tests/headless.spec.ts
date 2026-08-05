@@ -67,8 +67,11 @@ async function run(events: ScriptedEvent[], options: { promptFails?: boolean } =
   ctx.provide('httpServer', { port: 12345 } as never)
   apply(ctx, { task: 'do the thing' })
   // Quiescence is out of band: give the scripted stream a beat to drain, then
-  // flip the agent idle exactly as the loop would.
+  // flip the agent idle exactly as the loop would. Foreign agents and
+  // non-idle transitions must not settle the run.
   await new Promise(resolve => setTimeout(resolve, 10))
+  ctx.emit('agent/status', { id: 'OTHER' } as Agent, 'idle')
+  ctx.emit('agent/status', { id: 'S1' } as Agent, 'running')
   ctx.emit('agent/status', { id: 'S1' } as Agent, 'idle')
   const code = await exited
   await ctx.fiber.dispose()
@@ -86,6 +89,8 @@ const end = (turn: number, reason: string): ScriptedEvent => ({ type: 'turn/end'
 describe('headless runner', () => {
   it('aggregates to quiescence: last text wins across turns, final turn-end reason maps to exit 0', async () => {
     const { code, out, err } = await run([
+      // Frames before the first turn/start are outside the task interval.
+      { type: 'assistant/message', data: { turn: 0, message: { content: [{ type: 'text', text: 'pre-task noise' }] } } },
       startupTurn,
       // Off-session, non-text, and text-empty frames never affect the aggregate.
       { type: 'assistant/message', sessionId: 'OTHER', data: { turn: 1, message: { content: [{ type: 'text', text: 'other session' }] } } },
