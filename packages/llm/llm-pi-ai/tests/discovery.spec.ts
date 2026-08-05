@@ -8,8 +8,11 @@ import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { discoverModels } from '../src/discovery.ts'
 
 const servers: Server[] = []
+/** Credential variables a test set, cleared so the next one starts unset. */
+const touchedEnv: string[] = []
 
 afterEach(async () => {
+  for (const name of touchedEnv.splice(0)) Reflect.deleteProperty(process.env, name)
   await Promise.all(servers.splice(0).map(server => new Promise(resolve => server.close(resolve))))
 })
 
@@ -138,6 +141,50 @@ describe('draft-provider model discovery', () => {
     await ctx.llm.discoverModels('llm-pi-ai', { baseURL: server.url })
 
     expect(server.headers[0]?.authorization).toBeUndefined()
+  })
+
+  it('authenticates a configured route the draft cannot supply a key for', async () => {
+    // What the Models page actually sends after a key is saved: the form holds
+    // the redacted descriptor, so the draft names the route and the endpoint
+    // and no credential at all. Interrogating unauthenticated would answer 401
+    // and read as a wrong key.
+    const server = await listingServer({ body: JSON.stringify({ data: [{ id: 'm' }] }) })
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    process.env['ACME_GATEWAY_KEY'] = 'stored-key'
+    touchedEnv.push('ACME_GATEWAY_KEY')
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        'acme-gateway': {
+          apiKeyEnv: 'ACME_GATEWAY_KEY',
+          api: 'openai-completions',
+          baseURL: server.url,
+          models: [{ id: 'acme-large' }],
+        },
+      },
+    })
+
+    await ctx.llm.discoverModels('llm-pi-ai', { provider: 'acme-gateway', baseURL: server.url })
+    // A key typed into the form is the one being tested — possibly the
+    // replacement for the stored one — so it wins.
+    await ctx.llm.discoverModels('llm-pi-ai', { provider: 'acme-gateway', baseURL: server.url, apiKey: 'typed' })
+    // A route no profile declares yet is the create case: nothing is stored.
+    await ctx.llm.discoverModels('llm-pi-ai', { provider: 'not-declared-yet', baseURL: server.url })
+
+    expect(server.headers.map(headers => headers.authorization))
+      .toEqual(['Bearer stored-key', 'Bearer typed', undefined])
+  })
+
+  it('leaves a catalog route\'s credential unresolved, having never reached the network', async () => {
+    // The catalog answers before any endpoint is asked, so a route whose
+    // profile names a credential that is not set must still answer rather than
+    // failing over a key the interrogation never needed.
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    Reflect.deleteProperty(process.env, 'ABSENT_FOR_DISCOVERY')
+    await ctx.plugin(LlmPiAi, { providers: { deepseek: { apiKeyEnv: 'ABSENT_FOR_DISCOVERY' } } })
+
+    await expect(ctx.llm.discoverModels('llm-pi-ai', { provider: 'deepseek' })).resolves.not.toHaveLength(0)
   })
 
   it('drops unusable rows rather than failing the whole listing', async () => {

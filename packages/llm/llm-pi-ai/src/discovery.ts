@@ -164,12 +164,18 @@ function readListing(body: unknown): LlmDiscoveredModel[] {
 /**
  * Interrogate one draft provider endpoint for the models it advertises.
  * @param request - the endpoint, protocol, and one-shot credential to use.
+ * @param storedApiKey - the credential the named route already stored, asked
+ *   for only when the draft carries none and only on the path that reaches the
+ *   network. A configuration surface never holds a stored secret — it edits a
+ *   redacted descriptor — so without this an already-configured route would be
+ *   interrogated unauthenticated and answer 401.
  * @returns the advertised models in endpoint order.
  * @throws LlmError when the protocol has no readable listing, the endpoint
  *   refuses or fails the request, or the reply is not a model listing.
  */
 export async function discoverModels(
   request: LlmModelDiscoveryRequest,
+  storedApiKey?: () => Promise<string | undefined>,
 ): Promise<readonly LlmDiscoveredModel[]> {
   // A catalog route already has its answer, and a better one: the installed
   // entries carry context windows and output caps no listing endpoint reports.
@@ -205,13 +211,19 @@ export async function discoverModels(
     )
   }
   const url = listingUrl(request.baseURL)
+  // A key typed into the form wins: it is the one the user is testing, and it
+  // may be the replacement for exactly the stored key that is failing. The
+  // stored one is only asked for here, past the catalog short-circuit and the
+  // protocol check, so a route answered from the registry costs no credential
+  // lookup — and no diagnostic about a credential it never needed.
+  const apiKey = request.apiKey ?? await storedApiKey?.()
   let response: Response
   try {
     response = await fetch(url, {
       method: 'GET',
       headers: {
         accept: 'application/json',
-        ...request.apiKey === undefined ? {} : { authorization: `Bearer ${request.apiKey}` },
+        ...apiKey === undefined ? {} : { authorization: `Bearer ${apiKey}` },
         ...attributionHeaders(),
       },
       ...request.signal === undefined ? {} : { signal: request.signal },
