@@ -20,7 +20,7 @@ The structural Zstandard scanner identifies complete frame ranges before decodin
 
 `ZstdFrameDecoder` gives the reader one lifecycle for interchangeable synchronous implementations. The preferred implementation probes the supported Node 22, 24, and 26 stream shape, reuses one private native decoder context and scratch buffer across all complete frames, and closes it once. If that private shape is unavailable, the factory selects a public `zstdDecompressSync` implementation with the same iterator and checksum-error contract. A yielded scratch view is consumed before the iterator advances.
 
-After approximately one second of accumulated frame work, the asynchronous reader yields at the next frame boundary and observes cancellation before continuing. A single frame remains an indivisible synchronous operation. Complete frames require end-of-frame and checksum validation; only a structurally incomplete final frame uses the existing prefix decoder for recovery.
+After approximately 500 ms of accumulated frame work, the asynchronous reader yields at the next frame boundary and observes cancellation before continuing. A single frame remains an indivisible synchronous operation. Complete frames require end-of-frame and checksum validation; only a structurally incomplete final frame uses the existing prefix decoder for recovery.
 
 ### Incremental JSONL scanning
 

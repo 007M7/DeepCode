@@ -433,7 +433,7 @@ describe('SessionPersistenceJsonl: default Zstandard encoding', () => {
     await expect(ctx.sessionPersistence.load(header.id)).rejects.toThrow(/frame at byte .* failed validation/)
   })
 
-  it('stops multi-frame inspection when cancellation arrives at a one-second slice boundary', async () => {
+  it('stops multi-frame inspection when cancellation arrives at a slice deadline', async () => {
     const root = await freshRoot()
     const ctx = await mount(root)
     const header = meta('cancel-zstd-frames')
@@ -444,14 +444,14 @@ describe('SessionPersistenceJsonl: default Zstandard encoding', () => {
     const controller = new AbortController()
     const reason = new Error('cancel after Zstandard decode starts')
     const reader = ctx.sessionPersistence as unknown as ZstdReaderInternals
-    vi.spyOn(performance, 'now').mockReturnValueOnce(0).mockReturnValue(1001)
+    vi.spyOn(performance, 'now').mockReturnValueOnce(0).mockReturnValue(501)
     const pending = reader.readZstdPrefix(stream, controller.signal)
     queueMicrotask(() => { controller.abort(reason) })
 
     await expect(pending).rejects.toBe(reason)
   })
 
-  it('continues decoding every frame after a one-second slice yields', async () => {
+  it('continues decoding every frame after a slice deadline yields', async () => {
     const root = await freshRoot()
     const ctx = await mount(root)
     const header = meta('yield-zstd-frames')
@@ -462,7 +462,7 @@ describe('SessionPersistenceJsonl: default Zstandard encoding', () => {
     )))
     const stream = Buffer.concat([headerFrame, ...eventFrames])
     const reader = ctx.sessionPersistence as unknown as ZstdReaderInternals
-    vi.spyOn(performance, 'now').mockReturnValueOnce(0).mockReturnValue(1001)
+    vi.spyOn(performance, 'now').mockReturnValueOnce(0).mockReturnValue(501)
 
     const prefix = await reader.readZstdPrefix(stream)
 
