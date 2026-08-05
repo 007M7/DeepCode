@@ -47,7 +47,7 @@
 - **基于模型的会话标题提供方**：组合包挂载带可覆盖示例限制的后备服务（5 个词、40 个后备字节、80 个可接受标题字节）；叶节点可以恰好选用一个首消息或全消息 LLM 提供方。
 - **bash 执行器**：组合包交付 `tool-bash`（消费方 schema）；叶节点提供 `ctx.bash`（`bash-local` 或沙箱化实现）。
 - **非本地 skill 提供方**：组合包交付 skill 注册表、本地文件系统提供方和 `skill` 工具；部署可以把嵌入式目录或远程目录等其他提供方作为同级插件添加。
-- **前端入口与各应用基础设施**：终端 TUI 或 ACP（Agent Client Protocol）自动化传输，以及 `hmr`。应用包（[`dsh-cli-demo`](../cli-demo/README.md)、[`dsh-acp-demo`](../acp-demo/README.md)）拥有这些选择。`timer` 位于主干中，因为它是共有组件且不写 stdout；前端入口拥有 stdout，因此留在组合包外。
+- **前端入口与各应用基础设施**：无头、ACP（Agent Client Protocol）和 JSON-RPC 应用包负责传输、stdout 与重新加载选择。`timer` 保留在主干中，因为它是共有组件且不写 stdout。
 
 这把[接口／实现／消费方 seam](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md) 提升到组合层：组合包拥有共享主干，叶节点拥有后端，应用包拥有前端入口。
 
@@ -59,7 +59,7 @@ import type { Config } from '@deepseek-ai/dsh-agent-spine-demo'
 // workspaceContext requires { maxBytes } or false; the other owner schemas supply defaults.
 ```
 
-组合包将每个字段转发给拥有它的子节点：`agents` 与 `maxParallelToolCalls` 交给 `agent-loop`（`agents` 默认为 `[]`，上限在该处默认），因此每个应用提供自己的预创建 agent；TUI 和无头应用预创建 `main`，ACP 应用则在 `session/new` 按需创建 agent；`includeHarnessIdentity`、`persona` 与 `toolOrder` 交给 `dsh-system-prompt`；`tools` 交给工具注册表以配置呈现模式；`sessionTitle` 交给后备标题服务；`skills.registry`、`skills.local` 与 `skills.tool` 分别交给 skill 注册表、本地提供方和面向模型的消费方；必填的 `workspaceContext` 选择交给 `dsh-workspace-context`（`{ maxBytes }` 启用加载，`false` 禁用）；`invariants` 交给不变式服务；`toolBash`/`toolTasks` 交给组合包拥有的两个面向模型工具插件。组合包始终挂载 `dsh-llm-retry`，而每个叶节点适配器拥有自己的嵌套 `retryPolicy`。省略 `sessionTitle` 时采用显式示例策略：5 个词、40 个后备字节、80 个可接受标题字节。`goals` 对象会选用持久化领域、模型工具和同会话 Goal Round 驱动器，并将 `goals.domain` 与 `goals.tool` 转发给各自拥有者；省略或设为 `false` 会让整个栈缺席，使无头调用方继续以单轮次结算。设置 `skills.enabled: false` 会同时省略本地提供方和面向模型的 skill 工具；当另一个插件拥有 `bash` 工具名时设置 `toolBash: false`；设置 `toolTasks: false` 会保留供前台生产方使用的任务服务，但不公开 `task_output`/`task_list`/`task_kill`。它对 `dshHome` 只解析一次，解析通过 [`@deepseek-ai/dsh-paths`](../../util/paths/README.md) 完成，并将所得绝对值转发给共享 `bash-env` 的托管环境和已启用的本地 skill 发现。顶层 `dshHome` 缺席时采用 `skills.local.dshHome`；两者同时提供但解析后的路径不同会明确失败。`toolBash.enableRunInBackground` 只控制内置 bash 生产方；独立加载的生产方保留各自配置。工作区指令先于 skill 目录注册，因此其会话前缀消息先渲染。应用包使用 `pickSpineConfig()`，只复制这些由组合包拥有的字段。
+组合包将每个字段转发给拥有它的子节点。应用包提供预创建的 agent：无头和 JSON-RPC 组合会创建 `main`，ACP 应用则在 `session/new` 按需创建 agent。提示词、工具、标题、skill、workspace context、不变式、goal 和任务设置沿用其所属包记录的 schema 与默认值。`pickSpineConfig()` 只复制该组合包拥有的字段，`dshHome` 值冲突会在组合时失败。
 
 例如，`{ invariants: { enabled: true, package_allowlist: ['^@deepseek-ai/dsh-'], package_blocklist: ['agent-loop$'] } }` 会让包拥有的配套插件保持挂载，但抑制被阻止的拥有者。Blocklist 匹配优先于 allowlist 匹配；正则表达式与生命周期规则见 [`dsh-invariants`](../../support/invariants/README.md)。
 

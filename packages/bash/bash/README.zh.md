@@ -25,7 +25,7 @@
 | `BashProcess.readOutput()` | **增量** 读取输出：连续读取绝不会重复交付。因缓冲区边界丢失数据的读取会标记 `lossy`，并指向完整流 spill 文件。 |
 | `BashProcess.kill()` | 终止进程组。如果进程已结束，返回 `false`。 |
 
-实现会继承 `BashExecutor` 并实现抽象方法。dispose（资源释放）必须终止每个运行中的进程并等待其退出，详见 HMR（热模块替换）安全测试。
+实现会继承 `BashExecutor` 并实现抽象方法。dispose（资源释放）必须终止每个运行中的进程并等待其退出。
 
 ## 词汇
 

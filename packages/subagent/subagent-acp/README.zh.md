@@ -61,8 +61,6 @@ ACP 不声明任何启动时能力，因为当前进程无法强制执行远程�
 
 本包没有默认导出。否则 Cordis loader 的解包会隐藏具名 `inject` 元数据；见[事故复盘（postmortem）0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md)。
 
-无密钥测试通过真实 stdio 驱动脚本化 ACP 子进程，其中包括一个由 Loader 组合的 stdio 应用，用于端到端证明父会话 cwd 继承。带密钥 e2e 会驱动仓库中的真实 ACP agent；没有 `DEEPSEEK_API_KEY` 时自行跳过。
-
 ## 模型体验
 
 ### 子 agent 请求
@@ -100,4 +98,3 @@ ACP 不声明任何启动时能力，因为当前进程无法强制执行远程�
 - **不支持可选启动时能力**：该提供方无法在远程进程内应用本地 harness 的 `outputSchema`、深度上限、工具过滤器或 persona，因此不会声明这些能力；服务会拒绝需要它们的请求。
 - **只收集已提交的 `agent_message_chunk` 文本**：自动化服务器把推理（reasoning）、工具活动、计划和其他 trace 数据保留在子 agent 会话日志中，不通过 ACP 发出。
 - **权限提示自动回答**（`permission: allow | reject`）：当前版本不会把子 agent 的 `session/request_permission` 呈现给人。
-- **没有快照层回放覆盖率**（`TODO(acp-subagent-replay)`）：ACP 子 agent 拥有独立进程和独立回放形态，该工作延期处理。

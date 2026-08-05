@@ -68,9 +68,7 @@ waterfall（瀑布式事件）是环绕中间件：监听器通过 `next()` 委�
 
 ## 默认循环生命周期
 
-**会话**采用仅追加方式。普通**轮次**领取一项已排队的 `send()` 输入；注入不领取输入。后续轮次会等待前一轮次的检查点，但可以与其共用同一个 `running` 区间（[决策](../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)）。模型或插件停止轮次时，该轮次结束；一个**步骤**包含一次模型请求及其工具。[下文时序](agent-lifecycle.md)中的引号标记持久事件。
-
-创建时若未提供 id，流程会生成 `<config-id>-session-<uuid>`；`sessionId` 用于恢复或创建会话，而 `resumeSessionId` 要求已有历史。恢复流程在发布前还原沿袭关系和委托深度。初始化失败会发出 `agent-loop/config-start-failed`；拆卸过程保持静默。
+**会话**仅追加。普通**轮次**认领一个排队的 `send()` 项；注入不会认领。轮次在模型或插件停止时结束；一个**步骤**由一次模型请求及其工具调用组成。只有私有设置和恢复状态准备完毕后，系统才会发布 agent 与会话。[下文时序](agent-lifecycle.md)中的引号标记持久事件。
 
 ### 轮次流程
 
@@ -119,29 +117,19 @@ idle inject:
   do not open a turn or run the model
 ```
 
-每个步骤都会组装有序的稳定系统提示词片段、缓存安全的动态上下文、工具 schema 和变量；未知引用会使该轮次失败。`dsh-system-prompt` 负责身份和角色设定；循环提供 `provider`、`model` 和 `cwd`（[提示词归属](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)）。
-
-接纳期间和活跃轮次内的 `inject()` 会为下一步骤暂存；工具执行期间的注入和工具执行后的 `additionalContexts` 会在结果记录完毕后落定。steering 与其共用 outbox，但在请求接纳前始终处于待准入状态。`steer()` 会返回归属于该消息的回执：`agent/step` 和异步提示词组装成功后，循环提交稳定批次、捕获请求历史并开启 `step/start`，再将其回执解析为已准入并附带轮次与步骤；后续消息继续等待。结束轮次的工具结果、广义取消、dispose（资源释放），以及已领取 idle-steering 消息却从未开启步骤的轮次，都会拒绝受影响的回执；`cancel(..., { keepInbox: true })` 和非终止型路由则保留待处理投递。空闲状态下的 `inject()` 会立即追加，且不改变轮次编号；持久化层会尽快排空。
-
-驱动器认领之前，`updateInbox()` 可以编辑或移除 queued 单次入队项，也可以严格地把其不可变消息转移到开放的 next-step 窗口。该转移会结束 queued 单次入队项，并接受一个新的 steering 单次入队项；窗口关闭时 Queue 保持不变。直接调用 `steer()` 时，对新提交的输入仍采用尽力而为的语义，并在窗口之外回退为会唤醒 agent 的后续轮次（[决策](../.agents/notes/implemented/feature/2026-07-30-web-queue-steer-action.md)）。
-
-裁剪先于摘要；溢出重试必须取得持久进展。`agent/request-error` 可以在失败步骤与轮次关闭之间授权一个重试轮次；取消优先。适配器拥有的 `retryPolicy` 使 normal mode 保持有界；always mode 先委托专门恢复，再持续重试直至成功或取消（[压缩](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)、[重试基础](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)、[提供方策略](../.agents/notes/implemented/feature/2026-07-24-provider-retry-policies.md)）。
+每个步骤都会组装提示词、工具、运行时上下文、适配器设置和模型历史，随后记录其重建边界。之后，工具调用通过共享执行流水线运行。`inject()` 添加上下文但不打开空闲轮次；`steer()` 针对下一步骤的准入窗口；排队输入仍是普通轮次的来源。精确事件顺序由生成的 [agent 生命周期](agent-lifecycle.md)定义；队列、steering、重试与取消机制由 [agent-loop README](../packages/core/agent-loop/README.md)定义。
 
 ### 失败边界
 
-适配器故障会先关闭自身步骤，再由 `agent/request-error` 接收准确的 `Error`、标准化的 `LlmFailure` 和信号。已处理的失败会关闭所在轮次，并从持久历史开启重试轮次，不发出空闲通知；重试耗尽则留下终态 `turn/end`。失败分片既不提交消息，也不提交工具调用。
-
-其他故障使用 `agent/error`。取消和资源释放优先于恢复。在提交请求头之前，轮次信号会取消异步模型能力准备；尚未分派的工具会得到合成的 `tool/call`/`ABORTED_BEFORE_DISPATCH` 对。实际生效的 `cancel(cause)` 在清空队列和中止前发出原因；观察方不能否决；空闲调用不发事件。持久化层将用户或父级取消记录为 `aborted`，拆卸记录为 `disposed`；拆卸会等待完全停稳。原因只影响报告方式，不影响延迟完成的结果上下文处理（[决策](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)）。
-
-轮次和步骤事件均位于轮次边界内。空闲 `user/message` 与独立的 `compact/* { turn: null }` 不占用轮次；其锁定时刻标记可以与注入交错。重新加载会为中断的轮次合成结束事件；`session/end-seed` 区分陈旧的压缩遗留项与活跃锁。关闭后仅由 `agent/error` 报告故障。每个轮次有一个 [TurnEndReason](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap)。
+适配器故障会先关闭步骤，再由 `agent/request-error` 授权从持久历史恢复。其他故障使用 `agent/error`；取消和资源释放优先于恢复。失败的模型尝试不会提交 assistant 消息或工具副作用。轮次关闭由一个 [TurnEndReason](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap)表示；准确的重试契约由 [LLM 流式输出](core-data-structures/llm-streaming.md)定义。
 
 ### Agent 句柄
 
-`ctx.agents` 拥有 agent，返回 `AgentHandle { agent, dispose() }`。插件使用 `send()` 或 `followup()`、带回执的 `steer()` 和 `inject()` 预设；[`reserveTurnAdmission()`](../packages/core/agent/README.md#agent-interface-typests) 为持久工作同步预留空闲状态，同时不改变排队提示词身份。需要确认请求准入时应等待 steering 回执；尽力执行的 UI steering 可以忽略它。`cancel()` 与 `whenIdle()` 控制生命周期。调用方、工厂和消费方通过同一个需等待完成的 disposer 共同拥有拆卸过程。
+`ctx.agents` 管理 agent，并返回 `AgentHandle { agent, dispose() }`。插件通过 [agent 接口](../packages/core/agent/README.md#agent-interface-typests)提交排队工作、steering 或注入上下文；取消、空闲状态和拆卸也都由同一个句柄封装。
 
 ### Agent 作用域
 
-每个 agent 都拥有作用域化的 `agent.ctx`；共享存储会将其工具、提示词和命令条目叠加到全局条目之上，同时保留各领域视图（[决策](../.agents/notes/implemented/architecture/2026-07-12-scoped-layers-store.md)）。作用域监听器会过滤分派；贡献都会在撤销时等待清理完成。`CreateAgentOptions.setup(agentCtx)` 在发布前完成组合，并可返回一个同步提交操作；所有 setup 的 await 均完成后，工厂会在进入注册表前立即调用该操作。类型化解析器从合并后的 `Events` 和 `scopeTarget` 推导载体检查（[语义门禁](../.agents/notes/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md)）。详情见 [agent 作用域](../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md)和 [subagent 组合](../.agents/notes/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md)。`AgentLoop` 在 `ctx.agents.withInitiator()` 内运行；私有编排会派生 `agent.session`，但轮次、步骤、信号、cwd 和权限仍保持显式（[决策](../.agents/notes/implemented/architecture/2026-07-15-agent-initiator-scope.md)）。
+每个 agent 都拥有作用域化的 `agent.ctx`；共享存储会将其工具、提示词和命令叠加到全局贡献之上，作用域监听器则过滤分派。设置过程在发布前完成组合，清理过程会撤销贡献。详细生命周期由 [agent 作用域决策](../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md)定义。
 
 ## 状态
 
@@ -198,4 +186,4 @@ idle inject:
 | fork 活跃会话 | 调用 `ctx.sessions.fork(source, boundary?, childSessionId?)` |
 | 将注册项限定到单个 agent | 使用其 `agent.ctx`（参见 Agent 作用域） |
 
-[扩展实操手册（cookbook）](cookbook/extension-cookbook.md)提供插件骨架和功能到服务边界的映射；指南涵盖[包](cookbook/adding-a-package.md)、[工具](cookbook/adding-a-tool.md)、[LLM 适配器](cookbook/adding-an-llm-adapter.md)和 [vendored 包](cookbook/adding-a-vendored-package.md)。
+[扩展实操手册（cookbook）](cookbook/extension-cookbook.md)提供插件骨架；指南涵盖[包](cookbook/adding-a-package.md)、[工具](cookbook/adding-a-tool.md)、[LLM 适配器](cookbook/adding-an-llm-adapter.md)和 [vendored 包](cookbook/adding-a-vendored-package.md)。

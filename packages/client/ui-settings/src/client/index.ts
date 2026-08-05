@@ -103,6 +103,7 @@ export function apply(ctx: ClientContext): void {
         children: {
           'settings.trigger': { kind: 'single', scope: 'root' },
           'settings.header': { kind: 'single', scope: 'root' },
+          'settings.action': { kind: 'list', scope: 'root' },
           'settings.close': { kind: 'single', scope: 'root' },
           'settings.section': { kind: 'list', scope: 'root' },
           'settings.onboarding': { kind: 'list', scope: 'root' },

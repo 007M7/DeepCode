@@ -12,7 +12,7 @@ New Session 会启动运行时的页面局部前端 Session Intent；真实 Work
 
 页脚承载 `sidebar.settings`：侧边栏只渲染固定在底部的布局 slot，并共享其栏状态（`wide`）；ui-settings 在此注册触发行和设置面板。
 
-`/client` 导出表层只包含插件主体（`apply`／`inject`）及契约类型：SidebarRoot、行组件和树派生均属于内部实现（slot 注册通过闭包引用它们；测试直接导入 src 路径）。
+`/client` 导出表层只包含插件主体（`apply`／`inject`）及契约类型；SidebarRoot、行组件和树派生仍由 slot 注册封装在包内。
 
 ## 模型体验
 
@@ -24,6 +24,6 @@ New Session 会启动运行时的页面局部前端 Session Intent；真实 Work
 
 ## 已知限制与暂缓事项
 
-- **Session 状态点渲染由 [ui-workspace](../ui-workspace/README.md) 持有**：done/error 的通知数据源仍暂缓实现。
-- **分组选单只提供按 Workspace 分组**：Update/Status 分组策略只有图稿而没有规范，暂缓实现。
+- **Session 状态点渲染由 [ui-workspace](../ui-workspace/README.md) 持有**：没有可用的 done/error 通知数据源。
+- **分组只支持 Workspace**：Update 和 Status 不是可用策略。
 - **「New task completed」未读标记是本地查看状态**：完成时间 > 上次查看时间这一事实永远不会到达宿主。

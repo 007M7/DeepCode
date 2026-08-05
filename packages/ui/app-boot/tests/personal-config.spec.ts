@@ -235,11 +235,11 @@ describe('boot with personal patches', () => {
   })
 
   it('returns a no-op disposer when the tree is disposed while the watcher opens', async () => {
-    // A TUI `/exit` typed during startup disposes the whole tree while
-    // registerConfig's effect registration is still in flight (the HMR effect
-    // then fails with INACTIVE_EFFECT); the app is exiting exactly as asked,
-    // so the watcher must not crash the process. The stub makes the race
-    // deterministic — the live-teardown ordering itself is not stageable.
+    // A surface can dispose the whole tree while registerConfig's effect
+    // registration is still in flight (the HMR effect then fails with
+    // INACTIVE_EFFECT); the app is exiting exactly as asked, so the watcher
+    // must not crash the process. The stub makes the race deterministic — the
+    // live-teardown ordering itself is not stageable.
     const dir = tmp()
     const ctx = await boot(NAME, writeTree(dir))
     try {

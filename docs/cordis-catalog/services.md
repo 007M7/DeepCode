@@ -1103,7 +1103,7 @@ abstract confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv
 
 Types: [ConfinedArgv](../core-data-structures/sandbox.md) · [SandboxPolicy](../core-data-structures/sandbox.md)
 
-Source: [`packages/sandbox/sandbox/src/index.ts:131`](../../packages/sandbox/sandbox/src/index.ts)
+Source: [`packages/sandbox/sandbox/src/index.ts:148`](../../packages/sandbox/sandbox/src/index.ts)
 
 ## `ctx.sandboxPolicy` — `SandboxPolicyService`
 
@@ -1735,6 +1735,14 @@ Source: [`packages/session-title/session-title/src/index.ts:261`](../../packages
 Abstract settings service. Providers implement raw-document storage (`load`/`persist`) and push external changes through Settings.publish; the base class owns namespace registration, resolution, validation, change detection, and the `settings/updated` commit event.
 
 ```ts cordis-catalog
+/**
+ * Prepare the provider's user-editable document for a native editor. File
+ * providers may materialize an absent document before returning its path;
+ * non-file providers return undefined.
+ * @returns the absolute local document path, or undefined for non-file storage.
+ */
+prepareDocument(): Promise<string | undefined>
+
 /**
  * Register a namespace schema and receive its owner scope. The registration
  * is an effect on the calling plugin's fiber: disposing that fiber removes
