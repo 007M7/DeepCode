@@ -488,6 +488,9 @@ importers:
       js-yaml:
         specifier: ^4.2.0
         version: 4.2.0
+      node-addon-require-builtin:
+        specifier: ^0.1.4
+        version: 0.1.4
     devDependencies:
       '@types/js-yaml':
         specifier: ^4.0.9
@@ -4307,8 +4310,8 @@ importers:
         specifier: ^15.0.0
         version: 15.0.0
       node-addon-require-builtin:
-        specifier: ^0.1.3
-        version: 0.1.3
+        specifier: ^0.1.4
+        version: 0.1.4
     devDependencies:
       '@deepseek-ai/dsh-app-boot':
         specifier: workspace:^
@@ -6764,8 +6767,8 @@ importers:
         specifier: ^1.8.1
         version: link:../cosmokit
       node-addon-require-builtin:
-        specifier: ^0.1.3
-        version: 0.1.3
+        specifier: ^0.1.4
+        version: 0.1.4
       pnpm:
         specifier: 11.7.0
         version: 11.7.0
@@ -10985,56 +10988,56 @@ packages:
     resolution: {integrity: sha512-c5qopltRonjW6+VinXYMp4FVi9Sxf8eQEb/9G82EksQQ+JC4CDprv+ko5URWmtyZ3wD4GFdeRTyw1AG5yCwJhQ==}
     engines: {node: '>=20'}
 
-  node-addon-native-custom-loader@0.1.3:
-    resolution: {integrity: sha512-uMG8D3aOtEMgh7dkNWAJP0fSpmpMwUf6Cj5JePQQqtxt72sW7RDzRetaLjKIKl3+DZtBX2FobAgRS6U3LO2qXQ==}
+  node-addon-native-custom-loader@0.1.4:
+    resolution: {integrity: sha512-DreegO6EoC1JHWYBv3j8Miwp2Zl/CyBeNyoeyCbnEdjyYFEulR4Gcb3wj9fXF7KMDY0ZJ5MWwHcXP8GVNyScnA==}
     engines: {node: '>=20'}
 
-  node-addon-require-builtin-darwin-arm64@0.1.3:
-    resolution: {integrity: sha512-uBZIRpq3gVG/lg4SV1w8xNfgoaAWZiv7B8Gn38/wd0uUE0LSTRikY69al3Yb4gMDmJPWBoXPN3gzTxAjhllzGg==}
+  node-addon-require-builtin-darwin-arm64@0.1.4:
+    resolution: {integrity: sha512-pqiTPbqlDKRIo8YKoWMjuFge4kyHbsdYkAcGW5MAVcJSCyU0M1hhpiLdWlvX753XKL3xlGeuPmv2NqTNRV0/hw==}
     engines: {node: '>=20'}
     cpu: [arm64]
     os: [darwin]
 
-  node-addon-require-builtin-darwin-x64@0.1.3:
-    resolution: {integrity: sha512-BLaBoaBjI7mpsgTpXvn444vCQSmrb1AC2t0tAHFuxwBtN56UT9Zaxl+gS2KZGrq5fShTPxFAUIiTcwroFXWWhg==}
+  node-addon-require-builtin-darwin-x64@0.1.4:
+    resolution: {integrity: sha512-i9oThh+w6d+H79YQuc3d3MZCx4YZ6aMWlQ0HYMgOTWvSRzppXmksa/xPV8O20G1gjpq5do/9/hgImixj3XIcjQ==}
     engines: {node: '>=20'}
     cpu: [x64]
     os: [darwin]
 
-  node-addon-require-builtin-linux-arm64-gnu@0.1.3:
-    resolution: {integrity: sha512-L+qNUfBarYxE0HSZjf2KGymS6ZKMieLs5esRXbAbO+q1k4L1t9oBNGpQuFe7/a1a98YrfHnkAg9Q6US5j/xnIw==}
+  node-addon-require-builtin-linux-arm64-gnu@0.1.4:
+    resolution: {integrity: sha512-qbmYtkiIFp7h1ZvYYHH0MGFQbc03OyvplkeS90j+t3VMomkRc/YwZ140WzVM3eYJYZ7XHq+s1GL5ZdFQFPUXBQ==}
     engines: {node: '>=20'}
     cpu: [arm64]
     os: [linux]
     libc: [glibc]
 
-  node-addon-require-builtin-linux-x64-gnu@0.1.3:
-    resolution: {integrity: sha512-Cy2ua4yy44GE5HAtf/o4LjzTa5aUJt5m0YLMjZCa8lRte5hU+C7aWm6bVkmKY82b1JnnQnHwUMEoFugLqVybSQ==}
+  node-addon-require-builtin-linux-x64-gnu@0.1.4:
+    resolution: {integrity: sha512-4jC617+yOrYYuKgNmN2KMD722G6BICpjEzAcmzA3j5tt+zmey5M/c/z9JxqdjnNmU9CQWseBaJu/fGdbHZXSOg==}
     engines: {node: '>=20'}
     cpu: [x64]
     os: [linux]
     libc: [glibc]
 
-  node-addon-require-builtin-win32-arm64-msvc@0.1.3:
-    resolution: {integrity: sha512-8j/VcAmgT6HPQzwUo1kBNzLE2d5iVmwfraEre5KAoznuBeOiuU12oqDYpkuHGIzSjSDJiVOj/SqOe5mUMRaZOg==}
+  node-addon-require-builtin-win32-arm64-msvc@0.1.4:
+    resolution: {integrity: sha512-4TW96aPR108R3RxJbUNLXU6FLTZ7n8fWtSpPbPtvYWXa9cXojvCMdH4BvrHM6W2M+Iu42nqMxRyylP3PeTjOmA==}
     engines: {node: '>=20'}
     cpu: [arm64]
     os: [win32]
 
-  node-addon-require-builtin-win32-ia32-msvc@0.1.3:
-    resolution: {integrity: sha512-Iqh+Wxmbu6SaP2lEJpEpIMkusVZeVljn914CIcz7HZtzvxTgxHZAmfsZuRMDtRhDg2Yf4AFBHLWpcJn7SeBQ/A==}
+  node-addon-require-builtin-win32-ia32-msvc@0.1.4:
+    resolution: {integrity: sha512-a3ZRkiMKaE7uRjI+H+Ic7dvhPIk0rW9mHV47IEiqJzoRZqnDp5JPjQfAnngu979HR59Ghy+mfexJ/kStBlP3eQ==}
     engines: {node: '>=20 <23'}
     cpu: [ia32]
     os: [win32]
 
-  node-addon-require-builtin-win32-x64-msvc@0.1.3:
-    resolution: {integrity: sha512-5iI7C/BwwRemDNKXO2b1J/iK1gTRp1278Cwfoy92zgn7KXhv7xsAP8klk/fDu8RWX/o9zk736tRSFTBBGSHf/Q==}
+  node-addon-require-builtin-win32-x64-msvc@0.1.4:
+    resolution: {integrity: sha512-EGx7AcJKB7fNxo/YHV32JTUg1Hetbdnh6uPaqPhklhyRSMM13/7hZK1pTACqMS9dwnR3Lakxl9HKG9/eAoIyyg==}
     engines: {node: '>=20'}
     cpu: [x64]
     os: [win32]
 
-  node-addon-require-builtin@0.1.3:
-    resolution: {integrity: sha512-u9ZRdwDCx+ksIcYwoLeoe5Rj3151GrzSF8ln9jp7P/Zhf0OrPs1X6a8wYw6brc532ypAwjwKlhruT/V3m8MCbg==}
+  node-addon-require-builtin@0.1.4:
+    resolution: {integrity: sha512-yuXz43GmtQyMrO75u2Z8KZAafMhnMH8RTOZBJWGDU9HoD2QxT6q4PF28iLNm/OS9BkS8MHwCKpgTk3d6qW584A==}
     engines: {node: '>=20'}
 
   node-domexception@1.0.0:
@@ -16437,54 +16440,54 @@ snapshots:
       node-addon-landlock-run-linux-arm64: 0.0.0-test.0
       node-addon-landlock-run-linux-x64: 0.0.0-test.0
 
-  node-addon-native-custom-loader@0.1.3: {}
+  node-addon-native-custom-loader@0.1.4: {}
 
-  node-addon-require-builtin-darwin-arm64@0.1.3:
+  node-addon-require-builtin-darwin-arm64@0.1.4:
     dependencies:
-      node-addon-native-custom-loader: 0.1.3
+      node-addon-native-custom-loader: 0.1.4
     optional: true
 
-  node-addon-require-builtin-darwin-x64@0.1.3:
+  node-addon-require-builtin-darwin-x64@0.1.4:
     dependencies:
-      node-addon-native-custom-loader: 0.1.3
+      node-addon-native-custom-loader: 0.1.4
     optional: true
 
-  node-addon-require-builtin-linux-arm64-gnu@0.1.3:
+  node-addon-require-builtin-linux-arm64-gnu@0.1.4:
     dependencies:
-      node-addon-native-custom-loader: 0.1.3
+      node-addon-native-custom-loader: 0.1.4
     optional: true
 
-  node-addon-require-builtin-linux-x64-gnu@0.1.3:
+  node-addon-require-builtin-linux-x64-gnu@0.1.4:
     dependencies:
-      node-addon-native-custom-loader: 0.1.3
+      node-addon-native-custom-loader: 0.1.4
     optional: true
 
-  node-addon-require-builtin-win32-arm64-msvc@0.1.3:
+  node-addon-require-builtin-win32-arm64-msvc@0.1.4:
     dependencies:
-      node-addon-native-custom-loader: 0.1.3
+      node-addon-native-custom-loader: 0.1.4
     optional: true
 
-  node-addon-require-builtin-win32-ia32-msvc@0.1.3:
+  node-addon-require-builtin-win32-ia32-msvc@0.1.4:
     dependencies:
-      node-addon-native-custom-loader: 0.1.3
+      node-addon-native-custom-loader: 0.1.4
     optional: true
 
-  node-addon-require-builtin-win32-x64-msvc@0.1.3:
+  node-addon-require-builtin-win32-x64-msvc@0.1.4:
     dependencies:
-      node-addon-native-custom-loader: 0.1.3
+      node-addon-native-custom-loader: 0.1.4
     optional: true
 
-  node-addon-require-builtin@0.1.3:
+  node-addon-require-builtin@0.1.4:
     dependencies:
-      node-addon-native-custom-loader: 0.1.3
+      node-addon-native-custom-loader: 0.1.4
     optionalDependencies:
-      node-addon-require-builtin-darwin-arm64: 0.1.3
-      node-addon-require-builtin-darwin-x64: 0.1.3
-      node-addon-require-builtin-linux-arm64-gnu: 0.1.3
-      node-addon-require-builtin-linux-x64-gnu: 0.1.3
-      node-addon-require-builtin-win32-arm64-msvc: 0.1.3
-      node-addon-require-builtin-win32-ia32-msvc: 0.1.3
-      node-addon-require-builtin-win32-x64-msvc: 0.1.3
+      node-addon-require-builtin-darwin-arm64: 0.1.4
+      node-addon-require-builtin-darwin-x64: 0.1.4
+      node-addon-require-builtin-linux-arm64-gnu: 0.1.4
+      node-addon-require-builtin-linux-x64-gnu: 0.1.4
+      node-addon-require-builtin-win32-arm64-msvc: 0.1.4
+      node-addon-require-builtin-win32-ia32-msvc: 0.1.4
+      node-addon-require-builtin-win32-x64-msvc: 0.1.4
 
   node-domexception@1.0.0: {}
 
