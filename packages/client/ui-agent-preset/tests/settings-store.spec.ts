@@ -75,24 +75,24 @@ describe('the agent-preset settings controller', () => {
     const writes: Recorded[] = []
     const controller = new AgentPresetSettingsController(fakeApi([
       { id: 'standard', trust: 'system', isDefault: true },
-      { id: 'core-web', trust: 'system', isDefault: false },
+      { id: 'minimal', trust: 'system', isDefault: false },
     ], { writes }))
     await controller.load()
 
-    await controller.select('core-web')
+    await controller.select('minimal')
 
-    expect(writes).toEqual([{ ns: AGENT_PRESET_SETTINGS_NS, patch: { default: 'core-web' } }])
-    expect(controller.store.getSnapshot().currentValue).toBe('core-web')
+    expect(writes).toEqual([{ ns: AGENT_PRESET_SETTINGS_NS, patch: { default: 'minimal' } }])
+    expect(controller.store.getSnapshot().currentValue).toBe('minimal')
   })
 
   it('restores the previous value and surfaces the message when the write fails', async () => {
     const controller = new AgentPresetSettingsController(fakeApi([
       { id: 'standard', trust: 'system', isDefault: true },
-      { id: 'core-web', trust: 'system', isDefault: false },
+      { id: 'minimal', trust: 'system', isDefault: false },
     ], { failWrite: 'read-only settings' }))
     await controller.load()
 
-    await controller.select('core-web')
+    await controller.select('minimal')
 
     const state = controller.store.getSnapshot()
     expect(state.currentValue).toBe('standard')
@@ -152,17 +152,17 @@ describe('the composer seat controller', () => {
 
   const ROSTER: { id: string; trust: 'system' | 'user'; isDefault: boolean }[] = [
     { id: 'standard', trust: 'system', isDefault: true },
-    { id: 'core-web', trust: 'system', isDefault: false },
+    { id: 'minimal', trust: 'system', isDefault: false },
   ]
 
   it('shows what the session runs, not the deployment default', async () => {
-    const controller = seat(ROSTER, { blank: true, agentPreset: 'core-web' })
+    const controller = seat(ROSTER, { blank: true, agentPreset: 'minimal' })
 
     await controller.load()
 
     // A resumed session runs what it was created with; showing `standard`
     // because it is the current default would be a lie about this session.
-    expect(controller.store.getSnapshot().current).toBe('core-web')
+    expect(controller.store.getSnapshot().current).toBe('minimal')
     expect(controller.store.getSnapshot().switchable).toBe(true)
   })
 
@@ -187,7 +187,7 @@ describe('the composer seat controller', () => {
     const controller = seat(ROSTER, { blank: false, agentPreset: 'standard' }, { writes })
     await controller.load()
 
-    await controller.select('core-web')
+    await controller.select('minimal')
 
     // The host enforces the same rule; the seat simply never asks.
     expect(writes).toEqual([])
@@ -199,17 +199,17 @@ describe('the composer seat controller', () => {
     const controller = seat(ROSTER, { blank: true, agentPreset: 'standard' }, { writes })
     await controller.load()
 
-    await controller.select('core-web')
+    await controller.select('minimal')
 
-    expect(writes).toEqual([{ ns: 'select', patch: 'core-web' }])
-    expect(controller.store.getSnapshot().current).toBe('core-web')
+    expect(writes).toEqual([{ ns: 'select', patch: 'minimal' }])
+    expect(controller.store.getSnapshot().current).toBe('minimal')
   })
 
   it('restores the previous value when the host rejects the switch', async () => {
     const controller = seat(ROSTER, { blank: true, agentPreset: 'standard' }, { failSelect: 'already started' })
     await controller.load()
 
-    await controller.select('core-web')
+    await controller.select('minimal')
 
     const state = controller.store.getSnapshot()
     expect(state.current).toBe('standard')
@@ -292,9 +292,9 @@ describe('the composer seat controller', () => {
     const controller = seat(ROSTER, { blank: true, agentPreset: 'standard' }, { throwOn: 'select' })
     await controller.load()
 
-    await controller.select('core-web')
+    await controller.select('minimal')
 
-    // Showing `core-web` after a failed switch would claim a composition the
+    // Showing `minimal` after a failed switch would claim a composition the
     // session never got.
     expect(controller.store.getSnapshot()).toMatchObject({ current: 'standard', busy: false, error: 'socket closed' })
   })

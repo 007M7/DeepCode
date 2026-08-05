@@ -113,16 +113,16 @@ async function harness(presets?: readonly string[]) {
 
 describe('session.create with an agent preset', () => {
   it('records the resolved preset on the session header', async () => {
-    const { api, ctx } = await harness(['standard', 'core-web'])
+    const { api, ctx } = await harness(['standard', 'minimal'])
 
-    const created = await api.sessions.create(request({ sessionId: SessionId('s1'), agentPreset: 'core-web' }))
+    const created = await api.sessions.create(request({ sessionId: SessionId('s1'), agentPreset: 'minimal' }))
 
     expect(created.result.ok).toBe(true)
-    expect(ctx.sessions.get(SessionId('s1'))?.header.agentPreset).toBe('core-web')
+    expect(ctx.sessions.get(SessionId('s1'))?.header.agentPreset).toBe('minimal')
   })
 
   it('records the default when the caller names none', async () => {
-    const { api, ctx } = await harness(['standard', 'core-web'])
+    const { api, ctx } = await harness(['standard', 'minimal'])
 
     await api.sessions.create(request({ sessionId: SessionId('s2') }))
 
@@ -140,8 +140,8 @@ describe('session.create with an agent preset', () => {
   })
 
   it('refuses to adopt a live session under a different preset', async () => {
-    const { api } = await harness(['standard', 'core-web'])
-    await api.sessions.create(request({ sessionId: SessionId('s4'), agentPreset: 'core-web' }))
+    const { api } = await harness(['standard', 'minimal'])
+    await api.sessions.create(request({ sessionId: SessionId('s4'), agentPreset: 'minimal' }))
 
     const response = await api.sessions.create(request({ sessionId: SessionId('s4'), agentPreset: 'standard' }))
 
@@ -151,13 +151,13 @@ describe('session.create with an agent preset', () => {
     expect(response.result.error.details).toEqual({
       sessionId: 's4',
       requestedPreset: 'standard',
-      existingPreset: 'core-web',
+      existingPreset: 'minimal',
     })
   })
 
   it('adopts a live session unchanged when the caller names no preset', async () => {
-    const { api } = await harness(['standard', 'core-web'])
-    await api.sessions.create(request({ sessionId: SessionId('s5'), agentPreset: 'core-web' }))
+    const { api } = await harness(['standard', 'minimal'])
+    await api.sessions.create(request({ sessionId: SessionId('s5'), agentPreset: 'minimal' }))
 
     // Reconnecting and retrying a create must stay ordinary operations.
     const response = await api.sessions.create(request({ sessionId: SessionId('s5') }))
@@ -257,7 +257,7 @@ describe('a capability the session\'s preset mounts', () => {
 
 describe('agentPreset.list', () => {
   it('marks the default and carries each preset\'s trust', async () => {
-    const { api } = await harness(['standard', 'core-web'])
+    const { api } = await harness(['standard', 'minimal'])
 
     const response = await api.agentPresets.list(request({}))
 
@@ -265,7 +265,7 @@ describe('agentPreset.list', () => {
     if (!response.result.ok) throw new Error('unreachable')
     expect(response.result.value.presets).toEqual([
       { id: 'standard', trust: 'system', isDefault: true },
-      { id: 'core-web', trust: 'system', isDefault: false },
+      { id: 'minimal', trust: 'system', isDefault: false },
     ])
     expect(response.result.value.authorable).toBe(true)
   })
@@ -288,26 +288,26 @@ describe('agentPreset.list', () => {
 
 describe('agentPreset.select', () => {
   it('recomposes a blank session', async () => {
-    const { api } = await harness(['standard', 'core-web'])
+    const { api } = await harness(['standard', 'minimal'])
     await api.sessions.create(request({ sessionId: SessionId('sel-1'), agentPreset: 'standard' }))
 
     const response = await api.agentPresets.select(
-      request({ sessionId: SessionId('sel-1'), agentPreset: 'core-web' }))
+      request({ sessionId: SessionId('sel-1'), agentPreset: 'minimal' }))
 
     expect(response.result.ok).toBe(true)
     if (!response.result.ok) throw new Error('unreachable')
-    expect(response.result.value.agentPreset).toBe('core-web')
+    expect(response.result.value.agentPreset).toBe('minimal')
   })
 
   it('refuses once the conversation has started', async () => {
-    const { api, ctx } = await harness(['standard', 'core-web'])
+    const { api, ctx } = await harness(['standard', 'minimal'])
     await api.sessions.create(request({ sessionId: SessionId('sel-2'), agentPreset: 'standard' }))
     // One turn is enough: the history from here on was produced under
     // `standard`'s tools, and a swap would strand those tool calls.
     ctx.sessions.get(SessionId('sel-2'))?.append('turn/start', { turn: 0 })
 
     const response = await api.agentPresets.select(
-      request({ sessionId: SessionId('sel-2'), agentPreset: 'core-web' }))
+      request({ sessionId: SessionId('sel-2'), agentPreset: 'minimal' }))
 
     expect(response.result.ok).toBe(false)
     if (response.result.ok) throw new Error('unreachable')

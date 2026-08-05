@@ -82,7 +82,7 @@ description: 只向模型呈现 bash 与 str_replace_editor，适合 benchmark �
 
 ```yaml
 agent-presets:
-  default: core-web
+  default: minimal
 ```
 
 该值在每次解析时读取而非快照，因此热重载的文档对**此后创建**的会话生效，而每个运行中的会话仍停留在它当初据以组装的 preset 上。清空用户字段即重新继承组装默认值。若默认值指向没有任何根目录提供的 preset，写入时不会报错，而在下一次 `resolve()` 时失败——名单是一个活动目录，此刻不存在的名字，等到某个会话真正索取时可能已经存在。

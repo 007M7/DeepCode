@@ -369,8 +369,8 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     expect((await c.agentPresets.list({})).result).toEqual({
       ok: true, value: { presets: [], authorable: false },
     })
-    expect((await c.agentPresets.select({ sessionId: 's' as never, agentPreset: 'core-web' })).result)
-      .toEqual({ ok: true, value: { agentPreset: 'core-web' } })
+    expect((await c.agentPresets.select({ sessionId: 's' as never, agentPreset: 'minimal' })).result)
+      .toEqual({ ok: true, value: { agentPreset: 'minimal' } })
     expect((await c.agentPresets.read({ agentPreset: 'mine' })).result).toEqual({
       ok: true, value: { agentPreset: 'mine', trust: 'user', content: '', writable: true },
     })

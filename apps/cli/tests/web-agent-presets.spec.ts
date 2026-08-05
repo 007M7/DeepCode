@@ -82,7 +82,7 @@ describe('the shipped Web composition', () => {
   it('supplies both shipped presets, and only those, from the system root', async () => {
     const listed = await ctx.agentPresets.list()
 
-    expect(listed.map(preset => preset.id).sort()).toEqual(['cordis', 'core-web', 'standard'])
+    expect(listed.map(preset => preset.id).sort()).toEqual(['cordis', 'minimal', 'standard'])
     expect(listed.every(preset => preset.trust === 'system')).toBe(true)
     expect(ctx.agentPresets.defaultId).toBe('standard')
   })
@@ -110,10 +110,10 @@ describe('the shipped Web composition', () => {
     }
   })
 
-  it('composes exactly two tools from `core-web`', async () => {
+  it('composes exactly two tools from `minimal`', async () => {
     const handle = await ctx.agents.create({
-      sessionId: SessionId('preset-core-web'),
-      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'core-web').then(() => undefined),
+      sessionId: SessionId('preset-minimal'),
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'minimal').then(() => undefined),
     })
     try {
       // Exactly what the preset lists — nothing arrives from the host.
@@ -130,7 +130,7 @@ describe('the shipped Web composition', () => {
     })
     const minimal = await ctx.agents.create({
       sessionId: SessionId('preset-both-minimal'),
-      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'core-web').then(() => undefined),
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'minimal').then(() => undefined),
     })
     try {
       expect(toolNames(ctx, minimal.agent)).toEqual(['bash', 'str_replace_editor'])
@@ -217,7 +217,7 @@ describe('the shipped Web composition', () => {
   it('gives each session its own persona', async () => {
     const handle = await ctx.agents.create({
       sessionId: SessionId('preset-persona'),
-      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'core-web').then(() => undefined),
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'minimal').then(() => undefined),
     })
     try {
       const assembly = await ctx.systemPrompt.assemble({ scope: handle.agent })
@@ -238,12 +238,12 @@ describe('a switch survives the session', () => {
     })
     try {
       // The api-proxy's select does exactly this pair while the session is blank.
-      await ctx.agentPresets.recompose(handle.agent.ctx, 'core-web')
-      handle.agent.session.append('agent-preset/selected', { agentPreset: 'core-web' })
+      await ctx.agentPresets.recompose(handle.agent.ctx, 'minimal')
+      handle.agent.session.append('agent-preset/selected', { agentPreset: 'minimal' })
 
       // The header keeps the creation fact; the log carries what it runs.
       expect(handle.agent.session.header.agentPreset).toBe('standard')
-      expect(resolveSessionPreset(handle.agent.session)).toBe('core-web')
+      expect(resolveSessionPreset(handle.agent.session)).toBe('minimal')
     } finally {
       await handle.dispose()
     }
@@ -255,14 +255,14 @@ describe('a switch survives the session', () => {
     const rebuilt = resolveSessionPreset({
       header: { version: 0, id: SessionId('x'), createdAt: 0, agentPreset: 'standard' },
       events: [
-        { type: 'agent-preset/selected', seq: 1, time: 0, data: { agentPreset: 'core-web' } },
+        { type: 'agent-preset/selected', seq: 1, time: 0, data: { agentPreset: 'minimal' } },
         { type: 'turn/start', seq: 2, time: 0, data: { turn: 0, trigger: { kind: 'message', source: { kind: 'user' } } } },
       ] as never,
     })
 
     // Reading the header alone would compose the creation-time preset over a
     // history another one produced — the replay the blank-only lock prevents.
-    expect(rebuilt).toBe('core-web')
+    expect(rebuilt).toBe('minimal')
   })
 })
 
@@ -270,8 +270,8 @@ describe('a forked session', () => {
   it('inherits the composition its seeded history was produced under', async () => {
     const parent = await ctx.agents.create({
       sessionId: SessionId('preset-fork-parent'),
-      meta: { agentPreset: 'core-web' },
-      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'core-web').then(() => undefined),
+      meta: { agentPreset: 'minimal' },
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'minimal').then(() => undefined),
     })
     const inherited = resolveSessionPreset(parent.agent.session)
     const child = await ctx.agents.create({
@@ -335,7 +335,7 @@ describe('authoring a preset on the shipped composition', () => {
   })
 
   it('writes a preset a session then really composes from', async () => {
-    const copied = await authorCtx.agentPresets.read('core-web')
+    const copied = await authorCtx.agentPresets.read('minimal')
 
     await authorCtx.agentPresets.write('my-agent', copied)
 
@@ -352,7 +352,7 @@ describe('authoring a preset on the shipped composition', () => {
       setup: agentCtx => authorCtx.agentPresets.mount(agentCtx, 'my-agent').then(() => undefined),
     })
     try {
-      // The same tools the shipped `core-web` composes, from a file written
+      // The same tools the shipped `minimal` composes, from a file written
       // through the service into a root outside the installed harness.
       expect(toolNames(authorCtx, handle.agent)).toEqual(['bash', 'str_replace_editor'])
     } finally {
@@ -380,9 +380,9 @@ describe('the default preset as a user setting', () => {
   it('composes an unnamed session from the stored default, not the composed one', async () => {
     expect(ctx.agentPresets.defaultId).toBe('standard')
 
-    await ctx.settings.update(settingsNamespace(SETTINGS_NAMESPACE), { default: 'core-web' })
+    await ctx.settings.update(settingsNamespace(SETTINGS_NAMESPACE), { default: 'minimal' })
     try {
-      expect(ctx.agentPresets.defaultId).toBe('core-web')
+      expect(ctx.agentPresets.defaultId).toBe('minimal')
 
       const handle = await ctx.agents.create({
         sessionId: SessionId('preset-user-default'),
@@ -410,14 +410,14 @@ describe('a session keeps the preset it was created with', () => {
   it('refuses to adopt a live session under a different preset', async () => {
     const handle = await ctx.agents.create({
       sessionId: SessionId('preset-locked'),
-      meta: { agentPreset: 'core-web' },
-      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'core-web').then(() => undefined),
+      meta: { agentPreset: 'minimal' },
+      setup: agentCtx => ctx.agentPresets.mount(agentCtx, 'minimal').then(() => undefined),
     })
     try {
       // The api-proxy guard reads exactly this: the header records what the
       // session runs, so naming anything else is a caller error rather than a
-      // switch. Its history was produced under `core-web`'s two tools.
-      expect(handle.agent.session.header.agentPreset).toBe('core-web')
+      // switch. Its history was produced under `minimal`'s two tools.
+      expect(handle.agent.session.header.agentPreset).toBe('minimal')
     } finally {
       await handle.dispose()
     }

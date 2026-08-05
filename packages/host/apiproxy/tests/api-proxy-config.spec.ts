@@ -360,14 +360,14 @@ describe('settings domain', () => {
     ctx.settings.register(settingsNamespace('agent-presets'), z.object({ default: z.string() }))
     const api = createApiProxy(ctx, DEFAULTS)
 
-    expectOk(await api.settings.update(request({ ns: 'agent-presets', patch: { default: 'core-web' } })))
+    expectOk(await api.settings.update(request({ ns: 'agent-presets', patch: { default: 'minimal' } })))
 
     // Both browser surfaces that offer the choice — the General row and the
     // management section — write the default through `settings.update`, so a
     // namespace outside this boundary makes the picker move and then silently
     // forget, which is worse than refusing the control.
     expect(ctx.settings.describe().find(view => String(view.ns) === 'agent-presets')?.value)
-      .toEqual({ default: 'core-web' })
+      .toEqual({ default: 'minimal' })
   })
 
   it('refuses even a model-provider namespace once its directory entry is gone', async () => {

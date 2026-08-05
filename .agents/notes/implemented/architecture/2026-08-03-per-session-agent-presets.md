@@ -6,7 +6,7 @@ English | [中文](2026-08-03-per-session-agent-presets.zh.md)
 
 ## Problem
 
-One `dsh` process serves many sessions, but the composition that decides what an agent *is* — its tools, persona, prompt sections, delegation backends — is fixed for the whole process by the `cordis.yml` the launcher booted. A deployment that wants a benchmark-minimal agent beside a full coding agent has to run two processes, and the shipped workaround (`apps/cli/config/core-web.cordis.yml`, a `--config` overlay that disables tool rows) changes every session at once.
+One `dsh` process serves many sessions, but the composition that decides what an agent *is* — its tools, persona, prompt sections, delegation backends — is fixed for the whole process by the `cordis.yml` the launcher booted. A deployment that wants a benchmark-minimal agent beside a full coding agent has to run two processes, and the shipped workaround (`apps/cli/config/minimal.cordis.yml`, a `--config` overlay that disables tool rows) changes every session at once.
 
 The obvious reading of "let a session pick its composition" is that the loader needs a new tier. It does not. [`dsh-tools`](../../../../packages/core/tools/README.md) and [`dsh-system-prompt`](../../../../packages/core/system-prompt/README.md) already file registrations into the calling context's scope layer, and [the agent is a registration scope](2026-07-08-agent-scope-contexts.md). What was missing is a way to point a whole `cordis.yml` at one agent's scope.
 
@@ -23,7 +23,7 @@ Composition splits into two planes, decided by what must be shared rather than b
 
 Model routing stays out of presets. `installAgentLlmTarget` is already the per-agent seam for provider, model, and reasoning effort, and an LLM adapter mounted inside a preset would never be resolved by `agent-loop`, which lives in the host plane.
 
-The deployment ships three presets — `standard` (the full coding agent), `core-web` (a two-tool benchmark surface), and `cordis` (the standard agent plus the self-referential toolset and a composition-authoring skill).
+The deployment ships three presets — `standard` (the full coding agent), `minimal` (a two-tool benchmark surface), and `cordis` (the standard agent plus the self-referential toolset and a composition-authoring skill).
 
 Mounting is per-session by default. Measured cost for a twelve-row composition is ~3ms and ~600KB per session, so isolation is the cheaper default than any sharing scheme, and a preset authored by a user or by an agent then has the smallest possible blast radius. A preset that genuinely owns an expensive singleton opts into sharing with Cordis's own `isolate` vocabulary: a named realm label is process-global, so two subtrees naming the same label resolve one instance.
 

@@ -82,7 +82,7 @@ When a settings provider is composed, this plugin registers the `agent-presets` 
 
 ```yaml
 agent-presets:
-  default: core-web
+  default: minimal
 ```
 
 The value is read per resolution rather than snapshotted, so a hot-reloaded document takes effect on the next session created and every running session stays on the preset it was composed from. Clearing the user field re-inherits the composition default. A default naming a preset no root supplies is stored without complaint and fails at the next `resolve()` — the roster is a live directory, so a name absent now may exist by the time a session asks for it.
