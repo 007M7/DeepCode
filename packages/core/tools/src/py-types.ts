@@ -156,8 +156,9 @@ interface RenderState {
  * (`SyntaxError: source code string cannot contain null bytes`), whether it
  * sits in a docstring or in a comment, so one such byte anywhere in a schema
  * description would make the whole generated SDK unparseable — under
- * `mode: 'code'`, the model's only declaration of the tools. The rest are legal but invisible; escaping them
- * with the same rule keeps the emitted text readable and the treatment uniform.
+ * `mode: 'code'`, the model's only declaration of the tools. The rest are
+ * legal but invisible; escaping them with the same rule keeps the emitted text
+ * readable and the treatment uniform.
  *
  * The boundary is the category, not per-code-point addressability: `\xNN`
  * addresses U+0000 to U+00FF, so one escape form covers `Cc` exactly. The
