@@ -16,8 +16,6 @@ const previousBackslash: Previous = function (code) {
 }
 
 const tokenizeBackslashMathText: Tokenizer = function (effects, ok, nok) {
-  const self = this
-
   return start
 
   function start(code: number | null): State | undefined {
@@ -38,8 +36,8 @@ const tokenizeBackslashMathText: Tokenizer = function (effects, ok, nok) {
 
   function between(code: number | null): State | undefined {
     if (code === codes.eof) return nok(code)
-    if (code === codes.backslash && self.previous !== codes.backslash) {
-      return effects.attempt({ partial: true, tokenize: tokenizeClose }, close, dataStart)(code)
+    if (code === codes.backslash) {
+      return effects.attempt({ partial: true, tokenize: tokenizeClose }, close, afterCloseAttempt)(code)
     }
     if (markdownLineEnding(code)) {
       effects.enter(types.lineEnding)
@@ -50,10 +48,22 @@ const tokenizeBackslashMathText: Tokenizer = function (effects, ok, nok) {
     return dataStart(code)
   }
 
+  function afterCloseAttempt(code: number | null): State | undefined {
+    return effects.check({ partial: true, tokenize: tokenizeOpen }, nok, dataStart)(code)
+  }
+
   function dataStart(code: number | null): State | undefined {
     effects.enter('mathTextData')
     effects.consume(code)
-    return data
+    return code === codes.backslash ? afterDataBackslash : data
+  }
+
+  function afterDataBackslash(code: number | null): State | undefined {
+    if (code === codes.backslash) {
+      effects.consume(code)
+      return data
+    }
+    return data(code)
   }
 
   function data(code: number | null): State | undefined {
@@ -88,11 +98,31 @@ const tokenizeBackslashMathText: Tokenizer = function (effects, ok, nok) {
       return closeOk
     }
   }
+
+  function tokenizeOpen(openEffects: Parameters<Tokenizer>[0], openOk: State, openNok: State): State {
+    return slash
+
+    function slash(code: number | null): State | undefined {
+      /* v8 ignore next -- the opening check follows a failed close attempt at a backslash. */
+      if (code !== codes.backslash) return openNok(code)
+      openEffects.enter(types.chunkString)
+      openEffects.consume(code)
+      return parenthesis
+    }
+
+    function parenthesis(code: number | null): State | undefined {
+      if (code !== codes.leftParenthesis) return openNok(code)
+      openEffects.consume(code)
+      openEffects.exit(types.chunkString)
+      return openOk
+    }
+  }
 }
 
 function createMathFlow(marker: number, openMarker: number, closeMarker: number, multiline: boolean): Construct {
   const tokenize: Tokenizer = function (effects, ok, nok) {
     const self = this
+    let oddBackslashRun = false
     const tail = self.events.at(-1)
     const initialSize = tail?.[1].type === types.linePrefix
       ? tail[2].sliceSerialize(tail[1], true).length
@@ -124,16 +154,25 @@ function createMathFlow(marker: number, openMarker: number, closeMarker: number,
 
     function content(code: number | null): State | undefined {
       if (code === codes.eof) return nok(code)
-      if (code === marker && (marker !== codes.backslash || self.previous !== codes.backslash)) {
-        return effects.attempt({ partial: true, tokenize: tokenizeClosingFence }, closed, markerValueStart)(code)
+      if (code === marker && (marker !== codes.dollarSign || !oddBackslashRun)) {
+        return effects.attempt(
+          { partial: true, tokenize: tokenizeClosingFence },
+          closed,
+          afterClosingFenceAttempt,
+        )(code)
       }
       if (markdownLineEnding(code)) {
-        /* v8 ignore next -- micromark gives same-line dollar flow to remark-math before this continuation branch. */
         return multiline
           ? effects.attempt(nonLazyContinuation, afterContinuation, nok)(code)
           : nok(code)
       }
       return valueStart(code)
+    }
+
+    function afterClosingFenceAttempt(code: number | null): State | undefined {
+      return marker === codes.backslash
+        ? effects.check({ partial: true, tokenize: tokenizeOpeningFence }, nok, markerValueStart)(code)
+        : markerValueStart(code)
     }
 
     function afterContinuation(code: number | null): State | undefined {
@@ -148,12 +187,14 @@ function createMathFlow(marker: number, openMarker: number, closeMarker: number,
 
     function valueStart(code: number | null): State | undefined {
       effects.enter('mathFlowValue')
+      oddBackslashRun = code === codes.backslash
       effects.consume(code)
       return value
     }
 
     function markerValueStart(code: number | null): State | undefined {
       effects.enter('mathFlowValue')
+      oddBackslashRun = false
       effects.consume(code)
       return valueAfterMarker
     }
@@ -171,6 +212,7 @@ function createMathFlow(marker: number, openMarker: number, closeMarker: number,
         effects.exit('mathFlowValue')
         return content(code)
       }
+      oddBackslashRun = code === codes.backslash ? !oddBackslashRun : false
       effects.consume(code)
       return value
     }
@@ -206,6 +248,29 @@ function createMathFlow(marker: number, openMarker: number, closeMarker: number,
         if (code !== codes.eof && !markdownLineEnding(code)) return closeNok(code)
         closeEffects.exit('mathFlowFence')
         return closeOk(code)
+      }
+    }
+
+    function tokenizeOpeningFence(
+      openEffects: Parameters<Tokenizer>[0],
+      openOk: State,
+      openNok: State,
+    ): State {
+      return sequenceStart
+
+      function sequenceStart(code: number | null): State | undefined {
+        /* v8 ignore next -- the opening check follows a failed close attempt at the marker. */
+        if (code !== marker) return openNok(code)
+        openEffects.enter(types.chunkString)
+        openEffects.consume(code)
+        return sequenceEnd
+      }
+
+      function sequenceEnd(code: number | null): State | undefined {
+        if (code !== openMarker) return openNok(code)
+        openEffects.consume(code)
+        openEffects.exit(types.chunkString)
+        return openOk
       }
     }
   }
@@ -272,7 +337,8 @@ const backslashMath: Extension = {
 }
 
 /**
- * Add TeX backslash delimiters and same-line display-dollar blocks to remark.
+ * Add TeX backslash delimiters and same-line display-dollar blocks for remark-math.
+ * The same processor must register remark-math to compile the emitted math tokens.
  * @returns Nothing.
  */
 export function remarkMathCompatibility(this: RemarkProcessor): undefined {

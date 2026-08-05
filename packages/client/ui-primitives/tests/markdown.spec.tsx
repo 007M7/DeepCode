@@ -207,6 +207,13 @@ describe('MarkdownText', () => {
         source: '\\(\\frac{1}{5}\n+\\frac{1}{7}\\)',
         math: 1,
         display: 0,
+        value: '\\frac{1}{5}\n+\\frac{1}{7}',
+      },
+      {
+        source: '\\[a\\\\\nb\\]',
+        math: 1,
+        display: 1,
+        value: 'a\\\\\nb',
       },
       {
         source: '> \\[\n> \\frac{1}{5}\n> \\]',
@@ -225,6 +232,9 @@ describe('MarkdownText', () => {
       expect(rendered.container.querySelectorAll('.katex')).toHaveLength(item.math)
       expect(rendered.container.querySelectorAll('.katex-display')).toHaveLength(item.display)
       expect(rendered.container.querySelector('.katex-error')).toBeNull()
+      if ('value' in item) {
+        expect(rendered.container.querySelector('annotation')?.textContent).toBe(item.value)
+      }
       rendered.unmount()
     }
 
@@ -239,8 +249,10 @@ describe('MarkdownText', () => {
     const sources = [
       '$$\n\\theta\n$$',
       '$$$\\theta$$$',
+      '$$a$b\nc',
       '  \\[\n  \\theta\n  \\]',
       '\\(\\theta',
+      '\\[\n\\[',
       '> \\[\nnot a quoted continuation\n\\]',
     ]
 
@@ -249,6 +261,29 @@ describe('MarkdownText', () => {
       expect(rendered.container.querySelector('.katex-error')).toBeNull()
       rendered.unmount()
     }
+  })
+
+  it('renders escaped dollars and even backslash pairs before closing fences', () => {
+    const source = [
+      String.raw`$$100\$$$`,
+      '',
+      String.raw`\(a\\\)`,
+      '',
+      String.raw`\[b\\\]`,
+    ].join('\n')
+    const { container } = render(<MarkdownText text={source} />)
+    const values = [...container.querySelectorAll('annotation')].map(node => node.textContent)
+
+    expect(values).toEqual([String.raw`100\$`, String.raw`a\\`, String.raw`b\\`])
+    expect(container.querySelector('.katex-error')).toBeNull()
+  })
+
+  it('bounds fallback work for repeated unclosed backslash delimiters', () => {
+    const startedAt = performance.now()
+    const { container } = render(<MarkdownText text={'\\(x '.repeat(6_400)} />)
+
+    expect(performance.now() - startedAt).toBeLessThan(1_000)
+    expect(container.querySelector('.katex')).toBeNull()
   })
 
   it('leaves TeX-looking fenced code literal', () => {

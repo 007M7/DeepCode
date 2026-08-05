@@ -14,7 +14,7 @@ Web 对话通过会话事件、历史回放与流式累积保留 assistant Markd
 
 `MarkdownText` 使用 `react-markdown` 与 `remark-gfm`，从 AST 构建 React 元素。它覆盖 CommonMark 块，以及 GFM 表格、任务列表、删除线与自动链接，且不解析原始 HTML。围栏代码经共享的 `CodeBlock` 路由；该组件用客户端的 shiki 单例（`--shiki-*` token）高亮已注册语法，否则回退为纯等宽文本。轮次流式输出期间，围栏停留在纯文本分支，以免每收到一个分片就对增长中的围栏重新分词。
 
-视觉间距、表格、链接、引用块、行内代码与代码块外框遵循 deepsuite `@deepseek/md`（`markdown.css` / `code-block.css`），并使用同一套 `--dsw-alias-markdown-*`、`--dsw-font-markdown-*`、`--dsw-alias-border-l*` 与 `--dsw-alias-label-*` token。链接使用 `--dsw-alias-state-business-primary`（deepsuite 的样式表使用 `--dsw-alias-brand-text`，仅在 newDesign 下为蓝色；design-platform 将 brand-text 保持为近黑色，此处不做重新调色）。`CodeBlock` 提供语言横幅与复制控件（`复制` / `复制成功`）。已完成的文本通过 `remark-math` 和 `rehype-katex` 渲染 KaTeX；`remarkMathCompatibility` 将 `\\(...\\)`、`\\[...\\]` 和块级同一行 `$$...$$` 映射为同一套标准数学 AST 节点。这是一层小范围的解析器兼容层，不是正则重写，也不修复格式错误的模型输出。流式输出在完成前保持按字面渲染，避免不完整公式闪现错误。引用胶囊、标题锚点、thinking-small markdown 变体，以及自定义 □/☑ 任务标记仍不在范围内；GFM 任务列表继续使用原生复选框。
+视觉间距、表格、链接、引用块、行内代码与代码块外框遵循 deepsuite `@deepseek/md`（`markdown.css` / `code-block.css`），并使用同一套 `--dsw-alias-markdown-*`、`--dsw-font-markdown-*`、`--dsw-alias-border-l*` 与 `--dsw-alias-label-*` token。链接使用 `--dsw-alias-state-business-primary`（deepsuite 的样式表使用 `--dsw-alias-brand-text`，仅在 newDesign 下为蓝色；design-platform 将 brand-text 保持为近黑色，此处不做重新调色）。`CodeBlock` 提供语言横幅与复制控件（`复制` / `复制成功`）。已完成的文本通过 `remark-math` 和 `rehype-katex` 渲染 KaTeX；`remarkMathCompatibility` 将 `\(...\)`、`\[...\]` 和块级同一行 `$$...$$` 映射为同一套标准数学 AST 节点。这是一层小范围的解析器兼容层，不是正则重写，也不修复格式错误的模型输出。流式输出在完成前保持按字面渲染，避免不完整公式闪现错误。引用胶囊、标题锚点、thinking-small markdown 变体，以及自定义 □/☑ 任务标记仍不在范围内；GFM 任务列表继续使用原生复选框。
 
 该依赖在 `ui-primitives` 中显式声明；由于这一纯库由 Web shell 预置，解析器与高亮器会成为初始浏览器 bundle 的一部分。
 
