@@ -419,9 +419,10 @@ describe('renderToolsSdkPy', () => {
     // `路径` satisfies `xid_start xid_continue*`, so CPython accepts it as an
     // attribute and as the `TypedDict` key. Rejecting it would degrade the
     // whole object, dropping every SIBLING field's name, requiredness and type
-    // too — and Code Mode omits the native schemas, so nothing else carries
-    // them. The nested class name is derived from the field, so `camelCase`
-    // has to pass the same characters through instead of splitting on them.
+    // too — and under `mode: 'code'` the native schemas are omitted, so
+    // nothing else carries them. The nested class name is from the field, so
+    // `camelCase` has to pass the same characters through instead of splitting
+    // on them.
     const tool: ToolSdkSchema = {
       name: '搜索',
       description: 'Unicode identifiers.',
