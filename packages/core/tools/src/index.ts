@@ -836,6 +836,14 @@ export class ToolRegistry extends Service {
    * behind it — hostage to a code runtime existing even under `mode:
    * 'native'` (the loop's optional-backend idiom, same as
    * `sessionPersistence`).
+   *
+   * Assembly and `run_code` execution read separately, so the language is not
+   * bound to a request. Harmless while one published backend exists — both
+   * reads return the same flavor — but a reload that swapped in a second
+   * language between them would hand a program written against one SDK to the
+   * other. Binding it belongs to the PR that publishes that backend, which is
+   * also the first point it can be tested; recorded in the
+   * [language-dispatch note](../../../../.agents/notes/implemented/feature/2026-07-31-code-mode-language-dispatch.md).
    */
   private requireCodeRuntime(): CodeRuntime {
     const runtime = this.ctx.get('codeRuntime')

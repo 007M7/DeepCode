@@ -106,6 +106,12 @@ describe('renderToolsSdkPy', () => {
     expect(text).toContain('# tools["class"](args: dict[str, Any]) -> str')
     // Fixed instruction lines the model relies on.
     expect(text).toContain('top-level `await`')
+    // The binding boundary: `tools`/`ToolCallError` are bound, the TypedDicts
+    // are not. Both halves are pinned — dropping either one turns a correct
+    // contract into a wrong one (a model that reads only "STATIC STUB" would
+    // stop catching `ToolCallError`).
+    expect(text).toContain('exactly two of the names declared below are bound: `tools` and `ToolCallError`')
+    expect(text).toContain('never `FooArgs(field=1)`, which raises `NameError`')
     expect(text).toContain('ToolCallError')
     expect(text).toContain('class ToolCallError(Exception):')
     expect(text).toContain('MAY overlap under `asyncio.gather`')
@@ -732,5 +738,17 @@ describe('renderToolsSdkPy', () => {
     const others = renderToolsSdkPy([make('bell\u0007esc\u001bdel\u007f')])
     expect(others).toContain(String.raw`bell\x07esc\x1bdel\x7f`)
     expect(renderToolsSdkPy([make('tab\tnewline\ncr\r')])).toContain('"""tab newline cr"""')
+    // NEL is the one `Cc` code point the collapse does NOT fold: ECMAScript
+    // whitespace is TAB/VT/FF/SP/NBSP/ZWNBSP/Zs plus LF/CR/LS/PS, and U+0085 is
+    // in none of them, so without the escape it would reach the docstring raw
+    // and be invisible there. NBSP, which IS whitespace, folds instead.
+    const nel = renderToolsSdkPy([make('a\u0085b')])
+    expect(nel).not.toContain('\u0085')
+    expect(nel).toContain(String.raw`# a\x85b`)
+    expect(renderToolsSdkPy([make('nb\u00a0sp')])).toContain('"""nb sp"""')
+    // `Cf` formatting characters pass through by design: `\xNN` cannot address
+    // them, and they terminate neither a Python string literal nor a `#`
+    // comment, so the block stays parseable with the code point intact.
+    expect(renderToolsSdkPy([make('zero\u200bwidth')])).toContain('"""zero\u200bwidth"""')
   })
 })

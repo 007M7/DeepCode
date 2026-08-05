@@ -70,15 +70,25 @@ interface RenderState {
 }
 
 /**
- * Control characters that survive the whitespace collapse in {@link describe}
- * and have no printable form. CPython rejects source containing a NUL outright
+ * The `Cc` code points that survive the whitespace collapse in {@link describe}
+ * and have no printable form: the C0 controls, DEL, and NEL. U+0009 to U+000D
+ * are absent because ECMAScript `\s` already collapsed them; U+0085 is `Cc` but
+ * NOT in `\s` (TAB/VT/FF/SP/NBSP/ZWNBSP/Zs plus LF/CR/LS/PS), so it survives and
+ * is escaped here. CPython rejects source containing a NUL outright
  * (`SyntaxError: source code string cannot contain null bytes`), whether it
  * sits in a docstring or in a comment, so one such byte anywhere in a schema
  * description would make the whole generated SDK unparseable — the model's only
  * declaration of the tools. The rest are legal but invisible; escaping them
  * with the same rule keeps the emitted text readable and the treatment uniform.
+ *
+ * The set stops at `Cc` because the escape is `\xNN`, which addresses exactly
+ * U+0000 to U+00FF. The invisible `Cf` formatting characters (U+00AD soft
+ * hyphen, U+200B ZWSP, U+200E/U+200F bidi marks, U+2060 word joiner) pass
+ * through by design: covering them would need a second `\uNNNN` escape form,
+ * and they are legal in both consumers — only LF and CR terminate a Python
+ * string literal or a `#` comment.
  */
-const UNPRINTABLE = /[\u0000-\u0008\u000e-\u001f\u007f]/g
+const UNPRINTABLE = /[\u0000-\u0008\u000e-\u001f\u007f\u0085]/g
 
 /**
  * The collapsed one-line `description` of a schema node (byte-stable across
@@ -519,7 +529,7 @@ export function jsonSchemaToPy(schema: unknown): string {
 /** The fixed model-facing usage contract rendered above the declarations. */
 const SDK_INSTRUCTIONS = `## Writing code for run_code
 
-Pass \`run_code\` the body of an async Python function (top-level \`await\` and \`return\` both work). Everything declared below is a STATIC STUB describing shapes: the \`TypedDict\` classes are NOT bound at run time, so build arguments as plain \`dict\`/\`list\` JSON values — \`await tools.name({"field": 1})\`, never \`FooArgs(field=1)\`, which raises \`NameError\`. Inside the program:
+Pass \`run_code\` the body of an async Python function (top-level \`await\` and \`return\` both work). At run time exactly two of the names declared below are bound: \`tools\` and \`ToolCallError\`. Everything else is a STATIC STUB describing shapes — in particular the \`TypedDict\` classes do NOT exist at run time, so build arguments as plain \`dict\`/\`list\` JSON values: \`await tools.name({"field": 1})\`, never \`FooArgs(field=1)\`, which raises \`NameError\`. Inside the program:
 
 - Call tools as \`await tools.name(args)\` — subscript access for exotic, reserved, or underscore-leading names: \`await tools["my-tool"](args)\`. Every call resolves to the tool's typed canonical JSON value (each method's return type below). Tool arguments must be lossless JSON.
 - A FAILED tool call raises \`ToolCallError\`, whose \`toolName\` identifies the failed tool and whose message is human-readable — wrap in \`try/except\` to handle and continue.
