@@ -94,12 +94,6 @@ interface ContextPressureState {
   claim?: ShadowPriceClaim
 }
 
-/** Whether two optional shadow-price claims price the same range identically. */
-const claimEquals = (left: ShadowPriceClaim | undefined, right: ShadowPriceClaim | undefined): boolean =>
-  left === right
-  || (left !== undefined && right !== undefined
-    && left.start === right.start && left.end === right.end && left.tokens === right.tokens)
-
 /**
  * Token-meter's session projection unit.
  *
@@ -194,7 +188,9 @@ ProjectionDefinition<'contextPressure', ContextPressureState> = {
     if (fold.deltaTokens !== 0) {
       next = { ...next, surfaceTokens: next.surfaceTokens + fold.deltaTokens }
     }
-    if (claimEquals(state.claim, fold.claim)) return next
+    // A defined fold.claim is always freshly built, so presence decides claim
+    // bookkeeping: no claim before or after this event leaves `next` as is.
+    if (state.claim === undefined && fold.claim === undefined) return next
     const { claim: _expired, ...withoutClaim } = next
     return fold.claim === undefined ? withoutClaim : { ...withoutClaim, claim: fold.claim }
   },
