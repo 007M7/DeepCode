@@ -33,6 +33,7 @@ import type { ISessions } from '../contract/sessions.ts'
 import { createScope, scopeOf as scopeTagOf } from '../agents/scope.ts'
 import { SessionManager } from './manager.ts'
 import type { SessionListPhase, SessionSearchResultItem, SubagentCatalogSnapshot } from './manager.ts'
+import type { PendingInteractionStatus } from './pending.ts'
 import { SessionProvideChannel } from './provide.ts'
 import type { Session } from './session.ts'
 
@@ -48,8 +49,8 @@ export interface SessionSummary {
   /** Coarse durable origin for navigation filtering; not a continuation capability. */
   origin?: 'subagent'
   running: boolean
-  /** An approval question is pending on this session (sidebar amber-dot state). */
-  waitingApproval: boolean
+  /** User interaction currently blocking this session (sidebar amber-dot state). */
+  pendingInteraction?: PendingInteractionStatus
   /**
    * Empty-log bit (host summary derivation mirror). New Session reuses a blank
    * one targeting the same workspace. Filtering stays with the consumer: the
@@ -613,9 +614,11 @@ export class SessionsService implements ISessions {
         id: entry.sessionId,
         displayTitle: displayTitleOf(entry.title, entry.cwd, entry.sessionId),
         running: entry.running,
-        waitingApproval: entry.waitingApproval,
         blank: entry.blank,
         updatedAt: entry.updatedAt,
+        ...(entry.pendingInteraction === undefined
+          ? {}
+          : { pendingInteraction: entry.pendingInteraction }),
         ...(entry.projectionValues === undefined
           ? {}
           : { projectionValues: entry.projectionValues }),
@@ -643,7 +646,6 @@ export class SessionsService implements ISessions {
             parentId: address.parentSessionId,
             origin: 'subagent',
             running: child.activity === 'running',
-            waitingApproval: false,
             blank: false,
             updatedAt: 0,
           }

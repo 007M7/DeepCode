@@ -11,7 +11,7 @@ import { createWorkspaceViewStore } from '../src/client/stores.ts'
 const sid = (id: string) => id as SessionId
 const wid = (id: string) => id as WorkspaceId
 const summary = (id: string, updatedAt: number, cwd?: string): SessionSummary => ({
-  id: sid(id), displayTitle: id, running: false, waitingApproval: false, blank: false, updatedAt, ...(cwd === undefined ? {} : { cwd }),
+  id: sid(id), displayTitle: id, running: false, blank: false, updatedAt, ...(cwd === undefined ? {} : { cwd }),
 })
 const list = (...items: SessionSummary[]): SessionListState => ({
   ids: items.map(item => item.id),
@@ -38,12 +38,12 @@ describe('deriveGroups', () => {
     expect(groups[0]!.sessions.map(session => session.id)).toEqual([sid('older'), sid('newer')])
   })
 
-  it('projects approval-waiting state into grouped and flat rows', () => {
-    const awaiting = { ...summary('awaiting', 10), waitingApproval: true, running: true }
+  it('projects pending-interaction state into grouped and flat rows', () => {
+    const awaiting = { ...summary('awaiting', 10), pendingInteraction: 'plan-review' as const, running: true }
     const sessions = list(awaiting)
     const grouped = deriveGroups(sessions, [workspace('project', ['awaiting'])], noArchive, view(['project']))
-    expect(grouped[0]!.sessions[0]).toMatchObject({ waitingApproval: true, running: true })
-    expect(deriveFlat(sessions, noArchive)[0]).toMatchObject({ waitingApproval: true, running: true })
+    expect(grouped[0]!.sessions[0]).toMatchObject({ pendingInteraction: 'plan-review', running: true })
+    expect(deriveFlat(sessions, noArchive)[0]).toMatchObject({ pendingInteraction: 'plan-review', running: true })
   })
 
   it('puts only real unaccounted Sessions in the trailing Ungrouped group', () => {
@@ -225,6 +225,7 @@ describe('deriveSearchResults', () => {
   it('merges local title/Workspace matches before ranked content hits and enriches duplicates', () => {
     const titleHit = summary('title-hit', 30, '/projects/a')
     titleHit.displayTitle = 'Needle title'
+    titleHit.pendingInteraction = 'plan-review'
     const workspaceHit = summary('workspace-hit', 20, '/projects/b')
     workspaceHit.displayTitle = 'Ordinary title'
     const contentHit = summary('content-hit', 10, '/projects/c')
@@ -257,6 +258,7 @@ describe('deriveSearchResults', () => {
           title: 'Needle title',
           workspace: 'Alpha',
           running: false,
+          pendingInteraction: 'plan-review',
           snippet: 'title session body excerpt',
         },
         {

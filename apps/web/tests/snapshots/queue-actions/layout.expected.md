@@ -23,7 +23,7 @@
 - paragraph: partial
 - status: Deep diving...
 - region "To-dos":
-  - button "To-dos 1/2 tasks · 1 in progress"
+  - button "To-dos 1 completed · 1 in progress"
 - img
 - text: Ongoing Goal Keep the composer context panels aligned
 - button "Pause goal":

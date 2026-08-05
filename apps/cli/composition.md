@@ -54,6 +54,8 @@ flowchart LR
   cfg --> plugin_dsh_base_approval
   plugin_dsh_base_permission["permission<br/>@deepseek-ai/dsh-permission"]
   cfg --> plugin_dsh_base_permission
+  plugin_dsh_base_bash_env["bash-env<br/>@deepseek-ai/dsh-bash-env"]
+  cfg --> plugin_dsh_base_bash_env
   plugin_dsh_base_tool_bash["tool-bash<br/>@deepseek-ai/dsh-tool-bash"]
   cfg --> plugin_dsh_base_tool_bash
   plugin_dsh_base_tool_tasks["tool-tasks<br/>@deepseek-ai/dsh-tool-tasks"]
@@ -171,6 +173,7 @@ flowchart LR
 | `bash-sandbox` | `@deepseek-ai/dsh-bash-sandbox` |
 | `approval` | `@deepseek-ai/dsh-user-approval` |
 | `permission` | `@deepseek-ai/dsh-permission` |
+| `bash-env` | `@deepseek-ai/dsh-bash-env` |
 | `tool-bash` | `@deepseek-ai/dsh-tool-bash` |
 | `tool-tasks` | `@deepseek-ai/dsh-tool-tasks` |
 | `fs-policy` | `@deepseek-ai/dsh-fs-policy` |
