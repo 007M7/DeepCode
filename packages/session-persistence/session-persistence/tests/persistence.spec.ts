@@ -414,7 +414,7 @@ describe('PersistenceCoordinator session preparations', () => {
         type: 'turn/start',
         seq: 0,
         time: 1,
-        data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+        data: { turn: 1 },
       }],
     })
     let coordinator!: PersistenceCoordinator<never>
@@ -524,7 +524,7 @@ describe('PersistenceCoordinator session preparations', () => {
         type: 'turn/start',
         seq: oneTurnLog().length,
         time: 7,
-        data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } },
+        data: { turn: 2 },
       }])).rejects.toThrow(/persisted preparation is reserved/)
     } finally {
       preparation?.[Symbol.dispose]()

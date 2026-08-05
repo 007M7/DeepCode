@@ -474,7 +474,10 @@ function adoptStoredEvents(events: SessionEvent[], id: SessionId): SessionEvent[
   assertSupportedEvents(events, id)
   const messageIds = new Map<number, PersistedMessageId>()
   for (const [index, event] of events.entries()) {
-    const adopted = adoptSessionEvent(migrateLegacyMessageEvent(event, id, messageIds))
+    const migratedStart = migrateLegacyTurnStartEvent(event, id)
+    const migratedTurn = migrateLegacyTurnEndEvent(migratedStart, id)
+    const migratedSteering = migrateLegacySteeringEvent(migratedTurn, id)
+    const adopted = adoptSessionEvent(migrateLegacyMessageEvent(migratedSteering, id, messageIds))
     events[index] = adopted
     const messageId = eventMessageId(adopted)
     if (messageId !== undefined) messageIds.set(adopted.seq, messageId)
@@ -731,7 +734,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       this.assertStoredId(id, suffix.meta)
       this.assertVersion(suffix.meta)
       if (suffix.events.some(needsLegacyPrefix)) {
-        const whole = await this.inspectCore(id, signal)
+        const whole = await this.readStoredPrefix(id, signal)
         return { meta: whole.meta, events: whole.events.filter(event => event.seq >= fromSeq) }
       }
       return { meta: structuredClone(suffix.meta), events: snapshotStoredEvents(suffix.events, id) }
