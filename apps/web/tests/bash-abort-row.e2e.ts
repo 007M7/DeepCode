@@ -56,7 +56,7 @@ describe.skipIf(MODE === 'record')('web e2e: cancelled Bash row disclosure', () 
     const row = page.locator('[data-sample="bash"]').first()
     const call = row.locator('xpath=..')
     await expect.poll(() => row.getAttribute('aria-expanded')).toBe('false')
-    await expect.poll(() => call.getByText('Error: command aborted', { exact: true }).count()).toBe(1)
+    await expect.poll(() => call.getByText('Error: tool call aborted', { exact: true }).count()).toBe(1)
     await row.click()
 
     await expect.poll(() => row.getAttribute('aria-expanded')).toBe('true')
@@ -64,7 +64,7 @@ describe.skipIf(MODE === 'record')('web e2e: cancelled Bash row disclosure', () 
     await call.getByText('OUT', { exact: true }).waitFor()
     await call.getByText('Wait until cancellation', { exact: false }).waitFor()
     await call.getByText('setInterval(() => {}, 1000)', { exact: false }).waitFor()
-    await expect.poll(() => call.getByText('Error: command aborted', { exact: true }).count()).toBe(2)
+    await expect.poll(() => call.getByText('Error: tool call aborted', { exact: true }).count()).toBe(2)
 
     const snapshot = (await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd))
       // The borrowed fixture's UTC date is still the previous day in PDT;

@@ -13,6 +13,7 @@ import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
+import * as BashEnvPlugin from '@deepseek-ai/dsh-bash-env'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
@@ -57,6 +58,7 @@ async function codeModeHarness(cwd: string): Promise<Context> {
   await harness.plugin(AgentLoop, { agents: [] })
   await harness.plugin(LlmDeepSeek)
   await harness.plugin(LocalSubprocessService)
+  await harness.plugin(BashEnvPlugin)
   await harness.plugin(LocalBashExecutor, { cwd, timeoutMs: 30_000 })
   await harness.plugin(ToolBash)
   await harness.plugin(WorkerCodeRuntime, {})
@@ -117,6 +119,7 @@ async function backgroundCodeModeHarness(cwd: string): Promise<Context> {
   await harness.plugin(LocalTaskService)
   await harness.plugin(ToolTasks, {})
   await harness.plugin(LocalSubprocessService)
+  await harness.plugin(BashEnvPlugin)
   await harness.plugin(LocalBashExecutor, { cwd, timeoutMs: 30_000 })
   await harness.plugin(ToolBash)
   return harness

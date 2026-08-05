@@ -16,7 +16,7 @@ MenuView 把菜单 store 渲染进 `conversation.input.overlay` slot（列表类
 
 #### KV Cache 影响
 
-无；该包（package）既不组装也不发送提供方请求。
+无；该包既不组装也不发送提供方请求。
 
 ## 已知限制与暂缓事项
 

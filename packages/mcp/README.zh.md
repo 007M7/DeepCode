@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-连接 harness 与 MCP 生态的包（package）。
+连接 harness 与 MCP 生态的包。
 
 | 包 | 角色 |
 |---|---|

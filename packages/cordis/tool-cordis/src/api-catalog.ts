@@ -184,7 +184,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'collect(execution: ToolExecution): DshEnvironment',
-        jsDoc: '/**\n * Build the trusted `DSH_*` snapshot for one bash tool execution.\n * @param execution - the current tool execution.\n * @returns an immutable environment overlay containing built-ins and current contributions.\n */',
+        jsDoc: '/**\n * Build the trusted `DSH_*` snapshot for one shell tool execution.\n * @param execution - the current tool execution.\n * @returns an immutable environment overlay containing built-ins and current contributions.\n */',
       },
       {
         signature: 'list(): BashEnvVariableInfo[]',

@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/client/web-react/README.md
 README.md: 7cc80f22bd5527838288d11c819e81b7ec4d17c4
-README.zh.md: 855417ff357b78b05fa54946c6cf84fafaa5180e
+README.zh.md: 9019a9618d35b6fc92dcc2cc84f8f903fa1ee346
