@@ -203,23 +203,52 @@ export function snapshotSessionEvent<T extends SessionEvent>(event: T): T {
   return adoptSessionEvent(structuredClone(event))
 }
 
+/** Deep-freeze one acyclic object tree materialized by JSON parsing. */
+function freezeRestoredObject<T>(value: T): T {
+  Object.freeze(value)
+  for (const key in value) {
+    const child = (value as Record<string, unknown>)[key]
+    if (child !== null && typeof child === 'object') freezeRestoredObject(child)
+  }
+  return value
+}
+
 /** Validate the fixed event envelope after one-pass JSON materialization. */
 function assertSessionEventEnvelope(value: Record<string, unknown>, index: number): asserts value is SessionEvent {
   const event = value
   if (event['type'] === 'request/header-delta') {
     throw new Error(`seed event at index ${index} uses unsupported legacy request/header-delta format`)
   }
-  const allowed = new Set(['type', 'seq', 'time', 'data', 'surfaceOp', 'sourceEventSeqs'])
-  if (Object.keys(event).some(key => !allowed.has(key))
-    || !Object.hasOwn(event, 'type') || typeof event['type'] !== 'string'
-    || !Object.hasOwn(event, 'seq') || typeof event['seq'] !== 'number'
-    || !Number.isSafeInteger(event['seq']) || event['seq'] < 0
-    || !Object.hasOwn(event, 'time') || typeof event['time'] !== 'number'
-    || !Number.isSafeInteger(event['time'])
-    || !Object.hasOwn(event, 'data')) {
+  for (const key in event) {
+    switch (key) {
+      case 'type':
+      case 'seq':
+      case 'time':
+      case 'data':
+      case 'surfaceOp':
+      case 'sourceEventSeqs':
+        break
+      default:
+        throw new Error(`seed event at index ${index} has an invalid event envelope`)
+    }
+  }
+  const type = event['type']
+  const seq = event['seq']
+  const time = event['time']
+  if (typeof type !== 'string'
+    || typeof seq !== 'number' || !Number.isSafeInteger(seq) || seq < 0
+    || typeof time !== 'number' || !Number.isSafeInteger(time)
+    || event['data'] === undefined) {
     throw new Error(`seed event at index ${index} has an invalid event envelope`)
   }
-  assertCurrentLlmShape(event, index)
+  switch (type) {
+    case 'request/header':
+    case 'user/message':
+    case 'assistant/message':
+    case 'tool/result':
+      assertCurrentLlmShape(event, index)
+      break
+  }
 }
 
 /** Reject obsolete request headers and malformed messages at the seed/load boundary. */
@@ -249,6 +278,8 @@ function assertCurrentLlmShape(event: Record<string, unknown>, index: number): v
   assertMessageEventShape(event, `seed ${type} at index ${index}`)
 }
 
+const allowedAdapterKeys = new Set(['reasoningEffort', 'maxTokens'])
+
 /** Validate adapter-default provenance imported from a durable request header. */
 function assertAdapterDefaults(
   value: unknown,
@@ -260,8 +291,7 @@ function assertAdapterDefaults(
     throw new Error(`seed request/header at index ${index} has invalid adapterDefaults`)
   }
   const defaults = value as Record<string, unknown>
-  const allowed = new Set(['reasoningEffort', 'maxTokens'])
-  if (Object.keys(defaults).some(key => !allowed.has(key))
+  if (Object.keys(defaults).some(key => !allowedAdapterKeys.has(key))
     || Object.values(defaults).some(marker => marker !== true)
     || defaults['reasoningEffort'] === true && config['reasoningEffort'] === undefined
     || defaults['maxTokens'] === true && config['maxTokens'] === undefined) {
@@ -505,7 +535,7 @@ export class Session {
         } catch (error: unknown) {
           throw new Error(`invalid seed event at index ${index}: ${error instanceof Error ? error.message : 'invalid surface metadata'}`)
         }
-        this.log.push(deepFreeze(snapshot))
+        this.log.push(mode === 'restore' ? freezeRestoredObject(snapshot) : deepFreeze(snapshot))
       }
     }
     this.firstLiveSeq = this.log.length
