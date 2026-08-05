@@ -410,7 +410,7 @@ describe('renderToolsSdkPy', () => {
       const signature = lines.findIndex(line => line.startsWith(`${' '.repeat(4)}async def ${name}(`))
       expect(signature).toBeGreaterThan(-1)
       // Ends in `:`, not the `: ...` stub — a docstring IS the whole body.
-      expect(lines[signature].endsWith(':')).toBe(true)
+      expect(lines[signature]?.endsWith(':')).toBe(true)
       expect(lines[signature + 1]).toBe(`${' '.repeat(8)}"""${doc}"""`)
     }
     // No docstring is left floating at class-body indentation.
