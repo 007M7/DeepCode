@@ -537,18 +537,20 @@ describe('ChatView', () => {
       nodes: [
         user(1, 'first'),
         assistant(2, 'previous answer', 1),
-        user(3, 'second'),
-        assistant(4, 'mid-turn text', 2),
+        user(4, 'second'),
+        assistant(5, 'mid-turn text', 2),
       ],
-      turnEnds: new Map([[1, 2]]),
+      // Boundary seqs follow the log: a turn/end is strictly after its own nodes.
+      turnEnds: new Map([[1, 3]]),
     })
     const view = render(<h.ChatView {...h.props} />)
-    // 2 user + the settled turn-1 tail; turn 2's narration stays chrome-free
-    // while its tool runs, so the footer never appears and then moves.
+    // 2 user + the settled turn-1 tail, which keeps its seat while a later
+    // turn runs; turn 2's narration stays chrome-free while its tool runs, so
+    // the footer never appears and then moves.
     expect(view.getAllByRole('button', { name: '复制' })).toHaveLength(3)
     expect(view.getByText('mid-turn text')).toBeTruthy()
     // turn/end lands: the same node becomes the settled answer and takes the seat.
-    act(() => { h.set({ running: false, runningCalls: [], turnEnds: new Map([[1, 2], [2, 5]]) }) })
+    act(() => { h.set({ running: false, runningCalls: [], turnEnds: new Map([[1, 3], [2, 6]]) }) })
     expect(view.getAllByRole('button', { name: '复制' })).toHaveLength(4)
   })
 

@@ -109,7 +109,11 @@ describe('web e2e: assistant IconActions wait for the turn to end', () => {
       return { patches: [{ at: 1, entry: { kind: 'hang', readyFile: marker } }] }
     })
     onTestFailed(() => saveFailureShot(page, 'web-e2e-turn-tail-actions'))
-    const { settled } = await sendPrompt()
+    // The barrier is armed before the park and awaited only after the stop
+    // click, so its budget must cover the whole parked phase: marker poll,
+    // three UI polls, and two captures with their stability windows. The
+    // replay default (30s) leaves no headroom on a slow runner.
+    const { settled } = await sendPrompt(120_000)
     // The marker IS the synchronization: the second call is provably parked,
     // so the first step's message and tool result are already durable.
     await expect.poll(() => existsSync(marker), { timeout: 20_000 }).toBe(true)
