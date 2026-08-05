@@ -471,30 +471,34 @@ The available tools:`
 export function renderToolsSdkPy(schemas: ToolSdkSchema[]): string {
   const sorted = [...schemas].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
   const state: RenderState = { classes: [], usedClassNames: new Set(), nextClassCounter: new Map(), typing: new Set(['Protocol']) }
-  const inlineMembers: string[] = []
-  const subscriptMembers: string[] = []
+  // ONE ordered member stream, matching the documented lexicographic contract
+  // and the TypeScript flavor (which quotes exotic keys in place rather than
+  // partitioning them out). Interleaving is free here: a comment line between
+  // two `async def` lines is not a statement, so it changes nothing about how
+  // the class body parses.
+  const members: string[] = []
+  let statements = 0
   for (const schema of sorted) {
     const argType = renderType(schema.parameters, `${camelCase(schema.name)}Args`, state)
     const outputType = renderType(schema.output, `${camelCase(schema.name)}Output`, state)
     if (IDENTIFIER.test(schema.name) && !RESERVED.has(schema.name) && !schema.name.startsWith('_')) {
-      inlineMembers.push(...docLines(schema.description, 1))
-      inlineMembers.push(`${pad(1)}async def ${schema.name}(self, args: ${argType}) -> ${outputType}: ...`)
+      members.push(...docLines(schema.description, 1))
+      members.push(`${pad(1)}async def ${schema.name}(self, args: ${argType}) -> ${outputType}: ...`)
+      statements += 1
     } else {
       // Not a legal attribute name — the model reaches it via ``tools[name]``.
       // The stub lists it as a subscript comment (referencing the named
       // TypedDicts too) so a reader sees what is accessible; runtime resolution
       // goes through the proxy's __getitem__.
-      subscriptMembers.push(`${pad(1)}# tools[${JSON.stringify(schema.name)}](args: ${argType}) -> ${outputType}`)
+      members.push(`${pad(1)}# tools[${JSON.stringify(schema.name)}](args: ${argType}) -> ${outputType}`)
       const description = describe(schema)
-      if (description !== undefined) subscriptMembers.push(`${pad(1)}#   ${description}`)
+      if (description !== undefined) members.push(`${pad(1)}#   ${description}`)
     }
   }
   // Subscript entries are COMMENTS, not statements: a class body of only
-  // comments fails to parse, so `pass` is required whenever no inline method
-  // exists — including the subscript-only tool set.
-  const bodyLines = inlineMembers.length > 0
-    ? [...inlineMembers, ...subscriptMembers]
-    : [`${pad(1)}pass`, ...subscriptMembers]
+  // comments fails to parse, so `pass` is required whenever no method was
+  // emitted — including the subscript-only tool set.
+  const bodyLines = statements > 0 ? members : [`${pad(1)}pass`, ...members]
   const body = bodyLines.join('\n')
   const imports = TYPING_ORDER.filter(symbol => state.typing.has(symbol))
   const classBlock = state.classes.length > 0 ? `${state.classes.join('\n\n')}\n\n` : ''

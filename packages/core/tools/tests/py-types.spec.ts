@@ -390,9 +390,22 @@ describe('renderToolsSdkPy', () => {
     // Descriptions on subscript names ride as a comment beside their entry.
     expect(text).toContain('# tools["my-mcp.tool"]')
     expect(text).toContain('#   Exotic name.')
-    // Lexicographic: `bash` before `my-mcp.tool` (identifier methods first,
-    // then subscript comments — the emitter partitions).
+    // Lexicographic: `bash` before `my-mcp.tool`.
     expect(text.indexOf('async def bash')).toBeLessThan(text.indexOf('# tools["my-mcp.tool"]'))
+  })
+
+  it('orders subscript entries against methods by name, not by member kind', () => {
+    // `a-tool` sorts before `z`, so the subscript comment must precede the
+    // method: one ordered stream, not methods-then-comments.
+    const noArgs = parameterSchemaSpecToJsonSchema({}) as unknown as Record<string, unknown>
+    const text = renderToolsSdkPy([
+      { name: 'z', description: 'Last by name.', parameters: noArgs, output: { type: 'string' } },
+      { name: 'a-tool', description: 'First by name.', parameters: noArgs, output: { type: 'string' } },
+    ])
+    expect(text.indexOf('# tools["a-tool"]')).toBeLessThan(text.indexOf('async def z'))
+    // The interleaved comment does not disturb the class body: `z` still parses
+    // as the statement that keeps `pass` out.
+    expect(text).not.toContain(`${' '.repeat(4)}pass`)
   })
 
   it('is deterministic: byte-identical output regardless of input order or duplication', () => {
