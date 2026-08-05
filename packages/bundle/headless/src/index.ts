@@ -2,19 +2,21 @@
  * @deepseek-ai/dsh-headless — the one-shot headless bundle: the bundle patch
  * (`cordis.patch.yml`) rides over dsh-base + dsh-web-app (the headless
  * session is web-observable while it runs — same composition), and this
- * runner plugin drives one task turn through the in-process API carrier
+ * runner plugin drives one task through the in-process API carrier
  * (InProcessApiClient over toFetchHandler(ctx.apiProxy), so the full wire
  * chain — serialization, zod, SSE framing — really runs), prints the final
- * assistant text, and exits (completed → 0, else 1). The task text arrives as
- * launcher-patched config (`dsh --profile headless "task"`).
+ * assistant text at agent quiescence, and exits (completed → 0, else 1). The
+ * task text arrives as launcher-patched config
+ * (`dsh --profile headless "task"`).
  * @module @deepseek-ai/dsh-headless
  */
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import { InProcessApiClient, toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
-// Empty type import carries the httpServer Context merge for the port read below.
+// Empty type imports carry the httpServer and agent/status Context merges used below.
 import type {} from '@deepseek-ai/dsh-host-webserver'
+import type {} from '@deepseek-ai/dsh-agent'
 import type { MuxFrame } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import type { SessionId } from '@deepseek-ai/dsh-session'
@@ -35,7 +37,7 @@ export const Config: z<Config> = z.object({
   task: z.string().required(),
 })
 
-/** Outcome of one headless turn: aggregated final text plus the turn-end reason kind. */
+/** Outcome of one headless run: aggregated final text plus the last turn-end reason kind. */
 interface TurnOutcome {
   text: string
   reason: string
@@ -73,46 +75,56 @@ async function unwrap<T>(response: RpcResponse<T>, io: HeadlessIo): Promise<T> {
 }
 
 /**
- * Consume mux frames until the task turn ends: anchor on the first turn/start
- * whose trigger kind is 'message' (startup-injected turns are skipped),
- * aggregate text from that turn's assistant/message events (last one wins),
- * finish on its turn/end.
+ * Consume mux frames until the agent reaches idle, per the one-shot CLI
+ * idle-to-idle contract: the stream opens immediately before the prompt, and
+ * its first observed turn/start begins the task. Text is the last committed
+ * assistant message of the whole interval (steering or injected work may run
+ * further turns before quiescence), and the outcome reason is the final
+ * turn/end's kind. Idleness is signalled out of band by the caller's
+ * `agent/status` subscription; the stream itself carries no status frame.
+ * @param frames - the mux stream opened before the prompt.
+ * @param sessionId - the headless session.
+ * @param idle - resolves when the agent reaches quiescence.
+ * @param io - process-facing effects for stream diagnostics.
+ * @returns the aggregated outcome.
  */
-async function consumeUntilTurnEnd(
-  frames: AsyncIterable<RpcRequest<MuxFrame>>, sessionId: SessionId, io: HeadlessIo,
+async function consumeUntilIdle(
+  frames: AsyncIterable<RpcRequest<MuxFrame>>,
+  sessionId: SessionId,
+  idle: Promise<void>,
+  io: HeadlessIo,
 ): Promise<TurnOutcome> {
-  let targetTurn: number | undefined
+  let started = false
   let text = ''
-  try {
-    for await (const frame of frames) {
-      const payload = frame.payload
-      if (payload.type === 'stream/error') {
-        io.stderr.write(`dsh: stream error: ${payload.error.message}\n`)
-        return { text, reason: 'error' }
+  let reason: string = 'error'
+  void (async () => {
+    try {
+      for await (const frame of frames) {
+        const payload = frame.payload
+        if (payload.type === 'stream/error') return
+        if (payload.type !== 'session/event' || payload.sessionId !== sessionId) continue
+        const event = payload.event
+        if (event.type === 'turn/start') {
+          started = true
+          continue
+        }
+        if (!started) continue
+        if (event.type === 'assistant/message') {
+          const joined = event.data.message.content.filter(block => block.type === 'text').map(block => block.text).join('')
+          if (joined !== '') text = joined
+        }
+        if (event.type === 'turn/end') reason = event.data.reason.kind
       }
-      if (payload.type !== 'session/event' || payload.sessionId !== sessionId) continue
-      const event = payload.event
-      if (targetTurn === undefined) {
-        if (event.type === 'turn/start' && event.data.trigger.kind === 'message') targetTurn = event.data.turn
-        continue
-      }
-      if (event.type === 'assistant/message' && event.data.turn === targetTurn) {
-        const joined = event.data.message.content.filter(block => block.type === 'text').map(block => block.text).join('')
-        if (joined !== '') text = joined
-      }
-      if (event.type === 'turn/end' && event.data.turn === targetTurn) {
-        return { text, reason: event.data.reason.kind }
-      }
+    } catch (error: unknown) {
+      io.stderr.write(`dsh: event stream failed: ${String(error)}\n`)
     }
-  } catch (error: unknown) {
-    io.stderr.write(`dsh: event stream failed: ${String(error)}\n`)
-  }
-  return { text, reason: 'error' }
+  })()
+  await idle
+  return { text, reason }
 }
 
 /**
- * Run one headless turn for the configured task and request exit
- * (completed → 0, else 1).
+ * Run one headless task to quiescence and request exit (completed → 0, else 1).
  * @param ctx - plugin context carrying apiProxy, httpServer, and the launcher's headlessIo.
  * @param config - validated {@link Config}.
  */
@@ -121,7 +133,7 @@ export function apply(ctx: Context, config: Config): void {
   if (io === undefined) {
     throw new Error('headless-runner: the launcher must provide ctx.headlessIo before the tree mounts')
   }
-  // Fire-and-forget by design: the turn outlives plugin activation, and every
+  // Fire-and-forget by design: the run outlives plugin activation, and every
   // failure path inside ends in io.exit, not a rejection.
   void (async () => {
     // The headless session is web-observable while it runs (same composition).
@@ -133,7 +145,12 @@ export function apply(ctx: Context, config: Config): void {
     // a move to a remote HTTP carrier unchanged.
     const abort = new AbortController()
     const frames = api.events.mux({}, abort.signal)
-    const done = consumeUntilTurnEnd(frames, created.sessionId, io)
+    const idle = new Promise<void>((resolve) => {
+      ctx.on('agent/status', (agent, status) => {
+        if (agent.id === created.sessionId && status === 'idle') resolve()
+      })
+    })
+    const done = consumeUntilIdle(frames, created.sessionId, idle, io)
     await unwrap(await api.sessions.prompt({
       sessionId: created.sessionId,
       mode: 'queue',

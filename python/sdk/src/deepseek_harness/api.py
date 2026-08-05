@@ -35,9 +35,8 @@ class DeepSeekHarnessConfig:
 
 
 @dataclass(slots=True)
-class TurnResult:
+class RunResult:
     session_id: str
-    status: str
     final_response: str
     events: list[JsonObject]
     notifications: list[Notification]
@@ -119,7 +118,7 @@ class DeepSeekHarness:
         *,
         session_id: str | None = None,
         on_notification: Callable[[Notification], None] | None = None,
-    ) -> TurnResult:
+    ) -> RunResult:
         return self.start_session(session_id).run(input, on_notification=on_notification)
 
 
@@ -133,15 +132,12 @@ class Session:
         input: str | list[JsonObject],
         *,
         on_notification: Callable[[Notification], None] | None = None,
-    ) -> TurnResult:
+    ) -> RunResult:
         content_blocks = normalize_input(input)
         notifications: list[Notification] = []
         events: list[JsonObject] = []
-        status = "error"
-        finished = False
 
         def collect(notification: Notification) -> None:
-            nonlocal finished, status
             notifications.append(notification)
             if on_notification is not None:
                 on_notification(notification)
@@ -152,30 +148,49 @@ class Session:
                 event = notification.payload.get("event")
                 if isinstance(event, dict):
                     events.append(event)
-            if notification.method == "session.finished" and notification.payload.get("sessionId") == self.id:
-                status = str(notification.payload.get("status") or "ok")
-                finished = True
 
         with self.harness.client.subscribe_session_notifications(self.id) as subscription:
-            self.harness.client.session_prompt(
+            message_id = self.harness.client.session_prompt(
                 self.id,
                 content_blocks,
-                on_notification=collect,
                 notification_subscription=subscription,
             )
 
-            while not finished:
+            received = False
+            while True:
                 notification = subscription.next()
+                if not received:
+                    if not _is_inbox_receipt(notification, self.id, message_id):
+                        continue
+                    received = True
                 collect(notification)
+                if (
+                    notification.method == "session.status"
+                    and notification.payload.get("sessionId") == self.id
+                    and notification.payload.get("status") == "idle"
+                ):
+                    break
 
-        return TurnResult(
+        return RunResult(
             session_id=self.id,
-            status=status,
             final_response=final_response(events),
             events=events,
             notifications=notifications,
             session_root=self.harness.config.session_root,
         )
+
+
+def _is_inbox_receipt(notification: Notification, session_id: str, message_id: str) -> bool:
+    if notification.method != "session.event" or notification.payload.get("sessionId") != session_id:
+        return False
+    event = notification.payload.get("event")
+    if not isinstance(event, dict) or event.get("type") != "agent/inbox/spliced":
+        return False
+    data = event.get("data")
+    inserted = data.get("inserted") if isinstance(data, dict) else None
+    return isinstance(inserted, list) and any(
+        isinstance(message, dict) and message.get("id") == message_id for message in inserted
+    )
 
 
 def normalize_input(input: str | list[JsonObject]) -> list[JsonObject]:

@@ -10,13 +10,13 @@ The SDK provider runs each subagent as a complete DeepSeek Harness runtime in a 
 
 The working directory resolves exactly like the ACP backend, through the seam's shared out-of-process helpers ([`dsh-subagent`](../subagent/README.md)): the configured `cwd` override when set (validated once at load), else the delegating parent session's cwd — never the server process's own cwd. The resolved path becomes the child process cwd and the workspace cwd of its SDK session.
 
-The returned run id is minted in the parent namespace; the child runtime's session id exists only inside the child process. After publication the provider runs one SDK turn and reads the child's answer from its session events: the last complete `assistant/message`, or the `text-delta` stream accumulated so far when the turn was cut short — a partial answer survives cancel and error paths.
+The returned run id is minted in the parent namespace; the child runtime's session id exists only inside the child process. After publication the provider owns one SDK activity and reads the child's answer from its session events: the last complete `assistant/message`, or the `text-delta` stream accumulated before the activity was cut short — a partial answer survives cancel and error paths.
 
 `dispose()` is idempotent: it settles the result locally as `aborted` (there is no wire-level prompt cancel), then closes the runtime — a bounded protocol `shutdown` request followed by the shared stdin-EOF → SIGTERM → SIGKILL ladder to actual exit.
 
 ## Stop-reason mapping
 
-The child reports its turn outcome as a structured `TurnEndReason` on `session.finished`; the provider maps it into the seam vocabulary. `completed` → `completed`, `max-tokens` → `max-tokens`, `aborted` → `aborted`; everything else — `error`, `interrupted`, `disposed`, a future variant, or a turn that never ran — maps to `error`, so an unclean stop is never reported as success. Transport-level failures after publication flatten to `stopReason: 'error'` through the `onError` diagnostic sink (wired to `ctx.logger.warn`); the seam contract forbids `result` rejecting.
+The SDK client returns an owned child activity rather than a prompt result. The provider reads the last durable `turn/end` inside that activity and maps it into the seam vocabulary: `completed` → `completed`, `max-tokens` → `max-tokens`, `aborted` → `aborted`; everything else — `error`, `interrupted`, `disposed`, a future variant, or an activity with no turn — maps to `error`, so an unclean stop is never reported as success. Transport-level failures after publication flatten to `stopReason: 'error'` through the `onError` diagnostic sink (wired to `ctx.logger.warn`); the seam contract forbids `result` rejecting.
 
 ## Capabilities and context
 

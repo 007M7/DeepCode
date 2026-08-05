@@ -242,6 +242,7 @@ function promptChange(
 function deriveRequests(events: readonly SessionEvent[]): readonly RequestView[] {
   const requests: RequestView[] = []
   const ordinaryByStep = new Map<string, number>()
+  const lastStepByTurn = new Map<number, string>()
   let activeStep: string | undefined
   let activePrompt: ConversationPromptSnapshot | undefined
   let activeCompaction: number | undefined
@@ -268,6 +269,7 @@ function deriveRequests(events: readonly SessionEvent[]): readonly RequestView[]
       const { turn, step } = sourceEvent.data
       const key = requestKey(turn, step)
       ordinaryByStep.set(key, requests.length)
+      lastStepByTurn.set(turn, key)
       requests.push({
         purpose: 'assistant',
         startSeq: sourceEvent.seq,
@@ -360,12 +362,15 @@ function deriveRequests(events: readonly SessionEvent[]): readonly RequestView[]
       })
       continue
     }
-    if (sourceEvent.type === 'turn/end' && sourceEvent.data.reason.kind === 'error') {
-      const reason = sourceEvent.data.reason
-      updateAssistant(ordinaryByStep.get(requestKey(sourceEvent.data.turn, reason.step)), {
-        status: 'error',
-        error: displayFailureMessage('failure' in reason ? reason.failure : reason),
-      })
+    if (sourceEvent.type === 'turn/end') {
+      const lastStep = lastStepByTurn.get(sourceEvent.data.turn)
+      if (sourceEvent.data.reason.kind === 'error') {
+        updateAssistant(lastStep === undefined ? undefined : ordinaryByStep.get(lastStep), {
+          status: 'error',
+          error: displayFailureMessage(sourceEvent.data.reason.error),
+        })
+      }
+      lastStepByTurn.delete(sourceEvent.data.turn)
       continue
     }
 

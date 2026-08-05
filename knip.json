@@ -20,11 +20,13 @@
   "workspaces": {
     ".": {
       "entry": [
-        "scripts/**/*.mjs"
+        "scripts/**/*.mjs",
+        "scripts/**/*.cjs"
       ],
       "project": [
         "scripts/**/*.ts",
-        "scripts/**/*.mjs"
+        "scripts/**/*.mjs",
+        "scripts/**/*.cjs"
       ],
       "ignoreDependencies": [
         "playwright"
