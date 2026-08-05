@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-模型选择插件（浏览器侧）：**两个入口共用一份会话级目录**，由 `ModelService`（`ctx.models`）持有。对于普通会话，`/model` popupSelect 贡献项（经 `ctx.command` 注册）与 composer 的具名 `conversation.input.model` slot 都通过同一个 `ModelDirectory` 实例，经 `session.models` 加载会话的建议目录，并经 `session.selectModel` 提交。紧凑型 composer 触发器会打开两级 Model/Effort 菜单：模型仍按提供方分组，所选具体模型则提供由其适配器持有的推理强度名称、说明和默认值。Host 报告的提供方／模型／推理（reasoning）目标是两个入口共同回显的唯一事实；`/model` 应用所选模型的默认推理强度，composer 随后可以选择任一已公布的推理强度。目录加载与选择共享一个代次计数器，旧响应不会覆盖新结果；连接重置会丢弃所有常驻目录投影，并在显示前重新拉取 Host 恢复的目标。各提供方的元数据获取失败会内联列出，同时可用分组仍可选择；选择失败会保留先前的目标和目录。目录按会话惰性解析（`ctx.models.directoryFor(sessionId)`），随会话作用域一并释放。已寻址 subagent 会话不公开任一入口，其目录会拒绝加载、选择与重新连接刷新，因为绑定到 agent（智能体）的普通模型 RPC 会在直接 parent 继续执行 seam 之外激活持久化 child 历史。
+模型选择插件（浏览器侧）：**两个入口共用一份会话级目录**，由 `ModelService`（`ctx.models`）持有。对于普通会话，`/model` popupSelect 贡献项（经 `ctx.command` 注册）与 composer 的具名 `conversation.input.model` slot 都通过同一个 `ModelDirectory` 实例，经 `session.models` 加载会话的建议目录，并经 `session.selectModel` 提交。紧凑型 composer 触发器会打开两级 Model/Effort 菜单：模型仍按提供方分组，所选具体模型则提供由其适配器持有的推理强度名称、说明和默认值。Host 报告的提供方／模型／推理（reasoning）目标是唯一的选择事实，但只有当该精确路由仍在已公布分组中时才会回显；删除该目录行会保留仍可路由的目标，但触发器会提示 `Select model`，系统不会合成陈旧行，且在用户选择已公布的模型之前不会显示 Effort 行。`/model` 应用所选模型的默认推理强度，composer 随后可以选择任一已公布的推理强度。目录加载与选择共享一个代次计数器，旧响应不会覆盖新结果；连接重置会丢弃所有常驻目录投影，并在显示前重新拉取 Host 恢复的目标。各提供方的元数据获取失败会内联列出，同时可用分组仍可选择；选择失败会保留先前的目标和目录。目录按会话惰性解析（`ctx.models.directoryFor(sessionId)`），随会话作用域一并释放。已寻址 subagent 会话不公开任一入口，其目录会拒绝加载、选择与重新连接刷新，因为绑定到 agent（智能体）的普通模型 RPC 会在直接 parent 继续执行 seam 之外激活持久化 child 历史。
 
 `/client` 导出面为插件本体（`apply`/`inject`）、`ModelService`、`ModelDirectory` 及其状态形状、slot 注入面类型。
 

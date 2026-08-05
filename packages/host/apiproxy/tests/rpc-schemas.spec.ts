@@ -222,7 +222,6 @@ describe('sessions domain schemas', () => {
           id: 'deepseek-v4-flash',
           name: 'DeepSeek V4 Flash',
           description: 'fast',
-          unlisted: true,
           reasoning: {
             efforts: [
               { id: 'off', name: 'Off' },
