@@ -193,6 +193,13 @@ type ContextForm =
   | 'catalog'
 ```
 
+```ts type-equiv
+/** Optional producer-declared {@link ContextForm}, mixed into the source shapes that carry one. */
+interface ContextFormed {
+  readonly form?: ContextForm
+}
+```
+
 ## Streaming
 
 Adapters emit a raw **chunk** protocol; the loop logs the chunks (replay fidelity) while feeding the same chunks through a `BlockAssembler` to rebuild blocks and messages. `StreamChunk` is a closed discriminated union over `type` — `block-start`, `text-delta`, `reasoning-delta`, `tool-call-delta`, `block-end`, `usage`, `finish`.

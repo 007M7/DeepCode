@@ -13,6 +13,9 @@ import css from './ContextBody.module.css'
 /** Model-facing text stays bounded at the disclosure, not at the producer. */
 const MAX_CHARS = 20_000
 
+/** Rows a list body materializes before summarizing the remainder. */
+const MAX_ENTRIES = 200
+
 type Translate = ChatViewSlotProps['t']
 
 /** One durable source narrowed to the readable-record shape; null for anything else. */
@@ -61,14 +64,22 @@ function fieldValue(value: unknown, t: Translate): string {
 }
 
 /**
- * Provenance fields as a key/value list. `kind` is omitted because the row
- * header already names the producer, and `form` because the presentation the
- * reader is looking at IS that value.
+ * Provenance fields as a key/value list. `kind` is always omitted because the
+ * row header already names the producer. `form` is omitted only when a
+ * dedicated body rendered for it — then the presentation the reader is looking
+ * at IS that value. On the opaque fallback the declaration is kept, because
+ * that is the one place a form this version cannot present would otherwise
+ * disappear from the UI entirely.
  */
-function SourceFields({ source, t }: { source: unknown; t: Translate }): ReactNode {
+function SourceFields({ source, formRendered, t }: {
+  source: unknown
+  formRendered: boolean
+  t: Translate
+}): ReactNode {
   const record = asRecord(source)
   if (record === null) return null
-  const rows = Object.entries(record).filter(([key]) => key !== 'kind' && key !== 'form')
+  const hidden = formRendered ? ['kind', 'form'] : ['kind']
+  const rows = Object.entries(record).filter(([key]) => !hidden.includes(key))
   if (rows.length === 0) return null
   return (
     <dl className={css.fields} data-context-fields>
@@ -79,6 +90,28 @@ function SourceFields({ source, t }: { source: unknown; t: Translate }): ReactNo
         </div>
       ))}
     </dl>
+  )
+}
+
+/**
+ * Content blocks this UI version does not know, kept visible rather than
+ * dropped: the block union is merge-extensible, so a newer or foreign log may
+ * carry a shape this build has no presentation for.
+ * @param props - The unrecognized blocks and the locale seat.
+ * @returns One generic JSON block per unknown entry.
+ */
+function UnknownBlocks({ blocks, t }: { blocks: readonly unknown[]; t: Translate }): ReactNode {
+  return (
+    <>
+      {blocks.map((block, index) => (
+        <JsonBlock
+          key={index}
+          label={t('message.unknownBlock')}
+          payload={block}
+          truncatedLabel={total => t('json.truncated', { total })}
+        />
+      ))}
+    </>
   )
 }
 
@@ -97,14 +130,7 @@ function ModelFacingContent({ content, t }: {
   return (
     <>
       {text !== '' && <pre className={css.text} data-context-text>{boundedText(text, t)}</pre>}
-      {rest.map((block, index) => (
-        <JsonBlock
-          key={index}
-          label={t('message.unknownBlock')}
-          payload={block}
-          truncatedLabel={total => t('json.truncated', { total })}
-        />
-      ))}
+      <UnknownBlocks blocks={rest} t={t} />
     </>
   )
 }
@@ -124,14 +150,14 @@ export function OpaqueBody({ content, source, t }: {
   return (
     <>
       <ModelFacingContent content={content} t={t} />
-      <SourceFields source={source} t={t} />
+      <SourceFields source={source} formRendered={false} t={t} />
     </>
   )
 }
 
 /** One reconciled instruction file, as the durable source records it. */
 interface InstructionChange {
-  action: string
+  action: 'set' | 'replace' | 'remove'
   path: string
   digest?: string
 }
@@ -157,14 +183,13 @@ function instructionChanges(source: unknown): InstructionChange[] | null {
     const path = change['path']
     if (typeof path !== 'string' || path === '') return null
     const action = change['action']
+    // The action decides which word the row shows, so an unrecognized one is
+    // not a readable change — it would be presented as loaded or updated.
+    if (action !== 'set' && action !== 'replace' && action !== 'remove') return null
     const digest = change['digest']
     if (seen.has(path)) continue
     seen.add(path)
-    changes.push({
-      action: typeof action === 'string' ? action : '',
-      path,
-      ...typeof digest === 'string' ? { digest } : {},
-    })
+    changes.push({ action, path, ...typeof digest === 'string' ? { digest } : {} })
   }
   return changes.length === 0 ? null : changes
 }
@@ -228,7 +253,9 @@ function catalogEntries(source: unknown): CatalogEntry[] | null {
     if (typeof name !== 'string' || name === '' || typeof description !== 'string') return null
     entries.push({ name, description })
   }
-  return entries.length === 0 ? null : entries
+  // An empty list is a real catalog: a replacement with no entries retires
+  // every earlier name. Only an unreadable shape falls back.
+  return entries
 }
 
 /**
@@ -249,11 +276,15 @@ export function CatalogBody({ content, source, t }: {
   const entries = catalogEntries(source)
   if (entries === null) return <OpaqueBody content={content} source={source} t={t} />
   const update = asRecord(source)?.['update'] === true
+  // Entry count is unbounded (a provider may publish any number of skills), and
+  // the scrollport bounds height, not node count — so the list bounds itself.
+  const shown = entries.slice(0, MAX_ENTRIES)
+  const { rest } = partitionContent(content)
   return (
     <>
       {update && <p className={css.catalogNotice} data-context-catalog-update>{t('message.context.catalog.replaced')}</p>}
       <ul className={css.entries} data-context-entries>
-        {entries.map((entry, index) => (
+        {shown.map((entry, index) => (
           // Index key: a hand-edited or foreign log may repeat a name, and a
           // duplicate React key would drop a row the model did see.
           <li key={index} className={css.entry}>
@@ -262,6 +293,14 @@ export function CatalogBody({ content, source, t }: {
           </li>
         ))}
       </ul>
+      {shown.length < entries.length && (
+        <p className={css.catalogNotice} data-context-entries-truncated>
+          {t('message.context.catalog.more', { count: entries.length - shown.length })}
+        </p>
+      )}
+      {/* The block union is merge-extensible: a catalog message carrying an
+          unknown block still shows it rather than dropping model-visible content. */}
+      <UnknownBlocks blocks={rest} t={t} />
     </>
   )
 }

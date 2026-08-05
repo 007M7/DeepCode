@@ -199,6 +199,13 @@ type ContextForm =
   | 'catalog'
 ```
 
+```ts type-equiv
+/** Optional producer-declared {@link ContextForm}, mixed into the source shapes that carry one. */
+interface ContextFormed {
+  readonly form?: ContextForm
+}
+```
+
 ## 流式输出
 
 适配器发出原始**分片**协议；循环记录分片（回放保真度），同时将同一批分片送入 `BlockAssembler` 以重建块和消息。`StreamChunk` 是基于 `type` 的封闭判别联合——`block-start`、`text-delta`、`reasoning-delta`、`tool-call-delta`、`block-end`、`usage`、`finish`。

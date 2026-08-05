@@ -411,13 +411,34 @@ describe('MessageItem arms', () => {
       .toMatch(/… 已截断，共 \d+ 字符$/)
   })
 
-  it('a catalog whose source carries no entries falls back to the opaque body', () => {
+  it('an empty replacement catalog stays a catalog: it retires every earlier name', () => {
+    // `renderCatalogUpdate` legitimately publishes zero entries when the last
+    // skill disappears; falling back would hide that the catalog was cleared.
     const view = render(
       <MessageItem t={t} node={{
         kind: 'context',
         seq: 3,
         content: [{ type: 'text', text: 'catalog prose' }],
-        source: { kind: 'skill-catalog', form: 'catalog', entries: [] },
+        source: { kind: 'skill-catalog', form: 'catalog', update: true, entries: [] },
+        provenance: { role: 'inject', label: 'skill-catalog' },
+        form: 'catalog',
+      } as never}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*skill-catalog$/ }))
+    expect(view.container.querySelector('[data-context-catalog-update]')?.textContent).toBe('替换目录')
+    expect(view.container.querySelectorAll('[data-context-entries] li')).toHaveLength(0)
+    expect(view.container.querySelector('[data-context-injection-body]')?.getAttribute('data-context-form'))
+      .toBe('catalog')
+  })
+
+  it('a catalog whose entries are unreadable falls back to the opaque body', () => {
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context',
+        seq: 3,
+        content: [{ type: 'text', text: 'catalog prose' }],
+        source: { kind: 'skill-catalog', form: 'catalog', entries: 'not-a-list' },
         provenance: { role: 'inject', label: 'skill-catalog' },
         form: 'catalog',
       } as never}
@@ -428,51 +449,71 @@ describe('MessageItem arms', () => {
     expect(view.container.querySelector('[data-context-text]')?.textContent).toBe('catalog prose')
   })
 
-  it('a recalled session titles its row by role and names the sessions it read', () => {
+  it('bounds a large catalog and says how many rows it withheld', () => {
+    const entries = Array.from({ length: 205 }, (_, index) => ({ name: `s-${index}`, description: 'd' }))
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'context', seq: 3, content: [{ type: 'text', text: 'catalog prose' }],
+        source: { kind: 'skill-catalog', form: 'catalog', entries },
+        provenance: { role: 'inject', label: 'skill-catalog' },
+        form: 'catalog',
+      } as never}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*skill-catalog$/ }))
+    expect(view.container.querySelectorAll('[data-context-entries] li')).toHaveLength(200)
+    expect(view.container.querySelector('[data-context-entries-truncated]')?.textContent).toBe('…还有 5 条')
+  })
+
+  it('a catalog keeps a content block this version does not know', () => {
     const view = render(
       <MessageItem t={t} node={{
         kind: 'context',
         seq: 3,
-        content: [{ type: 'text', text: 'snapshot' }],
-        source: { kind: 'session-reference', version: 1, references: [{ label: '重构 loader' }] },
-        provenance: { role: 'recall', label: '重构 loader' },
-        form: null,
+        content: [{ type: 'text', text: 'prose' }, { type: 'future-block', payload: 1 }],
+        source: { kind: 'skill-catalog', form: 'catalog', entries: [{ name: 'a', description: 'b' }] },
+        provenance: { role: 'inject', label: 'skill-catalog' },
+        form: 'catalog',
       } as never}
       />,
     )
-    expect(view.getByRole('button', { name: /^跨会话召回\s*重构 loader$/ })).toBeTruthy()
-    expect(view.queryByText('上下文注入')).toBeNull()
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*skill-catalog$/ }))
+    expect(view.getByText(/未知内容块/)).toBeTruthy()
   })
 
-  it('keeps the producer name visible while the context body is expanded', () => {
+  it('an instruction change with an unrecognized action falls back whole', () => {
+    // The action decides the word the row shows, so an unknown one cannot be
+    // presented as loaded or updated.
     const view = render(
       <MessageItem t={t} node={{
         kind: 'context',
         seq: 3,
-        content: [{ type: 'text', text: 'instructions' }],
-        source: { kind: 'workspace-instructions', changes: [{ path: 'AGENTS.md' }] },
-        provenance: { role: 'inject', label: 'AGENTS.md' },
-        form: null,
+        content: [{ type: 'text', text: 'instruction prose' }],
+        source: { kind: 'workspace-instructions', form: 'instructions', changes: [{ action: 'merge', path: 'A.md' }] },
+        provenance: { role: 'inject', label: 'workspace-instructions' },
+        form: 'instructions',
       } as never}
       />,
     )
-    const disclosure = view.getByRole('button', { name: /^上下文注入\s*AGENTS\.md$/ })
-    fireEvent.click(disclosure)
-    expect(disclosure.getAttribute('aria-expanded')).toBe('true')
-    expect(view.container.querySelector('[data-context-source]')?.textContent).toBe('AGENTS.md')
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*workspace-instructions$/ }))
+    expect(view.container.querySelector('[data-context-files]')).toBeNull()
+    expect(view.container.querySelector('[data-context-text]')?.textContent).toBe('instruction prose')
   })
 
-  it('a context source that names no producer shows the role alone', () => {
+  it('the opaque fallback keeps a form declaration this version cannot present', () => {
+    // Otherwise a newer or foreign log's declared shape vanishes from the UI.
     const view = render(
       <MessageItem t={t} node={{
-        kind: 'context', seq: 3, content: [{ type: 'text', text: 'x' }], source: null,
-        provenance: { role: 'inject', label: null },
+        kind: 'context', seq: 3, content: [{ type: 'text', text: 'x' }],
+        source: { kind: 'plugin', plugin: 'later', form: 'a-later-form' },
+        provenance: { role: 'inject', label: 'later' },
         form: null,
       } as never}
       />,
     )
-    expect(view.getByRole('button', { name: '上下文注入' })).toBeTruthy()
-    expect(view.container.querySelector('[data-context-source]')).toBeNull()
+    fireEvent.click(view.getByRole('button', { name: /^上下文注入\s*later$/ }))
+    const fields = [...view.container.querySelectorAll('[data-context-fields] dt')].map(node => node.textContent)
+    expect(fields).toEqual(['plugin', 'form'])
   })
 
   it('unknown nodes retain the generic JSON row', () => {
