@@ -476,15 +476,29 @@ export function fixtureUserPrompts(fixtureText: string): string[] {
  * @param id - the seeded session id (stable for deterministic goldens).
  * @returns the seeded id.
  */
-export async function seedSession(scaffold: WebScaffold, fixtureText: string, id: string): Promise<SessionId> {
+/**
+ * Realize a recorded seed fixture against one scaffold: substitute the
+ * `{{sessionId}}`/`{{cwd}}` placeholders and rewrite the recorded cwd to the
+ * scaffold's workspace. Idempotent, so a caller may realize early (e.g. to
+ * price content exactly as the host will fold it) and still pass the result
+ * through {@link seedSession}.
+ * @param scaffold - the booted scaffold whose workspace the seed targets.
+ * @param fixtureText - the committed seed fixture text.
+ * @param id - the session id the seed is realized for.
+ * @returns the realized fixture text.
+ */
+export function realizeSeedFixture(scaffold: WebScaffold, fixtureText: string, id: string): string {
   const realized = fixtureText
     .split('{{sessionId}}').join(id)
     .split('{{cwd}}').join(scaffold.workspaceCwd)
   const fixtureCwd = (JSON.parse(realized.split('\n', 1)[0]!) as { cwd?: string }).cwd
-  const rewritten = fixtureCwd === undefined
+  return fixtureCwd === undefined
     ? realized
     : realized.split(fixtureCwd).join(scaffold.workspaceCwd)
-  const events = parseSessionLog(rewritten)
+}
+
+export async function seedSession(scaffold: WebScaffold, fixtureText: string, id: string): Promise<SessionId> {
+  const events = parseSessionLog(realizeSeedFixture(scaffold, fixtureText, id))
   if (events.length === 0) throw new Error('seed fixture has no events')
   const last = events[events.length - 1]!
   // An open final turn would be mutated by resume's crash repair on first
