@@ -15,7 +15,7 @@ harness 交付的执行画像在每个平台都是 bash 优先。Windows 主机�
 1. **Windows 默认组合**——交付的 CLI 组合在 Windows 主机上挂载 `dsh-pwsh-local` 作为 `ctx.bash` 执行器、`dsh-tool-pwsh` 作为面向模型的 shell 工具（那里不挂载 bash），POSIX 主机保持 bash 栈。这是 `base.cordis.yml` 与 surface 覆盖层里按平台门控的组合/清单决策；它让交付的 Windows 体验端到端 PowerShell 原生。
 2. **pwsh GUI 渲染**——Web 表面以 bash 形状的终端呈现渲染 pwsh 调用（带退出状态 pill 的 terminal 卡），即 bash 终端卡片的对应物。已随 [pwsh UI 呈现与 bash 对齐决策](../../implemented/feature/2026-08-05-pwsh-ui-bash-parity.md) 及 keyless web 通道交付；TUI 已移除，不再有终端孪生。超出 bash 对齐的 PowerShell 感知呈现（原生路径显示、`$env:` 实情）仍无人认领。
 
-各阶段刻意排序：先组合（Windows 用户无需选择即获得 PowerShell），再渲染。本提案不改变任何 POSIX 行为。
+各阶段仅在有依赖关系时排序：渲染阶段已随 [pwsh UI 呈现与 bash 对齐决策](../../implemented/feature/2026-08-05-pwsh-ui-bash-parity.md) 先行交付（平台无关，其 keyless web 通道可在任意宿主运行），而 Windows 默认组合仍是唯一未交付的阶段。本提案不改变任何 POSIX 行为。
 
 ## 备选方案
 

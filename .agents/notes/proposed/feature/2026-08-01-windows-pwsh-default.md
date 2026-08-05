@@ -15,7 +15,7 @@ Two follow-up stages, each independently shippable. The former stage 2 (bash-too
 1. **Windows default composition** — the shipped CLI compositions mount `dsh-pwsh-local` as the `ctx.bash` executor and `dsh-tool-pwsh` as the model-facing shell tool on Windows hosts (bash unmounted there), while POSIX hosts keep the bash stack. This is a composition/roster decision in `base.cordis.yml` and the surface overlays, gated by platform; it makes the shipped Windows experience PowerShell-native end to end.
 2. **pwsh GUI rendering** — the Web surface renders pwsh calls with the bash-shaped terminal presentation (terminal card with exit-status pill), the counterpart of the bash terminal cards. Shipped in the [pwsh UI presentation matches bash decision](../../implemented/feature/2026-08-05-pwsh-ui-bash-parity.md) with a keyless web lane; the TUI was removed, so no terminal twin remains. A PowerShell-aware presentation beyond bash parity (native path display, `$env:` facts) remains unclaimed.
 
-The stages are deliberately sequenced: composition first (a Windows user gets PowerShell without choosing), then rendering. Nothing in this proposal changes POSIX behavior.
+The stages are ordered by dependency only where one exists: the rendering stage shipped first with the [pwsh UI presentation matches bash decision](../../implemented/feature/2026-08-05-pwsh-ui-bash-parity.md) because it is platform-independent and its keyless web lane runs on any host, while the Windows default composition remains the only unshipped stage. Nothing in this proposal changes POSIX behavior.
 
 ## Alternatives considered
 
