@@ -30,16 +30,14 @@
     "lib/dev/tsdown-config.js",
     "lib/local-plugin-loader-hooks.js",
     "lib/assets",
-    "lib/types/**/*.d.ts",
-    "lib/types/**/*.d.ts.map",
-    "src"
+    "lib/types/**/*.d.ts"
   ],
   "license": "BSD-3-Clause",
   "dependencies": {
     "@deepseek-ai/dsh-helper": "workspace:^",
     "@deepseek-ai/dsh-telemetry": "workspace:^",
     "commander": "^15.0.0",
-    "node-addon-require-builtin": "^0.1.3"
+    "node-addon-require-builtin": "^0.1.4"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-app-boot": "workspace:^",

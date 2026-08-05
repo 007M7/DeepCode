@@ -45,7 +45,7 @@ describe('first-message LLM title provider', () => {
     providerPlugin.apply(ctx, LLM_CONFIG)
 
     await expect(registered!.generate({
-      session: new Session(SessionId('empty-first-provider')),
+      session: Session.create(SessionId('empty-first-provider')),
       messages: [],
       signal: new AbortController().signal,
     })).rejects.toThrow(/requires one human message/)

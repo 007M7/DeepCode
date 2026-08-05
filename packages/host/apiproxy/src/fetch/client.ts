@@ -1,6 +1,6 @@
 /**
  * Client side of the fetch carrier. AbstractApiClient holds every protocol invariant: rpcId minting,
- * four-quadrant envelope wrap/unwrap, zod parsing, SSE frame decoding, and the payload-direct
+ * four-quadrant envelope wrap/unwrap, zod parsing, in-process SSE frame decoding, and the payload-direct
  * IApiClient domain methods (business code never mints). Platform differences ride two aspects:
  * abstract doFetch (transport) + overridable onEnvelope (tap). ApiProxy (the impl face) is untouched.
  */
@@ -69,8 +69,8 @@ import {
  * Bounded calls merge it with the instance timeout via AbortSignal.any; user-paced calls
  * carry only that external signal. In both cases the signal rides beside the request, never
  * on the wire, like the stream signatures.
- * Stream methods accept an optional onOpen callback: it fires once the SSE transport is
- * readable (response headers received, before any frame) — the "stream established" signal
+ * Stream methods accept an optional onOpen callback: it fires once the physical transport is
+ * readable (before any frame) — the "stream established" signal
  * connection controllers need for the readiness handshake. Generators are lazy, so the
  * underlying fetch (and therefore onOpen) only happens once iteration starts.
  * Relationship: ApiProxy is the narrow-form signature contract the impl side implements;

@@ -28,7 +28,7 @@ const PLAN_CONFIG = { section: TEST_PLAN_SECTION } satisfies PlanModeConfig
 async function agentWithSession(ctx: Context, id = 'agent-1', { active }: { active?: boolean } = {}): Promise<Agent & { session: Session }> {
   // A live store session when a store is mounted (the command executor logs
   // lifecycle events through it); bare otherwise (fold/tool-only benches).
-  const session = new Session(SessionId(id))
+  const session = Session.create(SessionId(id))
   const agent = { id: SessionId(id), session, options: {} } as unknown as Agent & { session: Session }
   let scoped!: Context
   await ctx.plugin(Object.assign((inner: Context) => { scoped = createScope(inner, agent).ctx }, {
@@ -153,7 +153,7 @@ describe('resolveConfig', () => {
 
 describe('foldPlanMode', () => {
   it('folds an empty log to inactive and takes the last plan/mode otherwise', () => {
-    const session = new Session(SessionId('fold'))
+    const session = Session.create(SessionId('fold'))
     expect(foldPlanMode(session.events)).toBe(false)
     session.append('plan/mode', { active: true })
     session.append('plan/mode', { active: false })
@@ -162,7 +162,7 @@ describe('foldPlanMode', () => {
   })
 
   it('folds a prefix when `end` is given', () => {
-    const session = new Session(SessionId('fold-prefix'))
+    const session = Session.create(SessionId('fold-prefix'))
     session.append('plan/mode', { active: true })
     session.append('plan/mode', { active: false })
     expect(foldPlanMode(session.events, 1)).toBe(true)

@@ -103,17 +103,12 @@ declare module 'cordis' {
   }
 }
 
-/** Detach, validate, and freeze the creation metadata published by a session. */
-function snapshotSessionHeader(id: SessionId, source?: SessionHeader): SessionHeader {
-  const input: unknown = source === undefined
-    ? { version: SESSION_FORMAT_VERSION, id, createdAt: Date.now() }
-    : source
-  const snapshot = snapshotJsonValue(input)
-  if (snapshot === undefined) throw new Error('session header is not losslessly JSON-serializable')
-  if (snapshot === null || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+/** Validate and freeze one detached creation header in place. */
+function validateSessionHeader(id: SessionId, input: unknown): SessionHeader {
+  if (input === null || typeof input !== 'object' || Array.isArray(input)) {
     throw new Error('session header is not a plain JSON record')
   }
-  const record = snapshot as Record<string, unknown>
+  const record = input as Record<string, unknown>
   if (record.version !== SESSION_FORMAT_VERSION) {
     throw new Error(`session header version must be ${SESSION_FORMAT_VERSION}, got ${String(record.version)}`)
   }
@@ -148,31 +143,52 @@ function snapshotSessionHeader(id: SessionId, source?: SessionHeader): SessionHe
   return deepFreeze(record as unknown as SessionHeader)
 }
 
+/** Detach, validate, and freeze the creation metadata published by a session. */
+function snapshotSessionHeader(id: SessionId, source?: SessionHeader): SessionHeader {
+  const input: unknown = source === undefined
+    ? { version: SESSION_FORMAT_VERSION, id, createdAt: Date.now() }
+    : source
+  const snapshot = snapshotJsonValue(input)
+  if (snapshot === undefined) throw new Error('session header is not losslessly JSON-serializable')
+  return validateSessionHeader(id, snapshot)
+}
+
+/**
+ * Validate an exclusively owned event and deeply freeze its identified message
+ * without copying the event. The caller transfers an object graph that no
+ * producer retains and that shares no mutable children with another event.
+ * Use {@link snapshotSessionEvent} when exclusive ownership is not guaranteed.
+ * @param event - exclusively owned event imported across a trusted boundary.
+ * @returns the same event object with a validated, deeply frozen message.
+ */
+export function adoptSessionEvent<T extends SessionEvent>(event: T): T {
+  assertMessageEventShape(
+    event,
+    `session event at seq ${event.seq}`,
+  )
+  switch (event.type) {
+    case 'user/message':
+      deepFreeze(event.data)
+      break
+    case 'assistant/message':
+    case 'tool/result':
+    case 'steering/message':
+      deepFreeze(event.data.message)
+      break
+    default:
+      // SessionEventMap is merge-extensible; plugin-owned events carry no core message.
+      break
+  }
+  return event
+}
+
 /**
  * Detach one event while preserving deep immutability for its identified message.
  * @param event - event imported across a query or persistence boundary.
  * @returns a detached event snapshot with a validated, deeply frozen message.
  */
 export function snapshotSessionEvent<T extends SessionEvent>(event: T): T {
-  const snapshot = structuredClone(event)
-  assertMessageEventShape(
-    snapshot,
-    `session event at seq ${snapshot.seq}`,
-  )
-  switch (snapshot.type) {
-    case 'user/message':
-      deepFreeze(snapshot.data)
-      break
-    case 'assistant/message':
-    case 'tool/result':
-    case 'steering/message':
-      deepFreeze(snapshot.data.message)
-      break
-    default:
-      // SessionEventMap is merge-extensible; plugin-owned events carry no core message.
-      break
-  }
-  return snapshot
+  return adoptSessionEvent(structuredClone(event))
 }
 
 /** Validate the fixed event envelope after one-pass JSON materialization. */
@@ -378,7 +394,8 @@ const attachments = new WeakMap<Session, SessionEntry>()
 /**
  * An event-sourced session: an append-only log of {@link SessionEvent}s.
  *
- * Plain class (not a Service) — create instances via `ctx.sessions.create()`.
+ * Plain class (not a Service) — create live instances via
+ * `ctx.sessions.create()` and detached instances via {@link create}.
  * Seeding with an existing event log replays/forks a session.
  * @typert object
  */
@@ -433,7 +450,19 @@ export class Session {
    */
   readonly firstLiveSeq: number
 
-  constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader) {
+  /**
+   * Create a detached session by validating and snapshotting borrowed seed
+   * events and storage metadata.
+   * @param id - session identity.
+   * @param seed - optional borrowed replay or fork events.
+   * @param header - optional borrowed storage metadata.
+   * @returns a detached session.
+   */
+  static create(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader): Session {
+    return new Session(id, seed, header)
+  }
+
+  private constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader) {
     if (seed !== undefined) {
       // Validate the seed to the SAME invariants `append` enforces, so a
       // replay/fork (`ctx.sessions.create(id, { seed })`) cannot construct a
@@ -843,7 +872,7 @@ export class SessionStore extends Service {
       ...meta?.origin === undefined ? {} : { origin: meta.origin },
       ...meta?.delegationDepth === undefined ? {} : { delegationDepth: meta.delegationDepth },
     }
-    return new Session(sessionId, seed, header)
+    return Session.create(sessionId, seed, header)
   }
 
   /**

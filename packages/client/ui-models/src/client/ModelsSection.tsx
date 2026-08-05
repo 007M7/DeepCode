@@ -12,7 +12,7 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import type { IApiClient } from '@deepseek-ai/dsh-client-connection/client'
-import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconPlusOutline16, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-web-react'
 import { messageOf } from './store.ts'
 import type { ModelsSettingsState, ModelsSettingsStore, ProviderRow } from './store.ts'
@@ -245,7 +245,7 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
               <div className={styles['field']}>
                 <span className={styles['fieldLabel']}>{t('provider')}</span>
                 <select
-                  className={styles['input']}
+                  className={`${styles['input']} ${styles['selectInput']}`}
                   value={addTarget.provider}
                   aria-label={t('provider')}
                   onChange={(event) => {
@@ -287,7 +287,9 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
                 setEditing(targetOf(first))
               }}
             >
-              {`+ ${t('add')}`}
+              {/* Same glyph as the composer's attach button. */}
+              <IconPlusOutline16 size={14} />
+              {t('add')}
             </button>
           )}
       </div>

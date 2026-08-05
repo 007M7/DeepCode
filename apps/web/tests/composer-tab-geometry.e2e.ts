@@ -79,7 +79,39 @@ const SEED_ID = 'composer-tab-geometry-web-e2e'
 
 /** Viewport widths the scenario measures at: the card capped, and the card shrinking with the column. */
 const WIDE_VIEWPORT = { width: 1680, height: 1000 }
-const NARROW_VIEWPORT = { width: 900, height: 1000 }
+const NARROW_VIEWPORT = { width: 800, height: 1000 }
+
+/**
+ * Resize to one measurement viewport after the responsive sidebar and center
+ * column finish their track transition.
+ * @param page - the page under test.
+ * @param viewport - the viewport dimensions to apply.
+ * @param sidebarCollapsed - the sidebar state expected at this width.
+ */
+async function setMeasuredViewport(
+  page: Page,
+  viewport: { width: number; height: number },
+  sidebarCollapsed: boolean,
+): Promise<void> {
+  await page.setViewportSize(viewport)
+  await page.locator('[data-sidebar-collapsed="true"]').waitFor({
+    state: sidebarCollapsed ? 'attached' : 'detached',
+    timeout: 10_000,
+  })
+  await page.locator('[data-conversation-scroll]').evaluate(async (host) => {
+    const deadline = performance.now() + 5_000
+    let previous = host.getBoundingClientRect().width
+    let stableFrames = 0
+    while (performance.now() < deadline) {
+      await new Promise<void>((resolve) => { requestAnimationFrame(() => { resolve() }) })
+      const current = host.getBoundingClientRect().width
+      stableFrames = Math.abs(current - previous) < 0.01 ? stableFrames + 1 : 0
+      if (stableFrames >= 3) return
+      previous = current
+    }
+    throw new Error('conversation width did not settle after the viewport changed')
+  })
+}
 
 /**
  * The pre-fix cascade, injected into the page: the reservation dropped and the
@@ -289,7 +321,7 @@ describe('web e2e: input card position across view tabs', () => {
 
   it('reserves the same gutter in both tabs while the transcript scrolls', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-composer-tab-geometry-band'))
-    await page.setViewportSize(WIDE_VIEWPORT)
+    await setMeasuredViewport(page, WIDE_VIEWPORT, false)
     // Vacuity guard, in two parts. A transcript that does not overflow gives
     // Chat no scrollbar, and a hidden or overlaid bar gives it no width; either
     // would make the tabs agree without the reservation doing anything.
@@ -313,7 +345,7 @@ describe('web e2e: input card position across view tabs', () => {
 
   it('holds the input card in place when the tab changes', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-composer-tab-geometry-wide'))
-    await page.setViewportSize(WIDE_VIEWPORT)
+    await setMeasuredViewport(page, WIDE_VIEWPORT, false)
     const comparison = await compareTabs(page)
     // The reported symptom as a number. At this viewport the card sits at its
     // width cap, so the pre-fix shift showed up as a centring difference — half
@@ -326,9 +358,9 @@ describe('web e2e: input card position across view tabs', () => {
 
   it('holds the input card in place at a viewport where it shrinks with the column', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-composer-tab-geometry-narrow'))
-    await page.setViewportSize(WIDE_VIEWPORT)
+    await setMeasuredViewport(page, WIDE_VIEWPORT, false)
     const capped = await measureTab(page)
-    await page.setViewportSize(NARROW_VIEWPORT)
+    await setMeasuredViewport(page, NARROW_VIEWPORT, true)
     const comparison = await compareTabs(page)
     // The other geometry, and a different failure: below the cap the card takes
     // the column's width, so an unreserved gutter changed its WIDTH by the whole
@@ -339,13 +371,13 @@ describe('web e2e: input card position across view tabs', () => {
     expect(comparison.leftShift).toBe(0)
     expect(comparison.rightShift).toBe(0)
     expect(comparison.widthShift).toBe(0)
-    await page.setViewportSize(WIDE_VIEWPORT)
+    await setMeasuredViewport(page, WIDE_VIEWPORT, false)
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 
   it('moves the card again once the reservation is removed in the page', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-composer-tab-geometry-control'))
-    await page.setViewportSize(WIDE_VIEWPORT)
+    await setMeasuredViewport(page, WIDE_VIEWPORT, false)
     // The control: without it, equal rectangles could also mean the tab switch
     // never reached the layout. Under the pre-fix cascade the Chat scroller keeps
     // its bar and the Trajectory branch goes back to a hidden box with none, and
@@ -365,11 +397,11 @@ describe('web e2e: input card position across view tabs', () => {
 
   it('matches the committed tab geometry golden', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-composer-tab-geometry-golden'))
-    await page.setViewportSize(WIDE_VIEWPORT)
+    await setMeasuredViewport(page, WIDE_VIEWPORT, false)
     const wide = await compareTabs(page)
-    await page.setViewportSize(NARROW_VIEWPORT)
+    await setMeasuredViewport(page, NARROW_VIEWPORT, true)
     const narrow = await compareTabs(page)
-    await page.setViewportSize(WIDE_VIEWPORT)
+    await setMeasuredViewport(page, WIDE_VIEWPORT, false)
     const control = await compareTabsWithoutReservation(page)
     await compareOrRefreshGolden(GEOMETRY_EXPECTED, renderGeometry(wide, narrow, control), MODE)
     expect(tripwire.pageErrors).toEqual([])

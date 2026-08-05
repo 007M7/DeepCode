@@ -59,7 +59,7 @@ describe('hook-protocol invariants', () => {
 
   it('adopts a bare session first observed through publication', async () => {
     const ctx = await setup()
-    const session = new Session(SessionId('bare-hook-session'))
+    const session = Session.create(SessionId('bare-hook-session'))
     expect(() => {
       ctx.emit('session/event', session, {
         type: 'turn/start', seq: 0, time: 0,

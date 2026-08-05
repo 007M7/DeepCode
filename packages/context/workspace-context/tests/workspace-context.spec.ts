@@ -170,7 +170,7 @@ async function mountFileToolsAndWorkspaceContext(ctx: Context, config: workspace
 
 function stubAgent(cwd?: string, seed: SessionEvent[] = []): Agent {
   const id = SessionId('s1')
-  const session = new Session(id, seed, cwd === undefined ? undefined : { version: SESSION_FORMAT_VERSION, id, createdAt: 0, cwd })
+  const session = Session.create(id, seed, cwd === undefined ? undefined : { version: SESSION_FORMAT_VERSION, id, createdAt: 0, cwd })
   return {
     ctx: new Context(),
     id: SessionId('a1'),

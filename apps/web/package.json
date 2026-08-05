@@ -8,6 +8,9 @@
     "./dist/*": "./dist/*",
     "./package.json": "./package.json"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "vite build",
     "dev": "vite",

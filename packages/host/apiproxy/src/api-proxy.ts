@@ -135,30 +135,19 @@ function ok<T>(request: RpcRequest<unknown>, value: T): RpcResponse<T> {
 
 /**
  * Build the provider/model catalog over every registered route. Shared by the
- * session-scoped `session.models` (which passes the session's current target
- * so an unlisted current model still renders selectable) and the host-scoped
- * `llm.models` (no current). Per-provider failures ride `failures` without
- * failing the sound groups; groups that advertise nothing are dropped.
+ * session-scoped `session.models` and host-scoped `llm.models`. Catalog
+ * membership stays advisory: an unlisted session target remains valid for
+ * provider dispatch, but is not injected back into the selector after its
+ * owning catalog stops advertising it. Per-provider failures ride `failures`
+ * without failing the sound groups; groups that advertise nothing are dropped.
  */
-async function buildModelCatalog(
-  ctx: Context,
-  current?: { provider: string; model: string },
-): Promise<{ groups: ModelProviderGroup[]; failures: ModelCatalogFailure[] }> {
+async function buildModelCatalog(ctx: Context): Promise<{
+  groups: ModelProviderGroup[]
+  failures: ModelCatalogFailure[]
+}> {
   const catalog = await Promise.all(ctx.llm.listProviders().map(async (provider) => {
     try {
-      const advertised = await ctx.llm.listModels(provider.id)
-      const models = [...advertised]
-      if (
-        current !== undefined
-        && provider.id === current.provider
-        && !models.some(model => model.id === current.model)
-      ) {
-        models.push({
-          provider: provider.id,
-          id: current.model,
-          name: current.model,
-        })
-      }
+      const models = await ctx.llm.listModels(provider.id)
       const entries = await Promise.all(models.map(async (model) => {
         const resolved = await ctx.llm.resolveModelInfo(provider.id, model.id)
         const reasoning: ModelReasoning | undefined = resolved.reasoning === undefined
@@ -179,12 +168,6 @@ async function buildModelCatalog(
           id: model.id,
           name: model.name,
           ...model.description === undefined ? {} : { description: model.description },
-          ...current !== undefined
-            && provider.id === current.provider
-            && model.id === current.model
-            && !advertised.some(candidate => candidate.id === current.model)
-            ? { unlisted: true as const }
-            : {},
           ...reasoning === undefined ? {} : { reasoning },
         }
       }))
@@ -1724,7 +1707,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const found = await agentFor(sessionId)
         if ('error' in found) return err(request, found.error)
         const current = targetFor(found.agent).current
-        const { groups, failures } = await buildModelCatalog(ctx, current)
+        const { groups, failures } = await buildModelCatalog(ctx)
         return ok(request, { current: { ...current }, groups, failures })
       },
 

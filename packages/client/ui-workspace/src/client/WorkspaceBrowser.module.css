@@ -228,7 +228,9 @@
     - var(--dsh-session-list-scrollbar-width)
     - var(--dsh-session-list-scrollbar-offset)
   );
-  padding-bottom: 12px;
+  /* Clears the 72px bottom fade overlay: at scroll end the last row sits
+     above the gradient instead of under it. */
+  padding-bottom: 48px;
   scrollbar-gutter: stable;
 }
 

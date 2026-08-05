@@ -184,7 +184,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'collect(execution: ToolExecution): DshEnvironment',
-        jsDoc: '/**\n * Build the trusted `DSH_*` snapshot for one bash tool execution.\n * @param execution - the current tool execution.\n * @returns an immutable environment overlay containing built-ins and current contributions.\n */',
+        jsDoc: '/**\n * Build the trusted `DSH_*` snapshot for one shell tool execution.\n * @param execution - the current tool execution.\n * @returns an immutable environment overlay containing built-ins and current contributions.\n */',
       },
       {
         signature: 'list(): BashEnvVariableInfo[]',
@@ -387,6 +387,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'register(route: WebRoute): () => void',
         jsDoc: '/**\n * Register a named route. Duplicate (kind, path) throws — route patterns are\n * a composition-level contract, so a collision is a misconfiguration.\n * @param route - kind, path, and the owning handler.\n * @returns the disposer removing the route.\n */',
+      },
+      {
+        signature: 'registerUpgrade(route: WebUpgradeRoute): () => void',
+        jsDoc: '/**\n * Register an exact-path HTTP upgrade route. Duplicate paths throw because\n * one socket can have only one protocol owner.\n * @param route - pathname and handler owning negotiation plus socket use.\n * @returns the disposer removing the route.\n */',
       },
       {
         signature: 'tapIndex(transform: (html: string) => string): () => void',
@@ -1791,7 +1795,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ConfinedArgv',
-    declaration: 'export interface ConfinedArgv {\n    argv: string[];\n    enforcement: SandboxEnforcement;\n    denialSignatures: readonly string[];\n    runnerFailureSignatures: readonly string[];\n}',
+    declaration: 'export interface ConfinedArgv {\n    argv: string[];\n    enforcement: SandboxEnforcement;\n    denialSignatures: readonly string[];\n    runnerFailureRules: readonly RunnerFailureRule[];\n}',
   },
   {
     name: 'ConfinedSandboxMode',
@@ -2338,6 +2342,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ResumeAgentOptions {\n    readonly resumeSessionId: SessionId;\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: AgentSetup;\n}',
   },
   {
+    name: 'RunnerFailureRule',
+    declaration: 'export interface RunnerFailureRule {\n    allowedExitCodes?: readonly number[];\n    fatalSignatures: readonly string[];\n    informationalLines?: readonly string[];\n}',
+  },
+  {
     name: 'SandboxEnforcement',
     declaration: 'export type SandboxEnforcement = \'full\' | \'partial\';',
   },
@@ -2395,7 +2403,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'Session',
-    declaration: 'export class Session {\n    get surface(): SessionSurface;\n    readonly header: SessionHeader;\n    get id(): SessionId;\n    readonly firstLiveSeq: number;\n    constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader);\n    get events(): readonly SessionEvent[];\n    get seq(): number;\n    append<T extends SessionEventType>(type: T, data: SessionEventMap[T], ...opts: T extends SurfaceEventType ? [\n        opts: SurfaceIntent\n    ] : [\n    ]): SessionEvent<T>;\n    requestHeader(): EpochHeader | undefined;\n    requestContext(): RequestContext | undefined;\n    deriveMessages(): Message[];\n    deriveEventMessage(event: SessionEvent): Message | null;\n}',
+    declaration: 'export class Session {\n    get surface(): SessionSurface;\n    readonly header: SessionHeader;\n    get id(): SessionId;\n    readonly firstLiveSeq: number;\n    static create(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader): Session;\n    get events(): readonly SessionEvent[];\n    get seq(): number;\n    append<T extends SessionEventType>(type: T, data: SessionEventMap[T], ...opts: T extends SurfaceEventType ? [\n        opts: SurfaceIntent\n    ] : [\n    ]): SessionEvent<T>;\n    requestHeader(): EpochHeader | undefined;\n    requestContext(): RequestContext | undefined;\n    deriveMessages(): Message[];\n    deriveEventMessage(event: SessionEvent): Message | null;\n}',
   },
   {
     name: 'SessionAvailability',
@@ -3128,6 +3136,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WebSource',
     declaration: 'export interface WebSource {\n    url: string;\n    title?: string;\n    snippet?: string;\n    publishedAt?: string;\n}',
+  },
+  {
+    name: 'WebUpgradeRoute',
+    declaration: 'export interface WebUpgradeRoute {\n    path: string;\n    handler: (req: IncomingMessage, socket: Duplex, head: Buffer) => void | Promise<void>;\n}',
   },
   {
     name: 'WorkflowMeta',

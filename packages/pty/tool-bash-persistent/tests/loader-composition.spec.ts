@@ -31,7 +31,7 @@ afterEach(async () => {
 
 class PassthroughSandbox extends SandboxProvider {
   confine(argv: readonly string[], _policy: SandboxPolicy): ConfinedArgv {
-    return { argv: [...argv], enforcement: 'full', denialSignatures: [], runnerFailureSignatures: [] }
+    return { argv: [...argv], enforcement: 'full', denialSignatures: [], runnerFailureRules: [] }
   }
 }
 
@@ -41,7 +41,7 @@ function agent(ctx: Context, cwd: string): Agent {
   const value: Agent = {
     id,
     options: {},
-    session: new Session(id, [], { version: 0, id, createdAt: 0, cwd }),
+    session: Session.create(id, [], { version: 0, id, createdAt: 0, cwd }),
     status: 'idle',
     acceptsNextStep: false,
     ctx: scope.ctx,

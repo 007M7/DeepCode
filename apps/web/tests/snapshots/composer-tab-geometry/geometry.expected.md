@@ -12,7 +12,7 @@
 - input card right edge moves between tabs: 0px
 - input card width changes between tabs: 0px
 
-## Narrow viewport (900px, card shrinking with the column)
+## Narrow viewport (800px, card shrinking with the column)
 
 - Chat: scrollbar-gutter stable, overflow auto/auto
 - Chat scroller scrolls: true

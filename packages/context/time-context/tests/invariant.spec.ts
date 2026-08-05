@@ -44,7 +44,7 @@ function reading(
 }
 
 function preparing(turn: number, step: number): Session {
-  const session = new Session(SessionId(`time-invariant-${turn}-${step}`))
+  const session = Session.create(SessionId(`time-invariant-${turn}-${step}`))
   for (let priorTurn = 1; priorTurn < turn; priorTurn += 1) {
     session.append('turn/start', { turn: priorTurn, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('turn/end', { turn: priorTurn, reason: { kind: 'completed' } })
@@ -136,7 +136,7 @@ describe('time-context invariants', () => {
     started.append('step/start', { turn: 1, step: 1 })
     expect(() => { ctx.emit('session/event', started, event(reading())) }).toThrow(/must precede step\/start/)
     expect(() => {
-      ctx.emit('session/event', new Session(SessionId('time-invariant-empty')), event(reading()))
+      ctx.emit('session/event', Session.create(SessionId('time-invariant-empty')), event(reading()))
     }).toThrow(/inside an open turn/)
   })
 

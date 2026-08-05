@@ -44,7 +44,7 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
     if (header === undefined) {
       return fail('a loop-built request with no request/header event in its session log')
     }
-    const rebuilt = new Session(
+    const rebuilt = Session.create(
       SessionId(`${String(session.id)}-invariant-rebuild`),
       structuredClone(events.slice(0, boundary)),
     )
