@@ -242,13 +242,14 @@ function assertToolResultRewrite(
   event: SessionEvent,
   shadowedSeqs: readonly number[],
   events: readonly SessionEvent[],
+  baseSeq: number,
 ): void {
   if (event.type !== 'tool/result') return
   if (shadowedSeqs.length !== 1) {
     throw new Error('tool/result surface replacement must rewrite exactly one current node')
   }
   for (const originalSeq of shadowedSeqs) {
-    const original = events[originalSeq]
+    const original = events[originalSeq - baseSeq]
     if (original?.type !== 'tool/result') {
       throw new Error('tool/result surface replacement must target a current tool/result')
     }
@@ -276,6 +277,7 @@ function planSurfaceEvent(
   event: SessionEvent,
   expectedSeq: number,
   events: readonly SessionEvent[],
+  baseSeq: number,
 ): SurfacePlan | undefined {
   if (event.seq !== expectedSeq) {
     throw new Error(`session event seq ${event.seq} is not contiguous; expected ${expectedSeq}`)
@@ -288,7 +290,7 @@ function planSurfaceEvent(
   }
   const range = replacementRange(state, surfaceOp)
   assertProvenance(event, range.shadowedSeqs)
-  assertToolResultRewrite(event, range.shadowedSeqs, events)
+  assertToolResultRewrite(event, range.shadowedSeqs, events, baseSeq)
   return {
     kind: 'replace',
     seq: event.seq,
@@ -304,8 +306,9 @@ function applySurfaceEvent(
   event: SessionEvent,
   expectedSeq: number,
   events: readonly SessionEvent[],
+  baseSeq: number,
 ): SurfaceFoldReplacement | undefined {
-  const plan = planSurfaceEvent(state, event, expectedSeq, events)
+  const plan = planSurfaceEvent(state, event, expectedSeq, events, baseSeq)
   if (plan?.kind === 'append') {
     state.nodes.push(plan.seq)
   } else if (plan?.kind === 'replace') {
@@ -331,7 +334,7 @@ export function foldSurface(events: readonly SessionEvent[]): SurfaceFoldResult 
   const state = createFoldState()
   const replacements: SurfaceFoldReplacement[] = []
   for (const [index, event] of events.entries()) {
-    const replacement = applySurfaceEvent(state, event, index, events)
+    const replacement = applySurfaceEvent(state, event, index, events, 0)
     if (replacement !== undefined) replacements.push(replacement)
   }
   return { nodes: [...state.nodes], replacements }
@@ -341,38 +344,55 @@ export function foldSurface(events: readonly SessionEvent[]): SurfaceFoldResult 
 export class SurfaceManager implements SessionSurface {
   /** Shared transition state; replacement history is not retained. */
   private _state = createFoldState()
-  /** Last processed seq; -1 folds a seeded log on first access. */
-  private _lastProcessedSeq = -1
+  /** Last processed absolute seq. */
+  private _lastProcessedSeq: number
 
-  constructor(private log: readonly SessionEvent[]) {}
+  /**
+   * @param log - Contiguous complete log or loaded event window.
+   * @param baseSeq - Absolute sequence of the window's first event.
+   */
+  constructor(
+    private log: readonly SessionEvent[],
+    private readonly baseSeq = 0,
+  ) {
+    this._lastProcessedSeq = baseSeq - 1
+  }
 
   /**
    * Validate the next candidate without mutating the committed surface.
    * @param event - candidate event that has not entered the log yet.
    */
   validateNext(event: SessionEvent): void {
-    if (this._lastProcessedSeq < this.log.length - 1) this._processDelta()
-    planSurfaceEvent(this._state, event, this.log.length, this.log)
+    if (this._lastProcessedSeq < this.baseSeq + this.log.length - 1) this._processDelta()
+    planSurfaceEvent(
+      this._state,
+      event,
+      this.baseSeq + this.log.length,
+      this.log,
+      this.baseSeq,
+    )
   }
 
   /** Monotonic count of folded positional replacements. */
   get replaceGeneration(): number {
-    if (this._lastProcessedSeq < this.log.length - 1) this._processDelta()
+    if (this._lastProcessedSeq < this.baseSeq + this.log.length - 1) this._processDelta()
     return this._state.replaceGeneration
   }
 
   /** Surface event sequences in model-visible order. */
   get nodes(): readonly number[] {
-    if (this._lastProcessedSeq < this.log.length - 1) this._processDelta()
+    if (this._lastProcessedSeq < this.baseSeq + this.log.length - 1) this._processDelta()
     return this._state.nodes
   }
 
   /** Fold events appended since the previous access. */
   private _processDelta(): void {
-    for (let i = this._lastProcessedSeq + 1; i < this.log.length; i++) {
+    const tailSeq = this.baseSeq + this.log.length - 1
+    for (let seq = this._lastProcessedSeq + 1; seq <= tailSeq; seq++) {
+      const index = seq - this.baseSeq
       // oxlint-disable-next-line typescript/no-non-null-assertion -- bounded by the loop condition
-      applySurfaceEvent(this._state, this.log[i]!, i, this.log)
-      this._lastProcessedSeq = i
+      applySurfaceEvent(this._state, this.log[index]!, seq, this.log, this.baseSeq)
+      this._lastProcessedSeq = seq
     }
   }
 }
